@@ -9,15 +9,20 @@ from pathlib import Path
 import pandas as pd
 from tests.helpers.screening_sqlite import make_master_records
 
+from baibai_engine.market.providers.jpx import (
+    JPXEarningsCalendarEntry,
+    JPXEarningsCalendarSnapshot,
+)
+from baibai_engine.market.providers.jquants_decode import (
+    JQuantsProviderError,
+    parse_jquants_code_parts,
+)
+from baibai_engine.market.sqlite.convert import code_quality, to_float, to_str_or_none
 from baibai_engine.market.sqlite.coverage import (
     EmptyRangeReplacementError,
     daily_bars_covered_by_data,
 )
-from baibai_engine.screening.providers.jpx import (
-    JPXEarningsCalendarEntry,
-    JPXEarningsCalendarSnapshot,
-)
-from baibai_engine.screening.sqlite_cache import (
+from baibai_engine.market.sqlite.ingest import (
     SQLITE_SCHEMA_VERSION,
     SQLiteSchemaError,
     open_connection,
@@ -33,7 +38,7 @@ from baibai_engine.screening.sqlite_cache import (
     store_jquants_master,
     store_jquants_weekly_margin,
 )
-from baibai_engine.screening.sqlite_reader import (
+from baibai_engine.market.sqlite.reader import (
     all_issues_daily_margin_backfill_candidate_dates,
     all_issues_daily_margin_candidate_dates,
     final_legacy_week_requires_refresh,
@@ -59,6 +64,31 @@ def _earnings_snapshot(on_date: date = date(2026, 5, 15)) -> JPXEarningsCalendar
 
 
 class SQLiteCacheTest(unittest.TestCase):
+    def test_source_code_classification_preserves_common_and_excluded_issues(self) -> None:
+        for raw, expected in [
+            (" 7203 ", ("7203", "ok")),
+            ("130A0", ("130A", "ok")),
+            ("72031", (None, "excluded")),
+            ("123", (None, "rejected")),
+        ]:
+            with self.subTest(raw=raw):
+                self.assertEqual(code_quality(raw), expected)
+        self.assertEqual(parse_jquants_code_parts("130a0"), ("130A", True))
+        self.assertEqual(parse_jquants_code_parts("72031"), ("7203", False))
+        with self.assertRaisesRegex(JQuantsProviderError, "invalid J-Quants code"):
+            parse_jquants_code_parts("123")
+        # Four-character validation still reports the ticker error, as before the move.
+        with self.assertRaisesRegex(ValueError, "ticker must"):
+            parse_jquants_code_parts("12-3")
+
+    def test_sqlite_scalar_missing_markers_preserve_zero(self) -> None:
+        for value in (None, "", " NaT ", "nan", "null", "<NA>", float("nan"), pd.NA, pd.NaT):
+            with self.subTest(value=value):
+                self.assertIsNone(to_float(value))
+                self.assertIsNone(to_str_or_none(value))
+        self.assertEqual(to_float(0), 0.0)
+        self.assertEqual(to_str_or_none(0), "0")
+
     def test_creates_current_schema_with_user_version(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"

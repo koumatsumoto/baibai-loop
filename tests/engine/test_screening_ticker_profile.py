@@ -13,13 +13,13 @@ from tests.helpers.screening_run import screening_run_payload, security_analysis
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.market.sqlite.ingest import open_connection
 from baibai_engine.position.ledger import PortfolioLedgerDocument
+from baibai_engine.read_api.ticker_profile import _load_bars, build_ticker_profile
 from baibai_engine.screening.cli import build_parser, ticker_profile_command
 from baibai_engine.screening.discovery import build_review_set
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.run_store import ScreeningRunStore
-from baibai_engine.screening.sqlite_cache import open_connection
-from baibai_engine.screening.ticker_profile import _load_bars, build_ticker_profile
 
 _ASOF = date(2026, 5, 29)
 
@@ -483,7 +483,7 @@ def _write_portfolio_ledger(root: Path, *, ticker: str, sector: str, price_yen: 
 def test_portfolio_facts_survive_unavailable_ledger_valuation(tmp_path, price_state):
     """Cost concentration uses confirmed trades, including after price transcription stops."""
     from baibai_engine.position.store import LedgerStoreService
-    from baibai_engine.screening.ticker_profile import _portfolio_block
+    from baibai_engine.read_api.ticker_profile import _portfolio_block
 
     _write_portfolio_ledger(tmp_path, ticker="BBBB", sector="機械", price_yen=500)
     service = LedgerStoreService(tmp_path / "app.sqlite")

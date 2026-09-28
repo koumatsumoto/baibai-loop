@@ -7,19 +7,7 @@ Desktopのlocalhost bridgeには依存しません。production packageや定期
 
 ## 公開tool
 
-server名は`baibai-loop-owner`です。公開toolは次のとおりです。
-
-- `l1_resolve_current`
-- `l1_describe_dataset`
-- `l1_query`
-- `triage_resolve`
-- `triage_get_input`
-- `triage_get_judgment`
-- `portfolio_get_exclusions`
-- `screening_get_review_set`
-- `data_catalog`
-- `data_list`
-- `data_get`
+server名は`baibai-loop-owner`。tool名・入力schemaは[server登録](./server.py)、保存dataの種類は`data_catalog()`を正本とする。以下では利用の順序と、結果を解釈するときの制約を説明する。
 
 ## 準備と起動
 
@@ -161,27 +149,13 @@ SQLからの外部I/Oは認めず、指定した保存dataだけを分析する�
 
 数値上限は[L1 contract](../l1_mcp/contract.py)の`LIMITS`が所有する。同時実行の競合は`BUSY`、行数・wire容量を超える結果は`RESULT_TOO_LARGE`であり、部分結果を正常な完了として返さない。
 
-結果はstructured contentの`schema`、`rows`、`row_count`、固定reference、source情報、
-`transfer`、`execution`に入ります。NULLはJSON null、整数は整数、decimalは文字列、
-date/timeはISO文字列、binaryはbase64です。NaN/Infinityやnested型等は拒否するのでSQLで変換します。
+結果のfieldと型変換は[L1 contract](../l1_mcp/contract.py)を参照する。NULLを0とみなさず、decimalの文字列は精度を保って扱う。NaN/Infinityやnested型等の未対応結果は、SQL側で扱える型へ変換する。
 
-`transfer`にはcall単位とprocess累計のGET数・download bytes、`execution`には子process実行秒数・
-peak resident memory bytesが入ります。`elapsed_seconds`は取得を含むcall全体です。
-結果wire bytesはMCP resultをUTF-8 JSONにしたサイズです。Tunnel trafficやChatGPT利用量は別です。
-
-manifestとobjectはprocess専用の一時directoryだけへcacheします。immutable cacheを再利用しても
-既存L1 readerでdigest・byte数・schema・行数を再検証します。終了時に自身のdirectoryを削除します。
-強制killで残った場合は停止済みprocessに対応するdirectoryだけを削除し、他processのcacheやstoreを触りません。
-store、application DB、R2への書込やprovider fetchは行いません。
+取得量・実行時間は応答の計測値で確認する。Tunnel trafficやChatGPT利用量とは別である。cacheはprocess専用の一時領域に限り、終了時に削除する。強制kill後は停止済みprocessの領域だけを清掃する。
 
 ## L1のエラーと受入確認
 
-公開エラーはcodeと定型messageだけです。credential・local path・上流例外本文は返しません。
-`INVALID_ARGUMENT`は入力、`RELEASE_UNAVAILABLE`は固定世代の欠落、`CONTRACT_MISMATCH` /
-`INTEGRITY_ERROR`は読取契約・データ不整合です。転送超過は`TRANSFER_BUDGET_EXCEEDED`、
-入力容量・memory超過は`QUERY_LIMIT_EXCEEDED`、時間超過は`QUERY_TIMEOUT`、
-SQL制約違反は`QUERY_REJECTED`、型の問題は`UNSUPPORTED_RESULT_TYPE`、
-認証・通信問題は`UPSTREAM_UNAVAILABLE`です。
+エラーcodeの一覧は[L1 contract](../l1_mcp/contract.py)を参照する。入力・SQL・型の拒否はqueryを修正し、容量・時間超過は対象を絞る。固定releaseの欠落やintegrity不一致は別世代で補わず停止する。認証・通信は[接続運用](./OPERATIONS.md)で復旧する。credential・local path・上流例外本文は公開しない。
 
 受入時はChatGPT Webの通常Chatで3 toolsを順に呼び、実L1の期間集計とJOIN / windowを確認します。
 同じqueryをcold / warmで実行し、GET・download・時間・peak memory・result wire bytesが上限内で、

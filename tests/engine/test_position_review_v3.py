@@ -10,12 +10,12 @@ from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
 from tests.helpers.research_v4 import pair_payload
 
-from baibai_engine.operation.models import OperationPayload
-from baibai_engine.operation.service import OperationService
 from baibai_engine.position.drafts import apply_draft, build_event_draft, build_sell_execution_draft
 from baibai_engine.position.ledger import ContributionEvent, replay_events_through
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.read_api import list_position_review_publications
+from baibai_engine.research.operation.models import OperationPayload
+from baibai_engine.research.operation.service import OperationService
 from baibai_engine.research.position_review import RemainingReward
 from baibai_engine.research.position_review_service import PositionReviewService
 from baibai_engine.research.thesis import ThesisDocument, thesis_core_hash

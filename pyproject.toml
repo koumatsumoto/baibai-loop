@@ -98,7 +98,7 @@ required-version = "==0.12.17"
 # Constrain the sdist to the buildable source packages (plus the metadata
 # hatchling always adds: pyproject.toml, README.md, PKG-INFO). Without this the
 # sdist walks the whole tree and, when uv's build copy loses VCS-ignore
-# detection, sweeps in the gitignored operational data/ store (SQLite market
+# detection, sweeps in the gitignored operational stores/ directory (SQLite market
 # history), inflating the archive by hundreds of MB.
 [tool.hatch.build.targets.sdist]
 only-include = [
@@ -289,10 +289,10 @@ name = "screening does not import position (one-way market<-{screening,position}
 type = "forbidden"
 source_modules = ["baibai_engine.screening"]
 forbidden_modules = ["baibai_engine.position"]
-# ticker_profile reads position only through the query-only read_api facade.
+# Only the public CLI composes the cross-domain ticker profile.
 # Direct screening -> position imports remain forbidden.
 ignore_imports = [
-  "baibai_engine.screening.ticker_profile -> baibai_engine.read_api.position",
+  "baibai_engine.screening.cli.query -> baibai_engine.read_api.ticker_profile",
 ]
 
 [[tool.importlinter.contracts]]
@@ -386,7 +386,6 @@ forbidden_modules = [
   "baibai_engine.foundation",
   "baibai_engine.macro",
   "baibai_engine.market",
-  "baibai_engine.operation",
   "baibai_engine.position",
   "baibai_engine.research",
   "baibai_engine.screening",
@@ -422,4 +421,4 @@ forbidden_modules = ["baibai_engine.appdb", "baibai_engine.position", "baibai_en
 name = "Reviewed Thesis storage does not depend on judgment composition"
 type = "forbidden"
 source_modules = ["baibai_engine.research.thesis_store"]
-forbidden_modules = ["baibai_engine.research.capital_allocation_service", "baibai_engine.research.position_review_service", "baibai_engine.research.workspace", "baibai_engine.operation"]
+forbidden_modules = ["baibai_engine.research.capital_allocation_service", "baibai_engine.research.position_review_service", "baibai_engine.research.workspace", "baibai_engine.research.operation"]

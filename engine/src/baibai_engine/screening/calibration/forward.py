@@ -10,10 +10,13 @@ from math import isfinite
 from pathlib import Path
 
 from baibai_engine.foundation.date_utils import add_months_clamped
-from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, asof_basis_closes
+from baibai_engine.market.bars import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+    asof_basis_closes,
+)
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 
-from ..providers.jquants import JQuantsDailyBar
 from .horizons import HORIZONS, STALE_PRICE_MAX_LAG_DAYS, HorizonSpec, require_horizon
 
 __all__ = (

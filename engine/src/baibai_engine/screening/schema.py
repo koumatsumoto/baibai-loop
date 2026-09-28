@@ -8,10 +8,9 @@ from typing import Annotated, Any
 from pydantic import ConfigDict, Field, field_validator, model_validator
 from pydantic.dataclasses import dataclass
 
+from baibai_engine.market.metric_quality import OperatingProfitSource as OperatingProfitSource
+from baibai_engine.market.metric_quality import TTMQuality as TTMQuality
 from baibai_engine.market.ticker import normalize_ticker as normalize_ticker
-
-from .metric_quality import OperatingProfitSource as OperatingProfitSource
-from .metric_quality import TTMQuality as TTMQuality
 
 _MODEL_CONFIG = ConfigDict(
     strict=True,
@@ -23,7 +22,7 @@ _TICKER_PATTERN = r"^[0-9A-Z]{4}$"
 # 配当の株式基準が確定できないことを表す `dividend_basis` の値。年間 DPS は中間・期末
 # それぞれの基準日時点の株式基準で記載されるので、会計期間に分割・併合が入り、かつ支払
 # ごとの換算もできない年度はこの状態になる。無配 (`dividend_yield=0`) とも、観測できない
-# (`unavailable`) とも別で、E[r] はこの行に順位を付けない。
+# (`unavailable`) とも別で、配当を0とみなしたE[r]を出さない。
 UNRESOLVED_DIVIDEND_BASIS = "unresolved_split_basis"
 
 # `sector_median_basis` の 2 値。どちらの母集団が中央値を出したかを表す。
@@ -42,20 +41,6 @@ def _validate_finite(value: float | None) -> float | None:
     if value is not None and not isfinite(value):
         raise ValueError("numeric values must be finite")
     return value
-
-
-@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
-class SecurityMaster:
-    ticker: Ticker
-    name: NonEmptyString
-    market_segment: NonEmptyString
-    sector_33: NonEmptyString
-    is_common_stock: bool
-
-    @field_validator("ticker", mode="before")
-    @classmethod
-    def _normalize_ticker(cls, value: str) -> str:
-        return normalize_ticker(value)
 
 
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)

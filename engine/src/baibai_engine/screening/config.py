@@ -9,8 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from baibai_engine.market.config import DEFAULT_CACHE_DIR as DEFAULT_CACHE_DIR
 from baibai_engine.market.config import DEFAULT_SQLITE_CACHE_DIR as DEFAULT_SQLITE_CACHE_DIR
+from baibai_engine.market.jpx_sources import JPX_SPECIAL_CAUTION_SOURCE_NAME
 
-from .jpx_sources import JPX_SPECIAL_CAUTION_SOURCE_NAME
 from .rule_config import DEFAULT_RULES_PATH
 
 JPX_REGULATION_ENV_MAP = {

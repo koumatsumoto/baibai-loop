@@ -10,7 +10,7 @@ from pathlib import Path
 
 from baibai_engine.appdb.paths import database_path
 from baibai_engine.appdb.read import connect_read_only
-from baibai_engine.operation.research_binding import require_active_research_set
+from baibai_engine.research.operation.research_binding import require_active_research_set
 
 from .capital_allocation import CapitalAllocationConflictError
 from .thesis_store import load_reviewed_thesis

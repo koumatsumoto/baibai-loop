@@ -16,10 +16,37 @@ from pathlib import Path
 from unittest.mock import patch
 
 from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.market.edinet_metrics import service as edinet_extraction
 
 ROOT = Path(__file__).resolve().parents[2]
 
 from baibai_engine.foundation.time import JST
+from baibai_engine.market.bars import JQuantsDailyBar, JQuantsMarketCalendarDay
+from baibai_engine.market.edinet_metrics.revision import compute_extractor_revision
+from baibai_engine.market.jquants_models import (
+    JQuantsFinancialSummary,
+    JQuantsWeeklyMargin,
+)
+from baibai_engine.market.models import SecurityMaster
+from baibai_engine.market.providers.edinet import (
+    EdinetMetricRecord,
+    EDINETProviderError,
+    EDINETRateLimitError,
+)
+from baibai_engine.market.providers.jpx import (
+    JPXEarningsCalendarEntry,
+    JPXEarningsCalendarSnapshot,
+    JPXProviderError,
+    JPXRegulationSnapshot,
+)
+from baibai_engine.market.providers.jquants import JQuantsProvider, JQuantsProviderError
+from baibai_engine.market.sqlite.ingest import (
+    open_connection,
+    store_edinet_metrics,
+    store_jquants_daily_bars,
+    store_jquants_weekly_margin,
+)
+from baibai_engine.market.sqlite.reader import read_edinet_metrics
 from baibai_engine.screening import cli as screening_cli
 from baibai_engine.screening.cli import (
     ProviderBundle,
@@ -32,40 +59,13 @@ from baibai_engine.screening.cli import (
 from baibai_engine.screening.cli import app as screening_app
 from baibai_engine.screening.cli.run import _index_next_earnings
 from baibai_engine.screening.config import ScreeningConfig
-from baibai_engine.screening.edinet_revision import compute_extractor_revision
-from baibai_engine.screening.providers import JQuantsProvider
-from baibai_engine.screening.providers.edinet import (
-    EdinetMetricRecord,
-    EDINETProviderError,
-    EDINETRateLimitError,
-)
-from baibai_engine.screening.providers.jpx import (
-    JPXEarningsCalendarEntry,
-    JPXEarningsCalendarSnapshot,
-    JPXProviderError,
-    JPXRegulationSnapshot,
-)
-from baibai_engine.screening.providers.jquants import (
-    JQuantsDailyBar,
-    JQuantsFinancialSummary,
-    JQuantsMarketCalendarDay,
-    JQuantsProviderError,
-    JQuantsWeeklyMargin,
-)
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.run_store import ScreeningRunReader
-from baibai_engine.screening.schema import SecurityMaster, TTMQuality
-from baibai_engine.screening.sqlite_cache import (
-    open_connection,
-    store_edinet_metrics,
-    store_jquants_daily_bars,
-    store_jquants_weekly_margin,
-)
+from baibai_engine.screening.schema import TTMQuality
 from baibai_engine.screening.sqlite_coverage import (
     RequiredFieldCoverage,
     RequiredFieldRepairPlan,
 )
-from baibai_engine.screening.sqlite_reader import read_edinet_metrics
 
 
 @dataclass
@@ -1368,7 +1368,7 @@ class ScreeningCliTests(unittest.TestCase):
             finally:
                 conn.close()
 
-            screening_cli.edinet_extract._record_edinet_extraction_failure(
+            edinet_extraction._record_edinet_extraction_failure(
                 sqlite_path=sqlite_path,
                 asof_date=date(2026, 4, 24),
                 message="provider unavailable",
@@ -2174,7 +2174,7 @@ def _edinet_document(
 
 def _seed_trading_days(sqlite_path: Path, start: date, end: date) -> None:
     """Weekday rows so the weekly-margin candidates have a calendar to derive from."""
-    from baibai_engine.screening.sqlite_cache import open_connection
+    from baibai_engine.market.sqlite.ingest import open_connection
 
     conn = open_connection(sqlite_path)
     try:

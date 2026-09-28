@@ -5,8 +5,8 @@ from datetime import date
 import pytest
 
 from baibai_engine.market.sqlite import EmptyRangeReplacementError, open_connection
-from baibai_engine.screening.sqlite_cache import store_jquants_short_sale_reports
-from baibai_engine.screening.sqlite_reader import (
+from baibai_engine.market.sqlite.ingest import store_jquants_short_sale_reports
+from baibai_engine.market.sqlite.reader import (
     SHORT_SALE_REPORT_DATASET_FLOOR,
     read_reported_short_metrics,
     read_short_sale_reports,

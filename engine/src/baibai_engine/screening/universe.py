@@ -22,7 +22,12 @@ from dataclasses import dataclass, field
 from datetime import date
 from statistics import mean
 
-from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, asof_basis_closes
+from baibai_engine.market.bars import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+    asof_basis_closes,
+)
+from baibai_engine.market.models import SecurityMaster
 from baibai_engine.market.universe import (
     ELIGIBLE_MARKETS as ELIGIBLE_MARKETS,
 )
@@ -35,10 +40,9 @@ from baibai_engine.market.universe import (
 from baibai_engine.market.universe import (
     UniverseSourceDriftError as UniverseSourceDriftError,
 )
+from baibai_engine.screening.schema import UniverseSnapshot
 
-from .providers.jquants import JQuantsDailyBar
 from .rule_config import ScreeningRules
-from .schema import SecurityMaster, UniverseSnapshot
 
 MIN_BAR_HISTORY = 20
 

@@ -15,6 +15,8 @@ Researchの判断見積りは[ThesisのBase/Downsideと共通算術](./thesis.md
 
 screening時点のE[r] / FV anchorは候補比較の文脈として表示・参照し、[Thesis payloadへ重複転記しない](./thesis.md#input-snapshot-and-lineage)。機械E[r]の5年priorと3y/5y calibrationは個別判断の期間を固定しない。
 
+計算の正本は[metrics](../../engine/src/baibai_engine/screening/metrics/)にある。会計期間とTTMは`periods`、株式・普通株自己資本basisは`capital`、配当と還元は`dividends`、利益は`profit`、価格履歴は`history`、Security Analysis向けの組立は`snapshot`が所有する。本書は指標の意味と、異なるbasisを混ぜないための理由を扱う。
+
 ## 1. 使用指標
 
 | 指標 | 定義 | データ項目 |
@@ -106,7 +108,7 @@ PBRの普通株自己資本と株式basisは[資本の分母](#51-資本の分�
 
 報告利益等の総額が必要なら報告された円総額を優先する。EPSに期末の発行済株式数を掛けて利益を復元しない。EPSの期中平均株式数とBPSの期末普通株basisは別の概念であり、本節の条件を満たすBPS経路まで禁止するものではない。
 
-自己株式は議決権も配当請求権も持たないので、時価総額に含めると過大になり、現金比率・利回りが薄く、倍率が割高に出る。**歪みが最大になるのは自己株式を積み上げた企業、つまり buyback を実行した企業**で、機械 E[r] の carry が上位へ押し上げる群と重なる。
+自己株式は議決権も配当請求権も持たないので、時価総額に含めると過大になり、現金比率・利回りが薄く、倍率が割高に出る。自己株式を積み上げた企業ほど歪みが大きく、buybackを含む見返りの評価にも影響する。
 
 **PBRはoutputを1つだけ持つ。** 普通株basisとの照合に通り、かつ最新`BPS`以上に新しい同一行の`TA × EqAR`があれば、その鮮度を使う。照合できない場合は`BPS × 自己株控除後株式数`へfallbackする。`EqAR`の小数第3位・`BPS`の小数第2位という公表精度は丸め区間として比較し、near-zero比率を相対誤差だけで拒否しない。Asset ValueはこのPBRを比較文脈と並び順の従キーに使う。eligibility/orderは[screening runtime](./screening-runtime.md#candidate-discovery)に従う。
 
@@ -156,7 +158,7 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 
 落とすのは値だけで、`consolidation_basis` と書類の出所は残す。短信由来の指標（PBR・PER・`cash_to_market_cap`・自己資本比率）も残るので、**銘柄は universe に留まり screening され続ける**。必要なEDINET指標を欠くApproachではnominateしないが、他の指標・Approachまで一律に無効にしない。現行Asset Valueの`net_cash_to_market_cap`はanalysis contextであり、eligibility/orderには使わない。
 
-対象書類は有価証券報告書 / 四半期報告書 / 半期報告書と、それぞれの訂正書を扱う。訂正書は EDINET documents API 上で `periodStart` / `periodEnd` が欠損しやすいため、欠損時のみ `docDescription` の対象期間から fallback parse する。書類選択は[EDINET provider](../../engine/src/baibai_engine/screening/providers/edinet.py)と[保存・選択処理](../../engine/src/baibai_engine/screening/edinet_store.py)を参照する。書類metadataの期間と、抽出したCF・BSの測定期間を同一視しない。
+対象書類は有価証券報告書 / 四半期報告書 / 半期報告書と、それぞれの訂正書を扱う。訂正書は EDINET documents API 上で `periodStart` / `periodEnd` が欠損しやすいため、欠損時のみ `docDescription` の対象期間から fallback parse する。書類選択は[EDINET provider](../../engine/src/baibai_engine/market/providers/edinet.py)と[保存・選択処理](../../engine/src/baibai_engine/market/edinet_metrics/store.py)を参照する。書類metadataの期間と、抽出したCF・BSの測定期間を同一視しない。
 
 `edinet_source_period_start` / `edinet_source_period_end` は EDINET documents metadata 上の書類対象期間であり、必ずしも抽出 metric の測定期間そのものではない。特に半期報告書 / 訂正半期報告書では fiscal year 全体の period end が入ることがある。screening では source traceability と document selection に使い、research では対象書類の CF 計算書 / BS 表示期間を一次確認する。
 
@@ -251,7 +253,7 @@ Screeningの自己レンジと騰落率は、[`asof_basis_closes()`](../../engin
 
 ### 10.1 Core
 
-- **J-Quants / ClientV2**: 取得の実装は[provider](../../engine/src/baibai_engine/screening/providers/jquants.py)、保存入力は[screening runtime](./screening-runtime.md#market-store-inputs)に従う。取得可能範囲は契約と実際のcoverageで確認する。
+- **J-Quants / ClientV2**: 取得の実装は[provider](../../engine/src/baibai_engine/market/providers/jquants.py)、保存入力は[screening runtime](./screening-runtime.md#market-store-inputs)に従う。取得可能範囲は契約と実際のcoverageで確認する。
 - **EDINET API v2**: documents listで書類を選び、`type=5` CSV ZIPから本書のEV/EBITDA・Net cash・Asset-backed・FCF項目を抽出する。このvaluation経路にはraw XBRLをfallbackしない。`type=1` raw XBRLを使う[Research facts](../../batch/OPERATIONS.md#edinet-research-facts)は別の抽出経路である。
 - **JPX**:
   - 決算発表予定: 公式 financial-announcement index に掲載された全 cohort Excel の既知日程（file 間で日付が食い違う銘柄は、より current な view を持つ file を採る）

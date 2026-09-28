@@ -10,14 +10,14 @@ import yaml
 
 from baibai_engine.appdb.write import connect_rw, initialize_database
 from baibai_engine.foundation.time import JST
-from baibai_engine.operation.cli import main as operation_main
-from baibai_engine.operation.models import SESSION_KINDS, OperationPayload, SessionKind
-from baibai_engine.operation.service import (
+from baibai_engine.read_api.operations import list_operation_sessions, operation_session
+from baibai_engine.research.operation.cli import main as operation_main
+from baibai_engine.research.operation.models import SESSION_KINDS, OperationPayload, SessionKind
+from baibai_engine.research.operation.service import (
     OperationCompletionError,
     OperationConflictError,
     OperationService,
 )
-from baibai_engine.read_api.operations import list_operation_sessions, operation_session
 
 NOW = datetime(2026, 7, 19, 12, 0, tzinfo=JST)
 

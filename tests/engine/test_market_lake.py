@@ -708,13 +708,11 @@ def test_only_a_replaced_table_is_exempt_from_the_history_floor() -> None:
     from baibai_engine.market.lake.datasets import LAKE_DATASETS
     from baibai_engine.market.lake.models import PRODUCTION_RELEASE_POLICY
 
-    # The whole screening package, not just its cache: the writers of the two
-    # operator-derived datasets live beside it, and a scan bounded by directory would
-    # call their wholesale replacement an accumulation.
-    screening = Path(__file__).resolve().parents[2] / "engine/src/baibai_engine/screening"
+    # Source writers live in market; inspect the owner of both snapshot datasets.
+    market = Path(__file__).resolve().parents[2] / "engine/src/baibai_engine/market"
     replaced = {
         match.group(1)
-        for path in screening.rglob("*.py")
+        for path in market.rglob("*.py")
         for match in re.finditer(r"DELETE FROM (\w+)\s*(?:\"|')", path.read_text(encoding="utf-8"))
     }
     snapshot_datasets = {

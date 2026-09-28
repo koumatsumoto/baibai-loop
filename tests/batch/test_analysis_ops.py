@@ -671,7 +671,7 @@ def test_published_stdout_id_prepares_the_exact_research_set(
     from tests.helpers.db_seed import seed_ledger
     from tests.helpers.ledger import load_portfolio_ledger
 
-    from baibai_engine.operation.service import OperationService
+    from baibai_engine.research.operation.service import OperationService
     from baibai_engine.research.workspace_cli import main as research_main
 
     _seed_canonical_review_set(tmp_path)

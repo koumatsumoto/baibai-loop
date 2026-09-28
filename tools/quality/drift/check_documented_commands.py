@@ -28,8 +28,14 @@ from typing import cast
 from tools.quality.drift.check_cli_help import DELEGATED_GROUPS, build_parser
 
 _SCAN_DIRECTORIES = (".agents/skills",)
-# Only the inventory examples in this reference are in the additional scope.
-_SCAN_FILES = ("docs/reference/market-lake.md",)
+# Active runbooks are checked for simple literal commands; market-lake is inventory-only.
+_SCAN_FILES = (
+    "docs/reference/market-lake.md",
+    "batch/OPERATIONS.md",
+    "tools/owner_mcp/OPERATIONS.md",
+    "docs/reference/analysis-operations.md",
+    "docs/reference/macro-handoff.md",
+)
 _FENCE = re.compile(r"^\s*```")
 _INLINE_CODE = re.compile(r"`([^`]+)`")
 _COMMENT = re.compile(r"\s+#\s.*$")
@@ -158,7 +164,15 @@ def _entry_point(tokens: Sequence[str]) -> tuple[argparse.ArgumentParser, str, l
 
         if len(rest) < 2 or rest[1] not in DOMAINS:
             raise _Unresolvable(f"baibai-engine: unknown domain {' '.join(rest[1:2])}")
-        return build_parser(DOMAINS[rest[1]].module), f"baibai-engine {rest[1]}", rest[2:]
+        module = DOMAINS[rest[1]].module
+        if rest[1] == "lake":
+            from baibai_engine.market.lake.write_cli import WRITE_COMMANDS
+
+            if len(rest) > 2 and rest[2] in WRITE_COMMANDS:
+                module = "baibai_engine.market.lake.write_cli"
+        return build_parser(module), f"baibai-engine {rest[1]}", rest[2:]
+    if rest[:1] == ["baibai-web"]:
+        return _tool_parser("baibai_web.cli", "baibai-web", rest[1:])
     if rest[:1] == ["baibai-batch"]:
         from baibai_batch.cli import _COMMANDS
 
@@ -211,9 +225,13 @@ def check(root: Path) -> list[str]:
     for path in sorted(paths):
         relative = path.relative_to(root)
         for command in _command_lines(path.read_text(encoding="utf-8")):
-            if relative.as_posix() in _SCAN_FILES and not command.startswith(
+            if relative.as_posix() == "docs/reference/market-lake.md" and not command.startswith(
                 "uv run baibai-engine lake inventory"
             ):
+                continue
+            # A parser check is not a shell interpreter. Pipelines, substitutions and
+            # redirections need a manual check; never execute a documented command.
+            if any(marker in command for marker in ("$(", "`", "|", "&&", ";", " >", " <<")):
                 continue
             try:
                 tokens = shlex.split(command)

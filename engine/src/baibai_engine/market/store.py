@@ -1,10 +1,4 @@
-"""Read helpers that pull price/calendar inputs from the canonical SQLite store.
-
-The functions are deliberately permissive: a missing SQLite file or a source
-that has not been fetched yet returns `None` so bootstrap/fetch commands can
-populate the missing coverage. Screening's fundamentals reads live alongside in
-`screening.sqlite_reader`; this module owns daily bars and the market calendar.
-"""
+"""Market価格とcalendarの読取。財務・銘柄・信用等はmarket.sqlite.readerが所有する。"""
 
 from __future__ import annotations
 
@@ -17,7 +11,7 @@ from baibai_engine.market.bars import (
     JQuantsDailyBar,
     JQuantsMarketCalendarDay,
 )
-from baibai_engine.market.jquants import JQuantsProviderError
+from baibai_engine.market.providers.jquants_decode import JQuantsProviderError
 from baibai_engine.market.sqlite import (
     connect_current,
     daily_bars_covered_by_data,

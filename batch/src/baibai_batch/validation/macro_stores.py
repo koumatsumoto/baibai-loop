@@ -144,10 +144,9 @@ def validate_published_contexts(
 ) -> PublishedContextReport:
     """Load every current-contract report the way its consumers do, then look for drift.
 
-    Loading is the forward instrument: `screening review-set publish` and the scorecard read reports
-    through exactly this path, so a report that fails here is a report the daily batch
-    cannot use. Registry drift is reported next to it because a retired series makes a
-    scorecard unsettleable long before anyone notices from the report itself.
+    Detect reports that current Context consumers can no longer load. Review Set publication
+    does not consume Context. A retired series may leave a report readable but its scorecard
+    unsettleable, so registry drift is reported separately.
     """
 
     registry = frozenset(series.series_id for series in (definitions or load_definitions()).series)

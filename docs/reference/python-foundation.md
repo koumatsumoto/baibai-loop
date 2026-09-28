@@ -112,6 +112,8 @@ uv run baibai-batch validate-macro-stores
 
 storeがなければ未実行と報告する。CIにはapplication storeがなく、通常gateは代用にならない。文書だけの変更でlive取得・本番再発行を行わない。
 
+documented-command gateはskillsと指定したactive runbookの単純なcommandをparserへ照合する。Lakeのread/write入口とWeb CLIも対象とする。shell置換・pipe・redirect・command連結は対象外で、実際のcommandを実行しない。対象文書の一覧は[gate](../../tools/quality/drift/check_documented_commands.py)を正本とし、gate成功を全文書の意味や複合shell例の正しさの証明としない。
+
 ## 10. Review rule
 
 設定・workflow・本節のcommandを整合させる。通常の開発変更に別の承認手順、検査結果台帳、全domainの再検証を追加しない。

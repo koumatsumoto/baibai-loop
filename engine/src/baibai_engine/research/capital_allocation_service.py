@@ -15,7 +15,7 @@ from baibai_engine.appdb.read import connect_read_only
 from baibai_engine.appdb.write import connect_rw, initialize_database
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 from baibai_engine.foundation.time import JST
-from baibai_engine.operation.research_binding import require_active_research_set
+from baibai_engine.research.operation.research_binding import require_active_research_set
 
 from .capital_allocation import (
     CapitalAllocationAssessment,

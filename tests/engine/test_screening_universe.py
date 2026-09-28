@@ -6,11 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
-from baibai_engine.screening.providers.jquants import (
-    JQuantsAdjustmentFactorEvent,
-    JQuantsDailyBar,
-)
-from baibai_engine.screening.schema import SecurityMaster
+from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.market.models import SecurityMaster
 from baibai_engine.screening.universe import (
     TSE_33_SECTORS,
     UniverseSourceDriftError,

@@ -2,13 +2,13 @@ from dataclasses import replace
 from datetime import date
 
 import pytest
+from tests.engine.screening.metric_fixtures import _daily_bars, _security, _summary
 from tests.engine.test_review_set import _analysis, _build_review_set
-from tests.engine.test_screening_metrics import _daily_bars, _security, _summary
 
+from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.screening.calibration.panel import rules_content_hash
 from baibai_engine.screening.discovery import review_set as discovery
 from baibai_engine.screening.metrics import build_metrics
-from baibai_engine.screening.providers.jquants import JQuantsFinancialSummary
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.schema import DerivedMetrics

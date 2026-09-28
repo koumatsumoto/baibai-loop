@@ -37,7 +37,7 @@ WRITE_COMMANDS = frozenset(
 )
 
 
-def main(argv: list[str]) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-engine lake")
     commands = parser.add_subparsers(dest="command", required=True)
 
@@ -77,7 +77,11 @@ def main(argv: list[str]) -> int:
     )
     gc.add_argument("--plan-hash", help="plan hash from the dry run; required with --apply")
 
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str]) -> int:
+    args = build_parser().parse_args(argv)
     if args.command == "hydrate":
         return _hydrate(args)
     if args.command == "dehydrate":

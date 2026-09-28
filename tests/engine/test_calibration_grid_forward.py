@@ -9,8 +9,9 @@ ROOT = Path(__file__).resolve().parents[2]
 
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
-from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent
+from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
+from baibai_engine.market.sqlite.ingest import open_connection
 from baibai_engine.screening.calibration.forward import (
     HORIZONS,
     ControlEventExit,
@@ -24,8 +25,6 @@ from baibai_engine.screening.calibration.forward import (
     read_failure_exits,
 )
 from baibai_engine.screening.calibration.grid import complete_month_end_dates
-from baibai_engine.screening.providers.jquants import JQuantsDailyBar
-from baibai_engine.screening.sqlite_cache import open_connection
 
 
 def _bar(

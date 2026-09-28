@@ -9,8 +9,8 @@ from tempfile import TemporaryDirectory
 import openpyxl
 
 from baibai_engine.market.sqlite import connect_current
-from baibai_engine.screening.sqlite_cache import open_connection
-from baibai_engine.screening.valuation_catalysts import (
+from baibai_engine.market.sqlite.ingest import open_connection
+from baibai_engine.market.valuation_catalysts import (
     ValuationCatalystError,
     edinet_identity_covered,
     parse_tse_capital_policy_workbook,

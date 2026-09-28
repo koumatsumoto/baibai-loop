@@ -165,10 +165,7 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
 
     @staticmethod
     def _seed(db: Path, week_ends: list[date], trading_days: list[date]) -> None:
-        from baibai_engine.screening.sqlite_cache import (
-            open_connection,
-            store_jquants_weekly_margin,
-        )
+        from baibai_engine.market.sqlite.ingest import open_connection, store_jquants_weekly_margin
 
         for week_end in week_ends:
             store_jquants_weekly_margin(db, [{"Code": "72030", "LongVol": 1.0}], week_end=week_end)
@@ -187,7 +184,7 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
         # A store filled past the decision date holds balance dates the market has not
         # reached. Listing one would put a future week at the head of the cohort, which
         # is the point-in-time break this reader exists to prevent.
-        from baibai_engine.screening.sqlite_reader import published_margin_week_ends
+        from baibai_engine.market.sqlite.reader import published_margin_week_ends
 
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
@@ -211,11 +208,9 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
         # the reader refuses. If the published list still named it, the newest entry
         # would read back empty and every axis would be None for the whole cohort
         # even though every earlier week is intact.
-        from baibai_engine.screening.sqlite_cache import open_connection
-        from baibai_engine.screening.sqlite_reader import (
-            published_margin_week_ends,
-            read_margin_supply_demand_inputs,
-        )
+        from baibai_engine.market.sqlite.ingest import open_connection
+        from baibai_engine.market.sqlite.reader import published_margin_week_ends
+        from baibai_engine.screening.margin_inputs import read_margin_supply_demand_inputs
 
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
@@ -243,7 +238,7 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
             self.assertEqual(sorted(latest), ["7203"])
 
     def test_a_balance_date_too_old_to_describe_the_asof_is_refused(self) -> None:
-        from baibai_engine.screening.sqlite_reader import read_margin_supply_demand_inputs
+        from baibai_engine.screening.margin_inputs import read_margin_supply_demand_inputs
 
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
@@ -283,7 +278,7 @@ class MarginPublicationSeamTest(unittest.TestCase):
     @classmethod
     def _seed(cls, db: Path, *, weekly_from: date, daily_through: date) -> None:
         """Weekly balances through the freeze, daily balances after it, bars for both."""
-        from baibai_engine.screening.sqlite_cache import (
+        from baibai_engine.market.sqlite.ingest import (
             open_connection,
             store_jquants_all_issues_daily_margin,
             store_jquants_weekly_margin,
@@ -334,11 +329,11 @@ class MarginPublicationSeamTest(unittest.TestCase):
 
     def test_the_flag_off_column_holds_no_daily_balance_date(self) -> None:
         """Inert means inert: with the flag false the daily rows are seeded and unread."""
-        from baibai_engine.screening.sqlite_reader import (
+        from baibai_engine.market.sqlite.reader import (
             published_margin_balance_dates,
             published_margin_week_ends,
-            read_margin_supply_demand_inputs,
         )
+        from baibai_engine.screening.margin_inputs import read_margin_supply_demand_inputs
 
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
@@ -362,7 +357,7 @@ class MarginPublicationSeamTest(unittest.TestCase):
 
     def test_the_axes_go_dark_after_the_freeze_and_the_daily_series_keeps_them_lit(self) -> None:
         """The failure this exists to prevent, and the same store answering with the flag on."""
-        from baibai_engine.screening.sqlite_reader import read_margin_supply_demand_inputs
+        from baibai_engine.screening.margin_inputs import read_margin_supply_demand_inputs
 
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
@@ -384,7 +379,7 @@ class MarginPublicationSeamTest(unittest.TestCase):
 
     def test_a_daily_balance_is_unusable_until_its_publication_day_has_closed(self) -> None:
         """Next business day, and not at that day's own close."""
-        from baibai_engine.screening.sqlite_reader import published_margin_balance_dates
+        from baibai_engine.market.sqlite.reader import published_margin_balance_dates
 
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
@@ -406,7 +401,7 @@ class MarginPublicationSeamTest(unittest.TestCase):
 
     def test_the_delta_keeps_reaching_back_half_a_year_once_the_cadence_changes(self) -> None:
         """26 rows back into a daily column would be five weeks, not half a year."""
-        from baibai_engine.screening.sqlite_reader import read_margin_supply_demand_inputs
+        from baibai_engine.screening.margin_inputs import read_margin_supply_demand_inputs
 
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"

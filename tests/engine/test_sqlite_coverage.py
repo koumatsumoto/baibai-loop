@@ -16,8 +16,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 from tests.helpers.screening_sqlite import add_source_coverage as _add_source_coverage
 
+from baibai_engine.market.sqlite.ingest import open_connection
 from baibai_engine.screening.cli.cache import verify_cache_coverage_command
-from baibai_engine.screening.sqlite_cache import open_connection
 from baibai_engine.screening.sqlite_coverage import core as coverage_core
 from baibai_engine.screening.sqlite_coverage import (
     plan_required_field_repair,
@@ -39,7 +39,7 @@ _DATA_TABLES = (
 
 
 def _verify_screening_sqlite_coverage(*args, **kwargs):
-    with patch("baibai_engine.screening.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100):
+    with patch("baibai_engine.market.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100):
         return verify_screening_sqlite_coverage(*args, **kwargs)
 
 
@@ -255,7 +255,7 @@ class StaleWeeklyMarginDoesNotStopTheRunTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = self._store_with_a_stale_balance(tmp)
             stream = io.StringIO()
-            with patch("baibai_engine.screening.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100):
+            with patch("baibai_engine.market.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100):
                 code = verify_cache_coverage_command(
                     sqlite_path=sqlite_path,
                     asof_date=_COMMON_COVERAGE_ASOF,
@@ -291,7 +291,7 @@ class StaleWeeklyMarginDoesNotStopTheRunTest(unittest.TestCase):
                 patch.object(app_module, "JQuantsProvider"),
                 patch.object(app_module, "EDINETProvider"),
                 patch.object(app_module, "JPXProvider"),
-                patch("baibai_engine.screening.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100),
+                patch("baibai_engine.market.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100),
             ):
                 code = app_module.main(["run", "--asof", _COMMON_COVERAGE_ASOF.isoformat()])
 

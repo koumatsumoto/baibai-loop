@@ -18,7 +18,16 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Literal
 
+from baibai_engine.market.sqlite.reader import (
+    fin_summaries_readable_from,
+    read_edinet_metrics,
+    read_eq_master_asof,
+    read_fin_summaries,
+    read_jpx_regulations,
+    read_reported_short_metrics,
+)
 from baibai_engine.market.store import read_adjustment_factor_bars, read_daily_bars
+from baibai_engine.screening.margin_inputs import read_margin_supply_demand_inputs
 
 from ..discovery.review_set import (
     build_nomination_ranks,
@@ -47,15 +56,6 @@ from ..rule_config import ScreeningRules
 from ..schema import SECTOR_MEDIAN_BASIS_MARKET, SecurityAnalysis, TTMQuality
 from ..screening_run_serializer import security_analysis_payload
 from ..security_analysis_builder import build_security_analysis
-from ..sqlite_reader import (
-    fin_summaries_readable_from,
-    read_edinet_metrics,
-    read_eq_master_asof,
-    read_fin_summaries,
-    read_jpx_regulations,
-    read_margin_supply_demand_inputs,
-    read_reported_short_metrics,
-)
 from ..universe import (
     POLICY_EXCLUSION_REASONS,
     build_universe,

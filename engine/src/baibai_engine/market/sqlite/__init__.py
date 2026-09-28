@@ -1,14 +1,4 @@
-"""Shared SQLite kernel for the single physical store (`market.sqlite`).
-
-Market owns the schema, connection, source-coverage bookkeeping, normalization
-primitives, and the price/calendar ingest. Screening reuses this kernel for its
-fundamentals/regulation tables without market depending on screening.
-
-This package `__init__` is the curated public surface of the kernel: the names
-re-exported here (and listed in `__all__`) are the only ones other packages may
-import. Helpers kept with a leading underscore in the submodules are package-
-private and must not be imported across the package boundary.
-"""
+"""Market storeのschema、接続、coverage、価格・calendar writer。"""
 
 from .convert import (
     NormalizedRows,

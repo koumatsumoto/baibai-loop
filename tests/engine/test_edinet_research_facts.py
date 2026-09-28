@@ -12,15 +12,12 @@ import duckdb
 import pytest
 
 from baibai_engine.market.edinet_facts.extract import extract_facts
+from baibai_engine.market.edinet_facts.service import annual_documents, extract_edinet_facts_command
 from baibai_engine.market.edinet_facts.store import extraction_status, store_facts
 from baibai_engine.market.edinet_facts.xbrl import SourceFormatError, xml_root
+from baibai_engine.market.providers.edinet import EDINETProviderError
+from baibai_engine.market.providers.edinet_facts import EDINETFactsProvider
 from baibai_engine.market.sqlite import open_connection
-from baibai_engine.screening.cli.edinet_facts import (
-    annual_documents,
-    extract_edinet_facts_command,
-)
-from baibai_engine.screening.providers.edinet import EDINETProviderError
-from baibai_engine.screening.providers.edinet_facts import EDINETFactsProvider
 
 FIXTURES = Path(__file__).parents[1] / "fixtures/edinet/research"
 ROOT = Path(__file__).parents[2]
@@ -298,7 +295,7 @@ def test_provider_raw_zip_cache_and_nonzip_rate_limit(tmp_path, monkeypatch):
     provider = EDINETFactsProvider("test-key", tmp_path)
     download = Mock(side_effect=[b'{"StatusCode":429}', source_zip()])
     monkeypatch.setattr(provider, "_request_bytes", download)
-    monkeypatch.setattr("baibai_engine.screening.providers.edinet_facts.time.sleep", lambda _: None)
+    monkeypatch.setattr("baibai_engine.market.providers.edinet_facts.time.sleep", lambda _: None)
     data = provider.download_xbrl_zip("S100YR5P")
     assert provider.download_xbrl_zip("S100YR5P") == data
     assert download.call_count == 2

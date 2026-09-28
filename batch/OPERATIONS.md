@@ -2,6 +2,19 @@
 
 本書はmachine処理、store転送、公開と復旧の手順を所有する。domain処理はengine、read modelはwebが担う。以下のcommandはrepository rootのBashから実行し、終了状態と次の操作は各節に従う。CLIの全引数は該当`--help`を参照する。
 
+## 目的から探す
+
+| 作業 | 手順 |
+| --- | --- |
+| 分析前に保存情報を揃える | [クラウド正本の取得](#クラウド正本をローカルへ取得する) |
+| localで更新したmachine情報を反映する | [クラウド更新](#ローカルからクラウドを更新する) |
+| 判断・確認済み事実を表示へ反映する | [application反映](#application-db-を反映する) |
+| Macro観測・registryを直す | [撤回と退役](#macro観測とregistryの修正) |
+| EDINET metricsのsourceを移動・変更する | [revision更新](#edinet-metrics-revision) |
+| EDINET原典のResearch factsを揃える | [EDINET Research facts](#edinet-research-facts) |
+| 初回の構成を確認する | [Cloudflare / GitHub Actions構成](#cloudflare--github-actions-構成) |
+
+
 ## 長時間処理の監視
 
 対象run IDを固定して監視する。hard timeoutはworkflow定義を正本とする。
@@ -98,7 +111,7 @@ uv run baibai-engine screening ticker-profile --ticker TICKER
 
 ### ローカルからクラウドを更新する
 
-変更codeをmainへ反映し、対象storeと変更内容を確認する。marketはlake所有tableを編集する前に現行releaseへhydrateする。変更後の再hydrateはlocal変更を上書きするため行わない。
+EDINET extractor revisionの更新では、[専用cutover手順](#edinet-metrics-revision)に従ってlease取得後にmainへ切り替える。それ以外は変更codeをmainへ反映し、対象storeと変更内容を確認する。marketはlake所有tableを編集する前に現行releaseへhydrateする。変更後の再hydrateはlocal変更を上書きするため行わない。
 
 GitHubの`cloud-publish` queueはGitHub内の順序だけを守る。GitHubとローカルの共通発行にはR2の`coordination/publication-lease.json`を使う。TTLは固定120分。`publish-lake` / `push-machine` / `push-market` / `push-macro`をローカルから行う際は、長い取得・準備を済ませてから、production read / merge / publishを次の同一lease内で実行する。`r2_transfer.sh`の低レベルcommandはleaseを暗黙取得しない。`push-app`、`publish.sh`、初回`seed-all`は対象外。
 
@@ -605,6 +618,175 @@ CLI 引数・log には出ない）。secret の実値を Git・issue・log へ�
 3. 次の通常runで通知を確認する。即時確認が明示的に必要な場合だけ通知経路の受入を行い、rotationだけで過去日のscreeningを再生成しない。
 
 旧 webhook は Discord 側で削除するまで有効。
+
+<a id="edinet-metrics-revision"></a>
+
+## EDINET metricsのextractor revision更新
+
+**対象**: `market/edinet_metrics`のmanifestに含まれるsourceのpathまたはbytesが変わり、次回writerが旧revisionのbaselineを再利用できない場合。Research factsの手動revisionとは別であり、過去snapshot全体を書き換えない。
+
+1. **lease取得前**に、対象PRのレビュー・CI、SQLite backup上の再抽出と比較、不足ZIPの取得を終える。下のcopy検証例を使い、exit 0、新revision、行数・抽出値・隔離理由・integrityを確認する。この段階ではmainもproduction storeも切り替えない。
+2. 下記3 workflowのqueued / in_progressと、他のlocal operatorによる発行がないことを確認する。daily・TradingViewの次回scheduled slotを跨がずreadbackまで完了できる時間帯を選び、manual materializeもcutover中は開始しない。予定時刻は[daily](../.github/workflows/cloud-daily-batch.yml)・[TradingView](../.github/workflows/cloud-tradingview-snapshot.yml)の現行scheduleを参照する。確認後にoperator leaseを取得し、busyや取得失敗ならmainへ進まない。同じleaseが競合書込を防いでも、後着のworkflowはLeaseBusyで失敗するため、slotを落とさない時間調整も必要である。
+3. **lease取得成功後**、確認済みheadのPRをmainへmergeし、そのmainをlocalへ反映する。以降の取得・抽出・転送を同じcodeで行う。
+4. **同じlease内**で最新cloud storeを改めて`pull-machine`し、`hydrate-market`で現行Lake releaseへ揃える。実行時点の最新`edinet_metrics.asof_date`とrevisionを再確認する。準備時のcopyをproductionへそのまま戻さず、freshなstoreのbackupを比較元として保存する。
+5. その最新as-ofを明示して通常storeへ再抽出し、exit 0、新revision、行数、revision以外の全列、隔離・quality理由、integrityを比較元と照合する。再抽出後のhydrateで成果を上書きしない。
+6. **leaseを保持したまま**`publish-lake`、`push-market`の順に実行し、下記の固定release・cloud copyのreadbackを完了する。最後のpublishだけを`with_publication_lease`で囲み直したり、途中でreleaseしたりしない。
+7. code/store/readbackの整合を確認してから、取得時と同じhandleでleaseをreleaseする。
+
+手順2の確認（いずれかにqueued / in_progressがあれば完了後にやり直す）:
+
+```bash
+gh run list --workflow cloud-daily-batch.yml --limit 10
+gh run list --workflow cloud-tradingview-snapshot.yml --limit 10
+gh run list --workflow cloud-materialize.yml --limit 10
+```
+
+cutoverの外枠は既存の明示的なacquire/releaseを使う。以下の取得commandが成功してから手順3へ進む。handleを別shellへ引き継ぐ場合はpathを保持する。
+
+```bash
+cutover_dir="$(mktemp -d "${TMPDIR:-/tmp}/edinet-cutover.XXXXXX")"
+cutover_handle="$cutover_dir/lease.json"
+uv run python -m baibai_batch.storage.publication_lease acquire --purpose operator --handle "$cutover_handle" || exit 1
+```
+
+copy検証の実行例（手順1、repository root、意味を変えない移動の場合）。一時directoryは結果確認用に残す。既定はcache-only。原典不足の場合だけ`EDINET_API_KEY`を用意して`cache_only=False`で再実行すると、既存cacheを再利用し不足分を取得する。抽出結果の成功は終了コードと新revisionの両方で判定する。
+
+```bash
+uv run python - <<'PY'
+from contextlib import closing
+from datetime import date
+from pathlib import Path
+import os
+import sqlite3
+import tempfile
+
+from baibai_engine.foundation.env import load_project_env
+from baibai_engine.market.edinet_metrics.revision import compute_extractor_revision
+from baibai_engine.market.edinet_metrics.service import extract_edinet_metrics_command
+from baibai_engine.market.providers.edinet import EDINETProvider
+
+load_project_env()
+source = Path('stores/market/market.sqlite').resolve()
+staged = Path(tempfile.mkdtemp(prefix='edinet-revision-')) / 'market.sqlite'
+with closing(sqlite3.connect(source.as_uri() + '?mode=ro', uri=True)) as src:
+    with closing(sqlite3.connect(staged)) as dst:
+        src.backup(dst)
+        latest = dst.execute('SELECT max(asof_date) FROM edinet_metrics').fetchone()[0]
+        if latest is None:
+            raise SystemExit('最新baselineなし。初期抽出として別途対象を決める。')
+        columns = [row[1] for row in dst.execute('PRAGMA table_info(edinet_metrics)')
+                   if row[1] != 'extractor_revision']
+        query = ('SELECT ' + ','.join(columns)
+                 + ' FROM edinet_metrics WHERE asof_date=? ORDER BY ticker')
+        before = dst.execute(query, (latest,)).fetchall()
+print(f'asof={latest} rows={len(before)} staged={staged}', flush=True)
+provider = EDINETProvider(
+    os.environ.get('EDINET_API_KEY'), Path('.cache/screening'),
+    sqlite_path=staged, cache_only=True,
+)
+result = extract_edinet_metrics_command(
+    asof_date=date.fromisoformat(latest), lookback_days=540,
+    provider=provider, sqlite_path=staged,
+)
+if result != 0:
+    raise SystemExit(result)  # 旧行の保持を成功と誤認しない。
+with closing(sqlite3.connect(staged.as_uri() + '?mode=ro', uri=True)) as checked:
+    after = checked.execute(query, (latest,)).fetchall()
+    revisions = checked.execute(
+        'SELECT DISTINCT extractor_revision FROM edinet_metrics WHERE asof_date=?',
+        (latest,),
+    ).fetchall()
+    integrity = checked.execute('PRAGMA integrity_check').fetchall()
+assert revisions == [(compute_extractor_revision(),)], revisions
+assert before == after, 'revision以外の値が変化。公開せず差分を調べる。'
+assert integrity == [('ok',)], integrity
+print(f'PASS rows={len(after)} revision={revisions[0][0]} integrity=ok')
+PY
+```
+
+手順5で通常storeを更新するcommand（lease保持中）:
+
+```bash
+cutover_asof=YYYY-MM-DD  # 手順4で再確認したlatest baselineの日付
+uv run baibai-engine screening extract-edinet-metrics --asof "$cutover_asof" || exit 1
+```
+
+手順6の発行とreadback（同じshell・leaseを保持）。publishのstdout JSONを保存し、そのrelease ID/hashを固定する。`push-market`はlocalのstore-local tableをcloudとmergeするため、比較元はpush成功後のlocal storeとする。`pull-market`は通常storeを置換するのでreadbackには使わない。以下は既存R2 adapterで一時storeへ取得し、既存CLIで固定releaseをhydrateする。
+
+```bash
+batch/scripts/r2_transfer.sh publish-lake > "$cutover_dir/publish.json" || exit 1
+batch/scripts/r2_transfer.sh push-market || exit 1
+uv run python - "$cutover_dir" "$cutover_asof" <<'PY' || exit 1
+from contextlib import closing
+from datetime import date
+from pathlib import Path
+import json
+import os
+import sqlite3
+import subprocess
+import sys
+
+from baibai_batch.storage.lake_publish import Boto3R2Store
+from baibai_engine.foundation.env import load_project_env
+from baibai_engine.market.edinet_metrics.revision import compute_extractor_revision
+
+load_project_env()
+work = Path(sys.argv[1]).resolve()
+asof = date.fromisoformat(sys.argv[2]).isoformat()
+report = json.loads((work / 'publish.json').read_text())
+readback = work / 'readback.sqlite'
+assert not readback.exists(), '既存readbackを上書きせず、新しい一時directoryで確認する。'
+local = Path('stores/market/market.sqlite').resolve()
+metrics_sql = 'SELECT * FROM edinet_metrics WHERE asof_date=? ORDER BY ticker'
+coverage_sql = 'SELECT * FROM source_coverage ORDER BY source, coverage_key'
+with closing(sqlite3.connect(local.as_uri() + '?mode=ro', uri=True)) as source:
+    expected = source.execute(metrics_sql, (asof,)).fetchall()
+    expected_coverage = source.execute(coverage_sql).fetchall()
+assert expected, '対象as-ofのlocal baselineなし。'
+bucket = os.environ.get('R2_STORES_BUCKET', 'baibai-stores')
+remote = Boto3R2Store(bucket=bucket)
+generation = remote.head('market.sqlite')
+assert generation is not None, 'cloud market storeなし。'
+remote.download_file('market.sqlite', readback, expect_bytes=generation.size)
+assert remote.head('market.sqlite') == generation, '取得中にcloud generationが変化。'
+with closing(sqlite3.connect(readback.as_uri() + '?mode=ro', uri=True)) as cloud:
+    cloud_coverage = cloud.execute(coverage_sql).fetchall()
+assert cloud_coverage == expected_coverage, 'push後のstore-local coverageが不一致。'
+subprocess.run([
+    'uv', 'run', 'baibai-engine', 'lake', 'hydrate',
+    '--mirror', str(work / 'mirror'), '--store', str(readback), '--bucket', bucket,
+    '--release', report['release_id'],
+    '--manifest-sha256', report['release_manifest_sha256'],
+], check=True)
+with closing(sqlite3.connect(readback.as_uri() + '?mode=ro', uri=True)) as checked:
+    actual = checked.execute(metrics_sql, (asof,)).fetchall()
+    revisions = checked.execute(
+        'SELECT DISTINCT extractor_revision FROM edinet_metrics WHERE asof_date=?',
+        (asof,),
+    ).fetchall()
+    assert actual == expected, '固定releaseの行数・revision・抽出値が不一致。'
+    assert revisions == [(compute_extractor_revision(),)], 'current codeとrevisionが不一致。'
+    assert checked.execute(coverage_sql).fetchall() == cloud_coverage, 'hydrateでcoverageが変化。'
+    coverage = checked.execute(
+        "SELECT record_count, status, error FROM source_coverage WHERE source='edinet_metrics' "
+        'AND coverage_start=? AND coverage_end=?', (asof, asof),
+    ).fetchall()
+    assert coverage == [(len(actual), 'ok', None)], '対象baselineのcoverageが正常でない。'
+    assert checked.execute('PRAGMA integrity_check').fetchall() == [('ok',)]
+print(f'PASS asof={asof} rows={len(actual)} revision={revisions[0][0]} coverage=ok integrity=ok')
+print(f"release={report['release_id']} manifest_sha256={report['release_manifest_sha256']}")
+PY
+```
+
+**成功確認**: 上記がexit 0かつPASSとなり、固定releaseの対象as-of全行（revisionを含む全列）、cloudのstore-local coverage、integrityが一致してからreleaseする。途中失敗や不一致なら次へ進まず、下記の停止・復旧へ進む。code反映、L1発行、store反映、readbackが揃うまで完了としない。日次batchにrevision移行の再構築を代行させない。
+
+手順7のrelease（readback成功後）:
+
+```bash
+uv run python -m baibai_batch.storage.publication_lease release --handle "$cutover_handle" || exit 1
+```
+
+**停止・復旧**: leaseのTTLは固定120分であり、無期限の保護ではない。main切替後に失敗した場合、新codeと旧revision storeのままwriterを再開しない。期限内に整合を回復できない場合はdaily等のwriter停止を確認し、未完了のcutoverとして引き継ぐ。lease失効後の処理続行やblind retryをせず、再開時は再取得したlease内でfreshなcloud stateから確認する。release失敗時はhandleを保持する。認証・rate limit・不足ZIP・破損は対象を限定して直し、同じas-ofで再実行する。値の予期しない変化、generation競合、旧snapshotの消失があれば公開を止める。revisionを旧hashへ固定して再利用可能に見せない。
 
 <a id="edinet-research-facts"></a>
 

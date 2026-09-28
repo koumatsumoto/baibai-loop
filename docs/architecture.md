@@ -11,7 +11,19 @@ Baibai Loopは単一distribution内で、domainを所有する`baibai_engine`、
 
 <a id="layers"></a>
 
-## 1. 構造と4役
+## 1. Packageの依存
+
+```mermaid
+flowchart LR
+    web[Web read model] --> read[engine read_api]
+    batch[Batch] --> api[engine batch_api / read_api]
+    research[Research / Operation] --> position[Position]
+    research --> read
+    screening[Screening] --> market[Market source facts]
+    position --> market
+```
+
+図は主要な責務間の依存を示す。CLIで複数domainを合成する例外の範囲はimport-linter設定が所有する。
 
 engineはweb・batch・toolsへ依存しない。Webからengineへの入口は`read_api`、batchからは`batch_api`と`read_api`であり、import-linterが境界を検査する。batchはdomainの判断やwrite invariantを独自実装せず、engineのserviceへ委譲する。storeとserving objectの転送はbatchが担う。
 
@@ -25,7 +37,7 @@ engineはweb・batch・toolsへ依存しない。Webからengineへの入口は`
 
 <a id="information-layers"></a>
 
-## 3. 情報の分類
+## 3. 情報の正本と保持
 
 | 区分 | 内容 |
 | --- | --- |
@@ -42,7 +54,7 @@ L3に保存した取引事実はAIの判断ではない。また、現在のsour
 | --- | --- | --- |
 | `stores/application/baibai.sqlite` | 判断、ledger、task、Operation、outcome。localが正本 | engine application service |
 | R2 `lake/` | lake所有datasetのimmutable object、manifest、current pointer | `publish-lake` |
-| `stores/market/market.sqlite` | lake所有tableはruntime copy。`source_coverage`と`tse_capital_policy_snapshots`はstore-localの正本、`lake_store_origin`はlocal metadata | market/screening provider・lake hydrate |
+| `stores/market/market.sqlite` | lake所有tableはruntime copy。`source_coverage`と`tse_capital_policy_snapshots`はstore-localの正本、`lake_store_origin`はlocal metadata | market provider・lake hydrate |
 | `stores/screening/runs.sqlite` | 再生成可能なScreening Run・Review Set | screening service |
 | `stores/screening/calibration/current.sqlite` | 再生成可能なcalibration snapshot | calibration service |
 | `stores/macro/macro.sqlite` | macro観測・vintage・取得情報。manual観測はGit seedから同期 | macro indicator service |
@@ -72,12 +84,12 @@ Owner MCPは所有者が保存済み情報を読むlocal adapterであり、stor
 
 | 配置・module | 責務 |
 | --- | --- |
-| `engine/src/baibai_engine/market` | L1の保持、固定release読取、market store |
+| `engine/src/baibai_engine/market` | source factの取得・保存・公表日判断、固定release読取、market store |
 | `engine/src/baibai_engine/macro` | 観測、Reading、Macro Context |
-| `engine/src/baibai_engine/screening` | Security Analysis、Candidate Discovery、Triage、calibration |
+| `engine/src/baibai_engine/screening` | 必要入力のpreflight、Security Analysis、Candidate Discovery、Triage、calibration |
 | `engine/src/baibai_engine/research` | 企業評価、独立Review、CAA、Planning、Position Review |
 | `engine/src/baibai_engine/position` | 確認済み取引事実、ledger replay、保有と資本の評価、outcome |
-| `engine/src/baibai_engine/operation` | 資本調査のOperation Session |
+| `engine/src/baibai_engine/research/operation` | Research SetとCAAに束縛したOperation Session |
 | `engine/src/baibai_engine/tasks` | 運用task |
 | `engine/src/baibai_engine/appdb` | application DB |
 | `engine/src/baibai_engine/read_api` | engineの読み取りuse case |
@@ -87,6 +99,20 @@ Owner MCPは所有者が保存済み情報を読むlocal adapterであり、stor
 | `method/` | 採用した計算規則と調査playbook |
 | `stores/` | 実行時store |
 | `reports/` | historical evidenceと明示的なconsumer artifact |
+
+変更箇所は次の順に辿る。
+
+| 変更したいもの | 実装と検証の入口 |
+| --- | --- |
+| sourceの取得・保存 | `market/providers`、`market/sqlite`、`market/edinet_metrics`とsource別test |
+| 指標と候補選抜 | `screening/metrics`、`screening/discovery`、`tests/engine/screening` |
+| 較正 | `screening/calibration/evaluation`とcalibration test |
+| Researchの開始・下書き・発行 | `research/workspace/{admission,prepare,scaffold,status,validation,publication}`とworkspace test |
+| 調査sessionの完了 | `research/operation`とOperation test |
+| 銘柄profile | `read_api/ticker_profile`。公開Screening CLIからの合成をここへ委譲する |
+| dashboard・企業画面 | `web/backend/src/baibai_web/readmodel/{builders,stocks}` → model → 生成contract → frontendと`tests/web` |
+
+業務の責務、情報の正本、実行環境は別の軸である。上表は現在の配置を示し、L1/L2/L3をそのままpackage階層にはしない。依存制約の厳密な範囲は[import-linter設定](../pyproject.toml)、入力の取得・計算の変更は[Screening reference](./reference/screening-runtime.md#market-store-inputs)から辿る。
 
 ### CLI
 

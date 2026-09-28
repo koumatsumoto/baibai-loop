@@ -5,7 +5,7 @@ from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from baibai_engine.screening.delistings import (
+from baibai_engine.market.delistings import (
     DelistingRecord,
     DelistingSourceError,
     _TableLinkParser,
@@ -13,7 +13,7 @@ from baibai_engine.screening.delistings import (
     read_jpx_delistings,
     store_jpx_delistings,
 )
-from baibai_engine.screening.sqlite_cache import open_connection
+from baibai_engine.market.sqlite.ingest import open_connection
 
 
 class JPXDelistingTest(unittest.TestCase):
