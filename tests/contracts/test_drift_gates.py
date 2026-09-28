@@ -576,3 +576,29 @@ def test_documented_batch_commands_use_the_delegated_parser(
 ) -> None:
     _skill(tmp_path, f"```bash\nuv run baibai-batch {command}\n```\n")
     assert (not check_documented_commands.check(tmp_path)) is valid
+
+
+@pytest.mark.parametrize(
+    ("command", "valid"),
+    [
+        ("baibai-web serve --port 8000", True),
+        ("baibai-web serve --not-an-option", False),
+        ("baibai-engine lake hydrate --mirror <MIRROR> --store <STORE>", True),
+        ("baibai-engine lake hydrate --store <STORE>", False),
+    ],
+)
+def test_active_runbook_checks_web_and_lake_write_parser(
+    tmp_path: Path, command: str, valid: bool
+) -> None:
+    path = tmp_path / "batch/OPERATIONS.md"
+    path.parent.mkdir()
+    path.write_text(f"```bash\nuv run {command}\n```\n")
+    assert (not check_documented_commands.check(tmp_path)) is valid
+
+
+@pytest.mark.parametrize("shell", ["|python -c 'pass'", " > /tmp/output", " && false", " $(false)"])
+def test_documented_shell_composition_is_not_interpreted(tmp_path: Path, shell: str) -> None:
+    path = tmp_path / "batch/OPERATIONS.md"
+    path.parent.mkdir()
+    path.write_text(f"```bash\nuv run baibai-engine lake inventory{shell}\n```\n")
+    assert check_documented_commands.check(tmp_path) == []
