@@ -630,6 +630,63 @@ CLI 引数・log には出ない）。secret の実値を Git・issue・log へ�
 3. exit 0、hard failureなし、新revisionの行数、隔離・quality理由、SQLite integrityを確認する。意味を変えない移動ではrevision以外の列を元baselineと比較する。hard failureによる`output=not-written`では旧行が保護されるので、行が同じことだけを成功としない。
 4. 検証後、対象日を明示して通常storeへ再抽出する。長い準備を終えてから[共通lease下のLake/store反映](#ローカルからクラウドを更新する)へ進む。競合時は最新cloudからやり直し、再抽出後にhydrateして成果を上書きしない。
 
+手順2〜3の実行例（repository root、意味を変えない移動の場合）。一時directoryは結果確認用に残す。既定はcache-only。原典不足の場合だけ`EDINET_API_KEY`を用意して`cache_only=False`で再実行すると、既存cacheを再利用し不足分を取得する。抽出結果の成功は終了コードと新revisionの両方で判定する。
+
+```bash
+uv run python - <<'PY'
+from contextlib import closing
+from datetime import date
+from pathlib import Path
+import os
+import sqlite3
+import tempfile
+
+from baibai_engine.foundation.env import load_project_env
+from baibai_engine.market.edinet_metrics.revision import compute_extractor_revision
+from baibai_engine.market.edinet_metrics.service import extract_edinet_metrics_command
+from baibai_engine.market.providers.edinet import EDINETProvider
+
+load_project_env()
+source = Path('stores/market/market.sqlite').resolve()
+staged = Path(tempfile.mkdtemp(prefix='edinet-revision-')) / 'market.sqlite'
+with closing(sqlite3.connect(source.as_uri() + '?mode=ro', uri=True)) as src:
+    with closing(sqlite3.connect(staged)) as dst:
+        src.backup(dst)
+        latest = dst.execute('SELECT max(asof_date) FROM edinet_metrics').fetchone()[0]
+        if latest is None:
+            raise SystemExit('最新baselineなし。初期抽出として別途対象を決める。')
+        columns = [row[1] for row in dst.execute('PRAGMA table_info(edinet_metrics)')
+                   if row[1] != 'extractor_revision']
+        query = ('SELECT ' + ','.join(columns)
+                 + ' FROM edinet_metrics WHERE asof_date=? ORDER BY ticker')
+        before = dst.execute(query, (latest,)).fetchall()
+print(f'asof={latest} rows={len(before)} staged={staged}', flush=True)
+provider = EDINETProvider(
+    os.environ.get('EDINET_API_KEY'), Path('.cache/screening'),
+    sqlite_path=staged, cache_only=True,
+)
+result = extract_edinet_metrics_command(
+    asof_date=date.fromisoformat(latest), lookback_days=540,
+    provider=provider, sqlite_path=staged,
+)
+if result != 0:
+    raise SystemExit(result)  # 旧行の保持を成功と誤認しない。
+with closing(sqlite3.connect(staged.as_uri() + '?mode=ro', uri=True)) as checked:
+    after = checked.execute(query, (latest,)).fetchall()
+    revisions = checked.execute(
+        'SELECT DISTINCT extractor_revision FROM edinet_metrics WHERE asof_date=?',
+        (latest,),
+    ).fetchall()
+    integrity = checked.execute('PRAGMA integrity_check').fetchall()
+assert revisions == [(compute_extractor_revision(),)], revisions
+assert before == after, 'revision以外の値が変化。公開せず差分を調べる。'
+assert integrity == [('ok',)], integrity
+print(f'PASS rows={len(after)} revision={revisions[0][0]} integrity=ok')
+PY
+```
+
+手順4で通常storeを更新するcommand:
+
 ```bash
 uv run baibai-engine screening extract-edinet-metrics --asof YYYY-MM-DD
 ```
