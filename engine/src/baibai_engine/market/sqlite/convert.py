@@ -8,11 +8,7 @@ from datetime import date
 from math import isfinite
 from typing import Any
 
-from baibai_engine.market.providers.jquants_decode import (
-    JQuantsProviderError,
-    is_missing_scalar,
-    parse_jquants_code_parts,
-)
+from baibai_engine.market.ticker import SecurityCodeError, parse_security_code_parts
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,8 +36,8 @@ def code_quality(value: Any) -> tuple[str | None, str]:
     if value in (None, ""):
         return None, "rejected"
     try:
-        ticker, common_code = parse_jquants_code_parts(value)
-    except JQuantsProviderError:
+        ticker, common_code = parse_security_code_parts(value)
+    except SecurityCodeError:
         return None, "rejected"
     if not common_code:
         return None, "excluded"
@@ -52,8 +48,8 @@ def normalize_ticker_or_none(value: Any) -> str | None:
     if value in (None, ""):
         return None
     try:
-        ticker, common_code = parse_jquants_code_parts(value)
-    except JQuantsProviderError:
+        ticker, common_code = parse_security_code_parts(value)
+    except SecurityCodeError:
         return None
     if not common_code:
         return None
@@ -84,7 +80,7 @@ def first(record: Mapping[str, Any], *keys: str) -> Any:
 
 
 def to_float(value: Any) -> float | None:
-    if is_missing_scalar(value) or value == "-":
+    if _is_missing_scalar(value) or value == "-":
         return None
     try:
         result = float(value)
@@ -96,13 +92,13 @@ def to_float(value: Any) -> float | None:
 
 
 def to_str_or_none(value: Any) -> str | None:
-    if is_missing_scalar(value):
+    if _is_missing_scalar(value):
         return None
     return str(value).strip()
 
 
 def date_iso(value: Any) -> str | None:
-    if is_missing_scalar(value):
+    if _is_missing_scalar(value):
         return None
     text = str(value)
     return text[:10]
@@ -124,3 +120,18 @@ def optional_date(value: object) -> date | None:
         return date.fromisoformat(str(value))
     except ValueError:
         return None
+
+
+def _is_missing_scalar(value: Any) -> bool:
+    """Recognize scalar missing markers produced by JSON and pandas without importing pandas."""
+
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip() in {"", "NaT", "nan", "null", "<NA>"}
+    if str(value).strip() in {"NaT", "nan", "<NA>"}:
+        return True
+    try:
+        return bool(value != value)
+    except (TypeError, ValueError):
+        return False

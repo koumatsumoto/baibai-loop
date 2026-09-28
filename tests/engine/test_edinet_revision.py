@@ -30,10 +30,8 @@ _EXPECTED_MANIFEST = (
     "market/metric_quality.py",
     "market/providers/edinet.py",
     "market/providers/edinet_csv.py",
-    "market/providers/jquants_decode.py",
     "market/sqlite/convert.py",
     "market/sqlite/ingest/edinet.py",
-    "market/sqlite/readiness.py",
     "market/sqlite/snapshot_coverage.py",
     "market/ticker.py",
 )
@@ -48,14 +46,14 @@ _EXPECTED_MANIFEST = (
 #   read validates coverage with its own SQL (`market.edinet_metrics.store`), so a change here cannot
 #   make a row's values wrong without also making the snapshot unreadable.
 # - `market.sqlite`: the package facade, re-exports only.
-# - `market.bars`: the daily-bar dataclasses `market.providers.jquants_decode` declares. No EDINET row
-#   carries a bar.
+# - `market.sqlite.readiness`: protects unreadable stores when recording a failure;
+#   it does not choose documents or determine successfully extracted metric values.
 #
 # Pinning the set is what stops a value-affecting helper from being moved out of the
 # manifest: the closure would then reach a fifth module and this test fails.
 _UNTRACKED_REACHED_MODULES = frozenset(
     {
-        "baibai_engine.market.bars",
+        "baibai_engine.market.sqlite.readiness",
         "baibai_engine.market.sqlite",
         "baibai_engine.market.sqlite.coverage",
         "baibai_engine.market.sqlite.schema",
@@ -89,6 +87,7 @@ _UNREFERENCED_ARTIFACTS = (
     # The other providers and their store slices.
     "market/providers/jpx.py",
     "market/providers/jquants.py",
+    "market/providers/jquants_decode.py",
     "market/jpx_sources.py",
     "market/master_snapshot.py",
     "market/sqlite/ingest/jpx.py",
@@ -143,6 +142,7 @@ def test_manifest_excludes_the_commands_that_share_the_cli_with_the_extraction()
         "market/sqlite/reader.py",
         "market/providers/jpx.py",
         "market/providers/jquants.py",
+        "market/providers/jquants_decode.py",
         "market/sqlite/ingest/jpx.py",
         "screening/sqlite_coverage/core.py",
         "screening/metrics/snapshot.py",
@@ -195,6 +195,29 @@ def test_extractor_revision_changes_when_any_manifest_artifact_changes() -> None
     for path in extraction_artifact_manifest():
         changed = {**original, path: original[path] + b"\nchange"}
         assert compute_extractor_revision(changed) != original_revision
+
+
+@pytest.mark.parametrize(
+    "artifact", ["market/providers/jquants_decode.py", "market/sqlite/readiness.py"]
+)
+def test_unrelated_source_bytes_do_not_change_revision(
+    artifact: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from baibai_engine.market.edinet_metrics import revision
+
+    original = revision.compute_extractor_revision()
+    original_artifact = revision._artifact
+    changed = tmp_path / "changed.py"
+    changed.write_bytes(original_artifact(artifact).read_bytes() + b"\n# unrelated edit\n")
+    monkeypatch.setattr(
+        revision, "_artifact", lambda path: changed if path == artifact else original_artifact(path)
+    )
+    revision.extraction_artifact_manifest.cache_clear()
+    try:
+        assert artifact not in revision.extraction_artifact_manifest()
+        assert revision.compute_extractor_revision() == original
+    finally:
+        revision.extraction_artifact_manifest.cache_clear()
 
 
 def test_extractor_revision_rejects_a_source_outside_the_manifest() -> None:

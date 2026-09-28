@@ -1,4 +1,4 @@
-"""J-Quants共通の値・日付・code正規化。取得処理から独立しEDINETの数値読取も共有する。"""
+"""J-Quants共通の値・日付・code正規化。取得処理から独立したprovider固有の変換。"""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from baibai_engine.market.bars import (
     JQuantsDailyBar,
     JQuantsMarketCalendarDay,
 )
-from baibai_engine.market.ticker import normalize_ticker
+from baibai_engine.market.ticker import SecurityCodeError, parse_security_code_parts
 
 
 class JQuantsProviderError(RuntimeError):
@@ -25,15 +25,10 @@ def parse_jquants_code(code: Any) -> str:
 
 
 def parse_jquants_code_parts(code: Any) -> tuple[str, bool]:
-    raw = str(code or "").strip().upper()
-    if len(raw) == 4:
-        return normalize_ticker(raw), True
-    if len(raw) == 5 and raw[:4].isalnum():
-        # ClientV2 payloads use 5-char local codes, while J-Quants 4-char
-        # code queries target common stock. Preserve the suffix only as the
-        # common-code flag instead of merging non-zero suffix lines.
-        return normalize_ticker(raw[:4]), raw.endswith("0")
-    raise JQuantsProviderError(f"invalid J-Quants code: {code!r}")
+    try:
+        return parse_security_code_parts(code)
+    except SecurityCodeError as exc:
+        raise JQuantsProviderError(f"invalid J-Quants code: {code!r}") from exc
 
 
 def normalize_daily_bar(record: Mapping[str, Any]) -> JQuantsDailyBar | None:
