@@ -166,31 +166,23 @@ Baibai Loop の Macro タブは、上から **現在のマクロ局面 → マ�
 
 ## ③ 環境認識：macro context report を publish する
 
-環境認識はapplication DBのimmutable revisionとして保存する。機械契約は`MacroContextDocument`、writerは`macro context publish`である。入力生成、前回比較、check、独立review、CAS発行と読戻しは[Macro Context skill](../../.agents/skills/macro-context/SKILL.md#手順)に集約する。
+環境認識はapplication DBのimmutable revisionとして保存する。機械契約は[MacroContextDocument](../../engine/src/baibai_engine/macro/context/models.py)、writerは`macro context publish`である。入力生成、前回比較、check、独立review、CAS発行と読戻しは[Macro Context skill](../../.agents/skills/macro-context/SKILL.md#手順)に集約する。
 
-レポートは **1 種類だけ**で、常に下記の深度契約を満たす full 深度で書く。軽い事実確認のための軽量版は持たない（その用途は §② が毎営業日 機械で果たす）。レポートの中心的な価値は **統合**にある: チャネル別の評価を並べるだけでは投資戦略の土台にならないため、複数チャネルを横断する支配的な力（synthesis）・確率付きシナリオ・機械見積りの歪み補正（estimate caveats）・バーゲン地形を、後述の機械契約と publish gate で必須にしている。
-
-**作成のきっかけは人間の判断だけ**である。定例義務・monitoring 発火時の更新義務・賞味期限の宣言は持たない。推奨リズムは (a) 米雇用統計の翌週、(b) スポットの資産運用判断の前、(c) Research Triage前にheadが古いとき、の3つで、書かない月があっても壊れるものは無い。鮮度の判断は読む側が持つ（後述の consumer 側鮮度規則）。
+Contextは常にfull深度で作り、統合評価・確率付きシナリオ・機械見積りの歪み補正・バーゲン地形を含める。日々の機械的な状況確認にはReadingを使う。作成は人間の判断で始め、定例義務や監視条件による自動更新を設けない。鮮度は読む側が判断する。
 
 <a id="3-層構成core環境評価synthesis統合評価connection積立ループ接続"></a>
 
 ### 3 層構成：core（環境評価）・synthesis（統合評価）・connection（日本株ループ接続）
 
-レポートは **core 10 セクション + synthesis + connection 1 セクション** で構成する。core は use-case agnostic な環境評価（チャネル別の evidence 層）であり、日本株ループ固有の語彙（sector tilt・research 優先度・sizing caution）を持たない。synthesis は core の上に載る統合層で、やはり use-case agnostic である。connection はループ固有の語彙を 1 か所へ隔離する。読み手の順は summary → synthesis → core → connection であり、executive な統合が evidence より先に来る。
+coreはチャネル別の環境評価、synthesisはチャネルを横断する力、connectionは日本株ループへの含意を所有する。読む順はsummary → synthesis → core → connectionとする。
 
-この分離は書き手の注意ではなく **参照方向の機械契約** で守る：connection が引用できる series は core が引用済みのものだけで、connection は依拠する core セクション（その series を実際に引用しているセクション）を `core_section_ids` で明示する。core 側へ sector tilt / research 優先度ヒント / sizing caution を書いた draft は schema が拒否する。series 以外の input（`screening market-snapshot` の市場内部やループ固有の記事）は connection が自分の入力として持ってよい——バーゲン地形は connection の担当であり、core を日本株ループの語彙で汚さないためである。ただし **prose は機械では縛れない**（core の judgment に行動指示を書き込むことは schema では止まらない）ので、そこは skill の敵対的 self-check と、publish 前に author と別 role が縦読みする独立レビューが受け持つ。core が単体で完結していることの構造的な証明になり、リポジトリ外のスポット資産運用判断の材料としてもそのまま読める。
+coreとsynthesisにはsector tilt・research優先度・sizing cautionを持ち込まない。connectionのseriesはcoreの引用に束縛し、市場snapshotやループ固有の記事はconnection自身の入力にできる。参照の機械検証はmodel、文章に行動指示が混入していないかは独立reviewが確認する。
 
 ### synthesis：支配的な力と相互作用
 
-synthesis は「今の市場を動かしているのは何か」を **dominant force** として名指しし、力ごとに機序（`summary`）・伝達経路（`transmission`）・**反証（`counter_evidence`）**・方向・確度を書く。複数チャネルへ波及する力を選び、相互作用が判断を変える場合は `interactions` に書く。機械契約は文章品質を代理判定せず、次の参照方向だけを守る：
+Readingの極値・flags・トレンド反転を8分析レンズと照合し、複数チャネルへ波及する力を選ぶ。力ごとに機序・伝達経路・方向・確度を説明し、支持と反証の一次情報を示す。相互作用が判断を変える場合に限り、その関係を書く。引用できるセクション・series・force間参照の厳密な制約はmodelを参照する。
 
-- 各 force は伝達チャネル 7 セクション（`rates_policy` / `growth_demand` / `inflation_costs` / `liquidity_credit` / `fx` / `japan` / `valuation`）から `core_section_ids` を名指しする（regime_summary・risk_environment・monitoring は名指せない）
-- force が引用できる series は、名指ししたセクションが引用済みのものだけで、series ごとに正常取得した input の引用も要る
-- `interactions` を書く場合は、宣言済みの force を 2 件以上 `force_ids` で名指しする
-
-force の候補は §② reading の flags・|z| 極値・percentile 端・トレンド反転を束ね、§④ の 8 分析レンズと突き合わせて立てる。1 つの力を支持する事実と反証する事実の両方を一次情報で集めてから書く。
-
-### セクション表と共通 field
+### セクション別の問い
 
 | 部 | 順 | セクション（`section_id`） | 確認するfact | judgmentと接続 |
 | --- | --- | --- | --- | --- |
