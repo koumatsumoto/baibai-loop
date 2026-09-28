@@ -1,4 +1,4 @@
-"""axes for evaluation."""
+"""Security Analysisの軸とquality bucketを評価する。"""
 
 from __future__ import annotations
 

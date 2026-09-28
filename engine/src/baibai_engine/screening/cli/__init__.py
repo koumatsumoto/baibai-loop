@@ -4,6 +4,8 @@
 public surface; submodules group the commands by responsibility.
 """
 
+from baibai_engine.market.edinet_metrics.service import extract_edinet_metrics_command
+
 from .app import build_parser, main
 from .cache import (
     backfill_history_command,
@@ -11,7 +13,6 @@ from .cache import (
     bootstrap_cache_command,
     invalidate_coverage_command,
 )
-from .edinet_extract import extract_edinet_metrics_command
 from .providers import ProviderBundle
 from .query import (
     market_snapshot_command,

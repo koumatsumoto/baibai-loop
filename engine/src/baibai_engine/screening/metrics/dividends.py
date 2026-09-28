@@ -1,4 +1,4 @@
-"""dividends for metrics."""
+"""配当・自己株取得と株主還元を、予想と実績のbasisで計算する。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,8 @@ from datetime import date, timedelta
 from itertools import pairwise
 
 from baibai_engine.foundation.date_utils import add_months_clamped
-from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent
+from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.screening.metrics.capital import (
     SHARE_COUNT_ANCHOR_TOLERANCE,
     _cumulative_adjustment_factor_after,
@@ -17,7 +18,6 @@ from baibai_engine.screening.metrics.capital import (
     _shares_excluding_treasury,
 )
 from baibai_engine.screening.metrics.periods import _accounting_observation_key
-from baibai_engine.screening.providers.jquants import JQuantsDailyBar, JQuantsFinancialSummary
 from baibai_engine.screening.schema import (
     UNRESOLVED_DIVIDEND_BASIS,
 )

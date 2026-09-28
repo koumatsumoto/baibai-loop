@@ -1,4 +1,4 @@
-"""capital for metrics."""
+"""株数・資本のbasisを揃え、会計entityの比較可否を判定する。"""
 
 from __future__ import annotations
 
@@ -8,15 +8,15 @@ from datetime import date
 from enum import Enum
 from math import exp, isclose, log
 
-from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent
+from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.market.jquants_models import JQuantsFinancialSummary
+from baibai_engine.market.providers.edinet import EdinetMetricRecord
 from baibai_engine.screening.metrics.periods import (
     _accounting_observation_key,
     _AccountingObservationKey,
     _actual_rows,
     _latest_non_null_row,
 )
-from baibai_engine.screening.providers.edinet import EdinetMetricRecord
-from baibai_engine.screening.providers.jquants import JQuantsDailyBar, JQuantsFinancialSummary
 
 
 @dataclass(frozen=True, slots=True)

@@ -18,12 +18,12 @@ from baibai_engine.market.lake.writer import (
     LegacySQLiteSnapshot,
     sealed_sqlite_snapshot,
 )
+from baibai_engine.market.sqlite.readiness import unreadable_store_reason
 
 from ..discovery.review_set import APPROACH_IDS
 from ..estimates import EXPECTED_RETURN_MODEL_VERSION
 from ..rule_config import ScreeningRules
 from ..rules_identity import production_rules_contract_hash
-from ..store_readiness import unreadable_store_reason
 from .context import CalibrationContextError, build_er_distribution_context
 from .evaluation import OPTIONAL_SENSITIVITY_METRICS, evaluate_cohorts
 from .evidence import (

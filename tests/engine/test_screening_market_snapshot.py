@@ -10,9 +10,9 @@ from pathlib import Path
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.market.sqlite.ingest import open_connection
 from baibai_engine.screening.cli import build_parser, market_snapshot_command
 from baibai_engine.screening.market_snapshot import build_market_snapshot
-from baibai_engine.screening.sqlite_cache import open_connection
 
 _ASOF = date(2026, 5, 29)
 

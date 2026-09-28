@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import date, timedelta
 
-from baibai_engine.screening import master_snapshot as master_contract
+from baibai_engine.market import master_snapshot as master_contract
 
 from .shared import CacheCoverageIssue
 

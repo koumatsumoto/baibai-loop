@@ -22,8 +22,8 @@ from tests.helpers.ledger import load_portfolio_ledger
 
 from baibai_engine.cli import main as engine_main
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.operation.cli import main as operation_main
 from baibai_engine.position.cli import main as position_main
+from baibai_engine.research.operation.cli import main as operation_main
 from baibai_engine.tasks.cli import main as task_main
 
 ROOT = Path(__file__).resolve().parents[2]

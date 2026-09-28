@@ -33,13 +33,13 @@ from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.macro.context.models import MacroContextDocument
 from baibai_engine.macro.context.service import MacroContextService
 from baibai_engine.macro.indicators.cli import main as macro_main
-from baibai_engine.operation.models import OperationPayload
-from baibai_engine.operation.service import OperationCompletionError, OperationService
 from baibai_engine.research.capital_allocation import (
     CapitalAllocationAssessment,
     capital_allocation_draft_sha256,
 )
 from baibai_engine.research.capital_allocation_service import CapitalAllocationAssessmentService
+from baibai_engine.research.operation.models import OperationPayload
+from baibai_engine.research.operation.service import OperationCompletionError, OperationService
 from baibai_engine.research.thesis_store import ThesisStoreService
 from baibai_engine.research.workspace_cli import main as research_main
 from baibai_engine.screening.discovery.review_set import PublishedReviewSet

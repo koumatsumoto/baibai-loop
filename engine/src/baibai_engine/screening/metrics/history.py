@@ -1,4 +1,4 @@
-"""history for metrics."""
+"""価格履歴からvaluation・出来高・volatilityを導出する。"""
 
 from __future__ import annotations
 
@@ -7,8 +7,11 @@ from datetime import date
 from math import sqrt
 from statistics import mean
 
-from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, asof_basis_closes
-from baibai_engine.screening.providers.jquants import JQuantsDailyBar
+from baibai_engine.market.bars import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+    asof_basis_closes,
+)
 from baibai_engine.screening.schema import (
     FinancialSnapshot,
 )

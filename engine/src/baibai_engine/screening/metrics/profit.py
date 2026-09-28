@@ -1,4 +1,4 @@
-"""profit for metrics."""
+"""実績と予想の利益basisを選び、収益性を計算する。"""
 
 from __future__ import annotations
 
@@ -8,14 +8,14 @@ from datetime import date
 from math import isfinite
 from statistics import fmean
 
-from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent
+from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.screening.metrics.capital import _normalize_summaries_to_asof_basis
 from baibai_engine.screening.metrics.dividends import (
     _latest_consecutive_values,
     _latest_fy_revisions,
 )
 from baibai_engine.screening.metrics.periods import _carry_forward, _latest_summary, _ttm_value
-from baibai_engine.screening.providers.jquants import JQuantsDailyBar, JQuantsFinancialSummary
 from baibai_engine.screening.rule_config import TTMRules
 from baibai_engine.screening.schema import (
     OperatingProfitSource,

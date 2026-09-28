@@ -14,17 +14,19 @@ from tests.helpers.research_triage import (
     skip_entry,
 )
 
-from baibai_engine.operation.models import OperationPayload
-from baibai_engine.operation.service import OperationService
 from baibai_engine.position.ledger import ContributionEvent
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research import workspace as workspace_module
+from baibai_engine.research.operation.models import OperationPayload
+from baibai_engine.research.operation.service import OperationService
 from baibai_engine.research.workspace import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceDataError,
     compute_status,
     prepare_workspace,
 )
+from baibai_engine.research.workspace import prepare as workspace_prepare
+from baibai_engine.research.workspace import validation as workspace_validation
 from baibai_engine.research.workspace_cli import main as research_main
 from baibai_engine.screening.discovery.review_set import PublishedReviewSet
 from baibai_engine.screening.research_triage import (
@@ -121,7 +123,7 @@ def test_research_resumes_reordered_set_and_keeps_prepare_context(
     context_file.write_text("original calibration")
     context = {"generated_at": "2026-07-19T09:00:00+09:00", "summary": "prepare context"}
     monkeypatch.setattr(
-        workspace_module,
+        workspace_prepare,
         "_load_er_distribution_context",
         lambda **kwargs: context,
     )
@@ -212,7 +214,7 @@ def test_status_and_promote_share_case_eligibility(tmp_path: Path, mutation: str
     review_path.write_text(yaml.safe_dump(review))
     if mutation in {"review-missing", "arithmetic-missing"}:
         review_path.unlink()
-    read = mocker.spy(workspace_module, "_load_mapping")
+    read = mocker.spy(workspace_validation, "_load_mapping")
     status = compute_status(workspace, db_path=db, now=CASE_NOW)
     case = status["cases"][0]
     assert case["status"] != "ready_for_promotion"
@@ -276,7 +278,7 @@ def test_prepare_and_status_need_only_published_triage_id(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        workspace_module, "ER_LEVEL_CALIBRATION_CONTEXT_PATH", tmp_path / "missing-context.yaml"
+        workspace_prepare, "ER_LEVEL_CALIBRATION_CONTEXT_PATH", tmp_path / "missing-context.yaml"
     )
     db_path = tmp_path / "app.sqlite"
     triage = _publish_triage(db_path)

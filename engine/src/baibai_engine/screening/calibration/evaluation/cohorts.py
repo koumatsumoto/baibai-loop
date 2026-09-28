@@ -1,4 +1,4 @@
-"""cohorts for evaluation."""
+"""同じcohortのaxis・Discovery・sensitivity評価を組み合わせる。"""
 
 from __future__ import annotations
 

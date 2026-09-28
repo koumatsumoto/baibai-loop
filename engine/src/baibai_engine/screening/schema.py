@@ -8,10 +8,9 @@ from typing import Annotated, Any
 from pydantic import ConfigDict, Field, field_validator, model_validator
 from pydantic.dataclasses import dataclass
 
+from baibai_engine.market.metric_quality import OperatingProfitSource as OperatingProfitSource
+from baibai_engine.market.metric_quality import TTMQuality as TTMQuality
 from baibai_engine.market.ticker import normalize_ticker as normalize_ticker
-
-from .metric_quality import OperatingProfitSource as OperatingProfitSource
-from .metric_quality import TTMQuality as TTMQuality
 
 _MODEL_CONFIG = ConfigDict(
     strict=True,
@@ -42,20 +41,6 @@ def _validate_finite(value: float | None) -> float | None:
     if value is not None and not isfinite(value):
         raise ValueError("numeric values must be finite")
     return value
-
-
-@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
-class SecurityMaster:
-    ticker: Ticker
-    name: NonEmptyString
-    market_segment: NonEmptyString
-    sector_33: NonEmptyString
-    is_common_stock: bool
-
-    @field_validator("ticker", mode="before")
-    @classmethod
-    def _normalize_ticker(cls, value: str) -> str:
-        return normalize_ticker(value)
 
 
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)

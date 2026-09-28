@@ -1,4 +1,4 @@
-"""discovery for evaluation."""
+"""Candidate Discoveryの選抜をcohort上で再現する。"""
 
 from __future__ import annotations
 

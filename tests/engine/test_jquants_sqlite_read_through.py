@@ -14,9 +14,9 @@ ROOT = Path(__file__).resolve().parents[2]
 
 from tests.helpers.screening_sqlite import add_source_coverage, make_master_records
 
+from baibai_engine.market.providers.jquants import JQuantsProvider, JQuantsProviderError
 from baibai_engine.market.sqlite import range_covered
-from baibai_engine.screening.providers.jquants import JQuantsProvider, JQuantsProviderError
-from baibai_engine.screening.sqlite_cache import (
+from baibai_engine.market.sqlite.ingest import (
     open_connection,
     store_jquants_daily_bars,
     store_jquants_fin_summaries,
@@ -199,7 +199,7 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
         provider = JQuantsProvider("token", Path(".cache"), client=object())
         with (
             patch(
-                "baibai_engine.market.provider.time.sleep",
+                "baibai_engine.market.providers.jquants.time.sleep",
                 side_effect=lambda seconds: events.append(seconds),
             ),
             self.assertRaises(JQuantsProviderError),
@@ -222,7 +222,7 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
 
         provider = JQuantsProvider("token", Path(".cache"), client=object())
         with (
-            patch("baibai_engine.market.provider.time.sleep") as sleep,
+            patch("baibai_engine.market.providers.jquants.time.sleep") as sleep,
             self.assertRaises(JQuantsProviderError),
         ):
             provider._call_with_retry("get_eq_master", fail_once, date="2026-08-01")
@@ -550,7 +550,7 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             client = _RecordingClient()
             provider = JQuantsProvider("token", cache_dir, client=client, sqlite_path=sqlite_path)
 
-            with patch("baibai_engine.market.provider.time.sleep") as sleep:
+            with patch("baibai_engine.market.providers.jquants.time.sleep") as sleep:
                 bars = provider.get_eq_bars_daily_range(date(2024, 3, 19), date(2024, 5, 20))
 
             self.assertNotIn(("2024-03-19", "2024-04-18"), client.bars_calls)
@@ -625,7 +625,7 @@ class FinSummaryFetchWindowTests(unittest.TestCase):
             provider = JQuantsProvider(
                 "token", Path(tmp) / "raw", client=client, sqlite_path=sqlite_path
             )
-            with patch("baibai_engine.market.provider.time.sleep"):
+            with patch("baibai_engine.market.providers.jquants.time.sleep"):
                 provider.get_fin_summary_range(self._START, self._END)
             return client.fin_calls
 
@@ -719,7 +719,7 @@ class FinSummaryFetchWindowTests(unittest.TestCase):
             provider = JQuantsProvider(
                 "token", Path(tmp) / "raw", client=client, sqlite_path=sqlite_path
             )
-            with patch("baibai_engine.market.provider.time.sleep"):
+            with patch("baibai_engine.market.providers.jquants.time.sleep"):
                 provider.refresh_fin_summary_range(
                     self._START, self._END, revision_overlap_days=overlap
                 )
@@ -775,7 +775,7 @@ class FinSummaryFetchWindowTests(unittest.TestCase):
                 "token", Path(tmp) / "raw", client=_FinRecordingClient(), sqlite_path=sqlite_path
             )
 
-            with patch("baibai_engine.market.provider.time.sleep") as sleep:
+            with patch("baibai_engine.market.providers.jquants.time.sleep") as sleep:
                 provider.refresh_fin_summary_range(self._START, self._END, revision_overlap_days=7)
 
             sleep.assert_called_once_with(3.0)
@@ -849,7 +849,7 @@ class FinSummaryFetchWindowTests(unittest.TestCase):
             progress: list[tuple[int, int, date, date]] = []
 
             with (
-                patch("baibai_engine.market.provider.time.sleep"),
+                patch("baibai_engine.market.providers.jquants.time.sleep"),
                 self.assertRaisesRegex(JQuantsProviderError, "interrupted"),
             ):
                 provider.refresh_fin_summary_range(
@@ -904,7 +904,7 @@ class FinSummaryFetchWindowTests(unittest.TestCase):
                 "token", Path(tmp) / "raw", client=client, sqlite_path=sqlite_path
             )
 
-            with patch("baibai_engine.market.provider.time.sleep"):
+            with patch("baibai_engine.market.providers.jquants.time.sleep"):
                 provider.refresh_fin_summary_range(self._START, self._END, revision_overlap_days=7)
                 provider.get_fy_summary_range(normalized_start, self._END)
 
@@ -943,7 +943,9 @@ class CachedRangeInspectionCostTests(unittest.TestCase):
                 "token", Path(tmp) / "raw", client=_RecordingClient(), sqlite_path=sqlite_path
             )
 
-            with patch("baibai_engine.market.provider.read_daily_bars", side_effect=AssertionError):
+            with patch(
+                "baibai_engine.market.providers.jquants.read_daily_bars", side_effect=AssertionError
+            ):
                 rows = provider.ensure_eq_bars_daily_range(date(2024, 3, 19), date(2024, 4, 18))
 
             self.assertEqual(rows, 31)
@@ -956,8 +958,11 @@ class CachedRangeInspectionCostTests(unittest.TestCase):
             )
 
             with (
-                patch("baibai_engine.market.provider.read_daily_bars", side_effect=AssertionError),
-                patch("baibai_engine.market.provider.time.sleep"),
+                patch(
+                    "baibai_engine.market.providers.jquants.read_daily_bars",
+                    side_effect=AssertionError,
+                ),
+                patch("baibai_engine.market.providers.jquants.time.sleep"),
             ):
                 provider._fetch_missing_range_chunks(
                     "get_eq_bars_daily_range", date(2024, 3, 19), date(2024, 5, 20)
@@ -978,10 +983,10 @@ class CachedRangeInspectionCostTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.screening.sqlite_reader.read_fin_summaries",
+                    "baibai_engine.market.sqlite.reader.read_fin_summaries",
                     side_effect=AssertionError,
                 ),
-                patch("baibai_engine.market.provider.time.sleep"),
+                patch("baibai_engine.market.providers.jquants.time.sleep"),
             ):
                 provider._fetch_missing_range_chunks(
                     "get_fin_summary_range", date(2024, 4, 1), date(2024, 5, 31)

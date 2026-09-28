@@ -1,4 +1,4 @@
-"""policy for evaluation."""
+"""較正評価で共有するbucket・閾値・出力契約。"""
 
 from __future__ import annotations
 

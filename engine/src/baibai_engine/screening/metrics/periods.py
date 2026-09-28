@@ -1,4 +1,4 @@
-"""periods for metrics."""
+"""会計期間を整列し、TTMと前年比較の対象を選ぶ。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from datetime import date
 
 from baibai_engine.foundation.date_utils import add_months_clamped
-from baibai_engine.screening.providers.jquants import JQuantsFinancialSummary
+from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.screening.rule_config import TTMRules
 from baibai_engine.screening.schema import (
     TTMQuality,

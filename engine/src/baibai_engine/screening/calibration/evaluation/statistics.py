@@ -1,4 +1,4 @@
-"""statistics for evaluation."""
+"""較正評価に共通する統計計算。"""
 
 from __future__ import annotations
 

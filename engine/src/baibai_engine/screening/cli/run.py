@@ -13,6 +13,10 @@ from baibai_engine.foundation.date_utils import weekday_distance
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.market.providers.edinet import EdinetMetricRecord, EDINETProviderError
+from baibai_engine.market.providers.jpx import JPXEarningsCalendarEntry, JPXProviderError
+from baibai_engine.market.providers.jquants import JQuantsProviderError
+from baibai_engine.market.valuation_catalysts import read_valuation_catalyst_contexts
 from baibai_engine.screening.config import (
     ScreeningConfig,
 )
@@ -26,6 +30,7 @@ from baibai_engine.screening.freshness import (
     detect_edinet_freshness_warnings,
     load_disclosure_events,
 )
+from baibai_engine.screening.margin_inputs import read_margin_supply_demand_inputs
 from baibai_engine.screening.metrics import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,
@@ -36,14 +41,6 @@ from baibai_engine.screening.metrics import (
     group_adjustment_events_by_ticker,
     group_bars_by_ticker,
     group_summaries_by_ticker,
-)
-from baibai_engine.screening.providers.edinet import (
-    EdinetMetricRecord,
-    EDINETProviderError,
-)
-from baibai_engine.screening.providers.jpx import JPXEarningsCalendarEntry, JPXProviderError
-from baibai_engine.screening.providers.jquants import (
-    JQuantsProviderError,
 )
 from baibai_engine.screening.rule_config import ScreeningRules, load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
@@ -61,9 +58,7 @@ from baibai_engine.screening.universe import (
     build_universe,
     candidate_comparison_population,
 )
-from baibai_engine.screening.valuation_catalysts import read_valuation_catalyst_contexts
 
-from ..sqlite_reader import read_margin_supply_demand_inputs
 from .providers import ProviderBundle
 
 

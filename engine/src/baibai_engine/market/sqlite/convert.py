@@ -8,7 +8,7 @@ from datetime import date
 from math import isfinite
 from typing import Any
 
-from baibai_engine.market.jquants import (
+from baibai_engine.market.providers.jquants_decode import (
     JQuantsProviderError,
     is_missing_scalar,
     parse_jquants_code_parts,

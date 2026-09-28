@@ -1,4 +1,4 @@
-"""sensitivity for evaluation."""
+"""tail除去とregime分割による評価の感度を測る。"""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""aggregate for evaluation."""
+"""cohort評価を集約し、較正の要約とbias比較を作る。"""
 
 from __future__ import annotations
 

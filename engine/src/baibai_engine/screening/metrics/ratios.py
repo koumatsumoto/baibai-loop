@@ -1,4 +1,4 @@
-"""ratios for metrics."""
+"""欠測とゼロ除算を保持する比率計算。"""
 
 from __future__ import annotations
 
