@@ -1,55 +1,19 @@
-"""Show screening, assessment, and security state through stock read models."""
+"""ScreeningとReview Setを保存済み判断に束縛して表示する。"""
 
 from __future__ import annotations
 
-from collections.abc import (
-    Mapping,
-)
-from dataclasses import dataclass
-from datetime import (
-    date,
-    datetime,
-    timedelta,
-)
-from zoneinfo import (
-    ZoneInfo,
-)
+from collections.abc import Mapping
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
-from baibai_engine.read_api import (
-    HoldingSnapshot,
-    PortfolioLedgerError,
-    PortfolioSnapshot,
-)
-from baibai_web.sources.db_sources import (
-    DbScreeningSource,
-)
-from baibai_web.sources.protocols import (
-    LedgerSource,
-    MarketPriceSource,
-    ResearchSource,
-    ScreeningSource,
-)
-from baibai_web.sources.types import (
-    ErLevelCalibrationContext,
-    ResearchRevision,
-    ScreeningRunRecord,
-    ThesisDetail,
-)
-
-from .builders import _holding_view, _number, _text
-from .models import (
-    AllocationAlternativeView,
-    AssessmentReviewView,
+from baibai_web.readmodel.builders.presentation import number, text
+from baibai_web.readmodel.models import (
     CapitalAllocationAssessmentSummaryView,
-    CapitalAllocationAssessmentView,
     ErLevelCalibrationBandView,
     ErLevelCalibrationBasisView,
     ErLevelCalibrationContextView,
     ErLevelCalibrationHorizonView,
     ErLevelCalibrationStatsView,
-    PortfolioState,
-    PositionReviewView,
-    ResearchRevisionView,
     ResearchTriageEntryView,
     ResearchTriageView,
     ReviewSetAnalysisView,
@@ -61,12 +25,26 @@ from .models import (
     ScreeningRunView,
     ScreeningView,
     SecurityAnalysisRowView,
-    SecurityDetailView,
-    ThesisDetailView,
+)
+from baibai_web.readmodel.stocks.presentation import (
+    _held_and_reserved_tickers,
+    _mapping_items,
+    _mapping_items_optional,
+    _portfolio_state,
+)
+from baibai_web.readmodel.stocks.research import _assessment_summary_view
+from baibai_web.sources.db_sources import DbScreeningSource
+from baibai_web.sources.protocols import (
+    LedgerSource,
+    ResearchSource,
+    ScreeningSource,
+)
+from baibai_web.sources.types import (
+    ErLevelCalibrationContext,
+    ScreeningRunRecord,
 )
 
 _JST = ZoneInfo("Asia/Tokyo")
-
 
 _NUMERIC_FIELDS = (
     "market_cap_oku",
@@ -81,7 +59,6 @@ _NUMERIC_FIELDS = (
     "gap_from_52w_low",
     "sector_relative_strength_percentile",
 )
-
 
 _METRIC_FIELDS = (
     "dividend_yield",
@@ -103,9 +80,7 @@ _METRIC_FIELDS = (
     "margin_std_long_share",
 )
 
-
 _METRIC_TEXT_FIELDS = ("dividend_basis",)
-
 
 _STALE_RUN_AGE = timedelta(days=7)
 
@@ -298,82 +273,6 @@ def build_screening_history_run(
     )
 
 
-def build_assessment_detail(
-    research: ResearchSource,
-    *,
-    capital_allocation_assessment_id: str,
-) -> CapitalAllocationAssessmentView | None:
-    """Build one published capital-allocation assessment for the detail page."""
-
-    raw = research.assessment(capital_allocation_assessment_id)
-    if raw is None:
-        return None
-    return _assessment_view(raw)
-
-
-def _assessment_summary_view(raw: Mapping[str, object]) -> CapitalAllocationAssessmentSummaryView:
-    alternatives = _mapping_items_optional(raw.get("alternatives"))
-    allocated = next(
-        (
-            str(alternative["ticker"])
-            for alternative in alternatives
-            if alternative.get("disposition") == "allocate"
-        ),
-        None,
-    )
-    return CapitalAllocationAssessmentSummaryView(
-        capital_allocation_assessment_id=str(raw["capital_allocation_assessment_id"]),
-        as_of=date.fromisoformat(str(raw["as_of"])),
-        published_at=datetime.fromisoformat(str(raw["published_at"])),
-        decision=str(raw["result"]),
-        headline=str(raw["headline"]),
-        research_triage_id=str(raw["research_triage_id"]),
-        alternative_count=len(alternatives),
-        allocated_ticker=allocated,
-    )
-
-
-def _assessment_view(
-    raw: Mapping[str, object],
-) -> CapitalAllocationAssessmentView:
-    return CapitalAllocationAssessmentView(
-        capital_allocation_assessment_id=str(raw["capital_allocation_assessment_id"]),
-        as_of=date.fromisoformat(str(raw["as_of"])),
-        published_at=datetime.fromisoformat(str(raw["published_at"])),
-        decision=str(raw["result"]),
-        headline=str(raw["headline"]),
-        research_triage_id=str(raw["research_triage_id"]),
-        macro_context_id=_text(raw.get("macro_context_id")),
-        comparison=str(raw["comparison"]),
-        foregone_alternatives=str(raw["forgone"]),
-        alternatives=[
-            _allocation_alternative_view(item)
-            for item in _mapping_items_optional(raw.get("alternatives"))
-        ],
-        content_review=AssessmentReviewView.model_validate(raw["review"]),
-    )
-
-
-def _allocation_alternative_view(raw: Mapping[str, object]) -> AllocationAlternativeView:
-    projection = raw.get("thesis_projection")
-    machine_values = projection if isinstance(projection, Mapping) else {}
-    return AllocationAlternativeView(
-        ticker=str(raw["ticker"]),
-        disposition=str(raw["disposition"]),
-        rationale=str(raw["rationale"]),
-        thesis_id=str(raw["thesis_id"]),
-        thesis_review_id=_text(raw.get("thesis_review_id")),
-        case_status=_text(_mapping_optional(machine_values.get("investment_case")).get("status")),
-        base_annualized_return_pct=_number(
-            _mapping_optional(_mapping_optional(machine_values.get("projections")).get("base")).get(
-                "annualized_return_pct"
-            )
-        ),
-        pmax_raw_yen=_number(machine_values.get("pmax_raw_yen")),
-        valuation_as_of=_text(machine_values.get("as_of")),
-    )
-
-
 def _machine_review_set_view(raw: Mapping[str, object]) -> ReviewSetView:
     payload = raw.get("payload")
     if not isinstance(payload, Mapping):
@@ -405,8 +304,8 @@ def _review_set_entries_entry_view(raw: Mapping[str, object]) -> ReviewSetEntryV
     normalized_analysis = {**analysis, "context": normalized_context}
     return ReviewSetEntryView(
         ticker=str(raw.get("ticker", "")),
-        name=_text(raw.get("name")),
-        sector_33=_text(raw.get("sector_33")),
+        name=text(raw.get("name")),
+        sector_33=text(raw.get("sector_33")),
         nominations=[ReviewSetNominationView.model_validate(item) for item in nominations],
         analysis=ReviewSetAnalysisView.model_validate(normalized_analysis),
     )
@@ -450,172 +349,6 @@ def _research_triage_view(raw: Mapping[str, object]) -> ResearchTriageView:
         published_at=datetime.fromisoformat(str(raw["published_at"])),
         entries=entries,
     )
-
-
-def _mapping_items_optional(value: object) -> list[Mapping[str, object]]:
-    return [] if value is None else _mapping_items(value)
-
-
-@dataclass(frozen=True)
-class PreparedSecurityInputs:
-    """銘柄詳細を見せるための索引を、1回のexportまたはrequest内で共有する。"""
-
-    today: date
-    run: ScreeningRunRecord | None
-    rows: Mapping[str, Mapping[str, object]]
-    revisions: Mapping[str, list[ResearchRevision]]
-    holdings: Mapping[str, HoldingSnapshot]
-    reserved: set[str]
-    fair_value: Mapping[str, ReviewSetEntryView]
-
-
-def prepare_security_inputs(
-    ledger: LedgerSource,
-    research: ResearchSource,
-    screening: ScreeningSource,
-) -> PreparedSecurityInputs:
-    today = datetime.now(_JST).date()
-    revisions: dict[str, list[ResearchRevision]] = {}
-    for revision in research.revisions():
-        revisions.setdefault(revision.ticker, []).append(revision)
-    run, review_sets = _operative_run(screening)
-    rows: dict[str, Mapping[str, object]] = {}
-    if run is not None:
-        for row in run.rows:
-            rows.setdefault(str(row.get("ticker", "")), row)
-    snapshot = _safe_snapshot(ledger)
-    return PreparedSecurityInputs(
-        today=today,
-        run=run,
-        rows=rows,
-        revisions=revisions,
-        holdings={} if snapshot is None else {item.ticker: item for item in snapshot.holdings},
-        reserved=set()
-        if snapshot is None
-        else {item.ticker for item in snapshot.active_reservations},
-        fair_value=_fair_value_by_ticker(review_sets),
-    )
-
-
-def build_security_detail(
-    ticker: str,
-    ledger: LedgerSource,
-    research: ResearchSource,
-    screening: ScreeningSource,
-    market: MarketPriceSource,
-    *,
-    prepared: PreparedSecurityInputs | None = None,
-) -> SecurityDetailView | None:
-    """Build one security page, returning None only when no source knows the ticker."""
-
-    inputs = (
-        prepared if prepared is not None else prepare_security_inputs(ledger, research, screening)
-    )
-    today = inputs.today
-    revisions = inputs.revisions.get(ticker, [])
-    latest_revision = revisions[0] if revisions else None
-    run = inputs.run
-    raw_security_analysis = inputs.rows.get(ticker)
-    holding_snapshot = inputs.holdings.get(ticker)
-    if holding_snapshot is None and latest_revision is None and raw_security_analysis is None:
-        return None
-
-    security_name = (
-        _text(raw_security_analysis.get("name")) if raw_security_analysis is not None else None
-    )
-    security_sector = (
-        _text(raw_security_analysis.get("sector_33")) if raw_security_analysis is not None else None
-    )
-    holding = (
-        _holding_view(
-            holding_snapshot,
-            revision=latest_revision,
-            security_name=security_name,
-            next_earnings_date=market.next_earnings_dates([ticker], as_of=today).get(ticker),
-        )
-        if holding_snapshot is not None
-        else None
-    )
-    latest_thesis = (
-        _thesis_detail_view(research.thesis_detail(latest_revision.thesis_id))
-        if latest_revision is not None
-        else None
-    )
-    reserved_here = {ticker} if ticker in inputs.reserved else set()
-    security_analysis = (
-        _security_analysis_row_view(
-            raw_security_analysis,
-            held={ticker} if holding_snapshot is not None else set(),
-            reserved=reserved_here,
-            researched={ticker} if revisions else set(),
-            fair_value=inputs.fair_value,
-        )
-        if raw_security_analysis is not None
-        else None
-    )
-    return SecurityDetailView(
-        ticker=ticker,
-        company_name=(
-            latest_revision.company_name if latest_revision is not None else security_name
-        ),
-        sector=(
-            latest_revision.sector
-            if latest_revision is not None
-            else security_sector
-            or (holding_snapshot.sector if holding_snapshot is not None else None)
-        ),
-        holding=holding,
-        revisions=[_research_revision_view(item) for item in revisions],
-        latest_thesis=latest_thesis,
-        position_reviews=[
-            PositionReviewView(
-                position_review_id=item.position_review_id,
-                as_of=item.as_of,
-                thesis_id=item.thesis_id,
-                action=item.action,
-                note=item.note,
-            )
-            for item in research.position_reviews(ticker=ticker)
-        ],
-        security_analysis=security_analysis,
-        screening_run=(_screening_run_view(run, today=today) if run is not None else None),
-    )
-
-
-def _mapping_items(value: object) -> list[Mapping[str, object]]:
-    if not isinstance(value, list) or not all(isinstance(item, Mapping) for item in value):
-        raise ValueError("expected an array of objects")
-    return [item for item in value if isinstance(item, Mapping)]
-
-
-def _safe_snapshot(ledger: LedgerSource) -> PortfolioSnapshot | None:
-    if not ledger.exists():
-        return None
-    try:
-        return ledger.snapshot()
-    except PortfolioLedgerError:
-        return None
-
-
-def _held_and_reserved_tickers(ledger: LedgerSource) -> tuple[set[str], set[str]]:
-    snapshot = _safe_snapshot(ledger)
-    if snapshot is None:
-        return set(), set()
-    held = {item.ticker for item in snapshot.holdings}
-    reserved = {item.ticker for item in snapshot.active_reservations}
-    return held, reserved
-
-
-def _portfolio_state(ticker: str, *, held: set[str], reserved: set[str]) -> PortfolioState:
-    is_held = ticker in held
-    is_reserved = ticker in reserved
-    if is_held and is_reserved:
-        return "held_and_reserved"
-    if is_held:
-        return "held"
-    if is_reserved:
-        return "reserved"
-    return "unheld"
 
 
 def _data_quality_flags(row: Mapping[str, object], metrics: Mapping[str, object]) -> list[str]:
@@ -670,22 +403,22 @@ def _security_analysis_row_view(
     ticker = str(row.get("ticker", ""))
     metrics_raw = row.get("metrics")
     metrics = metrics_raw if isinstance(metrics_raw, Mapping) else {}
-    values = {name: _number(row.get(name)) for name in _NUMERIC_FIELDS}
-    values.update({name: _number(metrics.get(name)) for name in _METRIC_FIELDS})
-    # 文字列の annotation は `_number` を通すと必ず None になるので別に詰める。
+    values = {name: number(row.get(name)) for name in _NUMERIC_FIELDS}
+    values.update({name: number(metrics.get(name)) for name in _METRIC_FIELDS})
+    # 文字列の annotation は `number` を通すと必ず None になるので別に詰める。
     # `dividend_basis` は「配当利回りが空である理由」を持つ唯一の field で、
     # unresolved_split_basis を無配と読み違えないために Security Analysis 一覧まで届ける必要がある。
-    text_values = {name: _text(metrics.get(name)) for name in _METRIC_TEXT_FIELDS}
+    text_values = {name: text(metrics.get(name)) for name in _METRIC_TEXT_FIELDS}
     flags = _data_quality_flags(row, metrics)
     review_entry = (fair_value or {}).get(ticker)
     anchor = _review_entry_fair_value(review_entry)
-    market_price = _number(metrics.get("market_price_yen"))
+    market_price = number(metrics.get("market_price_yen"))
     return SecurityAnalysisRowView(
         ticker=ticker,
-        name=_text(row.get("name")),
-        sector_33=_text(row.get("sector_33")),
-        next_earnings_date=_text(row.get("next_earnings_date")),
-        margin_week_end=_text(metrics.get("margin_week_end")),
+        name=text(row.get("name")),
+        sector_33=text(row.get("sector_33")),
+        next_earnings_date=text(row.get("next_earnings_date")),
+        margin_week_end=text(metrics.get("margin_week_end")),
         data_quality_flags=flags,
         portfolio_state=_portfolio_state(ticker, held=held, reserved=reserved),
         has_research=ticker in researched,
@@ -788,24 +521,3 @@ def _er_level_calibration_view(
             for item in context.horizons
         ],
     )
-
-
-def _research_revision_view(revision: ResearchRevision) -> ResearchRevisionView:
-    return ResearchRevisionView(
-        as_of=revision.as_of,
-        thesis_id=revision.thesis_id,
-        disposition=revision.disposition,
-        pmax_raw_yen=revision.pmax_raw_yen,
-        review_id=revision.review_id,
-        status=revision.status,
-    )
-
-
-def _thesis_detail_view(detail: ThesisDetail) -> ThesisDetailView:
-    return ThesisDetailView(
-        revision=_research_revision_view(detail.revision), projection=detail.projection
-    )
-
-
-def _mapping_optional(value: object) -> Mapping[str, object]:
-    return value if isinstance(value, Mapping) else {}

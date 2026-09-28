@@ -715,7 +715,7 @@ def test_every_worker_view_route_is_produced_by_the_exporter() -> None:
 def test_export_reuses_research_history_and_ledger_per_export(
     app_method_root: Path, tmp_path: Path, count: int, mocker
 ) -> None:
-    from baibai_web.readmodel import stocks
+    from baibai_web.readmodel.stocks import screening as stocks
     from baibai_web.sources import db_sources
 
     prepare = mocker.spy(export_module, "prepare_security_inputs")

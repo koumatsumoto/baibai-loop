@@ -10,12 +10,8 @@ from baibai_engine.appdb.json import canonical_json
 from baibai_engine.screening.discovery.review_set import build_review_set
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.run_store import ScreeningRunStore
-from baibai_web.readmodel.stocks import (
-    _operative_run,
-    _review_set_entries_entry_view,
-    build_screening,
-    build_security_detail,
-)
+from baibai_web.readmodel.stocks import build_screening, build_security_detail
+from baibai_web.readmodel.stocks.screening import _operative_run, _review_set_entries_entry_view
 from baibai_web.sources.db_sources import DbScreeningSource
 
 

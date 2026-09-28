@@ -181,7 +181,7 @@ def test_review_set_delta_retains_every_entry_in_ticker_order(count, er):
 
     from baibai_batch.jobs.daily import _delta_ticker_labels, _Notice
     from baibai_batch.observability.discord import render_delta
-    from baibai_web.readmodel.builders import _review_set_deltas
+    from baibai_web.readmodel.builders.daily_delta import _review_set_deltas
 
     current = {
         str(1000 + i): {"ticker": str(1000 + i), "analysis": {"expected_return": {"er_annual": er}}}
