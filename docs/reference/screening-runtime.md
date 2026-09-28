@@ -35,12 +35,12 @@ Security Analysisは`observed / derived / estimate`を混同しない。欠損�
 
 共通eligibilityは時価総額100億円以上、上場期間182日以上、JPX flag、これら必須factの有無だけを扱う。ADVは値が低い場合も欠損時も除外に使わず、Security Analysis、Review Set、Research Triage、UIへ執行可能性のcontextとして残す。その後、各approachが独立にnominateする。現行の採用値は[screening rules](../../method/screening/rules/)、完全なeligibility・並び順・method hashは[Review Set実装](../../engine/src/baibai_engine/screening/discovery/review_set.py)を正本とする。
 
-| valuation approach | 主座標 | target |
-| --- | --- | ---: |
-| `current-earnings-power` | sector-relative current PER、current cash-flow yield | 20 |
-| `normalized-earnings-power` | 3FY normalized PERのsector gap | 20 |
-| `asset-value` | 正のasset-backed ratio、PBR context | 20 |
-| `reinvestment-value` | 割安なsector-relative P/S、sector-relative capital-return proxy / margin、growth、FCF yield | 20 |
+| valuation approach | 主座標 |
+| --- | --- |
+| `current-earnings-power` | sector-relative current PER、current cash-flow yield |
+| `normalized-earnings-power` | 3FY normalized PERのsector gap |
+| `asset-value` | 正のasset-backed ratio、PBR context |
+| `reinvestment-value` | 割安なsector-relative P/S、sector-relative capital-return proxy / margin、growth、FCF yield |
 
 Asset Valueは正のasset-backed ratioを持つ非金融企業を対象とする。金融業ではcash、debt、securitiesが事業上のasset / fundingそのものなので、非金融企業向けgross asset proxyを残余価値として適用しない。net cashは比較文脈として残し、候補の採否には使わない。
 
