@@ -24,11 +24,11 @@ uv run baibai-engine macro get jp.nikkei225 --start 2026-05-20 --end 2026-06-22
 uv run baibai-engine macro get jp.policy_rate --latest
 ```
 
-`get`は取得済み範囲を確認し、不足があればproviderを呼ぶ。同じcommand引数でもstore状態・source改定・実行日によって結果は変わる。計算の決定性は、保存入力・採用vintage・規則・as-ofが固定されている場合の性質である。`get --latest` はJSTの運用日を `asof` とし、§② の reading rules が観測日から求める次回公表目安 + 猶予までは cache を返し、境界を超えた場合は provider を再取得するため、公表ラグと鮮度判定の知識は reading rules が一元的に持つ。再取得する期間幅は鮮度閾値とは別の契約であり、service の `LATEST_FETCH_LOOKBACK_DAYS`（daily 14 日・weekly 60 日・monthly 以下 370 日）を `get --latest` と日次batchが共用する。
+`get`は取得済み範囲を確認し、不足があればproviderを呼ぶ。同じ引数でもstore状態・source改定・実行日によって結果は変わる。計算の決定性は保存入力・採用vintage・規則・as-ofが固定された場合の性質である。`get --latest`はJSTの運用日を基準に、[reading rules](../../engine/src/baibai_engine/macro/reading/rules.py)の公表ラグと猶予でcacheの鮮度を判定する。再取得の窓幅は鮮度閾値とは別で、[indicator service](../../engine/src/baibai_engine/macro/indicators/service.py)が日次batchと共有する。
 
-`refresh --all-history` は provider ごとの取得可能な先頭日から強制再取得する。派生系列（`derived` provider）は外部ソースを持たず入力系列の重なりが履歴なので、どの base 系列よりも古い床から入力を読み直して全期間を再計算する（base 系列を先に同期してから回す）。月次整列は月内の各入力の最終観測を使う。market data を月末まで使う数式は選択入力の最終観測日を出力日とし、月初への backdate を防ぐ。数式変更で observation grid を置換する系列は provider spec で個別に宣言し、既存 period を欠く候補なら削除前に失敗して履歴を保持する。FRED 系列は現在の `fredgraph.csv` が返す先頭日を再現可能な境界とし、その日より前の観測を残さない。各系列の observation は registry の `source_url` と一致する cache だけを保持し、同内容の連続 vintage は provider run に取得記録を残して observation から除く。値・単位・期間・取得状態・source が変わる revision と、値が変化して同じ水準へ戻る revision は保持する。JP provider の契約期間や公表 archive が先頭日を制限する場合は、実際の取得範囲と制約を運用記録へ残す。
+`refresh --all-history` は provider ごとの取得可能な先頭日から強制再取得する。派生系列（`derived` provider）は外部ソースを持たず入力系列の重なりが履歴なので、どの base 系列よりも古い床から入力を読み直して全期間を再計算する（base 系列を先に同期してから回す）。月次整列は月内の各入力の最終観測を使う。market data を月末まで使う数式は選択入力の最終観測日を出力日とし、月初への backdate を防ぐ。数式変更で observation grid を置換する系列は provider spec で個別に宣言し、既存 period を欠く候補なら削除前に失敗して履歴を保持する。FRED 系列は現在の `fredgraph.csv` が返す先頭日を再現可能な境界とし、その日より前の観測を残さない。各系列のobservationはregistryの`source_url`と一致するcacheだけを保持する。JP provider の契約期間や公表 archive が先頭日を制限する場合は、実際の取得範囲と制約を運用記録へ残す。
 
-observation は `(series_id, observed_at, vintage_at)` を主キーに upsert する。多くの provider は取得時刻を vintage として刻むが、挿入前に vintage を除いた内容（値・単位・期間・取得状態・source）を既存最新 vintage と比較し、変化が無ければその再取得行を捨てる。同内容の再取得ではobservationの重複vintageを増やさない。provider runには実際の取得記録が残るため、再実行してDB全体が不変になるという意味ではない。日次バッチは asof を終端とする frequency 別の窓（daily 14 日・weekly 60 日・monthly 以下 370 暦日）を毎回丸ごと再取得するため、窓内で起きた一時的な取得失敗は次の成功実行が同じ窓を引き直して自動でバックフィルする。窓を超える長期の取得断や旧 vintage の全面リベースが必要なときだけ `refresh --all-history` を運用レバーとして使う。
+同内容の再取得ではobservationのvintageを増やさず、provider runに取得記録を残す。値・単位・期間・取得状態・sourceが変わるrevisionや、変化後に同じ値へ戻るrevisionは保持する。日次batchはrolling窓を引き直すため窓内の取得断は次回成功時に埋まるが、窓外の欠落は[Macro履歴の復旧](../../batch/OPERATIONS.md#macro履歴)が必要になる。保存・重複排除は[indicator DB](../../engine/src/baibai_engine/macro/indicators/db.py)を参照する。
 
 誤って入った observation は削除では消えない。cloudとのmergeは双方のfactを戻すno-loss契約なので、localで消しても次のpushで復活する。撤回は対象日の最新vintageをCASで名指しし、その下の状態を新しいvintageとして記録する。同じ撤回を繰り返すと意図しない旧値を戻し得るため、期待vintageが変われば拒否する。derived系列の保存観測は入力の撤回だけでは消えない。操作順と失敗時の行き先は[運用手順](../../batch/OPERATIONS.md#macro観測とregistryの修正)に従う。
 
@@ -39,40 +39,35 @@ observation は `(series_id, observed_at, vintage_at)` を主キーに upsert �
 
 point-in-time provider（`jquants_flows`）では撤回の vintage が公表時刻ではなく操作時刻になるため、**撤回は撤回時刻以降の as-of にしか効かない**（それ以前の as-of での replay は撤回前の値を読み続ける。当時そう信じていたことの誠実な表現である）。同じ理由で、撤回時刻より前の公表 vintage を持つ改定は撤回の下に埋もれる。実際に撤回した観測は source が publish しない幽霊日なので改定の余地が無いが、real な観測日を撤回するときはこの境界を意識する。
 
-registryは系列定義の正本である。通常のopenは現行metadata/aliasesを更新するが、登録外のfacts・metadata・aliasesを削除しない。現行系列を1件以上指定した明示的な`macro refresh`だけが、`BEGIN IMMEDIATE`内で登録外系列の件数集計・prune・generation更新をcommitする。storeが新世代、または同世代でmembershipが異なる場合は拒否する。件数表示はcommit後の補助であり、表示失敗でDB更新を取り消さない。変更・反映・復旧の順序は[運用手順](../../batch/OPERATIONS.md#macro観測とregistryの修正)を参照する。
+registryは系列定義の正本である。通常のopenでは登録外のfactsを削除せず、現行系列を指定した明示的なrefreshが退役系列をpruneする。storeが新世代、または同世代でmembershipが異なる場合は拒否する。退役・改名は[registry修正手順](../../batch/OPERATIONS.md#macro観測とregistryの修正)に従い、過去の発行済みContextを書き換えない。
 
+全providerの観測は系列identity・単位・有限値・系列固有のbandを満たす必要がある。bandは明白な列・桁・単位ずれを検出するもので、景気急変を前回値との差だけで拒否する条件ではない。band内に収まるscale変更はprovider固有のheader・metadata照合で守る。例えば`jp.foreign_flows`は原典の千円単位を保持する。検証違反はそのseriesの取得失敗とし、部分取り込みしない。DB境界でも同じ制約を守り、schemaやtriggerの不整合を拒否する。厳密な条件は[service](../../engine/src/baibai_engine/macro/indicators/service.py)・[DB](../../engine/src/baibai_engine/macro/indicators/db.py)・[schema](../../engine/src/baibai_engine/macro/indicators/schema.sql)が所有する。storeは空・直前schemaからの一段移行・現行schemaだけを受け付け、複数世代のmigrationは持たない。
 
+registryのband変更時は、Git管理外のstoreをread-only validatorで全履歴・全vintage検査する。CIのfixtureだけでは既存観測との整合を証明できない。検査はstoreを書き換えず、観測とcanonical trigger契約の違反を報告する。
 
-全 provider の observation は insert 前に requested `series_id`・registry の unit・finite・series 固有の `plausible_min` / `plausible_max` を照合する。SQLite の INSERT / UPDATE 境界も unit と band を強制し、`foreign_keys=OFF` の直接writerでもunknown seriesを拒否する。複数行 insert は savepoint 単位で全件成功または全件 rollback するため、cloud merge を含む service 外の writer も部分取り込みや検証迂回を起こせない。store を開くたびに、`schema.sql` が定義する persistent trigger と singleton の registry state を実 store へ完全一致させる。version 番号だけ合う欠落・改変・予期しない追加 trigger や state drift は拒否する。**store は空、直前 schema からの一段移行、現行 schema のいずれかだけを受け付ける**。過去へ戻る通路や複数世代の migration は持たず、schema を進めるときは実在 store に必要な 1 段だけを書く。`jp.foreign_flows` は JPX/J-Quants の raw 値を千円単位のまま保持するので unit は `jpy-thousand` である。band は直近 10 年の実績へ十分な桁余裕を持たせ、長期履歴も全件通るまで拡張した明白な列・桁・単位ずれの検出境界であり、景気急変を異常扱いする前回値ジャンプ判定ではない。band 内に残る scale 変更は source identity / header / metadata の provider 固有検証で守る。BOJ xlsx は値列番号・英語 header・metadata列番号・基準年または単位metadataを組にして検証し、隣列に同じ旧metadataが残っても代用しない。対象期間の date row があるのに選択列の数値が 0 件なら失敗する。1 点でも契約違反なら部分取り込みせず、その series の provider run を failed として残す。
-
-registry の band を追加・変更する前後は、git 管理外の live store を read-only validator で全履歴・全 vintage 検査する。validator は store を書き込みで開かず、canonical trigger 契約も併せて検証する。登録外系列、band 未宣言、unit 不一致、非有限値、band 外値のいずれかがあれば observation identity を出して非 0 で終了する。
-
-同じ validator が **application store の発行済み macro context revision を全件 load** する。code / registry が不変の発行済みレポートより先へ進む drift は CI では検出できず（workflow には application store が無い）、両 store が揃うのは local だけなので、この検査は push 前の運用計器として置く。現行契約の revision が 1 件でも read 経路で load できなければ非 0 で終了する（`screening review-set publish` と scorecard が使うのと同じ経路であり、落ちれば日次バッチが止まる）。**registry の系列を退役・改名する前後は必ず回す**。退役系列を引用するレポートは load できる限り warning で報告し、fail にはしない——退役は正常な運用であり、履歴の書き換えは選択肢に無い。scorecard 条件の系列が退役している場合はそのレポートが今後採点不能になるため、warning でその旨を明示する。application store が無い checkout（fresh clone）は skip する。
-
-```bash
-uv run baibai-batch validate-macro-stores \
-  --db stores/macro/macro.sqlite --app-db stores/application/baibai.sqlite
-```
+同じvalidatorはapplication storeの発行済みcurrent-contract Macro Contextも全件loadし、現行readerで読めないrevisionを失敗として報告する。退役系列の引用は読める限りwarningとし、scorecardが採点不能になる場合も明示する。Review Set発行はContextを読まないため、この検査失敗をReview Set停止と読み替えない。Contextを使うTriage・Research・scorecardの読取への影響を確認する。検証の実行条件とapplication store不在時の扱いは[完全local gate](./python-foundation.md#9-ci-and-local-parity)、系列退役の順序は[運用手順](../../batch/OPERATIONS.md#macro観測とregistryの修正)に従う。
 
 ### データソース registry
 
-| Provider | 取得 | 担当ドメイン | 確認手順・既知の caveat |
-| --- | --- | --- | --- |
-| `fred_csv` | 無認証 CSV | 米マクロ・実質金利/期待インフレ・FX・原油・VIX・クレジット OAS・BTC・流動性・NFCI・JP 実質実効為替 | 系列 ID を `fredgraph.csv?id=<ID>` の header で実 fetch 確認。ICE BofA OAS は直近 3 年、S&P / Dow は直近 10 年が現在の配信範囲。**廃止系列あり**（JP OECD CPI は 2021 停止、金 LBMA は 2025/5 停止）。金・SOX は `yahoo`。relay の取り込み停止は store の上では系列自体の停止と区別できないので、publisher が機械可読な配信を持つ系列は publisher 直読を優先する |
-| `frb_h15` | 無認証 CSV（requests→browser fallback） | 米国債金利・スプレッド | 1 package を series 横断に 1 回 DL。edge の bot mitigation が datacenter IP へ CSV を出さず block page（200）/ 空 body / 403 challenge を返すので、ブラウザ UA を送り、それでも CSV が来なければ headless browser（Playwright）で取り直す。取り直した CSV も同じ fetch context に載るので DL は 1 回のまま。**遮断以外の失敗（サイズ上限・404・5xx・ネットワーク）は fallback しない**（別経路で取り直しても解決せず、上限ガードを迂回するだけのため） |
-| `ecb_fx` | 無認証 ZIP | JPY クロス（USD/EUR/AUD） | JPY と基軸通貨の比で算出 |
-| `estat` | API（`ESTAT_APP_ID`） | JP 公式マクロ（CPI 総合・サービス、鉱工業生産、機械受注、景気ウォッチャー、消費者態度指数 等） | JP CPI の一次ソース。`statsDataId` と分類 code は e-Stat で確認。**e-Stat の DB 掲載は統計ごとに止まる**（毎月勤労統計は 2021-10 以降更新なし。月次結果は release 毎のファイル資源だけになる）ので、新規系列は `getStatsList` の `UPDATED_DATE` が現在かを先に確認する |
-| `estat_dashboard` | 無認証 JSON API | JP 公式マクロのうち e-Stat DB が持たない系列（完全失業率 季節調整値・名目賃金指数） | 統計ダッシュボード（総務省統計局）の `getData`。1 IndicatorCode が月次/四半期/年 × 原数値/季節調整値を同時に返すため、**`source_url` に `IndicatorCode` と `Cycle=1` / `IsSeasonalAdjustment` / `RegionCode` を書いて 1 本に固定する**（observation に残る provenance が上流系列を名指すので、selector を直せば旧系列の観測が source 違いとして掃除される）。provider は全行の `@indicator` / `@cycle` / `@isSeasonal` / `@regionCode` と宣言 total 行数を照合し、filter が効かなかった応答を混入させない。`@isProvisional` が速報の行は要求した系列そのものなので照合の対象外とし、その月を書かずに skip して series と月を警告に出す。確報が出た日の refresh がその月を埋める（reading rules の `publication_lag_days` は確報基準なので、速報しか無い期間はそもそも公表待ちで stale にならない）。読むのは月次のみで、要求窓に関わらず公表全履歴を取る（指数の基準改定が窓の境目で継ぎ足しにならないため） |
-| `jquants_flows` | 認証（`JQUANTS_API_KEY`） | JP 市場内部（海外投資家フロー） | screening と同じ Light credential。`--all-history` は運用日から5年の契約窓を要求する。JPX/J-Quants の公表単位（千円）を `jpy-thousand` として保持し、集計週末を observation、公表日を vintage として同一公表日の複数週を保持する |
-| `jquants_options` | 認証（`JQUANTS_API_KEY`） | 日経225オプションの恐怖観測（30日IV・スキュー・期間構造） | 1営業日ごとに取得して3系列へ集計する。rate limit、式変更、購読窓、緊急取引証拠金日の契約は[専用手順](#jquants-options-provider)に従う |
-| `boj` | 無認証 xlsx | BOJ 長期時系列（マネタリーベース・実質輸出・消費活動指数） | 第1 sheetを openpyxl で読み、registry の `provider_series_id` が宣言する値列・英語header・metadata列・基準年または単位metadataを照合する |
-| `boj_timeseries` | 無認証 JSON API | BOJ 無担保コール O/N 平均 | `FM01:STRDCLUCON` の日次値を一括取得する。公表タイミングは BOJ 時系列統計データ検索の更新日に従う |
-| `mof_jgb` | 無認証 CSV | JP 国債金利（主要年限） | `jgbcm_all.csv` と当月 `jgbcm.csv` を CP932 で読み、和暦の基準日を ISO date に正規化する |
-| `tsr_bankruptcies` | 無認証 JSON API | JP 企業倒産件数 | 東京商工リサーチの掲載ページが参照する公式 JSON から月次全履歴を取得 |
-| `spglobal_pmi` | 無認証 PDF（requests→browser fallback） | S&P Global PMI（日本/米 製造業・サービス業） | free の data API が無い。`providers/pmi_release_urls.yaml` の月次 release URL から公式 PDF を取得し、headline 値を bounded context から抽出して diffusion index の定義域 0〜100 で検証する。WAF gated の月は headless browser（Playwright）で fetch する。**遮断以外の失敗（サイズ上限・404・5xx・ネットワーク）は fallback しない**（frb_h15 と同じ契約） |
-| `umich_sca` | 無認証 CSV | 米消費者態度指数（ミシガン大） | 公表元 Surveys of Consumers の月次表（`files/tbmics.csv`）を直読する。`provider_series_id` は値の列名（`ICS_ALL`）、`source_url` が表なので同じ公表元の別表は registry entry だけで足りる。行が「月名 + 年」なので読めない行は skip せず失敗させる（表の形が変わったのを黙って短い履歴にしない） |
-| `yahoo` | 無認証 JSON | 金/銀/銅先物・MOVE・Russell2000・SOX 等 | **ブラウザ UA 必須**（default は 429）。`provider_series_id` は Yahoo シンボル |
-| `multpl` | 無認証 HTML | S&P500 バリュエーション（CAPE・GAAP PER・益回り） | current page と public monthly table を機械的に parse する。monthly tableの先頭はcurrent levelを実日付で持ち、後続の確定済み月次標本は月初日を持つため、履歴の連続性は表に実在する最新の確定済み月まで検査する。current rowから未公表月を合成しない。取得・鮮度の契約は daily を保ち、reading rules の `sampling_cadence: monthly` で統計標本だけを月次化する。HTML 構造変更で壊れるため短期windowの`--start`と`--all-history`をlive確認 |
+系列ID・source URL・unit・provider固有のselectorは[registry](../../engine/src/baibai_engine/macro/indicators/registry/)、取得能力と認証条件は[ProviderSpec](../../engine/src/baibai_engine/macro/indicators/provider_specs.py)と各[provider](../../engine/src/baibai_engine/macro/indicators/providers/)が所有する。下表はsourceを選ぶときの用途と制約を示す。
+
+| Provider | 用途 | 選択・運用上の制約 |
+| --- | --- | --- |
+| `fred_csv` | 米マクロ、金利、FX、信用、市場系列 | 系列ごとに配信開始・終了や履歴窓が異なる。relay停止とsource停止はstore上で区別できないため、公表元が機械可読配信を持つ場合は直読を優先する |
+| `frb_h15` | 米国債金利・スプレッド | 遮断時だけbrowserで再取得する。サイズ上限・404・5xx・通信障害は別経路で迂回しない |
+| `ecb_fx` | JPYクロス | JPYと基軸通貨の比で算出する |
+| `estat` | 日本の公式マクロ | API認証が必要。DB掲載が途中で止まる統計もあるため、新規採用時は更新日と公表元を照合する |
+| `estat_dashboard` | 失業率・名目賃金等 | 頻度・季節調整・地域を固定し、速報は採らない。確報前はreading rulesの公表待ちとして扱う。基準改定を窓の境目で継ぎ足さないため全履歴を取得する |
+| `jquants_flows` | 海外投資家フロー | screeningと同じcredential。購読窓内を取得し、集計週末をobservation、公表日をvintage、原典の千円を単位として保持する |
+| `jquants_options` | 日経225のIV・スキュー・期間構造 | rate limit、式変更、購読窓、緊急取引証拠金日は[専用手順](#jquants-options-provider)を参照する |
+| `boj` | マネタリーベース・実質輸出・消費活動 | xlsxの値列とheader・基準年・単位を照合する。隣列のmetadataで代用しない |
+| `boj_timeseries` | 無担保コールO/N | BOJ時系列統計の公表に従う |
+| `mof_jgb` | 日本国債金利 | 公表CSVの和暦・文字コードを正規化する |
+| `tsr_bankruptcies` | 日本の企業倒産 | 公表ページが参照する月次履歴を取得する |
+| `spglobal_pmi` | 日本・米国の製造業/サービスPMI | 公式PDFを読む。release manifest更新は[下記](#pmi-release-manifestの更新)。遮断時だけbrowserを使う |
+| `umich_sca` | 米消費者態度 | 公表元の月次表を直読する。読めない行をskipして短い履歴として扱わない |
+| `yahoo` | 金属先物・MOVE・Russell2000・SOX等 | providerが要求するbrowser UAを使う |
+| `multpl` | 米株バリュエーション | current levelと確定済み月次標本を区別する。未公表月を合成せず、readingの統計標本だけ月次化する。HTML変更時は短期窓と全履歴の取得を確認する |
 
 <a id="jquants-options-provider"></a>
 
@@ -98,13 +93,17 @@ HTTP 429はclient内部の再試行が尽きた後、statusを持たない`Retry
 
 緊急取引証拠金が発動した日はchainが2部返る。発動時の部は前営業日の原資産と平坦なIVを持つため、`EmMrgnTrgDiv`が名指す清算値算出時の部だけを読む。このfieldを持たない行は読まない。
 
+### Providerの追加
+
 新ソース追加＝provider モジュールを 1 つ足して（`providers/` に 1 ファイル）`providers/registry.py` に 1 行登録し、series を registry（`indicators/registry/` の region 別 yaml）へ 1 entry 加える。provider の取得能力（all-history 起点・store 書き換え方針・refresh 可否・point-in-time vintage・必要 env）は各 provider の `ProviderSpec` が宣言し、service / store reader は provider 名で分岐しない。point-in-time replay を提供する provider の spec は fetch 実装を import しない read-safe module に置き、provider 実装と reader が同じ spec を参照する。registered provider との drift は test で検出する。1 series_id = 1 provider を厳守する。provider 取得は一時的な `IndicatorsProviderError` を 1 回 retry し、再失敗した場合は `provider_runs` に failed として記録する。
 
 `macro refresh` は複数 series を 1 pass で取得し、1 series の失敗は他 series を止めない。失敗した series は最後にまとめて stderr へ列挙し、exit code は非 0 になる（1 つの壊れたソースが同一グループの残り全系列を stale にしない）。1 pass は 1 つの fetch context を共有するので、複数 series が同じ bulk ファイルを参照しても download は 1 回、browser fallback を要する provider の起動も 1 回で済む。取得値は store へ入る前に有限値であることを検証し、NaN / ±inf は取得失敗として扱う（派生計算・percentile・export を汚染させない）。`provider_runs`は取得の成否と`record_count`を記録する。
 
+### PMI release manifestの更新
+
 PMI は data API が無いため、月次 release URL の manifest（`engine/src/baibai_engine/macro/indicators/providers/pmi_release_urls.yaml`、`schema_version: 2`、PMI stream ごとに `observed_at` → 公式 release URL）を正本とし、`spglobal_pmi` provider が各 URL の公式 PDF を live 取得して headline 値を抽出する。release URL の validator は `https://www.pmi.spglobal.com/Public/Home/PressRelease/<32 hex>` だけを許可する。
 
-抽出は release が headline を述べる冒頭 statement（headline index を名指す文と、その statement を続ける次の文）だけを読む。値を採るのは、release がその値を対象月に結び付けているか（`posted 47.9 in December`、`in April to 51.3`、`October's 54.8`）、statement が reading として導入している（`posted 52.3`、`rose to 54.4`、`at 51.6 the index ...`）場合だけで、月を明示しない reading は release 自身の月にしか帰属させない。sub-index / composite index を名指す文は読まず、閾値との比較（`above the 50.0 no-change mark`）・flash 見積り・複数月平均は reading ではないので読む前に text から除く。抽出値は1〜3桁・小数1桁としてparseしてからdiffusion indexの定義域 0〜100 で検証し、複数候補が矛盾する月は取得を失敗させる（誤った値を store に入れない）。危機・再開局面の正当な30未満・70超も欠落させない。読めない phrasing は値を作らずに「その月の headline 値なし」として失敗するので、取り込み漏れは無音にならない。
+抽出は対象月のheadline値だけを読み、sub-index・composite・閾値比較・flash見積り・複数月平均を混入させない。未対応の表現や矛盾する候補は取得失敗とし、値を推測しない。具体的な英文の認識規則と数値検証は[PMI extractor](../../engine/src/baibai_engine/macro/indicators/providers/pmi_extraction.py)が所有する。
 
 1 月 = 1 PDF なので、通常の refresh は store に無い月と、manifest の release URL が store の値の出所と一致しない月だけを取得する。final headline は公表後に改定されないため、同じ URL から取り直した月は同じ値になる。URL を訂正すればその月は自動で取り直される。抽出規則の変更後など stream 全体を source から作り直すときは `refresh --all-history` を使う（全月を再取得する）。
 

@@ -11,7 +11,7 @@ Baibai Loopは単一distribution内で、domainを所有する`baibai_engine`、
 
 <a id="layers"></a>
 
-## 1. 構造と4役
+## 1. Packageの依存
 
 engineはweb・batch・toolsへ依存しない。Webからengineへの入口は`read_api`、batchからは`batch_api`と`read_api`であり、import-linterが境界を検査する。batchはdomainの判断やwrite invariantを独自実装せず、engineのserviceへ委譲する。storeとserving objectの転送はbatchが担う。
 
@@ -25,7 +25,7 @@ engineはweb・batch・toolsへ依存しない。Webからengineへの入口は`
 
 <a id="information-layers"></a>
 
-## 3. 情報の分類
+## 3. 情報の正本と保持
 
 | 区分 | 内容 |
 | --- | --- |
@@ -72,9 +72,9 @@ Owner MCPは所有者が保存済み情報を読むlocal adapterであり、stor
 
 | 配置・module | 責務 |
 | --- | --- |
-| `engine/src/baibai_engine/market` | L1の保持、固定release読取、market store |
+| `engine/src/baibai_engine/market` | L1の保持、固定release読取、market store。取得・保存の一部は現状screeningにも置かれる |
 | `engine/src/baibai_engine/macro` | 観測、Reading、Macro Context |
-| `engine/src/baibai_engine/screening` | Security Analysis、Candidate Discovery、Triage、calibration |
+| `engine/src/baibai_engine/screening` | market入力の取得・保存、Security Analysis、Candidate Discovery、Triage、calibration |
 | `engine/src/baibai_engine/research` | 企業評価、独立Review、CAA、Planning、Position Review |
 | `engine/src/baibai_engine/position` | 確認済み取引事実、ledger replay、保有と資本の評価、outcome |
 | `engine/src/baibai_engine/operation` | 資本調査のOperation Session |
@@ -87,6 +87,8 @@ Owner MCPは所有者が保存済み情報を読むlocal adapterであり、stor
 | `method/` | 採用した計算規則と調査playbook |
 | `stores/` | 実行時store |
 | `reports/` | historical evidenceと明示的なconsumer artifact |
+
+業務の責務、情報の正本、実行環境は別の軸である。上表は現在の配置を示し、L1/L2/L3をそのままpackage階層にはしない。依存制約の厳密な範囲は[import-linter設定](../pyproject.toml)、入力の取得・計算の変更は[Screening reference](./reference/screening-runtime.md#market-store-inputs)から辿る。
 
 ### CLI
 

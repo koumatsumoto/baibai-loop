@@ -1023,7 +1023,7 @@ class ScreeningMetricsTests(unittest.TestCase):
     def test_market_cap_is_absent_when_treasury_is_unobserved(self) -> None:
         """自己株式数が欠損する行で発行済を代用しない。
 
-        代用すると、どれだけ過大か分からない時価総額が現金比率・利回り・流動性 gate へ
+        代用すると、どれだけ過大か分からない時価総額が現金比率・利回り・時価総額 gate へ
         入る。答えないことで、その銘柄は母集団から外れる。
         """
         snapshot = self._capital_snapshot(
@@ -1110,8 +1110,8 @@ class ScreeningMetricsTests(unittest.TestCase):
     def test_universe_share_index_matches_the_snapshot_market_cap_basis(self) -> None:
         """「時価総額」という同じ語が 2 つの値を指さないことを固定する。
 
-        universe の時価総額は `build_shares_outstanding_index` から作られて流動性 gate の
-        分母になり、`FinancialSnapshot.market_cap` は倍率と利回りの分母になる。別々に
+        universe の時価総額は `build_shares_outstanding_index` から作られて時価総額 gate の
+        判定値になり、`FinancialSnapshot.market_cap` は倍率と利回りの分母になる。別々に
         計算されているので、株数の基準が片方だけ動くと同じ語が食い違う。
         """
         asof = date(2026, 7, 1)
@@ -3441,7 +3441,7 @@ class DividendCarryResolverTests(unittest.TestCase):
 
         2024-09 に予想 17.5 を出したあと 4 期連続赤字で無配になり、2025-11 の通期実績は
         0.0、以降の提出に予想は無い。予想を無制限に遡ると 130 円の株に 13.46%/年の carry
-        が付き、reversion 上限 (5%/年) を単独で超えて E[r] 降順の最上位へ出る。
+        が付き、reversion 上限 (5%/年) を単独で超えて見返りを過大評価する。
         """
         summaries = [
             _summary("8798", date(2024, 9, 18), dps_forecast_annual=17.5),

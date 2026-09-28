@@ -1042,7 +1042,7 @@ def build_shares_outstanding_index(
 ) -> dict[str, float | None]:
     """Shares the market can price: issued less treasury, on the as-of split basis.
 
-    universe の時価総額はこの index から作られ、流動性 gate (100 億円) の分母になる。
+    universe の時価総額はこの index から作られ、時価総額 gate (100 億円) の判定値になる。
     `FinancialSnapshot.market_cap` と同じ株数で作らないと、同じ「時価総額」という語が
     2 つの値を指す。株数と自己株式数は BS 系 fact なので四半期開示に載らないことが多く、
     直近の非 null 行から carry-forward する。ただし正の自己株式より後に発行済だけを
@@ -1725,9 +1725,9 @@ def _build_financial_snapshot(
     shares_outstanding = capital_basis.issued
     # 時価総額の分母は自己株式を除いた株数である。自己株式は議決権も配当請求権も持たない
     # ので、含めると時価総額が過大になり現金比率・利回りが薄く、倍率が割高に見える。歪みが
-    # 最大になるのは自己株式を積み上げた企業、つまり buyback を実行した企業で、carry が
-    # 上位へ押し上げる群と重なる。自己株式数が観測できない行は時価総額を出さない — 発行済で
-    # 代用すると、どれだけ過大かが分からない値が現金比率・利回り・流動性 gate へ入る。
+    # 最大になるのは自己株式を積み上げた企業である。自己株式数が観測できない行は
+    # 時価総額を出さない — 発行済で
+    # 代用すると、どれだけ過大かが分からない値が現金比率・利回り・時価総額 gate へ入る。
     shares_ex_treasury = capital_basis.shares_ex_treasury
     operating_profit_ttm, _ = _ttm_value(summaries, "operating_profit", rules.ttm)
     sales_ttm, sales_quality = _ttm_value(summaries, "sales", rules.ttm)
@@ -1869,8 +1869,7 @@ def _build_financial_snapshot(
         cash_to_market_cap=_safe_ratio(cash_eq, latest_market_cap),
         # 開示された自己資本比率をそのまま使う。`equity` は非支配株主持分を含む純資産なので
         # `equity / total_assets` は自己資本比率にならない。比率が観測できないときは None へ
-        # 落とし、純資産比率で代用しない (代用は少数株主持分の大きい銘柄で比率を数 pt 過大に
-        # し、`equity_ratio_min` の gate を通しやすくする向きに効く)。
+        # 落とし、純資産比率で代用しない。非支配株主持分が大きい銘柄ほど過大評価になる。
         equity_ratio=equity_to_asset_ratio,
         ocf_yield=_safe_ratio(ocf_ttm, latest_market_cap),
         net_cash=net_cash,
@@ -2501,7 +2500,7 @@ def _shares_excluding_treasury(
     """市場が値付けできる株式数。自己株式数が観測できない行は答えない。
 
     自己株式数の欠損を 0 で埋めると「自己株ゼロ」を捏造し、どれだけ過大か分からない
-    時価総額が現金比率・利回り・流動性 gate へ入る。発行済を超える自己株式数も開示の破損
+    時価総額が現金比率・利回り・時価総額 gate へ入る。発行済を超える自己株式数も開示の破損
     なので答えない。どちらも時価総額が null になり、その銘柄は母集団に入らない。
     """
 

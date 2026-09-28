@@ -9,7 +9,7 @@ status: active
 
 ## 役割
 
-screeningは全対象銘柄のobserved / derived / estimateをSecurity Analysisへ固定し、configured Valuation Approachesが生成したNominationのexact unionをReview Setにする。Review Setは機械成果物であり、投資判断ではない。Research Triageだけが各entryへ`research / skip`とresearch priorityを発行する。current production methodは4 Approachを持ち、各ApproachのNomination depthは20である。
+screeningは全対象銘柄のobserved / derived / estimateをSecurity Analysisへ固定し、configured Valuation Approachesが生成したNominationのexact unionをReview Setにする。Review Setは機械成果物であり、投資判断ではない。Research Triageだけが各entryへ`research / skip`とresearch priorityを発行する。
 
 E[r]、FV、macro context、portfolio stateは参考文脈である。Review Setのnomination、membership、orderには使わない。
 
@@ -33,7 +33,7 @@ Security Analysisは`observed / derived / estimate`を混同しない。欠損�
 
 ## Candidate Discovery
 
-共通eligibilityは時価総額100億円以上、上場期間182日以上、JPX flag、これら必須factの有無だけを扱う。ADVは値が低い場合も欠損時も除外に使わず、Security Analysis、Review Set、Research Triage、UIへ執行可能性のcontextとして残す。その後、各approachが独立に上位20件をnominateする。
+共通eligibilityは時価総額100億円以上、上場期間182日以上、JPX flag、これら必須factの有無だけを扱う。ADVは値が低い場合も欠損時も除外に使わず、Security Analysis、Review Set、Research Triage、UIへ執行可能性のcontextとして残す。その後、各approachが独立にnominateする。現行の採用値は[screening rules](../../method/screening/rules/)、完全なeligibility・並び順・method hashは[Review Set実装](../../engine/src/baibai_engine/screening/discovery/review_set.py)を正本とする。
 
 | valuation approach | 主座標 | target |
 | --- | --- | ---: |
@@ -42,15 +42,15 @@ Security Analysisは`observed / derived / estimate`を混同しない。欠損�
 | `asset-value` | 正のasset-backed ratio、PBR context | 20 |
 | `reinvestment-value` | 割安なsector-relative P/S、sector-relative capital-return proxy / margin、growth、FCF yield | 20 |
 
-Asset Valueは`asset_backed_ratio > 0`だけをnative eligibilityとし、銀行業、保険業、その他金融業、証券・商品先物取引業を除外する。金融業ではcash、debt、securitiesが事業上のasset / fundingそのものなので、非金融企業向けgross asset proxyを残余価値として適用しない。`net_cash_to_market_cap`は`analysis.asset_value`へ残すが、eligibilityとorderには使わない。orderはasset-backed ratio降順、PBR sector gap昇順、PBR昇順、equity ratio降順、ticker昇順である。
+Asset Valueは正のasset-backed ratioを持つ非金融企業を対象とする。金融業ではcash、debt、securitiesが事業上のasset / fundingそのものなので、非金融企業向けgross asset proxyを残余価値として適用しない。net cashは比較文脈として残し、候補の採否には使わない。
 
-Reinvestment Valueは正のP/S、sales growth、FCF yield、TTM operating profit、TTM sales、同一実績行の自己資本と、有限のdebt / cashを要求する。さらに`p_s_sector_gap < 0`、`operating_margin`と`operating_return_on_capital_proxy`がそれぞれ同じsector 33のmedian以上であることを要求する。median populationは、この共通eligible母集団のうち既存のReinvestment入力がすべて成立する行である。sector母数が`MIN_SECTOR_MEDIAN_POPULATION`未満の場合だけ同じpopulationのmarket medianへfallbackし、境界件数はsector medianを使う。営業利益率は`operating_profit_ttm / sales_ttm`、capital returnは`operating_profit_ttm / (same_state_equity_yen + debt - cash)`で計算する。自己資本はJ-Quantsの同一実績行にあるtotal_assets × equity_to_asset_ratioであり、debt/cashは選択されたEDINET recordを使う。両sourceのBS日一致を保証する厳密ROICではない。TTM営業利益が作れなければ不適格とし、累計利益の年率換算や経常利益・純利益で補わない。通過後のorderはP/S gap昇順、capital return降順、sales growth降順、margin降順、FCF yield降順、ticker昇順である。
+Reinvestment Valueはsector-relative P/Sの割安さと、利益率・capital returnの質を組み合わせる。sector母数が薄い場合はmarket medianを使う。capital returnは`operating_profit_ttm / (same_state_equity_yen + debt - cash)`で、自己資本はJ-Quantsの同一実績行、debt/cashは選択したEDINET recordに基づく。両sourceのBS日一致を保証する厳密ROICではない。TTM営業利益が作れなければ累計利益の年率換算や別の利益で補わない。株式・会計basisは[valuation metrics](./valuation-metrics.md#51-資本の分母)に従う。
 
 primary coordinateがnull、非有限、またはapproachの要件を満たさない銘柄は、そのapproachでnominateしない。金融sector除外、quality threshold、median population / fallback、従キー、tickerまでmethod hashに含め、同じSecurity Analysisとrulesから同じ結果を再構成する。
 
 ## Review Set
 
-各Valuation Approachは独立に上位20件をNominateする。Review Setはそのticker unionそのもので、重複tickerは1entryへまとめ、全Nominationを保持する。最大件数は`4 × 20 = 80`である。ticker昇順はbyte-equivalentなserializationのためだけに使い、global rankやresearch priorityを意味しない。
+各Valuation ApproachのNominationをtickerで統合し、重複tickerは1entryへまとめ、全Nominationを保持する。現在は4 Approach × depth 20で最大80件になる。ticker昇順はbyte-equivalentなserializationのためだけに使い、global rankやresearch priorityを意味しない。
 
 publisherはsource run、as-of、rules hash、method hash、全Security Analysisからpayloadを再計算し、不一致を拒否する。published rootは`screening_rules_hash`をprovenanceとして持つ。Review Setはapplication DBやResearch Triageを読まず、同じrun・rules・implementationから同じNomination unionを再構築するL2である。各entryはidentity、`nominations`、grouped `analysis`だけを持つ。`analysis.expected_return`はsecondary machine priorのsnapshotであり、membershipを持たない。
 
@@ -68,9 +68,9 @@ current writerとactive read pathはcurrent schemaだけを扱い、retired shap
 
 manual scaffoldはReview Set IDからrun storeのcanonical publicationを解決し、Review Setのas-of以下で最新のMacro Contextと、application DBのlatest current Triage IDを取得する。通常の`analysis run`はeditable scaffoldを介さず、strictなjudgment fieldから同じdomain objectを組み立てる。publisherは`review_set_id`、`run_revision_id`、`as_of`、`screening_rules_hash`、Candidate Discovery Method、全tickerを検証し、Review Set Entry snapshotをsource Review Setから上書きする。persisted field `candidate_snapshot`はstorage contractとして維持し、snapshotはidentity、`nominations`、grouped `analysis`だけを持つ。
 
-global headは`as_of DESC, julianday(published_at) DESC, research_triage_id DESC`の実時刻total orderで決める。`expected_prior_research_triage_id`はpublish transaction内でこのheadとCASする。新規publicationは`as_of`を後退させず、awareな`published_at`を現headより進め、未来時刻またはJST換算日が`as_of`より前の時刻を使わない。同じIDと同じcanonical payloadの再送だけは、後続headの有無にかかわらず冪等に成功する。これにより全てのnon-idempotent publicationが新headになり、同じpriorから分岐したdraftを拒否する。
+発行は最新Triageを期待するCASで競合を検出し、as-ofと発行時刻の後退を拒否する。同じID・同じcanonical payloadの再送は冪等であり、同じpriorから分岐した別draftは発行できない。headの選び方とtransactionは[ResearchTriageService](../../engine/src/baibai_engine/screening/research_triage.py)、payloadの厳密な条件は[ResearchTriage model](../../engine/src/baibai_engine/foundation/research_triage.py)が所有する。
 
-Contextが無ければ`null`は正常、古ければwarningであり、どちらもReview Setのnomination、membership、orderを変えない。eligible Contextがあるのに`null`は拒否する。明示的に古いeligible revisionを選ぶことはできるが、選択理由を既存の判断文へ残す。発行後payloadはimmutableである。`rationale`、および非`null`の`research_question` / `key_risk`は空白だけの値を拒否するが、検証時に前後空白を書き換えない。
+Contextが無ければ`null`は正常、古ければwarningであり、どちらもReview Setのnomination、membership、orderを変えない。eligible Contextがあるのに`null`は拒否する。明示的に古いeligible revisionを選ぶことはできるが、選択理由を既存の判断文へ残す。発行後payloadはimmutableである。
 
 ADVは固定floorのgateや自動skip条件ではない。Triageは低値・欠損だけで`skip`やpriorityを決めず、価値仮説を比較した後の実行可能性contextとしてrationaleへ反映できる。最終的な注文可否と数量はCapital Allocation後のhuman executionが所有する。
 

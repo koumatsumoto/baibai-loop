@@ -102,8 +102,7 @@ class EstimateExpectedReturnTest(unittest.TestCase):
 
     def test_no_estimate_when_the_dividend_share_basis_is_unresolved(self) -> None:
         # carry は `dividend_yield or 0.0` で組むので、利回りを出さないことが下流では
-        # 「無配」の主張になる。実際に配当を払っている銘柄を E[r] 降順から一方向に落と
-        # さないよう、基準が確定できない行には順位を付けない。
+        # 「無配」の主張になる。未解決の株式基準を無配とみなして見返りを過小評価しない。
         derived = _derived(
             sector_median_value={"pbr": 1.2, "per_forward": 15.0},
             self_range_median={"pbr": 1.0},

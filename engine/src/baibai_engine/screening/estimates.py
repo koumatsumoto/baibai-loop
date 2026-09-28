@@ -85,8 +85,7 @@ def estimate_expected_return(
 
     配当の株式基準が確定できない行も None にする。carry は `dividend_yield or 0.0` で
     組むので、利回りを出さないことが下流では「無配」の主張になり、実際に配当を払って
-    いる銘柄を E[r] 降順から一方向に落とす。値を知らないことと 0 であることは別なので、
-    知らない年度は順位を付けない。
+    いる銘柄の見返りを過小評価する。未解決の株式基準を無配とみなさず、見積りを返さない。
     """
     if financial.dividend_basis == UNRESOLVED_DIVIDEND_BASIS:
         return None

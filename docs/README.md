@@ -7,6 +7,10 @@ status: active
 
 # Baibai Loop docs
 
+## 初めて読むとき
+
+[doctrine](./doctrine.md)で目的と判断原則を確認し、[domain-languageのDecision flow](./domain-language.md#decision-flow)で観測・候補・判断・確認済み取引の関係を掴む。構成や変更箇所を調べるときは[architecture](./architecture.md#repository-map)へ進む。実際の操作は下表の入口から始め、必要なreferenceだけを参照する。
+
 ## 目的別の入口
 
 | 目的 | 入口 |

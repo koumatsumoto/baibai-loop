@@ -23,7 +23,7 @@ _TICKER_PATTERN = r"^[0-9A-Z]{4}$"
 # 配当の株式基準が確定できないことを表す `dividend_basis` の値。年間 DPS は中間・期末
 # それぞれの基準日時点の株式基準で記載されるので、会計期間に分割・併合が入り、かつ支払
 # ごとの換算もできない年度はこの状態になる。無配 (`dividend_yield=0`) とも、観測できない
-# (`unavailable`) とも別で、E[r] はこの行に順位を付けない。
+# (`unavailable`) とも別で、配当を0とみなしたE[r]を出さない。
 UNRESOLVED_DIVIDEND_BASIS = "unresolved_split_basis"
 
 # `sector_median_basis` の 2 値。どちらの母集団が中央値を出したかを表す。

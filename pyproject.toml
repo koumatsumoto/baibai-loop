@@ -98,7 +98,7 @@ required-version = "==0.12.17"
 # Constrain the sdist to the buildable source packages (plus the metadata
 # hatchling always adds: pyproject.toml, README.md, PKG-INFO). Without this the
 # sdist walks the whole tree and, when uv's build copy loses VCS-ignore
-# detection, sweeps in the gitignored operational data/ store (SQLite market
+# detection, sweeps in the gitignored operational stores/ directory (SQLite market
 # history), inflating the archive by hundreds of MB.
 [tool.hatch.build.targets.sdist]
 only-include = [
