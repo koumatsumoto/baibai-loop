@@ -282,7 +282,7 @@ def test_snapshot_progress_rotation_and_best_effort_acquisition(
     monkeypatch.setattr(cli, "collect", partial(cli.collect, clock=lambda: NOW))
     monkeypatch.setattr(cli, "_write_progress_file", write)
     result = asyncio.run(
-        cli.snapshot(state(), "owner/repo", "writer-token", path, DAY, 0, progress_path)
+        cli.snapshot(cli.CredentialStorage(state(), lambda _: None), path, DAY, 0, progress_path)
     )
     assert result["rows"] == len(stored(path)) == 51
     assert result["oauth_rotations"] == 2
