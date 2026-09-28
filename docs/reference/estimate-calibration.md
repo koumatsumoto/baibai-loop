@@ -11,6 +11,8 @@ status: active
 
 本書は、screeningの機械見積りと選定順位を過去as-ofで再構成し、実現した価格リターンと突き合わせるローカル専用の較正契約を所有する。portfolio outcomeやJPX total-return benchmarkとは別の横断的な見積り診断である。
 
+評価の実装は[evaluation](../../engine/src/baibai_engine/screening/calibration/evaluation/)に集約する。`cohorts`が評価を組み立て、`axes`は軸とquality、`discovery`は候補再現、`sensitivity`は欠落によるbias、`aggregate`はcohort横断の集計を所有する。採用済みの評価条件は`policy`、共通統計は`statistics`を参照する。
+
 <a id="horizon-evidence-role"></a>
 
 ## Horizonごとのevidence role

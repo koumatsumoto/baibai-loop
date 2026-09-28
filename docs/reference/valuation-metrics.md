@@ -15,6 +15,8 @@ Researchの判断見積りは[ThesisのBase/Downsideと共通算術](./thesis.md
 
 screening時点のE[r] / FV anchorは候補比較の文脈として表示・参照し、[Thesis payloadへ重複転記しない](./thesis.md#input-snapshot-and-lineage)。機械E[r]の5年priorと3y/5y calibrationは個別判断の期間を固定しない。
 
+計算の正本は[metrics](../../engine/src/baibai_engine/screening/metrics/)にある。会計期間とTTMは`periods`、株式・普通株自己資本basisは`capital`、配当と還元は`dividends`、利益は`profit`、価格履歴は`history`、Security Analysis向けの組立は`snapshot`が所有する。本書は指標の意味と、異なるbasisを混ぜないための理由を扱う。
+
 ## 1. 使用指標
 
 | 指標 | 定義 | データ項目 |
