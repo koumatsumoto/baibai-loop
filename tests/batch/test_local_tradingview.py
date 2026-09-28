@@ -228,3 +228,66 @@ def test_repository_oauth_file_is_rejected_before_acquire(runtime):
     state.write_text("private")
     assert runner.main(["--state-file", str(state)]) == 1
     assert not calls
+
+
+def test_timeout_reports_safe_progress_before_release_and_removes_file(
+    runtime, monkeypatch, capsys
+):
+    state, calls, settings = runtime
+    original = runner.command
+    progress_path = None
+
+    def command(args, **kwargs):
+        nonlocal progress_path
+        if "refresh" in args:
+            progress_path = Path(args[args.index("--progress-output") + 1])
+            progress_path.write_text(
+                json.dumps(
+                    {
+                        "snapshot_date": "2026-09-28",
+                        "phase": "fetch",
+                        "expected_universe": 3709,
+                        "chunks_completed": 10,
+                        "chunk_index": 11,
+                        "provider_elapsed_seconds": 123.5,
+                        "oauth_rotations": 1,
+                        "response_bytes": 2975,
+                        "token": "private-token",
+                        "headers": {"authorization": "private-token"},
+                        "elapsed_seconds": {"unexpected": "private-token"},
+                    }
+                )
+            )
+            raise subprocess.TimeoutExpired("refresh", 1800)
+        return original(args, **kwargs)
+
+    original_release = runner.lease.main
+
+    def lease_main(args):
+        if args[0] == "release":
+            stderr = capsys.readouterr().err
+            lines = [
+                line for line in stderr.splitlines() if line.startswith("TradingView progress: ")
+            ]
+            assert len(lines) == 1
+            summary = json.loads(lines[0].removeprefix("TradingView progress: "))
+            assert summary["chunks_completed"] == 10
+            assert summary["chunk_index"] == 11
+            assert summary["oauth_rotations"] == 1
+            assert summary["expected_universe"] == 3709
+            assert summary["provider_elapsed_seconds"] == 123.5
+            assert summary["response_bytes"] == 2975
+            assert "elapsed_seconds" not in summary
+            assert "private-token" not in stderr
+            assert "token" not in summary
+            assert "headers" not in summary
+        return original_release(args)
+
+    monkeypatch.setattr(runner, "command", command)
+    monkeypatch.setattr(runner.lease, "main", lease_main)
+    assert runner.main(["--state-file", str(state)]) == 1
+    assert calls[-1] == "release"
+    assert progress_path is not None
+    assert not progress_path.exists()
+    assert not settings["handle"].parent.exists()
+    assert "category=timeout" in capsys.readouterr().err

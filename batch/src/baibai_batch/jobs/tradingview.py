@@ -23,6 +23,7 @@ from baibai_engine.batch_api import (
     MARKET_DB_PATH,
     tradingview_failure_line,
     tradingview_preflight,
+    tradingview_safe_progress,
     tradingview_validate_time,
 )
 
@@ -100,6 +101,17 @@ def _report(output: str, allowed: set[str]) -> dict[str, object]:
         raise StageFailure("Invalid TradingView stage result") from None
 
 
+def report_failed_progress(path: Path) -> None:
+    # Best effort only: diagnostics must not obscure the failure or prevent release.
+    with suppress(OSError, ValueError, UnicodeError):
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(payload, dict):
+            summary = json.dumps(
+                tradingview_safe_progress(payload), sort_keys=True, allow_nan=False
+            )
+            print("TradingView progress: " + summary, file=sys.stderr)
+
+
 def preflight(day: date) -> dict[str, object] | None:
     now = datetime.now(UTC)
     today, _, _, _ = resolve_tradingview_target(now, event_name="workflow_dispatch", schedule="")
@@ -171,6 +183,9 @@ def run_local(state_file: Path) -> int:
                         command([str(ROOT / "batch/scripts/r2_transfer.sh"), "publish-lake"]),
                         end="",
                     )
+    except BaseException:
+        report_failed_progress(handle_dir / "progress.json")
+        raise
     finally:
         # All child groups have stopped before reaching here. A failed release retains its handle.
         if handle.exists():

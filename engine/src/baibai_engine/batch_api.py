@@ -97,6 +97,7 @@ from baibai_engine.market.sqlite.schema import (
 )
 from baibai_engine.market.sqlite.snapshot import create_snapshot as create_market_snapshot
 from baibai_engine.market.tradingview.cli import failure_line as tradingview_failure_line
+from baibai_engine.market.tradingview.cli import safe_progress as tradingview_safe_progress
 from baibai_engine.market.tradingview.collector import (
     preflight_snapshot as tradingview_preflight,
 )
@@ -418,6 +419,7 @@ __all__ = [
     "scorecard_series_ids",
     "tradingview_failure_line",
     "tradingview_preflight",
+    "tradingview_safe_progress",
     "tradingview_validate_time",
     "validate_lake_release_policy",
     "validate_macro_schema",
