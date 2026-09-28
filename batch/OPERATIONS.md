@@ -111,7 +111,7 @@ uv run baibai-engine screening ticker-profile --ticker TICKER
 
 ### ローカルからクラウドを更新する
 
-変更codeをmainへ反映し、対象storeと変更内容を確認する。marketはlake所有tableを編集する前に現行releaseへhydrateする。変更後の再hydrateはlocal変更を上書きするため行わない。
+EDINET extractor revisionの更新では、[専用cutover手順](#edinet-metrics-revision)に従ってlease取得後にmainへ切り替える。それ以外は変更codeをmainへ反映し、対象storeと変更内容を確認する。marketはlake所有tableを編集する前に現行releaseへhydrateする。変更後の再hydrateはlocal変更を上書きするため行わない。
 
 GitHubの`cloud-publish` queueはGitHub内の順序だけを守る。GitHubとローカルの共通発行にはR2の`coordination/publication-lease.json`を使う。TTLは固定120分。`publish-lake` / `push-machine` / `push-market` / `push-macro`をローカルから行う際は、長い取得・準備を済ませてから、production read / merge / publishを次の同一lease内で実行する。`r2_transfer.sh`の低レベルcommandはleaseを暗黙取得しない。`push-app`、`publish.sh`、初回`seed-all`は対象外。
 
@@ -625,12 +625,23 @@ CLI 引数・log には出ない）。secret の実値を Git・issue・log へ�
 
 **対象**: `market/edinet_metrics`のmanifestに含まれるsourceのpathまたはbytesが変わり、次回writerが旧revisionのbaselineを再利用できない場合。Research factsの手動revisionとは別であり、過去snapshot全体を書き換えない。
 
-1. 日次writerの実行状態を確認し、対象codeのmain反映とstore反映を同じ運用枠で行う。先に現行Lake releaseをhydrateしてから、`edinet_metrics`の最新`asof_date`とrevisionを読み、次回writer用に更新するbaselineを特定する。
-2. SQLite backupで検証用copyを作り、`market.edinet_metrics.service.extract_edinet_metrics_command`へcopyの`sqlite_path`を渡して再抽出する。document inventoryと`.cache/screening/edinet/csv_zips/`を再利用し、不足ZIPだけを取得する。公開CLIは通常storeへ書くため、copyの検証に使わない。
-3. exit 0、hard failureなし、新revisionの行数、隔離・quality理由、SQLite integrityを確認する。意味を変えない移動ではrevision以外の列を元baselineと比較する。hard failureによる`output=not-written`では旧行が保護されるので、行が同じことだけを成功としない。
-4. 検証後、対象日を明示して通常storeへ再抽出する。長い準備を終えてから[共通lease下のLake/store反映](#ローカルからクラウドを更新する)へ進む。競合時は最新cloudからやり直し、再抽出後にhydrateして成果を上書きしない。
+1. **lease取得前**に、対象PRのレビュー・CI、SQLite backup上の再抽出と比較、不足ZIPの取得を終える。下のcopy検証例を使い、exit 0、新revision、行数・抽出値・隔離理由・integrityを確認する。この段階ではmainもproduction storeも切り替えない。
+2. `gh run list --workflow cloud-daily-batch.yml --limit 5`でqueued / in_progressがないことを確認し、下記のoperator leaseを取得する。busyや取得失敗ならmainへ進まない。日次workflowもstore取得・daily実行前に同じleaseを取得するため、時刻だけで安全と判断しない。
+3. **lease取得成功後**、確認済みheadのPRをmainへmergeし、そのmainをlocalへ反映する。以降の取得・抽出・転送を同じcodeで行う。
+4. **同じlease内**で最新cloud storeを改めて`pull-machine`し、`hydrate-market`で現行Lake releaseへ揃える。実行時点の最新`edinet_metrics.asof_date`とrevisionを再確認する。準備時のcopyをproductionへそのまま戻さず、freshなstoreのbackupを比較元として保存する。
+5. その最新as-ofを明示して通常storeへ再抽出し、exit 0、新revision、行数、revision以外の全列、隔離・quality理由、integrityを比較元と照合する。再抽出後のhydrateで成果を上書きしない。
+6. **leaseを保持したまま**`publish-lake`、`push-market`の順に実行し、下記の固定release・cloud copyのreadbackを完了する。最後のpublishだけを`with_publication_lease`で囲み直したり、途中でreleaseしたりしない。
+7. code/store/readbackの整合を確認してから、取得時と同じhandleでleaseをreleaseする。
 
-手順2〜3の実行例（repository root、意味を変えない移動の場合）。一時directoryは結果確認用に残す。既定はcache-only。原典不足の場合だけ`EDINET_API_KEY`を用意して`cache_only=False`で再実行すると、既存cacheを再利用し不足分を取得する。抽出結果の成功は終了コードと新revisionの両方で判定する。
+cutoverの外枠は既存の明示的なacquire/releaseを使う。以下の取得commandが成功してから手順3へ進む。handleを別shellへ引き継ぐ場合はpathを保持する。
+
+```bash
+cutover_dir="$(mktemp -d "${TMPDIR:-/tmp}/edinet-cutover.XXXXXX")"
+cutover_handle="$cutover_dir/lease.json"
+uv run python -m baibai_batch.storage.publication_lease acquire --purpose operator --handle "$cutover_handle" || exit 1
+```
+
+copy検証の実行例（手順1、repository root、意味を変えない移動の場合）。一時directoryは結果確認用に残す。既定はcache-only。原典不足の場合だけ`EDINET_API_KEY`を用意して`cache_only=False`で再実行すると、既存cacheを再利用し不足分を取得する。抽出結果の成功は終了コードと新revisionの両方で判定する。
 
 ```bash
 uv run python - <<'PY'
@@ -685,7 +696,7 @@ print(f'PASS rows={len(after)} revision={revisions[0][0]} integrity=ok')
 PY
 ```
 
-手順4で通常storeを更新するcommand:
+手順5で通常storeを更新するcommand（lease保持中）:
 
 ```bash
 uv run baibai-engine screening extract-edinet-metrics --asof YYYY-MM-DD
@@ -693,7 +704,13 @@ uv run baibai-engine screening extract-edinet-metrics --asof YYYY-MM-DD
 
 **成功確認**: `publish-lake`と`push-market`のno-loss/CAS検査後、公開した固定releaseを別storeへhydrateし、対象as-ofの行数・新revision・抽出値を照合する。cloud copyのstore-local coverageも確認する。code反映、L1発行、store反映、readbackが揃うまで完了としない。日次batchにrevision移行の再構築を代行させない。
 
-**停止・復旧**: 認証・rate limit・不足ZIP・破損は対象を限定して直し、同じas-ofで再実行する。値の予期しない変化、generation競合、旧snapshotの消失があれば公開を止める。revisionを旧hashへ固定して再利用可能に見せない。
+手順7のrelease（readback成功後）:
+
+```bash
+uv run python -m baibai_batch.storage.publication_lease release --handle "$cutover_handle" || exit 1
+```
+
+**停止・復旧**: leaseのTTLは固定120分であり、無期限の保護ではない。main切替後に失敗した場合、新codeと旧revision storeのままwriterを再開しない。期限内に整合を回復できない場合はdaily等のwriter停止を確認し、未完了のcutoverとして引き継ぐ。lease失効後の処理続行やblind retryをせず、再開時は再取得したlease内でfreshなcloud stateから確認する。release失敗時はhandleを保持する。認証・rate limit・不足ZIP・破損は対象を限定して直し、同じas-ofで再実行する。値の予期しない変化、generation競合、旧snapshotの消失があれば公開を止める。revisionを旧hashへ固定して再利用可能に見せない。
 
 <a id="edinet-research-facts"></a>
 
