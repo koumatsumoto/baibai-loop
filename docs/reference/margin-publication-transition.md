@@ -35,7 +35,7 @@ JPX の集計システムは 2026-09-27 に移行し、移行可否は同日 20:
 | --- | --- | --- | --- | --- |
 | J-Quants `margin-interest` / `jquants_weekly_margin` | 全銘柄 | `week_end` | 2026-09-18 残高まで週次。原則第2営業日に公表 | 2026-09-18 残高までの `margin_*` の残高 source。9/18 後を拒否する |
 | J-Quants `margin-alert` / `jquants_margin_alerts` | 日々公表銘柄等だけ | `(publication_date, ticker)` | 日次。現行 API は同日 16:30 更新 | 過熱・規制 risk の fact / annotation 用。全銘柄系列や rank / gate へ代用しない |
-| J-Quants Pro 全銘柄 daily / `jquants_all_issues_daily_margin` | 全銘柄 | `(balance_date, ticker)` | 2026-09-25 残高から日次。翌営業日 16:00 公表 | 2026-09-25 残高以後の `margin_*` の残高 source。ClientV2 binding は U4 で実 payload を確認するまで無効で、activation までは serving が読まない。週次 table と row を union しない |
+| J-Quants `margin-interest` 全銘柄 daily / `jquants_all_issues_daily_margin` | 全銘柄 | `(balance_date, ticker)` | 2026-09-25 残高から日次。翌営業日 16:00 公表 | 2026-09-25 残高以後の `margin_*` の残高 source。ClientV2 bindingは2026-09-28に実payloadを確認して有効化した（[検証記録](../../reports/operations/2026-09-28-margin-publication-transition/contract.md)）。週次 table と row を union しない |
 
 `margin-alert` は `PubDate` と `AppDate` を別々に保存する。`TSEMrgnRegCls` は取引所の規制
 分類 fact であり、残高値から導出しない。全銘柄日次系列は `Date` を balance date として保存し、
@@ -61,12 +61,12 @@ union しない。6 残高 field は有限・非負、`IssType` は non-null を
   途中に取得したempty snapshotは最終的な「非公表週」とみなさず、公表後のbatchで一度再取得する。
   公表後にもemptyだった週はcleanな対象なしとして保持し、以後は再取得しない。
 - daily batch は `margin-alert` の直近 7 日を再取得し、遅延追加・訂正を取り込む。
-- 最終週次 2026-09-18 残高は 2026-09-24 以後、clean かつ non-empty な snapshot を
+- 最終週次 2026-09-18 残高は 2026-09-25 以後、clean かつ non-empty な snapshot を
   保存するまで再取得する。公表前の空 response を既存 cache が保持していても、最終週を
   欠損させないためである。
 - 2026-09-28 以後、daily batch は stored trading days から「次の営業日が到来済み」の
   balance date だけを要求する。最初の対象は 2026-09-25 である。ただし calendar は移行実施の
-  authority ではないため、`ALL_ISSUES_DAILY_PUBLICATION_CONFIRMED` は初期値 `False` とする。
+  authority ではないため、`ALL_ISSUES_DAILY_PUBLICATION_CONFIRMED` は初期値 `False` とし、2026-09-28の告知・payload検証後に`True`へ変更した。
 - U4 は JPX の移行実施告知と、repository が利用する J-Quants ClientV2 の endpoint / field /
   date identity / 母集団を実 payload で確認する。両方が一致した commit だけが activation flag を
   `True` にする。移行中止または ClientV2 未対応なら無効のままにする。

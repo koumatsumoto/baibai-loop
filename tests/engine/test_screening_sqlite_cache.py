@@ -1554,8 +1554,14 @@ class MarginPublicationTransitionStoreTest(unittest.TestCase):
             )
 
             self.assertEqual(
-                all_issues_daily_margin_candidate_dates(db, date(2026, 9, 25), date(2026, 9, 28)),
+                all_issues_daily_margin_candidate_dates(
+                    db, date(2026, 9, 25), date(2026, 9, 28), publication_confirmed=False
+                ),
                 [],
+            )
+            self.assertEqual(
+                all_issues_daily_margin_candidate_dates(db, date(2026, 9, 25), date(2026, 9, 28)),
+                [date(2026, 9, 25)],
             )
 
     def test_backfill_window_includes_its_end_balance_date(self) -> None:

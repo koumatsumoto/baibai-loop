@@ -371,7 +371,7 @@ class MarginPublicationSeamTest(unittest.TestCase):
                 ({}, {}),
             )
 
-            latest, _ = read_margin_supply_demand_inputs(db, asof, publication_confirmed=True)
+            latest, _ = read_margin_supply_demand_inputs(db, asof)
 
             self.assertEqual(sorted(latest), ["7203"])
             observed = {row.balance_date for row in latest.values()}

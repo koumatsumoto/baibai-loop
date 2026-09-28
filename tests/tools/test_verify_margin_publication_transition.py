@@ -88,7 +88,7 @@ def _create_store(path: Path, *, daily_scale: float = 1.0) -> None:
                     "get_mkt_margin_interest:2026-09-18..2026-09-18",
                     "2026-09-18",
                     "2026-09-18",
-                    "2026-09-24T07:01:00+00:00",
+                    "2026-09-25T07:30:00+00:00",
                     3,
                 ),
                 (
@@ -245,28 +245,43 @@ def test_transition_verifier_rejects_prepublication_coverage(tmp_path: Path) -> 
         _verify(sqlite_path)
 
 
-def test_transition_verifier_enforces_the_first_daily_publication_time(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("source", "before", "at", "label"),
+    [
+        (
+            "jquants_weekly_margin",
+            "2026-09-25T07:29:59+00:00",
+            "2026-09-25T07:30:00+00:00",
+            "2026-09-25T16:30",
+        ),
+        (
+            "jquants_all_issues_daily_margin",
+            "2026-09-28T06:59:59+00:00",
+            "2026-09-28T07:00:00+00:00",
+            "2026-09-28T16:00",
+        ),
+    ],
+)
+def test_transition_verifier_enforces_publication_time(
+    tmp_path: Path, source: str, before: str, at: str, label: str
+) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _create_store(sqlite_path)
     conn = sqlite3.connect(sqlite_path)
     try:
         conn.execute(
-            "UPDATE source_coverage SET fetched_at_utc = '2026-09-28T06:59:59+00:00' "
-            "WHERE source = 'jquants_all_issues_daily_margin'"
+            "UPDATE source_coverage SET fetched_at_utc = ? WHERE source = ?", (before, source)
         )
         conn.commit()
     finally:
         conn.close()
 
-    with pytest.raises(MarginTransitionVerificationError, match="2026-09-28T16:00"):
+    with pytest.raises(MarginTransitionVerificationError, match=label):
         _verify(sqlite_path)
 
     conn = sqlite3.connect(sqlite_path)
     try:
-        conn.execute(
-            "UPDATE source_coverage SET fetched_at_utc = '2026-09-28T07:00:00+00:00' "
-            "WHERE source = 'jquants_all_issues_daily_margin'"
-        )
+        conn.execute("UPDATE source_coverage SET fetched_at_utc = ? WHERE source = ?", (at, source))
         conn.commit()
     finally:
         conn.close()

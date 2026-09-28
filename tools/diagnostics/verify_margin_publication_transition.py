@@ -23,8 +23,8 @@ from zoneinfo import ZoneInfo
 MIN_SCHEMA_VERSION = 21
 LEGACY_BALANCE_DATE = date(2026, 9, 18)
 DAILY_BALANCE_DATE = date(2026, 9, 25)
-LEGACY_PUBLICATION_DATE = date(2026, 9, 24)
 JST = ZoneInfo("Asia/Tokyo")
+LEGACY_PUBLICATION_NOT_BEFORE = datetime(2026, 9, 25, 16, 30, tzinfo=JST)
 DAILY_PUBLICATION_NOT_BEFORE = datetime(2026, 9, 28, 16, 0, tzinfo=JST)
 
 # These gates are frozen before the first daily payload is observable.  They are
@@ -149,7 +149,7 @@ def _load_snapshot(
     date_column: str,
     source: str,
     balance_date: date,
-    publication_not_before: date | datetime,
+    publication_not_before: datetime,
 ) -> Snapshot:
     iso = balance_date.isoformat()
     key = _coverage_key(balance_date)
@@ -174,12 +174,7 @@ def _load_snapshot(
         )
     fetched_datetime = _aware_datetime(fetched_at, label=f"{source} coverage fetched_at_utc")
     fetched_jst = fetched_datetime.astimezone(JST)
-    if isinstance(publication_not_before, datetime):
-        if fetched_jst < publication_not_before:
-            raise MarginTransitionVerificationError(
-                f"{source} coverage predates its {publication_not_before.isoformat()} publication"
-            )
-    elif fetched_jst.date() < publication_not_before:
+    if fetched_jst < publication_not_before:
         raise MarginTransitionVerificationError(
             f"{source} coverage predates its {publication_not_before.isoformat()} publication"
         )
@@ -331,7 +326,7 @@ def verify_transition(
             date_column="week_end",
             source="jquants_weekly_margin",
             balance_date=LEGACY_BALANCE_DATE,
-            publication_not_before=LEGACY_PUBLICATION_DATE,
+            publication_not_before=LEGACY_PUBLICATION_NOT_BEFORE,
         )
         daily = _load_snapshot(
             conn,
