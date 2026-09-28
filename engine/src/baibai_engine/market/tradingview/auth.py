@@ -1,7 +1,7 @@
 """Official SDK authentication with durable refresh-token rotation.
 
-The whole OAuth state is one GitHub Environment Secret. Persisting a rotation is
-part of authentication, before any market observation can be accepted.
+Each runner persists to its own authority: a GitHub Environment Secret or an
+independently authorized local file. Rotation must persist before observations.
 """
 
 from __future__ import annotations

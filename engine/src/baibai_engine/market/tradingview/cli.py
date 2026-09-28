@@ -30,6 +30,7 @@ from .auth import (
     OAuthState,
     SecretPersistenceError,
     save_github_secret,
+    write_local_state,
 )
 from .client import connect, fetch_batch
 from .collector import (
@@ -166,12 +167,9 @@ def failure_line(exc: BaseException) -> str:
     return line
 
 
-async def smoke(state: OAuthState, repository: str, writer_token: str) -> dict[str, object]:
-    storage = CredentialStorage(
-        state, partial(save_github_secret, repository=repository, writer_token=writer_token)
-    )
+async def smoke(storage: CredentialStorage) -> dict[str, object]:
     # Exercise rotation rather than accepting a still-valid interactive token.
-    storage.state = state.model_copy(update={"expires_at": 1.0})
+    storage.state = storage.state.model_copy(update={"expires_at": 1.0})
     async with connect(storage) as session:
         result = await fetch_batch(
             session,
@@ -187,17 +185,12 @@ async def smoke(state: OAuthState, repository: str, writer_token: str) -> dict[s
 
 
 async def snapshot(
-    state: OAuthState,
-    repository: str,
-    writer_token: str,
+    storage: CredentialStorage,
     path: Path,
     day: date,
     interval: float,
     progress_output: Path | None = None,
 ) -> dict[str, object]:
-    storage = CredentialStorage(
-        state, partial(save_github_secret, repository=repository, writer_token=writer_token)
-    )
     output_enabled = progress_output is not None
 
     def progress(value: CollectionProgress) -> None:
@@ -223,13 +216,51 @@ async def snapshot(
     return {**result, "oauth_rotations": storage.rotation_count}
 
 
+def credential_storage(state_file: Path | None) -> CredentialStorage:
+    """Choose one explicit authority; a local failure must never use cloud state."""
+    if state_file is not None:
+        try:
+            state = OAuthState.model_validate_json(state_file.read_bytes())
+        except (OSError, ValidationError):
+            raise AuthenticationError(
+                "Local TradingView OAuth state is missing or invalid"
+            ) from None
+
+        def persist(updated: OAuthState) -> None:
+            try:
+                write_local_state(state_file, updated)
+            except OSError:
+                raise SecretPersistenceError("Local TradingView OAuth rotation failed") from None
+
+        return CredentialStorage(state, persist)
+    try:
+        state = OAuthState.model_validate_json(os.environ.get("TRADINGVIEW_OAUTH_STATE", ""))
+    except ValidationError:
+        raise AuthenticationError("TradingView OAuth state is missing or invalid") from None
+    repository = os.environ.get("GITHUB_REPOSITORY", "")
+    writer_token = os.environ.get("TRADINGVIEW_SECRET_WRITER_TOKEN", "")
+    if not repository or not writer_token:
+        raise SecretPersistenceError("GitHub Secret writer credentials are missing")
+    return CredentialStorage(
+        state, partial(save_github_secret, repository=repository, writer_token=writer_token)
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-engine tradingview")
     sub = parser.add_subparsers(dest="command", required=True)
     login = sub.add_parser("authorize", help="interactive local OAuth bootstrap")
     login.add_argument("--state-file", type=Path, required=True)
-    sub.add_parser("smoke", help="refresh credentials and verify two symbols without storing facts")
+    smoke_parser = sub.add_parser(
+        "smoke", help="refresh credentials and verify two symbols without storing facts"
+    )
+    smoke_parser.add_argument(
+        "--state-file", type=Path, help="independent local OAuth file; never writes GitHub Secrets"
+    )
     refresh = sub.add_parser("refresh", help="append today's full-universe post-close snapshot")
+    refresh.add_argument(
+        "--state-file", type=Path, help="independent local OAuth file; never writes GitHub Secrets"
+    )
     refresh.add_argument("--sqlite", type=Path, default=MARKET_DB_PATH)
     refresh.add_argument("--asof", type=date.fromisoformat, default=None)
     refresh.add_argument("--progress-output", type=Path)
@@ -262,22 +293,13 @@ def main(argv: list[str] | None = None, /) -> int:
             if preflight is not None:
                 print(json.dumps({**preflight, "oauth_rotations": 0}))
                 return 0
-        try:
-            state = OAuthState.model_validate_json(os.environ.get("TRADINGVIEW_OAUTH_STATE", ""))
-        except ValidationError:
-            raise AuthenticationError("TradingView OAuth state is missing or invalid") from None
-        repository = os.environ.get("GITHUB_REPOSITORY", "")
-        writer_token = os.environ.get("TRADINGVIEW_SECRET_WRITER_TOKEN", "")
-        if not repository or not writer_token:
-            raise SecretPersistenceError("GitHub Secret writer credentials are missing")
+        storage = credential_storage(args.state_file)
         if args.command == "smoke":
-            result = asyncio.run(smoke(state, repository, writer_token))
+            result = asyncio.run(smoke(storage))
         else:
             result = asyncio.run(
                 snapshot(
-                    state,
-                    repository,
-                    writer_token,
+                    storage,
                     args.sqlite,
                     day,
                     args.interval,

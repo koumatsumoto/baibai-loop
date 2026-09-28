@@ -843,7 +843,44 @@ runnerでのOAuth smokeはmain refだけに限定する。確認するときは�
 gh workflow run ci.yml --ref main -f tradingview_oauth_smoke=true
 ```
 
-ローカルの認証fileは初期投入用で、runnerが更新した後の最新版ではない。同じstateを複数processで更新したり、古いfileを再投入しない。対話認証による置換も、`cloud-publish`の実行がない時間に行う。
+GitHub Secretの初期投入に使ったローカル認証fileは、GitHub runnerが更新した後の最新版ではない。同じstateを複数processで更新したり、古いfileを再投入しない。対話認証による置換も、`cloud-publish`の実行がない時間に行う。
+
+### 独立したローカル認証で取得・L1公開する
+
+GitHubとlocalはそれぞれ独立したOAuth stateを使い、共有publication leaseだけでL1 writerを直列化する。GitHub側のenvironment secretとworkflowは変更しない。local成功はprovider quotaの分離や全市場取得の安定を保証しないため、GitHub失敗直後の自動fallbackやblind retryには使わない。
+
+**前提**: current mainのcleanな専用runtime checkoutを用意する。runnerはそのcheckoutの`stores/market/market.sqlite`をfresh pull・hydrateで置換するため、分析・編集中のcheckoutを使わず、同checkoutのstoreを他processで更新しない。`.env`には既存のstores用R2 credentialと`JQUANTS_API_KEY`を設定し、`uv sync --locked`と、workflowと同じ[DuckDB httpfsの事前配置](../tools/diagnostics/provision_duckdb_httpfs.py)を済ませる。既存transferに必要なAWS CLIも使える状態にする。
+
+初回のみ、GitHubへ投入したfileとは別のpathへ新規に対話認証する。本番Secretや、その元になった古いfileをコピーしない。fileはrepo外に保存し、token rotationも同じfileへatomicに書き戻す。
+
+```bash
+uv run baibai-engine tradingview authorize \
+  --state-file "$HOME/.cache/baibai-loop/tradingview-local/oauth.json"
+```
+
+同じfileを使う取得・smoke・再認証を同時実行しない。GitHubの手動OAuth smokeも、provider requestの重複を避けるためlocal取得中には実行しない。cloud smokeはL1を書かずlocal認証とも独立しているため、既存のGitHub queueを維持しpublication leaseには参加しない。
+
+**実行**: 専用checkoutのrootから、当日15:30 JST以降に実行する。
+
+```bash
+uv run baibai-batch tradingview \
+  --state-file "$HOME/.cache/baibai-loop/tradingview-local/oauth.json"
+```
+
+runnerは当日を固定し、lease取得 → market pull → current L1 hydrate → exact-date preflight → 必要な場合だけ当日masterとTV取得 → `saved`の場合だけL1公開 → releaseの順に進む。15:30前はlease・production read前に終了し、休場日・当日保存済みならOAuth接続前に終了する。過去日のbackfillはしない。TV取得は30分、取得前のpullから公開まで全体60分で打ち切る。remote `market.sqlite`・machine bundle・servingは更新しない。
+
+**成功確認**: exit 0、`saved`とL1 publish reportのrelease ID/hash、lease解放を確認する。固定releaseの行数・Universe・coverage・`fetched_at_utc`・前日snapshot保持を[L1参照手順](../docs/reference/market-lake.md#shared-raw-read)で照合する。`already_saved` / `non_trading_day` / `skipped_historical_asof` / `before_close`は取得・公開成功と区別したno-opである。同日後続GitHub runがhydrate後に`already_saved`となることも確認する。
+
+**停止・復旧**: busyはexit 3、その他の失敗はexit 1。失敗・SIGINT/SIGTERM・timeoutでは子processを停止してからreleaseする。release失敗時はstderrに示されたhandleを保持し、[既存lease手順](#ローカルからクラウドを更新する)に従う。SIGKILL・host停止ではreleaseできない場合がある。公開失敗後のlocal snapshotだけを根拠に保存済みとせず、次回はfresh pull/hydrateから始める。
+
+認証失敗はlocal fileだけを再認証し、GitHub Secretを変更しない。`secret_persistence`ならfileの書込権限・空き容量を確認し、保存できなかったrotationを古いfileから再試行せず再認証する。継続認証を明示的に確認するときだけ、取得中でないことを確認して次を使う。2銘柄取得とtoken更新を行うがsnapshotは保存しない。次processで同じfileを再利用できることを確認する。
+
+```bash
+uv run baibai-engine tradingview smoke \
+  --state-file "$HOME/.cache/baibai-loop/tradingview-local/oauth.json"
+```
+
+engineの`refresh --state-file`は取得だけの低レベル入口であり、production取得・公開には上のbatch runnerを使う。local file指定時にGitHub認証へfallbackすることはない。
 
 ### 保存と再試行
 
