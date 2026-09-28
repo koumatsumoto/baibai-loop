@@ -1042,7 +1042,7 @@ class ScreeningCliTests(unittest.TestCase):
         self.assertEqual(jpx.bootstrap_calls, [asof])
 
     def test_bootstrap_refreshes_the_final_legacy_week_after_publication(self) -> None:
-        asof = date(2026, 9, 24)
+        asof = date(2026, 9, 25)
         jquants = FakeJQuantsProvider()
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
@@ -1054,6 +1054,7 @@ class ScreeningCliTests(unittest.TestCase):
                 date(2026, 9, 18),
                 date(2026, 9, 22),
                 date(2026, 9, 24),
+                date(2026, 9, 25),
             )
             store_jquants_daily_bars(
                 sqlite_path,

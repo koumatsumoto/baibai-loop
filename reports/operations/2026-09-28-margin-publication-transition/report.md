@@ -5,7 +5,7 @@
 ## 判定
 
 - machine verdict: `pass`
-- observed_at_utc: `2026-09-28T12:41:09.997849+00:00`
+- observed_at_utc: `2026-09-28T13:48:29.159581+00:00`
 - market store: `stores/market/market.sqlite`（2,062,225,408 bytes）
 - market schema version: `28`
 - 結論: 新旧 snapshot は事前固定した母集団・単位連続性 gate を通過した。これは同じ物理量の取込継続を確認するもので、日次軸の投資有効性は評価しない。

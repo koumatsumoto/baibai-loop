@@ -10,7 +10,7 @@ from datetime import date
 # prevents a daily row from silently changing the meaning of the historical
 # weekly series.
 LEGACY_WEEKLY_LAST_BALANCE_DATE = date(2026, 9, 18)
-LEGACY_WEEKLY_LAST_PUBLICATION_DATE = date(2026, 9, 24)
+LEGACY_WEEKLY_LAST_PUBLICATION_DATE = date(2026, 9, 25)
 ALL_ISSUES_DAILY_FIRST_BALANCE_DATE = date(2026, 9, 25)
 ALL_ISSUES_DAILY_FIRST_PUBLICATION_DATE = date(2026, 9, 28)
 

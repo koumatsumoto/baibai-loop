@@ -14,7 +14,7 @@
 
 ## 実行結果
 
-指定のbounded probeはexit 0、4,254行を保存した。続くone-shot verifierもpassとなった。
+指定のbounded probeはexit 0、4,254行を保存した。続くone-shot verifierもpassとなった。最終週次の取得時刻は9/25 16:30 JST以後を要求するよう訂正し、同じstoreで再実行してpassを確認した。
 [機械検証結果](./report.md)は最終週次2026-09-18との母集団・単位・残高内訳の連続性を記録している。
 契約確認のため同じ日付のClientV2応答を別途照合し、保存行との差異がないことを確認した。
 
