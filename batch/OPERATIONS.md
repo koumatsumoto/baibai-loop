@@ -890,7 +890,7 @@ engineの`refresh --state-file`は取得だけの低レベル入口であり、p
 
 TradingView stepのsafe failure line、`TradingView progress:` summaryの順に読む。`chunks_completed / chunks_total`と`chunk_index`で失敗位置を、`provider_elapsed_seconds / elapsed_seconds`と`max_chunk_elapsed_seconds`でprovider待ちとintervalの影響を確認し、`oauth_rotations`で認証更新回数を見る。payload検証失敗では固定の`validation_reason`とcanonicalな`validation_field`を確認する。成功時は最終JSONの`rows / unresolved / normal_nulls`とfirst / last fetched_atも確認する。
 
-- `provider_rate_limit`（429）: 同runを即時rerunせず、manual scanner callも重ねない。当日分のpartial snapshotが保存されていないことを確認し、次のscheduled runまたはprovider quota確認へ進む。
+- `provider_rate_limit`（429）: `is_error=false`でも、`success=false`のerrorが明確なHTTP 429を示す場合はこの分類になる。同runを即時rerunせず、manual scanner callも重ねない。当日分のpartial snapshotが保存されていないことを確認し、次のscheduled runまたはprovider quota確認へ進む。
 - `auth`: [対話認証](#初期設定と認証の復旧)をやり直す。
 - `secret_persistence`: `tradingview-runtime`のEnvironment secretとwriter tokenの権限・期限を確認する。
 - `provider_all_missing`: coverage不存在と断定せず、provider全体のdegradationの可能性を確認する。

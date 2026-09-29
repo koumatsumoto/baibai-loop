@@ -5,6 +5,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 from datetime import date
 from pathlib import Path
 
@@ -200,7 +201,17 @@ def test_real_command_timeout_kills_descendants(tmp_path, monkeypatch):
         runner.command([sys.executable, "-c", script], timeout=0.5)
     pid = int((tmp_path / "pid").read_text())
     proc = Path(f"/proc/{pid}/stat")
-    assert not proc.exists() or proc.read_text().split()[2] == "Z"
+    # Group signals are asynchronous; waitpid only reaps our direct child.
+    deadline = time.monotonic() + 2
+    while True:
+        try:
+            state = proc.read_text().split()[2]
+        except FileNotFoundError:
+            break
+        if state == "Z":
+            break
+        assert time.monotonic() < deadline, f"descendant still running: {state}"
+        time.sleep(0.01)
 
 
 def test_collection_and_release_failures_are_both_reported(runtime, capsys):
