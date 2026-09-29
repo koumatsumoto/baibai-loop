@@ -8,7 +8,6 @@ from datetime import date, datetime
 from html.parser import HTMLParser
 from io import BytesIO
 from pathlib import Path
-from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -24,9 +23,6 @@ _JPX_ALLOWED_SCHEME = "https"
 _JPX_ALLOWED_HOST = "www.jpx.co.jp"
 _JPX_CACHE_SCHEMA_VERSION = 1
 _JPX_STALE_SNAPSHOT_BUSINESS_DAYS = 7
-# Current JPX margin Excel URL pattern. Keep the broader text/heading anchors
-# below so a future filename prefix change fails less often and never silently.
-_JPX_SPECIAL_CAUTION_MARGIN_LINK_HINT = "mtdailyk"
 _JPX_EXCEL_SUFFIXES = {".xls", ".xlsx"}
 JPX_EARNINGS_CALENDAR_INDEX_URL = (
     "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/index.html"
@@ -111,6 +107,8 @@ class _EarningsCalendarFile:
 class _ParsedRow:
     cells: tuple[str, ...]
     cell_tags: tuple[str, ...]
+    rowspans: tuple[str, ...]
+    colspans: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
@@ -141,10 +139,13 @@ class _JpxHtmlIndexer(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.tables: list[_ParsedTable] = []
+        self.section_text: dict[str, list[str]] = {}
         self.links: list[_ParsedLink] = []
         self._table_stack: list[dict[str, object]] = []
         self._cell_fragments: list[str] | None = None
         self._cell_tag: str | None = None
+        self._cell_rowspan = "1"
+        self._cell_colspan = "1"
         self._link_href: str | None = None
         self._link_fragments: list[str] | None = None
         self._heading_buffer: list[str] | None = None
@@ -189,6 +190,8 @@ class _JpxHtmlIndexer(HTMLParser):
         if tag in {"td", "th"}:
             self._cell_fragments = []
             self._cell_tag = tag
+            self._cell_rowspan = attrs_by_name.get("rowspan") or "1"
+            self._cell_colspan = attrs_by_name.get("colspan") or "1"
             return
         if tag == "br" and self._cell_fragments is not None:
             self._cell_fragments.append("\n")
@@ -212,6 +215,7 @@ class _JpxHtmlIndexer(HTMLParser):
             text = re.sub(r"\s+", " ", "".join(self._heading_buffer)).strip()
             if self._heading_tag == "h2":
                 self._last_h2 = text
+                self.section_text.setdefault(text, [])
             else:
                 self._last_h3 = text
             self._heading_buffer = None
@@ -224,21 +228,25 @@ class _JpxHtmlIndexer(HTMLParser):
             normalized = re.sub(r"\s+", " ", value).strip()
             current_row = self._table_stack[-1].get("current_row")
             if isinstance(current_row, list) and self._cell_tag is not None:
-                current_row.append((self._cell_tag, normalized))
+                current_row.append(
+                    (self._cell_tag, normalized, self._cell_rowspan, self._cell_colspan)
+                )
             self._cell_fragments = None
             self._cell_tag = None
             return
         if tag == "tr":
             current_row = self._table_stack[-1].get("current_row")
             self._table_stack[-1]["current_row"] = None
-            if isinstance(current_row, list) and any(text for _, text in current_row):
+            if isinstance(current_row, list) and any(cell[1] for cell in current_row):
                 current_table_rows = self._table_stack[-1]["rows"]
                 if not isinstance(current_table_rows, list):
                     raise JPXProviderError("internal JPX parser row buffer is invalid")
                 current_table_rows.append(
                     _ParsedRow(
-                        cells=tuple(text for _, text in current_row),
-                        cell_tags=tuple(tag_ for tag_, _ in current_row),
+                        cells=tuple(cell[1] for cell in current_row),
+                        cell_tags=tuple(cell[0] for cell in current_row),
+                        rowspans=tuple(cell[2] for cell in current_row),
+                        colspans=tuple(cell[3] for cell in current_row),
                     )
                 )
             return
@@ -273,6 +281,8 @@ class _JpxHtmlIndexer(HTMLParser):
                 self.tables.append(parsed)
 
     def handle_data(self, data: str) -> None:
+        if self._last_h2 is not None and self._heading_buffer is None:
+            self.section_text[self._last_h2].append(data)
         if self._heading_buffer is not None:
             self._heading_buffer.append(data)
         if self._cell_fragments is not None:
@@ -289,7 +299,6 @@ class JPXProvider:
         cache_dir: Path,
         regulation_urls: Mapping[str, str] | None = None,
         session: requests.Session | None = None,
-        special_caution_index_url: str | None = None,
         *,
         sqlite_path: Path | None = None,
         cache_only: bool = False,
@@ -298,14 +307,9 @@ class JPXProvider:
         self._cache_dir = Path(cache_dir) / "jpx"
         self._session = session or requests.Session()
         self._regulation_urls = dict(regulation_urls or {})
-        self._special_caution_index_url = special_caution_index_url
         self._sqlite_path = Path(sqlite_path) if sqlite_path is not None else None
         self._cache_only = cache_only
         self._allow_stale_snapshot = allow_stale_snapshot
-        if special_caution_index_url:
-            self._regulation_urls.setdefault(
-                JPX_SPECIAL_CAUTION_SOURCE_NAME, special_caution_index_url
-            )
 
     def get_regulation_snapshot(self, asof_date: date) -> JPXRegulationSnapshot:
         if self._sqlite_path is not None:
@@ -323,10 +327,7 @@ class JPXProvider:
         flags: dict[str, set[str]] = {}
         fetched_source_names: list[str] = []
         for source_name, url in self._regulation_urls.items():
-            download_url = url
-            if source_name == JPX_SPECIAL_CAUTION_SOURCE_NAME and self._special_caution_index_url:
-                download_url = self._resolve_special_attention_xls_url(asof_date)
-            rows = self._download_rows(source_name, download_url)
+            rows = self._download_rows(source_name, url)
             fetched_source_names.append(source_name)
             for row in rows:
                 ticker_raw = (
@@ -649,63 +650,6 @@ class JPXProvider:
         if parsed.scheme != _JPX_ALLOWED_SCHEME or parsed.netloc != _JPX_ALLOWED_HOST:
             raise JPXProviderError(f"JPX regulation source must use https://www.jpx.co.jp/: {url}")
 
-    def _resolve_special_attention_xls_url(self, asof_date: date) -> str:
-        # The index publishes only the latest XLS. The caller's --allow-stale-jpx
-        # guard keeps a historical as-of from silently accepting that current file.
-        del asof_date
-        if not self._special_caution_index_url:
-            raise JPXProviderError("JPX_SPECIAL_CAUTION_INDEX_URL is not configured")
-
-        index_url = self._special_caution_index_url
-        self._validate_allowed_url(index_url)
-        response = self._session.get(index_url, timeout=_HTTP_TIMEOUT_SECONDS)
-        if response.status_code >= 400:
-            raise JPXProviderError(
-                f"failed to download JPX special caution index: {index_url} "
-                f"(status={response.status_code})"
-            )
-
-        content_type_header = response.headers.get("content-type", "")
-        html = self._decode_html_text(response.content, index_url, content_type_header)
-        indexer = _JpxHtmlIndexer()
-        indexer.feed(html)
-
-        candidates: list[tuple[int, int, str]] = []
-        for position, link in enumerate(indexer.links):
-            resolved_url = urljoin(index_url, link.href)
-            parsed = urlparse(resolved_url)
-            suffix = Path(parsed.path).suffix.lower()
-            if suffix not in _JPX_EXCEL_SUFFIXES:
-                continue
-            haystack = " ".join(
-                part
-                for part in (
-                    parsed.path.lower(),
-                    link.text,
-                    link.preceding_h2,
-                    link.preceding_h3,
-                )
-                if part
-            )
-            if (
-                _JPX_SPECIAL_CAUTION_MARGIN_LINK_HINT not in parsed.path.lower()
-                and JPX_SPECIAL_CAUTION_SOURCE_NAME not in haystack
-                and "個別銘柄信用取引残高表" not in haystack
-            ):
-                continue
-            date_match = re.search(r"20\d{6}", parsed.path)
-            # Prefer the newest date token; if JPX ever omits dates, fall back
-            # to document order by keeping zero-date candidates sortable.
-            date_key = int(date_match.group(0)) if date_match else 0
-            candidates.append((date_key, position, resolved_url))
-
-        if not candidates:
-            raise JPXProviderError(f"failed to locate JPX special caution Excel link: {index_url}")
-
-        resolved_url = max(candidates)[2]
-        self._validate_allowed_url(resolved_url)
-        return resolved_url
-
     def _parse_csv_rows(self, content: bytes, url: str) -> list[dict[str, str]]:
         try:
             text = content.decode("utf-8-sig")
@@ -724,8 +668,6 @@ class JPXProvider:
             raise JPXProviderError("pandas is required to read JPX Excel sources") from exc
 
         try:
-            if source_name == "特別注意銘柄":
-                return self._parse_special_alert_margin_rows(pd, content, source_name, url)
             frame = pd.read_excel(BytesIO(content), dtype=str)
         except ImportError as exc:
             raise JPXProviderError(
@@ -748,6 +690,8 @@ class JPXProvider:
         content_type_header: str = "",
     ) -> list[dict[str, str]]:
         html = self._decode_html_text(content, url, content_type_header)
+        if source_name == JPX_SPECIAL_CAUTION_SOURCE_NAME:
+            return self._parse_special_attention_html_rows(html, url)
         if source_name == "整理銘柄":
             return self._parse_reorganization_html_rows(html, url)
         if source_name == "取引停止":
@@ -784,6 +728,68 @@ class JPXProvider:
                 value = kv.split("=", 1)[1].strip().strip("\"'").lower()
                 return value or None
         return None
+
+    def _parse_special_attention_html_rows(self, html: str, url: str) -> list[dict[str, str]]:
+        indexer = _JpxHtmlIndexer()
+        indexer.feed(html)
+        sections = [title for title in indexer.section_text if title.startswith("現在の指定状況")]
+        error = f"unexpected JPX special caution HTML layout: {url}"
+        if not sections:
+            raise JPXProviderError(error)
+        codes: dict[str, str] = {}
+        for section in sections:
+            tables = [table for table in indexer.tables if table.preceding_h2 == section]
+            if not tables:
+                if _TRADING_HALT_EMPTY_MARKER in "".join(indexer.section_text[section]):
+                    continue
+                raise JPXProviderError(error)
+            if len(tables) != 1:
+                raise JPXProviderError(error)
+            table = tables[0]
+            header = table.header_th_texts
+            if header.count("コード") != 1 or not table.rows or table.rows[0].cells != header:
+                raise JPXProviderError(error)
+            code_column = header.index("コード")
+            # JPX uses paired rows: the code spans both, while designation and
+            # continuation dates occupy separate rows. Only consume the code row;
+            # validate the exact remaining cells instead of skipping short rows.
+            continuation_columns: tuple[int, ...] | None = None
+            data_count = 0
+            for row_index, row in enumerate(table.rows):
+                if continuation_columns is not None:
+                    expected_tag = "th" if row_index == 1 else "td"
+                    if (
+                        len(row.cells) != len(continuation_columns)
+                        or any(tag != expected_tag for tag in row.cell_tags)
+                        or any(span != "1" for span in row.rowspans + row.colspans)
+                    ):
+                        raise JPXProviderError(error)
+                    continuation_columns = None
+                    continue
+                expected_tag = "th" if row_index == 0 else "td"
+                if (
+                    len(row.cells) != len(header)
+                    or any(tag != expected_tag for tag in row.cell_tags)
+                    or any(span not in {"1", "2"} for span in row.rowspans)
+                    or any(span != "1" for span in row.colspans)
+                ):
+                    raise JPXProviderError(error)
+                if "2" in row.rowspans:
+                    if row.rowspans[code_column] != "2":
+                        raise JPXProviderError(error)
+                    continuation_columns = tuple(
+                        index for index, span in enumerate(row.rowspans) if span == "1"
+                    )
+                if row_index:
+                    raw_code = row.cells[code_column]
+                    codes.setdefault(parse_jpx_code(raw_code), raw_code)
+                    data_count += 1
+            if continuation_columns is not None or not data_count:
+                raise JPXProviderError(error)
+        return [
+            {"code": raw_code, "flag": JPX_SPECIAL_CAUTION_SOURCE_NAME}
+            for raw_code in codes.values()
+        ]
 
     def _parse_reorganization_html_rows(self, html: str, url: str) -> list[dict[str, str]]:
         indexer = _JpxHtmlIndexer()
@@ -916,23 +922,6 @@ class JPXProvider:
                 raise JPXProviderError(f"missing JPX code in HTML row for {error_label}: {url}")
             parsed_rows.append({"code": code, "flag": source_name})
         return parsed_rows
-
-    def _parse_special_alert_margin_rows(
-        self, pd: Any, content: bytes, source_name: str, url: str
-    ) -> list[dict[str, str]]:
-        # Official JPX margin xls marks current "特別注意銘柄" rows with "○" in the
-        # second column and stores the 5-char security code in the seventh column.
-        # Keep this logic source-specific so the file layout remains understandable
-        # from code and tests without relying on ad-hoc HTML scraping.
-        del url
-        frame = pd.read_excel(BytesIO(content), header=None, dtype=str).fillna("")
-        rows: list[dict[str, str]] = []
-        for _, raw_row in frame.iloc[7:].iterrows():
-            values = [str(value).strip() for value in raw_row.tolist()]
-            if len(values) <= 6 or values[1] != "○":
-                continue
-            rows.append({"code": values[6], "flag": source_name})
-        return rows
 
 
 def parse_jpx_code(code: object) -> str:

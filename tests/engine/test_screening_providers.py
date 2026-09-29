@@ -7,7 +7,6 @@ import zipfile
 from datetime import date, timedelta
 from io import BytesIO
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
@@ -2091,185 +2090,61 @@ class ScreeningProviderTests(unittest.TestCase):
             ),
         )
 
-    def test_jpx_parse_special_alert_margin_rows_extracts_marked_codes(self) -> None:
-        class FakeFrame:
-            def __init__(self, rows: list[list[str]]) -> None:
-                self._rows = rows
-
-            def fillna(self, value: str) -> FakeFrame:
-                del value
-                return self
-
-            @property
-            def iloc(self) -> FakeFrame:
-                return self
-
-            def __getitem__(self, item: slice) -> FakeFrame:
-                return FakeFrame(self._rows[item])
-
-            def iterrows(self):
-                for index, row in enumerate(self._rows):
-                    yield index, SimpleNamespace(tolist=lambda row=row: row)
-
-        class FakePandas:
-            @staticmethod
-            def read_excel(*args, **kwargs) -> FakeFrame:
-                del args, kwargs
-                return FakeFrame(
-                    [[""] * 7 for _ in range(7)]
-                    + [
-                        ["B", "○", "", "Ａｂａｌａｎｃｅ　普通株式", "スタンダード", "制", "38560"],
-                        ["B", "規", "", "地域新聞社　普通株式", "スタンダード", "制", "21640"],
-                        ["B", "○", "", "旅工房　普通株式", "グロース", "制", "65480"],
-                    ]
-                )
-
-        provider = JPXProvider(Path("/tmp"))
-        rows = provider._parse_special_alert_margin_rows(
-            FakePandas(), b"", "特別注意銘柄", "https://example.com/mtdaily.xls"
+    def test_jpx_special_attention_current_sections(self) -> None:
+        html = self._read_jpx_fixture("special_caution.html")
+        provider = JPXProvider(
+            Path("/tmp"),
+            regulation_urls={
+                "特別注意銘柄": "https://www.jpx.co.jp/listing/measures/alert/index.html"
+            },
+            session=_FixedHtmlSession(html),
         )
+        snapshot = provider.get_regulation_snapshot(date(2026, 9, 29))
+        self.assertEqual(
+            snapshot.flags_by_ticker,
+            {"130A": ("特別注意銘柄",), "2901": ("特別注意銘柄",)},
+        )
+        self.assertEqual(snapshot.source_names, ("特別注意銘柄",))
+
+    def test_jpx_special_attention_merges_and_deduplicates_sections(self) -> None:
+        html = self._read_jpx_fixture("special_caution.html").decode()
+        html = html.replace(
+            "<p>現在、該当する情報はありません。</p>",
+            "<table><tr><th>銘柄名</th><th>コード</th></tr>"
+            "<tr><td>A</td><td>29010</td></tr><tr><td>C</td><td>6548</td></tr></table>",
+        )
+        rows = JPXProvider(Path("/tmp"))._parse_special_attention_html_rows(html, "fixture")
         self.assertEqual(
             rows,
-            [
-                {"code": "38560", "flag": "特別注意銘柄"},
-                {"code": "65480", "flag": "特別注意銘柄"},
-            ],
+            [{"code": code, "flag": "特別注意銘柄"} for code in ("2901", "130A", "6548")],
         )
 
-    def test_jpx_resolves_latest_special_attention_xls_from_index(self) -> None:
-        index_url = "https://www.jpx.co.jp/markets/statistics-equities/margin/index.html"
-        provider = JPXProvider(
-            Path("/tmp"),
-            session=_FixedHtmlSession(self._read_jpx_fixture("special_caution_index.html")),
-            special_caution_index_url=index_url,
-        )
-
-        resolved = provider._resolve_special_attention_xls_url(date(2026, 4, 24))
-
+    def test_jpx_special_attention_all_sections_empty(self) -> None:
+        html = "<h2>現在の指定状況</h2><p>現在、該当する情報はありません。</p>"
         self.assertEqual(
-            resolved,
-            "https://www.jpx.co.jp/markets/statistics-equities/margin/"
-            "tvdivq0000001r92-att/mtdailyk2026042300.xls",
+            JPXProvider(Path("/tmp"))._parse_special_attention_html_rows(html, "fixture"), []
         )
 
-    def test_jpx_resolve_special_attention_xls_rejects_non_jpx_link(self) -> None:
-        html = """
-        <html><body>
-          <a href="https://example.com/mtdailyk2026042300.xls">Excel</a>
-          <p>特別注意銘柄について信用取引残高を日々公表しています。</p>
-        </body></html>
-        """.encode()
-        provider = JPXProvider(
-            Path("/tmp"),
-            session=_FixedHtmlSession(html),
-            special_caution_index_url="https://www.jpx.co.jp/markets/statistics-equities/margin/index.html",
-        )
-
-        with self.assertRaisesRegex(JPXProviderError, "https://www\\.jpx\\.co\\.jp"):
-            provider._resolve_special_attention_xls_url(date(2026, 4, 24))
-
-    def test_jpx_resolve_special_attention_xls_fails_when_no_candidates(self) -> None:
-        html = """
-        <html><body>
-          <a href="/markets/statistics-equities/margin/readme.pdf">PDF</a>
-          <p>特別注意銘柄について信用取引残高を日々公表しています。</p>
-        </body></html>
-        """.encode()
-        provider = JPXProvider(
-            Path("/tmp"),
-            session=_FixedHtmlSession(html),
-            special_caution_index_url="https://www.jpx.co.jp/markets/statistics-equities/margin/index.html",
-        )
-
-        with self.assertRaisesRegex(
-            JPXProviderError, "failed to locate JPX special caution Excel link"
-        ):
-            provider._resolve_special_attention_xls_url(date(2026, 4, 24))
-
-    def test_jpx_resolve_special_attention_xls_raises_on_index_http_error(self) -> None:
-        provider = JPXProvider(
-            Path("/tmp"),
-            session=always(response(status_code=503)),
-            special_caution_index_url="https://www.jpx.co.jp/markets/statistics-equities/margin/index.html",
-        )
-
-        with self.assertRaisesRegex(
-            JPXProviderError, "failed to download JPX special caution index"
-        ):
-            provider._resolve_special_attention_xls_url(date(2026, 4, 24))
-
-    def test_jpx_resolve_special_attention_xls_falls_back_to_last_link_without_date_token(
-        self,
-    ) -> None:
-        html = """
-        <html><body>
-          <h2>個別銘柄信用取引残高表</h2>
-          <a href="/markets/statistics-equities/margin/tvdivq0000001r92-att/mtdailyk.xls">old</a>
-          <a href="/markets/statistics-equities/margin/tvdivq0000001r92-att/mtdailyk-latest.xls">latest</a>
-        </body></html>
-        """.encode()
-        provider = JPXProvider(
-            Path("/tmp"),
-            session=_FixedHtmlSession(html),
-            special_caution_index_url="https://www.jpx.co.jp/markets/statistics-equities/margin/index.html",
-        )
-
-        self.assertEqual(
-            provider._resolve_special_attention_xls_url(date(2026, 4, 24)),
-            "https://www.jpx.co.jp/markets/statistics-equities/margin/"
-            "tvdivq0000001r92-att/mtdailyk-latest.xls",
-        )
-
-    def test_jpx_resolve_special_attention_xls_prefers_later_link_for_same_date(self) -> None:
-        html = b"""
-        <html><body>
-          <a href="/markets/statistics-equities/margin/tvdivq0000001r92-att/mtdailyk2026042300.xls">old</a>
-          <a href="/markets/statistics-equities/margin/tvdivq0000001r92-att/mtdailyk2026042301.xls">revised</a>
-        </body></html>
-        """
-        provider = JPXProvider(
-            Path("/tmp"),
-            session=_FixedHtmlSession(html),
-            special_caution_index_url="https://www.jpx.co.jp/markets/statistics-equities/margin/index.html",
-        )
-
-        self.assertEqual(
-            provider._resolve_special_attention_xls_url(date(2026, 4, 24)),
-            "https://www.jpx.co.jp/markets/statistics-equities/margin/"
-            "tvdivq0000001r92-att/mtdailyk2026042301.xls",
-        )
-
-    def test_jpx_get_regulation_snapshot_resolves_special_attention_index_before_download(
-        self,
-    ) -> None:
-        class CapturingProvider(JPXProvider):
-            def __init__(self, *args, **kwargs) -> None:
-                super().__init__(*args, **kwargs)
-                self.downloaded_urls: list[str] = []
-
-            def _download_rows(self, source_name: str, url: str) -> list[dict[str, str]]:
-                self.downloaded_urls.append(url)
-                return [{"code": "38560", "flag": source_name}]
-
-        index_url = "https://www.jpx.co.jp/markets/statistics-equities/margin/index.html"
-        with tempfile.TemporaryDirectory() as tmp:
-            provider = CapturingProvider(
-                Path(tmp),
-                session=_FixedHtmlSession(self._read_jpx_fixture("special_caution_index.html")),
-                special_caution_index_url=index_url,
-            )
-            snapshot = provider.get_regulation_snapshot(date(2026, 4, 24))
-
-        self.assertEqual(snapshot.flags_by_ticker, {"3856": ("特別注意銘柄",)})
-        self.assertEqual(
-            provider.downloaded_urls,
-            [
-                (
-                    "https://www.jpx.co.jp/markets/statistics-equities/margin/"
-                    "tvdivq0000001r92-att/mtdailyk2026042300.xls"
-                ),
-            ],
-        )
+    def test_jpx_special_attention_rejects_layout_drift(self) -> None:
+        html = self._read_jpx_fixture("special_caution.html").decode()
+        cases = {
+            "missing code header": html.replace("コード", "識別子"),
+            "short code row": html.replace('<td rowspan="2">2901</td>', ""),
+            "missing continuation": html.replace("<tr><td>-</td><td>-</td></tr>", "", 1),
+            "broken continuation": html.replace(
+                "<tr><td>-</td><td>-</td></tr>", "<tr><td>-</td></tr>"
+            ),
+            "changed rowspan": html.replace('rowspan="2">2901', 'rowspan="3">2901'),
+            "changed colspan": html.replace('rowspan="2">2901', 'rowspan="2" colspan="2">2901'),
+            "invalid code": html.replace(">2901<", ">invalid<"),
+            "missing section content": html.replace("<p>現在、該当する情報はありません。</p>", ""),
+            "unrelated table": "<h2>指定履歴</h2><table><tr><th>コード</th></tr><tr><td>9999</td></tr></table>",
+            "unrelated empty marker": "<h2>現在の指定状況</h2><h2>指定履歴</h2><p>現在、該当する情報はありません。</p>",
+            "header only": "<h2>現在の指定状況</h2><table><tr><th>コード</th></tr></table>",
+        }
+        for label, changed in cases.items():
+            with self.subTest(label=label), self.assertRaises(JPXProviderError):
+                JPXProvider(Path("/tmp"))._parse_special_attention_html_rows(changed, "fixture")
 
     def test_jpx_download_rows_rejects_non_jpx_origin(self) -> None:
         session = ExplodingSession("request should not be attempted")
