@@ -37,7 +37,7 @@ class ScreeningConfigTests(unittest.TestCase):
             {
                 "JQUANTS_API_KEY": "token",
                 "EDINET_API_KEY": "key",
-                "JPX_SPECIAL_CAUTION_URL": "https://example.com/special.csv",
+                "JPX_SPECIAL_CAUTION_URL": "https://www.jpx.co.jp/listing/measures/alert/index.html",
                 "JPX_TRADING_HALT_URL": "https://example.com/halt.csv",
             }
         )
@@ -45,28 +45,8 @@ class ScreeningConfigTests(unittest.TestCase):
         self.assertEqual(
             dict(config.jpx_regulation_urls),
             {
-                "特別注意銘柄": "https://example.com/special.csv",
+                "特別注意銘柄": "https://www.jpx.co.jp/listing/measures/alert/index.html",
                 "取引停止": "https://example.com/halt.csv",
-            },
-        )
-
-    def test_from_env_supports_special_caution_index_url(self) -> None:
-        config = ScreeningConfig.from_env(
-            {
-                "JQUANTS_API_KEY": "token",
-                "EDINET_API_KEY": "key",
-                "JPX_SPECIAL_CAUTION_INDEX_URL": "https://www.jpx.co.jp/markets/statistics-equities/margin/index.html",
-            }
-        )
-
-        self.assertEqual(
-            config.jpx_special_caution_index_url,
-            "https://www.jpx.co.jp/markets/statistics-equities/margin/index.html",
-        )
-        self.assertEqual(
-            dict(config.jpx_regulation_urls),
-            {
-                "特別注意銘柄": "https://www.jpx.co.jp/markets/statistics-equities/margin/index.html",
             },
         )
 

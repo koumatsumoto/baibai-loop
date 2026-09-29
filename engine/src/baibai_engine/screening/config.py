@@ -9,7 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from baibai_engine.market.config import DEFAULT_CACHE_DIR as DEFAULT_CACHE_DIR
 from baibai_engine.market.config import DEFAULT_SQLITE_CACHE_DIR as DEFAULT_SQLITE_CACHE_DIR
-from baibai_engine.market.jpx_sources import JPX_SPECIAL_CAUTION_SOURCE_NAME
 
 from .rule_config import DEFAULT_RULES_PATH
 
@@ -19,7 +18,6 @@ JPX_REGULATION_ENV_MAP = {
     "取引停止": "JPX_TRADING_HALT_URL",
     "上場廃止警告": "JPX_DELISTING_WARNING_URL",
 }
-JPX_SPECIAL_CAUTION_INDEX_ENV = "JPX_SPECIAL_CAUTION_INDEX_URL"
 
 
 class ConfigError(ValueError):
@@ -35,7 +33,6 @@ class ScreeningConfig(BaseModel):
     sqlite_cache_dir: Path = DEFAULT_SQLITE_CACHE_DIR
     rules_path: Path = DEFAULT_RULES_PATH
     jpx_regulation_urls: Mapping[str, str] = Field(default_factory=dict)
-    jpx_special_caution_index_url: str | None = None
 
     def __init__(
         self,
@@ -69,13 +66,6 @@ class ScreeningConfig(BaseModel):
                 raise ValueError(f"JPX URL must use https: {source_name}")
         return value
 
-    @field_validator("jpx_special_caution_index_url")
-    @classmethod
-    def _validate_special_caution_index_url(cls, value: str | None) -> str | None:
-        if value is not None and not value.startswith("https://"):
-            raise ValueError("JPX special caution index URL must use https")
-        return value
-
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> ScreeningConfig:
         source = env if env is not None else os.environ
@@ -93,10 +83,6 @@ class ScreeningConfig(BaseModel):
             for source_name, env_name in JPX_REGULATION_ENV_MAP.items()
             if source.get(env_name)
         }
-        special_caution_index_url = source.get(JPX_SPECIAL_CAUTION_INDEX_ENV) or None
-        if special_caution_index_url and JPX_SPECIAL_CAUTION_SOURCE_NAME not in jpx_regulation_urls:
-            jpx_regulation_urls[JPX_SPECIAL_CAUTION_SOURCE_NAME] = special_caution_index_url
-
         try:
             return cls(
                 jquants_api_key=source["JQUANTS_API_KEY"],
@@ -105,7 +91,6 @@ class ScreeningConfig(BaseModel):
                 sqlite_cache_dir=sqlite_cache_dir_value,
                 rules_path=str(Path(source.get("SCREENING_RULES_PATH") or DEFAULT_RULES_PATH)),
                 jpx_regulation_urls=jpx_regulation_urls,
-                jpx_special_caution_index_url=special_caution_index_url,
             )
         except ValidationError as exc:
             raise ConfigError(str(exc)) from exc
