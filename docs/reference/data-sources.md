@@ -132,7 +132,7 @@ portfolioの年次・3年・5年outcomeのprimary benchmarkはJPXのTOPIX gross 
 
 PITが保証するのは`fetched_at_utc`時点の取得値であり、providerの最初の公表時刻ではない。東証close後に取得し、利用可能になる最速時点は次の取引機会とする。日付だけで過去の売買時点へ遡及させず、翌日値による欠測の埋め直しもしない。
 
-正常rowのnullと、symbolを取得できなかった`unresolved`を区別する。全件missingのchunk、429、通信・形式エラーはrun失敗であり、その日の部分snapshotを保存しない。過去のsnapshotが最新releaseに残っていても、今日の取得成功とは扱わない。
+正常rowのnull、正常応答で明示された`unresolved`、rowがない未取得銘柄を区別する。正常なbatchごとに保存し、同日の後続取得はrowがない銘柄だけを対象にする。各銘柄の最初の正常観測と`fetched_at_utc`は同日中に上書きしない。429や応答不良を未取得銘柄の`unresolved`へ変換せず、部分集合を全市場の代表標本とみなさない。過去のsnapshotが最新releaseに残っていても、今日の取得成功とは扱わない。
 
 quoteの通貨は同じresponseの`currency`を保持する。estimateの通貨・unit、quote/provider更新時刻、絶対対象期は未確認のためnullとし、JPYや特定の決算期を推測して入れない。`*_estimate_fy`と`*_forecast_next_fy`の対象期が同じとは限らず、`recommendation_total`はEPS・売上・目標株価それぞれの寄与者数ではない。参考closeは市場期待の取得時点を読む補助で、株価の第二正本にはしない。
 

@@ -120,14 +120,14 @@ def test_unsaved_business_day_reaches_oauth_and_snapshot(monkeypatch, capsys):
 
     calls = []
     monkeypatch.setattr(cli, "datetime", Clock)
-    monkeypatch.setattr(cli, "preflight_snapshot", lambda *_: None)
+    monkeypatch.setattr(cli, "preflight_snapshot", lambda *_: {"status": "needs_fetch"})
     monkeypatch.setattr(
         cli.OAuthState,
         "model_validate_json",
         lambda _raw: calls.append("oauth") or object(),
     )
 
-    async def saved(*_args):
+    async def saved(*_args, **_kwargs):
         calls.append("snapshot")
         return {"status": "saved"}
 

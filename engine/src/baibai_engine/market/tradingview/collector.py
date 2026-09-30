@@ -1,4 +1,4 @@
-"""Serial full-universe fetch followed by one append-only SQLite transaction."""
+"""Serial, resumable TradingView collection with one commit per valid batch."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from baibai_engine.market.universe import (
 
 from .contract import COLUMNS, TABLE
 from .observations import COLUMNS as REQUEST_COLUMNS
-from .observations import FIELDS, FetchError, normalize_batch
+from .observations import FIELDS, AllMissingError, FetchError, ProviderPayloadError, normalize_batch
 
 JST = ZoneInfo("Asia/Tokyo")
 BatchFetch = Callable[[list[str]], Awaitable[dict[str, Any]]]
@@ -103,8 +103,8 @@ def validate_time(day: date, now: datetime) -> None:
 
 
 def _snapshot_state(
-    conn: sqlite3.Connection, day: date, *, allow_unmastered_empty: bool = False
-) -> tuple[list[str] | None, dict[str, object] | None]:
+    conn: sqlite3.Connection, day: date
+) -> tuple[list[str] | None, dict[str, object]]:
     calendar = conn.execute(
         "SELECT is_business_day FROM jquants_market_calendar WHERE day=?", (day.isoformat(),)
     ).fetchone()
@@ -112,34 +112,58 @@ def _snapshot_state(
         raise SourceDataError("Exact-date trading calendar is unavailable")
     if not calendar[0]:
         return None, {"status": "non_trading_day", "snapshot_date": day.isoformat()}
-    existing = conn.execute(
-        "SELECT COUNT(*) FROM tradingview_forecast_snapshots WHERE snapshot_date=?",
-        (day.isoformat(),),
-    ).fetchone()[0]
-    # The first early slot can precede the exact-date master fetch. Zero TV rows
-    # cannot be an already-saved snapshot, so the workflow may fetch master next.
-    if existing == 0 and allow_unmastered_empty:
-        return None, None
+    stored = {
+        row[0]
+        for row in conn.execute(
+            "SELECT ticker FROM tradingview_forecast_snapshots WHERE snapshot_date=?",
+            (day.isoformat(),),
+        )
+    }
+    has_master = (
+        conn.execute(
+            "SELECT 1 FROM jquants_master_snapshots WHERE snapshot_date=? LIMIT 1",
+            (day.isoformat(),),
+        ).fetchone()
+        is not None
+    )
+    if not has_master:
+        if stored:
+            raise SourceDataError("Stored TradingView rows lack exact-date master")
+        return None, {
+            "status": "needs_fetch",
+            "snapshot_date": day.isoformat(),
+            "needs_master": True,
+            "rows": 0,
+        }
     symbols = universe(conn, day)
-    if existing == len(symbols):
-        return symbols, {
+    expected = {symbol.removeprefix("TSE:") for symbol in symbols}
+    if not stored <= expected:
+        raise SourceDataError("Stored TradingView ticker is outside exact-date universe")
+    remaining = [symbol for symbol in symbols if symbol.removeprefix("TSE:") not in stored]
+    if not remaining:
+        return remaining, {
             "status": "already_saved",
             "snapshot_date": day.isoformat(),
-            "rows": existing,
+            "rows": len(stored),
         }
-    if existing:
-        raise SourceDataError("Partial TradingView snapshot")
-    return symbols, None
+    return remaining, {
+        "status": "needs_fetch",
+        "snapshot_date": day.isoformat(),
+        "needs_master": False,
+        "rows": len(stored),
+        "expected_universe": len(symbols),
+        "remaining": len(remaining),
+    }
 
 
-def preflight_snapshot(path: Path, day: date) -> dict[str, object] | None:
+def preflight_snapshot(path: Path, day: date) -> dict[str, object]:
     """Check exact-date completeness without creating or changing the market store."""
     try:
         conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
         try:
             conn.execute("PRAGMA query_only = ON")
             validate_current_schema(conn)
-            _, result = _snapshot_state(conn, day, allow_unmastered_empty=True)
+            _, result = _snapshot_state(conn, day)
             return result
         finally:
             conn.close()
@@ -153,6 +177,7 @@ async def collect(
     fetch: BatchFetch,
     *,
     interval: float = 15.0,
+    batch_size: int = 50,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     progress: ProgressHook | None = None,
     timer: Callable[[], float] = time.monotonic,
@@ -160,6 +185,8 @@ async def collect(
 ) -> dict[str, object]:
     if not 0 <= interval <= 3600:
         raise ValueError("interval must be between 0 and 3600 seconds")
+    if not 1 <= batch_size <= 50:
+        raise ValueError("batch_size must be between 1 and 50")
     validate_time(day, clock())
     conn = open_connection(path)
     started = timer()
@@ -182,30 +209,62 @@ async def collect(
 
     try:
         symbols, prior = _snapshot_state(conn, day)
-        if prior is not None:
+        if prior["status"] != "needs_fetch":
             return prior
-        assert symbols is not None
-        rows: list[dict[str, Any]] = []
+        if symbols is None:
+            raise SourceDataError("Exact-date J-Quants master is unavailable")
+        stored_rows = prior["rows"]
+        assert isinstance(stored_rows, int)
+        expected_universe = len(symbols) + stored_rows
+        rows_added = 0
+        consecutive_bad = 0
+        stop_reason: str | None = None
+        last_error: Exception | None = None
         current = CollectionProgress(
             day.isoformat(),
             "prepare",
-            len(symbols),
-            (len(symbols) + 49) // 50,
+            expected_universe,
+            (len(symbols) + batch_size - 1) // batch_size,
             interval_seconds=round(interval, 3),
         )
         emit()
-        for offset in range(0, len(symbols), 50):
+        names = [column[0] for column in COLUMNS]
+        sql = f"INSERT INTO {TABLE} ({','.join(names)}) VALUES ({','.join('?' for _ in names)})"  # nosec B608
+        for offset in range(0, len(symbols), batch_size):
             if offset:
                 await sleep(interval)
-            chunk = symbols[offset : offset + 50]
+            if timer() - started >= 25 * 60:
+                stop_reason = "soft_budget"
+                break
+            try:
+                validate_time(day, clock())
+            except TimeGuardError:
+                stop_reason = "time_guard"
+                break
+            chunk = symbols[offset : offset + batch_size]
             current = replace(
-                current, phase="fetch", chunk_index=offset // 50 + 1, chunk_size=len(chunk)
+                current, phase="fetch", chunk_index=offset // batch_size + 1, chunk_size=len(chunk)
             )
             emit()
-            validate_time(day, clock())
             chunk_started = timer()
             try:
                 payload = await fetch(chunk)
+            except Exception as exc:
+                from .cli import failure_category
+
+                category = failure_category(exc)
+                if category in {"internal", "storage"}:
+                    raise
+                last_error = exc
+                if isinstance(exc, (AllMissingError, ProviderPayloadError)):
+                    consecutive_bad += 1
+                    stop_reason = category
+                    if consecutive_bad >= 3:
+                        stop_reason = category
+                        break
+                    continue
+                stop_reason = category
+                break
             finally:
                 duration = timer() - chunk_started
                 provider_elapsed += duration
@@ -217,56 +276,87 @@ async def collect(
                 phase="normalize",
                 response_bytes=current.response_bytes
                 + len(json.dumps(payload, ensure_ascii=False).encode()),
-                first_fetched_at_utc=current.first_fetched_at_utc or fetched_iso,
-                last_fetched_at_utc=fetched_iso,
             )
             emit()
-            validate_time(day, fetched)
-            rows.extend(normalize_batch(payload, chunk, fetched))
+            try:
+                validate_time(day, fetched)
+            except TimeGuardError:
+                stop_reason = "time_guard"
+                break
+            try:
+                rows = normalize_batch(payload, chunk, fetched)
+            except (AllMissingError, ProviderPayloadError) as exc:
+                from .cli import failure_category
+
+                consecutive_bad += 1
+                last_error = exc
+                stop_reason = failure_category(exc)
+                if consecutive_bad >= 3:
+                    break
+                continue
+            current = replace(current, phase="store")
+            emit()
+            conn.execute("BEGIN IMMEDIATE")
+            existing = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT ticker FROM tradingview_forecast_snapshots WHERE snapshot_date=?",
+                    (day.isoformat(),),
+                )
+            }
+            if any(row["ticker"] in existing for row in rows):
+                raise SourceDataError("TradingView row changed during collection")
+            conn.executemany(
+                sql,
+                [
+                    tuple(
+                        day.isoformat() if name == "snapshot_date" else row.get(name)
+                        for name in names
+                    )
+                    for row in rows
+                ],
+            )
+            conn.commit()
+            rows_added += len(rows)
+            consecutive_bad = 0
             current = replace(
                 current,
                 phase="between_chunks",
                 chunks_completed=current.chunks_completed + 1,
                 chunk_index=None,
                 chunk_size=None,
+                first_fetched_at_utc=current.first_fetched_at_utc or fetched_iso,
+                last_fetched_at_utc=fetched_iso,
             )
             emit()
-        # All chunks have been accounted for; a failure above writes no canonical rows.
-        current = replace(current, phase="store")
-        emit()
-        conn.execute("BEGIN IMMEDIATE")
-        existing = conn.execute(
-            "SELECT COUNT(*) FROM tradingview_forecast_snapshots WHERE snapshot_date=?",
+        totals = conn.execute(
+            "SELECT COUNT(*), SUM(fetch_status='unresolved') FROM tradingview_forecast_snapshots "
+            "WHERE snapshot_date=?",
             (day.isoformat(),),
-        ).fetchone()[0]
-        if existing == len(symbols):
-            conn.rollback()
-            return {"status": "already_saved", "snapshot_date": day.isoformat(), "rows": existing}
-        if existing:
-            raise SourceDataError("Partial TradingView snapshot")
-        names = [column[0] for column in COLUMNS]
-        sql = f"INSERT INTO {TABLE} ({','.join(names)}) VALUES ({','.join('?' for _ in names)})"  # nosec B608
-        conn.executemany(
-            sql,
-            [
-                tuple(
-                    day.isoformat() if name == "snapshot_date" else row.get(name) for name in names
-                )
-                for row in rows
-            ],
-        )
-        conn.commit()
+        ).fetchone()
+        total_rows = int(totals[0])
+        remaining = expected_universe - total_rows
+        if rows_added == 0:
+            raise last_error or FetchError("TradingView collection added no rows")
         current = replace(current, phase="complete")
         emit()
         return {
             **asdict(current),
-            "status": "saved",
+            "status": "saved" if remaining == 0 else "partial",
             "snapshot_date": day.isoformat(),
-            "expected_universe": len(symbols),
-            "rows": len(rows),
-            "unresolved": sum(row["fetch_status"] == "unresolved" for row in rows),
+            "expected_universe": expected_universe,
+            "rows": total_rows,
+            "rows_added": rows_added,
+            "remaining": remaining,
+            "stop_reason": stop_reason,
+            "unresolved": int(totals[1] or 0),
             "normal_nulls": {
-                name: sum(row["fetch_status"] == "ok" and row[name] is None for row in rows)
+                # Table and column names come only from the fixed schema contract.
+                name: conn.execute(
+                    f"SELECT COUNT(*) FROM {TABLE} WHERE snapshot_date=? AND fetch_status='ok' "  # nosec B608
+                    f"AND {name} IS NULL",
+                    (day.isoformat(),),
+                ).fetchone()[0]
                 for name in FIELDS
             },
         }

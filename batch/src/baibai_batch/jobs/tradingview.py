@@ -96,6 +96,23 @@ def _report(output: str, allowed: set[str]) -> dict[str, object]:
         value = json.loads(output.strip().splitlines()[-1])
         if not isinstance(value, dict) or value.get("status") not in allowed:
             raise ValueError()
+        if value["status"] in {"saved", "partial"}:
+
+            def count(key: str) -> int:
+                number = value.get(key)
+                if type(number) is not int:
+                    raise ValueError()
+                return number
+
+            added, rows = count("rows_added"), count("rows")
+            expected, remaining = count("expected_universe"), count("remaining")
+            if (
+                added <= 0
+                or added > rows
+                or rows + remaining != expected
+                or (value["status"] == "saved") != (remaining == 0)
+            ):
+                raise ValueError()
         return value
     except (ValueError, IndexError, TypeError):
         raise StageFailure("Invalid TradingView stage result") from None
@@ -112,7 +129,7 @@ def report_failed_progress(path: Path) -> None:
             print("TradingView progress: " + summary, file=sys.stderr)
 
 
-def preflight(day: date) -> dict[str, object] | None:
+def preflight(day: date) -> dict[str, object]:
     now = datetime.now(UTC)
     today, _, _, _ = resolve_tradingview_target(now, event_name="workflow_dispatch", schedule="")
     if day < today:
@@ -121,7 +138,7 @@ def preflight(day: date) -> dict[str, object] | None:
     return tradingview_preflight(ROOT / MARKET_DB_PATH, day)
 
 
-def run_local(state_file: Path) -> int:
+def run_local(state_file: Path, *, batch_size: int = 50, interval: float = 15.0) -> int:
     day, _, eligible, reason = resolve_tradingview_target(
         datetime.now(UTC), event_name="workflow_dispatch", schedule=""
     )
@@ -145,19 +162,20 @@ def run_local(state_file: Path) -> int:
                 return status
             command([str(ROOT / "batch/scripts/r2_transfer.sh"), "pull-market"])
             command([str(ROOT / "batch/scripts/r2_transfer.sh"), "hydrate-market"])
-            result = preflight(day) or {}
-            if not result:
-                command(
-                    [
-                        sys.executable,
-                        "-m",
-                        "baibai_engine.cli",
-                        "screening",
-                        "backfill-master",
-                        "--asof",
-                        day.isoformat(),
-                    ]
-                )
+            result = preflight(day)
+            if result.get("status") == "needs_fetch":
+                if result.get("needs_master"):
+                    command(
+                        [
+                            sys.executable,
+                            "-m",
+                            "baibai_engine.cli",
+                            "screening",
+                            "backfill-master",
+                            "--asof",
+                            day.isoformat(),
+                        ]
+                    )
                 progress = handle_dir / "progress.json"
                 output = command(
                     [
@@ -170,15 +188,31 @@ def run_local(state_file: Path) -> int:
                         day.isoformat(),
                         "--state-file",
                         str(state_file),
+                        "--batch-size",
+                        str(batch_size),
+                        "--interval",
+                        str(interval),
                         "--progress-output",
                         str(progress),
                     ],
                     timeout=FETCH_TIMEOUT,
                 )
                 result = _report(
-                    output, {"saved", "already_saved", "non_trading_day", "skipped_historical_asof"}
+                    output,
+                    {
+                        "saved",
+                        "partial",
+                        "already_saved",
+                        "non_trading_day",
+                        "skipped_historical_asof",
+                    },
                 )
-                if result["status"] == "saved":
+                added = result.get("rows_added")
+                if (
+                    result["status"] in {"saved", "partial"}
+                    and isinstance(added, int)
+                    and added > 0
+                ):
                     print(
                         command([str(ROOT / "batch/scripts/r2_transfer.sh"), "publish-lake"]),
                         end="",
@@ -209,6 +243,8 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="independent local OAuth file outside this dedicated runtime checkout",
     )
+    parser.add_argument("--batch-size", type=int, choices=range(1, 51), default=50)
+    parser.add_argument("--interval", type=float, default=15.0)
     return parser
 
 
@@ -218,7 +254,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if Path.cwd().resolve() != ROOT:
             raise StageFailure("Run from the dedicated repository root")
-        return run_local(args.state_file.expanduser().resolve())
+        return run_local(
+            args.state_file.expanduser().resolve(),
+            batch_size=args.batch_size,
+            interval=args.interval,
+        )
     except lease.LeaseError:
         print("TradingView execution failed; category=lease", file=sys.stderr)
         return 1

@@ -218,4 +218,4 @@ ORDER BY snapshot_date DESC
 LIMIT 30
 ```
 
-最新行も`snapshot_date`と`fetched_at_utc`を併記する。対象日に行がないこと、`unresolved`の行、正常rowの個別指標nullを別々に読む。取得前の履歴、provider公表時刻、翌日取得による前日補完はこのdatasetから復元できない。値の意味は[data sources](./data-sources.md#tradingviewの市場期待)に従う。
+最新行も`snapshot_date`と`fetched_at_utc`を併記する。同じ日でもbatchや後続slotで取得時刻が異なる。対象日に行がないこと、`unresolved`の行、正常rowの個別指標nullを別々に読む。部分公開の場合、rowがない銘柄は未取得であり、coverage不存在とは判定しない。取得前の履歴、provider公表時刻、翌日取得による前日補完はこのdatasetから復元できない。値の意味は[data sources](./data-sources.md#tradingviewの市場期待)に従う。

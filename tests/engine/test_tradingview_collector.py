@@ -92,18 +92,18 @@ def test_full_universe_batches_and_same_day_immutability(tmp_path: Path) -> None
         ).fetchone() == ("unresolved", None)
 
 
-def test_preflight_is_read_only_and_rejects_partial_rows(tmp_path: Path) -> None:
+def test_preflight_is_read_only_and_resumes_partial_rows(tmp_path: Path) -> None:
     missing = tmp_path / "missing.sqlite"
     with pytest.raises(SourceDataError):
         preflight_snapshot(missing, DAY)
     assert not missing.exists()
     path = store(tmp_path / "market.sqlite", 2)
-    assert preflight_snapshot(path, DAY) is None
+    assert preflight_snapshot(path, DAY)["needs_master"] is False
     with sqlite3.connect(path) as conn:
         conn.execute(
             "DELETE FROM jquants_master_snapshots WHERE snapshot_date=?", (DAY.isoformat(),)
         )
-    assert preflight_snapshot(path, DAY) is None  # Early slot fetches master next.
+    assert preflight_snapshot(path, DAY)["needs_master"] is True
     with sqlite3.connect(path) as conn:
         conn.executemany(
             "INSERT INTO jquants_master_snapshots VALUES (?,?,?,'プライム','機械',1)",
@@ -116,18 +116,20 @@ def test_preflight_is_read_only_and_rejects_partial_rows(tmp_path: Path) -> None
     asyncio.run(collect(path, DAY, healthy, interval=0, clock=lambda: NOW))
     with sqlite3.connect(path) as conn:
         conn.execute("DELETE FROM tradingview_forecast_snapshots WHERE ticker='1001'")
-    with pytest.raises(SourceDataError, match="Partial"):
-        preflight_snapshot(path, DAY)
+    assert preflight_snapshot(path, DAY)["remaining"] == 1
 
-    async def forbidden(_symbols):
-        pytest.fail("partial snapshot must not reach provider")
+    calls = []
 
-    with pytest.raises(SourceDataError, match="Partial"):
-        asyncio.run(collect(path, DAY, forbidden, clock=lambda: NOW))
+    async def resume(symbols):
+        calls.append(symbols)
+        return payload(symbols)
+
+    assert asyncio.run(collect(path, DAY, resume, clock=lambda: NOW))["rows_added"] == 1
+    assert calls == [["TSE:1001"]]
 
 
 @pytest.mark.parametrize("failure", ["429", "all_missing", "malformed", "crash"])
-def test_failed_later_chunk_leaves_no_partial_snapshot(tmp_path: Path, failure: str) -> None:
+def test_later_failure_preserves_committed_batch(tmp_path: Path, failure: str) -> None:
     path = store(tmp_path / "market.sqlite")
     calls = 0
 
@@ -140,17 +142,179 @@ def test_failed_later_chunk_leaves_no_partial_snapshot(tmp_path: Path, failure: 
             return payload(symbols, missing=symbols)
         if failure == "malformed":
             return {"success": True}
+        if failure == "429":
+            from baibai_engine.market.tradingview.observations import ProviderHTTPError
+
+            raise ProviderHTTPError(429)
         raise RuntimeError(failure)
 
-    with pytest.raises(RuntimeError):
-        asyncio.run(collect(path, DAY, fetch, interval=0, clock=lambda: NOW))
-    assert stored(path) == []
+    if failure == "crash":
+        with pytest.raises(RuntimeError):
+            asyncio.run(collect(path, DAY, fetch, interval=0, clock=lambda: NOW))
+    else:
+        result = asyncio.run(collect(path, DAY, fetch, interval=0, clock=lambda: NOW))
+        assert result["status"] == "partial"
+        assert result["rows_added"] == 50
+        assert result["remaining"] == 1
+        assert (
+            result["stop_reason"]
+            == {
+                "429": "provider_rate_limit",
+                "all_missing": "provider_all_missing",
+                "malformed": "provider_response",
+            }[failure]
+        )
+    original = stored(path)
+    assert len(original) == 50
 
     # A same-day whole-run retry can still succeed.
     async def healthy(symbols):
         return payload(symbols)
 
-    assert asyncio.run(collect(path, DAY, healthy, interval=0, clock=lambda: NOW))["rows"] == 51
+    result = asyncio.run(collect(path, DAY, healthy, interval=0, clock=lambda: NOW))
+    assert result["rows"] == 51
+    assert result["rows_added"] == 1
+    assert stored(path)[:50] == original
+
+
+def test_bad_middle_batch_skips_then_same_day_resumes_only_gap(tmp_path: Path) -> None:
+    path = store(tmp_path / "market.sqlite", 3)
+    calls = []
+    pauses = []
+
+    async def fetch(symbols):
+        calls.append(symbols)
+        return payload(symbols, missing=symbols if symbols == ["TSE:1001"] else [])
+
+    async def sleep(seconds):
+        pauses.append(seconds)
+
+    result = asyncio.run(
+        collect(path, DAY, fetch, batch_size=1, interval=2, clock=lambda: NOW, sleep=sleep)
+    )
+    assert result["status"] == "partial"
+    assert result["rows_added"] == 2
+    assert result["remaining"] == 1
+    assert calls == [["TSE:1000"], ["TSE:1001"], ["TSE:1002"]]
+    assert pauses == [2, 2]
+    original = stored(path)
+
+    async def resume(symbols):
+        calls.append(symbols)
+        return payload(symbols)
+
+    result = asyncio.run(collect(path, DAY, resume, batch_size=1, clock=lambda: NOW))
+    assert result["status"] == "saved"
+    assert result["rows_added"] == 1
+    assert calls[-1] == ["TSE:1001"]
+    assert [row for row in stored(path) if row[1] != "1001"] == original
+
+
+def test_three_bad_batches_stop_and_zero_new_rows_fail(tmp_path: Path) -> None:
+    from baibai_engine.market.tradingview.collector import CollectionFailure
+
+    path = store(tmp_path / "market.sqlite", 5)
+    calls = []
+
+    async def bad(symbols):
+        calls.append(symbols)
+        return payload(symbols, missing=symbols)
+
+    with pytest.raises(CollectionFailure):
+        asyncio.run(collect(path, DAY, bad, batch_size=1, interval=0, clock=lambda: NOW))
+    assert len(calls) == 3
+    assert stored(path) == []
+
+
+def test_prior_partial_does_not_make_zero_new_rows_successful(tmp_path: Path) -> None:
+    from baibai_engine.market.tradingview.collector import CollectionFailure
+    from baibai_engine.market.tradingview.observations import ProviderHTTPError
+
+    path = store(tmp_path / "market.sqlite", 2)
+
+    async def first(symbols):
+        if symbols == ["TSE:1001"]:
+            raise ProviderHTTPError(429)
+        return payload(symbols)
+
+    result = asyncio.run(collect(path, DAY, first, batch_size=1, interval=0, clock=lambda: NOW))
+    assert result["rows_added"] == 1
+
+    async def blocked(symbols):
+        assert symbols == ["TSE:1001"]
+        raise ProviderHTTPError(429)
+
+    with pytest.raises(CollectionFailure):
+        asyncio.run(collect(path, DAY, blocked, batch_size=1, interval=0, clock=lambda: NOW))
+    assert len(stored(path)) == 1
+
+
+def test_unknown_stored_ticker_blocks_preflight_and_provider(tmp_path: Path) -> None:
+    path = store(tmp_path / "market.sqlite", 2)
+
+    async def healthy(symbols):
+        return payload(symbols)
+
+    asyncio.run(collect(path, DAY, healthy, clock=lambda: NOW))
+    with sqlite3.connect(path) as conn:
+        conn.execute("UPDATE tradingview_forecast_snapshots SET ticker='9999' WHERE ticker='1001'")
+    with pytest.raises(SourceDataError, match="outside"):
+        preflight_snapshot(path, DAY)
+
+    async def forbidden(_symbols):
+        pytest.fail("inconsistent source must not reach provider")
+
+    with pytest.raises(SourceDataError, match="outside"):
+        asyncio.run(collect(path, DAY, forbidden, clock=lambda: NOW))
+
+
+def test_soft_budget_keeps_first_batch_without_next_request(tmp_path: Path) -> None:
+    path = store(tmp_path / "market.sqlite", 2)
+    timer = Timer()
+    calls = []
+
+    async def fetch(symbols):
+        calls.append(symbols)
+        timer.value = 25 * 60
+        return payload(symbols)
+
+    async def no_sleep(_seconds):
+        pass
+
+    result = asyncio.run(
+        collect(
+            path,
+            DAY,
+            fetch,
+            batch_size=1,
+            interval=0,
+            clock=lambda: NOW,
+            timer=timer,
+            sleep=no_sleep,
+        )
+    )
+    assert (result["status"], result["rows_added"], result["stop_reason"]) == (
+        "partial",
+        1,
+        "soft_budget",
+    )
+    assert calls == [["TSE:1000"]]
+
+
+def test_good_batch_resets_consecutive_bad_limit(tmp_path: Path) -> None:
+    path = store(tmp_path / "market.sqlite", 6)
+    calls = []
+
+    async def fetch(symbols):
+        calls.append(symbols)
+        if symbols[0] in {"TSE:1000", "TSE:1001", "TSE:1003", "TSE:1004"}:
+            return payload(symbols, missing=symbols)
+        return payload(symbols)
+
+    result = asyncio.run(collect(path, DAY, fetch, batch_size=1, interval=0, clock=lambda: NOW))
+    assert result["status"] == "partial"
+    assert result["rows_added"] == 2
+    assert len(calls) == 6
 
 
 @pytest.mark.parametrize(
@@ -259,15 +423,12 @@ class Timer:
 @pytest.mark.parametrize(
     "failure", [None, "429", "all_missing", "malformed", "store", "time_guard"]
 )
-def test_progress_and_durations_without_partial_writes(tmp_path, failure):
+def test_progress_and_durations_with_batch_commits(tmp_path, failure):
     from dataclasses import asdict
 
     from baibai_engine.market.tradingview.cli import failure_category
     from baibai_engine.market.tradingview.collector import CollectionFailure
-    from baibai_engine.market.tradingview.observations import (
-        ProviderHTTPError,
-        ProviderPayloadError,
-    )
+    from baibai_engine.market.tradingview.observations import ProviderHTTPError
 
     path = store(tmp_path / "market.sqlite")
     if failure == "store":
@@ -308,50 +469,27 @@ def test_progress_and_durations_without_partial_writes(tmp_path, failure):
             path, DAY, fetch, clock=clock, timer=timer, sleep=sleep, progress=events.append
         )
 
-    if failure:
+    if failure == "store":
         with pytest.raises(CollectionFailure) as caught:
             asyncio.run(run())
         error = caught.value
-        expected_category = {
-            "429": "provider_rate_limit",
-            "all_missing": "provider_all_missing",
-            "malformed": "provider_response",
-            "store": "storage",
-            "time_guard": "time_guard",
-        }
-        assert failure_category(error) == expected_category[failure]
+        assert failure_category(error) == "storage"
         assert error.progress == events[-1]
-        assert events[-1].phase == (
-            "store" if failure == "store" else "fetch" if failure == "429" else "normalize"
-        )
-        assert events[-1].chunks_completed == (2 if failure == "store" else 1)
-        if failure != "store":
-            assert events[-1].chunk_index == 2
-            assert events[-1].chunk_size == 1
-        if failure == "malformed":
-            assert isinstance(error.cause, ProviderPayloadError)
-            assert error.cause.reason == "malformed_envelope"
-        assert not stored(path)
+        assert len(stored(path)) == 50
     else:
         result = asyncio.run(run())
-        assert result["rows"] == 51
+        assert result["rows"] == (51 if failure is None else 50)
+        assert result["rows_added"] == result["rows"]
         assert result["unresolved"] == 0
-        assert result["chunks_total"] == result["chunks_completed"] == 2
+        assert result["status"] == ("saved" if failure is None else "partial")
+        assert result["chunks_total"] == 2
         assert result["columns_count"] == len(COLUMNS)
         assert result["interval_seconds"] == 15
         assert result["first_fetched_at_utc"] == (NOW + timedelta(seconds=1.23456)).isoformat()
-        assert result["last_fetched_at_utc"] == (NOW + timedelta(seconds=18.70368)).isoformat()
-        assert [e.phase for e in events] == [
-            "prepare",
-            "fetch",
-            "normalize",
-            "between_chunks",
-            "fetch",
-            "normalize",
-            "between_chunks",
-            "store",
-            "complete",
-        ]
+        assert events[-1].phase == "complete"
+        assert [e.phase for e in events].count("store") == (2 if failure is None else 1)
+        if failure == "malformed":
+            assert result["stop_reason"] == "provider_response"
     assert calls == 2
     assert pauses == [15]
     assert events[-1].provider_elapsed_seconds == 3.704

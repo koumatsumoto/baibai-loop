@@ -7,6 +7,15 @@ on:
     - cron: "7 9 * * 1-5"
     - cron: "17 11 * * 1-5"
   workflow_dispatch:
+    inputs:
+      batch_size:
+        description: "Symbols per request (1..50)"
+        type: number
+        default: 50
+      interval:
+        description: "Seconds between requests"
+        type: number
+        default: 15
 
 permissions:
   contents: read
@@ -116,33 +125,39 @@ jobs:
           except Exception as exc:
               print(failure_line(exc), file=sys.stderr)
               raise SystemExit(1) from None
-          status = "needs_fetch" if result is None else str(result["status"])
-          rows = 0 if result is None else int(result.get("rows", 0))
+          status = str(result["status"])
+          rows = int(result.get("rows", 0))
+          needs_master = str(result.get("needs_master", False)).lower()
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              print(f"status={status}\nrows={rows}", file=output)
+              print(f"status={status}\nrows={rows}\nneeds_master={needs_master}", file=output)
           PYPREFLIGHT
       - name: Fetch exact-date J-Quants master
         id: master
-        if: steps.preflight.outputs.status == 'needs_fetch'
+        if: steps.preflight.outputs.status == 'needs_fetch' && steps.preflight.outputs.needs_master == 'true'
         env:
           JQUANTS_API_KEY: ${{ secrets.JQUANTS_API_KEY }}
           TARGET_DATE: ${{ steps.target.outputs.target_date }}
         run: uv run baibai-engine screening backfill-master --asof "$TARGET_DATE"
       - name: Refresh TradingView expectations
         id: tradingview
-        if: steps.preflight.outputs.status == 'needs_fetch' && steps.master.outcome == 'success'
+        if: steps.preflight.outputs.status == 'needs_fetch' && (steps.preflight.outputs.needs_master == 'false' || steps.master.outcome == 'success')
         env:
           TRADINGVIEW_OAUTH_STATE: ${{ secrets.TRADINGVIEW_OAUTH_STATE }}
           TRADINGVIEW_SECRET_WRITER_TOKEN: ${{ secrets.TRADINGVIEW_SECRET_WRITER_TOKEN }}
           TARGET_DATE: ${{ steps.target.outputs.target_date }}
+          BATCH_SIZE: ${{ inputs.batch_size }}
+          INTERVAL: ${{ inputs.interval }}
         run: |
           set -o pipefail
           progress="$RUNNER_TEMP/tradingview-progress.json"
           result="$RUNNER_TEMP/tradingview-result.json"
           stderr="$RUNNER_TEMP/tradingview-stderr.log"
+          batch_size="${BATCH_SIZE:-50}"
+          interval="${INTERVAL:-15}"
           set +e
           timeout --kill-after=30s 30m uv run baibai-engine tradingview refresh \
-            --asof "$TARGET_DATE" --progress-output "$progress" > "$result" 2> >(tee "$stderr" >&2)
+            --asof "$TARGET_DATE" --batch-size "$batch_size" --interval "$interval" \
+            --progress-output "$progress" > "$result" 2> >(tee "$stderr" >&2)
           status=$?
           set -e
           if [[ "$status" == 124 || "$status" == 137 ]]; then
@@ -181,9 +196,28 @@ jobs:
                   report = json.loads(lines[-1])
                   value = report.get("status") if isinstance(report, dict) else None
                   if type(value) is not str or value not in {
-                      "saved", "already_saved", "non_trading_day", "skipped_historical_asof"
+                      "saved", "partial", "already_saved", "non_trading_day", "skipped_historical_asof"
                   }:
                       raise ValueError("invalid TradingView status")
+                  if value in {"saved", "partial"}:
+                      added = report.get("rows_added")
+                      if type(added) is not int or added <= 0:
+                          raise ValueError("invalid TradingView rows_added")
+                      for key in ("rows_added", "rows", "expected_universe", "remaining", "unresolved"):
+                          count = report.get(key)
+                          if type(count) is not int or count < 0:
+                              raise ValueError("invalid TradingView count")
+                          outputs.append(f"{key}={count}")
+                      if (report["rows_added"] > report["rows"]
+                              or report["rows"] + report["remaining"] != report["expected_universe"]
+                              or (value == "saved") != (report["remaining"] == 0)):
+                          raise ValueError("inconsistent TradingView counts")
+                      reason = report.get("stop_reason")
+                      if reason not in {None, "provider_all_missing", "provider_rate_limit",
+                                        "provider_response", "provider_transport", "auth",
+                                        "secret_persistence", "time_guard", "soft_budget"}:
+                          raise ValueError("invalid TradingView stop_reason")
+                      outputs.append("stop_reason=" + (reason or "-"))
                   outputs.append("status=" + value)
               except (OSError, ValueError, UnicodeError, IndexError):
                   print("TradingView acquisition failed; category=internal", file=sys.stderr)
@@ -216,7 +250,7 @@ jobs:
           exit "$status"
       - name: Publish the L1 release
         id: publish-lake
-        if: steps.tradingview.outputs.status == 'saved'
+        if: (steps.tradingview.outputs.status == 'saved' || steps.tradingview.outputs.status == 'partial') && fromJSON(steps.tradingview.outputs.rows_added || '0') > 0
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -251,6 +285,12 @@ jobs:
           MASTER: ${{ steps.master.outcome }}
           TRADINGVIEW: ${{ steps.tradingview.outputs.status }}
           FAILURE_CATEGORY: ${{ steps.tradingview.outputs.failure_category }}
+          ROWS_ADDED: ${{ steps.tradingview.outputs.rows_added }}
+          ROWS: ${{ steps.tradingview.outputs.rows }}
+          EXPECTED_UNIVERSE: ${{ steps.tradingview.outputs.expected_universe }}
+          REMAINING: ${{ steps.tradingview.outputs.remaining }}
+          UNRESOLVED: ${{ steps.tradingview.outputs.unresolved }}
+          STOP_REASON: ${{ steps.tradingview.outputs.stop_reason }}
           PUBLISH_LAKE: ${{ steps.publish-lake.outcome }}
         run: |
           python3 - <<'PYSUMMARY'
@@ -283,6 +323,10 @@ jobs:
               "preflight_status": os.environ.get("PREFLIGHT"), "master_outcome": os.environ.get("MASTER"),
               "tradingview_status": os.environ.get("TRADINGVIEW"),
               "failure_category": os.environ.get("FAILURE_CATEGORY"),
+              "rows_added": os.environ.get("ROWS_ADDED"), "rows": os.environ.get("ROWS"),
+              "expected_universe": os.environ.get("EXPECTED_UNIVERSE"),
+              "remaining": os.environ.get("REMAINING"), "unresolved": os.environ.get("UNRESOLVED"),
+              "stop_reason": os.environ.get("STOP_REASON"),
               "chunks_completed": progress.get("chunks_completed"), "chunks_total": progress.get("chunks_total"),
               "failed_chunk": progress.get("chunk_index"), "response_bytes": progress.get("response_bytes"),
               "provider_elapsed_seconds": progress.get("provider_elapsed_seconds"),
@@ -314,6 +358,11 @@ jobs:
             --asof "${{ steps.target.outputs.target_date }}" \
             --eligible "${{ steps.target.outputs.eligible || 'false' }}" \
             --snapshot-status "${{ steps.tradingview.outputs.status || 'unknown' }}" \
+            --rows-added "${{ steps.tradingview.outputs.rows_added || '0' }}" \
+            --rows "${{ steps.tradingview.outputs.rows || '0' }}" \
+            --expected-universe "${{ steps.tradingview.outputs.expected_universe || '0' }}" \
+            --remaining "${{ steps.tradingview.outputs.remaining || '0' }}" \
+            --stop-reason "${{ steps.tradingview.outputs.stop_reason || '-' }}" \
             --preflight-status "${{ steps.preflight.outputs.status || 'unknown' }}" \
             --smoke-outcome "${{ steps.smoke.outcome }}" \
             --target-outcome "${{ steps.target.outcome }}" \
