@@ -297,3 +297,49 @@ def test_snapshot_progress_rotation_and_best_effort_acquisition(
         assert writes[-1]["oauth_rotations"] == 2
         assert json.loads(progress_path.read_text())["phase"] == "complete"
         assert "private-token" not in progress_path.read_text()
+
+
+@pytest.mark.parametrize(
+    ("status", "remaining", "prior_reason", "expected_reason"),
+    [
+        ("saved", 0, None, "provider_transport"),
+        ("partial", 1, "provider_rate_limit", "provider_rate_limit"),
+    ],
+)
+def test_session_cleanup_error_preserves_committed_result(
+    tmp_path, monkeypatch, status, remaining, prior_reason, expected_reason
+):
+    import asyncio
+    from contextlib import asynccontextmanager
+
+    from tests.engine.test_tradingview_auth import state
+    from tests.engine.test_tradingview_collector import DAY
+
+    @asynccontextmanager
+    async def connect(_storage):
+        yield object()
+        raise httpx2.ReadTimeout("private cleanup response")
+
+    async def completed(*_args, **_kwargs):
+        return {
+            "status": status,
+            "rows_added": 1,
+            "rows": 2 - remaining,
+            "expected_universe": 2,
+            "remaining": remaining,
+            "stop_reason": prior_reason,
+        }
+
+    monkeypatch.setattr(cli, "connect", connect)
+    monkeypatch.setattr(cli, "collect", completed)
+    result = asyncio.run(
+        cli.snapshot(
+            cli.CredentialStorage(state(), lambda _: None), tmp_path / "market.sqlite", DAY, 0
+        )
+    )
+    assert (result["status"], result["remaining"], result["rows_added"]) == (
+        status,
+        remaining,
+        1,
+    )
+    assert result["stop_reason"] == expected_reason

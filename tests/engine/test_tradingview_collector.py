@@ -301,6 +301,43 @@ def test_soft_budget_keeps_first_batch_without_next_request(tmp_path: Path) -> N
     assert calls == [["TSE:1000"]]
 
 
+def test_soft_budget_stops_before_interval_that_exceeds_remaining_time(tmp_path: Path) -> None:
+    path = store(tmp_path / "market.sqlite", 2)
+    timer = Timer()
+    calls = []
+    pauses = []
+
+    async def fetch(symbols):
+        calls.append(symbols)
+        timer.value = 20 * 60
+        return payload(symbols)
+
+    async def sleep(seconds):
+        pauses.append(seconds)
+        timer.value += seconds
+
+    result = asyncio.run(
+        collect(
+            path,
+            DAY,
+            fetch,
+            batch_size=1,
+            interval=10 * 60,
+            clock=lambda: NOW,
+            timer=timer,
+            sleep=sleep,
+        )
+    )
+    assert (result["status"], result["rows_added"], result["stop_reason"]) == (
+        "partial",
+        1,
+        "soft_budget",
+    )
+    assert calls == [["TSE:1000"]]
+    assert pauses == []
+    assert len(stored(path)) == 1
+
+
 def test_good_batch_resets_consecutive_bad_limit(tmp_path: Path) -> None:
     path = store(tmp_path / "market.sqlite", 6)
     calls = []

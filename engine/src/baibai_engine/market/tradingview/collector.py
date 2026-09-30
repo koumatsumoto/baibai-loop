@@ -28,6 +28,7 @@ from .observations import COLUMNS as REQUEST_COLUMNS
 from .observations import FIELDS, AllMissingError, FetchError, ProviderPayloadError, normalize_batch
 
 JST = ZoneInfo("Asia/Tokyo")
+SOFT_BUDGET_SECONDS = 25 * 60
 BatchFetch = Callable[[list[str]], Awaitable[dict[str, Any]]]
 
 
@@ -232,8 +233,11 @@ async def collect(
         sql = f"INSERT INTO {TABLE} ({','.join(names)}) VALUES ({','.join('?' for _ in names)})"  # nosec B608
         for offset in range(0, len(symbols), batch_size):
             if offset:
+                if timer() - started + interval >= SOFT_BUDGET_SECONDS:
+                    stop_reason = "soft_budget"
+                    break
                 await sleep(interval)
-            if timer() - started >= 25 * 60:
+            if timer() - started >= SOFT_BUDGET_SECONDS:
                 stop_reason = "soft_budget"
                 break
             try:

@@ -221,9 +221,16 @@ async def snapshot(
             )
     except Exception as exc:
         category = failure_category(exc)
-        if result is None or result.get("rows_added") == 0 or category in {"internal", "storage"}:
+        added = result.get("rows_added") if result is not None else None
+        if (
+            result is None
+            or result.get("status") not in {"saved", "partial"}
+            or not isinstance(added, int)
+            or added <= 0
+            or category in {"internal", "storage"}
+        ):
             raise
-        result = {**result, "status": "partial", "stop_reason": category}
+        result = {**result, "stop_reason": result.get("stop_reason") or category}
     assert result is not None
     return {**result, "oauth_rotations": storage.rotation_count}
 
