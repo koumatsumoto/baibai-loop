@@ -4,6 +4,7 @@ import type { ReviewSetAnalysisView, ReviewSetEntryView, ReviewSetView } from '.
 import { AsOfBadge } from '../../components/AsOfBadge'
 import { SectionCard } from '../../components/SectionCard'
 import { UpdatedAtBadge } from '../../components/UpdatedAtBadge'
+import { TradingViewWatchlistExportButton } from '../../components/TradingViewWatchlistExportButton'
 import { Badge } from '../../components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table'
 import { EMPTY, formatNumber } from '../../lib/format'
@@ -107,7 +108,13 @@ export function ReviewSetSection({ reviewSet, runAsOf }: { reviewSet: ReviewSetV
   return (
     <SectionCard
       description="configured Valuation Approaches が生成した Nomination の exact union。配列順は優先度ではなく、表示値は選定時にfreezeされたsnapshot。"
-      meta={reviewSet === null ? null : <div className="flex flex-wrap gap-3"><UpdatedAtBadge value={reviewSet.created_at} /><AsOfBadge compact value={runAsOf} /></div>}
+      meta={reviewSet === null ? null : <div className="flex flex-wrap items-center justify-end gap-3">
+        <UpdatedAtBadge value={reviewSet.created_at} /><AsOfBadge compact value={runAsOf} />
+        <div className="flex flex-col items-end gap-1">
+          <TradingViewWatchlistExportButton filename={`review-set-${runAsOf}-tradingview.txt`} label="Review SetをTradingView用TXTに出力" tickers={reviewSet.entries.map((entry) => entry.ticker)} />
+          <a className="text-xs text-muted-foreground underline" href="https://www.tradingview.com/support/solutions/43000487233-how-to-import-or-export-a-watchlist/" rel="noopener noreferrer" target="_blank">TradingViewでの取り込み方法</a>
+        </div>
+      </div>}
       title="Review Set"
     >
       {reviewSet === null ? <p className="px-5 py-6 text-sm text-muted-foreground">Review Set はまだありません。</p> : (
