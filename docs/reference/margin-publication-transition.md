@@ -1,6 +1,6 @@
 ---
 title: "信用取引残高の公表制度変更"
-summary: "2026-09-28の公表制度変更に伴うsource境界、activation、連続性の契約。"
+summary: "2026-09-28の公表制度変更に伴うsource境界、取込、公表ラグの契約。"
 doc_type: reference
 status: active
 ---
@@ -13,15 +13,14 @@ JPX の信用取引残高は 2026-09-28 に公表粒度が変わる。L1 store �
 別 balance date 域として保持し、指標側は「どちらの series がその balance date を公表したか」を
 明示して読む。本書は公表日、balance date、対象母集団を区別する取込契約の正本である。
 
-本書は§6の固定語義と制度切替の不変条件を恒久的に所有するactive referenceである。制度切替のactivationと
-連続性確認が完了した後に整理できるのはtransition固有の手順だけであり、stableなsource契約を別文書へ
-移して正本を分けない。移行手順をhistorical evidenceへ移すかは、その時点で改めて判断する。
+本書は§6の固定語義と制度切替後のsource契約を所有する。初回契約確認と連続性の実測は
+[当時の記録](../../reports/operations/2026-09-28-margin-publication-transition/)を参照する。
 
 ## 2. 公式日程
 
 JPX の集計システムは 2026-09-27 に移行し、移行可否は同日 20:00 に公表される。移行が
-実施された場合、変更後データの初回は 2026-09-25 残高を 2026-09-28 16:00 に公表する。
-変更前の最終週次データは 2026-09-18 残高を 2026-09-25 に公表する。残高対象日と公表日を分け、初回dailyのprobeは9月27日の移行実施確認と9月28日の公表を待って実行する。
+実施され、変更後データの初回は 2026-09-25 残高を 2026-09-28 16:00 に公表した。
+変更前の最終週次データは 2026-09-18 残高を 2026-09-25 に公表した。残高対象日と公表日は区別する。
 
 - JPX 2026-07-06 告知: <https://www.jpx.co.jp/news/1032/20260706-01.html>
 - 変更内容: <https://www.jpx.co.jp/markets/statistics-equities/margin/tvdivq0000001rk9-att/t13vrt000000chxp.pdf>
@@ -64,46 +63,12 @@ union しない。6 残高 field は有限・非負、`IssType` は non-null を
 - 最終週次 2026-09-18 残高は 2026-09-25 以後、clean かつ non-empty な snapshot を
   保存するまで再取得する。公表前の空 response を既存 cache が保持していても、最終週を
   欠損させないためである。
-- 2026-09-28 以後、daily batch は stored trading days から「次の営業日が到来済み」の
-  balance date だけを要求する。最初の対象は 2026-09-25 である。ただし calendar は移行実施の
-  authority ではないため、`ALL_ISSUES_DAILY_PUBLICATION_CONFIRMED` は初期値 `False` とし、2026-09-28の告知・payload検証後に`True`へ変更した。
-- U4 は JPX の移行実施告知と、repository が利用する J-Quants ClientV2 の endpoint / field /
-  date identity / 母集団を実 payload で確認する。両方が一致した commit だけが activation flag を
-  `True` にする。移行中止または ClientV2 未対応なら無効のままにする。
-- 公式 go-live の確認後、activation 前の初回 snapshot は次の bounded probe で取得する。この flag は
-  `2026-09-25..2026-09-25` 以外を拒否し、runtime activation は変更しない。取得が失敗した場合も
-  flag は `False` のままである。
-
-  ```bash
-  uv run baibai-engine screening backfill-history \
-    --start 2026-09-25 --end 2026-09-25 \
-    --probe-margin-publication-transition
-  ```
-
-- U4 の初回 snapshot は、実データを見る前に固定した one-shot verifier で機械突合する。
-  `row_count ratio 0.98..1.02`、小さい方の母集団に対する ticker overlap `>= 0.98`、
-  `IssType` 一致率 `>= 0.95`、long / short 総残高比 `0.50..2.00` を shape / unit gate とする。
-  6 残高は有限・非負かつ total = standard + negotiable を全 row で要求する。これらは別母集団、
-  100 倍等の単位変更、field 入替を止めるための広い境界であり、日次需給軸の有効性判定ではない。
-  実行例は次のとおりで、`pass` の report と actual payload 契約確認を同じ U4 commit に固定する。
-
-  ```bash
-  uv run python tools/diagnostics/verify_margin_publication_transition.py \
-    --sqlite stores/market/market.sqlite \
-    --output reports/operations/2026-09-28-margin-publication-transition/report.md
-  ```
-
-  exit `0` は全 gate pass、`1` は比較可能だが gate fail（fail report は保存する）、`2` は
-  schema・coverage・公表時刻・row shape が比較不能、出力先が store と同一、または report の
-  原子的保存に失敗した状態を表す。`1` / `2` では
-  activation と merge を行わない。probe 取得、verifier `pass`、actual ClientV2 契約確認、
-  activation flag 更新、full gates、merge の順序を変えない。
+- 2026-09-25 以後の全銘柄daily残高は、翌営業日の公表後に通常経路で取り込み・利用する。
+  daily batch は stored trading days から次の営業日が到来済みのbalance dateだけを要求する。
 - 全銘柄日次の empty response は coverage 完了とみなさず、non-empty な clean snapshot を
   保存するまで次の batch で再取得する。
 - J-Quants client/API が field、endpoint、日付 identity、母集団を変更した場合は取込を停止し、
   本表と fixture を更新してから再開する。既存 table への推測 mapping は行わない。
-- 9/28 の移行中止告知が出た場合、全銘柄日次取込を開始しない。JPX の新しい実施日程を確認し、
-  境界定数と fixture を同時に更新する。
 
 ## 6. `margin_*` の固定語義
 
@@ -122,5 +87,4 @@ ISO 週の最終 balance date だけを sampling して週間隔を保つ — �
 study を用意する。
 
 serving の統合列は `sqlite_reader.published_margin_balance_dates` で、公表ラグは cadence 別に
-持つ（週次は第 2 営業日、日次は翌営業日）。`ALL_ISSUES_DAILY_PUBLICATION_CONFIRMED` が `False`
-の間は週次 balance date だけを返す。
+持つ（週次は第 2 営業日、日次は翌営業日）。

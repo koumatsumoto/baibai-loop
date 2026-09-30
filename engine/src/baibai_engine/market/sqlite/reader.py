@@ -44,7 +44,6 @@ from baibai_engine.market.jquants_models import (
 )
 from baibai_engine.market.margin_publication import (
     ALL_ISSUES_DAILY_FIRST_BALANCE_DATE,
-    ALL_ISSUES_DAILY_PUBLICATION_CONFIRMED,
     LEGACY_WEEKLY_LAST_BALANCE_DATE,
 )
 from baibai_engine.market.models import SecurityMaster
@@ -588,8 +587,6 @@ MarginCadence = Literal["weekly", "daily"]
 def published_margin_balance_dates(
     sqlite_path: Path,
     asof: date,
-    *,
-    publication_confirmed: bool = ALL_ISSUES_DAILY_PUBLICATION_CONFIRMED,
 ) -> list[tuple[date, MarginCadence]]:
     """Every published balance date usable at `asof`, ascending, tagged by series.
 
@@ -599,13 +596,8 @@ def published_margin_balance_dates(
     balance-date domains are enforced on the way in — so the union needs no
     tie-break and the six-day gap between them is simply a gap.
 
-    `publication_confirmed` is the transition's activation flag. While it is false
-    this returns exactly the weekly dates, which is what the whole daily half is
-    inert behind.
     """
     weekly = published_margin_week_ends(sqlite_path, asof)
-    if not publication_confirmed:
-        return [(day, "weekly") for day in weekly]
     daily = _published_all_issues_daily_balance_dates(sqlite_path, asof)
     tagged: list[tuple[date, MarginCadence]] = [(day, "weekly") for day in weekly]
     tagged.extend((day, "daily") for day in daily)
@@ -740,12 +732,8 @@ def all_issues_daily_margin_candidate_dates(
     sqlite_path: Path,
     start: date,
     asof: date,
-    *,
-    publication_confirmed: bool = ALL_ISSUES_DAILY_PUBLICATION_CONFIRMED,
 ) -> list[date]:
     """Unfetched daily balance dates that have a later trading-day publication."""
-    if not publication_confirmed:
-        return []
     start = max(start, ALL_ISSUES_DAILY_FIRST_BALANCE_DATE)
     if not sqlite_path.exists() or start >= asof:
         return []
@@ -783,12 +771,8 @@ def all_issues_daily_margin_backfill_candidate_dates(
     sqlite_path: Path,
     start: date,
     end: date,
-    *,
-    publication_confirmed: bool = ALL_ISSUES_DAILY_PUBLICATION_CONFIRMED,
 ) -> list[date]:
     """Every uncovered balance date in an inclusive historical backfill window."""
-    if not publication_confirmed:
-        return []
     start = max(start, ALL_ISSUES_DAILY_FIRST_BALANCE_DATE)
     if not sqlite_path.exists() or start > end:
         return []
