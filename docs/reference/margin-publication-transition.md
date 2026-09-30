@@ -63,8 +63,9 @@ union しない。6 残高 field は有限・非負、`IssType` は non-null を
 - 最終週次 2026-09-18 残高は 2026-09-25 以後、clean かつ non-empty な snapshot を
   保存するまで再取得する。公表前の空 response を既存 cache が保持していても、最終週を
   欠損させないためである。
-- 2026-09-25 以後の全銘柄daily残高は、翌営業日の公表後に通常経路で取り込み・利用する。
+- 2026-09-25 以後の全銘柄daily残高は、翌営業日の公表後に通常経路で取り込む。
   daily batch は stored trading days から次の営業日が到来済みのbalance dateだけを要求する。
+  servingでは公表日がas-ofより前の残高だけを利用し、公表日当日のas-ofには使用しない。
 - 全銘柄日次の empty response は coverage 完了とみなさず、non-empty な clean snapshot を
   保存するまで次の batch で再取得する。
 - J-Quants client/API が field、endpoint、日付 identity、母集団を変更した場合は取込を停止し、
@@ -87,4 +88,5 @@ ISO 週の最終 balance date だけを sampling して週間隔を保つ — �
 study を用意する。
 
 serving の統合列は `sqlite_reader.published_margin_balance_dates` で、公表ラグは cadence 別に
-持つ（週次は第 2 営業日、日次は翌営業日）。
+持つ（週次は第 2 営業日、日次は翌営業日）。いずれも公表日当日のas-ofには含めず、
+公表日より後のas-ofから利用する。
