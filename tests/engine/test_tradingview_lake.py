@@ -68,8 +68,8 @@ def test_l1_only_publish_restores_snapshot_without_market_push(tmp_path, monkeyp
     asyncio.run(collect(path, DAY, fetch, interval=0, clock=lambda: NOW))
     mirror = tmp_path / "mirror"
 
-    def publish(release_id):
-        with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=mirror) as snapshot:
+    def publish(release_id, source_path=path):
+        with sealed_sqlite_snapshot(sqlite_path=source_path, mirror_root=mirror) as snapshot:
             manifests = [
                 export_legacy_sqlite(
                     dataset_name=name,
@@ -104,9 +104,28 @@ def test_l1_only_publish_restores_snapshot_without_market_push(tmp_path, monkeyp
             session, release=prior, cache=prior_cache, store=path, dataset_names=datasets
         )
     store_jquants_master(path, make_master_records(today), requested_asof=today)
-    asyncio.run(
-        collect(path, today, fetch, interval=0, clock=lambda: datetime(2026, 9, 21, 7, tzinfo=UTC))
+    from baibai_engine.market.tradingview.observations import ProviderHTTPError
+
+    calls = 0
+
+    async def partial_fetch(symbols):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise ProviderHTTPError(429)
+        return payload(symbols)
+
+    first = asyncio.run(
+        collect(
+            path,
+            today,
+            partial_fetch,
+            interval=0,
+            clock=lambda: datetime(2026, 9, 21, 7, tzinfo=UTC),
+        )
     )
+    assert (first["status"], first["rows_added"], first["remaining"]) == ("partial", 50, 2450)
+    first_rows = stored(path)
     current, current_cache = publish("current-tv-release")
     assert current.data_as_of == DAY
 
@@ -121,14 +140,64 @@ def test_l1_only_publish_restores_snapshot_without_market_push(tmp_path, monkeyp
         hydrate_market_store(
             session, release=current, cache=current_cache, store=next_slot, dataset_names=datasets
         )
-    assert preflight_snapshot(next_slot, today) == {
-        "status": "already_saved",
-        "snapshot_date": today.isoformat(),
-        "rows": 2500,
-    }
+    state = preflight_snapshot(next_slot, today)
+    assert (state["status"], state["needs_master"], state["rows"], state["remaining"]) == (
+        "needs_fetch",
+        False,
+        50,
+        2450,
+    )
     assert read_eq_master_exact(next_slot, today) is None
-    store_jquants_master(next_slot, make_master_records(today), requested_asof=today)
-    assert len(read_eq_master_exact(next_slot, today) or []) == 2500
+    resumed = asyncio.run(
+        collect(
+            next_slot,
+            today,
+            fetch,
+            interval=0,
+            clock=lambda: datetime(2026, 9, 21, 8, tzinfo=UTC),
+        )
+    )
+    assert (resumed["status"], resumed["rows_added"], resumed["remaining"]) == ("saved", 2450, 0)
+    first_today = [row for row in first_rows if row[0] == today.isoformat()]
+    resumed_today = [row for row in stored(next_slot) if row[0] == today.isoformat()]
+    assert resumed_today[:50] == first_today
+    assert preflight_snapshot(next_slot, today)["status"] == "already_saved"
+    completed, completed_cache = publish("completed-tv-release", next_slot)
+    fixed_readback = tmp_path / "completed-readback.sqlite"
+    shutil.copy2(remote, fixed_readback)
+    with lake_session() as session:
+        hydrate_market_store(
+            session,
+            release=completed,
+            cache=completed_cache,
+            store=fixed_readback,
+            dataset_names=datasets,
+        )
+    assert stored(fixed_readback) == stored(next_slot)
+    for release, cache, expected in (
+        (current, current_cache, 50),
+        (completed, completed_cache, 2500),
+    ):
+        query = Query.model_validate(
+            {
+                "release_ref": {
+                    "release_id": release.release_id,
+                    "manifest_sha256": release.manifest_sha256,
+                },
+                "sources": [
+                    {
+                        "dataset": NAME,
+                        "alias": "tv",
+                        "from": today.isoformat(),
+                        "to": today.isoformat(),
+                    }
+                ],
+                "sql": "SELECT COUNT(*) AS rows FROM tv WHERE snapshot_date = $day",
+                "parameters": {"day": today.isoformat()},
+                "max_rows": 1,
+            }
+        )
+        assert execute_query(release, query, cache)["rows"] == [[expected]]
 
 
 def test_month_partition_fixed_query_and_hydrate_roundtrip(

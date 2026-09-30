@@ -190,6 +190,8 @@ async def snapshot(
     day: date,
     interval: float,
     progress_output: Path | None = None,
+    *,
+    batch_size: int = 50,
 ) -> dict[str, object]:
     output_enabled = progress_output is not None
 
@@ -207,12 +209,29 @@ async def snapshot(
                 f"TradingView progress output disabled; type={type(exc).__name__}", file=sys.stderr
             )
 
-    async with connect(storage) as session:
+    result: dict[str, object] | None = None
+    try:
+        async with connect(storage) as session:
 
-        async def fetch(symbols: list[str]) -> dict[str, object]:
-            return await fetch_batch(session, symbols, COLUMNS)
+            async def fetch(symbols: list[str]) -> dict[str, object]:
+                return await fetch_batch(session, symbols, COLUMNS)
 
-        result = await collect(path, day, fetch, interval=interval, progress=progress)
+            result = await collect(
+                path, day, fetch, interval=interval, batch_size=batch_size, progress=progress
+            )
+    except Exception as exc:
+        category = failure_category(exc)
+        added = result.get("rows_added") if result is not None else None
+        if (
+            result is None
+            or result.get("status") not in {"saved", "partial"}
+            or not isinstance(added, int)
+            or added <= 0
+            or category in {"internal", "storage"}
+        ):
+            raise
+        result = {**result, "stop_reason": result.get("stop_reason") or category}
+    assert result is not None
     return {**result, "oauth_rotations": storage.rotation_count}
 
 
@@ -257,7 +276,9 @@ def build_parser() -> argparse.ArgumentParser:
     smoke_parser.add_argument(
         "--state-file", type=Path, help="independent local OAuth file; never writes GitHub Secrets"
     )
-    refresh = sub.add_parser("refresh", help="append today's full-universe post-close snapshot")
+    refresh = sub.add_parser(
+        "refresh", help="append today's post-close snapshot, resuming missing symbols"
+    )
     refresh.add_argument(
         "--state-file", type=Path, help="independent local OAuth file; never writes GitHub Secrets"
     )
@@ -265,6 +286,7 @@ def build_parser() -> argparse.ArgumentParser:
     refresh.add_argument("--asof", type=date.fromisoformat, default=None)
     refresh.add_argument("--progress-output", type=Path)
     refresh.add_argument("--interval", type=float, default=15.0)
+    refresh.add_argument("--batch-size", type=int, choices=range(1, 51), default=50)
     return parser
 
 
@@ -290,7 +312,7 @@ def main(argv: list[str] | None = None, /) -> int:
                 return 0
             validate_time(day, now)
             preflight = preflight_snapshot(args.sqlite, day)
-            if preflight is not None:
+            if preflight["status"] != "needs_fetch":
                 print(json.dumps({**preflight, "oauth_rotations": 0}))
                 return 0
         storage = credential_storage(args.state_file)
@@ -304,6 +326,7 @@ def main(argv: list[str] | None = None, /) -> int:
                     day,
                     args.interval,
                     args.progress_output,
+                    batch_size=args.batch_size,
                 )
             )
     except Exception as exc:

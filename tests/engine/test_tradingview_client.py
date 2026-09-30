@@ -13,6 +13,7 @@ from baibai_engine.market.tradingview.client import BATCH_TOOL, fetch_batch
 SCANNER_ERROR = (
     "tradingview api: https://scanner.tradingview.com/japan/scan?label-product=tv-mcp: 429"
 )
+SCANNER_ERROR_WITH_SUFFIX = SCANNER_ERROR + ": "
 
 
 def test_official_batch_tool_preserves_raw_response() -> None:
@@ -59,6 +60,7 @@ def test_tool_error_is_not_converted_to_missing() -> None:
         ("HTTP 999", None),
         ("HTTP 4290", None),
         (SCANNER_ERROR, 429),
+        (SCANNER_ERROR_WITH_SUFFIX, 429),
     ],
 )
 def test_tool_status_extraction_does_not_retry_or_disclose(text, status):
@@ -79,7 +81,9 @@ def test_tool_status_extraction_does_not_retry_or_disclose(text, status):
 
 
 @pytest.mark.parametrize("structured", [True, False])
-@pytest.mark.parametrize("error", [SCANNER_ERROR, "HTTP 429 private-token https://secret"])
+@pytest.mark.parametrize(
+    "error", [SCANNER_ERROR, SCANNER_ERROR_WITH_SUFFIX, "HTTP 429 private-token https://secret"]
+)
 def test_unsuccessful_envelope_reports_safe_status_without_retry(structured, error):
     from baibai_engine.market.tradingview.cli import failure_line
     from baibai_engine.market.tradingview.observations import ProviderHTTPError

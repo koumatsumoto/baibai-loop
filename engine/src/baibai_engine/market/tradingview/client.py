@@ -84,7 +84,7 @@ def _provider_http_status(texts: Iterable[str]) -> int | None:
         # TradingView also reports scanner failures as a URL followed by a status.
         match = re.fullmatch(
             r"tradingview api: https://scanner\.tradingview\.com/[a-z]+/scan"
-            r"\?label-product=tv-mcp: ([45][0-9]{2})",
+            r"\?label-product=tv-mcp: ([45][0-9]{2})(?::[^\r\n]*)?",
             text,
         )
         if match is not None:

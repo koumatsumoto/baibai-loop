@@ -35,6 +35,32 @@ def test_saved_is_ok_and_contains_run_url(monkeypatch):
     assert "Review Set" not in message
 
 
+def test_published_partial_is_degraded_with_counts_and_reason(monkeypatch):
+    calls = invoke(
+        monkeypatch,
+        "--eligible",
+        "true",
+        "--snapshot-status",
+        "partial",
+        "--rows-added",
+        "50",
+        "--rows",
+        "50",
+        "--expected-universe",
+        "3701",
+        "--remaining",
+        "3651",
+        "--stop-reason",
+        "provider_rate_limit",
+        "--publish-lake-outcome",
+        "success",
+    )
+    message = calls[0][1]["content"]
+    assert "[DEGRADED]" in message
+    assert "added=50; stored=50/3701; remaining=3651" in message
+    assert "stop_reason=provider_rate_limit" in message
+
+
 @pytest.mark.parametrize(
     ("github_actions", "expected"), [("true", "GitHub Actions"), (None, "Local")]
 )

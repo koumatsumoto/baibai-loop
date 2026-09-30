@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -19,7 +20,7 @@ def test_metadata_order_and_exclusive_writer():
         "7 9 * * 1-5",
         "17 11 * * 1-5",
     ]
-    assert data["on"]["workflow_dispatch"] == ""
+    assert set(data["on"]["workflow_dispatch"]["inputs"]) == {"batch_size", "interval"}
     assert data["permissions"] == {"contents": "read"}
     assert data["concurrency"] == {
         "group": "cloud-publish",
@@ -86,12 +87,15 @@ def test_gates_secret_scopes_and_durability():
         "preflight",
     ):
         assert steps[name]["if"] == "steps.target.outputs.eligible == 'true'"
-    assert steps["master"]["if"] == "steps.preflight.outputs.status == 'needs_fetch'"
+    assert steps["master"]["if"] == (
+        "steps.preflight.outputs.status == 'needs_fetch' && steps.preflight.outputs.needs_master == 'true'"
+    )
     assert (
         steps["tradingview"]["if"]
-        == "steps.preflight.outputs.status == 'needs_fetch' && steps.master.outcome == 'success'"
+        == "steps.preflight.outputs.status == 'needs_fetch' && (steps.preflight.outputs.needs_master == 'false' || steps.master.outcome == 'success')"
     )
-    assert steps["publish-lake"]["if"] == "steps.tradingview.outputs.status == 'saved'"
+    assert "steps.tradingview.outputs.status == 'partial'" in steps["publish-lake"]["if"]
+    assert "rows_added" in steps["publish-lake"]["if"]
     for name in ("summary", "notify"):
         assert steps[name]["if"] == "${{ always() }}"
         assert steps[name]["continue-on-error"] == "true"
@@ -128,12 +132,26 @@ def test_gates_secret_scopes_and_durability():
 
 
 @pytest.mark.parametrize(
-    "status", ["saved", "already_saved", "non_trading_day", "skipped_historical_asof"]
+    "status", ["saved", "partial", "already_saved", "non_trading_day", "skipped_historical_asof"]
 )
 def test_acquisition_shell_parses_only_known_success_status(tmp_path, status):
     steps = {step["id"]: step for step in workflow()["jobs"]["snapshot"]["steps"] if "id" in step}
     uv = tmp_path / "uv"
-    uv.write_text(f"#!/bin/sh\nprintf '%s\\n' '{{\"status\":\"{status}\"}}'\n")
+    uv.write_text(
+        "#!/bin/sh\nprintf '%s\\n' '"
+        + json.dumps(
+            {
+                "status": status,
+                "rows_added": 2,
+                "rows": 2,
+                "expected_universe": 3 if status == "partial" else 2,
+                "remaining": 1 if status == "partial" else 0,
+                "unresolved": 0,
+                "stop_reason": "provider_rate_limit",
+            }
+        )
+        + "'\n"
+    )
     uv.chmod(0o755)
     output = tmp_path / "output"
     result = subprocess.run(
@@ -149,10 +167,20 @@ def test_acquisition_shell_parses_only_known_success_status(tmp_path, status):
         text=True,
     )
     assert result.returncode == 0
-    assert output.read_text().strip() == f"status={status}"
+    assert f"status={status}" in output.read_text().splitlines()
+    if status in {"saved", "partial"}:
+        assert "rows_added=2" in output.read_text()
 
 
-@pytest.mark.parametrize("body", ["not-json", '{"status":"unknown"}', '{"status":[]}'])
+@pytest.mark.parametrize(
+    "body",
+    [
+        "not-json",
+        '{"status":"unknown"}',
+        '{"status":[]}',
+        '{"status":"partial","rows_added":0,"rows":50,"expected_universe":51,"remaining":1,"unresolved":0}',
+    ],
+)
 def test_acquisition_rejects_unrecognized_success_output(tmp_path, body):
     steps = {step["id"]: step for step in workflow()["jobs"]["snapshot"]["steps"] if "id" in step}
     uv = tmp_path / "uv"

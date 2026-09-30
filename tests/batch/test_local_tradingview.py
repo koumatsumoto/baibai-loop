@@ -29,7 +29,13 @@ def runtime(tmp_path, monkeypatch):
         lambda *_a, **_kw: (date(2026, 9, 28), "manual", True, ""),
     )
     calls = []
-    settings = {"acquire": 0, "release": 0, "preflight": None, "refresh": "saved", "fail": None}
+    settings = {
+        "acquire": 0,
+        "release": 0,
+        "preflight": {"status": "needs_fetch", "needs_master": True},
+        "refresh": "saved",
+        "fail": None,
+    }
 
     def lease_main(args):
         step = args[0]
@@ -59,7 +65,15 @@ def runtime(tmp_path, monkeypatch):
         if name == settings["fail"]:
             raise runner.StageFailure("stage failed")
         if name == "refresh":
-            return json.dumps({"status": settings["refresh"]})
+            return json.dumps(
+                {
+                    "status": settings["refresh"],
+                    "rows_added": 2,
+                    "rows": 2,
+                    "expected_universe": 3 if settings["refresh"] == "partial" else 2,
+                    "remaining": 1 if settings["refresh"] == "partial" else 0,
+                }
+            )
         return ""
 
     def preflight(_day):
@@ -88,6 +102,15 @@ def test_local_sequence_and_cloud_write_scope(runtime):
         "release",
     ]
     assert not settings["handle"].exists()
+
+
+def test_local_partial_with_existing_master_publishes_without_master_fetch(runtime):
+    state, calls, settings = runtime
+    settings["preflight"] = {"status": "needs_fetch", "needs_master": False, "rows": 2}
+    settings["refresh"] = "partial"
+    assert runner.main(["--state-file", str(state), "--batch-size", "2", "--interval", "3"]) == 0
+    assert "master" not in calls
+    assert calls[-3:] == ["refresh", "publish-lake", "release"]
 
 
 @pytest.mark.parametrize("code", [1, 3])
@@ -142,6 +165,29 @@ def test_bad_success_payload_does_not_publish(runtime):
     assert runner.main(["--state-file", str(state)]) == 1
     assert "publish-lake" not in calls
     assert calls[-1] == "release"
+
+
+def test_zero_new_rows_cannot_publish_a_previous_partial(runtime, monkeypatch):
+    state, calls, _ = runtime
+    original = runner.command
+
+    def command(args, **kwargs):
+        if "refresh" in args:
+            calls.append("refresh")
+            return json.dumps(
+                {
+                    "status": "partial",
+                    "rows_added": 0,
+                    "rows": 50,
+                    "expected_universe": 51,
+                    "remaining": 1,
+                }
+            )
+        return original(args, **kwargs)
+
+    monkeypatch.setattr(runner, "command", command)
+    assert runner.main(["--state-file", str(state)]) == 1
+    assert "publish-lake" not in calls
 
 
 def test_before_close_does_not_read_credentials_or_acquire(runtime, monkeypatch):

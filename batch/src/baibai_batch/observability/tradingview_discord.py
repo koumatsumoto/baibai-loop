@@ -49,6 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--snapshot-status",
         choices=(
             "saved",
+            "partial",
             "already_saved",
             "non_trading_day",
             "skipped_historical_asof",
@@ -62,6 +63,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("needs_fetch", "already_saved", "non_trading_day", "unknown"),
         default="unknown",
     )
+    parser.add_argument("--rows-added", type=int, default=0)
+    parser.add_argument("--rows", type=int, default=0)
+    parser.add_argument("--expected-universe", type=int, default=0)
+    parser.add_argument("--remaining", type=int, default=0)
+    parser.add_argument("--stop-reason", default="-")
     for step in STEPS:
         parser.add_argument(f"--{step}-outcome", default="skipped")
     parser.add_argument("--cancelled", choices=("true", "false"), default="false")
@@ -83,6 +89,13 @@ def main(
         label, detail = OUTCOME_FAILED, f" — failed step: {failed}"
     elif outcomes["tradingview"] in {"failure", "cancelled"}:
         label, detail = OUTCOME_DEGRADED, " — failed step: tradingview"
+    elif args.snapshot_status == "partial" and outcomes["publish-lake"] == "success":
+        label = OUTCOME_DEGRADED
+        detail = (
+            f" — partial TradingView snapshot published; added={args.rows_added}; "
+            f"stored={args.rows}/{args.expected_universe}; remaining={args.remaining}; "
+            f"stop_reason={sanitize_one_line(args.stop_reason)}"
+        )
     elif args.snapshot_status == "saved" and outcomes["publish-lake"] == "success":
         label, detail = OUTCOME_OK, " — TradingView snapshot saved"
     elif (

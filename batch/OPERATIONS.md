@@ -815,9 +815,9 @@ storeのmergeでは同日でも別docIDの成否を混同しない。共有docID
 
 ## TradingView Analyst Expectations
 
-`cloud-tradingview-snapshot.yml`が平日15:57 / 18:07 / 20:17 JSTに独立して起動する。GitHub queueによって実開始は遅れ、slot間隔が縮む場合もある。targetは予定時刻ではなくrun開始時のJST当日であり、exact-date masterとTradingViewの両方に同じtarget_dateを渡す。15:30より前の実行はsetup・lease・pull・hydrate・preflight・master取得・provider接続へ進まない。取得中に日付を跨いだ場合は既存の`skipped_historical_asof`でno-opにする。
+`cloud-tradingview-snapshot.yml`が平日15:57 / 18:07 / 20:17 JSTに独立して起動する。GitHub queueによって実開始は遅れ、slot間隔が縮む場合もある。targetは予定時刻ではなくrun開始時のJST当日であり、exact-date masterとTradingViewの両方に同じtarget_dateを渡す。15:30より前の実行はsetup・lease・pull・hydrate・preflight・master取得・provider接続へ進まない。日付を跨ぐ前に確定した正常batchは部分結果として残し、跨いだresponseを前日へ保存しない。
 
-最初にfull-universe取得とL1 publishを完了したsnapshotが同日の正本となる。後続slotはL1からhydrateした行数をUniverseと照合し、保存済みならMCP接続前に終了する。失敗時は次slotが最初から取得し直す。TV workflowはremote `market.sqlite`や`machine-manifest.json`を更新せず、L1 releaseだけを永続化する。dailyは独立して実行する。
+正常batchは検証後に確定し、新規rowがあれば`partial`でもL1へ公開する。後続slotはL1からhydrateした同日rowのticker集合をexact-date masterのUniverseと照合し、未保存銘柄だけを取得する。全銘柄account済みならMCP接続前に終了する。hydrate後にmasterのraw rowsがあれば、`source_coverage`がなくても再取得せずに使う。TV workflowはremote `market.sqlite`や`machine-manifest.json`を更新せず、L1 releaseだけを永続化する。dailyは独立して実行する。
 
 ### 初期設定と認証の復旧
 
@@ -867,9 +867,9 @@ uv run baibai-batch tradingview \
   --state-file "$HOME/.cache/baibai-loop/tradingview-local/oauth.json"
 ```
 
-runnerは当日を固定し、lease取得 → market pull → current L1 hydrate → exact-date preflight → 必要な場合だけ当日masterとTV取得 → `saved`の場合だけL1公開 → releaseの順に進む。15:30前はlease・production read前に終了し、休場日・当日保存済みならOAuth接続前に終了する。過去日のbackfillはしない。TV取得は30分、取得前のpullから公開まで全体60分で打ち切る。remote `market.sqlite`・machine bundle・servingは更新しない。
+runnerは当日を固定し、lease取得 → market pull → current L1 hydrate → exact-date preflight → 必要な場合だけ当日masterと未保存銘柄のTV取得 → 新規rowの`partial`または`saved`をL1公開 → releaseの順に進む。15:30前はlease・production read前に終了し、休場日・当日全件保存済みならOAuth接続前に終了する。過去日のbackfillはしない。通常は50銘柄ごとに15秒間隔とし、手動実行では`--batch-size`（1..50）と`--interval`を指定できる。TV取得は25分のsoft budgetで通常終了を図り、30分のhard timeout、取得前のpullから公開まで全体60分で打ち切る。remote `market.sqlite`・machine bundle・servingは更新しない。
 
-**成功確認**: exit 0、`saved`とL1 publish reportのrelease ID/hash、lease解放を確認する。固定releaseの行数・Universe・coverage・`fetched_at_utc`・前日snapshot保持を[L1参照手順](../docs/reference/market-lake.md#shared-raw-read)で照合する。`already_saved` / `non_trading_day` / `skipped_historical_asof` / `before_close`は取得・公開成功と区別したno-opである。同日後続GitHub runがhydrate後に`already_saved`となることも確認する。
+**成功確認**: exit 0、`saved`または`partial`の`rows_added`・`rows / expected_universe`・`remaining`・`stop_reason`、L1 publish reportのrelease ID/hash、lease解放を確認する。固定releaseの行数・Universe・null・unresolved・`fetched_at_utc`・前日snapshot保持を[L1参照手順](../docs/reference/market-lake.md#shared-raw-read)で照合する。`partial`は未取得が残るDEGRADEDであり、provider正常や全指標coverageを示さない。`already_saved` / `non_trading_day` / `skipped_historical_asof` / `before_close`は取得・公開成功と区別したno-opである。同日後続runがfresh hydrateから保存済みrowを再取得しないことも確認する。
 
 **停止・復旧**: busyはexit 3、その他の失敗はexit 1。失敗・SIGINT/SIGTERM・timeoutでは子processを停止してからreleaseする。release失敗時はstderrに示されたhandleを保持し、[既存lease手順](#ローカルからクラウドを更新する)に従う。SIGKILL・host停止ではreleaseできない場合がある。公開失敗後のlocal snapshotだけを根拠に保存済みとせず、次回はfresh pull/hydrateから始める。
 
@@ -884,13 +884,13 @@ engineの`refresh --state-file`は取得だけの低レベル入口であり、p
 
 ### 保存と再試行
 
-当日の最初のfull-market取得とL1 publish成功がsnapshotとなる。保存済みなら後続slotはprovider接続前にno-op、失敗時は次slotが最初から取得する。過去日の穴を現在値で埋めない。
+当日の各銘柄で最初に保存した正常応答を維持する。正常batchは各transactionで保存し、取得不良batchは保存せず次の未保存batchを試す。応答不良が3 batch連続した場合と明示的429では新規requestを止める。同一batchの即時retryは行わず、skip後も通常intervalを置く。新規rowが0件なら失敗とし、過去に公開した部分snapshotだけで今回を成功にしない。次slotは公開済みの未保存銘柄から再開する。過去日の穴を現在値で埋めない。
 
 ### TradingView Expectationsの障害診断
 
-TradingView stepのsafe failure line、`TradingView progress:` summaryの順に読む。`chunks_completed / chunks_total`と`chunk_index`で失敗位置を、`provider_elapsed_seconds / elapsed_seconds`と`max_chunk_elapsed_seconds`でprovider待ちとintervalの影響を確認し、`oauth_rotations`で認証更新回数を見る。payload検証失敗では固定の`validation_reason`とcanonicalな`validation_field`を確認する。成功時は最終JSONの`rows / unresolved / normal_nulls`とfirst / last fetched_atも確認する。
+TradingView stepのsafe failure line、`TradingView progress:` summaryの順に読む。`chunks_completed / chunks_total`と`chunk_index`で失敗位置を、`provider_elapsed_seconds / elapsed_seconds`と`max_chunk_elapsed_seconds`でprovider待ちとintervalの影響を確認し、`oauth_rotations`で認証更新回数を見る。payload検証失敗では固定の`validation_reason`とcanonicalな`validation_field`を確認する。正常終了時は最終JSONの`rows_added / rows / expected_universe / remaining / stop_reason / unresolved / normal_nulls`とfirst / last fetched_atも確認する。
 
-- `provider_rate_limit`（429）: `is_error=false`でも、`success=false`のerrorが明確なHTTP 429を示す場合はこの分類になる。同runを即時rerunせず、manual scanner callも重ねない。当日分のpartial snapshotが保存されていないことを確認し、次のscheduled runまたはprovider quota確認へ進む。
+- `provider_rate_limit`（429）: `is_error=false`でも、`success=false`のerrorが明確なHTTP 429を示す場合はこの分類になる。同runで新規requestを止め、manual scanner callを重ねない。既に正常batchがあれば部分公開を確認し、次のscheduled slotまたはprovider quota確認へ進む。
 - `auth`: [対話認証](#初期設定と認証の復旧)をやり直す。
 - `secret_persistence`: `tradingview-runtime`のEnvironment secretとwriter tokenの権限・期限を確認する。
 - `provider_all_missing`: coverage不存在と断定せず、provider全体のdegradationの可能性を確認する。
