@@ -12,12 +12,6 @@ from datetime import date
 LEGACY_WEEKLY_LAST_BALANCE_DATE = date(2026, 9, 18)
 LEGACY_WEEKLY_LAST_PUBLICATION_DATE = date(2026, 9, 25)
 ALL_ISSUES_DAILY_FIRST_BALANCE_DATE = date(2026, 9, 25)
-ALL_ISSUES_DAILY_FIRST_PUBLICATION_DATE = date(2026, 9, 28)
-
-# The calendar is not authority for whether the migration actually happened.
-# Activated after the official go-live announcement and ClientV2 payload verification.
-# Evidence: reports/operations/2026-09-28-margin-publication-transition/contract.md
-ALL_ISSUES_DAILY_PUBLICATION_CONFIRMED = True
 
 
 def require_legacy_weekly_balance_date(balance_date: date) -> None:
@@ -38,8 +32,6 @@ def require_all_issues_daily_balance_date(balance_date: date) -> None:
 
 __all__ = [
     "ALL_ISSUES_DAILY_FIRST_BALANCE_DATE",
-    "ALL_ISSUES_DAILY_FIRST_PUBLICATION_DATE",
-    "ALL_ISSUES_DAILY_PUBLICATION_CONFIRMED",
     "LEGACY_WEEKLY_LAST_BALANCE_DATE",
     "LEGACY_WEEKLY_LAST_PUBLICATION_DATE",
     "require_all_issues_daily_balance_date",

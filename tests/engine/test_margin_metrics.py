@@ -327,49 +327,14 @@ class MarginPublicationSeamTest(unittest.TestCase):
                 balance_date=day,
             )
 
-    def test_the_flag_off_column_holds_no_daily_balance_date(self) -> None:
-        """Inert means inert: with the flag false the daily rows are seeded and unread."""
-        from baibai_engine.market.sqlite.reader import (
-            published_margin_balance_dates,
-            published_margin_week_ends,
-        )
-        from baibai_engine.screening.margin_inputs import read_margin_supply_demand_inputs
-
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            self._seed(db, weekly_from=date(2026, 3, 2), daily_through=date(2026, 10, 5))
-            asof = date(2026, 10, 8)
-
-            weekly = published_margin_week_ends(db, asof)
-            column = published_margin_balance_dates(db, asof, publication_confirmed=False)
-
-            self.assertEqual(column, [(day, "weekly") for day in weekly])
-            self.assertEqual(weekly[-1], self.LAST_WEEKLY)
-
-            latest, prior = read_margin_supply_demand_inputs(db, asof, publication_confirmed=False)
-
-            self.assertEqual({row.balance_date for row in latest.values()}, {self.LAST_WEEKLY})
-            # The 26-week reach is the same list index the weekly-only reader used.
-            self.assertEqual(
-                {row.balance_date for row in prior.values()},
-                {weekly[-1 - 26]},
-            )
-
-    def test_the_axes_go_dark_after_the_freeze_and_the_daily_series_keeps_them_lit(self) -> None:
-        """The failure this exists to prevent, and the same store answering with the flag on."""
+    def test_the_daily_series_keeps_the_axes_current_after_the_weekly_freeze(self) -> None:
+        """The published daily balance keeps the axes current after the weekly freeze."""
         from baibai_engine.screening.margin_inputs import read_margin_supply_demand_inputs
 
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             self._seed(db, weekly_from=date(2026, 3, 2), daily_through=date(2026, 10, 30))
-            # 2026-09-18 + MARGIN_MAX_STALE_DAYS lands on 2026-10-23, so this as-of is
-            # the first Monday on which the weekly-only column has nothing to say.
             asof = date(2026, 10, 26)
-
-            self.assertEqual(
-                read_margin_supply_demand_inputs(db, asof, publication_confirmed=False),
-                ({}, {}),
-            )
 
             latest, _ = read_margin_supply_demand_inputs(db, asof)
 
@@ -388,9 +353,7 @@ class MarginPublicationSeamTest(unittest.TestCase):
             def daily_dates(asof: date) -> list[date]:
                 return [
                     day
-                    for day, cadence in published_margin_balance_dates(
-                        db, asof, publication_confirmed=True
-                    )
+                    for day, cadence in published_margin_balance_dates(db, asof)
                     if cadence == "daily"
                 ]
 
@@ -408,7 +371,7 @@ class MarginPublicationSeamTest(unittest.TestCase):
             self._seed(db, weekly_from=date(2026, 1, 5), daily_through=date(2026, 10, 30))
             asof = date(2026, 11, 2)
 
-            latest, prior = read_margin_supply_demand_inputs(db, asof, publication_confirmed=True)
+            latest, prior = read_margin_supply_demand_inputs(db, asof)
 
             observed = next(iter(latest.values())).balance_date
             reached = next(iter(prior.values())).balance_date

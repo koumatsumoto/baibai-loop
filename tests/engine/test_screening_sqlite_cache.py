@@ -1374,12 +1374,7 @@ class MarginPublicationTransitionStoreTest(unittest.TestCase):
             )
 
             self.assertEqual(
-                all_issues_daily_margin_candidate_dates(
-                    db,
-                    date(2026, 9, 1),
-                    date(2026, 9, 28),
-                    publication_confirmed=True,
-                ),
+                all_issues_daily_margin_candidate_dates(db, date(2026, 9, 1), date(2026, 9, 28)),
                 [date(2026, 9, 25)],
             )
             store_jquants_all_issues_daily_margin(
@@ -1388,12 +1383,7 @@ class MarginPublicationTransitionStoreTest(unittest.TestCase):
                 balance_date=date(2026, 9, 25),
             )
             self.assertEqual(
-                all_issues_daily_margin_candidate_dates(
-                    db,
-                    date(2026, 9, 1),
-                    date(2026, 9, 29),
-                    publication_confirmed=True,
-                ),
+                all_issues_daily_margin_candidate_dates(db, date(2026, 9, 1), date(2026, 9, 29)),
                 [date(2026, 9, 28)],
             )
 
@@ -1433,12 +1423,7 @@ class MarginPublicationTransitionStoreTest(unittest.TestCase):
 
             self.assertIsNone(read_all_issues_daily_margin(db, date(2026, 9, 25)))
             self.assertEqual(
-                all_issues_daily_margin_candidate_dates(
-                    db,
-                    date(2026, 9, 25),
-                    date(2026, 9, 28),
-                    publication_confirmed=True,
-                ),
+                all_issues_daily_margin_candidate_dates(db, date(2026, 9, 25), date(2026, 9, 28)),
                 [date(2026, 9, 25)],
             )
 
@@ -1540,30 +1525,6 @@ class MarginPublicationTransitionStoreTest(unittest.TestCase):
             self.assertEqual(coverage, ("partial", 0))
             self.assertIsNone(read_margin_alerts(db, publication_date, publication_date))
 
-    def test_calendar_date_cannot_activate_daily_ingest_before_confirmation(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            store_jquants_daily_bars(
-                db,
-                [
-                    {"Date": "2026-09-25", "Code": "72030", "Close": 100.0},
-                    {"Date": "2026-09-28", "Code": "72030", "Close": 101.0},
-                ],
-                requested_start=date(2026, 9, 25),
-                requested_end=date(2026, 9, 28),
-            )
-
-            self.assertEqual(
-                all_issues_daily_margin_candidate_dates(
-                    db, date(2026, 9, 25), date(2026, 9, 28), publication_confirmed=False
-                ),
-                [],
-            )
-            self.assertEqual(
-                all_issues_daily_margin_candidate_dates(db, date(2026, 9, 25), date(2026, 9, 28)),
-                [date(2026, 9, 25)],
-            )
-
     def test_backfill_window_includes_its_end_balance_date(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
@@ -1576,10 +1537,7 @@ class MarginPublicationTransitionStoreTest(unittest.TestCase):
 
             self.assertEqual(
                 all_issues_daily_margin_backfill_candidate_dates(
-                    db,
-                    date(2026, 9, 25),
-                    date(2026, 9, 25),
-                    publication_confirmed=True,
+                    db, date(2026, 9, 25), date(2026, 9, 25)
                 ),
                 [date(2026, 9, 25)],
             )

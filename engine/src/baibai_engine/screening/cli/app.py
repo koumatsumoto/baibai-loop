@@ -145,14 +145,6 @@ def build_parser() -> argparse.ArgumentParser:
     backfill_history_parser.add_argument(
         "--end", required=True, help="last date the window covers (YYYY-MM-DD)"
     )
-    backfill_history_parser.add_argument(
-        "--probe-margin-publication-transition",
-        action="store_true",
-        help=(
-            "one-shot U4 probe: fetch only the 2026-09-25 all-issues daily margin "
-            "before runtime activation, after official go-live"
-        ),
-    )
 
     backfill_master_parser = subparsers.add_parser(
         "backfill-master",
@@ -804,7 +796,6 @@ def main(argv: list[str] | None = None) -> int:
             end=window_end,
             providers=providers,
             sqlite_path=sqlite_path,
-            probe_margin_publication_transition=args.probe_margin_publication_transition,
         )
 
     if args.command == "backfill-master":

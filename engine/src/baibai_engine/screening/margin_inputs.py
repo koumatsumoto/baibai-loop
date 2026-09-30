@@ -9,7 +9,6 @@ from baibai_engine.market.jquants_models import (
     JQuantsAllIssuesDailyMargin,
     JQuantsWeeklyMargin,
 )
-from baibai_engine.market.margin_publication import ALL_ISSUES_DAILY_PUBLICATION_CONFIRMED
 from baibai_engine.market.sqlite.reader import (
     MarginCadence,
     published_margin_balance_dates,
@@ -72,8 +71,6 @@ def _read_margin_balances(
 def read_margin_supply_demand_inputs(
     sqlite_path: Path,
     asof: date,
-    *,
-    publication_confirmed: bool = ALL_ISSUES_DAILY_PUBLICATION_CONFIRMED,
 ) -> tuple[dict[str, MarginBalance], dict[str, MarginBalance]]:
     """The published balance dates a cohort at `asof` may use: latest, and 26 weeks back.
 
@@ -86,9 +83,7 @@ def read_margin_supply_demand_inputs(
     `prior` is 26 weeks back in the sampled column, so the delta axis keeps comparing
     across half a year rather than across however many rows the cadence produced.
     """
-    published = published_margin_balance_dates(
-        sqlite_path, asof, publication_confirmed=publication_confirmed
-    )
+    published = published_margin_balance_dates(sqlite_path, asof)
     if not published or (asof - published[-1][0]).days > MARGIN_MAX_STALE_DAYS:
         return {}, {}
     latest = _read_margin_balances(sqlite_path, *published[-1])
