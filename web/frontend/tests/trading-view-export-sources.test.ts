@@ -26,7 +26,7 @@ describe('watchlist export sources', () => {
       pmax_gap_pct: null, latest_thesis_id: null, disposition: null, next_earnings_date: null,
     }) satisfies HoldingView)
     renderToStaticMarkup(createElement(TooltipProvider, null,
-      createElement(MemoryRouter, null, createElement(HoldingsTable, { holdings, warnings: [], ledgerAsOf: '2026-09-30' })),
+      createElement(MemoryRouter, null, createElement(HoldingsTable, { holdings, warnings: [], ledgerAsOf: '2026-09-30T23:15:00+09:00' })),
     ))
     expect(exportsSeen).toMatchObject([{ tickers: ['7203', '130A'], filename: 'holdings-2026-09-30-tradingview.txt' }])
   })

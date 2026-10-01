@@ -227,7 +227,7 @@ export function HoldingsTable({ holdings, warnings, ledgerAsOf = null }: { holdi
           </div>
           <div className="flex flex-col items-end gap-1">
             <TradingViewWatchlistExportButton
-              filename={`holdings${ledgerAsOf ? `-${ledgerAsOf}` : ''}-tradingview.txt`}
+              filename={`holdings${ledgerAsOf ? `-${ledgerAsOf.slice(0, 10)}` : ''}-tradingview.txt`}
               label="保有銘柄をTradingView用TXTに出力"
               tickers={holdings.map((holding) => holding.ticker)}
             />
