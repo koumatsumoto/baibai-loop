@@ -1,5 +1,13 @@
 export function tradingViewChartUrl(ticker: string) {
-  return tradingViewSymbolChartUrl(`TSE:${ticker}`)
+  return tradingViewSymbolChartUrl(tradingViewTseSymbol(ticker))
+}
+
+export function tradingViewTseSymbol(ticker: string) {
+  return `TSE:${ticker}`
+}
+
+export function tradingViewWatchlistText(tickers: readonly string[]) {
+  return [...new Set(tickers)].map(tradingViewTseSymbol).join(',')
 }
 
 export function tradingViewSymbolChartUrl(rawSymbol: string) {

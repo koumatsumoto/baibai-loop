@@ -21,6 +21,7 @@ import { PageState } from '../components/PageState'
 import { PctBadge } from '../components/PctBadge'
 import { SectionCard } from '../components/SectionCard'
 import { TradingViewButton } from '../components/TradingViewButton'
+import { TradingViewWatchlistExportButton } from '../components/TradingViewWatchlistExportButton'
 import { YenAmount } from '../components/YenAmount'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
 import { Badge } from '../components/ui/badge'
@@ -203,7 +204,7 @@ function PortfolioWarnings({ warnings }: { warnings: WarningView[] }) {
   )
 }
 
-export function HoldingsTable({ holdings, warnings }: { holdings: HoldingView[]; warnings: WarningView[] }) {
+export function HoldingsTable({ holdings, warnings, ledgerAsOf = null }: { holdings: HoldingView[]; warnings: WarningView[]; ledgerAsOf?: string | null }) {
   const marketPriceAsOf = useMemo(() => {
     const values = Array.from(new Set(holdings.map((holding) => holding.market_price_as_of)))
     return values.length === 1 ? values[0] : null
@@ -215,13 +216,23 @@ export function HoldingsTable({ holdings, warnings }: { holdings: HoldingView[];
     <SectionCard
       hint={HINT.holdings}
       meta={(
-        <div className="flex flex-wrap items-baseline justify-end gap-x-2 text-xs">
-          <Badge variant="secondary">{holdings.length} 銘柄</Badge>
-          <span className="text-muted-foreground">評価損益 合計</span>
-          {unrealizedPnl.yen === null && holdings.some((holding) => holding.market_value_yen === null)
-            ? <span className="font-semibold text-muted-foreground">未評価</span>
-            : <YenAmount className="font-semibold" sign tone="pnl" value={unrealizedPnl.yen} />}
-          <PctBadge className="text-xs" tone="pnl" value={unrealizedPnl.pct} />
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <div className="flex flex-wrap items-baseline justify-end gap-x-2 text-xs">
+            <Badge variant="secondary">{holdings.length} 銘柄</Badge>
+            <span className="text-muted-foreground">評価損益 合計</span>
+            {unrealizedPnl.yen === null && holdings.some((holding) => holding.market_value_yen === null)
+              ? <span className="font-semibold text-muted-foreground">未評価</span>
+              : <YenAmount className="font-semibold" sign tone="pnl" value={unrealizedPnl.yen} />}
+            <PctBadge className="text-xs" tone="pnl" value={unrealizedPnl.pct} />
+          </div>
+          <div className="flex flex-col items-end gap-1">
+            <TradingViewWatchlistExportButton
+              filename={`holdings${ledgerAsOf ? `-${ledgerAsOf.slice(0, 10)}` : ''}-tradingview.txt`}
+              label="保有銘柄をTradingView用TXTに出力"
+              tickers={holdings.map((holding) => holding.ticker)}
+            />
+            <a className="text-xs text-muted-foreground underline" href="https://www.tradingview.com/support/solutions/43000487233-how-to-import-or-export-a-watchlist/" rel="noopener noreferrer" target="_blank">TradingViewでの取り込み方法</a>
+          </div>
         </div>
       )}
       title="保有銘柄"
@@ -518,7 +529,7 @@ export function DashboardPage() {
       {!data.ledger_exists && !data.ledger_error ? (
         <Card className="border-dashed shadow-none"><CardContent className="py-8 text-center text-sm text-muted-foreground">portfolio ledger がありません。</CardContent></Card>
       ) : data.holdings.length > 0 ? (
-        <HoldingsTable holdings={data.holdings} warnings={data.warnings} />
+        <HoldingsTable holdings={data.holdings} ledgerAsOf={data.ledger_as_of} warnings={data.warnings} />
       ) : (
         <Card className="gap-0 overflow-hidden border-dashed py-0 shadow-none">
           <CardContent className="py-8 text-center text-sm text-muted-foreground">保有銘柄はありません。</CardContent>
