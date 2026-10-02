@@ -34,6 +34,8 @@ description: 人間の明示的な依頼でfull-depthのMacro Contextを評価�
 
 2. **前回を読まず今回の評価を作る。** 今回の一次情報からcore/synthesis/scenario/connectionを作る。前回Context本文・確率・scorecard条件・同内容reportには接触しない。事前接触した場合は汚染のないsessionへ執筆を引き渡す。regime_summaryの必須比較fieldは初回checkまで次を使う。
 
+   継続中の会話やtool出力に含まれる前回評価の要約も事前接触に含む。執筆の引継ぎには今回のas-of・観測入力・一次資料・現行schemaと手順を渡し、前回評価を含む会話履歴や要約は渡さない。独立sessionで今回の原稿を初回checkまで固定し、その後に第3項の前回比較へ進む。
+
    ```yaml
    change_since_previous: 今回の独立評価を固定中。前回比較は初回check後に実施する。
    previous_scorecard_review: 前回scorecardは初回check後に確認する。
