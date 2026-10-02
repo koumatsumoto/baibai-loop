@@ -33,6 +33,7 @@ uv run baibai-engine research prepare \
 
 1. `research thesis-scaffold`でdraftを作り、明示mappingされたplaybookの問いを一次資料で検討する。[事業モデル別調査](../../../docs/reference/business-model-research.md)は指定された試行の補助として使い、全社共通の追加gateにしない。
 2. [Thesis reference](../../../docs/reference/thesis.md)に従って企業評価とBase/Downsideを構成する。束縛されたMacro Contextのestimate caveatは、materialなものだけを仮定・source・反対仮説へ接続する。機械E[r]とnormalized PERを独立した企業評価へ転記して済ませない。
+   利益の1株換算には直近の自己株控除株数を起点とし、その資料の重要後発事象と評価日までの一次開示で増資・自己株処分・消却を照合する。株式分割の確認だけで株数の更新を済ませず、実行済みと予定を分けて計算basisに残す。
 3. `research evaluate`で計算資料とerrorsを確認する。必要価値・時間感度の解釈は[valuation context](../../../docs/reference/thesis.md#valuation-context)に従う。Review未添付だけの`review_required`は計算資料があってもexit 2であり、他のerrorを無視する許可ではない。
 4. `research review-scaffold`を用い、作者と別の作業者がsource・算術・経済的反証を確認する。`evaluate --review`で一組を検証し、coreを変えたらReviewを取り直す。
 5. `candidate / defer / reject`を確定し、`research promote`でThesisとReviewを公開する。重要な根拠不足はdefer/rejectとして完成できる。将来見積りに幅があることだけを不合格にせず、資料で確認すべき事実の欠落とは区別する。
