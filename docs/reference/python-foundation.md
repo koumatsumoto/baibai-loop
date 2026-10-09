@@ -65,7 +65,8 @@ scriptを含むrevisionがcheckoutされることが前提で、一時タスク�
 Start skillには次を登録する。
 
 > 実際のcheckout rootとAGENTS.mdを確認する。各shellでrepository rootへ移動し、
-> `source .cache/dev/env.sh` を実行する。env.shがなければ `bash tools/setup-dev.sh` を実行する。
+> `.cache/dev/env.sh` がなければ `bash tools/setup-dev.sh` を実行し、失敗した場合は停止する。
+> ファイルが既存の場合もsetupで生成した場合も、続けて `source .cache/dev/env.sh` を実行する。
 > 検証はPython foundationの完全gateに従い、実行済み・失敗・未実行を区別する。
 > UIが必要なら `uv run baibai-web serve` を起動し、127.0.0.1:8712のhealthと画面を確認する。
 > データ不在を実データ検証成功と扱わない。本番操作と認証設定は現在のユーザー依頼の範囲だけで行う。
