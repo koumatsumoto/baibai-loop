@@ -1,0 +1,99 @@
+name: cloud-task-note
+
+on:
+  workflow_dispatch:
+    inputs:
+      task_id:
+        description: "Exact open task to append to"
+        required: true
+        type: string
+      expected_body_sha256:
+        description: "SHA256 of the reviewed current body (UTF-8; null is empty)"
+        required: true
+        type: string
+      note_sha256:
+        description: "SHA256 of the reviewed TASK_NOTE secret bytes"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-publish
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  append:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+
+      - name: Sync Python environment
+        run: uv sync --locked
+
+      # Do not put private notes in dispatch inputs, the repository, logs or artifacts.
+      # The digest binds a queued run to the note reviewed before TASK_NOTE was set.
+      - name: Stage reviewed note
+        id: note
+        env:
+          TASK_NOTE: ${{ secrets.TASK_NOTE }}
+          NOTE_SHA256: ${{ inputs.note_sha256 }}
+        run: |
+          umask 077
+          printf '%s' "$TASK_NOTE" > "$RUNNER_TEMP/task-note.md"
+          actual="$(sha256sum "$RUNNER_TEMP/task-note.md")"
+          if [[ -z "$TASK_NOTE" || "${actual%% *}" != "$NOTE_SHA256" ]]; then
+            echo 'TASK_NOTE is absent or differs from the reviewed note.' >&2
+            exit 1
+          fi
+
+      - name: Pull application working copy and generation
+        id: pull
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: batch/scripts/r2_transfer.sh pull-app
+
+      - name: Append only to the reviewed task body
+        id: edit
+        env:
+          TASK_ID: ${{ inputs.task_id }}
+          EXPECTED_BODY_SHA256: ${{ inputs.expected_body_sha256 }}
+        # The existing CLI returns the task payload; errors may also include input data.
+        # Neither stream is a public log. No R2 credentials are available to this step.
+        run: |
+          umask 077
+          if ! uv run baibai-engine task --db stores/application/baibai.sqlite edit \
+            --append-body-file "$RUNNER_TEMP/task-note.md" \
+            --expected-body-sha256="$EXPECTED_BODY_SHA256" -- "$TASK_ID" \
+            > "$RUNNER_TEMP/task-note-edit.log" 2>&1; then
+            echo 'Task note was not applied; check the reviewed input and current open task.' >&2
+            exit 1
+          fi
+
+      - name: Publish application with the pulled generation
+        id: push
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          batch/scripts/r2_transfer.sh push-app
+          echo 'Application task note published. Serving views have not been refreshed.'
+
+      - name: Remove private temporary files
+        if: always()
+        run: rm -f "$RUNNER_TEMP/task-note.md" "$RUNNER_TEMP/task-note-edit.log"

@@ -12,6 +12,7 @@ description: batch・store・servingの操作を選び、既存runbookに従っ�
 | machine storeの取得 | [クラウド正本の取得](../../../batch/OPERATIONS.md#クラウド正本をローカルへ取得する) |
 | machine storeの反映 | [ローカルからクラウドを更新する](../../../batch/OPERATIONS.md#ローカルからクラウドを更新する) |
 | application DB・viewの公開 / application DBの復元 | [application反映](../../../batch/OPERATIONS.md#application-db-を反映する) / [復元](../../../batch/OPERATIONS.md#application-db-を復元する) |
+| Actionsから既存task本文へ追記 | [taskメモ追記](../../../batch/OPERATIONS.md#actionsから既存taskへ調査メモを追記する) |
 | credential rotation | [Password rotation](../../../batch/OPERATIONS.md#password-rotation) |
 | local Triageの失敗・再実行 | [Research Triage](../research-triage/SKILL.md) |
 | batchの失敗・欠測 | [batch OPERATIONS](../../../batch/OPERATIONS.md)の結果確認・復旧・watchdog |
