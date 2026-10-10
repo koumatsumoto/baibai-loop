@@ -10,6 +10,7 @@ source_paths:
   - "../../tests/"
   - "../../pyproject.toml"
   - "../../uv.lock"
+  - "../../tools/setup-dev.sh"
 ---
 
 # Python foundation
@@ -21,6 +22,80 @@ source_paths:
 ## 2. Dependency policy
 
 依存は`pyproject.toml`と`uv.lock`で管理する。開発環境は`uv sync --frozen --all-groups`で揃える。MCP SDKはOwner MCPとTradingView collectorで共用するruntime依存とする。
+
+<a id="development-bootstrap"></a>
+
+### 繰り返し使う開発環境の準備
+
+Linux / Bash、Python 3.11以上（bootstrap用）、uv、Web workflow指定majorのNode.jsとnpmを用意し、
+対象revisionをcheckoutしてから実行する。scriptは配置場所からrepository rootを解決する。
+
+```bash
+bash tools/setup-dev.sh
+source .cache/dev/env.sh
+uv run baibai-web serve
+```
+
+scriptはcheckout指定のuvとPythonを`.cache/dev/`へ用意し、rootの全dependency group、
+frontendとedgeのlockfile依存、frontend buildを準備する。再実行時は生成物を更新する。
+checkout、lockfile、`.env`、storeは変更しない。生成したenv.shには非secretのpath設定だけを置き、
+shellごとにsourceする。checkoutを移動した場合はsetupを再実行する。
+基本setupには秘密情報も実データも不要で、lint・型検査・fixture testと空データのUIが使える。
+品質検証は[完全gate](#9-ci-and-local-parity)、UIの操作は[Web](../../web/README.md)を参照する。
+
+追加downloadは必要な場合だけ明示する。失敗時は非zeroで終了し、基本setup成功と追加機能の導入成功を区別する。
+
+```bash
+bash tools/setup-dev.sh --with-browser --with-httpfs
+```
+
+ChromiumはPlaywright指定版、httpfsは既存provision toolを使う。OSのbrowser用libraryと
+DuckDB既定extension cacheの書込権限は環境側で用意する。403なら実際の配布hostを環境管理側で確認し、
+proxy解除・TLS検証無効化で回避しない。書込可能な別directoryへのDuckDB接続設定は新規connectionへ継承されず、
+現在のlake readerにはそのpathを渡す環境変数が無い。任意pathへの配置だけで導入完了にしない。
+既存ChromiumをUI smokeだけに使う場合は実行pathとversionを確認し、Playwrightの
+`chromium.launch(executable_path=..., headless=True)`で明示する。指定版の導入・互換性検証とは区別する。
+
+### 保存済みクラウド環境への登録
+
+Install scriptは、対象checkoutへ移動して `bash tools/setup-dev.sh` を実行する。
+scriptを含むrevisionがcheckoutされることが前提で、一時タスクの`/workspace`ファイルは参照しない。
+未反映のworking treeだけにscriptがある間は、新規タスクで利用可能とは扱わない。
+
+Start skillには次を登録する。
+
+> 実際のcheckout rootとAGENTS.mdを確認する。各shellでrepository rootへ移動し、
+> `.cache/dev/env.sh` がなければ `bash tools/setup-dev.sh` を実行し、失敗した場合は停止する。
+> ファイルが既存の場合もsetupで生成した場合も、続けて `source .cache/dev/env.sh` を実行する。
+> 検証はPython foundationの完全gateに従い、実行済み・失敗・未実行を区別する。
+> UIが必要なら `uv run baibai-web serve` を起動し、127.0.0.1:8712のhealthと画面を確認する。
+> データ不在を実データ検証成功と扱わない。本番操作と認証設定は現在のユーザー依頼の範囲だけで行う。
+
+環境を保存・再公開した後は、新規タスクでversionとfixture gateを確認する。
+利用者の端末からUIを見るには認証付きport preview / forwardingを別途用意する。
+Vaultの値はユーザーがruntime用secret設定へ入力し、Install script、Start skill、image snapshot、
+Git、ログへ埋め込まない。`.env`やOAuth stateを含むworking directoryをsnapshotへ取り込まない。
+
+### 追加機能とVaultのキー名
+
+下表は必要になる機能だけの索引。値の登録・発行・転送はsetupでは行わず、運用は
+[Ops Maintenance](../../.agents/skills/ops-maintenance/SKILL.md)と各入口に従う。
+
+| 機能 | キー名・前提 |
+| --- | --- |
+| 基本開発・fixture・空データUI | secret不要。任意の検証コピーpathは`BAIBAI_DB` / `BAIBAI_RUNS_DB`（非secret） |
+| 実データのローカル読取 | 許可されたSQLite snapshotと固定lake releaseが必要。データがなければ未検証 |
+| lakeの直接R2読取 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`。対象bucketのObject Read only。httpfsも必要 |
+| Owner MCPのL1 gateway読取 | `READ_ACCESS_TOKEN`。[Owner MCP](../../tools/owner_mcp/README.md)参照 |
+| Workerの認証・L1接続検証 | `VIEW_PASSWORD`, `READ_ACCESS_TOKEN`, `L1_R2_BASE_URL`, `L1_R2_ACCESS_KEY_ID`, `L1_R2_SECRET_ACCESS_KEY`。開発用に分離し、L1はObject Read only。[sample](../../web/edge/.dev.vars.example)参照 |
+| provider取得 | `JQUANTS_API_KEY`, `EDINET_API_KEY`, `ESTAT_APP_ID`。[sample](../../.env.sample)参照 |
+| JPXの公開source（非secret） | `JPX_SPECIAL_CAUTION_URL`, `JPX_REORGANIZATION_URL`, `JPX_TRADING_HALT_URL`, `JPX_DELISTING_WARNING_URL` |
+| TradingViewの独立認証 | `--state-file`で独立OAuth stateを指定し、rotation可能な安全な永続保存先を用意。対話認証のcallbackは127.0.0.1:8765で到達性確認が必要。本番stateはコピーしない |
+| TradingViewのGitHub保存経路 | `TRADINGVIEW_OAUTH_STATE`, `TRADINGVIEW_SECRET_WRITER_TOKEN`, `GITHUB_REPOSITORY`とgh。GitHub environmentへの書戻しがあるため通常開発には設定しない |
+
+R2 acceptanceは読取とは別で、専用の空bucketに書込・削除する試験である。
+`R2_LAKE_ACCEPTANCE_BUCKET`と専用credentialを用意し、`BAIBAI_R2_ACCEPTANCE=1`を明示する場合だけ実行する。
+provider取得、実store validation、OAuth smoke、R2 acceptanceは通常のfixture gateでは代用できない。
 
 ## 3. Formatting and linting
 
