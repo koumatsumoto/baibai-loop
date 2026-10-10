@@ -147,6 +147,33 @@ def test_main_bootstrap_cache_asks_for_the_revision_overlap_once() -> None:
     assert jquants.revision_overlap_days == [FIN_SUMMARY_REVISION_OVERLAP_DAYS]
 
 
+def test_main_bootstrap_cache_uses_fixed_jpx_urls_despite_stale_env() -> None:
+    with (
+        patch.dict(
+            os.environ,
+            {
+                "JQUANTS_API_KEY": "test-jquants-key",
+                "EDINET_API_KEY": "test-edinet-key",
+                "JPX_SPECIAL_CAUTION_URL": "https://example.com/alert",
+                "JPX_REORGANIZATION_URL": "https://example.com/supervision",
+                "JPX_TRADING_HALT_URL": "https://example.com/halt",
+                "JPX_DELISTING_WARNING_URL": "https://example.com/delisted",
+            },
+        ),
+        patch.object(app, "JQuantsProvider", return_value=FakeJQuantsProvider()),
+        patch.object(app, "EDINETProvider", return_value=_SeamEDINETProvider()),
+        patch.object(app, "JPXProvider", return_value=FakeJPXProvider()) as jpx_factory,
+    ):
+        assert screening_cli.main(["bootstrap-cache", "--asof", "2026-05-08"]) == 0
+
+    assert jpx_factory.call_args.kwargs["regulation_urls"] == {
+        "特別注意銘柄": "https://www.jpx.co.jp/listing/measures/alert/index.html",
+        "整理銘柄": "https://www.jpx.co.jp/listing/market-alerts/supervision/",
+        "取引停止": "https://www.jpx.co.jp/markets/equities/suspended/",
+        "上場廃止警告": "https://www.jpx.co.jp/listing/stocks/delisted/",
+    }
+
+
 def test_main_refresh_edinet_documents_refreshes_document_state_for_the_argv_asof() -> None:
     edinet = _SeamEDINETProvider()
 

@@ -158,12 +158,6 @@ jobs:
           JQUANTS_API_KEY: ${{ secrets.JQUANTS_API_KEY }}
           ESTAT_APP_ID: ${{ secrets.ESTAT_APP_ID }}
           EDINET_API_KEY: ${{ secrets.EDINET_API_KEY }}
-          # Public JPX regulation pages (not secrets). bootstrap-cache requires
-          # all four sources named by universe.required_jpx_flags.
-          JPX_SPECIAL_CAUTION_URL: https://www.jpx.co.jp/listing/measures/alert/index.html
-          JPX_REORGANIZATION_URL: https://www.jpx.co.jp/listing/market-alerts/supervision/
-          JPX_TRADING_HALT_URL: https://www.jpx.co.jp/markets/equities/suspended/
-          JPX_DELISTING_WARNING_URL: https://www.jpx.co.jp/listing/stocks/delisted/
           MANUAL_ASOF: ${{ steps.validate-input.outputs.asof }}
         run: |
           args=(--output-dir "$RUNNER_TEMP/serving" --notice-output "$RUNNER_TEMP/batch-notice.json")

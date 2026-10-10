@@ -89,7 +89,7 @@ Git、ログへ埋め込まない。`.env`やOAuth stateを含むworking directo
 | Owner MCPのL1 gateway読取 | `READ_ACCESS_TOKEN`。[Owner MCP](../../tools/owner_mcp/README.md)参照 |
 | Workerの認証・L1接続検証 | `VIEW_PASSWORD`, `READ_ACCESS_TOKEN`, `L1_R2_BASE_URL`, `L1_R2_ACCESS_KEY_ID`, `L1_R2_SECRET_ACCESS_KEY`。開発用に分離し、L1はObject Read only。[sample](../../web/edge/.dev.vars.example)参照 |
 | provider取得 | `JQUANTS_API_KEY`, `EDINET_API_KEY`, `ESTAT_APP_ID`。[sample](../../.env.sample)参照 |
-| JPXの公開source（非secret） | `JPX_SPECIAL_CAUTION_URL`, `JPX_REORGANIZATION_URL`, `JPX_TRADING_HALT_URL`, `JPX_DELISTING_WARNING_URL` |
+| JPXの公開source（非secret） | [JPX source設定](../../engine/src/baibai_engine/market/jpx_sources.py)の固定値を使う。環境変数の設定は不要 |
 | TradingViewの独立認証 | `--state-file`で独立OAuth stateを指定し、rotation可能な安全な永続保存先を用意。対話認証のcallbackは127.0.0.1:8765で到達性確認が必要。本番stateはコピーしない |
 | TradingViewのGitHub保存経路 | `TRADINGVIEW_OAUTH_STATE`, `TRADINGVIEW_SECRET_WRITER_TOKEN`, `GITHUB_REPOSITORY`とgh。GitHub environmentへの書戻しがあるため通常開発には設定しない |
 
