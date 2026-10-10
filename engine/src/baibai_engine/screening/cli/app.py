@@ -15,6 +15,7 @@ from baibai_engine.foundation.repository_layout import APPLICATION_DB_PATH, RUNS
 from baibai_engine.foundation.time import JST
 from baibai_engine.market.edinet_facts.service import extract_edinet_facts_command
 from baibai_engine.market.edinet_metrics.service import extract_edinet_metrics_command
+from baibai_engine.market.jpx_sources import JPX_REGULATION_URLS
 from baibai_engine.market.providers.edinet import EDINETProvider
 from baibai_engine.market.providers.edinet_facts import EDINETFactsProvider
 from baibai_engine.market.providers.jpx import JPXProvider
@@ -723,7 +724,7 @@ def main(argv: list[str] | None = None) -> int:
         ),
         jpx=JPXProvider(
             config.cache_dir,
-            regulation_urls=config.jpx_regulation_urls,
+            regulation_urls=JPX_REGULATION_URLS,
             sqlite_path=sqlite_path,
             cache_only=args.command == "run",
             allow_stale_snapshot=args.allow_stale_jpx if args.command == "run" else False,
