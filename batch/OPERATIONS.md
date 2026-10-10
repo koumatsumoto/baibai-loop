@@ -15,6 +15,34 @@
 | 初回の構成を確認する | [Cloudflare / GitHub Actions構成](#cloudflare--github-actions-構成) |
 
 
+<a id="actions-write-boundary"></a>
+
+## クラウド開発と本番書込の実行境界
+
+外部service・本番storeへの書込はGitHub Actionsへ集約し、ChatGPTクラウド開発環境には
+read-only接続だけを渡す。開発の流れとPersonal Vaultの最小設定は
+[Python foundation](../docs/reference/python-foundation.md#cloud-development-boundary)を参照する。
+
+Actionsで使うwriter用R2 credential、providerの`JQUANTS_API_KEY` / `EDINET_API_KEY` / `ESTAT_APP_ID`、
+`TRADINGVIEW_OAUTH_STATE` / `TRADINGVIEW_SECRET_WRITER_TOKEN`、deploy用`CLOUDFLARE_API_TOKEN`は
+Actions側に保持し、クラウド開発用Vault・Install script・Start skill・image snapshotへコピーしない。
+secretの具体的なscope・environment・stepは下の構成表と各操作節を正本とする。
+値をGit、PR、Issue、log、artifactへ出さず、設定の有無だけを検証する。
+Worker runtimeの閲覧・L1用secretも開発環境へ流用しない。
+
+**移行状況**: daily / TradingView snapshot / materialize / Worker deployには既存のActions経路がある。
+一方、application DBは現行実装でもlocal canonicalで、`publish.sh`がreplicaをuploadしてmaterializeをdispatchする。
+localのmachine / lake発行、初回seed、独立TradingView取得・公開にも直接書込経路が残る。
+以下のlocal commandとcredential表は現行実装の説明であり、Actions集約済みという意味ではない。
+それらをread-onlyクラウド開発から実行したり、writer credentialを追加して迂回したりしない。
+対応workflowがない更新は未移行として止め、別の実装変更で入口とstore authorityを整合させる。
+この方針の文書化だけでは、既存credentialの撤回やruntimeの権限制限も完了しない。
+
+本番反映が依頼範囲に含まれるときだけ、各節の前提・main ref・入力・対象storeを確認して既存workflowを起動する。
+対象run IDを固定して完了を確認し、各節の公開物・release・as-of確認までを行う。
+失敗時は原因と既存runの状態を確認し、直接uploadや重複dispatchで回避しない。
+文書変更・PR作成だけを理由に本番workflow、OAuth smoke、R2 acceptanceを起動しない。
+
 ## 長時間処理の監視
 
 対象run IDを固定して監視する。hard timeoutはworkflow定義を正本とする。
@@ -50,7 +78,7 @@ R2 lifecycle ruleは`history/candidate-views/`だけに設定する。bucket全�
 | GitHub Actions | variable `R2_ACCOUNT_ID`、secrets `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / provider 3本、公開 JPX 規制 URL 4本 | 必要なtransfer/provider stepだけ、stores + serving read-write |
 | GitHub Actions（通知） | secret `DISCORD_WEBHOOK_URL` | `cloud-daily-batch` の通知 step と `cloud-batch-watchdog` の警報 step のみ（job env に出さない） |
 | GitHub Actions（Worker deploy） | variable `R2_ACCOUNT_ID`、secret `CLOUDFLARE_API_TOKEN` | 対象accountの`Workers Scripts Write`、`web`のdeploy stepのみ |
-| ローカル`.env` | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | stores read-write |
+| 既存ローカル`.env`（未移行経路） | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | stores read-write。クラウド開発へ持ち込まない |
 | Wrangler OAuth | `wrangler login` | bucket初期設定、Worker secretの手動設定 |
 | Worker secret（閲覧認証） | `VIEW_PASSWORD` / `READ_ACCESS_TOKEN` | Worker runtimeだけ、ownerと共有を分離 |
 | Worker secret（L1接続） | `L1_R2_BASE_URL` / `L1_R2_ACCESS_KEY_ID` / `L1_R2_SECRET_ACCESS_KEY` | `baibai-stores`だけのObject Read only、publisher credentialと分離 |
