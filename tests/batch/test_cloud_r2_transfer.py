@@ -146,15 +146,33 @@ fi
 if [[ "$1 $2" == "s3api put-object" ]]; then
   key=""
   body=""
+  expected=""
+  wants_etag=""
   while [[ $# -gt 0 ]]; do
     if [[ "$1" == "--key" ]]; then
       key="$2"
     fi
+    if [[ "$1" == "--if-match" ]]; then
+      expected="$2"
+    fi
     if [[ "$1" == "--body" ]]; then
       body="$2"
     fi
+    if [[ "$1" == "--query" && "$2" == "ETag" ]]; then
+      wants_etag=1
+    fi
     shift
   done
+  if [[ "$key" == "baibai.sqlite" && -n "$expected" ]]; then
+    current='"etag-stable"'
+    if [[ -s "${AWS_FAKE_STATE}/generation-baibai.sqlite" ]]; then
+      current="\\\"etag-put-$(wc -c < "${AWS_FAKE_STATE}/generation-baibai.sqlite" | tr -d ' ')\\\""
+    fi
+    if [[ "$expected" != "$current" ]]; then
+      printf 'PreconditionFailed\\n' >&2
+      exit 255
+    fi
+  fi
   # Every uploaded body is kept so a test can read what was actually published
   # rather than only that a call was made.
   if [[ -n "$body" && -f "$body" ]]; then
@@ -167,6 +185,9 @@ if [[ "$1 $2" == "s3api put-object" ]]; then
   slug="$(printf '%s' "$key" | tr / _)"
   printf 'x' >> "${AWS_FAKE_STATE}/generation-${slug}"
   rm -f "${AWS_FAKE_STATE}/deleted-${slug}"
+  if [[ -n "$wants_etag" && -z "${AWS_FAKE_MISSING_PUT_ETAG:-}" ]]; then
+    printf '\"etag-put-%s\"\\n' "$(wc -c < "${AWS_FAKE_STATE}/generation-${slug}" | tr -d ' ')"
+  fi
   exit 0
 fi
 if [[ "$1 $2" == "s3 cp" && "$3" == s3://* ]]; then
@@ -1078,6 +1099,9 @@ def _push_app(
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
     env["AWS_FAKE_EXISTING_KEY"] = "baibai.sqlite"
+    (Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag").write_text(
+        '"etag-stable"\n', encoding="utf-8"
+    )
     if listed is not None:
         env["AWS_FAKE_LIST_KEYS"] = listed
     completed = subprocess.run(
@@ -1104,6 +1128,96 @@ def test_application_store_push_keeps_a_dated_generation(tmp_path: Path) -> None
     assert f"--key baibai.sqlite.bak-{today}" in backups[0]
     # Same-day pushes land on the same key, so the kept set is one generation per day.
     assert "--copy-source baibai-stores/baibai.sqlite" in backups[0]
+
+
+@pytest.mark.parametrize("failure", ["unknown", "empty", "changed", "put-race"])
+def test_application_push_refuses_unknown_or_changed_generation(
+    tmp_path: Path, failure: str
+) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["AWS_FAKE_EXISTING_KEY"] = "baibai.sqlite"
+    if failure != "unknown":
+        (Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag").write_text(
+            '"etag-stable"\n', encoding="utf-8"
+        )
+    if failure == "empty":
+        (Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag").write_text("")
+    if failure == "changed":
+        env["AWS_FAKE_ETAG_OVERRIDE"] = '"newer-cloud-generation"'
+    if failure == "put-race":
+        env["AWS_FAKE_REJECT_CONDITIONAL_PUT"] = "1"
+    result = subprocess.run(
+        [TRANSFER_SCRIPT, "push-app"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    commands = _transfer_commands(log)
+    assert not any(command.startswith("s3 cp ") for command in commands)
+    assert not any("delete-object" in command for command in commands)
+    assert not (Path(env["AWS_FAKE_STATE"]) / "generation-baibai.sqlite").exists()
+    if failure == "put-race":
+        assert "PreconditionFailed" in result.stderr
+        assert any('--if-match "etag-stable"' in command for command in commands)
+    else:
+        assert not any("put-object" in command or "copy-object" in command for command in commands)
+
+
+def test_application_push_records_its_own_put_generation(tmp_path: Path) -> None:
+    result, commands = _push_app(tmp_path)
+    assert result.returncode == 0, result.stderr
+    puts = [command for command in commands if command.startswith("s3api put-object ")]
+    assert len(puts) == 1
+    assert "--key baibai.sqlite " in puts[0]
+    assert '--if-match "etag-stable"' in puts[0]
+    assert any('--copy-source-if-match "etag-stable"' in command for command in commands)
+    assert (tmp_path / "r2-generations/baibai.sqlite.etag").read_text() == '"etag-put-1"\n'
+
+
+def test_application_can_publish_again_using_its_put_response(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["AWS_FAKE_EXISTING_KEY"] = "baibai.sqlite"
+    generation = Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag"
+    generation.write_text('"etag-stable"\n')
+    for expected in ('"etag-put-1"', '"etag-put-2"'):
+        result = subprocess.run(
+            [TRANSFER_SCRIPT, "push-app"],
+            cwd=REPO_ROOT,
+            env=env,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        assert generation.read_text().strip() == expected
+    puts = [line for line in _transfer_commands(log) if line.startswith("s3api put-object ")]
+    assert '--if-match "etag-put-1"' in puts[1]
+
+
+def test_application_put_without_etag_stops_before_prune(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["AWS_FAKE_MISSING_PUT_ETAG"] = "1"
+    generation = Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag"
+    generation.write_text('"etag-stable"\n')
+    result = subprocess.run(
+        [TRANSFER_SCRIPT, "push-app"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "application uploaded but no ETag returned" in result.stderr
+    assert not generation.exists()
+    assert (Path(env["AWS_FAKE_STATE"]) / "generation-baibai.sqlite").exists()
+    assert not any("list-objects-v2" in line for line in _transfer_commands(log))
 
 
 def test_application_store_push_prunes_beyond_the_kept_generations(tmp_path: Path) -> None:

@@ -168,7 +168,8 @@ warm時にimmutable objectのGETが増えないことを確認します。
 
 L1実装は内部subsystemの`tools/l1_mcp`を再利用します。Triageはrepository rootの
 `stores/application/baibai.sqlite`、sourceは`stores/screening/runs.sqlite`を既存owner経由で
-read-onlyに読みます。application DBはlocal canonicalです。cloud copyやserving JSONで代用しません。
+read-onlyに読みます。保存場所の正本は[architecture](../../docs/architecture.md#store-authority)に従います。
+このadapterは取得済み作業コピーを読み、自動同期もクラウド最新性の確認も行いません。取得世代・時点を確認し、serving JSONをapplicationの完全な記録として代用しません。
 store同期は[ops-maintenance](../../.agents/skills/ops-maintenance/SKILL.md)の別操作です。
 MCPからのauto-pull、provider fetch、書込、任意SQL、filesystem読取はありません。
 

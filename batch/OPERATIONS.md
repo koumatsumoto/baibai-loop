@@ -21,7 +21,8 @@
 
 3系統の分担と開発用接続は[Python foundation](../docs/reference/python-foundation.md#cloud-development-boundary)に従う。
 以下のlocal commandはユーザーのローカルPCで使う通常の運用経路である。
-application DBはlocal canonicalのまま、`publish.sh`でreplicaをuploadし、Actionsのmaterializeを起動する。
+データ状態の正本と作業コピーは[architecture](../docs/architecture.md#store-authority)に従う。
+`publish.sh`はapplicationの作業コピーを条件付きでクラウドへ反映し、Actionsのmaterializeを起動する。
 machine / lake発行、初回seed、独立TradingView取得・公開も既存のlocal経路を維持する。
 
 ChatGPTクラウドから外部データを更新・公開するときは、依頼範囲に含まれる既存Actionsへ委譲する。
@@ -47,7 +48,7 @@ gh run watch <RUN_ID> --exit-status --compact --interval 60
 
 ## Cloudflare / GitHub Actions 構成
 
-`baibai-stores`はL1・machine store・application DB replica、`baibai-serving`は表示用read modelを保持する。両bucketのPublic Development URLとcustom domainを無効にする。
+`baibai-stores`はL1・machine store・application DBの正本、`baibai-serving`は表示用read modelを保持する。両bucketのPublic Development URLとcustom domainを無効にする。
 
 | bucket | object | owner |
 | --- | --- | --- |
@@ -55,13 +56,13 @@ gh run watch <RUN_ID> --exit-status --compact --interval 60
 | `baibai-stores` | `lake/`（lake所有datasetのcanonical L1） | `cloud-daily-batch`と`cloud-tradingview-snapshot`の`publish-lake` + ローカル`r2_transfer.sh publish-lake` |
 | `baibai-stores` | `runs.sqlite` | `cloud-daily-batch` + 明示的なローカルdailyの`push-machine` |
 | `baibai-stores` | `macro.sqlite` | `cloud-daily-batch`（rolling窓）+ ローカル`push-macro`（全履歴。cloud copyのmerge後だけupload） |
-| `baibai-stores` | `baibai.sqlite` | ローカル`publish.sh`（replica） |
+| `baibai-stores` | `baibai.sqlite` | `publish.sh`からの条件付き更新（実行環境の分担は前節） |
 | `baibai-serving` | `views/*.json` | GitHub Actions materialize |
 | `baibai-serving` | `history/candidate-views/<asof>.json` | 日次batch、R2 lifecycleで31日後に削除 |
 
 R2 lifecycle ruleは`history/candidate-views/`だけに設定する。bucket全体へ設定すると`views/meta.json`まで期限で消え、欠落を検知できない。Review Set membershipの長期履歴は保持しない。
 
-`cloud-materialize`・`cloud-daily-batch`・`cloud-tradingview-snapshot`はGitHubの`cloud-publish`を共有する。GitHubとローカルのpublication競合は[ローカル発行手順](#ローカルからクラウドを更新する)のleaseで止める。servingへのwriteはGitHub Actionsだけが行う。application DBはlocal canonicalで、cloud copyはreplicaである。
+`cloud-materialize`・`cloud-daily-batch`・`cloud-tradingview-snapshot`はGitHubの`cloud-publish`を共有する。GitHubとローカルのpublication競合は[ローカル発行手順](#ローカルからクラウドを更新する)のleaseで止める。servingへのwriteはGitHub Actionsだけが行う。application更新の取得世代・競合処理は[application反映](#application-db-を反映する)に従う。
 
 資格情報はprincipalごとに分ける。
 
@@ -103,7 +104,7 @@ TradingViewはL1だけを独立更新するため、完了済みreleaseをcurren
 batch/scripts/pull.sh
 ```
 
-**成功確認**: `pull-machine`はreceipt / ETagでmarket / runs / macroを同じ確認済みbundleとして取得し、`hydrate-market`は開始時のcurrent L1 releaseを固定する。途中でpointerが動けばvisible storeを置換せず停止する。ただしmachine bundleとL1 pointerを同一transactionでは固定しない。receipt / generation / pointerの競合や検査失敗後のlocal stateは分析に使わず、原因を確認してfreshにpullし直す。`baibai.sqlite`はbulk pullしない。
+**成功確認**: `pull-machine`はreceipt / ETagでmarket / runs / macroを同じ確認済みbundleとして取得し、`hydrate-market`は開始時のcurrent L1 releaseを固定する。途中でpointerが動けばvisible storeを置換せず停止する。ただしmachine bundleとL1 pointerを同一transactionでは固定しない。receipt / generation / pointerの競合や検査失敗後のlocal stateは分析に使わず、原因を確認してfreshにpullし直す。`baibai.sqlite`はbulk pullしない。applicationの取得は[application反映](#application-db-を反映する)の`pull-app`前提に従う。
 
 ### Screening入力を検証・補修する
 
@@ -145,7 +146,7 @@ with_publication_lease() (
 )
 ```
 
-失敗時もreleaseを試みるため、上の関数内では`set -e`を使わない。release失敗時はhandleを残して原因を確認する。busyならowner・purpose・expiryと該当run/processの生存を確認し、blind retryしない。expired leaseのみ次のacquireが条件付きで引き継ぐ。L1とmachine storeのCAS / receiptも整合性を検査し、servingはGitHub Actionsだけが書き、applicationはlocalを正本とする。
+失敗時もreleaseを試みるため、上の関数内では`set -e`を使わない。release失敗時はhandleを残して原因を確認する。busyならowner・purpose・expiryと該当run/processの生存を確認し、blind retryしない。expired leaseのみ次のacquireが条件付きで引き継ぐ。L1とmachine storeのCAS / receiptも整合性を検査し、servingはGitHub Actionsだけが書く。applicationの公開は取得世代への条件付きPUTで競合を止める。
 
 変更した対象に合う経路だけを実行する。lake所有tableの変更:
 
@@ -183,7 +184,8 @@ leaseがmalformedなら自動修復しない。GitHubの`cloud-publish` writer�
 
 ### application DB を反映する
 
-**前提**: application DBの判断・確認済み事実・運用状態の更新を完了し、schema cutoverを含むcodeはmainへ入れる。
+**前提**: 空の作業領域へ`batch/scripts/r2_transfer.sh pull-app`でクラウド正本を取得し、取得したDBと`stores/.r2-generations/baibai.sqlite.etag`を一組として保持する（世代directoryを変更した場合も同じ組を使う）。取得済み作業コピーで判断・確認済み事実・運用状態を更新し、schema cutoverを含むcodeはmainへ入れる。
+既存fileへのpullは未公開変更を守るため停止する。コピー更新が必要ならwriterを止め、`uv run baibai-engine db backup`でWAL込みのsnapshotを検証して退避した後、空の作業領域へ取得し直す。DBだけを別世代へ差し替えてsidecarを流用しない。
 
 **実行**:
 
@@ -194,7 +196,7 @@ batch/scripts/publish.sh
 引数なしでだけ実行する。`-h` / `--help`は外部書き込みを行わずusageを表示し、その他の引数はupload前に拒否する。
 引数なしでは最初に`position ledger`を実行し、ledgerの整合性を確認する。保有価格の欠損・staleや権利単位の未確認は時価未評価として表示し、uploadを止めない。価格の読み取りは[`portfolio-ledger.md`](../docs/reference/portfolio-ledger.md#market-price-and-tax)を正本とし、配信のための台帳への価格転記は要求しない。
 
-このscriptは`baibai.sqlite`のconsistent snapshotだけをstoresへ送り、`cloud-materialize`をdispatchする。servingへの直接writeは行わない。
+このscriptは取得ETagの一致を確認し、backupのsource条件とPUTの`If-Match`で競合を止めて`baibai.sqlite`のconsistent snapshotだけをstoresへ送り、`cloud-materialize`をdispatchする。servingへの直接writeは行わない。PUT応答のETagを次の更新基準へ保存する。未知世代ではuploadせず停止し、現在のHEADだけで取得世代を補わない。
 
 **成功確認**: `publish.sh`とdispatchされた`cloud-materialize`が成功し、表示のas-ofと対象judgmentのIDを確認する。
 Screeningの最新表示は、表示中の`review_set_id / run_revision_id`に束縛されたResearch TriageとCAAだけを載せる。
@@ -203,19 +205,21 @@ Screeningの最新表示は、表示中の`review_set_id / run_revision_id`に�
 最新一覧への非掲載だけを理由に、既存ResearchのTriage bindingを付け替えない。
 後発Review SetのTriageを進める場合は、完了済みmachine bundleを取得して`research-triage`の通常手順で扱う。
 
-**停止と復旧**: ledger preflightが失敗した場合はstoreをuploadせず停止する。exportはstoreのschemaがcodeと一致しない間、viewを1件も書かずexit 1で停止する。
+**停止と復旧**: 世代競合では未公開変更を退避し、最新正本を取得して必要な変更をapplication serviceで再適用する。自動mergeや無条件再uploadはしない。PUT成功後の世代記録・backup整理・dispatchの失敗は部分成功として確認し、未反映と決めつけて旧DBを再送しない。ledger preflightが失敗した場合はstoreをuploadせず停止する。exportはstoreのschemaがcodeと一致しない間、viewを1件も書かずexit 1で停止する。
 schemaを一致させてから再実行する。application更新の表示には、そのsnapshot uploadとmaterializeの成功が必要である。cloud dailyによる独立した機械view更新とは区別する。
 
-application DBはcurrent schemaだけを開き、クラウドはこのstoreをread-onlyで読む。schemaを上げるPRは、
+application DBはcurrent schemaだけを開き、materializeとOwner MCPは取得済みコピーをread-onlyで読む。schemaを上げるPRは、
 source versionを限定したtemporary one-shot toolとexact commandを用意し、main merge後のattended cutover・検証・
 cloud反映が終わるまで保持する。完了証拠を残してから同じdeliveryのcleanupで削除する。現在のtreeに汎用cutover
 commandはないため、version不一致を見つけたoperatorは手書きSQLで進めず、schema変更issueへtoolを再構築する。
 
 ### application DB を復元する
 
-application DBは判断とledgerの正本であり再生成しない。全writerを停止し、以下を同じshell sessionで実行する。まずローカルcheckpoint、失われた場合だけR2世代を選ぶ。R2はlocalより古い可能性がある。
+application DBは判断とledgerを保持するため再生成しない。通常のコピー更新は前節の`pull-app`を使う。この節は、明示的に選んだ過去snapshotへクラウド正本を戻す復旧である。
+全writerを停止し、未公開の作業コピーをconsistent snapshotで退避する。次に空の作業領域へ`pull-app`し、復旧で置き換える現在のクラウド世代とDBを確保してから以下を同じshell sessionで実行する。現在の正本が取得・検査できなければ通常更新経路での復旧を止める。key消失は[初回seed](#storeをseedする)の既存key確認を含む別の復旧判断に戻し、無条件PUTへ迂回しない。
+復旧候補はR2の日別世代、または出所・時点を照合できるローカルcheckpointから選ぶ。ローカル候補を自動的に正本より新しいとみなさない。
 
-**1. 復元前backup。** 既存canonicalがある場合だけ、WAL込みのconsistent snapshotを作る。backup失敗ならcanonicalへ触れない。
+**1. 復元前backup。** 取得した現在の正本のWAL込みconsistent snapshotを作る。backup失敗なら復旧へ進まない。
 
 ```bash
 restore_backup=
@@ -237,7 +241,7 @@ read -r -p '復元するcheckpoint path: ' target || exit 1
 test -f "$target" || exit 1
 ```
 
-ローカル候補が失われた場合は上の選択を行わず、R2の一覧を確認する。
+R2候補を選ぶ場合は上の選択を行わず、R2の一覧を確認する。
 
 ```bash
 (
@@ -277,7 +281,7 @@ target="$(mktemp /tmp/baibai-restore.XXXXXX.sqlite)" || exit 1
 )
 ```
 
-**4. 配置と照合。** 検査合格とwriter停止を確認後、copy成功前にcanonicalを動かさない。
+**4. 配置と照合。** 検査合格とwriter停止を確認後、copy成功前に現在の作業コピーを動かさない。ここだけは明示的な復旧として、取得した現在のクラウド世代を保持したまま検査済み候補へ置換する。
 
 ```bash
 (
@@ -501,7 +505,7 @@ Workerの再deployは不要である。
 - machine store の`.bak`は1世代のみで、次のpushで置き換わる。前世代は次のpushで置き換わるため、24時間保持される保証ではない。`baibai.sqlite`だけは`baibai.sqlite.bak-YYYYMMDD`（JST）で日ごとに1世代を残し、直近14世代を超えた分をpush成功後に削除する。machine storeにも再取得できない観測があるため前世代を残し、判断と確認済み事実を持つapplication storeは日別世代を残す。prune は`baibai.sqlite.bak-`配下をlistし、`baibai.sqlite.bak-YYYYMMDD`に一致するkeyだけを完全一致で削除する（prefix削除はしない）。
 - 初回seedは既存のstore keyを1件でも検出したら停止し、再seedによるクラウド正本の上書きを許可しない。
 - pullは固定4 key以外を受け付けず、全downloadと`quick_check`完了後に置換する。
-- application store (`baibai.sqlite`) のpullは`pull-app`だけが行い、bulk pullは触らない。この storeの正本はローカルで、判断はローカルでpublishしてから`push-app`でcloudへ出すため、publish済みで未pushの窓ではローカルがcloudより進んでいる。cloud copyでの置換は再生成できないjudgmentを消すので、`pull-app`はローカルにfileがあれば止める。CIはcheckout直後で`stores/application/`が空なので素通りする。ローカルで意図して置き換えるときは、既存fileを自分で退避してから実行する。
+- application store (`baibai.sqlite`) のpullは`pull-app`だけが行い、bulk pullは触らない。未公開の変更を失わないよう、`pull-app`はローカルにfileがあれば止める。CIはcheckout直後で`stores/application/`が空なので素通りする。作業コピーの更新・競合・復旧は[application反映](#application-db-を反映する)に従う。
 - servingの`views/`は`aws s3 sync --delete`で完全像に合わせる。historyは追記だけで削除しない。
 - `views/meta.json`は他のviewとhistoryが全て成功した後に最後にuploadする。
 - bucket名は`R2_STORES_BUCKET` / `R2_SERVING_BUCKET`で明示的にoverrideできるが、通常は固定defaultを使う。
@@ -936,7 +940,8 @@ batch/scripts/seed.sh
 ```
 
 **成功確認**: commandが4 keyをuploadし、0で終了したことを確認する。4 keyすべてが存在するならseed済みなので、
-再seedせず通常運用へ移る。
+再seedせず通常運用へ移る。seedは取得世代を記録しないため、applicationの通常更新を始める前に
+[application反映](#application-db-を反映する)の`pull-app`で正本と世代を取得する。
 
 **停止と復旧**: 1〜3 keyだけが存在する場合は部分seedであり、通常のpull / merge / pushでは復旧できない。
 まだ供用前で、他のwriterがなく、対象bucketと次のexact keyだけを人間が確認できた場合に限り、部分seedのkeyを
