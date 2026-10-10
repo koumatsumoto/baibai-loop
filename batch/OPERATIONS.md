@@ -17,31 +17,23 @@
 
 <a id="actions-write-boundary"></a>
 
-## クラウド開発と本番書込の実行境界
+## 開発環境と本番書込の実行境界
 
-外部service・本番storeへの書込はGitHub Actionsへ集約し、ChatGPTクラウド開発環境には
-read-only接続だけを渡す。開発の流れとPersonal Vaultの最小設定は
-[Python foundation](../docs/reference/python-foundation.md#cloud-development-boundary)を参照する。
+3系統の分担と開発用接続は[Python foundation](../docs/reference/python-foundation.md#cloud-development-boundary)に従う。
+以下のlocal commandはユーザーのローカルPCで使う通常の運用経路である。
+application DBはlocal canonicalのまま、`publish.sh`でreplicaをuploadし、Actionsのmaterializeを起動する。
+machine / lake発行、初回seed、独立TradingView取得・公開も既存のlocal経路を維持する。
 
-Actionsで使うwriter用R2 credential、providerの`JQUANTS_API_KEY` / `EDINET_API_KEY` / `ESTAT_APP_ID`、
-`TRADINGVIEW_OAUTH_STATE` / `TRADINGVIEW_SECRET_WRITER_TOKEN`、deploy用`CLOUDFLARE_API_TOKEN`は
-Actions側に保持し、クラウド開発用Vault・Install script・Start skill・image snapshotへコピーしない。
-secretの具体的なscope・environment・stepは下の構成表と各操作節を正本とする。
-値をGit、PR、Issue、log、artifactへ出さず、設定の有無だけを検証する。
-Worker runtimeの閲覧・L1用secretも開発環境へ流用しない。
-
-**移行状況**: daily / TradingView snapshot / materialize / Worker deployには既存のActions経路がある。
-一方、application DBは現行実装でもlocal canonicalで、`publish.sh`がreplicaをuploadしてmaterializeをdispatchする。
-localのmachine / lake発行、初回seed、独立TradingView取得・公開にも直接書込経路が残る。
-以下のlocal commandとcredential表は現行実装の説明であり、Actions集約済みという意味ではない。
-それらをread-onlyクラウド開発から実行したり、writer credentialを追加して迂回したりしない。
-対応workflowがない更新は未移行として止め、別の実装変更で入口とstore authorityを整合させる。
-この方針の文書化だけでは、既存credentialの撤回やruntimeの権限制限も完了しない。
-
-本番反映が依頼範囲に含まれるときだけ、各節の前提・main ref・入力・対象storeを確認して既存workflowを起動する。
-対象run IDを固定して完了を確認し、各節の公開物・release・as-of確認までを行う。
-失敗時は原因と既存runの状態を確認し、直接uploadや重複dispatchで回避しない。
+ChatGPTクラウドから外部データを更新・公開するときは、依頼範囲に含まれる既存Actionsへ委譲する。
+各節の前提・main ref・入力・対象storeを確認し、run IDを固定して完了と公開物を検証する。
+対応workflowがない操作はクラウドから直接実行せず、ローカルPCの既存手順へ引き継ぐ。
+失敗時は原因と対象runの状態を確認し、直接uploadや重複dispatchで回避しない。
 文書変更・PR作成だけを理由に本番workflow、OAuth smoke、R2 acceptanceを起動しない。
+
+writer用R2 credential、GitHub Secret writer token、deploy tokenは下表の実行主体に配置し、
+通常のクラウド開発へ渡さない。providerキーによる認可済み読取はPython foundationの接続表に従う。
+値をInstall script・Start skill・image snapshot、Git、PR、Issue、log、artifactへ埋め込まず、設定の有無だけを確認する。
+文書の変更は既存credentialやruntime権限を変更しない。
 
 ## 長時間処理の監視
 
@@ -75,10 +67,10 @@ R2 lifecycle ruleは`history/candidate-views/`だけに設定する。bucket全�
 
 | principal | 設定 | scope |
 | --- | --- | --- |
-| GitHub Actions | variable `R2_ACCOUNT_ID`、secrets `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / provider 3本、公開 JPX 規制 URL 4本 | 必要なtransfer/provider stepだけ、stores + serving read-write |
+| GitHub Actions | variable `R2_ACCOUNT_ID`、secrets `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / provider 3本 | 必要なtransfer/provider stepだけ、stores + serving read-write |
 | GitHub Actions（通知） | secret `DISCORD_WEBHOOK_URL` | `cloud-daily-batch` の通知 step と `cloud-batch-watchdog` の警報 step のみ（job env に出さない） |
 | GitHub Actions（Worker deploy） | variable `R2_ACCOUNT_ID`、secret `CLOUDFLARE_API_TOKEN` | 対象accountの`Workers Scripts Write`、`web`のdeploy stepのみ |
-| 既存ローカル`.env`（未移行経路） | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | stores read-write。クラウド開発へ持ち込まない |
+| ローカルPCの`.env` | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | stores read-write。通常のクラウド開発へ持ち込まない |
 | Wrangler OAuth | `wrangler login` | bucket初期設定、Worker secretの手動設定 |
 | Worker secret（閲覧認証） | `VIEW_PASSWORD` / `READ_ACCESS_TOKEN` | Worker runtimeだけ、ownerと共有を分離 |
 | Worker secret（L1接続） | `L1_R2_BASE_URL` / `L1_R2_ACCESS_KEY_ID` / `L1_R2_SECRET_ACCESS_KEY` | `baibai-stores`だけのObject Read only、publisher credentialと分離 |
@@ -87,11 +79,10 @@ R2 S3 endpointは`https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com`からscript�
 
 servingは各workflowのsource store取得・materializeが成功した後だけ発行する。dailyではstore pushの成功も必要である。前提工程が失敗した場合は表示更新を止め、`views/meta.json`を最後に発行する。
 
-provider secretは`JQUANTS_API_KEY` / `ESTAT_APP_ID` / `EDINET_API_KEY`。`bootstrap-cache`はさらに
-`universe.required_jpx_flags`の4 source（特別注意銘柄 / 整理銘柄 / 取引停止 / 上場廃止警告）の公開URLを要求する。
-非secretの`JPX_SPECIAL_CAUTION_INDEX_URL` / `JPX_REORGANIZATION_URL` / `JPX_TRADING_HALT_URL` /
-`JPX_DELISTING_WARNING_URL`を`cloud-daily-batch.yml`の`Run daily batch` step envへliteralで置く（雛形は
-`.env.sample`）。未配線ならJPX stepがfail-fastし、machine stores / serving uploadはskippedになる。
+provider secretは`JQUANTS_API_KEY` / `ESTAT_APP_ID` / `EDINET_API_KEY`。JPX規制情報の公開URLは
+[JPX source設定](../engine/src/baibai_engine/market/jpx_sources.py)の固定値を使い、環境変数では指定しない。
+`bootstrap-cache`は`universe.required_jpx_flags`の必要sourceを取得し、取得・検証に失敗した場合は
+machine stores / serving uploadを停止する。
 
 
 ## 日常運用

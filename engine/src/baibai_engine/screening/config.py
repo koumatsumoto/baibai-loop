@@ -12,13 +12,6 @@ from baibai_engine.market.config import DEFAULT_SQLITE_CACHE_DIR as DEFAULT_SQLI
 
 from .rule_config import DEFAULT_RULES_PATH
 
-JPX_REGULATION_ENV_MAP = {
-    "特別注意銘柄": "JPX_SPECIAL_CAUTION_URL",
-    "整理銘柄": "JPX_REORGANIZATION_URL",
-    "取引停止": "JPX_TRADING_HALT_URL",
-    "上場廃止警告": "JPX_DELISTING_WARNING_URL",
-}
-
 
 class ConfigError(ValueError):
     """Raised when required screening configuration is missing."""
@@ -32,7 +25,6 @@ class ScreeningConfig(BaseModel):
     cache_dir: Path = DEFAULT_CACHE_DIR
     sqlite_cache_dir: Path = DEFAULT_SQLITE_CACHE_DIR
     rules_path: Path = DEFAULT_RULES_PATH
-    jpx_regulation_urls: Mapping[str, str] = Field(default_factory=dict)
 
     def __init__(
         self,
@@ -56,16 +48,6 @@ class ScreeningConfig(BaseModel):
             return Path(value)
         raise ValueError("path must be a non-empty string or Path")
 
-    @field_validator("jpx_regulation_urls")
-    @classmethod
-    def _validate_jpx_urls(cls, value: Mapping[str, str]) -> Mapping[str, str]:
-        for source_name, url in value.items():
-            if not source_name:
-                raise ValueError("JPX source name must not be empty")
-            if not url.startswith("https://"):
-                raise ValueError(f"JPX URL must use https: {source_name}")
-        return value
-
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> ScreeningConfig:
         source = env if env is not None else os.environ
@@ -78,11 +60,6 @@ class ScreeningConfig(BaseModel):
         # env override は作業者ごとの local store 分岐を生むため受け付けない。
         cache_dir_value = str(DEFAULT_CACHE_DIR)
         sqlite_cache_dir_value = str(DEFAULT_SQLITE_CACHE_DIR)
-        jpx_regulation_urls = {
-            source_name: source[env_name]
-            for source_name, env_name in JPX_REGULATION_ENV_MAP.items()
-            if source.get(env_name)
-        }
         try:
             return cls(
                 jquants_api_key=source["JQUANTS_API_KEY"],
@@ -90,7 +67,6 @@ class ScreeningConfig(BaseModel):
                 cache_dir=cache_dir_value,
                 sqlite_cache_dir=sqlite_cache_dir_value,
                 rules_path=str(Path(source.get("SCREENING_RULES_PATH") or DEFAULT_RULES_PATH)),
-                jpx_regulation_urls=jpx_regulation_urls,
             )
         except ValidationError as exc:
             raise ConfigError(str(exc)) from exc

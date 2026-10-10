@@ -67,7 +67,8 @@ lakeの公開・hydrate・保持は[market lake](./reference/market-lake.md)、s
 
 ## 4. 実行環境
 
-判断と確認済み事実はlocalから書き込み、cloudへreplicaを公開する。cloudは日次の機械処理とservingを担う。
+判断と確認済み事実はlocalから書き込み、cloudへreplicaを公開する。ここでのcloudは日次の機械処理とservingを指す。
+ChatGPTクラウド開発環境を含む作業分担は[Python foundation](./reference/python-foundation.md#cloud-development-boundary)に従う。
 
 ```text
 local application DB ──publish──> R2 stores（application replica）

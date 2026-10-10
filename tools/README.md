@@ -13,5 +13,5 @@
 
 生成物は明示されたassetまたはreportだけへ書き、runtime storeの正本を更新しません。experiment evidenceは[reports](../reports/README.md)、採用結果は明示PRで[method](../method/README.md)へ反映します。
 
-開発依存の準備は `bash tools/setup-dev.sh`。前提、追加機能、クラウド環境への登録は
-[Python foundation](../docs/reference/python-foundation.md#development-bootstrap)を参照してください。
+開発環境の分担・準備・追加機能・クラウド環境への登録は
+[Python foundation](../docs/reference/python-foundation.md#cloud-development-boundary)を参照してください。

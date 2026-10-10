@@ -24,7 +24,7 @@ status: active
 | batch・storeを運用する | [Ops Maintenance](../.agents/skills/ops-maintenance/SKILL.md) |
 | 保存済み情報を表示・照会する | [Web](../web/README.md)・[Owner MCP](../tools/owner_mcp/README.md) |
 | 見積り方法を改善する | [Estimate calibration](./reference/estimate-calibration.md) |
-| 開発する | [AGENTS](../AGENTS.md)・[Python foundation](./reference/python-foundation.md) |
+| PC・クラウドで開発する、Actionsとの分担を確認する | [AGENTS](../AGENTS.md)・[Python foundation](./reference/python-foundation.md#cloud-development-boundary) |
 | artifact・指標の意味を調べる | [Reference index](./reference/README.md) |
 
 ## 文書の役割

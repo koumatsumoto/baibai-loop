@@ -25,23 +25,25 @@ source_paths:
 
 <a id="cloud-development-boundary"></a>
 
-### クラウド開発とGitHub Actionsの分担
+### ローカルPC・GitHub Actions・ChatGPTクラウドの分担
 
-ChatGPTクラウド環境は、外部service・本番storeに対して基本read-onlyで使う。
-コード・文書の編集、依存導入、build、fixture test、使い捨ての検証DBへの書込、commit・push・PR作成は開発作業として行う。
-外部への書込、production dataの更新・公開、provider取得とOAuth state更新、deployはGitHub Actionsへ集約する方針とし、
-移行済みの入口と残るlocal経路は[batch運用の実行境界](../../batch/OPERATIONS.md#actions-write-boundary)で確認する。
-read-onlyはGit作業や検証用filesystemを禁止する意味ではなく、本番資格情報の権限境界である。
+| 実行環境 | 担当する作業 |
+| --- | --- |
+| ユーザーのローカルPC | 開発・検証・provider取得・本番DB更新・公開・復旧を含む全作業。既存の`publish.sh`とlocalのmachine / lake発行経路を使う |
+| GitHub Actions | 主にバッチの外部データ書込。daily、TradingView snapshot、materialize、Worker deployとPRのCIを既存workflowで実行する |
+| ChatGPTクラウド | 読取中心の開発。コード・文書編集、依存導入、build、fixture・検証コピーへの書込、commit・push・PR作成、認可された実データ・provider読取を行う。外部データの更新・公開は許可されたActionsへ委譲する |
 
-通常の流れは、保存済み環境でcheckoutと依存を準備 → branchで修正 →
-[完全gate](#9-ci-and-local-parity)と必要なread-only実データ確認 → draft PR → 対象commitのCI確認とする。
+操作はユーザーの依頼・接続の権限・利用枠の範囲で行う。providerから取得した応答の検証用保存は
+クラウド内の書込であり、本番storeや外部serviceへの書込とは区別する。
+本番操作の入口とcredential配置は[batch運用](../../batch/OPERATIONS.md#actions-write-boundary)に従う。
+
+開発は、実際のcheckoutとAGENTS.md・対象skillを確認 → 保存済み環境で依存を準備 → branchで修正 →
+[完全gate](#9-ci-and-local-parity)と必要な認可済み読取検証 → draft PR → 対象headのCI確認の順で行う。
 実行済み・失敗・未実行をPRへ記し、fixture成功を実データや本番反映の成功に読み替えない。
-main反映後の本番操作が依頼範囲に含まれる場合だけ、既存workflowのref・入力・対象を確認して起動し、
-run IDを固定して結果と公開物を検証する。対応workflowがない操作はクラウドから直接書かず、移行が必要と報告する。
 
-公開repositoryのstandard GitHub-hosted runnerの実行時間は無料なので、CIと承認された運用に積極的に使う。
-larger runner、artifact/cache等のstorage、外部API、R2の利用まで一律無料とは扱わない。
-料金の最新条件は[GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions)を確認する。
+公開repositoryのstandard GitHub-hosted runnerの実行時間は無料である。
+larger runner、storage、外部API、R2まで一律無料とは扱わず、追加料金禁止の依頼では課金経路へ進まない。
+最新条件は[GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions)を参照する。
 
 <a id="development-bootstrap"></a>
 
@@ -89,9 +91,10 @@ Start skillには次を登録する。
 > ファイルが既存の場合もsetupで生成した場合も、続けて `source .cache/dev/env.sh` を実行する。
 > 検証はPython foundationの完全gateに従い、実行済み・失敗・未実行を区別する。
 > UIが必要なら `uv run baibai-web serve` を起動し、127.0.0.1:8712のhealthと画面を確認する。
-> データ不在を実データ検証成功と扱わない。外部接続はread-onlyとし、本番書込はbatch運用の実行境界に従う。
+> データ不在を実データ検証成功と扱わない。認可された外部読取と、本番書込の委譲は上の実行環境の分担に従う。
 
 環境を保存・再公開した後は、新規タスクでversionとfixture gateを確認する。
+環境の公開、新規タスクの復元・起動、保存済みStart skillの適用、runtimeキーの存在と実接続は別々に確認する。
 利用者の端末からUIを見るには認証付きport preview / forwardingを別途用意する。
 Vaultの値はユーザーがruntime用secret設定へ入力し、Install script、Start skill、image snapshot、
 Git、ログへ埋め込まない。`.env`やOAuth stateを含むworking directoryをsnapshotへ取り込まない。
@@ -108,20 +111,24 @@ VaultのKeyとTypeを揃え、Applies toに対象環境を含める。保存・�
 | --- | --- |
 | 基本開発・fixture・空データUI | secret不要。任意の検証コピーpathは`BAIBAI_DB` / `BAIBAI_RUNS_DB`（非secret） |
 | 実データの読取 | 許可されたSQLite snapshotと固定lake releaseが必要。データがなければ未検証 |
-| lakeの直接R2読取 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`だけをEnvironment variableとしてrequestする。専用の対象bucketのObject Read only credentialとhttpfsが必要 |
-| Owner MCPのL1 gateway読取 | 必要な場合だけ`READ_ACCESS_TOKEN`。[Owner MCP](../../tools/owner_mcp/README.md)参照 |
-| Workerの開発用認証・L1接続検証 | 必要な場合だけ`VIEW_PASSWORD`, `READ_ACCESS_TOKEN`, `L1_R2_BASE_URL`, `L1_R2_ACCESS_KEY_ID`, `L1_R2_SECRET_ACCESS_KEY`。開発用に分離し、L1はObject Read only。[sample](../../web/edge/.dev.vars.example)参照 |
+| lakeの直接R2読取 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`。対象bucket専用のObject Read only credentialとhttpfsが必要 |
+| Owner MCPのL1 gateway読取 | `READ_ACCESS_TOKEN`。[Owner MCP](../../tools/owner_mcp/README.md)参照 |
+| Workerの開発用認証・L1接続検証 | `VIEW_PASSWORD`, `READ_ACCESS_TOKEN`, `L1_R2_BASE_URL`, `L1_R2_ACCESS_KEY_ID`, `L1_R2_SECRET_ACCESS_KEY`。開発用に分離し、L1はObject Read only。[sample](../../web/edge/.dev.vars.example)参照 |
+| provider読取 | `JQUANTS_API_KEY`, `EDINET_API_KEY`, `ESTAT_APP_ID`。認可された接続と利用枠で必要な読取を行い、保存先は検証コピーにする。[sample](../../.env.sample)参照 |
+| JPXの公開source（非secret） | [JPX source設定](../../engine/src/baibai_engine/market/jpx_sources.py)の固定値を使う。環境変数の設定は不要 |
+| TradingViewの認証・取得 | [batch運用](../../batch/OPERATIONS.md#tradingview-expectations)を参照。独立stateのrotationはローカル保存を伴う。本番stateをコピーせず、GitHub Secretへの書戻しを通常のクラウド読取に含めない |
 
 R2のS3署名にはprocessが読むraw credentialが必要なので、placeholderをHTTPS proxyが置換するNetwork secretでは代用しない。
 直接のEnvironment variableはtaskから値が読めるため、writer credentialを流用せず最小権限にする。
 Personal Vaultの値は接続先をnetwork allowlistへ自動追加しない。必要なhostだけ環境設定で許可し、
 403等はscope・endpoint・network設定を確認する。秘密値の表示やproxy・TLS検証の解除で診断しない。
 
-writer用R2 credential、provider API key、TradingView OAuth state・secret writer token、
-Cloudflare deploy tokenはクラウド開発用Vaultへ入れない。Actions側のキー名と設定先は
-[batch運用](../../batch/OPERATIONS.md#actions-write-boundary)を正本とする。
-R2 acceptanceも書込・削除する外部試験なので、通常のread-onlyクラウドgateでは実行しない。
-provider取得、実store validation、OAuth smoke、R2 acceptanceをfixture gate成功で代用しない。
+writer用R2 credential、GitHub Secret writer token、Cloudflare deploy tokenは通常のクラウド開発へ渡さない。
+外部書込用の配置は[batch運用](../../batch/OPERATIONS.md#actions-write-boundary)に従う。
+[R2 acceptance](../../tests/integration/test_lake_r2_acceptance.py)は外部に書込・削除する試験であり、通常のクラウドgateでは実行しない。
+ローカルPCで明示依頼された場合だけ、専用の空bucketと専用credentialを用意し、
+`R2_LAKE_ACCEPTANCE_BUCKET`と`BAIBAI_R2_ACCEPTANCE=1`を指定する。
+provider読取、実store validation、OAuth smoke、R2 acceptanceをfixture gate成功で代用しない。
 
 ## 3. Formatting and linting
 
