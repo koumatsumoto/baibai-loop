@@ -36,6 +36,6 @@ status: active
 | --- | --- |
 | Triage runnerの入力・終了状態・保存 | [analysis-operations](./analysis-operations.md) |
 | 外部ChatのMacro draft受渡し | [macro-handoff](./macro-handoff.md) |
-| 開発環境と品質gate | [python-foundation](./python-foundation.md) |
+| PC・Actions・クラウドの分担、環境準備と品質gate | [python-foundation](./python-foundation.md) |
 
 用語と関係図は[domain-language](../domain-language.md)、操作の入口は[docs portal](../README.md#目的別の入口)を参照する。

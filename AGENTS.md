@@ -8,7 +8,7 @@
 
 ## 実行と反映
 
-調査・修正・検証はローカルで行い、ローカルコマンドはsandbox外で実行する。クラウドでしか確認できない事項だけを、原因を絞った最終確認として実行する。
+開発環境と本番操作の分担は[ローカルPC・GitHub Actions・ChatGPTクラウドの分担](./docs/reference/python-foundation.md#cloud-development-boundary)に従う。クラウドでのコード編集・検証・PR作成と、外部service・本番storeへの書込を区別する。
 
 store移行を含むdeliveryは、対応codeのmain反映と、整合するstoreのクラウド反映までを一組として扱う。日次batchに移行・全期間再取得・較正の再構築を代行させない。正本と依存は[architecture](./docs/architecture.md#store-authority)、転送・復旧は[batch運用](./batch/OPERATIONS.md)に従う。
 
