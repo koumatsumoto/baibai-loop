@@ -66,8 +66,6 @@ def build_parser() -> argparse.ArgumentParser:
     edit.add_argument("--clear-event", action="store_true")
     edit.add_argument("--body")
     edit.add_argument("--clear-body", action="store_true")
-    edit.add_argument("--append-body-file", type=Path, help="append a UTF-8 note to an open task")
-    edit.add_argument("--expected-body-sha256", help="SHA256 of the reviewed body's UTF-8 bytes")
     edit.add_argument("--related-ref", action="append")
     edit.add_argument("--clear-related-refs", action="store_true")
     return parser
@@ -102,22 +100,7 @@ def main(argv: list[str] | None = None, *, today: date | None = None) -> int:
         elif args.command == "reconcile-earnings":
             return _reconcile_earnings(service, args, today=current_date)
         elif args.command == "edit":
-            changes = _edit_changes(args)
-            if args.append_body_file is not None:
-                if changes or args.expected_body_sha256 is None:
-                    raise ValueError(
-                        "--append-body-file requires --expected-body-sha256 and no other edits"
-                    )
-                note = args.append_body_file.read_bytes().decode("utf-8")
-                _emit(
-                    service.append_note(
-                        args.task_id, note, expected_body_sha256=args.expected_body_sha256
-                    ).payload()
-                )
-            else:
-                if args.expected_body_sha256 is not None:
-                    raise ValueError("--expected-body-sha256 requires --append-body-file")
-                _emit(service.edit(args.task_id, changes).payload())
+            _emit(service.edit(args.task_id, _edit_changes(args)).payload())
         else:  # pragma: no cover
             raise AssertionError(f"unreachable task command: {args.command}")
     except (OSError, ValueError, ValidationError, TaskConflictError, TaskNotFoundError) as error:

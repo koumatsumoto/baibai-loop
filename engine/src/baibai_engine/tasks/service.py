@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import re
 import sqlite3
 from collections.abc import Mapping
@@ -113,20 +112,6 @@ class TaskService:
         if row is None:
             raise TaskNotFoundError(f"unknown task_id: {task_id}")
         return Task.model_validate_json(str(row[0]))
-
-    def append_note(self, task_id: str, note: str, *, expected_body_sha256: str) -> Task:
-        """Append reviewed text without replacing the body or changing other task fields."""
-        if not note.strip():
-            raise ValueError("task note must not be blank")
-        task = self.get(task_id)
-        if task.status != "open":
-            raise TaskConflictError("task note requires an open task")
-        body = task.body_md or ""
-        if hashlib.sha256(body.encode("utf-8")).hexdigest() != expected_body_sha256:
-            raise TaskConflictError("task body changed; read the current task before appending")
-        updated = task.model_copy(update={"body_md": f"{body}\n\n{note}" if body else note})
-        self._replace(task, updated)
-        return updated
 
     def _replace(self, before: Task, after: Task) -> None:
         initialize_database(self._db_path)

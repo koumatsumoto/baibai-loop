@@ -31,7 +31,7 @@ source_paths:
 | --- | --- |
 | ユーザーのローカルPC | 開発・検証・provider取得・本番DB更新・公開・復旧を含む全作業。既存の`publish.sh`とlocalのmachine / lake発行経路を使う |
 | GitHub Actions | 主にバッチの外部データ書込。daily、TradingView snapshot、materialize、Worker deployとPRのCIを既存workflowで実行する |
-| ChatGPTクラウド | 本番データは基本read-only。コード・文書編集、依存導入、build、fixture・検証コピーへの書込、commit・push・PR作成、認可された実データ・provider読取を行う。外部データの更新・公開は許可されたActionsへ委譲する |
+| ChatGPTクラウド | 本番データは基本read-only。コード・文書編集、依存導入、build、fixture・検証コピーへの書込、commit・push・PR作成、認可された実データ・provider読取を行う。外部データの更新・公開は原則として許可されたActionsへ委譲する。ユーザーが明示的に依頼したtask更新は、既存engineで作業コピーを編集し、取得世代への条件付きPUTでR2正本へ直接反映できる |
 
 データ状態の正本と作業コピーは[architecture](../architecture.md#store-authority)に従い、この表の実行場所とは区別する。
 操作はユーザーの依頼・接続の権限・利用枠の範囲で行う。providerから取得した応答の検証用保存は
@@ -125,6 +125,7 @@ Personal Vaultの値は接続先をnetwork allowlistへ自動追加しない。�
 403等はscope・endpoint・network設定を確認する。秘密値の表示やproxy・TLS検証の解除で診断しない。
 
 writer用R2 credential、GitHub Secret writer token、Cloudflare deploy tokenは通常のクラウド開発へ渡さない。
+明示依頼されたtaskの直接更新では、既存runtime credentialの権限内で操作し、認証失敗を権限拡大や別経路で回避しない。
 外部書込用の配置は[batch運用](../../batch/OPERATIONS.md#actions-write-boundary)に従う。
 [R2 acceptance](../../tests/integration/test_lake_r2_acceptance.py)は外部に書込・削除する試験であり、通常のクラウドgateでは実行しない。
 ローカルPCで明示依頼された場合だけ、専用の空bucketと専用credentialを用意し、

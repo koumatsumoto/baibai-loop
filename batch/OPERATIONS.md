@@ -25,9 +25,16 @@
 `publish.sh`はapplicationの作業コピーを条件付きでクラウドへ反映し、Actionsのmaterializeを起動する。
 machine / lake発行、初回seed、独立TradingView取得・公開も既存のlocal経路を維持する。
 
-ChatGPTクラウドから外部データを更新・公開するときは、依頼範囲に含まれる既存Actionsへ委譲する。
+ChatGPTクラウドから外部データを更新・公開するときは、原則として依頼範囲に含まれる既存Actionsへ委譲する。
 各節の前提・main ref・入力・対象storeを確認し、run IDを固定して完了と公開物を検証する。
-対応workflowがない操作はクラウドから直接実行せず、ローカルPCの既存手順へ引き継ぐ。
+ユーザーが明示依頼したtask更新は例外として、既存engineのtask編集を取得済み作業コピーへ適用し、
+取得ETagへの条件付きPUTでR2正本へ直接反映できる。複数taskは同じコピーで編集し、1回の公開にまとめる。
+対象外の行・状態・期限・参照が変わらないこととDB整合性を確認し、公開後は正本を再取得して照合する。
+取得後に正本が変わった場合は停止し、無条件再送や自動mergeはしない。
+既存backupの上書き・削除はtask更新の依頼に含めない。通常の`push-app`は両方を伴うため、
+未許可ならそのまま実行しない。変更前snapshotを保持し、backupを新規保存する場合も既存keyを条件付き作成で保護する。
+PUT結果が不明な場合は再取得して適用の有無を調べ、本文を二重追記しない。正本の更新とservingのmaterializeは別に確認する。
+それ以外で対応workflowがない操作は、ローカルPCの既存手順へ引き継ぐ。
 失敗時は原因と対象runの状態を確認し、直接uploadや重複dispatchで回避しない。
 文書変更・PR作成だけを理由に本番workflow、OAuth smoke、R2 acceptanceを起動しない。
 
@@ -56,13 +63,13 @@ gh run watch <RUN_ID> --exit-status --compact --interval 60
 | `baibai-stores` | `lake/`（lake所有datasetのcanonical L1） | `cloud-daily-batch`と`cloud-tradingview-snapshot`の`publish-lake` + ローカル`r2_transfer.sh publish-lake` |
 | `baibai-stores` | `runs.sqlite` | `cloud-daily-batch` + 明示的なローカルdailyの`push-machine` |
 | `baibai-stores` | `macro.sqlite` | `cloud-daily-batch`（rolling窓）+ ローカル`push-macro`（全履歴。cloud copyのmerge後だけupload） |
-| `baibai-stores` | `baibai.sqlite` | `publish.sh`または`cloud-task-note`からの条件付き更新（実行環境の分担は前節） |
+| `baibai-stores` | `baibai.sqlite` | 取得世代への条件付き更新（実行環境の分担は前節） |
 | `baibai-serving` | `views/*.json` | GitHub Actions materialize |
 | `baibai-serving` | `history/candidate-views/<asof>.json` | 日次batch、R2 lifecycleで31日後に削除 |
 
 R2 lifecycle ruleは`history/candidate-views/`だけに設定する。bucket全体へ設定すると`views/meta.json`まで期限で消え、欠落を検知できない。Review Set membershipの長期履歴は保持しない。
 
-`cloud-materialize`・`cloud-daily-batch`・`cloud-tradingview-snapshot`・`cloud-task-note`はGitHubの`cloud-publish`を共有する。GitHubとローカルのpublication競合は[ローカル発行手順](#ローカルからクラウドを更新する)のleaseで止める。servingへのwriteはGitHub Actionsだけが行う。application更新の取得世代・競合処理は[application反映](#application-db-を反映する)に従う。
+`cloud-materialize`・`cloud-daily-batch`・`cloud-tradingview-snapshot`はGitHubの`cloud-publish`を共有する。GitHubとローカルのpublication競合は[ローカル発行手順](#ローカルからクラウドを更新する)のleaseで止める。servingへのwriteはGitHub Actionsだけが行う。application更新の取得世代・競合処理は[application反映](#application-db-を反映する)に従う。
 
 資格情報はprincipalごとに分ける。
 
@@ -212,48 +219,6 @@ application DBはcurrent schemaだけを開き、materializeとOwner MCPは取�
 source versionを限定したtemporary one-shot toolとexact commandを用意し、main merge後のattended cutover・検証・
 cloud反映が終わるまで保持する。完了証拠を残してから同じdeliveryのcleanupで削除する。現在のtreeに汎用cutover
 commandはないため、version不一致を見つけたoperatorは手書きSQLで進めず、schema変更issueへtoolを再構築する。
-
-### Actionsから既存taskへ調査メモを追記する
-
-`cloud-task-note.yml`はmain上の手動実行だけを受け付け、指定したopen task 1件の本文に追記する。
-状態・期限・event label・参照・title等は変更しない。複数taskは1件ずつ実行し、task追加・完了・汎用command実行には使わない。
-書込はengineの`task edit --append-body-file`が所有し、workflowは`pull-app` → CLI → 世代保護付き`push-app`を接続する。
-task本文だけの変更なので`publish.sh`のledger preflightは実行せず、materializeも別操作にする。
-`push-app`は既存契約どおりpublication leaseの対象外であり、PCとの競合は取得ETagとPUTの`If-Match`で止める。
-
-**準備と入力**: 更新対象・追記文・旧本文を確認し、実行する操作として承認を得る。PRの承認・mergeだけでは本番実行しない。
-追記文は非公開のUTF-8 fileに用意し、Git・Issue・PR・dispatch入力へ本文を入れない。
-repository secretを設定できる所有者が、ローカルPCから`gh secret set TASK_NOTE < private-note.md`で本文を渡す。
-secret設定用tokenを通常のChatGPTクラウド開発環境へ渡さない。workflow実行者はActionsの実行権限を持ち、
-転送stepは既存の`R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`を使う。workflow自身にsecret更新権限は不要。
-
-| dispatch入力 | 確認する値 |
-| --- | --- |
-| `task_id` | 追記先open taskのexact ID |
-| `expected_body_sha256` | 確認した旧`body_md`をUTF-8にしたSHA256。nullは空bytesとして計算 |
-| `note_sha256` | `private-note.md`のbytesのSHA256。CRLF・末尾改行を含み、secret設定時も正規化しない |
-
-旧本文hashは追記前の変更と同じ入力での再実行を止める。追記文hashは、待機中に`TASK_NOTE`が別の内容へ差し替わっても誤った文を送らないために照合する。
-本文は元の文字列を保持し、空でなければ改行2個と追記文を加える。blank noteとclosed taskは拒否する。
-同じ追記と旧本文hashを再実行しても重複追記しない。失敗は自動retryしない。
-
-```bash
-gh workflow run cloud-task-note.yml --ref main \
-  -f task_id="$task_id" \
-  -f expected_body_sha256="$expected_body_sha256" \
-  -f note_sha256="$note_sha256"
-```
-
-**副作用と成功確認**: 正本`baibai.sqlite`を条件付き更新し、既存`push-app`のとおり日別backupを作成・14世代を超えるbackupを削除する。
-同日2回目の更新は当日のbackupも上書きする。market / macro / lakeの取得・更新やprovider呼出はない。
-本文・CLI出力はrunnerのprivate temporary fileに置き、終了時に削除する。artifactや公開logへは出さない。
-run IDを固定して成功を確認し、freshな正本で対象本文と他fieldの保持を確認する。
-表示はまだ更新されていないため、必要なら別途承認された`cloud-materialize.yml --ref main`を実行する。
-2件の追記後に1回materializeすればよい。使い終えた`TASK_NOTE`は設定者が削除し、application DBを保存先として維持する。
-
-**停止と復旧**: 入力hash不一致、task競合、schema不一致では`push-app`へ進まない。
-世代競合とPUT後のbackup整理失敗等は[application反映](#application-db-を反映する)の停止・復旧に従う。
-jobが失敗していてもPUT済みの可能性があるため、freshな正本を確認せず新しいhashで再実行しない。
 
 ### application DB を復元する
 

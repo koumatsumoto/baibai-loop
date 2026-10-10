@@ -80,12 +80,7 @@ def _web_history_repo(tmp_path: Path) -> tuple[Path, str]:
 
 @pytest.mark.parametrize(
     "workflow_name",
-    [
-        "cloud-daily-batch.yml",
-        "cloud-materialize.yml",
-        "cloud-tradingview-snapshot.yml",
-        "cloud-task-note.yml",
-    ],
+    ["cloud-daily-batch.yml", "cloud-materialize.yml", "cloud-tradingview-snapshot.yml"],
 )
 def test_cloud_writers_share_one_non_cancelling_fifo_queue(workflow_name: str) -> None:
     concurrency = _workflow(workflow_name)["concurrency"]
@@ -429,7 +424,7 @@ def test_every_setup_uv_step_resolves_one_exact_root_version() -> None:
                     setup_steps.append(step)
 
     assert required == "==0.12.17"
-    assert len(setup_steps) == 7
+    assert len(setup_steps) == 6
     assert all("version" not in step.get("with", {}) for step in setup_steps)
 
 
