@@ -52,14 +52,14 @@ L3に保存した取引事実はAIの判断ではない。また、現在のsour
 
 | 保存場所 | 正本として所有する情報 | write owner |
 | --- | --- | --- |
-| `stores/application/baibai.sqlite` | 判断、ledger、task、Operation、outcome。localが正本 | engine application service |
+| `stores/application/baibai.sqlite` | 判断、ledger、task、Operation、outcomeの作業コピー。正本はR2 `baibai-stores/baibai.sqlite` | engine application service |
 | R2 `lake/` | lake所有datasetのimmutable object、manifest、current pointer | `publish-lake` |
-| `stores/market/market.sqlite` | lake所有tableはruntime copy。`source_coverage`と`tse_capital_policy_snapshots`はstore-localの正本、`lake_store_origin`はlocal metadata | market provider・lake hydrate |
+| `stores/market/market.sqlite` | lake所有tableはruntime copy。`source_coverage`と`tse_capital_policy_snapshots`はlakeでなくR2のmarket storeが保持し、`lake_store_origin`はコピーの由来metadata | market provider・lake hydrate |
 | `stores/screening/runs.sqlite` | 再生成可能なScreening Run・Review Set | screening service |
 | `stores/screening/calibration/current.sqlite` | 再生成可能なcalibration snapshot | calibration service |
 | `stores/macro/macro.sqlite` | macro観測・vintage・取得情報。manual観測はGit seedから同期 | macro indicator service |
 
-market storeをファイルごと消すとstore-local dataも失うため、lake所有tableが再生成可能という理由だけで削除しない。application DBのcloud copyはreplicaであり、localを上書きするための第二の正本ではない。
+market storeをファイルごと消すとstore-local dataも失うため、lake所有tableが再生成可能という理由だけで削除しない。データ状態の正本はクラウドに置き、PCとGitHub Actionsは取得した作業コピーから更新する。未公開の変更は正本と区別し、取得世代を保持して競合時の上書きを止める。application DBやmachine storeを読むときは、コピーの取得時点とクラウドへの反映状態を区別する。serving JSONは表示用の派生物であり、task本文や完了履歴を含むapplication DBの代替ではない。
 
 lakeの公開・hydrate・保持は[market lake](./reference/market-lake.md)、storeの転送・移行・復旧は[batch運用](../batch/OPERATIONS.md)が所有する。methodと表示configの入口は[method](../method/README.md)と[web/config](../web/config)を参照する。
 
@@ -67,11 +67,11 @@ lakeの公開・hydrate・保持は[market lake](./reference/market-lake.md)、s
 
 ## 4. 実行環境
 
-判断と確認済み事実はlocalから書き込み、cloudへreplicaを公開する。ここでのcloudは日次の機械処理とservingを指す。
+PCでの全操作とGitHub Actionsでの更新は、クラウド正本という保存場所の方針と両立する。SQLiteへの編集は作業コピー上で行い、検証済みの変更をクラウドへ反映する。
 ChatGPTクラウド開発環境を含む作業分担は[Python foundation](./reference/python-foundation.md#cloud-development-boundary)に従う。
 
 ```text
-local application DB ──publish──> R2 stores（application replica）
+PCの作業コピー ──条件付き更新──> R2 stores（データ状態の正本）
                                       ↑
 GitHub Actions ──machine処理・転送──────┤
        └──read model生成──> R2 serving ──> Worker ──> browser

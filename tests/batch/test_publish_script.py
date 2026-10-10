@@ -135,3 +135,21 @@ def test_failed_ledger_preflight_stops_before_publish(tmp_path: Path) -> None:
         )
     ]
     assert result.stdout == ""
+
+
+def test_failed_application_transfer_does_not_dispatch(tmp_path: Path) -> None:
+    publish, call_log, env = _isolated_publish_script(tmp_path)
+    transfer = publish.parent / "r2_transfer.sh"
+    with transfer.open("a") as stream:
+        stream.write("exit 1\n")
+    result = subprocess.run(
+        (publish,),
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 1
+    calls = call_log.read_text().splitlines()
+    assert "r2:push-app" in calls
+    assert not any(call.startswith("gh:") for call in calls)

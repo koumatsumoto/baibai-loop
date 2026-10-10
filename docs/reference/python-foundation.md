@@ -31,8 +31,9 @@ source_paths:
 | --- | --- |
 | ユーザーのローカルPC | 開発・検証・provider取得・本番DB更新・公開・復旧を含む全作業。既存の`publish.sh`とlocalのmachine / lake発行経路を使う |
 | GitHub Actions | 主にバッチの外部データ書込。daily、TradingView snapshot、materialize、Worker deployとPRのCIを既存workflowで実行する |
-| ChatGPTクラウド | 読取中心の開発。コード・文書編集、依存導入、build、fixture・検証コピーへの書込、commit・push・PR作成、認可された実データ・provider読取を行う。外部データの更新・公開は許可されたActionsへ委譲する |
+| ChatGPTクラウド | 本番データは基本read-only。コード・文書編集、依存導入、build、fixture・検証コピーへの書込、commit・push・PR作成、認可された実データ・provider読取を行う。外部データの更新・公開は許可されたActionsへ委譲する |
 
+データ状態の正本と作業コピーは[architecture](../architecture.md#store-authority)に従い、この表の実行場所とは区別する。
 操作はユーザーの依頼・接続の権限・利用枠の範囲で行う。providerから取得した応答の検証用保存は
 クラウド内の書込であり、本番storeや外部serviceへの書込とは区別する。
 本番操作の入口とcredential配置は[batch運用](../../batch/OPERATIONS.md#actions-write-boundary)に従う。

@@ -537,7 +537,7 @@ _push_keys() {
   # and leaves the other two exactly as they are, so the split is what says whether
   # either is worth its machinery. The stores differ by a factor of 30 in size, and
   # the two server-side phases scale with it, so the split is reported per key.
-  local key source started
+  local key source started uploaded_version
   local -a snapshot_seconds=()
   for key in "$@"; do
     source="$(store_path "${key}")"
@@ -564,13 +564,23 @@ _push_keys() {
       # PutObject's If-Match is checked atomically when R2 commits the object. The
       # earlier read avoids an expensive snapshot after an already-visible race;
       # this condition closes the remaining race through backup and upload.
-      aws s3api put-object \
+      uploaded_version="$(aws s3api put-object \
         --bucket "${stores_bucket}" \
         --key "${key}" \
         --body "${transfer_staging}/${key}" \
         --if-match "${expected_version}" \
         --endpoint-url "${endpoint}" \
-        >/dev/null
+        --query ETag --output text)"
+      if [[ "${key}" == "baibai.sqlite" ]]; then
+        # Only this PUT's response identifies our snapshot; a later HEAD could
+        # observe a different writer and authorize a stale working copy.
+        clear_pulled_versions "${key}"
+        if [[ -z "${uploaded_version}" || "${uploaded_version}" == "None" ]]; then
+          printf 'application uploaded but no ETag returned; pull before next update\n' >&2
+          return 1
+        fi
+        record_pulled_version "${key}" "${uploaded_version}"
+      fi
     else
       aws_s3 cp "${transfer_staging}/${key}" "s3://${stores_bucket}/${key}"
     fi
@@ -688,8 +698,8 @@ publish_serving_tail() {
 }
 
 pull_app() {
-  # application DB の正本はローカルにある (判断はローカルで publish し、`push-app` で
-  # cloud へ出す)。cloud copy で置換してよいのは「ローカルに正本が無い」ときだけなので、
+  # application DB の正本はR2にある (判断は取得した作業copyで publish し、`push-app` で
+  # cloud へ反映する)。未公開変更を失わないよう、既存の作業copyは置換しない。
   # ファイルがあれば止める。publish 済みで未 push の判断は再生成できず、上書きすると
   # 復元手段が無い。CI は checkout 直後で stores/application/ が空なので素通りする。
   local target
@@ -773,7 +783,8 @@ case "${1:-}" in
     write_machine_manifest
     ;;
   push-app)
-    push_keys baibai.sqlite
+    app_version="$(pulled_version baibai.sqlite)"
+    push_key_if_version baibai.sqlite "${app_version}"
     prune_app_backups
     ;;
   # The serving bucket has one writer: the batch that produces a complete export.
