@@ -126,6 +126,18 @@ portfolioの年次・3年・5年outcomeのprimary benchmarkはJPXのTOPIX gross 
 
 固定releaseからの選択と欠測時の扱いは[Research query](./market-lake.md#edinet-research-query)、初期化・運用は[batch運用](../../batch/OPERATIONS.md#edinet-research-facts)に従う。
 
+<a id="retail-dynamics"></a>
+
+## 公開brokerページの観測
+
+`retail_dynamics`は配信画面で受信できた値を保存する。マネックスの公開Scouter Lite理論株価表から、目標株価コンセンサスとPER会社予想・PERアナリスト予想・PBRのモデル価格を取得する。目標株価の原データとモデル価格の算出主体は別々に記録する。ロックされたsummaryや割安・割高の目盛りから判断を作らない。
+
+楽天の公開forecastページが指定するIFIS iframeから現在のレーティングを取得する。別の業績予想欄のアナリスト数をレーティング人数へ流用せず、確認できない尺度・方向・人数・公表日時はnullに保つ。画面の過去列は取得以前の受信履歴にはしない。両社が同じIFIS情報を配信しても独立した賛成票とは数えない。
+
+受信時刻とJST受信日を保持し、過去時点ではcutoff以前の最新行を読む。最新行が正常nullなら以前の値はpreviousとしてのみ残す。比較は確認済みの同じorigin・単位・期間・株式basisまたは尺度に限定し、未確認、欠測の回復、人数変更、同値の再観測に理由を付ける。分析は入力参照とmethod versionを持つ読取結果であり、投資判断へ自動投入しない。
+
+限定取得・保存済みstageの再投入は[batch運用](../../batch/OPERATIONS.md#retail-dynamics)、保存と照会は[market lake](./market-lake.md#retail-dynamics-query)を参照する。
+
 ## TradingViewの市場期待
 
 `tradingview.forecast_snapshots`はOfficial MCPの`get_symbol_data_batch`から実際に取得した市場期待を、日付・銘柄ごとに保持する任意のL1入力である。対象は既存J-Quants masterの東証普通株で、Screeningの最小株価履歴を要求しない。`get_forecasts`の日本株通貨補正や、ScreenerによるUniverse生成は行わない。

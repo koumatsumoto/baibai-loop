@@ -16,11 +16,19 @@ import sqlite3
 from collections.abc import Mapping
 from pathlib import Path
 
+from baibai_engine.market.retail_dynamics.contract import (
+    ANALYST_RATING_COLUMNS,
+    ANALYST_RATING_DDL,
+    ANALYST_RATING_TABLE,
+    MODEL_VALUATION_COLUMNS,
+    MODEL_VALUATION_DDL,
+    MODEL_VALUATION_TABLE,
+)
 from baibai_engine.market.tradingview.contract import COLUMNS as TV_COLUMNS
 from baibai_engine.market.tradingview.contract import DDL as TV_DDL
 from baibai_engine.market.tradingview.contract import TABLE as TV_TABLE
 
-SQLITE_SCHEMA_VERSION = 28
+SQLITE_SCHEMA_VERSION = 29
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
 # EDINET serves a filing's descriptive columns only while its public-inspection period
@@ -69,6 +77,8 @@ EDINET_DOCUMENT_LIFECYCLE_COLUMNS: tuple[str, ...] = (
 )
 
 _REQUIRED_TABLES = (
+    MODEL_VALUATION_TABLE,
+    ANALYST_RATING_TABLE,
     TV_TABLE,
     "jquants_daily_bars",
     "jquants_fin_summaries",
@@ -93,6 +103,8 @@ _REQUIRED_TABLES = (
     "lake_store_origin",
 )
 _REQUIRED_COLUMNS: Mapping[str, tuple[str, ...]] = {
+    MODEL_VALUATION_TABLE: tuple(column[0] for column in MODEL_VALUATION_COLUMNS),
+    ANALYST_RATING_TABLE: tuple(column[0] for column in ANALYST_RATING_COLUMNS),
     TV_TABLE: tuple(column[0] for column in TV_COLUMNS),
     "jquants_daily_bars": (
         "ticker",
@@ -751,7 +763,7 @@ CREATE TABLE IF NOT EXISTS tender_offer_exit_values(
 """
 
 
-_SCHEMA_SQL += TV_DDL
+_SCHEMA_SQL += TV_DDL + MODEL_VALUATION_DDL + ANALYST_RATING_DDL
 
 
 class SQLiteSchemaError(RuntimeError):

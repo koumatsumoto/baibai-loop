@@ -27,6 +27,8 @@ flowchart LR
 
 engineはweb・batch・toolsへ依存しない。Webからengineへの入口は`read_api`、batchからは`batch_api`と`read_api`であり、import-linterが境界を検査する。batchはdomainの判断やwrite invariantを独自実装せず、engineのserviceへ委譲する。storeとserving objectの転送はbatchが担う。
 
+公開brokerの取得・保存・読取・同一系列比較は`market/retail_dynamics`が所有する。schema/lakeはI/Oを持たないleaf contractだけを参照し、Web・toolsは専用read facadeを使う。Research、FV、Screening順位、配分・発注判断へ観測serviceを依存させない。入力の意味は[data sources](./reference/data-sources.md#retail-dynamics)を参照する。
+
 <a id="four-roles"></a>
 
 機構の役割は、業務の成果を「産む」、誤った出力を「止める」、結果を「測る」、判断材料を「見せる」で説明する。採否は[開発原則](./doctrine.md#development-investment-policy)に従う。この分類を全moduleに定型文として記載する義務は設けない。
