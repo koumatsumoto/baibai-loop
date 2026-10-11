@@ -19,6 +19,7 @@ from pydantic import ValidationError
 
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 
+from .accepted import accept_observations, load_observations
 from .auth import (
     AuthenticationError,
     CredentialStorage,
@@ -178,6 +179,12 @@ def build_parser() -> argparse.ArgumentParser:
     refresh.add_argument("--progress-output", type=Path)
     refresh.add_argument("--interval", type=float, default=15.0)
     refresh.add_argument("--batch-size", type=int, choices=range(1, 51), default=50)
+    accepted = sub.add_parser(
+        "accept-observations", help="accept hash-pinned saved responses without provider access"
+    )
+    accepted.add_argument("--sqlite", type=Path, default=MARKET_DB_PATH)
+    accepted.add_argument("--input", type=Path, required=True)
+    accepted.add_argument("--input-sha256", required=True)
     return parser
 
 
@@ -186,6 +193,12 @@ def main(argv: list[str] | None = None, /) -> int:
     # SDK validation errors can contain token response values; report only safe status.
     logging.getLogger("mcp.client.auth").setLevel(logging.CRITICAL)
     try:
+        if args.command == "accept-observations":
+            result = accept_observations(
+                args.sqlite, load_observations(args.input, sha256=args.input_sha256)
+            )
+            print(json.dumps(result, sort_keys=True))
+            return 0
         if args.command == "authorize":
             from .authorize import authorize
 

@@ -54,6 +54,8 @@ from baibai_engine.macro.indicators.service import (
     LATEST_FETCH_LOOKBACK_DAYS,
 )
 from baibai_engine.market.lake.datasets import LAKE_DATASETS
+from baibai_engine.market.lake.duck import lake_session
+from baibai_engine.market.lake.hydrate import hydrate_market_store
 from baibai_engine.market.lake.identity import verified_git_commit as lake_verified_git_commit
 from baibai_engine.market.lake.keys import (
     current_l1_pointer_key as lake_current_l1_pointer_key,
@@ -68,7 +70,7 @@ from baibai_engine.market.lake.models import (
     load_lake_model_json,
 )
 from baibai_engine.market.lake.models import validate_release_policy as validate_lake_release_policy
-from baibai_engine.market.lake.objects import LocalMirrorSource
+from baibai_engine.market.lake.objects import LakeObjectCache, LocalMirrorSource
 from baibai_engine.market.lake.objects import mirror_path as lake_mirror_path
 from baibai_engine.market.lake.reader import FixedRelease as LakeFixedRelease
 from baibai_engine.market.lake.reader import LakeReadError, resolve_release
@@ -96,6 +98,15 @@ from baibai_engine.market.sqlite.schema import (
     validate_current_schema as validate_market_schema,
 )
 from baibai_engine.market.sqlite.snapshot import create_snapshot as create_market_snapshot
+from baibai_engine.market.tradingview.accepted import (
+    accept_observations as tradingview_accept_observations,
+)
+from baibai_engine.market.tradingview.accepted import (
+    load_observations as tradingview_load_observations,
+)
+from baibai_engine.market.tradingview.accepted import (
+    verify_observations as tradingview_verify_observations,
+)
 from baibai_engine.market.tradingview.collector import (
     preflight_snapshot as tradingview_preflight,
 )
@@ -379,6 +390,7 @@ __all__ = [
     "LakeBuildReport",
     "LakeDatasetManifest",
     "LakeFixedRelease",
+    "LakeObjectCache",
     "LakeReadError",
     "LakeReleaseManifest",
     "LakeSQLiteSnapshotSourceRef",
@@ -399,10 +411,12 @@ __all__ = [
     "create_market_snapshot",
     "database_path",
     "export_lake_legacy",
+    "hydrate_market_store",
     "lake_current_l1_pointer_key",
     "lake_dataset_manifest_key",
     "lake_mirror_path",
     "lake_release_manifest_key",
+    "lake_session",
     "lake_verified_git_commit",
     "load_daily_analysis_context",
     "load_definitions",
@@ -417,10 +431,13 @@ __all__ = [
     "repository_root_error",
     "resolve_release",
     "scorecard_series_ids",
+    "tradingview_accept_observations",
     "tradingview_failure_line",
+    "tradingview_load_observations",
     "tradingview_preflight",
     "tradingview_safe_progress",
     "tradingview_validate_time",
+    "tradingview_verify_observations",
     "validate_lake_release_policy",
     "validate_macro_schema",
     "validate_market_schema",

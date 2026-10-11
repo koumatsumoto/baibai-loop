@@ -851,6 +851,25 @@ storeのmergeでは同日でも別docIDの成否を混同しない。共有docID
 
 正常batchは検証後に確定し、新規rowがあれば`partial`でもL1へ公開する。後続slotはL1からhydrateした同日rowのticker集合をexact-date masterのUniverseと照合し、未保存銘柄だけを取得する。全銘柄account済みならMCP接続前に終了する。hydrate後にmasterのraw rowsがあれば、`source_coverage`がなくても再取得せずに使う。TV workflowはremote `market.sqlite`や`machine-manifest.json`を更新せず、L1 releaseだけを永続化する。dailyは独立して実行する。
 
+### 保存済み実観測の明示的な受入
+
+providerから受領済みの応答を履歴へ残す場合は、通常collectorとは別に`accept-observations`を使う。新しいprovider接続は行わず、休場日でも実受領日のJST日付を`snapshot_date`、UTC受領完了時刻を`fetched_at_utc`にする。quote/provider更新時刻が不明ならNULLのままとし、過去の営業日へ付け替えない。1〜2応答・各最大50銘柄を既存`tradingview.forecast_snapshots`へ追加し、coverageは`partial`のままにする。同一PK・全列一致はno-op、異なる値なら受入全体をrollbackし、既存行を上書きしない。
+
+元応答はLibraryに保持し、versionとSHA256を確認してから対象応答だけを選ぶ。入力JSONは`schema_version: 1`、`source_ref`（`library_file_id`, `file_id`, `version`, 元ファイルの`sha256`）、`observation_date_jst`、取得時の順序の`columns`、`observations`を持つ。各observationは`trial`、UTCの`timing.start/end`、構造化された元の`result`を保持する。`json.dumps(..., ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False)`で改行なしに保存し、選択入力そのもののSHA256も求める。元ファイルのhashはprovenanceであり、選択入力のhashとは区別する。
+
+作業用SQLiteだけで受入を確認する場合:
+
+```bash
+uv run baibai-engine tradingview accept-observations \
+  --sqlite /tmp/market-acceptance.sqlite \
+  --input /tmp/selected-observations.json \
+  --input-sha256 <選択入力のSHA256>
+```
+
+本番反映は既存`cloud-tradingview-snapshot.yml`のmainへのmanual dispatchを使う。`observations_json`と`observations_sha256`の両方を設定し、`ref: main`と`inputs`を含むdispatch JSONをprivate fileから`gh api --method POST .../actions/workflows/cloud-tradingview-snapshot.yml/dispatches --input <file>`へ渡す。Actions inputs合計は65,535文字以内とする。raw応答をGit、shell引数、環境変数、logへ出さない。jobは`GITHUB_EVENT_PATH`から入力を検証し、既存publication lease取得→fresh pull/hydrate→受入→新規行がある場合だけ既存L1 publishの順に実行する。両入力が空のscheduled/manual実行は通常collectorへ進む。
+
+公開後は空のcacheからR2の固定releaseを全dataset読み直してhydrateし、受入行の全列、受領時刻、受入前のTV履歴の件数/hash、他datasetと他月のobject hashを照合する。成功summaryの`readback: verified`を確認する。`published_readback_pending`だけなら公開は済んでいても読戻し未確認であり、完了として扱わない。同じ入力の再実行は一致する行を検証し、L1を再公開しない。OAuth state・通常cron・通常collectorの営業日/引け後guardはこの操作で変更しない。
+
 ### 初期設定と認証の復旧
 
 公式MCP SDKで対話認証する。秘密値をGit、L1、workflow artifact、チャットへ出さず、state fileはリポジトリ外に置く。認証URLを開く間はcommandを動かしたままにする。戻り先は`127.0.0.1:8765`であり、接続拒否の場合は待受終了・Windows/WSL間の接続を確認して再実行する。
