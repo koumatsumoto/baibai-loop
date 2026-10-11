@@ -5,7 +5,7 @@ import httpx2
 import pytest
 from mcp.client.auth.exceptions import OAuthTokenError
 
-from baibai_engine.market.tradingview import cli
+from baibai_engine.market.tradingview import cli, diagnostics
 from baibai_engine.market.tradingview.auth import AuthenticationError, SecretPersistenceError
 from baibai_engine.market.tradingview.collector import SourceDataError, TimeGuardError
 from baibai_engine.market.tradingview.observations import AllMissingError, FetchError
@@ -368,4 +368,4 @@ def test_invalid_retry_after_is_not_echoed(value):
     response = httpx2.Response(
         503, headers={"Retry-After": value}, request=httpx2.Request("GET", "https://example.com")
     )
-    assert cli._retry_not_before(response) is None
+    assert diagnostics._retry_not_before(response) is None
