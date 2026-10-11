@@ -52,22 +52,13 @@ jobs:
       - name: Provision DuckDB httpfs extension
         if: ${{ steps.status.outputs.exists != 'true' }}
         run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
-      - name: Hydrate the saved master for the initial plan
-        if: ${{ steps.status.outputs.exists != 'true' }}
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: |
-          batch/scripts/r2_transfer.sh pull-market
-          batch/scripts/r2_transfer.sh hydrate-market
       - name: Freeze or verify the private plan
         id: plan
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_batch.jobs.retail_daily plan --run-id "$RETAIL_BATCH_ID" --master-asof "$RETAIL_MASTER_ASOF"
+        run: uv run python -m baibai_batch.jobs.retail_daily plan --run-id "$RETAIL_BATCH_ID" --master-asof "$RETAIL_MASTER_ASOF" --directory "$RUNNER_TEMP/retail-plan"
 
   acquire:
     needs: plan
@@ -100,6 +91,12 @@ jobs:
   publish:
     needs: [plan, acquire]
     runs-on: ubuntu-latest
+    outputs:
+      expected_pairs: ${{ steps.publish.outputs.retail_expected_pairs }}
+      typed_pairs: ${{ steps.publish.outputs.retail_typed_pairs }}
+      known_failure_pairs: ${{ steps.publish.outputs.retail_known_failure_pairs }}
+      normal_null_pairs: ${{ steps.publish.outputs.retail_normal_null_pairs }}
+      rows_added: ${{ steps.publish.outputs.retail_rows_added }}
     # The existing publication lease expires after 120 minutes.
     timeout-minutes: 110
     concurrency:
@@ -135,6 +132,7 @@ jobs:
           batch/scripts/r2_transfer.sh pull-market
           batch/scripts/r2_transfer.sh hydrate-market
       - name: Import confirmed receipts and publish with remote readback
+        id: publish
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -147,3 +145,32 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: uv run python -m baibai_batch.storage.publication_lease release --handle "$RUNNER_TEMP/retail-publication-lease.json"
+
+  notify:
+    needs: [plan, acquire, publish]
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Record cancellation
+        id: cancellation
+        if: ${{ cancelled() }}
+        run: echo "cancelled=true" >> "$GITHUB_OUTPUT"
+      - name: Notify Discord once about the terminal retail run
+        if: ${{ always() }}
+        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          PYTHONPATH: batch/src
+        run: |
+          python3 -m baibai_batch.observability.retail_discord \
+            --plan-result "${{ needs.plan.result }}" \
+            --acquire-result "${{ needs.acquire.result }}" \
+            --publish-result "${{ needs.publish.result }}" \
+            --expected-pairs "${{ needs.publish.outputs.expected_pairs }}" \
+            --typed-pairs "${{ needs.publish.outputs.typed_pairs }}" \
+            --known-failure-pairs "${{ needs.publish.outputs.known_failure_pairs }}" \
+            --normal-null-pairs "${{ needs.publish.outputs.normal_null_pairs }}" \
+            --rows-added "${{ needs.publish.outputs.rows_added }}" \
+            --cancelled "${{ steps.cancellation.outputs.cancelled || 'false' }}"

@@ -106,12 +106,18 @@ from baibai_engine.market.retail_dynamics.models import (
 )
 from baibai_engine.market.retail_dynamics.models import Observation as RetailObservation
 from baibai_engine.market.retail_dynamics.store import save_observations as retail_save_observations
+from baibai_engine.market.retail_dynamics.universe import (
+    frozen_lake_universe as retail_frozen_lake_universe,
+)
 from baibai_engine.market.retail_dynamics.universe import frozen_universe as retail_frozen_universe
 from baibai_engine.market.retail_dynamics.verification import (
     history_digests as retail_history_digests,
 )
 from baibai_engine.market.retail_dynamics.verification import (
     verify_observations as retail_verify_observations,
+)
+from baibai_engine.market.retail_dynamics.verification import (
+    verify_release_history as retail_verify_release_history,
 )
 from baibai_engine.market.sqlite import open_connection as open_market_store
 from baibai_engine.market.sqlite.lake_origin import (
@@ -471,6 +477,7 @@ __all__ = [
     "retail_collect_pair",
     "retail_collector_binding",
     "retail_dynamics_main",
+    "retail_frozen_lake_universe",
     "retail_frozen_universe",
     "retail_history_digests",
     "retail_load_staging",
@@ -478,6 +485,7 @@ __all__ = [
     "retail_save_observations",
     "retail_save_staging",
     "retail_verify_observations",
+    "retail_verify_release_history",
     "scorecard_series_ids",
     "tradingview_accept_observations",
     "tradingview_failure_line",

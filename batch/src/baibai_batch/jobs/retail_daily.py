@@ -21,6 +21,7 @@ from baibai_batch.jobs.retail_cohorts import (
     validate_resume,
 )
 from baibai_batch.storage.lake_publish import Boto3R2Store, ObjectStore
+from baibai_batch.storage.publish_market_lake import _resolve_serving_release, _serving_pointer
 from baibai_batch.storage.retail_staging import (
     Checkpoint,
     checkpoint_bytes,
@@ -33,11 +34,13 @@ from baibai_batch.storage.retail_staging import (
 )
 from baibai_engine.batch_api import (
     MARKET_DB_PATH,
+    LakeObjectCache,
     RetailCollectionResult,
     RetailSource,
+    lake_session,
     retail_collect_pair,
     retail_collector_binding,
-    retail_frozen_universe,
+    retail_frozen_lake_universe,
 )
 
 SOFT_BUDGET_SECONDS = 4 * 60 * 60
@@ -49,14 +52,41 @@ def require_binding(plan: RunPlan) -> None:
         raise ValueError("retail collector binding changed; do not reuse this batch")
 
 
-def initialize(store: ObjectStore, *, run_id: str, master_asof: date, database: Path) -> RunPlan:
+class _MasterSource:
+    def __init__(self, store: ObjectStore) -> None:
+        self.store = store
+
+    def read_bytes(self, key: str) -> bytes:
+        return self.store.get_bytes(key)
+
+    def uri(self, key: str) -> str:
+        raise ValueError("retail master source requires materialized local objects")
+
+
+def initialize(
+    store: ObjectStore, *, run_id: str, master_asof: date, mirror: Path | None
+) -> RunPlan:
     existing = read_plan(store, run_id)
     if existing is not None:
         require_binding(existing)
         if json.loads(existing.universe_binding)["master_asof"] != master_asof.isoformat():
             raise ValueError("retail saved master assertion changed")
         return existing
-    tickers, binding = retail_frozen_universe(database, master_asof)
+    if mirror is None:
+        raise ValueError("private master cache directory required for a new plan")
+    mirror.mkdir(mode=0o700, parents=True, exist_ok=True)
+    mirror.chmod(0o700)
+    pointer = _serving_pointer(store).pointer
+    if pointer is None:
+        raise ValueError("retail plan requires an existing L1 release")
+    release = _resolve_serving_release(store, mirror, pointer)
+    with lake_session() as session:
+        tickers, binding = retail_frozen_lake_universe(
+            session,
+            release=release,
+            cache=LakeObjectCache(root=mirror, source=_MasterSource(store)),
+            master_asof=master_asof,
+        )
     plan = make_plan(
         run_id=run_id,
         tickers=tickers,
@@ -207,6 +237,24 @@ def write_outputs(plan: RunPlan | None) -> None:
                 print(f"{key}={value}", file=stream)
 
 
+def write_publication_outputs(report: dict[str, object]) -> None:
+    """Expose only measured aggregates; normal_null means all metric values null."""
+    states = report.get("state_counts")
+    states = states if isinstance(states, dict) else {}
+    counters = {
+        "expected_pairs": report.get("expected_pairs"),
+        "typed_pairs": report.get("observations"),
+        "known_failure_pairs": states.get("failure"),
+        "normal_null_pairs": states.get("normal_null"),
+        "rows_added": report.get("rows_added"),
+    }
+    if output := os.environ.get("GITHUB_OUTPUT"):
+        with Path(output).open("a", encoding="utf-8") as stream:
+            for key, value in counters.items():
+                safe = str(value) if type(value) is int and value >= 0 else "unknown"
+                print(f"retail_{key}={safe}", file=stream)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("status", "plan", "acquire", "audit", "publish"))
@@ -225,7 +273,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.master_asof is None:
                 raise ValueError("saved master date required")
             plan = initialize(
-                store, run_id=args.run_id, master_asof=args.master_asof, database=args.db
+                store, run_id=args.run_id, master_asof=args.master_asof, mirror=args.directory
             )
         else:
             plan = read_plan(store, args.run_id)
@@ -264,6 +312,7 @@ def main(argv: list[str] | None = None) -> int:
                 mirror=args.db.parents[1],
                 directory=args.directory,
             )
+            write_publication_outputs(report)
         print(json.dumps(report, sort_keys=True))
         if args.command == "acquire":
             if report.get("status") == "already_published":

@@ -9,7 +9,9 @@ from datetime import UTC, date, datetime
 
 import pytest
 import requests
+from tests.engine.test_retail_dynamics_daily_verification import ASOF, build_master_lake
 from tests.engine.test_retail_dynamics_sources import official_html, rakuten_html
+from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_batch.jobs import retail_daily as daily
 from baibai_batch.jobs.retail_cohorts import (
@@ -28,6 +30,8 @@ from baibai_engine.batch_api import (
     retail_collect_pair,
     retail_collector_binding,
 )
+from baibai_engine.market.lake.keys import current_l1_pointer_key
+from baibai_engine.market.lake.objects import LakeObjectError
 
 RECEIVED = datetime(2026, 10, 11, 0, 0, 1, 123456, tzinfo=UTC)
 
@@ -431,12 +435,84 @@ def test_saved_plan_master_assertion_is_checked_without_refreezing(monkeypatch):
     def unexpected_master(*args, **kwargs):
         raise AssertionError("existing plan must retain its frozen universe")
 
-    monkeypatch.setattr(daily, "retail_frozen_universe", unexpected_master)
+    monkeypatch.setattr(daily, "retail_frozen_lake_universe", unexpected_master)
     assert (
-        daily.initialize(store, run_id=p.run_id, master_asof=date(2026, 10, 11), database=None) == p
+        daily.initialize(store, run_id=p.run_id, master_asof=date(2026, 10, 11), mirror=None) == p
     )
     with pytest.raises(ValueError, match="master assertion changed"):
-        daily.initialize(store, run_id=p.run_id, master_asof=date(2026, 10, 12), database=None)
+        daily.initialize(store, run_id=p.run_id, master_asof=date(2026, 10, 12), mirror=None)
+
+
+def test_initial_plan_uses_only_exact_master_year_and_resume_keeps_its_release(
+    tmp_path, monkeypatch
+):
+    store, release, _ = build_master_lake(tmp_path, monkeypatch)
+    cache = tmp_path / "private-plan-cache"
+    p = daily.initialize(store, run_id="new-master-only", master_asof=ASOF, mirror=cache)
+    assert p.tickers == tuple(sorted((*map(str, range(1000, 3500)), "130A")))
+    assert json.loads(p.universe_binding)["release_manifest_sha256"] == release.manifest_sha256
+    assert cache.stat().st_mode & 0o777 == 0o700
+    parquet_reads = [key for key in store.get_keys if key.endswith(".parquet")]
+    assert parquet_reads
+    assert all("jquants.master_snapshots/" in key for key in parquet_reads)
+    assert all("/year=2026/" in key for key in parquet_reads)
+    assert not list(cache.rglob("*.sqlite"))
+    assert not list(cache.rglob("*.db"))
+
+    # A later run may use the same verified cache, without transferring Parquet again.
+    store.get_keys.clear()
+    second = daily.initialize(store, run_id="other-batch", master_asof=ASOF, mirror=cache)
+    assert second.tickers == p.tickers
+    assert second.universe_binding == p.universe_binding
+    assert not any(key.endswith(".parquet") for key in store.get_keys)
+
+    # Even an unreadable current release cannot silently refreeze a saved batch.
+    store.store_object(current_l1_pointer_key(), b"unreadable synthetic later pointer")
+    store.get_keys.clear()
+    store.head_keys.clear()
+    resumed = daily.initialize(store, run_id=p.run_id, master_asof=ASOF, mirror=None)
+    assert resumed == p
+    assert current_l1_pointer_key() not in store.head_keys
+    assert all(key == staging.prefix(p.run_id) + "/plan.json" for key in store.get_keys)
+
+
+def test_new_plan_requires_cache_and_existing_release_before_master_or_plan_writes(tmp_path):
+    store = MemoryR2Store()
+    with pytest.raises(ValueError, match="master cache directory"):
+        daily.initialize(store, run_id="missing-cache", master_asof=ASOF, mirror=None)
+    with pytest.raises(ValueError, match="existing L1 release"):
+        daily.initialize(
+            store, run_id="missing-release", master_asof=ASOF, mirror=tmp_path / "cache"
+        )
+    assert store.get_keys == []
+    assert store.put_keys == []
+
+
+def test_wrong_saved_collector_binding_rejects_resume_before_release_reads(monkeypatch):
+    p = replace(plan(), collector_binding="different-code")
+    store = FakeObjectStore()
+    staging.save_new_plan(store, p)
+    store.events.clear()
+    with pytest.raises(ValueError, match="collector binding changed"):
+        daily.initialize(store, run_id=p.run_id, master_asof=ASOF, mirror=None)
+    assert all(key == staging.prefix(p.run_id) + "/plan.json" for _, key in store.events)
+
+
+def test_corrupt_digest_pinned_master_cannot_publish_a_new_plan(tmp_path, monkeypatch):
+    store, _, _ = build_master_lake(tmp_path, monkeypatch)
+    key = next(
+        key
+        for key in store.values
+        if key.endswith(".parquet") and "jquants.master_snapshots/" in key and "/year=2026/" in key
+    )
+    original = store.values[key].body
+    store.store_object(key, bytes([original[0] ^ 1]) + original[1:])
+    with pytest.raises(LakeObjectError, match="digest differs"):
+        daily.initialize(
+            store, run_id="corrupt-master", master_asof=ASOF, mirror=tmp_path / "cache"
+        )
+    assert store.put_keys == []
+    assert [key for key in store.get_keys if key.endswith(".parquet")] == [key]
 
 
 def test_real_pair_collector_persists_two_rakuten_reservations_and_exact_receipt(monkeypatch):

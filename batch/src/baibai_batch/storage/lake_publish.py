@@ -11,7 +11,7 @@ import re
 import sys
 import tempfile
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -412,6 +412,7 @@ def publish_l1_release(
     store: ObjectStore,
     pointer_precondition: PointerPrecondition | None = None,
     expected_release_sha256: str | None = None,
+    before_pointer_switch: Callable[[], None] | None = None,
 ) -> PublishReport:
     """Upload immutable graph nodes, then atomically switch the one mutable pointer."""
     publication = _RemotePublication(store=store)
@@ -548,6 +549,12 @@ def publish_l1_release(
         temporary.write(canonical_lake_model_bytes(pointer))
         temporary.flush()
         pointer_payload = Path(temporary.name).read_bytes()
+        # A long export/upload can outlive the caller's publication lease. The
+        # pointer ETag protects its generation, while this checks the caller's
+        # authority immediately before the conditional write. A failed guard is
+        # not an ambiguous attempted switch and must never enter reconciliation.
+        if before_pointer_switch is not None:
+            before_pointer_switch()
         try:
             result = publication.put(
                 pointer_key,

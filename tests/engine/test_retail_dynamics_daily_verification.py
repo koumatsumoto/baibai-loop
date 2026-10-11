@@ -3,11 +3,21 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
+from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.r2_store import MemoryR2Store
 
+from baibai_engine.market.lake.duck import lake_session
+from baibai_engine.market.lake.keys import current_l1_pointer_key
+from baibai_engine.market.lake.models import canonical_lake_model_bytes
+from baibai_engine.market.lake.objects import LakeObjectCache, LakeObjectError, LocalMirrorSource
+from baibai_engine.market.lake.reader import LakeReadError, resolve_current_release
+from baibai_engine.market.lake.release import L1ReleasePointer, create_l1_release
+from baibai_engine.market.lake.writer import export_legacy_sqlite, sealed_sqlite_snapshot
 from baibai_engine.market.retail_dynamics.contract import (
     ANALYST_RATING_TABLE,
     MODEL_VALUATION_TABLE,
@@ -18,7 +28,7 @@ from baibai_engine.market.retail_dynamics.models import (
 )
 from baibai_engine.market.retail_dynamics.reader import read_observations
 from baibai_engine.market.retail_dynamics.store import save_observations
-from baibai_engine.market.retail_dynamics.universe import frozen_universe
+from baibai_engine.market.retail_dynamics.universe import frozen_lake_universe, frozen_universe
 from baibai_engine.market.retail_dynamics.verification import history_digests, verify_observations
 from baibai_engine.market.sqlite.lake_origin import LakeStoreOrigin, write_lake_store_origin
 from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION, open_connection
@@ -59,6 +69,237 @@ def seed_database(path, *, count=2500, snapshot=ASOF, origin=True):
     finally:
         connection.close()
     return tickers
+
+
+def build_master_lake(tmp_path, monkeypatch, *, snapshot=ASOF, count=2500, mutate=None):
+    """Real contracts and Parquet, plus unrelated data that must never be fetched."""
+    datasets = ("jquants.master_snapshots", "jquants.daily_bars")
+    narrow_release_policy(monkeypatch, datasets=datasets)
+    database = tmp_path / "market.sqlite"
+    seed_database(database, snapshot=snapshot, count=count)
+    with sqlite3.connect(database) as connection:
+        connection.executemany(
+            "INSERT INTO jquants_master_snapshots VALUES (?,?,?,?,?,?)",
+            [
+                (snapshot.isoformat(), "130A", "合成英字会社", "PRIME", "電気機器", 0),
+                (snapshot.isoformat(), "9401", "合成ETF", "PRIME", "その他", 1),
+                (snapshot.isoformat(), "9402", "合成PRO", "TOKYO PRO MARKET", "電気機器", 1),
+                (snapshot.isoformat(), "9403", "合成市場外", "RESIDUAL", "電気機器", 1),
+                ("2025-12-31", "130A", "合成旧年会社", "PRIME", "電気機器", 1),
+            ],
+        )
+        connection.execute(
+            "INSERT INTO jquants_daily_bars(ticker,traded_at,close,volume) VALUES (?,?,?,?)",
+            ("130A", "2026-09-30", 1, 1),
+        )
+        if mutate is not None:
+            mutate(connection)
+    mirror = tmp_path / "published"
+    with sealed_sqlite_snapshot(sqlite_path=database, mirror_root=mirror) as snapshot_source:
+        manifests = [
+            export_legacy_sqlite(
+                dataset_name=name,
+                mirror_root=mirror,
+                producer_git_commit="a" * 40,
+                source_snapshot=snapshot_source,
+                build_id=f"synthetic-{name.replace('.', '-')}",
+                created_at=RECEIVED,
+            ).manifest_path
+            for name in datasets
+        ]
+    path, release = create_l1_release(
+        dataset_manifest_paths=manifests,
+        mirror_root=mirror,
+        release_id="synthetic-master-only",
+        created_at=RECEIVED,
+    )
+    pointer = L1ReleasePointer(
+        release_id=release.release_id,
+        manifest_key=path.relative_to(mirror).as_posix(),
+        manifest_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+    )
+    pointer_path = mirror / current_l1_pointer_key()
+    pointer_path.parent.mkdir(parents=True, exist_ok=True)
+    pointer_path.write_bytes(canonical_lake_model_bytes(pointer))
+    fixed = resolve_current_release(LocalMirrorSource(mirror))
+    store = MemoryR2Store()
+    for item in mirror.rglob("*"):
+        if item.is_file():
+            store.store_object(item.relative_to(mirror).as_posix(), item.read_bytes())
+    return store, fixed, database
+
+
+class MasterOnlySource:
+    def __init__(self, store):
+        self.store = store
+
+    def read_bytes(self, key):
+        assert "jquants.master_snapshots/" in key
+        assert "/year=2026/" in key
+        return self.store.get_bytes(key)
+
+    def uri(self, key):
+        raise AssertionError("master objects must pass the digest-verifying cache")
+
+
+def test_lake_master_only_keeps_all_sectors_alpha_and_exact_release_binding(tmp_path, monkeypatch):
+    store, release, database = build_master_lake(tmp_path, monkeypatch)
+    cache = LakeObjectCache(root=tmp_path / "cache", source=MasterOnlySource(store))
+    with lake_session() as session:
+        tickers, binding = frozen_lake_universe(
+            session, release=release, cache=cache, master_asof=ASOF
+        )
+        assert tickers == tuple(sorted((*map(str, range(1000, 3500)), "130A")))
+        assert json.loads(binding) == {
+            "master_asof": ASOF.isoformat(),
+            "release_id": release.release_id,
+            "release_manifest_sha256": release.manifest_sha256,
+            "tickers_sha256": hashlib.sha256("\n".join(tickers).encode()).hexdigest(),
+        }
+        first_reads = tuple(store.get_keys)
+        assert first_reads
+        assert all("jquants.master_snapshots/" in key for key in first_reads)
+        assert all("/year=2026/" in key for key in first_reads)
+        assert frozen_lake_universe(session, release=release, cache=cache, master_asof=ASOF) == (
+            tickers,
+            binding,
+        )
+        assert tuple(store.get_keys) == first_reads
+    with sqlite3.connect(database) as connection:
+        write_lake_store_origin(
+            connection, LakeStoreOrigin(release.release_id, release.manifest_sha256)
+        )
+    assert frozen_universe(database, ASOF) == (tickers, binding)
+
+
+@pytest.mark.parametrize("saved", [ASOF - timedelta(days=1), ASOF + timedelta(days=1)])
+def test_lake_master_never_falls_back_to_another_saved_date(tmp_path, monkeypatch, saved):
+    # Keep both dates historical for this boundary, independently of today's clock.
+    store, release, _ = build_master_lake(
+        tmp_path, monkeypatch, snapshot=saved - timedelta(days=10)
+    )
+    with lake_session() as session, pytest.raises(ValueError, match="exact saved master"):
+        frozen_lake_universe(
+            session,
+            release=release,
+            cache=LakeObjectCache(root=tmp_path / "cache", source=MasterOnlySource(store)),
+            master_asof=ASOF - timedelta(days=10),
+        )
+
+
+@pytest.mark.parametrize("future_location", ["request", "saved_master"])
+def test_lake_future_master_rejected_before_any_parquet_get(tmp_path, monkeypatch, future_location):
+    future = datetime.now(ZoneInfo("Asia/Tokyo")).date() + timedelta(days=1)
+    store, release, _ = build_master_lake(
+        tmp_path, monkeypatch, snapshot=future if future_location == "saved_master" else ASOF
+    )
+    with lake_session() as session, pytest.raises(ValueError, match="cannot be in the future"):
+        frozen_lake_universe(
+            session,
+            release=release,
+            cache=LakeObjectCache(root=tmp_path / "cache", source=MasterOnlySource(store)),
+            master_asof=future if future_location == "request" else ASOF,
+        )
+    assert store.get_keys == []
+
+
+@pytest.mark.parametrize(
+    ("mutation", "error", "message"),
+    [
+        ("UPDATE jquants_master_snapshots SET sector_33='その他'", ValueError, "common-stock"),
+        (
+            "UPDATE jquants_master_snapshots SET sector_33='未知' WHERE ticker='1000'",
+            UniverseSourceDriftError,
+            "Unknown J-Quants sector",
+        ),
+        (
+            "UPDATE jquants_master_snapshots SET ticker='ABCD' WHERE ticker='1000'",
+            ValueError,
+            "ticker",
+        ),
+    ],
+)
+def test_lake_saved_master_classification_and_ascii_code_are_required(
+    tmp_path, monkeypatch, mutation, error, message
+):
+    store, release, _ = build_master_lake(
+        tmp_path, monkeypatch, mutate=lambda connection: connection.execute(mutation)
+    )
+    with lake_session() as session, pytest.raises(error, match=message):
+        frozen_lake_universe(
+            session,
+            release=release,
+            cache=LakeObjectCache(root=tmp_path / "cache", source=MasterOnlySource(store)),
+            master_asof=ASOF,
+        )
+
+
+def test_lake_corrupt_master_cannot_form_universe_and_other_data_is_not_fetched(
+    tmp_path, monkeypatch
+):
+    store, release, _ = build_master_lake(tmp_path, monkeypatch)
+    master = next(
+        key
+        for key in store.values
+        if key.endswith(".parquet") and "/year=2026/" in key and "jquants.master_snapshots/" in key
+    )
+    original = store.values[master].body
+    store.store_object(master, bytes([original[0] ^ 1]) + original[1:])
+    with lake_session() as session, pytest.raises(LakeObjectError, match="digest differs"):
+        frozen_lake_universe(
+            session,
+            release=release,
+            cache=LakeObjectCache(root=tmp_path / "cache", source=MasterOnlySource(store)),
+            master_asof=ASOF,
+        )
+    assert store.get_keys == [master]
+
+
+def test_lake_missing_master_year_rejects_without_reading_another_year(tmp_path, monkeypatch):
+    store, release, _ = build_master_lake(tmp_path, monkeypatch)
+    with lake_session() as session, pytest.raises(LakeReadError, match="does not publish"):
+        frozen_lake_universe(
+            session,
+            release=release,
+            cache=LakeObjectCache(root=tmp_path / "cache", source=MasterOnlySource(store)),
+            master_asof=date(2024, 10, 11),
+        )
+    assert store.get_keys == []
+
+
+@pytest.mark.parametrize("count", [2000, 2498])
+def test_lake_master_requires_both_saved_population_and_selected_common_stock_floor(
+    tmp_path, monkeypatch, count
+):
+    store, release, _ = build_master_lake(tmp_path, monkeypatch, count=count)
+    with lake_session() as session, pytest.raises(ValueError, match="complete"):
+        frozen_lake_universe(
+            session,
+            release=release,
+            cache=LakeObjectCache(root=tmp_path / "cache", source=MasterOnlySource(store)),
+            master_asof=ASOF,
+        )
+
+
+def test_unsupported_master_contract_is_rejected_before_any_parquet_get(tmp_path, monkeypatch):
+    store, release, _ = build_master_lake(tmp_path, monkeypatch)
+    name = "jquants.master_snapshots"
+    current = release.dataset_manifest(name)
+    release = replace(
+        release,
+        dataset_manifests={
+            **release.dataset_manifests,
+            name: current.model_copy(update={"contract_version": current.contract_version + 1}),
+        },
+    )
+    with lake_session() as session, pytest.raises(LakeReadError, match="accepts only"):
+        frozen_lake_universe(
+            session,
+            release=release,
+            cache=LakeObjectCache(root=tmp_path / "cache", source=MasterOnlySource(store)),
+            master_asof=ASOF,
+        )
+    assert store.get_keys == []
 
 
 def model(at=RECEIVED, **kwargs):

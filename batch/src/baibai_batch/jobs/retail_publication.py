@@ -20,13 +20,11 @@ from baibai_engine.batch_api import (
     LakeObjectCache,
     LocalMirrorSource,
     RetailModelValuationObservation,
-    hydrate_market_store,
     lake_session,
-    open_market_store,
     read_lake_store_origin,
     retail_history_digests,
     retail_save_observations,
-    retail_verify_observations,
+    retail_verify_release_history,
 )
 
 VALUATION_DATASET = "retail_dynamics.model_valuation_observations"
@@ -87,7 +85,12 @@ def publish_and_verify(
     expected_history = retail_history_digests(sqlite_path)
     verify_held(store, handle)
     publication = (
-        publish_market_lake(sqlite_path=sqlite_path, mirror_root=mirror, store=store)
+        publish_market_lake(
+            sqlite_path=sqlite_path,
+            mirror_root=mirror,
+            store=store,
+            before_pointer_switch=lambda: verify_held(store, handle),
+        )
         if inserted
         else None
     )
@@ -115,24 +118,21 @@ def publish_and_verify(
         raise LakePublishError("retail publication changed dataset inventory")
     if unchanged_objects(before, changed) != unchanged_objects(after, changed):
         raise LakePublishError("retail publication changed unrelated partitions")
-    for manifest in after.dataset_manifests.values():
+    for name in (VALUATION_DATASET, RATING_DATASET):
+        manifest = after.dataset_manifests.get(name)
+        if manifest is None:
+            continue
         for part in manifest.partitions:
             for obj in part.objects:
                 _fetch(store, readback_mirror, obj.key, expected_sha256=obj.sha256)
-    database = directory / "readback.sqlite"
-    open_market_store(database).close()
-    database.chmod(0o600)
     with lake_session() as session:
-        hydrate_market_store(
+        retail_verify_release_history(
             session,
             release=after,
             cache=LakeObjectCache(root=readback_mirror, source=LocalMirrorSource(readback_mirror)),
-            store=database,
-            dataset_names=tuple(after.dataset_names()),
+            expected_history=expected_history,
+            observations=observations,
         )
-    retail_verify_observations(database, observations)
-    if retail_history_digests(database) != expected_history:
-        raise LakePublishError("retail publication changed received history")
     verify_held(store, handle)
     terminal = {
         "format": "retail-published-batch-v1",
@@ -154,10 +154,32 @@ def publish_and_verify(
             json.dumps(terminal, sort_keys=True).encode(),
             previous_etag=saved.etag if saved else None,
         )
+    reachable = {
+        obj.key: obj.bytes
+        for manifest in after.dataset_manifests.values()
+        for part in manifest.partitions
+        for obj in part.objects
+    }
+    retail_readback = {
+        obj.key: obj.bytes
+        for name, manifest in after.dataset_manifests.items()
+        if name in {VALUATION_DATASET, RATING_DATASET}
+        for part in manifest.partitions
+        for obj in part.objects
+    }
     return {
         **accounting,
         **terminal,
         "rows_added": inserted,
         "uploaded_bytes": publication.uploaded_bytes if publication else 0,
         "uploaded_objects": publication.uploaded_objects if publication else 0,
+        "publication_transfers": publication.transfers.as_dict() if publication else None,
+        "publication_transfers_scope": (
+            "immutable_graph_and_pointer_only; "
+            "excludes lease/checkpoint/base-resolve/hydrate/independent-readback"
+        ),
+        # Manifest sizes describe the readback scope, not actual transfers/cache hits.
+        "current_reachable_expected_parquet_bytes": sum(reachable.values()),
+        "retail_readback_expected_parquet_bytes": sum(retail_readback.values()),
+        "retail_readback_parquet_objects": len(retail_readback),
     }

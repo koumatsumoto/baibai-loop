@@ -25,13 +25,17 @@ from baibai_batch.storage.retail_staging import (
     read_checkpoints,
 )
 from baibai_engine.batch_api import (
+    LakeObjectCache,
+    LocalMirrorSource,
     RetailAnalystRatingObservation,
     RetailCollectionOutcome,
     RetailModelValuationObservation,
+    lake_session,
     retail_collector_binding,
     retail_history_digests,
     retail_save_observations,
     retail_verify_observations,
+    retail_verify_release_history,
 )
 
 WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/cloud-retail-dynamics.yml"
@@ -66,6 +70,25 @@ def publication(tmp_path, monkeypatch):
         [
             RetailModelValuationObservation(**common, distributor="monex", consensus_target=91),
             RetailAnalystRatingObservation(**common, distributor="rakuten", rating=2),
+            RetailModelValuationObservation(
+                ticker="6758",
+                fetched_at_utc=datetime(2026, 7, 31, 15, tzinfo=UTC),
+                source_url="https://example.test/synthetic",
+                parser_version="synthetic-1",
+                distributor="monex",
+                consensus_target=0,
+                consensus_target_origin="synthetic-origin",
+                consensus_target_count=0,
+            ),
+            RetailAnalystRatingObservation(
+                ticker="6758",
+                fetched_at_utc=datetime(2026, 7, 31, 15, tzinfo=UTC),
+                source_url="https://example.test/synthetic",
+                parser_version="synthetic-1",
+                distributor="rakuten",
+                rating=None,
+                rating_updated_label="synthetic-label",
+            ),
         ],
     )
     store = MemoryR2Store()
@@ -139,11 +162,43 @@ def test_real_remote_graph_readback_preserves_null_receipts_history_and_unrelate
     assert report["attempted_completeness"] is True
     assert report["success_completeness"] is False
     assert report["readback"] == "verified"
+    assert set(report["publication_transfers"]) == {
+        "uploaded_objects",
+        "reused_objects",
+        "uploaded_bytes",
+        "downloaded_bytes",
+        "head_requests",
+        "get_requests",
+    }
+    assert report["publication_transfers"]["uploaded_bytes"] == report["uploaded_bytes"]
+    assert report["publication_transfers"]["downloaded_bytes"] > 0
+    assert report["publication_transfers_scope"] == (
+        "immutable_graph_and_pointer_only; "
+        "excludes lease/checkpoint/base-resolve/hydrate/independent-readback"
+    )
+    assert (
+        report["current_reachable_expected_parquet_bytes"]
+        > report["retail_readback_expected_parquet_bytes"]
+        > 0
+    )
+    assert report["retail_readback_parquet_objects"] == 6
     assert report["release_id"] != before.release_id
     assert store.get_bytes(checkpoint_key(plan, 0)) == original
-    assert retail_history_digests(tmp_path / "readback/readback.sqlite") == retail_history_digests(
-        database
-    )
+    assert not (tmp_path / "readback/readback.sqlite").exists()
+    pointer = publisher._serving_pointer(store).pointer
+    after = publisher._resolve_serving_release(store, tmp_path / "readback/mirror", pointer)
+    assert len(after.dataset_manifests[retail.VALUATION_DATASET].partitions) == 3
+    with lake_session() as session:
+        retail_verify_release_history(
+            session,
+            release=after,
+            cache=LakeObjectCache(
+                root=tmp_path / "readback/mirror",
+                source=LocalMirrorSource(tmp_path / "readback/mirror"),
+            ),
+            expected_history=retail_history_digests(database),
+            observations=(),
+        )
     assert "123456" not in capsys.readouterr().out
     count = len(store.put_keys)
     repeat = retail.publish_and_verify(
@@ -155,6 +210,7 @@ def test_real_remote_graph_readback_preserves_null_receipts_history_and_unrelate
         directory=tmp_path / "repeat-readback",
     )
     assert repeat["rows_added"] == repeat["uploaded_bytes"] == repeat["uploaded_objects"] == 0
+    assert repeat["publication_transfers"] is None
     assert len(store.put_keys) == count
     retail_verify_observations(
         database,
@@ -183,6 +239,142 @@ def test_stale_origin_is_rejected_before_stage_changes_or_canonical_upload(publi
         )
     assert retail_history_digests(database) == before
     assert len(store.put_keys) == puts
+
+
+def test_readback_gets_only_retail_parquet_and_keeps_new_object_byte_verification(
+    publication, monkeypatch
+):
+    store, plan, handle, database, mirror, tmp_path = publication
+    before_keys = set(store.values)
+    forbidden = {
+        key for key in before_keys if key.endswith(".parquet") and "retail_dynamics." not in key
+    }
+    assert any("jquants.master_snapshots" in key for key in forbidden)
+    assert any("jquants.daily_bars" in key for key in forbidden)
+    download, get = store.download_file, store.get_bytes
+
+    def download_only_retail(key, path, *, expect_bytes=None):
+        assert key not in forbidden, "non-retail Parquet GET is forbidden"
+        return download(key, path, expect_bytes=expect_bytes)
+
+    def get_only_retail(key):
+        assert key not in forbidden, "non-retail Parquet GET is forbidden"
+        return get(key)
+
+    monkeypatch.setattr(store, "download_file", download_only_retail)
+    monkeypatch.setattr(store, "get_bytes", get_only_retail)
+    store.get_keys.clear()
+    retail.publish_and_verify(
+        store,
+        plan,
+        handle=handle,
+        sqlite_path=database,
+        mirror=mirror,
+        directory=tmp_path / "retail-only-readback",
+    )
+    new_parquet = {key for key in store.values.keys() - before_keys if key.endswith(".parquet")}
+    assert len(new_parquet) == 2
+    # New objects retain publisher byte readback, then independent typed readback.
+    assert all(store.get_keys.count(key) == 2 for key in new_parquet)
+    assert not forbidden.intersection(store.get_keys)
+    assert not (tmp_path / "retail-only-readback/readback.sqlite").exists()
+
+
+def test_corrupt_retail_independent_byte_readback_cannot_mark_published(publication, monkeypatch):
+    store, plan, handle, database, mirror, tmp_path = publication
+    directory = tmp_path / "corrupt-readback"
+    download = store.download_file
+
+    def corrupt_readback(key, path, *, expect_bytes=None):
+        download(key, path, expect_bytes=expect_bytes)
+        if key.endswith(".parquet") and path.is_relative_to(directory):
+            path.write_bytes(b"synthetic-corrupt-parquet")
+
+    monkeypatch.setattr(store, "download_file", corrupt_readback)
+    with pytest.raises(LakePublishError, match="digest mismatch"):
+        retail.publish_and_verify(
+            store,
+            plan,
+            handle=handle,
+            sqlite_path=database,
+            mirror=mirror,
+            directory=directory,
+        )
+    assert not any(key.endswith("/published.json") for key in store.values)
+
+
+def fixed_retail_readback(publication):
+    store, _, _, database, _, tmp_path = publication
+    mirror = tmp_path / "typed-readback"
+    pointer = publisher._serving_pointer(store).pointer
+    fixed = publisher._resolve_serving_release(store, mirror, pointer)
+    for name in (retail.VALUATION_DATASET, retail.RATING_DATASET):
+        for partition in fixed.dataset_manifests[name].partitions:
+            for obj in partition.objects:
+                publisher._fetch(store, mirror, obj.key, expected_sha256=obj.sha256)
+    return fixed, LakeObjectCache(root=mirror, source=LocalMirrorSource(mirror)), database
+
+
+def test_missing_old_month_history_fails_even_without_current_receipts(publication):
+    fixed, cache, database = fixed_retail_readback(publication)
+    manifests = dict(fixed.dataset_manifests)
+    original = manifests[retail.VALUATION_DATASET]
+    assert len(original.partitions) == 2
+    manifests[retail.VALUATION_DATASET] = original.model_copy(
+        update={"partitions": original.partitions[1:]}
+    )
+    with lake_session() as session, pytest.raises(ValueError, match="changed received history"):
+        retail_verify_release_history(
+            session,
+            release=replace(fixed, dataset_manifests=manifests),
+            cache=cache,
+            expected_history=retail_history_digests(database),
+            observations=(),
+        )
+
+
+@pytest.mark.parametrize("updates", [{"rating": 1}, {"rating_updated_label": None}])
+def test_typed_null_and_metadata_receipts_must_match_all_columns(publication, updates):
+    fixed, cache, database = fixed_retail_readback(publication)
+    original = RetailAnalystRatingObservation(
+        ticker="6758",
+        fetched_at_utc=datetime(2026, 7, 31, 15, tzinfo=UTC),
+        source_url="https://example.test/synthetic",
+        parser_version="synthetic-1",
+        distributor="rakuten",
+        rating=None,
+        rating_updated_label="synthetic-label",
+    )
+    with lake_session() as session:
+        retail_verify_release_history(
+            session,
+            release=fixed,
+            cache=cache,
+            expected_history=retail_history_digests(database),
+            observations=(original,),
+        )
+        with pytest.raises(ValueError, match="receipt readback mismatch"):
+            retail_verify_release_history(
+                session,
+                release=fixed,
+                cache=cache,
+                expected_history=retail_history_digests(database),
+                observations=(original.model_copy(update=updates),),
+            )
+
+
+def test_missing_retail_dataset_is_empty_only_when_expected_history_is_empty(publication):
+    fixed, cache, database = fixed_retail_readback(publication)
+    manifests = dict(fixed.dataset_manifests)
+    del manifests[retail.RATING_DATASET]
+    with lake_session() as session, pytest.raises(ValueError, match="changed received history"):
+        retail_verify_release_history(
+            session,
+            release=replace(fixed, dataset_manifests=manifests),
+            cache=cache,
+            expected_history=retail_history_digests(database),
+            observations=(),
+        )
 
 
 def test_pointer_conflict_keeps_canonical_generation_and_does_not_mark_published(publication):
