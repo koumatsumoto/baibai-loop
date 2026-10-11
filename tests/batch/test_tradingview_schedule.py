@@ -31,6 +31,22 @@ def test_manual_uses_current_day_and_close_guard():
     ) == (date(2026, 9, 28), "manual", False, "before_close")
 
 
+def test_explicit_manual_observation_uses_actual_weekend_date_before_close():
+    assert resolve_tradingview_target(
+        datetime(2026, 10, 11, 1, tzinfo=UTC),
+        event_name="workflow_dispatch",
+        schedule="",
+        manual_observation=True,
+    ) == (date(2026, 10, 11), "manual-observation", True, "")
+    with pytest.raises(ValueError, match="workflow_dispatch"):
+        resolve_tradingview_target(
+            datetime(2026, 10, 11, 1, tzinfo=UTC),
+            event_name="schedule",
+            schedule="37 6,8,10,12,14 * * 1-5",
+            manual_observation=True,
+        )
+
+
 @pytest.mark.parametrize(
     ("now", "event", "cron"),
     [

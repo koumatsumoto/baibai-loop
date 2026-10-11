@@ -73,17 +73,21 @@ def test_invalid_stage_never_echoes_body(tmp_path, capsys):
 
 
 @pytest.mark.parametrize(
-    ("event", "ref", "raw", "digest", "normal", "accept"),
+    ("event", "ref", "raw", "digest", "normal", "accept", "basis"),
     [
-        ("schedule", "refs/heads/main", "", "", True, False),
-        ("workflow_dispatch", "refs/heads/main", "", "", True, False),
-        ("workflow_dispatch", "refs/heads/main", "json", "hash", False, True),
-        ("workflow_dispatch", "refs/heads/main", "json", "", False, True),
-        ("workflow_dispatch", "refs/heads/main", "", "hash", False, True),
-        ("workflow_dispatch", "refs/heads/other", "json", "hash", False, False),
+        ("schedule", "refs/heads/main", "", "", True, False, ""),
+        ("workflow_dispatch", "refs/heads/main", "", "", True, False, ""),
+        ("workflow_dispatch", "refs/heads/main", "json", "hash", False, True, ""),
+        ("workflow_dispatch", "refs/heads/main", "json", "", False, True, ""),
+        ("workflow_dispatch", "refs/heads/main", "", "hash", False, True, ""),
+        ("workflow_dispatch", "refs/heads/other", "json", "hash", False, False, ""),
+        ("workflow_dispatch", "refs/heads/main", "", "", True, False, "2026-10-09"),
+        ("workflow_dispatch", "refs/heads/other", "", "", False, False, "2026-10-09"),
     ],
 )
-def test_workflow_routes_empty_inputs_to_normal_collection(event, ref, raw, digest, normal, accept):
+def test_workflow_routes_empty_inputs_to_normal_collection(
+    event, ref, raw, digest, normal, accept, basis
+):
     workflow = yaml.load(WORKFLOW.read_text(), Loader=yaml.BaseLoader)
 
     def evaluate(condition):
@@ -93,6 +97,7 @@ def test_workflow_routes_empty_inputs_to_normal_collection(event, ref, raw, dige
             "github.ref": ref,
             "inputs.observations_json": raw,
             "inputs.observations_sha256": digest,
+            "inputs.observation_master_asof": basis,
         }.items():
             expression = expression.replace(key, repr(value))
         return eval(

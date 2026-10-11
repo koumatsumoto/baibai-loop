@@ -14,6 +14,10 @@ on:
         description: "Seconds between requests"
         type: number
         default: 15
+      observation_master_asof:
+        description: "Explicit manual observation today using saved master YYYY-MM-DD; empty uses normal post-close mode"
+        type: string
+        default: ""
       observations_json:
         description: "Explicit saved-response acceptance JSON; empty runs normal live collection"
         type: string
@@ -83,7 +87,7 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: uv run python -m baibai_batch.storage.publication_lease release --handle "$RUNNER_TEMP/publication-lease-handle.json"
   snapshot:
-    if: ${{ github.event_name != 'workflow_dispatch' || (inputs.observations_json == '' && inputs.observations_sha256 == '') }}
+    if: ${{ (github.event_name != 'workflow_dispatch' || (inputs.observations_json == '' && inputs.observations_sha256 == '')) && (inputs.observation_master_asof == '' || github.ref == 'refs/heads/main') }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: tradingview-runtime
@@ -101,20 +105,32 @@ jobs:
           PYTHONPATH: batch/src
           EVENT_NAME: ${{ github.event_name }}
           EVENT_SCHEDULE: ${{ github.event.schedule }}
+          OBSERVATION_MASTER_ASOF: ${{ inputs.observation_master_asof }}
+          BATCH_SIZE: ${{ inputs.batch_size }}
+          INTERVAL: ${{ inputs.interval }}
         run: |
           python3 - <<'PYTARGET'
           import os
-          from datetime import UTC, datetime, timedelta, timezone
+          from datetime import UTC, date, datetime, timedelta, timezone
           from baibai_batch.jobs.schedule import resolve_tradingview_target
 
           now = datetime.now(UTC)
+          master_asof = os.environ.get("OBSERVATION_MASTER_ASOF", "")
           day, slot, eligible, reason = resolve_tradingview_target(
-              now, event_name=os.environ["EVENT_NAME"], schedule=os.environ.get("EVENT_SCHEDULE", "")
+              now, event_name=os.environ["EVENT_NAME"], schedule=os.environ.get("EVENT_SCHEDULE", ""),
+              manual_observation=bool(master_asof),
           )
+          if master_asof:
+              master_asof = date.fromisoformat(master_asof).isoformat()
+              if date.fromisoformat(master_asof) > day:
+                  raise ValueError("observation master must not be in the future")
+              if int(os.environ.get("BATCH_SIZE") or "50") != 50 or not 15 <= float(os.environ.get("INTERVAL") or "15") <= 3600:
+                  raise ValueError("manual observations require 50 symbols and interval >=15")
           jst = now.astimezone(timezone(timedelta(hours=9)))
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               for key, value in {
                   "target_date": day.isoformat(), "slot": slot,
+                  "master_asof": master_asof,
                   "eligible": str(eligible).lower(), "reason": reason,
                   "actual_start_utc": now.isoformat(), "actual_start_jst": jst.isoformat(),
               }.items():
@@ -168,17 +184,22 @@ jobs:
         if: steps.target.outputs.eligible == 'true'
         env:
           TARGET_DATE: ${{ steps.target.outputs.target_date }}
+          MASTER_ASOF: ${{ steps.target.outputs.master_asof }}
         run: |
           uv run python - <<'PYPREFLIGHT'
           import os
           import sys
           from datetime import date
           from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
-          from baibai_engine.market.tradingview.cli import failure_line
+          from baibai_engine.market.tradingview.diagnostics import failure_line
           from baibai_engine.market.tradingview.collector import preflight_snapshot
 
           try:
-              result = preflight_snapshot(MARKET_DB_PATH, date.fromisoformat(os.environ["TARGET_DATE"]))
+              basis = os.environ.get("MASTER_ASOF", "")
+              result = preflight_snapshot(
+                  MARKET_DB_PATH, date.fromisoformat(os.environ["TARGET_DATE"]),
+                  master_asof=date.fromisoformat(basis) if basis else None,
+              )
           except Exception as exc:
               print(failure_line(exc), file=sys.stderr)
               raise SystemExit(1) from None
@@ -210,6 +231,7 @@ jobs:
           TRADINGVIEW_OAUTH_STATE: ${{ secrets.TRADINGVIEW_OAUTH_STATE }}
           TRADINGVIEW_SECRET_WRITER_TOKEN: ${{ secrets.TRADINGVIEW_SECRET_WRITER_TOKEN }}
           TARGET_DATE: ${{ steps.target.outputs.target_date }}
+          MASTER_ASOF: ${{ steps.target.outputs.master_asof }}
           BATCH_SIZE: ${{ inputs.batch_size }}
           INTERVAL: ${{ inputs.interval }}
         run: |
@@ -219,9 +241,14 @@ jobs:
           stderr="$RUNNER_TEMP/tradingview-stderr.log"
           batch_size="${BATCH_SIZE:-50}"
           interval="${INTERVAL:-15}"
+          observation_options=()
+          if [[ -n "${MASTER_ASOF:-}" ]]; then
+            observation_options+=(--master-asof "$MASTER_ASOF")
+          fi
           set +e
           timeout --kill-after=30s 30m uv run baibai-engine tradingview refresh \
             --asof "$TARGET_DATE" --batch-size "$batch_size" --interval "$interval" \
+            "${observation_options[@]}" \
             --progress-output "$progress" > "$result" 2> >(tee "$stderr" >&2)
           status=$?
           set -e
@@ -239,7 +266,7 @@ jobs:
           progress, result, stderr = map(Path, sys.argv[1:4])
           status = int(sys.argv[4])
           fields = (
-              "snapshot_date", "phase", "expected_universe", "chunks_total", "chunks_completed",
+              "snapshot_date", "master_asof", "phase", "expected_universe", "chunks_total", "chunks_completed",
               "requests_attempted", "symbols_requested",
               "chunk_index", "chunk_size", "columns_count", "interval_seconds", "response_bytes",
               "provider_elapsed_seconds", "max_chunk_elapsed_seconds", "elapsed_seconds",
@@ -350,6 +377,7 @@ jobs:
         continue-on-error: true
         env:
           TARGET_DATE: ${{ steps.target.outputs.target_date }}
+          MASTER_ASOF: ${{ steps.target.outputs.master_asof || steps.target.outputs.target_date }}
           SLOT: ${{ steps.target.outputs.slot }}
           ACTUAL_START_JST: ${{ steps.target.outputs.actual_start_jst }}
           ACTUAL_START_UTC: ${{ steps.target.outputs.actual_start_utc }}
@@ -410,6 +438,7 @@ jobs:
           }
           values = {
               "target_date": os.environ.get("TARGET_DATE"), "slot": os.environ.get("SLOT"),
+              "master_asof": os.environ.get("MASTER_ASOF"),
               "actual_start_jst": os.environ.get("ACTUAL_START_JST"),
               "actual_start_utc": os.environ.get("ACTUAL_START_UTC"),
               "eligible": os.environ.get("ELIGIBLE"), "reason": os.environ.get("REASON"),
@@ -425,6 +454,8 @@ jobs:
               "mcp_http_status": status_value("mcp_http_status"),
               "provider_http_status": status_value("provider_http_status"),
               "normal_nulls": acquisition.get("normal_nulls"),
+              "first_fetched_at_utc": acquisition.get("first_fetched_at_utc"),
+              "last_fetched_at_utc": acquisition.get("last_fetched_at_utc"),
               "retry_not_before_utc": retry_times[-1] if retry_times else None,
               "preflight_saved_rows": os.environ.get("PREFLIGHT_ROWS"),
               "cooldown_allowed": os.environ.get("COOLDOWN_ALLOWED"),

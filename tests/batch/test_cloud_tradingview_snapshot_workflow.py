@@ -1,3 +1,4 @@
+import datetime as datetime_module
 import json
 import os
 import subprocess
@@ -19,6 +20,7 @@ def test_metadata_order_and_exclusive_writer():
     assert set(data["on"]["workflow_dispatch"]["inputs"]) == {
         "batch_size",
         "interval",
+        "observation_master_asof",
         "observations_json",
         "observations_sha256",
     }
@@ -156,6 +158,87 @@ def test_gates_secret_scopes_and_durability():
 
 
 @pytest.mark.parametrize(
+    ("basis", "event", "batch", "interval", "valid", "eligible"),
+    [
+        ("", "workflow_dispatch", "50", "15", True, "false"),
+        ("", "schedule", "", "", True, "false"),
+        ("2026-10-09", "workflow_dispatch", "50", "15", True, "true"),
+        ("2026-10-12", "workflow_dispatch", "50", "15", False, None),
+        ("2026-10-09", "schedule", "50", "15", False, None),
+        ("2026-10-09", "workflow_dispatch", "49", "15", False, None),
+        ("2026-10-09", "workflow_dispatch", "50", "14", False, None),
+    ],
+)
+def test_actual_target_script_keeps_normal_guard_and_validates_manual_observation_before_lease(
+    tmp_path, monkeypatch, basis, event, batch, interval, valid, eligible
+):
+    step = next(s for s in workflow()["jobs"]["snapshot"]["steps"] if s.get("id") == "target")
+    code = step["run"].split("<<'PYTARGET'\n", 1)[1].rsplit("\nPYTARGET", 1)[0]
+
+    class Clock(datetime_module.datetime):
+        @classmethod
+        def now(cls, tz):
+            return cls(2026, 10, 11, 1, tzinfo=datetime_module.UTC).astimezone(tz)
+
+    monkeypatch.setattr(datetime_module, "datetime", Clock)
+    output = tmp_path / "output"
+    for key, value in {
+        "GITHUB_OUTPUT": str(output),
+        "EVENT_NAME": event,
+        "EVENT_SCHEDULE": "37 6,8,10,12,14 * * 1-5",
+        "OBSERVATION_MASTER_ASOF": basis,
+        "BATCH_SIZE": batch,
+        "INTERVAL": interval,
+    }.items():
+        monkeypatch.setenv(key, value)
+    if not valid:
+        with pytest.raises(ValueError, match="observation"):
+            exec(code, {})
+        assert not output.exists()
+        return
+    exec(code, {})
+    fields = dict(line.split("=", 1) for line in output.read_text().splitlines())
+    assert fields["target_date"] == "2026-10-11"
+    assert fields["master_asof"] == basis
+    assert fields["eligible"] == eligible
+    assert fields["slot"] == (
+        "manual-observation"
+        if basis
+        else "manual"
+        if event == "workflow_dispatch"
+        else "post-close-2h"
+    )
+
+
+def test_acquisition_shell_passes_explicit_master_without_changing_observation_date(tmp_path):
+    step = next(s for s in workflow()["jobs"]["snapshot"]["steps"] if s.get("id") == "tradingview")
+    uv = tmp_path / "uv"
+    uv.write_text(
+        '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$RUNNER_TEMP/arguments"\nprintf \'%s\\n\' \'{"status":"already_saved"}\'\n'
+    )
+    uv.chmod(0o755)
+    result = subprocess.run(
+        ["bash", "-e", "-c", step["run"]],
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_OUTPUT": str(tmp_path / "output"),
+            "TARGET_DATE": "2026-10-11",
+            "MASTER_ASOF": "2026-10-09",
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    args = (tmp_path / "arguments").read_text().splitlines()
+    assert args[args.index("--asof") + 1] == "2026-10-11"
+    assert args[args.index("--master-asof") + 1] == "2026-10-09"
+    assert args[args.index("--batch-size") + 1] == "50"
+    assert args[args.index("--interval") + 1] == "15"
+
+
+@pytest.mark.parametrize(
     "status", ["saved", "partial", "already_saved", "non_trading_day", "skipped_historical_asof"]
 )
 def test_acquisition_shell_parses_only_known_success_status(tmp_path, status):
@@ -279,6 +362,7 @@ def test_summary_preserves_partial_failure_and_null_counts(tmp_path):
             "RUNNER_TEMP": str(tmp_path),
             "GITHUB_STEP_SUMMARY": str(summary),
             "TRADINGVIEW": "partial",
+            "MASTER_ASOF": "2026-10-09",
             "ACQUISITION_OUTCOME": "success",
             "PREFLIGHT_ROWS": "50",
         },
@@ -291,6 +375,7 @@ def test_summary_preserves_partial_failure_and_null_counts(tmp_path):
     assert "| retry_not_before_utc | 2026-10-11T18:00:00+00:00 |" in text
     assert "analyst_rating" in text
     assert "| preflight_saved_rows | 50 |" in text
+    assert "| master_asof | 2026-10-09 |" in text
 
 
 @pytest.mark.parametrize(

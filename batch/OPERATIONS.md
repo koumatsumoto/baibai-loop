@@ -845,11 +845,24 @@ storeのmergeでは同日でも別docIDの成否を混同しない。共有docID
 
 ## TradingView Analyst Expectations
 
-`cloud-tradingview-snapshot.yml`が平日15:37 / 17:37 / 19:37 / 21:37 / 23:37 JST（UTC `37 6,8,10,12,14 * * 1-5`）に独立して起動する。実開始が翌日の引け前ならbefore-close、休場日ならno-opになる。起動回数やjob成功数をprovider取得成功数として数えない。GitHub queueによって実開始は遅れ、slot間隔が縮む場合もある。targetは予定時刻ではなくrun開始時のJST当日であり、exact-date masterとTradingViewの両方に同じtarget_dateを渡す。15:30より前の実行はsetup・lease・pull・hydrate・preflight・master取得・provider接続へ進まない。日付を跨ぐ前に確定した正常batchは部分結果として残し、跨いだresponseを前日へ保存しない。
+`cloud-tradingview-snapshot.yml`の通常モードは平日15:37 / 17:37 / 19:37 / 21:37 / 23:37 JST（UTC `37 6,8,10,12,14 * * 1-5`）に独立して起動する。実開始が翌日の引け前ならbefore-close、休場日ならno-opになる。通常モードのmanual dispatchも同じ条件で動く。起動回数やjob成功数をprovider取得成功数として数えない。GitHub queueによって実開始は遅れ、slot間隔が縮む場合もある。targetは予定時刻ではなくrun開始時のJST当日であり、通常モードではUniverseのexact-date masterも当日を使う。15:30より前はsetup・lease・pull・hydrate・preflight・master取得・provider接続へ進まない。
+
+明示的な手動観測では`observation_master_asof`を指定し、保存済みexact-date masterの基準日だけを分ける。`snapshot_date`は実観測日のJST当日、`fetched_at_utc`は実受領完了時刻であり、masterの日付に現在値を保存しない。未来のmaster・過去日への観測は拒否する。master基準日は結果・progress・Actions summaryの`master_asof`に記録し、値そのものの観測時刻とは区別する。通常・手動とも日付を跨ぐ前に確定した正常batchは部分結果として残し、跨いだresponseを前日へ保存しない。
 
 同日のnullやunresolvedとして保存した銘柄もaccount済みであり、その日は上書き・再取得しない。既保存の完全snapshotを何度も観測する診断ではない。
 
 正常batchは検証後に確定し、新規rowがあれば`partial`でもL1へ公開する。後続slotはL1からhydrateした同日rowのticker集合をexact-date masterのUniverseと照合し、未保存銘柄だけを取得する。全銘柄account済みならMCP接続前に終了する。hydrate後にmasterのraw rowsがあれば、`source_coverage`がなくても再取得せずに使う。TV workflowはremote `market.sqlite`や`machine-manifest.json`を更新せず、L1 releaseだけを永続化する。dailyは独立して実行する。
+
+### 保存済みmasterを使う当日の手動観測
+
+mainへmanual dispatchし、`observation_master_asof`だけに保存済みmasterの日付を指定する。`observations_json` / `observations_sha256`は空にする。休場日・引け前も実観測として取得でき、J-Quants masterの追加取得は行わない。指定日のmasterがなければOAuth/provider接続前に停止する。50銘柄ずつ、応答完了後15秒以上の間隔を必須とし、通常collector・normalizer・publication lease・cooldown・25分soft budget・L1 publisherを使う。
+
+```bash
+gh workflow run cloud-tradingview-snapshot.yml --ref main \
+  -f observation_master_asof=2026-10-09 -f batch_size=50 -f interval=15
+```
+
+同じ観測日の再開は同じmaster基準日を指定し、fresh pull/hydrate後に同日の保存済み集合を除外する。正常null / unresolvedも保存済みとして上書き・再取得しない。provider失敗・Retry-After・日跨ぎ・soft budgetで止まった場合、新規確定rowがあればpartialを公開し、残件だけを同日中に再開する。summaryの`target_date` / `master_asof` / first・last fetched_at、件数、stop_reason、公開release、lease解放を確認する。partial公開は全Universe取得成功とは数えない。runner強制停止・timeoutやstorage/internal障害で正常な結果を出せなかった場合は公開完了とみなさず、[障害診断](#tradingview-expectationsの障害診断)に従う。
 
 ### 保存済み実観測の明示的な受入
 
