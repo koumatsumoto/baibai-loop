@@ -33,7 +33,10 @@ from baibai_engine.market.tradingview.collector import collect, preflight_snapsh
 NAME = "tradingview.forecast_snapshots"
 
 
-def test_l1_only_publish_restores_snapshot_without_market_push(tmp_path, monkeypatch):
+@pytest.mark.parametrize("manual_observation", [False, True])
+def test_l1_only_publish_restores_snapshot_without_market_push(
+    tmp_path, monkeypatch, manual_observation
+):
     datasets = (
         "jquants.daily_bars",
         "jquants.market_calendar",
@@ -41,7 +44,16 @@ def test_l1_only_publish_restores_snapshot_without_market_push(tmp_path, monkeyp
         NAME,
     )
     narrow_release_policy(monkeypatch, datasets=datasets, minimum_population_count=None)
-    today = date(2026, 9, 21)
+    today = date(2026, 9, 20) if manual_observation else date(2026, 9, 21)
+    observed = datetime(
+        today.year, today.month, today.day, 1 if manual_observation else 7, tzinfo=UTC
+    )
+
+    async def no_wait(_seconds):
+        pass
+
+    options = {"master_asof": DAY, "sleep": no_wait} if manual_observation else {}
+    interval = 15 if manual_observation else 0
     path = tmp_path / "working.sqlite"
     open_connection(path).close()
     store_jquants_master(path, make_master_records(DAY), requested_asof=DAY)
@@ -54,7 +66,7 @@ def test_l1_only_publish_restores_snapshot_without_market_push(tmp_path, monkeyp
             {"Date": "2026-09-21", "HolidayDivision": "1"},
         ],
         requested_start=DAY,
-        requested_end=today,
+        requested_end=date(2026, 9, 21),
     )
     with sqlite3.connect(path) as conn:
         conn.execute(
@@ -103,7 +115,8 @@ def test_l1_only_publish_restores_snapshot_without_market_push(tmp_path, monkeyp
         hydrate_market_store(
             session, release=prior, cache=prior_cache, store=path, dataset_names=datasets
         )
-    store_jquants_master(path, make_master_records(today), requested_asof=today)
+    if not manual_observation:
+        store_jquants_master(path, make_master_records(today), requested_asof=today)
     from baibai_engine.market.tradingview.observations import ProviderHTTPError
 
     calls = 0
@@ -120,8 +133,9 @@ def test_l1_only_publish_restores_snapshot_without_market_push(tmp_path, monkeyp
             path,
             today,
             partial_fetch,
-            interval=0,
-            clock=lambda: datetime(2026, 9, 21, 7, tzinfo=UTC),
+            interval=interval,
+            clock=lambda: observed,
+            **options,
         )
     )
     assert (first["status"], first["rows_added"], first["remaining"]) == ("partial", 50, 2450)
@@ -140,7 +154,7 @@ def test_l1_only_publish_restores_snapshot_without_market_push(tmp_path, monkeyp
         hydrate_market_store(
             session, release=current, cache=current_cache, store=next_slot, dataset_names=datasets
         )
-    state = preflight_snapshot(next_slot, today)
+    state = preflight_snapshot(next_slot, today, master_asof=DAY if manual_observation else None)
     assert (state["status"], state["needs_master"], state["rows"], state["remaining"]) == (
         "needs_fetch",
         False,
@@ -153,15 +167,21 @@ def test_l1_only_publish_restores_snapshot_without_market_push(tmp_path, monkeyp
             next_slot,
             today,
             fetch,
-            interval=0,
-            clock=lambda: datetime(2026, 9, 21, 8, tzinfo=UTC),
+            interval=interval,
+            clock=lambda: observed,
+            **options,
         )
     )
     assert (resumed["status"], resumed["rows_added"], resumed["remaining"]) == ("saved", 2450, 0)
     first_today = [row for row in first_rows if row[0] == today.isoformat()]
     resumed_today = [row for row in stored(next_slot) if row[0] == today.isoformat()]
     assert resumed_today[:50] == first_today
-    assert preflight_snapshot(next_slot, today)["status"] == "already_saved"
+    assert (
+        preflight_snapshot(next_slot, today, master_asof=DAY if manual_observation else None)[
+            "status"
+        ]
+        == "already_saved"
+    )
     completed, completed_cache = publish("completed-tv-release", next_slot)
     fixed_readback = tmp_path / "completed-readback.sqlite"
     shutil.copy2(remote, fixed_readback)

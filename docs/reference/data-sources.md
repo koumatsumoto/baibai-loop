@@ -130,7 +130,7 @@ portfolioの年次・3年・5年outcomeのprimary benchmarkはJPXのTOPIX gross 
 
 `tradingview.forecast_snapshots`はOfficial MCPの`get_symbol_data_batch`から実際に取得した市場期待を、日付・銘柄ごとに保持する任意のL1入力である。対象は既存J-Quants masterの東証普通株で、Screeningの最小株価履歴を要求しない。`get_forecasts`の日本株通貨補正や、ScreenerによるUniverse生成は行わない。
 
-PITが保証するのは`fetched_at_utc`時点の取得値であり、providerの最初の公表時刻ではない。通常collectorは東証close後に取得し、利用可能になる最速時点は次の取引機会とする。受領済み応答の明示的な受入は[batch運用](../../batch/OPERATIONS.md#保存済み実観測の明示的な受入)に従い、休場日も実受領日と時刻を保持する。日付だけで過去の売買時点へ遡及させず、翌日値による欠測の埋め直しもしない。
+PITが保証するのは`fetched_at_utc`時点の取得値であり、providerの最初の公表時刻ではない。`snapshot_date`は実観測日のJST日付、master基準日は対象Universeを選ぶ日付であり、観測値の時点ではない。通常collectorは当日masterを使って東証close後に取得する。[明示的な手動観測](../../batch/OPERATIONS.md#保存済みmasterを使う当日の手動観測)は当日以前の保存済みmasterを指定し、休場日・引け前も当日の実受領時刻を保持する。受領済み応答の[明示的な受入](../../batch/OPERATIONS.md#保存済み実観測の明示的な受入)も同じ観測日の意味で記録する。利用可能になる最速時点は観測後の次の取引機会とし、masterの日付や日付だけで過去の売買時点へ遡及させず、翌日値による欠測の埋め直しもしない。
 
 正常rowのnull、正常応答で明示された`unresolved`、rowがない未取得銘柄を区別する。正常なbatchごとに保存し、同日の後続取得はrowがない銘柄だけを対象にする。各銘柄の最初の正常観測と`fetched_at_utc`は同日中に上書きしない。429や応答不良を未取得銘柄の`unresolved`へ変換せず、部分集合を全市場の代表標本とみなさない。過去のsnapshotが最新releaseに残っていても、今日の取得成功とは扱わない。
 

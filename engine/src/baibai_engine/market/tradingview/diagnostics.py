@@ -44,6 +44,7 @@ class CollectionProgress:
     last_fetched_at_utc: str | None = None
     requests_attempted: int = 0
     symbols_requested: int = 0
+    master_asof: str | None = None
 
 
 class CollectionFailure(FetchError):
@@ -110,6 +111,7 @@ def failure_category(exc: BaseException) -> str:
 # This explicit boundary is shared by the writer and the workflow log reader.
 PROGRESS_FIELDS = (
     "snapshot_date",
+    "master_asof",
     "phase",
     "expected_universe",
     "chunks_total",

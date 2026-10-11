@@ -31,6 +31,7 @@ from .auth import (
 from .client import connect, fetch_batch
 from .collector import (
     JST,
+    TimeGuardError,
     collect,
     preflight_snapshot,
     validate_time,
@@ -84,6 +85,7 @@ async def snapshot(
     progress_output: Path | None = None,
     *,
     batch_size: int = 50,
+    master_asof: date | None = None,
 ) -> dict[str, object]:
     output_enabled = progress_output is not None
 
@@ -109,7 +111,13 @@ async def snapshot(
                 return await fetch_batch(session, symbols, COLUMNS)
 
             result = await collect(
-                path, day, fetch, interval=interval, batch_size=batch_size, progress=progress
+                path,
+                day,
+                fetch,
+                interval=interval,
+                batch_size=batch_size,
+                progress=progress,
+                master_asof=master_asof,
             )
     except Exception as exc:
         category = failure_category(exc)
@@ -169,13 +177,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--state-file", type=Path, help="independent local OAuth file; never writes GitHub Secrets"
     )
     refresh = sub.add_parser(
-        "refresh", help="append today's post-close snapshot, resuming missing symbols"
+        "refresh", help="append today's observation, normally post-close, resuming missing symbols"
     )
     refresh.add_argument(
         "--state-file", type=Path, help="independent local OAuth file; never writes GitHub Secrets"
     )
     refresh.add_argument("--sqlite", type=Path, default=MARKET_DB_PATH)
     refresh.add_argument("--asof", type=date.fromisoformat, default=None)
+    refresh.add_argument(
+        "--master-asof",
+        type=date.fromisoformat,
+        help="explicit manual observation today using this saved exact-date master (not future)",
+    )
     refresh.add_argument("--progress-output", type=Path)
     refresh.add_argument("--interval", type=float, default=15.0)
     refresh.add_argument("--batch-size", type=int, choices=range(1, 51), default=50)
@@ -207,15 +220,20 @@ def main(argv: list[str] | None = None, /) -> int:
         if args.command == "refresh":
             now = datetime.now(JST)
             day = args.asof or now.date()
-            if day < now.date():
+            if args.master_asof is None and day < now.date():
                 print(
                     json.dumps(
                         {"status": "skipped_historical_asof", "snapshot_date": day.isoformat()}
                     )
                 )
                 return 0
-            validate_time(day, now)
-            preflight = preflight_snapshot(args.sqlite, day)
+            validate_time(day, now, manual_observation=args.master_asof is not None)
+            if args.master_asof is not None:
+                if args.batch_size != 50 or not 15 <= args.interval <= 3600:
+                    raise TimeGuardError("Manual observations require 50 symbols and interval >=15")
+                preflight = preflight_snapshot(args.sqlite, day, master_asof=args.master_asof)
+            else:
+                preflight = preflight_snapshot(args.sqlite, day)
             if preflight["status"] != "needs_fetch":
                 print(json.dumps({**preflight, "oauth_rotations": 0}))
                 return 0
@@ -231,6 +249,7 @@ def main(argv: list[str] | None = None, /) -> int:
                     args.interval,
                     args.progress_output,
                     batch_size=args.batch_size,
+                    master_asof=args.master_asof,
                 )
             )
     except Exception as exc:
