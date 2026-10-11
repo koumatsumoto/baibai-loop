@@ -24,7 +24,6 @@ from baibai_engine.batch_api import (
     tradingview_failure_line,
     tradingview_preflight,
     tradingview_safe_progress,
-    tradingview_validate_time,
 )
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -134,11 +133,12 @@ def preflight(day: date) -> dict[str, object]:
     today, _, _, _ = resolve_tradingview_target(now, event_name="workflow_dispatch", schedule="")
     if day < today:
         return {"status": "skipped_historical_asof", "snapshot_date": day.isoformat()}
-    tradingview_validate_time(day, now)
-    return tradingview_preflight(ROOT / MARKET_DB_PATH, day)
+    return tradingview_preflight(ROOT / MARKET_DB_PATH, day, now=now)
 
 
 def run_local(state_file: Path, *, batch_size: int = 50, interval: float = 15.0) -> int:
+    if batch_size != 50 or not 15 <= interval <= 3600:
+        raise StageFailure("Observations require 50 symbols and interval >=15")
     day, _, eligible, reason = resolve_tradingview_target(
         datetime.now(UTC), event_name="workflow_dispatch", schedule=""
     )

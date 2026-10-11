@@ -13,7 +13,6 @@ from .discord import (
     OUTCOME_DEGRADED,
     OUTCOME_FAILED,
     OUTCOME_LABELS,
-    OUTCOME_OK,
     WEBHOOK_ENV_VAR,
     _urllib_transport,
     deliver,
@@ -62,7 +61,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--preflight-status",
-        choices=("needs_fetch", "already_saved", "non_trading_day", "unknown"),
+        choices=(
+            "needs_fetch",
+            "already_saved",
+            "non_trading_day",
+            "before_close",
+            "before_observation",
+            "unknown",
+        ),
         default="unknown",
     )
     parser.add_argument("--rows-added", type=int, default=0)
@@ -98,11 +104,10 @@ def main(
             f"stored={args.rows}/{args.expected_universe}; remaining={args.remaining}; "
             f"stop_reason={sanitize_one_line(args.stop_reason)}"
         )
-    elif args.snapshot_status == "saved" and outcomes["publish-lake"] == "success":
-        label, detail = OUTCOME_OK, " — TradingView snapshot saved"
-    elif (
+    elif (args.snapshot_status == "saved" and outcomes["publish-lake"] == "success") or (
         (args.eligible == "false" and outcomes["target"] == "success")
-        or args.preflight_status in {"already_saved", "non_trading_day"}
+        or args.preflight_status
+        in {"already_saved", "non_trading_day", "before_close", "before_observation"}
         or args.snapshot_status in {"already_saved", "non_trading_day", "skipped_historical_asof"}
     ):
         return 0

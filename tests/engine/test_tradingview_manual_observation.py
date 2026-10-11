@@ -11,6 +11,7 @@ from tests.engine.test_tradingview_collector import Timer, payload, store, store
 
 from baibai_engine.market.tradingview import cli
 from baibai_engine.market.tradingview.collector import collect, preflight_snapshot
+from baibai_engine.market.tradingview.diagnostics import SourceDataError, TimeGuardError
 from baibai_engine.market.tradingview.observations import FetchError
 
 DAY = date(2026, 10, 11)
@@ -23,6 +24,7 @@ def manual_store(tmp_path, count=153):
     with sqlite3.connect(path) as conn:
         conn.execute("UPDATE jquants_master_snapshots SET snapshot_date=?", (MASTER.isoformat(),))
         conn.execute("INSERT INTO jquants_market_calendar VALUES (?,0)", (DAY.isoformat(),))
+        conn.execute("INSERT INTO jquants_market_calendar VALUES (?,1)", (MASTER.isoformat(),))
         conn.executemany(
             "INSERT INTO tradingview_forecast_snapshots(snapshot_date,ticker,provider_symbol,fetched_at_utc,fetch_status,quote_close) VALUES (?,?,?,?,?,?)",
             [
@@ -36,7 +38,7 @@ def manual_store(tmp_path, count=153):
 def test_weekend_observation_resumes_only_missing_and_preserves_nulls_times_and_master(tmp_path):
     path = manual_store(tmp_path)
     prior = stored(path)
-    assert preflight_snapshot(path, DAY)["status"] == "non_trading_day"
+    assert preflight_snapshot(path, DAY)["status"] == "needs_fetch"
     before = path.read_bytes()
     state = preflight_snapshot(path, DAY, master_asof=MASTER)
     assert path.read_bytes() == before
@@ -61,7 +63,6 @@ def test_weekend_observation_resumes_only_missing_and_preserves_nulls_times_and_
             path,
             DAY,
             fetch,
-            master_asof=MASTER,
             clock=lambda: NOW + timedelta(seconds=timer.value),
             timer=timer,
             sleep=sleep,
@@ -228,14 +229,9 @@ def test_manual_cli_passes_today_and_saved_master_and_completed_noop_avoids_oaut
     assert json.loads(capsys.readouterr().out)["status"] == "already_saved"
 
 
-def test_normal_weekend_remains_noop_and_manual_response_after_midnight_is_rejected(tmp_path):
+def test_weekend_response_after_midnight_is_rejected(tmp_path):
     path = manual_store(tmp_path, 101)
 
-    async def forbidden(_symbols):
-        pytest.fail("normal weekend must not connect")
-
-    result = asyncio.run(collect(path, DAY, forbidden, clock=lambda: NOW + timedelta(hours=7)))
-    assert result["status"] == "non_trading_day"
     before = stored(path)
     count = 0
 
@@ -249,3 +245,85 @@ def test_normal_weekend_remains_noop_and_manual_response_after_midnight_is_rejec
             collect(path, DAY, fetch, master_asof=MASTER, clock=lambda: NOW + timedelta(days=count))
         )
     assert stored(path) == before
+
+
+@pytest.mark.parametrize("observation_day", [DAY, date(2026, 10, 12)])
+def test_rest_day_automatically_uses_calendar_business_day_and_observation_hours(
+    tmp_path, observation_day
+):
+    path = manual_store(tmp_path, 101)
+    with sqlite3.connect(path) as conn:
+        if observation_day != DAY:
+            conn.execute(
+                "INSERT INTO jquants_market_calendar VALUES (?,0)", (observation_day.isoformat(),)
+            )
+            conn.execute(
+                "UPDATE tradingview_forecast_snapshots SET snapshot_date=?",
+                (observation_day.isoformat(),),
+            )
+    before = stored(path)
+    morning = datetime.combine(observation_day, datetime.min.time(), UTC)
+    assert (
+        preflight_snapshot(path, observation_day, now=morning - timedelta(seconds=1))["status"]
+        == "before_observation"
+    )
+    calls = []
+
+    async def fetch(symbols):
+        calls.append(symbols)
+        return payload(symbols)
+
+    result = asyncio.run(collect(path, observation_day, fetch, clock=lambda: morning))
+    assert (result["status"], result["master_asof"], result["rows_added"]) == (
+        "saved",
+        MASTER.isoformat(),
+        1,
+    )
+    assert calls == [["TSE:1100"]]
+    assert stored(path)[:100] == before
+    result = asyncio.run(collect(path, observation_day, fetch, clock=lambda: morning))
+    assert result["requests_attempted"] == 0
+    assert len(calls) == 1
+
+
+def test_calendar_required_master_missing_does_not_use_older_saved_master(tmp_path):
+    path = manual_store(tmp_path, 101)
+    with sqlite3.connect(path) as conn:
+        conn.execute("UPDATE jquants_master_snapshots SET snapshot_date='2026-09-18'")
+    before = path.read_bytes()
+    with pytest.raises(SourceDataError, match="calendar-required exact-date master"):
+        preflight_snapshot(path, DAY, now=NOW)
+    with pytest.raises(SourceDataError, match="differs from calendar"):
+        preflight_snapshot(path, DAY, master_asof=date(2026, 9, 18), now=NOW)
+    assert path.read_bytes() == before
+
+
+def test_business_day_manual_morning_does_not_block_post_close_collection(
+    tmp_path, monkeypatch, capsys
+):
+    day = date(2026, 9, 18)
+    path = store(tmp_path / "market.sqlite", 1)
+    morning = datetime(2026, 9, 18, 1, tzinfo=UTC)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz):
+            return morning.astimezone(tz)
+
+    monkeypatch.setattr(cli, "datetime", Clock)
+    monkeypatch.setattr(
+        cli, "credential_storage", lambda *_: pytest.fail("before-close must not load OAuth")
+    )
+    assert cli.main(["refresh", "--sqlite", str(path), "--master-asof", day.isoformat()]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "before_close"
+    assert stored(path) == []
+
+    async def fetch(symbols):
+        return payload(symbols)
+
+    with pytest.raises(TimeGuardError):
+        asyncio.run(collect(path, day, fetch, master_asof=day, clock=lambda: morning))
+    result = asyncio.run(
+        collect(path, day, fetch, master_asof=day, clock=lambda: morning + timedelta(hours=6))
+    )
+    assert result["status"] == "saved"

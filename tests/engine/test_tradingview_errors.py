@@ -90,7 +90,7 @@ def test_refresh_noop_preflight_avoids_oauth_and_connection(monkeypatch, capsys,
 
     monkeypatch.setattr(cli, "datetime", Clock)
     monkeypatch.setattr(
-        cli, "preflight_snapshot", lambda *_: {"status": state, "snapshot_date": "2026-09-22"}
+        cli, "preflight_snapshot", lambda *_, **__: {"status": state, "snapshot_date": "2026-09-22"}
     )
     monkeypatch.setattr(cli.OAuthState, "model_validate_json", forbidden)
     monkeypatch.setattr(cli, "connect", forbidden)
@@ -104,13 +104,13 @@ def test_refresh_storage_failure_avoids_oauth(monkeypatch, capsys):
         def now(tz):
             return datetime(2026, 9, 22, 16, tzinfo=tz)
 
-    def broken(*_args):
+    def broken(*_args, **_kwargs):
         raise SourceDataError("private store content")
 
     monkeypatch.setattr(cli, "datetime", Clock)
     monkeypatch.setattr(cli, "preflight_snapshot", broken)
     monkeypatch.setattr(
-        cli.OAuthState, "model_validate_json", lambda *_: pytest.fail("OAuth must not load")
+        cli.OAuthState, "model_validate_json", lambda *_, **__: pytest.fail("OAuth must not load")
     )
     assert cli.main(["refresh", "--asof", "2026-09-22"]) == 1
     assert capsys.readouterr().err == "TradingView acquisition failed; category=storage\n"
@@ -124,7 +124,7 @@ def test_unsaved_business_day_reaches_oauth_and_snapshot(monkeypatch, capsys):
 
     calls = []
     monkeypatch.setattr(cli, "datetime", Clock)
-    monkeypatch.setattr(cli, "preflight_snapshot", lambda *_: {"status": "needs_fetch"})
+    monkeypatch.setattr(cli, "preflight_snapshot", lambda *_, **__: {"status": "needs_fetch"})
     monkeypatch.setattr(
         cli.OAuthState,
         "model_validate_json",

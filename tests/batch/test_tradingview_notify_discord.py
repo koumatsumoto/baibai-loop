@@ -19,7 +19,7 @@ def invoke(monkeypatch, *args):
     return calls
 
 
-def test_saved_is_ok_and_contains_run_url(monkeypatch):
+def test_saved_does_not_notify(monkeypatch):
     calls = invoke(
         monkeypatch,
         "--eligible",
@@ -29,10 +29,7 @@ def test_saved_is_ok_and_contains_run_url(monkeypatch):
         "--publish-lake-outcome",
         "success",
     )
-    message = calls[0][1]["content"]
-    assert message.startswith("[OK] as-of 2026-09-28 — TradingView snapshot saved")
-    assert "https://github.com/example/repo/actions/runs/123" in message
-    assert "Review Set" not in message
+    assert calls == []
 
 
 def test_published_partial_is_degraded_with_counts_and_reason(monkeypatch):
@@ -74,7 +71,7 @@ def test_executor_line_uses_runner_context(monkeypatch, github_actions, expected
         "--eligible",
         "true",
         "--snapshot-status",
-        "saved",
+        "partial",
         "--publish-lake-outcome",
         "success",
     )[0][1]["content"]
@@ -104,6 +101,8 @@ def test_cancelled_is_cancelled(monkeypatch):
         ("--target-outcome", "success"),
         ("--eligible", "true", "--preflight-status", "already_saved"),
         ("--eligible", "true", "--preflight-status", "non_trading_day"),
+        ("--eligible", "true", "--preflight-status", "before_close"),
+        ("--eligible", "true", "--preflight-status", "before_observation"),
         ("--eligible", "true", "--snapshot-status", "skipped_historical_asof"),
     ],
 )
@@ -139,7 +138,7 @@ def test_delivery_failure_keeps_exit_zero(monkeypatch):
                 "--eligible",
                 "true",
                 "--snapshot-status",
-                "saved",
+                "partial",
                 "--publish-lake-outcome",
                 "success",
             ],

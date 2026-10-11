@@ -16,7 +16,10 @@ def workflow():
 
 def test_metadata_order_and_exclusive_writer():
     data = workflow()
-    assert [item["cron"] for item in data["on"]["schedule"]] == ["37 6,8,10,12,14 * * 1-5"]
+    assert [item["cron"] for item in data["on"]["schedule"]] == [
+        "37 6,8,10,12,14 * * 1-5",
+        "37 0,4,8 * * 0,6",
+    ]
     assert set(data["on"]["workflow_dispatch"]["inputs"]) == {
         "batch_size",
         "interval",
@@ -160,8 +163,8 @@ def test_gates_secret_scopes_and_durability():
 @pytest.mark.parametrize(
     ("basis", "event", "batch", "interval", "valid", "eligible"),
     [
-        ("", "workflow_dispatch", "50", "15", True, "false"),
-        ("", "schedule", "", "", True, "false"),
+        ("", "workflow_dispatch", "50", "15", True, "true"),
+        ("", "schedule", "", "", True, "true"),
         ("2026-10-09", "workflow_dispatch", "50", "15", True, "true"),
         ("2026-10-12", "workflow_dispatch", "50", "15", False, None),
         ("2026-10-09", "schedule", "50", "15", False, None),
@@ -398,3 +401,47 @@ def test_summary_does_not_call_missing_failure_progress_zero_requests(tmp_path, 
         capture_output=True,
     )
     assert f"| requests_attempted | {count} |" in summary.read_text()
+
+
+def test_noop_summary_keeps_stored_quality_without_provider_progress(tmp_path):
+    step = next(s for s in workflow()["jobs"]["snapshot"]["steps"] if s.get("id") == "summary")
+    (tmp_path / "tradingview-preflight.json").write_text(
+        json.dumps(
+            {
+                "status": "already_saved",
+                "is_business_day": False,
+                "rows": 3,
+                "expected_universe": 3,
+                "remaining": 0,
+                "unresolved": 1,
+                "normal_nulls": {"price_target_average": 2},
+                "first_fetched_at_utc": "2026-10-11T00:00:00+00:00",
+                "last_fetched_at_utc": "2026-10-11T00:01:00+00:00",
+            }
+        )
+    )
+    summary = tmp_path / "summary"
+    subprocess.run(
+        ["bash", "-e", "-c", step["run"]],
+        env={
+            **os.environ,
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_STEP_SUMMARY": str(summary),
+            "ACQUISITION_OUTCOME": "skipped",
+            "PREFLIGHT": "already_saved",
+            "MASTER_ASOF": "2026-10-09",
+        },
+        check=True,
+        capture_output=True,
+    )
+    text = summary.read_text()
+    for name, value in {
+        "rows": 3,
+        "expected_universe": 3,
+        "remaining": 0,
+        "unresolved": 1,
+        "requests_attempted": 0,
+    }.items():
+        assert f"| {name} | {value} |" in text
+    assert "price_target_average" in text
+    assert "| last_fetched_at_utc | 2026-10-11T00:01:00+00:00 |" in text

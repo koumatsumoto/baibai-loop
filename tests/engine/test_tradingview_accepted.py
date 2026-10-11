@@ -91,10 +91,8 @@ def test_explicit_weekend_receipts_keep_exact_times_and_other_market_data(tmp_pa
         assert conn.execute("SELECT snapshot_date FROM jquants_master_snapshots").fetchall() == [
             ("2026-10-09",)
         ]
-    assert (
-        preflight_snapshot(path, accepted.document.observation_date_jst)["status"]
-        == "non_trading_day"
-    )
+    with pytest.raises(SourceDataError, match="Previous business day"):
+        preflight_snapshot(path, accepted.document.observation_date_jst)
     verify_observations(path, accepted, report)
     original = path.read_bytes()
     again = accept_observations(path, accepted)
