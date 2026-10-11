@@ -30,6 +30,7 @@ class RequestGuard:
     def __init__(self) -> None:
         self.tool_requests = 0
         self.refresh_requests = 0
+        self.list_requests = 0
 
     async def __call__(self, request: httpx2.Request) -> None:
         url = request.url
@@ -42,6 +43,9 @@ class RequestGuard:
                 payload = json.loads(request.content)
                 method = payload.get("method")
                 if method in {"initialize", "notifications/initialized", "notifications/cancelled"}:
+                    return
+                if method == "tools/list" and not payload.get("params") and not self.list_requests:
+                    self.list_requests += 1
                     return
                 if method == "tools/call" and payload.get("params") == {
                     "name": client.BATCH_TOOL,
@@ -141,6 +145,7 @@ async def run() -> tuple[int, dict[str, Any]]:
         report.update(
             finished_at_utc=datetime.now(UTC).isoformat(),
             tool_requests=guard.tool_requests,
+            list_requests=guard.list_requests,
             refresh_requests=guard.refresh_requests,
             oauth_rotations=storage.rotation_count if storage is not None else 0,
         )

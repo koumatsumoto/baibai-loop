@@ -8,7 +8,8 @@ from unittest.mock import AsyncMock
 
 import httpx2
 import pytest
-from mcp.types import CallToolResult, TextContent
+from mcp import ClientSession
+from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
 from tools.diagnostics import tradingview_single_batch_probe as probe
 
 
@@ -65,6 +66,46 @@ def test_guard_allows_one_normal_refresh_only():
     with pytest.raises(probe.DiagnosticBoundaryError):
         asyncio.run(guard(request))
     assert guard.refresh_requests == 1
+
+
+@pytest.mark.parametrize("success", [True, False])
+def test_sdk_success_validation_can_list_schema_once_without_another_tool_call(
+    monkeypatch, success
+):
+    guard = probe.RequestGuard()
+    session = ClientSession(SimpleNamespace(), SimpleNamespace())
+    response = CallToolResult(isError=False, content=[], structuredContent={"success": success})
+
+    async def send(request, *args, **kwargs):
+        await guard(
+            httpx2.Request(
+                "POST",
+                "https://mcp.tradingview.com/mcp",
+                json=request.model_dump(mode="json", by_alias=True, exclude_none=True),
+            )
+        )
+        if request.method == "tools/call":
+            return response
+        return ListToolsResult(
+            tools=[Tool(name=probe.client.BATCH_TOOL, inputSchema={"type": "object"})]
+        )
+
+    monkeypatch.setattr(session, "send_request", send)
+    result = asyncio.run(
+        session.call_tool(
+            probe.client.BATCH_TOOL, {"symbols": probe.SYMBOLS, "columns": probe.COLUMNS}
+        )
+    )
+    assert result is response
+    assert guard.tool_requests == guard.list_requests == 1
+    with pytest.raises(probe.DiagnosticBoundaryError):
+        asyncio.run(
+            guard(
+                httpx2.Request(
+                    "POST", "https://mcp.tradingview.com/mcp", json={"method": "tools/list"}
+                )
+            )
+        )
 
 
 def test_shape_contains_no_error_text_or_values():
