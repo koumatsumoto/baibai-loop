@@ -37,7 +37,14 @@ def test_lease_lost_during_remote_closure_stops_before_pointer_switch(
                 monkeypatch.setattr(publication_lease, "datetime", ExpiredClock)
             else:
                 publication_lease.release(store, handle)
-                other, _ = publication_lease.acquire(store, "operator")
+                # One Actions run has a stable owner; model a different writer.
+                with monkeypatch.context() as other_writer:
+                    other_writer.setenv("GITHUB_ACTIONS", "true")
+                    other_writer.setenv(
+                        "GITHUB_RUN_ID", "2" if handle.owner == "github:1:1" else "1"
+                    )
+                    other_writer.setenv("GITHUB_RUN_ATTEMPT", "1")
+                    other, _ = publication_lease.acquire(store, "operator")
                 assert other.owner != handle.owner
         return result
 
