@@ -9,11 +9,50 @@ from urllib.parse import parse_qs, urlsplit
 from baibai_engine.market.ticker import normalize_ticker
 
 from ..models import AnalystRatingObservation
-from . import ParseError, compact, document, number
+from . import Element, ParseError, compact, document, number
 
-PARSER_VERSION = "rakuten-rating-2"
+PARSER_VERSION = "rakuten-rating-3"
 IFRAME_BASE = "https://rakuten-sec.ifis.co.jp/index.php"
 IFRAME_PARAMETER = "?action=tp4&sa=report_est&bcode="
+_SCRIPT_ITEMS = re.compile(
+    r"//[^\r\n]*|/\*[\s\S]*?\*/|<!--[^\r\n]*|-->[^\r\n]*"
+    r"""|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'"""
+    r"|`(?:\\.|[^`\\])*`"
+    r"|(?P<constructor>\bnew\s+ChartOpConsClass\b)"
+)
+_CHART_CALL = re.compile(
+    r"new\s+ChartOpConsClass\s*\(\s*(['\"])([^'\"\\\r\n]*)\1\s*,\s*"
+    r"(['\"])([^'\"\\\r\n]*)\3\s*,\s*"
+    r"(['\"])([^'\"\\\r\n]*)\5\s*,\s*"
+    r"(['\"])([^'\"\\\r\n]*)\7\s*\)\s*;"
+)
+
+
+def _chart_identity(page: Element, ticker: str) -> bool:
+    """Recognize only the captured widget's literal constructor, without JS execution."""
+    calls = [
+        _CHART_CALL.match(script.text, token.start())
+        for script in page.find("script")
+        for token in _SCRIPT_ITEMS.finditer(script.text)
+        if token.group("constructor") is not None
+    ]
+    if not calls:
+        return False
+    expected = (
+        "#chart_op_cons",
+        "js/jsonp/chart_op_cons.json",
+        f"https://img-sec.ifis.co.jp/graph/chart_op_cons/{ticker}.json",
+        ticker,
+    )
+    if (
+        len(calls) != 1
+        or calls[0] is None
+        or tuple(calls[0][index] for index in (2, 4, 6, 8)) != expected
+        or len(page.find(id="chart_op_cons")) != 1
+        or len(page.find("div", id="chart_op_cons")) != 1
+    ):
+        raise ParseError("ticker_identity")
+    return True
 
 
 def public_url(ticker: str) -> str:
@@ -64,8 +103,9 @@ def parse_html(
     ):
         raise ParseError("source_identity")
     page = document(html)
-    # The first company-comparison body row identifies the requested company;
-    # subsequent rows identify peers and cannot demonstrate response identity.
+    chart_identity = _chart_identity(page, ticker)
+    # A company without its own rating can have only peer rows. The separately
+    # verified chart widget provides explicit response identity in that case.
     comparison = [
         table
         for table in page.find("table")
@@ -85,7 +125,7 @@ def parse_html(
     bodies = comparison[0].find("tbody")
     rows = bodies[0].find("tr") if len(bodies) == 1 else []
     headers = rows[0].find("th") if rows else []
-    if len(headers) != 1 or compact(headers[0].text) != ticker:
+    if not chart_identity and (len(headers) != 1 or compact(headers[0].text) != ticker):
         raise ParseError("ticker_identity")
     sections = [
         element

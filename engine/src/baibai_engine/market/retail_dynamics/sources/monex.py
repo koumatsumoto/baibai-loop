@@ -9,7 +9,7 @@ from baibai_engine.market.ticker import normalize_ticker
 from ..models import ModelValuationObservation
 from . import ParseError, compact, document, number
 
-PARSER_VERSION = "monex-theory-2"
+PARSER_VERSION = "monex-theory-3"
 
 
 def public_url(ticker: str) -> str:

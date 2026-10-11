@@ -85,11 +85,13 @@ def compact(text: str) -> str:
 
 
 def number(text: str, *, unit: Literal["yen", "rating"]) -> float | None:
-    text = compact(text)
-    if text in {"--", "-", "－", "―", "—", "予想なし", "データなし", "該当なし"}:
+    if compact(text) in {"--", "-", "－", "―", "—", "予想なし", "データなし", "該当なし"}:
         return None
-    suffix = "円" if unit == "yen" else ""
-    match = re.fullmatch(r"(-?[0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)" + suffix, text)
+    suffix = r"\s*円" if unit == "yen" else ""
+    match = re.fullmatch(
+        r"(-?(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)(?:\.[0-9]+)?)" + suffix,
+        text.strip(),
+    )
     if match is None:
         raise ParseError("unexpected_numeric_cell")
     return float(match[1].replace(",", ""))

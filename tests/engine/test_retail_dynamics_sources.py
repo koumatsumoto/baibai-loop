@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 
 import pytest
@@ -43,6 +44,17 @@ def rakuten_html(ticker="7203", *, value="3.25"):
     <div><h3>コンセンサスの推移（数値）</h3><span>アナリスト数：99人</span></div>
     <table><thead><tr><th>コード</th><th>会社名</th><th>レーティング</th></tr></thead>
     <tbody><tr><th>{ticker}</th><td>合成会社</td><td>{value}</td></tr><tr><th>9432</th><td>合成別会社</td><td>2.0</td></tr></tbody></table>"""
+
+
+def rakuten_chart_binding(ticker="7203"):
+    return f'''<div id="chart_op_cons"></div><script>
+    new ChartOpConsClass("#chart_op_cons", "js/jsonp/chart_op_cons.json",
+        "https://img-sec.ifis.co.jp/graph/chart_op_cons/{ticker}.json", "{ticker}");
+    </script>'''
+
+
+def rakuten_peer_only_html(ticker="7203"):
+    return rakuten_html("9432", value="--") + rakuten_chart_binding(ticker)
 
 
 def parse_monex(html=None, **kwargs):
@@ -206,6 +218,69 @@ def test_rakuten_no_forecast_shell_cannot_prove_ticker_or_null_rating(ticker):
 def test_rakuten_generic_empty_shell_is_not_no_forecast_classification():
     with pytest.raises(ParseError, match=r"^missing_ticker_identity$"):
         parse_rakuten("<html><p>情報を表示できません。</p></html>")
+
+
+@pytest.mark.parametrize("ticker", ["1379", "135A"])
+def test_rakuten_peer_only_table_with_bound_chart_proves_normal_null(ticker):
+    url = rakuten.IFRAME_BASE + rakuten.IFRAME_PARAMETER + ticker + ".T"
+    observation = rakuten.parse_html(
+        rakuten_peer_only_html(ticker), ticker=ticker, source_url=url, fetched_at_utc=RECEIVED
+    )
+    assert observation.rating is None
+    assert observation.rating_count is None
+    assert observation.source_url == url
+    assert observation.fetched_at_utc == RECEIVED
+    assert observation.parser_version == "rakuten-rating-3"
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        rakuten_peer_only_html().replace("7203", "6758"),
+        rakuten_peer_only_html().replace("chart_op_cons/7203.json", "chart_op_cons/6758.json"),
+        rakuten_peer_only_html() + rakuten_chart_binding(),
+        rakuten_peer_only_html() + rakuten_chart_binding("6758"),
+        rakuten_peer_only_html().replace('"7203");', "getTicker());"),
+        rakuten_peer_only_html().replace('"7203");', '"7203", "extra");'),
+        rakuten_peer_only_html().replace('<div id="chart_op_cons"></div>', ""),
+        rakuten_peer_only_html() + '<div id="chart_op_cons"></div>',
+        rakuten_peer_only_html().replace('id="chart_op_cons"', 'id="other_widget"'),
+        rakuten_peer_only_html().replace("js/jsonp/chart_op_cons.json", "js/unknown.json"),
+        rakuten_peer_only_html().replace("img-sec.ifis.co.jp", "other.example"),
+        rakuten_peer_only_html().replace("new ChartOpConsClass", "// new ChartOpConsClass"),
+        rakuten_peer_only_html()
+        .replace("new ChartOpConsClass", "/* new ChartOpConsClass")
+        .replace("</script>", "*/</script>"),
+        rakuten_peer_only_html()
+        .replace("new ChartOpConsClass", "<!-- new ChartOpConsClass")
+        .replace("</script>", "--></script>"),
+        rakuten_html() + rakuten_chart_binding("6758"),
+    ],
+)
+def test_rakuten_unverified_or_conflicting_chart_binding_fails(html):
+    with pytest.raises(ParseError):
+        parse_rakuten(html)
+
+
+@pytest.mark.parametrize("quote", ["single", "double", "template"])
+def test_rakuten_constructor_text_inside_string_is_not_identity(quote):
+    binding = rakuten_chart_binding().split("<script>", 1)[1].split("</script>", 1)[0]
+    literal = (
+        json.dumps(binding)
+        if quote == "double"
+        else f"`{binding}`"
+        if quote == "template"
+        else "'" + binding.replace("\n", "") + "'"
+    )
+    html = rakuten_html("9432", value="--") + f"<script>var example = {literal};</script>"
+    with pytest.raises(ParseError, match="ticker_identity"):
+        parse_rakuten(html)
+
+
+def test_rakuten_chart_identity_does_not_relax_rating_table_contract():
+    html = rakuten_peer_only_html().replace("現在値", "別の値")
+    with pytest.raises(ParseError, match="changed_rating_headers"):
+        parse_rakuten(html)
 
 
 @pytest.mark.parametrize(
