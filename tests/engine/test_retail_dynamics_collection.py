@@ -120,6 +120,21 @@ def test_timeout_and_shell_are_failures_not_nullable_observations(monkeypatch):
     assert "secret" not in json.dumps(result.summary())
 
 
+def test_no_forecast_shell_has_safe_identity_failure_and_no_observation():
+    client = Session(
+        [
+            (200, official_html("130A")),
+            (200, "<p>この銘柄のアナリスト業績予測情報はありません。</p>"),
+        ]
+    )
+    result = collection.collect(["130A"], sources=("rakuten",), session=client)
+    assert not result.observations
+    assert result.outcomes[0].status == "parse_failure"
+    assert result.outcomes[0].reason == "no_estimates_identity_unconfirmed"
+    assert result.outcomes[0].http_status == 200
+    assert "アナリスト" not in json.dumps(result.summary(), ensure_ascii=False)
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [

@@ -44,6 +44,7 @@ PARSE_FAILURE_REASONS = frozenset(
         "changed_official_iframe_route",
         "changed_official_iframe_binding",
         "missing_ticker_identity",
+        "no_estimates_identity_unconfirmed",
         "missing_rating_section",
         "changed_rating_table",
         "changed_rating_headers",

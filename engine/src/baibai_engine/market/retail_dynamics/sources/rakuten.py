@@ -11,7 +11,7 @@ from baibai_engine.market.ticker import normalize_ticker
 from ..models import AnalystRatingObservation
 from . import ParseError, compact, document, number
 
-PARSER_VERSION = "rakuten-rating-1"
+PARSER_VERSION = "rakuten-rating-2"
 IFRAME_BASE = "https://rakuten-sec.ifis.co.jp/index.php"
 IFRAME_PARAMETER = "?action=tp4&sa=report_est&bcode="
 
@@ -73,6 +73,14 @@ def parse_html(
         == ["コード", "会社名", "レーティング"]
     ]
     if len(comparison) != 1:
+        # The public no-forecast shell has no response ticker. Its explicit
+        # message explains the shell, but cannot establish a rating observation
+        # for the caller's ticker or prove that the source excludes that ticker.
+        if not comparison and any(
+            compact(paragraph.text) == "この銘柄のアナリスト業績予測情報はありません。"
+            for paragraph in page.find("p")
+        ):
+            raise ParseError("no_estimates_identity_unconfirmed")
         raise ParseError("missing_ticker_identity")
     bodies = comparison[0].find("tbody")
     rows = bodies[0].find("tr") if len(bodies) == 1 else []

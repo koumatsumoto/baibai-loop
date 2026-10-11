@@ -89,6 +89,36 @@ def test_monex_verified_null_is_observation():
     assert observation.per_company_forecast is None
 
 
+@pytest.mark.parametrize("ticker", ["1301", "130A"])
+def test_monex_fullwidth_missing_models_preserve_partial_values_and_identity(ticker):
+    html = monex_html(ticker).replace("1,234円", "－", 2)
+    observation = monex.parse_html(
+        html, ticker=ticker, source_url=monex.public_url(ticker), fetched_at_utc=RECEIVED
+    )
+    assert observation.per_company_forecast is None
+    assert observation.per_consensus is None
+    assert observation.pbr == 1234
+    assert observation.consensus_target == 1234
+    assert observation.fetched_at_utc == RECEIVED
+    with pytest.raises(ParseError, match="ticker_identity"):
+        monex.parse_html(
+            html, ticker="1333", source_url=monex.public_url("1333"), fetched_at_utc=RECEIVED
+        )
+
+
+def test_monex_fullwidth_missing_all_models_is_verified_normal_null():
+    observation = parse_monex(monex_html(value="－"))
+    assert all(
+        getattr(observation, metric) is None
+        for metric in ("consensus_target", "per_company_forecast", "per_consensus", "pbr")
+    )
+
+
+def test_monex_unknown_numeric_marker_stays_parse_failure():
+    with pytest.raises(ParseError, match="unexpected_numeric_cell"):
+        parse_monex(monex_html(value="未確認"))
+
+
 @pytest.mark.parametrize(
     "html",
     [
@@ -159,6 +189,23 @@ def test_rakuten_current_rating_without_forecast_count_or_past_observations():
 def test_rakuten_null_and_zero_are_distinct():
     assert parse_rakuten(rakuten_html(value="--")).rating is None
     assert parse_rakuten(rakuten_html(value="0")).rating == 0
+
+
+@pytest.mark.parametrize("ticker", ["1301", "130A"])
+def test_rakuten_no_forecast_shell_cannot_prove_ticker_or_null_rating(ticker):
+    html = '<div class="box-01"><p>この銘柄のアナリスト業績予測情報はありません。</p></div>'
+    with pytest.raises(ParseError, match=r"^no_estimates_identity_unconfirmed$"):
+        rakuten.parse_html(
+            html,
+            ticker=ticker,
+            source_url=rakuten.IFRAME_BASE + rakuten.IFRAME_PARAMETER + ticker + ".T",
+            fetched_at_utc=RECEIVED,
+        )
+
+
+def test_rakuten_generic_empty_shell_is_not_no_forecast_classification():
+    with pytest.raises(ParseError, match=r"^missing_ticker_identity$"):
+        parse_rakuten("<html><p>情報を表示できません。</p></html>")
 
 
 @pytest.mark.parametrize(
