@@ -448,11 +448,7 @@ def test_tradingview_secrets_are_scoped_to_only_the_acquisition_step(filename, a
                 if secret in str(step):
                     usages.append(step["name"])
                     assert step["env"][secret] == expression
-        assert usages == (
-            [allowed_step, "Temporary single-batch diagnostic"]
-            if filename == "ci.yml"
-            else [allowed_step]
-        )
+        assert usages == [allowed_step]
     if filename == "ci.yml":
         smoke_job = workflow["jobs"]["tradingview_oauth_smoke"]
         assert smoke_job["environment"] == "tradingview-runtime"
@@ -482,26 +478,8 @@ def test_tradingview_runtime_environment_and_smoke_queue_are_job_scoped() -> Non
         "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
         "astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7",
         "uv sync --locked",
-        "exit 1",
         "uv run baibai-engine tradingview smoke",
-        "uv run python -m tools.diagnostics.tradingview_single_batch_probe",
     ]
     for job in (quality, smoke):
         assert "TRADINGVIEW_OAUTH_STATE" not in str(job.get("env", {}))
         assert "TRADINGVIEW_SECRET_WRITER_TOKEN" not in str(job.get("env", {}))
-
-
-def test_temporary_probe_is_manual_main_only_and_excludes_smoke_and_r2():
-    workflow = _workflow("ci.yml")
-    job = workflow["jobs"]["tradingview_oauth_smoke"]
-    assert "github.event_name == 'workflow_dispatch'" in job["if"]
-    assert "github.ref == 'refs/heads/main'" in job["if"]
-    steps = {step.get("name"): step for step in job["steps"]}
-    probe = steps["Temporary single-batch diagnostic"]
-    assert probe["if"] == "inputs.tradingview_single_batch_probe && !inputs.tradingview_oauth_smoke"
-    assert set(probe["env"]) == {"TRADINGVIEW_OAUTH_STATE", "TRADINGVIEW_SECRET_WRITER_TOKEN"}
-    assert probe["timeout-minutes"] == "5"
-    assert (
-        steps["TradingView OAuth smoke"]["if"]
-        == "inputs.tradingview_oauth_smoke && !inputs.tradingview_single_batch_probe"
-    )
