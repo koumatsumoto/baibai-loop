@@ -7,23 +7,17 @@ import asyncio
 import json
 import logging
 import os
-import sqlite3
 import sys
 import tempfile
 from contextlib import suppress
 from dataclasses import asdict
-from datetime import UTC, date, datetime, timedelta
-from email.utils import parsedate_to_datetime
+from datetime import date, datetime
 from functools import partial
 from pathlib import Path
 
-import httpx2
-from mcp.client.auth.exceptions import OAuthFlowError
 from pydantic import ValidationError
 
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
-from baibai_engine.market.sqlite.schema import SQLiteSchemaError
-from baibai_engine.market.universe import UniverseSourceDriftError
 
 from .auth import (
     AuthenticationError,
@@ -36,99 +30,17 @@ from .auth import (
 from .client import connect, fetch_batch
 from .collector import (
     JST,
-    CollectionFailure,
-    CollectionProgress,
-    SourceDataError,
-    TimeGuardError,
     collect,
     preflight_snapshot,
     validate_time,
 )
-from .observations import (
-    COLUMNS,
-    AllMissingError,
-    FetchError,
-    ProviderHTTPError,
-    ProviderPayloadError,
+from .diagnostics import (
+    CollectionProgress,
+    failure_category,
+    failure_line,
+    safe_progress,
 )
-
-
-def failure_category(exc: BaseException) -> str:
-    """Return fixed labels only, including errors wrapped by SDK task groups."""
-    if isinstance(exc, CollectionFailure):
-        return failure_category(exc.cause)
-    if isinstance(exc, BaseExceptionGroup):
-        categories = [failure_category(child) for child in exc.exceptions]
-        # Prefer actionable root failures over accompanying transport cleanup errors.
-        for category in (
-            "secret_persistence",
-            "auth",
-            "time_guard",
-            "storage",
-            "provider_all_missing",
-            "provider_rate_limit",
-            "provider_response",
-            "provider_transport",
-        ):
-            if category in categories:
-                return category
-        return "internal"
-    if isinstance(exc, SecretPersistenceError):
-        return "secret_persistence"
-    if isinstance(exc, (AuthenticationError, OAuthFlowError)):
-        return "auth"
-    if isinstance(exc, TimeGuardError):
-        return "time_guard"
-    if isinstance(
-        exc, (SourceDataError, SQLiteSchemaError, UniverseSourceDriftError, sqlite3.Error)
-    ):
-        return "storage"
-    if isinstance(exc, AllMissingError):
-        return "provider_all_missing"
-    if isinstance(exc, (httpx2.HTTPStatusError, ProviderHTTPError)):
-        status = exc.status_code if isinstance(exc, ProviderHTTPError) else exc.response.status_code
-        if status in (401, 403):
-            return "auth"
-        if status == 429:
-            return "provider_rate_limit"
-        return "provider_response"
-    if isinstance(exc, (httpx2.TransportError, TimeoutError)):
-        return "provider_transport"
-    if isinstance(exc, (FetchError, json.JSONDecodeError)):
-        return "provider_response"
-    return "internal"
-
-
-# This explicit boundary is shared by the writer and the workflow log reader.
-PROGRESS_FIELDS = (
-    "snapshot_date",
-    "phase",
-    "expected_universe",
-    "chunks_total",
-    "chunks_completed",
-    "requests_attempted",
-    "symbols_requested",
-    "chunk_index",
-    "chunk_size",
-    "columns_count",
-    "interval_seconds",
-    "response_bytes",
-    "provider_elapsed_seconds",
-    "max_chunk_elapsed_seconds",
-    "elapsed_seconds",
-    "first_fetched_at_utc",
-    "last_fetched_at_utc",
-    "oauth_rotations",
-)
-
-
-def safe_progress(payload: dict[str, object]) -> dict[str, object]:
-    return {
-        key: payload[key]
-        for key in PROGRESS_FIELDS
-        if key in payload
-        and (payload[key] is None or type(payload[key]) in (str, int, float, bool))
-    }
+from .observations import COLUMNS, FetchError
 
 
 def _write_progress_file(path: Path, payload: dict[str, object]) -> None:
@@ -144,52 +56,6 @@ def _write_progress_file(path: Path, payload: dict[str, object]) -> None:
         if temporary is not None:
             with suppress(OSError):
                 temporary.unlink(missing_ok=True)
-
-
-def _diagnostic_error(exc: BaseException, category: str) -> BaseException:
-    if isinstance(exc, BaseExceptionGroup):
-        for child in exc.exceptions:
-            if failure_category(child) == category:
-                return _diagnostic_error(child, category)
-    return exc
-
-
-def _retry_not_before(response: httpx2.Response) -> str | None:
-    value = response.headers.get("Retry-After")
-    if value is None:
-        return None
-    try:
-        value = value.strip()
-        if value.isascii() and value.isdigit():
-            deadline = datetime.now(UTC) + timedelta(seconds=int(value))
-        else:
-            deadline = parsedate_to_datetime(value)
-            if deadline.tzinfo is None:
-                return None
-        return deadline.astimezone(UTC).isoformat()
-    except (ValueError, TypeError, OverflowError):
-        return None
-
-
-def failure_line(exc: BaseException) -> str:
-    category = failure_category(exc)
-    line = f"TradingView acquisition failed; category={category}"
-    detail = _diagnostic_error(exc, category)
-    if isinstance(detail, CollectionFailure):
-        line += "".join(
-            f"; {key}={value}" for key, value in safe_progress(asdict(detail.progress)).items()
-        )
-        detail = _diagnostic_error(detail.cause, category)
-    if isinstance(detail, ProviderHTTPError):
-        line += f"; provider_http_status={detail.status_code}"
-    if isinstance(detail, httpx2.HTTPStatusError):
-        line += f"; mcp_http_status={detail.response.status_code}"
-        retry_at = _retry_not_before(detail.response)
-        if retry_at is not None:
-            line += f"; retry_not_before_utc={retry_at}"
-    if isinstance(detail, ProviderPayloadError):
-        line += f"; validation_reason={detail.reason}; validation_field={detail.field or '-'}"
-    return line
 
 
 async def smoke(storage: CredentialStorage) -> dict[str, object]:

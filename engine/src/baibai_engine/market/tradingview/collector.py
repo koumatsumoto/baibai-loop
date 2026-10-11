@@ -8,11 +8,11 @@ import re
 import sqlite3
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, replace
 from datetime import UTC, date, datetime
 from datetime import time as daytime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from baibai_engine.market.sqlite import SQLiteSchemaError, open_connection, validate_current_schema
@@ -24,7 +24,22 @@ from baibai_engine.market.universe import (
 )
 
 from .contract import COLUMNS, TABLE
-from .observations import COLUMNS as REQUEST_COLUMNS
+from .diagnostics import (
+    CollectionFailure as CollectionFailure,
+)
+from .diagnostics import (
+    CollectionProgress as CollectionProgress,
+)
+from .diagnostics import (
+    SourceDataError as SourceDataError,
+)
+from .diagnostics import (
+    TimeGuardError as TimeGuardError,
+)
+from .diagnostics import (
+    failure_category,
+    failure_line,
+)
 from .observations import FIELDS, AllMissingError, FetchError, ProviderPayloadError, normalize_batch
 
 JST = ZoneInfo("Asia/Tokyo")
@@ -32,43 +47,7 @@ SOFT_BUDGET_SECONDS = 25 * 60
 BatchFetch = Callable[[list[str]], Awaitable[dict[str, Any]]]
 
 
-@dataclass(frozen=True)
-class CollectionProgress:
-    snapshot_date: str
-    phase: Literal["prepare", "fetch", "normalize", "between_chunks", "store", "complete"]
-    expected_universe: int
-    chunks_total: int
-    chunks_completed: int = 0
-    chunk_index: int | None = None
-    chunk_size: int | None = None
-    columns_count: int = len(REQUEST_COLUMNS)
-    interval_seconds: float = 15.0
-    response_bytes: int = 0
-    provider_elapsed_seconds: float = 0.0
-    max_chunk_elapsed_seconds: float = 0.0
-    elapsed_seconds: float = 0.0
-    first_fetched_at_utc: str | None = None
-    last_fetched_at_utc: str | None = None
-    requests_attempted: int = 0
-    symbols_requested: int = 0
-
-
 ProgressHook = Callable[[CollectionProgress], None]
-
-
-class CollectionFailure(FetchError):
-    def __init__(self, cause: BaseException, progress: CollectionProgress) -> None:
-        self.cause = cause
-        self.progress = progress
-        super().__init__("TradingView collection failed")
-
-
-class TimeGuardError(FetchError):
-    """Observation is outside the allowed date or close time."""
-
-
-class SourceDataError(FetchError):
-    """Required local source data is unavailable or invalid."""
 
 
 def universe(conn: sqlite3.Connection, day: date) -> list[str]:
@@ -261,8 +240,6 @@ async def collect(
             try:
                 payload = await fetch(chunk)
             except Exception as exc:
-                from .cli import failure_category
-
                 category = failure_category(exc)
                 if category in {"internal", "storage"}:
                     raise
@@ -297,8 +274,6 @@ async def collect(
             try:
                 rows = normalize_batch(payload, chunk, fetched)
             except (AllMissingError, ProviderPayloadError) as exc:
-                from .cli import failure_category
-
                 consecutive_bad += 1
                 last_error = exc
                 stop_reason = failure_category(exc)
@@ -351,8 +326,6 @@ async def collect(
             raise last_error or FetchError("TradingView collection added no rows")
         current = replace(current, phase="complete")
         emit()
-        from .cli import failure_line
-
         return {
             **asdict(current),
             "last_failure": failure_line(last_error) if last_error is not None else None,

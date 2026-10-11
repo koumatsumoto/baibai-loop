@@ -96,14 +96,14 @@ from baibai_engine.market.sqlite.schema import (
     validate_current_schema as validate_market_schema,
 )
 from baibai_engine.market.sqlite.snapshot import create_snapshot as create_market_snapshot
-from baibai_engine.market.tradingview.cli import failure_line as tradingview_failure_line
-from baibai_engine.market.tradingview.cli import safe_progress as tradingview_safe_progress
 from baibai_engine.market.tradingview.collector import (
     preflight_snapshot as tradingview_preflight,
 )
 from baibai_engine.market.tradingview.collector import (
     validate_time as tradingview_validate_time,
 )
+from baibai_engine.market.tradingview.diagnostics import failure_line as tradingview_failure_line
+from baibai_engine.market.tradingview.diagnostics import safe_progress as tradingview_safe_progress
 from baibai_engine.read_api.macro import latest_macro_context_payload
 from baibai_engine.read_api.research_triage import research_triage_payloads_for_review_set
 from baibai_engine.screening.discovery.review_set import PublishedReviewSet
