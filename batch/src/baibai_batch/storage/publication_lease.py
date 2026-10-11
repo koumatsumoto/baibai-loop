@@ -203,6 +203,26 @@ def acquire(
     )
 
 
+def verify_held(
+    store: ObjectStore, handle: PublicationLeaseHandle, *, now: datetime | None = None
+) -> None:
+    """Refuse an expired or replaced handle before a staged publication."""
+    current = _generation(store)
+    if current is None:
+        raise LeaseError("publication lease is missing")
+    lease, _, etag = current
+    if (
+        etag != handle.etag
+        or lease.state != "held"
+        or lease.owner != handle.owner
+        or lease.purpose != handle.purpose
+        or lease.acquired_at_utc != handle.acquired_at_utc
+        or lease.expires_at_utc != handle.expires_at_utc
+        or lease.expires_at_utc <= (now or datetime.now(UTC))
+    ):
+        raise LeaseError("publication lease is expired or replaced")
+
+
 def release(store: ObjectStore, handle: PublicationLeaseHandle) -> None:
     if not handle.etag or len(handle.etag) > 256:
         raise LeaseError("invalid publication lease handle ETag")

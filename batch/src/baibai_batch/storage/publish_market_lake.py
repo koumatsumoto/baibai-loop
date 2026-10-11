@@ -19,7 +19,7 @@ import os
 import sys
 import tempfile
 import time
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date
@@ -51,6 +51,7 @@ from .lake_publish import (
     LakePublishError,
     ObjectStore,
     PointerSnapshot,
+    TransferReport,
     publish_l1_release,
     read_pointer_snapshot,
 )
@@ -67,6 +68,7 @@ class MarketLakePublishReport:
     did not hold — the partitions whose bytes moved since the previous publication."""
     uploaded_objects: int
     uploaded_bytes: int
+    transfers: TransferReport
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -77,6 +79,7 @@ class MarketLakePublishReport:
             "release_manifest_sha256": self.release_manifest_sha256,
             "uploaded_bytes": self.uploaded_bytes,
             "uploaded_objects": self.uploaded_objects,
+            "publication_transfers": self.transfers.as_dict(),
         }
 
 
@@ -86,6 +89,7 @@ def publish_market_lake(
     mirror_root: Path,
     store: ObjectStore,
     release_id: str | None = None,
+    before_pointer_switch: Callable[[], None] | None = None,
 ) -> MarketLakePublishReport:
     """Derive every partition from the store, seal a release, and publish it.
 
@@ -131,6 +135,7 @@ def publish_market_lake(
             expected_release_sha256=release_sha256,
             store=store,
             pointer_precondition=serving.precondition,
+            before_pointer_switch=before_pointer_switch,
         )
     target_origin = LakeStoreOrigin(
         release_id=published.release_id,
@@ -164,6 +169,7 @@ def publish_market_lake(
         },
         uploaded_objects=int(transfers.get("uploaded_objects", 0)),
         uploaded_bytes=int(transfers.get("uploaded_bytes", 0)),
+        transfers=published.transfers,
     )
 
 
