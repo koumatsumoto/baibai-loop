@@ -13,6 +13,13 @@ on:
         description: "Exact already-saved J-Quants master date YYYY-MM-DD"
         required: true
         type: string
+      operation:
+        description: "Collect normally, or explicitly publish confirmed observations and close an existing stopped batch"
+        type: choice
+        default: collect_and_publish
+        options:
+          - collect_and_publish
+          - publish_confirmed_partial
 
 permissions:
   contents: read
@@ -30,9 +37,18 @@ jobs:
     timeout-minutes: 120
     outputs:
       cohorts: ${{ steps.plan.outputs.cohorts }}
+      terminal_status: ${{ steps.plan.outputs.terminal_status }}
+      expected_pairs: ${{ steps.plan.outputs.retail_expected_pairs }}
+      typed_pairs: ${{ steps.plan.outputs.retail_typed_pairs }}
+      known_failure_pairs: ${{ steps.plan.outputs.retail_known_failure_pairs }}
+      normal_null_pairs: ${{ steps.plan.outputs.retail_normal_null_pairs }}
+      uncertain_pairs: ${{ steps.plan.outputs.retail_uncertain_pairs }}
+      unattempted_pairs: ${{ steps.plan.outputs.retail_unattempted_pairs }}
+      rows_added: ${{ steps.plan.outputs.retail_rows_added }}
     env:
       RETAIL_BATCH_ID: ${{ inputs.batch_id }}
       RETAIL_MASTER_ASOF: ${{ inputs.master_asof }}
+      RETAIL_OPERATION: ${{ inputs.operation }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -58,10 +74,16 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_batch.jobs.retail_daily plan --run-id "$RETAIL_BATCH_ID" --master-asof "$RETAIL_MASTER_ASOF" --directory "$RUNNER_TEMP/retail-plan"
+        run: |
+          plan_args=()
+          if [ "$RETAIL_OPERATION" = "publish_confirmed_partial" ]; then
+            plan_args+=(--require-existing-plan)
+          fi
+          uv run python -m baibai_batch.jobs.retail_daily plan --run-id "$RETAIL_BATCH_ID" --master-asof "$RETAIL_MASTER_ASOF" --directory "$RUNNER_TEMP/retail-plan" "${plan_args[@]}"
 
   acquire:
     needs: plan
+    if: ${{ inputs.operation == 'collect_and_publish' && needs.plan.outputs.terminal_status == 'pending' }}
     runs-on: ubuntu-latest
     timeout-minutes: 300
     strategy:
@@ -90,12 +112,15 @@ jobs:
 
   publish:
     needs: [plan, acquire]
+    if: ${{ always() && !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.terminal_status == 'pending' && (inputs.operation == 'publish_confirmed_partial' || needs.acquire.result == 'success') }}
     runs-on: ubuntu-latest
     outputs:
       expected_pairs: ${{ steps.publish.outputs.retail_expected_pairs }}
       typed_pairs: ${{ steps.publish.outputs.retail_typed_pairs }}
       known_failure_pairs: ${{ steps.publish.outputs.retail_known_failure_pairs }}
       normal_null_pairs: ${{ steps.publish.outputs.retail_normal_null_pairs }}
+      uncertain_pairs: ${{ steps.publish.outputs.retail_uncertain_pairs }}
+      unattempted_pairs: ${{ steps.publish.outputs.retail_unattempted_pairs }}
       rows_added: ${{ steps.publish.outputs.retail_rows_added }}
     # The existing publication lease expires after 120 minutes.
     timeout-minutes: 110
@@ -105,6 +130,7 @@ jobs:
       cancel-in-progress: false
     env:
       RETAIL_BATCH_ID: ${{ inputs.batch_id }}
+      RETAIL_OPERATION: ${{ inputs.operation }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -137,7 +163,12 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_batch.jobs.retail_daily publish --run-id "$RETAIL_BATCH_ID" --directory "$RUNNER_TEMP/retail-readback" --lease-handle "$RUNNER_TEMP/retail-publication-lease.json"
+        run: |
+          publish_command=publish
+          if [ "$RETAIL_OPERATION" = "publish_confirmed_partial" ]; then
+            publish_command=publish-confirmed-partial
+          fi
+          uv run python -m baibai_batch.jobs.retail_daily "$publish_command" --run-id "$RETAIL_BATCH_ID" --directory "$RUNNER_TEMP/retail-readback" --lease-handle "$RUNNER_TEMP/retail-publication-lease.json"
       - name: Release publication lease
         if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' }}
         env:
@@ -163,14 +194,23 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           PYTHONPATH: batch/src
+          RETAIL_OPERATION: ${{ inputs.operation }}
         run: |
+          publication_mode=complete
+          if [ "$RETAIL_OPERATION" = "publish_confirmed_partial" ]; then
+            publication_mode=confirmed_partial
+          fi
           python3 -m baibai_batch.observability.retail_discord \
             --plan-result "${{ needs.plan.result }}" \
             --acquire-result "${{ needs.acquire.result }}" \
             --publish-result "${{ needs.publish.result }}" \
-            --expected-pairs "${{ needs.publish.outputs.expected_pairs }}" \
-            --typed-pairs "${{ needs.publish.outputs.typed_pairs }}" \
-            --known-failure-pairs "${{ needs.publish.outputs.known_failure_pairs }}" \
-            --normal-null-pairs "${{ needs.publish.outputs.normal_null_pairs }}" \
-            --rows-added "${{ needs.publish.outputs.rows_added }}" \
+            --terminal-status "${{ needs.plan.outputs.terminal_status || 'pending' }}" \
+            --publication-mode "$publication_mode" \
+            --expected-pairs "${{ needs.publish.outputs.expected_pairs || needs.plan.outputs.expected_pairs }}" \
+            --typed-pairs "${{ needs.publish.outputs.typed_pairs || needs.plan.outputs.typed_pairs }}" \
+            --known-failure-pairs "${{ needs.publish.outputs.known_failure_pairs || needs.plan.outputs.known_failure_pairs }}" \
+            --normal-null-pairs "${{ needs.publish.outputs.normal_null_pairs || needs.plan.outputs.normal_null_pairs }}" \
+            --uncertain-pairs "${{ needs.publish.outputs.uncertain_pairs || needs.plan.outputs.uncertain_pairs }}" \
+            --unattempted-pairs "${{ needs.publish.outputs.unattempted_pairs || needs.plan.outputs.unattempted_pairs }}" \
+            --rows-added "${{ needs.publish.outputs.rows_added || needs.plan.outputs.rows_added }}" \
             --cancelled "${{ steps.cancellation.outputs.cancelled || 'false' }}"

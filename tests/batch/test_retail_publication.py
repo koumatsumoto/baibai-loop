@@ -456,9 +456,14 @@ def test_workflow_is_manual_serial_private_and_keeps_publication_inside_existing
     runs = [step.get("run", "") for step in publisher_job["steps"]]
     lease = next(i for i, text in enumerate(runs) if "publication_lease acquire" in text)
     hydrate = next(i for i, text in enumerate(runs) if "hydrate-market" in text)
-    publish = next(i for i, text in enumerate(runs) if "retail_daily publish" in text)
+    publish = next(
+        i for i, step in enumerate(publisher_job["steps"]) if step.get("id") == "publish"
+    )
     assert lease < hydrate < publish
     assert "--lease-handle" in runs[publish]
+    assert 'retail_daily "$publish_command"' in runs[publish]
+    assert "publish_command=publish" in runs[publish]
+    assert "publish_command=publish-confirmed-partial" in runs[publish]
     assert int(publisher_job["timeout-minutes"]) < 120
     assert "refs/heads/main" in workflow["jobs"]["plan"]["if"]
     assert not any(

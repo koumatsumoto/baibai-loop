@@ -8,7 +8,7 @@ import json
 import re
 import tempfile
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from baibai_batch.jobs.retail_cohorts import (
@@ -23,6 +23,17 @@ from baibai_batch.storage.lake_publish import LakePublishError, ObjectStore
 
 MAX_PRIVATE_OBJECT_BYTES = 2_000_000
 CHECKPOINT_FORMAT = "retail-private-checkpoint-v1"
+PARTIAL_TERMINAL_FORMAT = "retail-partially-published-batch-v1"
+_TERMINAL_KEYS = {
+    "format",
+    "plan_sha256",
+    "release_id",
+    "release_manifest_sha256",
+    "expected_pairs",
+    "observations",
+    "readback",
+}
+_TERMINAL_STATES = {"success", "normal_null", "failure", "unattempted", "uncertain"}
 
 
 def prefix(run_id: str) -> str:
@@ -93,26 +104,78 @@ def read_plan(store: ObjectStore, run_id: str) -> RunPlan | None:
     return plan
 
 
+def terminal_status(terminal: dict[str, object]) -> str:
+    return (
+        "already_partially_published"
+        if terminal["format"] == PARTIAL_TERMINAL_FORMAT
+        else "already_published"
+    )
+
+
+def _terminal_object(items: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in items:
+        if key in result:
+            raise ValueError("invalid retail published batch")
+        result[key] = value
+    return result
+
+
+def _valid_partial_counts(value: dict[str, object], plan: RunPlan) -> bool:
+    states, coverage = value["state_counts"], value["receipt_date_coverage"]
+    if (
+        not isinstance(states, dict)
+        or set(states) != _TERMINAL_STATES
+        or any(type(count) is not int or count < 0 for count in states.values())
+        or sum(states.values()) != value["expected_pairs"]
+        or states["success"] + states["normal_null"] != value["observations"]
+        or value["observations"] == 0
+        or not isinstance(coverage, dict)
+    ):
+        return False
+    total = 0
+    by_source = dict.fromkeys(plan.sources, 0)
+    for day, counts in coverage.items():
+        if not isinstance(day, str):
+            return False
+        try:
+            if date.fromisoformat(day).isoformat() != day:
+                return False
+        except ValueError:
+            return False
+        if (
+            not isinstance(counts, dict)
+            or set(counts) != set(plan.sources)
+            or any(type(count) is not int or count < 0 for count in counts.values())
+            or sum(counts.values()) == 0
+        ):
+            return False
+        total += sum(counts.values())
+        for source in plan.sources:
+            by_source[source] += counts[source]
+    return total == value["observations"] and all(
+        count <= len(plan.tickers) for count in by_source.values()
+    )
+
+
 def read_terminal(store: ObjectStore, plan: RunPlan) -> dict[str, object] | None:
     saved = read_private(store, prefix(plan.run_id) + "/published.json")
     if saved is None:
         return None
-    value = json.loads(saved.payload)
+    value = json.loads(saved.payload, object_pairs_hook=_terminal_object)
+    partial = isinstance(value, dict) and value.get("format") == PARTIAL_TERMINAL_FORMAT
     if (
         not isinstance(value, dict)
         or set(value)
-        != {
-            "format",
-            "plan_sha256",
-            "release_id",
-            "release_manifest_sha256",
-            "expected_pairs",
-            "observations",
-            "readback",
-        }
+        != (
+            _TERMINAL_KEYS | {"state_counts", "receipt_date_coverage"}
+            if partial
+            else _TERMINAL_KEYS
+        )
         or (
-            value["format"] != "retail-published-batch-v1"
+            value["format"] not in ("retail-published-batch-v1", PARTIAL_TERMINAL_FORMAT)
             or value["plan_sha256"] != plan.plan_sha256
+            or type(value["expected_pairs"]) is not int
             or value["expected_pairs"] != len(plan.tickers) * len(plan.sources)
             or type(value["observations"]) is not int
             or not 0 <= value["observations"] <= value["expected_pairs"]
@@ -121,6 +184,7 @@ def read_terminal(store: ObjectStore, plan: RunPlan) -> dict[str, object] | None
             or not value["release_id"]
             or not isinstance(value["release_manifest_sha256"], str)
             or re.fullmatch(r"[0-9a-f]{64}", value["release_manifest_sha256"]) is None
+            or (partial and not _valid_partial_counts(value, plan))
         )
     ):
         raise ValueError("invalid retail published batch")

@@ -27,6 +27,10 @@ SUCCESS = (
     "0",
     "--normal-null-pairs",
     "2",
+    "--uncertain-pairs",
+    "0",
+    "--unattempted-pairs",
+    "0",
     "--rows-added",
     "8",
 )
@@ -86,7 +90,7 @@ def test_publication_with_known_failures_is_degraded(monkeypatch):
 def test_success_with_missing_aggregate_is_degraded_and_unknown_not_zero(monkeypatch):
     message = invoke(monkeypatch, "--publish-result", "success")
     assert message.startswith("[DEGRADED]")
-    assert message.count("不明") == 6
+    assert message.count("不明") == 8
     assert "pair=0" not in message
 
 
@@ -113,6 +117,57 @@ def test_missing_or_inconsistent_publication_counts_cannot_report_ok(monkeypatch
     message = invoke(monkeypatch, *SUCCESS, *counts)
     assert message.startswith("[DEGRADED]")
     assert "品質件数不明" in message
+
+
+def test_explicit_partial_publication_reports_uncertain_and_unattempted_as_degraded(monkeypatch):
+    message = invoke(
+        monkeypatch,
+        *SUCCESS,
+        "--publication-mode",
+        "confirmed_partial",
+        "--expected-pairs",
+        "4",
+        "--typed-pairs",
+        "2",
+        "--normal-null-pairs",
+        "1",
+        "--rows-added",
+        "2",
+        "--uncertain-pairs",
+        "1",
+        "--unattempted-pairs",
+        "1",
+    )
+    assert message.startswith("[DEGRADED]")
+    assert "確定観測のみ部分公開確認済み" in message
+    assert "未確定 pair=1; 未試行 pair=1" in message
+
+
+@pytest.mark.parametrize("status", ["already_published", "already_partially_published"])
+def test_prior_publication_is_skipped_and_retains_complete_or_partial_identity(monkeypatch, status):
+    message = invoke(
+        monkeypatch,
+        "--plan-result",
+        "success",
+        "--terminal-status",
+        status,
+        "--expected-pairs",
+        "4",
+        "--typed-pairs",
+        "2",
+        "--rows-added",
+        "0",
+    )
+    assert message.startswith("[SKIPPED]")
+    assert (
+        "以前の部分公開確認済み"
+        if status == "already_partially_published"
+        else "以前の完全公開確認済み"
+    ) in message
+    assert "今回の再取得/再公開なし" in message
+    assert "固定 pair=4; typed pair=2" in message
+    assert "既知失敗 pair=不明" in message
+    assert "追加 row=0" in message
 
 
 @pytest.mark.parametrize("reason", ["access_denied", "rate_limited", "uncertain_inflight"])
@@ -222,7 +277,13 @@ def test_publication_outputs_allow_only_measured_nonnegative_aggregate_counters(
             "expected_pairs": 8,
             "observations": 6,
             "rows_added": 6,
-            "state_counts": {"success": 4, "normal_null": 2, "failure": 2},
+            "state_counts": {
+                "success": 4,
+                "normal_null": 2,
+                "failure": 2,
+                "uncertain": 0,
+                "unattempted": 0,
+            },
             "ticker": "private-ticker",
             "private_payload": "private-body",
             "run_id": "private-batch",
@@ -230,7 +291,7 @@ def test_publication_outputs_allow_only_measured_nonnegative_aggregate_counters(
     )
     assert path.read_text() == (
         "retail_expected_pairs=8\nretail_typed_pairs=6\nretail_known_failure_pairs=2\n"
-        "retail_normal_null_pairs=2\nretail_rows_added=6\n"
+        "retail_normal_null_pairs=2\nretail_uncertain_pairs=0\nretail_unattempted_pairs=0\nretail_rows_added=6\n"
     )
 
 
@@ -244,7 +305,7 @@ def test_legacy_terminal_missing_counters_remain_unknown_without_reconstruction(
     )
     assert path.read_text() == (
         "retail_expected_pairs=8\nretail_typed_pairs=6\nretail_known_failure_pairs=unknown\n"
-        "retail_normal_null_pairs=unknown\nretail_rows_added=unknown\n"
+        "retail_normal_null_pairs=unknown\nretail_uncertain_pairs=unknown\nretail_unattempted_pairs=unknown\nretail_rows_added=unknown\n"
     )
 
 
@@ -259,7 +320,7 @@ def test_invalid_report_count_shape_cannot_leak_into_outputs(tmp_path, monkeypat
             "state_counts": {"failure": "private-body", "normal_null": False},
         }
     )
-    assert path.read_text().count("=unknown\n") == 5
+    assert path.read_text().count("=unknown\n") == 7
 
 
 @pytest.mark.parametrize("has_states", [True, False])
@@ -286,6 +347,7 @@ def test_publish_main_emits_actual_report_only_after_existing_publisher_returns(
 
     monkeypatch.setattr(daily, "Boto3R2Store", lambda **kwargs: object())
     monkeypatch.setattr(daily, "read_plan", lambda *args: p)
+    monkeypatch.setattr(daily, "read_terminal", lambda *args: None)
     monkeypatch.setattr(retail_publication, "publish_and_verify", publish)
     monkeypatch.setattr(publication_lease, "_load_handle", lambda *args: object())
     output = tmp_path / "output"
@@ -334,6 +396,10 @@ def test_workflow_has_one_terminal_notifier_outside_matrix_with_step_only_existi
         Loader=yaml.BaseLoader,
     )
     assert set(workflow["on"]) == {"workflow_dispatch"}
+    assert workflow["on"]["workflow_dispatch"]["inputs"]["operation"]["options"] == [
+        "collect_and_publish",
+        "publish_confirmed_partial",
+    ]
     jobs = workflow["jobs"]
     notifiers = {
         name: job
@@ -371,6 +437,13 @@ def test_workflow_has_one_terminal_notifier_outside_matrix_with_step_only_existi
     ):
         assert private not in serialized
     assert "python3 -m baibai_batch.observability.retail_discord" in step["run"]
+    assert "--terminal-status" in step["run"]
+    assert "--publication-mode" in step["run"]
+    assert "needs.plan.outputs.terminal_status" in step["run"]
+    assert "needs.plan.outputs.terminal_status == 'pending'" in jobs["publish"]["if"]
+    assert "!cancelled()" in jobs["publish"]["if"]
+    assert "needs.plan.outputs.terminal_status == 'pending'" in jobs["acquire"]["if"]
+    assert "inputs.operation == 'collect_and_publish'" in jobs["acquire"]["if"]
     for counter in notify.COUNTERS:
         assert f"--{counter.replace('_', '-')}" in step["run"]
         assert f"steps.publish.outputs.retail_{counter}" in jobs["publish"]["outputs"][counter]

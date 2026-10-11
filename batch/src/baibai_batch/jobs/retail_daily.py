@@ -31,6 +31,7 @@ from baibai_batch.storage.retail_staging import (
     read_plan,
     read_terminal,
     save_new_plan,
+    terminal_status,
 )
 from baibai_engine.batch_api import (
     MARKET_DB_PATH,
@@ -64,7 +65,12 @@ class _MasterSource:
 
 
 def initialize(
-    store: ObjectStore, *, run_id: str, master_asof: date, mirror: Path | None
+    store: ObjectStore,
+    *,
+    run_id: str,
+    master_asof: date,
+    mirror: Path | None,
+    require_existing: bool = False,
 ) -> RunPlan:
     existing = read_plan(store, run_id)
     if existing is not None:
@@ -72,6 +78,8 @@ def initialize(
         if json.loads(existing.universe_binding)["master_asof"] != master_asof.isoformat():
             raise ValueError("retail saved master assertion changed")
         return existing
+    if require_existing:
+        raise ValueError("retail partial publication requires an existing fixed plan")
     if mirror is None:
         raise ValueError("private master cache directory required for a new plan")
     mirror.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -97,6 +105,18 @@ def initialize(
         raise ValueError("retail cohort count exceeds the supported Actions matrix")
     save_new_plan(store, plan)
     return plan
+
+
+def _terminal_result(terminal: dict[str, object]) -> dict[str, object]:
+    return {
+        **terminal,
+        "status": terminal_status(terminal),
+        "readback": "previously_verified",
+        "rows_added": 0,
+        "uploaded_bytes": 0,
+        "uploaded_objects": 0,
+        "publication_transfers": None,
+    }
 
 
 def _acquire_pair(
@@ -181,9 +201,7 @@ def acquire_cohort(
     terminal = read_terminal(store, plan)
     if terminal is not None:
         return {
-            **terminal,
-            "status": "already_published",
-            "readback": "previously_verified",
+            **_terminal_result(terminal),
             "confirmed_http_requests": 0,
             "request_reservations": 0,
         }
@@ -226,15 +244,22 @@ def acquire_cohort(
     return report
 
 
-def write_outputs(plan: RunPlan | None) -> None:
+def write_outputs(plan: RunPlan | None, terminal: dict[str, object] | None = None) -> None:
     values = {
         "exists": str(plan is not None).lower(),
-        "cohorts": json.dumps([cohort.index for cohort in plan.cohorts]) if plan else "[]",
+        "cohorts": (
+            json.dumps([cohort.index for cohort in plan.cohorts])
+            if plan and terminal is None
+            else "[]"
+        ),
+        "terminal_status": terminal_status(terminal) if terminal is not None else "pending",
     }
     if output := os.environ.get("GITHUB_OUTPUT"):
         with Path(output).open("a", encoding="utf-8") as stream:
             for key, value in values.items():
                 print(f"{key}={value}", file=stream)
+    if terminal is not None:
+        write_publication_outputs(_terminal_result(terminal))
 
 
 def write_publication_outputs(report: dict[str, object]) -> None:
@@ -246,6 +271,8 @@ def write_publication_outputs(report: dict[str, object]) -> None:
         "typed_pairs": report.get("observations"),
         "known_failure_pairs": states.get("failure"),
         "normal_null_pairs": states.get("normal_null"),
+        "uncertain_pairs": states.get("uncertain"),
+        "unattempted_pairs": states.get("unattempted"),
         "rows_added": report.get("rows_added"),
     }
     if output := os.environ.get("GITHUB_OUTPUT"):
@@ -257,13 +284,17 @@ def write_publication_outputs(report: dict[str, object]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("status", "plan", "acquire", "audit", "publish"))
+    parser.add_argument(
+        "command",
+        choices=("status", "plan", "acquire", "audit", "publish", "publish-confirmed-partial"),
+    )
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--master-asof", type=date.fromisoformat)
     parser.add_argument("--cohort", type=int)
     parser.add_argument("--db", type=Path, default=MARKET_DB_PATH)
     parser.add_argument("--directory", type=Path)
     parser.add_argument("--lease-handle", type=Path)
+    parser.add_argument("--require-existing-plan", action="store_true")
     args = parser.parse_args(argv)
     try:
         plan: RunPlan | None
@@ -273,24 +304,33 @@ def main(argv: list[str] | None = None) -> int:
             if args.master_asof is None:
                 raise ValueError("saved master date required")
             plan = initialize(
-                store, run_id=args.run_id, master_asof=args.master_asof, mirror=args.directory
+                store,
+                run_id=args.run_id,
+                master_asof=args.master_asof,
+                mirror=args.directory,
+                require_existing=args.require_existing_plan,
             )
         else:
             plan = read_plan(store, args.run_id)
         if args.command == "status":
-            write_outputs(plan)
+            write_outputs(plan, read_terminal(store, plan) if plan is not None else None)
             print(json.dumps({"plan_exists": plan is not None}))
             return 0
         if plan is None:
             raise ValueError("retail fixed plan is missing")
         require_binding(plan)
         if args.command == "plan":
-            write_outputs(plan)
-            report = {
-                "tickers": len(plan.tickers),
-                "cohorts": len(plan.cohorts),
-                "expected_pairs": len(plan.tickers) * len(plan.sources),
-            }
+            terminal = read_terminal(store, plan)
+            write_outputs(plan, terminal)
+            report = (
+                _terminal_result(terminal)
+                if terminal is not None
+                else {
+                    "tickers": len(plan.tickers),
+                    "cohorts": len(plan.cohorts),
+                    "expected_pairs": len(plan.tickers) * len(plan.sources),
+                }
+            )
         elif args.command == "acquire":
             if args.cohort is None:
                 raise ValueError("cohort required")
@@ -299,23 +339,28 @@ def main(argv: list[str] | None = None) -> int:
             checkpoints = read_checkpoints(store, plan)
             report = summarize(plan, [checkpoint.journal for checkpoint, _ in checkpoints.values()])
         else:
-            if args.directory is None or args.lease_handle is None:
-                raise ValueError("private publish directory and lease handle required")
-            from baibai_batch.jobs.retail_publication import publish_and_verify
-            from baibai_batch.storage.publication_lease import _load_handle
+            terminal = read_terminal(store, plan)
+            if terminal is not None:
+                report = _terminal_result(terminal)
+            else:
+                if args.directory is None or args.lease_handle is None:
+                    raise ValueError("private publish directory and lease handle required")
+                from baibai_batch.jobs.retail_publication import publish_and_verify
+                from baibai_batch.storage.publication_lease import _load_handle
 
-            report = publish_and_verify(
-                store,
-                plan,
-                handle=_load_handle(args.lease_handle),
-                sqlite_path=args.db,
-                mirror=args.db.parents[1],
-                directory=args.directory,
-            )
+                report = publish_and_verify(
+                    store,
+                    plan,
+                    handle=_load_handle(args.lease_handle),
+                    sqlite_path=args.db,
+                    mirror=args.db.parents[1],
+                    directory=args.directory,
+                    confirmed_partial=args.command == "publish-confirmed-partial",
+                )
             write_publication_outputs(report)
         print(json.dumps(report, sort_keys=True))
         if args.command == "acquire":
-            if report.get("status") == "already_published":
+            if report.get("status") in {"already_published", "already_partially_published"}:
                 return 0
             journal = read_checkpoints(store, plan)[args.cohort][0].journal
             if journal.halt_reason is not None or any(

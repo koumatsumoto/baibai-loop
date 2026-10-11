@@ -29,6 +29,8 @@ COUNTERS = (
     "typed_pairs",
     "known_failure_pairs",
     "normal_null_pairs",
+    "uncertain_pairs",
+    "unattempted_pairs",
     "rows_added",
 )
 
@@ -48,11 +50,27 @@ def build_parser() -> argparse.ArgumentParser:
     for counter in COUNTERS:
         parser.add_argument(f"--{counter.replace('_', '-')}", type=_counter, default=None)
     parser.add_argument("--cancelled", choices=("true", "false"), default="false")
+    parser.add_argument(
+        "--terminal-status",
+        choices=("pending", "already_published", "already_partially_published"),
+        default="pending",
+    )
+    parser.add_argument(
+        "--publication-mode", choices=("complete", "confirmed_partial"), default="complete"
+    )
     return parser
 
 
 def render_message(args: argparse.Namespace) -> str:
-    if args.cancelled == "true" or "cancelled" in (
+    previous = args.terminal_status != "pending" and args.plan_result == "success"
+    if previous:
+        outcome = OUTCOME_SKIPPED
+        detail = (
+            "以前の部分公開確認済み・今回の再取得/再公開なし"
+            if args.terminal_status == "already_partially_published"
+            else "以前の完全公開確認済み・今回の再取得/再公開なし"
+        )
+    elif args.cancelled == "true" or "cancelled" in (
         args.plan_result,
         args.acquire_result,
         args.publish_result,
@@ -67,11 +85,21 @@ def render_message(args: argparse.Namespace) -> str:
         complete_counts = all(getattr(args, name) is not None for name in COUNTERS)
         consistent_counts = complete_counts and (
             args.expected_pairs > 0
-            and args.typed_pairs + args.known_failure_pairs == args.expected_pairs
+            and (
+                args.typed_pairs
+                + args.known_failure_pairs
+                + args.uncertain_pairs
+                + args.unattempted_pairs
+            )
+            == args.expected_pairs
             and args.normal_null_pairs <= args.typed_pairs
             and args.rows_added <= args.typed_pairs
         )
-        if not consistent_counts:
+        if args.publication_mode == "confirmed_partial":
+            outcome, detail = OUTCOME_DEGRADED, "確定観測のみ部分公開確認済み・batch 取得再開なし"
+            if not consistent_counts:
+                detail += "・品質件数不明"
+        elif not consistent_counts or args.uncertain_pairs != 0 or args.unattempted_pairs != 0:
             outcome, detail = OUTCOME_DEGRADED, "公開確認済み・品質件数不明"
         elif args.known_failure_pairs > 0:
             outcome, detail = OUTCOME_DEGRADED, "公開確認済み・既知の取得/parse 失敗あり"
@@ -88,7 +116,7 @@ def render_message(args: argparse.Namespace) -> str:
 
     # A matrix failure supplies no trustworthy aggregate; never fill it from R2.
     def count(name: str) -> str:
-        value = getattr(args, name) if args.publish_result == "success" else None
+        value = getattr(args, name) if args.publish_result == "success" or previous else None
         return str(value) if value is not None else "不明"
 
     return (
@@ -96,6 +124,7 @@ def render_message(args: argparse.Namespace) -> str:
         f"\n固定 pair={count('expected_pairs')}; typed pair={count('typed_pairs')}; "
         f"既知失敗 pair={count('known_failure_pairs')}; "
         f"全評価値 null pair={count('normal_null_pairs')}; 追加 row={count('rows_added')}"
+        f"\n未確定 pair={count('uncertain_pairs')}; 未試行 pair={count('unattempted_pairs')}"
         f"\nexecutor: {executor_label(os.environ)}"
         f"\nrun: {sanitize_one_line(run_url(os.environ), 420)}"
     )

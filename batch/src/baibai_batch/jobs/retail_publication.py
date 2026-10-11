@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from pathlib import Path
 
 from baibai_batch.jobs.retail_cohorts import RunPlan, summarize, validate_resume
@@ -14,12 +15,20 @@ from baibai_batch.storage.publish_market_lake import (
     _serving_pointer,
     publish_market_lake,
 )
-from baibai_batch.storage.retail_staging import prefix, put_private, read_checkpoints, read_private
+from baibai_batch.storage.retail_staging import (
+    prefix,
+    put_private,
+    read_checkpoints,
+    read_private,
+    read_terminal,
+    terminal_status,
+)
 from baibai_engine.batch_api import (
     LakeFixedRelease,
     LakeObjectCache,
     LocalMirrorSource,
     RetailModelValuationObservation,
+    RetailObservation,
     lake_session,
     read_lake_store_origin,
     retail_history_digests,
@@ -29,6 +38,18 @@ from baibai_engine.batch_api import (
 
 VALUATION_DATASET = "retail_dynamics.model_valuation_observations"
 RATING_DATASET = "retail_dynamics.analyst_rating_observations"
+
+
+def receipt_date_coverage(
+    plan: RunPlan, observations: Sequence[RetailObservation]
+) -> dict[str, dict[str, int]]:
+    coverage: dict[str, dict[str, int]] = {}
+    for observation in observations:
+        sources = coverage.setdefault(
+            observation.snapshot_date.isoformat(), dict.fromkeys(plan.sources, 0)
+        )
+        sources[observation.distributor] += 1
+    return dict(sorted(coverage.items()))
 
 
 def unchanged_objects(
@@ -59,16 +80,32 @@ def publish_and_verify(
     sqlite_path: Path,
     mirror: Path,
     directory: Path,
+    confirmed_partial: bool = False,
 ) -> dict[str, object]:
-    """Caller holds publication lease across fresh hydrate, this call and readback."""
+    """New publication requires the lease; sealed batches return their original receipt."""
+    saved_terminal = read_terminal(store, plan)
+    if saved_terminal is not None:
+        return {
+            **saved_terminal,
+            "status": terminal_status(saved_terminal),
+            "readback": "previously_verified",
+            "rows_added": 0,
+            "uploaded_bytes": 0,
+            "uploaded_objects": 0,
+            "publication_transfers": None,
+        }
     verify_held(store, handle)
     checkpoints = read_checkpoints(store, plan)
     journals = [checkpoint.journal for checkpoint, _ in checkpoints.values()]
-    validate_resume(plan, journals)
-    accounting = summarize(plan, journals, require_all=True)
-    if not accounting["attempted_completeness"]:
+    if not confirmed_partial:
+        validate_resume(plan, journals)
+    accounting = summarize(plan, journals, require_all=not confirmed_partial)
+    if not confirmed_partial and not accounting["attempted_completeness"]:
         raise ValueError("retail publication requires all fixed pairs attempted")
     observations = tuple(item for journal in journals for item in journal.observations)
+    if confirmed_partial and not observations:
+        raise ValueError("retail partial publication requires confirmed typed observations")
+    coverage = receipt_date_coverage(plan, observations)
     previous = _serving_pointer(store).pointer
     if previous is None:
         raise LakePublishError("retail publication requires an existing L1 release")
@@ -134,8 +171,12 @@ def publish_and_verify(
             observations=observations,
         )
     verify_held(store, handle)
-    terminal = {
-        "format": "retail-published-batch-v1",
+    terminal: dict[str, object] = {
+        "format": (
+            "retail-partially-published-batch-v1"
+            if confirmed_partial
+            else "retail-published-batch-v1"
+        ),
         "plan_sha256": plan.plan_sha256,
         "release_id": after.release_id,
         "release_manifest_sha256": after.manifest_sha256,
@@ -143,6 +184,9 @@ def publish_and_verify(
         "observations": len(observations),
         "readback": "verified",
     }
+    if confirmed_partial:
+        terminal["state_counts"] = accounting["state_counts"]
+        terminal["receipt_date_coverage"] = coverage
     key = prefix(plan.run_id) + "/published.json"
     saved = read_private(store, key)
     if saved is not None and json.loads(saved.payload)["plan_sha256"] != plan.plan_sha256:
@@ -170,6 +214,8 @@ def publish_and_verify(
     return {
         **accounting,
         **terminal,
+        "status": "partially_published" if confirmed_partial else "published",
+        "receipt_date_coverage": coverage,
         "rows_added": inserted,
         "uploaded_bytes": publication.uploaded_bytes if publication else 0,
         "uploaded_objects": publication.uploaded_objects if publication else 0,
