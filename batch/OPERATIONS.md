@@ -858,6 +858,27 @@ import対象は明示した既存の隔離作業コピーであり、current mar
 
 本番導入は下記のcode/store切替を一組にする。後続の独立workflowでは取得をlease外で終え、公開段階で最新クラウド世代をpull/hydrateしてから確定stageを適用する。公開権限、private handoff、料金・所要時間の実測は定期実行前に別途受入する。保持・照会は[market lake](../docs/reference/market-lake.md#retail-dynamics-query)を参照する。
 
+### 固定コホートの手動受入と再開
+
+`cloud-retail-dynamics.yml`は定期実行を持たない、main限定の手動受入入口である。上の限定collectorと分け、保存済み全普通株の取得をpublication lease外で行う。初回に最新L1をhydrateし、指定したexact-dateの保存済みmasterから固定universeを選ぶ。新しいmasterをproviderから取得せず、普通株のproduction floor、分類、hydrate originが不足する場合は停止する。planはmaster日付・release・ticker集合・collector policyに固定され、同じbatch IDの再開では別universeへ置換しない。
+
+[GitHub-hosted runnerの1ジョブ6時間上限](https://docs.github.com/en/actions/reference/limits)に収めるため、既定50銘柄のコホートを直列のmatrix jobへ分ける。workflow全体の取得専用concurrencyで別batch ID・再実行も直列化する。各pairは応答後の最低2秒間隔を維持し、通信前後のcheckpointを含む実wall-clock上限を持つ。取得jobは4時間のsoft budgetに余裕を残して次pairを開始せず、4時間30分のprocess timeout、5時間のjob上限で打ち切る。HTTP timeoutの積だけを総所要時間の保証にしない。
+
+確定したtyped観測と安全な成否は、既存`baibai-stores`の`coordination/retail-dynamics/<batch_id>/`へ条件付き保存してjob間で引き継ぐ。raw HTML・認証情報は保存せず、値をlog・Git・Actions artifactへ出さない。各HTTPの前にinflightを永続化し、結果の確定時に同じ世代を条件付き更新する。成功・正常null・確定した失敗は再開時に取得しない。403・429、CAS不一致、保存結果が不明なPUT、inflightのままの中断は日次run全体を停止し、自動再試行や経路変更をしない。
+
+**受入の前提**: PR1のcode/store切替とreadbackが完了し、PR2のレビュー・CI・private handoff・費用と所要時間の受入が成功していること。新credential・serverは不要だが、この文書や開発テストは実R2書込・workflow dispatch・定期有効化を実行した証拠ではない。operatorは保存済みmasterの日付と再開用batch IDを選び、次をmainへdispatchする。
+
+```bash
+gh workflow run cloud-retail-dynamics.yml --ref main \
+  -f batch_id="$retail_batch_id" -f master_asof="$retail_master_asof"
+```
+
+**成功確認**: 全固定cohort・pairのaccounting、未試行・uncertainがないこと、typed観測のsuccess・normalnull、parse/HTTP失敗を別に確認する。全pairの試行完了は、全銘柄・全指標に値があることを意味しない。publisherだけ既存`cloud-publish` concurrencyとpublication leaseへ入り、最新cloudをfresh pull/hydrateしてから原受領時刻のstageを適用する。欠落cohort、期限切れ・置換lease、古いhydrate originは公開前に拒否し、既存L1の条件付き公開で世代競合を拒否する。公開後は空cacheから固定releaseを読み、原観測の全列・両tableの全受領履歴・無関係なpartitionの保持を照合して`readback: verified`を記録する。同じstageの再投入は追加row 0である。JST日付は実受領UTCから導出し、長いrunや再開で日を跨いでも元の日付へ付け替えない。
+
+**停止・再開**: soft budgetによる未試行だけなら、同じbatch IDとmaster日付で再dispatchし、確定pairを除いた残りを取得する。欠落cohort・cancelされたmatrixも同じ固定planから再開する。inflight・明示拒否・保存競合がある場合はaudit summaryと原因を確認し、同batchの取得を継続しない。公開失敗後は次回も最新正本をhydrateし、古い作業DBを上書き公開しない。公開済みでもreadback失敗なら完了ではなく、confirmed stageから再確認する。
+
+受領履歴はL1で保持する。取得checkpointは引継ぎ用であり、検証用のraw応答やSQLite複製と同じ保存目的ではない。公開・readback完了後の整理では、固定planと小さなpublished manifestを残し、同batch IDを再取得へ戻さない。raw HTMLや重複検証copyの無期限保持は採用しない。正規化stageの容量だけをR2全体の容量・料金とみなさず、checkpointのClass A/B、既存全datasetのL1再exportとobject再利用、保存履歴を別に実測する。
+
 <a id="market-28-to-29"></a>
 
 ### market SQLite 28→29のattended cutover

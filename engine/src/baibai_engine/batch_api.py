@@ -82,6 +82,37 @@ from baibai_engine.market.lake.writer import (
     export_lake_legacy,
 )
 from baibai_engine.market.retail_dynamics.cli import main as retail_dynamics_main
+from baibai_engine.market.retail_dynamics.collection import (
+    PARSE_FAILURE_REASONS as retail_parse_failure_reasons,
+)
+from baibai_engine.market.retail_dynamics.collection import (
+    CollectionOutcome as RetailCollectionOutcome,
+)
+from baibai_engine.market.retail_dynamics.collection import (
+    CollectionResult as RetailCollectionResult,
+)
+from baibai_engine.market.retail_dynamics.collection import Source as RetailSource
+from baibai_engine.market.retail_dynamics.collection import collect_pair as retail_collect_pair
+from baibai_engine.market.retail_dynamics.collection import (
+    collector_binding as retail_collector_binding,
+)
+from baibai_engine.market.retail_dynamics.collection import load_staging as retail_load_staging
+from baibai_engine.market.retail_dynamics.collection import save_staging as retail_save_staging
+from baibai_engine.market.retail_dynamics.models import (
+    AnalystRatingObservation as RetailAnalystRatingObservation,
+)
+from baibai_engine.market.retail_dynamics.models import (
+    ModelValuationObservation as RetailModelValuationObservation,
+)
+from baibai_engine.market.retail_dynamics.models import Observation as RetailObservation
+from baibai_engine.market.retail_dynamics.store import save_observations as retail_save_observations
+from baibai_engine.market.retail_dynamics.universe import frozen_universe as retail_frozen_universe
+from baibai_engine.market.retail_dynamics.verification import (
+    history_digests as retail_history_digests,
+)
+from baibai_engine.market.retail_dynamics.verification import (
+    verify_observations as retail_verify_observations,
+)
 from baibai_engine.market.sqlite import open_connection as open_market_store
 from baibai_engine.market.sqlite.lake_origin import (
     LakeStoreOrigin,
@@ -402,6 +433,12 @@ __all__ = [
     "MarketSchemaError",
     "PublishedReviewSet",
     "ResearchTriage",
+    "RetailAnalystRatingObservation",
+    "RetailCollectionOutcome",
+    "RetailCollectionResult",
+    "RetailModelValuationObservation",
+    "RetailObservation",
+    "RetailSource",
     "ReviewSetEntrySnapshot",
     "StoreLayoutError",
     "advance_lake_store_origin",
@@ -431,7 +468,16 @@ __all__ = [
     "reject_noncanonical_store_paths",
     "repository_root_error",
     "resolve_release",
+    "retail_collect_pair",
+    "retail_collector_binding",
     "retail_dynamics_main",
+    "retail_frozen_universe",
+    "retail_history_digests",
+    "retail_load_staging",
+    "retail_parse_failure_reasons",
+    "retail_save_observations",
+    "retail_save_staging",
+    "retail_verify_observations",
     "scorecard_series_ids",
     "tradingview_accept_observations",
     "tradingview_failure_line",

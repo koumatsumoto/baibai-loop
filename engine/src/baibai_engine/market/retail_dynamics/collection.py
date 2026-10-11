@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -9,13 +10,13 @@ import signal
 import tempfile
 import threading
 import time
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from types import FrameType
-from typing import Literal
+from typing import Any, Literal
 
 import requests
 from pydantic import ValidationError
@@ -29,6 +30,10 @@ DEFAULT_TICKERS = ("7203", "9432", "6758")
 MAX_TICKERS = 3
 MAX_REQUESTS = 9
 MIN_REQUEST_INTERVAL_SECONDS = 2.0
+DEFAULT_PAIR_TIME_LIMIT_SECONDS = 120
+DEFAULT_PAIR_REQUEST_TIMEOUT_SECONDS = 30
+# Increment this policy version whenever pair acquisition semantics change.
+PAIR_ACQUISITION_POLICY_VERSION = "retail-pair-acquisition-v1"
 STAGING_FORMAT = "retail-dynamics-staging-v1"
 PARSE_FAILURE_REASONS = frozenset(
     {
@@ -70,6 +75,9 @@ class CollectionResult:
     outcomes: tuple[CollectionOutcome, ...]
     requests: int
     stop_reason: str | None = None
+    last_response_finished_at_utc: datetime | None = None
+    # Fully received, decompressed response.content only; never wire byte counts.
+    response_content_bytes: int | None = None
 
     def summary(self) -> dict[str, object]:
         counts: dict[str, int] = {}
@@ -280,6 +288,189 @@ def collect(
 
 class _RequestLimit(Exception):
     pass
+
+
+def collector_binding() -> str:
+    """Bind a resumable plan to acquisition policy and the actual parser versions."""
+    policy = {
+        "format": PAIR_ACQUISITION_POLICY_VERSION,
+        "monex_parser": monex.PARSER_VERSION,
+        "rakuten_parser": rakuten.PARSER_VERSION,
+        "request_interval_seconds": MIN_REQUEST_INTERVAL_SECONDS,
+        "initial_pair_interval_seconds": MIN_REQUEST_INTERVAL_SECONDS,
+        "pair_time_limit_seconds": DEFAULT_PAIR_TIME_LIMIT_SECONDS,
+        "request_timeout_seconds": DEFAULT_PAIR_REQUEST_TIMEOUT_SECONDS,
+        "source_request_limits": {"monex": 1, "rakuten": 2},
+    }
+    return hashlib.sha256(
+        json.dumps(policy, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _checkpoint_callback(callback: Callable[[], None]) -> None:
+    try:
+        callback()
+    except _TimeLimit:
+        raise
+    except Exception:
+        # Checkpoint failures must not become broker transport/parser outcomes,
+        # and exception messages can contain signed URLs or private payloads.
+        raise RuntimeError("pair_checkpoint_callback_failed") from None
+
+
+class _PairSession(requests.Session):
+    def __init__(
+        self,
+        client: requests.Session,
+        deadline: float,
+        before_request: Callable[[], None],
+        on_response: Callable[[datetime, int, int], None] | None,
+    ) -> None:
+        super().__init__()
+        self.client = client
+        self.deadline = deadline
+        self.before_request = before_request
+        self.on_response = on_response
+        self.initial_wait_until = time.monotonic() + MIN_REQUEST_INTERVAL_SECONDS
+        self.requests = 0
+        self.reservation_started = False
+        self.finished_at_utc: datetime | None = None
+        self.content_bytes = 0
+
+    def _remaining(self) -> float:
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise _TimeLimit
+        return remaining
+
+    def get(self, url: str | bytes, params: Any = None, **kwargs: Any) -> requests.Response:
+        if kwargs.get("allow_redirects") is not False:
+            raise ValueError("pair redirects are forbidden")
+        if self.requests == 0:
+            # A fresh two-second wait also covers immediate process/cohort
+            # resumes without inferring elapsed time from a persisted clock.
+            while (wait := self.initial_wait_until - time.monotonic()) > 0:
+                time.sleep(min(wait, self._remaining()))
+        self._remaining()
+        self.reservation_started = True
+        _checkpoint_callback(self.before_request)
+        remaining = self._remaining()
+        kwargs["timeout"] = min(float(kwargs["timeout"]), remaining)
+        if params is not None:
+            kwargs["params"] = params
+        self.requests += 1
+        response = self.client.get(url, **kwargs)
+        try:
+            body = response.content
+            finished = datetime.now(UTC)
+            self.finished_at_utc = finished
+            self.content_bytes += len(body)
+            callback = self.on_response
+            if callback is not None:
+                _checkpoint_callback(lambda: callback(finished, self.requests, len(body)))
+            return response
+        except BaseException:
+            response.close()
+            raise
+
+
+def collect_pair(
+    ticker: str,
+    *,
+    source: Source,
+    before_request: Callable[[], None],
+    on_outcome: Callable[[CollectionResult], None],
+    on_response: Callable[[datetime, int, int], None] | None = None,
+    time_limit_seconds: float = DEFAULT_PAIR_TIME_LIMIT_SECONDS,
+    request_timeout_seconds: float = DEFAULT_PAIR_REQUEST_TIMEOUT_SECONDS,
+    session: requests.Session | None = None,
+) -> CollectionResult:
+    """Acquire one fixed pair once, with durable callbacks inside one wall-clock budget.
+
+    Each transport invocation follows before_request. Only determinate outcomes
+    invoke on_outcome; uncertain_inflight requires retaining the durable marker
+    and stopping the whole run. A zero-request timeout before any reservation
+    remains unattempted; an interrupted checkpoint reservation is uncertain.
+    403/429 stop_reason halts the caller's whole run. The bounded collect API
+    retains its existing source-only stop behavior.
+    """
+    ticker = normalize_ticker(ticker)
+    if source not in {"monex", "rakuten"}:
+        raise ValueError("pair collection requires a supported source")
+    if not math.isfinite(time_limit_seconds) or not 0 < time_limit_seconds <= 120:
+        raise ValueError("wall-clock limit must be positive and at most 120 seconds")
+    if not math.isfinite(request_timeout_seconds) or not 0 < request_timeout_seconds <= 30:
+        raise ValueError("request timeout must be positive and at most 30 seconds")
+    deadline = time.monotonic() + time_limit_seconds
+    client = session if session is not None else requests.Session()
+    wrapped: _PairSession | None = None
+    try:
+        adapter = client.adapters.get("https://")
+        if (
+            not client.trust_env
+            or client.verify is not True
+            or not isinstance(adapter, requests.adapters.HTTPAdapter)
+            or adapter.max_retries.total != 0
+        ):
+            raise ValueError("pair collection requires ordinary proxy/TLS and no retries")
+        wrapped = _PairSession(client, deadline, before_request, on_response)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return CollectionResult(
+                (),
+                (CollectionOutcome(source, ticker, "not_attempted", "wall_clock_limit"),),
+                0,
+                "wall_clock_limit",
+                response_content_bytes=0,
+            )
+        result = collect(
+            [ticker],
+            sources=(source,),
+            request_budget=1 if source == "monex" else 2,
+            time_limit_seconds=remaining,
+            request_timeout_seconds=request_timeout_seconds,
+            session=wrapped,
+        )
+        result = replace(
+            result,
+            observations=tuple(
+                type(observation).model_validate(
+                    {
+                        **observation.model_dump(exclude={"snapshot_date"}),
+                        "fetched_at_utc": wrapped.finished_at_utc,
+                    }
+                )
+                for observation in result.observations
+            ),
+            requests=wrapped.requests,
+            last_response_finished_at_utc=wrapped.finished_at_utc,
+            response_content_bytes=wrapped.content_bytes,
+        )
+        if wrapped.requests == 0:
+            if wrapped.reservation_started:
+                return replace(result, stop_reason="uncertain_inflight")
+            return replace(
+                result,
+                outcomes=(CollectionOutcome(source, ticker, "not_attempted", result.stop_reason),),
+            )
+        if any(outcome.status == "incomplete" for outcome in result.outcomes):
+            return replace(result, stop_reason="uncertain_inflight")
+        if result.outcomes[0].http_status in {403, 429}:
+            result = replace(result, stop_reason=result.outcomes[0].status)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return replace(result, stop_reason="uncertain_inflight")
+        try:
+            with _wall_clock_limit(remaining):
+                _checkpoint_callback(lambda: on_outcome(result))
+        except _TimeLimit:
+            return replace(result, stop_reason="uncertain_inflight")
+        return result
+    finally:
+        if wrapped is not None:
+            wrapped.close()
+        if session is None:
+            client.close()
 
 
 def save_staging(path: Path, observations: Sequence[Observation]) -> None:

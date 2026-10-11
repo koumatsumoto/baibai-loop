@@ -1,0 +1,149 @@
+name: cloud-retail-dynamics
+run-name: "retail ${{ inputs.batch_id }}"
+
+# Manual acceptance only. A schedule is a separate operational decision.
+on:
+  workflow_dispatch:
+    inputs:
+      batch_id:
+        description: "Stable private batch id; reuse the same id to resume"
+        required: true
+        type: string
+      master_asof:
+        description: "Exact already-saved J-Quants master date YYYY-MM-DD"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Serializes different batch ids and reruns without blocking existing publishers.
+concurrency:
+  group: retail-dynamics-acquire
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    outputs:
+      cohorts: ${{ steps.plan.outputs.cohorts }}
+    env:
+      RETAIL_BATCH_ID: ${{ inputs.batch_id }}
+      RETAIL_MASTER_ASOF: ${{ inputs.master_asof }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Check the saved private plan
+        id: status
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_batch.jobs.retail_daily status --run-id "$RETAIL_BATCH_ID"
+      - name: Provision DuckDB httpfs extension
+        if: ${{ steps.status.outputs.exists != 'true' }}
+        run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
+      - name: Hydrate the saved master for the initial plan
+        if: ${{ steps.status.outputs.exists != 'true' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          batch/scripts/r2_transfer.sh pull-market
+          batch/scripts/r2_transfer.sh hydrate-market
+      - name: Freeze or verify the private plan
+        id: plan
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_batch.jobs.retail_daily plan --run-id "$RETAIL_BATCH_ID" --master-asof "$RETAIL_MASTER_ASOF"
+
+  acquire:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix:
+        cohort: ${{ fromJSON(needs.plan.outputs.cohorts) }}
+    env:
+      RETAIL_BATCH_ID: ${{ inputs.batch_id }}
+      RETAIL_COHORT: ${{ matrix.cohort }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Acquire one fixed cohort with durable private checkpoints
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: timeout --signal=TERM --kill-after=30s 4h30m uv run python -m baibai_batch.jobs.retail_daily acquire --run-id "$RETAIL_BATCH_ID" --cohort "$RETAIL_COHORT"
+
+  publish:
+    needs: [plan, acquire]
+    runs-on: ubuntu-latest
+    # The existing publication lease expires after 120 minutes.
+    timeout-minutes: 110
+    concurrency:
+      group: cloud-publish
+      queue: max
+      cancel-in-progress: false
+    env:
+      RETAIL_BATCH_ID: ${{ inputs.batch_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Provision DuckDB httpfs extension
+        run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
+      - name: Acquire the existing publication lease
+        id: lease-acquire
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_batch.storage.publication_lease acquire --purpose operator --handle "$RUNNER_TEMP/retail-publication-lease.json"
+      - name: Pull and hydrate the latest canonical release
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          batch/scripts/r2_transfer.sh pull-market
+          batch/scripts/r2_transfer.sh hydrate-market
+      - name: Import confirmed receipts and publish with remote readback
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_batch.jobs.retail_daily publish --run-id "$RETAIL_BATCH_ID" --directory "$RUNNER_TEMP/retail-readback" --lease-handle "$RUNNER_TEMP/retail-publication-lease.json"
+      - name: Release publication lease
+        if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_batch.storage.publication_lease release --handle "$RUNNER_TEMP/retail-publication-lease.json"
