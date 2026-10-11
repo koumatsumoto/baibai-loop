@@ -5,13 +5,14 @@ import signal
 import stat
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 import requests
 from tests.engine.test_retail_dynamics_sources import monex_html, official_html, rakuten_html
 
 from baibai_engine.market.retail_dynamics import cli, collection
-from baibai_engine.market.retail_dynamics.sources import monex
+from baibai_engine.market.retail_dynamics.sources import ParseError, monex
 from baibai_engine.market.sqlite.schema import open_connection
 
 
@@ -64,6 +65,8 @@ def test_limit_response_stops_only_that_source(status, category):
         "observed",
         "observed",
     ]
+    assert result.outcomes[0].http_status == status
+    assert result.outcomes[1].http_status is None
     assert result.outcomes[1].reason == category
     assert sum("monex.co.jp" in url for url, _ in client.calls) == 1
     assert "secret" not in json.dumps(result.summary())
@@ -107,6 +110,8 @@ def test_timeout_and_shell_are_failures_not_nullable_observations(monkeypatch):
     result = collection.collect(["7203"], session=client, sources=("monex",))
     assert not result.observations
     assert result.outcomes[0].status == "parse_failure"
+    assert result.outcomes[0].http_status == 200
+    assert result.outcomes[0].reason == "ticker_identity"
     monkeypatch.setattr(
         client, "get", lambda *args, **kwargs: (_ for _ in ()).throw(requests.Timeout("secret"))
     )
@@ -222,3 +227,227 @@ def test_cli_import_rejects_missing_or_unmigrated_db_without_bootstrap(
         assert conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall() == [
             ("old_store",)
         ]
+
+
+class Clock:
+    def __init__(self):
+        self.now = 100.0
+        self.sleeps = []
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+def fake_clock(monkeypatch):
+    clock = Clock()
+    monkeypatch.setattr(collection.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(collection.time, "sleep", clock.sleep)
+    return clock
+
+
+@pytest.mark.parametrize("parse_seconds", [0, 1, 2, 3])
+def test_minimum_interval_waits_only_remaining_time_after_response(monkeypatch, parse_seconds):
+    clock = fake_clock(monkeypatch)
+    client = Session([(200, monex_html()), (200, monex_html("9432"))])
+    starts = []
+    original_get = client.get
+    original_parse = monex.parse_html
+
+    def get(*args, **kwargs):
+        starts.append(clock.now)
+        return original_get(*args, **kwargs)
+
+    def parse(*args, **kwargs):
+        clock.now += parse_seconds
+        return original_parse(*args, **kwargs)
+
+    monkeypatch.setattr(client, "get", get)
+    monkeypatch.setattr(monex, "parse_html", parse)
+    result = collection.collect(["7203", "9432"], sources=("monex",), session=client)
+    assert result.requests == 2
+    assert len(result.observations) == 2
+    assert starts == [100, 100 + max(parse_seconds, 2)]
+    assert clock.sleeps == ([2 - parse_seconds] if parse_seconds < 2 else [])
+
+
+def test_interval_is_after_response_completion_and_across_sources(monkeypatch):
+    clock = fake_clock(monkeypatch)
+    client = Session([(403, "denied"), (200, official_html()), (200, rakuten_html())])
+    starts = []
+    original_get = client.get
+
+    def get(*args, **kwargs):
+        starts.append(clock.now)
+        clock.now += 3
+        return original_get(*args, **kwargs)
+
+    monkeypatch.setattr(client, "get", get)
+    result = collection.collect(["7203"], session=client)
+    assert result.requests == 3
+    assert len(result.observations) == 1
+    assert starts == [100, 105, 110]
+    assert clock.sleeps == [2, 2]
+
+
+def test_request_budget_stops_before_interval_wait(monkeypatch):
+    clock = fake_clock(monkeypatch)
+    client = Session([(200, monex_html())])
+    result = collection.collect(
+        ["7203", "9432"], sources=("monex",), session=client, request_budget=1
+    )
+    assert result.requests == 1
+    assert result.stop_reason == "request_budget"
+    assert clock.sleeps == []
+    assert result.outcomes[-1].status == "not_attempted"
+
+
+def test_monotonic_deadline_during_interval_does_not_start_next_http(monkeypatch):
+    clock = fake_clock(monkeypatch)
+    client = Session([(200, monex_html())])
+    result = collection.collect(
+        ["7203", "9432"], sources=("monex",), session=client, time_limit_seconds=1
+    )
+    assert clock.sleeps == [1]
+    assert result.requests == 1
+    assert result.stop_reason == "wall_clock_limit"
+    assert result.outcomes[-1].status == "not_attempted"
+    assert result.outcomes[-1].reason == "wall_clock_limit"
+    assert len(result.observations) == 1
+
+
+def test_real_wall_clock_deadline_interrupts_interval_sleep():
+    client = Session([(200, monex_html())])
+    started = time.monotonic()
+    result = collection.collect(
+        ["7203", "9432"], sources=("monex",), session=client, time_limit_seconds=0.05
+    )
+    assert time.monotonic() - started < 1
+    assert result.requests == 1
+    assert result.stop_reason == "wall_clock_limit"
+    assert result.outcomes[-1].status == "not_attempted"
+    assert len(result.observations) == 1
+    assert signal.getitimer(signal.ITIMER_REAL) == (0, 0)
+
+
+@pytest.mark.parametrize("destination", ["file", "directory", "symlink", "dangling_symlink"])
+def test_cli_existing_output_is_rejected_before_any_http(
+    monkeypatch, tmp_path, capsys, destination
+):
+    output = tmp_path / "stage.json"
+    if destination == "file":
+        output.write_text("earlier private observation")
+    elif destination == "directory":
+        output.mkdir()
+    else:
+        target = tmp_path / "target.json"
+        if destination == "symlink":
+            target.write_text("earlier private observation")
+        output.symlink_to(target)
+    monkeypatch.setattr(
+        cli, "collect", lambda *args, **kwargs: pytest.fail("existing stage accessed provider")
+    )
+    assert cli.main(["collect", "--output", str(output)]) == 1
+    assert json.loads(capsys.readouterr().err)["category"] == "staging_destination_exists"
+    assert output.exists() or output.is_symlink()
+
+
+def test_partial_stage_survives_all_failed_second_collection(monkeypatch, tmp_path, capsys):
+    observed = monex.parse_html(
+        monex_html(),
+        ticker="7203",
+        source_url=monex.public_url("7203"),
+        fetched_at_utc=datetime(2024, 1, 1, tzinfo=UTC),
+    )
+    partial = collection.CollectionResult(
+        (observed,),
+        (
+            collection.CollectionOutcome("monex", "7203", "observed", http_status=200),
+            collection.CollectionOutcome(
+                "rakuten", "7203", "parse_failure", "missing_rating_section", 200
+            ),
+        ),
+        3,
+    )
+    calls = []
+
+    def collect_once(*args, **kwargs):
+        calls.append(True)
+        if len(calls) == 1:
+            return partial
+        return collection.CollectionResult(
+            (), (collection.CollectionOutcome("monex", "7203", "http_failure", http_status=500),), 1
+        )
+
+    monkeypatch.setattr(cli, "collect", collect_once)
+    output = tmp_path / "stage.json"
+    assert cli.main(["collect", "--output", str(output)]) == 1
+    original = output.read_bytes()
+    assert cli.main(["collect", "--output", str(output)]) == 1
+    assert len(calls) == 1
+    assert output.read_bytes() == original
+    assert collection.load_staging(output) == (observed,)
+    assert json.loads(capsys.readouterr().err)["category"] == "staging_destination_exists"
+
+
+def test_save_staging_never_overwrites_existing_payload_and_removes_temporary(tmp_path):
+    output = tmp_path / "stage.json"
+    output.write_bytes(b"original private stage")
+    original_paths = set(tmp_path.iterdir())
+    with pytest.raises(FileExistsError):
+        collection.save_staging(output, [])
+    assert output.read_bytes() == b"original private stage"
+    assert set(tmp_path.iterdir()) == original_paths
+
+
+def test_save_staging_atomic_nooverwrite_rejects_destination_created_during_save(
+    monkeypatch, tmp_path
+):
+    output = tmp_path / "stage.json"
+    original_link = Path.hardlink_to
+    original_paths = set(tmp_path.iterdir())
+
+    def raced_link(path, target):
+        path.write_bytes(b"concurrent original private stage")
+        return original_link(path, target)
+
+    monkeypatch.setattr(Path, "hardlink_to", raced_link)
+    with pytest.raises(FileExistsError):
+        collection.save_staging(output, [])
+    assert output.read_bytes() == b"concurrent original private stage"
+    assert set(tmp_path.iterdir()) == original_paths | {output}
+
+
+@pytest.mark.parametrize("message", ["changed_theory_label", "secret private HTML numeric payload"])
+def test_parse_failure_summary_allows_only_fixed_codes(monkeypatch, message):
+    client = Session([(200, monex_html())])
+
+    def fail(*args, **kwargs):
+        raise ParseError(message)
+
+    monkeypatch.setattr(monex, "parse_html", fail)
+    result = collection.collect(["7203"], sources=("monex",), session=client)
+    expected = (
+        "changed_theory_label"
+        if message == "changed_theory_label"
+        else "unclassified_parse_failure"
+    )
+    assert result.outcomes[0].reason == expected
+    assert result.outcomes[0].http_status == 200
+    assert "secret" not in json.dumps(result.summary())
+
+
+def test_validation_failure_summary_has_generic_fixed_code(monkeypatch):
+    client = Session([(200, monex_html())])
+
+    def fail(*args, **kwargs):
+        collection.ModelValuationObservation.model_validate({"private": "secret response"})
+
+    monkeypatch.setattr(monex, "parse_html", fail)
+    result = collection.collect(["7203"], sources=("monex",), session=client)
+    assert result.outcomes[0].reason == "observation_contract"
+    assert result.outcomes[0].http_status == 200
+    assert "secret" not in json.dumps(result.summary())

@@ -28,7 +28,29 @@ from .sources import ParseError, monex, rakuten
 DEFAULT_TICKERS = ("7203", "9432", "6758")
 MAX_TICKERS = 3
 MAX_REQUESTS = 9
+MIN_REQUEST_INTERVAL_SECONDS = 2.0
 STAGING_FORMAT = "retail-dynamics-staging-v1"
+PARSE_FAILURE_REASONS = frozenset(
+    {
+        "source_identity",
+        "ticker_identity",
+        "missing_theory_table",
+        "changed_theory_table",
+        "changed_theory_label",
+        "changed_theory_cell",
+        "incomplete_theory_table",
+        "unexpected_numeric_cell",
+        "missing_official_iframe",
+        "changed_official_iframe_route",
+        "changed_official_iframe_binding",
+        "missing_ticker_identity",
+        "missing_rating_section",
+        "changed_rating_table",
+        "changed_rating_headers",
+        "changed_rating_cell",
+        "response_encoding",
+    }
+)
 type Source = Literal["monex", "rakuten"]
 
 
@@ -38,6 +60,7 @@ class CollectionOutcome:
     ticker: str
     status: str
     reason: str | None = None
+    http_status: int | None = None
 
 
 @dataclass(frozen=True)
@@ -140,16 +163,30 @@ def collect(
     active: tuple[Source, str] | None = None
     started_requests = 0
     deadline = time.monotonic() + time_limit_seconds
+    last_request_finished: float | None = None
 
     def receive(url: str) -> tuple[str, datetime]:
-        nonlocal used
+        nonlocal used, last_request_finished
         if used >= request_budget:
             raise _RequestLimit
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise _TimeLimit
+        if last_request_finished is not None:
+            wait_until = last_request_finished + MIN_REQUEST_INTERVAL_SECONDS
+            while (wait_seconds := wait_until - time.monotonic()) > 0:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise _TimeLimit
+                time.sleep(min(wait_seconds, remaining))
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise _TimeLimit
         used += 1
-        return _receive(client, url, min(request_timeout_seconds, remaining))
+        try:
+            return _receive(client, url, min(request_timeout_seconds, remaining))
+        finally:
+            last_request_finished = time.monotonic()
 
     try:
         with _wall_clock_limit(time_limit_seconds):
@@ -173,7 +210,9 @@ def collect(
                                 html, ticker=ticker, source_url=url, fetched_at_utc=received
                             )
                         observations.append(observation)
-                        outcomes.append(CollectionOutcome(source, ticker, "observed"))
+                        outcomes.append(
+                            CollectionOutcome(source, ticker, "observed", http_status=200)
+                        )
                     except _HttpFailure as exc:
                         category = (
                             "access_denied"
@@ -182,7 +221,9 @@ def collect(
                             if exc.status == 429
                             else "http_failure"
                         )
-                        outcomes.append(CollectionOutcome(source, ticker, category))
+                        outcomes.append(
+                            CollectionOutcome(source, ticker, category, http_status=exc.status)
+                        )
                         if exc.status in {403, 429}:
                             outcomes.extend(
                                 CollectionOutcome(source, pending, "not_attempted", category)
@@ -193,8 +234,22 @@ def collect(
                         outcomes.append(CollectionOutcome(source, ticker, "request_timeout"))
                     except requests.RequestException:
                         outcomes.append(CollectionOutcome(source, ticker, "transport_failure"))
-                    except (ParseError, ValidationError):
-                        outcomes.append(CollectionOutcome(source, ticker, "parse_failure"))
+                    except ParseError as exc:
+                        code = exc.args[0] if len(exc.args) == 1 else None
+                        reason = (
+                            code
+                            if isinstance(code, str) and code in PARSE_FAILURE_REASONS
+                            else "unclassified_parse_failure"
+                        )
+                        outcomes.append(
+                            CollectionOutcome(source, ticker, "parse_failure", reason, 200)
+                        )
+                    except ValidationError:
+                        outcomes.append(
+                            CollectionOutcome(
+                                source, ticker, "parse_failure", "observation_contract", 200
+                            )
+                        )
     except _RequestLimit:
         stop_reason = "request_budget"
     except _TimeLimit:
@@ -227,7 +282,7 @@ class _RequestLimit(Exception):
 
 
 def save_staging(path: Path, observations: Sequence[Observation]) -> None:
-    """Save only typed normalized observations in a private atomic local file."""
+    """Atomically create private normalized staging; never overwrite an earlier receipt."""
     payload = {
         "format": STAGING_FORMAT,
         "observations": [
@@ -247,7 +302,7 @@ def save_staging(path: Path, observations: Sequence[Observation]) -> None:
         ) as stream:
             temporary = Path(stream.name)
             json.dump(payload, stream, ensure_ascii=False, allow_nan=False)
-        temporary.replace(path)
+        path.hardlink_to(temporary)
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)

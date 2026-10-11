@@ -40,6 +40,12 @@ def main(argv: list[str] | None = None, /) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "collect":
+            try:
+                args.output.lstat()
+            except FileNotFoundError:
+                pass
+            else:
+                raise FileExistsError
             result = collect(
                 args.tickers,
                 sources=args.source or ("monex", "rakuten"),
@@ -63,6 +69,12 @@ def main(argv: list[str] | None = None, /) -> int:
         inserted = save_observations(args.db, observations)
         print(json.dumps({"status": "imported", "observations_inserted": inserted}, sort_keys=True))
         return 0
+    except FileExistsError:
+        print(
+            json.dumps({"status": "failed", "category": "staging_destination_exists"}),
+            file=sys.stderr,
+        )
+        return 1
     except SQLiteSchemaError:
         print(json.dumps({"status": "failed", "category": "schema_failure"}), file=sys.stderr)
         return 1
