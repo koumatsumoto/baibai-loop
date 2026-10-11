@@ -7,8 +7,10 @@ from baibai_batch.jobs.schedule import resolve_tradingview_target
 
 def test_scheduled_slot_uses_actual_jst_day():
     assert resolve_tradingview_target(
-        datetime(2026, 9, 28, 12, tzinfo=UTC), event_name="schedule", schedule="37 */3 * * *"
-    ) == (date(2026, 9, 28), "every-3h", True, "")
+        datetime(2026, 9, 28, 12, tzinfo=UTC),
+        event_name="schedule",
+        schedule="37 6,8,10,12,14 * * 1-5",
+    ) == (date(2026, 9, 28), "post-close-2h", True, "")
 
 
 @pytest.mark.parametrize(
@@ -19,8 +21,8 @@ def test_delayed_prior_day_firing_uses_current_day(hour, expected):
     assert resolve_tradingview_target(
         datetime(2026, 9, 29, hour, tzinfo=UTC),
         event_name="schedule",
-        schedule="37 */3 * * *",
-    ) == (date(2026, 9, 29), "every-3h", expected, "" if expected else "before_close")
+        schedule="37 6,8,10,12,14 * * 1-5",
+    ) == (date(2026, 9, 29), "post-close-2h", expected, "" if expected else "before_close")
 
 
 def test_manual_uses_current_day_and_close_guard():
@@ -32,7 +34,7 @@ def test_manual_uses_current_day_and_close_guard():
 @pytest.mark.parametrize(
     ("now", "event", "cron"),
     [
-        (datetime(2026, 9, 28, 7), "schedule", "37 */3 * * *"),  # noqa: DTZ001
+        (datetime(2026, 9, 28, 7), "schedule", "37 6,8,10,12,14 * * 1-5"),  # noqa: DTZ001
         (datetime(2026, 9, 28, 7, tzinfo=UTC), "schedule", "unknown"),
         (datetime(2026, 9, 28, 7, tzinfo=UTC), "push", ""),
     ],

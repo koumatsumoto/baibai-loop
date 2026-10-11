@@ -27,9 +27,9 @@ def resolve_tradingview_target(
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("timezone-aware observation clock required")
     if event_name == "schedule":
-        if schedule != "37 */3 * * *":
+        if schedule != "37 6,8,10,12,14 * * 1-5":
             raise ValueError("unknown TradingView schedule")
-        slot = "every-3h"
+        slot = "post-close-2h"
     elif event_name == "workflow_dispatch":
         slot = "manual"
     else:

@@ -845,7 +845,7 @@ storeのmergeでは同日でも別docIDの成否を混同しない。共有docID
 
 ## TradingView Analyst Expectations
 
-`cloud-tradingview-snapshot.yml`が毎日3時間ごと（UTC `37 */3 * * *`）に独立して起動する。営業日の実取得対象枠は15:37 / 18:37 / 21:37 JSTで、それ以外はbefore-closeまたは休場日のno-opになる。起動回数やjob成功数をprovider取得成功数として数えない。GitHub queueによって実開始は遅れ、slot間隔が縮む場合もある。targetは予定時刻ではなくrun開始時のJST当日であり、exact-date masterとTradingViewの両方に同じtarget_dateを渡す。15:30より前の実行はsetup・lease・pull・hydrate・preflight・master取得・provider接続へ進まない。日付を跨ぐ前に確定した正常batchは部分結果として残し、跨いだresponseを前日へ保存しない。
+`cloud-tradingview-snapshot.yml`が平日15:37 / 17:37 / 19:37 / 21:37 / 23:37 JST（UTC `37 6,8,10,12,14 * * 1-5`）に独立して起動する。実開始が翌日の引け前ならbefore-close、休場日ならno-opになる。起動回数やjob成功数をprovider取得成功数として数えない。GitHub queueによって実開始は遅れ、slot間隔が縮む場合もある。targetは予定時刻ではなくrun開始時のJST当日であり、exact-date masterとTradingViewの両方に同じtarget_dateを渡す。15:30より前の実行はsetup・lease・pull・hydrate・preflight・master取得・provider接続へ進まない。日付を跨ぐ前に確定した正常batchは部分結果として残し、跨いだresponseを前日へ保存しない。
 
 同日のnullやunresolvedとして保存した銘柄もaccount済みであり、その日は上書き・再取得しない。既保存の完全snapshotを何度も観測する診断ではない。
 
@@ -922,7 +922,9 @@ engineの`refresh --state-file`は取得だけの低レベル入口であり、p
 
 run summaryの`requests_attempted` / `symbols_requested`は`fetch(chunk)`に渡した論理的なbatch試行数・銘柄数（実HTTP送信数とは限らない）、`rows_added`は検証後に保存した行数であり、HTTP成功数とは区別する。`preflight_saved_rows`と`rows_added` / `remaining`で再開を確認し、`normal_nulls`と`unresolved`を分ける。progressがない取得失敗は件数不明として扱う。MCP transportの`mcp_http_status`とtool応答に明示された`provider_http_status`を混同せず、未観測statusを200と推定しない。
 
-`retry_not_before_utc`はMCP HTTPのRetry-Afterが読めた場合の待機期限だけを表し、元ヘッダーを保存しない。既存collectorは失敗runを止めるが、次runへ待機状態を永続化していない。待機指示を受けた場合は既存workflowを停止し、期限とprovider状態の確認後に再開する。cronは最小実開始間隔を保証せず、待機指示より早い手動再試行も行わない。
+`retry_not_before_utc`はMCP HTTPのRetry-Afterが読めた場合の待機期限だけを表し、元ヘッダーを保存しない。Actionsは既存publication lease内で`baibai-stores/coordination/tradingview-actions-cooldown.json`へUTC期限だけを条件付き保存する。次runは未保存分の取得前に読み、期限内ならprovider非接続、期限切れなら再開する。objectなしは未設定として通常処理、不正object・読取失敗は取得を止める。期限は短縮・削除せず、正常runやログ削除で消さない。新credential・権限・datasetは不要。
+
+待機期限のR2保存失敗はjob失敗として通知する。未保存の期限を次runが復元する保証はないため、記録失敗時もworkflowを停止し、期限を確認してから再開する。強制終了やVM消失で期限記録前にrunnerが失われた場合の永続化保証はないため、この場合はworkflowを停止し、直前応答と待機期限を確認してから再開する。自動引継ぎはこのActions workflowの範囲であり、local・Chatの手動取得も同じ待機指示を守る。cronは最小実開始間隔を保証しない。
 
 TradingView stepのsafe failure line、`TradingView progress:` summaryの順に読む。`chunks_completed / chunks_total`と`chunk_index`で失敗位置を、`provider_elapsed_seconds / elapsed_seconds`と`max_chunk_elapsed_seconds`でprovider待ちとintervalの影響を確認し、`oauth_rotations`で認証更新回数を見る。payload検証失敗では固定の`validation_reason`とcanonicalな`validation_field`を確認する。正常終了時は最終JSONの`rows_added / rows / expected_universe / remaining / stop_reason / unresolved / normal_nulls`とfirst / last fetched_atも確認する。
 

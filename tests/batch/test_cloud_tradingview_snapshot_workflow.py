@@ -15,7 +15,7 @@ def workflow():
 
 def test_metadata_order_and_exclusive_writer():
     data = workflow()
-    assert [item["cron"] for item in data["on"]["schedule"]] == ["37 */3 * * *"]
+    assert [item["cron"] for item in data["on"]["schedule"]] == ["37 6,8,10,12,14 * * 1-5"]
     assert set(data["on"]["workflow_dispatch"]["inputs"]) == {"batch_size", "interval"}
     assert data["permissions"] == {"contents": "read"}
     assert data["concurrency"] == {
@@ -43,8 +43,10 @@ def test_metadata_order_and_exclusive_writer():
         "pull",
         "hydrate",
         "preflight",
+        "cooldown-check",
         "master",
         "tradingview",
+        "cooldown-save",
         "publish-lake",
         "lease-release",
         "cancellation",
@@ -84,14 +86,19 @@ def test_gates_secret_scopes_and_durability():
     ):
         assert steps[name]["if"] == "steps.target.outputs.eligible == 'true'"
     assert steps["master"]["if"] == (
-        "steps.preflight.outputs.status == 'needs_fetch' && steps.preflight.outputs.needs_master == 'true'"
+        "steps.cooldown-check.outputs.allowed == 'true' && steps.preflight.outputs.status == 'needs_fetch' && steps.preflight.outputs.needs_master == 'true'"
     )
     assert (
         steps["tradingview"]["if"]
-        == "steps.preflight.outputs.status == 'needs_fetch' && (steps.preflight.outputs.needs_master == 'false' || steps.master.outcome == 'success')"
+        == "steps.cooldown-check.outputs.allowed == 'true' && steps.preflight.outputs.status == 'needs_fetch' && (steps.preflight.outputs.needs_master == 'false' || steps.master.outcome == 'success')"
     )
     assert "steps.tradingview.outputs.status == 'partial'" in steps["publish-lake"]["if"]
     assert "rows_added" in steps["publish-lake"]["if"]
+    assert steps["cooldown-check"]["if"] == "steps.preflight.outputs.status == 'needs_fetch'"
+    assert "always()" in steps["cooldown-save"]["if"]
+    assert "steps.lease-acquire.outputs.acquired == 'true'" in steps["cooldown-save"]["if"]
+    assert "steps.tradingview.outcome != 'skipped'" in steps["cooldown-save"]["if"]
+    assert "always()" in steps["lease-release"]["if"]
     for name in ("summary", "notify"):
         assert steps[name]["if"] == "${{ always() }}"
         assert steps[name]["continue-on-error"] == "true"
@@ -114,7 +121,15 @@ def test_gates_secret_scopes_and_durability():
     assert "DISCORD_WEBHOOK_URL" in str(steps["notify"].get("env"))
     assert "JQUANTS_API_KEY" in str(steps["master"].get("env"))
     assert "TRADINGVIEW_OAUTH_STATE" in str(steps["tradingview"].get("env"))
-    for name in ("lease-acquire", "pull", "hydrate", "publish-lake", "lease-release"):
+    for name in (
+        "lease-acquire",
+        "pull",
+        "hydrate",
+        "cooldown-check",
+        "cooldown-save",
+        "publish-lake",
+        "lease-release",
+    ):
         assert "R2_ACCESS_KEY_ID" in str(steps[name].get("env"))
     for name, step in steps.items():
         if name != "notify":
@@ -123,7 +138,15 @@ def test_gates_secret_scopes_and_durability():
             assert "JQUANTS_API_KEY" not in str(step)
         if name != "tradingview":
             assert "TRADINGVIEW_OAUTH_STATE" not in str(step)
-        if name not in ("lease-acquire", "pull", "hydrate", "publish-lake", "lease-release"):
+        if name not in (
+            "lease-acquire",
+            "pull",
+            "hydrate",
+            "cooldown-check",
+            "cooldown-save",
+            "publish-lake",
+            "lease-release",
+        ):
             assert "R2_ACCESS_KEY_ID" not in str(step)
 
 
