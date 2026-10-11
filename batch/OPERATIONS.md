@@ -138,7 +138,7 @@ uv run baibai-engine screening ticker-profile --ticker TICKER
 
 ### ローカルからクラウドを更新する
 
-EDINET extractor revisionの更新では、[専用cutover手順](#edinet-metrics-revision)に従ってlease取得後にmainへ切り替える。market SQLite 28→29では、[専用cutover手順](#market-28-to-29)に従いwriterを抑止し、旧codeでfresh pull / hydrate後にlease内でmainへ切り替える。それ以外は変更codeをmainへ反映し、対象storeと変更内容を確認する。marketはlake所有tableを編集する前に現行releaseへhydrateする。変更後の再hydrateはlocal変更を上書きするため行わない。
+EDINET extractor revisionの更新では、[専用cutover手順](#edinet-metrics-revision)に従ってlease取得後にmainへ切り替える。それ以外は変更codeをmainへ反映し、対象storeと変更内容を確認する。marketはlake所有tableを編集する前に現行releaseへhydrateする。変更後の再hydrateはlocal変更を上書きするため行わない。
 
 GitHubの`cloud-publish` queueはGitHub内の順序だけを守る。GitHubとローカルの共通発行にはR2の`coordination/publication-lease.json`を使う。TTLは固定120分。`publish-lake` / `push-machine` / `push-market` / `push-macro`をローカルから行う際は、長い取得・準備を済ませてから、production read / merge / publishを次の同一lease内で実行する。`r2_transfer.sh`の低レベルcommandはleaseを暗黙取得しない。`push-app`、`publish.sh`、初回`seed-all`は対象外。
 
@@ -901,56 +901,11 @@ private handoffの操作数も費用確認に含める。各銘柄でMonex1HTTP/
 
 <a id="market-28-to-29"></a>
 
-### market SQLite 28→29のattended cutover
+### market SQLite 28→29の切替後
 
-これはschema変更PRと同じdeliveryで行う一度限りの操作である。temporary tool `tools.cutover.market_28_to_29`はsource version 28だけを受け付け、read-onlyのconsistent backupを私有一時directory内で29へ変換・検証し、閉じた単独DBを上書きなしで別fileへ配置する。sourceの全table・index・行、`source_coverage`、`tse_capital_policy_snapshots`、`lake_store_origin`を照合し、新2tableは空で追加する。既存出力とsidecar、別version、shape差、破損、保持不一致は拒否する。runtime・dailyからは呼ばない。クラウド反映とreadbackの証拠を残すまでtoolを保持し、その後同じdeliveryのcleanupで削除する。
+market storeの現行schemaは29である。既存履歴とstore-local dataを保持したクラウド反映・fresh readbackは確認済みであり、役目を終えた一時移行toolと専用テストは除去した。切替の検証記録は[Issue #1407](https://github.com/koumatsumoto/baibai-loop/issues/1407)、対応codeは[PR #1408](https://github.com/koumatsumoto/baibai-loop/pull/1408)・[PR #1410](https://github.com/koumatsumoto/baibai-loop/pull/1410)を参照する。
 
-**事前リハーサル**: 旧codeで取得・hydrateした28の隔離コピーに対し、レビュー済みPR headで次を実行する。元fileは残す。結果の旧table件数・digest・schema保持、integrity/FK、version29、新table0件を確認する。このコピーを後日の本番反映に流用しない。
-
-```bash
-uv run python -m tools.cutover.market_28_to_29 --source /tmp/private-retail/market28.sqlite --output /tmp/private-retail/market29.sqlite
-```
-
-**本番切替の前提**: PRレビュー・CIとリハーサルが成功していること。まだ28を読む専用operator checkoutを使う。daily・TradingView・materializeの元の有効状態を記録し、cutover中は次の無効化で新規起動を抑止する。他のlocal writerとmanual dispatchも止め、queued / in_progressが完了したことを確認する。watchdogはread-only通知でありwriterを起動しないが、切替中の通知を理由にmanual rerunしない。writerが残る、停止を確認できない、leaseがbusyならmainを切り替えない。この準備と本番書込はoperatorのattended作業であり、開発検証では実行しない。
-
-```bash
-gh workflow disable cloud-daily-batch.yml
-gh workflow disable cloud-tradingview-snapshot.yml
-gh workflow disable cloud-materialize.yml
-gh run list --workflow cloud-daily-batch.yml --limit 10
-gh run list --workflow cloud-tradingview-snapshot.yml --limit 10
-gh run list --workflow cloud-materialize.yml --limit 10
-```
-
-1. **旧28 codeのまま**operator leaseを取得し、同じhandleをcutover終了まで保持する。最新cloudの3 storeを`pull-machine`し、`hydrate-market`でcurrent L1を固定する。receipt / ETagを保持し、marketが28であること、integrity、固定releaseを確認する。old marketのconsistent backupをprivateに残す。これが実際の変換元である。
-2. **新規writer抑止・lease内**でレビュー済みheadをmainへmergeし、同じoperator checkoutをそのmainへ切り替える。下のone-shotで別fileを作り、成功summaryを確認してcanonical market copyを置換する。source/targetに接続する全processを閉じ、canonical pathにWAL/SHMが残るなら停止して整合snapshotからやり直す。古いsidecarを新fileへ付けない。fresh pull時の3 storeの世代記録、runs、macroは変えない。
-3. 同じlease内で`push-machine`を使う。3 storeのpull世代一致と条件付きPUTを既存経路が検査し、marketのupload用snapshotだけを同じL1へdehydrateする。**このschema切替に`push-market`を使わない**。その入口はremote28とlocal29を同一schemaでmergeしようとして拒否する。broker stageは適用せず、`publish-lake`も行わないので、L1のcurrent pointerと全既存履歴は変えない。
-4. 新codeでfresh `pull-machine` / `hydrate-market`し、receipt一致、market29、integrity、同じL1 release、store-local件数/digest保持、旧dataset全履歴、新table0件をreadback確認する。runtime reader・既存batch preflightがschema不一致を出さないことを確認する。
-5. code/store/readbackがそろった後にleaseをreleaseし、元々有効だったworkflowとlocal writerだけを再開する。次の通常daily/TradingView/materializeの成功を確認してcutover完了を記録する。確認前にwriterを再開しない。
-
-操作例は同じshellのoperator checkout rootから行う。`cutover_dir`とhandleは失敗時も保持する。lease取得は旧codeで実行し、one-shot以降はmainへ切替済みのcodeで実行する。
-
-```bash
-cutover_dir="$(mktemp -d "${TMPDIR:-/tmp}/market-28-29.XXXXXX")"
-cutover_handle="$cutover_dir/lease.json"
-uv run python -m baibai_batch.storage.publication_lease acquire --purpose operator --handle "$cutover_handle" || exit 1
-batch/scripts/r2_transfer.sh pull-machine || exit 1
-batch/scripts/r2_transfer.sh hydrate-market || exit 1
-uv run python -m baibai_batch.storage.sqlite_snapshot check --path stores/market/market.sqlite --schema-version 28 || exit 1
-uv run python -m baibai_batch.storage.sqlite_snapshot create --source stores/market/market.sqlite --output "$cutover_dir/market28.sqlite" || exit 1
-# 上記の抑止・レビューを確認してmain merge / operator code切替を行う。
-uv run python -m tools.cutover.market_28_to_29 --source "$cutover_dir/market28.sqlite" --output "$cutover_dir/market29.sqlite" || exit 1
-# 成功summaryとcanonicalのsidecar不存在を確認してから置換する。
-mv "$cutover_dir/market29.sqlite" stores/market/market.sqlite
-batch/scripts/r2_transfer.sh push-machine || exit 1
-batch/scripts/r2_transfer.sh pull-machine || exit 1
-batch/scripts/r2_transfer.sh hydrate-market || exit 1
-uv run python -m baibai_batch.storage.sqlite_snapshot check --path stores/market/market.sqlite --schema-version 29 || exit 1
-# 手順4の保持readbackを確認してからrelease / 元のworkflow状態への復帰を行う。
-uv run python -m baibai_batch.storage.publication_lease release --handle "$cutover_handle" || exit 1
-```
-
-**失敗時**: main切替前ならcloud/codeを変えず、leaseをreleaseして停止する。main切替後はwriterを抑止したまま、同じ最新28 backupからtoolを修正・再実行し整合する29を作る。クラウドに変更がない段階で中止するならcodeも28を読むrevisionへ戻してから再開する。部分PUT/receipt不一致は[部分push復旧](#部分-push-からの復旧)に従い、古いbundleを全量戻さない。世代・L1 pointerの競合やlease失効なら続行せず、新しいleaseとfreshなcloud stateで再計画する。自動migration、無条件PUT、定期batch待ちでの解消は行わない。
+通常の取得・公開は既存の入口を使い、旧schemaの再移行をdailyへ代行させない。lease、取得世代への条件付き更新、公開後の確認は通常の発行契約を維持する。
 
 <a id="tradingview-expectations"></a>
 
