@@ -42,12 +42,17 @@ class RequestGuard:
             if request.method == "POST":
                 payload = json.loads(request.content)
                 method = payload.get("method")
+                params = payload.get("params") or {}
+                # The SDK dispatcher inserts empty _meta even without progress callbacks.
+                if params.get("_meta") not in (None, {}):
+                    raise DiagnosticBoundaryError()
+                params = {key: value for key, value in params.items() if key != "_meta"}
                 if method in {"initialize", "notifications/initialized", "notifications/cancelled"}:
                     return
-                if method == "tools/list" and not payload.get("params") and not self.list_requests:
+                if method == "tools/list" and not params and not self.list_requests:
                     self.list_requests += 1
                     return
-                if method == "tools/call" and payload.get("params") == {
+                if method == "tools/call" and params == {
                     "name": client.BATCH_TOOL,
                     "arguments": {"symbols": SYMBOLS, "columns": COLUMNS},
                 }:

@@ -6,10 +6,19 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import anyio
 import httpx2
 import pytest
 from mcp import ClientSession
-from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
+from mcp.shared.message import SessionMessage
+from mcp.types import (
+    CallToolResult,
+    JSONRPCRequest,
+    JSONRPCResponse,
+    ListToolsResult,
+    TextContent,
+    Tool,
+)
 from tools.diagnostics import tradingview_single_batch_probe as probe
 
 
@@ -35,6 +44,17 @@ def test_request_guard_allows_only_one_exact_tool_request():
     with pytest.raises(probe.DiagnosticBoundaryError):
         asyncio.run(guard(tool_request()))
     assert guard.tool_requests == 1
+
+
+def test_request_guard_rejects_nonempty_meta():
+    payload = json.loads(tool_request().content)
+    payload["params"]["_meta"] = {"unexpected": True}
+    with pytest.raises(probe.DiagnosticBoundaryError):
+        asyncio.run(
+            probe.RequestGuard()(
+                httpx2.Request("POST", "https://mcp.tradingview.com/mcp", json=payload)
+            )
+        )
 
 
 @pytest.mark.parametrize(
@@ -117,6 +137,60 @@ def test_shape_contains_no_error_text_or_values():
     shape = probe.response_shape(result)
     assert shape["reported_http_status"] == 429
     assert "fixture-private" not in json.dumps(shape)
+
+
+def test_real_sdk_dispatcher_empty_meta_reaches_one_call_and_schema_listing():
+    async def exercise():
+        guard = probe.RequestGuard()
+        incoming_send, incoming_receive = anyio.create_memory_object_stream(10)
+        outgoing_send, outgoing_receive = anyio.create_memory_object_stream(10)
+
+        async def peer():
+            async for item in outgoing_receive:
+                message = item.message
+                wire = message.model_dump(mode="json", by_alias=True, exclude_unset=True)
+                await guard(httpx2.Request("POST", "https://mcp.tradingview.com/mcp", json=wire))
+                if not isinstance(message, JSONRPCRequest):
+                    continue
+                if message.method == "initialize":
+                    result = {
+                        "protocolVersion": "2025-11-25",
+                        "capabilities": {"tools": {}},
+                        "serverInfo": {"name": "fixture", "version": "1"},
+                    }
+                elif message.method == "tools/call":
+                    assert wire["params"]["_meta"] == {}
+                    result = {
+                        "isError": False,
+                        "content": [],
+                        "structuredContent": {"success": True},
+                    }
+                else:
+                    assert message.method == "tools/list"
+                    assert wire["params"]["_meta"] == {}
+                    result = {
+                        "tools": [
+                            {"name": probe.client.BATCH_TOOL, "inputSchema": {"type": "object"}}
+                        ]
+                    }
+                await incoming_send.send(
+                    SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=message.id, result=result))
+                )
+
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as group:
+                group.start_soon(peer)
+                async with ClientSession(incoming_receive, outgoing_send) as session:
+                    await session.initialize()
+                    result = await session.call_tool(
+                        probe.client.BATCH_TOOL,
+                        {"symbols": probe.SYMBOLS, "columns": probe.COLUMNS},
+                    )
+                    assert result.structured_content == {"success": True}
+                group.cancel_scope.cancel()
+        assert guard.tool_requests == guard.list_requests == 1
+
+    anyio.run(exercise)
 
 
 @pytest.mark.parametrize("success", [True, False])
