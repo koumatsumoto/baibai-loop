@@ -29,13 +29,14 @@ def resolve_tradingview_target(
     if manual_observation and event_name != "workflow_dispatch":
         raise ValueError("manual observation requires workflow_dispatch")
     if event_name == "schedule":
-        if schedule != "37 6,8,10,12,14 * * 1-5":
+        if schedule not in {"37 6,8,10,12,14 * * 1-5", "37 0,4,8 * * 0,6"}:
             raise ValueError("unknown TradingView schedule")
-        slot = "post-close-2h"
+        slot = "rest-day-4h" if schedule == "37 0,4,8 * * 0,6" else "post-close-2h"
     elif event_name == "workflow_dispatch":
         slot = "manual-observation" if manual_observation else "manual"
     else:
         raise ValueError("unknown TradingView event")
     local = now.astimezone(_JST)
-    eligible = manual_observation or local.time() >= time(15, 30)
-    return local.date(), slot, eligible, "" if eligible else "before_close"
+    # The hydrated JPX calendar decides business/rest-day hours in preflight.
+    eligible = local.time() >= time(9)
+    return local.date(), slot, eligible, "" if eligible else "before_observation"

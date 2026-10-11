@@ -78,11 +78,30 @@ def test_full_universe_batches_and_same_day_immutability(tmp_path: Path) -> None
     assert result["status"] == "already_saved"
     assert len(calls) == 2
     assert stored(path) == original
-    assert preflight_snapshot(path, DAY) == {
+    state = preflight_snapshot(path, DAY)
+    assert {
+        key: state[key]
+        for key in (
+            "master_asof",
+            "is_business_day",
+            "expected_universe",
+            "remaining",
+            "status",
+            "snapshot_date",
+            "rows",
+        )
+    } == {
+        "master_asof": DAY.isoformat(),
+        "is_business_day": True,
+        "expected_universe": 51,
+        "remaining": 0,
         "status": "already_saved",
         "snapshot_date": DAY.isoformat(),
         "rows": 51,
     }
+    assert state["requests_attempted"] == 0
+    assert state["unresolved"] == 1
+    assert state["first_fetched_at_utc"] == NOW.isoformat()
     with sqlite3.connect(path) as conn:
         assert conn.execute(
             "SELECT fetch_status, eps_forecast_next_fy, fetched_at_utc, estimate_currency "

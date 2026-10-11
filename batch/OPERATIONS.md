@@ -845,17 +845,23 @@ storeのmergeでは同日でも別docIDの成否を混同しない。共有docID
 
 ## TradingView Analyst Expectations
 
-`cloud-tradingview-snapshot.yml`の通常モードは平日15:37 / 17:37 / 19:37 / 21:37 / 23:37 JST（UTC `37 6,8,10,12,14 * * 1-5`）に独立して起動する。実開始が翌日の引け前ならbefore-close、休場日ならno-opになる。通常モードのmanual dispatchも同じ条件で動く。起動回数やjob成功数をprovider取得成功数として数えない。GitHub queueによって実開始は遅れ、slot間隔が縮む場合もある。targetは予定時刻ではなくrun開始時のJST当日であり、通常モードではUniverseのexact-date masterも当日を使う。15:30より前はsetup・lease・pull・hydrate・preflight・master取得・provider接続へ進まない。
+`cloud-tradingview-snapshot.yml`は平日15:37 / 17:37 / 19:37 / 21:37 / 23:37 JST（UTC `37 6,8,10,12,14 * * 1-5`）、土日09:37 / 13:37 / 17:37 JST（UTC `37 0,4,8 * * 0,6`）に独立して起動する。平日の祝日も既存5 slotを休場日の観測・未取得補完に使う。GitHub queueで実開始が遅れるため、targetは予定時刻ではなくrun開始時のJST当日とする。起動回数やjob成功数をprovider取得成功数として数えない。
 
-明示的な手動観測では`observation_master_asof`を指定し、保存済みexact-date masterの基準日だけを分ける。`snapshot_date`は実観測日のJST当日、`fetched_at_utc`は実受領完了時刻であり、masterの日付に現在値を保存しない。未来のmaster・過去日への観測は拒否する。master基準日は結果・progress・Actions summaryの`master_asof`に記録し、値そのものの観測時刻とは区別する。通常・手動とも日付を跨ぐ前に確定した正常batchは部分結果として残し、跨いだresponseを前日へ保存しない。
+手動・定期ともhydrateしたJPX calendarで当日を判定し、営業日は15:30以降、休場日は09:00以降に取得する。09:00前はsetup前に終了する。09:00以降の営業日朝はlease・pull・hydrate・preflightまで進んでcalendarを確認するが、master取得・OAuth/provider接続・保存へ進まず`before_close`となる。朝の手動観測で同日PKを埋め、引け後の取得を妨げない。
+
+Universeは営業日なら当日master、休場日ならcalendar上の直近営業日の保存済みexact-date masterから選ぶ。選んだ営業日から実観測日までcalendarの日付が連続していることを確認し、間の欠落があれば停止する。休場日の必要masterやcalendarがなければ停止し、より古い保存済みmasterへ暗黙に退避しない。`observation_master_asof`はこの必須基準日との一致確認であり、時間guardを解除しない。同日再開は同じ基準日を使う。`snapshot_date`は実観測日のJST当日、`fetched_at_utc`は実受領完了時刻で、masterの日付へ現在値を保存しない。master基準日を結果・progress・summaryの`master_asof`に記録する。日跨ぎ前の正常batchは部分結果として残し、跨いだresponseは前日へ保存しない。
 
 同日のnullやunresolvedとして保存した銘柄もaccount済みであり、その日は上書き・再取得しない。既保存の完全snapshotを何度も観測する診断ではない。
 
-正常batchは検証後に確定し、新規rowがあれば`partial`でもL1へ公開する。後続slotはL1からhydrateした同日rowのticker集合をexact-date masterのUniverseと照合し、未保存銘柄だけを取得する。全銘柄account済みならMCP接続前に終了する。hydrate後にmasterのraw rowsがあれば、`source_coverage`がなくても再取得せずに使う。TV workflowはremote `market.sqlite`や`machine-manifest.json`を更新せず、L1 releaseだけを永続化する。dailyは独立して実行する。
+取得は50銘柄ずつ、応答完了後15秒以上の間隔とする。正常batchは検証後に確定し、新規rowがあれば`partial`でもL1へ公開する。後続slotはL1からhydrateした同日rowのticker集合をexact-date masterのUniverseと照合し、未保存銘柄だけを取得する。全銘柄account済みならMCP接続前に終了する。hydrate後にmasterのraw rowsがあれば、`source_coverage`がなくても再取得せずに使う。TV workflowはremote `market.sqlite`や`machine-manifest.json`を更新せず、L1 releaseだけを永続化する。dailyは独立して実行する。
+
+summaryは営業日判定・master基準日・保存済み/追加/残件・unresolved・指標ごとの正常null・first/last受領時刻・provider障害・公開結果を分けて示す。partialをcooldownで取得skipした場合も保存済みrowの品質を示す。全件account済みでも全指標が利用可能とは限らない。成功・no-opはDiscord通知せず、partial・障害は既存通知に残す。
+
+休日の同値観測も履歴として保持するが、独立した情報sampleとして数えない。分析時は各行の`fetched_at_utc`が評価のas-of cutoff以下であることを確認し、未来値や無条件のlatest-nonnullで欠測を埋めない。土日3 slotは候補頻度であり、実網羅率・欠測・受領時刻で受け入れを判断する。provider通信が0のno-opでもlease・pull・hydrateのR2 I/Oは発生する。R2 Standardの無料枠は[公式料金](https://developers.cloudflare.com/r2/pricing/)に従い、全bucketの月間保管量・Class A/B消費を確認する。使用量が不明なら無料とは保証せず、追加課金を前提に頻度を増やさない。
 
 ### 保存済みmasterを使う当日の手動観測
 
-mainへmanual dispatchし、`observation_master_asof`だけに保存済みmasterの日付を指定する。`observations_json` / `observations_sha256`は空にする。休場日・引け前も実観測として取得でき、J-Quants masterの追加取得は行わない。指定日のmasterがなければOAuth/provider接続前に停止する。50銘柄ずつ、応答完了後15秒以上の間隔を必須とし、通常collector・normalizer・publication lease・cooldown・25分soft budget・L1 publisherを使う。
+mainへmanual dispatchし、`observation_master_asof`だけに保存済みmasterの日付を指定する。`observations_json` / `observations_sha256`は空にする。営業日は当日、休場日はcalendar上の直近営業日のmasterを指定し、上記の取得時間を守る。J-Quants masterの追加取得は行わず、指定日がcalendarの必須基準日と異なる場合やmasterがない場合はOAuth/provider接続前に停止する。50銘柄ずつ、応答完了後15秒以上の間隔を必須とし、通常collector・normalizer・publication lease・cooldown・25分soft budget・L1 publisherを使う。
 
 ```bash
 gh workflow run cloud-tradingview-snapshot.yml --ref main \
@@ -924,16 +930,16 @@ uv run baibai-engine tradingview authorize \
 
 同じfileを使う取得・smoke・再認証を同時実行しない。GitHubの手動OAuth smokeも、provider requestの重複を避けるためlocal取得中には実行しない。cloud smokeはL1を書かずlocal認証とも独立しているため、既存のGitHub queueを維持しpublication leaseには参加しない。
 
-**実行**: 専用checkoutのrootから、当日15:30 JST以降に実行する。
+**実行**: 専用checkoutのrootから、[営業日・休場日の共通取得条件](#tradingview-expectations)に従って実行する。
 
 ```bash
 uv run baibai-batch tradingview \
   --state-file "$HOME/.cache/baibai-loop/tradingview-local/oauth.json"
 ```
 
-runnerは当日を固定し、lease取得 → market pull → current L1 hydrate → exact-date preflight → 必要な場合だけ当日masterと未保存銘柄のTV取得 → 新規rowの`partial`または`saved`をL1公開 → releaseの順に進む。15:30前はlease・production read前に終了し、休場日・当日全件保存済みならOAuth接続前に終了する。過去日のbackfillはしない。通常は50銘柄ごとに15秒間隔とし、手動実行では`--batch-size`（1..50）と`--interval`を指定できる。TV取得は25分のsoft budgetで通常終了を図り、30分のhard timeout、取得前のpullから公開まで全体60分で打ち切る。remote `market.sqlite`・machine bundle・servingは更新しない。
+runnerは実観測日のJST当日を固定し、lease取得 → market pull → current L1 hydrate → calendarとexact-date masterのpreflight → 必要な営業日masterと未保存銘柄のTV取得 → 新規rowの`partial`または`saved`をL1公開 → releaseの順に進む。取得時間、休場日の保存済みmaster選択、calendar欠落時の停止、同日再開、batch size・intervalは[共通契約](#tradingview-expectations)を使う。全件保存済みならOAuth接続前に終了し、過去日のbackfillはしない。TV取得は25分のsoft budgetで通常終了を図り、30分のhard timeout、取得前のpullから公開まで全体60分で打ち切る。remote `market.sqlite`・machine bundle・servingは更新しない。
 
-**成功確認**: exit 0、`saved`または`partial`の`rows_added`・`rows / expected_universe`・`remaining`・`stop_reason`、L1 publish reportのrelease ID/hash、lease解放を確認する。固定releaseの行数・Universe・null・unresolved・`fetched_at_utc`・前日snapshot保持を[L1参照手順](../docs/reference/market-lake.md#shared-raw-read)で照合する。`partial`は未取得が残るDEGRADEDであり、provider正常や全指標coverageを示さない。`already_saved` / `non_trading_day` / `skipped_historical_asof` / `before_close`は取得・公開成功と区別したno-opである。同日後続runがfresh hydrateから保存済みrowを再取得しないことも確認する。
+**成功確認**: exit 0、`saved`または`partial`の`rows_added`・`rows / expected_universe`・`remaining`・`stop_reason`、L1 publish reportのrelease ID/hash、lease解放を確認する。固定releaseの行数・Universe・null・unresolved・`fetched_at_utc`・前日snapshot保持を[L1参照手順](../docs/reference/market-lake.md#shared-raw-read)で照合する。`partial`は未取得が残るDEGRADEDであり、provider正常や全指標coverageを示さない。`already_saved` / `skipped_historical_asof` / `before_close` / `before_observation`は取得・公開成功と区別したno-opである。同日後続runがfresh hydrateから保存済みrowを再取得しないことも確認する。
 
 **停止・復旧**: busyはexit 3、その他の失敗はexit 1。失敗・SIGINT/SIGTERM・timeoutでは子processを停止してからreleaseする。release失敗時はstderrに示されたhandleを保持し、[既存lease手順](#ローカルからクラウドを更新する)に従う。SIGKILL・host停止ではreleaseできない場合がある。公開失敗後のlocal snapshotだけを根拠に保存済みとせず、次回はfresh pull/hydrateから始める。
 

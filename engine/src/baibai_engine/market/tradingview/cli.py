@@ -34,7 +34,6 @@ from .collector import (
     TimeGuardError,
     collect,
     preflight_snapshot,
-    validate_time,
 )
 from .diagnostics import (
     CollectionProgress,
@@ -177,7 +176,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--state-file", type=Path, help="independent local OAuth file; never writes GitHub Secrets"
     )
     refresh = sub.add_parser(
-        "refresh", help="append today's observation, normally post-close, resuming missing symbols"
+        "refresh",
+        help="append today's permitted business/rest-day observation, resuming missing symbols",
     )
     refresh.add_argument(
         "--state-file", type=Path, help="independent local OAuth file; never writes GitHub Secrets"
@@ -187,7 +187,7 @@ def build_parser() -> argparse.ArgumentParser:
     refresh.add_argument(
         "--master-asof",
         type=date.fromisoformat,
-        help="explicit manual observation today using this saved exact-date master (not future)",
+        help="assert the calendar-required saved master date; never bypass observation hours",
     )
     refresh.add_argument("--progress-output", type=Path)
     refresh.add_argument("--interval", type=float, default=15.0)
@@ -227,13 +227,16 @@ def main(argv: list[str] | None = None, /) -> int:
                     )
                 )
                 return 0
-            validate_time(day, now, manual_observation=args.master_asof is not None)
+            if day != now.astimezone(JST).date():
+                raise TimeGuardError("Snapshots require today's observation; backfill is forbidden")
+            if args.batch_size != 50 or not 15 <= args.interval <= 3600:
+                raise TimeGuardError("Observations require 50 symbols and interval >=15")
             if args.master_asof is not None:
-                if args.batch_size != 50 or not 15 <= args.interval <= 3600:
-                    raise TimeGuardError("Manual observations require 50 symbols and interval >=15")
-                preflight = preflight_snapshot(args.sqlite, day, master_asof=args.master_asof)
+                preflight = preflight_snapshot(
+                    args.sqlite, day, master_asof=args.master_asof, now=now
+                )
             else:
-                preflight = preflight_snapshot(args.sqlite, day)
+                preflight = preflight_snapshot(args.sqlite, day, now=now)
             if preflight["status"] != "needs_fetch":
                 print(json.dumps({**preflight, "oauth_rotations": 0}))
                 return 0

@@ -74,34 +74,79 @@ def universe(conn: sqlite3.Connection, day: date) -> list[str]:
     return result
 
 
-def validate_time(day: date, now: datetime, *, manual_observation: bool = False) -> None:
+def validate_time(day: date, now: datetime, *, is_business_day: bool = True) -> None:
     if now.tzinfo is None:
         raise ValueError("Timezone-aware observation clock required")
     local = now.astimezone(JST)
-    if local.date() != day or (not manual_observation and local.time() < daytime(15, 30)):
+    opening = daytime(15, 30) if is_business_day else daytime(9)
+    if local.date() != day or local.time() < opening:
         raise TimeGuardError(
-            "Manual snapshots require today's observation; backfill is forbidden"
-            if manual_observation
-            else "Snapshots require today's post-close observation; backfill is forbidden"
+            "Snapshots require today's permitted observation time; backfill is forbidden"
         )
 
 
+def _stored_quality(conn: sqlite3.Connection, day: date) -> dict[str, object]:
+    # Identifiers are fixed by the physical snapshot contract.
+    null_counts = ",".join(f"SUM(fetch_status='ok' AND {name} IS NULL)" for name in FIELDS)
+    row = conn.execute(
+        f"SELECT SUM(fetch_status='unresolved'),MIN(fetched_at_utc),MAX(fetched_at_utc),"  # nosec B608
+        f"{null_counts} FROM {TABLE} WHERE snapshot_date=?",
+        (day.isoformat(),),
+    ).fetchone()
+    return {
+        "unresolved": int(row[0] or 0),
+        "first_fetched_at_utc": row[1],
+        "last_fetched_at_utc": row[2],
+        "normal_nulls": {
+            name: int(count or 0) for name, count in zip(FIELDS, row[3:], strict=True)
+        },
+    }
+
+
 def _snapshot_state(
-    conn: sqlite3.Connection, day: date, *, master_asof: date | None = None
+    conn: sqlite3.Connection,
+    day: date,
+    *,
+    master_asof: date | None = None,
+    now: datetime | None = None,
 ) -> tuple[list[str] | None, dict[str, object]]:
-    context = {"master_asof": master_asof.isoformat()} if master_asof is not None else {}
-    if master_asof is not None:
-        if master_asof > day:
-            raise SourceDataError("Observation master must not be in the future")
+    calendar = conn.execute(
+        "SELECT is_business_day FROM jquants_market_calendar WHERE day=?", (day.isoformat(),)
+    ).fetchone()
+    if calendar is None:
+        raise SourceDataError("Exact-date trading calendar is unavailable")
+    business = bool(calendar[0])
+    if business:
+        basis = day
     else:
-        calendar = conn.execute(
-            "SELECT is_business_day FROM jquants_market_calendar WHERE day=?", (day.isoformat(),)
-        ).fetchone()
-        if calendar is None:
-            raise SourceDataError("Exact-date trading calendar is unavailable")
-        if not calendar[0]:
-            return None, {"status": "non_trading_day", "snapshot_date": day.isoformat()}
-    basis = master_asof or day
+        previous = conn.execute(
+            "SELECT MAX(day) FROM jquants_market_calendar WHERE day<? AND is_business_day=1",
+            (day.isoformat(),),
+        ).fetchone()[0]
+        if previous is None:
+            raise SourceDataError("Previous business day is unavailable in trading calendar")
+        basis = date.fromisoformat(previous)
+        calendar_days = conn.execute(
+            "SELECT COUNT(*) FROM jquants_market_calendar WHERE day BETWEEN ? AND ?",
+            (basis.isoformat(), day.isoformat()),
+        ).fetchone()[0]
+        if calendar_days != (day - basis).days + 1:
+            raise SourceDataError("Continuous trading calendar coverage is unavailable")
+    if master_asof is not None and master_asof != basis:
+        raise SourceDataError("Observation master differs from calendar-required exact date")
+    context: dict[str, object] = {
+        "master_asof": basis.isoformat(),
+        "is_business_day": business,
+    }
+    if now is not None:
+        if now.tzinfo is None or now.astimezone(JST).date() != day:
+            raise TimeGuardError("Snapshots require today's observation; backfill is forbidden")
+        if now.astimezone(JST).time() < (daytime(15, 30) if business else daytime(9)):
+            return None, {
+                **context,
+                "snapshot_date": day.isoformat(),
+                "status": "before_close" if business else "before_observation",
+            }
     stored = {
         row[0]
         for row in conn.execute(
@@ -117,11 +162,15 @@ def _snapshot_state(
         is not None
     )
     if not has_master:
-        if master_asof is not None:
-            raise SourceDataError("Manual observation requires a saved exact-date master")
+        if not business or master_asof is not None:
+            raise SourceDataError(
+                "Observation requires a saved calendar-required exact-date master"
+            )
         if stored:
             raise SourceDataError("Stored TradingView rows lack exact-date master")
         return None, {
+            **context,
+            **_stored_quality(conn, day),
             "status": "needs_fetch",
             "snapshot_date": day.isoformat(),
             "needs_master": True,
@@ -135,12 +184,19 @@ def _snapshot_state(
     if not remaining:
         return remaining, {
             **context,
+            **_stored_quality(conn, day),
             "status": "already_saved",
             "snapshot_date": day.isoformat(),
             "rows": len(stored),
+            "expected_universe": len(symbols),
+            "remaining": 0,
+            "rows_added": 0,
+            "requests_attempted": 0,
+            "symbols_requested": 0,
         }
     return remaining, {
         **context,
+        **_stored_quality(conn, day),
         "status": "needs_fetch",
         "snapshot_date": day.isoformat(),
         "needs_master": False,
@@ -151,7 +207,7 @@ def _snapshot_state(
 
 
 def preflight_snapshot(
-    path: Path, day: date, *, master_asof: date | None = None
+    path: Path, day: date, *, master_asof: date | None = None, now: datetime | None = None
 ) -> dict[str, object]:
     """Check exact-date completeness without creating or changing the market store."""
     try:
@@ -159,7 +215,7 @@ def preflight_snapshot(
         try:
             conn.execute("PRAGMA query_only = ON")
             validate_current_schema(conn)
-            _, result = _snapshot_state(conn, day, master_asof=master_asof)
+            _, result = _snapshot_state(conn, day, master_asof=master_asof, now=now)
             return result
         finally:
             conn.close()
@@ -186,7 +242,6 @@ async def collect(
         raise ValueError("batch_size must be between 1 and 50")
     if master_asof is not None and (batch_size != 50 or interval < 15):
         raise ValueError("Manual observations require batches of 50 and at least 15 seconds")
-    validate_time(day, clock(), manual_observation=master_asof is not None)
     conn = open_connection(path)
     started = timer()
     current: CollectionProgress | None = None
@@ -208,6 +263,8 @@ async def collect(
 
     try:
         symbols, prior = _snapshot_state(conn, day, master_asof=master_asof)
+        business = bool(prior["is_business_day"])
+        validate_time(day, clock(), is_business_day=business)
         if prior["status"] != "needs_fetch":
             return prior
         if symbols is None:
@@ -225,7 +282,7 @@ async def collect(
             expected_universe,
             (len(symbols) + batch_size - 1) // batch_size,
             interval_seconds=round(interval, 3),
-            master_asof=(master_asof or day).isoformat(),
+            master_asof=str(prior["master_asof"]),
         )
         emit()
         names = [column[0] for column in COLUMNS]
@@ -240,7 +297,7 @@ async def collect(
                 stop_reason = "soft_budget"
                 break
             try:
-                validate_time(day, clock(), manual_observation=master_asof is not None)
+                validate_time(day, clock(), is_business_day=business)
             except TimeGuardError:
                 stop_reason = "time_guard"
                 break
@@ -285,7 +342,7 @@ async def collect(
             )
             emit()
             try:
-                validate_time(day, fetched, manual_observation=master_asof is not None)
+                validate_time(day, fetched, is_business_day=business)
             except TimeGuardError:
                 stop_reason = "time_guard"
                 break
