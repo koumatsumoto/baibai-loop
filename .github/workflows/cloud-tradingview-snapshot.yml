@@ -3,9 +3,7 @@ run-name: "tradingview ${{ github.event.schedule || 'manual' }}"
 
 on:
   schedule:
-    - cron: "57 6 * * 1-5"
-    - cron: "7 9 * * 1-5"
-    - cron: "17 11 * * 1-5"
+    - cron: "37 */3 * * *"
   workflow_dispatch:
     inputs:
       batch_size:
@@ -175,6 +173,7 @@ jobs:
           status = int(sys.argv[4])
           fields = (
               "snapshot_date", "phase", "expected_universe", "chunks_total", "chunks_completed",
+              "requests_attempted", "symbols_requested",
               "chunk_index", "chunk_size", "columns_count", "interval_seconds", "response_bytes",
               "provider_elapsed_seconds", "max_chunk_elapsed_seconds", "elapsed_seconds",
               "first_fetched_at_utc", "last_fetched_at_utc", "oauth_rotations",
@@ -282,8 +281,10 @@ jobs:
           ELIGIBLE: ${{ steps.target.outputs.eligible }}
           REASON: ${{ steps.target.outputs.reason }}
           PREFLIGHT: ${{ steps.preflight.outputs.status }}
+          PREFLIGHT_ROWS: ${{ steps.preflight.outputs.rows }}
           MASTER: ${{ steps.master.outcome }}
           TRADINGVIEW: ${{ steps.tradingview.outputs.status }}
+          ACQUISITION_OUTCOME: ${{ steps.tradingview.outcome }}
           FAILURE_CATEGORY: ${{ steps.tradingview.outputs.failure_category }}
           ROWS_ADDED: ${{ steps.tradingview.outputs.rows_added }}
           ROWS: ${{ steps.tradingview.outputs.rows }}
@@ -296,6 +297,7 @@ jobs:
           python3 - <<'PYSUMMARY'
           import json
           import os
+          import re
           from pathlib import Path
 
           temp = Path(os.environ["RUNNER_TEMP"])
@@ -314,7 +316,21 @@ jobs:
               return {}
 
           progress = report("tradingview-progress.json")
+          acquisition = report("tradingview-result.json")
+          try:
+              safe_errors = (temp / "tradingview-stderr.log").read_text(encoding="utf-8")
+          except (OSError, UnicodeError):
+              safe_errors = ""
+          safe_errors += "\n" + str(acquisition.get("last_failure") or "")
+          def status_value(name):
+              found = re.findall(r"(?:^|; )" + name + r"=([1-5][0-9]{2})(?:;|$)", safe_errors, re.MULTILINE)
+              return int(found[-1]) if found else None
+
+          retry_times = re.findall(r"(?:^|; )retry_not_before_utc=([0-9T:+.Z-]+)(?:;|$)", safe_errors, re.MULTILINE)
           release = report("tradingview-lake-publish.log")
+          no_fetch = os.environ.get("ACQUISITION_OUTCOME") == "skipped" or os.environ.get("TRADINGVIEW") in {
+              "already_saved", "non_trading_day", "skipped_historical_asof"
+          }
           values = {
               "target_date": os.environ.get("TARGET_DATE"), "slot": os.environ.get("SLOT"),
               "actual_start_jst": os.environ.get("ACTUAL_START_JST"),
@@ -327,6 +343,14 @@ jobs:
               "expected_universe": os.environ.get("EXPECTED_UNIVERSE"),
               "remaining": os.environ.get("REMAINING"), "unresolved": os.environ.get("UNRESOLVED"),
               "stop_reason": os.environ.get("STOP_REASON"),
+              "requests_attempted": progress.get("requests_attempted", 0 if no_fetch else None),
+              "symbols_requested": progress.get("symbols_requested", 0 if no_fetch else None),
+              "mcp_http_status": status_value("mcp_http_status"),
+              "provider_http_status": status_value("provider_http_status"),
+              "normal_nulls": acquisition.get("normal_nulls"),
+              "retry_not_before_utc": retry_times[-1] if retry_times else None,
+              "preflight_saved_rows": os.environ.get("PREFLIGHT_ROWS"),
+              "elapsed_seconds": progress.get("elapsed_seconds"),
               "chunks_completed": progress.get("chunks_completed"), "chunks_total": progress.get("chunks_total"),
               "failed_chunk": progress.get("chunk_index"), "response_bytes": progress.get("response_bytes"),
               "provider_elapsed_seconds": progress.get("provider_elapsed_seconds"),

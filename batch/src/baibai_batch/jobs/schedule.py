@@ -26,15 +26,10 @@ def resolve_tradingview_target(
     """Resolve the actual JST run day and its scheduled acquisition slot."""
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("timezone-aware observation clock required")
-    slots = {
-        "57 6 * * 1-5": "slot-1557",
-        "7 9 * * 1-5": "slot-1807",
-        "17 11 * * 1-5": "slot-2017",
-    }
     if event_name == "schedule":
-        if schedule not in slots:
+        if schedule != "37 */3 * * *":
             raise ValueError("unknown TradingView schedule")
-        slot = slots[schedule]
+        slot = "every-3h"
     elif event_name == "workflow_dispatch":
         slot = "manual"
     else:

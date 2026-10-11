@@ -41,6 +41,10 @@ def test_http_status_category(status, category):
     response = httpx2.Response(status, request=httpx2.Request("GET", "https://example.com"))
     error = httpx2.HTTPStatusError("private", request=response.request, response=response)
     assert cli.failure_category(error) == category
+    line = cli.failure_line(ExceptionGroup("private", [error]))
+    assert f"mcp_http_status={status}" in line
+    assert "private" not in line
+    assert "https://" not in line
 
 
 def test_cli_never_prints_exception_payload(monkeypatch, capsys):
@@ -343,3 +347,25 @@ def test_session_cleanup_error_preserves_committed_result(
         1,
     )
     assert result["stop_reason"] == expected_reason
+
+
+@pytest.mark.parametrize("value", ["0", "10801", "Sun, 11 Oct 2026 18:00:00 GMT"])
+def test_retry_after_is_reported_as_safe_deadline_only(value):
+    response = httpx2.Response(
+        429,
+        headers={"Retry-After": value, "Secret": "private"},
+        request=httpx2.Request("GET", "https://example.com"),
+    )
+    error = httpx2.HTTPStatusError("private", request=response.request, response=response)
+    line = cli.failure_line(error)
+    assert "retry_not_before_utc=" in line
+    assert "private" not in line
+    assert "Retry-After" not in line
+
+
+@pytest.mark.parametrize("value", ["private\nvalue", "-3", "9" * 100, "not-a-date"])
+def test_invalid_retry_after_is_not_echoed(value):
+    response = httpx2.Response(
+        503, headers={"Retry-After": value}, request=httpx2.Request("GET", "https://example.com")
+    )
+    assert cli._retry_not_before(response) is None

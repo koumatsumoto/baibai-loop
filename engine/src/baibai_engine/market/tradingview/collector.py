@@ -49,6 +49,8 @@ class CollectionProgress:
     elapsed_seconds: float = 0.0
     first_fetched_at_utc: str | None = None
     last_fetched_at_utc: str | None = None
+    requests_attempted: int = 0
+    symbols_requested: int = 0
 
 
 ProgressHook = Callable[[CollectionProgress], None]
@@ -247,7 +249,12 @@ async def collect(
                 break
             chunk = symbols[offset : offset + batch_size]
             current = replace(
-                current, phase="fetch", chunk_index=offset // batch_size + 1, chunk_size=len(chunk)
+                current,
+                phase="fetch",
+                chunk_index=offset // batch_size + 1,
+                chunk_size=len(chunk),
+                requests_attempted=current.requests_attempted + 1,
+                symbols_requested=current.symbols_requested + len(chunk),
             )
             emit()
             chunk_started = timer()
@@ -344,8 +351,11 @@ async def collect(
             raise last_error or FetchError("TradingView collection added no rows")
         current = replace(current, phase="complete")
         emit()
+        from .cli import failure_line
+
         return {
             **asdict(current),
+            "last_failure": failure_line(last_error) if last_error is not None else None,
             "status": "saved" if remaining == 0 else "partial",
             "snapshot_date": day.isoformat(),
             "expected_universe": expected_universe,

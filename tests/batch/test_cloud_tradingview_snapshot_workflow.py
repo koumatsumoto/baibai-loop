@@ -15,11 +15,7 @@ def workflow():
 
 def test_metadata_order_and_exclusive_writer():
     data = workflow()
-    assert [item["cron"] for item in data["on"]["schedule"]] == [
-        "57 6 * * 1-5",
-        "7 9 * * 1-5",
-        "17 11 * * 1-5",
-    ]
+    assert [item["cron"] for item in data["on"]["schedule"]] == ["37 */3 * * *"]
     assert set(data["on"]["workflow_dispatch"]["inputs"]) == {"batch_size", "interval"}
     assert data["permissions"] == {"contents": "read"}
     assert data["concurrency"] == {
@@ -231,3 +227,61 @@ def test_acquisition_failure_keeps_red_exit_and_safe_category(tmp_path, exit_cod
     assert f"failure_category={category}" in output.read_text()
     assert "TradingView progress: unavailable" in result.stdout
     assert "private-token" not in result.stdout + result.stderr
+
+
+def test_summary_preserves_partial_failure_and_null_counts(tmp_path):
+    steps = {step["id"]: step for step in workflow()["jobs"]["snapshot"]["steps"] if "id" in step}
+    (tmp_path / "tradingview-progress.json").write_text(
+        json.dumps({"requests_attempted": 2, "symbols_requested": 100, "chunks_completed": 1})
+    )
+    (tmp_path / "tradingview-result.json").write_text(
+        json.dumps(
+            {
+                "status": "partial",
+                "normal_nulls": {"analyst_rating": 3},
+                "last_failure": "TradingView acquisition failed; category=provider_rate_limit; mcp_http_status=429; retry_not_before_utc=2026-10-11T18:00:00+00:00",
+            }
+        )
+    )
+    summary = tmp_path / "summary"
+    subprocess.run(
+        ["bash", "-e", "-c", steps["summary"]["run"]],
+        env={
+            **os.environ,
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_STEP_SUMMARY": str(summary),
+            "TRADINGVIEW": "partial",
+            "ACQUISITION_OUTCOME": "success",
+            "PREFLIGHT_ROWS": "50",
+        },
+        check=True,
+        capture_output=True,
+    )
+    text = summary.read_text()
+    assert "| requests_attempted | 2 |" in text
+    assert "| mcp_http_status | 429 |" in text
+    assert "| retry_not_before_utc | 2026-10-11T18:00:00+00:00 |" in text
+    assert "analyst_rating" in text
+    assert "| preflight_saved_rows | 50 |" in text
+
+
+@pytest.mark.parametrize(
+    ("outcome", "count"),
+    [("skipped", "0"), ("failure", "unavailable"), ("cancelled", "unavailable")],
+)
+def test_summary_does_not_call_missing_failure_progress_zero_requests(tmp_path, outcome, count):
+    step = next(s for s in workflow()["jobs"]["snapshot"]["steps"] if s.get("id") == "summary")
+    summary = tmp_path / "summary"
+    subprocess.run(
+        ["bash", "-e", "-c", step["run"]],
+        env={
+            **os.environ,
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_STEP_SUMMARY": str(summary),
+            "ACQUISITION_OUTCOME": outcome,
+            "TRADINGVIEW": "",
+        },
+        check=True,
+        capture_output=True,
+    )
+    assert f"| requests_attempted | {count} |" in summary.read_text()
