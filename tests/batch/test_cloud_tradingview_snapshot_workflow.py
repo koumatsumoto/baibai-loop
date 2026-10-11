@@ -16,7 +16,12 @@ def workflow():
 def test_metadata_order_and_exclusive_writer():
     data = workflow()
     assert [item["cron"] for item in data["on"]["schedule"]] == ["37 6,8,10,12,14 * * 1-5"]
-    assert set(data["on"]["workflow_dispatch"]["inputs"]) == {"batch_size", "interval"}
+    assert set(data["on"]["workflow_dispatch"]["inputs"]) == {
+        "batch_size",
+        "interval",
+        "observations_json",
+        "observations_sha256",
+    }
     assert data["permissions"] == {"contents": "read"}
     assert data["concurrency"] == {
         "group": "cloud-publish",

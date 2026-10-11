@@ -14,6 +14,14 @@ on:
         description: "Seconds between requests"
         type: number
         default: 15
+      observations_json:
+        description: "Explicit saved-response acceptance JSON; empty runs normal live collection"
+        type: string
+        default: ""
+      observations_sha256:
+        description: "SHA256 of the exact acceptance JSON bytes"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -24,7 +32,58 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  accept-observations:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && (inputs.observations_json != '' || inputs.observations_sha256 != '') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: tradingview-runtime
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+      - name: Sync Python environment
+        run: uv sync --locked
+      - name: Validate saved response input
+        run: uv run python -m baibai_batch.jobs.tradingview_observations stage --event "$GITHUB_EVENT_PATH" --directory "$RUNNER_TEMP/accepted-observations"
+      - name: Provision DuckDB httpfs extension
+        run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
+      - name: Acquire publication lease
+        id: lease-acquire
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_batch.storage.publication_lease acquire --purpose tradingview --handle "$RUNNER_TEMP/publication-lease-handle.json"
+      - name: Pull and hydrate the current market store
+        id: pull
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          batch/scripts/r2_transfer.sh pull-market
+          batch/scripts/r2_transfer.sh hydrate-market
+      - name: Accept saved observations and publish with fixed-release readback
+        id: publish-lake
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_batch.jobs.tradingview_observations publish --directory "$RUNNER_TEMP/accepted-observations"
+      - name: Release publication lease
+        id: lease-release
+        if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_batch.storage.publication_lease release --handle "$RUNNER_TEMP/publication-lease-handle.json"
   snapshot:
+    if: ${{ github.event_name != 'workflow_dispatch' || (inputs.observations_json == '' && inputs.observations_sha256 == '') }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: tradingview-runtime
