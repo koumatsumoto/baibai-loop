@@ -7,6 +7,12 @@ from typing import Literal
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
+from baibai_engine.market.retail_dynamics.contract import (
+    ANALYST_RATING_COLUMNS,
+    ANALYST_RATING_TABLE,
+    MODEL_VALUATION_COLUMNS,
+    MODEL_VALUATION_TABLE,
+)
 from baibai_engine.market.tradingview.contract import COLUMNS as TV_COLUMNS
 from baibai_engine.market.tradingview.contract import TABLE as TV_TABLE
 
@@ -531,7 +537,35 @@ TRADINGVIEW_FORECAST_SNAPSHOTS = LakeDataset(
     ),
 )
 
+RETAIL_MODEL_VALUATION_OBSERVATIONS = LakeDataset(
+    name="retail_dynamics.model_valuation_observations",
+    sqlite_table=MODEL_VALUATION_TABLE,
+    date_column="snapshot_date",
+    coverage_authority="unproven",
+    columns=tuple(
+        LakeColumn(
+            name, kind, {"TEXT": _TEXT, "REAL": _REAL, "INTEGER": _INTEGER}[kind], nullable, pk
+        )
+        for name, kind, nullable, pk in MODEL_VALUATION_COLUMNS
+    ),
+)
+
+RETAIL_ANALYST_RATING_OBSERVATIONS = LakeDataset(
+    name="retail_dynamics.analyst_rating_observations",
+    sqlite_table=ANALYST_RATING_TABLE,
+    date_column="snapshot_date",
+    coverage_authority="unproven",
+    columns=tuple(
+        LakeColumn(
+            name, kind, {"TEXT": _TEXT, "REAL": _REAL, "INTEGER": _INTEGER}[kind], nullable, pk
+        )
+        for name, kind, nullable, pk in ANALYST_RATING_COLUMNS
+    ),
+)
+
 LAKE_DATASETS = {
+    RETAIL_MODEL_VALUATION_OBSERVATIONS.name: RETAIL_MODEL_VALUATION_OBSERVATIONS,
+    RETAIL_ANALYST_RATING_OBSERVATIONS.name: RETAIL_ANALYST_RATING_OBSERVATIONS,
     TRADINGVIEW_FORECAST_SNAPSHOTS.name: TRADINGVIEW_FORECAST_SNAPSHOTS,
     EDINET_DEBT_SCHEDULE.name: EDINET_DEBT_SCHEDULE,
     EDINET_SEGMENT_FACTS.name: EDINET_SEGMENT_FACTS,

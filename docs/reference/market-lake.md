@@ -201,6 +201,16 @@ ORDER BY balance_sheet_date, consolidation_basis, debt_category, due_from_months
 
 原典に戻る範囲とsource意味は[data sources](./data-sources.md#edinet-research-facts)が所有する。ここから資金余命を評価する際の将来FCF・維持投資・借換えはResearchの見積りであり、L1 factへ保存しない。
 
+<a id="retail-dynamics-query"></a>
+
+## 公開broker観測の保存と照会
+
+`retail_dynamics.model_valuation_observations`と`retail_dynamics.analyst_rating_observations`は意味ごとのtyped datasetで、month partition、任意収録、履歴保持、coverage未証明である。既存のmarket storeとlake releaseを使う。未収録の旧releaseは新しいcurrent-schema作業コピーへhydrateすると両tableが空となる。旧SQLiteの形をruntime readerが読み替えることはしない。
+
+同じ銘柄を同日に複数回受信しても、`fetched_at_utc`が違えば別行にする。保存済みstageの再投入は元の受信時刻を維持し、同じキー・同じ内容なら無変更、異なる内容ならtransaction全体を拒否する。新しいHTTP受信の同値は改定とは数えない。将来別配信元を同じsemantic tableへ追加するときは、その配信元を含むキーへ明示的にcontractを変更する。
+
+Web・toolsの読取入口は`read_api.retail_dynamics.retail_dynamics_payload`であり、銘柄・cutoff・評価時刻を明示する。lakeの固定releaseでも受信時刻のcutoffを併用する。値の意味と未確認metadataは[data sources](./data-sources.md#retail-dynamics)、手動取得・stage importは[batch運用](../../batch/OPERATIONS.md#retail-dynamics)が所有する。
+
 <a id="tradingview-query"></a>
 
 ## TradingView snapshotの照会

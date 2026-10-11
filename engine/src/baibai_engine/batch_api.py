@@ -81,6 +81,7 @@ from baibai_engine.market.lake.writer import (
     LakeBuildReport,
     export_lake_legacy,
 )
+from baibai_engine.market.retail_dynamics.cli import main as retail_dynamics_main
 from baibai_engine.market.sqlite import open_connection as open_market_store
 from baibai_engine.market.sqlite.lake_origin import (
     LakeStoreOrigin,
@@ -430,6 +431,7 @@ __all__ = [
     "reject_noncanonical_store_paths",
     "repository_root_error",
     "resolve_release",
+    "retail_dynamics_main",
     "scorecard_series_ids",
     "tradingview_accept_observations",
     "tradingview_failure_line",

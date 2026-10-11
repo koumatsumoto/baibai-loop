@@ -422,3 +422,43 @@ name = "Reviewed Thesis storage does not depend on judgment composition"
 type = "forbidden"
 source_modules = ["baibai_engine.research.thesis_store"]
 forbidden_modules = ["baibai_engine.research.capital_allocation_service", "baibai_engine.research.position_review_service", "baibai_engine.research.workspace", "baibai_engine.research.operation"]
+
+[[tool.importlinter.contracts]]
+name = "retail dynamics contracts stay independent of services"
+type = "forbidden"
+source_modules = ["baibai_engine.market.retail_dynamics.contract", "baibai_engine.market.retail_dynamics.models"]
+forbidden_modules = [
+  "baibai_engine.market.retail_dynamics.store",
+  "baibai_engine.market.retail_dynamics.reader",
+  "baibai_engine.market.retail_dynamics.analysis",
+  "baibai_engine.market.retail_dynamics.collection",
+  "baibai_engine.market.retail_dynamics.sources",
+  "baibai_engine.market.retail_dynamics.cli",
+  "baibai_engine.market.sqlite",
+  "baibai_engine.market.lake",
+]
+
+[[tool.importlinter.contracts]]
+name = "retail dynamics read facade cannot acquire or write"
+type = "forbidden"
+source_modules = ["baibai_engine.read_api.retail_dynamics"]
+forbidden_modules = [
+  "baibai_engine.market.retail_dynamics.sources",
+  "baibai_engine.market.retail_dynamics.collection",
+  "baibai_engine.market.retail_dynamics.store",
+  "baibai_engine.market.retail_dynamics.cli",
+]
+
+[[tool.importlinter.contracts]]
+name = "retail dynamics observations do not enter investment decisions"
+type = "forbidden"
+source_modules = ["baibai_engine.screening", "baibai_engine.position", "baibai_engine.research"]
+forbidden_modules = [
+  "baibai_engine.market.retail_dynamics.sources",
+  "baibai_engine.market.retail_dynamics.collection",
+  "baibai_engine.market.retail_dynamics.store",
+  "baibai_engine.market.retail_dynamics.reader",
+  "baibai_engine.market.retail_dynamics.analysis",
+  "baibai_engine.market.retail_dynamics.cli",
+  "baibai_engine.read_api.retail_dynamics",
+]

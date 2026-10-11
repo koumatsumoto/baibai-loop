@@ -841,6 +841,23 @@ storeのmergeでは同日でも別docIDの成否を混同しない。共有docID
 
 **失敗時**: failedのdocIDを原典と照合し、認証・rate limit・破損cacheを原因別に解消して再実行する。factが残っていても、最新訂正の失敗を旧版で埋めない。利用側は[書類選択と欠測時の手順](../docs/reference/market-lake.md#edinet-research-query)に従う。
 
+<a id="retail-dynamics"></a>
+
+## 公開broker観測の限定取得
+
+手動の限定入口は`baibai-engine retail-dynamics`または`baibai-batch retail-dynamics`である。取得は公開ページの通常HTTP経路を使い、明示した少数銘柄を直列で読み、request数とwall-clock時間で停止する。403・429は当該sourceの残りを止め、別sourceの確定した成功は保持する。スケジュール、publication lease、R2更新、UI反映はこの入口に含まれない。
+
+取得先はprivateなローカルstageとし、ログへ値やHTMLを出さない。例の保存先directoryと現行schemaの隔離market作業コピーをあらかじめ用意し、repositoryや公開Actions artifactへstageを置かない。
+
+```bash
+uv run baibai-engine retail-dynamics collect --output /tmp/private-retail/observations.json
+uv run baibai-engine retail-dynamics import --input /tmp/private-retail/observations.json --db /tmp/private-retail/market.sqlite
+```
+
+import対象は明示した既存の隔離作業コピーであり、current market schemaに整合させる。CLIは新規DBの初期化も旧schemaの移行も行わない。成功時はstage件数・新規挿入件数を確認し、再投入では新規挿入0を確認する。partialまたは失敗時はsafe summaryで未試行・HTTP障害・parse障害を正常nullと区別し、成功stageを保持する。schema・破損・保存障害は取得欠測へ置き換えず、コピーの整合を直してから再投入する。
+
+本番導入はcode反映と整合するstoreの明示的移行を一組にする。後続の独立workflowでは取得をlease外で終え、公開段階で最新クラウド世代をpull/hydrateしてから確定stageを適用する。公開権限、private handoff、料金・所要時間の実測は定期実行前に別途受入する。保持・照会は[market lake](../docs/reference/market-lake.md#retail-dynamics-query)を参照する。
+
 <a id="tradingview-expectations"></a>
 
 ## TradingView Analyst Expectations
