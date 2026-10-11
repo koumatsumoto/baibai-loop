@@ -70,6 +70,8 @@ def test_full_universe_batches_and_same_day_immutability(tmp_path: Path) -> None
     assert [len(c) for c in calls] == [50, 1]
     assert pauses == [15]
     assert result["rows"] == 51
+    assert result["requests_attempted"] == 2
+    assert result["symbols_requested"] == 51
     assert result["unresolved"] == 1
     original = stored(path)
     result = asyncio.run(collect(path, DAY, fetch, clock=lambda: NOW))
@@ -580,3 +582,30 @@ def test_non_dict_row_does_not_blame_a_field(raw):
     assert caught.value.field is None
     assert "validation_field=-" in failure_line(caught.value)
     assert "private-body" not in failure_line(caught.value)
+
+
+def test_partial_http_failure_keeps_status_and_wait_instruction(tmp_path):
+    import httpx2
+
+    path = store(tmp_path / "market.sqlite", 2)
+    calls = []
+
+    async def fetch(symbols):
+        calls.append(symbols)
+        if len(calls) == 2:
+            response = httpx2.Response(
+                429,
+                headers={"Retry-After": "Sun, 11 Oct 2026 18:00:00 GMT"},
+                request=httpx2.Request("GET", "https://example.com"),
+            )
+            raise httpx2.HTTPStatusError("private", request=response.request, response=response)
+        return payload(symbols)
+
+    result = asyncio.run(collect(path, DAY, fetch, batch_size=1, interval=0, clock=lambda: NOW))
+    assert result["status"] == "partial"
+    assert result["rows_added"] == 1
+    assert result["requests_attempted"] == 2
+    assert result["symbols_requested"] == 2
+    assert "mcp_http_status=429" in result["last_failure"]
+    assert "retry_not_before_utc=2026-10-11T18:00:00+00:00" in result["last_failure"]
+    assert "private" not in str(result)

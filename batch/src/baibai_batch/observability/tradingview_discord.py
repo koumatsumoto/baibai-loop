@@ -33,6 +33,8 @@ STEPS = (
     "pull",
     "hydrate",
     "preflight",
+    "cooldown-check",
+    "cooldown-save",
     "master",
     "tradingview",
     "publish-lake",

@@ -3,9 +3,7 @@ run-name: "tradingview ${{ github.event.schedule || 'manual' }}"
 
 on:
   schedule:
-    - cron: "57 6 * * 1-5"
-    - cron: "7 9 * * 1-5"
-    - cron: "17 11 * * 1-5"
+    - cron: "37 6,8,10,12,14 * * 1-5"
   workflow_dispatch:
     inputs:
       batch_size:
@@ -131,16 +129,24 @@ jobs:
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               print(f"status={status}\nrows={rows}\nneeds_master={needs_master}", file=output)
           PYPREFLIGHT
+      - name: Check provider cooldown
+        id: cooldown-check
+        if: steps.preflight.outputs.status == 'needs_fetch'
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_batch.storage.tradingview_cooldown check --directory "$RUNNER_TEMP"
       - name: Fetch exact-date J-Quants master
         id: master
-        if: steps.preflight.outputs.status == 'needs_fetch' && steps.preflight.outputs.needs_master == 'true'
+        if: steps.cooldown-check.outputs.allowed == 'true' && steps.preflight.outputs.status == 'needs_fetch' && steps.preflight.outputs.needs_master == 'true'
         env:
           JQUANTS_API_KEY: ${{ secrets.JQUANTS_API_KEY }}
           TARGET_DATE: ${{ steps.target.outputs.target_date }}
         run: uv run baibai-engine screening backfill-master --asof "$TARGET_DATE"
       - name: Refresh TradingView expectations
         id: tradingview
-        if: steps.preflight.outputs.status == 'needs_fetch' && (steps.preflight.outputs.needs_master == 'false' || steps.master.outcome == 'success')
+        if: steps.cooldown-check.outputs.allowed == 'true' && steps.preflight.outputs.status == 'needs_fetch' && (steps.preflight.outputs.needs_master == 'false' || steps.master.outcome == 'success')
         env:
           TRADINGVIEW_OAUTH_STATE: ${{ secrets.TRADINGVIEW_OAUTH_STATE }}
           TRADINGVIEW_SECRET_WRITER_TOKEN: ${{ secrets.TRADINGVIEW_SECRET_WRITER_TOKEN }}
@@ -175,6 +181,7 @@ jobs:
           status = int(sys.argv[4])
           fields = (
               "snapshot_date", "phase", "expected_universe", "chunks_total", "chunks_completed",
+              "requests_attempted", "symbols_requested",
               "chunk_index", "chunk_size", "columns_count", "interval_seconds", "response_bytes",
               "provider_elapsed_seconds", "max_chunk_elapsed_seconds", "elapsed_seconds",
               "first_fetched_at_utc", "last_fetched_at_utc", "oauth_rotations",
@@ -248,6 +255,14 @@ jobs:
             status=$parser_status
           fi
           exit "$status"
+      - name: Persist provider cooldown
+        id: cooldown-save
+        if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' && steps.tradingview.outcome != 'skipped' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_batch.storage.tradingview_cooldown record --directory "$RUNNER_TEMP"
       - name: Publish the L1 release
         id: publish-lake
         if: (steps.tradingview.outputs.status == 'saved' || steps.tradingview.outputs.status == 'partial') && fromJSON(steps.tradingview.outputs.rows_added || '0') > 0
@@ -282,8 +297,12 @@ jobs:
           ELIGIBLE: ${{ steps.target.outputs.eligible }}
           REASON: ${{ steps.target.outputs.reason }}
           PREFLIGHT: ${{ steps.preflight.outputs.status }}
+          PREFLIGHT_ROWS: ${{ steps.preflight.outputs.rows }}
+          COOLDOWN_ALLOWED: ${{ steps.cooldown-check.outputs.allowed }}
+          COOLDOWN_UNTIL: ${{ steps.cooldown-check.outputs.not_before_utc }}
           MASTER: ${{ steps.master.outcome }}
           TRADINGVIEW: ${{ steps.tradingview.outputs.status }}
+          ACQUISITION_OUTCOME: ${{ steps.tradingview.outcome }}
           FAILURE_CATEGORY: ${{ steps.tradingview.outputs.failure_category }}
           ROWS_ADDED: ${{ steps.tradingview.outputs.rows_added }}
           ROWS: ${{ steps.tradingview.outputs.rows }}
@@ -296,6 +315,7 @@ jobs:
           python3 - <<'PYSUMMARY'
           import json
           import os
+          import re
           from pathlib import Path
 
           temp = Path(os.environ["RUNNER_TEMP"])
@@ -314,7 +334,21 @@ jobs:
               return {}
 
           progress = report("tradingview-progress.json")
+          acquisition = report("tradingview-result.json")
+          try:
+              safe_errors = (temp / "tradingview-stderr.log").read_text(encoding="utf-8")
+          except (OSError, UnicodeError):
+              safe_errors = ""
+          safe_errors += "\n" + str(acquisition.get("last_failure") or "")
+          def status_value(name):
+              found = re.findall(r"(?:^|; )" + name + r"=([1-5][0-9]{2})(?:;|$)", safe_errors, re.MULTILINE)
+              return int(found[-1]) if found else None
+
+          retry_times = re.findall(r"(?:^|; )retry_not_before_utc=([0-9T:+.Z-]+)(?:;|$)", safe_errors, re.MULTILINE)
           release = report("tradingview-lake-publish.log")
+          no_fetch = os.environ.get("ACQUISITION_OUTCOME") == "skipped" or os.environ.get("TRADINGVIEW") in {
+              "already_saved", "non_trading_day", "skipped_historical_asof"
+          }
           values = {
               "target_date": os.environ.get("TARGET_DATE"), "slot": os.environ.get("SLOT"),
               "actual_start_jst": os.environ.get("ACTUAL_START_JST"),
@@ -327,6 +361,16 @@ jobs:
               "expected_universe": os.environ.get("EXPECTED_UNIVERSE"),
               "remaining": os.environ.get("REMAINING"), "unresolved": os.environ.get("UNRESOLVED"),
               "stop_reason": os.environ.get("STOP_REASON"),
+              "requests_attempted": progress.get("requests_attempted", 0 if no_fetch else None),
+              "symbols_requested": progress.get("symbols_requested", 0 if no_fetch else None),
+              "mcp_http_status": status_value("mcp_http_status"),
+              "provider_http_status": status_value("provider_http_status"),
+              "normal_nulls": acquisition.get("normal_nulls"),
+              "retry_not_before_utc": retry_times[-1] if retry_times else None,
+              "preflight_saved_rows": os.environ.get("PREFLIGHT_ROWS"),
+              "cooldown_allowed": os.environ.get("COOLDOWN_ALLOWED"),
+              "cooldown_not_before_utc": os.environ.get("COOLDOWN_UNTIL"),
+              "elapsed_seconds": progress.get("elapsed_seconds"),
               "chunks_completed": progress.get("chunks_completed"), "chunks_total": progress.get("chunks_total"),
               "failed_chunk": progress.get("chunk_index"), "response_bytes": progress.get("response_bytes"),
               "provider_elapsed_seconds": progress.get("provider_elapsed_seconds"),
@@ -356,7 +400,7 @@ jobs:
         run: |
           python3 -m baibai_batch.observability.tradingview_discord \
             --asof "${{ steps.target.outputs.target_date }}" \
-            --eligible "${{ steps.target.outputs.eligible || 'false' }}" \
+            --eligible "${{ steps.target.outputs.eligible == 'true' && steps.cooldown-check.outputs.allowed != 'false' }}" \
             --snapshot-status "${{ steps.tradingview.outputs.status || 'unknown' }}" \
             --rows-added "${{ steps.tradingview.outputs.rows_added || '0' }}" \
             --rows "${{ steps.tradingview.outputs.rows || '0' }}" \
@@ -374,6 +418,8 @@ jobs:
             --pull-outcome "${{ steps.pull.outcome }}" \
             --hydrate-outcome "${{ steps.hydrate.outcome }}" \
             --preflight-outcome "${{ steps.preflight.outcome }}" \
+            --cooldown-check-outcome "${{ steps.cooldown-check.outcome }}" \
+            --cooldown-save-outcome "${{ steps.cooldown-save.outcome }}" \
             --master-outcome "${{ steps.master.outcome }}" \
             --tradingview-outcome "${{ steps.tradingview.outcome }}" \
             --publish-lake-outcome "${{ steps.publish-lake.outcome }}" \

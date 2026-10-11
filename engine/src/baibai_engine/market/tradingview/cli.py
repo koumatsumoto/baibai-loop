@@ -12,7 +12,8 @@ import sys
 import tempfile
 from contextlib import suppress
 from dataclasses import asdict
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
+from email.utils import parsedate_to_datetime
 from functools import partial
 from pathlib import Path
 
@@ -105,6 +106,8 @@ PROGRESS_FIELDS = (
     "expected_universe",
     "chunks_total",
     "chunks_completed",
+    "requests_attempted",
+    "symbols_requested",
     "chunk_index",
     "chunk_size",
     "columns_count",
@@ -151,6 +154,23 @@ def _diagnostic_error(exc: BaseException, category: str) -> BaseException:
     return exc
 
 
+def _retry_not_before(response: httpx2.Response) -> str | None:
+    value = response.headers.get("Retry-After")
+    if value is None:
+        return None
+    try:
+        value = value.strip()
+        if value.isascii() and value.isdigit():
+            deadline = datetime.now(UTC) + timedelta(seconds=int(value))
+        else:
+            deadline = parsedate_to_datetime(value)
+            if deadline.tzinfo is None:
+                return None
+        return deadline.astimezone(UTC).isoformat()
+    except (ValueError, TypeError, OverflowError):
+        return None
+
+
 def failure_line(exc: BaseException) -> str:
     category = failure_category(exc)
     line = f"TradingView acquisition failed; category={category}"
@@ -162,6 +182,11 @@ def failure_line(exc: BaseException) -> str:
         detail = _diagnostic_error(detail.cause, category)
     if isinstance(detail, ProviderHTTPError):
         line += f"; provider_http_status={detail.status_code}"
+    if isinstance(detail, httpx2.HTTPStatusError):
+        line += f"; mcp_http_status={detail.response.status_code}"
+        retry_at = _retry_not_before(detail.response)
+        if retry_at is not None:
+            line += f"; retry_not_before_utc={retry_at}"
     if isinstance(detail, ProviderPayloadError):
         line += f"; validation_reason={detail.reason}; validation_field={detail.field or '-'}"
     return line
