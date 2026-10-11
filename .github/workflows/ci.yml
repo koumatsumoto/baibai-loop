@@ -16,6 +16,11 @@ on:
         type: boolean
         default: false
 
+      tradingview_single_batch_probe:
+        description: "Temporary fixed 50 x 18, up to 2 calls, 90s after completion, stop on failure"
+        type: boolean
+        default: false
+
 permissions:
   contents: read
 
@@ -138,7 +143,7 @@ jobs:
     needs: quality
     if: >-
       ${{ github.event_name == 'workflow_dispatch'
-        && inputs.tradingview_oauth_smoke
+        && (inputs.tradingview_oauth_smoke || inputs.tradingview_single_batch_probe)
         && github.ref == 'refs/heads/main'
         && needs.quality.result == 'success' }}
     runs-on: ubuntu-latest
@@ -158,8 +163,19 @@ jobs:
           enable-cache: true
       - name: Sync Python environment
         run: uv sync --locked
+      - name: Reject combined diagnostic modes
+        if: inputs.tradingview_oauth_smoke && inputs.tradingview_single_batch_probe
+        run: exit 1
       - name: TradingView OAuth smoke
+        if: inputs.tradingview_oauth_smoke && !inputs.tradingview_single_batch_probe
         env:
           TRADINGVIEW_OAUTH_STATE: ${{ secrets.TRADINGVIEW_OAUTH_STATE }}
           TRADINGVIEW_SECRET_WRITER_TOKEN: ${{ secrets.TRADINGVIEW_SECRET_WRITER_TOKEN }}
         run: uv run baibai-engine tradingview smoke
+      - name: Temporary fixed-50 repeat diagnostic
+        if: inputs.tradingview_single_batch_probe && !inputs.tradingview_oauth_smoke
+        timeout-minutes: 8
+        env:
+          TRADINGVIEW_OAUTH_STATE: ${{ secrets.TRADINGVIEW_OAUTH_STATE }}
+          TRADINGVIEW_SECRET_WRITER_TOKEN: ${{ secrets.TRADINGVIEW_SECRET_WRITER_TOKEN }}
+        run: uv run python -m tools.diagnostics.tradingview_single_batch_probe
