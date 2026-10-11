@@ -126,6 +126,12 @@ def _snapshot_state(
         if previous is None:
             raise SourceDataError("Previous business day is unavailable in trading calendar")
         basis = date.fromisoformat(previous)
+        calendar_days = conn.execute(
+            "SELECT COUNT(*) FROM jquants_market_calendar WHERE day BETWEEN ? AND ?",
+            (basis.isoformat(), day.isoformat()),
+        ).fetchone()[0]
+        if calendar_days != (day - basis).days + 1:
+            raise SourceDataError("Continuous trading calendar coverage is unavailable")
     if master_asof is not None and master_asof != basis:
         raise SourceDataError("Observation master differs from calendar-required exact date")
     context: dict[str, object] = {
@@ -164,6 +170,7 @@ def _snapshot_state(
             raise SourceDataError("Stored TradingView rows lack exact-date master")
         return None, {
             **context,
+            **_stored_quality(conn, day),
             "status": "needs_fetch",
             "snapshot_date": day.isoformat(),
             "needs_master": True,
@@ -189,6 +196,7 @@ def _snapshot_state(
         }
     return remaining, {
         **context,
+        **_stored_quality(conn, day),
         "status": "needs_fetch",
         "snapshot_date": day.isoformat(),
         "needs_master": False,

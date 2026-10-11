@@ -403,16 +403,19 @@ def test_summary_does_not_call_missing_failure_progress_zero_requests(tmp_path, 
     assert f"| requests_attempted | {count} |" in summary.read_text()
 
 
-def test_noop_summary_keeps_stored_quality_without_provider_progress(tmp_path):
+@pytest.mark.parametrize(
+    ("status", "expected", "remaining"), [("already_saved", 3, 0), ("needs_fetch", 5, 2)]
+)
+def test_skipped_acquisition_summary_keeps_stored_quality(tmp_path, status, expected, remaining):
     step = next(s for s in workflow()["jobs"]["snapshot"]["steps"] if s.get("id") == "summary")
     (tmp_path / "tradingview-preflight.json").write_text(
         json.dumps(
             {
-                "status": "already_saved",
+                "status": status,
                 "is_business_day": False,
                 "rows": 3,
-                "expected_universe": 3,
-                "remaining": 0,
+                "expected_universe": expected,
+                "remaining": remaining,
                 "unresolved": 1,
                 "normal_nulls": {"price_target_average": 2},
                 "first_fetched_at_utc": "2026-10-11T00:00:00+00:00",
@@ -428,7 +431,8 @@ def test_noop_summary_keeps_stored_quality_without_provider_progress(tmp_path):
             "RUNNER_TEMP": str(tmp_path),
             "GITHUB_STEP_SUMMARY": str(summary),
             "ACQUISITION_OUTCOME": "skipped",
-            "PREFLIGHT": "already_saved",
+            "PREFLIGHT": status,
+            "COOLDOWN_ALLOWED": "false" if status == "needs_fetch" else "",
             "MASTER_ASOF": "2026-10-09",
         },
         check=True,
@@ -437,8 +441,8 @@ def test_noop_summary_keeps_stored_quality_without_provider_progress(tmp_path):
     text = summary.read_text()
     for name, value in {
         "rows": 3,
-        "expected_universe": 3,
-        "remaining": 0,
+        "expected_universe": expected,
+        "remaining": remaining,
         "unresolved": 1,
         "requests_attempted": 0,
     }.items():

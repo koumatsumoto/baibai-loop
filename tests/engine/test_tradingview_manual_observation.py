@@ -24,6 +24,7 @@ def manual_store(tmp_path, count=153):
     with sqlite3.connect(path) as conn:
         conn.execute("UPDATE jquants_master_snapshots SET snapshot_date=?", (MASTER.isoformat(),))
         conn.execute("INSERT INTO jquants_market_calendar VALUES (?,0)", (DAY.isoformat(),))
+        conn.execute("INSERT INTO jquants_market_calendar VALUES ('2026-10-10',0)")
         conn.execute("INSERT INTO jquants_market_calendar VALUES (?,1)", (MASTER.isoformat(),))
         conn.executemany(
             "INSERT INTO tradingview_forecast_snapshots(snapshot_date,ticker,provider_symbol,fetched_at_utc,fetch_status,quote_close) VALUES (?,?,?,?,?,?)",
@@ -295,6 +296,47 @@ def test_calendar_required_master_missing_does_not_use_older_saved_master(tmp_pa
         preflight_snapshot(path, DAY, now=NOW)
     with pytest.raises(SourceDataError, match="differs from calendar"):
         preflight_snapshot(path, DAY, master_asof=date(2026, 9, 18), now=NOW)
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("missing_day", ["2026-10-09", "2026-10-10"])
+def test_calendar_gap_cannot_select_an_older_master_or_collect(tmp_path, missing_day):
+    path = manual_store(tmp_path, 101)
+    with sqlite3.connect(path) as conn:
+        conn.execute("INSERT INTO jquants_market_calendar VALUES ('2026-10-08',1)")
+        conn.execute("UPDATE jquants_master_snapshots SET snapshot_date='2026-10-08'")
+        conn.execute("DELETE FROM jquants_market_calendar WHERE day=?", (missing_day,))
+    before = path.read_bytes()
+    with pytest.raises(SourceDataError, match="Continuous trading calendar coverage"):
+        preflight_snapshot(path, DAY, now=NOW)
+
+    async def forbidden(_symbols):
+        pytest.fail("calendar gap must stop before provider access")
+
+    with pytest.raises(SourceDataError, match="Continuous trading calendar coverage"):
+        asyncio.run(collect(path, DAY, forbidden, clock=lambda: NOW))
+    assert path.read_bytes() == before
+
+
+def test_partial_preflight_keeps_quality_when_cooldown_prevents_fetch(tmp_path):
+    path = manual_store(tmp_path, 101)
+    last_received = (NOW + timedelta(seconds=1)).isoformat()
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "UPDATE tradingview_forecast_snapshots SET fetch_status='unresolved' WHERE ticker='1000'"
+        )
+        conn.execute(
+            "UPDATE tradingview_forecast_snapshots SET fetched_at_utc=? WHERE ticker='1001'",
+            (last_received,),
+        )
+    before = path.read_bytes()
+    result = preflight_snapshot(path, DAY, now=NOW + timedelta(seconds=2))
+    assert result["status"] == "needs_fetch"
+    assert (result["rows"], result["remaining"], result["unresolved"]) == (100, 1, 1)
+    assert result["normal_nulls"]["price_target_average"] == 99
+    assert result["normal_nulls"]["quote_close"] == 0
+    assert result["first_fetched_at_utc"] == NOW.isoformat()
+    assert result["last_fetched_at_utc"] == last_received
     assert path.read_bytes() == before
 
 
