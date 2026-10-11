@@ -71,6 +71,36 @@ def test_terminal_success_notifies_once_with_normal_null_and_run_context(monkeyp
     assert "run: https://github.com/example/repo/actions/runs/123/attempts/2" in message
 
 
+@pytest.mark.parametrize(
+    ("result", "label", "detail"),
+    [
+        ("success", "[DEGRADED]", "429再試行枠完了・未公開・同batchの再dispatchが必要"),
+        ("failure", "[FAILED]", "取得停止/未完了"),
+        ("cancelled", "[CANCELLED]", "取消"),
+    ],
+)
+def test_retry_only_reports_no_publication_and_does_not_invent_counts(
+    monkeypatch, result, label, detail
+):
+    message = invoke(
+        monkeypatch,
+        "--plan-result",
+        "success",
+        "--acquire-result",
+        result,
+        "--publish-result",
+        "skipped",
+        "--retry-only",
+        "true",
+        "--typed-pairs",
+        "8",
+    )
+    assert message.startswith(label)
+    assert detail in message
+    assert "公開確認済み" not in message
+    assert "typed pair=不明" in message
+
+
 def test_publication_with_known_failures_is_degraded(monkeypatch):
     message = invoke(
         monkeypatch,
@@ -441,6 +471,9 @@ def test_workflow_has_one_terminal_notifier_outside_matrix_with_step_only_existi
     assert "--publication-mode" in step["run"]
     assert "needs.plan.outputs.terminal_status" in step["run"]
     assert "needs.plan.outputs.terminal_status == 'pending'" in jobs["publish"]["if"]
+    assert "needs.plan.outputs.retry_only != 'true'" in jobs["publish"]["if"]
+    assert "--retry-only" in step["run"]
+    assert jobs["plan"]["outputs"]["retry_only"] == "${{ steps.plan.outputs.retry_only }}"
     assert "!cancelled()" in jobs["publish"]["if"]
     assert "needs.plan.outputs.terminal_status == 'pending'" in jobs["acquire"]["if"]
     assert "inputs.operation == 'collect_and_publish'" in jobs["acquire"]["if"]

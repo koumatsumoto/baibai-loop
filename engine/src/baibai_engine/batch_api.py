@@ -91,6 +91,7 @@ from baibai_engine.market.retail_dynamics.collection import (
 from baibai_engine.market.retail_dynamics.collection import (
     CollectionResult as RetailCollectionResult,
 )
+from baibai_engine.market.retail_dynamics.collection import HostRateLimiter as RetailHostRateLimiter
 from baibai_engine.market.retail_dynamics.collection import Source as RetailSource
 from baibai_engine.market.retail_dynamics.collection import collect_pair as retail_collect_pair
 from baibai_engine.market.retail_dynamics.collection import (
@@ -442,6 +443,7 @@ __all__ = [
     "RetailAnalystRatingObservation",
     "RetailCollectionOutcome",
     "RetailCollectionResult",
+    "RetailHostRateLimiter",
     "RetailModelValuationObservation",
     "RetailObservation",
     "RetailSource",

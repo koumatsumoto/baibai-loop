@@ -296,6 +296,30 @@ def mark_inflight(
     return _replace_entry(journal, PairEntry(source, ticker, "uncertain", "inflight"))
 
 
+def begin_rate_limited_retry(
+    plan: RunPlan, journal: CohortJournal, source: RetailSource, ticker: str
+) -> CohortJournal:
+    """Only the caller's validated durable retry reservation may reopen a known 429."""
+    _validate_journal(plan, journal)
+    current = next(
+        (entry for entry in journal.entries if (entry.source, entry.ticker) == (source, ticker)),
+        None,
+    )
+    if current is None or (current.state, current.reason, current.http_status) != (
+        "failure",
+        "rate_limited",
+        429,
+    ):
+        raise ValueError("retry requires this pair's confirmed HTTP 429")
+    if any(
+        entry != current
+        and (entry.state == "uncertain" or entry.reason in {"access_denied", "rate_limited"})
+        for entry in journal.entries
+    ):
+        raise ValueError("another halted pair blocks this retry")
+    return _replace_entry(journal, PairEntry(source, ticker, "uncertain", "inflight"))
+
+
 def record_outcome(
     plan: RunPlan,
     journal: CohortJournal,
@@ -393,9 +417,20 @@ def summarize(
     }
 
 
-def validate_resume(plan: RunPlan, journals: Sequence[CohortJournal]) -> None:
-    summary = summarize(plan, journals)
-    if summary["halt_reasons"]:
+def validate_resume(
+    plan: RunPlan,
+    journals: Sequence[CohortJournal],
+    *,
+    retryable_pairs: frozenset[tuple[RetailSource, str]] = frozenset(),
+) -> None:
+    summarize(plan, journals)
+    if any(
+        entry.state == "uncertain"
+        or entry.reason == "access_denied"
+        or (entry.reason == "rate_limited" and (entry.source, entry.ticker) not in retryable_pairs)
+        for journal in journals
+        for entry in journal.entries
+    ):
         raise ValueError("daily run is halted by blocked access or an uncertain request")
 
 

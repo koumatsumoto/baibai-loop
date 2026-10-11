@@ -13,10 +13,12 @@ import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from types import FrameType
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 import requests
 from pydantic import ValidationError
@@ -33,7 +35,14 @@ MIN_REQUEST_INTERVAL_SECONDS = 2.0
 DEFAULT_PAIR_TIME_LIMIT_SECONDS = 120
 DEFAULT_PAIR_REQUEST_TIMEOUT_SECONDS = 30
 # Increment this policy version whenever pair acquisition semantics change.
-PAIR_ACQUISITION_POLICY_VERSION = "retail-pair-acquisition-v1"
+PAIR_ACQUISITION_POLICY_VERSION = "retail-pair-acquisition-v3"
+HOST_REQUEST_RATE_PER_SECOND = 2.0
+HOST_REQUEST_BURST_CREDITS = 4.0
+RATE_LIMITED_HOSTS = (
+    "scouter.monex.co.jp",
+    "www.rakuten-sec.co.jp",
+    "rakuten-sec.ifis.co.jp",
+)
 STAGING_FORMAT = "retail-dynamics-staging-v1"
 PARSE_FAILURE_REASONS = frozenset(
     {
@@ -78,6 +87,9 @@ class CollectionResult:
     last_response_finished_at_utc: datetime | None = None
     # Fully received, decompressed response.content only; never wire byte counts.
     response_content_bytes: int | None = None
+    # Confirmed 429 only. Raw Retry-After headers never leave the receiver.
+    retry_after_not_before_utc: datetime | None = None
+    retry_after_unrepresentable: bool = False
 
     def summary(self) -> dict[str, object]:
         counts: dict[str, int] = {}
@@ -89,7 +101,53 @@ class CollectionResult:
             "outcome_counts": counts,
             "outcomes": [asdict(outcome) for outcome in self.outcomes],
             "stop_reason": self.stop_reason,
+            "retry_after_not_before_utc": self.retry_after_not_before_utc.isoformat()
+            if self.retry_after_not_before_utc is not None
+            else None,
+            "retry_after_unrepresentable": self.retry_after_unrepresentable,
         }
+
+
+class HostRateLimiter:
+    """Fixed per-host token buckets shared by serial daily pairs and retries.
+
+    All hosts start with zero credits. A new cohort/process loses unused credits;
+    it never creates restart burst credit. Actual acquisition stays serial (one
+    request at a time), within the requested maximum concurrency of two.
+    """
+
+    def __init__(self) -> None:
+        started = time.monotonic()
+        self._credits = dict.fromkeys(RATE_LIMITED_HOSTS, 0.0)
+        self._updated = dict.fromkeys(RATE_LIMITED_HOSTS, started)
+
+    def wait(self, url: str | bytes, *, deadline: float) -> None:
+        if threading.current_thread() is not threading.main_thread():
+            raise ValueError("host rate limiter requires the serial main thread")
+        if not isinstance(url, str):
+            raise ValueError("host rate limiter requires a fixed public HTTPS host")
+        try:
+            parsed = urlsplit(url)
+        except ValueError:
+            raise ValueError("host rate limiter requires a fixed public HTTPS host") from None
+        if parsed.scheme != "https" or parsed.netloc not in RATE_LIMITED_HOSTS:
+            raise ValueError("host rate limiter requires a fixed public HTTPS host")
+        host = parsed.netloc
+        while True:
+            now = time.monotonic()
+            remaining = deadline - now
+            if remaining <= 0:
+                raise _TimeLimit
+            credits = min(
+                HOST_REQUEST_BURST_CREDITS,
+                self._credits[host] + (now - self._updated[host]) * HOST_REQUEST_RATE_PER_SECOND,
+            )
+            self._updated[host] = now
+            self._credits[host] = credits
+            if credits >= 1.0:
+                self._credits[host] -= 1.0
+                return
+            time.sleep(min((1.0 - credits) / HOST_REQUEST_RATE_PER_SECOND, remaining))
 
 
 class _TimeLimit(Exception):
@@ -117,15 +175,106 @@ def _wall_clock_limit(seconds: float) -> Iterator[None]:
         signal.signal(signal.SIGALRM, previous)
 
 
+def _http_retry_date(value: str, received: datetime) -> tuple[datetime | None, bool]:
+    weekday = r"(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)"
+    month = r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)"
+    clock = r"[0-9]{2}:[0-9]{2}:(?P<second>[0-9]{2})"
+    imf = re.fullmatch(rf"{weekday}, [0-9]{{2}} {month} [0-9]{{4}} {clock} GMT", value)
+    rfc850 = re.fullmatch(
+        rf"(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), "
+        rf"[0-9]{{2}}-{month}-(?P<year>[0-9]{{2}}) {clock} GMT",
+        value,
+    )
+    asctime = re.fullmatch(rf"{weekday} {month} (?:[0-9]{{2}}| [0-9]) {clock} [0-9]{{4}}", value)
+    matched = imf or rfc850 or asctime
+    if matched is None:
+        return None, False
+    leap_second = matched["second"] == "60"
+    if leap_second:
+        # Validate the remaining calendar fields with the adjacent representable
+        # second, then fail closed: datetime cannot represent an HTTP leap second.
+        value = value[: matched.start("second")] + "59" + value[matched.end("second") :]
+    try:
+        date = parsedate_to_datetime(value)
+    except (TypeError, ValueError, OverflowError):
+        return None, False
+    if asctime:
+        date = date.replace(tzinfo=UTC)
+    if rfc850:
+        # HTTP's fifty-year window is relative to receipt, not email's fixed
+        # 1969/2068 pivot. Compare full dates to cover the boundary within a year.
+        year = received.year // 100 * 100 + int(rfc850["year"])
+        suffix = (date.month, date.day, date.hour, date.minute, date.second, 0)
+        received_suffix = (
+            received.month,
+            received.day,
+            received.hour,
+            received.minute,
+            received.second,
+            received.microsecond,
+        )
+        if (year, *suffix) < (received.year - 50, *received_suffix):
+            year += 100
+        if (year, *suffix) > (received.year + 50, *received_suffix):
+            year -= 100
+        if not 1 <= year <= 9999:
+            return None, True
+        try:
+            date = date.replace(year=year)
+        except ValueError:
+            return None, False
+    if leap_second:
+        return None, True
+    return max(received, date.astimezone(UTC)), False
+
+
+def _retry_after(value: str | None, received: datetime) -> tuple[datetime | None, bool]:
+    """Parse a confirmed 429 deadline; never shorten a valid overflowing delay."""
+    if value is None:
+        return None, False
+    value = value.strip()
+    if re.fullmatch(r"[0-9]+", value):
+        # Compare decimal strings before int() so arbitrarily large valid delays
+        # fail closed rather than hitting Python's integer-string size limit.
+        digits = value.lstrip("0") or "0"
+        available = datetime.max.replace(tzinfo=UTC) - received
+        maximum = str(available.days * 86400 + available.seconds)
+        if len(digits) > len(maximum) or (len(digits) == len(maximum) and digits > maximum):
+            return None, True
+        return received + timedelta(seconds=int(digits)), False
+    return _http_retry_date(value, received)
+
+
 class _HttpFailure(Exception):
-    def __init__(self, status: int) -> None:
+    def __init__(
+        self,
+        status: int,
+        retry_after_not_before_utc: datetime | None = None,
+        *,
+        retry_after_unrepresentable: bool = False,
+    ) -> None:
         self.status = status
+        self.retry_after_not_before_utc = retry_after_not_before_utc
+        self.retry_after_unrepresentable = retry_after_unrepresentable
 
 
 def _receive(session: requests.Session, url: str, timeout: float) -> tuple[str, datetime]:
     # Redirects would add unbudgeted requests and can redirect to login pages.
     with session.get(url, timeout=timeout, allow_redirects=False) as response:
         if response.status_code != 200:
+            if response.status_code == 429:
+                # PairSession records full body completion before a possibly
+                # slow durable on_response callback. Do not add its delay.
+                received = (
+                    session.finished_at_utc
+                    if isinstance(session, _PairSession)
+                    else datetime.now(UTC)
+                )
+                assert received is not None
+                deadline, unrepresentable = _retry_after(
+                    response.headers.get("Retry-After"), received
+                )
+                raise _HttpFailure(429, deadline, retry_after_unrepresentable=unrepresentable)
             raise _HttpFailure(response.status_code)
         body = response.content
         received = datetime.now(UTC)
@@ -169,6 +318,8 @@ def collect(
     outcomes: list[CollectionOutcome] = []
     used = 0
     stop_reason = None
+    retry_after_not_before_utc = None
+    retry_after_unrepresentable = False
     active: tuple[Source, str] | None = None
     started_requests = 0
     deadline = time.monotonic() + time_limit_seconds
@@ -181,7 +332,9 @@ def collect(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise _TimeLimit
-        if last_request_finished is not None:
+        if last_request_finished is not None and not (
+            isinstance(client, _PairSession) and client.rate_limiter is not None
+        ):
             wait_until = last_request_finished + MIN_REQUEST_INTERVAL_SECONDS
             while (wait_seconds := wait_until - time.monotonic()) > 0:
                 remaining = deadline - time.monotonic()
@@ -223,6 +376,9 @@ def collect(
                             CollectionOutcome(source, ticker, "observed", http_status=200)
                         )
                     except _HttpFailure as exc:
+                        if exc.status == 429:
+                            retry_after_not_before_utc = exc.retry_after_not_before_utc
+                            retry_after_unrepresentable = exc.retry_after_unrepresentable
                         category = (
                             "access_denied"
                             if exc.status == 403
@@ -283,7 +439,14 @@ def collect(
                             stop_reason,
                         )
                     )
-    return CollectionResult(tuple(observations), tuple(outcomes), used, stop_reason)
+    return CollectionResult(
+        tuple(observations),
+        tuple(outcomes),
+        used,
+        stop_reason,
+        retry_after_not_before_utc=retry_after_not_before_utc,
+        retry_after_unrepresentable=retry_after_unrepresentable,
+    )
 
 
 class _RequestLimit(Exception):
@@ -301,6 +464,14 @@ def collector_binding() -> str:
         "pair_time_limit_seconds": DEFAULT_PAIR_TIME_LIMIT_SECONDS,
         "request_timeout_seconds": DEFAULT_PAIR_REQUEST_TIMEOUT_SECONDS,
         "source_request_limits": {"monex": 1, "rakuten": 2},
+        "daily_host_rate": {
+            "hosts": RATE_LIMITED_HOSTS,
+            "requests_per_second": HOST_REQUEST_RATE_PER_SECOND,
+            "burst_credits": HOST_REQUEST_BURST_CREDITS,
+            "initial_credits": 0,
+            "actual_concurrency": 1,
+            "maximum_concurrency": 2,
+        },
     }
     return hashlib.sha256(
         json.dumps(policy, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -325,12 +496,14 @@ class _PairSession(requests.Session):
         deadline: float,
         before_request: Callable[[], None],
         on_response: Callable[[datetime, int, int], None] | None,
+        rate_limiter: HostRateLimiter | None = None,
     ) -> None:
         super().__init__()
         self.client = client
         self.deadline = deadline
         self.before_request = before_request
         self.on_response = on_response
+        self.rate_limiter = rate_limiter
         self.initial_wait_until = time.monotonic() + MIN_REQUEST_INTERVAL_SECONDS
         self.requests = 0
         self.reservation_started = False
@@ -346,7 +519,7 @@ class _PairSession(requests.Session):
     def get(self, url: str | bytes, params: Any = None, **kwargs: Any) -> requests.Response:
         if kwargs.get("allow_redirects") is not False:
             raise ValueError("pair redirects are forbidden")
-        if self.requests == 0:
+        if self.requests == 0 and self.rate_limiter is None:
             # A fresh two-second wait also covers immediate process/cohort
             # resumes without inferring elapsed time from a persisted clock.
             while (wait := self.initial_wait_until - time.monotonic()) > 0:
@@ -354,6 +527,10 @@ class _PairSession(requests.Session):
         self._remaining()
         self.reservation_started = True
         _checkpoint_callback(self.before_request)
+        if self.rate_limiter is not None:
+            # Charge actual send time after the durable reservation: a slow CAS
+            # must not let pre-reserved tokens escape the burst credit bound.
+            self.rate_limiter.wait(url, deadline=self.deadline)
         remaining = self._remaining()
         kwargs["timeout"] = min(float(kwargs["timeout"]), remaining)
         if params is not None:
@@ -384,6 +561,7 @@ def collect_pair(
     time_limit_seconds: float = DEFAULT_PAIR_TIME_LIMIT_SECONDS,
     request_timeout_seconds: float = DEFAULT_PAIR_REQUEST_TIMEOUT_SECONDS,
     session: requests.Session | None = None,
+    rate_limiter: HostRateLimiter | None = None,
 ) -> CollectionResult:
     """Acquire one fixed pair once, with durable callbacks inside one wall-clock budget.
 
@@ -391,8 +569,13 @@ def collect_pair(
     invoke on_outcome; uncertain_inflight requires retaining the durable marker
     and stopping the whole run. A zero-request timeout before any reservation
     remains unattempted; an interrupted checkpoint reservation is uncertain.
-    403/429 stop_reason halts the caller's whole run. The bounded collect API
-    retains its existing source-only stop behavior.
+    403 stops the caller's whole run. A confirmed 429 returns a parsed Retry-After
+    deadline for the caller's durable retry policy; this attempt never retries or
+    waits for backoff. Unrepresentable valid delays require no automatic retry.
+    The bounded collect API retains its existing source-only stop behavior.
+    Explicit daily rate_limiter replaces the two-second pacing with shared
+    host buckets. Its waits are within this attempt's wall-clock limit; timeout
+    after the durable request reservation retains the uncertain marker.
     """
     ticker = normalize_ticker(ticker)
     if source not in {"monex", "rakuten"}:
@@ -413,8 +596,8 @@ def collect_pair(
             or adapter.max_retries.total != 0
         ):
             raise ValueError("pair collection requires ordinary proxy/TLS and no retries")
-        wrapped = _PairSession(client, deadline, before_request, on_response)
-        remaining = deadline - time.monotonic()
+        wrapped = _PairSession(client, deadline, before_request, on_response, rate_limiter)
+        remaining = min(time_limit_seconds, deadline - time.monotonic())
         if remaining <= 0:
             return CollectionResult(
                 (),
@@ -448,23 +631,43 @@ def collect_pair(
         )
         if wrapped.requests == 0:
             if wrapped.reservation_started:
-                return replace(result, stop_reason="uncertain_inflight")
+                return replace(
+                    result,
+                    stop_reason="uncertain_inflight",
+                    retry_after_not_before_utc=None,
+                    retry_after_unrepresentable=False,
+                )
             return replace(
                 result,
                 outcomes=(CollectionOutcome(source, ticker, "not_attempted", result.stop_reason),),
             )
         if any(outcome.status == "incomplete" for outcome in result.outcomes):
-            return replace(result, stop_reason="uncertain_inflight")
+            return replace(
+                result,
+                stop_reason="uncertain_inflight",
+                retry_after_not_before_utc=None,
+                retry_after_unrepresentable=False,
+            )
         if result.outcomes[0].http_status in {403, 429}:
             result = replace(result, stop_reason=result.outcomes[0].status)
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            return replace(result, stop_reason="uncertain_inflight")
+            return replace(
+                result,
+                stop_reason="uncertain_inflight",
+                retry_after_not_before_utc=None,
+                retry_after_unrepresentable=False,
+            )
         try:
             with _wall_clock_limit(remaining):
                 _checkpoint_callback(lambda: on_outcome(result))
         except _TimeLimit:
-            return replace(result, stop_reason="uncertain_inflight")
+            return replace(
+                result,
+                stop_reason="uncertain_inflight",
+                retry_after_not_before_utc=None,
+                retry_after_unrepresentable=False,
+            )
         return result
     finally:
         if wrapped is not None:

@@ -10,6 +10,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import cast
 
 from baibai_batch.jobs.retail_cohorts import (
     CohortJournal,
@@ -20,9 +21,11 @@ from baibai_batch.jobs.retail_cohorts import (
     plan_bytes,
 )
 from baibai_batch.storage.lake_publish import LakePublishError, ObjectStore
+from baibai_engine.batch_api import RetailSource
 
 MAX_PRIVATE_OBJECT_BYTES = 2_000_000
-CHECKPOINT_FORMAT = "retail-private-checkpoint-v1"
+CHECKPOINT_FORMAT = "retail-private-checkpoint-v2"
+MAX_PAIR_RETRIES = 5
 PARTIAL_TERMINAL_FORMAT = "retail-partially-published-batch-v1"
 _TERMINAL_KEYS = {
     "format",
@@ -196,12 +199,41 @@ def save_new_plan(store: ObjectStore, plan: RunPlan) -> None:
 
 
 @dataclass(frozen=True)
+class PairRetryState:
+    source: RetailSource
+    ticker: str
+    retries_used: int
+    next_retry_utc: datetime | None = None
+    retry_after_unrepresentable: bool = False
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(cast("object", self.source), str)
+            or self.source not in {"monex", "rakuten"}
+            or type(self.ticker) is not str
+            or re.fullmatch(r"[0-9][0-9A-Z]{3}", self.ticker) is None
+            or type(self.retries_used) is not int
+            or not 0 <= self.retries_used <= MAX_PAIR_RETRIES
+            or type(cast("object", self.retry_after_unrepresentable)) is not bool
+            or (self.retry_after_unrepresentable and self.next_retry_utc is not None)
+        ):
+            raise ValueError("invalid retail pair retry state")
+        if self.next_retry_utc is not None and (
+            not isinstance(cast("object", self.next_retry_utc), datetime)
+            or self.next_retry_utc.tzinfo is None
+            or self.next_retry_utc.utcoffset() != UTC.utcoffset(None)
+        ):
+            raise ValueError("retail retry deadline requires UTC")
+
+
+@dataclass(frozen=True)
 class Checkpoint:
     journal: CohortJournal
     requests_started: int = 0
     confirmed_http_requests: int = 0
     response_content_bytes: int = 0
     last_response_finished_at_utc: datetime | None = None
+    retry_states: tuple[PairRetryState, ...] = ()
 
     def __post_init__(self) -> None:
         if any(
@@ -220,6 +252,51 @@ class Checkpoint:
             or self.last_response_finished_at_utc.utcoffset() != UTC.utcoffset(None)
         ):
             raise ValueError("retail receipt metadata requires UTC")
+        if type(self.retry_states) is not tuple or any(
+            not isinstance(item, PairRetryState) for item in self.retry_states
+        ):
+            raise ValueError("retry states require an immutable typed tuple")
+        pairs = [(item.source, item.ticker) for item in self.retry_states]
+        if pairs != sorted(set(pairs)):
+            raise ValueError("duplicate or unordered retail retry pair")
+        for retry in self.retry_states:
+            entry = next(
+                (
+                    item
+                    for item in self.journal.entries
+                    if (item.source, item.ticker) == (retry.source, retry.ticker)
+                ),
+                None,
+            )
+            if entry is None:
+                raise ValueError("retry pair is outside the cohort")
+            rate_limited = (entry.state, entry.reason, entry.http_status) == (
+                "failure",
+                "rate_limited",
+                429,
+            )
+            if (
+                (
+                    (retry.next_retry_utc is not None or retry.retry_after_unrepresentable)
+                    and not rate_limited
+                )
+                or (
+                    rate_limited
+                    and retry.retries_used < MAX_PAIR_RETRIES
+                    and retry.next_retry_utc is None
+                    and not retry.retry_after_unrepresentable
+                )
+                or (not rate_limited and retry.retries_used == 0)
+                or entry.state == "unattempted"
+                or (retry.retries_used == MAX_PAIR_RETRIES and retry.next_retry_utc is not None)
+            ):
+                raise ValueError("retry metadata does not match the confirmed pair state")
+
+    def retry_for(self, source: RetailSource, ticker: str) -> PairRetryState | None:
+        return next(
+            (item for item in self.retry_states if (item.source, item.ticker) == (source, ticker)),
+            None,
+        )
 
 
 def checkpoint_bytes(plan: RunPlan, checkpoint: Checkpoint) -> bytes:
@@ -235,6 +312,18 @@ def checkpoint_bytes(plan: RunPlan, checkpoint: Checkpoint) -> bytes:
                 if checkpoint.last_response_finished_at_utc is not None
                 else None
             ),
+            "retry_states": [
+                {
+                    "source": item.source,
+                    "ticker": item.ticker,
+                    "retries_used": item.retries_used,
+                    "next_retry_utc": item.next_retry_utc.isoformat()
+                    if item.next_retry_utc
+                    else None,
+                    "retry_after_unrepresentable": item.retry_after_unrepresentable,
+                }
+                for item in checkpoint.retry_states
+            ],
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -242,8 +331,17 @@ def checkpoint_bytes(plan: RunPlan, checkpoint: Checkpoint) -> bytes:
     ).encode()
 
 
+def _checkpoint_object(items: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in items:
+        if key in result:
+            raise ValueError("duplicate retail checkpoint field")
+        result[key] = value
+    return result
+
+
 def load_checkpoint(plan: RunPlan, payload: bytes) -> Checkpoint:
-    value = json.loads(payload)
+    value = json.loads(payload, object_pairs_hook=_checkpoint_object)
     if (
         not isinstance(value, dict)
         or set(value)
@@ -254,6 +352,7 @@ def load_checkpoint(plan: RunPlan, payload: bytes) -> Checkpoint:
             "confirmed_http_requests",
             "response_content_bytes",
             "last_response_finished_at_utc",
+            "retry_states",
         }
         or value["format"] != CHECKPOINT_FORMAT
     ):
@@ -261,16 +360,41 @@ def load_checkpoint(plan: RunPlan, payload: bytes) -> Checkpoint:
     finished = value["last_response_finished_at_utc"]
     if finished is not None and not isinstance(finished, str):
         raise ValueError("invalid retail response timestamp")
+    retries = value["retry_states"]
+    if not isinstance(retries, list):
+        raise ValueError("invalid retail retry states")
+    retry_states = []
+    for item in retries:
+        if (
+            not isinstance(item, dict)
+            or set(item)
+            != {"source", "ticker", "retries_used", "next_retry_utc", "retry_after_unrepresentable"}
+            or (item["next_retry_utc"] is not None and not isinstance(item["next_retry_utc"], str))
+        ):
+            raise ValueError("invalid retail retry fields")
+        retry_states.append(
+            PairRetryState(
+                item["source"],
+                item["ticker"],
+                item["retries_used"],
+                datetime.fromisoformat(item["next_retry_utc"])
+                if item["next_retry_utc"] is not None
+                else None,
+                item["retry_after_unrepresentable"],
+            )
+        )
     checkpoint = Checkpoint(
         load_journal(plan, json.dumps(value["journal"]).encode()),
         value["requests_started"],
         value["confirmed_http_requests"],
         value["response_content_bytes"],
         datetime.fromisoformat(finished) if finished is not None else None,
+        tuple(retry_states),
     )
     maximum = sum(
-        1 if source == "monex" else 2
-        for source, _ in plan.cohorts[checkpoint.journal.cohort_index].pairs
+        (1 if source == "monex" else 2)
+        * (1 + (retry.retries_used if (retry := checkpoint.retry_for(source, ticker)) else 0))
+        for source, ticker in plan.cohorts[checkpoint.journal.cohort_index].pairs
     )
     if checkpoint.requests_started > maximum:
         raise ValueError("retail request count exceeds fixed cohort budget")

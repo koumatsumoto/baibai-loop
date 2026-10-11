@@ -38,6 +38,7 @@ jobs:
     outputs:
       cohorts: ${{ steps.plan.outputs.cohorts }}
       terminal_status: ${{ steps.plan.outputs.terminal_status }}
+      retry_only: ${{ steps.plan.outputs.retry_only }}
       expected_pairs: ${{ steps.plan.outputs.retail_expected_pairs }}
       typed_pairs: ${{ steps.plan.outputs.retail_typed_pairs }}
       known_failure_pairs: ${{ steps.plan.outputs.retail_known_failure_pairs }}
@@ -112,7 +113,7 @@ jobs:
 
   publish:
     needs: [plan, acquire]
-    if: ${{ always() && !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.terminal_status == 'pending' && (inputs.operation == 'publish_confirmed_partial' || needs.acquire.result == 'success') }}
+    if: ${{ always() && !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.terminal_status == 'pending' && (inputs.operation == 'publish_confirmed_partial' || (needs.acquire.result == 'success' && needs.plan.outputs.retry_only != 'true')) }}
     runs-on: ubuntu-latest
     outputs:
       expected_pairs: ${{ steps.publish.outputs.retail_expected_pairs }}
@@ -205,6 +206,7 @@ jobs:
             --acquire-result "${{ needs.acquire.result }}" \
             --publish-result "${{ needs.publish.result }}" \
             --terminal-status "${{ needs.plan.outputs.terminal_status || 'pending' }}" \
+            --retry-only "${{ needs.plan.outputs.retry_only || 'false' }}" \
             --publication-mode "$publication_mode" \
             --expected-pairs "${{ needs.publish.outputs.expected_pairs || needs.plan.outputs.expected_pairs }}" \
             --typed-pairs "${{ needs.publish.outputs.typed_pairs || needs.plan.outputs.typed_pairs }}" \

@@ -5,14 +5,16 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import secrets
 import sys
 import time
 from dataclasses import replace
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from baibai_batch.jobs.retail_cohorts import (
     RunPlan,
+    begin_rate_limited_retry,
     make_plan,
     mark_inflight,
     new_journal,
@@ -23,7 +25,9 @@ from baibai_batch.jobs.retail_cohorts import (
 from baibai_batch.storage.lake_publish import Boto3R2Store, ObjectStore
 from baibai_batch.storage.publish_market_lake import _resolve_serving_release, _serving_pointer
 from baibai_batch.storage.retail_staging import (
+    MAX_PAIR_RETRIES,
     Checkpoint,
+    PairRetryState,
     checkpoint_bytes,
     checkpoint_key,
     put_private,
@@ -37,6 +41,7 @@ from baibai_engine.batch_api import (
     MARKET_DB_PATH,
     LakeObjectCache,
     RetailCollectionResult,
+    RetailHostRateLimiter,
     RetailSource,
     lake_session,
     retail_collect_pair,
@@ -46,6 +51,7 @@ from baibai_engine.batch_api import (
 
 SOFT_BUDGET_SECONDS = 4 * 60 * 60
 PAIR_AND_CHECKPOINT_RESERVE_SECONDS = 15 * 60
+RETRY_BACKOFF_SECONDS = (5, 10, 20, 40, 80)
 
 
 def require_binding(plan: RunPlan) -> None:
@@ -119,6 +125,68 @@ def _terminal_result(terminal: dict[str, object]) -> dict[str, object]:
     }
 
 
+def _retry_states(checkpoint: Checkpoint, retry: PairRetryState) -> tuple[PairRetryState, ...]:
+    return tuple(
+        sorted(
+            (
+                *[
+                    item
+                    for item in checkpoint.retry_states
+                    if (item.source, item.ticker) != (retry.source, retry.ticker)
+                ],
+                retry,
+            ),
+            key=lambda item: (item.source, item.ticker),
+        )
+    )
+
+
+def _pending_retry(
+    plan: RunPlan, saved: dict[int, tuple[Checkpoint, str]]
+) -> tuple[int, PairRetryState] | None:
+    pending = [
+        (index, retry)
+        for index, (checkpoint, _) in saved.items()
+        for retry in checkpoint.retry_states
+        if retry.next_retry_utc is not None
+        and retry.retries_used < MAX_PAIR_RETRIES
+        and not retry.retry_after_unrepresentable
+    ]
+    if len(pending) > 1:
+        raise ValueError("multiple pending retry pairs violate serial acquisition")
+    validate_resume(
+        plan,
+        [checkpoint.journal for checkpoint, _ in saved.values()],
+        retryable_pairs=frozenset((retry.source, retry.ticker) for _, retry in pending),
+    )
+    return pending[0] if pending else None
+
+
+def _wait_for_retry(deadline: datetime, *, started: float, budget: float) -> bool:
+    while True:
+        waiting = max(0.0, (deadline - datetime.now(UTC)).total_seconds())
+        if time.monotonic() - started + waiting + PAIR_AND_CHECKPOINT_RESERVE_SECONDS >= budget:
+            return False
+        if waiting == 0:
+            return True
+        time.sleep(min(waiting, 30.0))
+
+
+def _cohort_report(
+    plan: RunPlan, checkpoint: Checkpoint, index: int, stop_reason: str | None
+) -> dict[str, object]:
+    report = summarize(plan, [checkpoint.journal])
+    report.update(
+        cohort_index=index,
+        stop_reason=stop_reason,
+        request_reservations=checkpoint.requests_started,
+        confirmed_http_requests=checkpoint.confirmed_http_requests,
+        response_content_bytes=checkpoint.response_content_bytes,
+        response_bytes_basis="uncompressed fully received bodies; wire bytes unmeasured",
+    )
+    return report
+
+
 def _acquire_pair(
     store: ObjectStore,
     plan: RunPlan,
@@ -126,6 +194,7 @@ def _acquire_pair(
     etag: str | None,
     source: RetailSource,
     ticker: str,
+    rate_limiter: RetailHostRateLimiter,
 ) -> tuple[Checkpoint, str | None, RetailCollectionResult]:
     marked = False
     pair_content_bytes = 0
@@ -144,10 +213,25 @@ def _acquire_pair(
     def before_request() -> None:
         nonlocal checkpoint, marked
         if not marked:
-            checkpoint = replace(
-                checkpoint,
-                journal=mark_inflight(plan, checkpoint.journal, source, ticker),
-            )
+            retry = checkpoint.retry_for(source, ticker)
+            if retry is not None and retry.next_retry_utc is not None:
+                if retry.retries_used >= MAX_PAIR_RETRIES or retry.next_retry_utc > datetime.now(
+                    UTC
+                ):
+                    raise ValueError("retry reservation before deadline or beyond retry limit")
+                checkpoint = replace(
+                    checkpoint,
+                    journal=begin_rate_limited_retry(plan, checkpoint.journal, source, ticker),
+                    retry_states=_retry_states(
+                        checkpoint,
+                        replace(retry, retries_used=retry.retries_used + 1, next_retry_utc=None),
+                    ),
+                )
+            else:
+                checkpoint = replace(
+                    checkpoint,
+                    journal=mark_inflight(plan, checkpoint.journal, source, ticker),
+                )
             marked = True
         checkpoint = replace(checkpoint, requests_started=checkpoint.requests_started + 1)
         persist()
@@ -161,6 +245,27 @@ def _acquire_pair(
         nonlocal checkpoint
         if len(result.outcomes) != 1 or len(result.observations) > 1:
             raise ValueError("retail pair result shape changed")
+        retry = checkpoint.retry_for(source, ticker)
+        if not marked and retry is not None and result.outcomes[0].status == "not_attempted":
+            return
+        retries = checkpoint.retry_states
+        if result.outcomes[0].status == "rate_limited":
+            finished = result.last_response_finished_at_utc
+            if finished is None:
+                raise ValueError("confirmed HTTP 429 requires a received response time")
+            used = retry.retries_used if retry else 0
+            deadline = None
+            if used < MAX_PAIR_RETRIES and not result.retry_after_unrepresentable:
+                deadline = result.retry_after_not_before_utc or (
+                    finished
+                    + timedelta(
+                        seconds=RETRY_BACKOFF_SECONDS[used] + secrets.randbelow(1001) / 1000
+                    )
+                )
+            retries = _retry_states(
+                checkpoint,
+                PairRetryState(source, ticker, used, deadline, result.retry_after_unrepresentable),
+            )
         checkpoint = replace(
             checkpoint,
             journal=record_outcome(
@@ -172,6 +277,7 @@ def _acquire_pair(
             confirmed_http_requests=checkpoint.confirmed_http_requests + result.requests,
             response_content_bytes=checkpoint.response_content_bytes + pair_content_bytes,
             last_response_finished_at_utc=pair_finished,
+            retry_states=retries,
         )
         persist()
 
@@ -181,6 +287,7 @@ def _acquire_pair(
         before_request=before_request,
         on_response=on_response,
         on_outcome=on_outcome,
+        rate_limiter=rate_limiter,
     )
     return checkpoint, etag, result
 
@@ -206,53 +313,93 @@ def acquire_cohort(
             "request_reservations": 0,
         }
     saved = read_checkpoints(store, plan)
-    validate_resume(plan, [checkpoint.journal for checkpoint, _ in saved.values()])
+    pending = _pending_retry(plan, saved)
     checkpoint, etag = saved.get(index, (Checkpoint(new_journal(plan, index)), None))
+    if pending is not None and pending[0] != index:
+        if all(
+            entry.state not in {"unattempted", "uncertain"} for entry in checkpoint.journal.entries
+        ):
+            return _cohort_report(plan, checkpoint, index, None)
+        raise ValueError("another cohort has a pending provider retry")
     stop_reason = None
+    rate_limiter = RetailHostRateLimiter()
 
-    for entry in tuple(checkpoint.journal.entries):
-        if entry.state != "unattempted":
+    entries = tuple(checkpoint.journal.entries)
+    if pending is not None:
+        retry_pair = (pending[1].source, pending[1].ticker)
+        entries = tuple(
+            sorted(entries, key=lambda entry: (entry.source, entry.ticker) != retry_pair)
+        )
+    for entry in entries:
+        retry = checkpoint.retry_for(entry.source, entry.ticker)
+        if entry.state != "unattempted" and not (
+            retry is not None and retry.next_retry_utc is not None
+        ):
             continue
         # Leave a normal completed checkpoint, rather than rely on runner killing
         # a request. The pair's own real timer also includes its durable callbacks.
         if time.monotonic() - started + PAIR_AND_CHECKPOINT_RESERVE_SECONDS >= soft_budget_seconds:
             stop_reason = "soft_budget"
             break
-        checkpoint, etag, result = _acquire_pair(
-            store,
-            plan,
-            checkpoint,
-            etag,
-            entry.source,
-            entry.ticker,
-        )
-        if result.stop_reason:
-            stop_reason = result.stop_reason
+        while True:
+            retry = checkpoint.retry_for(entry.source, entry.ticker)
+            if (
+                retry is not None
+                and retry.next_retry_utc is not None
+                and not _wait_for_retry(
+                    retry.next_retry_utc, started=started, budget=soft_budget_seconds
+                )
+            ):
+                stop_reason = "retry_pending_soft_budget"
+                break
+            checkpoint, etag, result = _acquire_pair(
+                store,
+                plan,
+                checkpoint,
+                etag,
+                entry.source,
+                entry.ticker,
+                rate_limiter,
+            )
+            if result.stop_reason == "rate_limited":
+                retry = checkpoint.retry_for(entry.source, entry.ticker)
+                if retry is not None and retry.next_retry_utc is not None:
+                    continue
+                stop_reason = (
+                    "retry_after_unrepresentable"
+                    if retry and retry.retry_after_unrepresentable
+                    else "rate_limited_retry_exhausted"
+                )
+            elif result.stop_reason:
+                stop_reason = result.stop_reason
+            break
+        if stop_reason:
             break
     # Even an untouched soft-stop cohort remains explicit, rather than disappearing.
     if etag is None:
         put_private(store, key, checkpoint_bytes(plan, checkpoint), previous_etag=None)
-    report = summarize(plan, [checkpoint.journal])
-    report.update(
-        cohort_index=index,
-        stop_reason=stop_reason,
-        request_reservations=checkpoint.requests_started,
-        confirmed_http_requests=checkpoint.confirmed_http_requests,
-        response_content_bytes=checkpoint.response_content_bytes,
-        response_bytes_basis="uncompressed fully received bodies; wire bytes unmeasured",
-    )
-    return report
+    return _cohort_report(plan, checkpoint, index, stop_reason)
 
 
-def write_outputs(plan: RunPlan | None, terminal: dict[str, object] | None = None) -> None:
+def write_outputs(
+    plan: RunPlan | None,
+    terminal: dict[str, object] | None = None,
+    *,
+    retry_cohort: int | None = None,
+) -> None:
     values = {
         "exists": str(plan is not None).lower(),
         "cohorts": (
-            json.dumps([cohort.index for cohort in plan.cohorts])
+            json.dumps(
+                [retry_cohort]
+                if retry_cohort is not None
+                else [cohort.index for cohort in plan.cohorts]
+            )
             if plan and terminal is None
             else "[]"
         ),
         "terminal_status": terminal_status(terminal) if terminal is not None else "pending",
+        "retry_only": str(retry_cohort is not None and terminal is None).lower(),
     }
     if output := os.environ.get("GITHUB_OUTPUT"):
         with Path(output).open("a", encoding="utf-8") as stream:
@@ -321,7 +468,12 @@ def main(argv: list[str] | None = None) -> int:
         require_binding(plan)
         if args.command == "plan":
             terminal = read_terminal(store, plan)
-            write_outputs(plan, terminal)
+            pending = (
+                _pending_retry(plan, read_checkpoints(store, plan))
+                if terminal is None and not args.require_existing_plan
+                else None
+            )
+            write_outputs(plan, terminal, retry_cohort=pending[0] if pending else None)
             report = (
                 _terminal_result(terminal)
                 if terminal is not None

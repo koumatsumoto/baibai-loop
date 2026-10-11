@@ -50,6 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     for counter in COUNTERS:
         parser.add_argument(f"--{counter.replace('_', '-')}", type=_counter, default=None)
     parser.add_argument("--cancelled", choices=("true", "false"), default="false")
+    parser.add_argument("--retry-only", choices=("true", "false"), default="false")
     parser.add_argument(
         "--terminal-status",
         choices=("pending", "already_published", "already_partially_published"),
@@ -111,6 +112,11 @@ def render_message(args: argparse.Namespace) -> str:
         outcome, detail = OUTCOME_FAILED, "取得停止/未完了・この run の公開なし・停止原因未確認"
     elif args.publish_result == "failure":
         outcome, detail = OUTCOME_FAILED, "publish 失敗・公開確認未完了"
+    elif args.retry_only == "true" and args.acquire_result == "success":
+        outcome, detail = (
+            OUTCOME_DEGRADED,
+            "429再試行枠完了・未公開・同batchの再dispatchが必要",
+        )
     else:
         outcome, detail = OUTCOME_SKIPPED, "この run の公開なし"
 
