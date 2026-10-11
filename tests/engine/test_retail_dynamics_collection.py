@@ -32,6 +32,94 @@ class Session:
         return response
 
 
+class BytesSession(Session):
+    def get(self, url, **kwargs):
+        self.calls.append((url, kwargs))
+        status, body, headers = next(self.replies)
+        response = requests.Response()
+        response.status_code = status
+        response._content = body
+        response._content_consumed = True
+        response.headers.update(headers)
+        return response
+
+
+@pytest.mark.parametrize("status", [302, 500])
+def test_http_redirect_and_server_error_are_failures_before_null_parsing(status, monkeypatch):
+    client = BytesSession(
+        [(status, monex_html(value="--").encode(), {"Location": "https://private.example/secret"})]
+    )
+
+    def unexpected_parse(*args, **kwargs):
+        raise AssertionError("HTTP failure must not reach the observation parser")
+
+    monkeypatch.setattr(monex, "parse_html", unexpected_parse)
+    result = collection.collect(["7203"], sources=("monex",), session=client)
+    assert not result.observations
+    assert result.requests == 1
+    assert len(client.calls) == 1
+    assert client.calls[0][1]["allow_redirects"] is False
+    assert result.outcomes == (
+        collection.CollectionOutcome("monex", "7203", "http_failure", http_status=status),
+    )
+    assert result.summary()["outcome_counts"] == {"http_failure": 1}
+    assert "secret" not in json.dumps(result.summary())
+
+
+@pytest.mark.parametrize(
+    ("content_type", "meta", "encoding"),
+    [
+        ("text/html; charset=Shift_JIS", '<meta charset="utf-8">', "shift_jis"),
+        ("text/html; charset='EUC-JP'", '<meta charset="utf-8">', "euc_jp"),
+        ("text/html", '<meta charset="Shift_JIS">', "shift_jis"),
+        (None, '<meta charset="EUC-JP">', "euc_jp"),
+    ],
+)
+def test_explicit_header_and_meta_non_utf8_decode_without_guessing(content_type, meta, encoding):
+    body = (meta + monex_html(value="--")).encode(encoding)
+    headers = {} if content_type is None else {"Content-Type": content_type}
+    client = BytesSession([(200, body, headers)])
+    before = datetime.now(UTC)
+    result = collection.collect(["7203"], sources=("monex",), session=client)
+    after = datetime.now(UTC)
+    assert result.outcomes[0].status == "observed"
+    assert len(result.observations) == 1
+    assert result.observations[0].consensus_target is None
+    assert before <= result.observations[0].fetched_at_utc <= after
+    assert result.observations[0].fetched_at_utc.tzinfo is UTC
+    assert result.requests == 1
+
+
+@pytest.mark.parametrize(
+    ("content_type", "body"),
+    [
+        (
+            "text/html; charset=private-secret-charset",
+            ('<meta charset="utf-8">' + monex_html(value="--")).encode(),
+        ),
+        (
+            "text/html",
+            ('<meta charset="private-secret-charset">' + monex_html(value="--")).encode(),
+        ),
+        ("text/html; charset=utf-8", b"\xff private-secret-body"),
+        ("text/html; charset=Shift_JIS", b"\x80 private-secret-body"),
+        ("text/html", b'<meta charset="EUC-JP">\xff private-secret-body'),
+        (None, b"\xff private-secret-body"),
+    ],
+)
+def test_invalid_bytes_and_unknown_charset_are_fixed_failures_not_null(content_type, body):
+    headers = {} if content_type is None else {"Content-Type": content_type}
+    client = BytesSession([(200, body, headers)])
+    result = collection.collect(["7203"], sources=("monex",), session=client)
+    assert not result.observations
+    assert result.requests == 1
+    assert result.outcomes == (
+        collection.CollectionOutcome("monex", "7203", "parse_failure", "response_encoding", 200),
+    )
+    assert result.summary()["outcome_counts"] == {"parse_failure": 1}
+    assert "private-secret" not in json.dumps(result.summary())
+
+
 def test_live_collector_separates_acquisition_and_receipt_time():
     client = Session([(200, monex_html()), (200, official_html()), (200, rakuten_html())])
     before = datetime.now(UTC)
