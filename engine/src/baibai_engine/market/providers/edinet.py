@@ -7,7 +7,8 @@ import re
 import time
 import zipfile
 from collections.abc import Mapping, Sequence
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -236,20 +237,8 @@ class EDINETProvider:
         api_key = self._require_api_key("download_csv_zip")
         query = urlencode({"type": 5, "Subscription-Key": api_key})
         url = f"{EDINET_API_BASE}/documents/{safe_doc_id}?{query}"
-        max_attempts = 3
-        content = b""
-        for attempt in range(max_attempts):
-            content = self._request_bytes(url)
-            if _is_zip_bytes(content):
-                break
-            if _non_zip_response_status(content) == "429":
-                if attempt < max_attempts - 1:
-                    time.sleep(3 * (2**attempt))
-                    continue
-                raise EDINETRateLimitError(
-                    "EDINET CSV ZIP response was rate limited: "
-                    f"{_non_zip_response_message(content)}"
-                )
+        content = self._request_bytes(url)
+        if not _is_zip_bytes(content):
             raise EDINETProviderError(
                 f"EDINET CSV ZIP response was not a zip: {_non_zip_response_message(content)}"
             )
@@ -274,42 +263,20 @@ class EDINETProvider:
         )
 
     def _request_json(self, url: str) -> dict[str, Any]:
-        max_attempts = 3
-        for attempt in range(max_attempts):
-            try:
-                response = self._session.get(url, timeout=30)
-            except requests.RequestException as exc:
-                if attempt < max_attempts - 1:
-                    time.sleep(3 * (2**attempt))
-                    continue
-                # 例外文字列には URL がそのまま乗ることが多く、URL に Subscription-Key が
-                # 載っている設計制約上、サニタイズしてから新しい例外で投げ直す。
-                # `from None` で原因チェーンも切って traceback 経由の漏洩も遮断する。
-                message = self._sanitize_secret(str(exc))
-                raise EDINETProviderError(
-                    f"EDINET request raised: {type(exc).__name__}: {message}"
-                ) from None
-            if response.status_code < 400:
-                payload = response.json()
-                if not isinstance(payload, dict):
-                    raise EDINETProviderError("EDINET response JSON must be an object")
-                return payload
-            if response.status_code == 429 and attempt >= max_attempts - 1:
-                raise EDINETRateLimitError("EDINET request rate limited after retries")
-            if response.status_code not in {429, 500, 502, 503, 504}:
-                raise EDINETProviderError(
-                    f"EDINET request failed with status {response.status_code}"
-                )
-            # 最終試行後は sleep しない (無駄な 12s を消費するだけなので)。
-            if attempt < max_attempts - 1:
-                time.sleep(3 * (2**attempt))
-        raise EDINETProviderError("EDINET request failed after retries")
+        payload = self._request_response(url, timeout=30).json()
+        if not isinstance(payload, dict):
+            raise EDINETProviderError("EDINET response JSON must be an object")
+        return payload
 
     def _request_bytes(self, url: str) -> bytes:
-        max_attempts = 3
+        return bytes(self._request_response(url, timeout=60).content)
+
+    def _request_response(self, url: str, *, timeout: int) -> requests.Response:
+        """One retry budget for HTTP failures and EDINET's HTTP 200 body 429."""
+        max_attempts = 6
         for attempt in range(max_attempts):
             try:
-                response = self._session.get(url, timeout=60)
+                response = self._session.get(url, timeout=timeout)
             except requests.RequestException as exc:
                 if attempt < max_attempts - 1:
                     time.sleep(3 * (2**attempt))
@@ -318,22 +285,39 @@ class EDINETProvider:
                 raise EDINETProviderError(
                     f"EDINET request raised: {type(exc).__name__}: {message}"
                 ) from None
-            if response.status_code < 400:
-                return bytes(response.content)
-            if response.status_code == 429 and attempt >= max_attempts - 1:
+            rate_limited = response.status_code == 429 or (
+                response.status_code == 200 and _non_zip_response_status(response.content) == "429"
+            )
+            if response.status_code < 400 and not rate_limited:
+                return response
+            if rate_limited and attempt >= max_attempts - 1:
                 raise EDINETRateLimitError("EDINET request rate limited after retries")
-            if response.status_code not in {429, 500, 502, 503, 504}:
+            if not rate_limited and response.status_code not in {500, 502, 503, 504}:
                 raise EDINETProviderError(
                     f"EDINET request failed with status {response.status_code}"
                 )
             if attempt < max_attempts - 1:
-                time.sleep(3 * (2**attempt))
+                backoff = 3 * (2**attempt)
+                time.sleep(_retry_after_seconds(response, backoff) if rate_limited else backoff)
         raise EDINETProviderError("EDINET request failed after retries")
 
     def _sanitize_secret(self, text: str) -> str:
         if self._api_key and self._api_key in text:
             return text.replace(self._api_key, "<redacted>")
         return text
+
+
+def _retry_after_seconds(response: requests.Response, backoff: int) -> float:
+    value = response.headers.get("Retry-After", "").strip()
+    if value.isdigit():
+        return int(value)
+    try:
+        deadline = parsedate_to_datetime(value)
+    except (TypeError, ValueError, OverflowError):
+        return backoff
+    if deadline.tzinfo is None:
+        return backoff
+    return max(0.0, (deadline - datetime.now(UTC)).total_seconds())
 
 
 def normalize_metric_record(record: Mapping[str, Any]) -> EdinetMetricRecord:

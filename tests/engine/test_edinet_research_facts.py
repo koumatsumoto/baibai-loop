@@ -10,6 +10,7 @@ from unittest.mock import Mock
 
 import duckdb
 import pytest
+from tests.helpers.http_doubles import FakeSession, response
 
 from baibai_engine.market.edinet_facts.extract import extract_facts
 from baibai_engine.market.edinet_facts.service import annual_documents, extract_edinet_facts_command
@@ -292,14 +293,13 @@ def test_retained_annual_family_receives_later_corrections():
 
 
 def test_provider_raw_zip_cache_and_nonzip_rate_limit(tmp_path, monkeypatch):
-    provider = EDINETFactsProvider("test-key", tmp_path)
-    download = Mock(side_effect=[b'{"StatusCode":429}', source_zip()])
-    monkeypatch.setattr(provider, "_request_bytes", download)
-    monkeypatch.setattr("baibai_engine.market.providers.edinet_facts.time.sleep", lambda _: None)
+    session = FakeSession(response(b'{"StatusCode":429}'), response(source_zip()))
+    provider = EDINETFactsProvider("test-key", tmp_path, session=session)
+    monkeypatch.setattr("baibai_engine.market.providers.edinet.time.sleep", lambda _: None)
     data = provider.download_xbrl_zip("S100YR5P")
     assert provider.download_xbrl_zip("S100YR5P") == data
-    assert download.call_count == 2
-    assert "type=1" in download.call_args.args[0]
+    assert len(session.calls) == 2
+    assert "type=1" in session.calls[-1]
     with pytest.raises(EDINETProviderError):
         provider.download_xbrl_zip("../secret")
 
