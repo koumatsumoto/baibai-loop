@@ -453,6 +453,14 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
     profile="production",
     datasets=(
         ReleaseDatasetPolicy(
+            dataset="retail_dynamics.quants_score_observations",
+            required=False,
+            accepted_contract_versions=(1,),
+            carries_history=True,
+            minimum_rows=1,
+            require_complete_coverage=False,
+        ),
+        ReleaseDatasetPolicy(
             dataset="retail_dynamics.model_valuation_observations",
             required=False,
             accepted_contract_versions=(1,),

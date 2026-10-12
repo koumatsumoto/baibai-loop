@@ -851,6 +851,7 @@ storeのmergeでは同日でも別docIDの成否を混同しない。共有docID
 
 ```bash
 uv run baibai-engine retail-dynamics collect --output /tmp/private-retail/observations.json
+uv run baibai-engine retail-dynamics collect --source kabumap --tickers 130A 8306 --output /tmp/private-retail/quants.json
 uv run baibai-engine retail-dynamics import --input /tmp/private-retail/observations.json --db /tmp/private-retail/market.sqlite
 ```
 
@@ -864,13 +865,13 @@ import対象は明示した既存の隔離作業コピーであり、current mar
 
 初回に最新L1のreleaseを固定し、日次取得ではそのJPXカレンダーで対象営業日のexact-date masterを選ぶ。休日も取得し、連続したカレンダーで直近営業日を確認してその保存済みmasterを使う。手動では従来どおりmaster日付を明示する。calendarと必要なmaster年partition以外をこの計画段階で取得・hydrateせず、新しいmasterをproviderから取得しない。calendarの対象日・連続性、普通株のproduction floor、分類、master日付・release bindingが不足する場合はprovider通信前に停止する。planはmaster日付・release・ticker集合・collector policyに固定され、同じbatch IDの再開では保存済みplanを読み、別universeへ置換しない。受領日時とJST受領日は実通信から保持し、休日や翌日の再開をmaster日付・cron対象日へ付け替えない。
 
-[GitHub-hosted runnerの1ジョブ6時間上限](https://docs.github.com/en/actions/reference/limits)に収めるため、既定50銘柄のコホートを直列のmatrix jobへ分ける。workflow全体の取得専用concurrencyで別batch ID・再実行も直列化する。新しいdaily policyは固定3hostごとに平均2HTTP/秒、最大4creditのtoken bucketをcohort内の全pair・再試行で共有する。任意の1秒窓で4件以下という厳密上限ではない。実際のHTTPは引き続き直列1件で、最大同時2件以下に収める。process開始時のcreditは0とし、cohort境界や再起動でcreditを増やさない。tokenはdurable予約の保存後、実送信直前に消費する。限定CLIの既存2秒間隔は変えない。hostが違ってもvendor quotaが独立とは断定せず、許容rateと全件所要時間は実証未完了として扱う。
+[GitHub-hosted runnerの1ジョブ6時間上限](https://docs.github.com/en/actions/reference/limits)に収めるため、既定50銘柄のコホートを直列のmatrix jobへ分ける。workflow全体の取得専用concurrencyで別batch ID・再実行も直列化する。新しい日次planはMonex・楽天・株マップの3媒体を固定する。旧2媒体の保存plan・確定stage・verified terminalは元のsource集合のまま扱う。既存3hostは平均2HTTP/秒・最大4credit、株マップ`jp.kabumap.com`は平均0.5HTTP/秒・最大1creditのtoken bucketをcohort内の全pair・再試行で共有する。任意の1秒窓で4件以下という厳密上限ではない。実際のHTTPは引き続き直列1件で、最大同時2件以下に収める。process開始時のcreditは0とし、cohort境界や再起動でcreditを増やさない。tokenはdurable予約の保存後、実送信直前に消費する。限定CLIの既存2秒間隔は変えない。hostが違ってもvendor quotaが独立とは断定せず、許容rateと全件所要時間は実証未完了として扱う。
 
 各pairは通信前後のcheckpointを含む実wall-clock上限を持つ。取得jobは4時間のsoft budgetに余裕を残して次pairを開始せず、4時間30分のprocess timeout、5時間のjob上限で打ち切る。HTTP timeoutの積だけを総所要時間の保証にしない。
 
 確定したtyped観測と安全な成否は、既存`baibai-stores`の`coordination/retail-dynamics/<batch_id>/`へ条件付き保存してjob間で引き継ぐ。認証情報は保存せず、値やraw HTMLをlog・Git・Actions artifactへ出さない。各HTTPの前にinflightを永続化し、結果の確定時に同じ世代を条件付き更新する。成功・正常null・通常の確定失敗は再開時に取得しない。plan時の既存checkpoint走査を使って未着手を残すcohortだけを取得matrixへ渡し、全cohortが確定済みなら取得jobをskipして公開へ進む。providerの403、typed/checkpointのCAS不一致・保存結果が不明なPUT、inflightのままの中断は日次run全体を停止し、自動再試行や経路変更をしない。
 
-正本は抽出済みのtyped観測とDB/L1履歴である。新規取得のHTTP 200の本文は、開発時の事後検証・調査用に約3日だけprivateなR2へ保存する。対象は既存collectorが要求したMonex公開ページ、楽天公式outer、確認済みIFIS iframeであり、requestsによるHTTP転送圧縮の展開後、文字decode前のbytes、受領時のencodingと実受領UTC時刻を残す。blobは`retail-dynamics/raw/utc-date/<YYYY-MM-DD>/html/sha256/<hash>.html.gz`、受領JSONは`retail-dynamics/raw/utc-date/<YYYY-MM-DD>/receipts/<batch_id>/<source>/<requested_ticker>/<request_number>.json`に置く。日付はbatch予定日や表示更新日でなく実受領UTC日とし、SHA256による本文共有は同日内だけに限る。
+正本は抽出済みのtyped観測とDB/L1履歴である。新規取得のHTTP 200の本文は、開発時の事後検証・調査用に約3日だけprivateなR2へ保存する。対象は既存collectorが要求したMonex公開ページ、楽天公式outer、確認済みIFIS iframe、株マップの公開銘柄診断であり、requestsによるHTTP転送圧縮の展開後、文字decode前のbytes、受領時のencodingと実受領UTC時刻を残す。blobは`retail-dynamics/raw/utc-date/<YYYY-MM-DD>/html/sha256/<hash>.html.gz`、受領JSONは`retail-dynamics/raw/utc-date/<YYYY-MM-DD>/receipts/<batch_id>/<source>/<requested_ticker>/<request_number>.json`に置く。日付はbatch予定日や表示更新日でなく実受領UTC日とし、SHA256による本文共有は同日内だけに限る。
 
 typed outcomeのcheckpoint確定後にrawを保存する。rawだけの保存失敗・競合は本文・URL・例外messageを含めないActions warningを出し、正常なtyped結果と公開を維持する。raw保存はcollectorのpair deadline外で行い、保存が遅れても確定済みtypedをinflightへ戻さない。既存typed/checkpoint自体の保存失敗時停止は維持する。Cookie・認証headerや全response headerを保存せず、認証付きrequestやアカウントページを取得対象に加えない。通常保存・blob再利用に本文GETを加えず、元bytes照合はtest・少量の受入・再解析時に行う。200のparse失敗本文も一時調査用に保存するが、typed failureを正常nullへ変えない。非200・未受領本文を成功原応答として保存しない。保存済みstage/terminalのno-opで再取得やraw補完は行わない。限定`collect` CLIは従来の正規化stage出力のままである。
 
@@ -905,7 +906,7 @@ PY
 
 新しいcollector policyのrunだけ、確定429を待機後の再試行対象にする。`Retry-After`の秒数またはHTTP-dateを受信完了UTC基準の期限へ変換し、期限を短縮しない。headerがないか不正なら5・10・20・40・80秒の指数backoffに0～1秒のjitterを加え、その期限をcheckpointへ固定する。初回に加えて最大5回のpair再試行を許可し、使用済み回数はHTTP開始前のCASで保存する。再dispatchで上限をresetしない。表現不能な有効待機値、5回使い切った後の429、応答不明は自動再送しない。Retry-Afterのraw headerは保存しない。
 
-1回のpair取得は引き続きcheckpointを含め120秒以内とし、429待機はその外側でjobのsoft budgetに含める。待機と次のpair・保存余裕が収まらないときは、期限を縮めず確定429と残り試行回数を保持して終了する。待機中は他pairも開始しない。typed観測がまだない楽天pairの再試行では、公開ページ→公式iframeを再度検証して取得するため、初回＋5回で最大12HTTPになる。HTTPライブラリの内部retryは無効のままにする。今回変更前に開始したrunや旧policyの保存planには新policyを適用せず、新batch IDを使う。
+1回のpair取得は引き続きcheckpointを含め120秒以内とし、429待機はその外側でjobのsoft budgetに含める。待機と次のpair・保存余裕が収まらないときは、期限を縮めず確定429と残り試行回数を保持して終了する。待機中は他pairも開始しない。typed観測がまだない楽天pairの再試行では、公開ページ→公式iframeを再度検証して取得するため、初回＋5回で最大12HTTPになる。HTTPライブラリの内部retryは無効のままにする。追加取得のcollector bindingはparser/host/pair上限を含むv4である。旧policyの保存planを新policyの追加取得へ読み替えず、新batch IDを使う。confirmed stageだけの公開・verified terminalのno-opは既存契約を維持する。
 
 **受入の前提**: code/store切替とreadback、レビュー・CI・private handoff・費用と所要時間の受入を確認する。新credential・serverは不要だが、この文書や開発テストは本番日次・実R2書込・通知の受入証拠ではない。日次scheduleはmainへ反映されたworkflowを使う。失敗を再開するoperatorは元のrunをrerunするか、保存planと同じmaster日付・batch IDで次をmainへdispatchする。同日の新しいbatch IDを重複取得の代わりに作らない。
 
@@ -934,11 +935,31 @@ private handoffの操作数も費用確認に含める。各銘柄でMonex1HTTP/
 
 抽出済みtyped受領履歴は正本としてDB/L1で保持し、rawの約3日保持によって削除しない。取得checkpointは引継ぎ用であり、検証用rawやSQLite複製と保存目的が異なる。公開・readback完了後の整理では固定planと小さなpublished manifestを残し、同batch IDを再取得へ戻さない。診断用raw本文と受領JSONは上記の日付別保持範囲で整理し、無期限の正本とはしない。正規化stageの容量だけをR2全体の容量・料金とみなさず、checkpointのClass A/B、既存全datasetのL1再exportとobject再利用、保存履歴を別に実測する。
 
+<a id="market-29-to-30"></a>
+
+### 株マップ追加のmarket SQLite 29→30切替
+
+現行codeのmarket schemaは30で、`retail_quants_score_observations`とsnapshot indexを追加する。runtime reader/writer・日次batchは29を自動移行しない。追加のL1 datasetは任意収録なので、未収録の既存releaseを30の作業コピーへhydrateすれば新tableは空となる。EDINETの抽出code/revision、既存typed履歴・store-local data・他datasetは変更しない。
+
+PRレビュー・CIを確認後、先に隔離した29のbackupで次を実行し、元DBの不変、全既存tableの全列・行数・受領履歴、coverage、integrity、新table空を確認する。入力をread-onlyで開く一回限りのコピー用入口であり、既存の出力先へ上書きしない。
+
+```bash
+uv run python -m tools.ops.migrate_market_29_to_30 --source /tmp/private-retail/market29.sqlite --output /tmp/private-retail/market30.sqlite
+```
+
+本番切替は通常の[publication lease](#ローカルからクラウドを更新する)内でcodeとcloud storeを一組にする。daily・TradingView・retail（19:13 JST）のslotと他writerを確認し、operatorが事前検証を終えてからleaseを取得する。同じlease内で最新cloud 29を再取得し、取得世代と元copyを保持して30のcopyを作り直す。source DBと全既存tableの不変・schema30・integrity・`lake_store_origin`の既存release bindingを照合し、確認したcodeへ切替えて、取得世代への条件付きPUTでcloud `market.sqlite`を30へ反映する。旧29 cloudと30 localは通常の`push-market`のmergeが拒否するため、この最初の反映を通常mergeや無条件overwriteで代行しない。
+
+fresh readbackでcloud30のstore-local data・coverage・originと固定したL1 releaseからhydrateした既存履歴を照合し、新tableが空・schema30・integrity正常であることを確認する。その後も同じoperator leaseを保持し、freshにhydrateした30のlocal copyから既存`batch/scripts/r2_transfer.sh push-market`を実行する。最初の条件付きPUT後はcloud/localとも30なので通常mergeが成立し、この既存入口がDBを再度snapshot/CAS pushした後に`write_machine_manifest`で3 keyの現行世代をHEADし、`machine-manifest.json`を更新する。独立したreceipt更新CLIは追加しない。追加のDB pushと一世代backup更新を含むため、初期29の比較元copyも切替受入まで保持する。
+
+receipt更新後は同じlease内で専用のcleanなruntime checkoutへ`batch/scripts/r2_transfer.sh pull-machine`し、`machine bundle receipt matches the store generations being pulled`の成功、取得前後の3 key世代一致、market schema30・integrity・store-local dataを確認する。固定L1のfresh hydrateで既存履歴と新table空も照合する。receiptが古い・不一致ならwriterを再開せず、既存の[部分push復旧](#部分-push-からの復旧)に従う。DB反映だけで成功とはせず、bundle receiptとpull-machine突合まで揃えてからleaseをreleaseする。現在のL1へ新scoreが未収録であることだけを理由に全dataset再取得・再発行をしない。不一致・世代競合・lease失効では停止し、code/storeが整合するまで日次writerを再開しない。これは切替手順であり、本番移行・R2書込・全件取得の実施済み記録ではない。
+
+切替受入後、レビュー済みmainの既存`cloud-retail-dynamics.yml`で新しい固定planを作り、保存済み全普通株の株マップ取得を既存cohortへ参加させる。最初の実runで媒体別のtyped/failure/未試行、403停止・429待機、表示更新日と取得日、英字ticker/銀行、費用と所要時間を確認する。公開後は変更月の株マップ全列・既存履歴digest・追加row0の再投入を固定releaseから確認し、rawの少量読戻しは別に扱う。少数のHTTP200やfixture成功を全件coverage・日次継続性の証明としない。みんかぶ・TipRanksをこの入口へ有効化しない。切替受入後は一回限りの移行toolと専用fixtureを除去する。
+
 <a id="market-28-to-29"></a>
 
 ### market SQLite 28→29の切替後
 
-market storeの現行schemaは29である。既存履歴とstore-local dataを保持したクラウド反映・fresh readbackは確認済みであり、役目を終えた一時移行toolと専用テストは除去した。切替の検証記録は[Issue #1407](https://github.com/koumatsumoto/baibai-loop/issues/1407)、対応codeは[PR #1408](https://github.com/koumatsumoto/baibai-loop/pull/1408)・[PR #1410](https://github.com/koumatsumoto/baibai-loop/pull/1410)を参照する。
+28→29の切替時点のschemaは29である。既存履歴とstore-local dataを保持したクラウド反映・fresh readbackは確認済みであり、役目を終えた一時移行toolと専用テストは除去した。切替の検証記録は[Issue #1407](https://github.com/koumatsumoto/baibai-loop/issues/1407)、対応codeは[PR #1408](https://github.com/koumatsumoto/baibai-loop/pull/1408)・[PR #1410](https://github.com/koumatsumoto/baibai-loop/pull/1410)を参照する。
 
 通常の取得・公開は既存の入口を使い、旧schemaの再移行をdailyへ代行させない。lease、取得世代への条件付き更新、公開後の確認は通常の発行契約を維持する。
 

@@ -134,6 +134,8 @@ portfolioの年次・3年・5年outcomeのprimary benchmarkはJPXのTOPIX gross 
 
 楽天の公開forecastページが指定するIFIS iframeから現在のレーティングを取得する。別の業績予想欄のアナリスト数をレーティング人数へ流用せず、確認できない尺度・方向・人数・公表日時はnullに保つ。画面の過去列は取得以前の受信履歴にはしない。両社が同じIFIS情報を配信しても独立した賛成票とは数えない。
 
+株マップの銘柄診断からQuants Researchの定量scoreを別型で取得する。成長性・割安性・企業規模・テクニカル・財務健全性・市場トレンドは10点満点、総合点と業種平均は100点満点であり、人間のアナリストconsensusや目標株価へ換算しない。明示表示更新日を`score_as_of_date`として保存し、取得UTC時刻・JST受領日と区別する。factor欄のPER等がNAでも表示scoreが有効なら保持する。株マップの銘柄同一性・6軸の構造・尺度・表示更新日を確認できない応答は正常nullへ変えない。公式の[計算score説明](https://jp.kabumap.com/servlets/kabumap/Action?SRC=navigation/util/base&page=3)に従い、割安性はPER/PBR/75日移動平均乖離率等に基づく提示として扱う。英字ticker・銀行を媒体取得の対象から外さない。
+
 公式outerのRICとiframe URLは要求先を確認する。観測の銘柄同一性はiframe応答の比較表または確認済みchart bindingで確かめる。「業績予測情報はありません」だけの共通ページは無効codeにも返るため、`no_estimates_identity_unconfirmed`として未収録に保つ。この理由は当該銘柄の予測・レーティングの不存在を確定したものではなく、正常nullの観測とも区別する。
 
 受信時刻とJST受信日を保持し、各tableの`(ticker, fetched_at_utc)`を受領keyとして同じ受領の再投入を冪等にする。1銘柄・1日・1行の保証はなく、同日にも複数の受領を保持する。過去時点ではcutoff以前の最新行を読み、直近2受領の比較を前日比較とは扱わない。最新行が正常nullなら以前の値はpreviousとしてのみ残す。比較は確認済みの同じorigin・単位・期間・株式basisまたは尺度に限定し、未確認、欠測の回復、人数変更、同値の再観測に理由を付ける。現adapterでは`share_basis`・評価対象期間・レーティング尺度が未確認のnullであり、数値deltaは基本的に`not_comparable`となる。受領履歴は利用できるが数値の変化比較は未実用の範囲を残し、未確認metadataを推測で補完しない。分析は入力参照とmethod versionを持つ読取結果であり、投資判断へ自動投入しない。

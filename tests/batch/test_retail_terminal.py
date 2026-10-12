@@ -16,6 +16,7 @@ from baibai_batch.storage import retail_staging as staging
 def plan():
     return make_plan(
         run_id="synthetic-terminal",
+        sources=("monex", "rakuten"),
         tickers=("7203", "9432"),
         universe_binding=json.dumps({"master_asof": "2026-10-09"}),
         collector_binding=daily.retail_collector_binding(),

@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from baibai_engine.market.lake.datasets import (
     RETAIL_ANALYST_RATING_OBSERVATIONS,
     RETAIL_MODEL_VALUATION_OBSERVATIONS,
+    RETAIL_QUANTS_SCORE_OBSERVATIONS,
 )
 from baibai_engine.market.lake.duck import LakeSession
 from baibai_engine.market.lake.objects import LakeObjectCache
@@ -29,8 +30,15 @@ from .contract import (
     ANALYST_RATING_TABLE,
     MODEL_VALUATION_COLUMNS,
     MODEL_VALUATION_TABLE,
+    QUANTS_SCORE_COLUMNS,
+    QUANTS_SCORE_TABLE,
 )
-from .models import AnalystRatingObservation, ModelValuationObservation, Observation
+from .models import (
+    AnalystRatingObservation,
+    ModelValuationObservation,
+    Observation,
+    QuantsScoreObservation,
+)
 from .reader import read_observations
 
 
@@ -44,6 +52,8 @@ def verify_observations(database: Path, observations: Sequence[Observation]) -> 
         actual = (
             history.model_valuation.latest
             if isinstance(item, ModelValuationObservation)
+            else history.quants_score.latest
+            if isinstance(item, QuantsScoreObservation)
             else history.analyst_rating.latest
         )
         if actual != item:
@@ -59,6 +69,7 @@ def history_digests(
         for dataset, table, columns in (
             (RETAIL_MODEL_VALUATION_OBSERVATIONS, MODEL_VALUATION_TABLE, MODEL_VALUATION_COLUMNS),
             (RETAIL_ANALYST_RATING_OBSERVATIONS, ANALYST_RATING_TABLE, ANALYST_RATING_COLUMNS),
+            (RETAIL_QUANTS_SCORE_OBSERVATIONS, QUANTS_SCORE_TABLE, QUANTS_SCORE_COLUMNS),
         ):
             digest = hashlib.sha256()
             names = ",".join(column[0] for column in columns)
@@ -101,6 +112,7 @@ def verify_release_history(
     for dataset, model in (
         (RETAIL_MODEL_VALUATION_OBSERVATIONS, ModelValuationObservation),
         (RETAIL_ANALYST_RATING_OBSERVATIONS, AnalystRatingObservation),
+        (RETAIL_QUANTS_SCORE_OBSERVATIONS, QuantsScoreObservation),
     ):
         expected = {
             (item.ticker, item.fetched_at_utc.isoformat(timespec="microseconds")): item

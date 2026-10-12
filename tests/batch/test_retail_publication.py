@@ -30,6 +30,7 @@ from baibai_engine.batch_api import (
     RetailAnalystRatingObservation,
     RetailCollectionOutcome,
     RetailModelValuationObservation,
+    RetailQuantsScoreObservation,
     lake_session,
     retail_collector_binding,
     retail_history_digests,
@@ -50,6 +51,7 @@ def publication(tmp_path, monkeypatch):
         "jquants.short_sale_reports",
         retail.VALUATION_DATASET,
         retail.RATING_DATASET,
+        retail.QUANTS_DATASET,
     )
     narrow_release_policy(monkeypatch, datasets=datasets, minimum_population_count=None)
     monkeypatch.setattr(publisher, "lake_verified_git_commit", lambda: "a" * 40)
@@ -101,6 +103,7 @@ def publication(tmp_path, monkeypatch):
     )
     handle, _ = acquire(store, "operator")
     plan = make_plan(
+        sources=("monex", "rakuten"),
         run_id="synthetic-daily",
         tickers=("7203", "6758"),
         universe_binding="synthetic-fixed-master",
@@ -536,3 +539,65 @@ def test_selected_month_missing_old_receipt_is_detected(publication):
             observations=(),
             partitions=selected,
         )
+
+
+def test_quants_score_optional_l1_publication_and_idempotent_terminal(publication):
+    store, previous, handle, database, mirror, directory = publication
+    before = retail_history_digests(database)
+    p = make_plan(
+        run_id="synthetic-quants",
+        tickers=("8306",),
+        sources=("kabumap",),
+        universe_binding=previous.universe_binding,
+        collector_binding=retail_collector_binding(),
+    )
+    item = RetailQuantsScoreObservation(
+        ticker="8306",
+        fetched_at_utc=RECEIVED,
+        source_url="https://synthetic.invalid/quants",
+        parser_version="synthetic-1",
+        score_as_of_date="2026-09-29",
+        undervaluation_score=6,
+        composite_score=62,
+        industry_average_score=53,
+    )
+    journal = record_outcome(
+        p,
+        mark_inflight(p, new_journal(p, 0), "kabumap", "8306"),
+        RetailCollectionOutcome("kabumap", "8306", "observed", http_status=200),
+        item,
+    )
+    put_private(
+        store, checkpoint_key(p, 0), checkpoint_bytes(p, Checkpoint(journal)), previous_etag=None
+    )
+    report = retail.publish_and_verify(
+        store,
+        p,
+        handle=handle,
+        sqlite_path=database,
+        mirror=mirror,
+        directory=directory / "quants-readback",
+    )
+    assert report["readback"] == "verified"
+    assert report["rows_added"] == 1
+    assert report["retail_readback_parquet_objects"] == 1
+    retail_verify_observations(database, [item])
+    after = retail_history_digests(database)
+    assert (
+        after["retail_model_valuation_observations"]
+        == before["retail_model_valuation_observations"]
+    )
+    assert (
+        after["retail_analyst_rating_observations"] == before["retail_analyst_rating_observations"]
+    )
+    assert after["retail_quants_score_observations"] != before["retail_quants_score_observations"]
+    repeat = retail.publish_and_verify(
+        store,
+        p,
+        handle=handle,
+        sqlite_path=database,
+        mirror=mirror,
+        directory=directory / "quants-replay",
+    )
+    assert repeat["rows_added"] == 0
+    assert repeat["readback"] == "previously_verified"

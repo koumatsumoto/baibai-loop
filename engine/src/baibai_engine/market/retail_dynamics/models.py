@@ -13,6 +13,14 @@ from baibai_engine.market.ticker import normalize_ticker
 CONTRACT_VERSION: Literal["1"] = "1"
 METHOD_VERSION = "same-series-v1"
 VALUATION_METRICS = ("consensus_target", "per_company_forecast", "per_consensus", "pbr")
+QUANTS_METRICS = (
+    "growth_score",
+    "undervaluation_score",
+    "size_score",
+    "technical_score",
+    "financial_health_score",
+    "market_trend_score",
+)
 
 
 def utc_datetime(value: datetime) -> datetime:
@@ -124,7 +132,25 @@ class AnalystRatingObservation(ReceivedObservation):
         return self
 
 
-type Observation = ModelValuationObservation | AnalystRatingObservation
+class QuantsScoreObservation(ReceivedObservation):
+    """Provider's quantitative scores; independent of human analyst consensus."""
+
+    distributor: Literal["kabumap"] = "kabumap"
+    origin: Literal["Quants Research"] = "Quants Research"
+    score_as_of_date: date
+    score_scale_max: Literal[10] = 10
+    composite_scale_max: Literal[100] = 100
+    growth_score: FiniteFloat | None = Field(default=None, ge=0, le=10)
+    undervaluation_score: FiniteFloat | None = Field(default=None, ge=0, le=10)
+    size_score: FiniteFloat | None = Field(default=None, ge=0, le=10)
+    technical_score: FiniteFloat | None = Field(default=None, ge=0, le=10)
+    financial_health_score: FiniteFloat | None = Field(default=None, ge=0, le=10)
+    market_trend_score: FiniteFloat | None = Field(default=None, ge=0, le=10)
+    composite_score: FiniteFloat | None = Field(default=None, ge=0, le=100)
+    industry_average_score: FiniteFloat | None = Field(default=None, ge=0, le=100)
+
+
+type Observation = ModelValuationObservation | AnalystRatingObservation | QuantsScoreObservation
 
 
 class ModelValuationHistory(FrozenModel):
@@ -137,11 +163,17 @@ class AnalystRatingHistory(FrozenModel):
     previous: AnalystRatingObservation | None = None
 
 
+class QuantsScoreHistory(FrozenModel):
+    latest: QuantsScoreObservation | None = None
+    previous: QuantsScoreObservation | None = None
+
+
 class ObservationHistory(FrozenModel):
     ticker: str
     cutoff: datetime
     model_valuation: ModelValuationHistory = Field(default_factory=ModelValuationHistory)
     analyst_rating: AnalystRatingHistory = Field(default_factory=AnalystRatingHistory)
+    quants_score: QuantsScoreHistory = Field(default_factory=QuantsScoreHistory)
 
 
 class MetricComparison(FrozenModel):

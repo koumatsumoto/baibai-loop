@@ -14,8 +14,15 @@ from .contract import (
     ANALYST_RATING_TABLE,
     MODEL_VALUATION_COLUMNS,
     MODEL_VALUATION_TABLE,
+    QUANTS_SCORE_COLUMNS,
+    QUANTS_SCORE_TABLE,
 )
-from .models import AnalystRatingObservation, ModelValuationObservation, Observation
+from .models import (
+    AnalystRatingObservation,
+    ModelValuationObservation,
+    Observation,
+    QuantsScoreObservation,
+)
 
 
 class ObservationConflictError(ValueError):
@@ -44,6 +51,8 @@ def save_observations(sqlite_path: Path, observations: Sequence[Observation]) ->
                     table, columns = MODEL_VALUATION_TABLE, MODEL_VALUATION_COLUMNS
                 elif isinstance(observation, AnalystRatingObservation):
                     table, columns = ANALYST_RATING_TABLE, ANALYST_RATING_COLUMNS
+                elif isinstance(observation, QuantsScoreObservation):
+                    table, columns = QUANTS_SCORE_TABLE, QUANTS_SCORE_COLUMNS
                 else:
                     raise TypeError("unsupported retail dynamics observation")
                 names = tuple(column[0] for column in columns)

@@ -23,7 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     acquisition.add_argument("--output", type=Path, required=True)
     acquisition.add_argument("--tickers", nargs="+", default=DEFAULT_TICKERS)
-    acquisition.add_argument("--source", choices=("monex", "rakuten"), action="append")
+    acquisition.add_argument("--source", choices=("monex", "rakuten", "kabumap"), action="append")
     acquisition.add_argument("--request-budget", type=int, default=9)
     acquisition.add_argument("--time-limit-seconds", type=float, default=60)
     acquisition.add_argument("--request-timeout-seconds", type=float, default=10)

@@ -209,7 +209,7 @@ class PairRetryState:
     def __post_init__(self) -> None:
         if (
             not isinstance(cast("object", self.source), str)
-            or self.source not in {"monex", "rakuten"}
+            or self.source not in {"monex", "rakuten", "kabumap"}
             or type(self.ticker) is not str
             or re.fullmatch(r"[0-9][0-9A-Z]{3}", self.ticker) is None
             or type(self.retries_used) is not int
@@ -392,7 +392,7 @@ def load_checkpoint(plan: RunPlan, payload: bytes) -> Checkpoint:
         tuple(retry_states),
     )
     maximum = sum(
-        (1 if source == "monex" else 2)
+        (2 if source == "rakuten" else 1)
         * (1 + (retry.retries_used if (retry := checkpoint.retry_for(source, ticker)) else 0))
         for source, ticker in plan.cohorts[checkpoint.journal.cohort_index].pairs
     )

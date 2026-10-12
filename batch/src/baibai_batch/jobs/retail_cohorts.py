@@ -16,6 +16,7 @@ from baibai_engine.batch_api import (
     RetailCollectionOutcome,
     RetailModelValuationObservation,
     RetailObservation,
+    RetailQuantsScoreObservation,
     RetailSource,
     retail_parse_failure_reasons,
 )
@@ -89,7 +90,7 @@ class RunPlan:
             or not self.sources
             or any(type(source) is not str for source in self.sources)
             or len(set(self.sources)) != len(self.sources)
-            or any(source not in {"monex", "rakuten"} for source in self.sources)
+            or any(source not in {"monex", "rakuten", "kabumap"} for source in self.sources)
         ):
             raise ValueError("plan requires distinct supported sources")
 
@@ -115,7 +116,7 @@ def make_plan(
     universe_binding: str,
     collector_binding: str,
     cohort_size: int = DEFAULT_COHORT_TICKERS,
-    sources: Sequence[RetailSource] = ("monex", "rakuten"),
+    sources: Sequence[RetailSource] = ("monex", "rakuten", "kabumap"),
 ) -> RunPlan:
     if any(type(ticker) is not str or _TICKER.fullmatch(ticker) is None for ticker in tickers):
         raise ValueError("plan requires canonical ASCII tickers")
@@ -137,6 +138,20 @@ def _has_value(observation: RetailObservation) -> bool:
             getattr(observation, metric) is not None
             for metric in ("consensus_target", "per_company_forecast", "per_consensus", "pbr")
         )
+    if isinstance(observation, RetailQuantsScoreObservation):
+        return any(
+            getattr(observation, name) is not None
+            for name in (
+                "growth_score",
+                "undervaluation_score",
+                "size_score",
+                "technical_score",
+                "financial_health_score",
+                "market_trend_score",
+                "composite_score",
+                "industry_average_score",
+            )
+        )
     return observation.rating is not None
 
 
@@ -152,7 +167,7 @@ class PairEntry:
     def __post_init__(self) -> None:
         if (
             not isinstance(cast("object", self.source), str)
-            or self.source not in {"monex", "rakuten"}
+            or self.source not in {"monex", "rakuten", "kabumap"}
             or not isinstance(cast("object", self.state), str)
             or self.state not in _STATES
         ):
@@ -172,6 +187,8 @@ class PairEntry:
             expected = (
                 RetailModelValuationObservation
                 if self.source == "monex"
+                else RetailQuantsScoreObservation
+                if self.source == "kabumap"
                 else RetailAnalystRatingObservation
             )
             if (
@@ -541,6 +558,8 @@ def load_journal(plan: RunPlan, payload: bytes) -> CohortJournal:
             model = (
                 RetailModelValuationObservation
                 if entry["source"] == "monex"
+                else RetailQuantsScoreObservation
+                if entry["source"] == "kabumap"
                 else RetailAnalystRatingObservation
             )
             observation = model.model_validate(entry["observation"])

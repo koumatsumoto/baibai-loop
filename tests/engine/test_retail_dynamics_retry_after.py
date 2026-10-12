@@ -243,7 +243,7 @@ def test_interrupted_429_attempt_keeps_marker_without_retry_deadline(clock, phas
 
 
 def test_retry_policy_version_changes_old_plan_binding(monkeypatch):
-    assert collection.PAIR_ACQUISITION_POLICY_VERSION == "retail-pair-acquisition-v3"
+    assert collection.PAIR_ACQUISITION_POLICY_VERSION == "retail-pair-acquisition-v4"
     new = collection.collector_binding()
     monkeypatch.setattr(collection, "PAIR_ACQUISITION_POLICY_VERSION", "retail-pair-acquisition-v1")
     assert collection.collector_binding() != new

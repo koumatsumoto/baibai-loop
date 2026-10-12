@@ -35,6 +35,7 @@ def partial_batch(publication):
         tickers=("130A", "6758", "7203"),
         universe_binding=previous_plan.universe_binding,
         collector_binding=previous_plan.collector_binding,
+        sources=("monex", "rakuten"),
         cohort_size=1,
     )
     observations = (

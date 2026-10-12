@@ -25,8 +25,13 @@ from pydantic import ValidationError
 
 from baibai_engine.market.ticker import normalize_ticker
 
-from .models import AnalystRatingObservation, ModelValuationObservation, Observation
-from .sources import ParseError, monex, rakuten
+from .models import (
+    AnalystRatingObservation,
+    ModelValuationObservation,
+    Observation,
+    QuantsScoreObservation,
+)
+from .sources import ParseError, kabumap, monex, rakuten
 
 DEFAULT_TICKERS = ("7203", "9432", "6758")
 MAX_TICKERS = 3
@@ -35,13 +40,14 @@ MIN_REQUEST_INTERVAL_SECONDS = 2.0
 DEFAULT_PAIR_TIME_LIMIT_SECONDS = 120
 DEFAULT_PAIR_REQUEST_TIMEOUT_SECONDS = 30
 # Increment this policy version whenever pair acquisition semantics change.
-PAIR_ACQUISITION_POLICY_VERSION = "retail-pair-acquisition-v3"
+PAIR_ACQUISITION_POLICY_VERSION = "retail-pair-acquisition-v4"
 HOST_REQUEST_RATE_PER_SECOND = 2.0
 HOST_REQUEST_BURST_CREDITS = 4.0
 RATE_LIMITED_HOSTS = (
     "scouter.monex.co.jp",
     "www.rakuten-sec.co.jp",
     "rakuten-sec.ifis.co.jp",
+    "jp.kabumap.com",
 )
 STAGING_FORMAT = "retail-dynamics-staging-v1"
 
@@ -76,9 +82,12 @@ PARSE_FAILURE_REASONS = frozenset(
         "changed_rating_headers",
         "changed_rating_cell",
         "response_encoding",
+        "missing_quants_date",
+        "missing_quants_scores",
+        "changed_quants_score",
     }
 )
-type Source = Literal["monex", "rakuten"]
+type Source = Literal["monex", "rakuten", "kabumap"]
 
 
 @dataclass(frozen=True)
@@ -145,21 +154,23 @@ class HostRateLimiter:
         if parsed.scheme != "https" or parsed.netloc not in RATE_LIMITED_HOSTS:
             raise ValueError("host rate limiter requires a fixed public HTTPS host")
         host = parsed.netloc
+        rate = 0.5 if host == "jp.kabumap.com" else HOST_REQUEST_RATE_PER_SECOND
+        burst = 1.0 if host == "jp.kabumap.com" else HOST_REQUEST_BURST_CREDITS
         while True:
             now = time.monotonic()
             remaining = deadline - now
             if remaining <= 0:
                 raise _TimeLimit
             credits = min(
-                HOST_REQUEST_BURST_CREDITS,
-                self._credits[host] + (now - self._updated[host]) * HOST_REQUEST_RATE_PER_SECOND,
+                burst,
+                self._credits[host] + (now - self._updated[host]) * rate,
             )
             self._updated[host] = now
             self._credits[host] = credits
             if credits >= 1.0:
                 self._credits[host] -= 1.0
                 return
-            time.sleep(min((1.0 - credits) / HOST_REQUEST_RATE_PER_SECOND, remaining))
+            time.sleep(min((1.0 - credits) / rate, remaining))
 
 
 class _TimeLimit(Exception):
@@ -325,7 +336,7 @@ def collect(
     if (
         not sources
         or len(set(sources)) != len(sources)
-        or any(source not in {"monex", "rakuten"} for source in sources)
+        or any(source not in {"monex", "rakuten", "kabumap"} for source in sources)
     ):
         raise ValueError("collection requires distinct supported sources")
     if not 1 <= request_budget <= MAX_REQUESTS:
@@ -382,6 +393,12 @@ def collect(
                             url = monex.public_url(ticker)
                             html, received = receive(url)
                             observation: Observation = monex.parse_html(
+                                html, ticker=ticker, source_url=url, fetched_at_utc=received
+                            )
+                        elif source == "kabumap":
+                            url = kabumap.public_url(ticker)
+                            html, received = receive(url)
+                            observation = kabumap.parse_html(
                                 html, ticker=ticker, source_url=url, fetched_at_utc=received
                             )
                         else:
@@ -480,15 +497,18 @@ def collector_binding() -> str:
         "format": PAIR_ACQUISITION_POLICY_VERSION,
         "monex_parser": monex.PARSER_VERSION,
         "rakuten_parser": rakuten.PARSER_VERSION,
+        "kabumap_parser": kabumap.PARSER_VERSION,
         "request_interval_seconds": MIN_REQUEST_INTERVAL_SECONDS,
         "initial_pair_interval_seconds": MIN_REQUEST_INTERVAL_SECONDS,
         "pair_time_limit_seconds": DEFAULT_PAIR_TIME_LIMIT_SECONDS,
         "request_timeout_seconds": DEFAULT_PAIR_REQUEST_TIMEOUT_SECONDS,
-        "source_request_limits": {"monex": 1, "rakuten": 2},
+        "source_request_limits": {"monex": 1, "rakuten": 2, "kabumap": 1},
         "daily_host_rate": {
             "hosts": RATE_LIMITED_HOSTS,
             "requests_per_second": HOST_REQUEST_RATE_PER_SECOND,
             "burst_credits": HOST_REQUEST_BURST_CREDITS,
+            "kabumap_requests_per_second": 0.5,
+            "kabumap_burst_credits": 1.0,
             "initial_credits": 0,
             "actual_concurrency": 1,
             "maximum_concurrency": 2,
@@ -602,7 +622,7 @@ def collect_pair(
     after the durable request reservation retains the uncertain marker.
     """
     ticker = normalize_ticker(ticker)
-    if source not in {"monex", "rakuten"}:
+    if source not in {"monex", "rakuten", "kabumap"}:
         raise ValueError("pair collection requires a supported source")
     if not math.isfinite(time_limit_seconds) or not 0 < time_limit_seconds <= 120:
         raise ValueError("wall-clock limit must be positive and at most 120 seconds")
@@ -635,7 +655,7 @@ def collect_pair(
         result = collect(
             [ticker],
             sources=(source,),
-            request_budget=1 if source == "monex" else 2,
+            request_budget=2 if source == "rakuten" else 1,
             time_limit_seconds=remaining,
             request_timeout_seconds=request_timeout_seconds,
             session=wrapped,
@@ -710,6 +730,8 @@ def save_staging(path: Path, observations: Sequence[Observation]) -> None:
             {
                 "kind": "model_valuation"
                 if isinstance(item, ModelValuationObservation)
+                else "quants_score"
+                if isinstance(item, QuantsScoreObservation)
                 else "analyst_rating",
                 "data": item.model_dump(mode="json"),
             }
@@ -747,6 +769,8 @@ def load_staging(path: Path) -> tuple[Observation, ...]:
             observations.append(ModelValuationObservation.model_validate(item["data"]))
         elif item["kind"] == "analyst_rating":
             observations.append(AnalystRatingObservation.model_validate(item["data"]))
+        elif item["kind"] == "quants_score":
+            observations.append(QuantsScoreObservation.model_validate(item["data"]))
         else:
             raise ValueError("unknown staged observation kind")
     return tuple(observations)

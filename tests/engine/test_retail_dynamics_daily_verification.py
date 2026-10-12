@@ -21,6 +21,7 @@ from baibai_engine.market.lake.writer import export_legacy_sqlite, sealed_sqlite
 from baibai_engine.market.retail_dynamics.contract import (
     ANALYST_RATING_TABLE,
     MODEL_VALUATION_TABLE,
+    QUANTS_SCORE_TABLE,
 )
 from baibai_engine.market.retail_dynamics.models import (
     AnalystRatingObservation,
@@ -406,7 +407,7 @@ def test_exact_saved_universe_uses_market_and_all_33_sectors_keeps_alpha_and_fix
     assert hashlib.sha256(database.read_bytes()).hexdigest() == before
     with sqlite3.connect(database) as connection:
         assert (
-            connection.execute("PRAGMA user_version").fetchone()[0] == SQLITE_SCHEMA_VERSION == 29
+            connection.execute("PRAGMA user_version").fetchone()[0] == SQLITE_SCHEMA_VERSION == 30
         )
 
 
@@ -563,7 +564,7 @@ def test_history_digests_cover_both_tables_and_old_rows_without_mutating_other_t
     seed_database(database, count=1)
     other_before = non_retail_digest(database)
     empty = history_digests(database)
-    assert set(empty) == {MODEL_VALUATION_TABLE, ANALYST_RATING_TABLE}
+    assert set(empty) == {MODEL_VALUATION_TABLE, ANALYST_RATING_TABLE, QUANTS_SCORE_TABLE}
     assert set(empty.values()) == {hashlib.sha256(b"").hexdigest()}
     save_observations(database, [model(), rating()])
     initial = history_digests(database)
