@@ -10,7 +10,7 @@ from baibai_engine.external_assessment.acquisition.sources import ParseError, co
 from baibai_engine.external_assessment.observations.models import QuantsScoreObservation
 from baibai_engine.market.ticker import normalize_ticker
 
-PARSER_VERSION = "kabumap-quants-1"
+PARSER_VERSION = "kabumap-quants-2"
 LABELS = {
     "成長性": "growth_score",
     "割安性": "undervaluation_score",
@@ -48,7 +48,7 @@ def parse_html(
     identities = page.find("span", id="stockCode")
     if (
         len(identities) != 1
-        or re.fullmatch(r"\(東証[^:()]+:" + re.escape(ticker) + r"\)", compact(identities[0].text))
+        or re.fullmatch(r"\(東証[^:()]*:" + re.escape(ticker) + r"\)", compact(identities[0].text))
         is None
     ):
         raise ParseError("ticker_identity")

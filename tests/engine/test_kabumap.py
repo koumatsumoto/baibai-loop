@@ -72,6 +72,32 @@ def test_identity_na_factors_scales_and_explicit_date_are_separate_from_receipt(
     assert "rating" not in type(result).model_fields
 
 
+@pytest.mark.parametrize(
+    ("ticker", "market"),
+    [("8301", ""), ("130A", "プライム"), ("130A", "スタンダード"), ("130A", "グロース")],
+)
+def test_tse_identity_accepts_an_omitted_market_segment(ticker, market):
+    # 8301のprivate receiptは(東証:8301)。表示構造だけを合成fixtureで再現する。
+    text = html(ticker).replace(f"(東証グロース : {ticker})", f"(東証{market}:{ticker})")
+    result = observation(ticker, text=text)
+    assert result.ticker == ticker
+    assert result.parser_version == "kabumap-quants-2"
+    assert result.fetched_at_utc == RECEIVED
+
+
+@pytest.mark.parametrize("identity", ["(東証:8306)", "(東証プライム:8306)", "(名証:8301)"])
+def test_omitted_market_segment_does_not_relax_ticker_or_venue_identity(identity):
+    text = html("8301").replace("(東証グロース : 8301)", identity)
+    with pytest.raises(ParseError, match="ticker_identity"):
+        observation("8301", text=text)
+
+
+def test_omitted_market_segment_does_not_accept_ambiguous_identity():
+    text = html("8301").replace("(東証グロース : 8301)", "(東証:8301)")
+    with pytest.raises(ParseError, match="ticker_identity"):
+        observation("8301", text=text + '<span id="stockCode">(東証:8301)</span>')
+
+
 @pytest.mark.parametrize("bad", ["11/10", "-1/10", "5/5", "NaN/10", "1.5/10"])
 def test_changed_numeric_score_is_not_normal_null(bad):
     with pytest.raises(ParseError, match="changed_quants_score"):
