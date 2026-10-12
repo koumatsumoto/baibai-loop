@@ -132,7 +132,10 @@ def test_empty_current_store_and_missing_file_are_unobserved(tmp_path):
     assert not db.exists()
     open_connection(db).close()
     result = analyze(read_observations(db, "1234", RECEIVED), evaluated_at=RECEIVED)
-    assert result.analyst_ratings == result.model_valuations == ()
+    assert result.model_valuations == ()
+    assert result.analyst_ratings[0].distributor == "rakuten"
+    assert result.analyst_ratings[0].inputs.latest is None
+    assert result.analyst_ratings[0].comparison.state == "not_observed"
     assert result.tradingview.availability == "not_observed"
 
 
@@ -168,7 +171,7 @@ def test_unknown_or_changed_basis_has_no_delta(field, change, reason):
     assert metric.reason == reason
     assert metric.delta is None
     assert result.model_valuations[0].inputs.latest == latest
-    assert result.method_version == "same-series-v2"
+    assert result.method_version == "same-series-v3"
 
 
 def test_same_value_recovery_and_count_change_are_distinct_from_increase():

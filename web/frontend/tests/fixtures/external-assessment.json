@@ -2,7 +2,7 @@
   "ticker": "1234",
   "cutoff": "2026-10-10T17:30:00.123456Z",
   "evaluated_at": "2026-10-10T17:30:00.123456Z",
-  "method_version": "same-series-v2",
+  "method_version": "same-series-v3",
   "model_valuations": [
     {
       "inputs": {
@@ -161,7 +161,8 @@
         "latest_count": null,
         "previous_count": null,
         "delta": null
-      }
+      },
+      "distributor": "rakuten"
     }
   ],
   "quants_scores": [

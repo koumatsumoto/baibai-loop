@@ -15,6 +15,7 @@ export interface AllocationAlternativeView {
 }
 
 export interface AnalystRatingAssessment {
+  distributor: string
   inputs: AnalystRatingHistory
   comparison: MetricComparison
 }

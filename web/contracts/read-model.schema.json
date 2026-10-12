@@ -109,6 +109,10 @@
     "AnalystRatingAssessment": {
       "additionalProperties": false,
       "properties": {
+        "distributor": {
+          "title": "Distributor",
+          "type": "string"
+        },
         "inputs": {
           "$ref": "#/$defs/AnalystRatingHistory"
         },
@@ -117,6 +121,7 @@
         }
       },
       "required": [
+        "distributor",
         "inputs",
         "comparison"
       ],
@@ -1073,7 +1078,7 @@
           "type": "string"
         },
         "method_version": {
-          "default": "same-series-v2",
+          "default": "same-series-v3",
           "title": "Method Version",
           "type": "string"
         },
