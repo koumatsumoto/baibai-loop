@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import time
 from urllib.parse import urlencode
 
 from baibai_engine.market.providers.edinet import (
     EDINET_API_BASE,
     EDINETProvider,
     EDINETProviderError,
-    EDINETRateLimitError,
     _is_zip_bytes,
-    _non_zip_response_status,
     parse_doc_id,
 )
 
@@ -29,14 +26,9 @@ class EDINETFactsProvider(EDINETProvider):
         query = urlencode(
             {"type": 1, "Subscription-Key": self._require_api_key("download_xbrl_zip")}
         )
-        for attempt in range(3):
-            content = self._request_bytes(f"{EDINET_API_BASE}/documents/{safe_id}?{query}")
-            if _is_zip_bytes(content):
-                cache.parent.mkdir(parents=True, exist_ok=True)
-                cache.write_bytes(content)
-                return content
-            if _non_zip_response_status(content) != "429":
-                raise EDINETProviderError("EDINET XBRL response is not a ZIP")
-            if attempt < 2:
-                time.sleep(3 * 2**attempt)
-        raise EDINETRateLimitError("EDINET XBRL response was rate limited after retries")
+        content = self._request_bytes(f"{EDINET_API_BASE}/documents/{safe_id}?{query}")
+        if not _is_zip_bytes(content):
+            raise EDINETProviderError("EDINET XBRL response is not a ZIP")
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_bytes(content)
+        return content

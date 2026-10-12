@@ -591,8 +591,8 @@ class ScreeningProviderTests(unittest.TestCase):
             ):
                 provider.download_csv_zip("S100TEST")
 
-            self.assertEqual(len(session.calls), 3)
-            self.assertEqual(sleep.call_count, 2)
+            self.assertEqual(len(session.calls), 6)
+            self.assertEqual(sleep.call_count, 5)
             self.assertNotIn("secret-key", str(caught.exception))
             self.assertIn("<redacted>", str(caught.exception))
 
@@ -604,6 +604,9 @@ class ScreeningProviderTests(unittest.TestCase):
                 cache,
                 session=_SequenceBytesSession(
                     [
+                        b'{"StatusCode":"429","message":"Too Many Requests"}',
+                        b'{"StatusCode":"429","message":"Too Many Requests"}',
+                        b'{"StatusCode":"429","message":"Too Many Requests"}',
                         b'{"StatusCode":"429","message":"Too Many Requests"}',
                         b'{"StatusCode":"429","message":"Too Many Requests"}',
                         b'{"StatusCode":"429","message":"Too Many Requests"}',
