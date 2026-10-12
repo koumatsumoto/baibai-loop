@@ -181,13 +181,20 @@ def test_real_remote_graph_readback_preserves_null_receipts_history_and_unrelate
         > report["retail_readback_expected_parquet_bytes"]
         > 0
     )
-    assert report["retail_readback_parquet_objects"] == 6
+    assert report["retail_readback_parquet_objects"] == 2
     assert report["release_id"] != before.release_id
     assert store.get_bytes(checkpoint_key(plan, 0)) == original
     assert not (tmp_path / "readback/readback.sqlite").exists()
     pointer = publisher._serving_pointer(store).pointer
     after = publisher._resolve_serving_release(store, tmp_path / "readback/mirror", pointer)
     assert len(after.dataset_manifests[retail.VALUATION_DATASET].partitions) == 3
+    for name, manifest in after.dataset_manifests.items():
+        if name in {retail.VALUATION_DATASET, retail.RATING_DATASET}:
+            for partition in manifest.partitions:
+                for obj in partition.objects:
+                    publisher._fetch(
+                        store, tmp_path / "readback/mirror", obj.key, expected_sha256=obj.sha256
+                    )
     with lake_session() as session:
         retail_verify_release_history(
             session,
@@ -246,19 +253,17 @@ def test_readback_gets_only_retail_parquet_and_keeps_new_object_byte_verificatio
 ):
     store, plan, handle, database, mirror, tmp_path = publication
     before_keys = set(store.values)
-    forbidden = {
-        key for key in before_keys if key.endswith(".parquet") and "retail_dynamics." not in key
-    }
+    forbidden = {key for key in before_keys if key.endswith(".parquet")}
     assert any("jquants.master_snapshots" in key for key in forbidden)
     assert any("jquants.daily_bars" in key for key in forbidden)
     download, get = store.download_file, store.get_bytes
 
     def download_only_retail(key, path, *, expect_bytes=None):
-        assert key not in forbidden, "non-retail Parquet GET is forbidden"
+        assert key not in forbidden, "unchanged Parquet GET is forbidden"
         return download(key, path, expect_bytes=expect_bytes)
 
     def get_only_retail(key):
-        assert key not in forbidden, "non-retail Parquet GET is forbidden"
+        assert key not in forbidden, "unchanged Parquet GET is forbidden"
         return get(key)
 
     monkeypatch.setattr(store, "download_file", download_only_retail)
@@ -443,9 +448,9 @@ def test_missing_or_unattempted_cohort_cannot_publish(publication):
         )
 
 
-def test_workflow_is_manual_serial_private_and_keeps_publication_inside_existing_lease():
+def test_workflow_is_daily_serial_private_and_keeps_publication_inside_existing_lease():
     workflow = yaml.load(WORKFLOW.read_text(), Loader=yaml.BaseLoader)
-    assert set(workflow["on"]) == {"workflow_dispatch"}
+    assert set(workflow["on"]) == {"workflow_dispatch", "schedule"}
     assert workflow["concurrency"]["group"] == "retail-dynamics-acquire"
     assert workflow["concurrency"]["cancel-in-progress"] == "false"
     acquire_job = workflow["jobs"]["acquire"]
@@ -472,3 +477,62 @@ def test_workflow_is_manual_serial_private_and_keeps_publication_inside_existing
         for step in job["steps"]
     )
     assert check_workflow(WORKFLOW) == []
+
+
+def test_selected_month_history_keeps_old_receipts_and_ignores_other_months(publication):
+    fixed, cache, database = fixed_retail_readback(publication)
+    selected = {(retail.VALUATION_DATASET, 2026, 9), (retail.RATING_DATASET, 2026, 9)}
+    expected = retail_history_digests(database, partitions=selected)
+    with lake_session() as session:
+        retail_verify_release_history(
+            session,
+            release=fixed,
+            cache=cache,
+            expected_history=expected,
+            observations=(),
+            partitions=selected,
+        )
+    # An old receipt in the selected month must still match all its metadata.
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE retail_model_valuation_observations SET consensus_target_updated_label='changed' WHERE snapshot_date >= '2026-09-01' AND snapshot_date < '2026-10-01'"
+        )
+    changed = retail_history_digests(database, partitions=selected)
+    assert changed != expected
+    with lake_session() as session, pytest.raises(ValueError, match="changed received history"):
+        retail_verify_release_history(
+            session,
+            release=fixed,
+            cache=cache,
+            expected_history=changed,
+            observations=(),
+            partitions=selected,
+        )
+    # The August partition is outside this readback scope.
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "DELETE FROM retail_analyst_rating_observations WHERE snapshot_date < '2026-09-01'"
+        )
+    assert retail_history_digests(database, partitions=selected) == changed
+
+
+def test_selected_month_missing_old_receipt_is_detected(publication):
+    fixed, cache, database = fixed_retail_readback(publication)
+    selected = {(retail.VALUATION_DATASET, 2026, 9)}
+    expected = retail_history_digests(database, partitions=selected)
+    manifests = dict(fixed.dataset_manifests)
+    original = manifests[retail.VALUATION_DATASET]
+    manifests[retail.VALUATION_DATASET] = original.model_copy(
+        update={
+            "partitions": tuple(part for part in original.partitions if part.values["month"] != 9)
+        }
+    )
+    with lake_session() as session, pytest.raises(ValueError, match="changed received history"):
+        retail_verify_release_history(
+            session,
+            release=replace(fixed, dataset_manifests=manifests),
+            cache=cache,
+            expected_history=expected,
+            observations=(),
+            partitions=selected,
+        )

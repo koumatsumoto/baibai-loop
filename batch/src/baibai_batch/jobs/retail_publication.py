@@ -119,7 +119,17 @@ def publish_and_verify(
     directory.mkdir(mode=0o700)
     verify_held(store, handle)
     inserted = retail_save_observations(sqlite_path, observations)
-    expected_history = retail_history_digests(sqlite_path)
+    changed = {
+        (
+            VALUATION_DATASET
+            if isinstance(item, RetailModelValuationObservation)
+            else RATING_DATASET,
+            item.snapshot_date.year,
+            item.snapshot_date.month,
+        )
+        for item in observations
+    }
+    expected_history = retail_history_digests(sqlite_path, partitions=changed)
     verify_held(store, handle)
     publication = (
         publish_market_lake(
@@ -141,16 +151,6 @@ def publish_and_verify(
     readback_mirror = directory / "mirror"
     readback_mirror.mkdir(mode=0o700)
     after = _resolve_serving_release(store, readback_mirror, current)
-    changed = {
-        (
-            VALUATION_DATASET
-            if isinstance(item, RetailModelValuationObservation)
-            else RATING_DATASET,
-            item.snapshot_date.year,
-            item.snapshot_date.month,
-        )
-        for item in observations
-    }
     if set(after.dataset_names()) != set(before.dataset_names()) | {item[0] for item in changed}:
         raise LakePublishError("retail publication changed dataset inventory")
     if unchanged_objects(before, changed) != unchanged_objects(after, changed):
@@ -160,6 +160,8 @@ def publish_and_verify(
         if manifest is None:
             continue
         for part in manifest.partitions:
+            if (name, part.values["year"], part.values["month"]) not in changed:
+                continue
             for obj in part.objects:
                 _fetch(store, readback_mirror, obj.key, expected_sha256=obj.sha256)
     with lake_session() as session:
@@ -169,6 +171,7 @@ def publish_and_verify(
             cache=LakeObjectCache(root=readback_mirror, source=LocalMirrorSource(readback_mirror)),
             expected_history=expected_history,
             observations=observations,
+            partitions=changed,
         )
     verify_held(store, handle)
     terminal: dict[str, object] = {
@@ -209,6 +212,7 @@ def publish_and_verify(
         for name, manifest in after.dataset_manifests.items()
         if name in {VALUATION_DATASET, RATING_DATASET}
         for part in manifest.partitions
+        if (name, part.values["year"], part.values["month"]) in changed
         for obj in part.objects
     }
     return {

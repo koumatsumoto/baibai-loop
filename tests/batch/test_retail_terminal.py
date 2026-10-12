@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
+from dataclasses import replace
 from datetime import date
 
 import pytest
@@ -200,14 +201,17 @@ def test_terminal_rejects_duplicate_top_level_and_nested_json_fields():
             staging.read_terminal(store, p)
 
 
+@pytest.mark.parametrize("old_binding", [False, True])
 @pytest.mark.parametrize("partial", [False, True])
 def test_terminal_plan_acquire_and_both_publish_commands_do_not_touch_checkpoint_or_l1(
-    tmp_path, monkeypatch, partial
+    tmp_path, monkeypatch, partial, old_binding
 ):
     from baibai_batch.jobs import retail_publication
     from baibai_batch.storage import publication_lease
 
     p = plan()
+    if old_binding:
+        p = replace(p, collector_binding="previous-collector")
     value = terminal(p, partial=partial)
     original = deepcopy(value)
     store = saved_terminal(p, value)

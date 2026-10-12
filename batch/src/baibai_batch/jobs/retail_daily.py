@@ -1,4 +1,4 @@
-"""Manual fixed-cohort collection and private handoff; scheduling remains disabled."""
+"""Daily and manual fixed-cohort collection through the same private handoff."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from baibai_batch.jobs.retail_cohorts import (
     summarize,
     validate_resume,
 )
+from baibai_batch.jobs.schedule import retail_target_date
 from baibai_batch.storage.lake_publish import Boto3R2Store, ObjectStore
 from baibai_batch.storage.publish_market_lake import _resolve_serving_release, _serving_pointer
 from baibai_batch.storage.retail_staging import (
@@ -44,6 +45,7 @@ from baibai_engine.batch_api import (
     RetailHostRateLimiter,
     RetailSource,
     lake_session,
+    retail_calendar_master_asof,
     retail_collect_pair,
     retail_collector_binding,
     retail_frozen_lake_universe,
@@ -74,15 +76,20 @@ def initialize(
     store: ObjectStore,
     *,
     run_id: str,
-    master_asof: date,
+    master_asof: date | None,
     mirror: Path | None,
     require_existing: bool = False,
+    observation_date: date | None = None,
 ) -> RunPlan:
+    if (master_asof is None) == (observation_date is None):
+        raise ValueError("retail plan requires either a saved master or a scheduled date")
     existing = read_plan(store, run_id)
     if existing is not None:
-        require_binding(existing)
-        if json.loads(existing.universe_binding)["master_asof"] != master_asof.isoformat():
+        saved_master = date.fromisoformat(json.loads(existing.universe_binding)["master_asof"])
+        if master_asof is not None and saved_master != master_asof:
             raise ValueError("retail saved master assertion changed")
+        if observation_date is not None and saved_master > observation_date:
+            raise ValueError("retail saved master is after the scheduled date")
         return existing
     if require_existing:
         raise ValueError("retail partial publication requires an existing fixed plan")
@@ -95,10 +102,16 @@ def initialize(
         raise ValueError("retail plan requires an existing L1 release")
     release = _resolve_serving_release(store, mirror, pointer)
     with lake_session() as session:
+        cache = LakeObjectCache(root=mirror, source=_MasterSource(store))
+        if observation_date is not None:
+            master_asof = retail_calendar_master_asof(
+                session, release=release, cache=cache, observation_date=observation_date
+            )
+        assert master_asof is not None
         tickers, binding = retail_frozen_lake_universe(
             session,
             release=release,
-            cache=LakeObjectCache(root=mirror, source=_MasterSource(store)),
+            cache=cache,
             master_asof=master_asof,
         )
     plan = make_plan(
@@ -303,7 +316,6 @@ def acquire_cohort(
     started = time.monotonic()
     if not 0 < soft_budget_seconds <= SOFT_BUDGET_SECONDS:
         raise ValueError("invalid retail soft budget")
-    require_binding(plan)
     key = checkpoint_key(plan, index)
     terminal = read_terminal(store, plan)
     if terminal is not None:
@@ -336,6 +348,7 @@ def acquire_cohort(
             retry is not None and retry.next_retry_utc is not None
         ):
             continue
+        require_binding(plan)
         # Leave a normal completed checkpoint, rather than rely on runner killing
         # a request. The pair's own real timer also includes its durable callbacks.
         if time.monotonic() - started + PAIR_AND_CHECKPOINT_RESERVE_SECONDS >= soft_budget_seconds:
@@ -386,13 +399,19 @@ def write_outputs(
     terminal: dict[str, object] | None = None,
     *,
     retry_cohort: int | None = None,
+    cohort_indices: tuple[int, ...] | None = None,
+    run_id: str | None = None,
 ) -> None:
     values = {
+        "run_id": plan.run_id if plan is not None else run_id or "",
+        "eligible": "true",
         "exists": str(plan is not None).lower(),
         "cohorts": (
             json.dumps(
                 [retry_cohort]
                 if retry_cohort is not None
+                else list(cohort_indices)
+                if cohort_indices is not None
                 else [cohort.index for cohort in plan.cohorts]
             )
             if plan and terminal is None
@@ -435,7 +454,9 @@ def main(argv: list[str] | None = None) -> int:
         "command",
         choices=("status", "plan", "acquire", "audit", "publish", "publish-confirmed-partial"),
     )
-    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--run-id")
+    parser.add_argument("--scheduled", action="store_true")
+    parser.add_argument("--run-created-at", type=datetime.fromisoformat)
     parser.add_argument("--master-asof", type=date.fromisoformat)
     parser.add_argument("--cohort", type=int)
     parser.add_argument("--db", type=Path, default=MARKET_DB_PATH)
@@ -446,9 +467,29 @@ def main(argv: list[str] | None = None) -> int:
     try:
         plan: RunPlan | None
         report: dict[str, object]
+        observation_date = None
+        if args.scheduled:
+            if (
+                args.command not in {"status", "plan"}
+                or args.run_created_at is None
+                or args.run_id is not None
+                or args.master_asof is not None
+                or args.require_existing_plan
+            ):
+                raise ValueError("scheduled plan/status requires only the original run clock")
+            observation_date, eligible = retail_target_date(args.run_created_at, datetime.now(UTC))
+            args.run_id = f"retail-daily-{observation_date.isoformat()}"
+            if not eligible:
+                if output := os.environ.get("GITHUB_OUTPUT"):
+                    with Path(output).open("a", encoding="utf-8") as stream:
+                        print("eligible=false", file=stream)
+                print(json.dumps({"status": "before_close", "run_id": args.run_id}))
+                return 0
+        elif args.run_id is None or args.run_created_at is not None:
+            raise ValueError("manual retail commands require a stable run id")
         store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
         if args.command == "plan":
-            if args.master_asof is None:
+            if args.master_asof is None and observation_date is None:
                 raise ValueError("saved master date required")
             plan = initialize(
                 store,
@@ -456,24 +497,43 @@ def main(argv: list[str] | None = None) -> int:
                 master_asof=args.master_asof,
                 mirror=args.directory,
                 require_existing=args.require_existing_plan,
+                observation_date=observation_date,
             )
         else:
             plan = read_plan(store, args.run_id)
         if args.command == "status":
-            write_outputs(plan, read_terminal(store, plan) if plan is not None else None)
+            write_outputs(
+                plan, read_terminal(store, plan) if plan is not None else None, run_id=args.run_id
+            )
             print(json.dumps({"plan_exists": plan is not None}))
             return 0
         if plan is None:
             raise ValueError("retail fixed plan is missing")
-        require_binding(plan)
         if args.command == "plan":
             terminal = read_terminal(store, plan)
-            pending = (
-                _pending_retry(plan, read_checkpoints(store, plan))
+            saved = (
+                read_checkpoints(store, plan)
                 if terminal is None and not args.require_existing_plan
-                else None
+                else {}
             )
-            write_outputs(plan, terminal, retry_cohort=pending[0] if pending else None)
+            pending = _pending_retry(plan, saved) if saved else None
+            cohorts = tuple(
+                cohort.index
+                for cohort in plan.cohorts
+                if not args.require_existing_plan
+                and (
+                    cohort.index not in saved
+                    or any(
+                        entry.state == "unattempted"
+                        for entry in saved[cohort.index][0].journal.entries
+                    )
+                )
+            )
+            if terminal is None and (pending is not None or cohorts):
+                require_binding(plan)
+            write_outputs(
+                plan, terminal, retry_cohort=pending[0] if pending else None, cohort_indices=cohorts
+            )
             report = (
                 _terminal_result(terminal)
                 if terminal is not None

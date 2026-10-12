@@ -108,6 +108,9 @@ from baibai_engine.market.retail_dynamics.models import (
 from baibai_engine.market.retail_dynamics.models import Observation as RetailObservation
 from baibai_engine.market.retail_dynamics.store import save_observations as retail_save_observations
 from baibai_engine.market.retail_dynamics.universe import (
+    calendar_master_asof as retail_calendar_master_asof,
+)
+from baibai_engine.market.retail_dynamics.universe import (
     frozen_lake_universe as retail_frozen_lake_universe,
 )
 from baibai_engine.market.retail_dynamics.universe import frozen_universe as retail_frozen_universe
@@ -476,6 +479,7 @@ __all__ = [
     "reject_noncanonical_store_paths",
     "repository_root_error",
     "resolve_release",
+    "retail_calendar_master_asof",
     "retail_collect_pair",
     "retail_collector_binding",
     "retail_dynamics_main",

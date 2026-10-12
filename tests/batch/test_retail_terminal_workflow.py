@@ -18,7 +18,7 @@ def outputs(path):
     return dict(line.split("=", 1) for line in path.read_text().splitlines())
 
 
-def notify_from_outputs(monkeypatch, values, *, partial, previous=False):
+def notify_from_outputs(monkeypatch, values, *, partial, previous=False, acquire_skipped=False):
     monkeypatch.setenv(
         "DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/id/synthetic-secret"
     )
@@ -32,7 +32,7 @@ def notify_from_outputs(monkeypatch, values, *, partial, previous=False):
         "--plan-result",
         "success",
         "--acquire-result",
-        "skipped" if partial or previous else "success",
+        "skipped" if partial or previous or acquire_skipped else "success",
         "--publish-result",
         "skipped" if previous else "success",
         "--terminal-status",
@@ -49,9 +49,10 @@ def notify_from_outputs(monkeypatch, values, *, partial, previous=False):
     return sent[0]["content"]
 
 
+@pytest.mark.parametrize("old_binding", [False, True])
 @pytest.mark.parametrize("partial", [False, True])
 def test_real_cli_plan_publication_seal_and_resume_route_to_one_safe_notice(
-    publication, partial_batch, tmp_path, monkeypatch, partial
+    publication, partial_batch, tmp_path, monkeypatch, partial, old_binding
 ):
     # Both paths use the real MemoryR2Store, publisher and typed readback. Only
     # fixture binding is made equivalent to the saved-master CLI assertion.
@@ -60,6 +61,13 @@ def test_real_cli_plan_publication_seal_and_resume_route_to_one_safe_notice(
     else:
         store, original_plan, handle, database, mirror, root = publication
     p = replace(original_plan, universe_binding=json.dumps({"master_asof": "2026-10-09"}))
+    if old_binding:
+        p = replace(p, collector_binding="previous-collector")
+
+    def forbidden_http(*args, **kwargs):
+        raise AssertionError("confirmed stage must not acquire provider responses")
+
+    monkeypatch.setattr(daily, "retail_collect_pair", forbidden_http)
     journals = staging.read_checkpoints(store, original_plan)
     for index, (checkpoint, _) in journals.items():
         rebound = replace(
@@ -87,7 +95,7 @@ def test_real_cli_plan_publication_seal_and_resume_route_to_one_safe_notice(
     assert daily.main(plan_arguments) == 0
     first_plan = outputs(path)
     assert first_plan["terminal_status"] == "pending"
-    assert json.loads(first_plan["cohorts"]) == [cohort.index for cohort in p.cohorts]
+    assert first_plan["cohorts"] == "[]"  # confirmed stage proceeds directly to publication
     # Read the real conditions the workflow uses; a sealed plan gates both jobs.
     workflow = yaml.load(
         (
@@ -98,6 +106,8 @@ def test_real_cli_plan_publication_seal_and_resume_route_to_one_safe_notice(
     assert "needs.plan.outputs.terminal_status == 'pending'" in workflow["jobs"]["acquire"]["if"]
     assert "needs.plan.outputs.terminal_status == 'pending'" in workflow["jobs"]["publish"]["if"]
     assert "!cancelled()" in workflow["jobs"]["publish"]["if"]
+    assert "needs.plan.outputs.cohorts == '[]'" in workflow["jobs"]["publish"]["if"]
+    assert "needs.plan.outputs.cohorts != '[]'" in workflow["jobs"]["acquire"]["if"]
     if partial:
         # Normal acquisition is globally halted by the saved uncertain marker.
         assert daily.main(["acquire", "--run-id", p.run_id, "--cohort", "1"]) == 1
@@ -121,7 +131,7 @@ def test_real_cli_plan_publication_seal_and_resume_route_to_one_safe_notice(
         == 0
     )
     current = outputs(report_path)
-    message = notify_from_outputs(monkeypatch, current, partial=partial)
+    message = notify_from_outputs(monkeypatch, current, partial=partial, acquire_skipped=True)
     assert message.startswith("[DEGRADED]")  # full fixture has one known parse failure
     if partial:
         assert current["retail_uncertain_pairs"] == "1"

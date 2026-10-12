@@ -57,6 +57,17 @@ def rakuten_peer_only_html(ticker="7203"):
     return rakuten_html("9432", value="--") + rakuten_chart_binding(ticker)
 
 
+def rakuten_no_estimates_html():
+    # Synthetic form of the shared live shell. Asset names and cache keys are
+    # not response identity; 6091 also occurs incidentally inside 20260918.
+    return """<html><head><title>合成ページ</title>
+    <link rel="stylesheet" href="css/system/default.css?20260918">
+    <script src="js/chart_op_cons.min.js"></script></head><body>
+    <body id="system"><div id="str-container"><div id="str-main">
+    <div class="box-02"><p>この銘柄のアナリスト業績予測情報はありません。</p></div>
+    </div></div></body></body></html>"""
+
+
 def parse_monex(html=None, **kwargs):
     return monex.parse_html(
         html or monex_html(),
@@ -203,12 +214,11 @@ def test_rakuten_null_and_zero_are_distinct():
     assert parse_rakuten(rakuten_html(value="0")).rating == 0
 
 
-@pytest.mark.parametrize("ticker", ["1301", "130A"])
+@pytest.mark.parametrize("ticker", ["1301", "130A", "7203", "6091"])
 def test_rakuten_no_forecast_shell_cannot_prove_ticker_or_null_rating(ticker):
-    html = '<div class="box-01"><p>この銘柄のアナリスト業績予測情報はありません。</p></div>'
     with pytest.raises(ParseError, match=r"^no_estimates_identity_unconfirmed$"):
         rakuten.parse_html(
-            html,
+            rakuten_no_estimates_html(),
             ticker=ticker,
             source_url=rakuten.IFRAME_BASE + rakuten.IFRAME_PARAMETER + ticker + ".T",
             fetched_at_utc=RECEIVED,

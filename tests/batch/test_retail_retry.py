@@ -438,7 +438,7 @@ def test_pending_retry_plan_selects_its_cohort_and_redispatch_can_reach_remainin
     output.write_text("")
     assert daily.main(args) == 0
     values = dict(line.split("=", 1) for line in output.read_text().splitlines())
-    assert values["cohorts"] == "[0, 1, 2]"
+    assert values["cohorts"] == "[2]"
     assert values["retry_only"] == "false"
     assert daily.acquire_cohort(store, p, 2)["stop_reason"] is None
     assert len(session.calls) == 2
@@ -586,10 +586,11 @@ def test_retry_checkpoint_strict_shape_time_quota_and_state_alignment(fault):
 
 def test_old_binding_and_duplicate_json_cannot_enable_retry(monkeypatch, clock):
     p, store = plan(), FakeObjectStore()
-    seed_checkpoint(store, p, known_429(p))
-    session = wire_collector(monkeypatch, store, p, clock, [])
+    old = replace(p, collector_binding="synthetic-v1-binding")
+    seed_checkpoint(store, old, known_429(old))
+    session = wire_collector(monkeypatch, store, old, clock, [])
     with pytest.raises(ValueError, match="collector binding changed"):
-        daily.acquire_cohort(store, replace(p, collector_binding="synthetic-v1-binding"), 0)
+        daily.acquire_cohort(store, old, 0)
     payload = staging.checkpoint_bytes(p, known_429(p)).decode()
     duplicate = payload.replace('"format":', '"format":"discarded duplicate","format":', 1)
     with pytest.raises(ValueError, match="duplicate"):

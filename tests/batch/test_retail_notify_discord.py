@@ -425,7 +425,7 @@ def test_workflow_has_one_terminal_notifier_outside_matrix_with_step_only_existi
         (repository / ".github/workflows/cloud-retail-dynamics.yml").read_text(),
         Loader=yaml.BaseLoader,
     )
-    assert set(workflow["on"]) == {"workflow_dispatch"}
+    assert set(workflow["on"]) == {"workflow_dispatch", "schedule"}
     assert workflow["on"]["workflow_dispatch"]["inputs"]["operation"]["options"] == [
         "collect_and_publish",
         "publish_confirmed_partial",
@@ -476,7 +476,7 @@ def test_workflow_has_one_terminal_notifier_outside_matrix_with_step_only_existi
     assert jobs["plan"]["outputs"]["retry_only"] == "${{ steps.plan.outputs.retry_only }}"
     assert "!cancelled()" in jobs["publish"]["if"]
     assert "needs.plan.outputs.terminal_status == 'pending'" in jobs["acquire"]["if"]
-    assert "inputs.operation == 'collect_and_publish'" in jobs["acquire"]["if"]
+    assert "needs.plan.outputs.operation == 'collect_and_publish'" in jobs["acquire"]["if"]
     for counter in notify.COUNTERS:
         assert f"--{counter.replace('_', '-')}" in step["run"]
         assert f"steps.publish.outputs.retail_{counter}" in jobs["publish"]["outputs"][counter]

@@ -71,10 +71,16 @@ def seed_database(path, *, count=2500, snapshot=ASOF, origin=True):
     return tickers
 
 
-def build_master_lake(tmp_path, monkeypatch, *, snapshot=ASOF, count=2500, mutate=None):
+def build_master_lake(
+    tmp_path, monkeypatch, *, snapshot=ASOF, count=2500, mutate=None, calendar=None
+):
     """Real contracts and Parquet, plus unrelated data that must never be fetched."""
     datasets = ("jquants.master_snapshots", "jquants.daily_bars")
-    narrow_release_policy(monkeypatch, datasets=datasets)
+    if calendar is not None:
+        datasets += ("jquants.market_calendar",)
+    narrow_release_policy(
+        monkeypatch, datasets=datasets, minimum_population_count=None if calendar is not None else 1
+    )
     database = tmp_path / "market.sqlite"
     seed_database(database, snapshot=snapshot, count=count)
     with sqlite3.connect(database) as connection:
@@ -92,6 +98,21 @@ def build_master_lake(tmp_path, monkeypatch, *, snapshot=ASOF, count=2500, mutat
             "INSERT INTO jquants_daily_bars(ticker,traded_at,close,volume) VALUES (?,?,?,?)",
             ("130A", "2026-09-30", 1, 1),
         )
+        if calendar is not None:
+            connection.executemany("INSERT INTO jquants_market_calendar VALUES (?,?)", calendar)
+            connection.execute(
+                "INSERT INTO source_coverage(source,coverage_key,coverage_start,coverage_end,"
+                "fetched_at_utc,record_count,status) VALUES (?,?,?,?,?,?,?)",
+                (
+                    "jquants_market_calendar",
+                    "synthetic-range",
+                    min(day for day, _ in calendar),
+                    max(day for day, _ in calendar),
+                    RECEIVED.isoformat(),
+                    len(calendar),
+                    "ok",
+                ),
+            )
         if mutate is not None:
             mutate(connection)
     mirror = tmp_path / "published"
