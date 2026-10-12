@@ -21,7 +21,7 @@ status: active
 | 領域 | 中心となる問い |
 | --- | --- |
 | Valuation / 独自価値評価 | 自分たちの前提で、この株にどれだけの価値・収益を見込むか |
-| Market Context / 市場環境 | 市場全体・業種・個別相対はどのような状態か |
+| Market Context / 市場環境 | 経済・金利等の環境と市場全体・業種・個別相対はどのような状態か |
 | External Assessment / 外部参考評価 | 外部の媒体・評価者はこの株をどう評価して提示しているか |
 
 領域は業務の横方向、L1観測・L2決定的な計算・L3 AI解釈/調査/提案は縦方向の区別である。Macro ContextはMarket Context内の既存判断成果物で、領域全体と同義ではない。境界・保存責務と移行状況は[architecture](./architecture.md)が所有する。
@@ -54,7 +54,6 @@ Valuationの機械ER/FV anchorは倍率・自己価格レンジとcarryの推計
 | Thesis | artifact / judgment | 一銘柄の投資仮説、valuation、risk、evidence |
 | Thesis Review | artifact / judgment | Thesisへの独立second pass |
 | Capital Allocation Assessment | artifact / judgment | reviewed Thesis群をportfolio全体に照らした配分判断 |
-| Trade Proposal | artifact / judgment | 一銘柄の新規買付または保有継続/売却検討の提案。AI完了と人間採用・約定を区別 |
 | Planning Limit | ephemeral input | broker操作前のprice / quantity / expiry guard |
 | broker fact | human-confirmed fact | 人間がbroker画面等から確認して報告したorder / fill fact |
 | Portfolio Ledger | artifact | human-confirmed event ledger |
@@ -90,10 +89,11 @@ Research Setはpipeline stateである。storeごとのauthorityは
              -> Valuation Approach[] -> Nomination[] -> Review Set
 Review Set -> Research Triage
            -> 明示開始・新規/保有合算最大三対象の固定選択
-           -> 有限Research -> Thesis + Thesis Review -> 一銘柄ずつの売買提案
-           -> Capital Allocation Assessment -> Planning Limit -> 人間の採用判断
-           -> 人間のbroker操作・報告 -> Portfolio Ledger -> Holding
-Holding -> 同じ有限選択の保有調査 -> 検証済みPosition Review提案
+           -> 有限Research -> Thesis + Thesis Review
+reviewed Thesis群 -> Capital Allocation Assessment -> Planning Limit
+                  -> 一銘柄ずつの新規買付/見送り提案
+                  -> 人間の採用・broker操作・報告 -> Portfolio Ledger -> Holding
+Holding -> 同じ有限選択の保有調査 -> Position Reviewのhold/exit/null提案
        -> 人間確認と入力再検証 -> 確認済みPosition Review
 Portfolio Ledger -> Portfolio Outcome
 実現結果 -> Calibration -> 次のmethod改善
@@ -103,6 +103,8 @@ Portfolio Ledger -> Portfolio Outcome
 provider facts -> Macro Reading -> Macro Context
 Macro Context -> Triage・Research・資本判断の補助入力
 ```
+
+新規提案はCAA/Planning、保有提案はPosition Reviewの成果に含む。共通の新しいTrade Proposal永続artifactを追加したという意味ではない。
 
 これは成果物の関係であり、毎回すべてを実行する手順ではない。0件・部分完了・未完了は調査進行の結果として残し、AI完了を人間の採用や取引事実と混同しない。操作ごとの開始条件と人間確認は[各skill](../.agents/skills/)を参照する。
 
@@ -133,3 +135,5 @@ Macro Context -> Triage・Research・資本判断の補助入力
 | `occurred_at` | business event timestamp |
 
 対象・観測・取得・公開の時点は同じとは限らない。判断入力は値と出所、これらの時点、欠測/比較上の制約を持ち、原典が与えない時点や期間を推測で補わない。fieldごとの厳密な形はreferenceが所有する。
+
+内部命名の変更と、保存済み判断identity・引用・取引事実の保持は[architectureの命名・履歴原則](./architecture.md#naming-and-history)に従う。
