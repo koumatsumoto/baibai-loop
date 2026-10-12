@@ -49,8 +49,6 @@ from baibai_engine.valuation.metrics.relative import (
 # 1200 日、fin summaries は TTM 合成と前年同期 YoY に 730 日を要する。本番 run と
 # 較正リプレイ (calibration/panel.py) が同じ値を import する。窓がずれると
 # リプレイは本番と別物の指標を測るため、ここ以外に窓を定義しない。
-# 26 週の建玉変化を測る窓を立会日で表した本数。株式分割はこの窓を跨ぐと株数基準が
-# 変わるので、跨いだ銘柄は軸を答えない。
 BARS_INPUT_WINDOW_DAYS = 1200
 
 FIN_INPUT_WINDOW_DAYS = 730
