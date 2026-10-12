@@ -135,7 +135,7 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: timeout --signal=TERM --kill-after=30s 4h30m uv run python -m baibai_batch.jobs.retail_daily acquire --run-id "$RETAIL_BATCH_ID" --cohort "$RETAIL_COHORT"
+        run: timeout --signal=TERM --kill-after=30s 270m uv run python -m baibai_batch.jobs.retail_daily acquire --run-id "$RETAIL_BATCH_ID" --cohort "$RETAIL_COHORT"
 
   publish:
     needs: [plan, acquire]
