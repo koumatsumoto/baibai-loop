@@ -16,7 +16,10 @@ from typing import Any
 
 from baibai_engine.foundation.repository_layout import RUNS_DB_PATH
 from baibai_engine.screening.discovery.contracts import PublishedReviewSet
-from baibai_engine.screening.discovery.review_set import validate_review_set_payload
+from baibai_engine.screening.discovery.review_set import (
+    build_review_set,
+    validate_review_set_payload,
+)
 from baibai_engine.screening.rule_config import CandidateDiscoveryRules
 from baibai_engine.storage.application.json import canonical_json
 
@@ -41,6 +44,7 @@ class RunStoreAmbiguousError(ValueError):
 class PublicationResult:
     publication_id: str
     inserted: bool
+    review_set_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,19 +108,62 @@ class ScreeningRunStore:
         payload: Mapping[str, object],
         *,
         run_revision_id: str | None = None,
+        review_set_rules: CandidateDiscoveryRules | None = None,
+        required_jpx_flags: Sequence[str] = (),
     ) -> PublicationResult:
         prepared = _prepare_run(payload)
         initialize_run_store(self._path)
         with closing(connect_rw(self._path)) as connection:
+            # Resolve a retained immutable run before the pure calculation. The
+            # transaction below rechecks this identity before writing anything.
+            existing = connection.execute(
+                "SELECT run_revision_id FROM screening_run WHERE public_run_id = ? AND run_at = ?",
+                (prepared.public_run_id, prepared.run_at),
+            ).fetchone()
+            identifier = run_revision_id or (
+                str(existing[0])
+                if existing is not None
+                else f"run-revision-{self._id_factory().hex}"
+            )
+            review_set = None
+            if review_set_rules is not None:
+                # The paired set's identity and clock follow the immutable source
+                # run, so repeating the same run does not manufacture a new set.
+                review_set = PublishedReviewSet.model_validate(
+                    {
+                        **build_review_set(
+                            [analysis.payload for analysis in prepared.security_analyses],
+                            rules=review_set_rules,
+                            required_jpx_flags=required_jpx_flags,
+                        ),
+                        "review_set_id": f"review-set-{identifier}",
+                        "run_revision_id": identifier,
+                        "as_of": payload["asof_date"],
+                        "created_at": prepared.run_at,
+                        "screening_rules_hash": payload["screening_rules_hash"],
+                    }
+                )
+                validate_review_set_payload(
+                    review_set.model_dump(mode="json"),
+                    security_analyses=[analysis.payload for analysis in prepared.security_analyses],
+                    rules=review_set_rules,
+                    required_jpx_flags=required_jpx_flags,
+                )
             connection.execute("BEGIN IMMEDIATE")
             try:
                 result = self._publish_run_in_transaction(
-                    connection,
-                    prepared,
-                    run_revision_id=run_revision_id,
+                    connection, prepared, run_revision_id=identifier
                 )
+                if review_set is not None:
+                    self._publish_review_set_in_transaction(
+                        connection, review_set, source_payload_json=prepared.payload_json
+                    )
                 connection.commit()
-                return result
+                return PublicationResult(
+                    result.publication_id,
+                    result.inserted,
+                    None if review_set is None else review_set.review_set_id,
+                )
             except BaseException:
                 connection.rollback()
                 raise
@@ -216,75 +263,83 @@ class ScreeningRunStore:
         if not run_revision_id:
             raise ValueError("run_revision_id is required")
         identifier = review_set_id or f"review-set-{self._id_factory().hex}"
-        payload_json = canonical_json(payload)
+        publication = PublishedReviewSet.model_validate(payload)
+        if publication.review_set_id != identifier:
+            raise ValueError("review set identity does not match its publication ID")
+        if publication.run_revision_id != run_revision_id:
+            raise ValueError("review set run revision does not match its source")
         initialize_run_store(self._path)
         with closing(connect_rw(self._path)) as connection:
+            run_row = connection.execute(
+                "SELECT payload FROM screening_run WHERE run_revision_id = ?", (run_revision_id,)
+            ).fetchone()
+            if run_row is None:
+                raise RunStoreNotFoundError(f"unknown run_revision_id: {run_revision_id}")
+            source_payload_json = str(run_row[0])
+            analysis_rows = connection.execute(
+                "SELECT payload FROM security_analysis WHERE run_revision_id = ?",
+                (run_revision_id,),
+            ).fetchall()
+            validate_review_set_payload(
+                payload,
+                security_analyses=[decode_payload(row[0]) for row in analysis_rows],
+                rules=rules,
+                required_jpx_flags=required_jpx_flags,
+            )
             connection.execute("BEGIN IMMEDIATE")
             try:
-                run_row = connection.execute(
-                    "SELECT payload FROM screening_run WHERE run_revision_id = ?",
-                    (run_revision_id,),
-                ).fetchone()
-                if run_row is None:
-                    raise RunStoreNotFoundError(f"unknown run_revision_id: {run_revision_id}")
-                run_payload = decode_payload(run_row[0])
-                analysis_rows = connection.execute(
-                    """
-                    SELECT payload FROM security_analysis
-                    WHERE run_revision_id = ?
-                    """,
-                    (run_revision_id,),
-                ).fetchall()
-                validate_review_set_payload(
-                    payload,
-                    security_analyses=[decode_payload(row[0]) for row in analysis_rows],
-                    rules=rules,
-                    required_jpx_flags=required_jpx_flags,
-                )
-                publication = PublishedReviewSet.model_validate(payload)
-                timestamp = publication.created_at.isoformat()
-                if publication.review_set_id != identifier:
-                    raise ValueError("review set identity does not match its publication ID")
-                if payload.get("run_revision_id") != run_revision_id:
-                    raise ValueError("review set run revision does not match its source")
-                if payload.get("as_of") != run_payload.get("asof_date"):
-                    raise ValueError("review set as-of does not match its source")
-                if publication.screening_rules_hash != run_payload.get("screening_rules_hash"):
-                    raise ValueError("review set rules identity does not match its source")
-                existing = connection.execute(
-                    """
-                    SELECT run_revision_id, payload
-                    FROM review_set WHERE review_set_id = ?
-                    """,
-                    (identifier,),
-                ).fetchone()
-                expected = (run_revision_id, payload_json)
-                if existing is not None:
-                    actual = tuple(existing)
-                    if actual != expected:
-                        raise RunStoreConflictError(
-                            f"review set differs from existing publication: {identifier}"
-                        )
-                    connection.rollback()
-                    return PublicationResult(identifier, inserted=False)
-                connection.execute(
-                    """
-                    INSERT INTO review_set (
-                        review_set_id, run_revision_id, created_at, payload
-                    ) VALUES (?, ?, ?, ?)
-                    """,
-                    (
-                        identifier,
-                        run_revision_id,
-                        timestamp,
-                        payload_json,
-                    ),
+                result = self._publish_review_set_in_transaction(
+                    connection, publication, source_payload_json=source_payload_json
                 )
                 connection.commit()
-                return PublicationResult(identifier, inserted=True)
+                return result
             except BaseException:
                 connection.rollback()
                 raise
+
+    def _publish_review_set_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        publication: PublishedReviewSet,
+        *,
+        source_payload_json: str,
+    ) -> PublicationResult:
+        """Insert a validated set; only the caller owns commit and rollback."""
+
+        identifier = publication.review_set_id
+        run_revision_id = publication.run_revision_id
+        run_row = connection.execute(
+            "SELECT payload FROM screening_run WHERE run_revision_id = ?",
+            (run_revision_id,),
+        ).fetchone()
+        if run_row is None:
+            raise RunStoreNotFoundError(f"unknown run_revision_id: {run_revision_id}")
+        if str(run_row[0]) != source_payload_json:
+            raise RunStoreConflictError("review set source changed during preparation")
+        run_payload = decode_payload(run_row[0])
+        if publication.as_of.isoformat() != run_payload.get("asof_date"):
+            raise ValueError("review set as-of does not match its source")
+        if publication.screening_rules_hash != run_payload.get("screening_rules_hash"):
+            raise ValueError("review set rules identity does not match its source")
+        payload_json = canonical_json(publication.model_dump(mode="json"))
+        existing = connection.execute(
+            "SELECT run_revision_id, payload FROM review_set WHERE review_set_id = ?",
+            (identifier,),
+        ).fetchone()
+        if existing is not None:
+            if tuple(existing) != (run_revision_id, payload_json):
+                raise RunStoreConflictError(
+                    f"review set differs from existing publication: {identifier}"
+                )
+            return PublicationResult(identifier, inserted=False)
+        connection.execute(
+            """
+            INSERT INTO review_set (review_set_id, run_revision_id, created_at, payload)
+            VALUES (?, ?, ?, ?)
+            """,
+            (identifier, run_revision_id, publication.created_at.isoformat(), payload_json),
+        )
+        return PublicationResult(identifier, inserted=True)
 
     def _publish_run_in_transaction(
         self,

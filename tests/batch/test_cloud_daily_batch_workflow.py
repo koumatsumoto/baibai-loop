@@ -417,3 +417,14 @@ def test_daily_keeps_1643_schedule_without_tradingview_step_or_notice() -> None:
     assert "tradingview" not in {step.get("id") for step in steps}
     notify = next(step for step in steps if step.get("id") == "notify")
     assert "--tradingview-outcome" not in notify["run"]
+
+
+def test_indicator_only_publication_keeps_the_existing_l1_release(
+    steps_by_id: dict[str, dict],
+) -> None:
+    assert steps_by_id["publish-lake"]["if"] == (
+        "steps.batch.outputs.published == 'true' && steps.batch.outputs.market_updated == 'true'"
+    )
+    assert "market_updated=" in steps_by_id["batch"]["run"]
+    # The one existing complete store/view publication path also handles holidays.
+    assert steps_by_id["upload-stores"]["if"] == "steps.batch.outputs.published == 'true'"

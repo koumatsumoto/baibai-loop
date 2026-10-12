@@ -53,9 +53,9 @@ OUTCOME_LABELS = {
     OUTCOME_FAILED: "[FAILED]",
     OUTCOME_CANCELLED: "[CANCELLED]",
 }
-# The batch published the screening result but a deferred step (macro / prune)
-# failed afterwards. The job stays green; this label is how the failure reaches
-# the reader.
+# The batch exported the complete serving image with a domain failure.
+# Screening may have stayed on a retained publication. The job stays green;
+# this label is how the failure reaches the reader.
 EXIT_DEFERRED_FAILURE = "3"
 
 # Non-batch workflow steps in execution order. The first one that neither
@@ -272,6 +272,10 @@ def render_delta(notice: Mapping[str, object]) -> list[str]:
 
     if not notice or notice.get("skipped") is True:
         return []
+    screening_status = notice.get("screening_status")
+    if screening_status in {"skipped_non_business_day", "failed"}:
+        reason = "非営業日" if screening_status == "skipped_non_business_day" else "失敗"
+        return [f"Screening更新なし（{reason}）; 保存済み結果を保持"]
     if notice.get("delta_measured") is not True:
         reason = sanitize_one_line(
             notice.get("delta_unmeasured_reason") or _DELTA_UNMEASURED_UNKNOWN_REASON,

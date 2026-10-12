@@ -150,7 +150,7 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: batch/scripts/r2_transfer.sh hydrate-market
 
-      # failure policy: 1 — a fatal batch has no publishable screening result.
+      # failure policy: 1 — an unsafe store or failed full export cannot be published.
       - name: Run daily batch
         id: batch
         shell: bash
@@ -178,6 +178,7 @@ jobs:
           else
             echo "published=false" >> "$GITHUB_OUTPUT"
           fi
+          uv run python -c 'import json, os; from pathlib import Path; p = Path(os.environ["RUNNER_TEMP"]) / "batch-notice.json"; d = json.loads(p.read_text()) if p.is_file() else {}; print("market_updated=" + str(d.get("market_updated") is True).lower())' >> "$GITHUB_OUTPUT"
           if [[ $code -ne 0 && $code -ne 3 ]]; then
             exit "$code"
           fi
@@ -189,7 +190,7 @@ jobs:
       # failure policy: 2 — a broken release would corrupt the next hydration input.
       - name: Publish the L1 release
         id: publish-lake
-        if: steps.batch.outputs.published == 'true'
+        if: steps.batch.outputs.published == 'true' && steps.batch.outputs.market_updated == 'true'
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}

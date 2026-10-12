@@ -446,3 +446,23 @@ def test_main_exits_0_without_a_webhook_and_never_calls_the_transport(
     assert exit_code == 0
     assert transport.calls == []
     assert "not configured" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("status", ["failed", "skipped_non_business_day"])
+def test_notice_does_not_repeat_old_review_set_delta_when_screening_did_not_update(
+    status: str,
+) -> None:
+    from baibai_batch.observability.discord import render_delta
+
+    lines = render_delta(
+        {
+            "screening_status": status,
+            "skipped": False,
+            "delta_measured": True,
+            "entered": ["old-entry"],
+            "exited": [],
+        }
+    )
+    assert len(lines) == 1
+    assert "Screening更新なし" in lines[0]
+    assert "old-entry" not in lines[0]

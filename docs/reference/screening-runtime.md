@@ -21,7 +21,9 @@ screening runtimeの公開commandは`baibai-engine screening --help`から辿る
 [`research-triage` skill](../../.agents/skills/research-triage/SKILL.md)と
 [`batch/OPERATIONS.md`](../../batch/OPERATIONS.md)が所有する。
 
-`run`のexit 2はpublication済みpartial warningである。warningを確認してから同じ`run_revision_id`で後続へ進む。Review Setの再表示に再発行を使わない。`--run-revision-id` + `--run-at`と`--review-set-id` + `--created-at`はcallerがidentityを固定する場合のsame-ID idempotencyを提供する。daily runnerは実行場所にかかわらずserver-generated identityを使い、AI outputからIDやclockを受け取らない。
+通常の`run`はSecurity AnalysisとReview Setを先に計算・検証し、同じSQLite connectionの一つのtransactionでrun・全子データ・Review Setを保存する。出力には両IDを含む。Review Setの挿入失敗は新runを含めてrollbackする。paired Review SetのIDとcreated_atはimmutable runのIDとrun_atに固定し、同じrunの再試行で新しい集合を作らない。
+
+`run`のexit 2は両publication済みのpartial warningである。warningを確認してから出力の両IDで後続へ進む。明示的`review-set publish`は保存済みrunを対象にする入口として残すが、通常dailyは再発行しない。Review Setの再表示に再発行を使わない。`--run-revision-id` + `--run-at`と`--review-set-id` + `--created-at`はcallerがidentityを固定する場合のsame-ID idempotencyを提供する。daily runnerは実行場所にかかわらずserver-generated identityを使い、AI outputからIDやclockを受け取らない。
 
 ## Security Analysis
 
@@ -67,8 +69,11 @@ ScreeningはL2のReview Setを発行し、Researchが全entryを判断する。T
 daily runnerはcloud scheduleまたは明示的なlocal実行でL1 / L2 machine処理だけを行い、同じcanonical runs storeを進める。
 
 ```text
-screening run -> review-set publish -> web materialize -> publish
+screening run (run + Review Set atomic commit) + independent indicators
+    -> web materialize once -> existing publish path
 ```
+
+Screeningの必要入力不足・実行失敗から指標refreshを独立させ、日本休日はScreeningだけをskipする。検証してcommitしたL1 chunkは後続失敗でも保持する。公開可能なstoreから全viewsを一度生成し、Screening未更新時はhistoryの生成/uploadとrun pruneを省く。現在画面とmetaは同じoperative runを参照し、過去の単独run・直接ID照会・cutoff付きValuationは引き続き読める。物理store/schemaやcron頻度を変えない。
 
 cloudからL3 Research Triageを発行しない。local `baibai-batch analysis run`はpull済みruns storeから対象`as_of`のlatest published Review Setを読み、必要な場合だけReview Set全体を原則1 requestで分類してResearch Triageを発行する。対象日にReview Setが無ければ前営業日へfallbackしない。有限選択とResearchは明示ユーザー開始で進め、提案完成と最終採否は分ける。full-depth Macro Context、migration、全期間再取得はどちらの日次経路にも載せない。
 

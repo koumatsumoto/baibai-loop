@@ -73,6 +73,7 @@ def export_read_models(
     output_dir: Path,
     *,
     batch: MetaBatch | None = None,
+    include_history: bool = True,
 ) -> list[Path]:
     """Write every serving JSON under ``output_dir`` and return the written paths.
 
@@ -226,15 +227,16 @@ def export_read_models(
             continue
         written.append(_write_model(views_dir / f"security--{ticker}.json", security))
 
-    written.extend(
-        _write_history(
-            output_dir,
-            screening_source=stores.screening,
-            ledger=stores.ledger,
-            research=stores.research,
-            runs_db_path=stores.runs_db_path,
+    if include_history:
+        written.extend(
+            _write_history(
+                output_dir,
+                screening_source=stores.screening,
+                ledger=stores.ledger,
+                research=stores.research,
+                runs_db_path=stores.runs_db_path,
+            )
         )
-    )
     written.append(_write_model(views_dir / "meta.json", build_meta(stores.meta, batch=batch)))
     return written
 
@@ -345,6 +347,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--batch", choices=("daily", "manual"))
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
+    parser.add_argument(
+        "--skip-history",
+        action="store_true",
+        help="preserve retained Screening history when it did not update",
+    )
     return parser
 
 
@@ -362,7 +369,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     output_dir = args.output_dir.resolve()
     try:
-        written = export_read_models(root, output_dir, batch=_batch_kind(args.batch))
+        written = export_read_models(
+            root, output_dir, batch=_batch_kind(args.batch), include_history=not args.skip_history
+        )
     except ExportPreconditionError as precondition:
         print(f"error: {precondition}", file=sys.stderr)
         return 1
