@@ -6,7 +6,12 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
+
+from requests.adapters import HTTPAdapter
+from urllib3.exceptions import InvalidHeader
+from urllib3.response import BaseHTTPResponse
+from urllib3.util import Retry
 
 from baibai_engine.market.bars import (
     JQuantsAdjustmentFactorEvent as JQuantsAdjustmentFactorEvent,
@@ -18,7 +23,6 @@ from baibai_engine.market.bars import (
 from baibai_engine.market.config import JQUANTS_CLIENT_V2_METHODS
 from baibai_engine.market.jquants_decode import JQuantsProviderError as JQuantsProviderError
 from baibai_engine.market.jquants_decode import (
-    _is_retryable_jquants_error,
     _parse_yyyymmdd_param,
     _payload_to_records,
     _stringify_dates,
@@ -60,6 +64,29 @@ from baibai_engine.storage.observations.jquants import (
     store_jquants_market_calendar,
 )
 
+_RATE_LIMIT_BACKOFF_SECONDS = (30, 60, 120, 300, 600)
+
+
+class _JQuantsReadRetry(Retry):
+    """One GET's retry policy; pagination and range helpers must not restart it."""
+
+    def get_backoff_time(self) -> float:
+        if not self.history:
+            return 0.0
+        return float(_RATE_LIMIT_BACKOFF_SECONDS[min(len(self.history), 5) - 1])
+
+    def sleep(self, response: BaseHTTPResponse | None = None) -> None:
+        delay = self.get_backoff_time()
+        if response is not None and self.respect_retry_after_header:
+            try:
+                retry_after = self.get_retry_after(response)
+            except InvalidHeader:
+                retry_after = None
+            if retry_after is not None:
+                delay = retry_after
+        if delay > 0:
+            time.sleep(delay)
+
 
 class _JQuantsTransport:
     """Thin cache-first adapter for the J-Quants ClientV2 price/calendar endpoints."""
@@ -73,10 +100,6 @@ class _JQuantsTransport:
         "get_eq_bars_daily_range": 31,
         "get_fin_summary_range": 31,
     }
-    # Backoff to absorb J-Quants Light 429s. Observed in practice that the
-    # rate window can be several minutes, so the tail of the tuple keeps
-    # climbing past 5 minutes. Total worst-case wait per chunk ~= 17.5 min.
-    _RATE_LIMIT_BACKOFF_SECONDS = (30, 60, 120, 300, 600)
     _INTER_CHUNK_SLEEP_SECONDS = 3.0
 
     def __init__(
@@ -290,7 +313,7 @@ class _JQuantsTransport:
         call = getattr(client, method, None)
         if call is None:
             raise JQuantsProviderError(f"ClientV2 missing method: {method}")
-        payload = self._call_with_retry(method, call, **params)
+        payload = self._call(method, call, **params)
 
         records = _payload_to_records(payload)
         self._store_records(method, records, store_params or params)
@@ -337,28 +360,16 @@ class _JQuantsTransport:
                     requested_end=end,
                 )
 
-    def _call_with_retry(self, method: str, call: Any, **params: Any) -> Any:
-        last_exc: Exception | None = None
-        attempts = 0
-        for attempt in range(1, len(self._RATE_LIMIT_BACKOFF_SECONDS) + 2):
-            attempts = attempt
-            try:
-                return call(**_stringify_dates(params))
-            except Exception as exc:
-                last_exc = exc
-                if not _is_retryable_jquants_error(exc) or attempt > len(
-                    self._RATE_LIMIT_BACKOFF_SECONDS
-                ):
-                    break
-                time.sleep(self._RATE_LIMIT_BACKOFF_SECONDS[attempt - 1])
-        # api_key / id_token 等の secret が exception 文字列に含まれる可能性に備えて
-        # sanitize、さらに `from None` で原因チェーンを切って traceback 漏洩も遮断する。
-        sanitized = self._sanitize_secret(str(last_exc)) if last_exc else ""
-        exception_name = type(last_exc).__name__ if last_exc else "unknown"
-        raise JQuantsProviderError(
-            f"failed to fetch J-Quants payload via {method} after {attempts} attempts: "
-            f"{exception_name}: {sanitized}"
-        ) from None
+    def _call(self, method: str, call: Any, **params: Any) -> Any:
+        try:
+            return call(**_stringify_dates(params))
+        except Exception as exc:
+            # SDK HTTP retries belong to each GET. Retrying the enclosing SDK
+            # method would reset that budget and replay earlier successful pages.
+            sanitized = self._sanitize_secret(str(exc))
+            raise JQuantsProviderError(
+                f"failed to fetch J-Quants payload via {method}: {type(exc).__name__}: {sanitized}"
+            ) from None
 
     def _sanitize_secret(self, text: str) -> str:
         if self._api_key and self._api_key in text:
@@ -373,6 +384,15 @@ class _JQuantsTransport:
         except ModuleNotFoundError as exc:
             raise JQuantsProviderError("jquantsapi is not installed") from exc
         self._client = jquantsapi.ClientV2(api_key=self._api_key)
+        # ClientV2 2.7 has no public session/retry constructor setting. Configure
+        # its existing HTTPS adapter once, retaining its pool, proxy/TLS and GET
+        # timeout. Only this read client's transport changes; no SDK global patch.
+        adapter = cast("HTTPAdapter", self._client._request_session().adapters["https://"])
+        adapter.max_retries = _JQuantsReadRetry(
+            total=5,
+            allowed_methods=frozenset({"GET"}),
+            status_forcelist=(429, 500, 502, 503, 504),
+        )
         return self._client
 
 

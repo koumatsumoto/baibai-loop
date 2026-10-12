@@ -1707,29 +1707,6 @@ class ScreeningProviderTests(unittest.TestCase):
             self.assertEqual(sleep_second.call_count, 0)
             self.assertEqual(len(second), len(first))
 
-    def test_get_eq_bars_daily_range_retries_429(self) -> None:
-        class FakeClient:
-            def __init__(self) -> None:
-                self.calls = 0
-
-            def get_eq_bars_daily_range(
-                self, start_dt: str, end_dt: str
-            ) -> list[dict[str, object]]:
-                del start_dt, end_dt
-                self.calls += 1
-                if self.calls < 3:
-                    raise RuntimeError("too many 429 error responses")
-                return [{"Code": "13010", "Date": "2026-04-24T00:00:00", "C": 100.0, "Va": 1000.0}]
-
-        client = FakeClient()
-        with tempfile.TemporaryDirectory() as tmp:
-            provider = JQuantsProvider("token", Path(tmp), client=client)
-            with patch("baibai_engine.market.providers.jquants.time.sleep", return_value=None):
-                bars = provider.get_eq_bars_daily_range(date(2026, 4, 24), date(2026, 4, 24))
-
-        self.assertEqual(client.calls, 3)
-        self.assertEqual(len(bars), 1)
-
     def test_short_sale_refresh_rechecks_covered_disclosure_dates(self) -> None:
         class FakeClient:
             def __init__(self) -> None:
