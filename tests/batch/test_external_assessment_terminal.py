@@ -25,7 +25,7 @@ def plan():
 
 def terminal(p, *, partial=False):
     result = {
-        "format": "retail-published-batch-v1",
+        "format": "external-assessment-published-batch-v1",
         "plan_sha256": p.plan_sha256,
         "release_id": "synthetic-retail-release",
         "release_manifest_sha256": "a" * 64,
@@ -40,8 +40,7 @@ def terminal(p, *, partial=False):
                 "success": 1,
                 "normal_null": 1,
                 "failure": 0,
-                "unattempted": 1,
-                "uncertain": 1,
+                "unattempted": 2,
             },
             receipt_date_coverage={"2026-10-11": {"monex": 1, "rakuten": 1}},
         )
@@ -143,7 +142,7 @@ def test_partial_terminal_rejects_invalid_state_or_received_date_coverage(fault)
     states, coverage = value["state_counts"], value["receipt_date_coverage"]
     counts = coverage["2026-10-11"]
     if fault == "missing_state":
-        del states["uncertain"]
+        del states["unattempted"]
     elif fault == "extra_state":
         states["extra"] = 0
     elif fault == "bool_state":

@@ -100,7 +100,7 @@ def test_real_cli_plan_publication_seal_and_resume_route_to_one_safe_notice(
     # Read the real conditions the workflow uses; a sealed plan gates both jobs.
     workflow = yaml.load(
         (
-            Path(__file__).resolve().parents[2] / ".github/workflows/cloud-retail-dynamics.yml"
+            Path(__file__).resolve().parents[2] / ".github/workflows/cloud-external-assessment.yml"
         ).read_text(),
         Loader=yaml.BaseLoader,
     )

@@ -29,8 +29,8 @@ from baibai_engine.storage.lake.writer import (
 from baibai_engine.storage.observations.jquants import store_jquants_market_calendar
 from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
 
-VALUATION = "retail_dynamics.model_valuation_observations"
-RATING = "retail_dynamics.analyst_rating_observations"
+VALUATION = "external_assessment.model_valuation_observations"
+RATING = "external_assessment.analyst_rating_observations"
 CALENDAR = "jquants.market_calendar"
 DATASETS = (VALUATION, RATING, CALENDAR)
 RECEIVED = datetime(2026, 9, 30, 14, 59, tzinfo=UTC)

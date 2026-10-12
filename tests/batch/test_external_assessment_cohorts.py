@@ -258,7 +258,7 @@ def test_saved_plan_rejects_changed_cohort_and_duplicate_json_fields(mutation):
     with pytest.raises(ValueError, match="cohorts differ"):
         load_plan(json.dumps(data).encode())
     with pytest.raises(ValueError, match="duplicate JSON"):
-        load_plan(b'{"format":"retail-daily-plan-v1","format":"other"}')
+        load_plan(b'{"format":"external-assessment-daily-plan-v1","format":"other"}')
 
 
 def test_terminal_replay_is_idempotent_but_changed_value_or_receipt_conflicts():

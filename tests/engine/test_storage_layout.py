@@ -21,7 +21,7 @@ for prefix in (
     'baibai_engine.storage.lake.writer',
 ):
     assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix
-assert contract.MODEL_VALUATION_TABLE == 'retail_model_valuation_observations'
+assert contract.MODEL_VALUATION_TABLE == 'external_assessment_model_valuation_observations'
 assert tv_contract.TABLE == 'tradingview_forecast_snapshots'
 """
     subprocess.run([sys.executable, "-c", code], check=True)

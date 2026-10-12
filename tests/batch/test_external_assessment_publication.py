@@ -45,7 +45,7 @@ from baibai_engine.batch_api import (
     lake_session,
 )
 
-WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/cloud-retail-dynamics.yml"
+WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/cloud-external-assessment.yml"
 RECEIVED = datetime(2026, 9, 30, 15, tzinfo=UTC)
 
 
@@ -482,7 +482,7 @@ def test_missing_or_unattempted_cohort_cannot_publish(publication):
 def test_workflow_is_daily_serial_private_and_keeps_publication_inside_existing_lease():
     workflow = yaml.load(WORKFLOW.read_text(), Loader=yaml.BaseLoader)
     assert set(workflow["on"]) == {"workflow_dispatch", "schedule"}
-    assert workflow["concurrency"]["group"] == "retail-dynamics-acquire"
+    assert workflow["concurrency"]["group"] == "external-assessment-acquire"
     assert workflow["concurrency"]["cancel-in-progress"] == "false"
     acquire_job = workflow["jobs"]["acquire"]
     assert acquire_job["strategy"]["max-parallel"] == "1"
@@ -526,7 +526,7 @@ def test_selected_month_history_keeps_old_receipts_and_ignores_other_months(publ
     # An old receipt in the selected month must still match all its metadata.
     with sqlite3.connect(database) as connection:
         connection.execute(
-            "UPDATE retail_model_valuation_observations SET consensus_target_updated_label='changed' WHERE snapshot_date >= '2026-09-01' AND snapshot_date < '2026-10-01'"
+            "UPDATE external_assessment_model_valuation_observations SET consensus_target_updated_label='changed' WHERE snapshot_date >= '2026-09-01' AND snapshot_date < '2026-10-01'"
         )
     changed = external_assessment_history_digests(database, partitions=selected)
     assert changed != expected
@@ -542,7 +542,7 @@ def test_selected_month_history_keeps_old_receipts_and_ignores_other_months(publ
     # The August partition is outside this readback scope.
     with sqlite3.connect(database) as connection:
         connection.execute(
-            "DELETE FROM retail_analyst_rating_observations WHERE snapshot_date < '2026-09-01'"
+            "DELETE FROM external_assessment_analyst_rating_observations WHERE snapshot_date < '2026-09-01'"
         )
     assert external_assessment_history_digests(database, partitions=selected) == changed
 
@@ -610,13 +610,17 @@ def test_quants_score_optional_l1_publication_and_idempotent_terminal(publicatio
     external_assessment_verify_observations(database, [item])
     after = external_assessment_history_digests(database)
     assert (
-        after["retail_model_valuation_observations"]
-        == before["retail_model_valuation_observations"]
+        after["external_assessment_model_valuation_observations"]
+        == before["external_assessment_model_valuation_observations"]
     )
     assert (
-        after["retail_analyst_rating_observations"] == before["retail_analyst_rating_observations"]
+        after["external_assessment_analyst_rating_observations"]
+        == before["external_assessment_analyst_rating_observations"]
     )
-    assert after["retail_quants_score_observations"] != before["retail_quants_score_observations"]
+    assert (
+        after["external_assessment_quants_score_observations"]
+        != before["external_assessment_quants_score_observations"]
+    )
     repeat = retail.publish_and_verify(
         store,
         p,

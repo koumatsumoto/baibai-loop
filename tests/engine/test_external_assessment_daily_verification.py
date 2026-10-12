@@ -413,7 +413,7 @@ def test_exact_saved_universe_uses_market_and_all_33_sectors_keeps_alpha_and_fix
     assert hashlib.sha256(database.read_bytes()).hexdigest() == before
     with sqlite3.connect(database) as connection:
         assert (
-            connection.execute("PRAGMA user_version").fetchone()[0] == SQLITE_SCHEMA_VERSION == 30
+            connection.execute("PRAGMA user_version").fetchone()[0] == SQLITE_SCHEMA_VERSION == 31
         )
 
 
@@ -580,7 +580,7 @@ def test_history_digests_cover_both_tables_and_old_rows_without_mutating_other_t
     assert later[ANALYST_RATING_TABLE] == initial[ANALYST_RATING_TABLE]
     with sqlite3.connect(database) as connection:
         updated = connection.execute(
-            "UPDATE retail_model_valuation_observations SET per_consensus_origin='changed-old-row' WHERE fetched_at_utc=?",
+            "UPDATE external_assessment_model_valuation_observations SET per_consensus_origin='changed-old-row' WHERE fetched_at_utc=?",
             (RECEIVED.isoformat(timespec="microseconds"),),
         )
         assert updated.rowcount == 1

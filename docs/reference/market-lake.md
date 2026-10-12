@@ -205,7 +205,7 @@ ORDER BY balance_sheet_date, consolidation_basis, debt_category, due_from_months
 
 ## External Assessmentの保存済み照会
 
-`retail_dynamics.model_valuation_observations`、`retail_dynamics.analyst_rating_observations`、`retail_dynamics.quants_score_observations`は意味ごとのtyped datasetで、month partition、任意収録、履歴保持、coverage未証明である。既存のmarket storeとlake releaseを使う。未収録の旧releaseは新しいcurrent-schema作業コピーへhydrateすると未収録のtableが空となる。旧SQLiteの形をruntime readerが読み替えることはしない。
+`external_assessment.model_valuation_observations`、`external_assessment.analyst_rating_observations`、`external_assessment.quants_score_observations`は意味ごとのtyped datasetで、month partition、任意収録、履歴保持、coverage未証明である。既存のmarket storeとlake releaseを使う。未収録の旧releaseは新しいcurrent-schema作業コピーへhydrateすると未収録のtableが空となる。旧SQLiteの形をruntime readerが読み替えることはしない。
 
 同じ銘柄を同日に複数回受信しても、`fetched_at_utc`が違えば別行にする。保存済みstageの再投入は元の受信時刻を維持し、同じキー・同じ内容なら無変更、異なる内容ならtransaction全体を拒否する。新しいHTTP受信の同値は改定とは数えない。将来別配信元を同じsemantic tableへ追加するときは、その配信元を含むキーへ明示的にcontractを変更する。
 
@@ -217,7 +217,7 @@ ORDER BY balance_sheet_date, consolidation_basis, debt_category, due_from_months
 uv run baibai-engine external-assessment show --ticker <TICKER> --cutoff <ISO_DATETIME_WITH_TIMEZONE> --db stores/market/market.sqlite
 ```
 
-`show`は取得・書込を行わない。`--evaluated-at`省略時はcutoffを評価論理時刻とする。実取得・stage importは明示された`collect / import`だけが既存L1入口へ委譲し、通常のbatch run・DB/R2 identityは変えない。値の意味と未確認metadataは[data sources](./data-sources.md#retail-dynamics)、手動取得・stage importは[batch運用](../../batch/OPERATIONS.md#retail-dynamics)が所有する。
+`show`は取得・書込を行わない。`--evaluated-at`省略時はcutoffを評価論理時刻とする。実取得・stage importは明示された`collect / import`だけが既存L1入口へ委譲し、通常のbatch run・DB/R2 identityは変えない。値の意味と未確認metadataは[data sources](./data-sources.md#external-assessment-acquisition)、手動取得・stage importは[batch運用](../../batch/OPERATIONS.md#external-assessment-acquisition)が所有する。
 
 <a id="tradingview-query"></a>
 

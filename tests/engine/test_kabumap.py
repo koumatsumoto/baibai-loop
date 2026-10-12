@@ -1,6 +1,5 @@
 """Small synthetic structural fixtures; no provider page is committed."""
 
-import hashlib
 import sqlite3
 from datetime import UTC, date, datetime, timedelta
 
@@ -9,8 +8,6 @@ from tests.batch.test_external_assessment_daily import FakeObjectStore, plan, st
 from tests.batch.test_external_assessment_raw import Session
 from tests.batch.test_external_assessment_raw import connect as connect
 from tests.engine.test_external_assessment_daily_verification import ASOF, seed_database
-from tests.helpers.l1_release import market_store
-from tools.ops.migrate_market_29_to_30 import migrate_copy
 
 from baibai_batch.jobs import external_assessment_daily as external_assessment_daily
 from baibai_batch.jobs.external_assessment_cohorts import make_plan
@@ -20,11 +17,9 @@ from baibai_engine.external_assessment.acquisition import collection
 from baibai_engine.external_assessment.acquisition.sources import ParseError, kabumap
 from baibai_engine.external_assessment.acquisition.universe import frozen_universe
 from baibai_engine.external_assessment.acquisition.verification import verify_observations
-from baibai_engine.external_assessment.observations.contract import QUANTS_SCORE_TABLE
 from baibai_engine.external_assessment.observations.models import QuantsScoreObservation
 from baibai_engine.external_assessment.reader import read_observations
 from baibai_engine.external_assessment.store import ObservationConflictError, save_observations
-from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
 
 RECEIVED = datetime(2026, 10, 12, 15, 0, 0, 123456, tzinfo=UTC)
 
@@ -198,28 +193,3 @@ def test_bank_is_in_saved_ordinary_universe_without_financial_eligibility_filter
         )
     tickers, _ = frozen_universe(path, ASOF)
     assert "8306" in tickers
-
-
-def test_migration_preserves_original_and_every_existing_table(tmp_path):
-    source = market_store(tmp_path / "schema29.sqlite")
-    with sqlite3.connect(source) as old:
-        old.execute(f"DROP TABLE {QUANTS_SCORE_TABLE}")
-        old.execute("PRAGMA user_version=29")
-        tables = [
-            row[0] for row in old.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        ]
-        before = {table: old.execute(f'SELECT * FROM "{table}"').fetchall() for table in tables}
-    digest = hashlib.sha256(source.read_bytes()).hexdigest()
-    with pytest.raises(SQLiteSchemaError):
-        open_connection(source)
-    target = tmp_path / "schema30.sqlite"
-    migrate_copy(source, target)
-    assert hashlib.sha256(source.read_bytes()).hexdigest() == digest
-    with sqlite3.connect(target) as new:
-        assert new.execute("PRAGMA user_version").fetchone()[0] == 30
-        assert new.execute(f"SELECT COUNT(*) FROM {QUANTS_SCORE_TABLE}").fetchone()[0] == 0
-        assert {
-            table: new.execute(f'SELECT * FROM "{table}"').fetchall() for table in tables
-        } == before
-    with pytest.raises(FileExistsError):
-        migrate_copy(source, target)

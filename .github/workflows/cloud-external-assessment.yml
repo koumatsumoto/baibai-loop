@@ -1,4 +1,4 @@
-name: cloud-retail-dynamics
+name: cloud-external-assessment
 run-name: "external assessment ${{ inputs.batch_id || github.event.schedule }}"
 
 on:
@@ -27,7 +27,7 @@ permissions:
 
 # Serializes different batch ids and reruns without blocking existing publishers.
 concurrency:
-  group: retail-dynamics-acquire
+  group: external-assessment-acquire
   queue: max
   cancel-in-progress: false
 
@@ -212,7 +212,7 @@ jobs:
         id: cancellation
         if: ${{ cancelled() }}
         run: echo "cancelled=true" >> "$GITHUB_OUTPUT"
-      - name: Notify Discord once about the terminal retail run
+      - name: Notify Discord once about the terminal External Assessment run
         if: ${{ always() }}
         continue-on-error: true
         env:

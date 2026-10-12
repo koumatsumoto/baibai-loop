@@ -134,7 +134,7 @@ def test_explicit_partial_publishes_only_confirmed_receipts_without_changing_hal
     }
     assert report["status"] == "partially_published"
     assert report["readback"] == "verified"
-    assert report["format"] == "retail-partially-published-batch-v1"
+    assert report["format"] == "external-assessment-partially-published-batch-v1"
     assert report["observations"] == report["rows_added"] == 2
     assert report["expected_pairs"] == 6
     assert report["state_counts"] == expected_states
