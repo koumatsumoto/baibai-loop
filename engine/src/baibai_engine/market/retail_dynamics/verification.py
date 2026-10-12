@@ -1,4 +1,4 @@
-"""Read-only verification of staged receipts and complete retail history."""
+"""Read-only verification of staged receipts and affected retail history."""
 
 from __future__ import annotations
 
@@ -50,18 +50,37 @@ def verify_observations(database: Path, observations: Sequence[Observation]) -> 
             raise ValueError("retail receipt readback mismatch")
 
 
-def history_digests(database: Path) -> dict[str, str]:
+def history_digests(
+    database: Path, *, partitions: set[tuple[str, int, int]] | None = None
+) -> dict[str, str]:
     result = {}
     with closing(connect_read_only(database)) as connection:
         connection.execute("BEGIN")
-        for table, columns in (
-            (MODEL_VALUATION_TABLE, MODEL_VALUATION_COLUMNS),
-            (ANALYST_RATING_TABLE, ANALYST_RATING_COLUMNS),
+        for dataset, table, columns in (
+            (RETAIL_MODEL_VALUATION_OBSERVATIONS, MODEL_VALUATION_TABLE, MODEL_VALUATION_COLUMNS),
+            (RETAIL_ANALYST_RATING_OBSERVATIONS, ANALYST_RATING_TABLE, ANALYST_RATING_COLUMNS),
         ):
             digest = hashlib.sha256()
             names = ",".join(column[0] for column in columns)
+            where = ""
+            bounds: list[str] = []
+            if partitions is not None:
+                months = sorted(
+                    (year, month) for name, year, month in partitions if name == dataset.name
+                )
+                where = " WHERE " + (
+                    " OR ".join("(snapshot_date >= ? AND snapshot_date < ?)" for _ in months) or "0"
+                )
+                for year, month in months:
+                    bounds.extend(
+                        (
+                            f"{year:04}-{month:02}-01",
+                            f"{year + (month == 12):04}-{month % 12 + 1:02}-01",
+                        )
+                    )
             for row in connection.execute(
-                f"SELECT {names} FROM {table} ORDER BY ticker,fetched_at_utc"  # nosec B608
+                f"SELECT {names} FROM {table}{where} ORDER BY ticker,fetched_at_utc",  # nosec B608
+                bounds,
             ):
                 digest.update(_row_bytes(tuple(row)))
             result[table] = digest.hexdigest()
@@ -75,12 +94,9 @@ def verify_release_history(
     cache: LakeObjectCache,
     expected_history: Mapping[str, str],
     observations: Sequence[Observation],
+    partitions: set[tuple[str, int, int]] | None = None,
 ) -> None:
-    """Verify only the fixed release's retail history; no partial SQLite hydrate.
-
-    Scan all months together in primary-key order, retaining one bounded reader
-    batch and the current stage's receipt keys rather than a full history list.
-    """
+    """Verify selected months in primary-key order, including their older receipts."""
     actual_history = {}
     for dataset, model in (
         (RETAIL_MODEL_VALUATION_OBSERVATIONS, ModelValuationObservation),
@@ -96,7 +112,16 @@ def verify_release_history(
         digest = hashlib.sha256()
         manifest = release.dataset_manifests.get(dataset.name)
         paths = (
-            materialize_partitions(cache, dataset=dataset, partitions=manifest.partitions)
+            materialize_partitions(
+                cache,
+                dataset=dataset,
+                partitions=tuple(
+                    part
+                    for part in manifest.partitions
+                    if partitions is None
+                    or (dataset.name, part.values["year"], part.values["month"]) in partitions
+                ),
+            )
             if manifest is not None
             else ()
         )
