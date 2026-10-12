@@ -7,8 +7,8 @@ from pathlib import Path
 from baibai_engine.market.bars import JQuantsDailyBar
 from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
+from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.models import SecurityMaster
-from baibai_engine.screening.schema import TTMQuality
 
 ROOT = Path(__file__).resolve().parents[2]
 

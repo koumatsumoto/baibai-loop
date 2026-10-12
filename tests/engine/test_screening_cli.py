@@ -36,6 +36,7 @@ from baibai_engine.market.jquants_models import (
     JQuantsFinancialSummary,
     JQuantsWeeklyMargin,
 )
+from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.models import SecurityMaster
 from baibai_engine.market.providers.edinet import EDINETProviderError, EDINETRateLimitError
 from baibai_engine.market.providers.jquants import JQuantsProvider
@@ -53,7 +54,6 @@ from baibai_engine.screening.cli.run import _index_next_earnings
 from baibai_engine.screening.config import ScreeningConfig
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.run_store import ScreeningRunReader
-from baibai_engine.screening.schema import TTMQuality
 from baibai_engine.screening.sqlite_coverage import (
     RequiredFieldCoverage,
     RequiredFieldRepairPlan,

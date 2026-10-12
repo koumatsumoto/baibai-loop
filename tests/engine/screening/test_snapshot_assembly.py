@@ -13,10 +13,8 @@ from tests.engine.screening.metric_snapshot_fixtures import SnapshotFixtures
 
 from baibai_engine.market.bars import JQuantsDailyBar
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
-from baibai_engine.screening.metrics import (
-    build_metrics,
-)
-from baibai_engine.screening.schema import FinancialSnapshot
+from baibai_engine.screening.metrics.snapshot import build_metrics
+from baibai_engine.valuation.metrics.models import FinancialSnapshot
 
 
 class ScreeningMetricsTests(SnapshotFixtures):
@@ -122,7 +120,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
     def test_disclosures_after_the_asof_date_do_not_reach_the_snapshot(self) -> None:
         """較正リプレイは過去の断面を作り直す。発表前の決算が 1 行混ざれば全部が偽になる。
 
-        bar は `_latest_bar_on_or_before` が切るので、開示行だけ呼び出し側任せにすると
+        bar は `latest_bar_on_or_before` が切るので、開示行だけ呼び出し側任せにすると
         「未発表の好決算で割安に見える」行ができる。
         """
         asof = date(2026, 3, 31)

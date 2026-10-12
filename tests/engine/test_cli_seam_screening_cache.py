@@ -38,7 +38,7 @@ from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
 from baibai_engine.screening import cli as screening_cli
 from baibai_engine.screening.cli import app
 from baibai_engine.screening.cli.cache import FIN_SUMMARY_REVISION_OVERLAP_DAYS
-from baibai_engine.screening.metrics import BARS_INPUT_WINDOW_DAYS, FIN_INPUT_WINDOW_DAYS
+from baibai_engine.screening.metrics.snapshot import BARS_INPUT_WINDOW_DAYS, FIN_INPUT_WINDOW_DAYS
 from baibai_engine.storage.observations.schema import open_connection
 
 # The store path every command below derives from the working directory.

@@ -5,13 +5,9 @@ from collections.abc import Mapping
 import yaml
 
 from baibai_engine.foundation.time import JST
+from baibai_engine.market.metric_quality import TTMQuality
 
-from .schema import (
-    FreshnessWarning,
-    ScreeningRunDocument,
-    SecurityAnalysis,
-    TTMQuality,
-)
+from .schema import FreshnessWarning, ScreeningRunDocument, SecurityAnalysis
 
 _DECIMAL_PLACES = {
     "per_forward": 2,

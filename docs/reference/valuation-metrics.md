@@ -15,7 +15,7 @@ Researchの判断見積りは[ThesisのBase/Downsideと共通算術](./thesis.md
 
 screening時点のE[r] / FV anchorは候補比較の文脈として表示・参照し、[Thesis payloadへ重複転記しない](./thesis.md#input-snapshot-and-lineage)。機械E[r]の5年priorと3y/5y calibrationは個別判断の期間を固定しない。
 
-倍率など入力指標の計算の正本は[metrics](../../engine/src/baibai_engine/screening/metrics/)にある。会計期間とTTMは`periods`、株式・普通株自己資本basisは`capital`、配当と還元は`dividends`、利益は`profit`、価格履歴は`history`、Security Analysis向けの組立は`snapshot`が所有する。本書は指標の意味と、異なるbasisを混ぜないための理由を扱う。
+財務・倍率計算の正本は[valuation/metrics](../../engine/src/baibai_engine/valuation/metrics/)にある。`models`がFinancialSnapshot/4項目TTMRules/配当basisを所有し、`financial_snapshot`が生成本体、`periods`が会計期間/TTM、`capital`が株式/普通株自己資本basis、`dividends`が配当/還元、`profit`が利益、`history`が価格感応倍率履歴、`relative`が値で渡された業種/市場母集団と自己レンジの倍率比較を所有する。価格騰落・標本volatility・出来高・安値乖離・信用需給は`market_context/{history,margin}`、共有split算術は`market/bars`、対象/母集団選択とSecurity Analysis向けの結果組立は`screening/metrics/snapshot`が所有する。ScreeningRulesはTTMRulesを構成して計算へ渡し、計算領域へ設定読込や母集団選択を持ち込まない。本書は指標の意味と、異なるbasisを混ぜないための理由を扱う。
 
 <a id="machine-valuation"></a>
 

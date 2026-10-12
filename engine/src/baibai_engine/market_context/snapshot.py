@@ -26,8 +26,9 @@ from .benchmark import (
     TREND_WINDOW_BARS,
     classify_benchmark_trend,
 )
+from .history import trailing_return
 from .master import read_master_snapshot
-from .prices import read_price_bars, trailing_return
+from .prices import read_price_bars
 
 DEFAULT_HISTORY_WEEKS = 12
 

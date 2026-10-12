@@ -133,3 +133,6 @@ def margin_supply_demand(
             latest.long_std_vol / long_vol if latest.long_std_vol is not None and long_vol else None
         ),
     )
+
+
+MARGIN_DELTA_SESSIONS = 130

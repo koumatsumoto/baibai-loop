@@ -11,7 +11,7 @@ from math import exp, isclose, log
 from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
-from baibai_engine.screening.metrics.periods import (
+from baibai_engine.valuation.metrics.periods import (
     _accounting_observation_key,
     _AccountingObservationKey,
     _actual_rows,

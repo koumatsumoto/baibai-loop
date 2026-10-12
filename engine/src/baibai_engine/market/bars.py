@@ -37,28 +37,46 @@ def asof_basis_closes(
     """
     if not bars:
         return []
+    return asof_basis_prices(
+        [(bar.traded_at, bar.close) for bar in bars],
+        [
+            (event.traded_at, event.adjustment_factor)
+            for event in (bars if adjustment_events is None else adjustment_events)
+        ],
+        asof_date=asof_date or bars[-1].traded_at,
+    )
+
+
+def asof_basis_prices(
+    prices: Sequence[tuple[date, float]],
+    adjustment_events: Sequence[tuple[date, float | None]],
+    *,
+    asof_date: date,
+) -> list[float]:
+    """観測価格と独立factorからas-of基準の価格を組む、共有L1算術。"""
+    if not prices:
+        return []
     events = sorted(
         (
             event
-            for event in (bars if adjustment_events is None else adjustment_events)
-            if event.adjustment_factor not in (None, 0.0, 1.0)
-            and event.traded_at <= (asof_date or bars[-1].traded_at)
+            for event in adjustment_events
+            if event[1] not in (None, 0.0, 1.0) and event[0] <= asof_date
         ),
-        key=lambda event: event.traded_at,
+        key=lambda event: event[0],
     )
-    result = [0.0] * len(bars)
+    result = [0.0] * len(prices)
     factor = 1.0
     event_index = len(events) - 1
-    for index in range(len(bars) - 1, -1, -1):
-        bar = bars[index]
-        while event_index >= 0 and events[event_index].traded_at > bar.traded_at:
-            adjustment = events[event_index].adjustment_factor
+    for index in range(len(prices) - 1, -1, -1):
+        traded_at, close = prices[index]
+        while event_index >= 0 and events[event_index][0] > traded_at:
+            adjustment = events[event_index][1]
             assert adjustment is not None
             factor *= adjustment
             event_index -= 1
-        result[index] = bar.close * factor
-        while event_index >= 0 and events[event_index].traded_at == bar.traded_at:
-            adjustment = events[event_index].adjustment_factor
+        result[index] = close * factor
+        while event_index >= 0 and events[event_index][0] == traded_at:
+            adjustment = events[event_index][1]
             assert adjustment is not None
             factor *= adjustment
             event_index -= 1

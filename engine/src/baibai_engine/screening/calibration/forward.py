@@ -16,6 +16,11 @@ from baibai_engine.market.bars import (
     asof_basis_closes,
 )
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
+from baibai_engine.valuation.metrics.capital import SHARE_COUNT_ANCHOR_TOLERANCE
+from baibai_engine.valuation.metrics.dividends import (
+    DIVIDEND_RECORD_DATE_GUARD_DAYS,
+    DIVIDEND_ROUTE_TOLERANCE,
+)
 
 from .horizons import HORIZONS, STALE_PRICE_MAX_LAG_DAYS, HorizonSpec, require_horizon
 
@@ -78,11 +83,6 @@ TOTAL_RETURN_STATUSES = frozenset(
 # 配当の基準日規約は screening の carry と同じでなければならない。較正した量とランキング
 # へ入れる量の定義が別になると、較正が測っているものと本番が使うものが別になる。値は
 # metrics 側を正本として import する (2 か所に書くと片方だけが動く)。
-from ..metrics import (  # noqa: E402
-    DIVIDEND_RECORD_DATE_GUARD_DAYS,
-    DIVIDEND_ROUTE_TOLERANCE,
-    SHARE_COUNT_ANCHOR_TOLERANCE,
-)
 
 BENCHMARK_TICKERS: tuple[str, ...] = (TOPIX_ETF_PROXY,)
 

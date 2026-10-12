@@ -7,6 +7,11 @@ from collections.abc import Iterable
 from datetime import date, timedelta
 from pathlib import Path
 
+from baibai_engine.screening.metrics.snapshot import (
+    BARS_INPUT_WINDOW_DAYS,
+    FIN_INPUT_WINDOW_DAYS,
+    NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
+)
 from baibai_engine.storage.observations.coverage import daily_bars_covered_by_data, range_covered
 from baibai_engine.storage.observations.schema import (
     SQLITE_SCHEMA_VERSION,
@@ -14,11 +19,6 @@ from baibai_engine.storage.observations.schema import (
     validate_current_schema,
 )
 
-from ..metrics import (
-    BARS_INPUT_WINDOW_DAYS,
-    FIN_INPUT_WINDOW_DAYS,
-    NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
-)
 from .edinet import _append_edinet_metrics_coverage_issues
 from .jpx import (
     _append_jpx_earnings_calendar_issues,

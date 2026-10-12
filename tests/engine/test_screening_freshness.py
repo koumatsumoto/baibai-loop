@@ -10,7 +10,7 @@ from baibai_engine.screening.freshness import (
     detect_edinet_freshness_warnings,
     load_disclosure_events,
 )
-from baibai_engine.screening.schema import FinancialSnapshot
+from baibai_engine.valuation.metrics.models import FinancialSnapshot
 
 
 def _financial(source_submit_datetime: str | None = "2025-10-15 12:00") -> FinancialSnapshot:

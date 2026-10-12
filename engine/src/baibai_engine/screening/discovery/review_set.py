@@ -17,9 +17,12 @@ from baibai_engine.screening.discovery.contracts import (
     ReviewSetAnalysis,
     ReviewSetEntry,
 )
-from baibai_engine.screening.metrics import MIN_SECTOR_MEDIAN_POPULATION
 from baibai_engine.screening.rule_config import CandidateDiscoveryRules
 from baibai_engine.storage.application.json import canonical_json
+from baibai_engine.valuation.metrics.relative import (
+    MIN_SECTOR_MEDIAN_POPULATION,
+    normalized_earnings_sector_gaps,
+)
 
 _ASSET_VALUE_EXCLUDED_SECTORS = frozenset(
     {
@@ -130,7 +133,7 @@ def build_review_set(
     required_jpx_flags: Sequence[str],
 ) -> dict[str, object]:
     eligible = _eligible_population(security_analyses, rules, required_jpx_flags)
-    normalized_gaps = _normalized_sector_gaps(eligible)
+    normalized_gaps = normalized_earnings_sector_gaps(_normalized_earnings_inputs(eligible))
     nominations_by_ticker = {
         ticker: list(nominations)
         for ticker, nominations in _nomination_ranks(
@@ -195,7 +198,7 @@ def build_nomination_ranks(
     """Return every approach nomination used by the union and calibration replay."""
 
     eligible = _eligible_population(security_analyses, rules, required_jpx_flags)
-    normalized_gaps = _normalized_sector_gaps(eligible)
+    normalized_gaps = normalized_earnings_sector_gaps(_normalized_earnings_inputs(eligible))
     return _nomination_ranks(eligible, rules=rules, normalized_gaps=normalized_gaps)
 
 
@@ -366,28 +369,17 @@ def _ordered_eligible(
     return [row for _, row in eligible]
 
 
-def _normalized_sector_gaps(rows: Sequence[Mapping[str, object]]) -> dict[str, float | None]:
-    by_sector: dict[str, list[float]] = defaultdict(list)
-    market: list[float] = []
-    for row in rows:
-        value = _positive(metric_map(row.get("metrics")).get("normalized_per_3fy"))
-        if value is not None:
-            market.append(value)
-            by_sector[string_or_none(row.get("sector_33")) or ""].append(value)
-    market_center = median(market) if market else None
-    centers = {
-        sector: median(values) if len(values) >= MIN_SECTOR_MEDIAN_POPULATION else market_center
-        for sector, values in by_sector.items()
-    }
-    output: dict[str, float | None] = {}
-    for row in rows:
-        ticker = _ticker(row)
-        value = _positive(metric_map(row.get("metrics")).get("normalized_per_3fy"))
-        center = centers.get(string_or_none(row.get("sector_33")) or "", market_center)
-        output[ticker] = (
-            value / center - 1 if value is not None and center not in (None, 0) else None
+def _normalized_earnings_inputs(
+    rows: Sequence[Mapping[str, object]],
+) -> list[tuple[str, str, float | None]]:
+    return [
+        (
+            _ticker(row),
+            string_or_none(row.get("sector_33")) or "",
+            _positive(metric_map(row.get("metrics")).get("normalized_per_3fy")),
         )
-    return output
+        for row in rows
+    ]
 
 
 def _reinvestment_quality_floors(

@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from baibai_engine.market.ticker import normalize_ticker
-from baibai_engine.screening.schema import FinancialSnapshot, FreshnessWarning
+from baibai_engine.screening.schema import FreshnessWarning
+from baibai_engine.valuation.metrics.models import FinancialSnapshot
 
 
 @dataclass(frozen=True, slots=True)

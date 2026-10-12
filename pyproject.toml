@@ -460,7 +460,7 @@ forbidden_modules = [
 name = "enterprise valuation is pure"
 type = "forbidden"
 source_modules = ["baibai_engine.valuation", "baibai_engine.research.thesis", "baibai_engine.research.entry_policy", "baibai_engine.research.position_review"]
-forbidden_modules = ["baibai_engine.storage", "baibai_engine.position", "baibai_engine.market", "baibai_engine.research.workspace", "baibai_engine.research.planning", "baibai_engine.research.thesis_store"]
+forbidden_modules = ["baibai_engine.storage", "baibai_engine.position", "baibai_engine.market.providers", "baibai_engine.market.store", "baibai_engine.market.edinet_metrics", "baibai_engine.market.edinet_facts", "baibai_engine.research.workspace", "baibai_engine.research.planning", "baibai_engine.research.thesis_store"]
 
 [[tool.importlinter.contracts]]
 name = "Reviewed Thesis storage does not depend on judgment composition"
@@ -512,7 +512,7 @@ forbidden_modules = [
   "baibai_engine.screening", "baibai_engine.research", "baibai_engine.read_api",
   "baibai_engine.market_context",
   "baibai_engine.external_assessment",
-  "baibai_engine.market", "baibai_engine.macro", "baibai_engine.position",
+  "baibai_engine.market.providers", "baibai_engine.market.store", "baibai_engine.market.edinet_metrics", "baibai_engine.market.edinet_facts", "baibai_engine.macro", "baibai_engine.position",
   "baibai_engine.storage", "baibai_engine.tasks",
 ]
 
@@ -620,3 +620,14 @@ name = "provider observation models and decoding do not load acquisition or stor
 type = "forbidden"
 source_modules = ["baibai_engine.market.edinet_models", "baibai_engine.market.jpx_models", "baibai_engine.market.jquants_models", "baibai_engine.market.jquants_decode"]
 forbidden_modules = ["baibai_engine.market.providers", "baibai_engine.storage", "baibai_engine.screening", "baibai_engine.research", "baibai_engine.read_api", "baibai_engine.batch_api", "baibai_web", "baibai_batch", "tools"]
+
+
+[[tool.importlinter.contracts]]
+name = "financial and price calculations use only pure observation inputs"
+type = "forbidden"
+source_modules = ["baibai_engine.valuation.metrics", "baibai_engine.market_context.history", "baibai_engine.market_context.margin"]
+forbidden_modules = [
+  "baibai_engine.storage", "baibai_engine.market.providers", "baibai_engine.market.store",
+  "baibai_engine.market.edinet_metrics", "baibai_engine.market.edinet_facts", "baibai_engine.market_context.prices",
+  "baibai_engine.screening", "baibai_engine.read_api", "baibai_engine.research", "baibai_engine.macro",
+]

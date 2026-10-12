@@ -10,16 +10,14 @@ from statistics import fmean
 
 from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
-from baibai_engine.screening.metrics.capital import _normalize_summaries_to_asof_basis
-from baibai_engine.screening.metrics.dividends import (
+from baibai_engine.market.metric_quality import OperatingProfitSource
+from baibai_engine.valuation.metrics.capital import _normalize_summaries_to_asof_basis
+from baibai_engine.valuation.metrics.dividends import (
     _latest_consecutive_values,
     _latest_fy_revisions,
 )
-from baibai_engine.screening.metrics.periods import _carry_forward, _latest_summary, _ttm_value
-from baibai_engine.screening.rule_config import TTMRules
-from baibai_engine.screening.schema import (
-    OperatingProfitSource,
-)
+from baibai_engine.valuation.metrics.models import TTMRules
+from baibai_engine.valuation.metrics.periods import _carry_forward, _latest_summary, _ttm_value
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

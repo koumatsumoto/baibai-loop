@@ -31,6 +31,7 @@ from baibai_engine.market.jpx_models import (
     JPXEarningsCalendarSnapshot,
     JPXProviderError,
 )
+from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.providers.edinet import (
     EDINETProvider,
     EDINETProviderError,
@@ -50,7 +51,6 @@ from baibai_engine.market.providers.jquants import (
     normalize_market_calendar,
     parse_jquants_code,
 )
-from baibai_engine.screening.schema import TTMQuality
 from baibai_engine.storage.observations.ingest.edinet import (
     store_edinet_documents,
     store_edinet_metrics,

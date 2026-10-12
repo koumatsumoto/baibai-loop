@@ -17,7 +17,7 @@ from baibai_engine.market.margin_publication import (
     LEGACY_WEEKLY_LAST_PUBLICATION_DATE,
 )
 from baibai_engine.market.providers.edinet import EDINETProviderError
-from baibai_engine.screening.metrics import (
+from baibai_engine.screening.metrics.snapshot import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from baibai_engine.market.bars import JQuantsDailyBar
-from baibai_engine.screening.metrics.history import _avg_daily_volume
+from baibai_engine.market_context.history import avg_daily_volume
 
 
 def test_the_average_volume_window_is_twenty_sessions() -> None:
@@ -33,10 +33,10 @@ def test_the_average_volume_window_is_twenty_sessions() -> None:
     ]
 
     # Twenty sessions back from the newest bar leaves the outlier one session outside.
-    assert _avg_daily_volume(bars, asof) == 1_000.0
+    assert avg_daily_volume(bars, asof) == 1_000.0
     # A window that reached one session further would take it in, which is what makes
     # this the edge rather than a restatement of the constant.
-    assert _avg_daily_volume(bars, asof, sessions=21) != 1_000.0
+    assert avg_daily_volume(bars, asof, sessions=21) != 1_000.0
 
 
 def test_the_average_volume_needs_fifteen_of_the_twenty_sessions_to_report() -> None:
@@ -68,10 +68,10 @@ def test_the_average_volume_needs_fifteen_of_the_twenty_sessions_to_report() -> 
             for offset in range(20)
         ]
 
-    assert _avg_daily_volume(_bars(15), asof) == 1_000.0
-    assert _avg_daily_volume(_bars(14), asof) is None
+    assert avg_daily_volume(_bars(15), asof) == 1_000.0
+    assert avg_daily_volume(_bars(14), asof) is None
 
     # The other half of the rule: the twenty sessions have to exist at all. A name
     # listed last week reports every day it has traded, so the reporting floor alone
     # would hand it a days-of-volume figure off a handful of sessions.
-    assert _avg_daily_volume(_bars(19)[1:], asof) is None
+    assert avg_daily_volume(_bars(19)[1:], asof) is None
