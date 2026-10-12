@@ -9,7 +9,7 @@ from math import prod
 from zoneinfo import ZoneInfo
 
 from baibai_engine.market.bars import JQuantsDailyBar
-from baibai_engine.market.jpx_total_return import BenchmarkObservation
+from baibai_engine.market_context.observations.benchmark import BenchmarkObservation
 from baibai_engine.position.ledger import (
     ConfirmedTaxEvent,
     ContributionEvent,

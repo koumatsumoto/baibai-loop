@@ -7,13 +7,13 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
-from baibai_engine.foundation.er_calibration_context import (
-    ER_CALIBRATION_CONTEXT_SCHEMA_VERSION,
-    ErCalibrationContextArtifact,
-)
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
+from baibai_engine.valuation.calibration.contracts import (
+    ER_CALIBRATION_CONTEXT_SCHEMA_VERSION,
+    ErCalibrationContextArtifact,
+)
 from baibai_engine.valuation.estimates import EXPECTED_RETURN_MODEL_VERSION
 
 _ROOT = Path(__file__).resolve().parents[3]

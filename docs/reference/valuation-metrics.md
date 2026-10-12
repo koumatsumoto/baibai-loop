@@ -13,7 +13,7 @@ Candidate Discoveryのprimary authorityは4 Valuation Approachesのnative eligib
 
 Researchの判断見積りは[ThesisのBase/Downsideと共通算術](./thesis.md#scenario-arithmetic)に従う。銘柄とシナリオに対応する比較期間について、sourceに基づく価値・累積分配・returnを計算し、[独立Review](./thesis.md#independent-second-pass)で反証する。
 
-screening時点のE[r] / FV anchorは候補比較の文脈として表示・参照し、[Thesis payloadへ重複転記しない](./thesis.md#input-snapshot-and-lineage)。機械E[r]の5年priorと3y/5y calibrationは個別判断の期間を固定しない。
+screening時点のE[r] / FV anchorは候補比較の文脈として表示・参照し、[Thesis payloadへ重複転記しない](./thesis.md#input-snapshot-and-lineage)。機械E[r]の5年priorと3y/5y calibrationは個別判断の期間を固定しない。保存済み較正文脈の意味・解釈はValuationが所有し、生成とevidenceの条件は[見積り較正](./estimate-calibration.md#判断面へ渡す較正文脈)を参照する。
 
 財務・倍率計算の正本は[valuation/metrics](../../engine/src/baibai_engine/valuation/metrics/)にある。`models`がFinancialSnapshot/4項目TTMRules/配当basisを所有し、`financial_snapshot`が生成本体、`periods`が会計期間/TTM、`capital`が株式/普通株自己資本basis、`dividends`が配当/還元、`profit`が利益、`history`が価格感応倍率履歴、`relative`が値で渡された業種/市場母集団と自己レンジの倍率比較を所有する。価格騰落・標本volatility・出来高・安値乖離・信用需給は`market_context/{history,margin}`、共有split算術は`market/bars`、対象/母集団選択とSecurity Analysis向けの結果組立は`screening/metrics/snapshot`が所有する。ScreeningRulesはTTMRulesを構成して計算へ渡し、計算領域へ設定読込や母集団選択を持ち込まない。本書は指標の意味と、異なるbasisを混ぜないための理由を扱う。
 

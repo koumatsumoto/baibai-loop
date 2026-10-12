@@ -302,6 +302,9 @@ forbidden_modules = [
   "baibai_engine.position",
 ]
 
+# The source-file reader consumes only the pure official observation contract.
+ignore_imports = ["baibai_engine.market.jpx_total_return -> baibai_engine.market_context.observations.benchmark"]
+
 [[tool.importlinter.contracts]]
 name = "position does not import screening (cycle prevention)"
 type = "forbidden"
@@ -339,10 +342,9 @@ ignore_imports = [
   # The public CLI is the repository composition boundary for building a
   # Position Review from research and position artifacts. Position domain modules
   # remain independent of research.
-  "baibai_engine.position.cli -> baibai_engine.research.capital_allocation_service",
+  "baibai_engine.position.cli -> baibai_engine.research.capital_allocation_query",
   "baibai_engine.position.cli -> baibai_engine.research.position_review_service",
   "baibai_engine.position.cli -> baibai_engine.research.position_review",
-  "baibai_engine.position.cli -> baibai_engine.research.broker_fact_service",
 ]
 
 [[tool.importlinter.contracts]]
@@ -630,4 +632,24 @@ forbidden_modules = [
   "baibai_engine.storage", "baibai_engine.market.providers", "baibai_engine.market.store",
   "baibai_engine.market.edinet_metrics", "baibai_engine.market.edinet_facts", "baibai_engine.market_context.prices",
   "baibai_engine.screening", "baibai_engine.read_api", "baibai_engine.research", "baibai_engine.macro",
+]
+
+[[tool.importlinter.contracts]]
+name = "valuation calibration and market observation contracts are pure"
+type = "forbidden"
+source_modules = ["baibai_engine.valuation.calibration.contracts", "baibai_engine.market_context.observations"]
+forbidden_modules = [
+  "baibai_engine.storage", "baibai_engine.read_api", "baibai_engine.research",
+  "baibai_engine.screening", "baibai_engine.position", "baibai_engine.market",
+  "baibai_engine.macro", "baibai_engine.valuation.calibration.query",
+]
+
+[[tool.importlinter.contracts]]
+name = "historical allocation identity query does not publish or recheck eligibility"
+type = "forbidden"
+source_modules = ["baibai_engine.research.capital_allocation_query"]
+forbidden_modules = [
+  "baibai_engine.storage.application.write", "baibai_engine.research.capital_allocation_service",
+  "baibai_engine.research.capital_inputs", "baibai_engine.research.workspace",
+  "baibai_engine.research.triage.service", "baibai_engine.research.thesis_store",
 ]

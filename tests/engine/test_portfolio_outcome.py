@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from baibai_engine.market.bars import JQuantsDailyBar
-from baibai_engine.market.jpx_total_return import BenchmarkObservation
+from baibai_engine.market_context.observations.benchmark import BenchmarkObservation
 from baibai_engine.position.cli import main
 from baibai_engine.position.ledger import PortfolioLedgerDocument, PortfolioLedgerError
 from baibai_engine.position.outcome import (

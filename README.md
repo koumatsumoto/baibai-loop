@@ -4,4 +4,4 @@
 
 初めて読むときも、調査・運用・開発の入口を探すときも、[docs portal](./docs/README.md)から始めます。保存済みReview SetのAI判断はResearch Triageが所有し、明示draftの入口は`baibai-engine research triage`です。
 
-財務・倍率の計算はValuation、価格文脈・信用需給はMarket Context、候補探索と分析結果の組立はScreeningが所有します。境界と残配置は[architecture](./docs/architecture.md)を参照します。
+財務・倍率の計算と保存済みER較正文脈の解釈はValuation、価格文脈・信用需給と公式benchmark観測契約はMarket Context、候補探索と分析結果の組立・較正実行はScreeningが所有します。境界と残配置は[architecture](./docs/architecture.md)を参照します。

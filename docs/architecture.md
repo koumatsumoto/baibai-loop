@@ -107,7 +107,7 @@ Owner MCPは所有者が保存済み情報を読むlocal adapterであり、stor
 | `engine/src/baibai_engine/market` | source factの取得・保存・公表日判断、固定release読取、market store |
 | `engine/src/baibai_engine/macro` | 経済系列の取得・保存、既存Reading計算kernel、Macro Contextの型・発行・scorecard |
 | `engine/src/baibai_engine/external_assessment` | 外部モデル価格・rating・Quants score・TradingView予測の保存済み読取、出所別比較と原評価元の関係 |
-| `engine/src/baibai_engine/market_context` | 市場snapshot、benchmark方向、業種平均対市場平均、個別対市場/同業、cutoff付きL1読取、保存済みReading/Context読取 |
+| `engine/src/baibai_engine/market_context` | 市場snapshot、benchmark方向・公式total-return観測契約、業種平均対市場平均、個別対市場/同業、cutoff付きL1読取、保存済みReading/Context読取 |
 | `engine/src/baibai_engine/screening` | 必要入力のpreflight、Security Analysis、Candidate Discovery、calibration |
 | `engine/src/baibai_engine/valuation` | 小さな入力からの財務/TTM/倍率/相対評価、ER/FV機械推計、評価前提型、Projection、条件付き収益の純粋算術、保存済み推計の投影 |
 | `engine/src/baibai_engine/research` | Triage、統合Thesis、調査進行、独立Review・発行・store、CAA、Planning、Position Review |
@@ -125,15 +125,15 @@ Owner MCPは所有者が保存済み情報を読むlocal adapterであり、stor
 
 Valuationの型・算術・機械推計と財務/TTM/倍率の計算本体は`valuation`が所有する。`valuation/metrics/models`のFinancialSnapshot保存形とTTMRulesをScreeningが組み立てに使い、計算へは4項目TTMRulesとpure L1入力だけを渡す。対象/比較母集団の選択、DerivedMetricsへの組立、Security Analysisへの保存、4 Approachの候補探索とcalibrationは`screening`に残る。Market Contextの価格騰落/出来高/標本volatility/安値乖離と信用需給、市場・業種・個別相対計算と保存済みmacro読取は`market_context`が所有する。倍率履歴の母分散sigma gapとは統合しない。共有L1 split補正は`market/bars`へ委譲する。macro観測の保存identity、既存Reading計算kernelとContextの発行経路は`macro`に残る。External Assessmentの保存済み読取・比較を`external_assessment`へ集約した。L1のtable・dataset・R2 key・取得runは既存名を維持し、公開domain/CLIはExternal Assessmentとして扱う。三領域を三サービス・三DB・9パッケージへ分割しない。
 
-ValuationはResearch・read_api・Screening・技術保存・HTTP providerへ依存しない。Marketのpure L1型/算術は計算入力として参照できる。保存済み解析の読取use caseは`read_api/valuation`がrun-store readerとValuationの小さな投影を組み合わせる。領域内部からResearchをeager importする`read_api/__init__.py`を呼ばない。Thesis全体や評価時点の価格factを扱う合成はResearchが所有する。保存済み評価の対象・cutoff・欠測は[Valuation metrics](./reference/valuation-metrics.md#machine-valuation)に従う。
+ValuationはResearch・read_api・Screening・技術保存・HTTP providerへ依存しない。Marketのpure L1型/算術は計算入力として参照できる。保存済み解析の読取use caseは`read_api/valuation`がrun-store readerとValuationの小さな投影を組み合わせる。領域内部からResearchをeager importする`read_api/__init__.py`を呼ばない。ER較正の意味契約と保存済み評価帯の解釈・file readerは`valuation/calibration`が所有し、Research内部はそのqueryを直接使う。`read_api/er_calibration_context`はWeb・外部照会への2つの読取委譲だけを持つ。Thesis全体や評価時点の価格factを扱う合成はResearchが所有する。保存済み評価の対象・cutoff・欠測は[Valuation metrics](./reference/valuation-metrics.md#machine-valuation)に従う。
 
-Market ContextはL1 reader、macroの型・既存Reading計算と自領域の算術へ依存し、Research・CAA・Screening・Position・UI合成read_apiへ依存しない。SQLiteの汎用read-only/未作成判定は`foundation/sqlite_read`、application schema検証は`storage/application/read`が所有する。領域読取は取得・書込を行わない。Webの`read_api/market_context`、既存CLI、batch/Triage callerが同じ領域読取へ委譲する。Macro Context packageの起動でwriterをeager importせず、発行は明示serviceだけを使う。
+Market ContextはL1 reader、macroの型・既存Reading計算と自領域の算術へ依存し、Research・CAA・Screening・Position・UI合成read_apiへ依存しない。SQLiteの汎用read-only/未作成判定は`foundation/sqlite_read`、application schema検証は`storage/application/read`が所有する。領域読取は取得・書込を行わない。 公式TOPIX gross-total-returnの観測型・意味検証は`market_context/observations/benchmark`に集約し、`market/jpx_total_return`は保存済みJPXファイルを読むadapterだけを持つ。観測契約は技術保存・取得に依存せず、Nikkei ETFのprice-only方向評価とは別に扱う。Webの`read_api/market_context`、既存CLI、batch/Triage callerが同じ領域読取へ委譲する。Macro Context packageの起動でwriterをeager importせず、発行は明示serviceだけを使う。
 
 現在もdailyのscreening失敗とmacro公開は独立していない。workflow/store/部分公開の分離は未完了である。有限Researchの対象・部分完了・保有提案を既存Operationへ接続したが、最終配置と本番統合受入は未完了である。
 
 External Assessmentの読取は保存済み入力だけを使い、取得・書込・AI起動をしない。CLIの明示`collect / import`だけが既存L1取得・保存入口へ委譲する。L1取得後の検証はexact receipt keyの読戻しであり、分析の最新・直前selectorへ逆依存しない。型・比較・欠測の意味は[data sources](./reference/data-sources.md#external-assessment)、保存と読取の契約は[market lake](./reference/market-lake.md#external-assessment-query)が所有する。
 
-Researchは三領域の小さな読取とrun-storeの保存済み解析を調査入力へ合成する。UIのticker profileを領域入力として使わない。`research/operation/progress`が対象・被覆とCAA scope、既存PositionReview serviceが保有draftの検証を所有する。Operationのpayload/manifestを使い、予算DB・汎用承認基盤・新状態機械は作らない。Triageの型・保存済みquery/hash/head・service・CLIは`research/triage`が所有し、Research内部はUIの`read_api`へ戻らない。Candidate/PublishedReviewSetの純粋契約は`screening/discovery/contracts`が所有し、生成・選抜をimportしない。ER/benchmark意味契約とmacro実体の残配置統合、永続identity切替と本番読戻しは別の未完了作業であり、将来配置を現行として記載しない。
+Researchは三領域の小さな読取とrun-storeの保存済み解析を調査入力へ合成する。UIのticker profileを領域入力として使わない。`research/operation/progress`が対象・被覆とCAA scope、既存PositionReview serviceが保有draftの検証を所有する。Operationのpayload/manifestを使い、予算DB・汎用承認基盤・新状態機械は作らない。Triageの型・保存済みquery/hash/head・service・CLIは`research/triage`が所有し、Research内部はUIの`read_api`へ戻らない。Candidate/PublishedReviewSetの純粋契約は`screening/discovery/contracts`が所有し、生成・選抜をimportしない。macro実体の残配置統合、daily/macro独立実行・公開、永続identity切替と本番読戻しは別の未完了作業であり、将来配置を現行として記載しない。
 
 変更箇所は次の順に辿る。
 
@@ -142,7 +142,8 @@ Researchは三領域の小さな読取とrun-storeの保存済み解析を調査
 | sourceの取得・保存 | `market/providers`、`storage/observations`、`market/edinet_metrics`とsource別test |
 | 機械ER/FV・条件付き収益算術 | `valuation/{estimates,models,scenario,query}`、`read_api/valuation`とvaluation test |
 | 財務/倍率と結果組立・候補選抜 | `valuation/metrics`、`market_context/{history,margin}`、`screening/metrics/snapshot`、`screening/discovery`と既存回帰 |
-| 較正 | `screening/calibration/evaluation`とcalibration test |
+| 較正 | 実行・証拠生成・選抜評価は`screening/calibration`、意味契約・保存済み解釈読取は`valuation/calibration/{contracts,query}`とcalibration test |
+| 公式benchmark観測 | `market_context/observations/benchmark`、ファイル読取adapterは`market/jpx_total_return`とbenchmark test |
 | Researchの開始・下書き・発行 | `research/workspace/{admission,prepare,scaffold,status,validation,publication}`とworkspace test |
 | 調査sessionの完了 | `research/operation`とOperation test |
 | 市場・業種・個別相対の計算と読取 | `market_context/{history,margin,snapshot,benchmark,sector,security,prices,master,macro}`、`read_api/market_context`とMarket Context test |
@@ -157,7 +158,7 @@ Researchは三領域の小さな読取とrun-storeの保存済み解析を調査
 
 ### 投資判断と取引事実の依存
 
-researchが企業評価と資本判断を所有し、core positionはresearchをimportしない。researchのbroker fact処理は保存済み判断のidentityを解決し、positionの事実記録へ渡す。
+Researchが企業評価と資本判断を所有し、core PositionはResearchをimportしない。`position/drafts`がbroker事実のdraft組立と予約束縛を所有し、CLIは`research/capital_allocation_query`の過去CAA銘柄参照をcallableで渡す。active予約・既知terminal（cancel / expire）に束縛されない報告でのみ参照し、それらの予約に沿う再試行では呼ばない。現在の適格性を再判定せず、確認・event ID・CASは既存Positionのままとする。
 
 資本の現在値と未評価は`position/valuation.py`、quoteと権利basisの読取は`position/market_source.py`、ledgerの再構築は`position/ledger_read.py`に集約する。Planning、Position Review、read APIはこれらを使い、同じ算術・SQL・保存値検証を再実装しない。
 
