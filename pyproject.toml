@@ -226,8 +226,11 @@ source_modules = ["baibai_engine.macro"]
 forbidden_modules = [
   "baibai_engine.screening",
   "baibai_engine.valuation",
+  "baibai_engine.market_context",
   "baibai_engine.position",
 ]
+
+ignore_imports = ["baibai_engine.macro.reading.cli -> baibai_engine.market_context.macro"]
 
 [[tool.importlinter.contracts]]
 name = "shared primitives are an import sink"
@@ -236,6 +239,7 @@ source_modules = ["baibai_engine.foundation"]
 forbidden_modules = [
   "baibai_engine.screening",
   "baibai_engine.valuation",
+  "baibai_engine.market_context",
   "baibai_engine.macro",
   "baibai_engine.position",
   "baibai_engine.market",
@@ -253,6 +257,7 @@ forbidden_modules = [
   "baibai_engine.macro",
   "baibai_engine.screening",
   "baibai_engine.valuation",
+  "baibai_engine.market_context",
   "baibai_engine.position",
   "baibai_engine.research",
   "baibai_engine.read_api",
@@ -267,6 +272,7 @@ forbidden_modules = [
   "baibai_engine.macro",
   "baibai_engine.screening",
   "baibai_engine.valuation",
+  "baibai_engine.market_context",
   "baibai_engine.position",
   "baibai_engine.research",
   "baibai_engine.read_api",
@@ -279,6 +285,7 @@ source_modules = ["baibai_engine.market"]
 forbidden_modules = [
   "baibai_engine.screening",
   "baibai_engine.valuation",
+  "baibai_engine.market_context",
   "baibai_engine.macro",
   "baibai_engine.position",
 ]
@@ -311,6 +318,7 @@ source_modules = [
   "baibai_engine.macro",
   "baibai_engine.screening",
   "baibai_engine.valuation",
+  "baibai_engine.market_context",
   "baibai_engine.position",
 ]
 forbidden_modules = ["baibai_engine.research"]
@@ -349,6 +357,7 @@ source_modules = [
   "baibai_engine.macro",
   "baibai_engine.screening",
   "baibai_engine.valuation",
+  "baibai_engine.market_context",
   "baibai_engine.position",
   "baibai_engine.research",
 ]
@@ -369,6 +378,7 @@ forbidden_modules = [
   "baibai_engine.research",
   "baibai_engine.screening",
   "baibai_engine.valuation",
+  "baibai_engine.market_context",
   "baibai_engine.tasks",
 ]
 allow_indirect_imports = true
@@ -398,6 +408,7 @@ forbidden_modules = [
   "baibai_engine.research",
   "baibai_engine.screening",
   "baibai_engine.valuation",
+  "baibai_engine.market_context",
   "baibai_engine.tasks",
   "baibai_web",
   "tools",
@@ -478,6 +489,27 @@ type = "forbidden"
 source_modules = ["baibai_engine.valuation"]
 forbidden_modules = [
   "baibai_engine.screening", "baibai_engine.research", "baibai_engine.read_api",
+  "baibai_engine.market_context",
   "baibai_engine.market", "baibai_engine.macro", "baibai_engine.position",
   "baibai_engine.appdb", "baibai_engine.tasks",
 ]
+
+[[tool.importlinter.contracts]]
+name = "market context reads observations and judgments without composition or writes"
+type = "forbidden"
+source_modules = ["baibai_engine.market_context"]
+forbidden_modules = [
+  "baibai_engine.screening", "baibai_engine.valuation", "baibai_engine.research",
+  "baibai_engine.position", "baibai_engine.tasks", "baibai_engine.read_api",
+  "baibai_engine.appdb.write", "baibai_engine.macro.context.service",
+  "baibai_engine.macro.context.cli", "baibai_engine.macro.reading.cli",
+  "baibai_engine.macro.indicators.service", "baibai_engine.macro.indicators.providers",
+]
+
+[[tool.importlinter.contracts]]
+name = "macro observations are independent of market context analysis"
+type = "forbidden"
+source_modules = ["baibai_engine.macro.indicators"]
+forbidden_modules = ["baibai_engine.market_context"]
+# Public macro CLI dispatch composes L1 commands with the read-only L2 entry.
+ignore_imports = ["baibai_engine.macro.indicators.cli -> baibai_engine.macro.reading.cli"]

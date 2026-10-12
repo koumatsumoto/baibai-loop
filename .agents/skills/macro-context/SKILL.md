@@ -13,7 +13,7 @@ description: 人間の明示的な依頼でfull-depthのMacro Contextを評価�
 
 ## 手順
 
-1. **今回の入力を固定する。** 対象as-ofのseries/Reading・market snapshotを用意し、同期はOps Maintenanceに従う。application DBをpullしない。Readingの鮮度・不足・極値を確認し、任意の一系列の不足だけで全工程を止めない。indicator inputは次のspec形式から生成する。
+1. **今回の入力を固定する。** [Market Contextの保存済み読取](../../../docs/reference/macro.md#market-context-reads)で対象as-ofのseries/Reading・market snapshotを用意し、同期はOps Maintenanceに従う。application DBをpullしない。Readingの鮮度・不足・極値を確認し、任意の一系列の不足だけで全工程を止めない。indicator inputは次のspec形式から生成する。
 
    ```yaml
    asof: 2026-07-27

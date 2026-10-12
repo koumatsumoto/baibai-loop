@@ -133,7 +133,7 @@ def publication_rows(
             from datetime import date, datetime
             from zoneinfo import ZoneInfo
 
-            from .macro import latest_macro_context_row
+            from baibai_engine.market_context.macro import latest_macro_context_row
 
             cutoff = (
                 date.fromisoformat(str(filters["as_of"]))

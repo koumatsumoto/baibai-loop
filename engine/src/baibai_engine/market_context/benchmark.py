@@ -6,15 +6,16 @@ direction. The resulting fact-layer annotation never gates or re-ranks the Revie
 
 from __future__ import annotations
 
-import sqlite3
 from dataclasses import dataclass
 from datetime import date, timedelta
 from enum import StrEnum
 from pathlib import Path
 
+from .prices import read_price_bars, trailing_return
+
 NIKKEI225_ETF_PROXY = "1321"
 
-# Pre-registered fixed thresholds (no grid search; docs/reference/screening-runtime.md).
+# Pre-registered fixed thresholds (no grid search; docs/reference/macro.md).
 # +-3% over 20 business days is roughly a +-40% annualized drift, a conventional
 # bar for calling a directional move rather than range noise.
 RALLY_RETURN_20D_MIN = 0.03
@@ -100,8 +101,12 @@ def compute_benchmark_trend(
     if not benchmark_series:
         return None
     observation_date = benchmark_series[-1][0]
-    benchmark_return_20d = _trailing_return(benchmark_series, TREND_WINDOW_BARS)
-    benchmark_return_60d = _trailing_return(benchmark_series, LONG_TREND_WINDOW_BARS)
+    benchmark_return_20d = trailing_return(
+        [price for _, price in benchmark_series], TREND_WINDOW_BARS
+    )
+    benchmark_return_60d = trailing_return(
+        [price for _, price in benchmark_series], LONG_TREND_WINDOW_BARS
+    )
     return BenchmarkTrendSnapshot(
         as_of=asof_date,
         benchmark_ticker=benchmark_ticker,
@@ -119,49 +124,13 @@ def _load_benchmark_series(
     *,
     ticker: str,
 ) -> list[tuple[date, float]]:
-    start = asof_date - timedelta(days=_BENCHMARK_LOOKBACK_CALENDAR_DAYS)
-    query = (
-        "SELECT traded_at, close, adjustment_factor FROM jquants_daily_bars "
-        "WHERE ticker = ? AND traded_at >= ? AND traded_at <= ? ORDER BY traded_at"
-    )
-    conn = sqlite3.connect(sqlite_path)
-    try:
-        rows = conn.execute(query, (ticker, start.isoformat(), asof_date.isoformat())).fetchall()
-    finally:
-        conn.close()
-    # cache の adjustment_close は incremental 取得で遡及の有無が混在するため使わず、
-    # 不変イベントの adjustment_factor の後方累積で末尾基準の価格系列を組む。
-    raw: list[tuple[date, float | None, float | None]] = []
-    for traded_at, close, adjustment_factor in rows:
-        if traded_at is None:
-            continue
-        raw.append(
-            (
-                date.fromisoformat(traded_at),
-                float(close) if close is not None else None,
-                float(adjustment_factor) if adjustment_factor is not None else None,
-            )
-        )
-    factor = 1.0
-    series: list[tuple[date, float]] = []
-    for traded_at, close, adjustment_factor in reversed(raw):
-        if close is not None:
-            series.append((traded_at, close * factor))
-        if adjustment_factor not in (None, 0.0, 1.0):
-            assert adjustment_factor is not None
-            factor *= adjustment_factor
-    series.reverse()
-    return series
-
-
-def _trailing_return(series: list[tuple[date, float]], window_bars: int) -> float | None:
-    if len(series) < window_bars + 1:
-        return None
-    current = series[-1][1]
-    past = series[-(window_bars + 1)][1]
-    if past == 0:
-        return None
-    return current / past - 1
+    bars = read_price_bars(
+        sqlite_path,
+        tickers=(ticker,),
+        start=asof_date - timedelta(days=_BENCHMARK_LOOKBACK_CALENDAR_DAYS),
+        end=asof_date,
+    ).get(ticker, [])
+    return [(bar.traded_at, bar.price) for bar in bars]
 
 
 def _gap_from_high(series: list[tuple[date, float]]) -> float | None:

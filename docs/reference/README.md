@@ -25,7 +25,7 @@ status: active
 | 見積りの較正とmethodの採否 | [estimate-calibration](./estimate-calibration.md) |
 | 機械ER/FV、保存済み照会、valuation指標と入力basis | [valuation-metrics](./valuation-metrics.md) |
 | Candidate Discovery・Review Set・Triage | [screening-runtime](./screening-runtime.md) |
-| Macro観測・Reading・Context・分析レンズ | [macro](./macro.md) |
+| Market Context、市場/個別相対、Macro観測・Reading・Context | [macro](./macro.md) |
 | 情報源の選択と取得失敗 | [data-sources](./data-sources.md) |
 | 信用残高の公表制度変更と移行 | [margin-publication-transition](./margin-publication-transition.md) |
 | lakeの公開・固定release・hydrate・保持 | [market-lake](./market-lake.md) |

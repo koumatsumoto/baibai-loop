@@ -17,7 +17,7 @@ from baibai_engine.foundation.research_triage import (
     ResearchTriageEntry,
     ReviewSetEntrySnapshot,
 )
-from baibai_engine.read_api.macro import latest_macro_context_payload, macro_context_payload
+from baibai_engine.market_context.macro import latest_macro_context_payload, macro_context_payload
 from baibai_engine.read_api.research_triage import (
     _research_triage_head,
     research_triage_payload_hash,

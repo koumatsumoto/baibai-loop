@@ -11,12 +11,10 @@ from pathlib import Path
 
 from baibai_engine.macro.indicators import db as indicators_db
 from baibai_engine.macro.indicators.db import DEFAULT_DB_PATH, IndicatorsSchemaError
-from baibai_engine.macro.indicators.definitions import load_definitions
+from baibai_engine.market_context.macro import read_macro_snapshot
 
-from .compute import compute_reading
 from .models import ReadingSnapshot, SeriesReading, snapshot_payload
-from .reader import build_store_observation_reader
-from .rules import DEFAULT_RULES_PATH, ReadingRulesError, load_reading_rules, rules_revision
+from .rules import DEFAULT_RULES_PATH, ReadingRulesError
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -31,20 +29,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        rules = load_reading_rules(args.rules)
-        definitions = load_definitions()
         conn = indicators_db.open_read_only_connection(args.db)
         try:
-            snapshot = compute_reading(
-                series=definitions.series,
-                reader=build_store_observation_reader(
-                    conn,
-                    series=definitions.series,
-                ),
-                rules=rules,
-                rules_revision=rules_revision(args.rules),
-                asof=args.asof,
-            )
+            snapshot = read_macro_snapshot(conn, asof=args.asof, rules_path=args.rules)
         finally:
             conn.close()
     except IndicatorsSchemaError as exc:
