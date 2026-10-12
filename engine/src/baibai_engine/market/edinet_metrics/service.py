@@ -1,4 +1,4 @@
-"""EDINET metricの抽出と保存。無関係なprovider・Screening preflightをrevision closureへ入れない。"""
+"""EDINET metricの抽出と保存。原CSVから抽出意味revision付きで保存する。"""
 
 from __future__ import annotations
 

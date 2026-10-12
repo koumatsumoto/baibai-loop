@@ -1,12 +1,4 @@
-"""Reads of the EDINET slice of the market store.
-
-These are the only store reads the EDINET extraction performs, and the extractor's
-revision manifest is the import closure of that extraction. Leaving them in
-`sqlite_reader`, which also reads master snapshots, fin summaries, JPX regulations and
-weekly margin, would put all of those into the manifest — so an edit to any of them
-would discard every reusable EDINET metric row and force a full re-download of several
-thousand filings.
-"""
+"""EDINET開示・抽出baselineの読取とcoverage/count/品質の整合検査。"""
 
 from __future__ import annotations
 

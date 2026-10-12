@@ -1,15 +1,15 @@
 original_path,action,final_path,owner,reason
 .agents/skills/ledger-record/SKILL.md,unchanged,.agents/skills/ledger-record/SKILL.md,Skill,今回の配置対象外、現行を維持
 .agents/skills/ledger-record/agents/openai.yaml,unchanged,.agents/skills/ledger-record/agents/openai.yaml,Skill,今回の配置対象外、現行を維持
-.agents/skills/macro-context/SKILL.md,unchanged,.agents/skills/macro-context/SKILL.md,Skill,今回の配置対象外、現行を維持
+.agents/skills/macro-context/SKILL.md,update,.agents/skills/macro-context/SKILL.md,Skill,保存層・純粋観測型のownerへimportと参照を追従
 .agents/skills/macro-context/agents/openai.yaml,unchanged,.agents/skills/macro-context/agents/openai.yaml,Skill,今回の配置対象外、現行を維持
 .agents/skills/ops-maintenance/SKILL.md,unchanged,.agents/skills/ops-maintenance/SKILL.md,Skill,今回の配置対象外、現行を維持
 .agents/skills/ops-maintenance/agents/openai.yaml,unchanged,.agents/skills/ops-maintenance/agents/openai.yaml,Skill,今回の配置対象外、現行を維持
-.agents/skills/position-review/SKILL.md,unchanged,.agents/skills/position-review/SKILL.md,Skill,今回の配置対象外、現行を維持
+.agents/skills/position-review/SKILL.md,update,.agents/skills/position-review/SKILL.md,Skill,保存層・純粋観測型のownerへimportと参照を追従
 .agents/skills/position-review/agents/openai.yaml,unchanged,.agents/skills/position-review/agents/openai.yaml,Skill,今回の配置対象外、現行を維持
-.agents/skills/research-triage/SKILL.md,unchanged,.agents/skills/research-triage/SKILL.md,Skill,今回の配置対象外、現行を維持
+.agents/skills/research-triage/SKILL.md,update,.agents/skills/research-triage/SKILL.md,Skill,保存層・純粋観測型のownerへimportと参照を追従
 .agents/skills/research-triage/agents/openai.yaml,unchanged,.agents/skills/research-triage/agents/openai.yaml,Skill,今回の配置対象外、現行を維持
-.agents/skills/research-triage/evals/scenarios.md,unchanged,.agents/skills/research-triage/evals/scenarios.md,Skill,今回の配置対象外、現行を維持
+.agents/skills/research-triage/evals/scenarios.md,update,.agents/skills/research-triage/evals/scenarios.md,Skill,保存層・純粋観測型のownerへimportと参照を追従
 .agents/skills/research/SKILL.md,update,.agents/skills/research/SKILL.md,Research,移設caller/import・名称・文書の整合
 .agents/skills/research/agents/openai.yaml,unchanged,.agents/skills/research/agents/openai.yaml,Research,今回の配置対象外、現行を維持
 .env.sample,unchanged,.env.sample,Shared tooling/configuration,今回の配置対象外、現行を維持
@@ -28,8 +28,8 @@ original_path,action,final_path,owner,reason
 .pre-commit-config.yaml,unchanged,.pre-commit-config.yaml,Shared tooling/configuration,今回の配置対象外、現行を維持
 .python-version,unchanged,.python-version,Shared tooling/configuration,今回の配置対象外、現行を維持
 .worktreeinclude,unchanged,.worktreeinclude,Shared tooling/configuration,今回の配置対象外、現行を維持
-AGENTS.md,unchanged,AGENTS.md,Shared tooling/configuration,今回の配置対象外、現行を維持
-README.md,unchanged,README.md,Shared tooling/configuration,今回の配置対象外、現行を維持
+AGENTS.md,update,AGENTS.md,Shared tooling/configuration,保存層・純粋観測型のownerへimportと参照を追従
+README.md,update,README.md,Shared tooling/configuration,保存層・純粋観測型のownerへimportと参照を追従
 SECURITY.md,unchanged,SECURITY.md,Shared tooling/configuration,今回の配置対象外、現行を維持
 batch/OPERATIONS.md,update,batch/OPERATIONS.md,Batch,移設caller/import・名称・文書の整合
 batch/README.md,unchanged,batch/README.md,Batch,今回の配置対象外、現行を維持
@@ -39,7 +39,7 @@ batch/scripts/r2_transfer.sh,unchanged,batch/scripts/r2_transfer.sh,Batch,今回
 batch/scripts/seed.sh,unchanged,batch/scripts/seed.sh,Batch,今回の配置対象外、現行を維持
 batch/src/baibai_batch/__init__.py,unchanged,batch/src/baibai_batch/__init__.py,Batch,今回の配置対象外、現行を維持
 batch/src/baibai_batch/analysis/__init__.py,unchanged,batch/src/baibai_batch/analysis/__init__.py,Batch,今回の配置対象外、現行を維持
-batch/src/baibai_batch/analysis/cli.py,unchanged,batch/src/baibai_batch/analysis/cli.py,Batch,今回の配置対象外、現行を維持
+batch/src/baibai_batch/analysis/cli.py,update,batch/src/baibai_batch/analysis/cli.py,Batch,保存層・純粋観測型のownerへimportと参照を追従
 batch/src/baibai_batch/analysis/io.py,unchanged,batch/src/baibai_batch/analysis/io.py,Batch,今回の配置対象外、現行を維持
 batch/src/baibai_batch/analysis/model_input.py,unchanged,batch/src/baibai_batch/analysis/model_input.py,Batch,今回の配置対象外、現行を維持
 batch/src/baibai_batch/analysis/models.py,unchanged,batch/src/baibai_batch/analysis/models.py,Batch,今回の配置対象外、現行を維持
@@ -79,26 +79,26 @@ batch/src/baibai_batch/validation/workflow_inputs.py,unchanged,batch/src/baibai_
 docs/README.md,update,docs/README.md,Documentation,移設caller/import・名称・文書の整合
 docs/anti-patterns.md,unchanged,docs/anti-patterns.md,Documentation,今回の配置対象外、現行を維持
 docs/architecture.md,update,docs/architecture.md,Documentation,移設caller/import・名称・文書の整合
-docs/doctrine.md,unchanged,docs/doctrine.md,Documentation,今回の配置対象外、現行を維持
-docs/domain-language.md,unchanged,docs/domain-language.md,Documentation,今回の配置対象外、現行を維持
-docs/portfolio-management.md,unchanged,docs/portfolio-management.md,Documentation,今回の配置対象外、現行を維持
+docs/doctrine.md,update,docs/doctrine.md,Documentation,保存層・純粋観測型のownerへimportと参照を追従
+docs/domain-language.md,update,docs/domain-language.md,Documentation,保存層・純粋観測型のownerへimportと参照を追従
+docs/portfolio-management.md,update,docs/portfolio-management.md,Documentation,保存層・純粋観測型のownerへimportと参照を追従
 docs/reference/README.md,update,docs/reference/README.md,Documentation,移設caller/import・名称・文書の整合
-docs/reference/analysis-operations.md,unchanged,docs/reference/analysis-operations.md,Documentation,今回の配置対象外、現行を維持
+docs/reference/analysis-operations.md,update,docs/reference/analysis-operations.md,Documentation,保存層・純粋観測型のownerへimportと参照を追従
 docs/reference/business-model-research.md,unchanged,docs/reference/business-model-research.md,Documentation,今回の配置対象外、現行を維持
-docs/reference/capital-allocation-assessment.md,unchanged,docs/reference/capital-allocation-assessment.md,Documentation,今回の配置対象外、現行を維持
+docs/reference/capital-allocation-assessment.md,update,docs/reference/capital-allocation-assessment.md,Documentation,保存層・純粋観測型のownerへimportと参照を追従
 docs/reference/data-sources.md,update,docs/reference/data-sources.md,Documentation,移設caller/import・名称・文書の整合
 docs/reference/estimate-calibration.md,unchanged,docs/reference/estimate-calibration.md,Documentation,今回の配置対象外、現行を維持
 docs/reference/judgment-writing.md,unchanged,docs/reference/judgment-writing.md,Documentation,今回の配置対象外、現行を維持
 docs/reference/macro-handoff.md,unchanged,docs/reference/macro-handoff.md,Documentation,今回の配置対象外、現行を維持
-docs/reference/macro.md,unchanged,docs/reference/macro.md,Documentation,今回の配置対象外、現行を維持
+docs/reference/macro.md,update,docs/reference/macro.md,Documentation,保存層・純粋観測型のownerへimportと参照を追従
 docs/reference/margin-publication-transition.md,unchanged,docs/reference/margin-publication-transition.md,Documentation,今回の配置対象外、現行を維持
 docs/reference/market-lake.md,update,docs/reference/market-lake.md,Documentation,移設caller/import・名称・文書の整合
 docs/reference/portfolio-ledger.md,unchanged,docs/reference/portfolio-ledger.md,Documentation,今回の配置対象外、現行を維持
-docs/reference/position-review.md,unchanged,docs/reference/position-review.md,Documentation,今回の配置対象外、現行を維持
+docs/reference/position-review.md,update,docs/reference/position-review.md,Documentation,保存層・純粋観測型のownerへimportと参照を追従
 docs/reference/python-foundation.md,unchanged,docs/reference/python-foundation.md,Documentation,今回の配置対象外、現行を維持
 docs/reference/queries/edinet-research-filing.sql,unchanged,docs/reference/queries/edinet-research-filing.sql,Documentation,今回の配置対象外、現行を維持
-docs/reference/screening-runtime.md,unchanged,docs/reference/screening-runtime.md,Documentation,今回の配置対象外、現行を維持
-docs/reference/thesis.md,unchanged,docs/reference/thesis.md,Documentation,今回の配置対象外、現行を維持
+docs/reference/screening-runtime.md,update,docs/reference/screening-runtime.md,Documentation,保存層・純粋観測型のownerへimportと参照を追従
+docs/reference/thesis.md,update,docs/reference/thesis.md,Documentation,保存層・純粋観測型のownerへimportと参照を追従
 docs/reference/valuation-metrics.md,unchanged,docs/reference/valuation-metrics.md,Documentation,今回の配置対象外、現行を維持
 engine/README.md,unchanged,engine/README.md,Shared tooling/configuration,今回の配置対象外、現行を維持
 engine/src/baibai_engine/__init__.py,unchanged,engine/src/baibai_engine/__init__.py,Shared tooling/configuration,今回の配置対象外、現行を維持
@@ -119,7 +119,7 @@ engine/src/baibai_engine/external_assessment/query.py,update,engine/src/baibai_e
 engine/src/baibai_engine/external_assessment/reader.py,update,engine/src/baibai_engine/external_assessment/reader.py,External Assessment,移設caller/import・名称・文書の整合
 engine/src/baibai_engine/foundation/__init__.py,unchanged,engine/src/baibai_engine/foundation/__init__.py,Shared tooling/configuration,今回の配置対象外、現行を維持
 engine/src/baibai_engine/foundation/benchmark_observation.py,unchanged,engine/src/baibai_engine/foundation/benchmark_observation.py,Shared tooling/configuration,今回の配置対象外、現行を維持
-engine/src/baibai_engine/foundation/candidate_discovery.py,unchanged,engine/src/baibai_engine/foundation/candidate_discovery.py,Shared tooling/configuration,今回の配置対象外、現行を維持
+engine/src/baibai_engine/foundation/candidate_discovery.py,move,engine/src/baibai_engine/screening/discovery/contracts.py,Screening Discovery,main #1428の所有移設を統合し、storage importを追従
 engine/src/baibai_engine/foundation/coerce.py,unchanged,engine/src/baibai_engine/foundation/coerce.py,Shared tooling/configuration,今回の配置対象外、現行を維持
 engine/src/baibai_engine/foundation/date_utils.py,unchanged,engine/src/baibai_engine/foundation/date_utils.py,Shared tooling/configuration,今回の配置対象外、現行を維持
 engine/src/baibai_engine/foundation/env.py,unchanged,engine/src/baibai_engine/foundation/env.py,Shared tooling/configuration,今回の配置対象外、現行を維持
@@ -127,9 +127,9 @@ engine/src/baibai_engine/foundation/er_calibration_context.py,unchanged,engine/s
 engine/src/baibai_engine/foundation/filesystem.py,unchanged,engine/src/baibai_engine/foundation/filesystem.py,Shared tooling/configuration,今回の配置対象外、現行を維持
 engine/src/baibai_engine/foundation/redaction.py,unchanged,engine/src/baibai_engine/foundation/redaction.py,Shared tooling/configuration,今回の配置対象外、現行を維持
 engine/src/baibai_engine/foundation/repository_layout.py,unchanged,engine/src/baibai_engine/foundation/repository_layout.py,Shared tooling/configuration,今回の配置対象外、現行を維持
-engine/src/baibai_engine/foundation/research_triage.py,unchanged,engine/src/baibai_engine/foundation/research_triage.py,Shared tooling/configuration,今回の配置対象外、現行を維持
+engine/src/baibai_engine/foundation/research_triage.py,move,engine/src/baibai_engine/research/triage/contracts.py,Research Triage,main #1428の所有移設を統合し、storage importを追従
 engine/src/baibai_engine/foundation/sqlite_pages.py,unchanged,engine/src/baibai_engine/foundation/sqlite_pages.py,Shared tooling/configuration,今回の配置対象外、現行を維持
-engine/src/baibai_engine/foundation/sqlite_read.py,unchanged,engine/src/baibai_engine/foundation/sqlite_read.py,Shared tooling/configuration,今回の配置対象外、現行を維持
+engine/src/baibai_engine/foundation/sqlite_read.py,update,engine/src/baibai_engine/foundation/sqlite_read.py,Shared tooling/configuration,保存層・純粋観測型のownerへimportと参照を追従
 engine/src/baibai_engine/foundation/time.py,unchanged,engine/src/baibai_engine/foundation/time.py,Shared tooling/configuration,今回の配置対象外、現行を維持
 engine/src/baibai_engine/foundation/yaml_io.py,unchanged,engine/src/baibai_engine/foundation/yaml_io.py,Shared tooling/configuration,今回の配置対象外、現行を維持
 engine/src/baibai_engine/macro/__init__.py,unchanged,engine/src/baibai_engine/macro/__init__.py,Macro,今回の配置対象外、現行を維持
@@ -201,7 +201,7 @@ engine/src/baibai_engine/market/edinet_facts/service.py,unchanged,engine/src/bai
 engine/src/baibai_engine/market/edinet_facts/store.py,update,engine/src/baibai_engine/market/edinet_facts/store.py,Market disclosures,移設caller/import・名称・文書の整合
 engine/src/baibai_engine/market/edinet_facts/xbrl.py,unchanged,engine/src/baibai_engine/market/edinet_facts/xbrl.py,Market disclosures,今回の配置対象外、現行を維持
 engine/src/baibai_engine/market/edinet_metrics/__init__.py,unchanged,engine/src/baibai_engine/market/edinet_metrics/__init__.py,Market disclosures,今回の配置対象外、現行を維持
-engine/src/baibai_engine/market/edinet_metrics/revision.py,update,engine/src/baibai_engine/market/edinet_metrics/revision.py,Market disclosures,移設caller/import・名称・文書の整合
+engine/src/baibai_engine/market/edinet_metrics/revision.py,update,engine/src/baibai_engine/market/edinet_metrics/revision.py,Market disclosures,source hash導出を削除し、意味同一を確認した既存tokenを明示revisionへ継承
 engine/src/baibai_engine/market/edinet_metrics/service.py,update,engine/src/baibai_engine/market/edinet_metrics/service.py,Market disclosures,移設caller/import・名称・文書の整合
 engine/src/baibai_engine/market/edinet_metrics/store.py,update,engine/src/baibai_engine/market/edinet_metrics/store.py,Market disclosures,移設caller/import・名称・文書の整合
 engine/src/baibai_engine/market/jpx_sources.py,unchanged,engine/src/baibai_engine/market/jpx_sources.py,Market disclosures,今回の配置対象外、現行を維持
@@ -317,41 +317,41 @@ engine/src/baibai_engine/read_api/position.py,update,engine/src/baibai_engine/re
 engine/src/baibai_engine/read_api/publications.py,update,engine/src/baibai_engine/read_api/publications.py,Shared tooling/configuration,移設caller/import・名称・文書の整合
 engine/src/baibai_engine/read_api/research.py,update,engine/src/baibai_engine/read_api/research.py,Shared tooling/configuration,移設caller/import・名称・文書の整合
 engine/src/baibai_engine/read_api/research_triage.py,update,engine/src/baibai_engine/read_api/research_triage.py,Shared tooling/configuration,移設caller/import・名称・文書の整合
-engine/src/baibai_engine/read_api/screening.py,unchanged,engine/src/baibai_engine/read_api/screening.py,Shared tooling/configuration,今回の配置対象外、現行を維持
+engine/src/baibai_engine/read_api/screening.py,update,engine/src/baibai_engine/read_api/screening.py,Shared tooling/configuration,保存層・純粋観測型のownerへimportと参照を追従
 engine/src/baibai_engine/read_api/sqlite.py,update,engine/src/baibai_engine/read_api/sqlite.py,Shared tooling/configuration,移設caller/import・名称・文書の整合
 engine/src/baibai_engine/read_api/stored.py,unchanged,engine/src/baibai_engine/read_api/stored.py,Shared tooling/configuration,今回の配置対象外、現行を維持
 engine/src/baibai_engine/read_api/tasks.py,unchanged,engine/src/baibai_engine/read_api/tasks.py,Shared tooling/configuration,今回の配置対象外、現行を維持
 engine/src/baibai_engine/read_api/ticker_profile.py,update,engine/src/baibai_engine/read_api/ticker_profile.py,Shared tooling/configuration,移設caller/import・名称・文書の整合
-engine/src/baibai_engine/read_api/valuation.py,unchanged,engine/src/baibai_engine/read_api/valuation.py,Shared tooling/configuration,今回の配置対象外、現行を維持
-engine/src/baibai_engine/research/__init__.py,unchanged,engine/src/baibai_engine/research/__init__.py,Research,今回の配置対象外、現行を維持
-engine/src/baibai_engine/research/broker_fact_service.py,unchanged,engine/src/baibai_engine/research/broker_fact_service.py,Research,今回の配置対象外、現行を維持
-engine/src/baibai_engine/research/capital_allocation.py,update,engine/src/baibai_engine/research/capital_allocation.py,Research,移設caller/import・名称・文書の整合
-engine/src/baibai_engine/research/capital_allocation_scaffold.py,update,engine/src/baibai_engine/research/capital_allocation_scaffold.py,Research,移設caller/import・名称・文書の整合
-engine/src/baibai_engine/research/capital_allocation_service.py,update,engine/src/baibai_engine/research/capital_allocation_service.py,Research,移設caller/import・名称・文書の整合
-engine/src/baibai_engine/research/capital_inputs.py,unchanged,engine/src/baibai_engine/research/capital_inputs.py,Research,今回の配置対象外、現行を維持
-engine/src/baibai_engine/research/decimal_number.py,unchanged,engine/src/baibai_engine/research/decimal_number.py,Research,今回の配置対象外、現行を維持
-engine/src/baibai_engine/research/entry_policy.py,unchanged,engine/src/baibai_engine/research/entry_policy.py,Research,今回の配置対象外、現行を維持
-engine/src/baibai_engine/research/operation/__init__.py,unchanged,engine/src/baibai_engine/research/operation/__init__.py,Research,今回の配置対象外、現行を維持
-engine/src/baibai_engine/research/operation/cli.py,unchanged,engine/src/baibai_engine/research/operation/cli.py,Research,今回の配置対象外、現行を維持
-engine/src/baibai_engine/research/operation/models.py,unchanged,engine/src/baibai_engine/research/operation/models.py,Research,今回の配置対象外、現行を維持
-engine/src/baibai_engine/research/operation/research_binding.py,unchanged,engine/src/baibai_engine/research/operation/research_binding.py,Research,今回の配置対象外、現行を維持
-engine/src/baibai_engine/research/operation/service.py,update,engine/src/baibai_engine/research/operation/service.py,Research,移設caller/import・名称・文書の整合
-engine/src/baibai_engine/research/pdf_reader.py,unchanged,engine/src/baibai_engine/research/pdf_reader.py,Research,今回の配置対象外、現行を維持
-engine/src/baibai_engine/research/planning.py,update,engine/src/baibai_engine/research/planning.py,Research,移設caller/import・名称・文書の整合
-engine/src/baibai_engine/research/position_review.py,unchanged,engine/src/baibai_engine/research/position_review.py,Research,今回の配置対象外、現行を維持
-engine/src/baibai_engine/research/position_review_service.py,update,engine/src/baibai_engine/research/position_review_service.py,Research,移設caller/import・名称・文書の整合
-engine/src/baibai_engine/research/thesis.py,unchanged,engine/src/baibai_engine/research/thesis.py,Research,今回の配置対象外、現行を維持
-engine/src/baibai_engine/research/thesis_evaluation_cli.py,unchanged,engine/src/baibai_engine/research/thesis_evaluation_cli.py,Research,今回の配置対象外、現行を維持
-engine/src/baibai_engine/research/thesis_store.py,update,engine/src/baibai_engine/research/thesis_store.py,Research,移設caller/import・名称・文書の整合
-engine/src/baibai_engine/research/workspace/__init__.py,unchanged,engine/src/baibai_engine/research/workspace/__init__.py,Research,今回の配置対象外、現行を維持
-engine/src/baibai_engine/research/workspace/admission.py,update,engine/src/baibai_engine/research/workspace/admission.py,Research,移設caller/import・名称・文書の整合
-engine/src/baibai_engine/research/workspace/files.py,unchanged,engine/src/baibai_engine/research/workspace/files.py,Research,今回の配置対象外、現行を維持
-engine/src/baibai_engine/research/workspace/prepare.py,unchanged,engine/src/baibai_engine/research/workspace/prepare.py,Research,今回の配置対象外、現行を維持
-engine/src/baibai_engine/research/workspace/publication.py,unchanged,engine/src/baibai_engine/research/workspace/publication.py,Research,今回の配置対象外、現行を維持
-engine/src/baibai_engine/research/workspace/scaffold.py,update,engine/src/baibai_engine/research/workspace/scaffold.py,Research,移設caller/import・名称・文書の整合
-engine/src/baibai_engine/research/workspace/status.py,update,engine/src/baibai_engine/research/workspace/status.py,Research,移設caller/import・名称・文書の整合
-engine/src/baibai_engine/research/workspace/validation.py,update,engine/src/baibai_engine/research/workspace/validation.py,Research,移設caller/import・名称・文書の整合
-engine/src/baibai_engine/research/workspace_cli.py,unchanged,engine/src/baibai_engine/research/workspace_cli.py,Research,今回の配置対象外、現行を維持
+engine/src/baibai_engine/read_api/valuation.py,update,engine/src/baibai_engine/read_api/valuation.py,Shared tooling/configuration,保存層・純粋観測型のownerへimportと参照を追従
+engine/src/baibai_engine/research/__init__.py,unchanged,engine/src/baibai_engine/research/__init__.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/broker_fact_service.py,unchanged,engine/src/baibai_engine/research/broker_fact_service.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/capital_allocation.py,update,engine/src/baibai_engine/research/capital_allocation.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/capital_allocation_scaffold.py,update,engine/src/baibai_engine/research/capital_allocation_scaffold.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/capital_allocation_service.py,update,engine/src/baibai_engine/research/capital_allocation_service.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/capital_inputs.py,unchanged,engine/src/baibai_engine/research/capital_inputs.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/decimal_number.py,unchanged,engine/src/baibai_engine/research/decimal_number.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/entry_policy.py,unchanged,engine/src/baibai_engine/research/entry_policy.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/operation/__init__.py,unchanged,engine/src/baibai_engine/research/operation/__init__.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/operation/cli.py,update,engine/src/baibai_engine/research/operation/cli.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/operation/models.py,update,engine/src/baibai_engine/research/operation/models.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/operation/research_binding.py,update,engine/src/baibai_engine/research/operation/research_binding.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/operation/service.py,update,engine/src/baibai_engine/research/operation/service.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/pdf_reader.py,unchanged,engine/src/baibai_engine/research/pdf_reader.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/planning.py,update,engine/src/baibai_engine/research/planning.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/position_review.py,unchanged,engine/src/baibai_engine/research/position_review.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/position_review_service.py,update,engine/src/baibai_engine/research/position_review_service.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/thesis.py,unchanged,engine/src/baibai_engine/research/thesis.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/thesis_evaluation_cli.py,unchanged,engine/src/baibai_engine/research/thesis_evaluation_cli.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/thesis_store.py,update,engine/src/baibai_engine/research/thesis_store.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/workspace/__init__.py,unchanged,engine/src/baibai_engine/research/workspace/__init__.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/workspace/admission.py,update,engine/src/baibai_engine/research/workspace/admission.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/workspace/files.py,unchanged,engine/src/baibai_engine/research/workspace/files.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/workspace/prepare.py,update,engine/src/baibai_engine/research/workspace/prepare.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/workspace/publication.py,update,engine/src/baibai_engine/research/workspace/publication.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/workspace/scaffold.py,update,engine/src/baibai_engine/research/workspace/scaffold.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/workspace/status.py,update,engine/src/baibai_engine/research/workspace/status.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/workspace/validation.py,update,engine/src/baibai_engine/research/workspace/validation.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
+engine/src/baibai_engine/research/workspace_cli.py,update,engine/src/baibai_engine/research/workspace_cli.py,Research,main #1426/#1428の機能を保持し、今回の変更はstorage import追従
 engine/src/baibai_engine/research_watch.py,update,engine/src/baibai_engine/research_watch.py,Shared tooling/configuration,移設caller/import・名称・文書の整合
 engine/src/baibai_engine/screening/__init__.py,unchanged,engine/src/baibai_engine/screening/__init__.py,Screening,今回の配置対象外、現行を維持
 engine/src/baibai_engine/screening/calibration/__init__.py,unchanged,engine/src/baibai_engine/screening/calibration/__init__.py,Screening,今回の配置対象外、現行を維持
@@ -360,12 +360,12 @@ engine/src/baibai_engine/screening/calibration/context.py,unchanged,engine/src/b
 engine/src/baibai_engine/screening/calibration/evaluation/__init__.py,unchanged,engine/src/baibai_engine/screening/calibration/evaluation/__init__.py,Screening,今回の配置対象外、現行を維持
 engine/src/baibai_engine/screening/calibration/evaluation/aggregate.py,unchanged,engine/src/baibai_engine/screening/calibration/evaluation/aggregate.py,Screening,今回の配置対象外、現行を維持
 engine/src/baibai_engine/screening/calibration/evaluation/axes.py,unchanged,engine/src/baibai_engine/screening/calibration/evaluation/axes.py,Screening,今回の配置対象外、現行を維持
-engine/src/baibai_engine/screening/calibration/evaluation/cohorts.py,unchanged,engine/src/baibai_engine/screening/calibration/evaluation/cohorts.py,Screening,今回の配置対象外、現行を維持
-engine/src/baibai_engine/screening/calibration/evaluation/discovery.py,unchanged,engine/src/baibai_engine/screening/calibration/evaluation/discovery.py,Screening,今回の配置対象外、現行を維持
+engine/src/baibai_engine/screening/calibration/evaluation/cohorts.py,update,engine/src/baibai_engine/screening/calibration/evaluation/cohorts.py,Screening,保存層・純粋観測型のownerへimportと参照を追従
+engine/src/baibai_engine/screening/calibration/evaluation/discovery.py,update,engine/src/baibai_engine/screening/calibration/evaluation/discovery.py,Screening,保存層・純粋観測型のownerへimportと参照を追従
 engine/src/baibai_engine/screening/calibration/evaluation/policy.py,unchanged,engine/src/baibai_engine/screening/calibration/evaluation/policy.py,Screening,今回の配置対象外、現行を維持
 engine/src/baibai_engine/screening/calibration/evaluation/sensitivity.py,unchanged,engine/src/baibai_engine/screening/calibration/evaluation/sensitivity.py,Screening,今回の配置対象外、現行を維持
 engine/src/baibai_engine/screening/calibration/evaluation/statistics.py,unchanged,engine/src/baibai_engine/screening/calibration/evaluation/statistics.py,Screening,今回の配置対象外、現行を維持
-engine/src/baibai_engine/screening/calibration/evidence.py,unchanged,engine/src/baibai_engine/screening/calibration/evidence.py,Screening,今回の配置対象外、現行を維持
+engine/src/baibai_engine/screening/calibration/evidence.py,update,engine/src/baibai_engine/screening/calibration/evidence.py,Screening,保存層・純粋観測型のownerへimportと参照を追従
 engine/src/baibai_engine/screening/calibration/forward.py,unchanged,engine/src/baibai_engine/screening/calibration/forward.py,Screening,今回の配置対象外、現行を維持
 engine/src/baibai_engine/screening/calibration/grid.py,unchanged,engine/src/baibai_engine/screening/calibration/grid.py,Screening,今回の配置対象外、現行を維持
 engine/src/baibai_engine/screening/calibration/horizons.py,unchanged,engine/src/baibai_engine/screening/calibration/horizons.py,Screening,今回の配置対象外、現行を維持
@@ -375,7 +375,7 @@ engine/src/baibai_engine/screening/calibration/read.py,unchanged,engine/src/baib
 engine/src/baibai_engine/screening/calibration/store.py,update,engine/src/baibai_engine/screening/calibration/store.py,Screening,移設caller/import・名称・文書の整合
 engine/src/baibai_engine/screening/cli/__init__.py,unchanged,engine/src/baibai_engine/screening/cli/__init__.py,Screening,今回の配置対象外、現行を維持
 engine/src/baibai_engine/screening/cli/__main__.py,unchanged,engine/src/baibai_engine/screening/cli/__main__.py,Screening,今回の配置対象外、現行を維持
-engine/src/baibai_engine/screening/cli/app.py,unchanged,engine/src/baibai_engine/screening/cli/app.py,Screening,今回の配置対象外、現行を維持
+engine/src/baibai_engine/screening/cli/app.py,update,engine/src/baibai_engine/screening/cli/app.py,Screening,保存層・純粋観測型のownerへimportと参照を追従
 engine/src/baibai_engine/screening/cli/cache.py,update,engine/src/baibai_engine/screening/cli/cache.py,Screening,移設caller/import・名称・文書の整合
 engine/src/baibai_engine/screening/cli/common.py,unchanged,engine/src/baibai_engine/screening/cli/common.py,Screening,今回の配置対象外、現行を維持
 engine/src/baibai_engine/screening/cli/delisting_cli.py,unchanged,engine/src/baibai_engine/screening/cli/delisting_cli.py,Screening,今回の配置対象外、現行を維持
@@ -385,7 +385,7 @@ engine/src/baibai_engine/screening/cli/query.py,update,engine/src/baibai_engine/
 engine/src/baibai_engine/screening/cli/run.py,update,engine/src/baibai_engine/screening/cli/run.py,Screening,保存層・純粋観測型のownerへimportと参照を追従
 engine/src/baibai_engine/screening/cli/valuation_catalyst_cli.py,unchanged,engine/src/baibai_engine/screening/cli/valuation_catalyst_cli.py,Screening,今回の配置対象外、現行を維持
 engine/src/baibai_engine/screening/config.py,unchanged,engine/src/baibai_engine/screening/config.py,Screening,今回の配置対象外、現行を維持
-engine/src/baibai_engine/screening/discovery/__init__.py,unchanged,engine/src/baibai_engine/screening/discovery/__init__.py,Screening,今回の配置対象外、現行を維持
+engine/src/baibai_engine/screening/discovery/__init__.py,update,engine/src/baibai_engine/screening/discovery/__init__.py,Screening,保存層・純粋観測型のownerへimportと参照を追従
 engine/src/baibai_engine/screening/discovery/review_set.py,update,engine/src/baibai_engine/screening/discovery/review_set.py,Screening,移設caller/import・名称・文書の整合
 engine/src/baibai_engine/screening/earnings_lag.py,update,engine/src/baibai_engine/screening/earnings_lag.py,Screening,保存層・純粋観測型のownerへimportと参照を追従
 engine/src/baibai_engine/screening/freshness.py,unchanged,engine/src/baibai_engine/screening/freshness.py,Screening,今回の配置対象外、現行を維持
@@ -399,8 +399,8 @@ engine/src/baibai_engine/screening/metrics/periods.py,unchanged,engine/src/baiba
 engine/src/baibai_engine/screening/metrics/profit.py,unchanged,engine/src/baibai_engine/screening/metrics/profit.py,Screening,今回の配置対象外、現行を維持
 engine/src/baibai_engine/screening/metrics/ratios.py,unchanged,engine/src/baibai_engine/screening/metrics/ratios.py,Screening,今回の配置対象外、現行を維持
 engine/src/baibai_engine/screening/metrics/snapshot.py,update,engine/src/baibai_engine/screening/metrics/snapshot.py,Screening,保存層・純粋観測型のownerへimportと参照を追従
-engine/src/baibai_engine/screening/research_triage.py,update,engine/src/baibai_engine/screening/research_triage.py,Screening,移設caller/import・名称・文書の整合
-engine/src/baibai_engine/screening/research_triage_cli.py,unchanged,engine/src/baibai_engine/screening/research_triage_cli.py,Screening,今回の配置対象外、現行を維持
+engine/src/baibai_engine/screening/research_triage.py,move,engine/src/baibai_engine/research/triage/service.py,Research Triage,main #1428の所有移設を統合し、storage importを追従
+engine/src/baibai_engine/screening/research_triage_cli.py,move,engine/src/baibai_engine/research/triage/cli.py,Research Triage,main #1428の所有移設を統合し、storage importを追従
 engine/src/baibai_engine/screening/rule_config.py,unchanged,engine/src/baibai_engine/screening/rule_config.py,Screening,今回の配置対象外、現行を維持
 engine/src/baibai_engine/screening/rules_identity.py,unchanged,engine/src/baibai_engine/screening/rules_identity.py,Screening,今回の配置対象外、現行を維持
 engine/src/baibai_engine/screening/run_store/__init__.py,unchanged,engine/src/baibai_engine/screening/run_store/__init__.py,Screening,今回の配置対象外、現行を維持
@@ -611,9 +611,9 @@ tests/contracts/test_ci_workflow_contracts.py,unchanged,tests/contracts/test_ci_
 tests/contracts/test_conftest_db_isolation.py,update,tests/contracts/test_conftest_db_isolation.py,Tests,移設caller/import・名称・文書の整合
 tests/contracts/test_drift_gates.py,unchanged,tests/contracts/test_drift_gates.py,Tests,今回の配置対象外、現行を維持
 tests/contracts/test_method_revisions.py,unchanged,tests/contracts/test_method_revisions.py,Tests,今回の配置対象外、現行を維持
-tests/contracts/test_public_cli_contract.py,unchanged,tests/contracts/test_public_cli_contract.py,Tests,今回の配置対象外、現行を維持
+tests/contracts/test_public_cli_contract.py,update,tests/contracts/test_public_cli_contract.py,Tests,保存層・純粋観測型のownerへimportと参照を追従
 tests/contracts/test_repository_layout.py,unchanged,tests/contracts/test_repository_layout.py,Tests,今回の配置対象外、現行を維持
-tests/contracts/test_research_playbook_contract.py,unchanged,tests/contracts/test_research_playbook_contract.py,Tests,今回の配置対象外、現行を維持
+tests/contracts/test_research_playbook_contract.py,update,tests/contracts/test_research_playbook_contract.py,Tests,保存層・純粋観測型のownerへimportと参照を追従
 tests/contracts/test_web_contracts.py,unchanged,tests/contracts/test_web_contracts.py,Tests,今回の配置対象外、現行を維持
 tests/contracts/test_workflow_trust.py,unchanged,tests/contracts/test_workflow_trust.py,Tests,今回の配置対象外、現行を維持
 tests/engine/macro/__init__.py,unchanged,tests/engine/macro/__init__.py,Macro,今回の配置対象外、現行を維持
@@ -652,9 +652,9 @@ tests/engine/test_calibration_evidence.py,unchanged,tests/engine/test_calibratio
 tests/engine/test_calibration_grid_forward.py,update,tests/engine/test_calibration_grid_forward.py,Tests,移設caller/import・名称・文書の整合
 tests/engine/test_calibration_panel.py,update,tests/engine/test_calibration_panel.py,Tests,移設caller/import・名称・文書の整合
 tests/engine/test_capital_allocation.py,unchanged,tests/engine/test_capital_allocation.py,Tests,今回の配置対象外、現行を維持
-tests/engine/test_cli_seam_position_ops.py,unchanged,tests/engine/test_cli_seam_position_ops.py,Tests,今回の配置対象外、現行を維持
-tests/engine/test_cli_seam_research_macro.py,unchanged,tests/engine/test_cli_seam_research_macro.py,Tests,今回の配置対象外、現行を維持
-tests/engine/test_cli_seam_screening_analysis.py,unchanged,tests/engine/test_cli_seam_screening_analysis.py,Tests,今回の配置対象外、現行を維持
+tests/engine/test_cli_seam_position_ops.py,update,tests/engine/test_cli_seam_position_ops.py,Tests,保存層・純粋観測型のownerへimportと参照を追従
+tests/engine/test_cli_seam_research_macro.py,update,tests/engine/test_cli_seam_research_macro.py,Tests,保存層・純粋観測型のownerへimportと参照を追従
+tests/engine/test_cli_seam_screening_analysis.py,update,tests/engine/test_cli_seam_screening_analysis.py,Tests,保存層・純粋観測型のownerへimportと参照を追従
 tests/engine/test_cli_seam_screening_cache.py,update,tests/engine/test_cli_seam_screening_cache.py,Tests,移設caller/import・名称・文書の整合
 tests/engine/test_coerce.py,unchanged,tests/engine/test_coerce.py,Tests,今回の配置対象外、現行を維持
 tests/engine/test_date_utils.py,unchanged,tests/engine/test_date_utils.py,Tests,今回の配置対象外、現行を維持
@@ -663,7 +663,7 @@ tests/engine/test_edinet_document_expiry.py,update,tests/engine/test_edinet_docu
 tests/engine/test_edinet_jpx_sqlite_read_through.py,update,tests/engine/test_edinet_jpx_sqlite_read_through.py,Tests,移設caller/import・名称・文書の整合
 tests/engine/test_edinet_research_facts.py,update,tests/engine/test_edinet_research_facts.py,Tests,移設caller/import・名称・文書の整合
 tests/engine/test_edinet_research_lake.py,update,tests/engine/test_edinet_research_lake.py,Tests,移設caller/import・名称・文書の整合
-tests/engine/test_edinet_revision.py,update,tests/engine/test_edinet_revision.py,Tests,移設caller/import・名称・文書の整合
+tests/engine/test_edinet_revision.py,update,tests/engine/test_edinet_revision.py,Tests,AST/manifest検査を削除し、意味revisionの実用再利用・失敗回帰へ整理
 tests/engine/test_env_loader.py,unchanged,tests/engine/test_env_loader.py,Tests,今回の配置対象外、現行を維持
 tests/engine/test_er_calibration_context_contract.py,unchanged,tests/engine/test_er_calibration_context_contract.py,Tests,今回の配置対象外、現行を維持
 tests/engine/test_external_assessment.py,update,tests/engine/test_external_assessment.py,External Assessment,移設caller/import・名称・文書の整合
@@ -695,7 +695,7 @@ tests/engine/test_position_drafts.py,unchanged,tests/engine/test_position_drafts
 tests/engine/test_position_ledger_store.py,update,tests/engine/test_position_ledger_store.py,Tests,移設caller/import・名称・文書の整合
 tests/engine/test_position_outcome_store.py,unchanged,tests/engine/test_position_outcome_store.py,Tests,今回の配置対象外、現行を維持
 tests/engine/test_position_policy.py,unchanged,tests/engine/test_position_policy.py,Tests,今回の配置対象外、現行を維持
-tests/engine/test_position_review_v3.py,unchanged,tests/engine/test_position_review_v3.py,Tests,今回の配置対象外、現行を維持
+tests/engine/test_position_review_v3.py,update,tests/engine/test_position_review_v3.py,Tests,保存層・純粋観測型のownerへimportと参照を追従
 tests/engine/test_position_sell_execution_draft.py,unchanged,tests/engine/test_position_sell_execution_draft.py,Tests,今回の配置対象外、現行を維持
 tests/engine/test_read_api_degrade.py,update,tests/engine/test_read_api_degrade.py,Tests,移設caller/import・名称・文書の整合
 tests/engine/test_read_api_materialization.py,update,tests/engine/test_read_api_materialization.py,Tests,移設caller/import・名称・文書の整合
@@ -703,7 +703,7 @@ tests/engine/test_read_ir_pdf.py,unchanged,tests/engine/test_read_ir_pdf.py,Test
 tests/engine/test_redaction.py,unchanged,tests/engine/test_redaction.py,Tests,今回の配置対象外、現行を維持
 tests/engine/test_reinvestment_ttm.py,unchanged,tests/engine/test_reinvestment_ttm.py,Tests,今回の配置対象外、現行を維持
 tests/engine/test_research_market_close_source.py,update,tests/engine/test_research_market_close_source.py,Tests,移設caller/import・名称・文書の整合
-tests/engine/test_research_triage_macro_binding.py,unchanged,tests/engine/test_research_triage_macro_binding.py,Tests,今回の配置対象外、現行を維持
+tests/engine/test_research_triage_macro_binding.py,update,tests/engine/test_research_triage_macro_binding.py,Tests,保存層・純粋観測型のownerへimportと参照を追従
 tests/engine/test_research_triage_v2.py,update,tests/engine/test_research_triage_v2.py,Tests,移設caller/import・名称・文書の整合
 tests/engine/test_research_watch_v4.py,update,tests/engine/test_research_watch_v4.py,Tests,移設caller/import・名称・文書の整合
 tests/engine/test_research_workspace_triage_v2.py,update,tests/engine/test_research_workspace_triage_v2.py,Tests,移設caller/import・名称・文書の整合
@@ -718,7 +718,7 @@ tests/engine/test_retail_dynamics_noninterference.py,move,tests/engine/test_exte
 tests/engine/test_retail_dynamics_pair_collection.py,move,tests/engine/test_external_assessment_pair_collection.py,External Assessment,親決定の配置へ移設、caller/importを追従
 tests/engine/test_retail_dynamics_retry_after.py,move,tests/engine/test_external_assessment_retry_after.py,External Assessment,親決定の配置へ移設、caller/importを追従
 tests/engine/test_retail_dynamics_sources.py,move,tests/engine/test_external_assessment_sources.py,External Assessment,親決定の配置へ移設、caller/importを追従
-tests/engine/test_review_set.py,unchanged,tests/engine/test_review_set.py,Tests,今回の配置対象外、現行を維持
+tests/engine/test_review_set.py,update,tests/engine/test_review_set.py,Tests,保存層・純粋観測型のownerへimportと参照を追従
 tests/engine/test_reviewed_thesis_v4.py,update,tests/engine/test_reviewed_thesis_v4.py,Tests,移設caller/import・名称・文書の整合
 tests/engine/test_scaffold_macro_context_inputs.py,unchanged,tests/engine/test_scaffold_macro_context_inputs.py,Tests,今回の配置対象外、現行を維持
 tests/engine/test_screening_cli.py,update,tests/engine/test_screening_cli.py,Tests,移設caller/import・名称・文書の整合
@@ -865,7 +865,7 @@ tools/quality/drift/check_skill_inventory.py,unchanged,tools/quality/drift/check
 tools/quality/drift/check_workflow_trust.py,unchanged,tools/quality/drift/check_workflow_trust.py,Shared tooling/configuration,今回の配置対象外、現行を維持
 tools/setup-dev.sh,unchanged,tools/setup-dev.sh,Shared tooling/configuration,今回の配置対象外、現行を維持
 uv.lock,unchanged,uv.lock,Shared tooling/configuration,今回の配置対象外、現行を維持
-web/README.md,unchanged,web/README.md,Web,今回の配置対象外、現行を維持
+web/README.md,update,web/README.md,Web,保存層・純粋観測型のownerへimportと参照を追従
 web/backend/src/baibai_web/__init__.py,unchanged,web/backend/src/baibai_web/__init__.py,Web,今回の配置対象外、現行を維持
 web/backend/src/baibai_web/api/__init__.py,unchanged,web/backend/src/baibai_web/api/__init__.py,Web,今回の配置対象外、現行を維持
 web/backend/src/baibai_web/api/server.py,unchanged,web/backend/src/baibai_web/api/server.py,Web,今回の配置対象外、現行を維持
@@ -882,11 +882,11 @@ web/backend/src/baibai_web/readmodel/builders/operations.py,unchanged,web/backen
 web/backend/src/baibai_web/readmodel/builders/presentation.py,unchanged,web/backend/src/baibai_web/readmodel/builders/presentation.py,Web,今回の配置対象外、現行を維持
 web/backend/src/baibai_web/readmodel/builders/tasks.py,unchanged,web/backend/src/baibai_web/readmodel/builders/tasks.py,Web,今回の配置対象外、現行を維持
 web/backend/src/baibai_web/readmodel/macro.py,unchanged,web/backend/src/baibai_web/readmodel/macro.py,Web,今回の配置対象外、現行を維持
-web/backend/src/baibai_web/readmodel/models.py,unchanged,web/backend/src/baibai_web/readmodel/models.py,Web,今回の配置対象外、現行を維持
+web/backend/src/baibai_web/readmodel/models.py,update,web/backend/src/baibai_web/readmodel/models.py,Web,保存層・純粋観測型のownerへimportと参照を追従
 web/backend/src/baibai_web/readmodel/stocks/__init__.py,unchanged,web/backend/src/baibai_web/readmodel/stocks/__init__.py,Web,今回の配置対象外、現行を維持
 web/backend/src/baibai_web/readmodel/stocks/detail.py,unchanged,web/backend/src/baibai_web/readmodel/stocks/detail.py,Web,今回の配置対象外、現行を維持
 web/backend/src/baibai_web/readmodel/stocks/presentation.py,unchanged,web/backend/src/baibai_web/readmodel/stocks/presentation.py,Web,今回の配置対象外、現行を維持
-web/backend/src/baibai_web/readmodel/stocks/research.py,unchanged,web/backend/src/baibai_web/readmodel/stocks/research.py,Web,今回の配置対象外、現行を維持
+web/backend/src/baibai_web/readmodel/stocks/research.py,update,web/backend/src/baibai_web/readmodel/stocks/research.py,Web,保存層・純粋観測型のownerへimportと参照を追従
 web/backend/src/baibai_web/readmodel/stocks/screening.py,unchanged,web/backend/src/baibai_web/readmodel/stocks/screening.py,Web,今回の配置対象外、現行を維持
 web/backend/src/baibai_web/repository_layout.py,unchanged,web/backend/src/baibai_web/repository_layout.py,Web,今回の配置対象外、現行を維持
 web/backend/src/baibai_web/sources/__init__.py,unchanged,web/backend/src/baibai_web/sources/__init__.py,Web,今回の配置対象外、現行を維持
@@ -897,7 +897,7 @@ web/backend/src/baibai_web/sources/protocols.py,unchanged,web/backend/src/baibai
 web/backend/src/baibai_web/sources/types.py,unchanged,web/backend/src/baibai_web/sources/types.py,Web,今回の配置対象外、現行を維持
 web/config/macro-panel.yaml,unchanged,web/config/macro-panel.yaml,Web,今回の配置対象外、現行を維持
 web/contracts/README.md,unchanged,web/contracts/README.md,Web,今回の配置対象外、現行を維持
-web/contracts/read-model.schema.json,unchanged,web/contracts/read-model.schema.json,Web,今回の配置対象外、現行を維持
+web/contracts/read-model.schema.json,update,web/contracts/read-model.schema.json,Web,保存層・純粋観測型のownerへimportと参照を追従
 web/contracts/routes.json,unchanged,web/contracts/routes.json,Web,今回の配置対象外、現行を維持
 web/edge/.dev.vars.example,unchanged,web/edge/.dev.vars.example,Web,今回の配置対象外、現行を維持
 web/edge/package-lock.json,unchanged,web/edge/package-lock.json,Web,今回の配置対象外、現行を維持
@@ -927,7 +927,7 @@ web/frontend/public/manifest.webmanifest,unchanged,web/frontend/public/manifest.
 web/frontend/src/App.tsx,unchanged,web/frontend/src/App.tsx,Web,今回の配置対象外、現行を維持
 web/frontend/src/api/auth.ts,unchanged,web/frontend/src/api/auth.ts,Web,今回の配置対象外、現行を維持
 web/frontend/src/api/client.ts,unchanged,web/frontend/src/api/client.ts,Web,今回の配置対象外、現行を維持
-web/frontend/src/api/types.ts,unchanged,web/frontend/src/api/types.ts,Web,今回の配置対象外、現行を維持
+web/frontend/src/api/types.ts,update,web/frontend/src/api/types.ts,Web,保存層・純粋観測型のownerへimportと参照を追従
 web/frontend/src/components/AppLayout.tsx,unchanged,web/frontend/src/components/AppLayout.tsx,Web,今回の配置対象外、現行を維持
 web/frontend/src/components/AppShell.tsx,unchanged,web/frontend/src/components/AppShell.tsx,Web,今回の配置対象外、現行を維持
 web/frontend/src/components/AsOfBadge.tsx,unchanged,web/frontend/src/components/AsOfBadge.tsx,Web,今回の配置対象外、現行を維持
@@ -971,8 +971,8 @@ web/frontend/src/lib/stocks.ts,unchanged,web/frontend/src/lib/stocks.ts,Web,今�
 web/frontend/src/lib/trading-view.ts,unchanged,web/frontend/src/lib/trading-view.ts,Web,今回の配置対象外、現行を維持
 web/frontend/src/lib/utils.ts,unchanged,web/frontend/src/lib/utils.ts,Web,今回の配置対象外、現行を維持
 web/frontend/src/main.tsx,unchanged,web/frontend/src/main.tsx,Web,今回の配置対象外、現行を維持
-web/frontend/src/pages/CapitalAllocationAssessmentPage.tsx,unchanged,web/frontend/src/pages/CapitalAllocationAssessmentPage.tsx,Web,今回の配置対象外、現行を維持
-web/frontend/src/pages/DashboardPage.tsx,unchanged,web/frontend/src/pages/DashboardPage.tsx,Web,今回の配置対象外、現行を維持
+web/frontend/src/pages/CapitalAllocationAssessmentPage.tsx,update,web/frontend/src/pages/CapitalAllocationAssessmentPage.tsx,Web,保存層・純粋観測型のownerへimportと参照を追従
+web/frontend/src/pages/DashboardPage.tsx,update,web/frontend/src/pages/DashboardPage.tsx,Web,保存層・純粋観測型のownerへimportと参照を追従
 web/frontend/src/pages/MacroPage.tsx,unchanged,web/frontend/src/pages/MacroPage.tsx,Web,今回の配置対象外、現行を維持
 web/frontend/src/pages/MacroReportPage.tsx,unchanged,web/frontend/src/pages/MacroReportPage.tsx,Web,今回の配置対象外、現行を維持
 web/frontend/src/pages/ResearchTriagePage.tsx,unchanged,web/frontend/src/pages/ResearchTriagePage.tsx,Web,今回の配置対象外、現行を維持

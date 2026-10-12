@@ -9,8 +9,6 @@ from tests.engine.test_position_review_v3 import NOW
 from tests.helpers.research_triage import research_entry, research_triage_payload
 from tests.helpers.research_v4 import pair_payload
 
-from baibai_engine.storage.application.json import canonical_json
-from baibai_engine.storage.application.write import connect_rw
 from baibai_engine.research.capital_allocation import (
     CapitalAllocationAssessment,
     capital_allocation_draft_sha256,
@@ -35,6 +33,8 @@ from baibai_engine.research.position_review_service import PositionReviewService
 from baibai_engine.research.thesis_store import ThesisStoreService
 from baibai_engine.research.triage.contracts import ResearchTriage
 from baibai_engine.research.workspace import ResearchWorkspaceConflictError, prepare_workspace
+from baibai_engine.storage.application.json import canonical_json
+from baibai_engine.storage.application.write import connect_rw
 
 pytest_plugins = ["tests.engine.test_position_review_v3"]
 
