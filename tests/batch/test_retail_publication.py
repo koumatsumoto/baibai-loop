@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import shlex
 import sqlite3
+import subprocess
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -41,6 +43,25 @@ from baibai_engine.batch_api import (
 
 WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/cloud-retail-dynamics.yml"
 RECEIVED = datetime(2026, 9, 30, 15, tzinfo=UTC)
+
+
+def test_acquire_workflow_timeout_can_start_a_harmless_command():
+    workflow = yaml.safe_load(WORKFLOW.read_text())
+    commands = [
+        shlex.split(step["run"])
+        for step in workflow["jobs"]["acquire"]["steps"]
+        if step.get("run", "").startswith("timeout ")
+    ]
+    assert len(commands) == 1
+    command = commands[0]
+    # Exercise GNU timeout's actual duration parser without provider or R2 I/O.
+    result = subprocess.run(
+        [*command[: command.index("uv")], "true"],
+        capture_output=True,
+        timeout=5,
+        check=False,
+    )
+    assert result.returncode == 0
 
 
 @pytest.fixture
