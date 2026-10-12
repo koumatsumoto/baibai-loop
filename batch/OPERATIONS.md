@@ -868,14 +868,26 @@ import対象は明示した既存の隔離作業コピーであり、current mar
 
 各pairは通信前後のcheckpointを含む実wall-clock上限を持つ。取得jobは4時間のsoft budgetに余裕を残して次pairを開始せず、4時間30分のprocess timeout、5時間のjob上限で打ち切る。HTTP timeoutの積だけを総所要時間の保証にしない。
 
-確定したtyped観測と安全な成否は、既存`baibai-stores`の`coordination/retail-dynamics/<batch_id>/`へ条件付き保存してjob間で引き継ぐ。認証情報は保存せず、値やraw HTMLをlog・Git・Actions artifactへ出さない。各HTTPの前にinflightを永続化し、結果の確定時に同じ世代を条件付き更新する。成功・正常null・通常の確定失敗は再開時に取得しない。plan時の既存checkpoint走査を使って未着手を残すcohortだけを取得matrixへ渡し、全cohortが確定済みなら取得jobをskipして公開へ進む。403、CAS不一致、保存結果が不明なPUT、inflightのままの中断は日次run全体を停止し、自動再試行や経路変更をしない。
+確定したtyped観測と安全な成否は、既存`baibai-stores`の`coordination/retail-dynamics/<batch_id>/`へ条件付き保存してjob間で引き継ぐ。認証情報は保存せず、値やraw HTMLをlog・Git・Actions artifactへ出さない。各HTTPの前にinflightを永続化し、結果の確定時に同じ世代を条件付き更新する。成功・正常null・通常の確定失敗は再開時に取得しない。plan時の既存checkpoint走査を使って未着手を残すcohortだけを取得matrixへ渡し、全cohortが確定済みなら取得jobをskipして公開へ進む。providerの403、typed/checkpointのCAS不一致・保存結果が不明なPUT、inflightのままの中断は日次run全体を停止し、自動再試行や経路変更をしない。
 
-新規取得のHTTP 200では、既存collectorが要求したMonex公開ページ、楽天公式outer、確認済みIFIS iframeの本文bytesをprivateなR2へ保存する。requestsによるHTTP転送圧縮の展開後、文字decode前の本文であり、受領時に選んだencodingとUTC時刻を残す。同一本文はSHA256をkeyとするgzip blob `retail-dynamics/raw-html/sha256/<hash>.html.gz`を再利用する。受領JSONは`retail-dynamics/raw-receipts/<batch_id>/<source>/<requested_ticker>/<request_number>.json`で、既存checkpointのrequest reservation番号に対応する。Cookie・認証headerや全response headerは保存せず、アカウントページへの取得を追加しない。本文と受領JSONは決定的hashと既存object APIの保存成功を確認してからtyped outcomeのcheckpointを確定し、保存失敗ならinflightのまま停止する。通常保存やblob再利用に本文GET読戻しを加えず、元bytesの照合はtest・少量の本番受入・再解析時に行う。200のparse失敗本文は再解析用に保持するが、typed failureを正常nullへ変えない。非200・未受領本文は成功原応答として保存しない。保存済みstageやterminalのno-opは再取得せず、取得当時に保存しなかったHTMLを後から補った受領にしない。限定`collect` CLIは従来の正規化stage出力のままで、private raw保全は日次の固定pair経路が行う。
+正本は抽出済みのtyped観測とDB/L1履歴である。新規取得のHTTP 200の本文は、開発時の事後検証・調査用に約3日だけprivateなR2へ保存する。対象は既存collectorが要求したMonex公開ページ、楽天公式outer、確認済みIFIS iframeであり、requestsによるHTTP転送圧縮の展開後、文字decode前のbytes、受領時のencodingと実受領UTC時刻を残す。blobは`retail-dynamics/raw-html/utc-date/<YYYY-MM-DD>/sha256/<hash>.html.gz`、受領JSONは`retail-dynamics/raw-receipts/utc-date/<YYYY-MM-DD>/<batch_id>/<source>/<requested_ticker>/<request_number>.json`に置く。日付はbatch予定日や表示更新日でなく実受領UTC日とし、SHA256による本文共有は同日内だけに限る。
+
+typed outcomeのcheckpoint確定後にrawを保存する。rawだけの保存失敗・競合は本文・URL・例外messageを含めないActions warningを出し、正常なtyped結果と公開を維持する。raw保存はcollectorのpair deadline外で行い、保存が遅れても確定済みtypedをinflightへ戻さない。既存typed/checkpoint自体の保存失敗時停止は維持する。Cookie・認証headerや全response headerを保存せず、認証付きrequestやアカウントページを取得対象に加えない。通常保存・blob再利用に本文GETを加えず、元bytes照合はtest・少量の受入・再解析時に行う。200のparse失敗本文も一時調査用に保存するが、typed failureを正常nullへ変えない。非200・未受領本文を成功原応答として保存しない。保存済みstage/terminalのno-opで再取得やraw補完は行わない。限定`collect` CLIは従来の正規化stage出力のままである。
+
+保持対象は確認時点のUTC当日と前2日の3日付とする（厳密な72時間ではない）。次のread-only inventoryで日付別の保持対象・削除候補prefix、object数、圧縮本文とJSONの合計bytesを確認する。rawの2rootだけをLISTし、本文GET・PUT・DELETEやlifecycle設定を行わない。
+
+```bash
+uv run python -m baibai_batch.storage.retail_raw --as-of 2026-10-12
+```
+
+この例では10月10〜12日を保持し、それ以前の日付を候補とする。実削除は対象prefixと不可逆性を実行時に確認してから、古い日のreceipt prefix、同じ日のblob prefixの順に行う。日付を跨ぐ本文共有はないため、保持日のreceiptが古い日のblobを参照しない。object作成日時だけの一律TTLを共有blobへ適用しない。inventoryは候補確認のみで、自動期限切れ・削除を実装しないため、削除手順の適用までは3日を超えるrawが残る。
+
+旧`raw-html/sha256/`と日付区切りのない旧receiptは`legacy_or_unclassified`件数に分け、自動削除候補や新形式readerの対象に含めない。旧rawの大規模移行・互換読み替えは行わず、存在を確認した場合は対象を別途確認する。調査上必要なサンプルだけ、元receiptと本文を対応付けて手動で明示したprivateコピーを残す。専用pin管理や参照数管理を追加せず、typed/L1・checkpoint・EDINET等の別用途rawをこの削除範囲に含めない。
 
 private本文の読戻しは既存runtimeの認証だけを使い、次の入口で受領JSONとgzip本文hashを確認する。`receipt_key`は確認した実keyへ置換する。本文や再解析した値をstdoutへ出さず、decodeしたHTMLと受領metadataを対応する既存parserへ渡す。
 
 ```bash
-receipt_key='retail-dynamics/raw-receipts/<batch_id>/monex/<ticker>/<request_number>.json'
+receipt_key='retail-dynamics/raw-receipts/utc-date/<YYYY-MM-DD>/<batch_id>/monex/<ticker>/<request_number>.json'
 uv run python - "$receipt_key" <<'PY'
 import sys
 from baibai_batch.storage.lake_publish import Boto3R2Store
@@ -906,7 +918,7 @@ gh workflow run cloud-retail-dynamics.yml --ref main \
 
 終端の独立`notify` jobは既存repository secret `DISCORD_WEBHOOK_URL`が指す宛先へrun単位で1件通知する。成功・既知の取得/parse失敗を含む公開・明示的な部分公開・以前の完全/部分公開・取得停止/未完了・公開確認失敗・取消を区別し、確認済みの固定pair数・typed数・既知失敗数・全評価値null数・不確定数・未試行数・追加row数と実行linkだけを載せる。matrix失敗時や旧terminalの未知集計値は不明とし、通知のためにR2へ読み直さない。銘柄別の値・raw HTML・private batch ID・認証情報・error本文は通知しない。secretは通知stepのenvだけへ渡し、追加のsecret名やcloudの`.env`は使わない。宛先が未登録なら既存名をrepositoryのActions secretに設定する。配送失敗はsanitizedな理由をstderrへ残し、batch結果を変更しない。job取消やrunner停止で通知できない場合もあるため、workflow履歴も確認する。このコード追加は実配送の確認や本番dispatchを意味しない。
 
-**停止・再開**: soft budgetによる未試行だけなら、同じbatch IDとmaster日付で再dispatchし、確定pairを除いた残りを取得する。欠落cohort・cancelされたmatrixも同じ固定planから再開する。inflight・明示拒否・保存競合がある場合はaudit summaryと原因を確認し、同batchの取得を継続しない。公開失敗後は次回も最新正本をhydrateし、古い作業DBを上書き公開しない。公開済みでもreadback失敗なら完了ではなく、confirmed stageから再確認する。
+**停止・再開**: soft budgetによる未試行だけなら、同じbatch IDとmaster日付で再dispatchし、確定pairを除いた残りを取得する。欠落cohort・cancelされたmatrixも同じ固定planから再開する。inflight・providerの明示拒否・typed/checkpointの保存競合がある場合はaudit summaryと原因を確認し、同batchの取得を継続しない。公開失敗後は次回も最新正本をhydrateし、古い作業DBを上書き公開しない。公開済みでもreadback失敗なら完了ではなく、confirmed stageから再確認する。
 
 再試行余地を持つ確定429が残る場合、planはそのcohortだけを`retry_only`として次の取得枠に選ぶ。他cohortを先に開始してfail-fastにより対象cohortを取り消すことを避けるためである。この枠では通常publishをskipし、成功しても未公開・同batchの再dispatchが必要と通知する。その後の同batch dispatchで残り取得と通常公開へ進む。期限・回数を確認できない429をこの例外で再開しない。部分公開を明示的に選ぶ場合は下記の復旧入口を使う。
 
@@ -918,7 +930,7 @@ private handoffの操作数も費用確認に含める。各銘柄でMonex1HTTP/
 
 初回の74cohortを順番に正常完走する同じ前提では、acquire前後のcheckpoint既存読取5,476回、publish時74回、plan既存読取75回からGETは5,625回となる。429再開枠を選ぶ新planはcheckpointも走査し、初回は存在しない74keyのHEADが加わる。plan/terminal PUTと応答確認、存在しないcheckpoint/terminalのHEADも含むprivate handoff小計はPUT18,462・GET5,625・HEAD35,342、合計59,429論理操作である。これはprivate raw本文/受領JSON、lease、L1、market.sqliteのpull/hydrate、SDK retry等を除いた理論小計で、run全体の実測や課金額ではない。再開planの追加走査はNcohort・既存McheckpointならN+M HEADとM GET、PUT0。検証済みterminalではcheckpointを走査しない。429再試行・部分復旧・保存済みplanの再開・既公開skipは別の操作数となる。
 
-受領履歴はL1で保持する。取得checkpointは引継ぎ用であり、検証用のraw応答やSQLite複製と同じ保存目的ではない。公開・readback完了後の整理では、固定planと小さなpublished manifestを残し、同batch IDを再取得へ戻さない。private raw本文と受領JSONは再解析の正本として残し、checkpoint整理で削除しない。重複検証copyの無期限保持は採用しない。正規化stageの容量だけをR2全体の容量・料金とみなさず、checkpointのClass A/B、既存全datasetのL1再exportとobject再利用、保存履歴を別に実測する。
+抽出済みtyped受領履歴は正本としてDB/L1で保持し、rawの約3日保持によって削除しない。取得checkpointは引継ぎ用であり、検証用rawやSQLite複製と保存目的が異なる。公開・readback完了後の整理では固定planと小さなpublished manifestを残し、同batch IDを再取得へ戻さない。診断用raw本文と受領JSONは上記の日付別保持範囲で整理し、無期限の正本とはしない。正規化stageの容量だけをR2全体の容量・料金とみなさず、checkpointのClass A/B、既存全datasetのL1再exportとobject再利用、保存履歴を別に実測する。
 
 <a id="market-28-to-29"></a>
 
