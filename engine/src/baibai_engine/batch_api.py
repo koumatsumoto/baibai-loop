@@ -107,6 +107,9 @@ from baibai_engine.market.retail_dynamics.models import (
     ModelValuationObservation as RetailModelValuationObservation,
 )
 from baibai_engine.market.retail_dynamics.models import Observation as RetailObservation
+from baibai_engine.market.retail_dynamics.models import (
+    QuantsScoreObservation as RetailQuantsScoreObservation,
+)
 from baibai_engine.market.retail_dynamics.store import save_observations as retail_save_observations
 from baibai_engine.market.retail_dynamics.universe import (
     calendar_master_asof as retail_calendar_master_asof,
@@ -450,6 +453,7 @@ __all__ = [
     "RetailHostRateLimiter",
     "RetailModelValuationObservation",
     "RetailObservation",
+    "RetailQuantsScoreObservation",
     "RetailReceivedHTML",
     "RetailSource",
     "ReviewSetEntrySnapshot",

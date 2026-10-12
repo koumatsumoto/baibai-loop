@@ -70,7 +70,10 @@ def save_raw_html(
 ) -> str:
     """Save a received public HTTP 200 body, after the typed outcome checkpoint."""
     prefix(run_id)
-    if source not in {"monex", "rakuten"} or re.fullmatch(r"[0-9A-Z]{4}", ticker) is None:
+    if (
+        source not in {"monex", "rakuten", "kabumap"}
+        or re.fullmatch(r"[0-9A-Z]{4}", ticker) is None
+    ):
         raise ValueError("invalid retail raw request identity")
     if type(request_number) is not int or request_number <= 0:
         raise ValueError("invalid retail raw request number")

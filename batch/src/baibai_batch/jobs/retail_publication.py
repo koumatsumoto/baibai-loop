@@ -29,6 +29,7 @@ from baibai_engine.batch_api import (
     LocalMirrorSource,
     RetailModelValuationObservation,
     RetailObservation,
+    RetailQuantsScoreObservation,
     lake_session,
     read_lake_store_origin,
     retail_history_digests,
@@ -38,6 +39,7 @@ from baibai_engine.batch_api import (
 
 VALUATION_DATASET = "retail_dynamics.model_valuation_observations"
 RATING_DATASET = "retail_dynamics.analyst_rating_observations"
+QUANTS_DATASET = "retail_dynamics.quants_score_observations"
 
 
 def receipt_date_coverage(
@@ -123,6 +125,8 @@ def publish_and_verify(
         (
             VALUATION_DATASET
             if isinstance(item, RetailModelValuationObservation)
+            else QUANTS_DATASET
+            if isinstance(item, RetailQuantsScoreObservation)
             else RATING_DATASET,
             item.snapshot_date.year,
             item.snapshot_date.month,
@@ -155,7 +159,7 @@ def publish_and_verify(
         raise LakePublishError("retail publication changed dataset inventory")
     if unchanged_objects(before, changed) != unchanged_objects(after, changed):
         raise LakePublishError("retail publication changed unrelated partitions")
-    for name in (VALUATION_DATASET, RATING_DATASET):
+    for name in (VALUATION_DATASET, RATING_DATASET, QUANTS_DATASET):
         manifest = after.dataset_manifests.get(name)
         if manifest is None:
             continue
@@ -210,7 +214,7 @@ def publish_and_verify(
     retail_readback = {
         obj.key: obj.bytes
         for name, manifest in after.dataset_manifests.items()
-        if name in {VALUATION_DATASET, RATING_DATASET}
+        if name in {VALUATION_DATASET, RATING_DATASET, QUANTS_DATASET}
         for part in manifest.partitions
         if (name, part.values["year"], part.values["month"]) in changed
         for obj in part.objects

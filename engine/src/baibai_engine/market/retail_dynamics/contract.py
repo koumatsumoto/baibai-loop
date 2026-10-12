@@ -1,9 +1,10 @@
 """Physical dataset contracts; safe for schema/lake to import without services."""
 
-from .models import VALUATION_METRICS
+from .models import QUANTS_METRICS, VALUATION_METRICS
 
 MODEL_VALUATION_TABLE = "retail_model_valuation_observations"
 ANALYST_RATING_TABLE = "retail_analyst_rating_observations"
+QUANTS_SCORE_TABLE = "retail_quants_score_observations"
 type Column = tuple[str, str, bool, int]
 
 _COMMON_COLUMNS: tuple[Column, ...] = (
@@ -42,6 +43,16 @@ ANALYST_RATING_COLUMNS: tuple[Column, ...] = (
     ("rating_updated_at_utc", "TEXT", True, 0),
     ("rating_updated_label", "TEXT", True, 0),
 )
+QUANTS_SCORE_COLUMNS: tuple[Column, ...] = (
+    *_COMMON_COLUMNS,
+    ("score_as_of_date", "TEXT", False, 0),
+    ("score_scale_max", "INTEGER", False, 0),
+    ("composite_scale_max", "INTEGER", False, 0),
+    *(
+        (name, "REAL", True, 0)
+        for name in (*QUANTS_METRICS, "composite_score", "industry_average_score")
+    ),
+)
 
 
 def _ddl(table: str, columns: tuple[Column, ...]) -> str:
@@ -58,3 +69,4 @@ def _ddl(table: str, columns: tuple[Column, ...]) -> str:
 
 MODEL_VALUATION_DDL = _ddl(MODEL_VALUATION_TABLE, MODEL_VALUATION_COLUMNS)
 ANALYST_RATING_DDL = _ddl(ANALYST_RATING_TABLE, ANALYST_RATING_COLUMNS)
+QUANTS_SCORE_DDL = _ddl(QUANTS_SCORE_TABLE, QUANTS_SCORE_COLUMNS)

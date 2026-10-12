@@ -12,6 +12,8 @@ from baibai_engine.market.retail_dynamics.contract import (
     ANALYST_RATING_TABLE,
     MODEL_VALUATION_COLUMNS,
     MODEL_VALUATION_TABLE,
+    QUANTS_SCORE_COLUMNS,
+    QUANTS_SCORE_TABLE,
 )
 from baibai_engine.market.tradingview.contract import COLUMNS as TV_COLUMNS
 from baibai_engine.market.tradingview.contract import TABLE as TV_TABLE
@@ -563,7 +565,21 @@ RETAIL_ANALYST_RATING_OBSERVATIONS = LakeDataset(
     ),
 )
 
+RETAIL_QUANTS_SCORE_OBSERVATIONS = LakeDataset(
+    name="retail_dynamics.quants_score_observations",
+    sqlite_table=QUANTS_SCORE_TABLE,
+    date_column="snapshot_date",
+    coverage_authority="unproven",
+    columns=tuple(
+        LakeColumn(
+            name, kind, {"TEXT": _TEXT, "REAL": _REAL, "INTEGER": _INTEGER}[kind], nullable, pk
+        )
+        for name, kind, nullable, pk in QUANTS_SCORE_COLUMNS
+    ),
+)
+
 LAKE_DATASETS = {
+    RETAIL_QUANTS_SCORE_OBSERVATIONS.name: RETAIL_QUANTS_SCORE_OBSERVATIONS,
     RETAIL_MODEL_VALUATION_OBSERVATIONS.name: RETAIL_MODEL_VALUATION_OBSERVATIONS,
     RETAIL_ANALYST_RATING_OBSERVATIONS.name: RETAIL_ANALYST_RATING_OBSERVATIONS,
     TRADINGVIEW_FORECAST_SNAPSHOTS.name: TRADINGVIEW_FORECAST_SNAPSHOTS,

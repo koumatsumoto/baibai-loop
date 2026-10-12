@@ -1,4 +1,4 @@
-"""Small HTML helpers for the two verified public source pages."""
+"""Small HTML helpers for verified public source pages."""
 
 from __future__ import annotations
 

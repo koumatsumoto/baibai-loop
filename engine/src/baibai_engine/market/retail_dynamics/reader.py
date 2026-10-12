@@ -14,6 +14,8 @@ from .contract import (
     ANALYST_RATING_TABLE,
     MODEL_VALUATION_COLUMNS,
     MODEL_VALUATION_TABLE,
+    QUANTS_SCORE_COLUMNS,
+    QUANTS_SCORE_TABLE,
     Column,
 )
 from .models import (
@@ -22,6 +24,8 @@ from .models import (
     ModelValuationHistory,
     ModelValuationObservation,
     ObservationHistory,
+    QuantsScoreHistory,
+    QuantsScoreObservation,
     utc_datetime,
 )
 
@@ -70,6 +74,10 @@ def read_observations(sqlite_path: Path, ticker: str, cutoff: datetime) -> Obser
                 conn, ANALYST_RATING_TABLE, ANALYST_RATING_COLUMNS, ticker, cutoff
             )
         ]
+        quants = [
+            QuantsScoreObservation.model_validate(dict(row))
+            for row in _latest_rows(conn, QUANTS_SCORE_TABLE, QUANTS_SCORE_COLUMNS, ticker, cutoff)
+        ]
     finally:
         conn.close()
     return ObservationHistory(
@@ -78,6 +86,10 @@ def read_observations(sqlite_path: Path, ticker: str, cutoff: datetime) -> Obser
         model_valuation=ModelValuationHistory(
             latest=valuation[0] if valuation else None,
             previous=valuation[1] if len(valuation) > 1 else None,
+        ),
+        quants_score=QuantsScoreHistory(
+            latest=quants[0] if quants else None,
+            previous=quants[1] if len(quants) > 1 else None,
         ),
         analyst_rating=AnalystRatingHistory(
             latest=rating[0] if rating else None,

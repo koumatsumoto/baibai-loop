@@ -202,10 +202,24 @@ def test_float_rounding_cannot_inflate_remaining_above_attempt_limit(clock):
     assert result.requests == 1
 
 
-def test_v3_binding_includes_fixed_rate_policy(monkeypatch):
-    assert collection.PAIR_ACQUISITION_POLICY_VERSION == "retail-pair-acquisition-v3"
+def test_v4_binding_includes_fixed_rate_policy(monkeypatch):
+    assert collection.PAIR_ACQUISITION_POLICY_VERSION == "retail-pair-acquisition-v4"
     assert collection.HOST_REQUEST_RATE_PER_SECOND == 2
     assert collection.HOST_REQUEST_BURST_CREDITS == 4
     binding = collection.collector_binding()
     monkeypatch.setattr(collection, "HOST_REQUEST_RATE_PER_SECOND", 3)
     assert collection.collector_binding() != binding
+
+
+def test_kabumap_has_two_second_spacing_without_burst(clock):
+    bucket = collection.HostRateLimiter()
+    url = "https://jp.kabumap.com/servlets/kabumap/Action"
+    bucket.wait(url, deadline=120)
+    first = clock.seconds
+    bucket.wait(url, deadline=120)
+    assert clock.seconds - first == pytest.approx(2)
+    clock.seconds += 10
+    bucket.wait(url, deadline=120)
+    after_idle = clock.seconds
+    bucket.wait(url, deadline=120)
+    assert clock.seconds - after_idle == pytest.approx(2)

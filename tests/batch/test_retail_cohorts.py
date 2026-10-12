@@ -32,6 +32,7 @@ def plan(**kwargs):
             "tickers": ("130A", "7203"),
             "universe_binding": "synthetic-master-sha256",
             "collector_binding": "synthetic-code-sha256",
+            "sources": ("monex", "rakuten"),
             **kwargs,
         }
     )
