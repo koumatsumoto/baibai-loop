@@ -17,17 +17,16 @@ from tools.quality.drift.check_workflow_trust import check_workflow
 from baibai_batch.jobs import external_assessment_publication as retail
 from baibai_batch.jobs.external_assessment_cohorts import (
     make_plan,
-    mark_inflight,
-    new_journal,
+    new_result,
     record_outcome,
 )
 from baibai_batch.storage import publish_market_lake as publisher
 from baibai_batch.storage.external_assessment_staging import (
-    Checkpoint,
-    checkpoint_bytes,
-    checkpoint_key,
+    CohortStage,
     put_private,
-    read_checkpoints,
+    read_stages,
+    stage_bytes,
+    stage_key,
 )
 from baibai_batch.storage.lake_publish import LakeCASConflict, LakePublishError
 from baibai_batch.storage.publication_lease import LeaseError, acquire, release, verify_held
@@ -137,9 +136,8 @@ def publication(tmp_path, monkeypatch):
         universe_binding="synthetic-fixed-master",
         collector_binding=external_assessment_collector_binding(),
     )
-    journal = new_journal(plan, 0)
+    journal = new_result(plan, 0)
     for source, ticker in plan.cohorts[0].pairs:
-        journal = mark_inflight(plan, journal, source, ticker)
         common = {
             "ticker": ticker,
             "fetched_at_utc": RECEIVED,
@@ -168,8 +166,8 @@ def publication(tmp_path, monkeypatch):
         journal = record_outcome(plan, journal, outcome, observation)
     put_private(
         store,
-        checkpoint_key(plan, 0),
-        checkpoint_bytes(plan, Checkpoint(journal)),
+        stage_key(plan, 0),
+        stage_bytes(plan, CohortStage(journal)),
         previous_etag=None,
     )
     return store, plan, handle, database, mirror, tmp_path
@@ -181,7 +179,7 @@ def test_real_remote_graph_readback_preserves_null_receipts_history_and_unrelate
 ):
     store, plan, handle, database, mirror, tmp_path = publication
     before = publisher._serving_pointer(store).pointer
-    original = store.get_bytes(checkpoint_key(plan, 0))
+    original = store.get_bytes(stage_key(plan, 0))
     report = retail.publish_and_verify(
         store,
         plan,
@@ -207,7 +205,7 @@ def test_real_remote_graph_readback_preserves_null_receipts_history_and_unrelate
     assert report["publication_transfers"]["downloaded_bytes"] > 0
     assert report["publication_transfers_scope"] == (
         "immutable_graph_and_pointer_only; "
-        "excludes lease/checkpoint/base-resolve/hydrate/independent-readback"
+        "excludes lease/stage/base-resolve/hydrate/independent-readback"
     )
     assert (
         report["current_reachable_expected_parquet_bytes"]
@@ -216,7 +214,7 @@ def test_real_remote_graph_readback_preserves_null_receipts_history_and_unrelate
     )
     assert report["external_assessment_readback_parquet_objects"] == 2
     assert report["release_id"] != before.release_id
-    assert store.get_bytes(checkpoint_key(plan, 0)) == original
+    assert store.get_bytes(stage_key(plan, 0)) == original
     assert not (tmp_path / "readback/readback.sqlite").exists()
     pointer = publisher._serving_pointer(store).pointer
     after = publisher._resolve_serving_release(store, tmp_path / "readback/mirror", pointer)
@@ -256,7 +254,7 @@ def test_real_remote_graph_readback_preserves_null_receipts_history_and_unrelate
         database,
         [
             entry.observation
-            for entry in read_checkpoints(store, plan)[0][0].journal.entries
+            for entry in read_stages(store, plan)[0][0].result.entries
             if entry.observation is not None
         ],
     )
@@ -454,7 +452,7 @@ def test_expired_replaced_or_released_lease_is_rejected_before_publication(publi
 
 def test_missing_or_unattempted_cohort_cannot_publish(publication):
     store, plan, handle, database, mirror, tmp_path = publication
-    key = checkpoint_key(plan, 0)
+    key = stage_key(plan, 0)
     saved = store.values.pop(key)
     puts = len(store.put_keys)
     with pytest.raises(ValueError, match="missing cohort"):
@@ -468,8 +466,8 @@ def test_missing_or_unattempted_cohort_cannot_publish(publication):
         )
     assert len(store.put_keys) == puts
     store.values[key] = saved
-    checkpoint = Checkpoint(new_journal(plan, 0))
-    store.store_object(key, checkpoint_bytes(plan, checkpoint))
+    checkpoint = CohortStage(new_result(plan, 0))
+    store.store_object(key, stage_bytes(plan, checkpoint))
     with pytest.raises(ValueError, match="all fixed pairs attempted"):
         retail.publish_and_verify(
             store,
@@ -593,13 +591,11 @@ def test_quants_score_optional_l1_publication_and_idempotent_terminal(publicatio
     )
     journal = record_outcome(
         p,
-        mark_inflight(p, new_journal(p, 0), "kabumap", "8306"),
+        new_result(p, 0),
         ExternalAssessmentCollectionOutcome("kabumap", "8306", "observed", http_status=200),
         item,
     )
-    put_private(
-        store, checkpoint_key(p, 0), checkpoint_bytes(p, Checkpoint(journal)), previous_etag=None
-    )
+    put_private(store, stage_key(p, 0), stage_bytes(p, CohortStage(journal)), previous_etag=None)
     report = retail.publish_and_verify(
         store,
         p,

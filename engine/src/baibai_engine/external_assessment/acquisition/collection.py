@@ -293,7 +293,7 @@ def _receive(session: requests.Session, url: str, timeout: float) -> tuple[str, 
         if response.status_code != 200:
             if response.status_code == 429:
                 # PairSession records full body completion before a possibly
-                # slow durable on_response callback. Do not add its delay.
+                # slow on_response callback. Do not add its delay.
                 received = (
                     session.finished_at_utc
                     if isinstance(session, _PairSession)
@@ -319,7 +319,7 @@ def _receive(session: requests.Session, url: str, timeout: float) -> tuple[str, 
             prepared = cast("requests.PreparedRequest | None", response.request)
             if prepared is not None and "Authorization" in prepared.headers:
                 raise RuntimeError("raw_capture_requires_anonymous_response")
-            _checkpoint_callback(lambda: callback(ReceivedHTML(url, received, encoding, body)))
+            callback(ReceivedHTML(url, received, encoding, body))
         try:
             return body.decode(encoding), received
         except (LookupError, UnicodeDecodeError):
@@ -523,23 +523,11 @@ def collector_binding() -> str:
     ).hexdigest()
 
 
-def _checkpoint_callback(callback: Callable[[], None]) -> None:
-    try:
-        callback()
-    except _TimeLimit:
-        raise
-    except Exception:
-        # Checkpoint failures must not become broker transport/parser outcomes,
-        # and exception messages can contain signed URLs or private payloads.
-        raise RuntimeError("pair_checkpoint_callback_failed") from None
-
-
 class _PairSession(requests.Session):
     def __init__(
         self,
         client: requests.Session,
         deadline: float,
-        before_request: Callable[[], None],
         on_response: Callable[[datetime, int, int], None] | None,
         rate_limiter: HostRateLimiter | None = None,
         on_received_html: Callable[[ReceivedHTML], None] | None = None,
@@ -547,13 +535,11 @@ class _PairSession(requests.Session):
         super().__init__()
         self.client = client
         self.deadline = deadline
-        self.before_request = before_request
         self.on_response = on_response
         self.rate_limiter = rate_limiter
         self.on_received_html = on_received_html
         self.initial_wait_until = time.monotonic() + MIN_REQUEST_INTERVAL_SECONDS
         self.requests = 0
-        self.reservation_started = False
         self.finished_at_utc: datetime | None = None
         self.content_bytes = 0
 
@@ -572,11 +558,8 @@ class _PairSession(requests.Session):
             while (wait := self.initial_wait_until - time.monotonic()) > 0:
                 time.sleep(min(wait, self._remaining()))
         self._remaining()
-        self.reservation_started = True
-        _checkpoint_callback(self.before_request)
         if self.rate_limiter is not None:
-            # Charge actual send time after the durable reservation: a slow CAS
-            # must not let pre-reserved tokens escape the burst credit bound.
+            # Charge actual send time; all buckets start with no restart credit.
             self.rate_limiter.wait(url, deadline=self.deadline)
         remaining = self._remaining()
         kwargs["timeout"] = min(float(kwargs["timeout"]), remaining)
@@ -591,7 +574,7 @@ class _PairSession(requests.Session):
             self.content_bytes += len(body)
             callback = self.on_response
             if callback is not None:
-                _checkpoint_callback(lambda: callback(finished, self.requests, len(body)))
+                callback(finished, self.requests, len(body))
             return response
         except BaseException:
             response.close()
@@ -602,8 +585,6 @@ def collect_pair(
     ticker: str,
     *,
     source: Source,
-    before_request: Callable[[], None],
-    on_outcome: Callable[[CollectionResult], None],
     on_response: Callable[[datetime, int, int], None] | None = None,
     on_received_html: Callable[[ReceivedHTML], None] | None = None,
     time_limit_seconds: float = DEFAULT_PAIR_TIME_LIMIT_SECONDS,
@@ -611,19 +592,11 @@ def collect_pair(
     session: requests.Session | None = None,
     rate_limiter: HostRateLimiter | None = None,
 ) -> CollectionResult:
-    """Acquire one fixed pair once, with durable callbacks inside one wall-clock budget.
+    """Acquire one fixed pair attempt; retry and cohort commit belong to the caller.
 
-    Each transport invocation follows before_request. Only determinate outcomes
-    invoke on_outcome; uncertain_inflight requires retaining the durable marker
-    and stopping the whole run. A zero-request timeout before any reservation
-    remains unattempted; an interrupted checkpoint reservation is uncertain.
-    403 stops the caller's whole run. A confirmed 429 returns a parsed Retry-After
-    deadline for the caller's durable retry policy; this attempt never retries or
-    waits for backoff. Unrepresentable valid delays require no automatic retry.
-    The bounded collect API retains its existing source-only stop behavior.
-    Explicit daily rate_limiter replaces the two-second pacing with shared
-    host buckets. Its waits are within this attempt's wall-clock limit; timeout
-    after the durable request reservation retains the uncertain marker.
+    No HTTP request reserves durable state. The caller may repeat uncommitted
+    GETs after a process interruption. Ordinary TLS/proxy, serial host limits,
+    finite pair/HTTP deadlines and source identity checks remain unchanged.
     """
     ticker = normalize_ticker(ticker)
     if source not in {"monex", "rakuten", "kabumap"}:
@@ -644,9 +617,7 @@ def collect_pair(
             or adapter.max_retries.total != 0
         ):
             raise ValueError("pair collection requires ordinary proxy/TLS and no retries")
-        wrapped = _PairSession(
-            client, deadline, before_request, on_response, rate_limiter, on_received_html
-        )
+        wrapped = _PairSession(client, deadline, on_response, rate_limiter, on_received_html)
         remaining = min(time_limit_seconds, deadline - time.monotonic())
         if remaining <= 0:
             return CollectionResult(
@@ -680,13 +651,6 @@ def collect_pair(
             response_content_bytes=wrapped.content_bytes,
         )
         if wrapped.requests == 0:
-            if wrapped.reservation_started:
-                return replace(
-                    result,
-                    stop_reason="uncertain_inflight",
-                    retry_after_not_before_utc=None,
-                    retry_after_unrepresentable=False,
-                )
             return replace(
                 result,
                 outcomes=(CollectionOutcome(source, ticker, "not_attempted", result.stop_reason),),
@@ -694,30 +658,11 @@ def collect_pair(
         if any(outcome.status == "incomplete" for outcome in result.outcomes):
             return replace(
                 result,
-                stop_reason="uncertain_inflight",
-                retry_after_not_before_utc=None,
-                retry_after_unrepresentable=False,
+                outcomes=(CollectionOutcome(source, ticker, "request_timeout"),),
+                stop_reason="wall_clock_limit",
             )
         if result.outcomes[0].http_status in {403, 429}:
             result = replace(result, stop_reason=result.outcomes[0].status)
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return replace(
-                result,
-                stop_reason="uncertain_inflight",
-                retry_after_not_before_utc=None,
-                retry_after_unrepresentable=False,
-            )
-        try:
-            with _wall_clock_limit(remaining):
-                _checkpoint_callback(lambda: on_outcome(result))
-        except _TimeLimit:
-            return replace(
-                result,
-                stop_reason="uncertain_inflight",
-                retry_after_not_before_utc=None,
-                retry_after_unrepresentable=False,
-            )
         return result
     finally:
         if wrapped is not None:

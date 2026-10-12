@@ -1,4 +1,4 @@
-"""Fixed daily acquisition cohorts and private checkpoints; no network or storage I/O."""
+"""Fixed daily acquisition cohorts and confirmed cohort results; no network or storage I/O."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from dataclasses import dataclass, replace
 from typing import Literal, cast
 
 from baibai_batch.analysis.io import canonical_json
-from baibai_batch.storage.external_assessment_identity import JOURNAL_FORMAT, PLAN_FORMAT
+from baibai_batch.storage.external_assessment_identity import PLAN_FORMAT
 from baibai_engine.batch_api import (
     ExternalAssessmentAnalystRatingObservation,
     ExternalAssessmentCollectionOutcome,
@@ -22,11 +22,11 @@ from baibai_engine.batch_api import (
     external_assessment_parse_failure_reasons,
 )
 
-MAX_COHORT_TICKERS = 150
+MAX_COHORT_TICKERS = 50
 DEFAULT_COHORT_TICKERS = 50
 _TICKER = re.compile(r"[0-9][0-9A-Z]{3}")
-type PairState = Literal["success", "normal_null", "failure", "unattempted", "uncertain"]
-_STATES = frozenset({"success", "normal_null", "failure", "unattempted", "uncertain"})
+type PairState = Literal["success", "normal_null", "failure", "unattempted"]
+_STATES = frozenset({"success", "normal_null", "failure", "unattempted"})
 _FAILURE_REASONS = external_assessment_parse_failure_reasons | frozenset(
     {
         "access_denied",
@@ -47,9 +47,6 @@ _UNATTEMPTED_REASONS = frozenset(
         "request_budget",
         "run_halted",
     }
-)
-_UNCERTAIN_REASONS = frozenset(
-    {"inflight", "wall_clock_limit", "request_budget", "uncertain_inflight"}
 )
 
 
@@ -76,7 +73,7 @@ class RunPlan:
         ):
             raise ValueError("plan requires fixed nonempty bindings")
         if type(self.cohort_size) is not int or not 1 <= self.cohort_size <= MAX_COHORT_TICKERS:
-            raise ValueError("cohort size must be one to 150 tickers")
+            raise ValueError("cohort size must be one to 50 tickers")
         if (
             type(self.tickers) is not tuple
             or not self.tickers
@@ -207,13 +204,7 @@ class PairEntry:
                 raise ValueError("unconfirmed outcome cannot hold an observation")
             if self.state == "unattempted" and self.http_status is not None:
                 raise ValueError("unattempted pair cannot have an HTTP response status")
-            allowed = (
-                _FAILURE_REASONS
-                if self.state == "failure"
-                else _UNATTEMPTED_REASONS
-                if self.state == "unattempted"
-                else _UNCERTAIN_REASONS
-            )
+            allowed = _FAILURE_REASONS if self.state == "failure" else _UNATTEMPTED_REASONS
             if self.reason not in allowed:
                 raise ValueError("unsupported fixed outcome reason")
             if (
@@ -236,7 +227,7 @@ class PairEntry:
 
 
 @dataclass(frozen=True)
-class CohortJournal:
+class CohortResult:
     plan_sha256: str
     cohort_index: int
     entries: tuple[PairEntry, ...]
@@ -245,38 +236,33 @@ class CohortJournal:
         if type(self.entries) is not tuple or any(
             not isinstance(entry, PairEntry) for entry in self.entries
         ):
-            raise ValueError("journal requires immutable typed pair entries")
+            raise ValueError("result requires immutable typed pair entries")
 
     @property
     def observations(self) -> tuple[ExternalAssessmentObservation, ...]:
         return tuple(entry.observation for entry in self.entries if entry.observation is not None)
 
     @property
-    def halt_reason(self) -> str | None:
-        if any(entry.state == "uncertain" for entry in self.entries):
-            return "inflight_uncertain"
-        for reason in ("access_denied", "rate_limited"):
-            if any(entry.reason == reason for entry in self.entries):
-                return reason
-        return None
+    def complete(self) -> bool:
+        return all(entry.state != "unattempted" for entry in self.entries)
 
 
-def _validate_journal(plan: RunPlan, journal: CohortJournal) -> None:
-    if journal.plan_sha256 != plan.plan_sha256:
-        raise ValueError("journal binding differs from the fixed plan")
-    if type(journal.cohort_index) is not int or not 0 <= journal.cohort_index < len(plan.cohorts):
-        raise ValueError("journal has an unknown cohort")
+def validate_result(plan: RunPlan, result: CohortResult) -> None:
+    if result.plan_sha256 != plan.plan_sha256:
+        raise ValueError("result binding differs from the fixed plan")
+    if type(result.cohort_index) is not int or not 0 <= result.cohort_index < len(plan.cohorts):
+        raise ValueError("result has an unknown cohort")
     if (
-        tuple((entry.source, entry.ticker) for entry in journal.entries)
-        != plan.cohorts[journal.cohort_index].pairs
+        tuple((entry.source, entry.ticker) for entry in result.entries)
+        != plan.cohorts[result.cohort_index].pairs
     ):
-        raise ValueError("journal pairs are duplicated, missing, or differ from the fixed cohort")
+        raise ValueError("result pairs are duplicated, missing, or differ from the fixed cohort")
 
 
-def new_journal(plan: RunPlan, cohort_index: int) -> CohortJournal:
+def new_result(plan: RunPlan, cohort_index: int) -> CohortResult:
     if type(cohort_index) is not int or not 0 <= cohort_index < len(plan.cohorts):
         raise ValueError("unknown cohort")
-    return CohortJournal(
+    return CohortResult(
         plan.plan_sha256,
         cohort_index,
         tuple(
@@ -286,63 +272,25 @@ def new_journal(plan: RunPlan, cohort_index: int) -> CohortJournal:
     )
 
 
-def _replace_entry(journal: CohortJournal, entry: PairEntry) -> CohortJournal:
-    if (entry.source, entry.ticker) not in {(item.source, item.ticker) for item in journal.entries}:
+def _replace_entry(result: CohortResult, entry: PairEntry) -> CohortResult:
+    if (entry.source, entry.ticker) not in {(item.source, item.ticker) for item in result.entries}:
         raise ValueError("outcome is outside the fixed cohort")
     return replace(
-        journal,
+        result,
         entries=tuple(
             entry if (item.source, item.ticker) == (entry.source, entry.ticker) else item
-            for item in journal.entries
+            for item in result.entries
         ),
     )
 
 
-def mark_inflight(
-    plan: RunPlan, journal: CohortJournal, source: ExternalAssessmentSource, ticker: str
-) -> CohortJournal:
-    _validate_journal(plan, journal)
-    if journal.halt_reason is not None:
-        raise ValueError("daily run cannot start another pair after a halt")
-    current = next(
-        (item for item in journal.entries if (item.source, item.ticker) == (source, ticker)), None
-    )
-    if current is None or current.state != "unattempted":
-        raise ValueError("pair is outside the cohort or was already attempted")
-    return _replace_entry(journal, PairEntry(source, ticker, "uncertain", "inflight"))
-
-
-def begin_rate_limited_retry(
-    plan: RunPlan, journal: CohortJournal, source: ExternalAssessmentSource, ticker: str
-) -> CohortJournal:
-    """Only the caller's validated durable retry reservation may reopen a known 429."""
-    _validate_journal(plan, journal)
-    current = next(
-        (entry for entry in journal.entries if (entry.source, entry.ticker) == (source, ticker)),
-        None,
-    )
-    if current is None or (current.state, current.reason, current.http_status) != (
-        "failure",
-        "rate_limited",
-        429,
-    ):
-        raise ValueError("retry requires this pair's confirmed HTTP 429")
-    if any(
-        entry != current
-        and (entry.state == "uncertain" or entry.reason in {"access_denied", "rate_limited"})
-        for entry in journal.entries
-    ):
-        raise ValueError("another halted pair blocks this retry")
-    return _replace_entry(journal, PairEntry(source, ticker, "uncertain", "inflight"))
-
-
 def record_outcome(
     plan: RunPlan,
-    journal: CohortJournal,
+    result: CohortResult,
     outcome: ExternalAssessmentCollectionOutcome,
     observation: ExternalAssessmentObservation | None = None,
-) -> CohortJournal:
-    _validate_journal(plan, journal)
+) -> CohortResult:
+    validate_result(plan, result)
     if outcome.status == "observed":
         if observation is None:
             raise ValueError("observed outcome requires its typed observation")
@@ -350,8 +298,6 @@ def record_outcome(
         reason = None if state == "success" else "all_values_missing"
     elif outcome.status == "not_attempted":
         state, reason = "unattempted", outcome.reason or "not_started"
-    elif outcome.status == "incomplete":
-        state, reason = "uncertain", outcome.reason or "uncertain_inflight"
     else:
         if outcome.status not in {
             "access_denied",
@@ -372,7 +318,7 @@ def record_outcome(
     current = next(
         (
             item
-            for item in journal.entries
+            for item in result.entries
             if (item.source, item.ticker) == (entry.source, entry.ticker)
         ),
         None,
@@ -380,39 +326,30 @@ def record_outcome(
     if current is None:
         raise ValueError("outcome is outside the fixed cohort")
     if current == entry:
-        return journal
-    if current.state != "unattempted" and not (
-        current.state == "uncertain" and current.reason == "inflight"
-    ):
+        return result
+    if current.state != "unattempted":
         raise ValueError("an existing pair payload cannot change")
-    if state != "unattempted" and current.state != "uncertain":
-        raise ValueError("an attempted outcome requires a saved inflight marker")
-    if current.state == "uncertain" and state == "unattempted":
-        raise ValueError("an inflight request cannot become unattempted")
-    return _replace_entry(journal, entry)
+    return _replace_entry(result, entry)
 
 
 def summarize(
-    plan: RunPlan, journals: Sequence[CohortJournal], *, require_all: bool = False
+    plan: RunPlan, results: Sequence[CohortResult], *, require_all: bool = False
 ) -> dict[str, object]:
     seen: set[int] = set()
     states: Counter[str] = Counter()
     reasons: Counter[str] = Counter()
-    halts: Counter[str] = Counter()
-    for journal in journals:
-        _validate_journal(plan, journal)
-        if journal.cohort_index in seen:
-            raise ValueError("duplicate cohort checkpoint")
-        seen.add(journal.cohort_index)
-        if journal.halt_reason is not None:
-            halts[journal.halt_reason] += 1
-        for entry in journal.entries:
+    for result in results:
+        validate_result(plan, result)
+        if result.cohort_index in seen:
+            raise ValueError("duplicate cohort result")
+        seen.add(result.cohort_index)
+        for entry in result.entries:
             states[entry.state] += 1
             if entry.reason is not None:
                 reasons[entry.reason] += 1
     missing = len(plan.cohorts) - len(seen)
     if require_all and missing:
-        raise ValueError("missing cohort checkpoints")
+        raise ValueError("missing cohort results")
     expected = len(plan.tickers) * len(plan.sources)
     recorded = states.total()
     states["unattempted"] += expected - recorded
@@ -425,29 +362,10 @@ def summarize(
         "missing_cohorts": missing,
         "state_counts": {state: states[state] for state in sorted(_STATES)},
         "reason_counts": dict(sorted(reasons.items())),
-        "halt_reasons": dict(sorted(halts.items())),
         "whole_universe_accounting": missing == 0,
-        "attempted_completeness": missing == 0
-        and states["unattempted"] == states["uncertain"] == 0,
+        "attempted_completeness": missing == 0 and states["unattempted"] == 0,
         "success_completeness": states["success"] + states["normal_null"] == expected,
     }
-
-
-def validate_resume(
-    plan: RunPlan,
-    journals: Sequence[CohortJournal],
-    *,
-    retryable_pairs: frozenset[tuple[ExternalAssessmentSource, str]] = frozenset(),
-) -> None:
-    summarize(plan, journals)
-    if any(
-        entry.state == "uncertain"
-        or entry.reason == "access_denied"
-        or (entry.reason == "rate_limited" and (entry.source, entry.ticker) not in retryable_pairs)
-        for journal in journals
-        for entry in journal.entries
-    ):
-        raise ValueError("daily run is halted by blocked access or an uncertain request")
 
 
 def plan_bytes(plan: RunPlan) -> bytes:
@@ -470,7 +388,7 @@ def plan_bytes(plan: RunPlan) -> bytes:
 
 def _object(value: object, keys: set[str]) -> dict[str, object]:
     if not isinstance(value, dict) or set(value) != keys:
-        raise ValueError("unexpected checkpoint fields")
+        raise ValueError("unexpected fields")
     return cast("dict[str, object]", value)
 
 
@@ -478,7 +396,7 @@ def _unique_object(items: list[tuple[str, object]]) -> dict[str, object]:
     result: dict[str, object] = {}
     for key, value in items:
         if key in result:
-            raise ValueError("duplicate JSON checkpoint field")
+            raise ValueError("duplicate JSON field")
         result[key] = value
     return result
 
@@ -516,37 +434,34 @@ def load_plan(payload: bytes) -> RunPlan:
     return plan
 
 
-def journal_bytes(plan: RunPlan, journal: CohortJournal) -> bytes:
-    _validate_journal(plan, journal)
-    return canonical_json(
-        {
-            "format": JOURNAL_FORMAT,
-            "plan_sha256": journal.plan_sha256,
-            "cohort_index": journal.cohort_index,
-            "entries": [
-                {
-                    "source": item.source,
-                    "ticker": item.ticker,
-                    "state": item.state,
-                    "reason": item.reason,
-                    "http_status": item.http_status,
-                    "observation": item.observation.model_dump(mode="json")
-                    if item.observation is not None
-                    else None,
-                }
-                for item in journal.entries
-            ],
-        }
-    )
+def result_value(plan: RunPlan, result: CohortResult) -> dict[str, object]:
+    validate_result(plan, result)
+    return {
+        "plan_sha256": result.plan_sha256,
+        "cohort_index": result.cohort_index,
+        "entries": [
+            {
+                "source": item.source,
+                "ticker": item.ticker,
+                "state": item.state,
+                "reason": item.reason,
+                "http_status": item.http_status,
+                "observation": item.observation.model_dump(mode="json")
+                if item.observation is not None
+                else None,
+            }
+            for item in result.entries
+        ],
+    }
 
 
-def load_journal(plan: RunPlan, payload: bytes) -> CohortJournal:
+def load_result(plan: RunPlan, value: object) -> CohortResult:
     data = _object(
-        json.loads(payload, object_pairs_hook=_unique_object),
-        {"format", "plan_sha256", "cohort_index", "entries"},
+        value,
+        {"plan_sha256", "cohort_index", "entries"},
     )
-    if data["format"] != JOURNAL_FORMAT or not isinstance(data["entries"], list):
-        raise ValueError("invalid daily journal format")
+    if not isinstance(data["entries"], list):
+        raise ValueError("invalid cohort result format")
     entries = []
     for value in data["entries"]:
         entry = _object(
@@ -572,8 +487,8 @@ def load_journal(plan: RunPlan, payload: bytes) -> CohortJournal:
                 observation,
             )
         )
-    journal = CohortJournal(
+    result = CohortResult(
         cast("str", data["plan_sha256"]), cast("int", data["cohort_index"]), tuple(entries)
     )
-    _validate_journal(plan, journal)
-    return journal
+    validate_result(plan, result)
+    return result

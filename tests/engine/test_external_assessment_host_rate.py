@@ -54,12 +54,10 @@ class Session(requests.Session):
         return response
 
 
-def pair(client, limiter, *, ticker="7203", source="monex", before=None, completed=None, **kwargs):
+def pair(client, limiter, *, ticker="7203", source="monex", **kwargs):
     return collection.collect_pair(
         ticker,
         source=source,
-        before_request=before if before is not None else lambda: None,
-        on_outcome=completed.append if completed is not None else lambda result: None,
         session=client,
         rate_limiter=limiter,
         **kwargs,
@@ -136,25 +134,6 @@ def test_rakuten_two_hosts_use_shared_limiter_without_old_within_pair_delay(cloc
     assert result.outcomes[0].status == "observed"
 
 
-def test_slow_durable_cas_cannot_create_extra_actual_send_burst_credit(clock):
-    client = Session(clock)
-    limiter = collection.HostRateLimiter()
-    reservations = []
-
-    def before():
-        reservations.append(clock.seconds)
-        if len(reservations) == 1:
-            clock.seconds += 10
-
-    for _ in range(5):
-        pair(client, limiter, before=before)
-    sent = [at for at, _, _ in client.calls]
-    assert reservations[0] == 100
-    assert sent[:4] == [110] * 4
-    assert sent[4] == 110.5
-    assert len(sent) <= 4 + 2 * (sent[-1] - sent[0])
-
-
 def test_new_cohort_or_process_cold_start_never_recreates_unused_credit(clock):
     first = collection.HostRateLimiter()
     clock.seconds += 10
@@ -165,32 +144,14 @@ def test_new_cohort_or_process_cold_start_never_recreates_unused_credit(clock):
     assert clock.seconds == 110.5
 
 
-def test_token_wait_timeout_after_reservation_is_uncertain_without_http(clock):
-    client, reservations, completed = Session(clock), [], []
-    result = pair(
-        client,
-        collection.HostRateLimiter(),
-        before=lambda: reservations.append(True),
-        completed=completed,
-        time_limit_seconds=0.1,
-    )
-    assert reservations == [True]
-    assert client.calls == []
-    assert result.requests == 0
-    assert result.stop_reason == "uncertain_inflight"
-    assert completed == []
-
-
 def test_confirmed_429_deadline_is_returned_without_consuming_retry_http(clock):
     client = Session(clock, [(429, "synthetic denial", {"Retry-After": "60"})])
-    completed = []
-    result = pair(client, collection.HostRateLimiter(), completed=completed)
+    result = pair(client, collection.HostRateLimiter())
     assert result.stop_reason == "rate_limited"
     assert result.retry_after_not_before_utc == result.last_response_finished_at_utc + timedelta(
         seconds=60
     )
     assert result.requests == len(client.calls) == 1
-    assert completed == [result]
     assert clock.seconds == 100.5
 
 
@@ -202,8 +163,8 @@ def test_float_rounding_cannot_inflate_remaining_above_attempt_limit(clock):
     assert result.requests == 1
 
 
-def test_v5_binding_includes_fixed_rate_policy(monkeypatch):
-    assert collection.PAIR_ACQUISITION_POLICY_VERSION == "retail-pair-acquisition-v5"
+def test_v6_binding_includes_fixed_rate_policy(monkeypatch):
+    assert collection.PAIR_ACQUISITION_POLICY_VERSION == "retail-pair-acquisition-v6"
     assert collection.HOST_REQUEST_RATE_PER_SECOND == 2
     assert collection.HOST_REQUEST_BURST_CREDITS == 4
     binding = collection.collector_binding()
@@ -226,3 +187,12 @@ def test_kabumap_shares_two_requests_per_second_and_four_credit_burst(clock):
         assert clock.seconds == after_idle
     bucket.wait(url, deadline=120)
     assert clock.seconds - after_idle == pytest.approx(0.5)
+
+
+def test_token_wait_timeout_is_unattempted_with_no_http(clock):
+    client = Session(clock, replies=[])
+    result = pair(client, collection.HostRateLimiter(), time_limit_seconds=0.1)
+    assert result.requests == 0
+    assert result.outcomes[0].status == "not_attempted"
+    assert result.stop_reason == "wall_clock_limit"
+    assert client.calls == []

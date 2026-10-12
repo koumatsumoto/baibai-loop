@@ -3,23 +3,18 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import sys
 from dataclasses import replace
 from datetime import UTC, date, datetime
 
 import pytest
-import requests
 from tests.engine.test_external_assessment_daily_verification import ASOF, build_master_lake
-from tests.engine.test_external_assessment_sources import official_html, rakuten_html
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_batch.jobs import external_assessment_daily as daily
 from baibai_batch.jobs.external_assessment_cohorts import (
     make_plan,
-    mark_inflight,
-    new_journal,
+    new_result,
     record_outcome,
-    summarize,
 )
 from baibai_batch.storage import external_assessment_staging as staging
 from baibai_batch.storage.lake_publish import LakeCASConflict, LakePublishError, RemoteObject
@@ -28,7 +23,6 @@ from baibai_engine.batch_api import (
     ExternalAssessmentCollectionResult,
     ExternalAssessmentModelValuationObservation,
     ExternalAssessmentReceivedHTML,
-    external_assessment_collect_pair,
     external_assessment_collector_binding,
 )
 from baibai_engine.storage.lake.keys import current_l1_pointer_key
@@ -133,17 +127,17 @@ def observation(ticker="7203", *, missing=False):
     )
 
 
-def checkpoint(store, p, index=0):
-    return staging.read_checkpoints(store, p)[index][0]
+def stage(store, p, index=0):
+    return staging.read_stage(store, p, index)[0]
 
 
-def seed_checkpoint(store, p, journal, *, reservations=0, confirmed=0):
-    value = staging.Checkpoint(journal, reservations, confirmed)
-    store.seed(staging.checkpoint_key(p, journal.cohort_index), staging.checkpoint_bytes(p, value))
+def seed_stage(store, p, result, *, http_requests=0):
+    value = staging.CohortStage(result, http_requests)
+    store.seed(staging.stage_key(p, result.cohort_index), staging.stage_bytes(p, value))
 
 
 def completed_pair(p, journal, ticker, status):
-    active = mark_inflight(p, journal, "monex", ticker)
+    active = journal
     if status == "parse_failure":
         return record_outcome(
             p,
@@ -158,117 +152,6 @@ def completed_pair(p, journal, ticker, status):
         ExternalAssessmentCollectionOutcome("monex", ticker, "observed", http_status=200),
         observation(ticker, missing=status == "normal_null"),
     )
-
-
-@pytest.mark.parametrize(
-    ("status", "exit_code"),
-    [("observed", 0), ("parse_failure", 0), ("access_denied", 1), ("incomplete", 1)],
-)
-def test_acquire_cli_uses_own_durable_outcome_without_a_second_checkpoint_scan(
-    monkeypatch, capsys, status, exit_code
-):
-    p = plan(tickers=("7203", "9432"), cohort_size=1)
-    store = FakeObjectStore()
-    staging.save_new_plan(store, p)
-    seed_checkpoint(store, p, new_journal(p, 1))
-    transports = []
-
-    def collect(ticker, *, source, before_request, on_outcome, **kwargs):
-        before_request()
-        transports.append(ticker)
-        result = ExternalAssessmentCollectionResult(
-            (observation(ticker),) if status == "observed" else (),
-            (
-                ExternalAssessmentCollectionOutcome(
-                    source,
-                    ticker,
-                    status,
-                    {"parse_failure": "missing_theory_table", "incomplete": "wall_clock_limit"}.get(
-                        status
-                    ),
-                    403 if status == "access_denied" else 200,
-                ),
-            ),
-            1,
-            "uncertain_inflight" if status == "incomplete" else None,
-        )
-        if status != "incomplete":
-            on_outcome(result)
-        return result
-
-    monkeypatch.setattr(daily, "Boto3R2Store", lambda **kwargs: store)
-    monkeypatch.setattr(daily, "external_assessment_collect_pair", collect)
-    store.events.clear()
-    args = ["acquire", "--run-id", p.run_id, "--cohort", "0"]
-    assert daily.main(args) == exit_code
-    report = json.loads(capsys.readouterr().out)
-    assert report["cohort_complete"] is (exit_code == 0)
-    # Other cohorts remain pending even when this one is complete.
-    assert report["state_counts"]["unattempted"] >= 1
-    other_key = staging.checkpoint_key(p, 1)
-    assert store.events.count(("HEAD", other_key)) == 2
-    assert store.events.count(("GET", other_key)) == 1
-    own_key = staging.checkpoint_key(p, 0)
-    assert store.events.count(("HEAD", own_key)) == 1
-    assert store.events.count(("GET", own_key)) == 0
-    assert transports == ["7203"]
-    if exit_code == 0:
-        previous = store.objects[own_key]
-        puts_before = len(store.puts)
-        assert daily.main(args) == 0
-        assert transports == ["7203"]
-        assert len(store.puts) == puts_before
-        assert store.objects[own_key] == previous
-
-
-def test_cohort_timing_separates_collection_from_checkpoint_and_raw_storage(monkeypatch):
-    p = plan()
-    store = FakeObjectStore()
-    clock = [0.0]
-    monkeypatch.setattr(daily.time, "monotonic", lambda: clock[0])
-
-    def timed(operation, seconds):
-        def run(*args, **kwargs):
-            clock[0] += seconds
-            return operation(*args, **kwargs)
-
-        return run
-
-    monkeypatch.setattr(store, "head", timed(store.head, 0.25))
-    monkeypatch.setattr(store, "get_bytes", timed(store.get_bytes, 0.5))
-    monkeypatch.setattr(store, "put_file", timed(store.put_file, 1.0))
-
-    def collect(ticker, *, source, before_request, on_outcome, on_received_html, **kwargs):
-        before_request()
-        clock[0] += 3.0  # HTTP, pacing and parsing, without checkpoint storage.
-        on_received_html(
-            ExternalAssessmentReceivedHTML(
-                "https://synthetic.invalid/source", RECEIVED, "utf-8", b"public"
-            )
-        )
-        result = ExternalAssessmentCollectionResult(
-            (observation(ticker),),
-            (ExternalAssessmentCollectionOutcome(source, ticker, "observed", http_status=200),),
-            1,
-        )
-        on_outcome(result)
-        return result
-
-    monkeypatch.setattr(daily, "external_assessment_collect_pair", collect)
-    report = daily.acquire_cohort(store, p, 0)
-    assert report["cohort_complete"] is True
-    assert report["collection_elapsed_seconds"] == 3.0
-    # Two initial HEADs, two durable checkpoint PUTs, and raw HEAD/PUT pairs.
-    assert report["storage_elapsed_seconds"] == 5.0
-    assert report["elapsed_seconds"] == 8.0
-    monkeypatch.setattr(
-        daily,
-        "external_assessment_collect_pair",
-        lambda *args, **kwargs: pytest.fail("already saved"),
-    )
-    resumed = daily.acquire_cohort(store, p, 0)
-    assert resumed["collection_elapsed_seconds"] == 0.0
-    assert resumed["storage_elapsed_seconds"] == resumed["elapsed_seconds"] == 1.25
 
 
 def test_private_put_requires_generation_and_verifies_hashes_and_private_mode():
@@ -310,245 +193,6 @@ def test_private_read_refuses_racing_or_invalid_objects(fault):
         store.read_fault = fault
     with pytest.raises(LakePublishError, match="private external assessment object"):
         staging.read_private(store, "private/key")
-
-
-@pytest.mark.parametrize("fault", ["cas", "before", "after", "bad_receipt"])
-def test_inflight_checkpoint_failure_cannot_reach_transport(monkeypatch, fault):
-    p = plan()
-    store = FakeObjectStore()
-    store.put_fault = 1, fault
-    transports = []
-
-    def collect(ticker, *, source, before_request, **kwargs):
-        before_request()
-        transports.append((source, ticker))
-        raise AssertionError("checkpoint failure must abort before transport")
-
-    monkeypatch.setattr(daily, "external_assessment_collect_pair", collect)
-    with pytest.raises(LakePublishError, match=r"synthetic|receipt mismatch"):
-        daily.acquire_cohort(store, p, 0)
-    assert transports == []
-    if fault in {"after", "bad_receipt"}:
-        saved = checkpoint(store, p)
-        assert saved.requests_started == 1
-        assert saved.confirmed_http_requests == 0
-        assert saved.journal.halt_reason == "inflight_uncertain"
-        with pytest.raises(ValueError, match="daily run is halted"):
-            daily.acquire_cohort(store, p, 0)
-        assert transports == []
-
-
-@pytest.mark.parametrize("fault", ["cas", "after"])
-def test_outcome_checkpoint_failure_stops_before_next_pair(monkeypatch, fault):
-    p = plan(tickers=("7203", "9432"))
-    store = FakeObjectStore()
-    store.put_fault = 2, fault
-    transports = []
-
-    def collect(ticker, *, source, before_request, on_outcome, on_response, **kwargs):
-        before_request()
-        transports.append(ticker)
-        on_response(RECEIVED, 1, 12)
-        result = ExternalAssessmentCollectionResult(
-            (observation(ticker),),
-            (ExternalAssessmentCollectionOutcome(source, ticker, "observed", http_status=200),),
-            1,
-        )
-        on_outcome(result)
-        return result
-
-    monkeypatch.setattr(daily, "external_assessment_collect_pair", collect)
-    with pytest.raises(LakePublishError, match="synthetic"):
-        daily.acquire_cohort(store, p, 0)
-    assert transports == ["7203"]
-    saved = checkpoint(store, p)
-    if fault == "cas":
-        assert saved.journal.entries[0].state == "uncertain"
-    else:
-        assert saved.journal.entries[0].state == "success"
-        assert saved.journal.observations == (observation(),)
-    assert saved.journal.entries[1].state == "unattempted"
-
-
-def test_confirmed_success_normal_null_and_parse_failure_resume_without_http(monkeypatch):
-    p = plan(tickers=("130A", "7203", "9432"))
-    store = FakeObjectStore()
-    journal = new_journal(p, 0)
-    for ticker, status in zip(p.tickers, ("success", "normal_null", "parse_failure"), strict=True):
-        journal = completed_pair(p, journal, ticker, status)
-    seed_checkpoint(store, p, journal, reservations=3, confirmed=3)
-    original_payload = store.objects[staging.checkpoint_key(p, 0)][0]
-
-    def unexpected_http(*args, **kwargs):
-        raise AssertionError("confirmed pairs must not be acquired again")
-
-    monkeypatch.setattr(daily, "external_assessment_collect_pair", unexpected_http)
-    report = daily.acquire_cohort(store, p, 0)
-    assert report["state_counts"] == {
-        "failure": 1,
-        "normal_null": 1,
-        "success": 1,
-        "unattempted": 0,
-        "uncertain": 0,
-    }
-    assert report["confirmed_http_requests"] == 3
-    assert store.puts == []
-    assert store.objects[staging.checkpoint_key(p, 0)][0] == original_payload
-    assert checkpoint(store, p).journal.observations == journal.observations
-    assert all(
-        item.fetched_at_utc == RECEIVED for item in checkpoint(store, p).journal.observations
-    )
-
-
-@pytest.mark.parametrize("blocked", ["uncertain", "access_denied", "rate_limited"])
-def test_halt_in_another_cohort_blocks_all_new_http(monkeypatch, blocked):
-    p = plan(tickers=("7203", "9432"), cohort_size=1)
-    store = FakeObjectStore()
-    journal = mark_inflight(p, new_journal(p, 0), "monex", "7203")
-    if blocked != "uncertain":
-        status = 403 if blocked == "access_denied" else 429
-        journal = record_outcome(
-            p,
-            journal,
-            ExternalAssessmentCollectionOutcome("monex", "7203", blocked, http_status=status),
-        )
-    seed_checkpoint(store, p, journal, reservations=1, confirmed=int(blocked != "uncertain"))
-
-    def unexpected_http(*args, **kwargs):
-        raise AssertionError("global daily halt must precede collection")
-
-    monkeypatch.setattr(daily, "external_assessment_collect_pair", unexpected_http)
-    with pytest.raises(ValueError, match="daily run is halted"):
-        daily.acquire_cohort(store, p, 1)
-    assert store.puts == []
-    assert staging.checkpoint_key(p, 1) not in store.objects
-
-
-def test_soft_budget_keeps_explicit_normal_unattempted_checkpoint(monkeypatch):
-    p = plan()
-    store = FakeObjectStore()
-
-    def unexpected_http(*args, **kwargs):
-        raise AssertionError("soft stop must precede collection")
-
-    monkeypatch.setattr(daily, "external_assessment_collect_pair", unexpected_http)
-    report = daily.acquire_cohort(store, p, 0, soft_budget_seconds=1)
-    assert report["stop_reason"] == "soft_budget"
-    saved = checkpoint(store, p)
-    assert saved.requests_started == saved.confirmed_http_requests == 0
-    assert saved.journal.halt_reason is None
-    assert saved.journal.entries[0].state == "unattempted"
-    assert len(store.puts) == 1
-
-
-def test_soft_stop_after_success_keeps_receipt_and_resumes_only_pending_pair(monkeypatch):
-    p = plan(tickers=("7203", "9432"))
-    store = FakeObjectStore()
-    clock = [0.0]
-    monkeypatch.setattr(daily.time, "monotonic", lambda: clock[0])
-    transports = []
-
-    def collect(ticker, *, source, before_request, on_outcome, on_response, **kwargs):
-        before_request()
-        transports.append(ticker)
-        on_response(RECEIVED, 1, 12)
-        result = ExternalAssessmentCollectionResult(
-            (observation(ticker),),
-            (ExternalAssessmentCollectionOutcome(source, ticker, "observed", http_status=200),),
-            1,
-        )
-        on_outcome(result)
-        clock[0] += 110
-        return result
-
-    monkeypatch.setattr(daily, "external_assessment_collect_pair", collect)
-    report = daily.acquire_cohort(store, p, 0, soft_budget_seconds=1000)
-    assert report["stop_reason"] == "soft_budget"
-    assert transports == ["7203"]
-    first = checkpoint(store, p)
-    assert first.journal.entries[0].state == "success"
-    assert first.journal.entries[1].state == "unattempted"
-    assert first.journal.halt_reason is None
-    original = first.journal.observations[0]
-    second = daily.acquire_cohort(store, p, 0)
-    assert transports == ["7203", "9432"]
-    assert second["success_completeness"] is True
-    assert checkpoint(store, p).journal.observations[0] == original
-    assert checkpoint(store, p).confirmed_http_requests == 2
-
-
-def test_interrupted_request_retains_marker_and_blocks_resume(monkeypatch):
-    p = plan(tickers=("7203", "9432"))
-    store = FakeObjectStore()
-    transports = []
-
-    def collect(ticker, *, source, before_request, **kwargs):
-        before_request()
-        transports.append(ticker)
-        return ExternalAssessmentCollectionResult(
-            (),
-            (
-                ExternalAssessmentCollectionOutcome(
-                    source, ticker, "incomplete", "wall_clock_limit"
-                ),
-            ),
-            1,
-            "uncertain_inflight",
-        )
-
-    monkeypatch.setattr(daily, "external_assessment_collect_pair", collect)
-    report = daily.acquire_cohort(store, p, 0)
-    assert report["stop_reason"] == "uncertain_inflight"
-    assert transports == ["7203"]
-    saved = checkpoint(store, p)
-    assert saved.requests_started == 1
-    assert saved.confirmed_http_requests == 0
-    assert saved.journal.entries[0].state == "uncertain"
-    assert saved.journal.entries[1].state == "unattempted"
-    with pytest.raises(ValueError, match="daily run is halted"):
-        daily.acquire_cohort(store, p, 0)
-    assert transports == ["7203"]
-
-
-def test_missing_checkpoints_keep_accounting_incomplete_and_wrong_cohort_fails_pre_http(
-    monkeypatch,
-):
-    p = plan(tickers=("7203", "9432"), cohort_size=1)
-    store = FakeObjectStore()
-    seed_checkpoint(store, p, new_journal(p, 0))
-    journals = [value[0].journal for value in staging.read_checkpoints(store, p).values()]
-    assert summarize(p, journals)["whole_universe_accounting"] is False
-    with pytest.raises(ValueError, match="missing cohort"):
-        summarize(p, journals, require_all=True)
-    wrong = staging.checkpoint_bytes(p, staging.Checkpoint(new_journal(p, 1)))
-    store.seed(staging.checkpoint_key(p, 0), wrong)
-
-    def unexpected_http(*args, **kwargs):
-        raise AssertionError("cohort identity failure must precede collection")
-
-    monkeypatch.setattr(daily, "external_assessment_collect_pair", unexpected_http)
-    with pytest.raises(ValueError, match="cohort identity mismatch"):
-        daily.acquire_cohort(store, p, 1)
-
-
-def test_wrong_collector_and_journal_bindings_fail_before_http(monkeypatch):
-    p = plan()
-    store = FakeObjectStore()
-    wrong = replace(p, collector_binding="different-code")
-    attempts = []
-    monkeypatch.setattr(
-        daily, "external_assessment_collect_pair", lambda *args, **kwargs: attempts.append(args)
-    )
-    with pytest.raises(ValueError, match="collector binding changed"):
-        daily.acquire_cohort(store, wrong, 0)
-    assert not any(operation == "PUT" for operation, _ in store.events)
-    store.seed(
-        staging.checkpoint_key(p, 0),
-        staging.checkpoint_bytes(wrong, staging.Checkpoint(new_journal(wrong, 0))),
-    )
-    with pytest.raises(ValueError, match="journal binding differs"):
-        daily.acquire_cohort(store, p, 0)
-    assert attempts == []
 
 
 def test_saved_plan_master_assertion_is_checked_without_refreezing(monkeypatch):
@@ -638,103 +282,6 @@ def test_corrupt_digest_pinned_master_cannot_publish_a_new_plan(tmp_path, monkey
     assert [key for key in store.get_keys if key.endswith(".parquet")] == [key]
 
 
-def test_real_pair_collector_persists_two_rakuten_reservations_and_exact_receipt(monkeypatch):
-    p = plan(sources=("rakuten",))
-    store = FakeObjectStore()
-    module = sys.modules[external_assessment_collect_pair.__module__]
-    clock = [0.0]
-    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
-    monkeypatch.setattr(
-        module.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
-    )
-
-    class FakeSession(requests.Session):
-        def __init__(self):
-            super().__init__()
-            self.calls = []
-            self.replies = iter((official_html(), rakuten_html(value="--")))
-
-        def get(self, url, **kwargs):
-            durable = checkpoint(store, p)
-            self.calls.append((url, kwargs, durable))
-            assert durable.journal.entries[0].state == "uncertain"
-            assert durable.requests_started == len(self.calls)
-            response = requests.Response()
-            response.status_code = 200
-            response._content = next(self.replies).encode()
-            response._content_consumed = True
-            response.headers["Content-Type"] = "text/html; charset=utf-8"
-            return response
-
-    session = FakeSession()
-
-    def real_collect(ticker, **kwargs):
-        return external_assessment_collect_pair(ticker, **{**kwargs, "session": session})
-
-    monkeypatch.setattr(daily, "external_assessment_collect_pair", real_collect)
-    report = daily.acquire_cohort(store, p, 0)
-    saved = checkpoint(store, p)
-    assert len(session.calls) == 2
-    assert all(call[1]["allow_redirects"] is False for call in session.calls)
-    assert report["request_reservations"] == report["confirmed_http_requests"] == 2
-    assert saved.requests_started == saved.confirmed_http_requests == 2
-    assert saved.response_content_bytes > 0
-    assert saved.last_response_finished_at_utc is not None
-    assert saved.journal.entries[0].state == "normal_null"
-    assert len(saved.journal.observations) == 1
-    first, second, final = [
-        staging.load_checkpoint(p, item[3])
-        for item in store.puts
-        if item[0] == staging.checkpoint_key(p, 0)
-    ]
-    assert first.requests_started == 1
-    assert second.requests_started == 2
-    assert first.journal.entries[0] == second.journal.entries[0]
-    original = saved.journal.observations[0]
-    assert original == final.journal.observations[0]
-    assert original.fetched_at_utc.utcoffset() == UTC.utcoffset(None)
-    before = len(session.calls)
-    daily.acquire_cohort(store, p, 0)
-    assert len(session.calls) == before
-    assert checkpoint(store, p).journal.observations == (original,)
-
-
-@pytest.mark.parametrize("fault", ["cas", "after"])
-def test_real_collector_aborts_before_transport_on_checkpoint_error(monkeypatch, fault):
-    p = plan()
-    store = FakeObjectStore()
-    store.put_fault = 1, fault
-    module = sys.modules[external_assessment_collect_pair.__module__]
-    clock = [0.0]
-    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
-    monkeypatch.setattr(
-        module.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
-    )
-
-    class FakeSession(requests.Session):
-        def __init__(self):
-            super().__init__()
-            self.calls = []
-
-        def get(self, url, **kwargs):
-            self.calls.append(url)
-            raise AssertionError("durable checkpoint error must precede transport")
-
-    session = FakeSession()
-    monkeypatch.setattr(
-        daily,
-        "external_assessment_collect_pair",
-        lambda ticker, **kwargs: external_assessment_collect_pair(
-            ticker, **{**kwargs, "session": session}
-        ),
-    )
-    with pytest.raises(RuntimeError, match="pair_checkpoint_callback_failed"):
-        daily.acquire_cohort(store, p, 0)
-    assert session.calls == []
-    if fault == "after":
-        assert checkpoint(store, p).journal.halt_reason == "inflight_uncertain"
-
-
 def test_published_terminal_suppresses_refetch_when_checkpoint_payloads_are_absent(monkeypatch):
     p = plan()
     store = FakeObjectStore()
@@ -756,8 +303,8 @@ def test_published_terminal_suppresses_refetch_when_checkpoint_payloads_are_abse
     report = daily.acquire_cohort(store, p, 0)
     assert report["status"] == "already_published"
     assert report["readback"] == "previously_verified"
-    assert report["confirmed_http_requests"] == report["request_reservations"] == 0
-    assert staging.read_checkpoints(store, p) == {}
+    assert report["http_requests"] == report["provider_requests"] == 0
+    assert staging.read_stages(store, p) == {}
     assert store.puts == []
     terminal["plan_sha256"] = "b" * 64
     store.seed(staging.prefix(p.run_id) + "/published.json", json.dumps(terminal).encode())
@@ -773,3 +320,238 @@ def test_old_binding_plan_with_pending_acquisition_is_rejected(monkeypatch):
     monkeypatch.setattr(daily, "Boto3R2Store", lambda **kwargs: store)
     assert daily.main(["plan", "--run-id", p.run_id, "--master-asof", ASOF.isoformat()]) == 1
     assert not any(operation == "PUT" for operation, _ in store.events)
+
+
+def wire_success(monkeypatch, store, p, *, after=None, raw=False):
+    calls = []
+
+    def collect(ticker, *, source, on_received_html, **kwargs):
+        # Nothing is committed between HTTP calls in an ordinary cohort.
+        calls.append(ticker)
+        if raw:
+            on_received_html(
+                ExternalAssessmentReceivedHTML(
+                    "https://synthetic.invalid/source", RECEIVED, "utf-8", b"public"
+                )
+            )
+        if after:
+            after(ticker)
+        return ExternalAssessmentCollectionResult(
+            (observation(ticker),),
+            (ExternalAssessmentCollectionOutcome(source, ticker, "observed", http_status=200),),
+            1,
+            response_content_bytes=6 if raw else 0,
+        )
+
+    monkeypatch.setattr(daily, "external_assessment_collect_pair", collect)
+    return calls
+
+
+def test_normal_fifty_pair_cohort_has_one_stage_put_then_one_raw_bundle(monkeypatch):
+    p = plan(tickers=tuple(str(1000 + i) for i in range(50)))
+    store = FakeObjectStore()
+    calls = wire_success(monkeypatch, store, p, raw=True)
+    report = daily.acquire_cohort(store, p, 0)
+    assert len(calls) == report["provider_requests"] == 50
+    assert report["cohort_complete"] is True
+    assert len(store.puts) == 2
+    assert store.puts[0][0] == staging.stage_key(p, 0)
+    assert all(event[0] != "GET" for event in store.events)
+    saved = stage(store, p)
+    assert saved.http_requests == 50
+    assert saved.raw_bundle_keys == (store.puts[1][0],)
+    before = list(store.puts)
+    report = daily.acquire_cohort(store, p, 0)
+    assert report["provider_requests"] == 0
+    assert len(calls) == 50
+    assert store.puts == before
+
+
+def test_acquisition_reads_only_its_cohort_and_cli_does_not_rescan(monkeypatch, capsys):
+    p = plan(tickers=("6758", "7203"), cohort_size=1)
+    store = FakeObjectStore()
+    staging.save_new_plan(store, p)
+    seed_stage(store, p, new_result(p, 1))
+    calls = wire_success(monkeypatch, store, p)
+    monkeypatch.setattr(daily, "Boto3R2Store", lambda **kwargs: store)
+    store.events.clear()
+    assert daily.main(["acquire", "--run-id", p.run_id, "--cohort", "0"]) == 0
+    assert json.loads(capsys.readouterr().out)["cohort_complete"] is True
+    assert calls == ["6758"]
+    assert not any(key == staging.stage_key(p, 1) for _, key in store.events)
+    assert store.events.count(("HEAD", staging.stage_key(p, 0))) == 1
+    assert store.events.count(("PUT", staging.stage_key(p, 0))) == 1
+
+
+def test_controlled_partial_commit_preserves_receipt_and_failure_then_resumes_missing(monkeypatch):
+    p = plan(tickers=("6758", "7203", "9432"))
+    store = FakeObjectStore()
+    timer = [0.0]
+    monkeypatch.setattr(daily.time, "monotonic", lambda: timer[0])
+    seen = []
+
+    def collect(ticker, *, source, **kwargs):
+        seen.append(ticker)
+        if ticker == "7203":
+            timer[0] = 101
+            return ExternalAssessmentCollectionResult(
+                (),
+                (
+                    ExternalAssessmentCollectionOutcome(
+                        source, ticker, "parse_failure", "missing_theory_table", 200
+                    ),
+                ),
+                1,
+            )
+        return ExternalAssessmentCollectionResult(
+            (observation(ticker),),
+            (ExternalAssessmentCollectionOutcome(source, ticker, "observed", http_status=200),),
+            1,
+        )
+
+    monkeypatch.setattr(daily, "external_assessment_collect_pair", collect)
+    first = daily.acquire_cohort(store, p, 0, soft_budget_seconds=1000)
+    assert first["stop_reason"] == "soft_budget"
+    assert first["cohort_complete"] is False
+    partial = stage(store, p)
+    assert [entry.state for entry in partial.result.entries] == [
+        "success",
+        "failure",
+        "unattempted",
+    ]
+    assert len(store.puts) == 1
+    timer[0] = 0
+    daily.acquire_cohort(store, p, 0)
+    complete = stage(store, p)
+    assert seen == ["6758", "7203", "9432"]
+    assert complete.result.entries[:2] == partial.result.entries[:2]
+    assert complete.result.observations[0].fetched_at_utc == RECEIVED
+    assert len(store.puts) == 2
+
+
+def test_empty_soft_stop_does_not_write_a_stage(monkeypatch):
+    store, p = FakeObjectStore(), plan()
+    monkeypatch.setattr(
+        daily, "external_assessment_collect_pair", lambda *a, **k: pytest.fail("budget")
+    )
+    report = daily.acquire_cohort(store, p, 0, soft_budget_seconds=1)
+    assert report["cohort_complete"] is False
+    assert report["stop_reason"] == "soft_budget"
+    assert store.puts == []
+
+
+def test_hard_kill_before_commit_allows_reget_without_durable_reservation(monkeypatch):
+    p = plan(tickers=("6758", "7203"))
+    store = FakeObjectStore()
+    seen = []
+
+    def collect(ticker, *, source, **kwargs):
+        seen.append(ticker)
+        assert store.puts == []
+        if ticker == "7203":
+            raise KeyboardInterrupt
+        return ExternalAssessmentCollectionResult(
+            (observation(ticker),),
+            (ExternalAssessmentCollectionOutcome(source, ticker, "observed", http_status=200),),
+            1,
+        )
+
+    monkeypatch.setattr(daily, "external_assessment_collect_pair", collect)
+    with pytest.raises(KeyboardInterrupt):
+        daily.acquire_cohort(store, p, 0)
+    assert store.puts == []
+    calls = wire_success(monkeypatch, store, p)
+    daily.acquire_cohort(store, p, 0)
+    assert calls == ["6758", "7203"]
+    assert stage(store, p).result.complete
+
+
+@pytest.mark.parametrize("fault", ["after", "bad_receipt"])
+def test_ambiguous_stage_put_adopts_actual_saved_result(monkeypatch, fault):
+    p, store = plan(), FakeObjectStore()
+    wire_success(monkeypatch, store, p)
+    store.put_fault = (1, fault)
+    report = daily.acquire_cohort(store, p, 0)
+    assert report["cohort_complete"] is True
+    assert len(store.puts) == 1
+    assert stage(store, p).result.observations == (observation(),)
+
+
+@pytest.mark.parametrize("fault", ["before", "cas"])
+def test_unsaved_stage_failure_is_visible_and_does_not_upload_raw(monkeypatch, fault):
+    p, store = plan(), FakeObjectStore()
+    wire_success(monkeypatch, store, p, raw=True)
+    store.put_fault = (1, fault)
+    with pytest.raises(LakePublishError):
+        daily.acquire_cohort(store, p, 0)
+    assert len(store.puts) == 1
+    assert staging.read_stage(store, p, 0) is None
+
+
+def test_competing_saved_timestamp_wins_without_overwrite_or_wrong_raw(monkeypatch):
+    p, store = plan(), FakeObjectStore()
+    original_put = store.put_file
+    winner_obs = observation().model_copy(update={"fetched_at_utc": RECEIVED.replace(second=2)})
+    winner = staging.CohortStage(
+        record_outcome(
+            p,
+            new_result(p, 0),
+            ExternalAssessmentCollectionOutcome("monex", "7203", "observed", http_status=200),
+            winner_obs,
+        )
+    )
+
+    def conflict(key, path, **kwargs):
+        store.seed(key, staging.stage_bytes(p, winner))
+        return original_put(key, path, **kwargs)
+
+    monkeypatch.setattr(store, "put_file", conflict)
+    wire_success(monkeypatch, store, p, raw=True)
+    assert daily.acquire_cohort(store, p, 0)["cohort_complete"] is True
+    assert stage(store, p) == winner
+    assert len(store.puts) == 1
+
+
+def test_partial_stage_conflict_keeps_saved_failure_and_reports_missing(monkeypatch):
+    p, store = plan(tickers=("6758", "7203")), FakeObjectStore()
+    previous = completed_pair(p, new_result(p, 0), "6758", "parse_failure")
+    seed_stage(store, p, previous)
+    store.put_fault = (1, "cas")
+    calls = wire_success(monkeypatch, store, p)
+    report = daily.acquire_cohort(store, p, 0)
+    assert calls == ["7203"]
+    assert report["cohort_complete"] is False
+    assert stage(store, p).result == previous
+    assert len(store.puts) == 1
+
+
+def test_stage_commit_cannot_change_saved_outcomes_or_timestamps():
+    p, store = plan(), FakeObjectStore()
+    saved = staging.CohortStage(completed_pair(p, new_result(p, 0), "7203", "observed"))
+    store.seed(staging.stage_key(p, 0), staging.stage_bytes(p, saved))
+    previous = staging.read_stage(store, p, 0)
+    changed = staging.CohortStage(completed_pair(p, new_result(p, 0), "7203", "parse_failure"))
+    with pytest.raises(ValueError, match="cannot change"):
+        staging.commit_stage(store, p, changed, previous=previous)
+    assert store.puts == []
+
+
+@pytest.mark.parametrize(
+    "fault", ["old_format", "duplicate_field", "wrong_binding", "negative_counter", "unknown_state"]
+)
+def test_stage_rejects_old_checkpoint_and_corrupt_payload(fault):
+    p = plan()
+    value = json.loads(staging.stage_bytes(p, staging.CohortStage(new_result(p, 0))))
+    if fault == "old_format":
+        value["format"] = "retail-private-checkpoint-v2"
+    elif fault == "wrong_binding":
+        value["result"]["plan_sha256"] = "different"
+    elif fault == "negative_counter":
+        value["http_requests"] = -1
+    elif fault == "unknown_state":
+        value["result"]["entries"][0]["state"] = "uncertain"
+    payload = json.dumps(value).encode()
+    if fault == "duplicate_field":
+        payload = payload.replace(b'"http_requests": 0', b'"http_requests": 0, "http_requests": 1')
+    with pytest.raises(ValueError, match=r"stage|binding|source or state"):
+        staging.load_stage(p, payload)

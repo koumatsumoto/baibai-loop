@@ -45,12 +45,10 @@ jobs:
       operation: ${{ inputs.operation || 'collect_and_publish' }}
       cohorts: ${{ steps.plan.outputs.cohorts }}
       terminal_status: ${{ steps.plan.outputs.terminal_status }}
-      retry_only: ${{ steps.plan.outputs.retry_only }}
       expected_pairs: ${{ steps.plan.outputs.external_assessment_expected_pairs }}
       typed_pairs: ${{ steps.plan.outputs.external_assessment_typed_pairs }}
       known_failure_pairs: ${{ steps.plan.outputs.external_assessment_known_failure_pairs }}
       normal_null_pairs: ${{ steps.plan.outputs.external_assessment_normal_null_pairs }}
-      uncertain_pairs: ${{ steps.plan.outputs.external_assessment_uncertain_pairs }}
       unattempted_pairs: ${{ steps.plan.outputs.external_assessment_unattempted_pairs }}
       rows_added: ${{ steps.plan.outputs.external_assessment_rows_added }}
     env:
@@ -130,7 +128,7 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked
-      - name: Acquire one fixed cohort with durable private checkpoints
+      - name: Acquire one fixed cohort with one conditional cohort stage commit
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -139,14 +137,13 @@ jobs:
 
   publish:
     needs: [plan, acquire]
-    if: ${{ always() && !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.terminal_status == 'pending' && (needs.plan.outputs.operation == 'publish_confirmed_partial' || ((needs.acquire.result == 'success' || needs.plan.outputs.cohorts == '[]') && needs.plan.outputs.retry_only != 'true')) }}
+    if: ${{ always() && !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.terminal_status == 'pending' && (needs.plan.outputs.operation == 'publish_confirmed_partial' || (needs.acquire.result == 'success' || needs.plan.outputs.cohorts == '[]')) }}
     runs-on: ubuntu-latest
     outputs:
       expected_pairs: ${{ steps.publish.outputs.external_assessment_expected_pairs }}
       typed_pairs: ${{ steps.publish.outputs.external_assessment_typed_pairs }}
       known_failure_pairs: ${{ steps.publish.outputs.external_assessment_known_failure_pairs }}
       normal_null_pairs: ${{ steps.publish.outputs.external_assessment_normal_null_pairs }}
-      uncertain_pairs: ${{ steps.publish.outputs.external_assessment_uncertain_pairs }}
       unattempted_pairs: ${{ steps.publish.outputs.external_assessment_unattempted_pairs }}
       rows_added: ${{ steps.publish.outputs.external_assessment_rows_added }}
     # The existing publication lease expires after 120 minutes.
@@ -232,13 +229,11 @@ jobs:
             --acquire-result "${{ needs.acquire.result }}" \
             --publish-result "${{ needs.publish.result }}" \
             --terminal-status "${{ needs.plan.outputs.terminal_status || 'pending' }}" \
-            --retry-only "${{ needs.plan.outputs.retry_only || 'false' }}" \
             --publication-mode "$publication_mode" \
             --expected-pairs "${{ needs.publish.outputs.expected_pairs || needs.plan.outputs.expected_pairs }}" \
             --typed-pairs "${{ needs.publish.outputs.typed_pairs || needs.plan.outputs.typed_pairs }}" \
             --known-failure-pairs "${{ needs.publish.outputs.known_failure_pairs || needs.plan.outputs.known_failure_pairs }}" \
             --normal-null-pairs "${{ needs.publish.outputs.normal_null_pairs || needs.plan.outputs.normal_null_pairs }}" \
-            --uncertain-pairs "${{ needs.publish.outputs.uncertain_pairs || needs.plan.outputs.uncertain_pairs }}" \
             --unattempted-pairs "${{ needs.publish.outputs.unattempted_pairs || needs.plan.outputs.unattempted_pairs }}" \
             --rows-added "${{ needs.publish.outputs.rows_added || needs.plan.outputs.rows_added }}" \
             --cancelled "${{ steps.cancellation.outputs.cancelled || 'false' }}"

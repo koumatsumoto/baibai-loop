@@ -1,11 +1,10 @@
 """Current private wire identities; the subsequent cutover owns their replacement."""
 
 PLAN_FORMAT = "retail-daily-plan-v1"
-JOURNAL_FORMAT = "retail-daily-journal-v1"
-CHECKPOINT_FORMAT = "retail-private-checkpoint-v2"
+STAGE_FORMAT = "external-assessment-cohort-stage-v1"
 PUBLISHED_FORMAT = "retail-published-batch-v1"
 PARTIAL_TERMINAL_FORMAT = "retail-partially-published-batch-v1"
-RECEIPT_FORMAT = "retail-public-html-receipt-v2"
+RAW_BUNDLE_FORMAT = "external-assessment-cohort-raw-v1"
 RAW_PREFIX = "retail-dynamics/raw/"
 COORDINATION_PREFIX = "coordination/retail-dynamics/"
 SCHEDULED_BATCH_PREFIX = "retail-daily-"

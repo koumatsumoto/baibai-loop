@@ -69,12 +69,10 @@ class Session(requests.Session):
         return response
 
 
-def collect(client, *, on_response=None, on_outcome=None):
+def collect(client, *, on_response=None):
     return collection.collect_pair(
         "7203",
         source="monex",
-        before_request=lambda: None,
-        on_outcome=on_outcome if on_outcome is not None else lambda result: None,
         on_response=on_response,
         session=client,
     )
@@ -83,8 +81,7 @@ def collect(client, *, on_response=None, on_outcome=None):
 @pytest.mark.parametrize(("header", "seconds"), [("30", 30), (" 00030 ", 30), ("0", 0)])
 def test_confirmed_delta_seconds_uses_fully_received_time_without_retry(clock, header, seconds):
     client = Session(clock, header=header)
-    completed = []
-    result = collect(client, on_outcome=completed.append)
+    result = collect(client)
     assert result.retry_after_not_before_utc == result.last_response_finished_at_utc + timedelta(
         seconds=seconds
     )
@@ -92,7 +89,6 @@ def test_confirmed_delta_seconds_uses_fully_received_time_without_retry(clock, h
     assert result.outcomes[0].http_status == 429
     assert result.outcomes[0].status == result.stop_reason == "rate_limited"
     assert result.requests == len(client.calls) == 1
-    assert completed == [result]
     assert client.calls[0]["allow_redirects"] is False
     assert client.calls[0]["timeout"] <= 30
     assert client.trust_env
@@ -105,7 +101,7 @@ def test_confirmed_delta_seconds_uses_fully_received_time_without_retry(clock, h
     )
 
 
-def test_checkpoint_latency_does_not_extend_retry_after(clock):
+def test_response_callback_latency_does_not_extend_retry_after(clock):
     client = Session(clock, header="30")
     received = []
 
@@ -169,13 +165,11 @@ def test_missing_or_malformed_retry_after_is_safe_unknown_for_caller_fallback(cl
 
 @pytest.mark.parametrize("header", ["999999999999999", "9" * 5000])
 def test_valid_unrepresentable_delay_is_confirmed_failure_never_short_fallback(clock, header):
-    completed = []
-    result = collect(Session(clock, header=header), on_outcome=completed.append)
+    result = collect(Session(clock, header=header))
     assert result.retry_after_not_before_utc is None
     assert result.retry_after_unrepresentable is True
     assert result.outcomes[0].http_status == 429
     assert result.stop_reason == "rate_limited"
-    assert completed == [result]
     assert result.summary()["retry_after_unrepresentable"] is True
 
 
@@ -204,46 +198,16 @@ def test_other_http_failures_never_adopt_retry_after(clock, status):
 
 
 def test_transport_timeout_is_not_a_confirmed_429(clock):
-    completed = []
-    result = collect(Session(clock, failure=requests.Timeout()), on_outcome=completed.append)
+    result = collect(Session(clock, failure=requests.Timeout()))
     assert result.outcomes[0].status == "request_timeout"
     assert result.outcomes[0].http_status is None
     assert result.retry_after_not_before_utc is None
     assert result.retry_after_unrepresentable is False
     assert result.last_response_finished_at_utc is None
-    assert completed == [result]
-
-
-@pytest.mark.parametrize("phase", ["body", "response_checkpoint", "outcome_checkpoint", "deadline"])
-@pytest.mark.parametrize("header", ["30", "999999999999999"])
-def test_interrupted_429_attempt_keeps_marker_without_retry_deadline(clock, phase, header):
-    completed = []
-    client = Session(clock, header=header, incomplete_body=phase == "body")
-
-    def response(*args):
-        if phase == "response_checkpoint":
-            raise collection._TimeLimit
-        if phase == "deadline":
-            clock.seconds += 120
-
-    def outcome(result):
-        if phase == "outcome_checkpoint":
-            raise collection._TimeLimit
-        completed.append(result)
-
-    result = collect(client, on_response=response, on_outcome=outcome)
-    assert result.stop_reason == "uncertain_inflight"
-    assert result.retry_after_not_before_utc is None
-    assert result.retry_after_unrepresentable is False
-    assert result.requests == 1
-    assert completed == []
-    if phase == "body":
-        assert result.last_response_finished_at_utc is None
-        assert result.response_content_bytes == 0
 
 
 def test_retry_policy_version_changes_old_plan_binding(monkeypatch):
-    assert collection.PAIR_ACQUISITION_POLICY_VERSION == "retail-pair-acquisition-v5"
+    assert collection.PAIR_ACQUISITION_POLICY_VERSION == "retail-pair-acquisition-v6"
     new = collection.collector_binding()
     monkeypatch.setattr(collection, "PAIR_ACQUISITION_POLICY_VERSION", "retail-pair-acquisition-v1")
     assert collection.collector_binding() != new

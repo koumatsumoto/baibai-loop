@@ -7,16 +7,14 @@ import pytest
 
 from baibai_batch.jobs.external_assessment_cohorts import (
     PairEntry,
-    journal_bytes,
-    load_journal,
     load_plan,
+    load_result,
     make_plan,
-    mark_inflight,
-    new_journal,
+    new_result,
     plan_bytes,
     record_outcome,
+    result_value,
     summarize,
-    validate_resume,
 )
 from baibai_engine.batch_api import (
     ExternalAssessmentAnalystRatingObservation,
@@ -62,7 +60,7 @@ def observation(source="monex", ticker="130A", *, missing=False, **kwargs):
 
 
 def finish(p, journal, source, ticker, *, missing=False):
-    active = mark_inflight(p, journal, source, ticker)
+    active = journal
     return record_outcome(
         p,
         active,
@@ -73,11 +71,11 @@ def finish(p, journal, source, ticker, *, missing=False):
 
 def test_plan_has_deterministic_disjoint_bounded_cohorts():
     tickers = tuple(str(1000 + index) for index in range(301))
-    p = plan(tickers=tuple(reversed(tickers)), cohort_size=150)
-    same = plan(tickers=tickers, cohort_size=150)
+    p = plan(tickers=tuple(reversed(tickers)), cohort_size=50)
+    same = plan(tickers=tickers, cohort_size=50)
     assert p == same
     assert p.plan_sha256 == same.plan_sha256
-    assert [len(c.tickers) for c in p.cohorts] == [150, 150, 1]
+    assert [len(c.tickers) for c in p.cohorts] == [50, 50, 50, 50, 50, 50, 1]
     pairs = [pair for cohort in p.cohorts for pair in cohort.pairs]
     assert len(pairs) == len(set(pairs)) == 602
     assert set(pairs) == {(source, ticker) for source in p.sources for ticker in tickers}
@@ -98,11 +96,11 @@ def test_plan_has_deterministic_disjoint_bounded_cohorts():
 )
 def test_resume_rejects_changed_plan_binding(change):
     original = plan()
-    journal = new_journal(original, 0)
+    journal = new_result(original, 0)
     changed = plan(**change)
     assert original.plan_sha256 != changed.plan_sha256
     with pytest.raises(ValueError, match="binding"):
-        load_journal(changed, journal_bytes(original, journal))
+        load_result(changed, result_value(original, journal))
 
 
 @pytest.mark.parametrize(
@@ -114,7 +112,7 @@ def test_resume_rejects_changed_plan_binding(change):
         {"tickers": (" 7203",)},
         {"tickers": ("ABCD",)},
         {"tickers": ("７２０３",)},
-        {"cohort_size": 151},
+        {"cohort_size": 51},
         {"cohort_size": 0},
         {"cohort_size": True},
         {"sources": ()},
@@ -130,23 +128,22 @@ def test_invalid_plan_cannot_be_persisted(change):
 
 def test_private_checkpoint_roundtrip_keeps_receipt_and_zero_partial_null():
     p = plan()
-    journal = finish(p, new_journal(p, 0), "monex", "130A")
-    payload = journal_bytes(p, journal)
-    restored = load_journal(load_plan(plan_bytes(p)), payload)
+    journal = finish(p, new_result(p, 0), "monex", "130A")
+    payload = result_value(p, journal)
+    restored = load_result(load_plan(plan_bytes(p)), payload)
     assert restored == journal
-    assert journal_bytes(p, restored) == payload
+    assert result_value(p, restored) == payload
     assert restored.entries[0].state == "success"
     assert restored.observations[0].pbr == 0
     assert restored.observations[0].consensus_target is None
     assert restored.observations[0].fetched_at_utc.isoformat() == "2026-10-11T00:00:01.123456+00:00"
-    assert b"synthetic.invalid" in payload
-    assert b"raw_html" not in payload
+    assert "synthetic.invalid" in json.dumps(payload)
+    assert "raw_html" not in json.dumps(payload)
 
 
 def test_normal_null_is_an_observation_and_is_separate_from_failure():
     p = plan(tickers=("130A",))
-    journal = finish(p, new_journal(p, 0), "monex", "130A", missing=True)
-    journal = mark_inflight(p, journal, "rakuten", "130A")
+    journal = finish(p, new_result(p, 0), "monex", "130A", missing=True)
     journal = record_outcome(
         p,
         journal,
@@ -160,19 +157,17 @@ def test_normal_null_is_an_observation_and_is_separate_from_failure():
         "normal_null": 1,
         "success": 0,
         "unattempted": 0,
-        "uncertain": 0,
     }
     assert len(journal.observations) == 1
     assert report["whole_universe_accounting"] is True
     assert report["attempted_completeness"] is True
     assert report["success_completeness"] is False
-    assert journal.halt_reason is None
-    validate_resume(p, [journal])
+    assert journal.complete
 
 
 def test_accounting_does_not_claim_attempted_or_success_complete():
     p = plan(cohort_size=1)
-    journals = [new_journal(p, c.index) for c in p.cohorts]
+    journals = [new_result(p, c.index) for c in p.cohorts]
     report = summarize(p, journals)
     assert report["whole_universe_accounting"] is True
     assert report["attempted_completeness"] is False
@@ -188,7 +183,7 @@ def test_accounting_does_not_claim_attempted_or_success_complete():
 
 def test_missing_duplicate_and_changed_cohorts_are_rejected():
     p = plan(cohort_size=1)
-    journal = new_journal(p, 0)
+    journal = new_result(p, 0)
     report = summarize(p, [journal])
     assert report["missing_cohorts"] == 1
     assert report["unrecorded_pairs"] == 2
@@ -197,9 +192,9 @@ def test_missing_duplicate_and_changed_cohorts_are_rejected():
     with pytest.raises(ValueError, match="missing cohort"):
         summarize(p, [journal], require_all=True)
     with pytest.raises(ValueError, match="duplicate cohort"):
-        validate_resume(p, [journal, journal])
+        summarize(p, [journal, journal])
     with pytest.raises(ValueError, match="unknown cohort"):
-        journal_bytes(p, replace(journal, cohort_index=2))
+        result_value(p, replace(journal, cohort_index=2))
 
 
 @pytest.mark.parametrize(
@@ -217,8 +212,8 @@ def test_missing_duplicate_and_changed_cohorts_are_rejected():
 )
 def test_private_journal_rejects_corrupt_shape_or_semantics(mutation):
     p = plan()
-    journal = finish(p, new_journal(p, 0), "monex", "130A")
-    data = json.loads(journal_bytes(p, journal))
+    journal = finish(p, new_result(p, 0), "monex", "130A")
+    data = result_value(p, journal)
     entries = data["entries"]
     if mutation == "missing_pair":
         entries.pop()
@@ -239,9 +234,9 @@ def test_private_journal_rejects_corrupt_shape_or_semantics(mutation):
         entries[0]["observation"]["ticker"] = "7203"
     with pytest.raises(
         ValueError,
-        match=r"journal pairs|unexpected checkpoint|pair state|fixed outcome reason|observation does not match|canonical pair identity",
+        match=r"result pairs|unexpected fields|pair state|fixed outcome reason|observation does not match|canonical pair identity",
     ):
-        load_journal(p, json.dumps(data).encode())
+        load_result(p, data)
 
 
 @pytest.mark.parametrize("ticker", ["ABCD", "７２０３", "130a", "7203.T", " 7203"])
@@ -268,62 +263,17 @@ def test_saved_plan_rejects_changed_cohort_and_duplicate_json_fields(mutation):
 
 def test_terminal_replay_is_idempotent_but_changed_value_or_receipt_conflicts():
     p = plan()
-    journal = finish(p, new_journal(p, 0), "monex", "130A")
+    journal = finish(p, new_result(p, 0), "monex", "130A")
     outcome = ExternalAssessmentCollectionOutcome("monex", "130A", "observed", http_status=200)
     assert record_outcome(p, journal, outcome, observation()) is journal
     for changed in (observation(pbr=1), observation(fetched_at_utc="2026-10-11T00:00:02+00:00")):
         with pytest.raises(ValueError, match="payload cannot change"):
             record_outcome(p, journal, outcome, changed)
-    with pytest.raises(ValueError, match="already attempted"):
-        mark_inflight(p, journal, "monex", "130A")
-
-
-def test_durable_inflight_halts_resume_without_relabeling_as_unattempted():
-    p = plan()
-    initial = new_journal(p, 0)
-    active = mark_inflight(p, initial, "monex", "130A")
-    restored = load_journal(p, journal_bytes(p, active))
-    assert initial.entries[0].state == "unattempted"
-    assert restored.entries[0].state == "uncertain"
-    assert restored.halt_reason == "inflight_uncertain"
-    with pytest.raises(ValueError, match="daily run is halted"):
-        validate_resume(p, [restored])
-    with pytest.raises(ValueError, match="after a halt"):
-        mark_inflight(p, restored, "rakuten", "130A")
-    with pytest.raises(ValueError, match="cannot become unattempted"):
-        record_outcome(
-            p,
-            restored,
-            ExternalAssessmentCollectionOutcome(
-                "monex", "130A", "not_attempted", "wall_clock_limit"
-            ),
-        )
-    completed = record_outcome(
-        p,
-        active,
-        ExternalAssessmentCollectionOutcome("monex", "130A", "observed", http_status=200),
-        observation(),
-    )
-    validate_resume(p, [completed])
-
-
-@pytest.mark.parametrize(("status", "reason"), [(403, "access_denied"), (429, "rate_limited")])
-def test_blocked_access_halts_whole_daily_run_across_cohorts(status, reason):
-    p = plan(cohort_size=1)
-    active = mark_inflight(p, new_journal(p, 0), "monex", "130A")
-    halted = record_outcome(
-        p, active, ExternalAssessmentCollectionOutcome("monex", "130A", reason, http_status=status)
-    )
-    pending = new_journal(p, 1)
-    assert halted.halt_reason == reason
-    with pytest.raises(ValueError, match="daily run is halted"):
-        validate_resume(p, [pending, halted])
-    assert summarize(p, [halted, pending])["halt_reasons"] == {reason: 1}
 
 
 def test_safe_public_summary_contains_counts_and_fixed_reasons_only():
     p = plan(tickers=("130A",))
-    journal = finish(p, new_journal(p, 0), "monex", "130A")
+    journal = finish(p, new_result(p, 0), "monex", "130A")
     journal = finish(p, journal, "rakuten", "130A", missing=True)
     rendered = json.dumps(summarize(p, [journal]))
     for private in (
@@ -342,7 +292,7 @@ def test_safe_public_summary_contains_counts_and_fixed_reasons_only():
 
 def test_journal_and_pair_are_immutable_and_unattempted_cannot_claim_a_response():
     p = plan()
-    journal = new_journal(p, 0)
+    journal = new_result(p, 0)
     with pytest.raises(FrozenInstanceError):
         journal.entries = ()
     with pytest.raises(FrozenInstanceError):
@@ -353,11 +303,10 @@ def test_journal_and_pair_are_immutable_and_unattempted_cannot_claim_a_response(
 
 def test_outcome_requires_marker_matching_typed_observation_and_safe_reason():
     p = plan()
-    initial = new_journal(p, 0)
+    initial = new_result(p, 0)
     outcome = ExternalAssessmentCollectionOutcome("monex", "130A", "observed", http_status=200)
-    with pytest.raises(ValueError, match="saved inflight"):
-        record_outcome(p, initial, outcome, observation())
-    active = mark_inflight(p, initial, "monex", "130A")
+    assert record_outcome(p, initial, outcome, observation()).entries[0].state == "success"
+    active = initial
     with pytest.raises(ValueError, match="does not match its pair"):
         record_outcome(p, active, outcome, observation("rakuten"))
     with pytest.raises(ValueError, match="fixed outcome reason"):
@@ -375,23 +324,3 @@ def test_outcome_requires_marker_matching_typed_observation_and_safe_reason():
             ExternalAssessmentCollectionOutcome("monex", "9432", "observed", http_status=200),
             observation(ticker="9432"),
         )
-
-
-def test_incomplete_received_request_remains_uncertain_and_unattempted_stays_distinct():
-    p = plan()
-    active = mark_inflight(p, new_journal(p, 0), "monex", "130A")
-    journal = record_outcome(
-        p,
-        active,
-        ExternalAssessmentCollectionOutcome("monex", "130A", "incomplete", "wall_clock_limit"),
-    )
-    journal = record_outcome(
-        p,
-        journal,
-        ExternalAssessmentCollectionOutcome("rakuten", "130A", "not_attempted", "wall_clock_limit"),
-    )
-    assert journal.entries[0].state == "uncertain"
-    assert journal.entries[2].state == "unattempted"
-    assert summarize(p, [journal])["state_counts"]["uncertain"] == 1
-    with pytest.raises(ValueError, match="daily run is halted"):
-        validate_resume(p, [journal])

@@ -5,7 +5,7 @@ import sqlite3
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from tests.batch.test_external_assessment_daily import FakeObjectStore, checkpoint, plan
+from tests.batch.test_external_assessment_daily import FakeObjectStore, plan, stage
 from tests.batch.test_external_assessment_raw import Session
 from tests.batch.test_external_assessment_raw import connect as connect
 from tests.engine.test_external_assessment_daily_verification import ASOF, seed_database
@@ -14,8 +14,8 @@ from tools.ops.migrate_market_29_to_30 import migrate_copy
 
 from baibai_batch.jobs import external_assessment_daily as external_assessment_daily
 from baibai_batch.jobs.external_assessment_cohorts import make_plan
-from baibai_batch.storage.external_assessment_raw import RAW_PREFIX, read_raw_html
-from baibai_batch.storage.external_assessment_staging import read_checkpoints
+from baibai_batch.storage.external_assessment_raw import RAW_PREFIX, read_raw_bundle
+from baibai_batch.storage.external_assessment_staging import read_stages
 from baibai_engine.external_assessment.acquisition import collection
 from baibai_engine.external_assessment.acquisition.sources import ParseError, kabumap
 from baibai_engine.external_assessment.acquisition.universe import frozen_universe
@@ -149,19 +149,17 @@ def test_shift_jis_daily_checkpoint_and_single_root_raw_reparse(connect):
     connect(session)
     p, store = plan(tickers=("130A",), sources=("kabumap",)), FakeObjectStore()
     report = external_assessment_daily.acquire_cohort(store, p, 0)
-    saved = checkpoint(store, p)
-    assert report["confirmed_http_requests"] == 1
-    assert saved.journal.entries[0].state == "success"
-    assert isinstance(saved.journal.observations[0], QuantsScoreObservation)
-    assert read_checkpoints(store, p)[0][0] == saved
-    receipt_key = next(
-        key for key in store.objects if key.startswith(RAW_PREFIX) and "/receipts/" in key
-    )
-    meta, body = read_raw_html(store, receipt_key)
+    saved = stage(store, p)
+    assert report["provider_requests"] == 1
+    assert saved.result.entries[0].state == "success"
+    assert isinstance(saved.result.observations[0], QuantsScoreObservation)
+    assert read_stages(store, p)[0][0] == saved
+    manifest, bodies = read_raw_bundle(store, saved.raw_bundle_keys[0])
+    meta, body = manifest["receipts"][0], bodies[0]
     reparsed = observation(
         text=body.decode(meta["encoding"]), received=datetime.fromisoformat(meta["fetched_at_utc"])
     )
-    assert reparsed == saved.journal.observations[0]
+    assert reparsed == saved.result.observations[0]
     external_assessment_daily.acquire_cohort(store, p, 0)
     assert len(session.calls) == 1
 
@@ -172,7 +170,7 @@ def test_daily_denial_or_rate_limit_stops_before_next_ticker(connect, monkeypatc
     monkeypatch.setattr(external_assessment_daily, "_wait_for_retry", lambda *args, **kwargs: False)
     p, store = plan(tickers=("130A", "8306"), sources=("kabumap",)), FakeObjectStore()
     external_assessment_daily.acquire_cohort(store, p, 0)
-    entries = checkpoint(store, p).journal.entries
+    entries = stage(store, p).result.entries
     assert [entry.state for entry in entries] == ["failure", "unattempted"]
     assert entries[0].http_status == status
     assert not any(key.startswith(RAW_PREFIX) for key in store.objects)

@@ -8,6 +8,7 @@ import os
 import secrets
 import sys
 import time
+from contextlib import ExitStack
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -16,26 +17,20 @@ import requests
 
 from baibai_batch.jobs.external_assessment_cohorts import (
     RunPlan,
-    begin_rate_limited_retry,
     make_plan,
-    mark_inflight,
-    new_journal,
+    new_result,
     record_outcome,
     summarize,
-    validate_resume,
 )
 from baibai_batch.jobs.schedule import external_assessment_target_date
 from baibai_batch.storage.external_assessment_identity import SCHEDULED_BATCH_PREFIX
-from baibai_batch.storage.external_assessment_raw import save_raw_html
+from baibai_batch.storage.external_assessment_raw import RawBundle
 from baibai_batch.storage.external_assessment_staging import (
-    MAX_PAIR_RETRIES,
-    Checkpoint,
-    PairRetryState,
-    checkpoint_bytes,
-    checkpoint_key,
-    put_private,
-    read_checkpoints,
+    CohortStage,
+    commit_stage,
     read_plan,
+    read_stage,
+    read_stages,
     read_terminal,
     save_new_plan,
     terminal_status,
@@ -47,7 +42,6 @@ from baibai_engine.batch_api import (
     ExternalAssessmentCollectionResult,
     ExternalAssessmentHostRateLimiter,
     ExternalAssessmentReceivedHTML,
-    ExternalAssessmentSource,
     LakeObjectCache,
     external_assessment_calendar_master_asof,
     external_assessment_collect_pair,
@@ -57,7 +51,8 @@ from baibai_engine.batch_api import (
 )
 
 SOFT_BUDGET_SECONDS = 4 * 60 * 60
-PAIR_AND_CHECKPOINT_RESERVE_SECONDS = 15 * 60
+PAIR_AND_STAGE_RESERVE_SECONDS = 15 * 60
+MAX_PAIR_RETRIES = 5
 RETRY_BACKOFF_SECONDS = (5, 10, 20, 40, 80)
 
 
@@ -145,218 +140,45 @@ def _terminal_result(terminal: dict[str, object]) -> dict[str, object]:
     }
 
 
-def _retry_states(checkpoint: Checkpoint, retry: PairRetryState) -> tuple[PairRetryState, ...]:
-    return tuple(
-        sorted(
-            (
-                *[
-                    item
-                    for item in checkpoint.retry_states
-                    if (item.source, item.ticker) != (retry.source, retry.ticker)
-                ],
-                retry,
-            ),
-            key=lambda item: (item.source, item.ticker),
-        )
-    )
-
-
-def _pending_retry(
-    plan: RunPlan, saved: dict[int, tuple[Checkpoint, str]]
-) -> tuple[int, PairRetryState] | None:
-    pending = [
-        (index, retry)
-        for index, (checkpoint, _) in saved.items()
-        for retry in checkpoint.retry_states
-        if retry.next_retry_utc is not None
-        and retry.retries_used < MAX_PAIR_RETRIES
-        and not retry.retry_after_unrepresentable
-    ]
-    if len(pending) > 1:
-        raise ValueError("multiple pending retry pairs violate serial acquisition")
-    validate_resume(
-        plan,
-        [checkpoint.journal for checkpoint, _ in saved.values()],
-        retryable_pairs=frozenset((retry.source, retry.ticker) for _, retry in pending),
-    )
-    return pending[0] if pending else None
-
-
 def _wait_for_retry(deadline: datetime, *, started: float, budget: float) -> bool:
     while True:
         waiting = max(0.0, (deadline - datetime.now(UTC)).total_seconds())
-        if time.monotonic() - started + waiting + PAIR_AND_CHECKPOINT_RESERVE_SECONDS >= budget:
+        if time.monotonic() - started + waiting + PAIR_AND_STAGE_RESERVE_SECONDS >= budget:
             return False
         if waiting == 0:
             return True
         time.sleep(min(waiting, 30.0))
 
 
+def _raw_warning() -> None:
+    # Provider exceptions may contain credentials, signed URLs or response bodies.
+    print(
+        "::warning::External assessment diagnostic raw save failed; typed stage unchanged",
+        file=sys.stderr,
+    )
+
+
 def _cohort_report(
     plan: RunPlan,
-    checkpoint: Checkpoint,
-    index: int,
+    stage: CohortStage,
     stop_reason: str | None,
     started: float,
     timings: dict[str, float],
+    provider_requests: int,
 ) -> dict[str, object]:
-    report = summarize(plan, [checkpoint.journal])
+    report = summarize(plan, [stage.result])
     report.update(
-        cohort_index=index,
+        cohort_index=stage.result.cohort_index,
         stop_reason=stop_reason,
-        request_reservations=checkpoint.requests_started,
-        confirmed_http_requests=checkpoint.confirmed_http_requests,
-        response_content_bytes=checkpoint.response_content_bytes,
+        http_requests=stage.http_requests,
+        provider_requests=provider_requests,
+        response_content_bytes=stage.response_content_bytes,
         response_bytes_basis="uncompressed fully received bodies; wire bytes unmeasured",
-        cohort_complete=checkpoint.journal.halt_reason is None
-        and all(entry.state != "unattempted" for entry in checkpoint.journal.entries),
+        cohort_complete=stage.result.complete,
         elapsed_seconds=round(time.monotonic() - started, 3),
         **{key: round(value, 3) for key, value in timings.items()},
     )
     return report
-
-
-def _acquire_pair(
-    store: ObjectStore,
-    plan: RunPlan,
-    checkpoint: Checkpoint,
-    etag: str | None,
-    source: ExternalAssessmentSource,
-    ticker: str,
-    rate_limiter: ExternalAssessmentHostRateLimiter,
-    timings: dict[str, float],
-    session: requests.Session,
-) -> tuple[Checkpoint, str | None, ExternalAssessmentCollectionResult]:
-    marked = False
-    pair_content_bytes = 0
-    pair_finished = checkpoint.last_response_finished_at_utc
-    received_html: list[tuple[int, ExternalAssessmentReceivedHTML]] = []
-
-    def persist() -> None:
-        nonlocal etag
-        storage_started = time.monotonic()
-        receipt = put_private(
-            store,
-            checkpoint_key(plan, checkpoint.journal.cohort_index),
-            checkpoint_bytes(plan, checkpoint),
-            previous_etag=etag,
-        )
-        etag = receipt.etag
-        timings["storage_elapsed_seconds"] += time.monotonic() - storage_started
-
-    def before_request() -> None:
-        nonlocal checkpoint, marked
-        if not marked:
-            retry = checkpoint.retry_for(source, ticker)
-            if retry is not None and retry.next_retry_utc is not None:
-                if retry.retries_used >= MAX_PAIR_RETRIES or retry.next_retry_utc > datetime.now(
-                    UTC
-                ):
-                    raise ValueError("retry reservation before deadline or beyond retry limit")
-                checkpoint = replace(
-                    checkpoint,
-                    journal=begin_rate_limited_retry(plan, checkpoint.journal, source, ticker),
-                    retry_states=_retry_states(
-                        checkpoint,
-                        replace(retry, retries_used=retry.retries_used + 1, next_retry_utc=None),
-                    ),
-                )
-            else:
-                checkpoint = replace(
-                    checkpoint,
-                    journal=mark_inflight(plan, checkpoint.journal, source, ticker),
-                )
-            marked = True
-        checkpoint = replace(checkpoint, requests_started=checkpoint.requests_started + 1)
-        persist()
-
-    def on_response(finished: datetime, _requests: int, body_bytes: int) -> None:
-        nonlocal pair_content_bytes, pair_finished
-        pair_content_bytes += body_bytes
-        pair_finished = finished
-
-    def on_received_html(received: ExternalAssessmentReceivedHTML) -> None:
-        received_html.append((checkpoint.requests_started, received))
-
-    def on_outcome(result: ExternalAssessmentCollectionResult) -> None:
-        nonlocal checkpoint
-        if len(result.outcomes) != 1 or len(result.observations) > 1:
-            raise ValueError("external assessment pair result shape changed")
-        retry = checkpoint.retry_for(source, ticker)
-        if not marked and retry is not None and result.outcomes[0].status == "not_attempted":
-            return
-        retries = checkpoint.retry_states
-        if result.outcomes[0].status == "rate_limited":
-            finished = result.last_response_finished_at_utc
-            if finished is None:
-                raise ValueError("confirmed HTTP 429 requires a received response time")
-            used = retry.retries_used if retry else 0
-            deadline = None
-            if used < MAX_PAIR_RETRIES and not result.retry_after_unrepresentable:
-                deadline = result.retry_after_not_before_utc or (
-                    finished
-                    + timedelta(
-                        seconds=RETRY_BACKOFF_SECONDS[used] + secrets.randbelow(1001) / 1000
-                    )
-                )
-            retries = _retry_states(
-                checkpoint,
-                PairRetryState(source, ticker, used, deadline, result.retry_after_unrepresentable),
-            )
-        checkpoint = replace(
-            checkpoint,
-            journal=record_outcome(
-                plan,
-                checkpoint.journal,
-                result.outcomes[0],
-                result.observations[0] if result.observations else None,
-            ),
-            confirmed_http_requests=checkpoint.confirmed_http_requests + result.requests,
-            response_content_bytes=checkpoint.response_content_bytes + pair_content_bytes,
-            last_response_finished_at_utc=pair_finished,
-            retry_states=retries,
-        )
-        persist()
-
-    collection_started = time.monotonic()
-    storage_before = timings["storage_elapsed_seconds"]
-    session.cookies.clear()
-    result = external_assessment_collect_pair(
-        ticker,
-        session=session,
-        source=source,
-        before_request=before_request,
-        on_response=on_response,
-        on_received_html=on_received_html,
-        on_outcome=on_outcome,
-        rate_limiter=rate_limiter,
-    )
-    timings["collection_elapsed_seconds"] += (
-        time.monotonic()
-        - collection_started
-        - (timings["storage_elapsed_seconds"] - storage_before)
-    )
-    # Diagnostic storage is outside the collector's typed/checkpoint deadline.
-    storage_started = time.monotonic()
-    for request_number, received in received_html:
-        try:
-            save_raw_html(
-                store,
-                run_id=plan.run_id,
-                source=source,
-                ticker=ticker,
-                request_number=request_number,
-                received=received,
-            )
-        except Exception:
-            # Error messages may include credentials, signed URLs or bodies.
-            print(
-                f"::warning::External assessment diagnostic raw save failed; source={source}; "
-                f"ticker={ticker}; request={request_number}; typed result unchanged",
-                file=sys.stderr,
-            )
-    timings["storage_elapsed_seconds"] += time.monotonic() - storage_started
-    return checkpoint, etag, result
 
 
 def acquire_cohort(
@@ -366,104 +188,131 @@ def acquire_cohort(
     *,
     soft_budget_seconds: float = SOFT_BUDGET_SECONDS,
 ) -> dict[str, object]:
-    """Workflow's fixed acquisition concurrency serializes all batches and resumes."""
+    """Collect missing pairs locally, commit confirmed outcomes once, then upload raw.
+
+    The workflow serializes acquisition. A hard kill before commit may repeat GETs;
+    a saved success or failure is immutable and is never fetched again in this plan.
+    """
     started = time.monotonic()
     if not 0 < soft_budget_seconds <= SOFT_BUDGET_SECONDS:
         raise ValueError("invalid external assessment soft budget")
-    key = checkpoint_key(plan, index)
     timings = {"collection_elapsed_seconds": 0.0, "storage_elapsed_seconds": 0.0}
-    storage_started = time.monotonic()
     terminal = read_terminal(store, plan)
     if terminal is not None:
-        return {
-            **_terminal_result(terminal),
-            "confirmed_http_requests": 0,
-            "request_reservations": 0,
-        }
-    saved = read_checkpoints(store, plan)
-    timings["storage_elapsed_seconds"] += time.monotonic() - storage_started
-    pending = _pending_retry(plan, saved)
-    checkpoint, etag = saved.get(index, (Checkpoint(new_journal(plan, index)), None))
-    if pending is not None and pending[0] != index:
-        if all(
-            entry.state not in {"unattempted", "uncertain"} for entry in checkpoint.journal.entries
-        ):
-            return _cohort_report(plan, checkpoint, index, None, started, timings)
-        raise ValueError("another cohort has a pending provider retry")
+        return {**_terminal_result(terminal), "provider_requests": 0, "http_requests": 0}
+    previous = read_stage(store, plan, index)
+    stage = previous[0] if previous else CohortStage(new_result(plan, index))
+    timings["storage_elapsed_seconds"] = time.monotonic() - started
+    if stage.result.complete:
+        return _cohort_report(plan, stage, None, started, timings, 0)
+    require_binding(plan)
+    original = stage
+    provider_requests = 0
     stop_reason = None
     rate_limiter = ExternalAssessmentHostRateLimiter()
-
-    entries = tuple(checkpoint.journal.entries)
-    if pending is not None:
-        retry_pair = (pending[1].source, pending[1].ticker)
-        entries = tuple(
-            sorted(entries, key=lambda entry: (entry.source, entry.ticker) != retry_pair)
-        )
-    with requests.Session() as session:
-        for entry in entries:
-            retry = checkpoint.retry_for(entry.source, entry.ticker)
-            if entry.state != "unattempted" and not (
-                retry is not None and retry.next_retry_utc is not None
-            ):
+    with ExitStack() as resources:
+        bundle = None
+        try:
+            bundle = resources.enter_context(RawBundle(plan.run_id, index))
+        except Exception:
+            _raw_warning()
+        session = resources.enter_context(requests.Session())
+        for entry in original.result.entries:
+            if entry.state != "unattempted":
                 continue
-            require_binding(plan)
-            # Leave a normal completed checkpoint, rather than rely on runner killing
-            # a request. The pair's own real timer also includes its durable callbacks.
-            if (
-                time.monotonic() - started + PAIR_AND_CHECKPOINT_RESERVE_SECONDS
-                >= soft_budget_seconds
-            ):
+            if time.monotonic() - started + PAIR_AND_STAGE_RESERVE_SECONDS >= soft_budget_seconds:
                 stop_reason = "soft_budget"
                 break
-            while True:
-                retry = checkpoint.retry_for(entry.source, entry.ticker)
-                if (
-                    retry is not None
-                    and retry.next_retry_utc is not None
-                    and not _wait_for_retry(
-                        retry.next_retry_utc, started=started, budget=soft_budget_seconds
-                    )
-                ):
-                    stop_reason = "retry_pending_soft_budget"
-                    break
-                checkpoint, etag, result = _acquire_pair(
-                    store,
-                    plan,
-                    checkpoint,
-                    etag,
-                    entry.source,
+            final_result: ExternalAssessmentCollectionResult | None = None
+            for retry in range(MAX_PAIR_RETRIES + 1):
+                received_html: list[ExternalAssessmentReceivedHTML] = []
+                session.cookies.clear()
+                collection_started = time.monotonic()
+                result = external_assessment_collect_pair(
                     entry.ticker,
-                    rate_limiter,
-                    timings,
-                    session,
+                    session=session,
+                    source=entry.source,
+                    on_received_html=received_html.append,
+                    rate_limiter=rate_limiter,
                 )
-                if result.stop_reason == "rate_limited":
-                    retry = checkpoint.retry_for(entry.source, entry.ticker)
-                    if retry is not None and retry.next_retry_utc is not None:
-                        continue
-                    stop_reason = (
-                        "retry_after_unrepresentable"
-                        if retry and retry.retry_after_unrepresentable
-                        else "rate_limited_retry_exhausted"
-                    )
-                elif result.stop_reason:
+                timings["collection_elapsed_seconds"] += time.monotonic() - collection_started
+                if len(result.outcomes) != 1 or len(result.observations) > 1:
+                    raise ValueError("external assessment pair result shape changed")
+                provider_requests += result.requests
+                stage = replace(
+                    stage,
+                    http_requests=stage.http_requests + result.requests,
+                    response_content_bytes=stage.response_content_bytes
+                    + (result.response_content_bytes or 0),
+                )
+                # At most two bodies per attempt stay in memory. Disk/compression/R2
+                # work is outside the finite pair deadline and cannot alter its result.
+                storage_started = time.monotonic()
+                if bundle is not None:
+                    for received in received_html:
+                        try:
+                            bundle.append(entry.source, entry.ticker, received)
+                        except Exception:
+                            _raw_warning()
+                timings["storage_elapsed_seconds"] += time.monotonic() - storage_started
+                if result.outcomes[0].status == "not_attempted":
+                    stop_reason = result.stop_reason or "soft_budget"
+                    break
+                final_result = result
+                if result.outcomes[0].status != "rate_limited":
                     stop_reason = result.stop_reason
-                break
+                    break
+                if result.retry_after_unrepresentable:
+                    stop_reason = "retry_after_unrepresentable"
+                    break
+                if retry == MAX_PAIR_RETRIES:
+                    stop_reason = "rate_limited_retry_exhausted"
+                    break
+                finished = result.last_response_finished_at_utc
+                if finished is None:
+                    raise ValueError("confirmed HTTP 429 requires a received response time")
+                deadline = result.retry_after_not_before_utc or (
+                    finished
+                    + timedelta(
+                        seconds=RETRY_BACKOFF_SECONDS[retry] + secrets.randbelow(1001) / 1000
+                    )
+                )
+                if not _wait_for_retry(deadline, started=started, budget=soft_budget_seconds):
+                    stop_reason = "retry_soft_budget"
+                    break
+            if final_result is not None:
+                stage = replace(
+                    stage,
+                    result=record_outcome(
+                        plan,
+                        stage.result,
+                        final_result.outcomes[0],
+                        final_result.observations[0] if final_result.observations else None,
+                    ),
+                )
             if stop_reason:
                 break
-    # Even an untouched soft-stop cohort remains explicit, rather than disappearing.
-    if etag is None:
         storage_started = time.monotonic()
-        put_private(store, key, checkpoint_bytes(plan, checkpoint), previous_etag=None)
+        if stage.result != original.result:
+            bundle_key = bundle.key if bundle is not None and bundle.receipts else None
+            if bundle_key is not None:
+                stage = replace(stage, raw_bundle_keys=(*stage.raw_bundle_keys, bundle_key))
+            stage = commit_stage(store, plan, stage, previous=previous)
+            if bundle_key is not None and bundle_key in stage.raw_bundle_keys:
+                assert bundle is not None
+                try:
+                    bundle.finish()
+                    bundle.upload(store)
+                except Exception:
+                    _raw_warning()
         timings["storage_elapsed_seconds"] += time.monotonic() - storage_started
-    return _cohort_report(plan, checkpoint, index, stop_reason, started, timings)
+    return _cohort_report(plan, stage, stop_reason, started, timings, provider_requests)
 
 
 def write_outputs(
     plan: RunPlan | None,
     terminal: dict[str, object] | None = None,
     *,
-    retry_cohort: int | None = None,
     cohort_indices: tuple[int, ...] | None = None,
     run_id: str | None = None,
 ) -> None:
@@ -473,9 +322,7 @@ def write_outputs(
         "exists": str(plan is not None).lower(),
         "cohorts": (
             json.dumps(
-                [retry_cohort]
-                if retry_cohort is not None
-                else list(cohort_indices)
+                list(cohort_indices)
                 if cohort_indices is not None
                 else [cohort.index for cohort in plan.cohorts]
             )
@@ -483,7 +330,6 @@ def write_outputs(
             else "[]"
         ),
         "terminal_status": terminal_status(terminal) if terminal is not None else "pending",
-        "retry_only": str(retry_cohort is not None and terminal is None).lower(),
     }
     if output := os.environ.get("GITHUB_OUTPUT"):
         with Path(output).open("a", encoding="utf-8") as stream:
@@ -502,7 +348,6 @@ def write_publication_outputs(report: dict[str, object]) -> None:
         "typed_pairs": report.get("observations"),
         "known_failure_pairs": states.get("failure"),
         "normal_null_pairs": states.get("normal_null"),
-        "uncertain_pairs": states.get("uncertain"),
         "unattempted_pairs": states.get("unattempted"),
         "rows_added": report.get("rows_added"),
     }
@@ -582,11 +427,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "plan":
             terminal = read_terminal(store, plan)
             saved = (
-                read_checkpoints(store, plan)
+                read_stages(store, plan)
                 if terminal is None and not args.require_existing_plan
                 else {}
             )
-            pending = _pending_retry(plan, saved) if saved else None
             cohorts = tuple(
                 cohort.index
                 for cohort in plan.cohorts
@@ -595,15 +439,13 @@ def main(argv: list[str] | None = None) -> int:
                     cohort.index not in saved
                     or any(
                         entry.state == "unattempted"
-                        for entry in saved[cohort.index][0].journal.entries
+                        for entry in saved[cohort.index][0].result.entries
                     )
                 )
             )
-            if terminal is None and (pending is not None or cohorts):
+            if terminal is None and cohorts:
                 require_binding(plan)
-            write_outputs(
-                plan, terminal, retry_cohort=pending[0] if pending else None, cohort_indices=cohorts
-            )
+            write_outputs(plan, terminal, cohort_indices=cohorts)
             report = (
                 _terminal_result(terminal)
                 if terminal is not None
@@ -618,8 +460,8 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("cohort required")
             report = acquire_cohort(store, plan, args.cohort)
         elif args.command == "audit":
-            checkpoints = read_checkpoints(store, plan)
-            report = summarize(plan, [checkpoint.journal for checkpoint, _ in checkpoints.values()])
+            stages = read_stages(store, plan)
+            report = summarize(plan, [stage.result for stage, _ in stages.values()])
         else:
             terminal = read_terminal(store, plan)
             if terminal is not None:
@@ -644,7 +486,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "acquire":
             if report.get("status") in {"already_published", "already_partially_published"}:
                 return 0
-            if not report["cohort_complete"]:
+            if not report["cohort_complete"] or report["stop_reason"]:
                 return 1
         return 0
     except Exception as error:

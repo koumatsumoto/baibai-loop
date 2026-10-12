@@ -92,27 +92,21 @@ def store_and_client(monkeypatch, clock, *, verify_put_with_head):
 
 
 def collector(monkeypatch, clock, calls):
-    def collect(
-        ticker, *, source, before_request, on_outcome, on_response, on_received_html, **kwargs
-    ):
-        before_request()
+    def collect(ticker, *, source, on_received_html, **kwargs):
         calls.append(ticker)
         clock[0] += 0.05  # Fixed simulated provider receive/parse latency.
         received = observation(ticker).fetched_at_utc
         body = ("public " + ticker).encode()
-        on_response(received, 1, len(body))
         on_received_html(
             ExternalAssessmentReceivedHTML(
                 "https://synthetic.invalid/" + ticker, received, "utf-8", body
             )
         )
-        result = ExternalAssessmentCollectionResult(
+        return ExternalAssessmentCollectionResult(
             (observation(ticker),),
             (ExternalAssessmentCollectionOutcome(source, ticker, "observed", http_status=200),),
             1,
         )
-        on_outcome(result)
-        return result
 
     monkeypatch.setattr(daily, "external_assessment_collect_pair", collect)
 
@@ -128,17 +122,17 @@ def test_acknowledged_put_reduces_round_trips_without_missing_or_duplicate_recei
         report = daily.acquire_cohort(store, p, 0)
         elapsed, operations = clock[0], client.calls.copy()
         assert report["cohort_complete"] is True
-        assert report["confirmed_http_requests"] == len(calls) == 50
+        assert report["provider_requests"] == len(calls) == 50
         saved = external_assessment_staging.read_private(
-            store, external_assessment_staging.checkpoint_key(p, 0)
+            store, external_assessment_staging.stage_key(p, 0)
         )
-        durable = external_assessment_staging.load_checkpoint(p, saved.payload)
-        assert len(durable.journal.observations) == 50
-        for number, ticker in enumerate(p.tickers, 1):
-            key = f"retail-dynamics/raw/utc-date/2026-10-11/receipts/{p.run_id}/monex/{ticker}/{number}.json"
-            metadata, body = external_assessment_raw.read_raw_html(store, key)
-            assert body == ("public " + ticker).encode()
-            assert metadata["requested_ticker"] == ticker
+        durable = external_assessment_staging.load_stage(p, saved.payload)
+        assert len(durable.result.observations) == 50
+        metadata, bodies = external_assessment_raw.read_raw_bundle(
+            store, durable.raw_bundle_keys[0]
+        )
+        assert bodies == tuple(("public " + ticker).encode() for ticker in p.tickers)
+        assert [item["requested_ticker"] for item in metadata["receipts"]] == list(p.tickers)
         before = client.calls["PUT"]
         resumed = daily.acquire_cohort(store, p, 0)
         assert resumed["collection_elapsed_seconds"] == 0
@@ -146,51 +140,48 @@ def test_acknowledged_put_reduces_round_trips_without_missing_or_duplicate_recei
         assert len(calls) == 50
         runs.append((elapsed, operations, durable, report))
     slow, fast = runs
-    assert slow[1] == {"HEAD": 302, "PUT": 200}
-    assert fast[1] == {"HEAD": 102, "PUT": 200}
-    assert fast[2] == slow[2]
-    assert slow[0] == pytest.approx(52.7)
-    assert fast[0] == pytest.approx(32.7)
-    assert fast[3]["storage_elapsed_seconds"] == pytest.approx(30.2)
-    assert slow[3]["storage_elapsed_seconds"] == pytest.approx(50.2)
+    assert slow[1] == {"HEAD": 4, "PUT": 2}
+    assert fast[1] == {"HEAD": 2, "PUT": 2}
+    assert fast[2].result == slow[2].result
+    assert slow[0] == pytest.approx(3.1)
+    assert fast[0] == pytest.approx(2.9)
+    assert fast[3]["storage_elapsed_seconds"] == pytest.approx(0.4)
+    assert slow[3]["storage_elapsed_seconds"] == pytest.approx(0.6)
 
 
-@pytest.mark.parametrize("put_number", [1, 2])
 @pytest.mark.parametrize("fault", ["conflict", "lost_response", "missing_generation"])
-def test_failed_private_put_acknowledgement_stops_before_next_http(monkeypatch, put_number, fault):
-    clock, calls = [0.0], []
-    monkeypatch.setattr(daily.time, "monotonic", lambda clock=clock: clock[0])
-    collector(monkeypatch, clock, calls)
-    store, client = store_and_client(monkeypatch, clock, verify_put_with_head=False)
-    client.put_fault = put_number, fault
-    with pytest.raises(RuntimeError):
-        daily.acquire_cohort(store, plan(tickers=("7203", "9432")), 0)
-    assert calls == ([] if put_number == 1 else ["7203"])
-    assert client.calls["HEAD"] == 2
-
-
-@pytest.mark.parametrize("put_number", [3, 4])
-@pytest.mark.parametrize("fault", ["conflict", "lost_response", "missing_generation"])
-def test_failed_raw_put_acknowledgement_keeps_confirmed_typed_result(
-    monkeypatch, capsys, put_number, fault
-):
+def test_ambiguous_stage_acknowledgement_reads_actual_result(monkeypatch, fault):
     clock, calls = [0.0], []
     monkeypatch.setattr(daily.time, "monotonic", lambda: clock[0])
     collector(monkeypatch, clock, calls)
     store, client = store_and_client(monkeypatch, clock, verify_put_with_head=False)
-    client.put_fault = put_number, fault
+    client.put_fault = 1, fault
+    if fault == "conflict":
+        with pytest.raises(RuntimeError, match="conditional"):
+            daily.acquire_cohort(store, plan(tickers=("7203", "9432")), 0)
+    else:
+        assert (
+            daily.acquire_cohort(store, plan(tickers=("7203", "9432")), 0)["cohort_complete"]
+            is True
+        )
+    assert calls == ["7203", "9432"]
+    assert client.calls["GET"] == (0 if fault == "conflict" else 1)
+
+
+@pytest.mark.parametrize("fault", ["conflict", "lost_response", "missing_generation"])
+def test_failed_bundle_acknowledgement_keeps_primary_result(monkeypatch, capsys, fault):
+    clock, calls = [0.0], []
+    monkeypatch.setattr(daily.time, "monotonic", lambda: clock[0])
+    collector(monkeypatch, clock, calls)
+    store, client = store_and_client(monkeypatch, clock, verify_put_with_head=False)
+    client.put_fault = 2, fault
     p = plan()
-    report = daily.acquire_cohort(store, p, 0)
-    assert report["cohort_complete"] is True
-    assert report["confirmed_http_requests"] == 1
-    saved = external_assessment_staging.read_private(
-        store, external_assessment_staging.checkpoint_key(p, 0)
-    )
-    assert external_assessment_staging.load_checkpoint(p, saved.payload).journal.observations == (
+    assert daily.acquire_cohort(store, p, 0)["cohort_complete"] is True
+    assert external_assessment_staging.read_stage(store, p, 0)[0].result.observations == (
         observation(),
     )
     output = capsys.readouterr()
-    assert "typed result unchanged" in output.err
+    assert "typed stage unchanged" in output.err
     assert "synthetic.invalid" not in output.err
 
 

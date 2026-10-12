@@ -13,12 +13,11 @@ from tests.engine.test_external_assessment_sources import (
 )
 
 from baibai_batch.jobs.external_assessment_cohorts import (
-    journal_bytes,
-    load_journal,
+    load_result,
     make_plan,
-    mark_inflight,
-    new_journal,
+    new_result,
     record_outcome,
+    result_value,
 )
 from baibai_engine.external_assessment.acquisition.collection import (
     CollectionOutcome,
@@ -133,10 +132,8 @@ def test_rakuten_missingness_survives_checkpoint_store_api_export_and_research(
         collector_binding="synthetic",
         sources=("rakuten",),
     )
-    journal = record_outcome(
-        plan, mark_inflight(plan, new_journal(plan, 0), "rakuten", "9999"), outcome, observation
-    )
-    restored = load_journal(plan, journal_bytes(plan, journal))
+    journal = record_outcome(plan, new_result(plan, 0), outcome, observation)
+    restored = load_result(plan, result_value(plan, journal))
     assert restored.entries[0].state == checkpoint_state
     if observation is None:
         assert restored.entries[0].reason == "no_estimates_identity_unconfirmed"

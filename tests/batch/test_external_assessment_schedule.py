@@ -13,14 +13,14 @@ from tests.batch.test_external_assessment_daily import (
     FakeObjectStore,
     completed_pair,
     plan,
-    seed_checkpoint,
+    seed_stage,
 )
 from tests.engine.test_external_assessment_daily_verification import build_master_lake
 from tests.engine.test_external_assessment_pair_collection import Session
 from tests.engine.test_external_assessment_sources import monex_html
 
 from baibai_batch.jobs import external_assessment_daily as daily
-from baibai_batch.jobs.external_assessment_cohorts import new_journal
+from baibai_batch.jobs.external_assessment_cohorts import new_result
 from baibai_batch.jobs.schedule import (
     EXTERNAL_ASSESSMENT_SCHEDULED_FIRE_TIME,
     external_assessment_target_date,
@@ -234,15 +234,15 @@ def test_holiday_receipt_keeps_actual_day_and_same_plan_resume_never_repeats_htt
     monkeypatch.setattr(collection, "datetime", ReceiptDatetime)
     report = daily.acquire_cohort(store, p, 0)
     assert report["state_counts"]["success"] == 1
-    saved = staging.read_checkpoints(store, p)[0][0]
-    receipt = saved.journal.observations[0]
+    saved = staging.read_stages(store, p)[0][0]
+    receipt = saved.result.observations[0]
     assert receipt.fetched_at_utc == CREATED
     assert receipt.snapshot_date == CREATED.date()
     assert receipt.snapshot_date != FRIDAY
-    before = store.objects[staging.checkpoint_key(p, 0)][0]
+    before = store.objects[staging.stage_key(p, 0)][0]
     assert daily.acquire_cohort(store, p, 0)["stop_reason"] is None
     assert len(client.calls) == 1
-    assert store.objects[staging.checkpoint_key(p, 0)][0] == before
+    assert store.objects[staging.stage_key(p, 0)][0] == before
 
 
 def test_plan_matrix_omits_completed_cohorts_without_a_second_checkpoint_scan(
@@ -251,16 +251,16 @@ def test_plan_matrix_omits_completed_cohorts_without_a_second_checkpoint_scan(
     p = plan(tickers=("6758", "7203"), cohort_size=1)
     store = FakeObjectStore()
     staging.save_new_plan(store, p)
-    first = completed_pair(p, new_journal(p, 0), "6758", "observed")
-    seed_checkpoint(store, p, first)
+    first = completed_pair(p, new_result(p, 0), "6758", "observed")
+    seed_stage(store, p, first)
     monkeypatch.setattr(daily, "Boto3R2Store", lambda **kwargs: store)
     output = tmp_path / "output"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
     args = ["plan", "--run-id", p.run_id, "--master-asof", "2026-10-11"]
     assert daily.main(args) == 0
     assert outputs(output)["cohorts"] == "[1]"
-    second = completed_pair(p, new_journal(p, 1), "7203", "normal_null")
-    seed_checkpoint(store, p, second)
+    second = completed_pair(p, new_result(p, 1), "7203", "normal_null")
+    seed_stage(store, p, second)
     before = {key: payload for key, (payload, _) in store.objects.items()}
     store.events.clear()
     store.puts.clear()
