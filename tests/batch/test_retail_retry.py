@@ -93,7 +93,7 @@ def wire_collector(monkeypatch, store, p, clock, responses):
     def collect(ticker, *, source, **kwargs):
         session.ticker, session.source = ticker, source
         session.limiters.append(kwargs.get("rate_limiter"))
-        return retail_collect_pair(ticker, source=source, session=session, **kwargs)
+        return retail_collect_pair(ticker, source=source, **{**kwargs, "session": session})
 
     monkeypatch.setattr(daily, "retail_collect_pair", collect)
     return session

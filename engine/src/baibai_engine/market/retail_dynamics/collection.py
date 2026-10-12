@@ -40,7 +40,7 @@ MIN_REQUEST_INTERVAL_SECONDS = 2.0
 DEFAULT_PAIR_TIME_LIMIT_SECONDS = 120
 DEFAULT_PAIR_REQUEST_TIMEOUT_SECONDS = 30
 # Increment this policy version whenever pair acquisition semantics change.
-PAIR_ACQUISITION_POLICY_VERSION = "retail-pair-acquisition-v4"
+PAIR_ACQUISITION_POLICY_VERSION = "retail-pair-acquisition-v5"
 HOST_REQUEST_RATE_PER_SECOND = 2.0
 HOST_REQUEST_BURST_CREDITS = 4.0
 RATE_LIMITED_HOSTS = (
@@ -154,8 +154,8 @@ class HostRateLimiter:
         if parsed.scheme != "https" or parsed.netloc not in RATE_LIMITED_HOSTS:
             raise ValueError("host rate limiter requires a fixed public HTTPS host")
         host = parsed.netloc
-        rate = 0.5 if host == "jp.kabumap.com" else HOST_REQUEST_RATE_PER_SECOND
-        burst = 1.0 if host == "jp.kabumap.com" else HOST_REQUEST_BURST_CREDITS
+        rate = HOST_REQUEST_RATE_PER_SECOND
+        burst = HOST_REQUEST_BURST_CREDITS
         while True:
             now = time.monotonic()
             remaining = deadline - now
@@ -507,8 +507,6 @@ def collector_binding() -> str:
             "hosts": RATE_LIMITED_HOSTS,
             "requests_per_second": HOST_REQUEST_RATE_PER_SECOND,
             "burst_credits": HOST_REQUEST_BURST_CREDITS,
-            "kabumap_requests_per_second": 0.5,
-            "kabumap_burst_credits": 1.0,
             "initial_credits": 0,
             "actual_concurrency": 1,
             "maximum_concurrency": 2,

@@ -57,7 +57,9 @@ def connect(monkeypatch):
         monkeypatch.setattr(
             daily,
             "retail_collect_pair",
-            lambda ticker, **kwargs: collection.collect_pair(ticker, session=session, **kwargs),
+            lambda ticker, **kwargs: collection.collect_pair(
+                ticker, **{**kwargs, "session": session}
+            ),
         )
 
     return use
