@@ -4,13 +4,13 @@ from datetime import date
 from typing import cast
 from unittest.mock import MagicMock, patch
 
-from tests.engine.macro.indicator_fixtures import (
+from tests.engine.market_context.indicators.indicator_fixtures import (
     _FakeResponse,
     _RaisingSession,
     _series,
     _StaticSession,
 )
-from tests.engine.macro.provider_fixtures import SnapshotFixtures
+from tests.engine.market_context.indicators.provider_fixtures import SnapshotFixtures
 
 from baibai_engine.market_context.indicators.providers import (
     IndicatorsProviderError,

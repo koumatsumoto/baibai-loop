@@ -4,7 +4,7 @@ from datetime import UTC, date, datetime
 from typing import cast
 from unittest.mock import patch
 
-from tests.engine.macro.indicator_fixtures import (
+from tests.engine.market_context.indicators.indicator_fixtures import (
     _context_with_browser,
     _FakeBrowserFetcher,
     _FakeResponse,
@@ -16,7 +16,7 @@ from tests.engine.macro.indicator_fixtures import (
     _series,
     _StaticSession,
 )
-from tests.engine.macro.provider_fixtures import SnapshotFixtures
+from tests.engine.market_context.indicators.provider_fixtures import SnapshotFixtures
 
 from baibai_engine.market_context.indicators.definitions import (
     load_definitions,

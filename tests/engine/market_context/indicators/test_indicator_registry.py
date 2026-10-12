@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from tests.engine.macro.indicator_fixtures import (
+from tests.engine.market_context.indicators.indicator_fixtures import (
     _estat_payload,
     _registry_yaml,
     _series,

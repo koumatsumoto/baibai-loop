@@ -7,7 +7,7 @@ from baibai_engine.market.jpx_total_return import (
     load_benchmark_observation,
 )
 
-FIXTURE = Path(__file__).parent.parent / "fixtures" / "benchmark-observation" / "topix-1y.yaml"
+FIXTURE = Path(__file__).parents[2] / "fixtures" / "benchmark-observation" / "topix-1y.yaml"
 
 
 def test_loads_official_gross_total_return_observation() -> None:

@@ -274,7 +274,9 @@ class IndicatorsService:
             end=end,
             context=context,
             trim_before_first=spec.trim_before_first,
-            remove_other_sources=True,
+            # A local formula link identifies its implementation, not a replacement
+            # external source. Keep prior values and provenance when that link moves.
+            remove_other_sources=spec.kind == "http",
             range_replacement=spec.range_replacement_for(series),
             require_observations=True,
         )

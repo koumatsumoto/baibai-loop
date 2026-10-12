@@ -10,7 +10,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from tests.engine.macro.indicator_fixtures import (
+from tests.engine.market_context.indicators.indicator_fixtures import (
     _prune_store_rows,
     _retired_counts,
     _series,

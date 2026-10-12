@@ -5,11 +5,12 @@ import sqlite3
 import tempfile
 import unittest
 from contextlib import redirect_stderr
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-from tests.engine.macro.indicator_fixtures import (
+from tests.engine.market_context.indicators.indicator_fixtures import (
     _retired_counts,
     _series,
     _write_observation,
@@ -336,6 +337,111 @@ class IndicatorsServiceTests(unittest.TestCase):
             finally:
                 conn.close()
             self.assertEqual(first, "1950-01-01")
+
+    def test_local_formula_link_change_keeps_history_and_same_content_replay_is_idempotent(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            definition = load_definitions().by_id()["us.net_liquidity"]
+            old_source = (
+                "https://github.com/koumatsumoto/baibai-loop/blob/main/"
+                "src/baibai_engine/macro/indicators/providers/formulas.py"
+            )
+            previous_source = old_source.replace("/main/src/", "/main/engine/src/")
+            records = [
+                observation(
+                    definition,
+                    date(2026, 7, 20),
+                    1000.0,
+                    datetime(2026, 7, 24, tzinfo=UTC),
+                    source_url=old_source,
+                ),
+                observation(
+                    definition,
+                    date(2026, 7, 20),
+                    1100.0,
+                    datetime(2026, 8, 1, tzinfo=UTC),
+                    source_url=previous_source,
+                ),
+                observation(
+                    definition,
+                    date(2026, 7, 17),
+                    990.0,
+                    datetime(2026, 8, 2, tzinfo=UTC),
+                    source_url=old_source,
+                    fetch_status="retracted",
+                ),
+            ]
+            conn = initialize_database(database)
+            insert_observations(conn, records)
+            conn.close()
+
+            def stored_rows() -> tuple[tuple[object, ...], ...]:
+                with sqlite3.connect(database) as connection:
+                    return tuple(
+                        connection.execute(
+                            "SELECT * FROM observations WHERE series_id = ? "
+                            "ORDER BY observed_at, vintage_at",
+                            (definition.series_id,),
+                        ).fetchall()
+                    )
+
+            original = stored_rows()
+            fresh = observation(
+                definition,
+                date(2026, 7, 20),
+                1100.0,
+                datetime(2026, 8, 10, tzinfo=UTC),
+            )
+            self.assertNotIn(fresh.source_url, {old_source, previous_source})
+            replay = replace(fresh, vintage_at=datetime(2026, 8, 11, tzinfo=UTC))
+            with patch(
+                "baibai_engine.market_context.indicators.service.fetch_observations",
+                side_effect=[[fresh], [replay]],
+            ):
+                service = IndicatorsService(database)
+                service.refresh_all_history(definition.series_id, end=date(2026, 8, 10))
+                first = stored_rows()
+                self.assertTrue(set(original).issubset(first))
+                self.assertEqual(len(first), len(original) + 1)
+                service.refresh_all_history(definition.series_id, end=date(2026, 8, 10))
+                self.assertEqual(stored_rows(), first)
+
+    def test_http_full_history_source_correction_still_removes_previous_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            definition = load_definitions().by_id()["us.fed_funds.upper"]
+            old = observation(
+                definition,
+                date(2026, 7, 20),
+                4.0,
+                datetime(2026, 7, 20, tzinfo=UTC),
+                source_url="https://example.com/previous-source.csv",
+            )
+            conn = initialize_database(database)
+            insert_observations(conn, [old])
+            conn.close()
+            corrected = observation(
+                definition,
+                date(2026, 7, 20),
+                4.25,
+                datetime(2026, 7, 21, tzinfo=UTC),
+            )
+            with patch(
+                "baibai_engine.market_context.indicators.service.fetch_observations",
+                return_value=[corrected],
+            ):
+                IndicatorsService(database).refresh_all_history(
+                    definition.series_id,
+                    end=date(2026, 7, 21),
+                )
+            with sqlite3.connect(database) as connection:
+                rows = connection.execute(
+                    "SELECT value, vintage_at, source_url FROM observations WHERE series_id = ?",
+                    (definition.series_id,),
+                ).fetchall()
+            self.assertEqual(rows, [(4.25, "2026-07-21T00:00:00+00:00", definition.source_url)])
 
     def test_derived_full_history_refresh_replaces_the_previous_alignment_grid(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -7,7 +7,7 @@ from datetime import date
 from typing import cast
 from unittest.mock import patch
 
-from tests.engine.macro.indicator_fixtures import (
+from tests.engine.market_context.indicators.indicator_fixtures import (
     _DASHBOARD_INDICATOR,
     _DASHBOARD_SELECTORS,
     _DASHBOARD_SOURCE_URL,
@@ -20,7 +20,7 @@ from tests.engine.macro.indicator_fixtures import (
     _RecordingSession,
     _series,
 )
-from tests.engine.macro.provider_fixtures import SnapshotFixtures
+from tests.engine.market_context.indicators.provider_fixtures import SnapshotFixtures
 
 from baibai_engine.market_context.indicators.definitions import (
     SeriesDefinition,

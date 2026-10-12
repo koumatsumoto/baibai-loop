@@ -3,10 +3,10 @@ from __future__ import annotations
 from datetime import date
 from typing import cast
 
-from tests.engine.macro.indicator_fixtures import (
+from tests.engine.market_context.indicators.indicator_fixtures import (
     _series,
 )
-from tests.engine.macro.provider_fixtures import SnapshotFixtures
+from tests.engine.market_context.indicators.provider_fixtures import SnapshotFixtures
 from tests.helpers.indicator_store import (
     observation,
 )

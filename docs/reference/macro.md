@@ -65,6 +65,10 @@ uv run baibai-engine macro get jp.policy_rate --latest
 
 `refresh --all-history` は provider ごとの取得可能な先頭日から強制再取得する。派生系列（`derived` provider）は外部ソースを持たず入力系列の重なりが履歴なので、どの base 系列よりも古い床から入力を読み直して全期間を再計算する（base 系列を先に同期してから回す）。月次整列は月内の各入力の最終観測を使う。market data を月末まで使う数式は選択入力の最終観測日を出力日とし、月初への backdate を防ぐ。数式変更で observation grid を置換する系列は provider spec で個別に宣言し、既存 period を欠く候補なら削除前に失敗して履歴を保持する。FRED 系列は現在の `fredgraph.csv` が返す先頭日を再現可能な境界とし、その日より前の観測を残さない。各系列のobservationはregistryの`source_url`と一致するcacheだけを保持する。JP provider の契約期間や公表 archive が先頭日を制限する場合は、実際の取得範囲と制約を運用記録へ残す。
 
+local derivedの式の出典は現行配置の固定commit URLで示す。出典リンクの変更を外部source訂正として扱わず、旧観測の値・vintage・source URLは保持する。新URLの観測はprovenanceが異なるため初回は新vintageとなり、同じURL・同内容の反復では増えない。HTTP providerの全履歴取得で行う外部source訂正の扱いは維持する。
+
+`us.erp --all-history`の旧grid/vintage置換は、[providerの明示的な再構築契約](../../engine/src/baibai_engine/market_context/indicators/providers/derived.py)として別に存在する。出典URLの変更を理由に起動せず、このURL切替を全履歴再構築のno-loss保証と扱わない。
+
 同内容の再取得ではobservationのvintageを増やさず、provider runに取得記録を残す。値・単位・期間・取得状態・sourceが変わるrevisionや、変化後に同じ値へ戻るrevisionは保持する。日次batchはrolling窓を引き直すため窓内の取得断は次回成功時に埋まるが、窓外の欠落は[Macro履歴の復旧](../../batch/OPERATIONS.md#macro履歴)が必要になる。保存・重複排除は[indicator DB](../../engine/src/baibai_engine/market_context/indicators/db.py)を参照する。
 
 誤って入った observation は削除では消えない。cloudとのmergeは双方のfactを戻すno-loss契約なので、localで消しても次のpushで復活する。撤回は対象日の最新vintageをCASで名指しし、その下の状態を新しいvintageとして記録する。同じ撤回を繰り返すと意図しない旧値を戻し得るため、期待vintageが変われば拒否する。derived系列の保存観測は入力の撤回だけでは消えない。操作順と失敗時の行き先は[運用手順](../../batch/OPERATIONS.md#macro観測とregistryの修正)に従う。
