@@ -7,7 +7,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, model_validator
 
-from baibai_engine.market.jpx_total_return import BenchmarkObservation
+from baibai_engine.market_context.observations.benchmark import BenchmarkObservation
 
 type OutcomeNumber = StrictInt | StrictFloat
 

@@ -63,7 +63,7 @@ flowchart LR
 
 Webのengine入口は`read_api`、Batchは`batch_api`/`read_api`である。Batchは判断や書込条件を複製せず、domainの既存serviceへ委譲する。domainが観測の意味・重複・書込条件を所有し、SQL/取得adapterが共有`storage`を使う。共有storageは純粋契約と技術helperだけを参照し、分析・AI・UI・取得serviceへ依存しない。純粋な型・算術は保存や取得を読み込まない。
 
-Portfolio/Positionは確認済み取引と保有を所有し、Researchへ逆依存しない。確認済みbroker factを扱う合成入口は保存済み判断の参照を解決し、Positionの事実記録へ委譲する。参照解決と取引事実の記録を別の責務として保つ。Operation/taskは進行状態であり、投資評価や取引事実を代行しない。
+Portfolio/Positionは確認済み取引と保有を所有し、Researchへ逆依存しない。確認済みbroker factを扱うCLIの合成入口は保存済み判断の参照解決を渡し、Positionのdraft組立・事実記録へ委譲する。参照解決と取引事実の記録を別の責務として保つ。Operation/taskは進行状態であり、投資評価や取引事実を代行しない。
 
 実装は単一distributionの`baibai_engine`、表示を担う`baibai_web`、運用を担う`baibai_batch`で構成する。依存制約の厳密な範囲と公開CLIの合成例外は[import-linter設定](../pyproject.toml)が検査する。
 
@@ -75,8 +75,8 @@ Portfolio/Positionは確認済み取引と保有を所有し、Researchへ逆依
 
 | 所有 | 主モデル・成果物 | 入力と出力 | 保存・公開入口 |
 | --- | --- | --- | --- |
-| Valuation | FinancialSnapshot、倍率/機械ER/FV、Projection、条件付き収益 | 財務・価格・配当の純粋L1入力とTTM規則から財務/倍率を計算し、仮定から価値/収益を測る。機械anchorと企業固有Projectionを区別 | L2機械値はSecurity Analysis、企業固有前提はThesisの一部。領域読取と外向け`read_api/valuation`。[Valuation](./reference/valuation-metrics.md#machine-valuation)・[Thesis](./reference/thesis.md#scenario-arithmetic) |
-| Market Context | Market Snapshot、Security Market Context、Macro Reading/Context | 経済・金利・市場・業種・個別の保存観測から環境・価格状態・信用需給と相対値を返す | 観測はmarket/lake・macro、既存Macro Contextはapplication。領域読取と外向け`read_api/market_context`。[Market Context](./reference/macro.md#market-context-reads) |
+| Valuation | FinancialSnapshot、倍率/機械ER/FV、ER較正文脈、Projection、条件付き収益 | 財務・価格・配当の純粋L1入力とTTM規則から財務/倍率を計算し、仮定から価値/収益を測る。機械anchorと企業固有Projectionを区別 | L2機械値はSecurity Analysis、企業固有前提はThesisの一部。領域読取と外向け`read_api/valuation`・`read_api/er_calibration_context`。[Valuation](./reference/valuation-metrics.md#machine-valuation)・[Thesis](./reference/thesis.md#scenario-arithmetic) |
+| Market Context | Market Snapshot、Security Market Context、公式benchmark観測、Macro Reading/Context | 経済・金利・市場・業種・個別の保存観測から環境・価格状態・信用需給と相対値を返す | 観測はmarket/lake・macro、既存Macro Contextはapplication。領域読取と外向け`read_api/market_context`。[Market Context](./reference/macro.md#market-context-reads) |
 | External Assessment | 提示値の受領履歴、出所別比較・欠測 | 媒体別のモデル価格・rating・Quants・TradingViewを出所/尺度/期間付きで扱う | typed L1はmarket/lake、比較は保存入力から再計算。`external_assessment/query`、外向け`read_api/external_assessment`とCLI。[入力](./reference/data-sources.md#external-assessment)・[読取](./reference/market-lake.md#external-assessment-query) |
 | Screening | Security Analysis、Nomination、Review Set | 三領域の結果を組み立て、母集団と候補探索を適用 | runs store。`screening`の公開入口と`batch_api`。[Screening](./reference/screening-runtime.md) |
 | Research | Triage、Research Set、Thesis/Review、CAA、Position Review提案 | 領域結果・出典・保有を調べ、一銘柄ずつの判断/提案を作る | applicationの判断履歴。`research/triage`・`research/workspace`・既存service。[Research](../.agents/skills/research/SKILL.md) |
@@ -112,20 +112,20 @@ EDINET metricの`extractor_revision`は明示的な抽出意味revisionであり
 
 ## 5. 現行実装の移行状況
 
-main `31f4f308`では、#1426の有限Research/新規・保有提案、#1427の外部評価取得・共有storage・純粋観測型、#1428のTriage/Candidate契約、#1430の財務・価格/信用需給計算の所有移設を統合済みである。External Assessmentの取得/観測/保存adapterとTradingViewは同領域、Triageのcontracts/query/service/CLIはResearch、Candidate契約はScreeningが所有する。財務/TTM/倍率とFinancialSnapshotは`valuation/metrics`、価格騰落・出来高・標本volatility・安値乖離は`market_context/history`、信用需給は`market_context/margin`が所有する。倍率履歴の母分散sigma gapは`valuation/metrics/history`に分け、共有L1のsplit補正は`market/bars`を使う。Screeningは母集団/比較対象の選択、結果組立、保存、候補探索を所有する。これらを未完了の移設へ戻さない。
+現行実装では、#1426の有限Research/新規・保有提案、#1427の外部評価取得・共有storage・純粋観測型、#1428のTriage/Candidate契約、#1430の財務・価格/信用需給計算の所有移設を統合済みである。External Assessmentの取得/観測/保存adapterとTradingViewは同領域、Triageのcontracts/query/service/CLIはResearch、Candidate契約はScreeningが所有する。財務/TTM/倍率とFinancialSnapshotは`valuation/metrics`、価格騰落・出来高・標本volatility・安値乖離は`market_context/history`、信用需給は`market_context/margin`が所有する。倍率履歴の母分散sigma gapは`valuation/metrics/history`に分け、共有L1のsplit補正は`market/bars`を使う。Screeningは母集団/比較対象の選択、結果組立、保存、候補探索を所有する。これらを未完了の移設へ戻さない。
+
+ER較正の意味契約と保存済み評価帯解釈・読取は`valuation/calibration/{contracts,query}`に集約し、較正実行・証拠生成・選抜評価はScreeningに残す。Research prepareはValuation queryを直接使い、`read_api/er_calibration_context`はWeb・外部照会の読取委譲だけを持つ。公式TOPIX gross-total-returnの観測型・検証は`market_context/observations/benchmark`、JPXファイル読取は`market/jpx_total_return`の実adapterが所有し、Nikkei ETF price-only方向評価と分ける。broker事実のdraft組立・予約束縛は`position/drafts`が所有し、CLIが`research/capital_allocation_query`の過去CAA銘柄読取をcallableで渡す。active予約・既知terminal（cancel / expire）の再試行では参照を呼ばず、現在適格性を再判定しない。意味の詳細は[較正文脈](./reference/estimate-calibration.md#判断面へ渡す較正文脈)・[Portfolio Ledger](./reference/portfolio-ledger.md#human-result-semantics)に従う。
 
 残る差分は次に集約する。Issueの段階的実装を全体完了とは扱わない。
 
 | 未完了項目 | 現行と最終境界の差分 |
 | --- | --- |
-| ER/benchmarkの意味契約 | `foundation`等に残る領域意味を所有領域へ揃える。Research prepareのER入力には`read_api`経由が残る |
 | Market Context/macro | 相対市場計算・保存済み読取はある。経済観測・Reading計算・Contextの実体は`macro`に残り、重厚な旧report仕様の新利用への強制も見直す |
 | 永続identity | 既存table/index/dataset/key/plan形式/workflow名・concurrencyを維持中。稼働取得を途中で変更せず、値・時刻・既存判断と固定releaseの履歴を保って明示切替する |
 | daily独立公開 | Screening失敗とmacro公開はまだ独立していない。workflow/store/部分公開の分離が残る |
-| 周辺業務入口の所有 | 判断参照を解決するbroker fact合成入口は現行`research/broker_fact_service`にある。Positionの事実記録と分けた所有整理が残る |
 | 最終運用受入 | 実体配置・保存・公開・画面・CLI・docsの結合、四媒体の取得/読戻し、AI運用の有用性/根拠/時間を実運用で確認する |
 
-この表は上記mainの状態を示す。後続の取り込み時にも同じ文書の差分を照合し、実装に合わせて該当行を更新する。詳細な判断と移行証拠は#1414に残し、仕様は本書とreferenceへ統合する。
+この表は現行実装の未完了範囲を示す。後続の取り込み時にも同じ文書の差分を照合し、実装に合わせて該当行を更新する。詳細な判断と移行証拠は#1414に残し、仕様は本書とreferenceへ統合する。
 
 <a id="cloud-serving-layer"></a>
 

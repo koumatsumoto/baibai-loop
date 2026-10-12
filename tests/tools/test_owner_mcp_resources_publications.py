@@ -155,7 +155,7 @@ def test_old_publication_is_stored_only_but_current_corruption_is_error(data):
 
 
 def test_er_saved_payload_survives_expiry_and_meta_does_not_change_ref(data, monkeypatch):
-    import baibai_engine.read_api.er_calibration_context as module
+    import baibai_engine.valuation.calibration.query as module
 
     raw = safe_load(Path("reports/published/er-level-calibration-latest.yaml").read_text())
     data.paths.er.write_text(yaml.safe_dump(raw))

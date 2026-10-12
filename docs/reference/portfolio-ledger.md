@@ -78,7 +78,7 @@ partial fill後は未約定残数だけをreservedに残す。hard errorはcash�
 uv run baibai-engine position apply-draft /tmp/ledger-draft.yaml --db stores/application/baibai.sqlite --confirmed
 ```
 
-applyは1 transactionでsource head、assessment / reservation、event payload、price/meta expected row、reconciliationを再検証する。`--confirmed`なし、stale、buyでないassessment、broker fact reportなし、矛盾payloadはno-writeである。
+applyは1 transactionでsource head、event replay / payload、price/meta expected row、reconciliationを再検証する。`--confirmed`なし、stale、矛盾payloadはno-writeである。
 
 すべての取引事実draftは価格不要のevent replayでcash・reservation・lotを検証する。`broker-fact-draft`のapplyは未解放expiryも再検証する。実売却、入出金、income、cost、税の記録に市場価格の更新を要求しない。readerは未報告の予約を保持し、時刻だけからreleaseを推定しない。
 
@@ -88,11 +88,15 @@ applyは1 transactionでsource head、assessment / reservation、event payload�
 
 明示報告がない場合の扱いと確認する範囲は[Ledger Recordの売買報告の扱い](../../.agents/skills/ledger-record/SKILL.md#売買報告の扱い)に従う。
 
+`position/drafts`がdraft組立と予約束縛を所有し、active予約・既知terminalに束縛されない報告ではCLIから渡された過去CAA銘柄の読取を呼ぶ。allocate以外の判断や銘柄不一致はdraft作成時に拒否する。active予約と既知terminal（cancel / expire）の再試行は予約の束縛を使い、過去CAAが読めなくても完全一致の報告を再試行できる。
+
 `broker-fact-draft`は人間の`open / filled / cancelled / expired`報告だけを入力にする。active reservationをIDなしで推定しない。partial fillはremainingがある間だけ後続broker factを受理する。full fill / cancel / expire後の完全一致broker fact reportはno-change、矛盾broker fact reportはhard errorとする。`expired`は人間が未約定を確認し、`occurred_at >= expires_at`の場合だけreleaseを作る。同時刻に複数reservationがterminalになる場合は`--reservation-id`の反復指定を1 transactionで検証・適用する。対象の一部が不正なら全件を拒否する。active reservationの後続broker factは同じ`decision_reference`、reservation ID、order IDへ束縛する。
 
 <a id="historical-outcome"></a>
 
 ## Historical outcome
+
+公式TOPIX gross-total-returnの観測・期間・出所検証は`market_context/observations/benchmark`が所有し、保存済みJPXファイル読取は`market/jpx_total_return`へ委譲する。Nikkei ETF price-onlyの市場方向評価をtotal-return benchmarkへ転用しない。
 
 portfolio outcomeは各JPX営業日closeまでeventをreplayし、日次NAVを`available_cash + reserved_cash + open holdings market value`として算出する。`contribution`を正、`withdrawal`を負のexternal flowとし、buy/sell、reservation、income、cost、taxはNAV内部eventである。
 

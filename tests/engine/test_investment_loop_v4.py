@@ -4,6 +4,7 @@ import json
 import sqlite3
 from datetime import datetime, timedelta
 from decimal import Decimal
+from functools import partial
 
 import pytest
 from tests.engine.test_reviewed_thesis_v4 import NOW as EVENING
@@ -11,14 +12,18 @@ from tests.helpers.db_seed import seed_ledger
 from tests.helpers.research_triage import research_entry, research_triage_payload
 from tests.helpers.research_v4 import pair_payload
 
-from baibai_engine.position.drafts import apply_draft, build_sell_execution_draft
+from baibai_engine.position.drafts import (
+    apply_draft,
+    build_broker_fact_draft,
+    build_sell_execution_draft,
+)
 from baibai_engine.position.ledger import PortfolioLedgerDocument
 from baibai_engine.position.store import LedgerStoreService
-from baibai_engine.research.broker_fact_service import build_broker_fact_draft
 from baibai_engine.research.capital_allocation import (
     CapitalAllocationAssessment,
     capital_allocation_draft_sha256,
 )
+from baibai_engine.research.capital_allocation_query import historical_allocated_ticker
 from baibai_engine.research.capital_allocation_scaffold import scaffold_capital_allocation
 from baibai_engine.research.capital_allocation_service import CapitalAllocationAssessmentService
 from baibai_engine.research.operation.models import OperationPayload
@@ -263,7 +268,7 @@ def test_sequential_allocation_uses_updated_cash_and_one_research_set(
             )
         draft, _ = build_broker_fact_draft(
             LedgerStoreService(db),
-            service,
+            partial(historical_allocated_ticker, db_path=db),
             decision_reference=assessment_id,
             status="open",
             occurred_at=NOW,
@@ -286,7 +291,7 @@ def test_sequential_allocation_uses_updated_cash_and_one_research_set(
             )
             fill, _ = build_broker_fact_draft(
                 LedgerStoreService(db),
-                service,
+                partial(historical_allocated_ticker, db_path=db),
                 decision_reference=first_id,
                 status="filled",
                 occurred_at=NOW,
@@ -328,7 +333,7 @@ def test_sequential_allocation_uses_updated_cash_and_one_research_set(
     if not fill_first:
         fill, _ = build_broker_fact_draft(
             ledger_service,
-            service,
+            partial(historical_allocated_ticker, db_path=db),
             decision_reference=first_id,
             status="filled",
             occurred_at=NOW,

@@ -22,7 +22,7 @@ status: active
 
 | 調べたいこと | 正本 |
 | --- | --- |
-| 見積りの較正とmethodの採否 | [estimate-calibration](./estimate-calibration.md) |
+| 見積りの較正・保存済み文脈とmethodの採否 | [estimate-calibration](./estimate-calibration.md) |
 | 機械ER/FV、保存済み照会、valuation指標と入力basis | [valuation-metrics](./valuation-metrics.md) |
 | Candidate Discovery・Review Set | [screening-runtime](./screening-runtime.md) |
 | Market Context、市場/個別相対、Macro観測・Reading・Context | [macro](./macro.md) |

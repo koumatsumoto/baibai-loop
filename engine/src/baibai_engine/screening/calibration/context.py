@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
 
-from baibai_engine.foundation.er_calibration_context import (
+from baibai_engine.valuation.calibration.contracts import (
     ER_CALIBRATION_CONTEXT_KIND,
     ER_CALIBRATION_CONTEXT_SCHEMA_VERSION,
     ER_CALIBRATION_CONTEXT_VALID_DAYS,

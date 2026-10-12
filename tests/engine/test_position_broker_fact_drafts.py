@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from decimal import Decimal
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -12,10 +14,9 @@ from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
 
 from baibai_engine.position.cli import main
-from baibai_engine.position.drafts import apply_draft, load_draft
+from baibai_engine.position.drafts import apply_draft, build_broker_fact_draft, load_draft
 from baibai_engine.position.store import LedgerStoreService
-from baibai_engine.research.broker_fact_service import build_broker_fact_draft
-from baibai_engine.research.capital_allocation_service import CapitalAllocationAssessmentService
+from baibai_engine.research.capital_allocation_query import historical_allocated_ticker
 from baibai_engine.storage.application.write import initialize_database
 
 ROOT = Path(__file__).parents[2]
@@ -27,7 +28,7 @@ ASSESSMENT_ID = "capital-allocation-assessment-20260730-2331"
 
 def _services(
     tmp_path: Path, *, result: str = "allocate"
-) -> tuple[LedgerStoreService, CapitalAllocationAssessmentService]:
+) -> tuple[LedgerStoreService, Callable[[str], str]]:
     db = tmp_path / "app.sqlite"
     initialize_database(db)
     payload = {
@@ -95,10 +96,15 @@ def _services(
         }
     )
     seed_ledger(db, source)
-    return LedgerStoreService(db), CapitalAllocationAssessmentService(db)
+    return LedgerStoreService(db), partial(historical_allocated_ticker, db_path=db)
 
 
-def _open_draft(ledger: LedgerStoreService, assessments: CapitalAllocationAssessmentService):
+def _open_draft(
+    ledger: LedgerStoreService,
+    assessments: Callable[[str], str],
+    *,
+    expires_at: datetime = EXPIRES_AT,
+):
     return build_broker_fact_draft(
         ledger,
         assessments,
@@ -109,7 +115,7 @@ def _open_draft(ledger: LedgerStoreService, assessments: CapitalAllocationAssess
         quantity=200,
         sector="サービス業",
         price_guard_yen=Decimal("1050"),
-        expires_at=EXPIRES_AT,
+        expires_at=expires_at,
         now=ORDERED_AT + timedelta(minutes=1),
     )
 
@@ -271,3 +277,109 @@ def test_broker_draft_keeps_the_snapshot_head_when_another_write_intervenes(
     assert draft.source == intervening.source
     with pytest.raises(ValueError, match="stale ledger draft"):
         apply_draft(ledger, draft, human_confirmed=True)
+
+
+@pytest.mark.parametrize("terminal_status", ["cancelled", "expired"])
+def test_active_and_known_terminal_retries_do_not_resolve_historical_caa(
+    tmp_path: Path, monkeypatch, capsys, terminal_status: str
+) -> None:
+    ledger, resolve = _services(tmp_path)
+    references: list[str] = []
+
+    def resolve_initial(reference: str) -> str:
+        references.append(reference)
+        return resolve(reference)
+
+    draft, _ = _open_draft(ledger, resolve_initial, expires_at=ORDERED_AT + timedelta(hours=2))
+    assert draft is not None
+    assert references == [ASSESSMENT_ID]
+    apply_draft(ledger, draft, human_confirmed=True)
+    reservation = draft.replacement.events[-1]
+
+    def unavailable_history(_reference: str, **_kwargs) -> str:
+        pytest.fail("active or known terminal report resolved historical CAA")
+
+    db = tmp_path / "app.sqlite"
+    with sqlite3.connect(db) as connection:
+        connection.execute("DELETE FROM capital_allocation_assessment")
+    before = db.read_bytes()
+    fill_args = dict(
+        decision_reference=ASSESSMENT_ID,
+        status="filled",
+        occurred_at=ORDERED_AT + timedelta(minutes=30),
+        ticker="2331",
+        quantity=100,
+        price_yen=Decimal("1000"),
+        reservation_id=reservation.reservation_id,
+        now=ORDERED_AT + timedelta(hours=1),
+    )
+    fill, _ = build_broker_fact_draft(ledger, unavailable_history, **fill_args)
+    assert fill is not None
+    assert db.read_bytes() == before
+    apply_draft(ledger, fill, human_confirmed=True)
+    assert build_broker_fact_draft(ledger, unavailable_history, **fill_args) == (None, ())
+    terminal_args = dict(
+        decision_reference=ASSESSMENT_ID,
+        status=terminal_status,
+        occurred_at=ORDERED_AT + timedelta(hours=1 if terminal_status == "cancelled" else 3),
+        reservation_id=reservation.reservation_id,
+        now=ORDERED_AT + timedelta(hours=4),
+    )
+    terminal, _ = build_broker_fact_draft(ledger, unavailable_history, **terminal_args)
+    assert terminal is not None
+    apply_draft(ledger, terminal, human_confirmed=True)
+    assert build_broker_fact_draft(ledger, unavailable_history, **terminal_args) == (None, ())
+
+    # CLIもcallableを渡すだけにし、予約済み再試行の前にCAAを先読みしない。
+    monkeypatch.setattr(
+        "baibai_engine.position.cli.historical_allocated_ticker", unavailable_history
+    )
+    before = db.read_bytes()
+    assert (
+        main(
+            [
+                "broker-fact-draft",
+                "--root",
+                str(tmp_path),
+                "--db",
+                str(db),
+                "--decision-reference",
+                ASSESSMENT_ID,
+                "--status",
+                terminal_status,
+                "--occurred-at",
+                terminal_args["occurred_at"].isoformat(),
+                "--reservation-id",
+                reservation.reservation_id,
+                "--out",
+                "retry.yaml",
+            ],
+            now=ORDERED_AT + timedelta(hours=4),
+        )
+        == 0
+    )
+    assert yaml.safe_load(capsys.readouterr().out)["status"] == "no_change"
+    assert not (tmp_path / "retry.yaml").exists()
+    assert db.read_bytes() == before
+
+
+def test_historical_allocation_query_does_not_write_or_replay_current_eligibility(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _services(tmp_path)
+    db = tmp_path / "app.sqlite"
+    before = db.read_bytes()
+
+    def reject_current_check(*_args, **_kwargs):
+        pytest.fail("historical identity entered current allocation publication check")
+
+    monkeypatch.setattr(
+        "baibai_engine.research.capital_allocation_service.CapitalAllocationAssessmentService.check",
+        reject_current_check,
+    )
+    assert historical_allocated_ticker(ASSESSMENT_ID, db_path=db) == "2331"
+    assert db.read_bytes() == before
+    missing = tmp_path / "missing.sqlite"
+    with pytest.raises(ValueError, match="application database is unavailable"):
+        historical_allocated_ticker(ASSESSMENT_ID, db_path=missing)
+    assert not missing.exists()

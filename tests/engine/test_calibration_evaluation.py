@@ -22,7 +22,6 @@ from tests.helpers.calibration_store import (
 
 ROOT = Path(__file__).resolve().parents[2]
 
-from baibai_engine.foundation.er_calibration_context import ErCalibrationContextArtifact
 from baibai_engine.screening.calibration.cli import (
     _required_metric_statuses,
 )
@@ -63,6 +62,7 @@ from baibai_engine.screening.calibration.panel import (
 )
 from baibai_engine.screening.rule_config import ScreeningRules, load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
+from baibai_engine.valuation.calibration.contracts import ErCalibrationContextArtifact
 
 _ASOF = "2025-06-30"
 _RULES = load_screening_rules()

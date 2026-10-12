@@ -16,10 +16,6 @@ from baibai_engine.foundation.repository_layout import (
 from baibai_engine.foundation.time import JST
 from baibai_engine.position.ledger import replay_events_through
 from baibai_engine.position.store import LedgerStoreService
-from baibai_engine.read_api.er_calibration_context import (
-    candidate_er_band_context,
-    load_er_calibration_context,
-)
 from baibai_engine.research.inputs import research_inputs
 from baibai_engine.research.operation.models import OperationPayload
 from baibai_engine.research.operation.progress import (
@@ -41,6 +37,10 @@ from baibai_engine.research.workspace.files import (
 )
 from baibai_engine.research.workspace.status import _write_status
 from baibai_engine.storage.application.paths import database_path
+from baibai_engine.valuation.calibration.query import (
+    candidate_er_band_context,
+    load_er_calibration_context,
+)
 
 
 def prepare_workspace(

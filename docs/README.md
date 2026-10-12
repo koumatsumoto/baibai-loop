@@ -28,7 +28,7 @@ Valuation・Market Context・External Assessmentの意味は[domain-language](./
 | batch・storeを運用する | [Ops Maintenance](../.agents/skills/ops-maintenance/SKILL.md) |
 | 保存済み情報を表示・照会する | [Web](../web/README.md)・[Owner MCP](../tools/owner_mcp/README.md) |
 | 保存済みの機械評価と企業固有評価を読む | [Valuation metrics](./reference/valuation-metrics.md#machine-valuation)・[Thesis](./reference/thesis.md#scenario-arithmetic) |
-| 見積り方法を改善する | [Estimate calibration](./reference/estimate-calibration.md) |
+| 見積り方法・保存済みER較正文脈を確認する | [Estimate calibration](./reference/estimate-calibration.md) |
 | PC・クラウドで開発する、Actionsとの分担を確認する | [AGENTS](../AGENTS.md)・[Python foundation](./reference/python-foundation.md#cloud-development-boundary) |
 | artifact・指標の意味を調べる | [Reference index](./reference/README.md) |
 

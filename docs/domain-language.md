@@ -66,7 +66,8 @@ Valuationの機械ER/FV anchorは倍率・自己価格レンジとcarryの推計
 | Security Market Context | rebuildable state | 指定銘柄の価格状態と同一端点での対benchmark/同業相対値 |
 | Macro Reading | rebuildable artifact | Market Contextで参照する、経済系列からのdeterministic machine reading |
 | Macro Context | artifact / judgment | Market Context内の既存環境判断成果物。領域全体とは区別 |
-| E[r] Calibration Context | rebuildable context | 過去較正をResearch Triage等が読むL2 current context |
+| E[r] Calibration Context | rebuildable context | Screeningが生成し、Valuationの契約・解釈でResearch Triage等が読む過去較正のL2 current context |
+| Official Benchmark Observation | observation | Market Contextが意味契約を所有する公式TOPIX gross-total-return観測。price-only市場方向評価とは別 |
 | Operation Session | application state | 明示開始に束縛した有限調査と成果の状態。L3完了と人間採否・取引事実を区別 |
 
 「4 Valuation Approach」はcurrent production methodの構成であり、Review Setのdomain定義ではない。

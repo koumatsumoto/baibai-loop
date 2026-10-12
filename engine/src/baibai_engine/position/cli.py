@@ -15,6 +15,7 @@ import sys
 from dataclasses import asdict
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
+from functools import partial
 from pathlib import Path
 
 import yaml
@@ -25,15 +26,16 @@ from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.bars import JQuantsDailyBar
 from baibai_engine.market.config import DEFAULT_SQLITE_CACHE_DIR
 from baibai_engine.market.jpx_total_return import (
-    BenchmarkObservation,
     BenchmarkObservationError,
     load_benchmark_observation,
 )
 from baibai_engine.market.store import read_daily_bars_for_tickers, read_market_calendar
+from baibai_engine.market_context.observations.benchmark import BenchmarkObservation
 from baibai_engine.position.broker_fact_recording import BrokerFactRecordingError
 from baibai_engine.position.drafts import (
     HumanEvent,
     apply_draft,
+    build_broker_fact_draft,
     build_event_draft,
     build_meta_draft,
     build_override_draft,
@@ -64,10 +66,7 @@ from baibai_engine.position.outcome_store import (
 )
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.position.valuation import current_portfolio
-from baibai_engine.research.broker_fact_service import build_broker_fact_draft
-from baibai_engine.research.capital_allocation_service import (
-    CapitalAllocationAssessmentService,
-)
+from baibai_engine.research.capital_allocation_query import historical_allocated_ticker
 from baibai_engine.research.position_review import PositionReviewDocument
 from baibai_engine.research.position_review_service import PositionReviewService
 
@@ -658,7 +657,7 @@ def _run_record_broker_fact(args: argparse.Namespace, *, now: datetime | None) -
     try:
         draft, event_ids = build_broker_fact_draft(
             LedgerStoreService(args.db),
-            CapitalAllocationAssessmentService(args.db),
+            partial(historical_allocated_ticker, db_path=args.db),
             decision_reference=args.decision_reference,
             status=args.status,
             occurred_at=args.occurred_at,

@@ -17,7 +17,7 @@ description: 人間が確認した取引・資金の事実を記録し、portfol
 
 | 対象 | 入口 |
 | --- | --- |
-| open・fill・cancel・expireの報告 | `position broker-fact-draft`。保存済み買付Assessmentを参照する |
+| open・fill・cancel・expireの報告 | `position broker-fact-draft`。保存済み買付Assessmentまたはactive予約・既知terminalの束縛を使う |
 | 売却・部分売却の報告 | `position sell-execution-draft`。対応するPosition Reviewを参照する |
 | 入出金・income・費用・確定税 | `position event-draft` |
 | 人間のrisk override | `position override-draft` |
