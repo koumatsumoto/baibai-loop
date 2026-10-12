@@ -949,7 +949,9 @@ uv run python -m tools.ops.migrate_market_29_to_30 --source /tmp/private-retail/
 
 本番切替は通常の[publication lease](#ローカルからクラウドを更新する)内でcodeとcloud storeを一組にする。daily・TradingView・retail（19:13 JST）のslotと他writerを確認し、operatorが事前検証を終えてからleaseを取得する。同じlease内で最新cloud 29を再取得し、取得世代と元copyを保持して30のcopyを作り直す。source DBと全既存tableの不変・schema30・integrity・`lake_store_origin`の既存release bindingを照合し、確認したcodeへ切替えて、取得世代への条件付きPUTでcloud `market.sqlite`を30へ反映する。旧29 cloudと30 localは通常の`push-market`のmergeが拒否するため、この最初の反映を通常mergeや無条件overwriteで代行しない。
 
-fresh readbackでcloud30のstore-local data・coverage・originと固定したL1 releaseからhydrateした既存履歴を照合し、新tableが空・schema30・integrity正常であることを確認してからleaseをreleaseする。現在のL1へ新scoreが未収録であることだけを理由に全dataset再取得・再発行をしない。不一致・世代競合・lease失効では停止し、code/storeが整合するまで日次writerを再開しない。これは切替手順であり、本番移行・R2書込・全件取得の実施済み記録ではない。
+fresh readbackでcloud30のstore-local data・coverage・originと固定したL1 releaseからhydrateした既存履歴を照合し、新tableが空・schema30・integrity正常であることを確認する。その後も同じoperator leaseを保持し、freshにhydrateした30のlocal copyから既存`batch/scripts/r2_transfer.sh push-market`を実行する。最初の条件付きPUT後はcloud/localとも30なので通常mergeが成立し、この既存入口がDBを再度snapshot/CAS pushした後に`write_machine_manifest`で3 keyの現行世代をHEADし、`machine-manifest.json`を更新する。独立したreceipt更新CLIは追加しない。追加のDB pushと一世代backup更新を含むため、初期29の比較元copyも切替受入まで保持する。
+
+receipt更新後は同じlease内で専用のcleanなruntime checkoutへ`batch/scripts/r2_transfer.sh pull-machine`し、`machine bundle receipt matches the store generations being pulled`の成功、取得前後の3 key世代一致、market schema30・integrity・store-local dataを確認する。固定L1のfresh hydrateで既存履歴と新table空も照合する。receiptが古い・不一致ならwriterを再開せず、既存の[部分push復旧](#部分-push-からの復旧)に従う。DB反映だけで成功とはせず、bundle receiptとpull-machine突合まで揃えてからleaseをreleaseする。現在のL1へ新scoreが未収録であることだけを理由に全dataset再取得・再発行をしない。不一致・世代競合・lease失効では停止し、code/storeが整合するまで日次writerを再開しない。これは切替手順であり、本番移行・R2書込・全件取得の実施済み記録ではない。
 
 切替受入後、レビュー済みmainの既存`cloud-retail-dynamics.yml`で新しい固定planを作り、保存済み全普通株の株マップ取得を既存cohortへ参加させる。最初の実runで媒体別のtyped/failure/未試行、403停止・429待機、表示更新日と取得日、英字ticker/銀行、費用と所要時間を確認する。公開後は変更月の株マップ全列・既存履歴digest・追加row0の再投入を固定releaseから確認し、rawの少量読戻しは別に扱う。少数のHTTP200やfixture成功を全件coverage・日次継続性の証明としない。みんかぶ・TipRanksをこの入口へ有効化しない。切替受入後は一回限りの移行toolと専用fixtureを除去する。
 
