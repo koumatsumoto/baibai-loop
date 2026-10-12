@@ -28,9 +28,9 @@ from baibai_engine.read_api.position import (
     replay_events_through,
     summarize_portfolio,
 )
-from baibai_engine.screening.metrics import VALUATION_HISTORY_SESSIONS
 from baibai_engine.screening.run_store import ScreeningRunReader
 from baibai_engine.storage.observations.reader import read_jpx_earnings_calendar_snapshot
+from baibai_engine.valuation.metrics.history import VALUATION_HISTORY_SESSIONS
 
 
 def build_ticker_profile(

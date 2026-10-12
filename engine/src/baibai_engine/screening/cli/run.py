@@ -16,6 +16,7 @@ from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.jpx_models import JPXEarningsCalendarEntry, JPXProviderError
 from baibai_engine.market.jquants_decode import JQuantsProviderError
+from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.providers.edinet import EDINETProviderError
 from baibai_engine.market.valuation_catalysts import read_valuation_catalyst_contexts
 from baibai_engine.screening.config import (
@@ -31,13 +32,11 @@ from baibai_engine.screening.freshness import (
     load_disclosure_events,
 )
 from baibai_engine.screening.margin_inputs import read_margin_supply_demand_inputs
-from baibai_engine.screening.metrics import (
+from baibai_engine.screening.metrics.snapshot import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
     build_metrics,
-    build_normalized_profit_signals,
-    build_shares_outstanding_index,
     group_adjustment_events_by_ticker,
     group_bars_by_ticker,
     group_summaries_by_ticker,
@@ -45,12 +44,7 @@ from baibai_engine.screening.metrics import (
 from baibai_engine.screening.rule_config import ScreeningRules, load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import ScreeningRunStore
-from baibai_engine.screening.schema import (
-    FinancialSnapshot,
-    ScreeningRunDocument,
-    SecurityAnalysis,
-    TTMQuality,
-)
+from baibai_engine.screening.schema import ScreeningRunDocument, SecurityAnalysis
 from baibai_engine.screening.screening_run_serializer import serialize_screening_run_yaml
 from baibai_engine.screening.security_analysis_builder import build_security_analysis
 from baibai_engine.screening.universe import (
@@ -59,6 +53,9 @@ from baibai_engine.screening.universe import (
     candidate_comparison_population,
 )
 from baibai_engine.valuation.estimates import EXPECTED_RETURN_MODEL_VERSION
+from baibai_engine.valuation.metrics.capital import build_shares_outstanding_index
+from baibai_engine.valuation.metrics.models import FinancialSnapshot
+from baibai_engine.valuation.metrics.profit import build_normalized_profit_signals
 
 from .providers import ProviderBundle
 

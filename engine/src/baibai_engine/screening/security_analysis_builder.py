@@ -12,9 +12,7 @@ from datetime import date
 from baibai_engine.market.models import SecurityMaster
 from baibai_engine.market.valuation_catalysts import ValuationCatalystContext
 from baibai_engine.screening.schema import (
-    UNRESOLVED_DIVIDEND_BASIS,
     DerivedMetrics,
-    FinancialSnapshot,
     FreshnessWarning,
     SecurityAnalysis,
     UniverseSnapshot,
@@ -24,6 +22,7 @@ from baibai_engine.valuation.estimates import (
     ExpectedReturnInputs,
     estimate_expected_return,
 )
+from baibai_engine.valuation.metrics.models import UNRESOLVED_DIVIDEND_BASIS, FinancialSnapshot
 
 from .earnings_lag import EarningsLag
 

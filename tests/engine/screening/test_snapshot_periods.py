@@ -11,14 +11,12 @@ from tests.engine.screening.metric_fixtures import (
 from tests.engine.screening.metric_snapshot_fixtures import SnapshotFixtures
 
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
-from baibai_engine.screening.metrics import (
-    build_metrics,
-    build_normalized_profit_signals,
-)
-from baibai_engine.screening.metrics.periods import _prior_year_summary, _ttm_value
+from baibai_engine.market.metric_quality import OperatingProfitSource, TTMQuality
+from baibai_engine.screening.metrics.snapshot import build_metrics
 from baibai_engine.screening.rule_config import load_screening_rules
-from baibai_engine.screening.schema import OperatingProfitSource, TTMQuality
 from baibai_engine.screening.security_analysis_builder import build_security_analysis_metrics
+from baibai_engine.valuation.metrics.periods import _prior_year_summary, _ttm_value
+from baibai_engine.valuation.metrics.profit import build_normalized_profit_signals
 
 
 class ScreeningMetricsTests(SnapshotFixtures):

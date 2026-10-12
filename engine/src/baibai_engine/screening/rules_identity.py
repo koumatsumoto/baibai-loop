@@ -13,11 +13,9 @@ from .calibration.identity import rules_contract_hash
 def production_rules_contract_hash(rules_json: str) -> str:
     """Return the exact screening identity used by production runs and Review Sets."""
 
-    from .metrics import (
-        BARS_INPUT_WINDOW_DAYS,
-        VALUATION_CALCULATION_REVISION,
-        VALUATION_HISTORY_SESSIONS,
-    )
+    from baibai_engine.screening.metrics.snapshot import BARS_INPUT_WINDOW_DAYS
+    from baibai_engine.valuation.metrics.financial_snapshot import VALUATION_CALCULATION_REVISION
+    from baibai_engine.valuation.metrics.history import VALUATION_HISTORY_SESSIONS
 
     return rules_contract_hash(
         rules_json,

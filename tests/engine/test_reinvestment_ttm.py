@@ -8,7 +8,7 @@ from tests.engine.test_review_set import _analysis, _build_review_set
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.screening.calibration.panel import rules_content_hash
 from baibai_engine.screening.discovery import review_set as discovery
-from baibai_engine.screening.metrics import build_metrics
+from baibai_engine.screening.metrics.snapshot import build_metrics
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.schema import DerivedMetrics
@@ -160,14 +160,14 @@ def test_ttm_changes_quality_eligibility_order_and_union():
 
 
 def test_new_calculation_has_distinct_production_and_calibration_identity(monkeypatch):
-    from baibai_engine.screening import metrics
     from baibai_engine.screening.calibration import panel
+    from baibai_engine.valuation.metrics import financial_snapshot
 
     rules = load_screening_rules()
     current = production_rules_contract_hash(rules.model_dump_json())
     calibration = rules_content_hash(rules)
     monkeypatch.setattr(
-        metrics, "VALUATION_CALCULATION_REVISION", "dividend-calendar-fiscal-period-v24"
+        financial_snapshot, "VALUATION_CALCULATION_REVISION", "dividend-calendar-fiscal-period-v24"
     )
     monkeypatch.setattr(
         panel, "VALUATION_CALCULATION_REVISION", "dividend-calendar-fiscal-period-v24"

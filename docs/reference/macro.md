@@ -13,6 +13,8 @@ status: active
 
 <a id="market-context-reads"></a>
 
+価格騰落・標本volatility・流動性・安値乖離・信用需給の純粋算術は`market_context/{history,margin}`が所有する。価格読取も計算も共有L1 split算術を使い、倍率の価格感応履歴/自己レンジ・母分散sigma gapはValuationに従う。観測窓と比較母集団の意味は変えない。
+
 通常Researchでは保存済みReading・市場/業種/個別状態を[調査入力](./analysis-operations.md#明示開始と固定対象)へ接続し、materialな含意をThesis/提案へ記録する。以下の独立Macro Contextの全depth契約は明示された深い環境評価の既存発行経路であり、有限Researchの必須工程ではない。
 
 ## Market Contextの保存済み読取

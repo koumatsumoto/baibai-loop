@@ -7,11 +7,7 @@ from baibai_engine.screening.security_analysis_builder import expected_return_in
 
 ROOT = Path(__file__).resolve().parents[2]
 
-from baibai_engine.screening.schema import (
-    UNRESOLVED_DIVIDEND_BASIS,
-    DerivedMetrics,
-    FinancialSnapshot,
-)
+from baibai_engine.screening.schema import DerivedMetrics
 from baibai_engine.screening.security_analysis_builder import _close_from_snapshot
 from baibai_engine.valuation.estimates import (
     REALIZATION_RATE_ANNUAL,
@@ -19,6 +15,7 @@ from baibai_engine.valuation.estimates import (
     UPSIDE_CAP,
     estimate_expected_return,
 )
+from baibai_engine.valuation.metrics.models import UNRESOLVED_DIVIDEND_BASIS, FinancialSnapshot
 
 
 def _financial(

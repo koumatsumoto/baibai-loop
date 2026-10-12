@@ -9,7 +9,7 @@ from baibai_engine.market.jquants_models import (
     JQuantsAllIssuesDailyMargin,
     JQuantsWeeklyMargin,
 )
-from baibai_engine.screening.margin_metrics import MarginBalance
+from baibai_engine.market_context.margin import MarginBalance
 from baibai_engine.storage.observations.reader import (
     MarginCadence,
     published_margin_balance_dates,

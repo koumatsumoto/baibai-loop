@@ -7,15 +7,16 @@ from dataclasses import asdict, fields
 from datetime import date, timedelta
 from pathlib import Path
 
-from baibai_engine.screening.calibration import store as calibration_store
-from baibai_engine.screening.calibration.store import CalibrationCacheError, read_panel
-from baibai_engine.screening.margin_metrics import (
+from baibai_engine.market_context.margin import (
     MarginBalance,
     MarginSupplyDemand,
     margin_supply_demand,
 )
-from baibai_engine.screening.schema import DerivedMetrics, FinancialSnapshot
+from baibai_engine.screening.calibration import store as calibration_store
+from baibai_engine.screening.calibration.store import CalibrationCacheError, read_panel
+from baibai_engine.screening.schema import DerivedMetrics
 from baibai_engine.screening.security_analysis_builder import build_security_analysis_metrics
+from baibai_engine.valuation.metrics.models import FinancialSnapshot
 
 WEEK = date(2026, 7, 24)
 

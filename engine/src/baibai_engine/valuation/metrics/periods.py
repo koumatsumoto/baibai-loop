@@ -7,10 +7,8 @@ from datetime import date
 
 from baibai_engine.foundation.date_utils import add_months_clamped
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
-from baibai_engine.screening.rule_config import TTMRules
-from baibai_engine.screening.schema import (
-    TTMQuality,
-)
+from baibai_engine.market.metric_quality import TTMQuality
+from baibai_engine.valuation.metrics.models import TTMRules
 
 _AccountingObservationKey = tuple[date, int, date, date, int, date]
 

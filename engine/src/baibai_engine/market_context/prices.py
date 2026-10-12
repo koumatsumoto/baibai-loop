@@ -8,6 +8,7 @@ from datetime import date
 from pathlib import Path
 
 from baibai_engine.foundation.sqlite_read import read_rows
+from baibai_engine.market.bars import asof_basis_prices
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,27 +56,18 @@ def read_price_bars(
         )
     bars: dict[str, list[PriceBar]] = {}
     for ticker, entries in raw.items():
-        factor = 1.0
-        normalized: list[PriceBar] = []
-        for traded_at, close, adjustment_factor, turnover_value in reversed(entries):
-            if close is not None:
-                normalized.append(
-                    PriceBar(
-                        traded_at=traded_at, price=close * factor, turnover_value=turnover_value
-                    )
-                )
-            if adjustment_factor not in (None, 0.0, 1.0):
-                assert adjustment_factor is not None
-                factor *= adjustment_factor
-        normalized.reverse()
-        bars[ticker] = normalized
+        valued = [
+            (traded_at, close, turnover)
+            for traded_at, close, _, turnover in entries
+            if close is not None
+        ]
+        adjusted = asof_basis_prices(
+            [(traded_at, close) for traded_at, close, _ in valued],
+            [(traded_at, adjustment_factor) for traded_at, _, adjustment_factor, _ in entries],
+            asof_date=end,
+        )
+        bars[ticker] = [
+            PriceBar(traded_at=traded_at, price=price, turnover_value=turnover)
+            for (traded_at, _, turnover), price in zip(valued, adjusted, strict=True)
+        ]
     return bars
-
-
-def trailing_return(prices: Sequence[float], window_bars: int) -> float | None:
-    if len(prices) < window_bars + 1:
-        return None
-    past = prices[-(window_bars + 1)]
-    if past == 0:
-        return None
-    return prices[-1] / past - 1

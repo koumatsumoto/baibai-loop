@@ -133,3 +133,8 @@ def margin_supply_demand(
             latest.long_std_vol / long_vol if latest.long_std_vol is not None and long_vol else None
         ),
     )
+
+
+# 26 週の建玉変化を測る窓を立会日で表した本数。株式分割はこの窓を跨ぐと株数基準が
+# 変わるので、跨いだ銘柄は軸を答えない。
+MARGIN_DELTA_SESSIONS = 130
