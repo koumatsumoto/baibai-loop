@@ -105,13 +105,11 @@ def build_security_detail(
         )
     )
     has_external = assessment is not None and bool(
-        assessment.model_valuations
-        or assessment.analyst_ratings
-        or assessment.quants_scores
+        any(source.inputs.latest is not None for source in assessment.model_valuations)
+        or any(source.inputs.latest is not None for source in assessment.analyst_ratings)
+        or any(source.inputs.latest is not None for source in assessment.quants_scores)
         or assessment.tradingview.inputs.latest is not None
     )
-    if not has_external:
-        assessment = None
     if (
         holding_snapshot is None
         and latest_revision is None

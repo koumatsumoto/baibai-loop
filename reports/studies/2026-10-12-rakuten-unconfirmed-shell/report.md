@@ -79,3 +79,56 @@ Rakuten parser version、取得policy、collector binding、schema、保存済�
 
 raw応答・値・pair別記録は私有検証directoryへ保持し、Gitには含めていない。
 本番/R2の書込・削除、追加全件取得、deploy、Discord送信は行っていない。
+
+## Issue #1429の運用判断と読取連携
+
+同日の[Issue #1429](https://github.com/koumatsumoto/baibai-loop/issues/1429)では、main
+`56aa8d43918eaab70badfe1129e014c2ae837ae6`を基準に上の証拠と現行実装を点検した。
+上の全件body監査・集合照合は繰り返していない。3,692件は試行済みであり、利用できる
+rating数値は990件、銘柄を確認できた正常nullは437件、残る2,265件は真の不存在や
+対象外を確認できない欠測として扱う。追加回収可能と確認できた件数は0件である。
+正常nullも、その後を含む評価の永続的な不存在を証明するものではない。
+
+[公式forecast outer](https://www.rakuten-sec.co.jp/web/market/search/forecast.html?ric=1301.T)の
+公開読取では提供対象条件の説明を確認できず、公式domainの説明検索も該当資料を特定できなかった。
+公式説明を調査し尽くしたとは扱わず、2,265件のrating不存在・提供対象外や必要な認証を
+確定する根拠は得られていない。公式outerの銘柄認識は
+iframeの同一性の代替にしない。graph経路には通信せず、header・proxy・TLS・認証を変更していない。
+
+現行collectorの少量対照を2026-10-12 14:56:27–14:56:49 UTCに、
+7203・1379・1301の3銘柄、計6 HTTPで通常公開経路から行った。
+全応答200、直列、応答完了から次要求まで2秒以上、redirect・retryなし。
+7203はrating値を持つ観測1件、1379は銘柄を確認できた正常null1件、1301は
+`no_estimates_identity_unconfirmed`で観測0件だった。未確認shellのbodyは上の監査digestに一致。
+これは新しい全件coverageの測定や追加値回復ではなく、現行実装と実応答の少量対照である。
+値・raw本文・私有保存先は公開しない。
+
+取得parser・policy・checkpoint binding・観測schemaは変更しない。既存の日次固定planでは
+確定failureを再開時に再取得せず、翌日以降の通常日次planは現行対象を維持する。
+未知欠測を恒久的な除外へ変える根拠もない。提供元の拒否は現行停止条件に従う。
+不存在や追加取得条件の確定を求める場合は、提供元から銘柄単位の説明を得る必要があり、
+新しいログイン・credentials・課金が必要かは未確認のまま親へ引き継ぐ。
+
+最小の改善は、保存観測がない楽天系列が分析結果から消えていた読取経路の修正である。
+`same-series-v3`は楽天の媒体名を持つ`not_observed` / `no_observation`を返し、
+観測行・受領時刻・原評価元・独立票は作らない。正常nullは元の観測行と`missing` /
+`latest_missing`を保持する。保存観測のない理由は読取storeだけでは確定できないため、
+Researchへcheckpointの失敗理由を推測して渡さない。他社目標値・会社予想でratingを補わない。
+画面は未知欠測・正常null・最新保存値を分け、保存値を現在値と保証しない。
+
+合成の値0・正常null・未確認shellをparser→checkpoint保存/読戻し→stage→隔離DB・再投入→
+API・serving export・Research入力まで照合し、正常nullの元受領時刻とcutoffを保つ。
+実応答の元encoding・元受領時刻での再解析はstage全列に一致し、隔離DBへ2観測を投入、
+再投入0件、cutoff直前の除外と読取前後のDB不変を確認した。実応答由来の3系列はqueryと
+Research入力で一致し、typed2銘柄はAPIとserving exportでも一致した。隔離copyには1301の
+master・他領域観測がないため、APIは404であり、未観測だけの1301をexport対象へ追加してはいない。
+他媒体値がある銘柄、および既存screeningにある外部観測なしの銘柄について、未知楽天系列を
+API・exportへ保持することは合成連携で検証した。未観測の表示を実観測ありという銘柄認識へ
+使わないよう、Webの存在判定も観測行の有無へ修正した。
+本番反映・全件数値取得の受入とは区別する。
+最終方針とPRの採否、merge・配信更新、親#1414の運用受入は親レビュー待ちである。
+
+提出前の完全local gateはPython 4,040 passed / 8 skipped、coverage 86.21%、
+frontend 258件、Worker 88件、build・型検査・Ruff・mypy・30 import契約・drift・
+Bandit・lock由来runtime/dev/build-system依存監査・npm監査・Worker dry-runが成功した。
+8 skipは既存の専用R2受入credentials未設定であり、新しい認証や本番書込は行っていない。
