@@ -45,12 +45,12 @@ class FakeObjectStore:
         self.put_fault = None
         self.read_fault = None
 
-    def seed(self, key, payload):
+    def seed(self, key, payload, content_type="application/json"):
         self.serial += 1
         metadata = {"sha256": hashlib.sha256(payload).hexdigest()}
         self.objects[key] = (
             payload,
-            RemoteObject(str(self.serial), len(payload), metadata, "application/json"),
+            RemoteObject(str(self.serial), len(payload), metadata, content_type),
         )
 
     def head(self, key):
@@ -82,7 +82,7 @@ class FakeObjectStore:
             content_md5
             == base64.b64encode(hashlib.md5(body, usedforsecurity=False).digest()).decode()
         )
-        assert content_type == "application/json"
+        assert content_type in {"application/json", "application/gzip"}
         assert (if_match is not None) != if_none_match
         self.events.append(("PUT", key))
         self.puts.append((key, if_match, if_none_match, body))
@@ -98,7 +98,7 @@ class FakeObjectStore:
             raise LakeCASConflict("synthetic stale conditional write")
         if fault == "before":
             raise LakePublishError("synthetic unavailable write")
-        self.seed(key, body)
+        self.seed(key, body, content_type)
         if fault == "after":
             raise LakePublishError("synthetic lost write response")
         remote = self.objects[key][1]
@@ -558,7 +558,11 @@ def test_real_pair_collector_persists_two_rakuten_reservations_and_exact_receipt
     assert saved.last_response_finished_at_utc is not None
     assert saved.journal.entries[0].state == "normal_null"
     assert len(saved.journal.observations) == 1
-    first, second, final = [staging.load_checkpoint(p, item[3]) for item in store.puts]
+    first, second, final = [
+        staging.load_checkpoint(p, item[3])
+        for item in store.puts
+        if item[0] == staging.checkpoint_key(p, 0)
+    ]
     assert first.requests_started == 1
     assert second.requests_started == 2
     assert first.journal.entries[0] == second.journal.entries[0]

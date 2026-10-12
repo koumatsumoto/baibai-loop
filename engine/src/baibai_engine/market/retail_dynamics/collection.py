@@ -12,12 +12,12 @@ import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from types import FrameType
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from urllib.parse import urlsplit
 
 import requests
@@ -44,6 +44,18 @@ RATE_LIMITED_HOSTS = (
     "rakuten-sec.ifis.co.jp",
 )
 STAGING_FORMAT = "retail-dynamics-staging-v1"
+
+
+@dataclass(frozen=True, slots=True)
+class ReceivedHTML:
+    """Public HTTP 200 body and its decoding basis, without response headers."""
+
+    url: str
+    fetched_at_utc: datetime
+    encoding: str
+    body: bytes = field(repr=False)
+
+
 PARSE_FAILURE_REASONS = frozenset(
     {
         "source_identity",
@@ -277,11 +289,20 @@ def _receive(session: requests.Session, url: str, timeout: float) -> tuple[str, 
                 raise _HttpFailure(429, deadline, retry_after_unrepresentable=unrepresentable)
             raise _HttpFailure(response.status_code)
         body = response.content
-        received = datetime.now(UTC)
+        received = (
+            session.finished_at_utc if isinstance(session, _PairSession) else datetime.now(UTC)
+        )
+        assert received is not None
         content_type = response.headers.get("Content-Type", "")
         charset = re.search(r"charset\s*=\s*['\"]?([\w-]+)", content_type, re.I)
         meta = re.search(rb"charset\s*=\s*['\"]?([\w-]+)", body[:4096], re.I)
         encoding = charset[1] if charset else meta[1].decode("ascii") if meta else "utf-8"
+        callback = session.on_received_html if isinstance(session, _PairSession) else None
+        if callback is not None:
+            prepared = cast("requests.PreparedRequest | None", response.request)
+            if prepared is not None and "Authorization" in prepared.headers:
+                raise RuntimeError("raw_capture_requires_anonymous_response")
+            _checkpoint_callback(lambda: callback(ReceivedHTML(url, received, encoding, body)))
         try:
             return body.decode(encoding), received
         except (LookupError, UnicodeDecodeError):
@@ -497,6 +518,7 @@ class _PairSession(requests.Session):
         before_request: Callable[[], None],
         on_response: Callable[[datetime, int, int], None] | None,
         rate_limiter: HostRateLimiter | None = None,
+        on_received_html: Callable[[ReceivedHTML], None] | None = None,
     ) -> None:
         super().__init__()
         self.client = client
@@ -504,6 +526,7 @@ class _PairSession(requests.Session):
         self.before_request = before_request
         self.on_response = on_response
         self.rate_limiter = rate_limiter
+        self.on_received_html = on_received_html
         self.initial_wait_until = time.monotonic() + MIN_REQUEST_INTERVAL_SECONDS
         self.requests = 0
         self.reservation_started = False
@@ -558,6 +581,7 @@ def collect_pair(
     before_request: Callable[[], None],
     on_outcome: Callable[[CollectionResult], None],
     on_response: Callable[[datetime, int, int], None] | None = None,
+    on_received_html: Callable[[ReceivedHTML], None] | None = None,
     time_limit_seconds: float = DEFAULT_PAIR_TIME_LIMIT_SECONDS,
     request_timeout_seconds: float = DEFAULT_PAIR_REQUEST_TIMEOUT_SECONDS,
     session: requests.Session | None = None,
@@ -596,7 +620,9 @@ def collect_pair(
             or adapter.max_retries.total != 0
         ):
             raise ValueError("pair collection requires ordinary proxy/TLS and no retries")
-        wrapped = _PairSession(client, deadline, before_request, on_response, rate_limiter)
+        wrapped = _PairSession(
+            client, deadline, before_request, on_response, rate_limiter, on_received_html
+        )
         remaining = min(time_limit_seconds, deadline - time.monotonic())
         if remaining <= 0:
             return CollectionResult(
