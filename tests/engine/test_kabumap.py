@@ -16,10 +16,10 @@ from baibai_batch.jobs import retail_daily
 from baibai_batch.jobs.retail_cohorts import make_plan
 from baibai_batch.storage.retail_raw import RAW_PREFIX, read_raw_html
 from baibai_batch.storage.retail_staging import read_checkpoints
+from baibai_engine.external_assessment.reader import read_observations
 from baibai_engine.market.retail_dynamics import collection
 from baibai_engine.market.retail_dynamics.contract import QUANTS_SCORE_TABLE
 from baibai_engine.market.retail_dynamics.models import QuantsScoreObservation
-from baibai_engine.market.retail_dynamics.reader import read_observations
 from baibai_engine.market.retail_dynamics.sources import ParseError, kabumap
 from baibai_engine.market.retail_dynamics.store import ObservationConflictError, save_observations
 from baibai_engine.market.retail_dynamics.universe import frozen_universe
@@ -110,8 +110,8 @@ def test_cutoff_immutable_replay_and_conflict(tmp_path):
     assert collection.load_staging(stage) == (first, later)
     assert save_observations(path, [first, later]) == 2
     assert save_observations(path, [first, later]) == 0
-    assert read_observations(path, "130A", RECEIVED).quants_score.latest == first
-    history = read_observations(path, "130A", later.fetched_at_utc).quants_score
+    assert read_observations(path, "130A", RECEIVED).quants_scores[0].latest == first
+    history = read_observations(path, "130A", later.fetched_at_utc).quants_scores[0]
     assert (history.latest, history.previous) == (later, first)
     verify_observations(path, [first, later])
     with pytest.raises(ObservationConflictError):

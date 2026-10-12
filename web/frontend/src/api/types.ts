@@ -14,6 +14,34 @@ export interface AllocationAlternativeView {
   valuation_as_of: string | null
 }
 
+export interface AnalystRatingAssessment {
+  inputs: AnalystRatingHistory
+  comparison: MetricComparison
+}
+
+export interface AnalystRatingHistory {
+  latest: AnalystRatingObservation | null
+  previous: AnalystRatingObservation | null
+}
+
+export interface AnalystRatingObservation {
+  ticker: string
+  fetched_at_utc: string
+  snapshot_date: string
+  distributor: string
+  origin: string | null
+  source_url: string
+  parser_version: string
+  contract_version: '1'
+  rating: number | null
+  rating_scale_min: number | null
+  rating_scale_max: number | null
+  rating_scale_direction: 'higher_is_positive' | 'lower_is_positive' | null
+  rating_count: number | null
+  rating_updated_at_utc: string | null
+  rating_updated_label: string | null
+}
+
 export interface AssessmentReviewView {
   attempt: number
   reviewer_identity: string
@@ -149,6 +177,18 @@ export interface ErLevelCalibrationStatsView {
   q10: number
   trap_rate: number
   n: number
+}
+
+export interface ExternalAssessment {
+  ticker: string
+  cutoff: string
+  evaluated_at: string
+  method_version: string
+  model_valuations: ModelValuationAssessment[]
+  analyst_ratings: AnalystRatingAssessment[]
+  quants_scores: QuantsScoreAssessment[]
+  tradingview: TradingViewAssessment
+  origin_groups: OriginGroup[]
 }
 
 /**
@@ -472,6 +512,66 @@ export interface MetaView {
   batch: MetaBatch | null
 }
 
+export interface MetricComparison {
+  metric: string
+  state: 'not_observed' | 'first_observation' | 'missing' | 'recovered' | 'count_changed' | 'not_comparable' | 'same_value' | 'increased' | 'decreased'
+  comparable: boolean
+  reason: string | null
+  latest_value: number | null
+  previous_value: number | null
+  latest_count: number | null
+  previous_count: number | null
+  delta: number | null
+}
+
+export interface ModelValuationAssessment {
+  inputs: ModelValuationHistory
+  comparisons: MetricComparison[]
+}
+
+export interface ModelValuationHistory {
+  latest: ModelValuationObservation | null
+  previous: ModelValuationObservation | null
+}
+
+export interface ModelValuationObservation {
+  ticker: string
+  fetched_at_utc: string
+  snapshot_date: string
+  distributor: string
+  origin: string | null
+  source_url: string
+  parser_version: string
+  contract_version: '1'
+  consensus_target: number | null
+  per_company_forecast: number | null
+  per_consensus: number | null
+  pbr: number | null
+  currency: string | null
+  unit: string | null
+  share_basis: string | null
+  consensus_target_origin: string | null
+  consensus_target_period: string | null
+  consensus_target_count: number | null
+  consensus_target_updated_at_utc: string | null
+  consensus_target_updated_label: string | null
+  per_company_forecast_origin: string | null
+  per_company_forecast_period: string | null
+  per_company_forecast_count: number | null
+  per_company_forecast_updated_at_utc: string | null
+  per_company_forecast_updated_label: string | null
+  per_consensus_origin: string | null
+  per_consensus_period: string | null
+  per_consensus_count: number | null
+  per_consensus_updated_at_utc: string | null
+  per_consensus_updated_label: string | null
+  pbr_origin: string | null
+  pbr_period: string | null
+  pbr_count: number | null
+  pbr_updated_at_utc: string | null
+  pbr_updated_label: string | null
+}
+
 export interface OperationSessionView {
   operation_id: string
   session_kind: string
@@ -486,6 +586,19 @@ export interface OperationSessionView {
 export interface OperationsView {
   operations: OperationSessionView[]
   outcomes: PortfolioOutcomeView[]
+}
+
+export interface OriginGroup {
+  origin: string
+  references: OriginReference[]
+}
+
+export interface OriginReference {
+  distributor: string
+  kind: string
+  metric: string
+  fetched_at_utc: string
+  source_url: string
 }
 
 export interface PortfolioOutcomeView {
@@ -507,6 +620,41 @@ export interface PositionReviewView {
   thesis_id: string
   action: string | null
   note: string | null
+}
+
+export interface QuantsScoreAssessment {
+  inputs: QuantsScoreHistory
+  comparisons: MetricComparison[]
+}
+
+export interface QuantsScoreHistory {
+  latest: QuantsScoreObservation | null
+  previous: QuantsScoreObservation | null
+}
+
+/**
+ * Provider's quantitative scores; independent of human analyst consensus.
+ */
+export interface QuantsScoreObservation {
+  ticker: string
+  fetched_at_utc: string
+  snapshot_date: string
+  distributor: 'kabumap'
+  origin: 'Quants Research'
+  source_url: string
+  parser_version: string
+  contract_version: '1'
+  score_as_of_date: string
+  score_scale_max: 10
+  composite_scale_max: 100
+  growth_score: number | null
+  undervaluation_score: number | null
+  size_score: number | null
+  technical_score: number | null
+  financial_health_score: number | null
+  market_trend_score: number | null
+  composite_score: number | null
+  industry_average_score: number | null
 }
 
 export interface ResearchRevisionView {
@@ -767,6 +915,7 @@ export interface SecurityAnalysisRowView {
 }
 
 export interface SecurityDetailView {
+  external_assessment: ExternalAssessment | null
   ticker: string
   company_name: string | null
   sector: string | null
@@ -805,6 +954,50 @@ export interface TasksView {
 export interface ThesisDetailView {
   revision: ResearchRevisionView
   projection: Record<string, unknown>
+}
+
+export interface TradingViewAssessment {
+  inputs: TradingViewHistory
+  availability: 'not_observed' | 'unresolved' | 'all_null' | 'forecast_fields_present'
+  forecast_fields: string[]
+  comparisons: MetricComparison[]
+}
+
+export interface TradingViewHistory {
+  latest: TradingViewObservation | null
+  previous: TradingViewObservation | null
+}
+
+export interface TradingViewObservation {
+  snapshot_date: string
+  ticker: string
+  provider_symbol: string
+  fetched_at_utc: string
+  fetch_status: 'ok' | 'unresolved'
+  quote_at_utc: string | null
+  estimate_currency: string | null
+  estimate_unit: string | null
+  provider_updated_at_utc: string | null
+  target_period_label: string | null
+  target_period_end: string | null
+  analyst_rating: string | null
+  recommendation_total: number | null
+  price_target_average: number | null
+  price_target_high: number | null
+  price_target_low: number | null
+  eps_forecast_next_fq: number | null
+  eps_forecast_next_fy: number | null
+  revenue_forecast_next_fq: number | null
+  revenue_forecast_next_fy: number | null
+  forward_pe: number | null
+  forward_ps: number | null
+  forward_ev_ebitda: number | null
+  ebitda_estimate_fy: number | null
+  free_cash_flow_estimate_fy: number | null
+  capex_estimate_fy: number | null
+  total_debt_estimate_fy: number | null
+  quote_close: number | null
+  quote_currency: string | null
 }
 
 export interface UpcomingEventView {

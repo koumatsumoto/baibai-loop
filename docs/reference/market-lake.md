@@ -203,15 +203,21 @@ ORDER BY balance_sheet_date, consolidation_basis, debt_category, due_from_months
 
 <a id="retail-dynamics-query"></a>
 
-## 公開broker観測の保存と照会
+## External Assessmentの保存済み照会
 
 `retail_dynamics.model_valuation_observations`、`retail_dynamics.analyst_rating_observations`、`retail_dynamics.quants_score_observations`は意味ごとのtyped datasetで、month partition、任意収録、履歴保持、coverage未証明である。既存のmarket storeとlake releaseを使う。未収録の旧releaseは新しいcurrent-schema作業コピーへhydrateすると未収録のtableが空となる。旧SQLiteの形をruntime readerが読み替えることはしない。
 
 同じ銘柄を同日に複数回受信しても、`fetched_at_utc`が違えば別行にする。保存済みstageの再投入は元の受信時刻を維持し、同じキー・同じ内容なら無変更、異なる内容ならtransaction全体を拒否する。新しいHTTP受信の同値は改定とは数えない。将来別配信元を同じsemantic tableへ追加するときは、その配信元を含むキーへ明示的にcontractを変更する。
 
-株マップの定量score履歴は`inputs.quants_score`に最新・直前の受領を持ち、表示更新日と実取得時刻を併記する。既存のモデル価格・人間のratingの変化比較へ混ぜず、投資順位やFVへ自動投入しない。
+領域は銘柄・cutoffについて、各datasetの配信元ごとに最新受領と直前受領を選ぶ。同じtableの別配信元の直近2行を比較相手にしない。最新の正常nullも受領として保持し、過去のnonnullへfallbackしない。未取得、受領済みで値がない、未知/変更された比較basisを区別する。最新・直前を含むL1値の再保存・再取得は不要で、株マップの取得済みscoreも同じ入口から利用できる。原評価元の関係は値の種類ごとに引用を束ねるだけで、独立票数や合成scoreを作らない。
 
-Web・toolsの読取入口は`read_api.retail_dynamics.retail_dynamics_payload`であり、銘柄・cutoff・評価時刻を明示する。lakeの固定releaseでも受信時刻のcutoffを併用する。値の意味と未確認metadataは[data sources](./data-sources.md#retail-dynamics)、手動取得・stage importは[batch運用](../../batch/OPERATIONS.md#retail-dynamics)が所有する。
+領域入口は`external_assessment.query.external_assessment`、Web・toolsの公開facadeは`read_api.external_assessment`であり、銘柄・受領cutoff・評価論理時刻を明示する。Webの銘柄詳細・ticker profile・次のCLIが同じ領域結果を読む。Web exportは外部観測だけを持つtickerも含め、一つの受領cutoffをexport全体で固定する。ticker profileは要求日のJST末を論理cutoffとし、profile全体のportfolio基準日は[Market Context読取](./macro.md#market-context-reads)に従う。lakeの固定releaseでも受信時刻のcutoffを併用する。
+
+```bash
+uv run baibai-engine external-assessment show --ticker <TICKER> --cutoff <ISO_DATETIME_WITH_TIMEZONE> --db stores/market/market.sqlite
+```
+
+`show`は取得・書込を行わない。`--evaluated-at`省略時はcutoffを評価論理時刻とする。実取得・stage importは明示された`collect / import`だけが既存L1入口へ委譲し、通常のbatch run・DB/R2 identityは変えない。値の意味と未確認metadataは[data sources](./data-sources.md#retail-dynamics)、手動取得・stage importは[batch運用](../../batch/OPERATIONS.md#retail-dynamics)が所有する。
 
 <a id="tradingview-query"></a>
 
@@ -229,5 +235,7 @@ WHERE ticker = $ticker
 ORDER BY snapshot_date DESC
 LIMIT 30
 ```
+
+External AssessmentはTradingViewも同じ保存済み読取へ含める。正常受領の予測欄あり、正常受領で全予測欄null、`unresolved`、未取得を別状態で返す。quoteや人数だけを有効な予測の証拠にせず、正常受領を比較可能な企業評価と同一視しない。元のquote通貨と未確認のestimate通貨・単位・株式基準・絶対対象期を区別し、既存の未知metadataから数値deltaや対価格の割安判定を作らない。行単位の`target_period_label/end`は各metricとの対象期対応を保証しない。年度metadataが埋まっていても四半期・次年度・倍率等へ割り当てず、現行TradingViewの数値差分は`metric_period_mapping_unconfirmed`で比較不能に保つ。最新・直前の提示値と未取得・欠測・復帰の受領状態は保持する。銘柄列挙と値の読取は同じaware時刻比較を使い、optionalな秒以下表現やcutoffのUTC offsetで選択を変えない。
 
 最新行も`snapshot_date`と`fetched_at_utc`を併記する。同じ日でもbatchや後続slotで取得時刻が異なる。対象日に行がないこと、`unresolved`の行、正常rowの個別指標nullを別々に読む。部分公開の場合、rowがない銘柄は未取得であり、coverage不存在とは判定しない。取得前の履歴、provider公表時刻、翌日取得による前日補完はこのdatasetから復元できない。値の意味は[data sources](./data-sources.md#tradingviewの市場期待)に従う。

@@ -16,8 +16,13 @@ from .store import save_observations
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="baibai-engine retail-dynamics")
+    parser = argparse.ArgumentParser(prog="baibai-engine external-assessment")
     commands = parser.add_subparsers(dest="command", required=True)
+    add_acquisition_commands(commands)
+    return parser
+
+
+def add_acquisition_commands(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     acquisition = commands.add_parser(
         "collect", help="collect a bounded set into private local staging JSON"
     )
@@ -33,7 +38,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     replay.add_argument("--input", type=Path, required=True)
     replay.add_argument("--db", type=Path, required=True)
-    return parser
 
 
 def main(argv: list[str] | None = None, /) -> int:

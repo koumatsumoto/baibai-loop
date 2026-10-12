@@ -1,0 +1,521 @@
+{
+  "ticker": "1234",
+  "cutoff": "2026-10-10T17:30:00.123456Z",
+  "evaluated_at": "2026-10-10T17:30:00.123456Z",
+  "method_version": "same-series-v2",
+  "model_valuations": [
+    {
+      "inputs": {
+        "latest": {
+          "ticker": "1234",
+          "fetched_at_utc": "2026-10-10T17:30:00.123456Z",
+          "snapshot_date": "2026-10-11",
+          "distributor": "monex",
+          "origin": null,
+          "source_url": "https://example.invalid/model/1234",
+          "parser_version": "synthetic-1",
+          "contract_version": "1",
+          "consensus_target": 0.0,
+          "per_company_forecast": null,
+          "per_consensus": null,
+          "pbr": null,
+          "currency": "JPY",
+          "unit": "currency_per_share",
+          "share_basis": null,
+          "consensus_target_origin": "IFIS",
+          "consensus_target_period": "12-month-target",
+          "consensus_target_count": 4,
+          "consensus_target_updated_at_utc": null,
+          "consensus_target_updated_label": null,
+          "per_company_forecast_origin": null,
+          "per_company_forecast_period": null,
+          "per_company_forecast_count": null,
+          "per_company_forecast_updated_at_utc": null,
+          "per_company_forecast_updated_label": null,
+          "per_consensus_origin": null,
+          "per_consensus_period": null,
+          "per_consensus_count": null,
+          "per_consensus_updated_at_utc": null,
+          "per_consensus_updated_label": null,
+          "pbr_origin": null,
+          "pbr_period": null,
+          "pbr_count": null,
+          "pbr_updated_at_utc": null,
+          "pbr_updated_label": null
+        },
+        "previous": {
+          "ticker": "1234",
+          "fetched_at_utc": "2026-10-10T16:30:00.123456Z",
+          "snapshot_date": "2026-10-11",
+          "distributor": "monex",
+          "origin": null,
+          "source_url": "https://example.invalid/model/1234",
+          "parser_version": "synthetic-1",
+          "contract_version": "1",
+          "consensus_target": 1200.0,
+          "per_company_forecast": null,
+          "per_consensus": null,
+          "pbr": null,
+          "currency": "JPY",
+          "unit": "currency_per_share",
+          "share_basis": null,
+          "consensus_target_origin": "IFIS",
+          "consensus_target_period": "12-month-target",
+          "consensus_target_count": 4,
+          "consensus_target_updated_at_utc": null,
+          "consensus_target_updated_label": null,
+          "per_company_forecast_origin": null,
+          "per_company_forecast_period": null,
+          "per_company_forecast_count": null,
+          "per_company_forecast_updated_at_utc": null,
+          "per_company_forecast_updated_label": null,
+          "per_consensus_origin": null,
+          "per_consensus_period": null,
+          "per_consensus_count": null,
+          "per_consensus_updated_at_utc": null,
+          "per_consensus_updated_label": null,
+          "pbr_origin": null,
+          "pbr_period": null,
+          "pbr_count": null,
+          "pbr_updated_at_utc": null,
+          "pbr_updated_label": null
+        }
+      },
+      "comparisons": [
+        {
+          "metric": "consensus_target",
+          "state": "not_comparable",
+          "comparable": false,
+          "reason": "unknown_share_basis",
+          "latest_value": 0.0,
+          "previous_value": 1200.0,
+          "latest_count": 4,
+          "previous_count": 4,
+          "delta": null
+        },
+        {
+          "metric": "per_company_forecast",
+          "state": "missing",
+          "comparable": false,
+          "reason": "latest_missing",
+          "latest_value": null,
+          "previous_value": null,
+          "latest_count": null,
+          "previous_count": null,
+          "delta": null
+        },
+        {
+          "metric": "per_consensus",
+          "state": "missing",
+          "comparable": false,
+          "reason": "latest_missing",
+          "latest_value": null,
+          "previous_value": null,
+          "latest_count": null,
+          "previous_count": null,
+          "delta": null
+        },
+        {
+          "metric": "pbr",
+          "state": "missing",
+          "comparable": false,
+          "reason": "latest_missing",
+          "latest_value": null,
+          "previous_value": null,
+          "latest_count": null,
+          "previous_count": null,
+          "delta": null
+        }
+      ]
+    }
+  ],
+  "analyst_ratings": [
+    {
+      "inputs": {
+        "latest": {
+          "ticker": "1234",
+          "fetched_at_utc": "2026-10-10T17:30:00.123456Z",
+          "snapshot_date": "2026-10-11",
+          "distributor": "rakuten",
+          "origin": "IFIS",
+          "source_url": "https://example.invalid/rating/1234",
+          "parser_version": "synthetic-1",
+          "contract_version": "1",
+          "rating": 3.5,
+          "rating_scale_min": null,
+          "rating_scale_max": null,
+          "rating_scale_direction": null,
+          "rating_count": null,
+          "rating_updated_at_utc": null,
+          "rating_updated_label": null
+        },
+        "previous": null
+      },
+      "comparison": {
+        "metric": "rating",
+        "state": "first_observation",
+        "comparable": false,
+        "reason": "no_previous_observation",
+        "latest_value": 3.5,
+        "previous_value": null,
+        "latest_count": null,
+        "previous_count": null,
+        "delta": null
+      }
+    }
+  ],
+  "quants_scores": [
+    {
+      "inputs": {
+        "latest": {
+          "ticker": "1234",
+          "fetched_at_utc": "2026-10-10T17:30:00.123456Z",
+          "snapshot_date": "2026-10-11",
+          "distributor": "kabumap",
+          "origin": "Quants Research",
+          "source_url": "https://example.invalid/quants",
+          "parser_version": "synthetic-1",
+          "contract_version": "1",
+          "score_as_of_date": "2026-10-09",
+          "score_scale_max": 10,
+          "composite_scale_max": 100,
+          "growth_score": 8.0,
+          "undervaluation_score": null,
+          "size_score": null,
+          "technical_score": null,
+          "financial_health_score": null,
+          "market_trend_score": null,
+          "composite_score": 60.0,
+          "industry_average_score": null
+        },
+        "previous": null
+      },
+      "comparisons": [
+        {
+          "metric": "growth_score",
+          "state": "first_observation",
+          "comparable": false,
+          "reason": "no_previous_observation",
+          "latest_value": 8.0,
+          "previous_value": null,
+          "latest_count": null,
+          "previous_count": null,
+          "delta": null
+        },
+        {
+          "metric": "undervaluation_score",
+          "state": "missing",
+          "comparable": false,
+          "reason": "latest_missing",
+          "latest_value": null,
+          "previous_value": null,
+          "latest_count": null,
+          "previous_count": null,
+          "delta": null
+        },
+        {
+          "metric": "size_score",
+          "state": "missing",
+          "comparable": false,
+          "reason": "latest_missing",
+          "latest_value": null,
+          "previous_value": null,
+          "latest_count": null,
+          "previous_count": null,
+          "delta": null
+        },
+        {
+          "metric": "technical_score",
+          "state": "missing",
+          "comparable": false,
+          "reason": "latest_missing",
+          "latest_value": null,
+          "previous_value": null,
+          "latest_count": null,
+          "previous_count": null,
+          "delta": null
+        },
+        {
+          "metric": "financial_health_score",
+          "state": "missing",
+          "comparable": false,
+          "reason": "latest_missing",
+          "latest_value": null,
+          "previous_value": null,
+          "latest_count": null,
+          "previous_count": null,
+          "delta": null
+        },
+        {
+          "metric": "market_trend_score",
+          "state": "missing",
+          "comparable": false,
+          "reason": "latest_missing",
+          "latest_value": null,
+          "previous_value": null,
+          "latest_count": null,
+          "previous_count": null,
+          "delta": null
+        },
+        {
+          "metric": "composite_score",
+          "state": "first_observation",
+          "comparable": false,
+          "reason": "no_previous_observation",
+          "latest_value": 60.0,
+          "previous_value": null,
+          "latest_count": null,
+          "previous_count": null,
+          "delta": null
+        },
+        {
+          "metric": "industry_average_score",
+          "state": "missing",
+          "comparable": false,
+          "reason": "latest_missing",
+          "latest_value": null,
+          "previous_value": null,
+          "latest_count": null,
+          "previous_count": null,
+          "delta": null
+        }
+      ]
+    }
+  ],
+  "tradingview": {
+    "inputs": {
+      "latest": {
+        "snapshot_date": "2026-10-11",
+        "ticker": "1234",
+        "provider_symbol": "TSE:1234",
+        "fetched_at_utc": "2026-10-10T17:30:00.123456Z",
+        "fetch_status": "ok",
+        "quote_at_utc": null,
+        "estimate_currency": null,
+        "estimate_unit": null,
+        "provider_updated_at_utc": null,
+        "target_period_label": null,
+        "target_period_end": null,
+        "analyst_rating": null,
+        "recommendation_total": null,
+        "price_target_average": null,
+        "price_target_high": null,
+        "price_target_low": null,
+        "eps_forecast_next_fq": null,
+        "eps_forecast_next_fy": 0.0,
+        "revenue_forecast_next_fq": null,
+        "revenue_forecast_next_fy": null,
+        "forward_pe": null,
+        "forward_ps": null,
+        "forward_ev_ebitda": null,
+        "ebitda_estimate_fy": null,
+        "free_cash_flow_estimate_fy": null,
+        "capex_estimate_fy": null,
+        "total_debt_estimate_fy": null,
+        "quote_close": 100.0,
+        "quote_currency": "JPY"
+      },
+      "previous": null
+    },
+    "availability": "forecast_fields_present",
+    "forecast_fields": [
+      "eps_forecast_next_fy"
+    ],
+    "comparisons": [
+      {
+        "metric": "price_target_average",
+        "state": "missing",
+        "comparable": false,
+        "reason": "latest_missing",
+        "latest_value": null,
+        "previous_value": null,
+        "latest_count": null,
+        "previous_count": null,
+        "delta": null
+      },
+      {
+        "metric": "price_target_high",
+        "state": "missing",
+        "comparable": false,
+        "reason": "latest_missing",
+        "latest_value": null,
+        "previous_value": null,
+        "latest_count": null,
+        "previous_count": null,
+        "delta": null
+      },
+      {
+        "metric": "price_target_low",
+        "state": "missing",
+        "comparable": false,
+        "reason": "latest_missing",
+        "latest_value": null,
+        "previous_value": null,
+        "latest_count": null,
+        "previous_count": null,
+        "delta": null
+      },
+      {
+        "metric": "eps_forecast_next_fq",
+        "state": "missing",
+        "comparable": false,
+        "reason": "latest_missing",
+        "latest_value": null,
+        "previous_value": null,
+        "latest_count": null,
+        "previous_count": null,
+        "delta": null
+      },
+      {
+        "metric": "eps_forecast_next_fy",
+        "state": "first_observation",
+        "comparable": false,
+        "reason": "no_previous_observation",
+        "latest_value": 0.0,
+        "previous_value": null,
+        "latest_count": null,
+        "previous_count": null,
+        "delta": null
+      },
+      {
+        "metric": "revenue_forecast_next_fq",
+        "state": "missing",
+        "comparable": false,
+        "reason": "latest_missing",
+        "latest_value": null,
+        "previous_value": null,
+        "latest_count": null,
+        "previous_count": null,
+        "delta": null
+      },
+      {
+        "metric": "revenue_forecast_next_fy",
+        "state": "missing",
+        "comparable": false,
+        "reason": "latest_missing",
+        "latest_value": null,
+        "previous_value": null,
+        "latest_count": null,
+        "previous_count": null,
+        "delta": null
+      },
+      {
+        "metric": "forward_pe",
+        "state": "missing",
+        "comparable": false,
+        "reason": "latest_missing",
+        "latest_value": null,
+        "previous_value": null,
+        "latest_count": null,
+        "previous_count": null,
+        "delta": null
+      },
+      {
+        "metric": "forward_ps",
+        "state": "missing",
+        "comparable": false,
+        "reason": "latest_missing",
+        "latest_value": null,
+        "previous_value": null,
+        "latest_count": null,
+        "previous_count": null,
+        "delta": null
+      },
+      {
+        "metric": "forward_ev_ebitda",
+        "state": "missing",
+        "comparable": false,
+        "reason": "latest_missing",
+        "latest_value": null,
+        "previous_value": null,
+        "latest_count": null,
+        "previous_count": null,
+        "delta": null
+      },
+      {
+        "metric": "ebitda_estimate_fy",
+        "state": "missing",
+        "comparable": false,
+        "reason": "latest_missing",
+        "latest_value": null,
+        "previous_value": null,
+        "latest_count": null,
+        "previous_count": null,
+        "delta": null
+      },
+      {
+        "metric": "free_cash_flow_estimate_fy",
+        "state": "missing",
+        "comparable": false,
+        "reason": "latest_missing",
+        "latest_value": null,
+        "previous_value": null,
+        "latest_count": null,
+        "previous_count": null,
+        "delta": null
+      },
+      {
+        "metric": "capex_estimate_fy",
+        "state": "missing",
+        "comparable": false,
+        "reason": "latest_missing",
+        "latest_value": null,
+        "previous_value": null,
+        "latest_count": null,
+        "previous_count": null,
+        "delta": null
+      },
+      {
+        "metric": "total_debt_estimate_fy",
+        "state": "missing",
+        "comparable": false,
+        "reason": "latest_missing",
+        "latest_value": null,
+        "previous_value": null,
+        "latest_count": null,
+        "previous_count": null,
+        "delta": null
+      }
+    ]
+  },
+  "origin_groups": [
+    {
+      "origin": "IFIS",
+      "references": [
+        {
+          "distributor": "monex",
+          "kind": "model_valuation",
+          "metric": "consensus_target",
+          "fetched_at_utc": "2026-10-10T17:30:00.123456Z",
+          "source_url": "https://example.invalid/model/1234"
+        },
+        {
+          "distributor": "rakuten",
+          "kind": "analyst_rating",
+          "metric": "rating",
+          "fetched_at_utc": "2026-10-10T17:30:00.123456Z",
+          "source_url": "https://example.invalid/rating/1234"
+        }
+      ]
+    },
+    {
+      "origin": "Quants Research",
+      "references": [
+        {
+          "distributor": "kabumap",
+          "kind": "quants_score",
+          "metric": "growth_score",
+          "fetched_at_utc": "2026-10-10T17:30:00.123456Z",
+          "source_url": "https://example.invalid/quants"
+        },
+        {
+          "distributor": "kabumap",
+          "kind": "quants_score",
+          "metric": "composite_score",
+          "fetched_at_utc": "2026-10-10T17:30:00.123456Z",
+          "source_url": "https://example.invalid/quants"
+        }
+      ]
+    }
+  ]
+}

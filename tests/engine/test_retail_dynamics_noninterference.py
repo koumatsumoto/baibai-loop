@@ -8,11 +8,11 @@ from tests.helpers.screening_sqlite import (
     build_calibration_fixture_sqlite,
 )
 
+from baibai_engine.external_assessment.reader import read_observations
 from baibai_engine.market.retail_dynamics.models import (
     AnalystRatingObservation,
     ModelValuationObservation,
 )
-from baibai_engine.market.retail_dynamics.reader import read_observations
 from baibai_engine.market.retail_dynamics.store import save_observations
 from baibai_engine.screening.calibration.panel import build_panel
 from baibai_engine.screening.rule_config import load_screening_rules
@@ -63,8 +63,8 @@ def test_external_observations_leave_existing_screening_and_fv_identical(tmp_pat
         )
         assert save_observations(database, [valuation, rating]) == 2
         history = read_observations(database, "9001", received)
-        assert history.model_valuation.latest == valuation
-        assert history.analyst_rating.latest == rating
+        assert history.model_valuations[0].latest == valuation
+        assert history.analyst_ratings[0].latest == rating
         after = build_panel(CALIBRATION_FIXTURE_ASOF, sqlite_path=database, rules=rules)
 
     assert after == before

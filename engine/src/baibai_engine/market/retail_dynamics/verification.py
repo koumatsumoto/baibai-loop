@@ -39,7 +39,6 @@ from .models import (
     Observation,
     QuantsScoreObservation,
 )
-from .reader import read_observations
 
 
 def _row_bytes(row: Sequence[object]) -> bytes:
@@ -47,17 +46,23 @@ def _row_bytes(row: Sequence[object]) -> bytes:
 
 
 def verify_observations(database: Path, observations: Sequence[Observation]) -> None:
-    for item in observations:
-        history = read_observations(database, item.ticker, item.fetched_at_utc)
-        actual = (
-            history.model_valuation.latest
-            if isinstance(item, ModelValuationObservation)
-            else history.quants_score.latest
-            if isinstance(item, QuantsScoreObservation)
-            else history.analyst_rating.latest
-        )
-        if actual != item:
-            raise ValueError("retail receipt readback mismatch")
+    # Acquisition checks its exact immutable receipt, not an analytical latest selector.
+    with closing(connect_read_only(database)) as connection:
+        connection.execute("BEGIN")
+        for item in observations:
+            if isinstance(item, ModelValuationObservation):
+                table, columns = MODEL_VALUATION_TABLE, MODEL_VALUATION_COLUMNS
+            elif isinstance(item, QuantsScoreObservation):
+                table, columns = QUANTS_SCORE_TABLE, QUANTS_SCORE_COLUMNS
+            else:
+                table, columns = ANALYST_RATING_TABLE, ANALYST_RATING_COLUMNS
+            names = ",".join(column[0] for column in columns)
+            row = connection.execute(
+                f"SELECT {names} FROM {table} WHERE ticker=? AND fetched_at_utc=?",  # nosec B608
+                (item.ticker, item.fetched_at_utc.isoformat(timespec="microseconds")),
+            ).fetchone()
+            if row is None or type(item).model_validate(dict(row)) != item:
+                raise ValueError("retail receipt readback mismatch")
 
 
 def history_digests(

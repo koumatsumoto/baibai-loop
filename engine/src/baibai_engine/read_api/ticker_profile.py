@@ -15,9 +15,11 @@ the profile never disagrees with its Security Analysis. Absence is explicit.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, time
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
+from baibai_engine.external_assessment.query import external_assessment
 from baibai_engine.foundation.sqlite_read import read_rows
 from baibai_engine.market.sqlite.reader import read_jpx_earnings_calendar_snapshot
 from baibai_engine.market_context.benchmark import NIKKEI225_ETF_PROXY
@@ -57,7 +59,14 @@ def build_ticker_profile(
         asof_date,
         run_revision_id=run_revision_id,
     )
+    cutoff = datetime.combine(asof_date, time.max, ZoneInfo("Asia/Tokyo"))
     return {
+        "external_assessment": external_assessment(
+            sqlite_path,
+            ticker=ticker,
+            cutoff=cutoff,
+            evaluated_at=cutoff,
+        ).model_dump(mode="json"),
         "ticker": ticker,
         "asof": asof_date.isoformat(),
         **market_context,

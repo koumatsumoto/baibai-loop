@@ -7,6 +7,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from baibai_engine.read_api.external_assessment import ExternalAssessment
+
 type MetaBatch = Literal["daily", "manual"]
 
 
@@ -438,6 +440,7 @@ class PositionReviewView(BaseModel):
 
 
 class SecurityDetailView(BaseModel):
+    external_assessment: ExternalAssessment | None = None
     ticker: str
     company_name: str | None
     sector: str | None

@@ -203,7 +203,11 @@ def export_read_models(
         )
 
     prepared_security = prepare_security_inputs(stores.ledger, stores.research, stores.screening)
-    for ticker in _security_tickers(dashboard, screening):
+    tickers = sorted(
+        set(_security_tickers(dashboard, screening))
+        | set(stores.external_assessment.observed_tickers(cutoff=prepared_security.external_cutoff))
+    )
+    for ticker in tickers:
         if _TICKER_FORMAT.fullmatch(ticker) is None:
             _warn(f"ticker has an unexpected format: {ticker!r}; security view skipped")
             continue
@@ -214,6 +218,7 @@ def export_read_models(
             stores.screening,
             stores.market,
             prepared=prepared_security,
+            external_assessment=stores.external_assessment,
         )
         if security is None:
             _warn(f"security view is unavailable for ticker {ticker}; skipped")

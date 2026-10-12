@@ -26,6 +26,8 @@ status: active
 
 Valuationの機械ER/FV anchorは倍率・自己価格レンジとcarryの推計であり、企業を調査したBase/DownsideのProjectionとは別結果である。AIが置いた前提を算術で計算しても、その前提や結果は観測事実にならない。4 Approachは候補探索の視点であり、四つの完成した企業価値モデルではない。
 
+外部参考評価の提示値は「その媒体がその値を提示した」というL1観測であり、独自の企業価値や実際の大衆売買を認定した事実ではない。L2は出所ごとの受領比較と被覆・欠測を返す。同じ原評価元の転載は関係を示し、モデル価格、アナリスト予測/rating、Quants scoreを同じ多数決点へ変換しない。`retail_dynamics`は既存L1の物理identifierで、分析領域名や個人投資家の売買計測を意味しない。
+
 ## Canonical terms
 
 | term | 種別 | 意味 |
@@ -34,6 +36,7 @@ Valuationの機械ER/FV anchorは倍率・自己価格レンジとcarryの推計
 | Candidate Discovery | activity | Security Analysis群からValuation ApproachごとのNominationを作りReview Setを形成する |
 | Candidate Discovery Method | method | approach集合、common eligibility、Nomination union ruleを束ねるversioned method identity |
 | Valuation Approach | method component | Valuation内で価値機会を発見する探索観点 |
+| External Assessment | source-bound context | 外部媒体の提示値と出所別の機械比較。企業の独自FV・採否判断と別結果 |
 | Machine Valuation | rebuildable estimate | 保存済みSecurity Analysisの機械ER・業種中央値/自己レンジanchor |
 | Projection | conditional valuation | 調査で置いた期間内累積分配と分配後残余価値。Thesisが内包する |
 | Screening Run | artifact | ある`as_of`に対するscreening一回分 |
@@ -88,6 +91,7 @@ Portfolio Ledger -> Portfolio Outcome
 実現結果 -> Calibration -> 次のmethod改善
 
 保存済み価格・master -> Market Snapshot / Security Market Context
+外部媒体の提示値 -> External Assessmentの出所別比較・欠測 -> 判断の参考
 provider facts -> Macro Reading -> Macro Context
 Macro Context -> Triage・Research・資本判断の補助入力
 ```
