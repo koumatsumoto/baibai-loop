@@ -9,4 +9,4 @@ ANALYST_RATING_DATASET = "retail_dynamics.analyst_rating_observations"
 QUANTS_SCORE_DATASET = "retail_dynamics.quants_score_observations"
 
 STAGING_FORMAT = "retail-dynamics-staging-v1"
-PAIR_ACQUISITION_POLICY_VERSION = "retail-pair-acquisition-v5"
+PAIR_ACQUISITION_POLICY_VERSION = "retail-pair-acquisition-v6"

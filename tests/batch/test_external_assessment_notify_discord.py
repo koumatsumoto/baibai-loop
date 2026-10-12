@@ -27,8 +27,6 @@ SUCCESS = (
     "0",
     "--normal-null-pairs",
     "2",
-    "--uncertain-pairs",
-    "0",
     "--unattempted-pairs",
     "0",
     "--rows-added",
@@ -71,36 +69,6 @@ def test_terminal_success_notifies_once_with_normal_null_and_run_context(monkeyp
     assert "run: https://github.com/example/repo/actions/runs/123/attempts/2" in message
 
 
-@pytest.mark.parametrize(
-    ("result", "label", "detail"),
-    [
-        ("success", "[DEGRADED]", "429再試行枠完了・未公開・同batchの再dispatchが必要"),
-        ("failure", "[FAILED]", "取得停止/未完了"),
-        ("cancelled", "[CANCELLED]", "取消"),
-    ],
-)
-def test_retry_only_reports_no_publication_and_does_not_invent_counts(
-    monkeypatch, result, label, detail
-):
-    message = invoke(
-        monkeypatch,
-        "--plan-result",
-        "success",
-        "--acquire-result",
-        result,
-        "--publish-result",
-        "skipped",
-        "--retry-only",
-        "true",
-        "--typed-pairs",
-        "8",
-    )
-    assert message.startswith(label)
-    assert detail in message
-    assert "公開確認済み" not in message
-    assert "typed pair=不明" in message
-
-
 def test_publication_with_known_failures_is_degraded(monkeypatch):
     message = invoke(
         monkeypatch,
@@ -120,7 +88,7 @@ def test_publication_with_known_failures_is_degraded(monkeypatch):
 def test_success_with_missing_aggregate_is_degraded_and_unknown_not_zero(monkeypatch):
     message = invoke(monkeypatch, "--publish-result", "success")
     assert message.startswith("[DEGRADED]")
-    assert message.count("不明") == 8
+    assert message.count("不明") == 7
     assert "pair=0" not in message
 
 
@@ -163,14 +131,12 @@ def test_explicit_partial_publication_reports_uncertain_and_unattempted_as_degra
         "1",
         "--rows-added",
         "2",
-        "--uncertain-pairs",
-        "1",
         "--unattempted-pairs",
-        "1",
+        "2",
     )
     assert message.startswith("[DEGRADED]")
     assert "確定観測のみ部分公開確認済み" in message
-    assert "未確定 pair=1; 未試行 pair=1" in message
+    assert "未記録 pair=2" in message
 
 
 @pytest.mark.parametrize("status", ["already_published", "already_partially_published"])
@@ -200,7 +166,7 @@ def test_prior_publication_is_skipped_and_retains_complete_or_partial_identity(m
     assert "追加 row=0" in message
 
 
-@pytest.mark.parametrize("reason", ["access_denied", "rate_limited", "uncertain_inflight"])
+@pytest.mark.parametrize("reason", ["access_denied", "rate_limited", "wall_clock_limit"])
 def test_aggregate_acquisition_failure_does_not_guess_a_blocked_reason_or_counts(
     monkeypatch, reason
 ):
@@ -311,7 +277,6 @@ def test_publication_outputs_allow_only_measured_nonnegative_aggregate_counters(
                 "success": 4,
                 "normal_null": 2,
                 "failure": 2,
-                "uncertain": 0,
                 "unattempted": 0,
             },
             "ticker": "private-ticker",
@@ -321,7 +286,7 @@ def test_publication_outputs_allow_only_measured_nonnegative_aggregate_counters(
     )
     assert path.read_text() == (
         "external_assessment_expected_pairs=8\nexternal_assessment_typed_pairs=6\nexternal_assessment_known_failure_pairs=2\n"
-        "external_assessment_normal_null_pairs=2\nexternal_assessment_uncertain_pairs=0\nexternal_assessment_unattempted_pairs=0\nexternal_assessment_rows_added=6\n"
+        "external_assessment_normal_null_pairs=2\nexternal_assessment_unattempted_pairs=0\nexternal_assessment_rows_added=6\n"
     )
 
 
@@ -335,7 +300,7 @@ def test_legacy_terminal_missing_counters_remain_unknown_without_reconstruction(
     )
     assert path.read_text() == (
         "external_assessment_expected_pairs=8\nexternal_assessment_typed_pairs=6\nexternal_assessment_known_failure_pairs=unknown\n"
-        "external_assessment_normal_null_pairs=unknown\nexternal_assessment_uncertain_pairs=unknown\nexternal_assessment_unattempted_pairs=unknown\nexternal_assessment_rows_added=unknown\n"
+        "external_assessment_normal_null_pairs=unknown\nexternal_assessment_unattempted_pairs=unknown\nexternal_assessment_rows_added=unknown\n"
     )
 
 
@@ -350,7 +315,7 @@ def test_invalid_report_count_shape_cannot_leak_into_outputs(tmp_path, monkeypat
             "state_counts": {"failure": "private-body", "normal_null": False},
         }
     )
-    assert path.read_text().count("=unknown\n") == 7
+    assert path.read_text().count("=unknown\n") == 6
 
 
 @pytest.mark.parametrize("has_states", [True, False])
@@ -473,9 +438,6 @@ def test_workflow_has_one_terminal_notifier_outside_matrix_with_step_only_existi
     assert "--publication-mode" in step["run"]
     assert "needs.plan.outputs.terminal_status" in step["run"]
     assert "needs.plan.outputs.terminal_status == 'pending'" in jobs["publish"]["if"]
-    assert "needs.plan.outputs.retry_only != 'true'" in jobs["publish"]["if"]
-    assert "--retry-only" in step["run"]
-    assert jobs["plan"]["outputs"]["retry_only"] == "${{ steps.plan.outputs.retry_only }}"
     assert "!cancelled()" in jobs["publish"]["if"]
     assert "needs.plan.outputs.terminal_status == 'pending'" in jobs["acquire"]["if"]
     assert "needs.plan.outputs.operation == 'collect_and_publish'" in jobs["acquire"]["if"]

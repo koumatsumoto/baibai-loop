@@ -221,7 +221,7 @@ def test_terminal_plan_acquire_and_both_publish_commands_do_not_touch_checkpoint
     def forbidden(*args, **kwargs):
         raise AssertionError("sealed batch must not touch HTTP, checkpoint, lease, DB or L1")
 
-    monkeypatch.setattr(daily, "read_checkpoints", forbidden)
+    monkeypatch.setattr(daily, "read_stages", forbidden)
     monkeypatch.setattr(daily, "external_assessment_collect_pair", forbidden)
     monkeypatch.setattr(daily, "_serving_pointer", forbidden)
     monkeypatch.setattr(external_assessment_publication, "publish_and_verify", forbidden)
@@ -239,7 +239,6 @@ def test_terminal_plan_acquire_and_both_publish_commands_do_not_touch_checkpoint
     assert output["terminal_status"] == staging.terminal_status(value)
     assert output["external_assessment_rows_added"] == "0"
     assert output["external_assessment_normal_null_pairs"] == ("1" if partial else "unknown")
-    assert output["external_assessment_uncertain_pairs"] == ("1" if partial else "unknown")
     for command in ("acquire", "publish", "publish-confirmed-partial"):
         arguments = [command, "--run-id", p.run_id]
         if command == "acquire":

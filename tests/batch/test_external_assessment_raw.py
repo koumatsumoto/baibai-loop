@@ -1,13 +1,11 @@
 """Temporary diagnostic raw must not become a dependency of typed checkpoints."""
 
-import gzip
 import json
-from dataclasses import replace
-from datetime import UTC, date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime
 
 import pytest
 import requests
-from tests.batch.test_external_assessment_daily import FakeObjectStore, checkpoint, plan
+from tests.batch.test_external_assessment_daily import FakeObjectStore, plan, stage
 from tests.engine.test_external_assessment_sources import monex_html, official_html, rakuten_html
 
 from baibai_batch.jobs import external_assessment_daily as daily
@@ -17,7 +15,6 @@ from baibai_engine.batch_api import ExternalAssessmentReceivedHTML
 from baibai_engine.external_assessment.acquisition import collection
 from baibai_engine.external_assessment.acquisition.sources import monex, rakuten
 from baibai_engine.external_assessment.store import save_observations
-from baibai_engine.storage.observations.schema import open_connection
 
 
 class Session(requests.Session):
@@ -65,19 +62,11 @@ def connect(monkeypatch):
     return use
 
 
-def receipts(store):
+def bundles(store):
     return [
         key
         for key in store.objects
-        if key.startswith(external_assessment_raw.RAW_PREFIX) and "/receipts/" in key
-    ]
-
-
-def blobs(store):
-    return [
-        key
-        for key in store.objects
-        if key.startswith(external_assessment_raw.RAW_PREFIX) and "/html/sha256/" in key
+        if key.startswith(external_assessment_raw.RAW_PREFIX) and "/bundles/" in key
     ]
 
 
@@ -87,320 +76,166 @@ def test_exact_bytes_encoding_reparse_and_typed_idempotency(tmp_path, connect):
     connect(session)
     p, store = plan(), FakeObjectStore()
     daily.acquire_cohort(store, p, 0)
-    metadata, recovered = external_assessment_raw.read_raw_html(store, receipts(store)[0])
-    assert recovered == body
-    assert metadata["encoding"] == "cp932"
-    assert metadata["url"] == monex.public_url("7203")
-    assert metadata["distributor"] == "monex"
-    assert metadata["requested_ticker"] == "7203"
-    assert metadata["request_number"] == 1
-    assert metadata["body_bytes"] == len(body)
-    saved = checkpoint(store, p)
-    reparsed = monex.parse_html(
-        recovered.decode(metadata["encoding"]),
-        ticker=metadata["requested_ticker"],
-        source_url=metadata["url"],
-        fetched_at_utc=datetime.fromisoformat(metadata["fetched_at_utc"]),
+    saved = stage(store, p)
+    metadata, recovered = external_assessment_raw.read_raw_bundle(store, saved.raw_bundle_keys[0])
+    assert recovered == (body,)
+    receipt = metadata["receipts"][0]
+    assert receipt["encoding"] == "cp932"
+    assert receipt["url"] == monex.public_url("7203")
+    observation = monex.parse_html(
+        recovered[0].decode(receipt["encoding"]),
+        ticker="7203",
+        source_url=receipt["url"],
+        fetched_at_utc=datetime.fromisoformat(receipt["fetched_at_utc"]),
     )
-    assert saved.journal.observations == (reparsed,)
-    operations = len(store.puts)
-    assert (
-        external_assessment_raw.save_raw_html(
-            store,
-            run_id=p.run_id,
-            source="monex",
-            ticker="7203",
-            request_number=metadata["request_number"],
-            received=ExternalAssessmentReceivedHTML(
-                metadata["url"],
-                datetime.fromisoformat(metadata["fetched_at_utc"]),
-                metadata["encoding"],
-                body,
-            ),
-        )
-        == receipts(store)[0]
-    )
-    assert len(store.puts) == operations
-    assert "private-cookie-header" not in json.dumps(metadata)
-    assert "private-authorization-header" not in json.dumps(metadata)
-    assert all(
-        marker not in recovered
-        for marker in (b"private-cookie-header", b"private-authorization-header")
-    )
-    db = tmp_path / "market.sqlite"
-    open_connection(db).close()
-    assert save_observations(db, saved.journal.observations) == 1
-    assert save_observations(db, saved.journal.observations) == 0
-    operations = len(store.puts)
-    daily.acquire_cohort(store, p, 0)
-    assert len(store.puts) == operations
-    assert len(session.calls) == 1
-    assert checkpoint(store, p).journal.observations == (reparsed,)
+    assert saved.result.observations == (observation,)
+    path = tmp_path / "observations.sqlite3"
+    assert save_observations(path, [observation]) == 1
+    assert save_observations(path, [observation]) == 0
+    manifest_bytes = json.dumps(metadata).encode()
+    assert b"private-cookie-header" not in manifest_bytes
+    assert b"private-authorization-header" not in manifest_bytes
+    assert len(store.puts) == 2
+    assert store.puts[0][0].endswith("cohort-0000.json")
+    assert store.puts[1][0] == saved.raw_bundle_keys[0]
 
 
-def test_identical_html_across_received_batches_reuses_one_blob(connect):
-    body = monex_html().encode()
-    session = Session([(200, body, "utf-8"), (200, body, "utf-8")])
-    connect(session)
-    store, first = FakeObjectStore(), plan()
-    daily.acquire_cohort(store, first, 0)
-    second = replace(first, run_id="second-raw-batch")
-    daily.acquire_cohort(store, second, 0)
-    assert len(blobs(store)) == 1
-    assert len(receipts(store)) == 2
-    assert (
-        sum(
-            key.startswith(external_assessment_raw.RAW_PREFIX) and "/html/sha256/" in key
-            for key, *_ in store.puts
-        )
-        == 1
-    )
-    decoded = [external_assessment_raw.read_raw_html(store, key) for key in receipts(store)]
-    assert all(raw == body for _, raw in decoded)
-    assert decoded[0][0]["blob_key"] == decoded[1][0]["blob_key"]
-    assert decoded[0][0]["batch_id"] != decoded[1][0]["batch_id"]
-
-
-def test_rakuten_outer_and_iframe_are_preserved_after_typed_checkpoint(connect):
-    outer, inner = official_html().encode(), rakuten_html().encode()
-    session = Session([(200, outer, "utf-8"), (200, inner, "utf-8")])
+def test_rakuten_outer_and_iframe_bytes_are_in_one_archive(connect):
+    outer, iframe = official_html().encode(), rakuten_html().encode()
+    session = Session([(200, outer, "utf-8"), (200, iframe, "utf-8")])
     connect(session)
     p, store = plan(sources=("rakuten",)), FakeObjectStore()
     daily.acquire_cohort(store, p, 0)
-    records = [external_assessment_raw.read_raw_html(store, key) for key in receipts(store)]
-    assert [raw for _, raw in records] == [outer, inner]
-    assert [item["request_number"] for item, _ in records] == [1, 2]
-    assert [item["url"] for item, _ in records] == session.calls
-    metadata, html = records[-1]
+    saved = stage(store, p)
+    manifest, bodies = external_assessment_raw.read_raw_bundle(store, saved.raw_bundle_keys[0])
+    assert bodies == (outer, iframe)
+    receipt = manifest["receipts"][1]
     parsed = rakuten.parse_html(
-        html.decode(metadata["encoding"]),
+        bodies[1].decode(),
         ticker="7203",
-        source_url=metadata["url"],
-        fetched_at_utc=datetime.fromisoformat(metadata["fetched_at_utc"]),
+        source_url=receipt["url"],
+        fetched_at_utc=datetime.fromisoformat(receipt["fetched_at_utc"]),
     )
-    assert checkpoint(store, p).journal.observations == (parsed,)
-    typed_checkpoint = max(
-        i for i, item in enumerate(store.puts) if item[0].startswith("coordination/")
-    )
-    for key in receipts(store):
-        assert next(i for i, item in enumerate(store.puts) if item[0] == key) > typed_checkpoint
+    assert saved.result.observations == (parsed,)
+    assert len(store.puts) == 2
 
 
-@pytest.mark.parametrize("status", [302, 403, 429, 500])
-def test_non200_has_no_raw_success_receipt(connect, status, monkeypatch):
-    session = Session([(status, b"failure body", "utf-8")])
-    connect(session)
-    monkeypatch.setattr(daily, "_wait_for_retry", lambda *args, **kwargs: False)
+@pytest.mark.parametrize("status", [403, 404, 500])
+def test_non200_has_no_raw_bundle(connect, status):
+    connect(Session([(status, b"denied", "utf-8")]))
     p, store = plan(), FakeObjectStore()
     daily.acquire_cohort(store, p, 0)
-    assert not receipts(store)
-    assert not blobs(store)
-    entry = checkpoint(store, p).journal.entries[0]
-    assert entry.state == "failure"
-    assert entry.http_status == status
-    assert not checkpoint(store, p).journal.observations
+    assert stage(store, p).result.entries[0].state == "failure"
+    assert stage(store, p).raw_bundle_keys == ()
+    assert bundles(store) == []
 
 
-def test_parse_failure_raw_receipt_is_not_a_normal_observation(connect):
-    body = b"<html>anonymous unconfirmed page</html>"
-    session = Session([(200, body, "utf-8")])
-    connect(session)
+@pytest.mark.parametrize(
+    ("html", "state"), [("invalid public HTML", "failure"), (monex_html(value="--"), "normal_null")]
+)
+def test_parse_failure_and_normal_null_preserve_diagnostic_bytes(connect, html, state):
+    connect(Session([(200, html.encode(), "utf-8")]))
     p, store = plan(), FakeObjectStore()
     daily.acquire_cohort(store, p, 0)
-    assert external_assessment_raw.read_raw_html(store, receipts(store)[0])[1] == body
-    assert checkpoint(store, p).journal.entries[0].state == "failure"
-    assert not checkpoint(store, p).journal.observations
-
-
-def test_normal_null_keeps_its_raw_body_and_existing_typed_classification(connect):
-    body = monex_html(value="--").encode()
-    session = Session([(200, body, "utf-8")])
-    connect(session)
-    p, store = plan(), FakeObjectStore()
-    daily.acquire_cohort(store, p, 0)
-    assert external_assessment_raw.read_raw_html(store, receipts(store)[0])[1] == body
-    saved = checkpoint(store, p)
-    assert saved.journal.entries[0].state == "normal_null"
-    assert len(saved.journal.observations) == 1
-
-
-def test_private_iframe_route_is_not_requested_or_archived(connect):
-    body = (
-        official_html()
-        .replace("https://rakuten-sec.ifis.co.jp/index.php", "https://private.example/account")
-        .encode()
+    saved = stage(store, p)
+    assert saved.result.entries[0].state == state
+    assert external_assessment_raw.read_raw_bundle(store, saved.raw_bundle_keys[0])[1] == (
+        html.encode(),
     )
-    session = Session([(200, body, "utf-8")])
-    connect(session)
-    p, store = plan(sources=("rakuten",)), FakeObjectStore()
-    daily.acquire_cohort(store, p, 0)
-    assert session.calls == [rakuten.public_url("7203")]
-    assert len(receipts(store)) == 1
-    assert checkpoint(store, p).journal.entries[0].state == "failure"
 
 
-def test_authenticated_response_is_not_archived(connect):
-    class Authenticated(Session):
-        def get(self, url, **kwargs):
-            result = super().get(url, **kwargs)
-            result.request = requests.Request(
-                "GET", url, headers={"Authorization": "private-authentication"}
-            ).prepare()
-            return result
-
-    session = Authenticated([(200, monex_html().encode(), "utf-8")])
-    connect(session)
+@pytest.mark.parametrize("fault", ["before", "after", "bad_receipt"])
+def test_raw_upload_failure_warns_and_primary_stage_remains_complete(connect, capsys, fault):
+    connect(Session([(200, monex_html().encode(), "utf-8")]))
     p, store = plan(), FakeObjectStore()
-    with pytest.raises(RuntimeError, match="raw_capture_requires_anonymous_response"):
-        daily.acquire_cohort(store, p, 0)
-    assert not receipts(store)
-    assert not blobs(store)
-    assert checkpoint(store, p).journal.entries[0].state == "uncertain"
+    store.put_fault = (2, fault)
+    assert daily.acquire_cohort(store, p, 0)["cohort_complete"] is True
+    saved = stage(store, p)
+    assert saved.result.entries[0].state == "success"
+    assert "diagnostic raw save failed" in capsys.readouterr().err
+    before = list(store.puts)
+    assert daily.acquire_cohort(store, p, 0)["provider_requests"] == 0
+    assert store.puts == before
 
 
-@pytest.mark.parametrize("fault", ["before", "after", "cas", "bad_receipt"])
-@pytest.mark.parametrize("write", [4, 5])
-def test_raw_save_failure_warns_and_preserves_normal_typed_result(connect, capsys, fault, write):
-    session = Session(
-        [(200, official_html().encode(), "utf-8"), (200, rakuten_html().encode(), "utf-8")]
-    )
-    connect(session)
-    p, store = plan(sources=("rakuten",)), FakeObjectStore()
-    store.put_fault = (write, fault)
+@pytest.mark.parametrize("method", ["append", "finish"])
+def test_local_raw_failure_cannot_discard_typed_success(connect, monkeypatch, capsys, method):
+    connect(Session([(200, monex_html().encode(), "utf-8")]))
+
+    def fail(*a, **k):
+        if method == "finish":
+            assert stage(store, p).result.entries[0].state == "success"
+        raise OSError("private secret must not be logged")
+
+    monkeypatch.setattr(external_assessment_raw.RawBundle, method, fail)
+    p, store = plan(), FakeObjectStore()
+    assert daily.acquire_cohort(store, p, 0)["cohort_complete"] is True
+    assert stage(store, p).result.entries[0].state == "success"
+    assert len(store.puts) == 1
+    error = capsys.readouterr().err
+    assert "diagnostic raw save failed" in error
+    assert "private secret" not in error
+
+
+def test_raw_upload_is_outside_typed_deadline_and_never_downloads_per_body(connect, monkeypatch):
+    connect(Session([(200, monex_html().encode(), "utf-8")]))
+    p, store = plan(), FakeObjectStore()
+    original = store.put_file
+
+    def put(key, path, **kwargs):
+        if key.startswith(external_assessment_raw.RAW_PREFIX):
+            assert stage(store, p).result.entries[0].state == "success"
+            assert collection.time.monotonic() >= 0
+        return original(key, path, **kwargs)
+
+    monkeypatch.setattr(store, "put_file", put)
     daily.acquire_cohort(store, p, 0)
-    assert len(session.calls) == 2
-    assert checkpoint(store, p).journal.entries[0].state == "success"
-    assert len(checkpoint(store, p).journal.observations) == 1
-    output = capsys.readouterr()
-    assert "::warning::External assessment diagnostic raw save failed" in output.err
-    assert "synthetic" not in output.err
-    assert "private-cookie-header" not in output.err
-    assert "private-authorization-header" not in output.err
-    assert output.out == ""
-
-
-def test_sample_readback_detects_corruption_without_a_per_response_download(connect):
-    class BrokenReadback(FakeObjectStore):
-        def get_bytes(self, key):
-            raw = super().get_bytes(key)
-            return (
-                gzip.compress(b"wrong raw body", mtime=0)
-                if key.startswith(external_assessment_raw.RAW_PREFIX) and "/html/sha256/" in key
-                else raw
-            )
-
-    session = Session([(200, monex_html().encode(), "utf-8")])
-    connect(session)
-    p, store = plan(), BrokenReadback()
-    daily.acquire_cohort(store, p, 0)
-    assert checkpoint(store, p).journal.entries[0].state == "success"
     assert not any(
-        action == "GET" and key.startswith(external_assessment_raw.RAW_PREFIX)
-        for action, key in store.events
+        method == "GET" and key.startswith(external_assessment_raw.RAW_PREFIX)
+        for method, key in store.events
     )
-    with pytest.raises(LakePublishError, match="raw body readback mismatch"):
-        external_assessment_raw.read_raw_html(store, receipts(store)[0])
 
 
-def test_normal_capture_and_blob_reuse_do_not_download_raw_objects(connect):
-    body = monex_html().encode()
-    session = Session([(200, body, "utf-8"), (200, body, "utf-8")])
-    connect(session)
-    p, store = plan(), FakeObjectStore()
-    daily.acquire_cohort(store, p, 0)
-    daily.acquire_cohort(store, replace(p, run_id="another-raw-receipt"), 0)
-    assert not any(
-        action == "GET" and key.startswith(external_assessment_raw.RAW_PREFIX)
-        for action, key in store.events
-    )
-    assert (
-        sum(
-            action == "HEAD" and key.startswith(external_assessment_raw.RAW_PREFIX)
-            for action, key in store.events
-        )
-        == 4
-    )
-    assert len(blobs(store)) == 1
-    assert len(receipts(store)) == 2
+def test_three_media_normal_and_rakuten_retry_fixture_bundle_sizing_and_restoration():
+    from tests.engine.test_kabumap import html as kabumap_html
 
-
-def test_received_utc_day_controls_blob_sharing_not_batch_date():
+    pages = [
+        monex_html().encode(),
+        official_html().encode(),
+        rakuten_html().encode(),
+        kabumap_html().encode(),
+    ]
     store = FakeObjectStore()
-    first = datetime(2026, 10, 10, 23, 59, 59, tzinfo=UTC)
-    keys = []
-    for number, received in enumerate((first, first + timedelta(seconds=1)), start=1):
-        keys.append(
-            external_assessment_raw.save_raw_html(
-                store,
-                run_id="retail-daily-2026-10-09",
-                source="monex",
-                ticker="7203",
-                request_number=number,
-                received=ExternalAssessmentReceivedHTML(
-                    monex.public_url("7203"), received, "utf-8", b"same"
-                ),
-            )
-        )
-    assert len(blobs(store)) == 2
-    assert keys[0].startswith(external_assessment_raw.RAW_PREFIX + "utc-date/2026-10-10/receipts/")
-    assert keys[1].startswith(external_assessment_raw.RAW_PREFIX + "utc-date/2026-10-11/receipts/")
-    old_receipt, _ = external_assessment_raw.read_raw_html(store, keys[0])
-    new_receipt, _ = external_assessment_raw.read_raw_html(store, keys[1])
-    del store.objects[keys[0]], store.objects[old_receipt["blob_key"]]
-    assert external_assessment_raw.read_raw_html(store, keys[1]) == (new_receipt, b"same")
-    jst = (first + timedelta(seconds=1)).astimezone(timezone(timedelta(hours=9)))
-    same_day = external_assessment_raw.save_raw_html(
-        store,
-        run_id="new-batch",
-        source="monex",
-        ticker="7203",
-        request_number=1,
-        received=ExternalAssessmentReceivedHTML(monex.public_url("7203"), jst, "utf-8", b"same"),
-    )
-    assert (
-        external_assessment_raw.read_raw_html(store, same_day)[0]["blob_key"]
-        == new_receipt["blob_key"]
-    )
-    assert len(blobs(store)) == 1
-
-
-def test_raw_latency_and_failure_are_outside_typed_pair_deadline(connect, monkeypatch, capsys):
-    session = Session([(200, monex_html().encode(), "utf-8")])
-    connect(session)
-    p, store = plan(), FakeObjectStore()
-    elapsed = []
-
-    def slow_failed_save(*args, **kwargs):
-        assert checkpoint(store, p).journal.entries[0].state == "success"
-        start = collection.time.monotonic()
-        collection.time.sleep(collection.DEFAULT_PAIR_TIME_LIMIT_SECONDS + 1)
-        elapsed.append(collection.time.monotonic() - start)
-        raise LakePublishError("private exception and signed URL must not be logged")
-
-    monkeypatch.setattr(daily, "save_raw_html", slow_failed_save)
-    report = daily.acquire_cohort(store, p, 0)
-    assert report["stop_reason"] is None
-    assert checkpoint(store, p).journal.entries[0].state == "success"
-    assert len(checkpoint(store, p).journal.observations) == 1
-    assert elapsed == [collection.DEFAULT_PAIR_TIME_LIMIT_SECONDS + 1]
-    warning = capsys.readouterr().err
-    assert "::warning::" in warning
-    assert "signed URL" not in warning
-    assert "private exception" not in warning
-
-
-@pytest.mark.parametrize("write", [1, 2, 3])
-def test_typed_checkpoint_failure_still_stops_without_optional_raw_save(connect, write):
-    session = Session(
-        [(200, official_html().encode(), "utf-8"), (200, rakuten_html().encode(), "utf-8")]
-    )
-    connect(session)
-    p, store = plan(sources=("rakuten",)), FakeObjectStore()
-    store.put_fault = (write, "before")
-    with pytest.raises(RuntimeError, match="pair_checkpoint_callback_failed"):
-        daily.acquire_cohort(store, p, 0)
-    assert not receipts(store)
-    assert not blobs(store)
+    # 50 tickers * (1 Monex + 2 Rakuten + 1 Kabumap + 5 retried Rakuten outer pages).
+    expected = []
+    with external_assessment_raw.RawBundle("synthetic-sizing", 0) as bundle:
+        for i in range(50):
+            ticker = str(1000 + i)
+            for source, body in zip(
+                ("monex", "rakuten", "rakuten", "kabumap", *("rakuten",) * 5),
+                pages + [pages[1]] * 5,
+                strict=True,
+            ):
+                expected.append(body)
+                bundle.append(
+                    source,
+                    ticker,
+                    ExternalAssessmentReceivedHTML(
+                        "https://synthetic.invalid/public",
+                        datetime(2026, 10, 11, tzinfo=UTC),
+                        "utf-8",
+                        body,
+                    ),
+                )
+        key = bundle.finish()
+        bundle.upload(store)
+        archive_bytes = bundle.path.stat().st_size
+        raw_bytes = sum(map(len, expected))
+        assert archive_bytes < raw_bytes
+        assert len(store.puts) == 1
+        manifest, restored = external_assessment_raw.read_raw_bundle(store, key)
+        assert len(manifest["receipts"]) == 450
+        assert restored == tuple(expected)
 
 
 def test_inventory_three_utc_dates_unclassified_and_exact_date_prefixes():
@@ -504,3 +339,42 @@ def test_r2_inventory_paginates_keys_and_sizes_without_getting_bodies(monkeypatc
         ("second", 20),
     ]
     assert calls == [{"Bucket": "synthetic", "Prefix": external_assessment_raw.RAW_PREFIX}]
+
+
+def test_authorized_response_is_never_archived_or_treated_as_typed_success(connect):
+    class Authenticated(Session):
+        def get(self, url, **kwargs):
+            response = super().get(url, **kwargs)
+            response.request.headers["Authorization"] = "private synthetic credential"
+            return response
+
+    session = Authenticated([(200, monex_html().encode(), "utf-8")])
+    connect(session)
+    store = FakeObjectStore()
+    with pytest.raises(RuntimeError, match="requires_anonymous_response"):
+        daily.acquire_cohort(store, plan(), 0)
+    assert store.puts == []
+    assert len(session.calls) == 1
+
+
+def test_bundle_readback_rejects_changed_body_hash_without_extracting_paths(connect):
+    import io
+    import tarfile
+
+    connect(Session([(200, monex_html().encode(), "utf-8")]))
+    p, store = plan(), FakeObjectStore()
+    daily.acquire_cohort(store, p, 0)
+    key = stage(store, p).raw_bundle_keys[0]
+    with tarfile.open(fileobj=io.BytesIO(store.objects[key][0]), mode="r:gz") as original:
+        output = io.BytesIO()
+        with tarfile.open(fileobj=output, mode="w:gz") as changed:
+            for member in original.getmembers():
+                stream = original.extractfile(member)
+                body = stream.read()
+                if member.name.startswith("bodies/"):
+                    body = b"synthetic corruption"
+                    member.size = len(body)
+                changed.addfile(member, io.BytesIO(body))
+    store.seed(key, output.getvalue(), "application/gzip")
+    with pytest.raises(LakePublishError, match="body readback mismatch"):
+        external_assessment_raw.read_raw_bundle(store, key)

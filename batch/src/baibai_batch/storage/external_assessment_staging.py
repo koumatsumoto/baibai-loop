@@ -8,29 +8,28 @@ import json
 import re
 import tempfile
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date
 from pathlib import Path
 from typing import cast
 
 from baibai_batch.jobs.external_assessment_cohorts import (
-    CohortJournal,
+    CohortResult,
     RunPlan,
-    journal_bytes,
-    load_journal,
     load_plan,
+    load_result,
     plan_bytes,
+    result_value,
+    validate_result,
 )
 from baibai_batch.storage.external_assessment_identity import (
-    CHECKPOINT_FORMAT,
     COORDINATION_PREFIX,
     PARTIAL_TERMINAL_FORMAT,
     PUBLISHED_FORMAT,
+    STAGE_FORMAT,
 )
 from baibai_batch.storage.lake_publish import LakePublishError, ObjectStore
-from baibai_engine.batch_api import ExternalAssessmentSource
 
 MAX_PRIVATE_OBJECT_BYTES = 2_000_000
-MAX_PAIR_RETRIES = 5
 _TERMINAL_KEYS = {
     "format",
     "plan_sha256",
@@ -40,7 +39,7 @@ _TERMINAL_KEYS = {
     "observations",
     "readback",
 }
-_TERMINAL_STATES = {"success", "normal_null", "failure", "unattempted", "uncertain"}
+_TERMINAL_STATES = {"success", "normal_null", "failure", "unattempted"}
 
 
 def prefix(run_id: str) -> str:
@@ -83,8 +82,6 @@ def put_private(
         path = Path(temporary) / "payload.json"
         path.write_bytes(payload)
         path.chmod(0o600)
-        # A conflict or ambiguous response always stops before the next HTTP.
-        # Do not infer ownership from another writer's identical payload.
         result = store.put_file(
             key,
             path,
@@ -129,10 +126,11 @@ def _terminal_object(items: list[tuple[str, object]]) -> dict[str, object]:
 
 
 def _valid_partial_counts(value: dict[str, object], plan: RunPlan) -> bool:
+    # Older sealed terminals remain historical evidence; acquisition stages have no legacy reader.
     states, coverage = value["state_counts"], value["receipt_date_coverage"]
     if (
         not isinstance(states, dict)
-        or set(states) != _TERMINAL_STATES
+        or set(states) not in (_TERMINAL_STATES, _TERMINAL_STATES | {"uncertain"})
         or any(type(count) is not int or count < 0 for count in states.values())
         or sum(states.values()) != value["expected_pairs"]
         or states["success"] + states["normal_null"] != value["observations"]
@@ -203,131 +201,35 @@ def save_new_plan(store: ObjectStore, plan: RunPlan) -> None:
 
 
 @dataclass(frozen=True)
-class PairRetryState:
-    source: ExternalAssessmentSource
-    ticker: str
-    retries_used: int
-    next_retry_utc: datetime | None = None
-    retry_after_unrepresentable: bool = False
-
-    def __post_init__(self) -> None:
-        if (
-            not isinstance(cast("object", self.source), str)
-            or self.source not in {"monex", "rakuten", "kabumap"}
-            or type(self.ticker) is not str
-            or re.fullmatch(r"[0-9][0-9A-Z]{3}", self.ticker) is None
-            or type(self.retries_used) is not int
-            or not 0 <= self.retries_used <= MAX_PAIR_RETRIES
-            or type(cast("object", self.retry_after_unrepresentable)) is not bool
-            or (self.retry_after_unrepresentable and self.next_retry_utc is not None)
-        ):
-            raise ValueError("invalid external assessment pair retry state")
-        if self.next_retry_utc is not None and (
-            not isinstance(cast("object", self.next_retry_utc), datetime)
-            or self.next_retry_utc.tzinfo is None
-            or self.next_retry_utc.utcoffset() != UTC.utcoffset(None)
-        ):
-            raise ValueError("external assessment retry deadline requires UTC")
-
-
-@dataclass(frozen=True)
-class Checkpoint:
-    journal: CohortJournal
-    requests_started: int = 0
-    confirmed_http_requests: int = 0
+class CohortStage:
+    result: CohortResult
+    http_requests: int = 0
     response_content_bytes: int = 0
-    last_response_finished_at_utc: datetime | None = None
-    retry_states: tuple[PairRetryState, ...] = ()
+    raw_bundle_keys: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        if any(
+        if not isinstance(cast("object", self.result), CohortResult) or any(
             type(value) is not int or value < 0
-            for value in (
-                self.requests_started,
-                self.confirmed_http_requests,
-                self.response_content_bytes,
-            )
+            for value in (self.http_requests, self.response_content_bytes)
         ):
-            raise ValueError("invalid external assessment request accounting")
-        if self.confirmed_http_requests > self.requests_started:
-            raise ValueError("external assessment confirmed requests exceed reservations")
-        if self.last_response_finished_at_utc is not None and (
-            self.last_response_finished_at_utc.tzinfo is None
-            or self.last_response_finished_at_utc.utcoffset() != UTC.utcoffset(None)
+            raise ValueError("invalid external assessment stage accounting")
+        if (
+            type(self.raw_bundle_keys) is not tuple
+            or any(type(key) is not str or not key for key in self.raw_bundle_keys)
+            or len(set(self.raw_bundle_keys)) != len(self.raw_bundle_keys)
         ):
-            raise ValueError("external assessment receipt metadata requires UTC")
-        if type(self.retry_states) is not tuple or any(
-            not isinstance(item, PairRetryState) for item in self.retry_states
-        ):
-            raise ValueError("retry states require an immutable typed tuple")
-        pairs = [(item.source, item.ticker) for item in self.retry_states]
-        if pairs != sorted(set(pairs)):
-            raise ValueError("duplicate or unordered external assessment retry pair")
-        for retry in self.retry_states:
-            entry = next(
-                (
-                    item
-                    for item in self.journal.entries
-                    if (item.source, item.ticker) == (retry.source, retry.ticker)
-                ),
-                None,
-            )
-            if entry is None:
-                raise ValueError("retry pair is outside the cohort")
-            rate_limited = (entry.state, entry.reason, entry.http_status) == (
-                "failure",
-                "rate_limited",
-                429,
-            )
-            if (
-                (
-                    (retry.next_retry_utc is not None or retry.retry_after_unrepresentable)
-                    and not rate_limited
-                )
-                or (
-                    rate_limited
-                    and retry.retries_used < MAX_PAIR_RETRIES
-                    and retry.next_retry_utc is None
-                    and not retry.retry_after_unrepresentable
-                )
-                or (not rate_limited and retry.retries_used == 0)
-                or entry.state == "unattempted"
-                or (retry.retries_used == MAX_PAIR_RETRIES and retry.next_retry_utc is not None)
-            ):
-                raise ValueError("retry metadata does not match the confirmed pair state")
-
-    def retry_for(self, source: ExternalAssessmentSource, ticker: str) -> PairRetryState | None:
-        return next(
-            (item for item in self.retry_states if (item.source, item.ticker) == (source, ticker)),
-            None,
-        )
+            raise ValueError("invalid external assessment raw bundle references")
 
 
-def checkpoint_bytes(plan: RunPlan, checkpoint: Checkpoint) -> bytes:
+def stage_bytes(plan: RunPlan, stage: CohortStage) -> bytes:
+    validate_result(plan, stage.result)
     return json.dumps(
         {
-            "format": CHECKPOINT_FORMAT,
-            "journal": json.loads(journal_bytes(plan, checkpoint.journal)),
-            "requests_started": checkpoint.requests_started,
-            "confirmed_http_requests": checkpoint.confirmed_http_requests,
-            "response_content_bytes": checkpoint.response_content_bytes,
-            "last_response_finished_at_utc": (
-                checkpoint.last_response_finished_at_utc.isoformat()
-                if checkpoint.last_response_finished_at_utc is not None
-                else None
-            ),
-            "retry_states": [
-                {
-                    "source": item.source,
-                    "ticker": item.ticker,
-                    "retries_used": item.retries_used,
-                    "next_retry_utc": item.next_retry_utc.isoformat()
-                    if item.next_retry_utc
-                    else None,
-                    "retry_after_unrepresentable": item.retry_after_unrepresentable,
-                }
-                for item in checkpoint.retry_states
-            ],
+            "format": STAGE_FORMAT,
+            "result": result_value(plan, stage.result),
+            "http_requests": stage.http_requests,
+            "response_content_bytes": stage.response_content_bytes,
+            "raw_bundle_keys": list(stage.raw_bundle_keys),
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -335,89 +237,97 @@ def checkpoint_bytes(plan: RunPlan, checkpoint: Checkpoint) -> bytes:
     ).encode()
 
 
-def _checkpoint_object(items: list[tuple[str, object]]) -> dict[str, object]:
+def _stage_object(items: list[tuple[str, object]]) -> dict[str, object]:
     result: dict[str, object] = {}
     for key, value in items:
         if key in result:
-            raise ValueError("duplicate external assessment checkpoint field")
+            raise ValueError("duplicate external assessment stage field")
         result[key] = value
     return result
 
 
-def load_checkpoint(plan: RunPlan, payload: bytes) -> Checkpoint:
-    value = json.loads(payload, object_pairs_hook=_checkpoint_object)
+def load_stage(plan: RunPlan, payload: bytes) -> CohortStage:
+    value = json.loads(payload, object_pairs_hook=_stage_object)
     if (
         not isinstance(value, dict)
         or set(value)
-        != {
-            "format",
-            "journal",
-            "requests_started",
-            "confirmed_http_requests",
-            "response_content_bytes",
-            "last_response_finished_at_utc",
-            "retry_states",
-        }
-        or value["format"] != CHECKPOINT_FORMAT
+        != {"format", "result", "http_requests", "response_content_bytes", "raw_bundle_keys"}
+        or value["format"] != STAGE_FORMAT
+        or not isinstance(value["raw_bundle_keys"], list)
     ):
-        raise ValueError("invalid external assessment checkpoint")
-    finished = value["last_response_finished_at_utc"]
-    if finished is not None and not isinstance(finished, str):
-        raise ValueError("invalid external assessment response timestamp")
-    retries = value["retry_states"]
-    if not isinstance(retries, list):
-        raise ValueError("invalid external assessment retry states")
-    retry_states = []
-    for item in retries:
-        if (
-            not isinstance(item, dict)
-            or set(item)
-            != {"source", "ticker", "retries_used", "next_retry_utc", "retry_after_unrepresentable"}
-            or (item["next_retry_utc"] is not None and not isinstance(item["next_retry_utc"], str))
-        ):
-            raise ValueError("invalid external assessment retry fields")
-        retry_states.append(
-            PairRetryState(
-                item["source"],
-                item["ticker"],
-                item["retries_used"],
-                datetime.fromisoformat(item["next_retry_utc"])
-                if item["next_retry_utc"] is not None
-                else None,
-                item["retry_after_unrepresentable"],
-            )
-        )
-    checkpoint = Checkpoint(
-        load_journal(plan, json.dumps(value["journal"]).encode()),
-        value["requests_started"],
-        value["confirmed_http_requests"],
+        raise ValueError("invalid external assessment cohort stage")
+    return CohortStage(
+        load_result(plan, value["result"]),
+        value["http_requests"],
         value["response_content_bytes"],
-        datetime.fromisoformat(finished) if finished is not None else None,
-        tuple(retry_states),
+        tuple(value["raw_bundle_keys"]),
     )
-    maximum = sum(
-        (2 if source == "rakuten" else 1)
-        * (1 + (retry.retries_used if (retry := checkpoint.retry_for(source, ticker)) else 0))
-        for source, ticker in plan.cohorts[checkpoint.journal.cohort_index].pairs
-    )
-    if checkpoint.requests_started > maximum:
-        raise ValueError("external assessment request count exceeds fixed cohort budget")
-    return checkpoint
 
 
-def checkpoint_key(plan: RunPlan, index: int) -> str:
+def stage_key(plan: RunPlan, index: int) -> str:
     if type(index) is not int or not 0 <= index < len(plan.cohorts):
         raise ValueError("invalid external assessment cohort index")
     return prefix(plan.run_id) + f"/cohort-{index:04d}.json"
 
 
-def read_checkpoints(store: ObjectStore, plan: RunPlan) -> dict[int, tuple[Checkpoint, str]]:
-    result = {}
-    for cohort in plan.cohorts:
-        saved = read_private(store, checkpoint_key(plan, cohort.index))
-        if saved is not None:
-            checkpoint = load_checkpoint(plan, saved.payload)
-            if checkpoint.journal.cohort_index != cohort.index:
-                raise ValueError("external assessment checkpoint cohort identity mismatch")
-            result[cohort.index] = checkpoint, saved.etag
-    return result
+def read_stage(store: ObjectStore, plan: RunPlan, index: int) -> tuple[CohortStage, str] | None:
+    saved = read_private(store, stage_key(plan, index))
+    if saved is None:
+        return None
+    stage = load_stage(plan, saved.payload)
+    if stage.result.cohort_index != index:
+        raise ValueError("external assessment stage cohort identity mismatch")
+    return stage, saved.etag
+
+
+def read_stages(store: ObjectStore, plan: RunPlan) -> dict[int, tuple[CohortStage, str]]:
+    return {
+        cohort.index: saved
+        for cohort in plan.cohorts
+        if (saved := read_stage(store, plan, cohort.index)) is not None
+    }
+
+
+def _require_extension(previous: CohortStage, candidate: CohortStage) -> None:
+    if (
+        previous.result.plan_sha256 != candidate.result.plan_sha256
+        or previous.result.cohort_index != candidate.result.cohort_index
+        or len(previous.result.entries) != len(candidate.result.entries)
+        or any(
+            old != new and old.state != "unattempted"
+            for old, new in zip(previous.result.entries, candidate.result.entries, strict=True)
+        )
+        or candidate.http_requests < previous.http_requests
+        or candidate.response_content_bytes < previous.response_content_bytes
+        or candidate.raw_bundle_keys[: len(previous.raw_bundle_keys)] != previous.raw_bundle_keys
+    ):
+        raise ValueError("saved cohort outcomes and receipt times cannot change")
+
+
+def commit_stage(
+    store: ObjectStore,
+    plan: RunPlan,
+    stage: CohortStage,
+    *,
+    previous: tuple[CohortStage, str] | None,
+) -> CohortStage:
+    """Commit once; on an ambiguous PUT adopt the actual saved outcome, never overwrite it."""
+    if previous is not None:
+        _require_extension(previous[0], stage)
+    try:
+        put_private(
+            store,
+            stage_key(plan, stage.result.cohort_index),
+            stage_bytes(plan, stage),
+            previous_etag=previous[1] if previous else None,
+        )
+        return stage
+    except Exception:
+        saved = read_stage(store, plan, stage.result.cohort_index)
+        if saved is None:
+            raise
+        if previous is not None:
+            _require_extension(previous[0], saved[0])
+        # A competing writer's receipt is authoritative, including its timestamps.
+        # The caller reports any still-unrecorded pairs and does not retry a PUT.
+        return saved[0]

@@ -6,7 +6,7 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
-from baibai_batch.jobs.external_assessment_cohorts import RunPlan, summarize, validate_resume
+from baibai_batch.jobs.external_assessment_cohorts import RunPlan, summarize
 from baibai_batch.storage.external_assessment_identity import (
     PARTIAL_TERMINAL_FORMAT,
     PUBLISHED_FORMAT,
@@ -14,8 +14,8 @@ from baibai_batch.storage.external_assessment_identity import (
 from baibai_batch.storage.external_assessment_staging import (
     prefix,
     put_private,
-    read_checkpoints,
     read_private,
+    read_stages,
     read_terminal,
     terminal_status,
 )
@@ -110,14 +110,18 @@ def publish_and_verify(
             "publication_transfers": None,
         }
     verify_held(store, handle)
-    checkpoints = read_checkpoints(store, plan)
-    journals = [checkpoint.journal for checkpoint, _ in checkpoints.values()]
-    if not confirmed_partial:
-        validate_resume(plan, journals)
-    accounting = summarize(plan, journals, require_all=not confirmed_partial)
+    stages = read_stages(store, plan)
+    results = [stage.result for stage, _ in stages.values()]
+    if not confirmed_partial and any(
+        entry.http_status in {403, 429} for result in results for entry in result.entries
+    ):
+        raise ValueError(
+            "blocked provider response requires explicit confirmed partial publication"
+        )
+    accounting = summarize(plan, results, require_all=not confirmed_partial)
     if not confirmed_partial and not accounting["attempted_completeness"]:
         raise ValueError("external assessment publication requires all fixed pairs attempted")
-    observations = tuple(item for journal in journals for item in journal.observations)
+    observations = tuple(item for result in results for item in result.observations)
     if confirmed_partial and not observations:
         raise ValueError(
             "external assessment partial publication requires confirmed typed observations"
@@ -241,7 +245,7 @@ def publish_and_verify(
         "publication_transfers": publication.transfers.as_dict() if publication else None,
         "publication_transfers_scope": (
             "immutable_graph_and_pointer_only; "
-            "excludes lease/checkpoint/base-resolve/hydrate/independent-readback"
+            "excludes lease/stage/base-resolve/hydrate/independent-readback"
         ),
         # Manifest sizes describe the readback scope, not actual transfers/cache hits.
         "current_reachable_expected_parquet_bytes": sum(reachable.values()),

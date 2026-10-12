@@ -65,57 +65,13 @@ class Session(requests.Session):
         return response
 
 
-def pair(
-    client, *, source="monex", ticker="7203", before=None, outcome=None, response=None, **kwargs
-):
+def pair(client, *, source="monex", ticker="7203", response=None, **kwargs):
     return collection.collect_pair(
         ticker,
         source=source,
-        before_request=before if before is not None else lambda: None,
-        on_outcome=outcome if outcome is not None else lambda result: None,
         on_response=response,
         session=client,
         **kwargs,
-    )
-
-
-def test_pair_callbacks_surround_each_http_and_confirm_once(clock):
-    events, finishes, completed = [], [], []
-    pages = [official_html(), rakuten_html()]
-    client = Session([(200, html) for html in pages], clock=clock, events=events)
-
-    def finished(received, requests_count, content_bytes):
-        finishes.append((received, requests_count, content_bytes))
-        events.append("response")
-
-    def confirmed(result):
-        completed.append(result)
-        events.append("outcome")
-
-    before = datetime.now(UTC)
-    result = pair(
-        client,
-        source="rakuten",
-        before=lambda: events.append("before"),
-        response=finished,
-        outcome=confirmed,
-    )
-    after = datetime.now(UTC)
-    assert events == ["before", "request", "response", "before", "request", "response", "outcome"]
-    assert [count for _, count, _ in finishes] == [1, 2]
-    assert [size for _, _, size in finishes] == [len(html.encode()) for html in pages]
-    assert all(
-        before <= received <= after and received.tzinfo is UTC for received, _, _ in finishes
-    )
-    assert result.last_response_finished_at_utc == finishes[-1][0]
-    assert result.response_content_bytes == sum(len(html.encode()) for html in pages)
-    assert result.requests == 2
-    assert completed == [result]
-    assert result.observations[0].fetched_at_utc == finishes[-1][0]
-    assert client.calls[1][2] - client.finished[0] >= 2
-    assert client.calls[-1][0].endswith("bcode=7203.T")
-    assert all(
-        call[1]["allow_redirects"] is False and call[1]["timeout"] <= 30 for call in client.calls
     )
 
 
@@ -127,7 +83,7 @@ def test_fresh_pair_and_resumed_collector_wait_after_previous_response(clock):
     assert second.calls[0][2] - first.finished[-1] >= 2
 
 
-def test_response_checkpoint_delay_preserves_receipt_and_jst_date(clock, monkeypatch):
+def test_response_callback_delay_preserves_receipt_and_jst_date(clock, monkeypatch):
     original_datetime = datetime
     baseline = original_datetime(2026, 10, 10, 14, 59, 56, 750000, tzinfo=UTC)
 
@@ -150,42 +106,22 @@ def test_response_checkpoint_delay_preserves_receipt_and_jst_date(clock, monkeyp
     assert result.last_response_finished_at_utc == finishes[-1]
 
 
-def test_initial_pacing_deadline_is_zero_requests_without_reservation(clock):
-    before, completed = [], []
+def test_initial_pacing_deadline_is_zero_requests(clock):
     client = Session([], clock=clock)
-    result = pair(
-        client, before=lambda: before.append(True), outcome=completed.append, time_limit_seconds=1
-    )
+    result = pair(client, time_limit_seconds=1)
     assert result.requests == 0
     assert not client.calls
-    assert before == completed == []
     assert result.outcomes[0].status == "not_attempted"
     assert result.stop_reason == "wall_clock_limit"
     assert result.response_content_bytes == 0
 
 
-def test_deadline_after_reservation_is_uncertain_even_without_transport(clock):
-    completed = []
-    client = Session([], clock=clock)
-
-    def reserve():
-        clock.now += 3
-
-    result = pair(client, before=reserve, outcome=completed.append, time_limit_seconds=3)
-    assert result.requests == 0
-    assert not client.calls
-    assert completed == []
-    assert result.stop_reason == "uncertain_inflight"
-
-
 @pytest.mark.parametrize(("status", "reason"), [(403, "access_denied"), (429, "rate_limited")])
 def test_access_limits_request_whole_run_halt_with_confirmed_status(clock, status, reason):
-    completed = []
     client = Session([(status, "synthetic denied page")], clock=clock)
-    result = pair(client, outcome=completed.append)
+    result = pair(client)
     assert result.stop_reason == reason
     assert result.outcomes[0].http_status == status
-    assert completed == [result]
     assert result.requests == 1
     assert not result.observations
 
@@ -208,12 +144,11 @@ def test_verified_null_and_numeric_results_remain_typed(clock, value):
 
 @pytest.mark.parametrize("ticker", ["1301", "130A", "7203", "6091"])
 def test_identity_unknown_is_fixed_failure_without_null_observation(clock, ticker):
-    completed = []
     client = Session(
         [(200, official_html(ticker)), (200, rakuten_no_estimates_html())],
         clock=clock,
     )
-    result = pair(client, source="rakuten", ticker=ticker, outcome=completed.append)
+    result = pair(client, source="rakuten", ticker=ticker)
     assert result.outcomes == (
         collection.CollectionOutcome(
             "rakuten", ticker, "parse_failure", "no_estimates_identity_unconfirmed", 200
@@ -222,85 +157,39 @@ def test_identity_unknown_is_fixed_failure_without_null_observation(clock, ticke
     assert not result.observations
     assert result.stop_reason is None
     assert result.requests == 2
-    assert completed == [result]
     assert [call[0] for call in client.calls] == [
         rakuten.public_url(ticker),
         rakuten.IFRAME_BASE + rakuten.IFRAME_PARAMETER + ticker + ".T",
     ]
 
 
-def test_wall_clock_interruption_after_transport_keeps_inflight(clock):
-    completed = []
+def test_wall_clock_interruption_after_transport_reports_timeout(clock):
     client = Session([collection._TimeLimit()], clock=clock)
-    result = pair(client, outcome=completed.append)
+    result = pair(client)
     assert result.requests == 1
-    assert result.stop_reason == "uncertain_inflight"
-    assert completed == []
+    assert result.stop_reason == "wall_clock_limit"
     assert result.response_content_bytes == 0
 
 
-def test_interruption_after_403_body_before_classification_remains_uncertain(clock):
-    completed = []
+def test_interruption_after_403_body_before_classification_reports_timeout(clock):
     client = Session([(403, "synthetic denial")], clock=clock)
 
     def response(*args):
         raise collection._TimeLimit
 
-    result = pair(client, response=response, outcome=completed.append)
+    result = pair(client, response=response)
     assert result.requests == 1
-    assert result.stop_reason == "uncertain_inflight"
-    assert completed == []
+    assert result.stop_reason == "wall_clock_limit"
     assert result.last_response_finished_at_utc is not None
 
 
 def test_normal_request_timeout_is_confirmed_without_retry(clock):
-    completed = []
     client = Session([requests.Timeout("private-secret")], clock=clock)
-    result = pair(client, outcome=completed.append)
+    result = pair(client)
     assert result.requests == 1
     assert result.outcomes[0].status == "request_timeout"
     assert result.stop_reason is None
-    assert completed == [result]
     assert "private-secret" not in str(result.summary())
-
-
-@pytest.mark.parametrize("which", ["before", "response", "outcome"])
-def test_checkpoint_exceptions_never_become_source_failure(clock, which):
-    completed = []
-    client = Session([(200, monex_html())], clock=clock)
-
-    def fail(*args):
-        raise requests.Timeout("private signed URL")
-
-    kwargs = {which: fail, "outcome": completed.append} if which != "outcome" else {"outcome": fail}
-    with pytest.raises(RuntimeError, match=r"^pair_checkpoint_callback_failed$"):
-        pair(client, **kwargs)
-    assert completed == []
-    assert len(client.calls) == (0 if which == "before" else 1)
-
-
-def test_real_timer_includes_slow_checkpoint_without_starting_http(monkeypatch):
-    monkeypatch.setattr(collection, "MIN_REQUEST_INTERVAL_SECONDS", 0)
-    completed = []
-    client = Session([])
-    start = time.monotonic()
-    result = pair(
-        client, before=lambda: time.sleep(5), outcome=completed.append, time_limit_seconds=0.05
-    )
-    assert time.monotonic() - start < 1
-    assert result.requests == 0
-    assert result.stop_reason == "uncertain_inflight"
-    assert completed == []
-
-
-def test_real_timer_includes_outcome_checkpoint(monkeypatch):
-    monkeypatch.setattr(collection, "MIN_REQUEST_INTERVAL_SECONDS", 0)
-    client = Session([(200, monex_html())])
-    start = time.monotonic()
-    result = pair(client, outcome=lambda result: time.sleep(5), time_limit_seconds=0.05)
-    assert time.monotonic() - start < 1
-    assert result.requests == 1
-    assert result.stop_reason == "uncertain_inflight"
 
 
 @pytest.mark.parametrize("setting", ["trust_env", "verify", "retry"])
@@ -326,12 +215,10 @@ def test_pair_refuses_proxy_tls_bypass_and_retry_configuration(clock, setting):
         {"ticker": "invalid"},
     ],
 )
-def test_pair_invalid_limits_or_identity_never_reserve_or_request(clock, kwargs):
+def test_pair_invalid_limits_or_identity_never_request(clock, kwargs):
     client = Session([], clock=clock)
-    reserved = []
     with pytest.raises(ValueError, match=r"ticker|source|limit|timeout"):
-        pair(client, before=lambda: reserved.append(True), **kwargs)
-    assert not reserved
+        pair(client, **kwargs)
     assert not client.calls
 
 
@@ -345,3 +232,34 @@ def test_facade_and_policy_binding_are_deterministic_and_parser_sensitive(monkey
     assert binding == batch_api.external_assessment_collector_binding()
     monkeypatch.setattr(parser, "PARSER_VERSION", "synthetic-next-parser")
     assert binding != batch_api.external_assessment_collector_binding()
+
+
+def test_two_http_receipt_times_and_content_accounting_without_durable_callbacks(clock):
+    pages = [official_html(), rakuten_html()]
+    client = Session([(200, html) for html in pages], clock=clock)
+    received = []
+    result = pair(client, source="rakuten", on_received_html=received.append)
+    assert result.requests == 2
+    assert result.response_content_bytes == sum(len(html.encode()) for html in pages)
+    assert result.observations[0].fetched_at_utc == received[-1].fetched_at_utc
+    assert result.last_response_finished_at_utc == received[-1].fetched_at_utc
+    assert [item.body for item in received] == [html.encode() for html in pages]
+    assert all(
+        call[1]["allow_redirects"] is False and call[1]["timeout"] <= 30 for call in client.calls
+    )
+
+
+def test_real_timer_interrupts_hanging_body_and_returns_controlled_timeout(monkeypatch):
+    monkeypatch.setattr(collection, "MIN_REQUEST_INTERVAL_SECONDS", 0)
+
+    class Hanging(Session):
+        def get(self, url, **kwargs):
+            time.sleep(5)
+            raise AssertionError("finite timer should interrupt")
+
+    start = time.monotonic()
+    result = pair(Hanging([]), time_limit_seconds=0.05)
+    assert time.monotonic() - start < 1
+    assert result.requests == 1
+    assert result.outcomes[0].status == "request_timeout"
+    assert result.stop_reason == "wall_clock_limit"

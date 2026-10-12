@@ -29,7 +29,6 @@ COUNTERS = (
     "typed_pairs",
     "known_failure_pairs",
     "normal_null_pairs",
-    "uncertain_pairs",
     "unattempted_pairs",
     "rows_added",
 )
@@ -50,7 +49,6 @@ def build_parser() -> argparse.ArgumentParser:
     for counter in COUNTERS:
         parser.add_argument(f"--{counter.replace('_', '-')}", type=_counter, default=None)
     parser.add_argument("--cancelled", choices=("true", "false"), default="false")
-    parser.add_argument("--retry-only", choices=("true", "false"), default="false")
     parser.add_argument(
         "--terminal-status",
         choices=("pending", "already_published", "already_partially_published"),
@@ -86,12 +84,7 @@ def render_message(args: argparse.Namespace) -> str:
         complete_counts = all(getattr(args, name) is not None for name in COUNTERS)
         consistent_counts = complete_counts and (
             args.expected_pairs > 0
-            and (
-                args.typed_pairs
-                + args.known_failure_pairs
-                + args.uncertain_pairs
-                + args.unattempted_pairs
-            )
+            and (args.typed_pairs + args.known_failure_pairs + args.unattempted_pairs)
             == args.expected_pairs
             and args.normal_null_pairs <= args.typed_pairs
             and args.rows_added <= args.typed_pairs
@@ -100,7 +93,7 @@ def render_message(args: argparse.Namespace) -> str:
             outcome, detail = OUTCOME_DEGRADED, "確定観測のみ部分公開確認済み・batch 取得再開なし"
             if not consistent_counts:
                 detail += "・品質件数不明"
-        elif not consistent_counts or args.uncertain_pairs != 0 or args.unattempted_pairs != 0:
+        elif not consistent_counts or args.unattempted_pairs != 0:
             outcome, detail = OUTCOME_DEGRADED, "公開確認済み・品質件数不明"
         elif args.known_failure_pairs > 0:
             outcome, detail = OUTCOME_DEGRADED, "公開確認済み・既知の取得/parse 失敗あり"
@@ -112,11 +105,6 @@ def render_message(args: argparse.Namespace) -> str:
         outcome, detail = OUTCOME_FAILED, "取得停止/未完了・この run の公開なし・停止原因未確認"
     elif args.publish_result == "failure":
         outcome, detail = OUTCOME_FAILED, "publish 失敗・公開確認未完了"
-    elif args.retry_only == "true" and args.acquire_result == "success":
-        outcome, detail = (
-            OUTCOME_DEGRADED,
-            "429再試行枠完了・未公開・同batchの再dispatchが必要",
-        )
     else:
         outcome, detail = OUTCOME_SKIPPED, "この run の公開なし"
 
@@ -130,7 +118,7 @@ def render_message(args: argparse.Namespace) -> str:
         f"\n固定 pair={count('expected_pairs')}; typed pair={count('typed_pairs')}; "
         f"既知失敗 pair={count('known_failure_pairs')}; "
         f"全評価値 null pair={count('normal_null_pairs')}; 追加 row={count('rows_added')}"
-        f"\n未確定 pair={count('uncertain_pairs')}; 未試行 pair={count('unattempted_pairs')}"
+        f"\n未記録 pair={count('unattempted_pairs')}"
         f"\nexecutor: {executor_label(os.environ)}"
         f"\nrun: {sanitize_one_line(run_url(os.environ), 420)}"
     )

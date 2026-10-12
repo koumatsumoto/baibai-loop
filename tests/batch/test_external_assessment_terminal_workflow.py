@@ -71,12 +71,10 @@ def test_real_cli_plan_publication_seal_and_resume_route_to_one_safe_notice(
         raise AssertionError("confirmed stage must not acquire provider responses")
 
     monkeypatch.setattr(daily, "external_assessment_collect_pair", forbidden_http)
-    journals = staging.read_checkpoints(store, original_plan)
+    journals = staging.read_stages(store, original_plan)
     for index, (checkpoint, _) in journals.items():
-        rebound = replace(
-            checkpoint, journal=replace(checkpoint.journal, plan_sha256=p.plan_sha256)
-        )
-        store.store_object(staging.checkpoint_key(p, index), staging.checkpoint_bytes(p, rebound))
+        rebound = replace(checkpoint, result=replace(checkpoint.result, plan_sha256=p.plan_sha256))
+        store.store_object(staging.stage_key(p, index), staging.stage_bytes(p, rebound))
     staging.save_new_plan(store, p)
     monkeypatch.setattr(daily, "Boto3R2Store", lambda **kwargs: store)
     from baibai_batch.jobs import external_assessment_publication as external_assessment_publication
@@ -112,7 +110,7 @@ def test_real_cli_plan_publication_seal_and_resume_route_to_one_safe_notice(
     assert "needs.plan.outputs.cohorts == '[]'" in workflow["jobs"]["publish"]["if"]
     assert "needs.plan.outputs.cohorts != '[]'" in workflow["jobs"]["acquire"]["if"]
     if partial:
-        # Normal acquisition is globally halted by the saved uncertain marker.
+        # Pending pairs are eligible; the fixture refuses provider acquisition.
         assert daily.main(["acquire", "--run-id", p.run_id, "--cohort", "1"]) == 1
     report_path = tmp_path / "publish-output"
     monkeypatch.setenv("GITHUB_OUTPUT", str(report_path))
@@ -137,14 +135,13 @@ def test_real_cli_plan_publication_seal_and_resume_route_to_one_safe_notice(
     message = notify_from_outputs(monkeypatch, current, partial=partial, acquire_skipped=True)
     assert message.startswith("[DEGRADED]")  # full fixture has one known parse failure
     if partial:
-        assert current["external_assessment_uncertain_pairs"] == "1"
-        assert current["external_assessment_unattempted_pairs"] == "2"
+        assert current["external_assessment_unattempted_pairs"] == "3"
         assert "確定観測のみ部分公開確認済み" in message
     # A terminal remains authoritative after trial checkpoints are removed.
     terminal = staging.read_terminal(store, p)
     original_receipt = store.values[staging.prefix(p.run_id) + "/published.json"].body
     for cohort in p.cohorts:
-        store.values.pop(staging.checkpoint_key(p, cohort.index), None)
+        store.values.pop(staging.stage_key(p, cohort.index), None)
     store.get_keys.clear()
     store.head_keys.clear()
     store.put_keys.clear()
@@ -153,7 +150,7 @@ def test_real_cli_plan_publication_seal_and_resume_route_to_one_safe_notice(
         raise AssertionError("sealed workflow must skip acquisition and fresh publication")
 
     monkeypatch.setattr(daily, "external_assessment_collect_pair", forbidden)
-    monkeypatch.setattr(daily, "read_checkpoints", forbidden)
+    monkeypatch.setattr(daily, "read_stages", forbidden)
     monkeypatch.setattr(external_assessment_publication, "publish_and_verify", forbidden)
     monkeypatch.setattr(publication_lease, "_load_handle", forbidden)
     repeated_output = tmp_path / "repeat-output"

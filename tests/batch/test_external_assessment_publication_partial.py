@@ -10,16 +10,15 @@ from tests.batch.test_external_assessment_publication import publication as publ
 from baibai_batch.jobs import external_assessment_publication as retail
 from baibai_batch.jobs.external_assessment_cohorts import (
     make_plan,
-    mark_inflight,
-    new_journal,
+    new_result,
     record_outcome,
 )
 from baibai_batch.storage.external_assessment_staging import (
-    Checkpoint,
-    checkpoint_bytes,
-    checkpoint_key,
+    CohortStage,
     prefix,
     read_terminal,
+    stage_bytes,
+    stage_key,
 )
 from baibai_batch.storage.lake_publish import LakePublishError
 from baibai_batch.storage.publication_lease import LeaseError, release
@@ -63,9 +62,8 @@ def partial_batch(publication):
             rating_updated_label="synthetic-normal-null",
         ),
     )
-    confirmed = new_journal(plan, 0)
+    confirmed = new_result(plan, 0)
     for observation in observations:
-        confirmed = mark_inflight(plan, confirmed, observation.distributor, "130A")
         confirmed = record_outcome(
             plan,
             confirmed,
@@ -74,7 +72,7 @@ def partial_batch(publication):
             ),
             observation,
         )
-    halted = mark_inflight(plan, new_journal(plan, 1), "monex", "6758")
+    halted = new_result(plan, 1)
     halted = record_outcome(
         plan,
         halted,
@@ -82,14 +80,13 @@ def partial_batch(publication):
             "monex", "6758", "parse_failure", "missing_theory_table", 200
         ),
     )
-    halted = mark_inflight(plan, halted, "rakuten", "6758")
     for checkpoint in (
-        Checkpoint(confirmed, requests_started=3, confirmed_http_requests=3),
-        Checkpoint(halted, requests_started=2, confirmed_http_requests=1),
+        CohortStage(confirmed, http_requests=3),
+        CohortStage(halted, http_requests=1),
     ):
         store.store_object(
-            checkpoint_key(plan, checkpoint.journal.cohort_index),
-            checkpoint_bytes(plan, checkpoint),
+            stage_key(plan, checkpoint.result.cohort_index),
+            stage_bytes(plan, checkpoint),
         )
     # Cohort 2 was never entered; partial publication must not manufacture it.
     return store, plan, handle, database, mirror, directory, observations
@@ -119,7 +116,7 @@ def test_explicit_partial_publishes_only_confirmed_receipts_without_changing_hal
     original = checkpoint_payloads(store)
     history = external_assessment_history_digests(database)
     puts = len(store.put_keys)
-    with pytest.raises(ValueError, match="halted"):
+    with pytest.raises(ValueError, match=r"missing cohort|blocked provider"):
         publish_partial(partial_batch, confirmed_partial=False)
     assert external_assessment_history_digests(database) == history
     assert len(store.put_keys) == puts
@@ -129,8 +126,7 @@ def test_explicit_partial_publishes_only_confirmed_receipts_without_changing_hal
         "success": 1,
         "normal_null": 1,
         "failure": 1,
-        "uncertain": 1,
-        "unattempted": 2,
+        "unattempted": 3,
     }
     expected_coverage = {
         "2026-09-30": {"monex": 1, "rakuten": 0},
@@ -148,11 +144,9 @@ def test_explicit_partial_publishes_only_confirmed_receipts_without_changing_hal
     assert report["success_completeness"] is False
     assert report["missing_cohorts"] == 1
     assert report["unrecorded_pairs"] == 2
-    assert report["halt_reasons"] == {"inflight_uncertain": 1}
     assert report["reason_counts"]["missing_theory_table"] == 1
-    assert report["reason_counts"]["inflight"] == 1
     assert checkpoint_payloads(store) == original
-    assert checkpoint_key(plan, 2) not in store.values
+    assert stage_key(plan, 2) not in store.values
     external_assessment_verify_observations(database, observations)
     terminal = read_terminal(store, plan)
     assert terminal == {
@@ -173,35 +167,33 @@ def test_explicit_partial_keeps_global_access_halt_and_never_attempted_pairs(
     partial_batch, reason, status
 ):
     store, plan, _, _, _, _, _ = partial_batch
-    journal = mark_inflight(plan, new_journal(plan, 1), "monex", "6758")
+    journal = new_result(plan, 1)
     journal = record_outcome(
         plan, journal, ExternalAssessmentCollectionOutcome("monex", "6758", reason, None, status)
     )
     store.store_object(
-        checkpoint_key(plan, 1),
-        checkpoint_bytes(plan, Checkpoint(journal, requests_started=1, confirmed_http_requests=1)),
+        stage_key(plan, 1),
+        stage_bytes(plan, CohortStage(journal, http_requests=1)),
     )
     original = checkpoint_payloads(store)
-    with pytest.raises(ValueError, match="halted"):
+    with pytest.raises(ValueError, match=r"missing cohort|blocked provider"):
         publish_partial(partial_batch, confirmed_partial=False)
     report = publish_partial(partial_batch)
     assert report["rows_added"] == report["observations"] == 2
-    assert report["halt_reasons"] == {reason: 1}
     assert report["state_counts"] == {
         "success": 1,
         "normal_null": 1,
         "failure": 1,
         "unattempted": 3,
-        "uncertain": 0,
     }
     assert report["reason_counts"][reason] == 1
     assert checkpoint_payloads(store) == original
-    assert checkpoint_key(plan, 2) not in store.values
+    assert stage_key(plan, 2) not in store.values
 
 
 def test_partial_requires_at_least_one_confirmed_typed_observation(partial_batch):
     store, plan, _, database, _, directory, _ = partial_batch
-    del store.values[checkpoint_key(plan, 0)]
+    del store.values[stage_key(plan, 0)]
     original = checkpoint_payloads(store)
     history = external_assessment_history_digests(database)
     puts = len(store.put_keys)
@@ -217,14 +209,14 @@ def test_partial_requires_at_least_one_confirmed_typed_observation(partial_batch
 @pytest.mark.parametrize("corruption", ["binding", "duplicate_pair", "observation_identity"])
 def test_partial_still_validates_fixed_binding_and_exact_pair_payload(partial_batch, corruption):
     store, plan, _, database, _, _, _ = partial_batch
-    key = checkpoint_key(plan, 0)
+    key = stage_key(plan, 0)
     checkpoint = json.loads(store.values[key].body)
     if corruption == "binding":
-        checkpoint["journal"]["plan_sha256"] = "a" * 64
+        checkpoint["result"]["plan_sha256"] = "a" * 64
     elif corruption == "duplicate_pair":
-        checkpoint["journal"]["entries"][1] = checkpoint["journal"]["entries"][0]
+        checkpoint["result"]["entries"][1] = checkpoint["result"]["entries"][0]
     else:
-        checkpoint["journal"]["entries"][0]["observation"]["ticker"] = "6758"
+        checkpoint["result"]["entries"][0]["observation"]["ticker"] = "6758"
     store.store_object(key, json.dumps(checkpoint).encode())
     history = external_assessment_history_digests(database)
     original = checkpoint_payloads(store)
@@ -294,7 +286,7 @@ def test_published_receipt_short_circuits_without_checkpoints_lease_db_or_curren
         raise AssertionError("a sealed batch must return its original receipt without rereading")
 
     for name in (
-        "read_checkpoints",
+        "read_stages",
         "verify_held",
         "_serving_pointer",
         "_resolve_serving_release",
