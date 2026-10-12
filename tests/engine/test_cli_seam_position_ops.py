@@ -144,7 +144,7 @@ def test_operation_checkpoint_cli_replaces_the_active_payload(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     db = tmp_path / "app.sqlite"
-    binding = {"kind": "research_triage", "ref": "triage", "research_set": ["2331"]}
+    binding = {"kind": "research_selection", "request": "synthetic explicit request", "targets": []}
     start = tmp_path / "start.yaml"
     start.write_text(yaml.safe_dump({"checkpoint": "start", "artifacts": [binding]}))
     assert (
@@ -171,9 +171,9 @@ def test_operation_checkpoint_cli_replaces_the_active_payload(
     payload.write_text(
         yaml.safe_dump(
             {
-                "checkpoint": "research_triage reviewed",
+                "checkpoint": "fixed research checkpoint",
                 "artifacts": [binding],
-                "next": "wait for Research Set admission",
+                "next": "continue only the fixed selection",
             }
         ),
         encoding="utf-8",
@@ -186,14 +186,14 @@ def test_operation_checkpoint_cli_replaces_the_active_payload(
 
     assert code == 0
     emitted = _emitted(capsys)
-    assert emitted["payload"]["checkpoint"] == "research_triage reviewed"
+    assert emitted["payload"]["checkpoint"] == "fixed research checkpoint"
     with sqlite3.connect(db) as connection:
         row = connection.execute(
             "SELECT status, json_extract(payload, '$.checkpoint') "
             "FROM operation_session WHERE operation_id = ?",
             (operation_id,),
         ).fetchone()
-    assert tuple(row) == ("active", "research_triage reviewed")
+    assert tuple(row) == ("active", "fixed research checkpoint")
 
 
 def test_task_drop_cli_closes_the_row_on_the_operation_date(

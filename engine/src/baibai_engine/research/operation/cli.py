@@ -111,7 +111,9 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             _emit(operation.public(), output_format=args.format)
         elif args.command == "checkpoint":
             _emit(
-                service.checkpoint(args.operation_id, _load_payload(args.payload)).public(),
+                service.checkpoint(
+                    args.operation_id, _load_payload(args.payload), now=current_time
+                ).public(),
                 output_format=args.format,
             )
         elif args.command == "complete":

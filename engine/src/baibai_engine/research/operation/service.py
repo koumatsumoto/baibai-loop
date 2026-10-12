@@ -118,8 +118,12 @@ class OperationService:
                 raise
         return operation
 
-    def checkpoint(self, operation_id: str, payload: OperationPayload) -> OperationSession:
-        return self._replace_active(operation_id, payload=payload, completed_at=None)
+    def checkpoint(
+        self, operation_id: str, payload: OperationPayload, *, now: datetime | None = None
+    ) -> OperationSession:
+        return self._replace_active(
+            operation_id, payload=payload, completed_at=None, checked_at=now
+        )
 
     def complete(
         self,

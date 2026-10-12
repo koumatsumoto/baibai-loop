@@ -113,7 +113,7 @@ def prepare_workspace(
                     "human_confirmation": None,
                 }
             )
-            active = service.checkpoint(active.operation_id, payload)
+            active = service.checkpoint(active.operation_id, payload, now=now)
         elif recorded.research_triage_id != selection.research_triage_id or set(
             recorded.targets
         ) != set(selection.targets):
@@ -273,6 +273,7 @@ def prepare_holding_workspace(
                         )
                     }
                 ),
+                now=now,
             )
         if (
             selection is None
