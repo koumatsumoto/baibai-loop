@@ -17,7 +17,7 @@ from baibai_engine.external_assessment.tradingview.accepted import (
 from baibai_engine.external_assessment.tradingview.collector import preflight_snapshot
 from baibai_engine.external_assessment.tradingview.diagnostics import SourceDataError
 from baibai_engine.external_assessment.tradingview.observations import COLUMNS, FetchError
-from baibai_engine.storage.observations import open_connection
+from baibai_engine.storage.observations.schema import open_connection
 
 
 def document():

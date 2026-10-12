@@ -36,13 +36,13 @@ from baibai_engine.storage.lake.writer import (
     export_legacy_sqlite,
     sealed_sqlite_snapshot,
 )
-from baibai_engine.storage.observations import open_connection
 from baibai_engine.storage.observations.lake_origin import (
     LakeStoreOrigin,
     LakeStoreOriginError,
     read_lake_store_origin,
     write_lake_store_origin,
 )
+from baibai_engine.storage.observations.schema import open_connection
 from baibai_engine.storage.observations.snapshot import create_snapshot
 
 

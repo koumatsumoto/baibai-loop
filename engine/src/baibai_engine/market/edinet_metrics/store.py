@@ -23,7 +23,7 @@ from baibai_engine.market.providers.edinet import (
     EdinetMetricRecord,
     normalize_metric_record,
 )
-from baibai_engine.storage.observations import connect_current
+from baibai_engine.storage.observations.schema import connect_current
 from baibai_engine.storage.observations.snapshot_coverage import date_covered
 
 

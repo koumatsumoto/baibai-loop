@@ -14,15 +14,16 @@ ROOT = Path(__file__).resolve().parents[2]
 
 from tests.helpers.screening_sqlite import add_source_coverage, make_master_records
 
-from baibai_engine.market.providers.jquants import JQuantsProvider, JQuantsProviderError
+from baibai_engine.market.jquants_decode import JQuantsProviderError
+from baibai_engine.market.providers.jquants import JQuantsProvider
 from baibai_engine.screening.sqlite_coverage import plan_required_field_repair
-from baibai_engine.storage.observations import range_covered
-from baibai_engine.storage.observations.ingest import (
-    open_connection,
-    store_jquants_daily_bars,
+from baibai_engine.storage.observations.coverage import range_covered
+from baibai_engine.storage.observations.ingest.jquants import (
     store_jquants_fin_summaries,
     store_jquants_master,
 )
+from baibai_engine.storage.observations.jquants import store_jquants_daily_bars
+from baibai_engine.storage.observations.schema import open_connection
 
 
 class _RecordingClient:

@@ -23,7 +23,7 @@ from baibai_engine.screening.sqlite_coverage import (
     read_required_field_coverage,
     verify_screening_sqlite_coverage,
 )
-from baibai_engine.storage.observations.ingest import open_connection
+from baibai_engine.storage.observations.schema import open_connection
 
 _DATA_TABLES = (
     "jquants_daily_bars",

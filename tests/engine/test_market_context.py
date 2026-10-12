@@ -28,7 +28,7 @@ from baibai_engine.market_context.prices import read_price_bars
 from baibai_engine.market_context.sector import sector_relative_strength
 from baibai_engine.market_context.security import build_security_market_context
 from baibai_engine.market_context.snapshot import build_market_snapshot
-from baibai_engine.storage.observations.ingest import open_connection
+from baibai_engine.storage.observations.schema import open_connection
 
 ASOF = date(2026, 5, 29)
 

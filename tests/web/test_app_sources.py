@@ -11,7 +11,7 @@ from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import ScreeningRunStore
 from baibai_engine.storage.application.write import connect_rw
-from baibai_engine.storage.observations import open_connection
+from baibai_engine.storage.observations.schema import open_connection
 from baibai_web.sources.db_sources import (
     DbLedgerSource,
     DbMarketPriceSource,

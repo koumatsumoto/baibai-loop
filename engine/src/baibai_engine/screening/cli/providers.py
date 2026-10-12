@@ -12,6 +12,7 @@ from baibai_engine.market.bars import (
     JQuantsDailyBar,
     JQuantsMarketCalendarDay,
 )
+from baibai_engine.market.jpx_models import JPXEarningsCalendarSnapshot, JPXRegulationSnapshot
 from baibai_engine.market.jquants_models import (
     JQuantsAllIssuesDailyMargin,
     JQuantsFinancialSummary,
@@ -21,10 +22,6 @@ from baibai_engine.market.jquants_models import (
 )
 from baibai_engine.market.models import SecurityMaster
 from baibai_engine.market.providers.edinet import EdinetMetricRecord
-from baibai_engine.market.providers.jpx import (
-    JPXEarningsCalendarSnapshot,
-    JPXRegulationSnapshot,
-)
 
 
 class JQuantsAdapter(Protocol):

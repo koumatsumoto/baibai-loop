@@ -47,28 +47,28 @@ batch/src/baibai_batch/analysis/policy.py,unchanged,batch/src/baibai_batch/analy
 batch/src/baibai_batch/cli.py,update,batch/src/baibai_batch/cli.py,Batch,移設caller/import・名称・文書の整合
 batch/src/baibai_batch/jobs/__init__.py,unchanged,batch/src/baibai_batch/jobs/__init__.py,Batch,今回の配置対象外、現行を維持
 batch/src/baibai_batch/jobs/daily.py,unchanged,batch/src/baibai_batch/jobs/daily.py,Batch,今回の配置対象外、現行を維持
-batch/src/baibai_batch/jobs/retail_cohorts.py,move,batch/src/baibai_batch/jobs/external_assessment_cohorts.py,External Assessment,親決定の配置へ移設、caller/importを追従
-batch/src/baibai_batch/jobs/retail_daily.py,move,batch/src/baibai_batch/jobs/external_assessment_daily.py,External Assessment,親決定の配置へ移設、caller/importを追従
-batch/src/baibai_batch/jobs/retail_dynamics.py,move,batch/src/baibai_batch/jobs/external_assessment.py,External Assessment,親決定の配置へ移設、caller/importを追従
-batch/src/baibai_batch/jobs/retail_publication.py,move,batch/src/baibai_batch/jobs/external_assessment_publication.py,External Assessment,親決定の配置へ移設、caller/importを追従
+batch/src/baibai_batch/jobs/retail_cohorts.py,move,batch/src/baibai_batch/jobs/external_assessment_cohorts.py,Batch / External Assessment,親決定の配置へ移設、caller/importを追従
+batch/src/baibai_batch/jobs/retail_daily.py,move,batch/src/baibai_batch/jobs/external_assessment_daily.py,Batch / External Assessment,親決定の配置へ移設、caller/importを追従
+batch/src/baibai_batch/jobs/retail_dynamics.py,move,batch/src/baibai_batch/jobs/external_assessment.py,Batch / External Assessment,親決定の配置へ移設、caller/importを追従
+batch/src/baibai_batch/jobs/retail_publication.py,move,batch/src/baibai_batch/jobs/external_assessment_publication.py,Batch / External Assessment,親決定の配置へ移設、caller/importを追従
 batch/src/baibai_batch/jobs/schedule.py,update,batch/src/baibai_batch/jobs/schedule.py,Batch,移設caller/import・名称・文書の整合
 batch/src/baibai_batch/jobs/tradingview.py,unchanged,batch/src/baibai_batch/jobs/tradingview.py,Batch,今回の配置対象外、現行を維持
 batch/src/baibai_batch/jobs/tradingview_observations.py,unchanged,batch/src/baibai_batch/jobs/tradingview_observations.py,Batch,今回の配置対象外、現行を維持
 batch/src/baibai_batch/jobs/watchdog.py,unchanged,batch/src/baibai_batch/jobs/watchdog.py,Batch,今回の配置対象外、現行を維持
 batch/src/baibai_batch/observability/__init__.py,unchanged,batch/src/baibai_batch/observability/__init__.py,Batch,今回の配置対象外、現行を維持
 batch/src/baibai_batch/observability/discord.py,unchanged,batch/src/baibai_batch/observability/discord.py,Batch,今回の配置対象外、現行を維持
-batch/src/baibai_batch/observability/retail_discord.py,move,batch/src/baibai_batch/observability/external_assessment_discord.py,External Assessment,親決定の配置へ移設、caller/importを追従
+batch/src/baibai_batch/observability/retail_discord.py,move,batch/src/baibai_batch/observability/external_assessment_discord.py,Batch / External Assessment,親決定の配置へ移設、caller/importを追従
 batch/src/baibai_batch/observability/tradingview_discord.py,unchanged,batch/src/baibai_batch/observability/tradingview_discord.py,Batch,今回の配置対象外、現行を維持
 batch/src/baibai_batch/py.typed,unchanged,batch/src/baibai_batch/py.typed,Batch,今回の配置対象外、現行を維持
 batch/src/baibai_batch/storage/__init__.py,unchanged,batch/src/baibai_batch/storage/__init__.py,Batch,今回の配置対象外、現行を維持
-batch/src/baibai_batch/storage/lake_publish.py,unchanged,batch/src/baibai_batch/storage/lake_publish.py,Storage Lake,今回の配置対象外、現行を維持
+batch/src/baibai_batch/storage/lake_publish.py,unchanged,batch/src/baibai_batch/storage/lake_publish.py,Storage / Lake,今回の配置対象外、現行を維持
 batch/src/baibai_batch/storage/merge_indicator_store.py,unchanged,batch/src/baibai_batch/storage/merge_indicator_store.py,Batch,今回の配置対象外、現行を維持
 batch/src/baibai_batch/storage/merge_market_store.py,unchanged,batch/src/baibai_batch/storage/merge_market_store.py,Batch,今回の配置対象外、現行を維持
 batch/src/baibai_batch/storage/migrate_store.py,unchanged,batch/src/baibai_batch/storage/migrate_store.py,Batch,今回の配置対象外、現行を維持
 batch/src/baibai_batch/storage/publication_lease.py,unchanged,batch/src/baibai_batch/storage/publication_lease.py,Batch,今回の配置対象外、現行を維持
 batch/src/baibai_batch/storage/publish_market_lake.py,unchanged,batch/src/baibai_batch/storage/publish_market_lake.py,Batch,今回の配置対象外、現行を維持
-batch/src/baibai_batch/storage/retail_raw.py,move,batch/src/baibai_batch/storage/external_assessment_raw.py,External Assessment,親決定の配置へ移設、caller/importを追従
-batch/src/baibai_batch/storage/retail_staging.py,move,batch/src/baibai_batch/storage/external_assessment_staging.py,External Assessment,親決定の配置へ移設、caller/importを追従
+batch/src/baibai_batch/storage/retail_raw.py,move,batch/src/baibai_batch/storage/external_assessment_raw.py,Batch / External Assessment,親決定の配置へ移設、caller/importを追従
+batch/src/baibai_batch/storage/retail_staging.py,move,batch/src/baibai_batch/storage/external_assessment_staging.py,Batch / External Assessment,親決定の配置へ移設、caller/importを追従
 batch/src/baibai_batch/storage/sqlite_snapshot.py,unchanged,batch/src/baibai_batch/storage/sqlite_snapshot.py,Batch,今回の配置対象外、現行を維持
 batch/src/baibai_batch/storage/store_merge.py,unchanged,batch/src/baibai_batch/storage/store_merge.py,Batch,今回の配置対象外、現行を維持
 batch/src/baibai_batch/storage/tradingview_cooldown.py,unchanged,batch/src/baibai_batch/storage/tradingview_cooldown.py,Batch,今回の配置対象外、現行を維持
@@ -102,13 +102,13 @@ docs/reference/thesis.md,unchanged,docs/reference/thesis.md,Documentation,今回
 docs/reference/valuation-metrics.md,unchanged,docs/reference/valuation-metrics.md,Documentation,今回の配置対象外、現行を維持
 engine/README.md,unchanged,engine/README.md,Shared tooling/configuration,今回の配置対象外、現行を維持
 engine/src/baibai_engine/__init__.py,unchanged,engine/src/baibai_engine/__init__.py,Shared tooling/configuration,今回の配置対象外、現行を維持
-engine/src/baibai_engine/appdb/__init__.py,move,engine/src/baibai_engine/storage/application/__init__.py,Storage Application,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/appdb/cli.py,move,engine/src/baibai_engine/storage/application/cli.py,Storage Application,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/appdb/json.py,move,engine/src/baibai_engine/storage/application/json.py,Storage Application,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/appdb/paths.py,move,engine/src/baibai_engine/storage/application/paths.py,Storage Application,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/appdb/read.py,move,engine/src/baibai_engine/storage/application/read.py,Storage Application,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/appdb/schema.py,move,engine/src/baibai_engine/storage/application/schema.py,Storage Application,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/appdb/write.py,move,engine/src/baibai_engine/storage/application/write.py,Storage Application,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/appdb/__init__.py,move,engine/src/baibai_engine/storage/application/__init__.py,Storage / Application,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/appdb/cli.py,move,engine/src/baibai_engine/storage/application/cli.py,Storage / Application,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/appdb/json.py,move,engine/src/baibai_engine/storage/application/json.py,Storage / Application,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/appdb/paths.py,move,engine/src/baibai_engine/storage/application/paths.py,Storage / Application,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/appdb/read.py,move,engine/src/baibai_engine/storage/application/read.py,Storage / Application,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/appdb/schema.py,move,engine/src/baibai_engine/storage/application/schema.py,Storage / Application,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/appdb/write.py,move,engine/src/baibai_engine/storage/application/write.py,Storage / Application,親決定の配置へ移設、caller/importを追従
 engine/src/baibai_engine/batch_api.py,update,engine/src/baibai_engine/batch_api.py,Shared tooling/configuration,移設caller/import・名称・文書の整合
 engine/src/baibai_engine/cli.py,update,engine/src/baibai_engine/cli.py,Shared tooling/configuration,移設caller/import・名称・文書の整合
 engine/src/baibai_engine/external_assessment/__init__.py,unchanged,engine/src/baibai_engine/external_assessment/__init__.py,External Assessment,今回の配置対象外、現行を維持
@@ -207,24 +207,24 @@ engine/src/baibai_engine/market/edinet_metrics/store.py,update,engine/src/baibai
 engine/src/baibai_engine/market/jpx_sources.py,unchanged,engine/src/baibai_engine/market/jpx_sources.py,Market disclosures,今回の配置対象外、現行を維持
 engine/src/baibai_engine/market/jpx_total_return.py,unchanged,engine/src/baibai_engine/market/jpx_total_return.py,Market disclosures,今回の配置対象外、現行を維持
 engine/src/baibai_engine/market/jquants_models.py,unchanged,engine/src/baibai_engine/market/jquants_models.py,Market disclosures,今回の配置対象外、現行を維持
-engine/src/baibai_engine/market/lake/__init__.py,move,engine/src/baibai_engine/storage/lake/__init__.py,Storage Lake,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/lake/cli.py,move,engine/src/baibai_engine/storage/lake/cli.py,Storage Lake,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/lake/datasets.py,move,engine/src/baibai_engine/storage/lake/datasets.py,Storage Lake,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/lake/duck.py,move,engine/src/baibai_engine/storage/lake/duck.py,Storage Lake,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/lake/hydrate.py,move,engine/src/baibai_engine/storage/lake/hydrate.py,Storage Lake,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/lake/identity.py,move,engine/src/baibai_engine/storage/lake/identity.py,Storage Lake,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/lake/immutable.py,move,engine/src/baibai_engine/storage/lake/immutable.py,Storage Lake,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/lake/inventory.py,move,engine/src/baibai_engine/storage/lake/inventory.py,Storage Lake,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/lake/keys.py,move,engine/src/baibai_engine/storage/lake/keys.py,Storage Lake,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/lake/models.py,move,engine/src/baibai_engine/storage/lake/models.py,Storage Lake,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/lake/objects.py,move,engine/src/baibai_engine/storage/lake/objects.py,Storage Lake,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/lake/prefetch.py,move,engine/src/baibai_engine/storage/lake/prefetch.py,Storage Lake,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/lake/reader.py,move,engine/src/baibai_engine/storage/lake/reader.py,Storage Lake,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/lake/release.py,move,engine/src/baibai_engine/storage/lake/release.py,Storage Lake,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/lake/retention.py,move,engine/src/baibai_engine/storage/lake/retention.py,Storage Lake,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/lake/sources.py,move,engine/src/baibai_engine/storage/lake/sources.py,Storage Lake,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/lake/write_cli.py,move,engine/src/baibai_engine/storage/lake/write_cli.py,Storage Lake,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/lake/writer.py,move,engine/src/baibai_engine/storage/lake/writer.py,Storage Lake,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/lake/__init__.py,move,engine/src/baibai_engine/storage/lake/__init__.py,Storage / Lake,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/lake/cli.py,move,engine/src/baibai_engine/storage/lake/cli.py,Storage / Lake,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/lake/datasets.py,move,engine/src/baibai_engine/storage/lake/datasets.py,Storage / Lake,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/lake/duck.py,move,engine/src/baibai_engine/storage/lake/duck.py,Storage / Lake,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/lake/hydrate.py,move,engine/src/baibai_engine/storage/lake/hydrate.py,Storage / Lake,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/lake/identity.py,move,engine/src/baibai_engine/storage/lake/identity.py,Storage / Lake,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/lake/immutable.py,move,engine/src/baibai_engine/storage/lake/immutable.py,Storage / Lake,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/lake/inventory.py,move,engine/src/baibai_engine/storage/lake/inventory.py,Storage / Lake,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/lake/keys.py,move,engine/src/baibai_engine/storage/lake/keys.py,Storage / Lake,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/lake/models.py,move,engine/src/baibai_engine/storage/lake/models.py,Storage / Lake,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/lake/objects.py,move,engine/src/baibai_engine/storage/lake/objects.py,Storage / Lake,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/lake/prefetch.py,move,engine/src/baibai_engine/storage/lake/prefetch.py,Storage / Lake,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/lake/reader.py,move,engine/src/baibai_engine/storage/lake/reader.py,Storage / Lake,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/lake/release.py,move,engine/src/baibai_engine/storage/lake/release.py,Storage / Lake,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/lake/retention.py,move,engine/src/baibai_engine/storage/lake/retention.py,Storage / Lake,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/lake/sources.py,move,engine/src/baibai_engine/storage/lake/sources.py,Storage / Lake,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/lake/write_cli.py,move,engine/src/baibai_engine/storage/lake/write_cli.py,Storage / Lake,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/lake/writer.py,move,engine/src/baibai_engine/storage/lake/writer.py,Storage / Lake,親決定の配置へ移設、caller/importを追従
 engine/src/baibai_engine/market/margin_publication.py,unchanged,engine/src/baibai_engine/market/margin_publication.py,Market disclosures,今回の配置対象外、現行を維持
 engine/src/baibai_engine/market/master_snapshot.py,update,engine/src/baibai_engine/market/master_snapshot.py,Market disclosures,移設caller/import・名称・文書の整合
 engine/src/baibai_engine/market/metric_quality.py,unchanged,engine/src/baibai_engine/market/metric_quality.py,Market disclosures,今回の配置対象外、現行を維持
@@ -234,9 +234,9 @@ engine/src/baibai_engine/market/providers/__init__.py,unchanged,engine/src/baiba
 engine/src/baibai_engine/market/providers/edinet.py,update,engine/src/baibai_engine/market/providers/edinet.py,Market disclosures,移設caller/import・名称・文書の整合
 engine/src/baibai_engine/market/providers/edinet_csv.py,unchanged,engine/src/baibai_engine/market/providers/edinet_csv.py,Market disclosures,今回の配置対象外、現行を維持
 engine/src/baibai_engine/market/providers/edinet_facts.py,unchanged,engine/src/baibai_engine/market/providers/edinet_facts.py,Market disclosures,今回の配置対象外、現行を維持
-engine/src/baibai_engine/market/providers/jpx.py,update,engine/src/baibai_engine/market/providers/jpx.py,Market disclosures,移設caller/import・名称・文書の整合
+engine/src/baibai_engine/market/providers/jpx.py,update,engine/src/baibai_engine/market/providers/jpx.py,Market disclosures,JPX観測型・例外を純粋modelsへ分離しHTTP取得依存を除去
 engine/src/baibai_engine/market/providers/jquants.py,update,engine/src/baibai_engine/market/providers/jquants.py,Market disclosures,移設caller/import・名称・文書の整合
-engine/src/baibai_engine/market/providers/jquants_decode.py,unchanged,engine/src/baibai_engine/market/providers/jquants_decode.py,Market disclosures,今回の配置対象外、現行を維持
+engine/src/baibai_engine/market/providers/jquants_decode.py,move,engine/src/baibai_engine/market/jquants_decode.py,Market / pure observation decoding,HTTPを持たない変換・例外を純粋なMarket ownerへ移設
 engine/src/baibai_engine/market/retail_dynamics/__init__.py,move,engine/src/baibai_engine/external_assessment/acquisition/__init__.py,External Assessment,親決定の配置へ移設、caller/importを追従
 engine/src/baibai_engine/market/retail_dynamics/cli.py,move,engine/src/baibai_engine/external_assessment/acquisition/cli.py,External Assessment,親決定の配置へ移設、caller/importを追従
 engine/src/baibai_engine/market/retail_dynamics/collection.py,move,engine/src/baibai_engine/external_assessment/acquisition/collection.py,External Assessment,親決定の配置へ移設、caller/importを追従
@@ -249,22 +249,22 @@ engine/src/baibai_engine/market/retail_dynamics/sources/rakuten.py,move,engine/s
 engine/src/baibai_engine/market/retail_dynamics/store.py,move,engine/src/baibai_engine/external_assessment/store.py,External Assessment,親決定の配置へ移設、caller/importを追従
 engine/src/baibai_engine/market/retail_dynamics/universe.py,move,engine/src/baibai_engine/external_assessment/acquisition/universe.py,External Assessment,親決定の配置へ移設、caller/importを追従
 engine/src/baibai_engine/market/retail_dynamics/verification.py,move,engine/src/baibai_engine/external_assessment/acquisition/verification.py,External Assessment,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/sqlite/__init__.py,move,engine/src/baibai_engine/storage/observations/__init__.py,Storage Observations,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/sqlite/convert.py,move,engine/src/baibai_engine/storage/observations/convert.py,Storage Observations,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/sqlite/coverage.py,move,engine/src/baibai_engine/storage/observations/coverage.py,Storage Observations,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/sqlite/ingest/__init__.py,move,engine/src/baibai_engine/storage/observations/ingest/__init__.py,Storage Observations,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/sqlite/ingest/edinet.py,move,engine/src/baibai_engine/storage/observations/ingest/edinet.py,Storage Observations,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/sqlite/ingest/jpx.py,move,engine/src/baibai_engine/storage/observations/ingest/jpx.py,Storage Observations,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/sqlite/ingest/jquants.py,move,engine/src/baibai_engine/storage/observations/ingest/jquants.py,Storage Observations,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/sqlite/jquants.py,move,engine/src/baibai_engine/storage/observations/jquants.py,Storage Observations,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/sqlite/lake_origin.py,move,engine/src/baibai_engine/storage/observations/lake_origin.py,Storage Observations,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/sqlite/read.py,move,engine/src/baibai_engine/storage/observations/read.py,Storage Observations,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/sqlite/reader.py,move,engine/src/baibai_engine/storage/observations/reader.py,Storage Observations,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/sqlite/readiness.py,move,engine/src/baibai_engine/storage/observations/readiness.py,Storage Observations,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/sqlite/schema.py,move,engine/src/baibai_engine/storage/observations/schema.py,Storage Observations,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/sqlite/snapshot.py,move,engine/src/baibai_engine/storage/observations/snapshot.py,Storage Observations,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/sqlite/snapshot_coverage.py,move,engine/src/baibai_engine/storage/observations/snapshot_coverage.py,Storage Observations,親決定の配置へ移設、caller/importを追従
-engine/src/baibai_engine/market/sqlite/stored.py,move,engine/src/baibai_engine/storage/observations/stored.py,Storage Observations,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/sqlite/__init__.py,move,engine/src/baibai_engine/storage/observations/__init__.py,Storage / Observations,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/sqlite/convert.py,move,engine/src/baibai_engine/storage/observations/convert.py,Storage / Observations,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/sqlite/coverage.py,move,engine/src/baibai_engine/storage/observations/coverage.py,Storage / Observations,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/sqlite/ingest/__init__.py,move,engine/src/baibai_engine/storage/observations/ingest/__init__.py,Storage / Observations,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/sqlite/ingest/edinet.py,move,engine/src/baibai_engine/storage/observations/ingest/edinet.py,Storage / Observations,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/sqlite/ingest/jpx.py,move,engine/src/baibai_engine/storage/observations/ingest/jpx.py,Storage / Observations,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/sqlite/ingest/jquants.py,move,engine/src/baibai_engine/storage/observations/ingest/jquants.py,Storage / Observations,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/sqlite/jquants.py,move,engine/src/baibai_engine/storage/observations/jquants.py,Storage / Observations,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/sqlite/lake_origin.py,move,engine/src/baibai_engine/storage/observations/lake_origin.py,Storage / Observations,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/sqlite/read.py,move,engine/src/baibai_engine/storage/observations/read.py,Storage / Observations,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/sqlite/reader.py,move,engine/src/baibai_engine/storage/observations/reader.py,Storage / Observations,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/sqlite/readiness.py,move,engine/src/baibai_engine/storage/observations/readiness.py,Storage / Observations,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/sqlite/schema.py,move,engine/src/baibai_engine/storage/observations/schema.py,Storage / Observations,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/sqlite/snapshot.py,move,engine/src/baibai_engine/storage/observations/snapshot.py,Storage / Observations,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/sqlite/snapshot_coverage.py,move,engine/src/baibai_engine/storage/observations/snapshot_coverage.py,Storage / Observations,親決定の配置へ移設、caller/importを追従
+engine/src/baibai_engine/market/sqlite/stored.py,move,engine/src/baibai_engine/storage/observations/stored.py,Storage / Observations,親決定の配置へ移設、caller/importを追従
 engine/src/baibai_engine/market/store.py,update,engine/src/baibai_engine/market/store.py,Market disclosures,移設caller/import・名称・文書の整合
 engine/src/baibai_engine/market/tender_offer.py,update,engine/src/baibai_engine/market/tender_offer.py,Market disclosures,移設caller/import・名称・文書の整合
 engine/src/baibai_engine/market/ticker.py,unchanged,engine/src/baibai_engine/market/ticker.py,Market disclosures,今回の配置対象外、現行を維持
@@ -379,15 +379,15 @@ engine/src/baibai_engine/screening/cli/app.py,unchanged,engine/src/baibai_engine
 engine/src/baibai_engine/screening/cli/cache.py,update,engine/src/baibai_engine/screening/cli/cache.py,Screening,移設caller/import・名称・文書の整合
 engine/src/baibai_engine/screening/cli/common.py,unchanged,engine/src/baibai_engine/screening/cli/common.py,Screening,今回の配置対象外、現行を維持
 engine/src/baibai_engine/screening/cli/delisting_cli.py,unchanged,engine/src/baibai_engine/screening/cli/delisting_cli.py,Screening,今回の配置対象外、現行を維持
-engine/src/baibai_engine/screening/cli/providers.py,unchanged,engine/src/baibai_engine/screening/cli/providers.py,Screening,今回の配置対象外、現行を維持
+engine/src/baibai_engine/screening/cli/providers.py,update,engine/src/baibai_engine/screening/cli/providers.py,Screening,保存層・純粋観測型のownerへimportと参照を追従
 engine/src/baibai_engine/screening/cli/prune.py,unchanged,engine/src/baibai_engine/screening/cli/prune.py,Screening,今回の配置対象外、現行を維持
 engine/src/baibai_engine/screening/cli/query.py,update,engine/src/baibai_engine/screening/cli/query.py,Screening,移設caller/import・名称・文書の整合
-engine/src/baibai_engine/screening/cli/run.py,unchanged,engine/src/baibai_engine/screening/cli/run.py,Screening,今回の配置対象外、現行を維持
+engine/src/baibai_engine/screening/cli/run.py,update,engine/src/baibai_engine/screening/cli/run.py,Screening,保存層・純粋観測型のownerへimportと参照を追従
 engine/src/baibai_engine/screening/cli/valuation_catalyst_cli.py,unchanged,engine/src/baibai_engine/screening/cli/valuation_catalyst_cli.py,Screening,今回の配置対象外、現行を維持
 engine/src/baibai_engine/screening/config.py,unchanged,engine/src/baibai_engine/screening/config.py,Screening,今回の配置対象外、現行を維持
 engine/src/baibai_engine/screening/discovery/__init__.py,unchanged,engine/src/baibai_engine/screening/discovery/__init__.py,Screening,今回の配置対象外、現行を維持
 engine/src/baibai_engine/screening/discovery/review_set.py,update,engine/src/baibai_engine/screening/discovery/review_set.py,Screening,移設caller/import・名称・文書の整合
-engine/src/baibai_engine/screening/earnings_lag.py,unchanged,engine/src/baibai_engine/screening/earnings_lag.py,Screening,今回の配置対象外、現行を維持
+engine/src/baibai_engine/screening/earnings_lag.py,update,engine/src/baibai_engine/screening/earnings_lag.py,Screening,保存層・純粋観測型のownerへimportと参照を追従
 engine/src/baibai_engine/screening/freshness.py,unchanged,engine/src/baibai_engine/screening/freshness.py,Screening,今回の配置対象外、現行を維持
 engine/src/baibai_engine/screening/margin_inputs.py,update,engine/src/baibai_engine/screening/margin_inputs.py,Screening,移設caller/import・名称・文書の整合
 engine/src/baibai_engine/screening/margin_metrics.py,unchanged,engine/src/baibai_engine/screening/margin_metrics.py,Screening,今回の配置対象外、現行を維持

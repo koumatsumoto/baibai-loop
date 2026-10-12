@@ -54,9 +54,9 @@ from baibai_engine.screening.metrics import (
     build_profitability_level_signals,
 )
 from baibai_engine.screening.rule_config import load_screening_rules
-from baibai_engine.storage.observations.ingest import open_connection
 from baibai_engine.storage.observations.reader import ReportedShortMetric
 from baibai_engine.storage.observations.readiness import unreadable_store_reason
+from baibai_engine.storage.observations.schema import open_connection
 
 ASOF = CALIBRATION_FIXTURE_ASOF
 

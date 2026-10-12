@@ -26,6 +26,11 @@ from tests.helpers.http_doubles import (
 
 ROOT = Path(__file__).resolve().parents[2]
 
+from baibai_engine.market.jpx_models import (
+    JPXEarningsCalendarEntry,
+    JPXEarningsCalendarSnapshot,
+    JPXProviderError,
+)
 from baibai_engine.market.providers.edinet import (
     EDINETProvider,
     EDINETProviderError,
@@ -36,13 +41,7 @@ from baibai_engine.market.providers.edinet import (
     select_document_candidates,
 )
 from baibai_engine.market.providers.edinet_csv import parse_csv_zip_metric_record
-from baibai_engine.market.providers.jpx import (
-    JPXEarningsCalendarEntry,
-    JPXEarningsCalendarSnapshot,
-    JPXProvider,
-    JPXProviderError,
-    _EarningsCalendarFile,
-)
+from baibai_engine.market.providers.jpx import JPXProvider, _EarningsCalendarFile
 from baibai_engine.market.providers.jquants import (
     JQuantsProvider,
     normalize_adjustment_factor_event,
@@ -52,11 +51,11 @@ from baibai_engine.market.providers.jquants import (
     parse_jquants_code,
 )
 from baibai_engine.screening.schema import TTMQuality
-from baibai_engine.storage.observations.ingest import (
+from baibai_engine.storage.observations.ingest.edinet import (
     store_edinet_documents,
     store_edinet_metrics,
-    store_jpx_regulations,
 )
+from baibai_engine.storage.observations.ingest.jpx import store_jpx_regulations
 
 
 def _FixedHtmlSession(content: bytes) -> FakeSession:

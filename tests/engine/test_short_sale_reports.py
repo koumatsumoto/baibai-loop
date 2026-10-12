@@ -4,13 +4,14 @@ from datetime import date
 
 import pytest
 
-from baibai_engine.storage.observations import EmptyRangeReplacementError, open_connection
-from baibai_engine.storage.observations.ingest import store_jquants_short_sale_reports
+from baibai_engine.storage.observations.coverage import EmptyRangeReplacementError
+from baibai_engine.storage.observations.ingest.jquants import store_jquants_short_sale_reports
 from baibai_engine.storage.observations.reader import (
     SHORT_SALE_REPORT_DATASET_FLOOR,
     read_reported_short_metrics,
     read_short_sale_reports,
 )
+from baibai_engine.storage.observations.schema import open_connection
 
 
 def _report(

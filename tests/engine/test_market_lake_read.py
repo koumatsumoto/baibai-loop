@@ -72,15 +72,15 @@ from baibai_engine.storage.lake.reader import (
 from baibai_engine.storage.lake.release import L1ReleasePointer, create_l1_release
 from baibai_engine.storage.lake.retention import LakeRetentionError, exclusive_lock
 from baibai_engine.storage.lake.writer import export_legacy_sqlite, sealed_sqlite_snapshot
-from baibai_engine.storage.observations import (
-    SQLITE_SCHEMA_VERSION,
-    SQLiteSchemaError,
-    open_connection,
-)
 from baibai_engine.storage.observations.lake_origin import (
     LakeStoreOrigin,
     read_lake_store_origin,
     write_lake_store_origin,
+)
+from baibai_engine.storage.observations.schema import (
+    SQLITE_SCHEMA_VERSION,
+    SQLiteSchemaError,
+    open_connection,
 )
 
 _COMMIT = "b" * 40

@@ -26,8 +26,7 @@ from baibai_engine.storage.lake.models import (
     SQLiteSnapshotSourceRef,
     canonical_lake_model_bytes,
 )
-from baibai_engine.storage.observations import open_connection
-from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION
+from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
 
 
 def release_source(release_id: str = "20260130T000000Z-release") -> L1ReleaseSourceRef:

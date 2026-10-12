@@ -165,10 +165,8 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
 
     @staticmethod
     def _seed(db: Path, week_ends: list[date], trading_days: list[date]) -> None:
-        from baibai_engine.storage.observations.ingest import (
-            open_connection,
-            store_jquants_weekly_margin,
-        )
+        from baibai_engine.storage.observations.ingest.jquants import store_jquants_weekly_margin
+        from baibai_engine.storage.observations.schema import open_connection
 
         for week_end in week_ends:
             store_jquants_weekly_margin(db, [{"Code": "72030", "LongVol": 1.0}], week_end=week_end)
@@ -212,8 +210,8 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
         # would read back empty and every axis would be None for the whole cohort
         # even though every earlier week is intact.
         from baibai_engine.screening.margin_inputs import read_margin_supply_demand_inputs
-        from baibai_engine.storage.observations.ingest import open_connection
         from baibai_engine.storage.observations.reader import published_margin_week_ends
+        from baibai_engine.storage.observations.schema import open_connection
 
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
@@ -281,11 +279,11 @@ class MarginPublicationSeamTest(unittest.TestCase):
     @classmethod
     def _seed(cls, db: Path, *, weekly_from: date, daily_through: date) -> None:
         """Weekly balances through the freeze, daily balances after it, bars for both."""
-        from baibai_engine.storage.observations.ingest import (
-            open_connection,
+        from baibai_engine.storage.observations.ingest.jquants import (
             store_jquants_all_issues_daily_margin,
             store_jquants_weekly_margin,
         )
+        from baibai_engine.storage.observations.schema import open_connection
 
         trading = cls._weekdays(weekly_from, daily_through)
         conn = open_connection(db)

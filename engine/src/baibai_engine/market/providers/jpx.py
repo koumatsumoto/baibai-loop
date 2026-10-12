@@ -11,11 +11,17 @@ from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
 import requests
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict
 from pydantic.dataclasses import dataclass
 
 from baibai_engine.foundation.date_utils import weekday_distance
 from baibai_engine.foundation.time import JST
+from baibai_engine.market.jpx_models import (
+    JPXEarningsCalendarEntry,
+    JPXEarningsCalendarSnapshot,
+    JPXProviderError,
+    JPXRegulationSnapshot,
+)
 from baibai_engine.market.jpx_sources import JPX_SPECIAL_CAUTION_SOURCE_NAME
 from baibai_engine.market.ticker import normalize_ticker
 
@@ -43,47 +49,6 @@ _TRADING_HALT_EMPTY_MARKER = "現在、該当する情報はありません。"
 _HTTP_TIMEOUT_SECONDS = 30
 _LOGGER = logging.getLogger(__name__)
 _MODEL_CONFIG = ConfigDict(strict=True, arbitrary_types_allowed=False)
-
-
-class JPXProviderError(RuntimeError):
-    """Raised when required JPX public CSV/Excel/HTML sources are unavailable."""
-
-
-@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
-class JPXRegulationSnapshot:
-    flags_by_ticker: Mapping[str, tuple[str, ...]] = Field(default_factory=dict)
-    source_names: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
-class JPXEarningsCalendarEntry:
-    ticker: str
-    announcement_date: date
-
-
-@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
-class JPXEarningsCalendarSnapshot:
-    entries: tuple[JPXEarningsCalendarEntry, ...]
-    source_urls: tuple[str, ...]
-    raw_record_count: int
-    excluded_record_count: int
-    # Dates a lower-precedence cohort file offered for a ticker another file had
-    # already dated, or `None` when the snapshot was read back from SQLite and
-    # no merge happened. Distinct from the `rejected` counters elsewhere in the
-    # cache, which mean malformed rows and turn a coverage row `partial`.
-    superseded_record_count: int | None
-
-    @property
-    def valid_record_count(self) -> int:
-        return len(self.entries)
-
-    @property
-    def min_date(self) -> date:
-        return min(entry.announcement_date for entry in self.entries)
-
-    @property
-    def max_date(self) -> date:
-        return max(entry.announcement_date for entry in self.entries)
 
 
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
@@ -351,7 +316,7 @@ class JPXProvider:
             source_names=tuple(sorted(fetched_source_names)),
         )
         if self._sqlite_path is not None:
-            from baibai_engine.storage.observations.ingest import store_jpx_regulations
+            from baibai_engine.storage.observations.ingest.jpx import store_jpx_regulations
 
             store_jpx_regulations(
                 self._sqlite_path,
@@ -420,7 +385,7 @@ class JPXProvider:
             superseded_record_count=len(superseded),
         )
         if self._sqlite_path is not None:
-            from baibai_engine.storage.observations.ingest import (
+            from baibai_engine.storage.observations.ingest.jpx import (
                 store_jpx_earnings_calendar_snapshot,
             )
 

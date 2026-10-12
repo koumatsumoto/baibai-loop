@@ -25,7 +25,7 @@ from baibai_engine.market.providers.jquants import JQuantsProvider
 from baibai_engine.screening.cli import ProviderBundle, run_command
 from baibai_engine.screening.config import ScreeningConfig
 from baibai_engine.screening.run_store import ScreeningRunReader, run_store_path
-from baibai_engine.storage.observations.ingest import open_connection
+from baibai_engine.storage.observations.schema import open_connection
 
 
 def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:

@@ -18,7 +18,7 @@ from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSourc
 from baibai_engine.storage.lake.reader import resolve_release
 from baibai_engine.storage.lake.release import create_l1_release
 from baibai_engine.storage.lake.writer import export_legacy_sqlite, sealed_sqlite_snapshot
-from baibai_engine.storage.observations import open_connection
+from baibai_engine.storage.observations.schema import open_connection
 
 
 def test_facts_export_fixed_mcp_read_and_hydrate(tmp_path, monkeypatch):

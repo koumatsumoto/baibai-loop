@@ -20,7 +20,7 @@ from baibai_engine.screening.cli import build_parser, ticker_profile_command
 from baibai_engine.screening.discovery.review_set import build_review_set
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.run_store import ScreeningRunStore
-from baibai_engine.storage.observations.ingest import open_connection
+from baibai_engine.storage.observations.schema import open_connection
 
 _ASOF = date(2026, 5, 29)
 

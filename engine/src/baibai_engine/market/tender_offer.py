@@ -36,7 +36,7 @@ from baibai_engine.market.valuation_catalysts import (
     edinet_code_to_ticker,
     is_usable_filing_status,
 )
-from baibai_engine.storage.observations import connect_current, open_connection
+from baibai_engine.storage.observations.schema import connect_current, open_connection
 
 # JPX names the mechanism in the delisting reason. Only a reason that names a tender
 # offer can be priced from a tender-offer filing; a share consolidation or a demand for

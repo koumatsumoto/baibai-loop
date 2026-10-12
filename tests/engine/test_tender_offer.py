@@ -19,7 +19,7 @@ from baibai_engine.market.tender_offer import (
     read_tender_offer_outcome,
     store_tender_offer_exit_values,
 )
-from baibai_engine.storage.observations.ingest import open_connection
+from baibai_engine.storage.observations.schema import open_connection
 
 _PRICE = "jptoo-ton_cor:PriceOfPurchaseEtcTextBlock"
 _FUNDING = "jptoo-ton_cor:FundEtcForPurchaseEtcTextBlock"

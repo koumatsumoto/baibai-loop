@@ -19,16 +19,13 @@ from baibai_batch.storage.merge_market_store import (
     merge_stores,
 )
 from baibai_engine.storage.lake.datasets import LAKE_DATASETS
-from baibai_engine.storage.observations.ingest import (
-    open_connection,
-    store_jquants_short_sale_reports,
-)
+from baibai_engine.storage.observations.ingest.jquants import store_jquants_short_sale_reports
 from baibai_engine.storage.observations.lake_origin import (
     LakeStoreOrigin,
     read_lake_store_origin,
     write_lake_store_origin,
 )
-from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION
+from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
 
 _FIN_RANGE = "get_fin_summary_range:2020-01-01..2020-12-31"
 

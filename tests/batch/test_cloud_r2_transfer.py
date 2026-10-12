@@ -10,8 +10,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from baibai_engine.storage.observations import open_connection
 from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
+from baibai_engine.storage.observations.schema import open_connection
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TRANSFER_SCRIPT = REPO_ROOT / "batch/scripts/r2_transfer.sh"

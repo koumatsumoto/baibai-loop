@@ -25,10 +25,11 @@ from baibai_engine.storage.lake.writer import (
     sealed_sqlite_snapshot,
     validate_legacy_parity,
 )
-from baibai_engine.storage.observations import open_connection, store_jquants_market_calendar
-from baibai_engine.storage.observations.ingest import store_jquants_master
+from baibai_engine.storage.observations.ingest.jquants import store_jquants_master
+from baibai_engine.storage.observations.jquants import store_jquants_market_calendar
 from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
 from baibai_engine.storage.observations.reader import read_eq_master_exact
+from baibai_engine.storage.observations.schema import open_connection
 
 NAME = "tradingview.forecast_snapshots"
 

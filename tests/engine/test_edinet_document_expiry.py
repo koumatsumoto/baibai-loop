@@ -11,12 +11,13 @@ import sqlite3
 from datetime import date
 from pathlib import Path
 
-from baibai_engine.storage.observations.ingest import open_connection, store_edinet_documents
+from baibai_engine.storage.observations.ingest.edinet import store_edinet_documents
 from baibai_engine.storage.observations.schema import (
     EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS,
     EDINET_DOCUMENT_IDENTITY_COLUMNS,
     EDINET_DOCUMENT_LIFECYCLE_COLUMNS,
     EDINET_DOCUMENT_RETAINED_COLUMNS,
+    open_connection,
 )
 
 _DAY = date(2026, 5, 1)

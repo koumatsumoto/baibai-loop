@@ -26,8 +26,8 @@ from baibai_engine.storage.lake.writer import (
     sealed_sqlite_snapshot,
     validate_legacy_parity,
 )
-from baibai_engine.storage.observations import open_connection, store_jquants_market_calendar
-from baibai_engine.storage.observations.schema import SQLiteSchemaError
+from baibai_engine.storage.observations.jquants import store_jquants_market_calendar
+from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
 
 VALUATION = "retail_dynamics.model_valuation_observations"
 RATING = "retail_dynamics.analyst_rating_observations"

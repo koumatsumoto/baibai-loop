@@ -13,7 +13,7 @@ from urllib.parse import urljoin
 import requests
 
 from baibai_engine.market.ticker import normalize_ticker
-from baibai_engine.storage.observations import connect_current, open_connection
+from baibai_engine.storage.observations.schema import connect_current, open_connection
 
 JPX_DELISTING_INDEX_URL = "https://www.jpx.co.jp/listing/stocks/delisted/"
 

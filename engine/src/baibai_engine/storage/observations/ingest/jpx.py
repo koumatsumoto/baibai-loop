@@ -8,7 +8,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.market.providers.jpx import JPXEarningsCalendarSnapshot
+from baibai_engine.market.jpx_models import JPXEarningsCalendarSnapshot
 from baibai_engine.storage.observations.convert import normalize_ticker_or_none, to_str_or_none
 from baibai_engine.storage.observations.coverage import (
     date_range_row_count,

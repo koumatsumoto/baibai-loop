@@ -28,8 +28,8 @@ from baibai_engine.storage.lake.writer import (
     sealed_sqlite_snapshot,
     validate_legacy_parity,
 )
-from baibai_engine.storage.observations import open_connection
 from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
+from baibai_engine.storage.observations.schema import open_connection
 
 _COMMIT = "a" * 40
 

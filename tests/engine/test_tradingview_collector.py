@@ -20,7 +20,7 @@ from baibai_engine.external_assessment.tradingview.observations import (
     normalize_batch,
 )
 from baibai_engine.market.universe import UniverseSourceDriftError
-from baibai_engine.storage.observations import open_connection
+from baibai_engine.storage.observations.schema import open_connection
 
 DAY = date(2026, 9, 18)
 NOW = datetime(2026, 9, 18, 7, tzinfo=UTC)

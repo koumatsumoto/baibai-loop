@@ -14,7 +14,7 @@ from tools.experiments.measure_limit_outcomes import (
 )
 
 from baibai_engine.position.ledger import PortfolioLedgerDocument
-from baibai_engine.storage.observations import open_connection
+from baibai_engine.storage.observations.schema import open_connection
 
 ASOF = date(2026, 7, 31)
 

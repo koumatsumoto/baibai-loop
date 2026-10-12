@@ -18,7 +18,7 @@ from baibai_engine.external_assessment.tradingview.contract import COLUMNS, TABL
 from baibai_engine.external_assessment.tradingview.diagnostics import SourceDataError
 from baibai_engine.external_assessment.tradingview.observations import COLUMNS as REQUEST_COLUMNS
 from baibai_engine.external_assessment.tradingview.observations import normalize_batch
-from baibai_engine.storage.observations import SQLiteSchemaError, validate_current_schema
+from baibai_engine.storage.observations.schema import SQLiteSchemaError, validate_current_schema
 
 NAMES = tuple(item[0] for item in COLUMNS)
 MAX_INPUT_BYTES = 65_535

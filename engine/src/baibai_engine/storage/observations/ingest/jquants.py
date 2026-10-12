@@ -8,6 +8,11 @@ from math import isfinite
 from pathlib import Path
 from typing import Any
 
+from baibai_engine.market.jquants_decode import (
+    JQuantsProviderError,
+    first_period_float,
+    has_period_slot,
+)
 from baibai_engine.market.margin_publication import (
     require_all_issues_daily_balance_date,
     require_legacy_weekly_balance_date,
@@ -17,11 +22,6 @@ from baibai_engine.market.master_snapshot import (
     MASTER_SOURCE,
     master_coverage_key,
     validate_master_snapshot,
-)
-from baibai_engine.market.providers.jquants_decode import (
-    JQuantsProviderError,
-    first_period_float,
-    has_period_slot,
 )
 from baibai_engine.storage.observations.convert import (
     NormalizedRows,
@@ -36,6 +36,18 @@ from baibai_engine.storage.observations.coverage import (
     record_range_source_coverage,
     record_source_coverage,
     replace_date_range,
+)
+from baibai_engine.storage.observations.jquants_contract import (
+    ALL_ISSUES_DAILY_MARGIN_OPERATION,
+    ALL_ISSUES_DAILY_MARGIN_SOURCE,
+    MARGIN_ALERT_OPERATION,
+    MARGIN_ALERT_SOURCE,
+    SHORT_SALE_REPORT_OPERATION,
+    SHORT_SALE_REPORT_SOURCE,
+    WEEKLY_MARGIN_OPERATION,
+    WEEKLY_MARGIN_SOURCE,
+    all_issues_daily_margin_coverage_key,
+    weekly_margin_coverage_key,
 )
 from baibai_engine.storage.observations.schema import open_connection
 
@@ -94,27 +106,6 @@ def store_jquants_fin_summaries(
         return persisted_count
     finally:
         conn.close()
-
-
-WEEKLY_MARGIN_SOURCE = "jquants_weekly_margin"
-WEEKLY_MARGIN_OPERATION = "get_mkt_margin_interest"
-MARGIN_ALERT_SOURCE = "jquants_margin_alerts"
-MARGIN_ALERT_OPERATION = "get_mkt_margin_alert_range"
-ALL_ISSUES_DAILY_MARGIN_SOURCE = "jquants_all_issues_daily_margin"
-ALL_ISSUES_DAILY_MARGIN_OPERATION = "get_mkt_margin_interest"
-
-SHORT_SALE_REPORT_SOURCE = "jquants_short_sale_reports"
-SHORT_SALE_REPORT_OPERATION = "get_mkt_short_sale_report"
-
-
-def weekly_margin_coverage_key(week_end: date) -> str:
-    iso = week_end.isoformat()
-    return f"{WEEKLY_MARGIN_OPERATION}:{iso}..{iso}"
-
-
-def all_issues_daily_margin_coverage_key(balance_date: date) -> str:
-    iso = balance_date.isoformat()
-    return f"{ALL_ISSUES_DAILY_MARGIN_OPERATION}:{iso}..{iso}"
 
 
 def store_jquants_weekly_margin(

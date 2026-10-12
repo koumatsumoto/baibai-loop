@@ -245,7 +245,7 @@ forbidden_modules = [
   "baibai_engine.macro",
   "baibai_engine.position",
   "baibai_engine.market",
-  "baibai_engine.storage.application",
+  "baibai_engine.storage",
   "baibai_engine.read_api",
   "baibai_engine.research",
 ]
@@ -389,7 +389,7 @@ name = "web imports the engine only through read_api"
 type = "forbidden"
 source_modules = ["baibai_web"]
 forbidden_modules = [
-  "baibai_engine.storage.application",
+  "baibai_engine.storage",
   "baibai_engine.batch_api",
   "baibai_engine.cli",
   "baibai_engine.foundation",
@@ -422,7 +422,7 @@ name = "batch uses only explicit engine orchestration boundaries"
 type = "forbidden"
 source_modules = ["baibai_batch"]
 forbidden_modules = [
-  "baibai_engine.storage.application",
+  "baibai_engine.storage",
   "baibai_engine.foundation",
   "baibai_engine.macro",
   "baibai_engine.market",
@@ -460,7 +460,7 @@ forbidden_modules = [
 name = "enterprise valuation is pure"
 type = "forbidden"
 source_modules = ["baibai_engine.valuation", "baibai_engine.research.thesis", "baibai_engine.research.entry_policy", "baibai_engine.research.position_review"]
-forbidden_modules = ["baibai_engine.storage.application", "baibai_engine.position", "baibai_engine.market", "baibai_engine.research.workspace", "baibai_engine.research.planning", "baibai_engine.research.thesis_store"]
+forbidden_modules = ["baibai_engine.storage", "baibai_engine.position", "baibai_engine.market", "baibai_engine.research.workspace", "baibai_engine.research.planning", "baibai_engine.research.thesis_store"]
 
 [[tool.importlinter.contracts]]
 name = "Reviewed Thesis storage does not depend on judgment composition"
@@ -474,11 +474,12 @@ type = "forbidden"
 source_modules = ["baibai_engine.external_assessment.observations.contract", "baibai_engine.external_assessment.observations.models"]
 forbidden_modules = [
   "baibai_engine.external_assessment.store",
-  "baibai_engine.external_assessment.acquisition.collection",
-  "baibai_engine.external_assessment.acquisition.sources",
-  "baibai_engine.external_assessment.acquisition.cli",
-  "baibai_engine.storage.observations",
-  "baibai_engine.storage.lake",
+  "baibai_engine.external_assessment.acquisition",
+  "baibai_engine.storage",
+  "baibai_engine.market.providers",
+  "baibai_engine.external_assessment.tradingview.client",
+  "baibai_engine.external_assessment.tradingview.collector",
+  "baibai_engine.external_assessment.tradingview.auth",
 ]
 
 [[tool.importlinter.contracts]]
@@ -512,7 +513,7 @@ forbidden_modules = [
   "baibai_engine.market_context",
   "baibai_engine.external_assessment",
   "baibai_engine.market", "baibai_engine.macro", "baibai_engine.position",
-  "baibai_engine.storage.application", "baibai_engine.tasks",
+  "baibai_engine.storage", "baibai_engine.tasks",
 ]
 
 [[tool.importlinter.contracts]]
@@ -553,7 +554,7 @@ name = "candidate and triage contracts do not load calculation, storage, or writ
 type = "forbidden"
 source_modules = ["baibai_engine.screening.discovery.contracts", "baibai_engine.research.triage.contracts"]
 forbidden_modules = [
-  "baibai_engine.storage.application", "baibai_engine.market", "baibai_engine.macro",
+  "baibai_engine.storage", "baibai_engine.market", "baibai_engine.macro",
   "baibai_engine.valuation", "baibai_engine.market_context", "baibai_engine.external_assessment",
   "baibai_engine.position", "baibai_engine.tasks", "baibai_engine.read_api", "baibai_engine.batch_api",
   "baibai_engine.screening.discovery.review_set", "baibai_engine.screening.metrics",
@@ -579,3 +580,43 @@ forbidden_modules = [
   "baibai_engine.research.triage.service", "baibai_engine.research.triage.cli", "baibai_engine.read_api",
 ]
 
+[[tool.importlinter.contracts]]
+name = "shared storage uses only pure domain contracts and technical helpers"
+type = "forbidden"
+source_modules = ["baibai_engine.storage"]
+forbidden_modules = [
+  "baibai_engine.research", "baibai_engine.screening", "baibai_engine.position",
+  "baibai_engine.valuation", "baibai_engine.market_context", "baibai_engine.tasks",
+  "baibai_engine.read_api", "baibai_engine.batch_api",
+  "baibai_engine.market.providers", "baibai_engine.market.edinet_metrics",
+  "baibai_engine.external_assessment.acquisition", "baibai_engine.external_assessment.store",
+  "baibai_engine.external_assessment.analysis", "baibai_engine.external_assessment.reader",
+  "baibai_engine.external_assessment.query", "baibai_engine.external_assessment.cli",
+  "baibai_engine.external_assessment.tradingview.client",
+  "baibai_engine.external_assessment.tradingview.collector",
+  "baibai_engine.external_assessment.tradingview.accepted",
+  "baibai_engine.external_assessment.tradingview.auth",
+  "baibai_engine.external_assessment.tradingview.cli",
+  "baibai_web", "baibai_batch", "tools",
+]
+
+[[tool.importlinter.contracts]]
+name = "tradingview observation contracts are pure"
+type = "forbidden"
+source_modules = ["baibai_engine.external_assessment.tradingview.contract", "baibai_engine.external_assessment.tradingview.observations"]
+forbidden_modules = [
+  "baibai_engine.storage", "baibai_engine.market.providers",
+  "baibai_engine.external_assessment.acquisition", "baibai_engine.external_assessment.store",
+  "baibai_engine.external_assessment.tradingview.client",
+  "baibai_engine.external_assessment.tradingview.collector",
+  "baibai_engine.external_assessment.tradingview.accepted",
+  "baibai_engine.external_assessment.tradingview.auth",
+  "baibai_engine.external_assessment.tradingview.cli",
+  "baibai_engine.read_api", "baibai_engine.batch_api", "baibai_web", "baibai_batch", "tools",
+]
+
+[[tool.importlinter.contracts]]
+name = "provider observation models and decoding do not load acquisition or storage"
+type = "forbidden"
+source_modules = ["baibai_engine.market.jpx_models", "baibai_engine.market.jquants_models", "baibai_engine.market.jquants_decode"]
+forbidden_modules = ["baibai_engine.market.providers", "baibai_engine.storage", "baibai_engine.screening", "baibai_engine.research", "baibai_engine.read_api", "baibai_engine.batch_api", "baibai_web", "baibai_batch", "tools"]

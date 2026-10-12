@@ -26,7 +26,7 @@ from baibai_engine.macro.indicators.service import (
     DEFAULT_LATEST_LOOKBACK_DAYS,
     LATEST_FETCH_LOOKBACK_DAYS,
 )
-from baibai_engine.storage.observations import store_jquants_market_calendar
+from baibai_engine.storage.observations.jquants import store_jquants_market_calendar
 
 JST = ZoneInfo("Asia/Tokyo")
 ASOF = date(2026, 7, 21)

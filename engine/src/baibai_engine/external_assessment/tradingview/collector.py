@@ -42,7 +42,7 @@ from baibai_engine.market.universe import (
     TSE_33_SECTORS,
     UniverseSourceDriftError,
 )
-from baibai_engine.storage.observations import (
+from baibai_engine.storage.observations.schema import (
     SQLiteSchemaError,
     open_connection,
     validate_current_schema,

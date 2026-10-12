@@ -45,20 +45,18 @@ _EXPECTED_MANIFEST = tuple(
 # never imports it" is not the safety criterion — "the extraction never references a
 # symbol from it" is. These are referenced and deliberately untracked:
 #
-# - `market.sqlite.schema`: connections and the current schema version.
-# - `market.sqlite.coverage`: coverage bookkeeping the store write records. The baseline
+# - `storage.observations.schema`: connections and the current schema version.
+# - `storage.observations.coverage`: coverage bookkeeping the store write records. The baseline
 #   read validates coverage with its own SQL (`market.edinet_metrics.store`), so a change here cannot
 #   make a row's values wrong without also making the snapshot unreadable.
-# - `market.sqlite`: the package facade, re-exports only.
-# - `market.sqlite.readiness`: protects unreadable stores when recording a failure;
+# - `storage.observations.readiness`: protects unreadable stores when recording a failure;
 #   it does not choose documents or determine successfully extracted metric values.
 #
 # Pinning the set is what stops a value-affecting helper from being moved out of the
-# manifest: the closure would then reach a fifth module and this test fails.
+# manifest: the closure would then reach an additional module and this test fails.
 _UNTRACKED_REACHED_MODULES = frozenset(
     {
         "baibai_engine.storage.observations.readiness",
-        "baibai_engine.storage.observations",
         "baibai_engine.storage.observations.coverage",
         "baibai_engine.storage.observations.schema",
     }
@@ -91,7 +89,7 @@ _UNREFERENCED_ARTIFACTS = (
     # The other providers and their store slices.
     "market/providers/jpx.py",
     "market/providers/jquants.py",
-    "market/providers/jquants_decode.py",
+    "market/jquants_decode.py",
     "market/jpx_sources.py",
     "market/master_snapshot.py",
     "storage/observations/ingest/jpx.py",
@@ -146,7 +144,7 @@ def test_manifest_excludes_the_commands_that_share_the_cli_with_the_extraction()
         "storage/observations/reader.py",
         "market/providers/jpx.py",
         "market/providers/jquants.py",
-        "market/providers/jquants_decode.py",
+        "market/jquants_decode.py",
         "storage/observations/ingest/jpx.py",
         "screening/sqlite_coverage/core.py",
         "screening/metrics/snapshot.py",
@@ -202,7 +200,7 @@ def test_extractor_revision_changes_when_any_manifest_artifact_changes() -> None
 
 
 @pytest.mark.parametrize(
-    "artifact", ["market/providers/jquants_decode.py", "storage/observations/readiness.py"]
+    "artifact", ["market/jquants_decode.py", "storage/observations/readiness.py"]
 )
 def test_unrelated_source_bytes_do_not_change_revision(
     artifact: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -24,7 +24,7 @@ from baibai_engine.screening.calibration.forward import (
     read_failure_exits,
 )
 from baibai_engine.screening.calibration.grid import complete_month_end_dates
-from baibai_engine.storage.observations.ingest import open_connection
+from baibai_engine.storage.observations.schema import open_connection
 
 
 def _bar(

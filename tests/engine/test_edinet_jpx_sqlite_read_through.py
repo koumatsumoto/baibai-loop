@@ -11,23 +11,18 @@ ROOT = Path(__file__).resolve().parents[2]
 
 from tests.helpers.screening_sqlite import add_source_coverage
 
+from baibai_engine.market.edinet_metrics.store import read_edinet_documents, read_edinet_metrics
+from baibai_engine.market.jpx_models import JPXProviderError
 from baibai_engine.market.providers.edinet import (
     EDINETProvider,
     EDINETProviderError,
     select_document_candidates,
 )
-from baibai_engine.market.providers.jpx import JPXProvider, JPXProviderError
-from baibai_engine.storage.observations.ingest import (
-    open_connection,
-    store_edinet_documents,
-    store_jpx_regulations,
-)
-from baibai_engine.storage.observations.reader import (
-    has_jpx_regulation_data,
-    read_edinet_documents,
-    read_edinet_metrics,
-    read_jpx_regulations,
-)
+from baibai_engine.market.providers.jpx import JPXProvider
+from baibai_engine.storage.observations.ingest.edinet import store_edinet_documents
+from baibai_engine.storage.observations.ingest.jpx import store_jpx_regulations
+from baibai_engine.storage.observations.reader import has_jpx_regulation_data, read_jpx_regulations
+from baibai_engine.storage.observations.schema import open_connection
 
 
 def _add_source_coverage(

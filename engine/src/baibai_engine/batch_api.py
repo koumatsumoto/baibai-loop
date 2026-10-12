@@ -184,7 +184,6 @@ from baibai_engine.storage.lake.reader import LakeReadError, resolve_release
 from baibai_engine.storage.lake.release import L1ReleasePointer
 from baibai_engine.storage.lake.release import create_l1_release as create_lake_l1_release
 from baibai_engine.storage.lake.writer import LakeBuildError, LakeBuildReport, export_lake_legacy
-from baibai_engine.storage.observations import open_connection as open_market_store
 from baibai_engine.storage.observations.lake_origin import (
     LakeStoreOrigin,
     LakeStoreOriginError,
@@ -193,6 +192,7 @@ from baibai_engine.storage.observations.lake_origin import (
 )
 from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION as MARKET_SCHEMA_VERSION
 from baibai_engine.storage.observations.schema import SQLiteSchemaError as MarketSchemaError
+from baibai_engine.storage.observations.schema import open_connection as open_market_store
 from baibai_engine.storage.observations.schema import (
     validate_current_schema as validate_market_schema,
 )
