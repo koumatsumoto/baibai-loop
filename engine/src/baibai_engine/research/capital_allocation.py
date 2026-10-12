@@ -15,6 +15,7 @@ from typing import Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from baibai_engine.appdb.json import canonical_json
+from baibai_engine.research.operation.progress import ResearchComparisonScope
 
 CAPITAL_ALLOCATION_ASSESSMENT_SCHEMA_VERSION = 1
 
@@ -86,6 +87,7 @@ class CapitalAllocationAssessment(BaseModel):
     headline: str = Field(min_length=1)
     research_triage_id: str = Field(min_length=1)
     macro_context_id: str | None = None
+    research_scope: ResearchComparisonScope | None = None
     comparison: str = Field(min_length=1)
     forgone: str = Field(min_length=1)
     alternatives: tuple[AllocationAlternative, ...] = Field(min_length=1)
@@ -129,7 +131,10 @@ class CapitalAllocationAssessment(BaseModel):
         return self
 
     def payload(self) -> dict[str, object]:
-        return self.model_dump(mode="json")
+        payload = self.model_dump(mode="json")
+        if self.research_scope is None:
+            payload.pop("research_scope")
+        return payload
 
 
 def capital_allocation_draft_sha256(assessment: CapitalAllocationAssessment) -> str:

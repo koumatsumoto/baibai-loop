@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import closing
 from pathlib import Path
 from typing import Protocol
@@ -62,3 +62,15 @@ def read_rows(
         if not is_unwritten_store(error, path):
             raise
         return []
+
+
+def read_store_if_written[T](path: Path, read: Callable[[], T]) -> T | None:
+    """Absent/unwritten stores are optional; corrupt or partially missing stores raise."""
+    if not path.is_file():
+        return None
+    try:
+        return read()
+    except sqlite3.OperationalError as error:
+        if not is_unwritten_store(error, path):
+            raise
+        return None

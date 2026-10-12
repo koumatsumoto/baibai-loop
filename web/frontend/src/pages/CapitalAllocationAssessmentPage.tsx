@@ -39,6 +39,11 @@ export function CapitalAllocationAssessmentPage() {
       <SectionCard description="thesis の scalar は保存せず、表示時に bound revision から投影" padded title="Alternatives">
         <Table><TableHeader><TableRow><TableHead>銘柄</TableHead><TableHead>判断</TableHead><TableHead>理由</TableHead><TableHead className="text-right">原評価の Base 年率換算</TableHead><TableHead className="text-right">Pmax（原評価）</TableHead><TableHead>投資理由の成立性</TableHead></TableRow></TableHeader><TableBody>{data.alternatives.map((item) => <TableRow key={item.ticker}><TableCell><Link className="font-mono font-semibold hover:underline" to={`/securities/${item.ticker}`}>{item.ticker}</Link></TableCell><TableCell><Badge variant={item.disposition === 'allocate' ? 'default' : 'secondary'}>{item.disposition}</Badge></TableCell><TableCell>{item.rationale}</TableCell><TableCell className="text-right font-mono">{item.base_annualized_return_pct === null ? '—' : `${formatNumber(item.base_annualized_return_pct, 1)}%`}</TableCell><TableCell className="text-right font-mono">{item.pmax_raw_yen === null ? '—' : `${formatNumber(item.pmax_raw_yen, 0)}円`}</TableCell><TableCell>{item.case_status ?? '—'}</TableCell></TableRow>)}</TableBody></Table>
       </SectionCard>
+      {data.research_operation_id && <SectionCard padded title="今回の調査範囲" description="完了した企業評価だけを比較しました。調査未完了は経済的な見送りと別に記録します。">
+        <p className="text-sm">新規対象 {data.selected_new_target_count}件 · 完了 {data.alternatives.length}件 · 未完了 {data.unfinished_research.length}件</p>
+        {data.unfinished_research.map(item => <div key={item.ticker} className="mt-3 text-sm"><p><span className="font-mono">{item.ticker}</span> · {item.reason}</p><p className="break-all text-xs text-muted-foreground">{item.references.join(' · ')}</p></div>)}
+        <p className="mt-3 break-all text-xs text-muted-foreground">Operation: {data.research_operation_id}</p>
+      </SectionCard>}
       <SectionCard padded title="Foregone alternatives"><p className="whitespace-pre-line text-sm">{data.foregone_alternatives}</p></SectionCard>
       <p className="text-xs text-muted-foreground">Research Triage: {data.research_triage_id} · review: {data.content_review.conclusion}</p>
     </PageShell>

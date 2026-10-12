@@ -458,6 +458,37 @@
           "title": "Foregone Alternatives",
           "type": "string"
         },
+        "research_operation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Research Operation Id"
+        },
+        "selected_new_target_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selected New Target Count"
+        },
+        "unfinished_research": {
+          "items": {
+            "$ref": "#/$defs/UnfinishedResearchView"
+          },
+          "title": "Unfinished Research",
+          "type": "array"
+        },
         "alternatives": {
           "items": {
             "$ref": "#/$defs/AllocationAlternativeView"
@@ -479,6 +510,9 @@
         "macro_context_id",
         "comparison",
         "foregone_alternatives",
+        "research_operation_id",
+        "selected_new_target_count",
+        "unfinished_research",
         "alternatives",
         "content_review"
       ],
@@ -6385,6 +6419,32 @@
         "quote_currency"
       ],
       "title": "TradingViewObservation",
+      "type": "object"
+    },
+    "UnfinishedResearchView": {
+      "properties": {
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "references": {
+          "items": {
+            "type": "string"
+          },
+          "title": "References",
+          "type": "array"
+        }
+      },
+      "required": [
+        "ticker",
+        "reason",
+        "references"
+      ],
+      "title": "UnfinishedResearchView",
       "type": "object"
     },
     "UpcomingEventView": {

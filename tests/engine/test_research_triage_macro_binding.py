@@ -90,11 +90,12 @@ def test_publish_requires_an_existing_nonfuture_context_when_one_is_named(
     context_id = _publish_context(app_db)
     service = ResearchTriageService(app_db)
 
-    with pytest.raises(ResearchTriageConflictError, match="must be bound"):
-        service.publish(
-            _triage(macro_context_id=None),
-            review_set=PublishedReviewSet.model_validate(_review_set()),
-        )
+    # A saved full-depth report is optional; naming one still validates its identity/cutoff.
+    published = service.publish(
+        _triage(macro_context_id=None),
+        review_set=PublishedReviewSet.model_validate(_review_set()),
+    )
+    assert published.macro_context_id is None
     with pytest.raises(ResearchTriageConflictError, match="unknown context_id"):
         service.publish(
             _triage(macro_context_id="macro-context-2026-07-19-unknown"),

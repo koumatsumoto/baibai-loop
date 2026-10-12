@@ -59,7 +59,13 @@ def test_holding_judgment_preserves_author_and_allows_active_capital_research(
         started_at=NOW,
         payload=OperationPayload(
             checkpoint="research",
-            artifacts=({"kind": "research_triage", "ref": "unrelated", "research_set": ["5678"]},),
+            artifacts=(
+                {
+                    "kind": "research_selection",
+                    "request": "synthetic other explicit request",
+                    "targets": [],
+                },
+            ),
         ),
     )
     service = PositionReviewService(db, sqlite_path=market, clock=lambda: NOW)
@@ -327,7 +333,20 @@ def test_legacy_holding_first_review_follows_public_workspace_commands(
     monkeypatch.setattr(position_cli, "MARKET_DB_PATH", market)
     assert position_cli.main(["ledger", "--db", str(db)], now=NOW) == 0
     assert (
-        research_main(["position-prepare", *common, "--asof", NOW.date().isoformat()], now=NOW) == 0
+        research_main(
+            [
+                "position-prepare",
+                *common,
+                "--asof",
+                NOW.date().isoformat(),
+                "--request",
+                "synthetic explicit holding request",
+                "--sqlite-path",
+                str(market),
+            ],
+            now=NOW,
+        )
+        == 0
     )
     # Legacy is deliberately not passed to the v4 refresh reader.
     assert (
@@ -416,6 +435,38 @@ def test_legacy_holding_first_review_follows_public_workspace_commands(
     checked = yaml.safe_load(capsys.readouterr().out)
     assert checked["action"] == action
     assert checked["current_price_projection"]["base"]["total_return_pct"] == 23.4
+    # AI proposal completion records the checked draft without publishing a human judgment.
+    from baibai_engine.research.operation.cli import main as operation_main
+
+    operation = OperationService(db).active()
+    assert operation is not None
+    assert (
+        operation_main(
+            [
+                "--db",
+                str(db),
+                "record-position-proposal",
+                operation.operation_id,
+                "--draft",
+                str(draft_path),
+                "--sqlite-path",
+                str(market),
+            ],
+            now=NOW,
+        )
+        == 0
+    )
+    capsys.readouterr()
+    operation = OperationService(db).get(operation.operation_id)
+    completed = OperationService(db, sqlite_path=market).complete(
+        operation.operation_id,
+        operation.payload.model_copy(
+            update={"result": "holding proposal ready", "next": "external human decision"}
+        ),
+        completed_at=NOW,
+    )
+    assert completed.payload.human_confirmation is None
+    assert list_position_review_publications(db) == []
     assert (
         position_cli.main(
             [

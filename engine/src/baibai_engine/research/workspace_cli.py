@@ -25,6 +25,7 @@ from typing import TextIO
 import yaml
 from pydantic import ValidationError
 
+from baibai_engine.foundation.repository_layout import MACRO_DB_PATH, MARKET_DB_PATH, RUNS_DB_PATH
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 
@@ -68,16 +69,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     prepare_parser.add_argument(
         "--research-triage-id",
-        required=True,
-        help="canonical ResearchTriage that bounds the human-admitted Research Set",
+        help="canonical ResearchTriage admitting the fixed new targets",
     )
     prepare_parser.add_argument("--db", type=Path)
+    prepare_parser.add_argument(
+        "--request", required=True, help="explicit user start request; no human adoption is implied"
+    )
+    prepare_parser.add_argument("--asof", type=date.fromisoformat)
+    prepare_parser.add_argument("--holding-ticker", action="append", default=[])
+    prepare_parser.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
+    prepare_parser.add_argument("--runs-path", type=Path, default=RUNS_DB_PATH)
+    prepare_parser.add_argument("--macro-path", type=Path, default=MACRO_DB_PATH)
     prepare_parser.add_argument("--workspace", required=True, type=Path)
     prepare_parser.add_argument(
         "--ticker",
         action="append",
         default=[],
-        help="human-confirmed Research Set ticker; repeat for the selected subset",
+        help="AI-selected new research ticker; combined new/holding selection is capped at three",
     )
     prepare_parser.add_argument(
         "--force", action="store_true", help="rebuild an existing local workspace"
@@ -90,6 +98,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--asof", required=True, help="workspace as-of date (YYYY-MM-DD)"
     )
     holding_prepare_parser.add_argument("--db", type=Path)
+    holding_prepare_parser.add_argument(
+        "--request", help="explicit request required for a new holding-only Operation"
+    )
+    holding_prepare_parser.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
+    holding_prepare_parser.add_argument("--runs-path", type=Path, default=RUNS_DB_PATH)
+    holding_prepare_parser.add_argument("--macro-path", type=Path, default=MACRO_DB_PATH)
     holding_prepare_parser.add_argument("--ticker", required=True)
     holding_prepare_parser.add_argument("--workspace", required=True, type=Path)
     holding_prepare_parser.add_argument(
@@ -214,6 +228,12 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     db_path=args.db,
                     workspace=args.workspace,
                     research_set=args.ticker,
+                    holding_tickers=args.holding_ticker,
+                    request=args.request,
+                    asof=args.asof,
+                    sqlite_path=args.sqlite_path,
+                    runs_path=args.runs_path,
+                    macro_path=args.macro_path,
                     started_at=resolved_now,
                     force=args.force,
                 )
@@ -225,7 +245,8 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                         "admissible_count": prepared.admissible_count,
                         "research_triage_id": prepared.research_triage_id,
                         "admissible_research_tickers": list(prepared.admissible_research_tickers),
-                        "note": None if prepared.actionable else "no_allocation",
+                        "note": None if prepared.actionable else "no_targets",
+                        "operation_id": prepared.operation_id,
                     },
                     out,
                 )
@@ -235,6 +256,11 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     db_path=args.db,
                     ticker=args.ticker,
                     workspace=args.workspace,
+                    request=args.request,
+                    started_at=resolved_now,
+                    sqlite_path=args.sqlite_path,
+                    runs_path=args.runs_path,
+                    macro_path=args.macro_path,
                     force=args.force,
                 )
                 _emit(

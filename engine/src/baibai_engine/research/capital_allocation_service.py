@@ -175,12 +175,31 @@ class CapitalAllocationAssessmentService:
         connection: sqlite3.Connection, assessment: CapitalAllocationAssessment
     ) -> None:
         try:
-            require_active_research_set(
+            expected_scope = require_active_research_set(
                 connection,
                 research_triage_id=assessment.research_triage_id,
                 tickers=(item.ticker for item in assessment.alternatives),
                 published_at=assessment.published_at,
+                scope=assessment.research_scope,
             )
+            if expected_scope != assessment.research_scope:
+                raise ValueError("CAA must bind completed and unfinished research scope")
+            if expected_scope is not None:
+                completed = {
+                    item.ticker: item
+                    for item in expected_scope.outcomes
+                    if item.status == "reviewed"
+                }
+                for alternative in assessment.alternatives:
+                    item = completed[alternative.ticker]
+                    if (
+                        alternative.thesis_id,
+                        alternative.thesis_core_sha256,
+                        alternative.thesis_review_id,
+                    ) != (item.thesis_id, item.thesis_core_sha256, item.thesis_review_id):
+                        raise ValueError(
+                            "CAA differs from the Operation completed Reviewed Thesis references"
+                        )
         except ValueError as error:
             raise CapitalAllocationConflictError(str(error)) from error
 

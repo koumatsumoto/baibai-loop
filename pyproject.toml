@@ -339,11 +339,9 @@ ignore_imports = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "research only composes valuation, foundation and position domains"
+name = "research composes explicit domain reads and portfolio judgments"
 type = "forbidden"
-# Current research behavior is decision composition plus portfolio-aware execution
-# and Position Review construction. It has no direct macro, market, screening,
-# dependency; keep that surface narrow.
+# Three-domain composition uses saved query boundaries; direct acquisition is forbidden.
 source_modules = ["baibai_engine.research"]
 forbidden_modules = [
   "baibai_engine.macro",
@@ -351,6 +349,9 @@ forbidden_modules = [
   "baibai_engine.screening",
   "baibai_engine.tasks",
 ]
+
+allow_indirect_imports = true
+ignore_imports = ["baibai_engine.research.inputs -> baibai_engine.screening.run_store"]
 
 [[tool.importlinter.contracts]]
 name = "web is never imported by the engine"

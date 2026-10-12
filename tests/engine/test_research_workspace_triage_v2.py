@@ -34,7 +34,7 @@ from baibai_engine.screening.research_triage import (
     ResearchTriageService,
 )
 
-CASE_NOW = datetime.fromisoformat("2026-07-19T12:00:00+09:00")
+CASE_NOW = datetime.fromisoformat("2026-07-19T18:00:00+09:00")
 
 
 @pytest.mark.parametrize("mutation", ["extend", "shrink", "other-triage", "inactive"])
@@ -48,6 +48,8 @@ def test_research_writes_recheck_operation_binding(
     db, workspace = tmp_path / "app.sqlite", tmp_path / "workspace"
     triage = _publish_triage(db, second_research=True)
     prepare_workspace(
+        started_at=CASE_NOW,
+        request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
         db_path=db,
         workspace=workspace,
@@ -69,10 +71,14 @@ def test_research_writes_recheck_operation_binding(
             else:
                 row = connection.execute("SELECT payload FROM operation_session").fetchone()
                 payload = json.loads(row[0])
-                payload["artifacts"][0]["ref"] = "different-triage"
+                payload["artifacts"][0]["research_triage_id"] = "different-triage"
                 connection.execute("UPDATE operation_session SET payload=?", (json.dumps(payload),))
     # Historical inspection is separate from permission to write.
-    assert compute_status(workspace, db_path=db, now=CASE_NOW)["cases"]
+    if mutation == "other-triage":
+        with pytest.raises(ResearchWorkspaceConflictError, match="Operation"):
+            compute_status(workspace, db_path=db, now=CASE_NOW)
+    else:
+        assert compute_status(workspace, db_path=db, now=CASE_NOW)["cases"]
     files_before = {path: path.read_bytes() for path in workspace.rglob("*.yaml")}
     db_before = db.read_bytes()
     for action, invoke in (
@@ -128,6 +134,8 @@ def test_research_resumes_reordered_set_and_keeps_prepare_context(
         lambda **kwargs: context,
     )
     prepare_workspace(
+        started_at=CASE_NOW,
+        request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
         db_path=db,
         workspace=workspace,
@@ -135,6 +143,8 @@ def test_research_resumes_reordered_set_and_keeps_prepare_context(
     )
     operation = OperationService(db).active()
     prepare_workspace(
+        started_at=CASE_NOW,
+        request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
         db_path=db,
         workspace=workspace,
@@ -189,6 +199,8 @@ def test_status_and_promote_share_case_eligibility(tmp_path: Path, mutation: str
     triage = _publish_triage(db)
     workspace = tmp_path / "workspace"
     prepare_workspace(
+        started_at=CASE_NOW,
+        request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
         db_path=db,
         workspace=workspace,
@@ -234,7 +246,11 @@ def test_status_and_promote_share_case_eligibility(tmp_path: Path, mutation: str
 
 
 def _publish_triage(
-    db_path: Path, *, research: bool = True, second_research: bool = False
+    db_path: Path,
+    *,
+    research: bool = True,
+    second_research: bool = False,
+    with_holdings: bool = False,
 ) -> ResearchTriage:
     ledger = load_portfolio_ledger(
         Path(__file__).resolve().parents[1] / "fixtures/portfolio-ledger/representative.yaml"
@@ -243,10 +259,17 @@ def _publish_triage(
         db_path,
         ledger.model_copy(
             update={
+                "events": ledger.events
+                if with_holdings
+                else tuple(
+                    event
+                    for event in ledger.events
+                    if event.type in {"opening_balance", "contribution", "withdrawal"}
+                ),
                 "market_prices": tuple(
                     price.model_copy(update={"source_kind": "licensed_dataset"})
                     for price in ledger.market_prices
-                )
+                ),
             }
         ),
     )
@@ -288,6 +311,8 @@ def test_prepare_and_status_need_only_published_triage_id(
         research_main(
             [
                 "prepare",
+                "--request",
+                "synthetic explicit research request",
                 "--research-triage-id",
                 triage.research_triage_id,
                 "--db",
@@ -306,7 +331,7 @@ def test_prepare_and_status_need_only_published_triage_id(
     assert prepared_output["admissible_research_tickers"] == ["2331"]
     assert not (workspace / "review-set.yaml").exists()
     manifest = yaml.safe_load((workspace / "manifest.yaml").read_text())
-    assert set(manifest) == {"as_of", "inputs", "research_set"}
+    assert set(manifest) == {"as_of", "inputs", "research_set", "operation_id", "selection_sha256"}
     assert set(manifest["inputs"]) == {"research_triage"}
     assert set(manifest["inputs"]["research_triage"]) == {"research_triage_id", "payload_sha256"}
     assert not (workspace / "research-comparison.yaml").exists()
@@ -327,7 +352,7 @@ def test_prepare_and_status_need_only_published_triage_id(
     operation = OperationService(db_path).active()
     assert operation is not None
     assert operation.payload.canonical_refs == (triage.research_triage_id,)
-    assert operation.payload.artifacts[0]["research_set"] == ["2331"]
+    assert operation.payload.artifacts[0]["targets"] == [{"ticker": "2331", "purpose": "new"}]
 
 
 def test_workspace_rejects_skip_admission_and_payload_hash_drift(tmp_path: Path) -> None:
@@ -335,6 +360,8 @@ def test_workspace_rejects_skip_admission_and_payload_hash_drift(tmp_path: Path)
     triage = _publish_triage(db_path)
     workspace = tmp_path / "workspace"
     prepare_workspace(
+        started_at=CASE_NOW,
+        request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
         db_path=db_path,
         workspace=workspace,
@@ -345,7 +372,7 @@ def test_workspace_rejects_skip_admission_and_payload_hash_drift(tmp_path: Path)
     payload["research_set"] = ["0001"]
     workspace_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
 
-    with pytest.raises(ResearchWorkspaceConflictError, match="human-confirmed set"):
+    with pytest.raises(ResearchWorkspaceConflictError, match="fixed selection"):
         compute_status(
             workspace, db_path=db_path, now=datetime.fromisoformat("2026-07-19T12:00:00+09:00")
         )
@@ -366,6 +393,8 @@ def test_zero_research_is_a_normal_prepared_workspace(tmp_path: Path) -> None:
 
     workspace = tmp_path / "workspace"
     prepared = prepare_workspace(
+        started_at=CASE_NOW,
+        request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
         db_path=db_path,
         workspace=workspace,
@@ -380,7 +409,7 @@ def test_zero_research_is_a_normal_prepared_workspace(tmp_path: Path) -> None:
         )["workspace_status"]
         == "no_research"
     )
-    assert OperationService(db_path).active() is None
+    assert OperationService(db_path).active() is not None
 
 
 def test_human_can_confirm_empty_research_set_without_starting_operation(tmp_path: Path) -> None:
@@ -388,6 +417,8 @@ def test_human_can_confirm_empty_research_set_without_starting_operation(tmp_pat
     triage = _publish_triage(db_path)
 
     prepared = prepare_workspace(
+        started_at=CASE_NOW,
+        request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
         db_path=db_path,
         workspace=tmp_path / "workspace",
@@ -395,7 +426,7 @@ def test_human_can_confirm_empty_research_set_without_starting_operation(tmp_pat
 
     assert not prepared.actionable
     assert prepared.admissible_research_tickers == ("2331",)
-    assert OperationService(db_path).active() is None
+    assert OperationService(db_path).active() is not None
 
 
 def test_prepare_rejects_skip_ticker_before_starting_operation(tmp_path: Path) -> None:
@@ -404,6 +435,8 @@ def test_prepare_rejects_skip_ticker_before_starting_operation(tmp_path: Path) -
 
     with pytest.raises(ResearchWorkspaceDataError, match="did not mark research"):
         prepare_workspace(
+            started_at=CASE_NOW,
+            request="synthetic explicit research request",
             research_triage_id=triage.research_triage_id,
             db_path=db_path,
             workspace=tmp_path / "workspace",
@@ -424,12 +457,20 @@ def test_active_operation_blocks_only_new_research_start(tmp_path: Path) -> None
         started_at=datetime.fromisoformat("2026-08-31T18:00:00+09:00"),
         payload=OperationPayload(
             checkpoint="research",
-            artifacts=({"kind": "research_triage", "ref": "other", "research_set": ["0001"]},),
+            artifacts=(
+                {
+                    "kind": "research_selection",
+                    "request": "synthetic competing request",
+                    "targets": [],
+                },
+            ),
         ),
     )
 
     with pytest.raises(ResearchWorkspaceConflictError, match="active operation already exists"):
         prepare_workspace(
+            started_at=CASE_NOW,
+            request="synthetic explicit research request",
             research_triage_id=triage.research_triage_id,
             db_path=db_path,
             workspace=tmp_path / "workspace",
@@ -446,6 +487,8 @@ def test_force_cannot_overwrite_workspace_with_a_different_active_research_set(
     triage = _publish_triage(db_path, second_research=True)
     workspace = tmp_path / "workspace"
     prepare_workspace(
+        started_at=CASE_NOW,
+        request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
         db_path=db_path,
         workspace=workspace,
@@ -455,6 +498,8 @@ def test_force_cannot_overwrite_workspace_with_a_different_active_research_set(
 
     with pytest.raises(ResearchWorkspaceConflictError, match="active operation already exists"):
         prepare_workspace(
+            started_at=CASE_NOW,
+            request="synthetic explicit research request",
             research_triage_id=triage.research_triage_id,
             db_path=db_path,
             workspace=workspace,
@@ -470,6 +515,8 @@ def test_thesis_scaffold_without_quote_is_unresolved_v4(tmp_path):
     triage = _publish_triage(db)
     workspace = tmp_path / "research"
     prepare_workspace(
+        started_at=CASE_NOW,
+        request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
         db_path=db,
         workspace=workspace,
@@ -520,6 +567,8 @@ def test_all_cases_promote_without_a_winner_and_status_tracks_exact_publication(
     triage = _publish_triage(db, second_research=True)
     workspace = tmp_path / "workspace"
     prepare_workspace(
+        started_at=CASE_NOW,
+        request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
         db_path=db,
         workspace=workspace,
@@ -576,6 +625,8 @@ def test_all_cases_promote_without_a_winner_and_status_tracks_exact_publication(
     # Re-prepare keeps authored drafts; status derives publication without a local journal.
     authored = (workspace / "2331/thesis-draft.yaml").read_bytes()
     prepare_workspace(
+        started_at=CASE_NOW,
+        request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
         db_path=db,
         workspace=workspace,
@@ -612,10 +663,15 @@ def test_all_cases_promote_without_a_winner_and_status_tracks_exact_publication(
 
 def test_holding_workspace_has_one_ledger_subject_without_comparison(tmp_path: Path) -> None:
     db = tmp_path / "app.sqlite"
-    _publish_triage(db)
+    _publish_triage(db, with_holdings=True)
     workspace = tmp_path / "holding"
     workspace_module.prepare_holding_workspace(
-        db_path=db, workspace=workspace, ticker="2331", asof=date(2026, 7, 11)
+        started_at=CASE_NOW,
+        request="synthetic explicit holding request",
+        db_path=db,
+        workspace=workspace,
+        ticker="2331",
+        asof=date(2026, 7, 11),
     )
     assert not (workspace / "research-comparison.yaml").exists()
     status = compute_status(
@@ -642,6 +698,8 @@ def test_publication_ignores_checklist_but_requires_exact_documents(
     triage = _publish_triage(db)
     workspace = tmp_path / "workspace"
     prepare_workspace(
+        started_at=CASE_NOW,
+        request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
         db_path=db,
         workspace=workspace,
@@ -685,6 +743,8 @@ def test_obsolete_override_cannot_bypass_exact_publication(tmp_path: Path) -> No
     triage = _publish_triage(db)
     workspace = tmp_path / "workspace"
     prepare_workspace(
+        started_at=CASE_NOW,
+        request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
         db_path=db,
         workspace=workspace,
@@ -730,6 +790,7 @@ def test_risk_only_case_completes_review_promotion_and_no_allocation(tmp_path):
     triage = _publish_triage(db)
     workspace = tmp_path / "research"
     prepare_workspace(
+        request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
         db_path=db,
         workspace=workspace,

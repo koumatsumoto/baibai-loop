@@ -69,9 +69,9 @@ def _app_db(app_method_root: Path) -> Path:
 
 def _publish_research_triage(db_path: Path) -> str:
     """Seed the selected case an assessment round is scaffolded and published against."""
-    thesis, review = pair_payload(ticker="2331", as_of="2026-07-21", quote_as_of="2026-07-21")
+    thesis, review = pair_payload(ticker="0001", as_of="2026-07-21", quote_as_of="2026-07-21")
     ThesisStoreService(db_path, clock=lambda: PUBLISHED_AT).publish_reviewed_thesis(
-        "thesis-20260721-2331-r2", thesis, review, supersedes_id="thesis-20260714-2331-r1"
+        "thesis-20260721-0001-r2", thesis, review
     )
     context_id = "macro-context-2026-07-21-cli-seam"
     MacroContextService(db_path).publish(
@@ -93,13 +93,13 @@ def _publish_research_triage(db_path: Path) -> str:
             macro_context_id=context_id,
             entries=[
                 research_entry(
-                    "2331",
+                    "0001",
                     rank=1,
                     rationale="deep research",
                     research_question=RESEARCH_QUESTION,
                     key_risk="demand",
                 ),
-                skip_entry("0001", rationale="insufficient evidence"),
+                skip_entry("2331", rationale="insufficient evidence"),
             ],
         )
     )
@@ -113,16 +113,24 @@ def _publish_research_triage(db_path: Path) -> str:
         research_triage,
         review_set=PublishedReviewSet.model_validate(review_set),
     )
-    OperationService(db_path).start(
+    operation = OperationService(db_path).start(
         session_kind="capital-allocation",
         as_of=PUBLISHED_AT.date(),
         started_at=PUBLISHED_AT,
         payload=OperationPayload(
             checkpoint="human selection",
             artifacts=(
-                {"kind": "research_triage", "ref": RESEARCH_TRIAGE_ID, "research_set": ["2331"]},
+                {
+                    "kind": "research_selection",
+                    "request": "synthetic explicit new research",
+                    "research_triage_id": RESEARCH_TRIAGE_ID,
+                    "targets": [{"ticker": "0001", "purpose": "new"}],
+                },
             ),
         ),
+    )
+    OperationService(db_path).record_thesis(
+        operation.operation_id, "thesis-20260721-0001-r2", now=PUBLISHED_AT
     )
     return RESEARCH_TRIAGE_ID
 
@@ -140,7 +148,7 @@ def _scaffold_capital_allocation_draft(db_path: Path, out: Path, research_triage
             "--research-triage-id",
             research_triage_id,
             "--thesis-id",
-            "thesis-20260721-2331-r2",
+            "thesis-20260721-0001-r2",
             "--out",
             str(out),
         ],
@@ -223,7 +231,7 @@ def test_assessment_scaffold_writes_a_draft_from_argv(
     assert draft["as_of"] == ASSESSMENT_ASOF
     assert draft["published_at"] == PUBLISHED_AT.isoformat()
     assert draft["research_triage_id"] == research_triage_id
-    assert [alternative["ticker"] for alternative in draft["alternatives"]] == ["2331"]
+    assert [alternative["ticker"] for alternative in draft["alternatives"]] == ["0001"]
     assert "research_questions" not in draft["alternatives"][0]
     assert (
         yaml.safe_load(capsys.readouterr().out)["capital_allocation_assessment_id"] == ASSESSMENT_ID
@@ -273,7 +281,7 @@ def test_assessment_publish_stores_the_round_from_argv(
 
 
 @pytest.mark.parametrize("result", ["no_allocation", "allocate", "defer"])
-def test_operation_confirmation_depends_on_published_assessment(
+def test_proposal_completion_requires_canonical_assessment_but_no_human_adoption(
     app_method_root: Path, result: str
 ) -> None:
     db = _app_db(app_method_root)
@@ -320,20 +328,14 @@ def test_operation_confirmation_depends_on_published_assessment(
     else:
         CapitalAllocationAssessmentService(db, clock=lambda: PUBLISHED_AT).publish(assessment)
     if result == "no_allocation":
-        with pytest.raises(OperationCompletionError, match="precedes assessment publication"):
+        with pytest.raises(OperationCompletionError, match=r"precedes .*publication"):
             service.complete(
-                operation.operation_id,
-                payload,
-                completed_at=PUBLISHED_AT.replace(hour=14),
+                operation.operation_id, payload, completed_at=PUBLISHED_AT.replace(hour=14)
             )
-        completed = service.complete(operation.operation_id, payload, completed_at=PUBLISHED_AT)
-        assert completed.status == "completed"
-        assert completed.payload.human_confirmation is None
-        assert service.active() is None
-    else:
-        with pytest.raises(OperationCompletionError, match="human_confirmation"):
-            service.complete(operation.operation_id, payload, completed_at=PUBLISHED_AT)
-        assert service.active() is not None
+    completed = service.complete(operation.operation_id, payload, completed_at=PUBLISHED_AT)
+    assert completed.status == "completed"
+    assert completed.payload.human_confirmation is None
+    assert service.active() is None
 
 
 def test_macro_context_publish_routes_argv_and_stores_the_revision(

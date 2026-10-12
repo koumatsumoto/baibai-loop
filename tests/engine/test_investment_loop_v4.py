@@ -8,6 +8,7 @@ from decimal import Decimal
 import pytest
 from tests.engine.test_reviewed_thesis_v4 import NOW as EVENING
 from tests.helpers.db_seed import seed_ledger
+from tests.helpers.research_triage import research_entry, research_triage_payload
 from tests.helpers.research_v4 import pair_payload
 
 from baibai_engine.appdb.write import connect_rw
@@ -89,6 +90,9 @@ def test_sequential_allocation_uses_updated_cash_and_one_research_set(
         pairs[ticker] = ThesisStoreService(db, clock=lambda: NOW).publish_reviewed_thesis(
             "thesis-" + ticker, thesis, review
         )
+    entries = [research_entry(ticker, rank=index) for index, ticker in enumerate(pairs, 1)]
+    for entry in entries:
+        entry["candidate_snapshot"]["analysis"]["identity_liquidity"]["avg_turnover_oku"] = 0.01
     with connect_rw(db) as connection:
         connection.execute(
             "INSERT INTO research_triage VALUES (?,?,?,?,?,?)",
@@ -99,19 +103,14 @@ def test_sequential_allocation_uses_updated_cash_and_one_research_set(
                 "2026-09-07",
                 NOW.isoformat(),
                 json.dumps(
-                    {
-                        "as_of": "2026-09-07",
-                        "entries": [
-                            {
-                                "ticker": ticker,
-                                "decision": "research",
-                                "candidate_snapshot": {
-                                    "analysis": {"identity_liquidity": {"avg_turnover_oku": 0.01}}
-                                },
-                            }
-                            for ticker in pairs
-                        ],
-                    }
+                    research_triage_payload(
+                        research_triage_id="triage",
+                        review_set_id="set",
+                        run_revision_id="run",
+                        as_of=NOW.date().isoformat(),
+                        published_at=NOW.isoformat(),
+                        entries=entries,
+                    )
                 ),
             ),
         )
@@ -121,9 +120,20 @@ def test_sequential_allocation_uses_updated_cash_and_one_research_set(
         started_at=NOW,
         payload=OperationPayload(
             checkpoint="human selected",
-            artifacts=({"kind": "research_triage", "ref": "triage", "research_set": list(pairs)},),
+            artifacts=(
+                {
+                    "kind": "research_selection",
+                    "request": "synthetic explicit selection",
+                    "research_triage_id": "triage",
+                    "targets": [{"ticker": ticker, "purpose": "new"} for ticker in pairs],
+                },
+            ),
         ),
     )
+    for ticker in pairs:
+        OperationService(db).record_thesis(operation.operation_id, "thesis-" + ticker, now=NOW)
+    operation = OperationService(db).get(operation.operation_id)
+
     service = CapitalAllocationAssessmentService(db, sqlite_path=market, clock=lambda: NOW)
     first_id = "capital-allocation-assessment-20260907-first"
     final_id = "capital-allocation-assessment-20260907-second"
@@ -182,20 +192,16 @@ def test_sequential_allocation_uses_updated_cash_and_one_research_set(
                             )
                         }
                     )
-                    if disposition == "decline" and review_id is None:
-                        assert service.publish(probe).alternatives[0].thesis_review_id is None
-                    else:
-                        with pytest.raises(ValueError, match=r"[Rr]eview"):
-                            service.publish(probe)
-                        with connect_rw(db) as connection:
-                            assert (
-                                connection.execute(
-                                    "SELECT 1 FROM capital_allocation_assessment WHERE "
-                                    "capital_allocation_assessment_id = ?",
-                                    (probe.capital_allocation_assessment_id,),
-                                ).fetchone()
-                                is None
-                            )
+                    with pytest.raises(ValueError, match=r"[Rr]eview"):
+                        service.publish(probe)
+                    with connect_rw(db) as connection:
+                        assert (
+                            connection.execute(
+                                "SELECT 1 FROM capital_allocation_assessment WHERE capital_allocation_assessment_id = ?",
+                                (probe.capital_allocation_assessment_id,),
+                            ).fetchone()
+                            is None
+                        )
         service.publish(assessment)
         plan = plan_limit(
             capital_allocation_assessment_id=assessment_id,

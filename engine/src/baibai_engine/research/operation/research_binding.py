@@ -1,4 +1,4 @@
-"""L3 Researchの比較対象を止める境界: Operationに固定した人間の選択集合を照合する。"""
+"""L3 Researchの比較対象を止める境界: Operationに固定した対象集合を照合する。"""
 
 from __future__ import annotations
 
@@ -8,9 +8,23 @@ from collections.abc import Iterable
 from datetime import datetime
 
 from baibai_engine.research.operation.models import OperationPayload, OperationSession
+from baibai_engine.research.operation.progress import (
+    ResearchComparisonScope,
+    ReviewedTarget,
+    comparison_scope,
+    selection_binding,
+)
 
 
 def research_binding(payload: OperationPayload) -> tuple[str, frozenset[str]]:
+    selection = selection_binding(payload)
+    if selection is not None:
+        if selection.research_triage_id is None:
+            raise ValueError("this Operation has no new Research Triage subjects")
+        return selection.research_triage_id, frozenset(
+            item.ticker for item in selection.targets if item.purpose == "new"
+        )
+    # Historical payloads retain their original exact set.
     artifacts = [item for item in payload.artifacts if item.get("kind") == "research_triage"]
     if len(artifacts) != 1:
         raise ValueError("capital-allocation requires one research_triage Research Set binding")
@@ -36,17 +50,30 @@ def require_matching_research_set(
     research_triage_id: str,
     tickers: Iterable[str],
     published_at: datetime,
-) -> None:
+    scope: ResearchComparisonScope | None = None,
+) -> ResearchComparisonScope | None:
     if operation.session_kind != "capital-allocation" or operation.status != "active":
         raise ValueError("an active capital-allocation Operation is required")
-    triage_id, selected = research_binding(operation.payload)
-    alternatives = tuple(tickers)
-    if triage_id != research_triage_id:
-        raise ValueError("assessment Research Triage differs from the active Operation")
-    if frozenset(alternatives) != selected or len(alternatives) != len(selected):
-        raise ValueError("assessment alternatives must exactly match the human Research Set")
-    if published_at < operation.started_at:
-        raise ValueError("assessment publication precedes the active Operation")
+    if selection_binding(operation.payload) is not None:
+        expected = comparison_scope(operation.operation_id, operation.payload)
+        selection = selection_binding(operation.payload)
+        assert selection is not None
+        if selection.research_triage_id != research_triage_id:
+            raise ValueError("assessment Research Triage differs from the active Operation")
+        completed = [item.ticker for item in expected.outcomes if isinstance(item, ReviewedTarget)]
+        alternatives = tuple(tickers)
+        if (
+            not completed
+            or frozenset(alternatives) != frozenset(completed)
+            or len(alternatives) != len(completed)
+        ):
+            raise ValueError("assessment alternatives must exactly match completed new research")
+        if scope is not None and scope != expected:
+            raise ValueError("assessment scope differs from the Operation's fixed coverage")
+        if published_at < operation.started_at:
+            raise ValueError("assessment publication precedes the active Operation")
+        return expected
+    raise ValueError("explicit fixed research_selection is required before publishing CAA")
 
 
 def require_active_research_set(
@@ -55,16 +82,18 @@ def require_active_research_set(
     research_triage_id: str,
     tickers: Iterable[str],
     published_at: datetime,
-) -> None:
+    scope: ResearchComparisonScope | None = None,
+) -> ResearchComparisonScope | None:
     row = connection.execute("SELECT * FROM operation_session WHERE status = 'active'").fetchone()
     if row is None:
         raise ValueError("an active capital-allocation Operation is required")
     operation = OperationSession.model_validate(
         {**dict(row), "payload": json.loads(row["payload"])}
     )
-    require_matching_research_set(
+    return require_matching_research_set(
         operation,
         research_triage_id=research_triage_id,
         tickers=tickers,
         published_at=published_at,
+        scope=scope,
     )
