@@ -14,13 +14,13 @@ from pydantic import ValidationError
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.macro.indicators.db import (
+from baibai_engine.market_context.indicators.db import (
     DEFAULT_DB_PATH as DEFAULT_INDICATORS_DB_PATH,
 )
-from baibai_engine.macro.indicators.db import (
+from baibai_engine.market_context.indicators.db import (
     IndicatorsSchemaError,
 )
-from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH
+from baibai_engine.market_context.reading.rules import DEFAULT_RULES_PATH
 
 from .handoff_cli import configure_parser as configure_handoff_parser
 from .handoff_cli import run as run_handoff

@@ -9,9 +9,7 @@ from pathlib import Path
 from typing import Literal
 
 from baibai_engine.foundation.redaction import redact_credentials
-from baibai_engine.macro.indicators.definitions import SeriesDefinition, load_definitions
-from baibai_engine.macro.reading.models import snapshot_payload
-from baibai_engine.macro.reading.reader import build_store_observation_reader
+from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
 from baibai_engine.market_context.macro import (
     MACRO_CONTEXT_STALE_DAYS,
     MACRO_READING_RULES_PATH,
@@ -21,6 +19,8 @@ from baibai_engine.market_context.macro import (
     macro_reading_snapshot,
     read_macro_snapshot,
 )
+from baibai_engine.market_context.reading.models import snapshot_payload
+from baibai_engine.market_context.reading.reader import build_store_observation_reader
 
 from .sqlite import (
     connect_read_only,
@@ -223,12 +223,12 @@ def stored_macro_rows(
     from dataclasses import asdict
 
     from baibai_engine.foundation.sqlite_pages import select_page
-    from baibai_engine.macro.indicators.db import (
+    from baibai_engine.market_context.indicators.db import (
         observations_in_range,
         open_read_only_connection,
         validate_current_schema,
     )
-    from baibai_engine.macro.indicators.read_contracts import point_in_time_providers
+    from baibai_engine.market_context.indicators.read_contracts import point_in_time_providers
 
     from .stored import required_read
 
@@ -302,7 +302,10 @@ def stored_macro_rows(
 
 
 def stored_macro_reading(path: Path, *, asof: date) -> dict[str, object]:
-    from baibai_engine.macro.indicators.db import open_read_only_connection, validate_current_schema
+    from baibai_engine.market_context.indicators.db import (
+        open_read_only_connection,
+        validate_current_schema,
+    )
 
     from .stored import required_read
 

@@ -125,24 +125,27 @@ from baibai_engine.macro.context.models import (
     cited_series_ids,
     scorecard_series_ids,
 )
-from baibai_engine.macro.indicators.cli import parse_refresh_failure_count
-from baibai_engine.macro.indicators.db import (
+from baibai_engine.market_context.indicators.cli import parse_refresh_failure_count
+from baibai_engine.market_context.indicators.db import (
     DEFAULT_DB_PATH as DEFAULT_MACRO_DB_PATH,
 )
-from baibai_engine.macro.indicators.db import (
+from baibai_engine.market_context.indicators.db import (
     SQLITE_SCHEMA_VERSION as MACRO_SCHEMA_VERSION,
 )
-from baibai_engine.macro.indicators.db import (
+from baibai_engine.market_context.indicators.db import (
     IndicatorsSchemaError,
 )
-from baibai_engine.macro.indicators.db import (
+from baibai_engine.market_context.indicators.db import (
     open_connection as open_macro_store,
 )
-from baibai_engine.macro.indicators.db import (
+from baibai_engine.market_context.indicators.db import (
     validate_current_schema as validate_macro_schema,
 )
-from baibai_engine.macro.indicators.definitions import IndicatorDefinitions, load_definitions
-from baibai_engine.macro.indicators.service import (
+from baibai_engine.market_context.indicators.definitions import (
+    IndicatorDefinitions,
+    load_definitions,
+)
+from baibai_engine.market_context.indicators.service import (
     DEFAULT_LATEST_LOOKBACK_DAYS,
     LATEST_FETCH_LOOKBACK_DAYS,
 )

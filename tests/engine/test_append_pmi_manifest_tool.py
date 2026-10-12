@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
-import baibai_engine.macro.indicators.pmi_manifest as tool
-from baibai_engine.macro.indicators.pmi_manifest import (
+import baibai_engine.market_context.indicators.pmi_manifest as tool
+from baibai_engine.market_context.indicators.pmi_manifest import (
     STREAM_TITLES,
     IndexEntry,
     ReleaseCandidate,
@@ -19,8 +19,11 @@ from baibai_engine.macro.indicators.pmi_manifest import (
     resolve_stream,
     verified_value,
 )
-from baibai_engine.macro.indicators.providers.base import FetchContext, IndicatorsProviderError
-from baibai_engine.macro.indicators.providers.spglobal_pmi import (
+from baibai_engine.market_context.indicators.providers.base import (
+    FetchContext,
+    IndicatorsProviderError,
+)
+from baibai_engine.market_context.indicators.providers.spglobal_pmi import (
     MANIFEST_PATH,
     load_manifest,
 )

@@ -12,7 +12,7 @@ from contextlib import closing
 from datetime import date
 from pathlib import Path
 
-from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH as READING_RULES_PATH
+from baibai_engine.market_context.reading.rules import DEFAULT_RULES_PATH as READING_RULES_PATH
 from baibai_engine.storage.application.json import canonical_json
 from baibai_engine.storage.application.paths import database_path
 from baibai_engine.storage.application.read import connect_read_only

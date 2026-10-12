@@ -17,13 +17,12 @@ from tests.helpers.screening_sqlite import market_store_with_fetch_claim
 
 from baibai_engine.macro.context.models import MacroContextDocument
 from baibai_engine.macro.context.service import MacroContextService
-from baibai_engine.macro.indicators.db import (
-    ObservationRecord,
-    insert_observations,
-    open_connection,
+from baibai_engine.market_context.indicators.db import insert_observations, open_connection
+from baibai_engine.market_context.indicators.definitions import load_definitions
+from baibai_engine.market_context.indicators.observations import ObservationRecord
+from baibai_engine.market_context.reading.rules import (
+    DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH,
 )
-from baibai_engine.macro.indicators.definitions import load_definitions
-from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH
 from baibai_engine.position.drafts import apply_draft, build_sell_execution_draft
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.screening.run_store import ScreeningRunReader

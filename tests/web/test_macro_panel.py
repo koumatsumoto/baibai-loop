@@ -9,12 +9,12 @@ from pathlib import Path
 
 import pytest
 
-from baibai_engine.macro.indicators.db import (
-    ObservationRecord,
-    initialize_database,
-    insert_observations,
+from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
+from baibai_engine.market_context.indicators.definitions import (
+    IndicatorDefinitions,
+    load_definitions,
 )
-from baibai_engine.macro.indicators.definitions import IndicatorDefinitions, load_definitions
+from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.read_api import MACRO_READING_RULES_PATH
 from baibai_web.readmodel.macro import build_macro, build_macro_series
 from baibai_web.sources.db_sources import DbMacroSource, load_macro_panel_config

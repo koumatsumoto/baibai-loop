@@ -6,8 +6,8 @@ from dataclasses import asdict
 from datetime import date
 from typing import Any, cast
 
-from baibai_engine.macro.indicators.definitions import load_definitions
-from baibai_engine.macro.indicators.read_contracts import point_in_time_providers
+from baibai_engine.market_context.indicators.definitions import load_definitions
+from baibai_engine.market_context.indicators.read_contracts import point_in_time_providers
 from baibai_engine.read_api.macro import stored_macro_reading, stored_macro_rows
 
 from .reader import OwnerError

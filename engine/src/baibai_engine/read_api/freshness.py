@@ -11,7 +11,7 @@ from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from baibai_engine.macro.indicators.definitions import load_definitions
+from baibai_engine.market_context.indicators.definitions import load_definitions
 
 from .sqlite import read_application_rows, read_rows
 

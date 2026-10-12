@@ -14,7 +14,7 @@ from tests.helpers.macro_context import macro_context_payload
 
 from baibai_engine.macro.context.models import MacroContextDocument
 from baibai_engine.macro.context.service import MacroContextService
-from baibai_engine.macro.indicators.definitions import load_definitions
+from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.read_api import MaterializationPreconditionError
 from baibai_engine.storage.application.json import canonical_json
 from baibai_engine.storage.application.schema import APPLICATION_SCHEMA_VERSION

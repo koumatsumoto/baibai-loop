@@ -35,7 +35,7 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
-from baibai_engine.macro.indicators.definitions import load_definitions
+from baibai_engine.market_context.indicators.definitions import load_definitions
 
 type MacroCoreSectionId = Literal[
     "regime_summary",
