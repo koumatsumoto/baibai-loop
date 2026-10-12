@@ -51,7 +51,7 @@ def scaffold_capital_allocation(
             _alternative(connection, thesis_id, researchable) for thesis_id in thesis_ids
         ]
         try:
-            require_active_research_set(
+            scope = require_active_research_set(
                 connection,
                 research_triage_id=research_triage_id,
                 tickers=(str(item["ticker"]) for item in alternatives),
@@ -59,8 +59,13 @@ def scaffold_capital_allocation(
             )
         except ValueError as error:
             raise CapitalAllocationConflictError(str(error)) from error
+        if scope is not None and set(thesis_ids) != {
+            item.thesis_id for item in scope.outcomes if item.status == "reviewed"
+        }:
+            raise CapitalAllocationConflictError("Thesis IDs differ from completed new research")
     macro_context_id = triage.get("macro_context_id")
     return {
+        **({"research_scope": scope.model_dump(mode="json")} if scope is not None else {}),
         "schema_version": 1,
         "kind": "capital_allocation_assessment",
         "capital_allocation_assessment_id": capital_allocation_assessment_id,

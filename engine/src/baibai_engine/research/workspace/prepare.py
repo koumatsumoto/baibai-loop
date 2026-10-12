@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import date, datetime
+from datetime import date, datetime, time
 from math import isfinite
 from pathlib import Path
 
-from baibai_engine.foundation.repository_layout import ER_LEVEL_CALIBRATION_CONTEXT_PATH
+from baibai_engine.appdb.paths import database_path
+from baibai_engine.foundation.repository_layout import (
+    ER_LEVEL_CALIBRATION_CONTEXT_PATH,
+    MACRO_DB_PATH,
+    MARKET_DB_PATH,
+    RUNS_DB_PATH,
+)
 from baibai_engine.foundation.time import JST
 from baibai_engine.position.ledger import replay_events_through
 from baibai_engine.position.store import LedgerStoreService
@@ -15,12 +21,18 @@ from baibai_engine.read_api.er_calibration_context import (
     candidate_er_band_context,
     load_er_calibration_context,
 )
-from baibai_engine.research.operation.models import OperationPayload, OperationSession
+from baibai_engine.research.inputs import research_inputs
+from baibai_engine.research.operation.models import OperationPayload
+from baibai_engine.research.operation.progress import (
+    ResearchSelection,
+    ResearchTarget,
+    selection_binding,
+    selection_sha256,
+)
 from baibai_engine.research.operation.research_binding import research_binding
 from baibai_engine.research.operation.service import OperationService
 from baibai_engine.research.workspace.admission import (
     ResearchPreparation,
-    ResearchSetAdmissionBinding,
     _resolve_research_triage,
 )
 from baibai_engine.research.workspace.files import (
@@ -33,174 +45,190 @@ from baibai_engine.research.workspace.status import _write_status
 
 def prepare_workspace(
     *,
-    research_triage_id: str,
+    research_triage_id: str | None,
     db_path: Path | None,
     workspace: Path,
+    request: str,
     research_set: Sequence[str] = (),
+    holding_tickers: Sequence[str] = (),
+    asof: date | None = None,
     started_at: datetime | None = None,
+    sqlite_path: Path = MARKET_DB_PATH,
+    runs_path: Path = RUNS_DB_PATH,
+    macro_path: Path = MACRO_DB_PATH,
     force: bool = False,
 ) -> ResearchPreparation:
-    """Build a workspace from one self-contained ResearchTriage and the ledger.
-
-    The workspace keeps the whole Review Set as comparison context but may only
-    admit the Research Triage's ``research`` tickers into the Research Set.
-    Holdings/reservations stay ledger annotations, never hard exclusions. The human
-    selection is fixed at this Research start boundary; an empty set is normal and
-    does not create an Operation.
-    """
-    gate = _resolve_research_triage(
-        db_path=db_path,
-        expected_research_triage_id=research_triage_id,
+    """Explicitly start/reuse one fixed combined selection, including a normal empty set."""
+    now = started_at or datetime.now(JST)
+    gate = (
+        None
+        if research_triage_id is None
+        else _resolve_research_triage(
+            db_path=db_path, expected_research_triage_id=research_triage_id
+        )
     )
-    asof = gate.asof
-    review_set_entries = list(gate.review_set_entries)
+    if gate is not None and asof is not None and asof != gate.asof:
+        raise ResearchWorkspaceDataError("--asof differs from the bound Research Triage")
+    resolved_asof = gate.asof if gate is not None else asof
+    if resolved_asof is None:
+        raise ResearchWorkspaceDataError("--asof is required without Research Triage")
     selected = tuple(research_set)
-    if len(selected) != len(set(selected)):
-        raise ResearchWorkspaceDataError("Research Set tickers must be unique")
-    forbidden = [ticker for ticker in selected if ticker not in gate.admissible_tickers]
-    if forbidden:
+    if selected and (gate is None or not set(selected) <= set(gate.admissible_tickers)):
         raise ResearchWorkspaceDataError(
-            f"Research Set includes {', '.join(forbidden)}, which "
-            f"{gate.research_triage_id} did not mark research"
+            "Research Triage did not mark research for one of the new targets"
         )
-    if selected:
-        _existing_research_operation(
-            gate=gate,
-            research_set=selected,
-            db_path=db_path,
-        )
-    ledger, _ = LedgerStoreService(db_path).load_with_head()
-    snapshot = replay_events_through(ledger.events, ledger.as_of)
-
+    selection = ResearchSelection(
+        request=request,
+        research_triage_id=research_triage_id,
+        targets=tuple(ResearchTarget(ticker=ticker, purpose="new") for ticker in selected)
+        + tuple(ResearchTarget(ticker=ticker, purpose="holding") for ticker in holding_tickers),
+    )
+    service = OperationService(db_path, sqlite_path=sqlite_path)
+    active = service.active()
+    if active is not None:
+        if active.as_of != resolved_asof:
+            raise ResearchWorkspaceConflictError(
+                "active operation already exists with a different as_of"
+            )
+        recorded = selection_binding(active.payload)
+        if recorded is None:
+            old_triage, old_tickers = research_binding(active.payload)
+            if old_triage != selection.research_triage_id or old_tickers != {
+                item.ticker for item in selection.targets
+            }:
+                raise ResearchWorkspaceConflictError(
+                    f"active Operation has a different fixed selection: {active.operation_id}"
+                )
+            legacy_confirmation = (
+                ()
+                if active.payload.human_confirmation is None
+                else (
+                    {
+                        "kind": "legacy_human_confirmation",
+                        "record": active.payload.human_confirmation.model_dump(mode="json"),
+                    },
+                )
+            )
+            payload = active.payload.model_copy(
+                update={
+                    "artifacts": (
+                        *active.payload.artifacts,
+                        *legacy_confirmation,
+                        selection.model_dump(mode="json"),
+                    ),
+                    "human_confirmation": None,
+                }
+            )
+            active = service.checkpoint(active.operation_id, payload, now=now)
+        elif recorded.research_triage_id != selection.research_triage_id or set(
+            recorded.targets
+        ) != set(selection.targets):
+            raise ResearchWorkspaceConflictError(
+                f"active operation already exists: {active.operation_id}"
+            )
+        else:
+            selection = recorded
     manifest_path = workspace / "manifest.yaml"
     if manifest_path.exists() and not force:
         raise ResearchWorkspaceConflictError(
             f"workspace already prepared (use --force to rebuild): {workspace}"
         )
-
+    ledger, _ = LedgerStoreService(db_path).load_with_head()
+    snapshot = replay_events_through(ledger.events, ledger.as_of)
     held = {
         ticker for ticker, lots in snapshot.lots.items() if any(lot.quantity > 0 for lot in lots)
     }
     reserved = {reservation.ticker for reservation in snapshot.active_reservations.values()}
-    annotated = [
-        _annotate_review_set_entry(
-            row, held=held, reserved=reserved, decisions=gate.triage_decision_by_ticker
-        )
-        for row in review_set_entries
-    ]
-    admissible_count = len(gate.admissible_tickers)
-
+    if set(selected) & held or not set(holding_tickers) <= held:
+        raise ResearchWorkspaceDataError("ticker purposes must agree with current holdings")
+    operation = active or service.start(
+        session_kind="capital-allocation",
+        as_of=resolved_asof,
+        started_at=now,
+        payload=OperationPayload(
+            checkpoint="Explicit research started; fixed AI selection recorded",
+            artifacts=(selection.model_dump(mode="json"),),
+            canonical_refs=() if research_triage_id is None else (research_triage_id,),
+            next="research only the fixed targets; record completed or unfinished outcomes",
+        ),
+    )
+    annotated = (
+        []
+        if gate is None
+        else [
+            _annotate_review_set_entry(
+                row, held=held, reserved=reserved, decisions=gate.triage_decision_by_ticker
+            )
+            for row in gate.review_set_entries
+        ]
+    )
     workspace_doc: dict[str, object] = {
-        "as_of": asof.isoformat(),
+        "as_of": resolved_asof.isoformat(),
         "review_set_entries": annotated,
         "research_set": list(selected),
     }
-    er_context = _load_er_distribution_context(
-        screening_rules_hash=gate.screening_rules_hash,
-        candidates=annotated,
-        asof=asof,
-    )
-    workspace_doc["er_realized_distribution_context"] = er_context
-
+    if gate is not None:
+        workspace_doc["er_realized_distribution_context"] = _load_er_distribution_context(
+            screening_rules_hash=gate.screening_rules_hash, candidates=annotated, asof=resolved_asof
+        )
     workspace.mkdir(parents=True, exist_ok=True)
     _write_workspace_file(workspace / "research-workspace.yaml", workspace_doc)
-
-    manifest_inputs: dict[str, object] = {
-        # A readable record of the binding, not its authority: every gate re-resolves
-        # these tickers from the stored research_triage before trusting them.
-        "research_triage": {
-            "research_triage_id": gate.research_triage_id,
-            "payload_sha256": gate.payload_hash,
+    inputs = (
+        {}
+        if gate is None
+        else {
+            "research_triage": {
+                "research_triage_id": gate.research_triage_id,
+                "payload_sha256": gate.payload_hash,
+            }
+        }
+    )
+    _write_workspace_file(
+        manifest_path,
+        {
+            "as_of": resolved_asof.isoformat(),
+            "inputs": inputs,
+            "research_set": list(selected),
+            "operation_id": operation.operation_id,
+            "selection_sha256": selection_sha256(selection),
         },
-    }
-    manifest = {
-        "as_of": asof.isoformat(),
-        "inputs": manifest_inputs,
-        "research_set": list(selected),
-    }
-    _write_workspace_file(manifest_path, manifest)
-    if selected:
-        _start_research_operation(
-            gate=gate,
-            research_set=selected,
+    )
+    cutoff = min(now, datetime.combine(resolved_asof, time.max, JST))
+    _write_workspace_file(
+        workspace / "domain-inputs.yaml",
+        research_inputs(
+            tickers=tuple(item.ticker for item in selection.targets),
+            as_of=resolved_asof,
+            cutoff=cutoff,
+            market_path=sqlite_path,
+            runs_path=runs_path,
+            macro_path=macro_path,
+            app_path=database_path(db_path),
+            run_revision_id=None if gate is None else gate.run_revision_id,
+        ),
+    )
+    for ticker in holding_tickers:
+        prepare_holding_workspace(
+            asof=resolved_asof,
             db_path=db_path,
-            started_at=started_at or datetime.now(JST),
+            ticker=ticker,
+            workspace=workspace / "holdings" / ticker,
+            started_at=now,
+            force=force,
+            sqlite_path=sqlite_path,
+            runs_path=runs_path,
+            macro_path=macro_path,
         )
     _write_status(workspace, db_path=db_path)
     return ResearchPreparation(
         workspace=workspace,
-        actionable=bool(selected),
-        admissible_count=admissible_count,
+        actionable=bool(selection.targets),
+        admissible_count=0 if gate is None else len(gate.admissible_tickers),
         review_set_size=len(annotated),
-        research_triage_id=gate.research_triage_id,
-        admissible_research_tickers=gate.admissible_tickers,
+        research_triage_id=research_triage_id,
+        admissible_research_tickers=() if gate is None else gate.admissible_tickers,
+        operation_id=operation.operation_id,
     )
-
-
-def _start_research_operation(
-    *,
-    gate: ResearchSetAdmissionBinding,
-    research_set: tuple[str, ...],
-    db_path: Path | None,
-    started_at: datetime,
-) -> OperationSession:
-    """Start one Operation only after the human Research Set is fixed."""
-
-    service = OperationService(db_path)
-    active = _existing_research_operation(
-        gate=gate,
-        research_set=research_set,
-        db_path=db_path,
-    )
-    if active is not None:
-        return active
-    payload = OperationPayload(
-        checkpoint="Human Research Set confirmed; Fundamental Research started",
-        artifacts=(
-            {
-                "kind": "research_triage",
-                "ref": gate.research_triage_id,
-                "research_set": list(research_set),
-            },
-        ),
-        canonical_refs=(gate.research_triage_id,),
-        human_confirmation={
-            "request": "confirm the Research Set",
-            "result": ",".join(research_set),
-        },
-        next="perform Fundamental Research for the confirmed Research Set",
-    )
-    return service.start(
-        session_kind="capital-allocation",
-        as_of=gate.asof,
-        started_at=started_at,
-        payload=payload,
-    )
-
-
-def _existing_research_operation(
-    *,
-    gate: ResearchSetAdmissionBinding,
-    research_set: tuple[str, ...],
-    db_path: Path | None,
-) -> OperationSession | None:
-    """Return the exact active Research start, or reject a conflicting session."""
-
-    active = OperationService(db_path).active()
-    if active is not None:
-        try:
-            binding = research_binding(active.payload)
-        except ValueError:
-            binding = None
-        if active.session_kind == "capital-allocation" and binding == (
-            gate.research_triage_id,
-            frozenset(research_set),
-        ):
-            return active
-        raise ResearchWorkspaceConflictError(
-            f"active operation already exists: {active.operation_id}"
-        )
-    return None
 
 
 def prepare_holding_workspace(
@@ -209,55 +237,125 @@ def prepare_holding_workspace(
     db_path: Path | None,
     ticker: str,
     workspace: Path,
+    request: str | None = None,
+    started_at: datetime | None = None,
+    sqlite_path: Path = MARKET_DB_PATH,
+    runs_path: Path = RUNS_DB_PATH,
+    macro_path: Path = MACRO_DB_PATH,
     force: bool = False,
 ) -> ResearchPreparation:
-    """Build a one-ticker research workspace for an actual open holding.
-
-    Position Review bypasses Review Set publication because the canonical ledger is
-    the source of its research target. Each authoring gate confirms that the ticker
-    remains held; no Research Triage or portfolio-wide price prerequisite is fabricated.
-    """
+    """Attach a holding workspace to the same finite Operation; never use new admission."""
+    now = started_at or datetime.now(JST)
     ledger, _ = LedgerStoreService(db_path).load_with_head()
     snapshot = replay_events_through(ledger.events, ledger.as_of)
     quantity = sum(lot.quantity for lot in snapshot.lots.get(ticker, []))
     if quantity <= 0:
         raise ResearchWorkspaceDataError("position-prepare requires a current holding")
-    sector = snapshot.metadata[ticker][0]
-
     manifest_path = workspace / "manifest.yaml"
     if manifest_path.exists() and not force:
         raise ResearchWorkspaceConflictError(
             f"workspace already prepared (use --force to rebuild): {workspace}"
         )
-
-    subject = [
-        {
-            "rank": 1,
-            "ticker": ticker,
-            "sector": sector,
-            "quantity": quantity,
-            "portfolio_annotation": "held",
-        }
-    ]
-    workspace_doc = {
-        "as_of": asof.isoformat(),
-        "position_review_subject": subject,
-        "research_set": [ticker],
-    }
+    service = OperationService(db_path, sqlite_path=sqlite_path)
+    operation = service.active()
+    selection = None if operation is None else selection_binding(operation.payload)
+    if operation is not None:
+        if operation.as_of != asof:
+            raise ResearchWorkspaceConflictError(
+                "active Operation as_of differs from the holding workspace"
+            )
+        if (
+            selection is None
+            and operation.session_kind == "position-review"
+            and operation.ticker == ticker
+            and request is not None
+        ):
+            selection = ResearchSelection(
+                request=request, targets=(ResearchTarget(ticker=ticker, purpose="holding"),)
+            )
+            operation = service.checkpoint(
+                operation.operation_id,
+                operation.payload.model_copy(
+                    update={
+                        "artifacts": (
+                            *operation.payload.artifacts,
+                            selection.model_dump(mode="json"),
+                        )
+                    }
+                ),
+                now=now,
+            )
+        if (
+            selection is None
+            or ResearchTarget(ticker=ticker, purpose="holding") not in selection.targets
+        ):
+            raise ResearchWorkspaceConflictError(
+                "holding ticker is outside the fixed Operation selection"
+            )
+    else:
+        if request is None:
+            raise ResearchWorkspaceDataError("position-prepare requires an explicit start request")
+        selection = ResearchSelection(
+            request=request, targets=(ResearchTarget(ticker=ticker, purpose="holding"),)
+        )
+        operation = service.start(
+            session_kind="position-review",
+            as_of=asof,
+            started_at=now,
+            ticker=ticker,
+            payload=OperationPayload(
+                checkpoint="Explicit holding research started",
+                artifacts=(selection.model_dump(mode="json"),),
+                next="validate a holding proposal or record unfinished research",
+            ),
+        )
+    assert selection is not None
     workspace.mkdir(parents=True, exist_ok=True)
-    _write_workspace_file(workspace / "research-workspace.yaml", workspace_doc)
-    manifest = {
-        "purpose": "position_review",
-        "holding_ticker": ticker,
-        "as_of": asof.isoformat(),
-    }
-    _write_workspace_file(manifest_path, manifest)
+    _write_workspace_file(
+        workspace / "research-workspace.yaml",
+        {
+            "as_of": asof.isoformat(),
+            "position_review_subject": [
+                {
+                    "rank": 1,
+                    "ticker": ticker,
+                    "sector": snapshot.metadata[ticker][0],
+                    "quantity": quantity,
+                    "portfolio_annotation": "held",
+                }
+            ],
+            "research_set": [ticker],
+        },
+    )
+    _write_workspace_file(
+        manifest_path,
+        {
+            "purpose": "position_review",
+            "holding_ticker": ticker,
+            "as_of": asof.isoformat(),
+            "operation_id": operation.operation_id,
+            "selection_sha256": selection_sha256(selection),
+        },
+    )
+    _write_workspace_file(
+        workspace / "domain-inputs.yaml",
+        research_inputs(
+            tickers=(ticker,),
+            as_of=asof,
+            cutoff=min(now, datetime.combine(asof, time.max, JST)),
+            market_path=sqlite_path,
+            runs_path=runs_path,
+            macro_path=macro_path,
+            app_path=database_path(db_path),
+        ),
+    )
     _write_status(workspace, db_path=db_path)
     return ResearchPreparation(
         workspace=workspace,
         actionable=True,
         admissible_count=1,
         review_set_size=1,
+        operation_id=operation.operation_id,
     )
 
 

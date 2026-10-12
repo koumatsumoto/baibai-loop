@@ -218,9 +218,9 @@ def test_daily_triage_publishes_while_research_operation_is_active(
             checkpoint="research in progress",
             artifacts=(
                 {
-                    "kind": "research_triage",
-                    "ref": "research-triage-previous",
-                    "research_set": ["2331"],
+                    "kind": "research_selection",
+                    "request": "synthetic existing request",
+                    "targets": [],
                 },
             ),
             next="continue",

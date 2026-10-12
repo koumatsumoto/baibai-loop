@@ -126,7 +126,7 @@ class PositionReviewService:
             unresolved_reason="残存見返りの経済的な評価を記入してください",
         )
 
-    def _check(
+    def check_in_transaction(
         self, connection: sqlite3.Connection, document: PositionReviewDocument, now: datetime
     ) -> PositionReviewEvaluation:
         if document.as_of != now.date():
@@ -161,7 +161,7 @@ class PositionReviewService:
     def check(self, document: PositionReviewDocument) -> PositionReviewEvaluation:
         with closing(connect_read_only(database_path(self._db_path))) as connection:
             connection.execute("BEGIN")
-            return self._check(connection, document, self._clock())
+            return self.check_in_transaction(connection, document, self._clock())
 
     def publish(
         self, document: PositionReviewDocument, *, confirmed: bool
@@ -183,7 +183,7 @@ class PositionReviewService:
                         raise ResearchConflictError("immutable Position Review differs")
                     connection.rollback()
                     return stored
-                result = self._check(connection, document, self._clock())
+                result = self.check_in_transaction(connection, document, self._clock())
                 document = document.model_copy(update={"action": result.action})
                 payload = canonical_json(document.model_dump(mode="json"))
                 connection.execute(

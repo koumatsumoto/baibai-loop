@@ -8,6 +8,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from baibai_engine.research.operation.service import OperationService
 from baibai_engine.research.thesis import (
     thesis_core_hash,
 )
@@ -90,6 +91,10 @@ def promote(
         raise ResearchWorkspaceConflictError(str(error)) from error
     except (ResearchValidationError, ValidationError) as error:
         raise ResearchWorkspaceDataError(str(error)) from error
+    if gate is not None and isinstance(manifest.get("operation_id"), str):
+        OperationService(db_path).record_thesis(
+            str(manifest["operation_id"]), resolved_thesis_id, now=now
+        )
     return PromoteResult(
         thesis_id=resolved_thesis_id,
         review_id=review.review_id,

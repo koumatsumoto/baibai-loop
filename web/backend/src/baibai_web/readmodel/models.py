@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from baibai_engine.read_api.external_assessment import ExternalAssessment
 
@@ -766,6 +766,12 @@ class CapitalAllocationAssessmentSummaryView(BaseModel):
     allocated_ticker: str | None
 
 
+class UnfinishedResearchView(BaseModel):
+    ticker: str
+    reason: str
+    references: list[str]
+
+
 class CapitalAllocationAssessmentView(BaseModel):
     capital_allocation_assessment_id: str
     as_of: date
@@ -776,6 +782,9 @@ class CapitalAllocationAssessmentView(BaseModel):
     macro_context_id: str | None
     comparison: str
     foregone_alternatives: str
+    research_operation_id: str | None = None
+    selected_new_target_count: int | None = None
+    unfinished_research: list[UnfinishedResearchView] = Field(default_factory=list)
     alternatives: list[AllocationAlternativeView]
     content_review: AssessmentReviewView
 

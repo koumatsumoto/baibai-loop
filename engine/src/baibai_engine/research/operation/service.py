@@ -11,6 +11,8 @@ from pathlib import Path
 
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.appdb.write import connect_rw, initialize_database
+from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
+from baibai_engine.foundation.time import JST
 from baibai_engine.research.capital_allocation import CapitalAllocationAssessment
 from baibai_engine.research.operation.models import (
     OperationPayload,
@@ -18,10 +20,25 @@ from baibai_engine.research.operation.models import (
     OperationStatus,
     SessionKind,
 )
+from baibai_engine.research.operation.progress import (
+    HoldingProposal,
+    ResearchOutcome,
+    ResearchProgress,
+    ReviewedTarget,
+    UnfinishedTarget,
+    comparison_scope,
+    progress_binding,
+    selection_binding,
+    with_progress,
+)
 from baibai_engine.research.operation.research_binding import (
     require_matching_research_set,
     research_binding,
 )
+from baibai_engine.research.operation.validation import validate_progress, validate_selection
+from baibai_engine.research.position_review import PositionReviewDocument
+from baibai_engine.research.position_review_service import PositionReviewService
+from baibai_engine.research.thesis_store import load_reviewed_thesis
 
 
 class OperationNotFoundError(ValueError):
@@ -37,8 +54,9 @@ class OperationCompletionError(ValueError):
 
 
 class OperationService:
-    def __init__(self, db_path: Path | None = None) -> None:
+    def __init__(self, db_path: Path | None = None, *, sqlite_path: Path = MARKET_DB_PATH) -> None:
         self._db_path = db_path
+        self._sqlite_path = sqlite_path
 
     def start(
         self,
@@ -50,18 +68,21 @@ class OperationService:
         ticker: str | None = None,
     ) -> OperationSession:
         _require_current_payload(payload)
-        if session_kind == "position-review":
+        if started_at.utcoffset() is None:
+            raise OperationConflictError("started_at must include a UTC offset")
+        selection = selection_binding(payload)
+        if selection is None:
             raise OperationConflictError(
-                "use research position-prepare and position position-review publish --confirmed; "
-                "no Operation is needed"
+                "start Research with `research prepare`; one research_selection is required"
             )
-        if session_kind == "capital-allocation":
-            try:
-                research_binding(payload)
-            except ValueError as error:
-                raise OperationConflictError(
-                    f"{error}; start Research with `research prepare`"
-                ) from error
+        if ticker is not None and re.fullmatch(r"[0-9A-Z]{4}", ticker) is None:
+            raise OperationConflictError(
+                "current ticker must be a four-character alphanumeric code"
+            )
+        if session_kind == "position-review" and any(
+            item.purpose != "holding" for item in selection.targets
+        ):
+            raise OperationConflictError("position-review Operation admits only holding targets")
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -73,6 +94,17 @@ class OperationService:
                     raise OperationConflictError(
                         f"active operation already exists: {active['operation_id']}"
                     )
+                validate_selection(connection, selection, now=started_at)
+                progress = validate_progress(
+                    connection,
+                    selection,
+                    progress_binding(payload),
+                    now=started_at,
+                    sqlite_path=self._sqlite_path,
+                    complete=False,
+                )
+                if progress.outcomes:
+                    payload = with_progress(payload, progress)
                 operation_id = _next_id(connection, as_of=as_of, session_kind=session_kind)
                 operation = OperationSession(
                     operation_id=operation_id,
@@ -90,8 +122,12 @@ class OperationService:
                 raise
         return operation
 
-    def checkpoint(self, operation_id: str, payload: OperationPayload) -> OperationSession:
-        return self._replace_active(operation_id, payload=payload, completed_at=None)
+    def checkpoint(
+        self, operation_id: str, payload: OperationPayload, *, now: datetime | None = None
+    ) -> OperationSession:
+        return self._replace_active(
+            operation_id, payload=payload, completed_at=None, checked_at=now
+        )
 
     def complete(
         self,
@@ -101,7 +137,120 @@ class OperationService:
         completed_at: datetime,
     ) -> OperationSession:
         _require_current_payload(payload)
-        return self._replace_active(operation_id, payload=payload, completed_at=completed_at)
+        try:
+            return self._replace_active(operation_id, payload=payload, completed_at=completed_at)
+        except (OperationCompletionError, OperationConflictError):
+            raise
+        except ValueError as error:
+            raise OperationCompletionError(str(error)) from error
+
+    def record_outcome(
+        self, operation_id: str, outcome: ResearchOutcome, *, now: datetime
+    ) -> OperationSession:
+        operation = self.get(operation_id)
+        if operation.status != "active":
+            raise OperationConflictError("completed Operation is immutable")
+        progress = progress_binding(operation.payload)
+        if outcome in progress.outcomes:
+            return operation
+        selected = selection_binding(operation.payload)
+        if selected is None:
+            raise OperationConflictError(
+                "explicitly bind the historical active selection before research"
+            )
+        by_ticker = {item.ticker: item for item in progress.outcomes}
+        by_ticker[outcome.ticker] = outcome
+        # Selection order keeps idempotent retries from changing CAA scope identity.
+        if outcome.ticker not in {item.ticker for item in selected.targets}:
+            raise OperationConflictError("ticker is outside the fixed selection")
+        updated = ResearchProgress(
+            outcomes=tuple(
+                by_ticker[item.ticker] for item in selected.targets if item.ticker in by_ticker
+            )
+        )
+        payload = with_progress(operation.payload, updated)
+        return self._replace_active(
+            operation_id,
+            payload=payload,
+            completed_at=None,
+            checked_at=now,
+            expected_payload=operation.payload,
+        )
+
+    def record_thesis(
+        self, operation_id: str, thesis_id: str, *, now: datetime
+    ) -> OperationSession:
+        with closing(connect_rw(self._db_path)) as connection:
+            pair = load_reviewed_thesis(connection, thesis_id)
+        return self.record_outcome(
+            operation_id,
+            ReviewedTarget(
+                ticker=pair.document.input_snapshot.ticker,
+                thesis_id=thesis_id,
+                thesis_core_sha256=pair.core_sha256,
+                thesis_review_id=pair.review.review_id,
+            ),
+            now=now,
+        )
+
+    def record_position_proposal(
+        self, operation_id: str, draft: PositionReviewDocument, *, now: datetime
+    ) -> OperationSession:
+        operation = self.get(operation_id)
+        if operation.status != "active":
+            raise OperationConflictError("completed Operation is immutable")
+        existing = next(
+            (
+                item
+                for item in progress_binding(operation.payload).outcomes
+                if item.ticker == draft.ticker
+            ),
+            None,
+        )
+        if isinstance(existing, HoldingProposal) and existing.draft.model_dump(
+            exclude={"action"}
+        ) == draft.model_dump(exclude={"action"}):
+            return operation
+        with closing(connect_rw(self._db_path)) as connection:
+            connection.execute("BEGIN")
+            pair = load_reviewed_thesis(connection, draft.thesis_id)
+            evaluation = PositionReviewService(sqlite_path=self._sqlite_path).check_in_transaction(
+                connection, draft, now
+            )
+        return self.record_outcome(
+            operation_id,
+            HoldingProposal(
+                ticker=draft.ticker,
+                draft=draft.model_copy(update={"action": evaluation.action}),
+                checked_at=now,
+                thesis_core_sha256=pair.core_sha256,
+                thesis_review_id=pair.review.review_id,
+            ),
+            now=now,
+        )
+
+    def record_unfinished(
+        self,
+        operation_id: str,
+        *,
+        ticker: str,
+        reason: str,
+        references: tuple[str, ...],
+        now: datetime,
+    ) -> OperationSession:
+        selection = selection_binding(self.get(operation_id).payload)
+        if selection is None:
+            raise OperationConflictError("this historical Operation has no fixed selection")
+        target = next((item for item in selection.targets if item.ticker == ticker), None)
+        if target is None:
+            raise OperationConflictError("ticker is outside the fixed selection")
+        return self.record_outcome(
+            operation_id,
+            UnfinishedTarget(
+                ticker=ticker, purpose=target.purpose, reason=reason, references=references
+            ),
+            now=now,
+        )
 
     def get(self, operation_id: str) -> OperationSession:
         initialize_database(self._db_path)
@@ -135,6 +284,8 @@ class OperationService:
         *,
         payload: OperationPayload,
         completed_at: datetime | None,
+        checked_at: datetime | None = None,
+        expected_payload: OperationPayload | None = None,
     ) -> OperationSession:
         _require_current_payload(payload)
         initialize_database(self._db_path)
@@ -147,29 +298,75 @@ class OperationService:
                 if row is None:
                     raise OperationNotFoundError(f"unknown operation_id: {operation_id}")
                 before = _from_row(row)
+                if expected_payload is not None and before.payload != expected_payload:
+                    raise OperationConflictError(
+                        "research progress changed; reload before recording outcome"
+                    )
                 if before.status != "active":
                     raise OperationConflictError(
                         f"completed operation session is immutable: {operation_id}"
                     )
-                if before.session_kind == "position-review":
-                    raise OperationConflictError("position-review Operation is read-only history")
-                # Checkpoints replace prose, but cannot replace the human admission.
-                if any(item.get("kind") == "research_triage" for item in before.payload.artifacts):
-                    try:
-                        if research_binding(before.payload) != research_binding(payload):
-                            raise ValueError("Research Set binding is immutable")
-                    except ValueError as error:
-                        raise OperationConflictError(str(error)) from error
-                if completed_at is not None:
-                    requires_confirmation = True
-                    if before.session_kind == "capital-allocation":
-                        assessment = _require_published_assessment(
-                            connection, before, payload, completed_at
+                selected_before = selection_binding(before.payload)
+                incoming = selection_binding(payload)
+                if selected_before is None:
+                    if incoming is None:
+                        raise OperationConflictError(
+                            "historical Operation is read-only; "
+                            "explicitly bind the same selection before research"
                         )
-                        requires_confirmation = assessment.result != "no_allocation"
-                    _validate_complete(
-                        before.session_kind, payload, requires_confirmation=requires_confirmation
+                    if before.session_kind == "capital-allocation":
+                        old_triage, old_tickers = research_binding(before.payload)
+                        if (
+                            incoming.research_triage_id != old_triage
+                            or {item.ticker for item in incoming.targets} != old_tickers
+                        ):
+                            raise OperationConflictError(
+                                "legacy handoff must preserve the exact existing Research Set"
+                            )
+                    elif (
+                        before.ticker is None
+                        or {item.ticker for item in incoming.targets} != {before.ticker}
+                        or any(item.purpose != "holding" for item in incoming.targets)
+                    ):
+                        raise OperationConflictError(
+                            "legacy holding handoff must preserve its exact ticker"
+                        )
+                    validate_selection(
+                        connection, incoming, now=completed_at or checked_at or datetime.now(JST)
                     )
+                    selected_before = incoming
+                elif incoming != selected_before:
+                    raise OperationConflictError(
+                        "Research selection is immutable; no replacement targets"
+                    )
+                progress = validate_progress(
+                    connection,
+                    selected_before,
+                    progress_binding(payload),
+                    now=completed_at or checked_at or datetime.now(JST),
+                    sqlite_path=self._sqlite_path,
+                    complete=completed_at is not None,
+                    previous=progress_binding(before.payload),
+                )
+                if progress.outcomes:
+                    payload = with_progress(payload, progress)
+                if completed_at is not None:
+                    scope = comparison_scope(before.operation_id, payload)
+                    if any(isinstance(item, ReviewedTarget) for item in scope.outcomes):
+                        _require_published_assessment(
+                            connection,
+                            before.model_copy(update={"payload": payload}),
+                            payload,
+                            completed_at,
+                        )
+                    elif any(
+                        item.get("kind") == "capital_allocation_assessment"
+                        for item in payload.artifacts
+                    ):
+                        raise OperationCompletionError(
+                            "no completed new research; do not fabricate CAA"
+                        )
+                    _validate_complete(before.session_kind, payload)
                 operation = OperationSession.model_validate(
                     {
                         **before.public(),
@@ -189,7 +386,7 @@ class OperationService:
                         None if completed_at is None else completed_at.isoformat(),
                         canonical_json(payload.model_dump(mode="json")),
                         operation_id,
-                        canonical_json(before.payload.model_dump(mode="json")),
+                        str(row["payload"]),
                     ),
                 )
                 if cursor.rowcount != 1:
@@ -227,12 +424,15 @@ def _require_published_assessment(
         raise OperationCompletionError("canonical capital_allocation_assessment is unavailable")
     try:
         assessment = CapitalAllocationAssessment.model_validate(json.loads(row["payload"]))
-        require_matching_research_set(
+        expected_scope = require_matching_research_set(
             operation,
             research_triage_id=assessment.research_triage_id,
             tickers=(item.ticker for item in assessment.alternatives),
             published_at=assessment.published_at,
+            scope=assessment.research_scope,
         )
+        if expected_scope != assessment.research_scope:
+            raise ValueError("assessment scope must bind completed and unfinished new research")
         if assessment.published_at > completed_at:
             raise ValueError("completion precedes assessment publication")
     except ValueError as error:
@@ -240,24 +440,14 @@ def _require_published_assessment(
     return assessment
 
 
-def _validate_complete(
-    session_kind: SessionKind, payload: OperationPayload, *, requires_confirmation: bool
-) -> None:
+def _validate_complete(session_kind: SessionKind, payload: OperationPayload) -> None:
     missing: list[str] = []
     if payload.result is None:
         missing.append("result")
     if payload.next is None:
         missing.append("next")
 
-    if requires_confirmation and (
-        payload.human_confirmation is None
-        or payload.human_confirmation.request is None
-        or payload.human_confirmation.result is None
-    ):
-        missing.append("human_confirmation.request/result")
-    if session_kind in {"capital-allocation", "position-review"} and (
-        not payload.artifacts or any(not artifact for artifact in payload.artifacts)
-    ):
+    if not payload.artifacts or any(not artifact for artifact in payload.artifacts):
         missing.append("artifacts")
     if missing:
         raise OperationCompletionError(f"{session_kind} completion requires: {', '.join(missing)}")
@@ -266,7 +456,8 @@ def _validate_complete(
 def _require_current_payload(payload: OperationPayload) -> None:
     if payload.completion_reason is not None:
         raise OperationCompletionError(
-            "no-research is read-only history; an empty Research Set creates no Operation"
+            "no-research is read-only history; "
+            "current empty selections use explicit research_selection"
         )
 
 

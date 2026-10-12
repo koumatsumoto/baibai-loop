@@ -44,7 +44,8 @@ class OperationSession(BaseModel):
     session_kind: SessionKind
     status: OperationStatus
     as_of: date
-    ticker: str | None = Field(default=None, pattern=r"^[0-9]{4}[A-Z0-9]?$")
+    # Legacy five-character hints remain readable; current writers use four-character tickers.
+    ticker: str | None = Field(default=None, pattern=r"^(?:[0-9A-Z]{4}|[0-9]{4}[A-Z0-9])$")
     started_at: datetime
     completed_at: datetime | None = None
     payload: OperationPayload

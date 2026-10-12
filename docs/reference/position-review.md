@@ -41,13 +41,13 @@ related_docs:
 
 ## 対象限定の入力確認
 
-新しいPosition Review Operationは作らない。activeな資本調査と並行して対象holdingを扱える。`position-prepare`は保有実在を確認し、全holding quoteの事前ledger applyやappend head一致を要求しない。
+保有のAI調査は[Operationの有限対象](./analysis-operations.md#明示開始と固定対象)へ束縛し、新規と合算して最大3銘柄とする。混在Operationの保有workspaceか、明示開始の保有Operationを使う。`position-prepare`は保有実在を確認し、全holding quoteの事前ledger applyやappend head一致を要求しない。
 
 buildは対象holding、最新Reviewed Thesis、対象quoteを読む。作者は`remaining_reward`だけを記入する。`action`はcheckで導出し、confirmed publishのtransaction内で再計算して保存する。入力したactionは判断元にせず、同内容retryは保存済みactionを返す。check/publishは提出したremainingを保持したまま必要入力だけを再確認する。数量・cost・重要なbasis・quote・latest Thesisが変われば再確認を求める。無関係な入出金や他ticker更新だけでResearch全体をやり直さない。
 
 buildの標準出力とcheckは、現在quoteを共通算術へ渡した`current_price_projection`を見せる。Base/Downsideの総return・年率、期間、累積分配、価格basisを原評価から分け、draftとcanonical payloadへ複写しない。quote・権利単位・同日評価が未確認ならnullとする。この値を固定exit閾値にはしない。
 
-権利単位を確認できないholdingに数量付き売却案は付けない。nullはhold推奨でも実売却でもなく、exit候補もbroker約定ではない。publishには明示的な`--confirmed`が必要で、確認なしでは書き込まない。
+権利単位を確認できないholdingに数量付き売却案は付けない。nullはhold推奨でも実売却でもなく、exit候補もbroker約定ではない。Operationへは既存document型の検証済みdraft・検証時点・Thesis/数量/quote参照を提案成果として保存し、確認済みpublicationと混同しない。publishには明示的な`--confirmed`が必要で、最初の採用時には現行入力を再検証する。確認なしではposition_review tableへ書き込まない。
 
 <a id="commands"></a>
 

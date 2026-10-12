@@ -56,16 +56,20 @@ def compute_status(
     gate = _verify_external_inputs(manifest, db_path=db_path)
     _validate_editable_drafts(workspace, manifest, gate=gate)
     status = _draft_status(workspace, manifest, db_path=db_path, now=now or datetime.now(JST))
-    status["research_triage"] = _research_triage_view(gate)
+    status["research_triage"] = _research_triage_view(
+        gate, purpose=str(manifest.get("purpose") or "fundamental_research")
+    )
     return status
 
 
-def _research_triage_view(gate: ResearchSetAdmissionBinding | None) -> dict[str, object]:
+def _research_triage_view(
+    gate: ResearchSetAdmissionBinding | None, *, purpose: str
+) -> dict[str, object]:
     """Name the judgment bounding this workspace and what it lets a human admit."""
 
     if gate is None:
         return {
-            "purpose": "position_review",
+            "purpose": purpose,
             "research_triage_id": None,
             "admissible_research_tickers": [],
         }

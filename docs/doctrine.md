@@ -13,7 +13,7 @@ status: active
 
 Baibai Loopは、保守的な価値評価、検証可能な企業の変化、支払価格を組み合わせ、日本個別株の現物で資本を運用する。株価が下落した銘柄だけでなく、上昇中でも価値に対して安い銘柄を対象にする。予算消化・銘柄数・投資率をノルマにしない。
 
-AIは調査と提案、人間は最終裁定とbroker操作を担う。自動発注、信用、借入、空売りは行わない。通常経路では既保有銘柄への追加購入を提案せず、別Thesis IDによる迂回もしない。人間が実際に行った追加購入・部分売却は取引事実として記録する。
+AIはユーザーの明示開始で有限対象を調査・提案し、提案完成までを担う。人間の最終裁定とbroker操作は別工程である。自動発注、信用、借入、空売りは行わない。通常経路では既保有銘柄への追加購入を提案せず、別Thesis IDによる迂回もしない。人間が実際に行った追加購入・部分売却は取引事実として記録する。
 
 保有期間を先に固定せず、銘柄と機会に応じて長期保有・配当・資金拘束も許容する。Thesisの期間はシナリオの比較窓であり、期限売却はしない。持続可能な有配を選好し、強い価値機会なら無配も許容する。回復可能な赤字、下方修正、循環悪化を一律に排除せず、資金繰り・負債返済・希薄化・恒久的価値毀損を評価する。金額loss budget、年間損失停止、drawdown kill switchは置かない。
 
@@ -52,11 +52,7 @@ AIは調査と提案、人間は最終裁定とbroker操作を担う。自動発
 
 ### 柱 2: マクロは機械読み値 + material delta、構造変化は企業価値への影響として扱う
 
-- **(a)** マクロは次の2層に分ける。
-  - **macro reading（L2）**：登録全系列の水準、方向、percentile、閾値注記、観測の齢を毎営業日に機械計算する。regime分類、合成score、売買signalは出さない。
-  - **macro context（L3）**：人間が判断するときだけ書く。環境評価（core）、経路横断の支配的な力と相互作用（synthesis）、日本株の調査・資本配分への接続（connection）を分け、coreとsynthesisはuse-case agnosticにする。synthesisとconnectionが引用できるseriesは、依拠するcore sectionが引用済みのものに限り、そのsectionを`core_section_ids`で名指しする。この参照方向は機械契約で強制し、coreを単独で自己完結させる。coreは攻め／守りのどちらの環境かを反証条件付きで判断し、sector tilt、research優先度、sizing cautionはconnectionだけに置く。field単位の契約は[`reference/macro.md`](./reference/macro.md#3-層構成core環境評価synthesis統合評価connection積立ループ接続)が所有する。
-
-  どちらも機械screening、ranking、sizingへ混入させず、売買タイミング、現金比率、配分を指示しない。macro contextはresearchの着手順を決めるjudgment入力として使う。contextがない、または古くても候補抽出は続け、未来情報だけをhard errorにする。鮮度は書き手が賞味期限を宣言せず、読み手が`as_of`と自分の閾値で判断する。
+- **(a)** Market Contextは保存済みの環境観測、機械Reading、市場・業種・個別の相対状態を材料とし、AIは重要な変化と伝達経路だけを企業評価・リスクの取り方・提案へ接続する。毎回独立した全depth Macro Contextや主観確率を必須にしない。既存Macro Contextの意味と明示作成は[macro reference](./reference/macro.md)が所有する。環境上の含意は企業価値や機械rankingと別結果であり、乖離や攻め/守りの方向だけで自動数量・合成score・注文を決めない。対象時点・鮮度・不足を示し、環境の欠測だけで正常な他領域を止めず、重要な不足は提案の留保理由にする。
 - **(b)** AIを含む技術・産業構造変化は、その仮説を外すとBase/Downside projection、FVとrequired return、永久損失、最強反対仮説、またはCapital Allocation Assessmentが変わる場合だけmaterialとする。正の影響は一次情報と必要な独立裏取りからscenario assumption、FV、比較理由へ、負の影響は`structural_decline`、最強反対仮説、必要ならscenarioとFVへ接続する。「AIを使っている」「市場が成長する」という事実だけでbase scenarioや倍率を上げない。
 - **(c)** materialでない構造変化には言及・専用source・専用reviewを要求しない。AI theme、role、専用scoreでscreening、順位、sizingを変えず、企業ごとのE[r]と永久損失リスクを同じ土俵で比較する。
 

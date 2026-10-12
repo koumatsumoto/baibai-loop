@@ -48,11 +48,13 @@ def test_research_skill_consumes_only_explicit_approach_applicability() -> None:
 
 def test_research_skill_continues_the_capital_allocation_session() -> None:
     text = RESEARCH_SKILL.read_text(encoding="utf-8")
-    assert "exact Triageと選択集合に束縛したcapital-allocation Operation" in text
-    assert "その同じOperationを継続する" in text
-    assert "別Operationがactiveなら新しいResearchは開始しない" in text
-    assert "開始時のresearch_triage artifact・exact ref・Research Setを保ったpayload" in text
-    assert "active な `research` operation session" not in text
+    assert "analysis-operations.md#明示開始と固定対象" in text
+    assert "--request" in text
+    assert "--holding-ticker" in text
+    assert "record-unfinished" in text
+    assert "operation complete --payload" in text
+    assert "人間の採否を完了条件にしない" in text
+    assert "開始時のresearch_triage artifact・exact ref・Research Setを保ったpayload" not in text
 
 
 def test_manual_and_scheduled_research_triage_share_the_short_policy() -> None:

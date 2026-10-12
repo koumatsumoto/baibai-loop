@@ -11,6 +11,7 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
+from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.research.operation.models import SESSION_KINDS, OperationPayload
@@ -20,6 +21,7 @@ from baibai_engine.research.operation.service import (
     OperationNotFoundError,
     OperationService,
 )
+from baibai_engine.research.position_review import PositionReviewDocument
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -67,12 +69,30 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="path to an OperationPayload YAML or JSON file",
     )
+    thesis = commands.add_parser(
+        "record-thesis", help="bind a completed Reviewed Thesis to its fixed new target"
+    )
+    thesis.add_argument("operation_id")
+    thesis.add_argument("--thesis-id", required=True)
+    proposal = commands.add_parser(
+        "record-position-proposal", help="retain a checked draft without confirmed publication"
+    )
+    proposal.add_argument("operation_id")
+    proposal.add_argument("--draft", type=Path, required=True)
+    proposal.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
+    unfinished = commands.add_parser(
+        "record-unfinished", help="record unfinished research separately from economic rejection"
+    )
+    unfinished.add_argument("operation_id")
+    unfinished.add_argument("--ticker", required=True)
+    unfinished.add_argument("--reason", required=True)
+    unfinished.add_argument("--ref", action="append", required=True)
     return parser
 
 
 def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     args = build_parser().parse_args(argv)
-    service = OperationService(args.db)
+    service = OperationService(args.db, sqlite_path=getattr(args, "sqlite_path", MARKET_DB_PATH))
     current_time = now or datetime.now(JST)
     try:
         if args.command == "start":
@@ -91,7 +111,9 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             _emit(operation.public(), output_format=args.format)
         elif args.command == "checkpoint":
             _emit(
-                service.checkpoint(args.operation_id, _load_payload(args.payload)).public(),
+                service.checkpoint(
+                    args.operation_id, _load_payload(args.payload), now=current_time
+                ).public(),
                 output_format=args.format,
             )
         elif args.command == "complete":
@@ -100,6 +122,32 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     args.operation_id,
                     _load_payload(args.payload),
                     completed_at=current_time,
+                ).public(),
+                output_format=args.format,
+            )
+        elif args.command == "record-thesis":
+            _emit(
+                service.record_thesis(args.operation_id, args.thesis_id, now=current_time).public(),
+                output_format=args.format,
+            )
+        elif args.command == "record-position-proposal":
+            draft = PositionReviewDocument.model_validate(
+                safe_load(args.draft.read_text(encoding="utf-8"))
+            )
+            _emit(
+                service.record_position_proposal(
+                    args.operation_id, draft, now=current_time
+                ).public(),
+                output_format=args.format,
+            )
+        elif args.command == "record-unfinished":
+            _emit(
+                service.record_unfinished(
+                    args.operation_id,
+                    ticker=args.ticker,
+                    reason=args.reason,
+                    references=tuple(args.ref),
+                    now=current_time,
                 ).public(),
                 output_format=args.format,
             )

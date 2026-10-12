@@ -44,3 +44,5 @@ write-capableなcanonical R2 bindingを付けません。新routeはmaterializer
 
 fixed-release読取と完全性確認は[market lake](../docs/reference/market-lake.md#shared-raw-read)、
 secret設定・rotation・撤回・利用側受入は[運用手順](../batch/OPERATIONS.md#shared-read-setup)を参照してください。
+
+調査と提案の進行は保存済みOperationから表示する。新規・保有の固定対象、完了/調査未完了を区別し、CAA詳細は完了した新規の比較範囲と未完了理由・参照を表示する。提案工程完了を人間採否・注文・約定の成立として表示しない。

@@ -45,7 +45,7 @@ Valuationの機械ER/FV anchorは倍率・自己価格レンジとcarryの推計
 | Review Set | artifact | configured Valuation Approachesが生成したNominationのexact union |
 | Review Set Entry | artifact entry | Review Set内の一銘柄と判断時機械座標 |
 | Research Triage | artifact / judgment | Review Set全件を`research / skip`に分類するcanonical L3 judgment |
-| Research Set | pipeline state | Triageの`research` entryから人間が実際にResearchへ進める集合。独立persisted artifactではない |
+| Research Set | pipeline state | 明示開始後にAIが選ぶ新規調査集合。Triage admission内でOperationの新規/保有合算上限に従う |
 | Thesis | artifact / judgment | 一銘柄の投資仮説、valuation、risk、evidence |
 | Thesis Review | artifact / judgment | Thesisへの独立second pass |
 | Capital Allocation Assessment | artifact / judgment | reviewed Thesis群をportfolio全体に照らした配分判断 |
@@ -62,7 +62,7 @@ Valuationの機械ER/FV anchorは倍率・自己価格レンジとcarryの推計
 | Macro Reading | rebuildable artifact | Market Contextで参照する、経済系列からのdeterministic machine reading |
 | Macro Context | artifact / judgment | Market Context内の既存環境判断成果物。領域全体とは区別 |
 | E[r] Calibration Context | rebuildable context | 過去較正をResearch Triage等が読むL2 current context |
-| Operation Session | application state | human gateをまたぐworkflow session |
+| Operation Session | application state | 明示開始に束縛した有限調査と成果の状態。L3完了と人間採否・取引事実を区別 |
 
 「4 Valuation Approach」はcurrent production methodの構成であり、Review Setのdomain定義ではない。
 current methodのapproach数とNomination depthは
@@ -83,10 +83,11 @@ Research Setはpipeline stateである。storeごとのauthorityは
 Screening Run -> Security Analysis[]
              -> Valuation Approach[] -> Nomination[] -> Review Set
 Review Set -> Research Triage
-           -> 人間のResearch Set選択 -> Research -> Thesis + Thesis Review
+           -> 明示開始・Operationの固定選択 -> Research -> Thesis + Thesis Review
            -> Capital Allocation Assessment -> Planning Limit
            -> 人間のbroker操作・報告 -> Portfolio Ledger -> Holding
-Holding -> Position Review
+Holding -> 同じ有限選択の保有調査 -> 検証済みPosition Review提案
+       -> 人間確認と入力再検証 -> 確認済みPosition Review
 Portfolio Ledger -> Portfolio Outcome
 実現結果 -> Calibration -> 次のmethod改善
 

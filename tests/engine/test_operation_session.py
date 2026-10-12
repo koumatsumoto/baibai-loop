@@ -23,9 +23,11 @@ NOW = datetime(2026, 7, 19, 12, 0, tzinfo=JST)
 
 
 @pytest.mark.parametrize("ticker", [None, "", " "])
-def test_position_operation_is_retired_before_write(tmp_path: Path, ticker: str | None) -> None:
+def test_position_operation_requires_explicit_fixed_selection(
+    tmp_path: Path, ticker: str | None
+) -> None:
     db = tmp_path / "app.sqlite"
-    with pytest.raises(OperationConflictError, match="no Operation is needed"):
+    with pytest.raises(OperationConflictError, match="research_selection"):
         OperationService(db).start(
             session_kind="position-review",
             ticker=ticker,
@@ -108,7 +110,9 @@ def test_operation_json_format_emits_one_machine_object(
 def _active_payload(checkpoint: str = "source review") -> OperationPayload:
     return OperationPayload(
         checkpoint=checkpoint,
-        artifacts=({"kind": "research_triage", "ref": "triage-test", "research_set": ["2331"]},),
+        artifacts=(
+            {"kind": "research_selection", "request": "synthetic explicit request", "targets": []},
+        ),
         human_confirmation={"request": "confirm the reviewed result"},
         next="wait for confirmation",
     )
@@ -280,14 +284,16 @@ def test_position_operation_history_remains_readable_and_immutable(tmp_path, sta
                 "2331",
                 NOW.isoformat(),
                 NOW.isoformat() if status == "completed" else None,
-                _active_payload().model_dump_json(),
+                OperationPayload(
+                    checkpoint="legacy", artifacts=({"kind": "legacy_review", "ref": "old"},)
+                ).model_dump_json(),
             ),
         )
     service = OperationService(db)
     assert service.get("op-20260719-position-review-1").session_kind == "position-review"
     assert operation_session(db, "op-20260719-position-review-1")["status"] == status
     assert len(list_operation_sessions(db)) == 1
-    with pytest.raises(OperationConflictError, match=r"immutable|read-only history"):
+    with pytest.raises(OperationConflictError, match=r"immutable|read-only|handoff"):
         service.checkpoint("op-20260719-position-review-1", _active_payload("changed"))
     if status == "completed":
         with connect_rw(db) as connection, pytest.raises(sqlite3.IntegrityError, match="immutable"):

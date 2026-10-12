@@ -294,9 +294,9 @@ def _triage_summary(triage: ResearchTriage, summary: dict[str, object], *, publi
         if entry.decision == "research"
     ]
     research_count = len(candidates)
-    status = "awaiting_human" if research_count else "already_published"
+    status = "research_available" if research_count else "already_published"
     if published:
-        status = "published_awaiting_human" if research_count else "published_all_skip"
+        status = "published_research_available" if research_count else "published_all_skip"
     summary.update(
         status=status,
         as_of=triage.as_of.isoformat(),

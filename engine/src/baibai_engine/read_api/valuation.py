@@ -6,14 +6,13 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from baibai_engine.foundation.sqlite_read import read_store_if_written
 from baibai_engine.screening.run_store import ScreeningRunReader
 from baibai_engine.valuation.query import (
     MachineValuation,
     anchor_gap_pct,
     machine_valuation_from_analysis,
 )
-
-from .screening import _absent_as_none
 
 __all__ = [
     "StoredMachineValuation",
@@ -40,7 +39,7 @@ def stored_machine_valuation(
     identities are checked against the same cutoff.
     """
     reader = ScreeningRunReader(path)
-    run = _absent_as_none(
+    run = read_store_if_written(
         path,
         lambda: reader.valuation_run(as_of=as_of, run_revision_id=run_revision_id),
     )

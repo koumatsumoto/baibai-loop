@@ -17,7 +17,7 @@ from baibai_engine.foundation.research_triage import (
     ResearchTriageEntry,
     ReviewSetEntrySnapshot,
 )
-from baibai_engine.market_context.macro import latest_macro_context_payload, macro_context_payload
+from baibai_engine.market_context.macro import macro_context_payload
 from baibai_engine.read_api.research_triage import (
     _research_triage_head,
     research_triage_payload_hash,
@@ -51,18 +51,10 @@ class ResearchTriageService:
         now: datetime | None = None,
     ) -> ResearchTriage:
         app_db_path = database_path(self._db_path)
-        latest_context = latest_macro_context_payload(app_db_path, as_of=triage.as_of)
-        if triage.macro_context_id is None:
-            if latest_context is not None:
-                raise ResearchTriageConflictError(
-                    f"latest eligible macro context must be bound: {latest_context['context_id']}"
-                )
-        else:
+        if triage.macro_context_id is not None:
             try:
                 macro_context_payload(
-                    app_db_path,
-                    context_id=triage.macro_context_id,
-                    as_of=triage.as_of,
+                    app_db_path, context_id=triage.macro_context_id, as_of=triage.as_of
                 )
             except ValueError as error:
                 raise ResearchTriageConflictError(str(error)) from error

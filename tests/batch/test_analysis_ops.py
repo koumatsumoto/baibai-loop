@@ -317,7 +317,7 @@ def test_analysis_reads_canonical_review_set_without_writing_machine_store(
     ("verdicts", "expected_status", "awaits_human"),
     [
         ({"2331": "skip", "0001": "skip"}, "published_all_skip", False),
-        ({"2331": "research", "0001": "skip"}, "published_awaiting_human", True),
+        ({"2331": "research", "0001": "skip"}, "published_research_available", True),
     ],
 )
 def test_one_model_request_publishes_without_starting_an_operation(
@@ -413,7 +413,7 @@ def test_existing_exact_triage_launches_no_model_and_stays_awaiting_human(
 
     assert analysis_cli._run(_args(tmp_path), model_runner=model) == 0
     summary = _summary(tmp_path)
-    assert summary["status"] == "awaiting_human"
+    assert summary["status"] == "research_available"
     assert summary["model_process_launches"] == 0
     assert calls == publish_calls == []
 
@@ -680,7 +680,17 @@ def test_published_stdout_id_prepares_the_exact_research_set(
         app_db,
         load_portfolio_ledger(
             Path(__file__).resolve().parents[1] / "fixtures/portfolio-ledger/representative.yaml"
-        ).model_copy(update={"market_prices": ()}),
+        ).model_copy(
+            update={
+                "market_prices": (),
+                "events": (
+                    load_portfolio_ledger(
+                        Path(__file__).resolve().parents[1]
+                        / "fixtures/portfolio-ledger/representative.yaml"
+                    ).events[0],
+                ),
+            }
+        ),
     )
     model, calls = _model_runner({"2331": "research"})
     assert analysis_cli._run(_args(tmp_path), model_runner=model) == 0
@@ -694,6 +704,8 @@ def test_published_stdout_id_prepares_the_exact_research_set(
         research_main(
             [
                 "prepare",
+                "--request",
+                "synthetic explicit request",
                 "--research-triage-id",
                 second["research_triage_id"],
                 "--ticker",
@@ -709,7 +721,7 @@ def test_published_stdout_id_prepares_the_exact_research_set(
     operation = OperationService(app_db).active()
     assert operation is not None
     assert operation.payload.canonical_refs == (first["research_triage_id"],)
-    assert operation.payload.artifacts[0]["research_set"] == ["2331"]
+    assert operation.payload.artifacts[0]["targets"] == [{"ticker": "2331", "purpose": "new"}]
 
 
 def test_analysis_selector_parser() -> None:
@@ -756,7 +768,7 @@ def test_weekend_latest_publishes_and_reuses_exact_canonical_triage(
     assert analysis_cli._run(args, model_runner=model) == 0
     first = json.loads(capsys.readouterr().out)
     assert first["as_of"] == "2026-09-18"
-    assert first["status"] == "published_awaiting_human"
+    assert first["status"] == "published_research_available"
     payloads = research_triage_payloads_for_review_set(
         tmp_path / "stores/application/baibai.sqlite", selected.review_set_id
     )
@@ -766,7 +778,7 @@ def test_weekend_latest_publishes_and_reuses_exact_canonical_triage(
     assert analysis_cli._run(args, model_runner=model) == 0
     repeated = json.loads(capsys.readouterr().out)
     assert repeated["research_triage_id"] == first["research_triage_id"]
-    assert repeated["status"] == "awaiting_human"
+    assert repeated["status"] == "research_available"
     assert repeated["model_process_launches"] == 0
     assert len(calls) == 1
 

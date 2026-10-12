@@ -30,7 +30,7 @@ reservationは数量×price guardをcashから拘束し、partial fill後は残�
 
 ticker10%、sector40%、common-factor35%、ADV5%などの集中・執行warningは人間へ示す。数量・資金はevent replay、時価はmarket quoteと現在保有episodeの権利basisから読む。台帳への価格転記は不要である。全保有のquote・権利basisを確認できなければNAVと比率は未評価とし、架空の分母を作らない。cash20%はwarningであり投資率ノルマや自動数量縮小の理由ではない。warning受容にはledgerの既存人間overrideを使い、企業根拠の不足を小口購入のoverrideで通さない。
 
-同じResearch SetからCAAを一件ずつ公開できる。先行注文の人間報告をledgerへ反映してから、後続候補を最新cash・予約で再計算する。一括予約や予定入金を仮定しない。
+完了した新規対象をCAAで比較し、一度に一銘柄を提案する。L3完了後の採否・注文は外部アクターの工程である。後続配分では新しい明示開始と最新cash・予約で再判断し、適用可能な既存Reviewed Thesisを再利用できる。一括予約や予定入金を仮定しない。
 
 <a id="holding-discipline"></a>
 ## 保有規律

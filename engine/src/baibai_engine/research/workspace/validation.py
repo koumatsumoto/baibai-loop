@@ -22,6 +22,7 @@ from baibai_engine.research.thesis import (
 from baibai_engine.research.workspace.admission import (
     ResearchSetAdmissionBinding,
     _verify_research_triage,
+    workspace_selection,
 )
 from baibai_engine.research.workspace.files import (
     ResearchWorkspaceConflictError,
@@ -47,6 +48,11 @@ def _verify_external_inputs(
     ``position_review`` in the manifest would be a way to opt out of the Gate.
     """
 
+    selection = (
+        None
+        if manifest.get("operation_id") is None
+        else workspace_selection(manifest, db_path=db_path)
+    )
     purpose = str(manifest.get("purpose") or "fundamental_research")
     if purpose not in {"fundamental_research", "position_review"}:
         raise ResearchWorkspaceDataError("invalid workspace purpose")
@@ -56,6 +62,12 @@ def _verify_external_inputs(
     inputs = manifest.get("inputs")
     if not isinstance(inputs, Mapping):
         raise ResearchWorkspaceDataError("manifest is missing external input hashes")
+    if (
+        selection is not None
+        and not any(item.purpose == "new" for item in selection.targets)
+        and inputs.get("research_triage") is None
+    ):
+        return None
     return _verify_research_triage(manifest, inputs, db_path=db_path)
 
 
@@ -123,16 +135,18 @@ def _validate_editable_drafts(
     manifest_research_set = manifest.get("research_set")
     if manifest_research_set != research_set:
         raise ResearchWorkspaceConflictError(
-            "workspace Research Set differs from the human-confirmed set; "
+            "workspace Research Set differs from the fixed selection; "
             "rebuild the workspace with `research prepare --force`"
         )
     # Narrowing guard, not a reachable state: `_verify_external_inputs` reads purpose
     # from this same manifest and returns None only for Position Review, which left
     # above. A missing binding is refused there, with the command that rebuilds it.
-    if gate is None:  # pragma: no cover - unreachable by construction
-        raise ResearchWorkspaceDataError(
-            "Fundamental Research workspace has no ResearchTriage binding"
-        )
+    if gate is None:
+        if research_set_tickers:
+            raise ResearchWorkspaceDataError(
+                "Fundamental Research workspace has no ResearchTriage binding"
+            )
+        return
     forbidden = [ticker for ticker in research_set_tickers if ticker not in gate.admissible_tickers]
     if forbidden:
         raise ResearchWorkspaceDataError(

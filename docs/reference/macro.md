@@ -13,6 +13,8 @@ status: active
 
 <a id="market-context-reads"></a>
 
+通常Researchでは保存済みReading・市場/業種/個別状態を[調査入力](./analysis-operations.md#明示開始と固定対象)へ接続し、materialな含意をThesis/提案へ記録する。以下の独立Macro Contextの全depth契約は明示された深い環境評価の既存発行経路であり、有限Researchの必須工程ではない。
+
 ## Market Contextの保存済み読取
 
 Market Contextは経済、市場全体、業種と個別株の相対状態を扱う分析領域である。L1観測、L2機械状態、L3環境判断を区別し、既存Macro ContextはL3成果物の一つとして参照する。領域読取は`market_context`、Web/batchの公開facadeは`read_api/market_context`が所有する。取得・書込・AI起動を行わず、欠測を別領域の障害や「変化なし」へ置き換えない。

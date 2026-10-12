@@ -1,3 +1,4 @@
+import { ResearchOperationCard } from './dashboard/ResearchOperationCard'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { CircleAlert } from 'lucide-react'
@@ -567,6 +568,7 @@ export function DashboardPage() {
         </SectionCard>
       )}
 
+      {operations && <ResearchOperationCard operations={operations.operations} />}
       {operations && <OutcomeCard outcomes={operations.outcomes} />}
     </PageShell>
   )

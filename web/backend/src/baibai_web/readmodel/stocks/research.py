@@ -13,6 +13,7 @@ from baibai_web.readmodel.models import (
     CapitalAllocationAssessmentView,
     ResearchRevisionView,
     ThesisDetailView,
+    UnfinishedResearchView,
 )
 from baibai_web.readmodel.stocks.presentation import _mapping_items_optional, _mapping_optional
 from baibai_web.sources.protocols import (
@@ -62,7 +63,28 @@ def _assessment_summary_view(raw: Mapping[str, object]) -> CapitalAllocationAsse
 def _assessment_view(
     raw: Mapping[str, object],
 ) -> CapitalAllocationAssessmentView:
+    scope = raw.get("research_scope")
+    scope = scope if isinstance(scope, Mapping) else {}
+    selected = scope.get("targets")
+    unfinished = [
+        item
+        for item in _mapping_items_optional(scope.get("outcomes"))
+        if item.get("status") == "unfinished"
+    ]
+    unfinished_views = []
+    for item in unfinished:
+        references = item.get("references")
+        unfinished_views.append(
+            UnfinishedResearchView(
+                ticker=str(item["ticker"]),
+                reason=str(item["reason"]),
+                references=[str(ref) for ref in references] if isinstance(references, list) else [],
+            )
+        )
     return CapitalAllocationAssessmentView(
+        research_operation_id=text(scope.get("operation_id")),
+        selected_new_target_count=len(selected) if isinstance(selected, list) else None,
+        unfinished_research=unfinished_views,
         capital_allocation_assessment_id=str(raw["capital_allocation_assessment_id"]),
         as_of=date.fromisoformat(str(raw["as_of"])),
         published_at=datetime.fromisoformat(str(raw["published_at"])),

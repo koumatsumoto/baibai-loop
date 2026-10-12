@@ -15,7 +15,12 @@ from baibai_engine.read_api.research_triage import (
     current_research_triage,
     research_triage_payload_hash,
 )
-from baibai_engine.research.operation.research_binding import research_binding
+from baibai_engine.research.operation.progress import (
+    ResearchSelection,
+    ResearchTarget,
+    selection_binding,
+    selection_sha256,
+)
 from baibai_engine.research.operation.service import OperationService
 from baibai_engine.research.workspace.files import (
     ResearchWorkspaceConflictError,
@@ -36,6 +41,7 @@ class ResearchPreparation:
     admissible_count: int
     review_set_size: int
     research_triage_id: str | None = None
+    operation_id: str | None = None
     admissible_research_tickers: tuple[str, ...] = ()
 
 
@@ -44,7 +50,7 @@ class ResearchSetAdmissionBinding:
     """The canonical ResearchTriage judgment a research workspace is bound to.
 
     ``admissible_tickers`` is the Research Triage's ``research`` set in judgment order: the exact
-    set a human may admit into the Research Set. The human still chooses
+    range an explicit AI selection may admit into new Research. The selection chooses
     which of those to research; what they cannot do is widen the set from the
     workspace, because a canonical thesis is produced per ticker and the Gate
     already decided this cycle's answer for each one.
@@ -57,6 +63,7 @@ class ResearchSetAdmissionBinding:
     admissible_tickers: tuple[str, ...]
     triage_decision_by_ticker: dict[str, str]
     review_set_entries: tuple[dict[str, object], ...]
+    run_revision_id: str | None = None
 
 
 def _research_triage_decisions(
@@ -111,6 +118,7 @@ def _resolve_research_triage(
         admissible_tickers=admissible_tickers,
         triage_decision_by_ticker=decisions,
         review_set_entries=_review_set_entries_from_triage(triage),
+        run_revision_id=triage.run_revision_id,
     )
 
 
@@ -180,15 +188,46 @@ def _require_primary_research_ticker(
         raise ResearchWorkspaceDataError(
             f"cannot {action} for {ticker}: {gate.research_triage_id} did not mark it research"
         )
-    if gate is not None:
-        active = OperationService(db_path).active()
-        try:
-            if active is None or active.session_kind != "capital-allocation":
-                raise ValueError("active capital-allocation Operation is required")
-            if research_binding(active.payload) != (
-                gate.research_triage_id,
-                frozenset(research_set),
-            ):
-                raise ValueError("workspace Research Set differs from the active Operation binding")
-        except ValueError as error:
-            raise ResearchWorkspaceConflictError(str(error)) from error
+    manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
+    if (
+        not isinstance(manifest.get("operation_id"), str)
+        or not str(manifest["operation_id"]).strip()
+    ):
+        raise ResearchWorkspaceConflictError(
+            "current Operation ID is required for mutation; explicitly prepare the fixed selection"
+        )
+    selection = workspace_selection(manifest, db_path=db_path, active=True)
+    purpose = "holding" if gate is None else "new"
+    if ResearchTarget(ticker=ticker, purpose=purpose) not in selection.targets:
+        raise ResearchWorkspaceConflictError(
+            "ticker/purpose is outside the fixed Operation selection"
+        )
+    if gate is not None and (
+        selection.research_triage_id != gate.research_triage_id
+        or set(research_set) != {item.ticker for item in selection.targets if item.purpose == "new"}
+    ):
+        raise ResearchWorkspaceConflictError(
+            "workspace new targets differ from the fixed Operation"
+        )
+
+
+def workspace_selection(
+    manifest: Mapping[str, object], *, db_path: Path | None, active: bool = False
+) -> ResearchSelection:
+    identifier = _nonempty_string(manifest.get("operation_id"), label="manifest.operation_id")
+    operation = OperationService(db_path).get(identifier)
+    if str(manifest.get("as_of")) != operation.as_of.isoformat():
+        raise ResearchWorkspaceConflictError(
+            "workspace analysis as_of differs from the fixed Operation"
+        )
+    try:
+        selection = selection_binding(operation.payload)
+    except ValueError as error:
+        raise ResearchWorkspaceConflictError(f"Operation selection is invalid: {error}") from error
+    if selection is None or manifest.get("selection_sha256") != selection_sha256(selection):
+        raise ResearchWorkspaceConflictError(
+            "workspace differs from the Operation's fixed selection"
+        )
+    if active and operation.status != "active":
+        raise ResearchWorkspaceConflictError("completed research Operation cannot add work")
+    return selection

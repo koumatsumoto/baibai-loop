@@ -71,6 +71,9 @@ export interface CapitalAllocationAssessmentView {
   macro_context_id: string | null
   comparison: string
   foregone_alternatives: string
+  research_operation_id: string | null
+  selected_new_target_count: number | null
+  unfinished_research: UnfinishedResearchView[]
   alternatives: AllocationAlternativeView[]
   content_review: AssessmentReviewView
 }
@@ -998,6 +1001,12 @@ export interface TradingViewObservation {
   total_debt_estimate_fy: number | null
   quote_close: number | null
   quote_currency: string | null
+}
+
+export interface UnfinishedResearchView {
+  ticker: string
+  reason: string
+  references: string[]
 }
 
 export interface UpcomingEventView {
