@@ -18,7 +18,7 @@ status: active
 **正本 store（全営業日）。** 2016-08-04〜2026-07-31 の全取引日 2,440 日。3 系列を全期間取得して `stores/macro/macro.sqlite` に入れたもので、§2・§3・§4 の出現率と空白の数値はここから出る。出荷されたコードの出力そのものなので、読みの再現に別の実装が挟まらない。始点は購読窓の縁（運用日から 10 年 rolling）の数日内側に置いてある。
 
 ```
-uv run baibai-engine macro refresh jp.n225_iv_30d jp.n225_iv_skew jp.n225_iv_term \
+uv run baibai-engine market-context indicators refresh jp.n225_iv_30d jp.n225_iv_skew jp.n225_iv_term \
     --start 2016-08-04 --end 2026-07-31
 ```
 

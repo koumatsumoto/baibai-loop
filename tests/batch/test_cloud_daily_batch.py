@@ -12,9 +12,9 @@ import pytest
 from baibai_batch.jobs.daily import (
     BatchStepError,
     CommandResult,
-    _macro_refresh_groups,
+    _indicator_refresh_groups,
     _Notice,
-    _parse_macro_series,
+    _parse_indicator_series,
     _read_daily_delta,
     build_parser,
     main,
@@ -60,7 +60,7 @@ def _macro_list_row(
     *,
     kind: str = "http",
 ) -> dict[str, object]:
-    """One `macro list --format json` row as the CLI emits it."""
+    """One `market-context indicators list --format json` row as the CLI emits it."""
 
     return {
         "series_id": series_id,
@@ -92,6 +92,8 @@ MACRO_LIST_OK = CommandResult(
 def _key(argv: list[str]) -> str:
     if "baibai_web.materialize" in argv:
         return "export"
+    if argv[1:3] == ["market-context", "indicators"]:
+        return " ".join(argv[1:4])
     return " ".join(argv[1:3])
 
 
@@ -144,8 +146,8 @@ def _success_script() -> dict[str, list[CommandResult]]:
         "screening run": [RUN_OK],
         "task reconcile-earnings": [OK],
         "screening extract-edinet-facts": [OK],
-        "macro list": [MACRO_LIST_OK],
-        "macro refresh": [OK, OK, OK],
+        "market-context indicators list": [MACRO_LIST_OK],
+        "market-context indicators refresh": [OK, OK, OK],
         "export": [OK],
         "screening prune": [OK],
     }
@@ -201,10 +203,10 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
         "screening verify-cache-coverage",
         "screening run",
         "screening extract-edinet-facts",
-        "macro list",
-        "macro refresh",
-        "macro refresh",
-        "macro refresh",
+        "market-context indicators list",
+        "market-context indicators refresh",
+        "market-context indicators refresh",
+        "market-context indicators refresh",
         "export",
         "screening prune",
         "task reconcile-earnings",
@@ -261,10 +263,10 @@ def test_structured_and_human_daily_paths_have_normalized_equivalent_results(
         "verify-cache-coverage",
         "screening-run",
         "edinet-research-facts",
-        "macro-list",
-        "macro-refresh-14d",
-        "macro-refresh-60d",
-        "macro-refresh-370d",
+        "indicator-list",
+        "indicator-refresh-14d",
+        "indicator-refresh-60d",
+        "indicator-refresh-370d",
         "export-read-models",
         "screening-prune",
         "task-reconcile-earnings",
@@ -276,8 +278,10 @@ def test_daily_batch_refreshes_registered_series_by_frequency_window(tmp_path: P
 
     run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner)
 
-    refresh_calls = [argv for argv in runner.calls if _key(argv) == "macro refresh"]
-    assert [argv[3:] for argv in refresh_calls] == [
+    refresh_calls = [
+        argv for argv in runner.calls if _key(argv) == "market-context indicators refresh"
+    ]
+    assert [argv[4:] for argv in refresh_calls] == [
         ["us.10y", "--start", (ASOF - timedelta(days=14)).isoformat(), "--end", "2026-07-21"],
         [
             "jp.foreign_flows",
@@ -311,7 +315,7 @@ def test_daily_batch_defers_remaining_cache_gap_after_bootstrap(tmp_path: Path) 
     assert result.screening_status == "failed"
     assert "screening bootstrap-cache" in runner.call_keys()
     assert "screening run" not in runner.call_keys()
-    assert runner.call_keys().count("macro list") == 1
+    assert runner.call_keys().count("market-context indicators list") == 1
     assert runner.call_keys().count("export") == 1
     assert "--skip-history" in _call(runner, "export")
 
@@ -343,7 +347,7 @@ def test_daily_batch_defers_extraction_without_quarantine_counters(tmp_path: Pat
     )
     assert "without quarantine counters" in capsys.readouterr().err
     assert "screening run" not in runner.call_keys()
-    assert "macro refresh" in runner.call_keys()
+    assert "market-context indicators refresh" in runner.call_keys()
     assert "export" in runner.call_keys()
 
 
@@ -357,7 +361,7 @@ def test_daily_batch_defers_verifier_crash_without_publishing_screening(tmp_path
     assert result.exit_code == 3
     assert result.screening_status == "failed"
     assert "screening run" not in runner.call_keys()
-    assert "macro refresh" in runner.call_keys()
+    assert "market-context indicators refresh" in runner.call_keys()
     assert "export" in runner.call_keys()
 
 
@@ -386,7 +390,7 @@ def test_daily_batch_continues_indicators_after_screening_fatal(tmp_path: Path, 
     assert result.run_revision_id is None
     assert result.review_set_id is None
     assert "provider unavailable" in capsys.readouterr().err
-    assert runner.call_keys().count("macro list") == 1
+    assert runner.call_keys().count("market-context indicators list") == 1
     assert runner.call_keys().count("export") == 1
     assert "screening prune" not in runner.call_keys()
     assert "--skip-history" in _call(runner, "export")
@@ -418,7 +422,7 @@ def test_daily_batch_defers_macro_refresh_failure_until_after_export(
     tmp_path: Path, capsys
 ) -> None:
     script = _success_script()
-    script["macro refresh"] = [
+    script["market-context indicators refresh"] = [
         CommandResult(1, "", "provider down\n"),
         OK,
         OK,
@@ -431,7 +435,7 @@ def test_daily_batch_defers_macro_refresh_failure_until_after_export(
 
     assert exit_code == 3
     keys = runner.call_keys()
-    assert keys.count("macro refresh") == 3
+    assert keys.count("market-context indicators refresh") == 3
     assert "export" in keys
     # The deferred detail is surfaced immediately, not only in the final summary.
     assert "deferred failure" in capsys.readouterr().err
@@ -442,7 +446,7 @@ def test_daily_batch_always_echoes_registry_prune_audit_lines(
     tmp_path: Path, capsys, returncode: int
 ) -> None:
     script = _success_script()
-    script["macro refresh"] = [
+    script["market-context indicators refresh"] = [
         CommandResult(
             returncode,
             "us.10y\t2026-07-21\t4.2\n"
@@ -468,7 +472,7 @@ def test_daily_batch_always_echoes_registry_prune_audit_lines(
 
 def test_daily_batch_defers_macro_list_failure_and_still_exports(tmp_path: Path) -> None:
     script = _success_script()
-    script["macro list"] = [CommandResult(1, "", "boom\n")]
+    script["market-context indicators list"] = [CommandResult(1, "", "boom\n")]
     runner = _runner(script)
 
     exit_code = run_daily_batch(
@@ -477,7 +481,7 @@ def test_daily_batch_defers_macro_list_failure_and_still_exports(tmp_path: Path)
 
     assert exit_code == 3
     keys = runner.call_keys()
-    assert "macro refresh" not in keys
+    assert "market-context indicators refresh" not in keys
     assert "export" in keys
 
 
@@ -488,7 +492,7 @@ def test_daily_batch_defers_run_view_without_pair_ids(tmp_path: Path) -> None:
     )
     assert result.exit_code == 3
     assert result.screening_status == "failed"
-    assert "macro list" in runner.call_keys()
+    assert "market-context indicators list" in runner.call_keys()
     assert "--skip-history" in _call(runner, "export")
 
 
@@ -498,7 +502,7 @@ def test_daily_batch_export_failure_remains_fatal_after_indicators(tmp_path: Pat
     runner = _runner(script)
     with pytest.raises(BatchStepError, match="export-read-models"):
         run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner)
-    assert "macro refresh" in runner.call_keys()
+    assert "market-context indicators refresh" in runner.call_keys()
     assert "screening prune" not in runner.call_keys()
 
 
@@ -514,7 +518,7 @@ def test_daily_batch_skips_only_screening_on_non_business_day(tmp_path: Path, ca
     assert result.market_updated is False
     assert "screening bootstrap-cache" not in runner.call_keys()
     assert "screening run" not in runner.call_keys()
-    assert runner.call_keys().count("macro list") == 1
+    assert runner.call_keys().count("market-context indicators list") == 1
     assert runner.call_keys().count("export") == 1
     assert "--skip-history" in _call(runner, "export")
     assert f"skip Screening: {today.isoformat()} は非営業日" in capsys.readouterr().out
@@ -536,7 +540,7 @@ def test_analysis_structured_path_gates_an_explicit_non_business_day(tmp_path: P
     assert result.screening_status == "skipped_non_business_day"
     assert result.exit_code == 0
     assert "screening run" not in runner.call_keys()
-    assert "macro refresh" in runner.call_keys()
+    assert "market-context indicators refresh" in runner.call_keys()
 
 
 def test_daily_batch_proceeds_on_business_day(tmp_path: Path) -> None:
@@ -593,7 +597,7 @@ def test_daily_batch_errors_when_calendar_does_not_cover_the_date(tmp_path: Path
     assert result.screening_status == "failed"
     assert "does not cover" in capsys.readouterr().err
     assert "screening run" not in runner.call_keys()
-    assert "macro refresh" in runner.call_keys()
+    assert "market-context indicators refresh" in runner.call_keys()
     assert "--skip-history" in _call(runner, "export")
 
 
@@ -611,7 +615,7 @@ def test_daily_batch_errors_when_calendar_table_is_missing(tmp_path: Path, capsy
     assert result.screening_status == "failed"
     assert "unreadable" in capsys.readouterr().err
     assert "screening run" not in runner.call_keys()
-    assert "macro refresh" in runner.call_keys()
+    assert "market-context indicators refresh" in runner.call_keys()
     assert "--skip-history" in _call(runner, "export")
 
 
@@ -624,7 +628,7 @@ def test_daily_batch_errors_when_market_sqlite_is_absent(tmp_path: Path, capsys)
     assert result.screening_status == "failed"
     assert "does not exist" in capsys.readouterr().err
     assert "screening run" not in runner.call_keys()
-    assert "macro refresh" in runner.call_keys()
+    assert "market-context indicators refresh" in runner.call_keys()
     assert "--skip-history" in _call(runner, "export")
 
 
@@ -860,7 +864,7 @@ def test_daily_batch_exits_3_and_names_the_first_deferred_macro_failure(
     tmp_path: Path,
 ) -> None:
     script = _success_script()
-    script["macro refresh"] = [CommandResult(1, "", "provider down\n"), OK, OK]
+    script["market-context indicators refresh"] = [CommandResult(1, "", "provider down\n"), OK, OK]
     notice_path = tmp_path / "notice.json"
 
     exit_code = run_daily_batch(
@@ -872,7 +876,7 @@ def test_daily_batch_exits_3_and_names_the_first_deferred_macro_failure(
     )
 
     assert exit_code == 3
-    assert _load_notice(notice_path)["failed_stage"].startswith("macro-refresh-")
+    assert _load_notice(notice_path)["failed_stage"].startswith("indicator-refresh-")
 
 
 def test_daily_batch_names_screening_failure_without_claiming_fresh_result(tmp_path: Path) -> None:
@@ -937,7 +941,7 @@ def test_main_rejects_an_invalid_asof_before_writing_a_notice(tmp_path: Path, ca
     assert not notice_path.exists()
 
 
-def test_parse_macro_series_reads_json_list() -> None:
+def test_parse_indicator_series_reads_json_list() -> None:
     stdout = json.dumps(
         [
             _macro_list_row("us.10y", "rates", "us", "daily", "fred_csv"),
@@ -945,18 +949,18 @@ def test_parse_macro_series_reads_json_list() -> None:
         ]
     )
 
-    parsed = _parse_macro_series(stdout)
+    parsed = _parse_indicator_series(stdout)
 
     assert [item.series_id for item in parsed] == ["us.10y", "jp.pmi_manufacturing"]
 
 
-def test_parse_macro_series_rejects_non_json() -> None:
+def test_parse_indicator_series_rejects_non_json() -> None:
     with pytest.raises(BatchStepError, match="not parseable JSON"):
-        _parse_macro_series("us.10y\tdaily\tfred_csv")
+        _parse_indicator_series("us.10y\tdaily\tfred_csv")
 
 
-def test_macro_refresh_groups_buckets_every_series_by_frequency_window() -> None:
-    parsed = _parse_macro_series(
+def test_indicator_refresh_groups_buckets_every_series_by_frequency_window() -> None:
+    parsed = _parse_indicator_series(
         json.dumps(
             [
                 _macro_list_row("us.10y", "rates", "us", "daily", "fred_csv"),
@@ -968,7 +972,7 @@ def test_macro_refresh_groups_buckets_every_series_by_frequency_window() -> None
         )
     )
 
-    groups = _macro_refresh_groups(parsed)
+    groups = _indicator_refresh_groups(parsed)
 
     assert groups == [
         (LATEST_FETCH_LOOKBACK_DAYS["daily"], ["us.10y"]),
@@ -976,8 +980,8 @@ def test_macro_refresh_groups_buckets_every_series_by_frequency_window() -> None
     ]
 
 
-def test_macro_refresh_groups_orders_derived_after_base() -> None:
-    parsed = _parse_macro_series(
+def test_indicator_refresh_groups_orders_derived_after_base() -> None:
+    parsed = _parse_indicator_series(
         json.dumps(
             [
                 _macro_list_row(
@@ -989,7 +993,7 @@ def test_macro_refresh_groups_orders_derived_after_base() -> None:
         )
     )
 
-    groups = _macro_refresh_groups(parsed)
+    groups = _indicator_refresh_groups(parsed)
 
     # Same daily window, but base (http) is refreshed before the derived (local) series.
     assert groups == [
@@ -1103,7 +1107,11 @@ def test_committed_market_chunk_survives_bootstrap_failure_and_requests_lake_pub
             "SELECT is_business_day FROM jquants_market_calendar WHERE day = ?", (ASOF.isoformat(),)
         ).fetchone() == (1,)
     assert "screening run" not in runner.call_keys()
-    assert runner.call_keys().count("macro list") == runner.call_keys().count("export") == 1
+    assert (
+        runner.call_keys().count("market-context indicators list")
+        == runner.call_keys().count("export")
+        == 1
+    )
     assert (tmp_path / "serving/views/meta.json").is_file()
 
 
@@ -1119,5 +1127,5 @@ def test_corrupt_market_store_does_not_block_indicators_and_export_stays_fatal(
     with pytest.raises(BatchStepError, match="export-read-models"):
         run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=None, runner=runner)
     assert "screening run" not in runner.call_keys()
-    assert "macro refresh" in runner.call_keys()
+    assert "market-context indicators refresh" in runner.call_keys()
     assert not (tmp_path / "serving/views/meta.json").exists()

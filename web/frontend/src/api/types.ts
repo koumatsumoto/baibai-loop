@@ -57,12 +57,57 @@ export interface AssessmentContentView {
   inputs: Record<string, unknown>[]
 }
 
+/**
+ * Existing L3 judgment fields shown before the current L2 readings.
+ */
+export interface AssessmentExcerptView {
+  context_id: string
+  as_of: string
+  published_at: string
+  age_days: number
+  stale: boolean
+  summary: string
+  synthesis: HistoricalSynthesisView | null
+  risk_environment: HistoricalRiskEnvironmentView | null
+  scenarios: HistoricalScenarioView[]
+  material_deltas: HistoricalMaterialDeltaView[]
+  research_priority_hints: HistoricalResearchPriorityHintView[]
+  bargain_topography: HistoricalFactSummaryView | null
+  estimate_caveats: HistoricalEstimateCaveatView[]
+  sizing_cautions: HistoricalSizingCautionView[]
+  warnings: string[]
+  assessment: AssessmentContentView | null
+}
+
+export interface AssessmentPublicationView {
+  context_id: string
+  as_of: string
+  published_at: string
+  summary: string
+  age_days: number
+  stale: boolean
+  synthesis: HistoricalSynthesisView | null
+  core: HistoricalCoreSectionView[]
+  connection: HistoricalConnectionSectionView | null
+  assessment: AssessmentContentView | null
+  historical_payload: Record<string, unknown> | null
+}
+
 export interface AssessmentReviewView {
   attempt: number
   reviewer_identity: string
   reviewed_at: string
   conclusion: string
   open_findings: string[]
+}
+
+export interface AssessmentRevisionView {
+  context_id: string
+  as_of: string
+  published_at: string
+  summary: string
+  age_days: number
+  stale: boolean
 }
 
 export interface CapitalAllocationAssessmentSummaryView {
@@ -209,6 +254,152 @@ export interface ExternalAssessment {
   origin_groups: OriginGroup[]
 }
 
+export interface HistoricalConnectionSectionView {
+  section_id: string
+  series: HistoricalSeriesReferenceView[]
+  core_section_ids: string[]
+  fact_summary: HistoricalFactSummaryView[]
+  judgment: HistoricalSectionJudgmentView
+  research_priority_hints: HistoricalResearchPriorityHintView[]
+  sector_tilts: HistoricalSectorTiltView[]
+  sizing_cautions: HistoricalSizingCautionView[]
+  bargain_topography: HistoricalFactSummaryView | null
+  estimate_caveats: HistoricalEstimateCaveatView[]
+}
+
+export interface HistoricalCoreSectionView {
+  section_id: string
+  series: HistoricalSeriesReferenceView[]
+  fact_summary: HistoricalFactSummaryView[]
+  judgment: HistoricalSectionJudgmentView
+  economic_connection: HistoricalEconomicConnectionView
+  change_since_previous: string | null
+  previous_scorecard_review: string | null
+  material_deltas: HistoricalMaterialDeltaView[]
+  risk_environment: HistoricalRiskEnvironmentView | null
+  scenarios: HistoricalScenarioView[]
+  monitoring_points: HistoricalMonitoringPointView[]
+}
+
+export interface HistoricalDominantForceView {
+  force_id: string
+  title: string
+  summary: string
+  transmission: string
+  core_section_ids: string[]
+  series: HistoricalSeriesReferenceView[]
+  counter_evidence: string
+  direction: string
+  confidence: string
+  source_ids: string[]
+}
+
+export interface HistoricalEconomicConnectionView {
+  summary: string
+  source_ids: string[]
+}
+
+export interface HistoricalEstimateCaveatView {
+  summary: string
+  applies_to: string
+  affected_component: string
+  materiality: string
+  source_ids: string[]
+}
+
+export interface HistoricalFactSummaryView {
+  summary: string
+  source_ids: string[]
+}
+
+export interface HistoricalForceInteractionView {
+  summary: string
+  force_ids: string[]
+  source_ids: string[]
+}
+
+export interface HistoricalMaterialDeltaView {
+  channel: string
+  direction: string
+  materiality: string
+  summary: string
+  used_for: string
+  source_ids: string[]
+}
+
+export interface HistoricalMonitoringPointView {
+  event: string
+  condition: string
+  view_change: string
+  summary: string
+  source_ids: string[]
+}
+
+export interface HistoricalResearchPriorityHintView {
+  summary: string
+  applies_to: string
+  source_ids: string[]
+}
+
+export interface HistoricalRiskEnvironmentView {
+  stance: string
+  confidence: string
+  summary: string
+  falsifiers: string[]
+  source_ids: string[]
+}
+
+export interface HistoricalScenarioView {
+  case: string
+  direction: string
+  probability: number | null
+  summary: string
+  conditions: string[]
+  scorecard: HistoricalScorecardConditionView[]
+  economic_implications: string[]
+  source_ids: string[]
+}
+
+export interface HistoricalScorecardConditionView {
+  series_id: string
+  comparison: string
+  threshold: number
+  deadline: string
+}
+
+export interface HistoricalSectionJudgmentView {
+  summary: string
+  direction: string
+  confidence: string
+  source_ids: string[]
+}
+
+export interface HistoricalSectorTiltView {
+  sector: string
+  direction: string
+  summary: string
+  source_ids: string[]
+}
+
+export interface HistoricalSeriesReferenceView {
+  series_id: string
+  name: string
+}
+
+export interface HistoricalSizingCautionView {
+  severity: string
+  summary: string
+  source_ids: string[]
+}
+
+/**
+ * The integrated layer: named cross-channel forces and how they combine.
+ */
+export interface HistoricalSynthesisView {
+  dominant_forces: HistoricalDominantForceView[]
+  interactions: HistoricalForceInteractionView[]
+}
+
 /**
  * Observed holding price movement; holding decisions belong to Position Review.
  */
@@ -237,243 +428,10 @@ export interface HoldingView {
   next_earnings_date: string | null
 }
 
-export interface MacroConnectionSectionView {
-  section_id: string
-  series: MacroSeriesReferenceView[]
-  core_section_ids: string[]
-  fact_summary: MacroFactSummaryView[]
-  judgment: MacroSectionJudgmentView
-  research_priority_hints: MacroResearchPriorityHintView[]
-  sector_tilts: MacroSectorTiltView[]
-  sizing_cautions: MacroSizingCautionView[]
-  bargain_topography: MacroFactSummaryView | null
-  estimate_caveats: MacroEstimateCaveatView[]
-}
-
-/**
- * Existing L3 judgment fields shown before the current L2 readings.
- */
-export interface MacroContextExcerptView {
-  context_id: string
-  as_of: string
-  published_at: string
-  age_days: number
-  stale: boolean
-  summary: string
-  synthesis: MacroSynthesisView | null
-  risk_environment: MacroRiskEnvironmentView | null
-  scenarios: MacroScenarioView[]
-  material_deltas: MacroMaterialDeltaView[]
-  research_priority_hints: MacroResearchPriorityHintView[]
-  bargain_topography: MacroFactSummaryView | null
-  estimate_caveats: MacroEstimateCaveatView[]
-  sizing_cautions: MacroSizingCautionView[]
-  warnings: string[]
-  assessment: AssessmentContentView | null
-}
-
-export interface MacroContextRevisionView {
-  context_id: string
-  as_of: string
-  published_at: string
-  summary: string
-  age_days: number
-  stale: boolean
-}
-
-export interface MacroContextView {
-  context_id: string
-  as_of: string
-  published_at: string
-  summary: string
-  age_days: number
-  stale: boolean
-  synthesis: MacroSynthesisView | null
-  core: MacroCoreSectionView[]
-  connection: MacroConnectionSectionView | null
-  assessment: AssessmentContentView | null
-  historical_payload: Record<string, unknown> | null
-}
-
-export interface MacroCoreSectionView {
-  section_id: string
-  series: MacroSeriesReferenceView[]
-  fact_summary: MacroFactSummaryView[]
-  judgment: MacroSectionJudgmentView
-  economic_connection: MacroEconomicConnectionView
-  change_since_previous: string | null
-  previous_scorecard_review: string | null
-  material_deltas: MacroMaterialDeltaView[]
-  risk_environment: MacroRiskEnvironmentView | null
-  scenarios: MacroScenarioView[]
-  monitoring_points: MacroMonitoringPointView[]
-}
-
-export interface MacroDominantForceView {
-  force_id: string
-  title: string
-  summary: string
-  transmission: string
-  core_section_ids: string[]
-  series: MacroSeriesReferenceView[]
-  counter_evidence: string
-  direction: string
-  confidence: string
-  source_ids: string[]
-}
-
-export interface MacroEconomicConnectionView {
-  summary: string
-  source_ids: string[]
-}
-
-export interface MacroEstimateCaveatView {
-  summary: string
-  applies_to: string
-  affected_component: string
-  materiality: string
-  source_ids: string[]
-}
-
-export interface MacroFactSummaryView {
-  summary: string
-  source_ids: string[]
-}
-
-export interface MacroForceInteractionView {
-  summary: string
-  force_ids: string[]
-  source_ids: string[]
-}
-
-export interface MacroGroupView {
-  title: string
-  series: MacroSeriesView[]
-}
-
-export interface MacroMaterialDeltaView {
-  channel: string
-  direction: string
-  materiality: string
-  summary: string
-  used_for: string
-  source_ids: string[]
-}
-
-export interface MacroMonitoringPointView {
-  event: string
-  condition: string
-  view_change: string
-  summary: string
-  source_ids: string[]
-}
-
-export interface MacroPointView {
-  observed_at: string
-  value: number
-}
-
-export interface MacroReadingSeriesView {
-  series_id: string
-  name: string
-  category: string
-  geography: string
-  frequency: string
-  unit: string
-  latest_value: number | null
-  observed_at: string | null
-  staleness_days: number | null
-  stale: boolean
-  staleness_warn_days: number
-  next_print_estimate: string | null
-  print_due_in_days: number | null
-  window_years: number
-  window_observations: number
-  expected_observations: number | null
-  insufficient_history: boolean
-  statistic: string
-  statistic_unit: string
-  statistic_value: number | null
-  percentile: number | null
-  z_score: number | null
-  short_trend: MacroReadingTrendView | null
-  long_trend: MacroReadingTrendView | null
-  flags: string[]
-}
-
-export interface MacroReadingTrendView {
-  months: number
-  anchor_observed_at: string
-  anchor_value: number
-  change: number
-  direction: string
-}
-
-/**
- * The machine reading of every registered series for one as-of date.
- *
- * A projection of the L2 reading, recomputed from the indicator store; the panel it
- * feeds is a display of that reading and not a second canonical artifact.
- * ``fetch_health`` rides along because staleness alone cannot see a provider that has
- * just gone silent — a low-frequency series stays inside its threshold for weeks.
- */
-export interface MacroReadingView {
-  as_of: string
-  rules_revision: string
-  series: MacroReadingSeriesView[]
-  fetch_health: MacroSeriesFetchHealthView[]
-}
-
-export interface MacroResearchPriorityHintView {
-  summary: string
-  applies_to: string
-  source_ids: string[]
-}
-
-export interface MacroRiskEnvironmentView {
-  stance: string
-  confidence: string
-  summary: string
-  falsifiers: string[]
-  source_ids: string[]
-}
-
-export interface MacroScenarioView {
-  case: string
-  direction: string
-  probability: number | null
-  summary: string
-  conditions: string[]
-  scorecard: MacroScorecardConditionView[]
-  economic_implications: string[]
-  source_ids: string[]
-}
-
-export interface MacroScorecardConditionView {
-  series_id: string
-  comparison: string
-  threshold: number
-  deadline: string
-}
-
-export interface MacroSectionJudgmentView {
-  summary: string
-  direction: string
-  confidence: string
-  source_ids: string[]
-}
-
-export interface MacroSectorTiltView {
-  sector: string
-  direction: string
-  summary: string
-  source_ids: string[]
-}
-
 /**
  * The latest acquisition attempt for one series (not part of the reading itself).
  */
-export interface MacroSeriesFetchHealthView {
+export interface IndicatorFetchHealthView {
   series_id: string
   status: string
   finished_at: string
@@ -481,42 +439,33 @@ export interface MacroSeriesFetchHealthView {
   error_message: string | null
 }
 
-export interface MacroSeriesReferenceView {
-  series_id: string
-  name: string
+export interface IndicatorGroupView {
+  title: string
+  series: IndicatorSeriesView[]
 }
 
-export interface MacroSeriesView {
+export interface IndicatorPointView {
+  observed_at: string
+  value: number
+}
+
+export interface IndicatorSeriesView {
   series_id: string
   label: string
   name: string
   unit: string
   tradingview_symbol: string | null
-  points: MacroPointView[]
-}
-
-export interface MacroSizingCautionView {
-  severity: string
-  summary: string
-  source_ids: string[]
-}
-
-/**
- * The integrated layer: named cross-channel forces and how they combine.
- */
-export interface MacroSynthesisView {
-  dominant_forces: MacroDominantForceView[]
-  interactions: MacroForceInteractionView[]
+  points: IndicatorPointView[]
 }
 
 /**
  * Current L3 judgment first, followed by current L2 readings.
  */
-export interface MacroView {
-  latest_context: MacroContextExcerptView | null
-  reading: MacroReadingView | null
-  reports: MacroContextRevisionView[]
-  groups: MacroGroupView[]
+export interface MarketContextView {
+  latest_context: AssessmentExcerptView | null
+  reading: ReadingView | null
+  reports: AssessmentRevisionView[]
+  groups: IndicatorGroupView[]
 }
 
 export type MetaBatch = 'daily' | 'manual'
@@ -676,6 +625,57 @@ export interface QuantsScoreObservation {
   market_trend_score: number | null
   composite_score: number | null
   industry_average_score: number | null
+}
+
+export interface ReadingSeriesView {
+  series_id: string
+  name: string
+  category: string
+  geography: string
+  frequency: string
+  unit: string
+  latest_value: number | null
+  observed_at: string | null
+  staleness_days: number | null
+  stale: boolean
+  staleness_warn_days: number
+  next_print_estimate: string | null
+  print_due_in_days: number | null
+  window_years: number
+  window_observations: number
+  expected_observations: number | null
+  insufficient_history: boolean
+  statistic: string
+  statistic_unit: string
+  statistic_value: number | null
+  percentile: number | null
+  z_score: number | null
+  short_trend: ReadingTrendView | null
+  long_trend: ReadingTrendView | null
+  flags: string[]
+}
+
+export interface ReadingTrendView {
+  months: number
+  anchor_observed_at: string
+  anchor_value: number
+  change: number
+  direction: string
+}
+
+/**
+ * The machine reading of every registered series for one as-of date.
+ *
+ * A projection of the L2 reading, recomputed from the indicator store; the panel it
+ * feeds is a display of that reading and not a second canonical artifact.
+ * ``fetch_health`` rides along because staleness alone cannot see a provider that has
+ * just gone silent — a low-frequency series stays inside its threshold for weeks.
+ */
+export interface ReadingView {
+  as_of: string
+  rules_revision: string
+  series: ReadingSeriesView[]
+  fetch_health: IndicatorFetchHealthView[]
 }
 
 export interface ResearchRevisionView {

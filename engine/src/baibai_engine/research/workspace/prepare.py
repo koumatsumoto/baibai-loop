@@ -9,7 +9,7 @@ from pathlib import Path
 
 from baibai_engine.foundation.repository_layout import (
     ER_LEVEL_CALIBRATION_CONTEXT_PATH,
-    MACRO_DB_PATH,
+    INDICATORS_DB_PATH,
     MARKET_DB_PATH,
     RUNS_DB_PATH,
 )
@@ -55,7 +55,7 @@ def prepare_workspace(
     started_at: datetime | None = None,
     sqlite_path: Path = MARKET_DB_PATH,
     runs_path: Path = RUNS_DB_PATH,
-    macro_path: Path = MACRO_DB_PATH,
+    macro_path: Path = INDICATORS_DB_PATH,
     force: bool = False,
 ) -> ResearchPreparation:
     """Explicitly start/reuse one fixed combined selection, including a normal empty set."""
@@ -242,7 +242,7 @@ def prepare_holding_workspace(
     started_at: datetime | None = None,
     sqlite_path: Path = MARKET_DB_PATH,
     runs_path: Path = RUNS_DB_PATH,
-    macro_path: Path = MACRO_DB_PATH,
+    macro_path: Path = INDICATORS_DB_PATH,
     force: bool = False,
 ) -> ResearchPreparation:
     """Attach a holding workspace to the same finite Operation; never use new admission."""

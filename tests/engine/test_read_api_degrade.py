@@ -27,11 +27,14 @@ from baibai_engine.storage.application.write import initialize_database
 from baibai_engine.storage.observations.schema import _SCHEMA_SQL as MARKET_SCHEMA_SQL
 from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION
 
+# Strict Owner MCP reads report unavailable canonical stores rather than UI no-data.
+_STRICT_STORED_READERS = frozenset({"stored_indicator_rows", "stored_reading"})
+
 # These parse Git-managed YAML paths, not runtime stores.
 _NOT_STORE_READERS = frozenset(
     {
         "validate_application_store_schema",
-        "validate_macro_reading_rules",
+        "validate_reading_rules",
     }
 )
 # A caller asking for one identity that is absent is told so; that is not a degrade.
@@ -45,9 +48,10 @@ _WRITE_GATES = frozenset({"market_calendar_business_day", "previous_run_revision
 _DECLARED_OUTSIDE_THE_SWEEP = frozenset(
     {
         *_NOT_STORE_READERS,
+        *_STRICT_STORED_READERS,
         "is_unwritten_store",  # requires a query exception as well as a store
-        "macro_registered_series",  # reads the bundled definitions, not a store
-        "macro_series_names",  # reads the bundled definitions, not a store
+        "registered_indicator",  # reads the bundled definitions, not a store
+        "indicator_series_names",  # reads the bundled definitions, not a store
         "read_rows",  # takes the SQL to run, which this file would have to invent
         "machine_valuation_from_analysis",  # pure saved-value projection; owned by valuation tests
         "anchor_gap_pct",  # pure machine-anchor presentation; owned by valuation tests
@@ -125,7 +129,7 @@ def _classify_readers() -> tuple[list[tuple[str, object, dict[str, object]]], se
     for name, function in sorted(_published_callables().items()):
         if not callable(function) or inspect.isclass(function):
             continue
-        if name in _NOT_STORE_READERS:
+        if name in _NOT_STORE_READERS | _STRICT_STORED_READERS:
             uncovered.add(name)
             continue
         try:
@@ -598,11 +602,11 @@ def test_macro_partial_store_is_not_unpublished(tmp_path: Path, mutation: str) -
         seed_definitions(connection, load_definitions())
         connection.commit()
     readers = [
-        lambda: read_api.macro_reading_snapshot(path, asof=date(2026, 7, 29)),
-        lambda: read_api.macro_indicator_series(path, series_id="jp.cpi.headline"),
+        lambda: read_api.reading_snapshot(path, asof=date(2026, 7, 29)),
+        lambda: read_api.indicator_series(path, series_id="jp.cpi.headline"),
     ]
     assert all(isinstance(reader(), dict) for reader in readers)
-    assert read_api.macro_indicator_series(path, series_id="unknown") is None
+    assert read_api.indicator_series(path, series_id="unknown") is None
     with sqlite3.connect(path) as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         connection.execute("DROP TABLE observations")

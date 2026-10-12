@@ -1,6 +1,6 @@
-"""Read-only validation of the macro stores against the current registry.
+"""Read-only validation of indicator observations and stored market assessments.
 
-Macro state lives in two stores and only a local checkout holds both: the L1 indicator
+Market Context state lives in two existing stores. The L1 indicator
 store carries observations and their vintages, the application store carries the
 published context reports written against them. Their agreement is what CI cannot see —
 a workflow has no application store — so the pre-push instrument for it lives here.
@@ -24,7 +24,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from baibai_engine.batch_api import (
-    DEFAULT_MACRO_DB_PATH as DEFAULT_DB_PATH,
+    DEFAULT_INDICATORS_DB_PATH as DEFAULT_DB_PATH,
 )
 from baibai_engine.batch_api import (
     IndicatorDefinitions,
@@ -34,7 +34,7 @@ from baibai_engine.batch_api import (
     connect_read_only,
     database_path,
     load_definitions,
-    validate_macro_schema,
+    validate_indicator_schema,
 )
 
 MAX_RENDERED_VIOLATIONS = 100
@@ -90,7 +90,7 @@ def validate_store(
     connection.row_factory = sqlite3.Row
     try:
         schema_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        validate_macro_schema(connection)
+        validate_indicator_schema(connection)
         observations = 0
         for row in connection.execute(
             # A withdrawn row is not a claim about a value, so the registry band does not
@@ -190,8 +190,8 @@ def validate_published_contexts(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "validate every macro observation against the current registry, "
-            "and every published macro context report against the read path"
+            "validate every economic observation against the current registry, "
+            "and every saved market assessment against the read path"
         )
     )
     parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)

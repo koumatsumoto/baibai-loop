@@ -217,7 +217,7 @@ Web UI と Worker:
 macroの計算・取得・registry・reading methodを変更した場合は、localの対象storeも検証する。
 
 ```bash
-uv run baibai-batch validate-macro-stores
+uv run baibai-batch validate-market-context-stores
 ```
 
 storeがなければ未実行と報告する。CIにはapplication storeがなく、通常gateは代用にならない。文書だけの変更でlive取得・本番再発行を行わない。

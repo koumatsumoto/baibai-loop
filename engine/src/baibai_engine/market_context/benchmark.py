@@ -16,7 +16,7 @@ from .prices import read_price_bars
 
 NIKKEI225_ETF_PROXY = "1321"
 
-# Pre-registered fixed thresholds (no grid search; docs/reference/macro.md).
+# Pre-registered fixed thresholds (no grid search; docs/reference/market-context.md).
 # +-3% over 20 business days is roughly a +-40% annualized drift, a conventional
 # bar for calling a directional move rather than range noise.
 RALLY_RETURN_20D_MIN = 0.03

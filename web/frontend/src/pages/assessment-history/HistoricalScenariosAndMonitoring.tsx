@@ -1,20 +1,20 @@
-import type { MacroCoreSectionView, MacroScenarioView } from '../../api/types'
+import type { HistoricalCoreSectionView, HistoricalScenarioView } from '../../api/types'
 import { CountercaseBlock } from '../../components/report/CountercaseBlock'
 import { ReportToneBadge } from '../../components/report/ReportToneBadge'
 import { SectionCard } from '../../components/SectionCard'
 import { Badge } from '../../components/ui/badge'
-import { labelMacroValue, macroTone, orderMacroScenarios } from '../../lib/macro-report'
+import { labelHistoricalValue, historicalTone, orderHistoricalScenarios } from '../../lib/assessment-history'
 import { Disclosure, EvidenceDisclosure } from './shared'
 
 const COMPARISON_SYMBOLS: Readonly<Record<string, string>> = { below: '<', at_or_below: '≤', above: '>', at_or_above: '≥' }
 
-function ScenarioCard({ scenario }: { scenario: MacroScenarioView }) {
+function ScenarioCard({ scenario }: { scenario: HistoricalScenarioView }) {
   return (
     <article className="grid min-w-0 content-start gap-3 rounded-lg border p-4">
       <div className="flex flex-wrap items-center gap-2">
-        <h3 className="flex items-center gap-1.5 font-semibold"><ReportToneBadge tone={macroTone(scenario.case)}>{labelMacroValue(scenario.case)}</ReportToneBadge> <span className="font-mono text-xs text-muted-foreground">({scenario.case})</span></h3>
+        <h3 className="flex items-center gap-1.5 font-semibold"><ReportToneBadge tone={historicalTone(scenario.case)}>{labelHistoricalValue(scenario.case)}</ReportToneBadge> <span className="font-mono text-xs text-muted-foreground">({scenario.case})</span></h3>
         {scenario.probability != null && <Badge variant="outline">主観ウェイト {Math.round(scenario.probability * 100)}%</Badge>}
-        <ReportToneBadge tone={macroTone(scenario.direction)}>{labelMacroValue(scenario.direction)}</ReportToneBadge>
+        <ReportToneBadge tone={historicalTone(scenario.direction)}>{labelHistoricalValue(scenario.direction)}</ReportToneBadge>
       </div>
       <p>{scenario.summary}</p>
       {(scenario.conditions ?? []).length > 0 && <div><h4 className="text-xs font-semibold">成立条件</h4>{scenario.conditions.map((condition, index) => <p className="mt-1 text-sm text-muted-foreground" key={`condition-${index}`}>{condition}</p>)}</div>}
@@ -25,9 +25,9 @@ function ScenarioCard({ scenario }: { scenario: MacroScenarioView }) {
   )
 }
 
-export function MacroScenariosAndMonitoring({ risk, monitoring }: { risk: MacroCoreSectionView | null; monitoring: MacroCoreSectionView | null }) {
+export function HistoricalScenariosAndMonitoring({ risk, monitoring }: { risk: HistoricalCoreSectionView | null; monitoring: HistoricalCoreSectionView | null }) {
   const riskEnvironment = risk?.risk_environment
-  const scenarios = orderMacroScenarios(risk?.scenarios)
+  const scenarios = orderHistoricalScenarios(risk?.scenarios)
   const points = monitoring?.monitoring_points ?? []
   if (!riskEnvironment && scenarios.length === 0 && points.length === 0) return null
   return (

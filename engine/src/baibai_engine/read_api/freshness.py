@@ -30,7 +30,7 @@ def screening_latest_asof(path: Path) -> date | None:
     return date.fromisoformat(str(rows[0][0]))
 
 
-def macro_latest_observed_at(path: Path) -> date | None:
+def indicator_latest_observed_at(path: Path) -> date | None:
     """Return the newest successful observation among currently registered series."""
 
     if not path.is_file():
@@ -111,6 +111,6 @@ def _as_jst_instant(value: str) -> datetime:
 
 __all__ = [
     "application_db_updated_at",
-    "macro_latest_observed_at",
+    "indicator_latest_observed_at",
     "screening_latest_asof",
 ]

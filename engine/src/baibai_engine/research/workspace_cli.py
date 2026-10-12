@@ -26,7 +26,11 @@ from typing import TextIO
 import yaml
 from pydantic import ValidationError
 
-from baibai_engine.foundation.repository_layout import MACRO_DB_PATH, MARKET_DB_PATH, RUNS_DB_PATH
+from baibai_engine.foundation.repository_layout import (
+    INDICATORS_DB_PATH,
+    MARKET_DB_PATH,
+    RUNS_DB_PATH,
+)
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 
@@ -88,7 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_parser.add_argument("--holding-ticker", action="append", default=[])
     prepare_parser.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
     prepare_parser.add_argument("--runs-path", type=Path, default=RUNS_DB_PATH)
-    prepare_parser.add_argument("--macro-path", type=Path, default=MACRO_DB_PATH)
+    prepare_parser.add_argument("--macro-path", type=Path, default=INDICATORS_DB_PATH)
     prepare_parser.add_argument("--workspace", required=True, type=Path)
     prepare_parser.add_argument(
         "--ticker",
@@ -112,7 +116,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     holding_prepare_parser.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
     holding_prepare_parser.add_argument("--runs-path", type=Path, default=RUNS_DB_PATH)
-    holding_prepare_parser.add_argument("--macro-path", type=Path, default=MACRO_DB_PATH)
+    holding_prepare_parser.add_argument("--macro-path", type=Path, default=INDICATORS_DB_PATH)
     holding_prepare_parser.add_argument("--ticker", required=True)
     holding_prepare_parser.add_argument("--workspace", required=True, type=Path)
     holding_prepare_parser.add_argument(

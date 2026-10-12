@@ -52,7 +52,7 @@ from baibai_engine.batch_api import (
     IndicatorsSchemaError,
 )
 from baibai_engine.batch_api import (
-    validate_macro_schema as validate_current_schema,
+    validate_indicator_schema as validate_current_schema,
 )
 
 # The tables that accumulate facts, with the key that decides whether a row is the same row.

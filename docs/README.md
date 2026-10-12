@@ -22,7 +22,7 @@ Valuation・Market Context・External Assessmentの意味は[domain-language](./
 | 注文結果・入出金を記録する | [Ledger Record](../.agents/skills/ledger-record/SKILL.md) |
 | 保有銘柄を見直す | [Position Review](../.agents/skills/position-review/SKILL.md) |
 | 保存済み外部参考評価を読む | [External Assessmentの意味](./reference/data-sources.md#external-assessment)・[保存済み照会](./reference/market-lake.md#external-assessment-query) |
-| 保存済み市場・業種・個別相対を読む | [Market Context読取](./reference/macro.md#market-context-reads) |
+| 保存済み市場・業種・個別相対を読む | [Market Context読取](./reference/market-context.md#market-context-reads) |
 | 市場環境判断を作る | [Market Context assessment](../.agents/skills/market-context-assessment/SKILL.md) |
 | batch・storeを運用する | [Ops Maintenance](../.agents/skills/ops-maintenance/SKILL.md) |
 | 保存済み情報を表示・照会する | [Web](../web/README.md)・[Owner MCP](../tools/owner_mcp/README.md) |

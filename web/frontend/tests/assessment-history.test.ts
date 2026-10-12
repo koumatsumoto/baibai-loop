@@ -2,14 +2,15 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import type { MacroContextView, MacroCoreSectionView, MacroScenarioView } from '../src/api/types'
-import { forceTitle, labelMacroValue, macroTone, orderMacroScenarios, partitionMacroCore, scenarioDistribution, TRANSMISSION_CHANNEL_IDS } from '../src/lib/macro-report'
-import { MacroReportContent } from '../src/pages/macro-report/MacroReportContent'
-import { ScenarioDistribution } from '../src/pages/macro-report/ScenarioDistribution'
+import type { AssessmentPublicationView, HistoricalCoreSectionView, HistoricalScenarioView } from '../src/api/types'
+import { forceTitle, labelHistoricalValue, historicalTone, orderHistoricalScenarios, partitionHistoricalCore, scenarioDistribution, TRANSMISSION_CHANNEL_IDS } from '../src/lib/assessment-history'
+import { AssessmentContent } from '../src/components/market-context/AssessmentContent'
+import { HistoricalReportContent } from '../src/pages/assessment-history/HistoricalReportContent'
+import { ScenarioDistribution } from '../src/pages/assessment-history/ScenarioDistribution'
 
 const CORE_IDS = ['regime_summary', ...TRANSMISSION_CHANNEL_IDS, 'risk_environment', 'monitoring']
 
-function coreSection(section_id: string): MacroCoreSectionView {
+function coreSection(section_id: string): HistoricalCoreSectionView {
   return {
     section_id,
     series: [{ series_id: `series.${section_id}`, name: `Series ${section_id}` }],
@@ -25,7 +26,7 @@ function coreSection(section_id: string): MacroCoreSectionView {
   }
 }
 
-function scenario(caseName: string): MacroScenarioView {
+function scenario(caseName: string): HistoricalScenarioView {
   const probabilities: Readonly<Record<string, number>> = { base: 0.5, bear: 0.3, bull: 0.2 }
   return {
     case: caseName,
@@ -39,7 +40,7 @@ function scenario(caseName: string): MacroScenarioView {
   }
 }
 
-function report(): MacroContextView {
+function report(): AssessmentPublicationView {
   return {
     context_id: 'macro-context-test',
     as_of: '2026-08-26',
@@ -80,14 +81,14 @@ function report(): MacroContextView {
 
 describe('macro report projection', () => {
   it('partitions every core section exactly once', () => {
-    const partition = partitionMacroCore(CORE_IDS.map(coreSection))
+    const partition = partitionHistoricalCore(CORE_IDS.map(coreSection))
     const projected = [...partition.channels, partition.regime, partition.risk, partition.monitoring, ...partition.other].filter(Boolean)
     expect(projected.map((section) => section?.section_id)).toHaveLength(CORE_IDS.length)
     expect(new Set(projected.map((section) => section?.section_id))).toEqual(new Set(CORE_IDS))
   })
 
   it('keeps only the seven transmission channels in canonical order', () => {
-    const partition = partitionMacroCore([...CORE_IDS].reverse().map(coreSection))
+    const partition = partitionHistoricalCore([...CORE_IDS].reverse().map(coreSection))
     expect(partition.channels.map((section) => section.section_id)).toEqual(TRANSMISSION_CHANNEL_IDS)
     expect(partition.channels.map((section) => section.section_id)).not.toContain('regime_summary')
     expect(partition.channels.map((section) => section.section_id)).not.toContain('risk_environment')
@@ -95,19 +96,19 @@ describe('macro report projection', () => {
   })
 
   it('orders scenarios and falls back to raw unknown enum values', () => {
-    expect(orderMacroScenarios([scenario('bull'), scenario('stress'), scenario('base'), scenario('bear')]).map((item) => item.case)).toEqual(['base', 'bear', 'bull', 'stress'])
-    expect(labelMacroValue('supportive')).toBe('支援的')
-    expect(labelMacroValue('new_value')).toBe('new_value')
+    expect(orderHistoricalScenarios([scenario('bull'), scenario('stress'), scenario('base'), scenario('bear')]).map((item) => item.case)).toEqual(['base', 'bear', 'bull', 'stress'])
+    expect(labelHistoricalValue('supportive')).toBe('支援的')
+    expect(labelHistoricalValue('new_value')).toBe('new_value')
   })
 
   it('maps macro judgment and scenario values without destructive tones', () => {
-    expect(macroTone('supportive')).toBe('positive')
-    expect(macroTone('adverse')).toBe('warning')
-    expect(macroTone('mixed')).toBe('muted')
-    expect(macroTone('bull')).toBe('positive')
-    expect(macroTone('bear')).toBe('warning')
-    expect(macroTone('base')).toBe('muted')
-    expect(['supportive', 'adverse', 'mixed', 'risk_seeking', 'risk_averse', 'neutral', 'base', 'bear', 'bull'].map(macroTone)).not.toContain('destructive')
+    expect(historicalTone('supportive')).toBe('positive')
+    expect(historicalTone('adverse')).toBe('warning')
+    expect(historicalTone('mixed')).toBe('muted')
+    expect(historicalTone('bull')).toBe('positive')
+    expect(historicalTone('bear')).toBe('warning')
+    expect(historicalTone('base')).toBe('muted')
+    expect(['supportive', 'adverse', 'mixed', 'risk_seeking', 'risk_averse', 'neutral', 'base', 'bear', 'bull'].map(historicalTone)).not.toContain('destructive')
   })
 
   it('accepts only one valid base, bear and bull distribution without normalization', () => {
@@ -138,11 +139,11 @@ describe('macro report projection', () => {
   })
 
   it('handles absent optional collections and synthesis', () => {
-    expect(partitionMacroCore(undefined).channels).toEqual([])
-    expect(orderMacroScenarios(undefined)).toEqual([])
+    expect(partitionHistoricalCore(undefined).channels).toEqual([])
+    expect(orderHistoricalScenarios(undefined)).toEqual([])
     expect(forceTitle(null, 'force.raw')).toBe('force.raw')
-    const legacy = { ...report(), synthesis: null, core: [], connection: undefined } as unknown as MacroContextView
-    expect(() => renderToStaticMarkup(createElement(MacroReportContent, { data: legacy }))).not.toThrow()
+    const legacy = { ...report(), synthesis: null, core: [], connection: undefined } as unknown as AssessmentPublicationView
+    expect(() => renderToStaticMarkup(createElement(HistoricalReportContent, { data: legacy }))).not.toThrow()
   })
 
   it('resolves known force ids to titles and preserves unknown ids', () => {
@@ -153,7 +154,7 @@ describe('macro report projection', () => {
 
   it('does not strip source or series ids during projection', () => {
     const input = CORE_IDS.map(coreSection)
-    const partition = partitionMacroCore(input)
+    const partition = partitionHistoricalCore(input)
     expect(partition.channels[0].series[0].series_id).toBe(input[1].series[0].series_id)
     expect(partition.channels[0].fact_summary[0].source_ids[0]).toBe(input[1].fact_summary[0].source_ids[0])
   })
@@ -161,7 +162,7 @@ describe('macro report projection', () => {
 
 describe('macro report render contract', () => {
   it('renders the judgment-first order and keeps rebuttal, lineage and scorecard evidence reachable', () => {
-    const markup = renderToStaticMarkup(createElement(MacroReportContent, { data: report() }))
+    const markup = renderToStaticMarkup(createElement(HistoricalReportContent, { data: report() }))
     const headings = ['現局面', '支配的な力', '日本株の調査・見積りへの含意', 'シナリオと見方を変える条件', '詳細な経済チャネルと証拠']
     for (let index = 1; index < headings.length; index += 1) {
       expect(markup.indexOf(headings[index - 1])).toBeLessThan(markup.indexOf(headings[index]))
@@ -193,7 +194,7 @@ describe('macro report render contract', () => {
     const data = report()
     const risk = data.core.find((section) => section.section_id === 'risk_environment')
     if (risk?.risk_environment) risk.risk_environment.falsifiers = []
-    const markup = renderToStaticMarkup(createElement(MacroReportContent, { data }))
+    const markup = renderToStaticMarkup(createElement(HistoricalReportContent, { data }))
     expect(markup).toContain('明示された反証条件はありません。')
     expect(markup.match(/source\.risk/g)).toHaveLength(1)
   })
@@ -209,7 +210,7 @@ it('shows the small assessment with its counter evidence and uncertainty', () =>
     implications: [{ summary: '資金調達と受注を調査', source_ids: ['rates', 'demand'] }],
     inputs: [{ input_id: 'rates', status: 'ok', reference: 'fixed-reading', available_at: '2026-07-18T12:00:00+09:00' }],
   }
-  const markup = renderToStaticMarkup(createElement(MacroReportContent, { data: current }))
+  const markup = renderToStaticMarkup(createElement(AssessmentContent, { data: current.assessment }))
   expect(markup).toContain('需要改善という反証')
   expect(markup).toContain('持続性は不明')
   expect(markup).toContain('入力確定時刻')
@@ -219,7 +220,7 @@ it('shows the small assessment with its counter evidence and uncertainty', () =>
 it('preserves the old detailed report and the original stored body', () => {
   const archived = report()
   archived.historical_payload = { schema_version: 4, core: [{ summary: '保存された完全本文' }], inputs: { articles: [{ url: 'https://example.com/original' }] } }
-  const markup = renderToStaticMarkup(createElement(MacroReportContent, { data: archived }))
+  const markup = renderToStaticMarkup(createElement(HistoricalReportContent, { data: archived }))
   expect(markup).toContain('regime changed')
   expect(markup).toContain('保存された完全本文')
   expect(markup).toContain('https://example.com/original')

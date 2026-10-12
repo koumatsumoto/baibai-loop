@@ -203,7 +203,7 @@ def test_cli_new_writer_check_publish_and_history(tmp_path, capsys):
     db = tmp_path / "app.sqlite"
     draft = tmp_path / "draft.json"
     draft.write_text(json.dumps(document().payload()))
-    prefix = ["assessment", "--db", str(db)]
+    prefix = ["--db", str(db)]
     assert main([*prefix, "publish", str(draft), "--check"]) == 0
     assert not db.exists()
     assert main([*prefix, "publish", str(draft)]) == 0
