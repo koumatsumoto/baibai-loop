@@ -5,11 +5,16 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 import requests
-from tests.engine.test_retail_dynamics_sources import monex_html, official_html, rakuten_html
+from tests.engine.test_retail_dynamics_sources import (
+    monex_html,
+    official_html,
+    rakuten_html,
+    rakuten_no_estimates_html,
+)
 
 from baibai_engine import batch_api
 from baibai_engine.market.retail_dynamics import collection
-from baibai_engine.market.retail_dynamics.sources import monex
+from baibai_engine.market.retail_dynamics.sources import monex, rakuten
 
 
 class Clock:
@@ -201,15 +206,27 @@ def test_verified_null_and_numeric_results_remain_typed(clock, value):
     assert (result.observations[0].consensus_target is None) is (value == "--")
 
 
-def test_identity_unknown_is_fixed_failure_without_null_observation(clock):
+@pytest.mark.parametrize("ticker", ["1301", "130A", "7203", "6091"])
+def test_identity_unknown_is_fixed_failure_without_null_observation(clock, ticker):
+    completed = []
     client = Session(
-        [(200, official_html()), (200, "<p>この銘柄のアナリスト業績予測情報はありません。</p>")],
+        [(200, official_html(ticker)), (200, rakuten_no_estimates_html())],
         clock=clock,
     )
-    result = pair(client, source="rakuten")
-    assert result.outcomes[0].reason == "no_estimates_identity_unconfirmed"
+    result = pair(client, source="rakuten", ticker=ticker, outcome=completed.append)
+    assert result.outcomes == (
+        collection.CollectionOutcome(
+            "rakuten", ticker, "parse_failure", "no_estimates_identity_unconfirmed", 200
+        ),
+    )
     assert not result.observations
     assert result.stop_reason is None
+    assert result.requests == 2
+    assert completed == [result]
+    assert [call[0] for call in client.calls] == [
+        rakuten.public_url(ticker),
+        rakuten.IFRAME_BASE + rakuten.IFRAME_PARAMETER + ticker + ".T",
+    ]
 
 
 def test_wall_clock_interruption_after_transport_keeps_inflight(clock):
@@ -318,12 +335,13 @@ def test_pair_invalid_limits_or_identity_never_reserve_or_request(clock, kwargs)
     assert not client.calls
 
 
-def test_facade_and_policy_binding_are_deterministic_and_parser_sensitive(monkeypatch):
+@pytest.mark.parametrize("parser", [monex, rakuten])
+def test_facade_and_policy_binding_are_deterministic_and_parser_sensitive(monkeypatch, parser):
     assert batch_api.retail_collect_pair is collection.collect_pair
     assert batch_api.RetailCollectionResult is collection.CollectionResult
     assert batch_api.retail_parse_failure_reasons is collection.PARSE_FAILURE_REASONS
     binding = batch_api.retail_collector_binding()
     assert len(binding) == 64
     assert binding == batch_api.retail_collector_binding()
-    monkeypatch.setattr(monex, "PARSER_VERSION", "synthetic-next-parser")
+    monkeypatch.setattr(parser, "PARSER_VERSION", "synthetic-next-parser")
     assert binding != batch_api.retail_collector_binding()

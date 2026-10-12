@@ -3,11 +3,36 @@
 from datetime import UTC, datetime
 
 import pytest
-from tests.engine.test_retail_dynamics_sources import monex_html, rakuten_html
+from tests.engine.test_retail_dynamics_sources import (
+    monex_html,
+    rakuten_html,
+    rakuten_no_estimates_html,
+)
 
 from baibai_engine.market.retail_dynamics.sources import ParseError, monex, rakuten
 
 RECEIVED = datetime(2026, 9, 30, 15, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    "request_context",
+    [
+        '<meta property="og:url" content="https://www.rakuten-sec.co.jp/web/market/search/forecast.html?ric=7203.T">',
+        '<a href="index.php?action=tp4&amp;sa=report_est&amp;bcode=7203.T">合成リンク</a>',
+        '<script>var bcode = "7203.T";</script>',
+    ],
+)
+def test_no_estimates_shell_with_request_context_cannot_prove_response_identity(request_context):
+    # Unlike a chart constructor or the comparison's own row, a request locator
+    # copied into a generic shell does not demonstrate an observation's ticker.
+    html = rakuten_no_estimates_html().replace("</head>", request_context + "</head>")
+    with pytest.raises(ParseError, match=r"^no_estimates_identity_unconfirmed$"):
+        rakuten.parse_html(
+            html,
+            ticker="7203",
+            source_url=rakuten.IFRAME_BASE + rakuten.IFRAME_PARAMETER + "7203.T",
+            fetched_at_utc=RECEIVED,
+        )
 
 
 def observed_value(source, value):
