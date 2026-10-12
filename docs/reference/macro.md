@@ -63,7 +63,7 @@ uv run baibai-engine macro get jp.policy_rate --latest
 
 `get`は取得済み範囲を確認し、不足があればproviderを呼ぶ。同じ引数でもstore状態・source改定・実行日によって結果は変わる。計算の決定性は保存入力・採用vintage・規則・as-ofが固定された場合の性質である。`get --latest`はJSTの運用日を基準に、[reading rules](../../engine/src/baibai_engine/market_context/reading/rules.py)の公表ラグと猶予でcacheの鮮度を判定する。再取得の窓幅は鮮度閾値とは別で、[indicator service](../../engine/src/baibai_engine/market_context/indicators/service.py)が日次batchと共有する。
 
-`refresh --all-history` は provider ごとの取得可能な先頭日から強制再取得する。派生系列（`derived` provider）は外部ソースを持たず入力系列の重なりが履歴なので、どの base 系列よりも古い床から入力を読み直して全期間を再計算する（base 系列を先に同期してから回す）。月次整列は月内の各入力の最終観測を使う。market data を月末まで使う数式は選択入力の最終観測日を出力日とし、月初への backdate を防ぐ。数式変更で observation grid を置換する系列は provider spec で個別に宣言し、既存 period を欠く候補なら削除前に失敗して履歴を保持する。FRED 系列は現在の `fredgraph.csv` が返す先頭日を再現可能な境界とし、その日より前の観測を残さない。各系列のobservationはregistryの`source_url`と一致するcacheだけを保持する。JP provider の契約期間や公表 archive が先頭日を制限する場合は、実際の取得範囲と制約を運用記録へ残す。
+`refresh --all-history` は provider ごとの取得可能な先頭日から強制再取得する。派生系列（`derived` provider）は外部ソースを持たず入力系列の重なりが履歴なので、どの base 系列よりも古い床から入力を読み直して全期間を再計算する（base 系列を先に同期してから回す）。月次整列は月内の各入力の最終観測を使う。market data を月末まで使う数式は選択入力の最終観測日を出力日とし、月初への backdate を防ぐ。数式変更で observation grid を置換する系列は provider spec で個別に宣言し、既存 period を欠く候補なら削除前に失敗して履歴を保持する。FRED 系列は現在の `fredgraph.csv` が返す先頭日を再現可能な境界とし、その日より前の観測を残さない。HTTP providerの全履歴source訂正では、再取得期間とvintageの条件に該当し、registryの`source_url`と異なる旧sourceの観測をcacheから除く。JP provider の契約期間や公表 archive が先頭日を制限する場合は、実際の取得範囲と制約を運用記録へ残す。
 
 local derivedの式の出典は現行配置の固定commit URLで示す。出典リンクの変更を外部source訂正として扱わず、旧観測の値・vintage・source URLは保持する。新URLの観測はprovenanceが異なるため初回は新vintageとなり、同じURL・同内容の反復では増えない。HTTP providerの全履歴取得で行う外部source訂正の扱いは維持する。
 
