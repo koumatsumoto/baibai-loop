@@ -10,13 +10,10 @@ from tests.helpers.research_triage import published_review_set, research_triage_
 
 from baibai_engine.macro.context.models import MacroContextDocument
 from baibai_engine.macro.context.service import MacroContextService
-from baibai_engine.screening.discovery.review_set import PublishedReviewSet
-from baibai_engine.screening.research_triage import (
-    ResearchTriage,
-    ResearchTriageConflictError,
-    ResearchTriageService,
-)
-from baibai_engine.screening.research_triage_cli import scaffold_research_triage
+from baibai_engine.research.triage.cli import scaffold_research_triage
+from baibai_engine.research.triage.contracts import ResearchTriage
+from baibai_engine.research.triage.service import ResearchTriageConflictError, ResearchTriageService
+from baibai_engine.screening.discovery.contracts import PublishedReviewSet
 
 
 def _review_set(*, as_of: str = "2026-07-19") -> dict[str, object]:
@@ -50,7 +47,7 @@ def test_scaffold_binds_latest_eligible_macro_context(tmp_path: Path, monkeypatc
     context_id = _publish_context(app_db)
     output = tmp_path / "triage.yaml"
     monkeypatch.setattr(
-        "baibai_engine.screening.research_triage_cli.ScreeningRunReader.get_review_set",
+        "baibai_engine.research.triage.cli.ScreeningRunReader.get_review_set",
         lambda *_args: SimpleNamespace(payload=_review_set()),
     )
 
@@ -70,7 +67,7 @@ def test_scaffold_warns_but_keeps_a_stale_context(
     context_id = _publish_context(app_db)
     output = tmp_path / "triage.yaml"
     monkeypatch.setattr(
-        "baibai_engine.screening.research_triage_cli.ScreeningRunReader.get_review_set",
+        "baibai_engine.research.triage.cli.ScreeningRunReader.get_review_set",
         lambda *_args: SimpleNamespace(payload=_review_set(as_of="2026-09-03")),
     )
 

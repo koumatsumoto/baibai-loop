@@ -15,7 +15,6 @@ from baibai_batch.analysis.model_input import build_model_input, review_set_cand
 from baibai_engine.appdb.read import connect_read_only
 from baibai_engine.batch_api import validated_review_set
 from baibai_engine.foundation.repository_layout import APPLICATION_DB_PATH, RUNS_DB_PATH
-from baibai_engine.foundation.research_triage import ResearchTriage
 from baibai_engine.macro.context.models import MacroContextDocument
 from baibai_engine.position.ledger import replay_events_through, require_resolved_expiries
 from baibai_engine.position.ledger_read import load_ledger_document
@@ -25,6 +24,7 @@ from baibai_engine.read_api.research_triage import (
     list_research_triage_payloads,
     research_triage_payload_hash,
 )
+from baibai_engine.research.triage.contracts import ResearchTriage
 from baibai_engine.screening.run_store import RunStoreAmbiguousError, ScreeningRunReader
 from tools.l1_mcp.contract import InputModel
 

@@ -12,9 +12,10 @@ def _choices(parser) -> set[str]:
     return set(subparsers.choices)
 
 
-def test_screening_cli_exposes_review_set_and_research_triage_only() -> None:
+def test_screening_cli_owns_machine_runs_and_review_sets() -> None:
     choices = _choices(build_screening_parser())
-    assert {"run", "review-set", "research-triage"} <= choices
+    assert {"run", "review-set"} <= choices
+    assert "research-triage" not in choices
     assert not ({"select", "selection", "shortlist"} & choices)
 
 
@@ -36,7 +37,12 @@ def test_review_set_capacity_is_not_a_public_cli_override() -> None:
 
 def test_research_cli_exposes_research_set_and_capital_allocation() -> None:
     choices = _choices(build_research_parser())
-    assert {"prepare", "capital-allocation-scaffold", "capital-allocation-publish"} <= choices
+    assert {
+        "triage",
+        "prepare",
+        "capital-allocation-scaffold",
+        "capital-allocation-publish",
+    } <= choices
     assert "assessment-scaffold" not in choices
 
 

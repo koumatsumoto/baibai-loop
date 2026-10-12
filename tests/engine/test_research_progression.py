@@ -11,7 +11,6 @@ from tests.helpers.research_v4 import pair_payload
 
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.appdb.write import connect_rw
-from baibai_engine.foundation.research_triage import ResearchTriage
 from baibai_engine.research.capital_allocation import (
     CapitalAllocationAssessment,
     capital_allocation_draft_sha256,
@@ -34,6 +33,7 @@ from baibai_engine.research.operation.service import (
 from baibai_engine.research.position_review import RemainingReward
 from baibai_engine.research.position_review_service import PositionReviewService
 from baibai_engine.research.thesis_store import ThesisStoreService
+from baibai_engine.research.triage.contracts import ResearchTriage
 from baibai_engine.research.workspace import ResearchWorkspaceConflictError, prepare_workspace
 
 pytest_plugins = ["tests.engine.test_position_review_v3"]
@@ -444,7 +444,7 @@ def test_legacy_holding_manifest_is_readable_but_cannot_mutate_outside_operation
 ):
     import yaml
 
-    from baibai_engine.foundation.research_triage import ResearchTriageEntry
+    from baibai_engine.research.triage.contracts import ResearchTriageEntry
     from baibai_engine.research.workspace import (
         compute_status,
         promote,

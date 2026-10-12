@@ -4,31 +4,23 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from datetime import date, datetime
 from hashlib import sha256
 from math import isfinite
 from statistics import median
-from typing import Literal, NamedTuple, Self
-
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from typing import NamedTuple
 
 from baibai_engine.appdb.json import canonical_json
-from baibai_engine.foundation.candidate_discovery import (
-    CandidateDiscoveryMethodIdentity,
+from baibai_engine.foundation.coerce import metric_map, optional_float, string_or_none
+from baibai_engine.screening.discovery.contracts import (
+    APPROACH_IDS,
     Nomination,
+    PublishedReviewSet,
     ReviewSetAnalysis,
     ReviewSetEntry,
 )
-from baibai_engine.foundation.coerce import metric_map, optional_float, string_or_none
 from baibai_engine.screening.metrics import MIN_SECTOR_MEDIAN_POPULATION
 from baibai_engine.screening.rule_config import CandidateDiscoveryRules
 
-APPROACH_IDS = (
-    "current-earnings-power",
-    "normalized-earnings-power",
-    "asset-value",
-    "reinvestment-value",
-)
 _ASSET_VALUE_EXCLUDED_SECTORS = frozenset(
     {
         "銀行業",
@@ -54,60 +46,6 @@ class _QualityFloors(NamedTuple):
 
 class ReviewSetContractError(ValueError):
     """Raised when a Review Set cannot be reproduced from its source analyses."""
-
-
-class PublishedReviewSet(BaseModel):
-    """Typed L2 publication rebuilt only from a screening run and its rules."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    schema_version: Literal[2]
-    kind: Literal["review_set"]
-    review_set_id: str = Field(min_length=1)
-    run_revision_id: str = Field(min_length=1)
-    as_of: date
-    created_at: datetime
-    screening_rules_hash: str = Field(min_length=1)
-    method: CandidateDiscoveryMethodIdentity
-    entries: tuple[ReviewSetEntry, ...]
-    diagnostics: Mapping[str, object]
-
-    @field_validator("as_of", mode="before")
-    @classmethod
-    def _parse_as_of(cls, value: object) -> object:
-        return date.fromisoformat(value) if isinstance(value, str) else value
-
-    @field_validator("created_at", mode="before")
-    @classmethod
-    def _parse_created_at(cls, value: object) -> object:
-        return datetime.fromisoformat(value) if isinstance(value, str) else value
-
-    @field_validator("entries", mode="before")
-    @classmethod
-    def _tuple_entries(cls, value: object) -> object:
-        return tuple(value) if isinstance(value, list) else value
-
-    @model_validator(mode="after")
-    def _validate_publication(self) -> Self:
-        if self.created_at.tzinfo is None:
-            raise ValueError("created_at must include a timezone")
-        tickers = [entry.ticker for entry in self.entries]
-        if tickers != sorted(tickers) or len(tickers) != len(set(tickers)):
-            raise ValueError("review set entries must be unique and ordered by ticker")
-        if len(self.entries) > len(APPROACH_IDS) * self.method.nomination_depth:
-            raise ValueError("review set exceeds the configured Valuation Approach union bound")
-        ranks_by_approach: dict[str, list[int]] = {approach: [] for approach in APPROACH_IDS}
-        for entry in self.entries:
-            for nomination in entry.nominations:
-                if nomination.valuation_approach_id not in ranks_by_approach:
-                    raise ValueError("review set contains an unknown valuation Approach")
-                ranks_by_approach[nomination.valuation_approach_id].append(nomination.rank)
-        for approach, ranks in ranks_by_approach.items():
-            if sorted(ranks) != list(range(1, len(ranks) + 1)):
-                raise ValueError(f"{approach} nomination ranks must be contiguous from 1")
-            if len(ranks) > self.method.nomination_depth:
-                raise ValueError(f"{approach} exceeds nomination_depth")
-        return self
 
 
 def candidate_discovery_method_hash(
@@ -644,12 +582,7 @@ def _desc_null(value: object) -> tuple[bool, float]:
 
 
 __all__ = [
-    "APPROACH_IDS",
-    "Nomination",
-    "PublishedReviewSet",
-    "ReviewSetAnalysis",
     "ReviewSetContractError",
-    "ReviewSetEntry",
     "build_nomination_ranks",
     "build_review_set",
     "candidate_discovery_method_hash",

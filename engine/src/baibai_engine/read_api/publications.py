@@ -63,13 +63,13 @@ TABLES = {
 
 
 def validate_publication(table: str, row: dict[str, Any]) -> str:
-    from baibai_engine.foundation.research_triage import ResearchTriage
     from baibai_engine.macro.context.models import MacroContextDocument
     from baibai_engine.position.outcome_models import PortfolioOutcomePayload
     from baibai_engine.research.capital_allocation import CapitalAllocationAssessment
     from baibai_engine.research.operation.models import OperationSession
     from baibai_engine.research.position_review import PositionReviewDocument
     from baibai_engine.research.thesis import ThesisDocument, ThesisReview
+    from baibai_engine.research.triage.contracts import ResearchTriage
     from baibai_engine.tasks.models import Task
 
     models: dict[str, type[BaseModel]] = {

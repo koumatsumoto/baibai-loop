@@ -1,4 +1,5 @@
-"""CLI for Fundamental Research authoring: prepare / status / thesis-scaffold /
+"""CLI for Research Triage and Fundamental Research authoring:
+triage / prepare / status / thesis-scaffold /
 review-scaffold / promote / plan-limit / capital-allocation-scaffold / capital-allocation-publish.
 
 This is also the `baibai-engine research` help surface, so the read-only `evaluate`
@@ -63,6 +64,14 @@ def _emit(payload: object, out: TextIO) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-engine research")
     subparsers = parser.add_subparsers(dest="command", required=True)
+    from .triage.cli import build_parser as build_triage_parser
+
+    subparsers.add_parser(
+        "triage",
+        help="scaffold or publish a Research Triage",
+        parents=[build_triage_parser()],
+        add_help=False,
+    )
 
     prepare_parser = subparsers.add_parser(
         "prepare", help="build a research workspace from a self-contained ResearchTriage"
@@ -210,6 +219,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     arguments = sys.argv[1:] if argv is None else list(argv)
+    if arguments and arguments[0] == "triage":
+        from .triage.cli import main as triage_main
+
+        return triage_main(arguments[1:])
     if arguments and arguments[0] == "evaluate":
         # Returned unwrapped: evaluation reports "not decision-ready" as exit 2,
         # which is not this CLI's usage/data/conflict code set.

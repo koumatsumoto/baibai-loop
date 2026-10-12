@@ -4,8 +4,8 @@ from copy import deepcopy
 
 import pytest
 
-from baibai_engine.foundation.candidate_discovery import Nomination
 from baibai_engine.screening.discovery import review_set as review_set_module
+from baibai_engine.screening.discovery.contracts import APPROACH_IDS, Nomination
 from baibai_engine.screening.discovery.review_set import (
     ReviewSetContractError,
     build_nomination_ranks,
@@ -97,7 +97,7 @@ def test_nomination_union_can_reach_four_disjoint_top20_sets(monkeypatch) -> Non
                 rank=rank,
             ),
         )
-        for approach_index, approach in enumerate(review_set_module.APPROACH_IDS)
+        for approach_index, approach in enumerate(APPROACH_IDS)
         for rank in range(1, 21)
     }
     monkeypatch.setattr(review_set_module, "_nomination_ranks", lambda *args, **kwargs: nominations)
@@ -107,9 +107,7 @@ def test_nomination_union_can_reach_four_disjoint_top20_sets(monkeypatch) -> Non
     entries = payload["entries"]
     assert len(entries) == 80
     assert {entry["ticker"] for entry in entries} == set(nominations)
-    assert payload["diagnostics"]["nomination_counts"] == dict.fromkeys(
-        review_set_module.APPROACH_IDS, 20
-    )
+    assert payload["diagnostics"]["nomination_counts"] == dict.fromkeys(APPROACH_IDS, 20)
 
 
 def test_expected_return_and_context_do_not_change_membership_or_order() -> None:
@@ -469,7 +467,7 @@ def test_review_set_shape_rejects_invalid_nomination_union(mutation: str) -> Non
 
 
 def test_review_set_projects_same_snapshot_quality_without_changing_nominations(subtests):
-    from baibai_engine.foundation.candidate_discovery import ReviewSetAnalysis
+    from baibai_engine.screening.discovery.contracts import ReviewSetAnalysis
 
     cases = [
         ("5946", "approximated", "unavailable", 47.1, None),

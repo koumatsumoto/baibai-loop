@@ -26,11 +26,12 @@ from tools.owner_mcp.server import call, create_server
 
 from baibai_batch.analysis.model_input import build_model_input
 from baibai_engine.appdb.write import initialize_database
-from baibai_engine.foundation.research_triage import ResearchTriage
 from baibai_engine.macro.context.models import MacroContextDocument
 from baibai_engine.macro.context.service import MacroContextService
-from baibai_engine.screening.discovery.review_set import PublishedReviewSet
-from baibai_engine.screening.research_triage import ResearchTriageService, latest_research_triage_id
+from baibai_engine.research.triage.contracts import ResearchTriage
+from baibai_engine.research.triage.query import latest_research_triage_id
+from baibai_engine.research.triage.service import ResearchTriageService
+from baibai_engine.screening.discovery.contracts import PublishedReviewSet
 from baibai_engine.screening.run_store.schema import RUN_STORE_SCHEMA_VERSION, SCHEMA_SQL
 
 

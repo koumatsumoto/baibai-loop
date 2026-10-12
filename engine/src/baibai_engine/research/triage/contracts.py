@@ -7,7 +7,11 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
-from .candidate_discovery import CandidateDiscoveryMethodIdentity, Nomination, ReviewSetAnalysis
+from baibai_engine.screening.discovery.contracts import (
+    CandidateDiscoveryMethodIdentity,
+    Nomination,
+    ReviewSetAnalysis,
+)
 
 RESEARCH_TRIAGE_SCHEMA_VERSION = 3
 RESEARCH_TRIAGE_CONTRACT_ID = "research-triage-v3"

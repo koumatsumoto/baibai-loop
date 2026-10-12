@@ -100,9 +100,9 @@ Owner MCPは所有者が保存済み情報を読むlocal adapterであり、stor
 | `engine/src/baibai_engine/macro` | 経済系列の取得・保存、既存Reading計算kernel、Macro Contextの型・発行・scorecard |
 | `engine/src/baibai_engine/external_assessment` | 外部モデル価格・rating・Quants score・TradingView予測の保存済み読取、出所別比較と原評価元の関係 |
 | `engine/src/baibai_engine/market_context` | 市場snapshot、benchmark方向、業種平均対市場平均、個別対市場/同業、cutoff付きL1読取、保存済みReading/Context読取 |
-| `engine/src/baibai_engine/screening` | 必要入力のpreflight、Security Analysis、Candidate Discovery、Triage、calibration |
+| `engine/src/baibai_engine/screening` | 必要入力のpreflight、Security Analysis、Candidate Discovery、calibration |
 | `engine/src/baibai_engine/valuation` | 小さな入力からのER/FV機械推計、評価前提型、Projection、条件付き収益の純粋算術、保存済み推計の投影 |
-| `engine/src/baibai_engine/research` | 統合Thesis、調査進行、独立Review・発行・store、CAA、Planning、Position Review |
+| `engine/src/baibai_engine/research` | Triage、統合Thesis、調査進行、独立Review・発行・store、CAA、Planning、Position Review |
 | `engine/src/baibai_engine/position` | 確認済み取引事実、ledger replay、保有と資本の評価、outcome |
 | `engine/src/baibai_engine/research/operation` | Research SetとCAAに束縛したOperation Session |
 | `engine/src/baibai_engine/tasks` | 運用task |
@@ -125,7 +125,7 @@ Market ContextはL1 reader、macroの型・既存Reading計算と自領域の算
 
 External Assessmentの読取は保存済み入力だけを使い、取得・書込・AI起動をしない。CLIの明示`collect / import`だけが既存L1取得・保存入口へ委譲する。L1取得後の検証はexact receipt keyの読戻しであり、分析の最新・直前selectorへ逆依存しない。型・比較・欠測の意味は[data sources](./reference/data-sources.md#external-assessment)、保存と読取の契約は[market lake](./reference/market-lake.md#retail-dynamics-query)が所有する。
 
-Researchは三領域の小さな読取とrun-storeの保存済み解析を調査入力へ合成する。UIのticker profileを領域入力として使わない。`research/operation/progress`が対象・被覆とCAA scope、既存PositionReview serviceが保有draftの検証を所有する。Operationのpayload/manifestを使い、予算DB・汎用承認基盤・新状態機械は作らない。現在のTriage型/serviceは`foundation/research_triage`・`screening/research_triage`配置に残る。Researchへの移動、storage構造整理、Valuation/Market Contextの残配置統合は別の未完了作業であり、将来配置を現行として記載しない。
+Researchは三領域の小さな読取とrun-storeの保存済み解析を調査入力へ合成する。UIのticker profileを領域入力として使わない。`research/operation/progress`が対象・被覆とCAA scope、既存PositionReview serviceが保有draftの検証を所有する。Operationのpayload/manifestを使い、予算DB・汎用承認基盤・新状態機械は作らない。Triageの型・保存済みquery/hash/head・service・CLIは`research/triage`が所有し、Research内部はUIの`read_api`へ戻らない。Candidate/PublishedReviewSetの純粋契約は`screening/discovery/contracts`が所有し、生成・選抜をimportしない。storage構造整理、ER/benchmark意味契約とValuation/Market Contextの残配置統合は別の未完了作業であり、将来配置を現行として記載しない。
 
 変更箇所は次の順に辿る。
 

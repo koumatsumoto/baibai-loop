@@ -351,7 +351,13 @@ forbidden_modules = [
 ]
 
 allow_indirect_imports = true
-ignore_imports = ["baibai_engine.research.inputs -> baibai_engine.screening.run_store"]
+ignore_imports = [
+  "baibai_engine.research.inputs -> baibai_engine.screening.run_store",
+  "baibai_engine.research.triage.contracts -> baibai_engine.screening.discovery.contracts",
+  "baibai_engine.research.triage.service -> baibai_engine.screening.discovery.contracts",
+  "baibai_engine.research.triage.cli -> baibai_engine.screening.discovery.contracts",
+  "baibai_engine.research.triage.cli -> baibai_engine.screening.run_store",
+]
 
 [[tool.importlinter.contracts]]
 name = "web is never imported by the engine"
@@ -438,6 +444,8 @@ forbidden_modules = [
   "baibai_engine.position.cli",
   "baibai_engine.research.thesis_evaluation_cli",
   "baibai_engine.research.workspace_cli",
+  "baibai_engine.research.triage.service",
+  "baibai_engine.research.triage.cli",
   "baibai_engine.screening.cli",
 ]
 
@@ -533,3 +541,37 @@ forbidden_modules = [
 ]
 # Only the explicitly invoked public CLI composes existing L1 acquisition commands.
 ignore_imports = ["baibai_engine.external_assessment.cli -> baibai_engine.market.retail_dynamics.cli"]
+
+
+[[tool.importlinter.contracts]]
+name = "candidate and triage contracts do not load calculation, storage, or writers"
+type = "forbidden"
+source_modules = ["baibai_engine.screening.discovery.contracts", "baibai_engine.research.triage.contracts"]
+forbidden_modules = [
+  "baibai_engine.appdb", "baibai_engine.market", "baibai_engine.macro",
+  "baibai_engine.valuation", "baibai_engine.market_context", "baibai_engine.external_assessment",
+  "baibai_engine.position", "baibai_engine.tasks", "baibai_engine.read_api", "baibai_engine.batch_api",
+  "baibai_engine.screening.discovery.review_set", "baibai_engine.screening.metrics",
+  "baibai_engine.screening.rule_config", "baibai_engine.screening.run_store", "baibai_engine.screening.cli",
+  "baibai_engine.research.triage.query", "baibai_engine.research.triage.service", "baibai_engine.research.triage.cli",
+  "baibai_engine.research.workspace", "baibai_engine.research.operation", "baibai_engine.research.thesis_store",
+]
+
+[[tool.importlinter.contracts]]
+name = "triage reads and admission use their owner without UI facade or writer imports"
+type = "forbidden"
+source_modules = ["baibai_engine.research.triage.query", "baibai_engine.research.workspace.admission"]
+forbidden_modules = [
+  "baibai_engine.read_api", "baibai_engine.research.triage.service", "baibai_engine.research.triage.cli",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "triage query stays read-only"
+type = "forbidden"
+source_modules = ["baibai_engine.research.triage.query"]
+forbidden_modules = [
+  "baibai_engine.appdb.write", "baibai_engine.research.workspace", "baibai_engine.research.operation",
+  "baibai_engine.screening.cli", "baibai_engine.market", "baibai_engine.macro",
+  "baibai_engine.research.triage.service", "baibai_engine.research.triage.cli", "baibai_engine.read_api",
+]

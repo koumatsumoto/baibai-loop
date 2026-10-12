@@ -24,7 +24,7 @@ status: active
 | --- | --- |
 | 見積りの較正とmethodの採否 | [estimate-calibration](./estimate-calibration.md) |
 | 機械ER/FV、保存済み照会、valuation指標と入力basis | [valuation-metrics](./valuation-metrics.md) |
-| Candidate Discovery・Review Set・Triage | [screening-runtime](./screening-runtime.md) |
+| Candidate Discovery・Review Set | [screening-runtime](./screening-runtime.md) |
 | Market Context、市場/個別相対、Macro観測・Reading・Context | [macro](./macro.md) |
 | 外部参考評価・原評価元・尺度・欠測 | [data-sources](./data-sources.md#external-assessment)・[保存済み照会](./market-lake.md#retail-dynamics-query) |
 | 情報源の選択と取得失敗 | [data-sources](./data-sources.md) |
@@ -35,7 +35,7 @@ status: active
 
 | 調べたいこと | 正本 |
 | --- | --- |
-| Triage runnerの入力・終了状態・保存 | [analysis-operations](./analysis-operations.md) |
+| Research Triageの契約・発行・進行・runner | [analysis-operations](./analysis-operations.md) |
 | 外部ChatのMacro draft受渡し | [macro-handoff](./macro-handoff.md) |
 | PC・Actions・クラウドの分担、環境準備と品質gate | [python-foundation](./python-foundation.md) |
 

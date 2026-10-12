@@ -67,7 +67,7 @@ _UNREFERENCED_ARTIFACTS = (
     "market/edinet_facts/extract.py",
     "market/providers/edinet_facts.py",
     "screening/cli/common.py",
-    "screening/research_triage.py",
+    "research/triage/service.py",
     "screening/earnings_lag.py",
     "screening/cli/app.py",
     "screening/cli/cache.py",
@@ -222,7 +222,7 @@ def test_unrelated_source_bytes_do_not_change_revision(
 
 def test_extractor_revision_rejects_a_source_outside_the_manifest() -> None:
     artifacts = _artifacts()
-    artifacts["screening/research_triage.py"] = b"source:screening/research_triage.py"
+    artifacts["research/triage/service.py"] = b"source:research/triage/service.py"
     with pytest.raises(ValueError, match="manifest mismatch"):
         compute_extractor_revision(artifacts)
 

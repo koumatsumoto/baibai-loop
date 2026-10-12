@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import sqlite3
 import sys
 from datetime import date
@@ -17,15 +18,12 @@ from baibai_engine.market_context.macro import (
     MACRO_CONTEXT_STALE_DAYS,
     latest_macro_context_payload,
 )
-from baibai_engine.screening.discovery.review_set import PublishedReviewSet
+from baibai_engine.screening.discovery.contracts import PublishedReviewSet
 from baibai_engine.screening.run_store import ScreeningRunReader
 
-from .research_triage import (
-    ResearchTriage,
-    ResearchTriageConflictError,
-    ResearchTriageService,
-    latest_research_triage_id,
-)
+from .contracts import ResearchTriage
+from .query import latest_research_triage_id
+from .service import ResearchTriageConflictError, ResearchTriageService
 
 
 def publish_research_triage(
@@ -135,3 +133,47 @@ def scaffold_research_triage(
 
 
 __all__ = ["publish_research_triage", "scaffold_research_triage"]
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="baibai-engine research triage")
+    triage_commands = parser.add_subparsers(dest="research_triage_command", required=True)
+    triage_publish = triage_commands.add_parser(
+        "publish",
+        help="publish a ResearchTriage draft bound to an immutable Review Set",
+    )
+    triage_publish.add_argument("draft")
+    triage_publish.add_argument("--db", help="application DB path")
+    triage_publish.add_argument("--runs-db", help="screening run store path")
+    triage_scaffold = triage_commands.add_parser(
+        "scaffold",
+        help="create a fail-closed draft with Review Set machine coordinates",
+    )
+    triage_scaffold.add_argument("--review-set-id", required=True)
+    triage_scaffold.add_argument("--runs-db", help="screening run store path")
+    triage_scaffold.add_argument("--output-path", required=True)
+    triage_scaffold.add_argument("--db", help="application DB path")
+    triage_scaffold.add_argument(
+        "--force",
+        action="store_true",
+        help="overwrite an existing --output-path file",
+    )
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    if args.research_triage_command == "scaffold":
+        return scaffold_research_triage(
+            args.review_set_id,
+            output_path=Path(args.output_path),
+            app_db_path=Path(args.db) if args.db else None,
+            runs_db_path=Path(args.runs_db) if args.runs_db else None,
+            force=args.force,
+        )
+    return publish_research_triage(
+        Path(args.draft),
+        app_db_path=Path(args.db) if args.db else None,
+        runs_db_path=Path(args.runs_db) if args.runs_db else None,
+    )

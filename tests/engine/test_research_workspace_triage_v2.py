@@ -19,6 +19,8 @@ from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research import workspace as workspace_module
 from baibai_engine.research.operation.models import OperationPayload
 from baibai_engine.research.operation.service import OperationService
+from baibai_engine.research.triage.contracts import ResearchTriage
+from baibai_engine.research.triage.service import ResearchTriageService
 from baibai_engine.research.workspace import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceDataError,
@@ -28,11 +30,7 @@ from baibai_engine.research.workspace import (
 from baibai_engine.research.workspace import prepare as workspace_prepare
 from baibai_engine.research.workspace import validation as workspace_validation
 from baibai_engine.research.workspace_cli import main as research_main
-from baibai_engine.screening.discovery.review_set import PublishedReviewSet
-from baibai_engine.screening.research_triage import (
-    ResearchTriage,
-    ResearchTriageService,
-)
+from baibai_engine.screening.discovery.contracts import PublishedReviewSet
 
 CASE_NOW = datetime.fromisoformat("2026-07-19T18:00:00+09:00")
 

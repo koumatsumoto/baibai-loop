@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
-from ..discovery.review_set import APPROACH_IDS
+from ..discovery.contracts import APPROACH_IDS
 from .horizons import HORIZONS
 
 RunPurpose = str

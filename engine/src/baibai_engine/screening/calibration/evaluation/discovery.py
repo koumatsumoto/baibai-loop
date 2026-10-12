@@ -10,7 +10,7 @@ from baibai_engine.screening.calibration.evaluation.policy import COMPARISON_TOP
 from baibai_engine.screening.calibration.evaluation.statistics import _group_stats
 from baibai_engine.screening.calibration.horizons import require_horizon
 from baibai_engine.screening.calibration.panel import PanelRow
-from baibai_engine.screening.discovery.review_set import APPROACH_IDS
+from baibai_engine.screening.discovery.contracts import APPROACH_IDS
 from baibai_engine.screening.rule_config import CandidateDiscoveryRules
 
 
