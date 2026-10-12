@@ -316,7 +316,7 @@ def test_weekend_research_uses_fixed_known_at_and_preserves_external_cutoff(
     for name, hour in (("available", 12), ("future", 19)):
         body = MarketContextAssessment.model_validate(
             {
-                "context_id": f"macro-context-2026-07-17-{name}",
+                "context_id": f"market-context-assessment-2026-07-17-{name}",
                 "as_of": friday.isoformat(),
                 "known_at": "2026-07-19T11:00:00+09:00",
                 "published_at": f"2026-07-19T{hour}:00:00+09:00",
@@ -341,7 +341,7 @@ def test_weekend_research_uses_fixed_known_at_and_preserves_external_cutoff(
         "started_at": now,
         "sqlite_path": tmp_path / "absent-market.sqlite",
         "runs_path": tmp_path / "absent-runs.sqlite",
-        "macro_path": tmp_path / "absent-macro.sqlite",
+        "indicators_path": tmp_path / "absent-indicators.sqlite",
     }
     if purpose == "new":
         prepare_workspace(
@@ -354,8 +354,8 @@ def test_weekend_research_uses_fixed_known_at_and_preserves_external_cutoff(
     cutoff = datetime.combine(friday, time.max, now.tzinfo)
     assert result["received_cutoff"] == cutoff.isoformat()
     assert external_times == [(cutoff, cutoff)]
-    context = result["market_context"]["saved_macro_context"]
-    assert context["context_id"] == "macro-context-2026-07-17-available"
+    context = result["market_context"]["saved_market_context_assessment"]
+    assert context["context_id"] == "market-context-assessment-2026-07-17-available"
     assert context["summary"] == "available"
 
 
@@ -945,3 +945,40 @@ def test_risk_only_case_completes_review_promotion_and_no_allocation(tmp_path):
         compute_status(workspace, db_path=db, now=refresh_at)["cases"][0]["status"]
         == "ready_for_review"
     )
+
+
+def test_saved_v3_triage_workspace_resumes_with_original_payload_hash(tmp_path):
+    import sqlite3
+    from hashlib import sha256
+
+    from baibai_engine.storage.application.json import canonical_json
+
+    db, workspace = tmp_path / "app.sqlite", tmp_path / "workspace"
+    triage = _publish_triage(db)
+    old = triage.model_dump(mode="json")
+    old["schema_version"] = 3
+    old["triage_contract_id"] = "research-triage-v3"
+    old["macro_context_id"] = old.pop("market_context_assessment_id")
+    raw = canonical_json(old)
+    with sqlite3.connect(db) as con:
+        con.execute("UPDATE research_triage SET payload=?", (raw,))
+    args = dict(
+        started_at=CASE_NOW,
+        request="resume saved v3 admission",
+        research_triage_id=triage.research_triage_id,
+        db_path=db,
+        workspace=workspace,
+        research_set=("2331",),
+    )
+    prepare_workspace(**args)
+    manifest = yaml.safe_load((workspace / "manifest.yaml").read_text())
+    assert (
+        manifest["inputs"]["research_triage"]["payload_sha256"] == sha256(raw.encode()).hexdigest()
+    )
+    before = {p.relative_to(workspace): p.read_bytes() for p in workspace.rglob("*") if p.is_file()}
+    status = compute_status(workspace, db_path=db, now=CASE_NOW)
+    assert status["research_triage"]["research_triage_id"] == triage.research_triage_id
+    after = {p.relative_to(workspace): p.read_bytes() for p in workspace.rglob("*") if p.is_file()}
+    assert after == before
+    with sqlite3.connect(db) as con:
+        assert con.execute("SELECT payload FROM research_triage").fetchone()[0] == raw

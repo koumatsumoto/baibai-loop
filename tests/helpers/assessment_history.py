@@ -344,7 +344,7 @@ def seed_history(path, payload: dict[str, Any], *, supersedes: str | None = None
     connection = connect_rw(path)
     try:
         connection.execute(
-            "INSERT INTO macro_context(context_id,schema_version,as_of,published_at,supersedes_id,payload) VALUES(?,?,?,?,?,?)",
+            "INSERT INTO market_context_assessment(context_id,schema_version,as_of,published_at,supersedes_id,payload) VALUES(?,?,?,?,?,?)",
             (
                 payload["context_id"],
                 payload["schema_version"],
@@ -355,7 +355,7 @@ def seed_history(path, payload: dict[str, Any], *, supersedes: str | None = None
             ),
         )
         connection.execute(
-            "INSERT INTO macro_context_head(singleton,context_id) VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET context_id=excluded.context_id",
+            "INSERT INTO market_context_assessment_head(singleton,context_id) VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET context_id=excluded.context_id",
             (payload["context_id"],),
         )
         connection.commit()

@@ -8,12 +8,13 @@ import sqlite3
 import sys
 from datetime import date
 from pathlib import Path
+from typing import cast
 
 from baibai_engine.market_context.indicators import db as indicators_db
 from baibai_engine.market_context.indicators.db import DEFAULT_DB_PATH, IndicatorsSchemaError
-from baibai_engine.market_context.reading.query import read_store_snapshot
+from baibai_engine.market_context.reading.query import read_store_snapshot, store_snapshot_payload
 
-from .models import ReadingSnapshot, SeriesReading, snapshot_payload
+from .models import ReadingSnapshot, SeriesReading
 from .rules import DEFAULT_RULES_PATH, ReadingRulesError
 
 
@@ -43,9 +44,11 @@ def main(argv: list[str] | None = None) -> int:
     except (sqlite3.Error, OSError) as exc:
         print(f"error: unable to read indicators db: {args.db}: {exc}", file=sys.stderr)
         return 1
+    payload = store_snapshot_payload(snapshot)
     if args.format == "json":
-        print(json.dumps(snapshot_payload(snapshot), ensure_ascii=False))
+        print(json.dumps(payload, ensure_ascii=False))
     else:
+        print(cast(dict[str, object], payload["read_semantics"])["limitation"])
         _print_table(snapshot)
     return 0
 

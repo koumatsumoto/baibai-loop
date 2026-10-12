@@ -141,7 +141,7 @@ it.each([45, 46])('keeps the v5 date, age, stale badge and detail link at %s day
   const html = renderToStaticMarkup(createElement(MemoryRouter, {}, latest))
   expect(html).toContain('2026-07-17')
   expect(html).toContain(`${age} 日前`)
-  expect(html).toContain(`href="/macro/reports/${contextId}"`)
+  expect(html).toContain(`href="/market-context/assessments/${contextId}"`)
   expect(html).toContain('保存済みの市場環境判断')
   expect(html.includes('>stale<')).toBe(age > 45)
 })

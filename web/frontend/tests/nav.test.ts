@@ -8,18 +8,18 @@ function activeLabels(pathname: string): string[] {
 
 describe('NAV_TABS active matching', () => {
   it('activates exactly one tab per route', () => {
-    for (const pathname of ['/', '/macro', '/macro/reports/x', '/stocks', '/research-triage', '/stocks/capital-allocation-assessments/x', '/securities/2331', '/tasks']) {
+    for (const pathname of ['/', '/market-context', '/market-context/assessments/x', '/stocks', '/research-triage', '/stocks/capital-allocation-assessments/x', '/securities/2331', '/tasks']) {
       expect(activeLabels(pathname)).toHaveLength(1)
     }
   })
 
   it('keeps Dashboard exact so it does not match sub-routes', () => {
     expect(activeLabels('/')).toEqual(['Dashboard'])
-    expect(activeLabels('/macro')).toEqual(['Macro'])
+    expect(activeLabels('/market-context')).toEqual(['Market Context'])
   })
 
-  it('keeps Macro active on the report detail route', () => {
-    expect(activeLabels('/macro/reports/macro-context-2026-07-01')).toEqual(['Macro'])
+  it('keeps Market Context active on the report detail route', () => {
+    expect(activeLabels('/market-context/assessments/macro-context-2026-07-01')).toEqual(['Market Context'])
   })
 
   it('keeps Stocks active on triage, allocation assessment and security detail routes', () => {

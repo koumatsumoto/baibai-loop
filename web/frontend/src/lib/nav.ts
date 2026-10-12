@@ -16,9 +16,9 @@ export interface NavTab {
 export const NAV_TABS: readonly NavTab[] = [
   { to: '/', label: 'Dashboard', match: (pathname) => pathname === '/' },
   {
-    to: '/macro',
-    label: 'Macro',
-    match: (pathname) => pathname === '/macro' || pathname.startsWith('/macro/'),
+    to: '/market-context',
+    label: 'Market Context',
+    match: (pathname) => pathname === '/market-context' || pathname.startsWith('/market-context/'),
   },
   {
     to: '/stocks',

@@ -92,7 +92,7 @@ def _publish_research_triage(db_path: Path) -> str:
             review_set_id="review-set-cli-seam",
             run_revision_id="runrev-cli-seam",
             as_of="2026-07-21",
-            macro_context_id=context_id,
+            market_context_assessment_id=context_id,
             entries=[
                 research_entry(
                     "0001",

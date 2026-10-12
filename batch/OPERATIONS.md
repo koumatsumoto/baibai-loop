@@ -62,7 +62,7 @@ gh run watch <RUN_ID> --exit-status --compact --interval 60
 | `baibai-stores` | `market.sqlite`（store-local data + `lake_store_origin` metadata） | `cloud-daily-batch` + ローカル`push-market`（cloud copyのmerge後だけupload） |
 | `baibai-stores` | `lake/`（lake所有datasetのcanonical L1） | `cloud-daily-batch`と`cloud-tradingview-snapshot`の`publish-lake` + ローカル`r2_transfer.sh publish-lake` |
 | `baibai-stores` | `runs.sqlite` | `cloud-daily-batch` + 明示的なローカルdailyの`push-machine` |
-| `baibai-stores` | `macro.sqlite` | `cloud-daily-batch`（rolling窓）+ ローカル`push-macro`（全履歴。cloud copyのmerge後だけupload） |
+| `baibai-stores` | `indicators.sqlite` | `cloud-daily-batch`（rolling窓）+ ローカル`push-indicators`（全履歴。cloud copyのmerge後だけupload） |
 | `baibai-stores` | `baibai.sqlite` | 取得世代への条件付き更新（実行環境の分担は前節） |
 | `baibai-serving` | `views/*.json` | GitHub Actions materialize |
 | `baibai-serving` | `history/candidate-views/<asof>.json` | 日次batch、R2 lifecycleで31日後に削除 |
@@ -103,7 +103,7 @@ machine stores / serving uploadを停止する。
 gh run list --workflow cloud-daily-batch.yml --limit 5
 ```
 
-TradingViewはL1だけを独立更新するため、完了済みreleaseをcurrent machine bundleへhydrateしてよい。`cloud-materialize`はmachine store / L1を書き換えないので待機条件にしない。ローカルの`publish-lake` / `push-machine` / `push-market` / `push-macro`とも意図的に重ねず、発行終了後にfreshにpullする。
+TradingViewはL1だけを独立更新するため、完了済みreleaseをcurrent machine bundleへhydrateしてよい。`cloud-materialize`はmachine store / L1を書き換えないので待機条件にしない。ローカルの`publish-lake` / `push-machine` / `push-market` / `push-indicators`とも意図的に重ねず、発行終了後にfreshにpullする。
 
 **実行**:
 
@@ -140,7 +140,7 @@ uv run baibai-engine screening ticker-profile --ticker TICKER
 
 EDINETの抽出意味revisionを更新する場合は、[再抽出・反映手順](#edinet-metrics-revision)に従う。それ以外は変更codeをmainへ反映し、対象storeと変更内容を確認する。marketはlake所有tableを編集する前に現行releaseへhydrateする。変更後の再hydrateはlocal変更を上書きするため行わない。
 
-GitHubの`cloud-publish` queueはGitHub内の順序だけを守る。GitHubとローカルの共通発行にはR2の`coordination/publication-lease.json`を使う。TTLは固定120分。`publish-lake` / `push-machine` / `push-market` / `push-macro`をローカルから行う際は、長い取得・準備を済ませてから、production read / merge / publishを次の同一lease内で実行する。`r2_transfer.sh`の低レベルcommandはleaseを暗黙取得しない。`push-app`、`publish.sh`、初回`seed-all`は対象外。
+GitHubの`cloud-publish` queueはGitHub内の順序だけを守る。GitHubとローカルの共通発行にはR2の`coordination/publication-lease.json`を使う。TTLは固定120分。`publish-lake` / `push-machine` / `push-market` / `push-indicators`をローカルから行う際は、長い取得・準備を済ませてから、production read / merge / publishを次の同一lease内で実行する。`r2_transfer.sh`の低レベルcommandはleaseを暗黙取得しない。`push-app`、`publish.sh`、初回`seed-all`は対象外。
 
 ```bash
 with_publication_lease() (
@@ -170,7 +170,7 @@ with_publication_lease batch/scripts/r2_transfer.sh push-market
 macroだけの変更:
 
 ```bash
-with_publication_lease batch/scripts/r2_transfer.sh push-macro
+with_publication_lease batch/scripts/r2_transfer.sh push-indicators
 ```
 
 直前に`pull.sh`した3 storeでlocal daily全体を実行した場合は、上の単独pushではなく同じbundleを反映する。
@@ -352,7 +352,7 @@ vintage・retraction・generation・no-lossの意味は[Macro reference](../docs
 1. writerが競合しない時間に、現行mainで`uv run baibai-batch validate-market-context-stores`を実行する。
 2. `engine/src/baibai_engine/market_context/indicators/registry/`の定義を変更し、`definitions.py`の`_REGISTRY_MEMBERSHIP_GENERATIONS`へ変更後の集合に対応する、現在より大きいgenerationを設定する。過去と同じ集合へ戻る場合はdigestも同じなので、その既存keyの値を更新する。重複keyの追記や旧generation再利用はしない。
 3. 変更codeをmainへ反映し、同じcodeのlocalで現行系列を1件以上指定して明示的な`market-context indicators refresh`を実行する。退役IDだけの指定ではpruneへ進めない。全履歴再計算が必要ならbase→derivedの順に実行する。
-4. validator・Reading・意図した退役結果を確認後、`push-macro`を実行する。件数表示はcommit後の補助出力であり、ログの組合せをcommit条件にしない。発行済みContextの退役系列warningは確認するが本文を書き換えない。
+4. validator・Reading・意図した退役結果を確認後、`push-indicators`を実行する。件数表示はcommit後の補助出力であり、ログの組合せをcommit条件にしない。発行済みContextの退役系列warningは確認するが本文を書き換えない。
 
 **公開済みoptionsの集計式を変える場合**: `jp.n225_iv_30d`・`jp.n225_iv_skew`・`jp.n225_iv_term`は2段に分ける。まず3系列を退役し、generationを進めて上の手順でcloudへ反映する。そのpush成功後に新式と3系列を戻し、元digestの既存generation値を退役段階よりさらに大きい値へ更新する。再びcodeをmainへ反映してから必要範囲の全履歴を取得し、新式で値が出ない日に旧式の観測が残らないことを確認してpushする。長い取得窓はproviderの契約に従って分割する。日次batch待ち・localだけの削除・2段の一括化はしない。
 
@@ -380,7 +380,7 @@ vintage・retraction・generation・no-lossの意味は[Macro reference](../docs
 
 ### merge が検査するもの
 
-`push-market` / `push-macro`はcloud-only dataや新しいgenerationを失う可能性があれば停止する。cloudとlocalのどちらかを推測で正本にして上書きしない。CAS / generation conflictでは同じ世代をblind retryせず、最新cloud stateからやり直す。local変更後にhydrateして成果を上書きしない。machine bundle途中pushは[部分 push からの復旧](#部分-push-からの復旧)へ進む。内部契約は`baibai_batch.storage.merge_market_store` / `baibai_batch.storage.merge_indicator_store`と対応testsを正本とする。
+`push-market` / `push-indicators`はcloud-only dataや新しいgenerationを失う可能性があれば停止する。cloudとlocalのどちらかを推測で正本にして上書きしない。CAS / generation conflictでは同じ世代をblind retryせず、最新cloud stateからやり直す。local変更後にhydrateして成果を上書きしない。machine bundle途中pushは[部分 push からの復旧](#部分-push-からの復旧)へ進む。内部契約は`baibai_batch.storage.merge_market_store` / `baibai_batch.storage.merge_indicator_store`と対応testsを正本とする。
 
 ### 手動で lake を publish する
 
@@ -448,10 +448,10 @@ cross-sectionをscreeningへ渡さない）。
 のno-loss条件を満たす。`push-market`には、現行releaseからhydrateした後に変更したstoreを使う。変更後に
 hydrateして成果を上書きしない。
 
-**実行と成功確認**: `push-market`または`push-macro`を実行する。mergeとCAS pushの成功後、3 keyのHEADから
+**実行と成功確認**: `push-market`または`push-indicators`を実行する。mergeとCAS pushの成功後、3 keyのHEADから
 receiptが現在世代へ書き直される。次の`pull-machine`でreceipt一致を確認する。
 
-**停止条件**: `push-market` / `push-macro`はruns storeを変更しない。local dailyのruns成果を反映する場合だけ、
+**停止条件**: `push-market` / `push-indicators`はruns storeを変更しない。local dailyのruns成果を反映する場合だけ、
 直前のbundle pullからremote generationが変わっていないことを`push-machine`に検査させ、個別uploadは行わない。
 
 ### 日次 workflow を手動実行する
@@ -507,7 +507,7 @@ Workerの再deployは不要である。
 ## R2 transferの安全境界
 
 - upload前にPython `sqlite3.backup`でsnapshotを作り、WAL未checkpoint行を含めて`quick_check`する。
-- 複数storeのpushは全snapshotの作成・検査を終えてからuploadを始める。3 store一括の`push-machine`はGitHub Actionsと明示的なlocal dailyで使い、pull時の全ETag一致と各PUTの`If-Match`を必須にする。`macro.sqlite` / `market.sqlite`を単独でローカルから進める場合は`push-macro` / `push-market`でcloud copyをmergeし、cloud側の行の取り残しを検出したら停止する。
+- 複数storeのpushは全snapshotの作成・検査を終えてからuploadを始める。3 store一括の`push-machine`はGitHub Actionsと明示的なlocal dailyで使い、pull時の全ETag一致と各PUTの`If-Match`を必須にする。`indicators.sqlite` / `market.sqlite`を単独でローカルから進める場合は`push-indicators` / `push-market`でcloud copyをmergeし、cloud側の行の取り残しを検出したら停止する。
 - machine storeのpushは対象の前世代を`<key>.bak`に1世代保存する。復元時はwriterを停止し、対象bucketとexact `<key>.bak`・`<key>`を人間が確認したうえで、`aws s3api copy-object --cli-read-timeout 300`を使う。`aws s3 cp`へ置換しない。
 - machine store の`.bak`は1世代のみで、次のpushで置き換わる。前世代は次のpushで置き換わるため、24時間保持される保証ではない。`baibai.sqlite`だけは`baibai.sqlite.bak-YYYYMMDD`（JST）で日ごとに1世代を残し、直近14世代を超えた分をpush成功後に削除する。machine storeにも再取得できない観測があるため前世代を残し、判断と確認済み事実を持つapplication storeは日別世代を残す。prune は`baibai.sqlite.bak-`配下をlistし、`baibai.sqlite.bak-YYYYMMDD`に一致するkeyだけを完全一致で削除する（prefix削除はしない）。
 - 初回seedは既存のstore keyを1件でも検出したら停止し、再seedによるクラウド正本の上書きを許可しない。
@@ -525,7 +525,7 @@ machine `.bak`を手動復元する場合は、対応する発行を停止して
   set -a; source .env; set +a
   export AWS_ACCESS_KEY_ID="${R2_ACCESS_KEY_ID}" AWS_SECRET_ACCESS_KEY="${R2_SECRET_ACCESS_KEY}" AWS_DEFAULT_REGION=auto
   read -r -p '復元するexact machine key: ' store_key
-  case "$store_key" in market.sqlite|runs.sqlite|macro.sqlite) ;; *) exit 1 ;; esac
+  case "$store_key" in market.sqlite|runs.sqlite|indicators.sqlite) ;; *) exit 1 ;; esac
   aws s3api copy-object --bucket baibai-stores --key "$store_key" \
     --copy-source "baibai-stores/${store_key}.bak" --cli-read-timeout 300 \
     --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
@@ -771,11 +771,35 @@ gh workflow run cloud-external-assessment.yml --ref main \
 
 R2費用確認ではprivate stage/raw、lease、pull/hydrate、L1 export/upload/readbackを分けて実測する。既存TransferReportはpublish層の範囲であり、private handoffやSDK retry、wire bytesを含むrun総計ではない。抽出済みDB/L1履歴はraw expirationによって削除しない。公開/readback後も固定planと小さなterminalを保持し、同batchを再取得へ戻さない。今回の最適化だけで全runの料金・所要時間を確定したとは扱わない。
 
+<a id="market-context-identity-cutover"></a>
+
+### Market Contextの保存名・新writer契約を切り替える
+
+指標schema7は全行・vintage・registry・provider runを変えず、`stores/market_context/indicators.sqlite` / R2 `indicators.sqlite`へ配置する。application20→21は判断table/head/indexだけの改名で、保存済みpayload・ID・supersedes・hash・引用・原時刻を再発行しない。新規assessment6/Triage4/CAA2と、保存コンパクト5・Triage3/CAA1の読取を区別する。旧canonical DB/keyは無断削除せず読戻し用に保持し、恒久alias/dual writerを作らない。指標の未配置は暗黙の空DB作成で埋めず、明示provisioningまたは検証済みコピーを配置する。
+
+```bash
+uv run python -m tools.ops.migrate_application_20_to_21 \
+  --source <fresh-application-schema20-copy> --output <isolated-application-schema21-copy>
+```
+
+sourceはread-only、既存outputは拒否する。SQLite backup→table/head/index改名→integrity/FK→全table全列digest/件数一致を確認する。指標コピーはbyte hash一致を確認する。#1438の[market30→31手順](#external-assessment-identity-cutover)と同じ切替窓を使い、両実装・全local gate/CI・新release空cache読戻し・保存判断/Research参照の隔離検証を親がレビューしてから本番へ進む。raw prefix `external-assessment/raw/`の3日削除設定は親が有効化を確認済みであり、旧rawの移動/削除を行う条件ではない。
+
+1. **切替前の停止確認:** 旧/新外部評価plan、daily、TradingView、materialize、local application発行の実run/processを終端確認する。休日でも#1439は指標/machine/全viewsを公開するため、休日を空き窓としない。新しいwriterの起動とWeb workflowの自動deployを切替中だけ止め、既存deployの終端も確認する。停止/再開は親の運用操作とし、新しい常設workflow/redirect機構を作らない。
+2. **最新正本と準備:** 既存publication lease内で最新L1 pointerとmarket/runs/旧指標key・machine receiptを固定し、旧runtimeでfresh pull/hydrateする。applicationもfresh pullし、取得元ETagを保持してコピーを20→21へ変換する。applicationのlocal/PC writerはlease外なので、書込直前のIf-Matchで競合を拒否する。変更/lease失効では再試行を決め打ちせず停止する。
+3. **code・store切替:** レビュー済みmainへコードを反映し、#1438の既存publisher/CAS手順で新L1 releaseとschema31 marketを反映する。新`indicators.sqlite`は存在しない場合の条件付き作成で元bytesを配置し、既存なら期待した世代/bytes以外を拒否する。application21の最初の反映は取得した旧application世代への条件付きPUTと全行一致の切替であり、旧20と新21を通常`push-app`でmergeさせない。同様にmarket30/31を通常mergeしない。初回切替も既存の条件付きPUT/lease primitiveを使い、無条件overwriteしない。
+4. **通常入口で結合確認:** cloud/localのschema/pathが揃った後に通常`push-machine`でmarket/runs/indicatorsのreceiptを実際のETagから更新し、cleanな新runtimeの`pull-machine`で3 key/receipt/前後世代を突合する。applicationは新runtimeの`pull-app`で全行・head・旧直接ID/Triage/CAA参照を確認する。以後の通常application更新は`push-app`の既存If-Matchを使う。
+5. **servingとWeb:** 新runtimeの既存materializeで全viewsを生成し、既存`upload-serving-views`→成功したstore反映の確認→`publish-serving-tail`を使う。`sync --delete`は旧`views/macro.json`、`macro-series--*`、`macro-context--*`と、新exportに存在しない他の派生viewを削除する。部分exportは禁止、`meta.json`はtailまで更新せず、historyは既存の保持契約に従う。旧canonical DB/keyとdated methodはこの削除対象ではない。新servingの読戻し後、停止していた既存Web workflowを再開し、現在mainの既存deploy入口でWorker/UIを反映・終端確認する。
+6. **受入・再開:** 保存全列・時刻・hash、5/6のコンパクト意味、旧ID/参照・workspace再開、Readingのbulk改定と公表vintageの説明がResearch/MCP/Webで一致することを確認する。受入後にleaseを解放して通常writer/cronを再開し、役割が終わった一回限りmigration toolと専用testを整理する。
+
+**混在する時間窓:** main pushでWeb自動deployが先に完了すると、新APIがまだ存在しない新viewを読む。逆に旧Workerのまま`upload-serving-views`が始まると、`sync --delete`で旧viewが消えて旧APIが404となる。したがって手順5のserving upload開始から新Worker/UI deploy完了までを公開画面の切替窓として扱い、無停止・複数keyの原子的切替とは称さない。通常cronがこの間に旧keyを書いたり新schemaを読んだりしないよう手順1の終端確認を先に行う。Web停止だけでcanonical writerが止まるとは扱わない。
+
+**失敗時:** store/pointer/receipt/serving/codeの実世代を確認して停止する。新writer開始前・同lease・対象世代一致でのみ対応する旧code/DB/graphへ条件付き復帰を判断し、新観測後は事実を保持した前進修復とする。旧keyは残っていても通常入口で自動fallbackしない。本節は手順であり、本番移行・deploy・dispatchの実施記録ではない。
+
 <a id="external-assessment-identity-cutover"></a>
 
 ### External Assessmentの永続名を切り替える
 
-**前提**: schema31のtable/index/datasetは`external_assessment`へ統一する。値・元受領UTC・JST基準日・出所・parser履歴・NULLの意味と、他領域のdataset contractは変更しない。旧schema30を新runtimeで透過的に読むaliasや、旧planの再bindingは作らない。Market ContextのDB/table/判断payloadは対象外。旧29→30の株マップ追加toolは切替受入済みのため除去した。
+**前提**: schema31のtable/index/datasetは`external_assessment`へ統一する。値・元受領UTC・JST基準日・出所・parser履歴・NULLの意味と、他領域のdataset contractは変更しない。旧schema30を新runtimeで透過的に読むaliasや、旧planの再bindingは作らない。単独の#1438ではMarket ContextのDB/table/判断payloadは対象外。結合deliveryでは[Market Context切替](#market-context-identity-cutover)と同じ停止/lease窓で反映する。旧29→30の株マップ追加toolは切替受入済みのため除去した。
 
 取得中の旧plan/writerを切り替えない。8301補完とcohort簡素化の受入後、旧batchが終端で新writerも開始しない運用窓を確保する。#1439の日次工程は日本休日やScreening失敗でも指標更新・全views/machine store公開へ進むため、休日をwriter不在の根拠にしない。daily・TradingView・外部評価・materializeとlocal発行の実run/processを確認する。rawの新単一prefixの削除設定は上記のとおりユーザー担当であり、codeだけで完了にしない。旧raw・plan・terminalは移動/削除/書換えせず歴史として残す。
 
@@ -796,7 +820,7 @@ production policyは全datasetに同じsealed SQLite世代を要求するため�
 1. [既存publication lease](#ローカルからクラウドを更新する)を取得し、同じlease内で最新pointer bytes/ETag、旧release/hash、`market.sqlite`世代とmachine receiptを固定する。旧runtimeで最新固定releaseへhydrateし、この最新コピーから変換・準備をやり直す。途中の世代変化・lease期限切れでは停止する。
 2. 検証済み切替commitを使い、prepared releaseを`baibai_batch.storage.lake_publish.publish_l1_release`へ渡す。取得した旧pointer ETagを`PointerPrecondition`に指定し、`before_pointer_switch`で`publication_lease.verify_held`を呼ぶ。既存publisherがimmutable graphをupload/検証した後、currentをCASで切り替える。低レベルpublication CLIは異なるcurrentへの置換を拒否するので、この単発operator手順で既存functionを使う。
 3. `advance_lake_store_origin`で作業DBを新releaseへ結び付け、upload用snapshotを新releaseに対してdehydrateする。書込直前に`publication_lease.verify_held`を再確認し、取得した旧market世代への条件付きPUTでschema31を反映する。旧cloud30とlocal31は通常mergeが拒否するので、この最初のPUTを`push-market`や無条件overwriteで代行しない。
-4. cloud/localがともに31となった後、lease保持を再確認して同じlease内で既存`r2_transfer.sh push-market`を実行する。通常のmerge・snapshot/CAS pushと`write_machine_manifest`によって3 keyの実際の現行ETagをreceiptへ記録する。追加DB pushとbackup更新を伴うため、最初の旧sourceは受入まで一時保全する。receipt更新直前にもleaseの有効性を確認し、長いexport/読戻しで期限を超えたら継続しない。runs/macroへ値の更新を加えない。
+4. cloud/localがともに31となった後、lease保持を再確認して同じlease内で既存`r2_transfer.sh push-market`を実行する。通常のmerge・snapshot/CAS pushと`write_machine_manifest`によって3 keyの実際の現行ETagをreceiptへ記録する。追加DB pushとbackup更新を伴うため、最初の旧sourceは受入まで一時保全する。receipt更新直前にもleaseの有効性を確認し、長いexport/読戻しで期限を超えたら継続しない。runs/market-contextへ値の更新を加えない。
 5. cleanな切替commitからfresh `pull-machine`→hydrateし、receiptの全世代一致、新名の全履歴digest、元時刻・store-local data・query/API/Researchの欠測区別を確認する。serving生成は既存materialize経路を使う。旧graph＋元commitの一時コピーでも履歴読戻しを確認する。受入完了後にleaseを解放し、新writerは新planだけを作る。
 
 **失敗時**: pointer切替前なら旧正本を維持して停止する。PUT応答が曖昧なら現在のETag/bytesを読み、旧・新・第三者のどれかを確定してから判断する。新writer開始前の同lease内で復帰する場合に限り、lease保持と新pointerのbytes/ETag一致を検査して旧pointer bytesを新ETagへの条件付きPUTで戻す。DB反映済みなら直前旧DB・対応codeもCASで戻し、復帰後の実世代でreceiptを更新する。pointerだけ戻してschema31 runtimeを残さない。第三者の更新・lease失効では上書きせず停止する。新観測が入った後は古いDBへ戻さず、全新規事実を保持した前進修復として扱う。復帰専用runtime分岐や永続rollback rootは追加しない。
@@ -978,7 +1002,7 @@ batch/scripts/seed.sh
   endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
   aws s3api delete-object --bucket baibai-stores --key market.sqlite --endpoint-url "$endpoint"
   aws s3api delete-object --bucket baibai-stores --key runs.sqlite --endpoint-url "$endpoint"
-  aws s3api delete-object --bucket baibai-stores --key macro.sqlite --endpoint-url "$endpoint"
+  aws s3api delete-object --bucket baibai-stores --key indicators.sqlite --endpoint-url "$endpoint"
   aws s3api delete-object --bucket baibai-stores --key baibai.sqlite --endpoint-url "$endpoint"
   batch/scripts/seed.sh
 )

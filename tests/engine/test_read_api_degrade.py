@@ -274,7 +274,7 @@ def test_every_table_read_api_reads_exists_in_a_migrated_store(tmp_path: Path) -
     market = tmp_path / "market.sqlite"
     with closing(sqlite3.connect(market)) as connection:
         connection.executescript(MARKET_SCHEMA_SQL)
-    macro = tmp_path / "macro.sqlite"
+    macro = tmp_path / "indicators.sqlite"
     initialize_macro_database(macro).close()
 
     # Every schema is built here rather than listed, so renaming a table on either
@@ -597,7 +597,7 @@ def test_macro_partial_store_is_not_unpublished(tmp_path: Path, mutation: str) -
     from baibai_engine.market_context.indicators.db import seed_definitions
     from baibai_engine.market_context.indicators.definitions import load_definitions
 
-    path = tmp_path / "macro.sqlite"
+    path = tmp_path / "indicators.sqlite"
     with closing(initialize_macro_database(path)) as connection:
         seed_definitions(connection, load_definitions())
         connection.commit()

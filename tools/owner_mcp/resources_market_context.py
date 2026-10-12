@@ -1,4 +1,4 @@
-"""macro調査へregistry・履歴・readingを既存read ownerから見せる。"""
+"""Market Context調査へregistry・履歴・readingを既存read ownerから見せる。"""
 
 from __future__ import annotations
 
@@ -82,7 +82,7 @@ def reading_get(paths: Paths, selector: dict[str, Any]) -> Page:
         stored_reading(paths.indicators, asof=date.fromisoformat(selector["as_of"])),
     )
     if snapshot is None:
-        raise FileNotFoundError("macro store unavailable")
+        raise FileNotFoundError("indicator store unavailable")
     if "rules_revision" in selector and selector["rules_revision"] != snapshot["rules_revision"]:
         raise OwnerError("REFERENCE_MISMATCH")
     identity = {"as_of": selector["as_of"], "rules_revision": snapshot["rules_revision"]}
@@ -98,6 +98,7 @@ def reading_get(paths: Paths, selector: dict[str, Any]) -> Page:
         {
             "rules_revision": snapshot["rules_revision"],
             "basis": "recomputed",
+            "read_semantics": snapshot["read_semantics"],
             "as_of": selector["as_of"],
             "payload_scope": "reading",
             "consistency": "per_call",

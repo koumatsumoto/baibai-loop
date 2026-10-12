@@ -19,7 +19,7 @@ export type IndicatorHistoryPeriod = '1y' | '5y' | '10y' | 'max'
 export type IndicatorHistoryGranularity = 'daily' | 'weekly' | 'monthly' | 'yearly'
 
 export function indicatorHistoryUrl(seriesId: string | null): string | null {
-  return seriesId === null ? null : `/api/macro/series/${encodeURIComponent(seriesId)}`
+  return seriesId === null ? null : `/api/market-context/indicators/${encodeURIComponent(seriesId)}`
 }
 
 export function transformSeriesHistory(

@@ -13,14 +13,16 @@ import pytest
 from tests.helpers.research_triage import published_review_set, research_triage_payload
 
 from baibai_engine.research.triage import query
-from baibai_engine.research.triage.contracts import ResearchTriage
+from baibai_engine.research.triage.contracts import ResearchTriage, StoredResearchTriage
 from baibai_engine.research.triage.service import ResearchTriageService
 from baibai_engine.screening.discovery.contracts import PublishedReviewSet
 from baibai_engine.storage.application.json import canonical_json
 
 
 def test_saved_triage_and_review_set_payloads_keep_pre_move_hashes() -> None:
-    triage = ResearchTriage.model_validate(research_triage_payload())
+    raw = research_triage_payload(schema_version=3, triage_contract_id="research-triage-v3")
+    raw["macro_context_id"] = raw.pop("market_context_assessment_id")
+    triage = StoredResearchTriage.from_payload(raw)
     review_set = PublishedReviewSet.model_validate(published_review_set())
     # 移動前main 548373b8の同じ合成fixtureから取得したcanonical hash。
     assert query.research_triage_payload_hash(triage) == (
@@ -96,7 +98,9 @@ def test_owner_queries_are_read_only_and_absent_store_stays_absent(tmp_path, mon
         return connection
 
     monkeypatch.setattr(query, "connect_read_only", connect_read_only)
-    assert query.current_research_triage(path, published.research_triage_id) == published
+    stored = query.current_research_triage(path, published.research_triage_id)
+    assert stored is not None
+    assert stored.publication_payload() == published.model_dump(mode="json")
     assert query.latest_research_triage_id(path) == published.research_triage_id
     assert query.research_triage_payloads_for_review_set(path, published.review_set_id) == [
         published.model_dump(mode="json")

@@ -55,7 +55,7 @@ def prepare_workspace(
     started_at: datetime | None = None,
     sqlite_path: Path = MARKET_DB_PATH,
     runs_path: Path = RUNS_DB_PATH,
-    macro_path: Path = INDICATORS_DB_PATH,
+    indicators_path: Path = INDICATORS_DB_PATH,
     force: bool = False,
 ) -> ResearchPreparation:
     """Explicitly start/reuse one fixed combined selection, including a normal empty set."""
@@ -203,7 +203,7 @@ def prepare_workspace(
             known_at=now,
             market_path=sqlite_path,
             runs_path=runs_path,
-            macro_path=macro_path,
+            indicators_path=indicators_path,
             app_path=database_path(db_path),
             run_revision_id=None if gate is None else gate.run_revision_id,
         ),
@@ -218,7 +218,7 @@ def prepare_workspace(
             force=force,
             sqlite_path=sqlite_path,
             runs_path=runs_path,
-            macro_path=macro_path,
+            indicators_path=indicators_path,
         )
     _write_status(workspace, db_path=db_path)
     return ResearchPreparation(
@@ -242,7 +242,7 @@ def prepare_holding_workspace(
     started_at: datetime | None = None,
     sqlite_path: Path = MARKET_DB_PATH,
     runs_path: Path = RUNS_DB_PATH,
-    macro_path: Path = INDICATORS_DB_PATH,
+    indicators_path: Path = INDICATORS_DB_PATH,
     force: bool = False,
 ) -> ResearchPreparation:
     """Attach a holding workspace to the same finite Operation; never use new admission."""
@@ -347,7 +347,7 @@ def prepare_holding_workspace(
             known_at=now,
             market_path=sqlite_path,
             runs_path=runs_path,
-            macro_path=macro_path,
+            indicators_path=indicators_path,
             app_path=database_path(db_path),
         ),
     )

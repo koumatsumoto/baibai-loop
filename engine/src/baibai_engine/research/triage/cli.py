@@ -107,20 +107,20 @@ def scaffold_research_triage(
                 }
             )
         draft = {
-            "schema_version": 3,
+            "schema_version": 4,
             "kind": "research_triage",
             "research_triage_id": f"research-triage-{compact_as_of}-<slug>",
             "review_set_id": review_set.review_set_id,
             "run_revision_id": review_set.run_revision_id,
             "as_of": as_of,
             "published_at": "<JST publication timestamp>",
-            "macro_context_id": (
+            "market_context_assessment_id": (
                 None if latest_context is None else str(latest_context["context_id"])
             ),
             "expected_prior_research_triage_id": latest_research_triage_id(app_db_path),
             "screening_rules_hash": review_set.screening_rules_hash,
             "candidate_discovery_method": review_set.method.model_dump(mode="json"),
-            "triage_contract_id": "research-triage-v3",
+            "triage_contract_id": "research-triage-v4",
             "entries": draft_entries,
         }
         rendered = yaml.safe_dump(draft, sort_keys=False, allow_unicode=True)

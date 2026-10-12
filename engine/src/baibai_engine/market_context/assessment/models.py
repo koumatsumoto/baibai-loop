@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from baibai_engine.foundation.time import JST
 
-ASSESSMENT_SCHEMA_VERSION = 5
+ASSESSMENT_SCHEMA_VERSION = 6
 ASSESSMENT_STALE_DAYS = 45
 
 
@@ -48,9 +48,9 @@ class AssessmentClaim(_Model):
 
 
 class MarketContextAssessment(_Model):
-    schema_version: Literal[5] = 5
+    schema_version: Literal[6] = 6
     kind: Literal["market-context-assessment"] = "market-context-assessment"
-    # The physical publication identity stays in the existing namespace.
+    # Only new publications use this namespace; historical identities remain opaque.
     context_id: str
     as_of: date
     known_at: datetime
@@ -69,9 +69,11 @@ class MarketContextAssessment(_Model):
 
     @model_validator(mode="after")
     def validate_evidence(self) -> Self:
-        if not re.fullmatch(r"macro-context-\d{4}-\d{2}-\d{2}-[a-z0-9-]+", self.context_id):
+        if not re.fullmatch(
+            r"market-context-assessment-\d{4}-\d{2}-\d{2}-[a-z0-9-]+", self.context_id
+        ):
             raise ValueError("invalid context_id")
-        if not self.context_id.startswith(f"macro-context-{self.as_of.isoformat()}-"):
+        if not self.context_id.startswith(f"market-context-assessment-{self.as_of.isoformat()}-"):
             raise ValueError("context_id date differs from as_of")
         if not self.summary.strip():
             raise ValueError("assessment summary must be non-blank")

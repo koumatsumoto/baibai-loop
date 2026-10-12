@@ -322,15 +322,15 @@ def test_domain_inputs_are_read_only_and_do_not_require_independent_macro_report
         known_at=NOW,
         market_path=market,
         runs_path=tmp_path / "absent-runs.sqlite",
-        macro_path=tmp_path / "absent-macro.sqlite",
+        indicators_path=tmp_path / "absent-indicators.sqlite",
         app_path=db,
     )
     assert set(snapshot["securities"]) == {"1234", "2331"}
-    assert snapshot["market_context"]["saved_macro_context"] is None
+    assert snapshot["market_context"]["saved_market_context_assessment"] is None
     assert snapshot["market_context"]["macro_reading"] is None
     assert (db.read_bytes(), market.read_bytes()) == before
     assert not (tmp_path / "absent-runs.sqlite").exists()
-    assert not (tmp_path / "absent-macro.sqlite").exists()
+    assert not (tmp_path / "absent-indicators.sqlite").exists()
 
 
 def test_legacy_active_handoff_preserves_exact_subjects_and_recorded_confirmation(
@@ -369,7 +369,7 @@ def test_legacy_active_handoff_preserves_exact_subjects_and_recorded_confirmatio
         started_at=NOW,
         sqlite_path=market,
         runs_path=tmp_path / "absent-runs",
-        macro_path=tmp_path / "absent-macro",
+        indicators_path=tmp_path / "absent-macro",
     )
     assert prepared.operation_id == identifier
     operation = OperationService(db).get(identifier)
@@ -403,7 +403,7 @@ def test_analysis_asof_cannot_drift_on_combined_or_holding_workspace_reuse(holdi
         started_at=NOW,
         sqlite_path=market,
         runs_path=tmp_path / "absent-runs",
-        macro_path=tmp_path / "absent-macro",
+        indicators_path=tmp_path / "absent-macro",
     )
     prepared = prepare_workspace(asof=NOW.date(), **kwargs)
     operation = OperationService(db).get(prepared.operation_id)
@@ -561,7 +561,7 @@ def test_alphanumeric_holding_prepares_thesis_and_verified_proposal_end_to_end(t
         started_at=NOW,
         sqlite_path=market,
         runs_path=tmp_path / "absent-runs",
-        macro_path=tmp_path / "absent-macro",
+        indicators_path=tmp_path / "absent-macro",
     )
     operation = OperationService(db).get(prepared.operation_id)
     assert operation.ticker == "285A"

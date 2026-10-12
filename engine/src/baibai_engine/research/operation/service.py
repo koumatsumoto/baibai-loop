@@ -11,7 +11,7 @@ from pathlib import Path
 
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 from baibai_engine.foundation.time import JST
-from baibai_engine.research.capital_allocation import CapitalAllocationAssessment
+from baibai_engine.research.capital_allocation import StoredCapitalAllocationAssessment
 from baibai_engine.research.operation.models import (
     OperationPayload,
     OperationSession,
@@ -405,7 +405,7 @@ def _require_published_assessment(
     operation: OperationSession,
     payload: OperationPayload,
     completed_at: datetime,
-) -> CapitalAllocationAssessment:
+) -> StoredCapitalAllocationAssessment:
     references = [
         artifact.get("ref")
         for artifact in payload.artifacts
@@ -423,7 +423,7 @@ def _require_published_assessment(
     if row is None:
         raise OperationCompletionError("canonical capital_allocation_assessment is unavailable")
     try:
-        assessment = CapitalAllocationAssessment.model_validate(json.loads(row["payload"]))
+        assessment = StoredCapitalAllocationAssessment.from_payload(json.loads(row["payload"]))
         expected_scope = require_matching_research_set(
             operation,
             research_triage_id=assessment.research_triage_id,

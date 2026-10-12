@@ -1,4 +1,4 @@
-"""Point-in-time-aware L1 store readers for macro reading consumers.
+"""L1 store readers with provider-declared vintage selection.
 
 Only providers whose spec declares publication-quality vintages are clamped to
 the requested cutoff. Most bulk history stores the acquisition time as its
@@ -29,9 +29,9 @@ def build_store_observation_reader(
     """Bind one registry-aware observation reader to an open L1 connection.
 
     ``vintage_cutoff`` separates when facts were knowable from the observation
-    range's end. Reading snapshots leave it unset because their as-of is both;
-    scorecard settlement fixes it to the evaluation date while each condition
-    retains its own observation deadline.
+    range's end. Reading uses its as-of as the vintage cutoff only for providers
+    that opt in; other providers retain the latest stored history, including later
+    retrievals and revisions. No overall historical-knowledge guarantee follows.
     """
 
     providers_by_series = {item.series_id: item.provider for item in series}

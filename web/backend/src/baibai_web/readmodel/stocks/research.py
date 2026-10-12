@@ -91,7 +91,11 @@ def _assessment_view(
         decision=str(raw["result"]),
         headline=str(raw["headline"]),
         research_triage_id=str(raw["research_triage_id"]),
-        macro_context_id=text(raw.get("macro_context_id")),
+        market_context_assessment_id=text(
+            raw.get("macro_context_id")
+            if raw.get("schema_version") == 1
+            else raw.get("market_context_assessment_id")
+        ),
         comparison=str(raw["comparison"]),
         foregone_alternatives=str(raw["forgone"]),
         alternatives=[

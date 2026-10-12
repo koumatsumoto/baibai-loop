@@ -189,12 +189,12 @@ assert "baibai_engine.market_context.assessment.service" not in sys.modules
 def test_domain_reads_have_no_network_or_writes_and_missing_stores_stay_absent(
     tmp_path, monkeypatch
 ):
-    market_path, macro_path, app_path = (
-        tmp_path / name for name in ("market.sqlite", "macro.sqlite", "app.sqlite")
+    market_path, indicators_path, app_path = (
+        tmp_path / name for name in ("market.sqlite", "indicators.sqlite", "app.sqlite")
     )
     bars(market_path, "AAAA", 0.1)
     master(market_path, "2026-05-28", {"AAAA": "機械"})
-    connection = initialize_database(macro_path)
+    connection = initialize_database(indicators_path)
     seed_definitions(connection, load_definitions())
     connection.commit()
     connection.close()
@@ -203,7 +203,7 @@ def test_domain_reads_have_no_network_or_writes_and_missing_stores_stay_absent(
         (StoredAssessment.from_payload(historical_context_payload())).document,
         supersedes=None,
     )
-    paths = (market_path, macro_path, app_path)
+    paths = (market_path, indicators_path, app_path)
     before = [hashlib.sha256(path.read_bytes()).hexdigest() for path in paths]
     original = sqlite3.connect
 
@@ -231,7 +231,7 @@ def test_domain_reads_have_no_network_or_writes_and_missing_stores_stay_absent(
     monkeypatch.setattr(socket, "socket", forbidden)
     assert security(market_path)["price"] is not None
     assert build_market_snapshot(sqlite_path=market_path, asof_date=ASOF)["sectors"]
-    assert reading_snapshot(macro_path, asof=ASOF)["asof"] == ASOF.isoformat()
+    assert reading_snapshot(indicators_path, asof=ASOF)["asof"] == ASOF.isoformat()
     assert latest_assessment_payload(
         app_path, as_of=date(2026, 7, 19), known_at=datetime(2026, 7, 21, tzinfo=UTC)
     )["context_id"]

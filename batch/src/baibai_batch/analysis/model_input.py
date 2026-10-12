@@ -34,11 +34,14 @@ def review_set_candidates(review_set: PublishedReviewSet) -> tuple[TriageCandida
 
 
 def build_model_input(
-    review_set: PublishedReviewSet, macro_context: StoredAssessment | None, *, known_at: datetime
+    review_set: PublishedReviewSet,
+    market_context_assessment: StoredAssessment | None,
+    *,
+    known_at: datetime,
 ) -> ModelInput:
     require_aware(known_at)
     return ModelInput(
-        schema_version=3,
+        schema_version=4,
         task="research-triage",
         instruction=(
             "Use only this JSON. Do not call tools or read files. "
@@ -47,18 +50,27 @@ def build_model_input(
         policy=TRIAGE_POLICY,
         as_of=review_set.as_of.isoformat(),
         known_at=known_at.isoformat(),
-        macro_context=assessment_projection(macro_context, as_of=review_set.as_of),
+        market_context_assessment=assessment_projection(
+            market_context_assessment, as_of=review_set.as_of
+        ),
         candidates=review_set_candidates(review_set),
     )
 
 
 def extract_publication_input(
-    review_set: PublishedReviewSet, macro_context: StoredAssessment | None
+    review_set: PublishedReviewSet,
+    market_context_assessment: StoredAssessment | None,
+    *,
+    legacy_triage: bool = False,
 ) -> dict[str, Any]:
     """Quote stored publications; never claim this is the saved runner input.json."""
-    current = macro_context is not None and macro_context.schema_version == 5
+    current = (
+        market_context_assessment is not None and market_context_assessment.schema_version in (5, 6)
+    )
     return {
-        "schema_version": 3
+        "schema_version": 4
+        if not legacy_triage
+        else 3
         if current
         else 2
         if any(
@@ -74,8 +86,10 @@ def extract_publication_input(
         ),
         "policy": list(TRIAGE_POLICY),
         "as_of": review_set.as_of.isoformat(),
-        "macro_context": assessment_projection(macro_context, as_of=review_set.as_of)
+        ("macro_context" if legacy_triage else "market_context_assessment"): assessment_projection(
+            market_context_assessment, as_of=review_set.as_of
+        )
         if current
-        else legacy_context_projection(macro_context, as_of=review_set.as_of),
+        else legacy_context_projection(market_context_assessment, as_of=review_set.as_of),
         "candidates": [item.model_dump(mode="json") for item in review_set_candidates(review_set)],
     }

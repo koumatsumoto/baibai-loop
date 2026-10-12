@@ -28,7 +28,7 @@ def _version(path: Path) -> int:
 
 def test_a_copy_already_current_is_reported_and_left_alone(tmp_path: Path) -> None:
     """Every push runs this, including the ones where R2 is already up to date."""
-    store = _store(tmp_path / "macro.sqlite")
+    store = _store(tmp_path / "indicators.sqlite")
     with sqlite3.connect(store) as connection:
         before = connection.execute("SELECT count(*) FROM series").fetchone()[0]
 
@@ -40,7 +40,7 @@ def test_a_copy_already_current_is_reported_and_left_alone(tmp_path: Path) -> No
 
 def test_a_copy_too_old_for_the_migration_path_is_refused(tmp_path: Path) -> None:
     """The step moves a copy forward; it does not rebuild one the path cannot reach."""
-    store = _store(tmp_path / "macro.sqlite")
+    store = _store(tmp_path / "indicators.sqlite")
     connection = sqlite3.connect(store)
     try:
         connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 2}")
@@ -59,6 +59,6 @@ def test_a_path_that_is_not_a_store_is_named_rather_than_creating_one(tmp_path: 
     absent = tmp_path / "absent.sqlite"
 
     with pytest.raises(FileNotFoundError, match="does not exist"):
-        main(["--store", "macro", "--path", str(absent)])
+        main(["--store", "indicators", "--path", str(absent)])
 
     assert not absent.exists()

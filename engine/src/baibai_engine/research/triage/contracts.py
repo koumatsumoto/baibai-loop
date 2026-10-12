@@ -5,7 +5,15 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from baibai_engine.screening.discovery.contracts import (
     CandidateDiscoveryMethodIdentity,
@@ -13,8 +21,8 @@ from baibai_engine.screening.discovery.contracts import (
     ReviewSetAnalysis,
 )
 
-RESEARCH_TRIAGE_SCHEMA_VERSION = 3
-RESEARCH_TRIAGE_CONTRACT_ID = "research-triage-v3"
+RESEARCH_TRIAGE_SCHEMA_VERSION = 4
+RESEARCH_TRIAGE_CONTRACT_ID = "research-triage-v4"
 
 
 class ReviewSetEntrySnapshot(BaseModel):
@@ -65,21 +73,19 @@ class ResearchTriageEntry(BaseModel):
         return self
 
 
-class ResearchTriage(BaseModel):
+class _ResearchTriageFields(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    schema_version: Literal[3]
     kind: Literal["research_triage"]
     research_triage_id: str = Field(min_length=1)
     review_set_id: str = Field(min_length=1)
     run_revision_id: str = Field(min_length=1)
     as_of: date
     published_at: datetime
-    macro_context_id: str | None = None
+    market_context_assessment_id: str | None = None
     expected_prior_research_triage_id: str | None
     screening_rules_hash: str = Field(min_length=1)
     candidate_discovery_method: CandidateDiscoveryMethodIdentity
-    triage_contract_id: Literal["research-triage-v3"]
     entries: tuple[ResearchTriageEntry, ...] = Field(min_length=1)
 
     @field_validator("as_of", mode="before")
@@ -117,10 +123,43 @@ class ResearchTriage(BaseModel):
         )
 
 
+class ResearchTriage(_ResearchTriageFields):
+    """Current writer; never accepts a saved v3 publication as a new draft."""
+
+    schema_version: Literal[4]
+    triage_contract_id: Literal["research-triage-v4"]
+
+
+class StoredResearchTriage(_ResearchTriageFields):
+    """Typed read projection with the original publication available for hashing."""
+
+    schema_version: Literal[3, 4]
+    triage_contract_id: Literal["research-triage-v3", "research-triage-v4"]
+    _source_payload: dict[str, object] = PrivateAttr()
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, object]) -> StoredResearchTriage:
+        projection = dict(payload)
+        version = projection.get("schema_version")
+        if projection.get("triage_contract_id") != f"research-triage-v{version}":
+            raise ValueError("stored Triage schema and contract identity differ")
+        if version == 3:
+            if "market_context_assessment_id" in projection:
+                raise ValueError("stored Triage3 has a current reference field")
+            projection["market_context_assessment_id"] = projection.pop("macro_context_id", None)
+        result = cls.model_validate(projection)
+        result._source_payload = dict(payload)
+        return result
+
+    def publication_payload(self) -> dict[str, object]:
+        return dict(self._source_payload)
+
+
 __all__ = [
     "RESEARCH_TRIAGE_CONTRACT_ID",
     "RESEARCH_TRIAGE_SCHEMA_VERSION",
     "ResearchTriage",
     "ResearchTriageEntry",
     "ReviewSetEntrySnapshot",
+    "StoredResearchTriage",
 ]

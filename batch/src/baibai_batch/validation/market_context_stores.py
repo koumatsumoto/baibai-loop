@@ -156,7 +156,7 @@ def validate_published_contexts(
         rows = connection.execute(
             (
                 "SELECT context_id, schema_version, as_of, published_at, payload "
-                "FROM macro_context "
+                "FROM market_context_assessment "
                 "ORDER BY published_at, context_id"
             ),
         ).fetchall()

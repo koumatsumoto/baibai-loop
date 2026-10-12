@@ -95,7 +95,7 @@ _WRITE_INSTANT_COLUMNS: tuple[tuple[str, str], ...] = (
     ("thesis", "published_at"),
     ("thesis_review", "reviewed_at"),
     ("position_review", "as_of"),
-    ("macro_context", "published_at"),
+    ("market_context_assessment", "published_at"),
     ("research_triage", "published_at"),
     ("task", "created_at"),
     ("task", "closed_at"),

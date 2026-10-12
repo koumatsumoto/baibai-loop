@@ -77,7 +77,7 @@ def seed(
             run_revision_id=review.run_revision_id,
             as_of=day,
             published_at=published_at,
-            macro_context_id=macro,
+            market_context_assessment_id=macro,
             expected_prior_research_triage_id=latest_research_triage_id(reader.app_path),
         )
     )
@@ -139,19 +139,25 @@ def test_exact_macro_and_null_binding_survive_later_context(reader):
         )
     )
     seed_history(reader.app_path, (b).document, supersedes=a.context_id)
-    assert reader.get_input(missing_ref)["model_input"]["macro_context"]["status"] == "missing"
+    assert (
+        reader.get_input(missing_ref)["model_input"]["market_context_assessment"]["status"]
+        == "missing"
+    )
     assert reader.get_input(bound_ref)["model_input"] == extract_publication_input(review, a)
 
 
-@pytest.mark.parametrize("schema_version", [3, 4, 5])
+@pytest.mark.parametrize("legacy_triage", [False, True])
+@pytest.mark.parametrize("schema_version", [3, 4, 5, 6])
 def test_mcp_resolve_and_get_input_preserve_assessment_or_historical_projection(
-    reader, schema_version
+    reader, schema_version, legacy_triage
 ):
     context_id = f"macro-context-2026-07-19-v{schema_version}"
-    if schema_version == 5:
+    if schema_version == 6:
+        context_id = "market-context-assessment-2026-07-19-v6"
+    if schema_version in (5, 6):
         body = MarketContextAssessment.model_validate(
             {
-                "context_id": context_id,
+                "context_id": "market-context-assessment-2026-07-19-draft",
                 "as_of": "2026-07-19",
                 "known_at": "2026-07-19T11:00:00+09:00",
                 "published_at": "2026-07-19T12:00:00+09:00",
@@ -172,9 +178,14 @@ def test_mcp_resolve_and_get_input_preserve_assessment_or_historical_projection(
                 ],
             }
         ).payload()
-        AssessmentService(reader.app_path).publish(
-            MarketContextAssessment.model_validate(body), expected_head=None
-        )
+        body["context_id"] = context_id
+        body["schema_version"] = schema_version
+        if schema_version == 5:
+            seed_history(reader.app_path, body)
+        else:
+            AssessmentService(reader.app_path).publish(
+                MarketContextAssessment.model_validate(body), expected_head=None
+            )
     elif schema_version == 4:
         body = historical_context_payload(context_id=context_id)
         seed_history(reader.app_path, body)
@@ -191,6 +202,14 @@ def test_mcp_resolve_and_get_input_preserve_assessment_or_historical_projection(
         }
         seed_history(reader.app_path, body)
     triage, review = seed(reader, macro=context_id, published_at="2026-07-19T15:00:00+09:00")
+    if legacy_triage:
+        old_triage = triage.model_dump(mode="json")
+        old_triage["schema_version"] = 3
+        old_triage["triage_contract_id"] = "research-triage-v3"
+        old_triage["macro_context_id"] = old_triage.pop("market_context_assessment_id")
+        with sqlite3.connect(reader.app_path) as con:
+            con.execute("UPDATE research_triage SET payload=?", (json.dumps(old_triage),))
+    projection_key = "macro_context" if legacy_triage else "market_context_assessment"
     before = [p.read_bytes() for p in (reader.app_path, reader.runs_path)]
     adapter = Adapter()
 
@@ -211,17 +230,21 @@ def test_mcp_resolve_and_get_input_preserve_assessment_or_historical_projection(
             assert (
                 digest(extracted) == resolved.structured_content["triage_ref"]["model_input_sha256"]
             )
-            if schema_version == 5:
-                assert extracted["schema_version"] == 3
-                assert extracted["macro_context"] == assessment_projection(
+            if schema_version in (5, 6):
+                assert extracted["schema_version"] == (3 if legacy_triage else 4)
+                assert extracted[projection_key] == assessment_projection(
                     StoredAssessment.from_payload(body), as_of=review.as_of
                 )
                 for name in ("changes", "counter_evidence", "uncertainties", "implications"):
-                    assert extracted["macro_context"][name] == body[name]
-                assert extracted["macro_context"]["sources"] == body["inputs"]
+                    assert extracted[projection_key][name] == body[name]
+                assert extracted[projection_key]["sources"] == body["inputs"]
             else:
-                assert extracted["schema_version"] in (1, 2)
-                assert extracted["macro_context"] == {
+                assert (
+                    extracted["schema_version"] in (1, 2)
+                    if legacy_triage
+                    else extracted["schema_version"] == 4
+                )
+                assert extracted[projection_key] == {
                     "status": "current",
                     "as_of": body["as_of"],
                     "age_days": 0,
@@ -431,9 +454,9 @@ def test_old_quality_absence_and_explicit_null_keep_distinct_payload_hashes(read
     publication = review.model_dump(mode="json")
     publication["entries"][0]["analysis"]["data_quality"].update(quality)
     projected = extract_publication_input(PublishedReviewSet.model_validate(publication), None)
-    assert projected["schema_version"] == 2
+    assert projected["schema_version"] == 4
     assert projected["candidates"][0]["snapshot"]["analysis"]["data_quality"] == quality
-    assert old["schema_version"] == 1
+    assert old["schema_version"] == 4
 
 
 def test_review_set_selectors_parity_and_untriaged(reader):

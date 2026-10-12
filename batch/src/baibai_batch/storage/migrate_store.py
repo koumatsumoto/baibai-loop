@@ -1,13 +1,13 @@
-"""Move a downloaded macro-store copy forward to the schema this code writes.
+"""Move a downloaded indicator-store copy forward to the schema this code writes.
 
-The macro merge requires its source and target at the same schema version, and the source
-is the copy R2 holds. A macro store published before a migration landed is therefore
+The indicator merge requires its source and target at the same schema version, and the source
+is the copy R2 holds. A indicator store published before a migration landed is therefore
 unmergeable, and the only thing that moves the published copy forward is the daily
 batch — so every schema change would block publishing from a developer machine until
 the cloud had run, which is the wrong way round for a store whose deep history is
 built locally.
 
-Opening the macro store is what migrates it. This runs against the throwaway copy in the
+Opening the indicator store is what migrates it. This runs against the throwaway copy in the
 transfer staging directory, so the object in R2 is untouched until the merged result
 is uploaded. A store older than the migration path's baseline still fails here.
 """
@@ -29,7 +29,7 @@ def migrate_indicator_store(path: Path) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--path", type=Path, required=True, help="store copy to migrate in place")
-    parser.add_argument("--store", choices=("macro",), required=True)
+    parser.add_argument("--store", choices=("indicators",), required=True)
     return parser
 
 

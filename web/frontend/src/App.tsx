@@ -25,8 +25,8 @@ function App() {
             <Routes>
               <Route element={<AppLayout />}>
                 <Route path="/" element={<DashboardPage />} />
-                <Route path="/macro" element={<MarketContextPage />} />
-                <Route path="/macro/reports/:contextId" element={<AssessmentPage />} />
+                <Route path="/market-context" element={<MarketContextPage />} />
+                <Route path="/market-context/assessments/:contextId" element={<AssessmentPage />} />
                 <Route path="/stocks" element={<StocksPage />} />
                 <Route path="/tasks" element={<TasksPage />} />
                 <Route path="/research-triage" element={<ResearchTriagePage />} />

@@ -23,7 +23,7 @@ def assessment_projection(record: StoredAssessment | None, *, as_of: date) -> di
         }
     body = record.document
     synthesis: dict[str, Any] | None = None
-    if record.schema_version == 5:
+    if record.schema_version in (5, 6):
         changes = body["changes"]
         counter = body["counter_evidence"]
         uncertainty = body["uncertainties"]
@@ -145,7 +145,7 @@ def legacy_context_projection(record: StoredAssessment | None, *, as_of: date) -
 
 def assessment_series_ids(record: StoredAssessment) -> frozenset[str]:
     body = record.document
-    if record.schema_version == 5:
+    if record.schema_version in (5, 6):
         return frozenset(
             str(value) for item in body.get("inputs", []) for value in item.get("series_ids", [])
         )

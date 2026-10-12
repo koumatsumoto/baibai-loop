@@ -45,7 +45,7 @@ from baibai_web.readmodel.models import (
 
 SCHEMA_PATH = Path("web/contracts/read-model.schema.json")
 TYPES_PATH = Path("web/frontend/src/api/types.ts")
-CONTRACT_SCHEMA_VERSION = 2
+CONTRACT_SCHEMA_VERSION = 3
 
 # Every artifact the UI reads through `/api`, and the model that writes it. The keys are
 # the serving paths `web/contracts/routes.json` maps those routes to, and a test pins
@@ -57,9 +57,9 @@ ROOT_VIEWS: Mapping[str, type[BaseModel]] = {
     ): CapitalAllocationAssessmentView,
     "views/daily-delta.json": DailyDeltaView,
     "views/dashboard.json": DashboardView,
-    "views/macro.json": MarketContextView,
-    "views/macro-context--{context_id}.json": AssessmentPublicationView,
-    "views/macro-series--{series_id}.json": IndicatorSeriesView,
+    "views/market-context.json": MarketContextView,
+    "views/market-context-assessment--{context_id}.json": AssessmentPublicationView,
+    "views/indicator-series--{series_id}.json": IndicatorSeriesView,
     "views/meta.json": MetaView,
     "views/operations.json": OperationsView,
     "views/screening_latest.json": ScreeningView,

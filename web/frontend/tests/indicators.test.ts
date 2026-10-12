@@ -10,7 +10,7 @@ const macroPageSource = readFileSync(resolve(import.meta.dirname, '../src/pages/
 describe('Macro information architecture', () => {
   it('puts current context before indicators and history', () => {
     const headings = ['現在のマクロ局面', 'マクロ経済指標', '過去の経済分析レポート']
-    expect(macroPageSource).toContain('title="マクロ経済分析"')
+    expect(macroPageSource).toContain('title="市場環境"')
     expect(macroPageSource.indexOf(headings[0])).toBeLessThan(macroPageSource.indexOf(headings[1]))
     expect(macroPageSource.indexOf(headings[1])).toBeLessThan(macroPageSource.indexOf(headings[2]))
   })
@@ -116,7 +116,7 @@ describe('seriesWindowSummary', () => {
 describe('lazy series history', () => {
   it('has no history request until a series is opened', () => {
     expect(indicatorHistoryUrl(null)).toBeNull()
-    expect(indicatorHistoryUrl('us.10y')).toBe('/api/macro/series/us.10y')
+    expect(indicatorHistoryUrl('us.10y')).toBe('/api/market-context/indicators/us.10y')
   })
 
   it('filters and aggregates one daily history in the browser', () => {

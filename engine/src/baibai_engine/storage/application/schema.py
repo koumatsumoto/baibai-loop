@@ -4,7 +4,7 @@ Runtime code creates the current shape or rejects a different version; semantic
 cutovers are explicit operator work against a verified backup.
 """
 
-APPLICATION_SCHEMA_VERSION = 20
+APPLICATION_SCHEMA_VERSION = 21
 
 SCHEMA_SQL = """
 CREATE TABLE task (
@@ -21,19 +21,20 @@ CREATE TABLE task (
 CREATE INDEX task_status_due_idx ON task(status, due_date, task_id);
 CREATE INDEX task_ticker_idx ON task(ticker) WHERE ticker IS NOT NULL;
 
-CREATE TABLE macro_context (
+CREATE TABLE market_context_assessment (
     context_id TEXT PRIMARY KEY,
     schema_version INTEGER NOT NULL,
     as_of TEXT NOT NULL,
     published_at TEXT NOT NULL,
-    supersedes_id TEXT REFERENCES macro_context(context_id),
+    supersedes_id TEXT REFERENCES market_context_assessment(context_id),
     payload TEXT NOT NULL CHECK (json_valid(payload))
 ) STRICT;
-CREATE TABLE macro_context_head (
+CREATE TABLE market_context_assessment_head (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-    context_id TEXT NOT NULL REFERENCES macro_context(context_id)
+    context_id TEXT NOT NULL REFERENCES market_context_assessment(context_id)
 ) STRICT;
-CREATE INDEX macro_context_asof_idx ON macro_context(as_of, published_at, context_id);
+CREATE INDEX market_context_assessment_asof_idx
+    ON market_context_assessment(as_of, published_at, context_id);
 
 CREATE TABLE research_triage (
     research_triage_id TEXT PRIMARY KEY,

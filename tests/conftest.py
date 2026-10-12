@@ -38,7 +38,7 @@ SCREENING_RULES_HASH = production_rules_contract_hash(load_screening_rules().mod
 _REAL_DB_DEFAULTS = (
     Path("stores/application/baibai.sqlite"),
     Path("stores/screening/runs.sqlite"),
-    Path("stores/macro/macro.sqlite"),
+    Path("stores/market_context/indicators.sqlite"),
     Path("stores/market/market.sqlite"),
 )
 
@@ -93,9 +93,9 @@ def _seed_app_method_root(root: Path) -> None:
     reading_rules = root / READING_RULES_PATH
     reading_rules.parent.mkdir(parents=True, exist_ok=True)
     reading_rules.write_text(READING_RULES_PATH.read_text(encoding="utf-8"), encoding="utf-8")
-    indicators_dir = root / "stores/macro"
+    indicators_dir = root / "stores/market_context"
     indicators_dir.mkdir(parents=True, exist_ok=True)
-    initialize_indicators_db(indicators_dir / "macro.sqlite").close()
+    initialize_indicators_db(indicators_dir / "indicators.sqlite").close()
     db_path = root / "stores/application/baibai.sqlite"
     ledger = load_portfolio_ledger(FIXTURES / "portfolio-ledger/representative.yaml")
     seed_ledger(

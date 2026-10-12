@@ -25,7 +25,7 @@ from baibai_engine.market_context.assessment.service import (
 
 def document(
     *,
-    context_id="macro-context-2026-07-17-small",
+    context_id="market-context-assessment-2026-07-17-small",
     published_at="2026-07-18T12:00:00+00:00",
     summary="重要な変化は小さい。",
 ):
@@ -58,7 +58,7 @@ def test_writer_preserves_old_payload_and_head_across_schemas(tmp_path):
     old = historical_payload(context_id="macro-context-2026-07-16-history", as_of="2026-07-16")
     seed_history(db, old)
     with sqlite3.connect(db) as conn:
-        before = conn.execute("select payload from macro_context").fetchone()[0]
+        before = conn.execute("select payload from market_context_assessment").fetchone()[0]
     service = AssessmentService(db)
     assert service.head_id() == old["context_id"]
     new = document()
@@ -67,28 +67,33 @@ def test_writer_preserves_old_payload_and_head_across_schemas(tmp_path):
     with sqlite3.connect(db) as conn:
         assert (
             conn.execute(
-                "select payload from macro_context where context_id=?", (old["context_id"],)
+                "select payload from market_context_assessment where context_id=?",
+                (old["context_id"],),
             ).fetchone()[0]
             == before
         )
         assert (
             conn.execute(
-                "select supersedes_id from macro_context where context_id=?", (new.context_id,)
+                "select supersedes_id from market_context_assessment where context_id=?",
+                (new.context_id,),
             ).fetchone()[0]
             == old["context_id"]
         )
-        assert conn.execute("select count(*) from macro_context").fetchone()[0] == 2
+        assert conn.execute("select count(*) from market_context_assessment").fetchone()[0] == 2
     assert service.head_id() == new.context_id
     with pytest.raises(AssessmentConflictError):
         service.publish(document(summary="別の本文"), expected_head=old["context_id"])
     with pytest.raises(AssessmentConflictError):
-        service.publish(document(context_id="macro-context-2026-07-17-other"), expected_head=None)
+        service.publish(
+            document(context_id="market-context-assessment-2026-07-17-other"), expected_head=None
+        )
 
 
 def test_known_at_normal_historical_and_weekend_selection():
     friday = stored(
         document(
-            context_id="macro-context-2026-07-17-friday", published_at="2026-07-17T18:00:00+00:00"
+            context_id="market-context-assessment-2026-07-17-friday",
+            published_at="2026-07-17T18:00:00+00:00",
         )
     )
     weekend = stored(document())
@@ -122,12 +127,14 @@ def test_known_at_normal_historical_and_weekend_selection():
 def test_selector_orders_real_instants_not_iso_strings():
     early = stored(
         document(
-            context_id="macro-context-2026-07-17-early", published_at="2026-07-17T16:00:00+09:00"
+            context_id="market-context-assessment-2026-07-17-early",
+            published_at="2026-07-17T16:00:00+09:00",
         )
     )
     late = stored(
         document(
-            context_id="macro-context-2026-07-17-late", published_at="2026-07-17T08:00:00+00:00"
+            context_id="market-context-assessment-2026-07-17-late",
+            published_at="2026-07-17T08:00:00+00:00",
         )
     )
     assert (
@@ -168,7 +175,7 @@ def test_input_time_and_evidence_resolution():
     payload["inputs"] = [
         {
             "input_id": "reading",
-            "reference": "macro.reading/fixed",
+            "reference": "market_context.reading/fixed",
             "layer": "L2",
             "available_at": "2026-07-17T07:00:00+00:00",
         }

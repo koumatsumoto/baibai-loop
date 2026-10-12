@@ -89,10 +89,10 @@ class ReadingSnapshot:
 
 
 def snapshot_payload(snapshot: ReadingSnapshot) -> dict[str, object]:
-    """The wire form of a snapshot, shared by the CLI and the read-only API.
+    """Pure wire form for an arbitrary-reader snapshot.
 
-    One serializer keeps `macro reading --format json` and the read model byte-for-byte
-    comparable, so a UI panel and a hand check are reading the same numbers.
+    Store consumers add their reader-specific semantics once in reading.query;
+    this serializer makes no claim about which vintages the supplied reader selected.
     """
 
     return {

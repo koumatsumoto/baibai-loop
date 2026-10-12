@@ -20,9 +20,9 @@ from .resource_types import ResourceSpec
 def resources() -> dict[str, ResourceSpec]:
     specs = [
         ResourceSpec(
-            "macro.series",
+            "market_context.indicator_series",
             "L1",
-            "macro",
+            "market_context",
             "Git registry",
             "全登録系列・aliases・source",
             m.SeriesKey,
@@ -33,10 +33,10 @@ def resources() -> dict[str, ResourceSpec]:
             market_context.series_page,
         ),
         ResourceSpec(
-            "macro.observation",
+            "market_context.observation",
             "L1",
-            "macro",
-            "macro store",
+            "market_context",
+            "indicator store",
             "effectiveまたは全vintageの保存履歴",
             m.ObservationKey,
             m.ObservationKey,
@@ -47,10 +47,10 @@ def resources() -> dict[str, ResourceSpec]:
             time_basis="observed_at / vintage_at",
         ),
         ResourceSpec(
-            "macro.provider_run",
+            "market_context.provider_run",
             "L1",
-            "macro",
-            "macro store",
+            "market_context",
+            "indicator store",
             "取得状態。市場判断ではない",
             m.ProviderKey,
             m.ProviderKey,
@@ -61,10 +61,10 @@ def resources() -> dict[str, ResourceSpec]:
             time_basis="finished_at JST day",
         ),
         ResourceSpec(
-            "macro.reading",
+            "market_context.reading",
             "L2",
-            "macro",
-            "macro store + Git reading rules",
+            "market_context",
+            "indicator store + Git reading rules",
             "既存規則でread-time再計算。過去の保存snapshotではない",
             m.ReadingSelector,
             m.ReadingIdentity,
@@ -155,7 +155,13 @@ def resources() -> dict[str, ResourceSpec]:
             )
         )
     publication_specs: list[tuple[str, str, type[BaseModel], type[BaseModel], type[BaseModel]]] = [
-        ("macro.context", "macro_context", m.ContextSelector, m.ContextKey, m.DateRange),
+        (
+            "market_context.assessment",
+            "market_context_assessment",
+            m.ContextSelector,
+            m.ContextKey,
+            m.DateRange,
+        ),
         ("research.triage", "research_triage", m.TriageKey, m.TriageKey, m.TriageFilters),
         ("research.thesis", "thesis", m.ThesisKey, m.ThesisKey, m.TickerRange),
         (
@@ -306,7 +312,7 @@ def descriptor(spec: ResourceSpec, *, detail: bool = False) -> dict[str, Any]:
             payload_schema=spec.payload_schema,
             examples=[{"resource_id": spec.resource_id}],
         )
-        if spec.resource_id == "macro.series":
+        if spec.resource_id == "market_context.indicator_series":
             from baibai_engine.market_context.indicators.definitions import load_definitions
 
             result["series_ids"] = [item.series_id for item in load_definitions().series]

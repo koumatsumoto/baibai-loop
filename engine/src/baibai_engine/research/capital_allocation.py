@@ -12,12 +12,12 @@ from datetime import date, datetime
 from hashlib import sha256
 from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 from baibai_engine.research.operation.progress import ResearchComparisonScope
 from baibai_engine.storage.application.json import canonical_json
 
-CAPITAL_ALLOCATION_ASSESSMENT_SCHEMA_VERSION = 1
+CAPITAL_ALLOCATION_ASSESSMENT_SCHEMA_VERSION = 2
 
 type AllocationDecision = Literal["allocate", "no_allocation", "defer"]
 type AlternativeDisposition = Literal["allocate", "decline", "defer"]
@@ -75,10 +75,9 @@ class AssessmentContentReviewBinding(BaseModel):
         return self
 
 
-class CapitalAllocationAssessment(BaseModel):
+class _CapitalAllocationFields(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    schema_version: Literal[1]
     kind: Literal["capital_allocation_assessment"]
     capital_allocation_assessment_id: str = Field(min_length=1)
     as_of: date
@@ -86,7 +85,7 @@ class CapitalAllocationAssessment(BaseModel):
     result: AllocationDecision
     headline: str = Field(min_length=1)
     research_triage_id: str = Field(min_length=1)
-    macro_context_id: str | None = None
+    market_context_assessment_id: str | None = None
     research_scope: ResearchComparisonScope | None = None
     comparison: str = Field(min_length=1)
     forgone: str = Field(min_length=1)
@@ -137,7 +136,36 @@ class CapitalAllocationAssessment(BaseModel):
         return payload
 
 
-def capital_allocation_draft_sha256(assessment: CapitalAllocationAssessment) -> str:
+class CapitalAllocationAssessment(_CapitalAllocationFields):
+    """Current publication contract."""
+
+    schema_version: Literal[2]
+
+
+class StoredCapitalAllocationAssessment(_CapitalAllocationFields):
+    """Read a committed judgment without changing its publication or review hash."""
+
+    schema_version: Literal[1, 2]
+    _source_payload: dict[str, object] = PrivateAttr()
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, object]) -> StoredCapitalAllocationAssessment:
+        projection = dict(payload)
+        if projection.get("schema_version") == 1:
+            if "market_context_assessment_id" in projection:
+                raise ValueError("stored CAA1 has a current reference field")
+            projection["market_context_assessment_id"] = projection.pop("macro_context_id", None)
+        result = cls.model_validate(projection)
+        result._source_payload = dict(payload)
+        return result
+
+    def payload(self) -> dict[str, object]:
+        return dict(self._source_payload)
+
+
+def capital_allocation_draft_sha256(
+    assessment: CapitalAllocationAssessment | StoredCapitalAllocationAssessment,
+) -> str:
     """Hash the reviewed judgment, excluding its review and publication time."""
 
     payload = assessment.payload()
@@ -155,5 +183,6 @@ __all__ = [
     "CapitalAllocationAssessment",
     "CapitalAllocationConflictError",
     "CapitalAllocationError",
+    "StoredCapitalAllocationAssessment",
     "capital_allocation_draft_sha256",
 ]

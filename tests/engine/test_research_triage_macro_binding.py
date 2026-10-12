@@ -30,19 +30,23 @@ def _publish_context(path: Path) -> str:
     return document.context_id
 
 
-def _triage(*, macro_context_id: str | None, as_of: str = "2026-07-19") -> ResearchTriage:
+def _triage(
+    *, market_context_assessment_id: str | None, as_of: str = "2026-07-19"
+) -> ResearchTriage:
     return ResearchTriage.model_validate(
         research_triage_payload(
             research_triage_id=f"research-triage-{as_of.replace('-', '')}-binding",
             review_set_id="review-set-macro-binding",
             run_revision_id="runrev-macro-binding",
             as_of=as_of,
-            macro_context_id=macro_context_id,
+            market_context_assessment_id=market_context_assessment_id,
         )
     )
 
 
-def test_scaffold_binds_latest_eligible_macro_context(tmp_path: Path, monkeypatch) -> None:
+def test_scaffold_binds_latest_eligible_market_context_assessment(
+    tmp_path: Path, monkeypatch
+) -> None:
     app_db = tmp_path / "app.sqlite"
     context_id = _publish_context(app_db)
     output = tmp_path / "triage.yaml"
@@ -57,7 +61,7 @@ def test_scaffold_binds_latest_eligible_macro_context(tmp_path: Path, monkeypatc
     )
 
     draft = yaml.safe_load(output.read_text(encoding="utf-8"))
-    assert draft["macro_context_id"] == context_id
+    assert draft["market_context_assessment_id"] == context_id
 
 
 def test_scaffold_warns_but_keeps_a_stale_context(
@@ -76,7 +80,10 @@ def test_scaffold_warns_but_keeps_a_stale_context(
         == 0
     )
 
-    assert yaml.safe_load(output.read_text(encoding="utf-8"))["macro_context_id"] == context_id
+    assert (
+        yaml.safe_load(output.read_text(encoding="utf-8"))["market_context_assessment_id"]
+        == context_id
+    )
     assert "warning: latest eligible macro context is stale" in capsys.readouterr().err
 
 
@@ -89,18 +96,18 @@ def test_publish_requires_an_existing_nonfuture_context_when_one_is_named(
 
     # A saved full-depth report is optional; naming one still validates its identity/cutoff.
     published = service.publish(
-        _triage(macro_context_id=None),
+        _triage(market_context_assessment_id=None),
         review_set=PublishedReviewSet.model_validate(_review_set()),
     )
-    assert published.macro_context_id is None
+    assert published.market_context_assessment_id is None
     with pytest.raises(ResearchTriageConflictError, match="unknown context_id"):
         service.publish(
-            _triage(macro_context_id="macro-context-2026-07-19-unknown"),
+            _triage(market_context_assessment_id="macro-context-2026-07-19-unknown"),
             review_set=PublishedReviewSet.model_validate(_review_set()),
         )
     with pytest.raises(ResearchTriageConflictError, match="unavailable"):
         service.publish(
-            _triage(macro_context_id=context_id, as_of="2026-07-18"),
+            _triage(market_context_assessment_id=context_id, as_of="2026-07-18"),
             review_set=PublishedReviewSet.model_validate(_review_set(as_of="2026-07-18")),
         )
 
@@ -110,22 +117,22 @@ def test_publish_accepts_the_latest_eligible_context(tmp_path: Path) -> None:
     context_id = _publish_context(app_db)
 
     published = ResearchTriageService(app_db).publish(
-        _triage(macro_context_id=context_id),
+        _triage(market_context_assessment_id=context_id),
         review_set=PublishedReviewSet.model_validate(_review_set()),
     )
 
-    assert published.macro_context_id == context_id
+    assert published.market_context_assessment_id == context_id
 
 
 def test_publish_accepts_null_when_no_eligible_context_exists(tmp_path: Path) -> None:
     app_db = tmp_path / "app.sqlite"
 
     published = ResearchTriageService(app_db).publish(
-        _triage(macro_context_id=None),
+        _triage(market_context_assessment_id=None),
         review_set=PublishedReviewSet.model_validate(_review_set()),
     )
 
-    assert published.macro_context_id is None
+    assert published.market_context_assessment_id is None
 
 
 def test_publish_checks_the_frozen_input_cutoff_before_judgment_publication(tmp_path: Path) -> None:
@@ -133,7 +140,7 @@ def test_publish_checks_the_frozen_input_cutoff_before_judgment_publication(tmp_
     context_id = _publish_context(app_db)
     with pytest.raises(ResearchTriageConflictError, match="unavailable"):
         ResearchTriageService(app_db).publish(
-            _triage(macro_context_id=context_id),
+            _triage(market_context_assessment_id=context_id),
             review_set=PublishedReviewSet.model_validate(_review_set()),
             known_at=datetime.fromisoformat("2026-07-19T11:00:00+09:00"),
         )

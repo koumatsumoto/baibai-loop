@@ -16,11 +16,11 @@ from baibai_engine.market_context.assessment.query import (
     list_assessment_payloads,
 )
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
-from baibai_engine.market_context.reading.models import snapshot_payload
 from baibai_engine.market_context.reading.query import (
     READING_RULES_PATH,
     read_store_snapshot,
     reading_snapshot,
+    store_snapshot_payload,
 )
 from baibai_engine.market_context.reading.reader import build_store_observation_reader
 from baibai_engine.market_context.security import build_security_market_context
@@ -317,6 +317,6 @@ def stored_reading(path: Path, *, asof: date) -> dict[str, object]:
 
     with required_read(path, open_read_only_connection) as connection:
         validate_current_schema(connection)
-        return snapshot_payload(
+        return store_snapshot_payload(
             read_store_snapshot(connection, asof=asof, rules_path=READING_RULES_PATH)
         )

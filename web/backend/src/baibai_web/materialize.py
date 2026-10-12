@@ -59,10 +59,10 @@ _JST = ZoneInfo("Asia/Tokyo")
 # Same shape the ledger and run store enforce at write time; re-checked here so a
 # store-derived string never reaches filename composition unvalidated.
 _TICKER_FORMAT = re.compile(r"[0-9A-Z]{4}")
-# macro context_id charset; excludes path separators so it is safe in a filename
+# assessment context_id charset; excludes path separators so it is safe in a filename
 # and mirrors the Worker route validation for the same key.
-_MACRO_CONTEXT_ID_FORMAT = re.compile(r"[A-Za-z0-9._-]{1,128}")
-_MACRO_SERIES_ID_FORMAT = re.compile(r"[a-z0-9._-]{1,128}")
+_MARKET_CONTEXT_ASSESSMENT_ID_FORMAT = re.compile(r"[A-Za-z0-9._-]{1,128}")
+_INDICATOR_SERIES_ID_FORMAT = re.compile(r"[a-z0-9._-]{1,128}")
 _ASSESSMENT_ID_FORMAT = re.compile(r"[A-Za-z0-9._-]{1,128}")
 
 
@@ -150,23 +150,23 @@ def export_read_models(
     known_at = datetime.now(_JST)
     as_of = known_at.date()
     macro = build_market_context(stores.market_context, as_of=as_of, known_at=known_at)
-    written.append(_write_model(views_dir / "macro.json", macro))
+    written.append(_write_model(views_dir / "market-context.json", macro))
     for group in stores.market_context.groups:
         for configured in group.series:
             series_id = configured.series_id
-            if _MACRO_SERIES_ID_FORMAT.fullmatch(series_id) is None:
-                _warn(f"macro series_id has an unexpected format: {series_id!r}; view skipped")
+            if _INDICATOR_SERIES_ID_FORMAT.fullmatch(series_id) is None:
+                _warn(f"indicator series_id has an unexpected format: {series_id!r}; view skipped")
                 continue
             series = build_indicator_series(stores.market_context, series_id=series_id, as_of=as_of)
             if series is None:  # pragma: no cover - group entries come from the registry
-                _warn(f"macro series view is unavailable for {series_id!r}; skipped")
+                _warn(f"indicator series view is unavailable for {series_id!r}; skipped")
                 continue
-            written.append(_write_model(views_dir / f"macro-series--{series_id}.json", series))
+            written.append(_write_model(views_dir / f"indicator-series--{series_id}.json", series))
 
     for context in stores.market_context.assessment_history():
         context_id = str(context["context_id"])
-        if _MACRO_CONTEXT_ID_FORMAT.fullmatch(context_id) is None:
-            _warn(f"macro context_id has an unexpected format: {context_id!r}; report view skipped")
+        if _MARKET_CONTEXT_ASSESSMENT_ID_FORMAT.fullmatch(context_id) is None:
+            _warn(f"assessment context_id has an unexpected format: {context_id!r}; view skipped")
             continue
         try:
             detail = build_market_context_assessment_detail(
@@ -175,9 +175,11 @@ def export_read_models(
         except ValueError as error:
             # A not-yet-eligible (future as_of) revision is 404 on the API too; skip it
             # rather than fail the whole batch.
-            _warn(f"macro report view skipped for {context_id!r}: {error}")
+            _warn(f"assessment view skipped for {context_id!r}: {error}")
             continue
-        written.append(_write_model(views_dir / f"macro-context--{context_id}.json", detail))
+        written.append(
+            _write_model(views_dir / f"market-context-assessment--{context_id}.json", detail)
+        )
 
     # The screening index is deliberately current-only, but the detail API accepts
     # every immutable assessment ID. Export from the canonical assessment store so a

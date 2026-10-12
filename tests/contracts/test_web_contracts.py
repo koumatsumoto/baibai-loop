@@ -109,15 +109,15 @@ def test_dynamic_routes_map_to_exact_edge_keys_and_materializer_outputs() -> Non
             "`history/candidate-views/${asOf}.json`",
             'f"{screening_as_of.isoformat()}.json"',
         ),
-        "/api/macro/context/{context_id}": (
+        "/api/market-context/assessments/{context_id}": (
             "resolveMacroContext",
-            "`macro-context--${contextId}.json`",
-            'f"macro-context--{context_id}.json"',
+            "`market-context-assessment--${contextId}.json`",
+            'f"market-context-assessment--{context_id}.json"',
         ),
-        "/api/macro/series/{series_id}": (
+        "/api/market-context/indicators/{series_id}": (
             "resolveMacroSeries",
-            "`macro-series--${seriesId}.json`",
-            'f"macro-series--{series_id}.json"',
+            "`indicator-series--${seriesId}.json`",
+            'f"indicator-series--{series_id}.json"',
         ),
         "/api/capital-allocation-assessments/{capital_allocation_assessment_id}": (
             "resolveAssessment",
@@ -133,8 +133,8 @@ def test_dynamic_routes_map_to_exact_edge_keys_and_materializer_outputs() -> Non
     assert set(patterns) == set(expected)
     expected_contract_keys = {
         "/api/screening/history/{as_of}": "history/candidate-views/{as_of}.json",
-        "/api/macro/context/{context_id}": "views/macro-context--{context_id}.json",
-        "/api/macro/series/{series_id}": "views/macro-series--{series_id}.json",
+        "/api/market-context/assessments/{context_id}": "views/market-context-assessment--{context_id}.json",
+        "/api/market-context/indicators/{series_id}": "views/indicator-series--{series_id}.json",
         "/api/capital-allocation-assessments/{capital_allocation_assessment_id}": "views/capital-allocation-assessment--{capital_allocation_assessment_id}.json",
         "/api/securities/{ticker}": "views/security--{ticker}.json",
     }

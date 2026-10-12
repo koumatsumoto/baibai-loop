@@ -11,7 +11,7 @@ from baibai_engine.market_context.assessment.models import MarketContextAssessme
 def test_counter_evidence_and_uncertainty_reach_model_input():
     doc = MarketContextAssessment.model_validate(
         {
-            "context_id": "macro-context-2026-07-17-two-sided",
+            "context_id": "market-context-assessment-2026-07-17-two-sided",
             "as_of": "2026-07-17",
             "known_at": "2026-07-17T10:00:00+00:00",
             "published_at": "2026-07-18T12:00:00+00:00",
@@ -36,8 +36,10 @@ def test_counter_evidence_and_uncertainty_reach_model_input():
         review, StoredAssessment.from_payload(doc.payload()), known_at=cutoff
     ).model_dump(mode="json")
     assert body["known_at"] == cutoff.isoformat()
-    assert body["macro_context"]["counter_evidence"] == doc.payload()["counter_evidence"]
-    assert body["macro_context"]["uncertainties"] == doc.payload()["uncertainties"]
+    assert (
+        body["market_context_assessment"]["counter_evidence"] == doc.payload()["counter_evidence"]
+    )
+    assert body["market_context_assessment"]["uncertainties"] == doc.payload()["uncertainties"]
 
 
 def test_historical_synthesis_keeps_the_claim_counter_evidence_and_interactions():
@@ -48,7 +50,7 @@ def test_historical_synthesis_keeps_the_claim_counter_evidence_and_interactions(
         StoredAssessment.from_payload(original),
         known_at=datetime(2026, 7, 19, 10, tzinfo=UTC),
     ).model_dump(mode="json")
-    synthesis = body["macro_context"]["synthesis"]
+    synthesis = body["market_context_assessment"]["synthesis"]
     assert synthesis["interactions"] == original["synthesis"]["interactions"]
     assert {force["force_id"] for force in synthesis["dominant_forces"]} == {
         "rates-repricing",
@@ -61,5 +63,5 @@ def test_historical_synthesis_keeps_the_claim_counter_evidence_and_interactions(
             assert quoted[field] == source[field]
         assert any(
             item["summary"] == source["counter_evidence"]
-            for item in body["macro_context"]["counter_evidence"]
+            for item in body["market_context_assessment"]["counter_evidence"]
         )

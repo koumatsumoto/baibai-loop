@@ -51,7 +51,7 @@ def _meta_source(root: Path) -> DbMetaSource:
     return DbMetaSource(
         root / "stores/application/baibai.sqlite",
         root / "stores/screening/runs.sqlite",
-        root / "stores/macro/macro.sqlite",
+        root / "stores/market_context/indicators.sqlite",
     )
 
 
@@ -162,7 +162,7 @@ def _insert_review_set(root: Path, *, review_set_id: str) -> str:
 
 
 def _seed_macro_observations(root: Path) -> None:
-    conn = open_connection(root / "stores/macro/macro.sqlite")
+    conn = open_connection(root / "stores/market_context/indicators.sqlite")
     try:
         insert_observations(
             conn,
@@ -207,7 +207,7 @@ def test_build_meta_derives_store_asof_from_fixture_stores(app_method_root: Path
     view = build_meta(_meta_source(app_method_root), batch="daily")
 
     assert view.screening_as_of == date(2026, 7, 8)
-    assert view.macro_as_of == date(2026, 7, 17)
+    assert view.indicators_as_of == date(2026, 7, 17)
     assert view.app_db_updated_at == datetime(2026, 7, 19, 12, 0, tzinfo=JST)
     assert view.data_updated_at == datetime(2026, 7, 19, 12, 0, tzinfo=JST)
     assert view.batch == "daily"
@@ -218,7 +218,7 @@ def test_build_meta_freshness_ignores_retained_unregistered_series(
     app_method_root: Path,
 ) -> None:
     _seed_macro_observations(app_method_root)
-    database = app_method_root / "stores/macro/macro.sqlite"
+    database = app_method_root / "stores/market_context/indicators.sqlite"
     connection = open_connection(database)
     try:
         connection.execute(
@@ -257,7 +257,7 @@ def test_build_meta_freshness_ignores_retained_unregistered_series(
 
     view = build_meta(_meta_source(app_method_root))
 
-    assert view.macro_as_of == date(2026, 7, 17)
+    assert view.indicators_as_of == date(2026, 7, 17)
     assert view.data_updated_at == datetime(2026, 7, 18, 0, 0, tzinfo=JST)
 
 
@@ -268,7 +268,7 @@ def test_build_meta_takes_the_latest_judgment_write_across_stores(
     # on 2026-07-18; its date-only column is read at JST midnight.
     view = build_meta(_meta_source(app_method_root))
 
-    assert view.macro_as_of is None
+    assert view.indicators_as_of is None
     assert view.app_db_updated_at == datetime(2026, 7, 18, 0, 0, tzinfo=JST)
     assert view.batch is None
 
@@ -276,7 +276,7 @@ def test_build_meta_takes_the_latest_judgment_write_across_stores(
 def test_build_meta_reflects_a_newly_written_operation_session(
     app_method_root: Path,
 ) -> None:
-    # A judgment write in a table beyond ledger/research/macro must move freshness.
+    # A judgment write in a table beyond ledger/research/market-context must move freshness.
     started_at = datetime(2026, 8, 1, 9, 30, tzinfo=JST)
     with sqlite3.connect(app_method_root / "stores/application/baibai.sqlite") as connection:
         connection.execute(
@@ -304,7 +304,7 @@ def test_build_meta_returns_none_for_missing_stores(tmp_path: Path) -> None:
     view = build_meta(_meta_source(tmp_path))
 
     assert view.screening_as_of is None
-    assert view.macro_as_of is None
+    assert view.indicators_as_of is None
     assert view.app_db_updated_at is None
     assert view.data_updated_at is None
 
@@ -332,7 +332,7 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     expected = {
         "daily-delta.json",
         "dashboard.json",
-        "macro.json",
+        "market-context.json",
         "screening_latest.json",
         "operations.json",
         "tasks.json",
@@ -340,7 +340,7 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
         "security--0001.json",
         "security--0002.json",
         "security--2331.json",
-    } | {f"macro-series--{item.series_id}.json" for item in load_definitions().series}
+    } | {f"indicator-series--{item.series_id}.json" for item in load_definitions().series}
     assert {item.name for item in views.iterdir()} == expected
 
     DashboardView.model_validate_json((views / "dashboard.json").read_text(encoding="utf-8"))
@@ -356,7 +356,7 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     assert meta.batch == "daily"
     assert meta.screening_as_of == date(2026, 7, 8)
     macro = MarketContextView.model_validate_json(
-        (views / "macro.json").read_text(encoding="utf-8")
+        (views / "market-context.json").read_text(encoding="utf-8")
     )
     assert macro.reading.as_of == datetime.now(JST).date()
     assert sum(len(series.points) for group in macro.groups for series in group.series) == 0
@@ -375,7 +375,9 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     assert latest_pool["run"]["run_revision_id"] == run.run_revision_id
 
 
-def test_export_writes_macro_context_detail_views(app_method_root: Path, tmp_path: Path) -> None:
+def test_export_writes_market_context_assessment_detail_views(
+    app_method_root: Path, tmp_path: Path
+) -> None:
     (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
     db_path = app_method_root / "stores/application/baibai.sqlite"
     document = StoredAssessment.from_payload(historical_context_payload())
@@ -384,7 +386,7 @@ def test_export_writes_macro_context_detail_views(app_method_root: Path, tmp_pat
 
     assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 0
 
-    detail_path = output_dir / "views" / f"macro-context--{document.context_id}.json"
+    detail_path = output_dir / "views" / f"market-context-assessment--{document.context_id}.json"
     assert detail_path.is_file()
     detail = AssessmentPublicationView.model_validate_json(detail_path.read_text(encoding="utf-8"))
     assert detail.context_id == document.context_id
@@ -393,7 +395,7 @@ def test_export_writes_macro_context_detail_views(app_method_root: Path, tmp_pat
     # The current report is carried by the structured excerpt, not duplicated in
     # the collapsed past-revision index.
     overview = MarketContextView.model_validate_json(
-        (output_dir / "views/macro.json").read_text(encoding="utf-8")
+        (output_dir / "views/market-context.json").read_text(encoding="utf-8")
     )
     assert overview.latest_context is not None
     assert overview.latest_context.context_id == document.context_id
@@ -519,14 +521,16 @@ def test_exported_views_match_api_responses(app_method_root: Path, tmp_path: Pat
 
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         api_screening = client.get("/api/screening/latest").json()
-        api_macro = client.get("/api/macro").json()
+        api_macro = client.get("/api/market-context").json()
         api_dashboard = client.get("/api/dashboard").json()
         api_tasks = client.get("/api/tasks").json()
     exported_screening = json.loads(
         (output_dir / "views/screening_latest.json").read_text(encoding="utf-8")
     )
     assert exported_screening == api_screening
-    exported_macro = json.loads((output_dir / "views/macro.json").read_text(encoding="utf-8"))
+    exported_macro = json.loads(
+        (output_dir / "views/market-context.json").read_text(encoding="utf-8")
+    )
     assert exported_macro == api_macro
     exported_dashboard = json.loads(
         (output_dir / "views/dashboard.json").read_text(encoding="utf-8")

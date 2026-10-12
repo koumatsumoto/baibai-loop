@@ -41,6 +41,7 @@ from baibai_engine.batch_api import (
     APPLICATION_DB_PATH,
     RUNS_DB_PATH,
     ResearchTriage,
+    StoredResearchTriage,
     load_daily_analysis_context,
     load_latest_analysis_context,
     publish_daily_research_triage,
@@ -281,7 +282,9 @@ def _base_summary(asof: date, run_dir: Path, log: RunLog) -> dict[str, object]:
     }
 
 
-def _triage_summary(triage: ResearchTriage, summary: dict[str, object], *, published: bool) -> None:
+def _triage_summary(
+    triage: ResearchTriage | StoredResearchTriage, summary: dict[str, object], *, published: bool
+) -> None:
     candidates = [
         {
             "ticker": entry.ticker,
@@ -349,7 +352,9 @@ def _execute(
         _triage_summary(context.existing_triage, summary, published=False)
         return 0
 
-    model_input = build_model_input(context.review_set, context.macro_context, known_at=known_at)
+    model_input = build_model_input(
+        context.review_set, context.market_context_assessment, known_at=known_at
+    )
     write_json_atomic(run_dir / "input.json", model_input.model_dump(mode="json"), root=state_root)
     preflight_bytes = _model_input_bytes(model_input)
     summary["model_input_bytes"] = preflight_bytes
@@ -377,8 +382,10 @@ def _execute(
     triage = publish_daily_research_triage(
         context.review_set.review_set_id,
         output.decisions,
-        macro_context_id=(
-            None if context.macro_context is None else context.macro_context.context_id
+        market_context_assessment_id=(
+            None
+            if context.market_context_assessment is None
+            else context.market_context_assessment.context_id
         ),
         app_db_path=app_db_path,
         runs_db_path=runs_db_path,

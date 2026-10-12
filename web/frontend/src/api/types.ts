@@ -128,7 +128,7 @@ export interface CapitalAllocationAssessmentView {
   decision: string
   headline: string
   research_triage_id: string
-  macro_context_id: string | null
+  market_context_assessment_id: string | null
   comparison: string
   foregone_alternatives: string
   research_operation_id: string | null
@@ -477,7 +477,7 @@ export interface MetaView {
   generated_at: string
   data_updated_at: string | null
   screening_as_of: string | null
-  macro_as_of: string | null
+  indicators_as_of: string | null
   app_db_updated_at: string | null
   batch: MetaBatch | null
 }
@@ -628,6 +628,7 @@ export interface QuantsScoreObservation {
 }
 
 export interface ReadingSeriesView {
+  read_semantics: StoreReadingSemanticsView | null
   series_id: string
   name: string
   category: string
@@ -672,6 +673,7 @@ export interface ReadingTrendView {
  * just gone silent — a low-frequency series stays inside its threshold for weeks.
  */
 export interface ReadingView {
+  read_semantics: StoreReadingSemanticsView | null
   as_of: string
   rules_revision: string
   series: ReadingSeriesView[]
@@ -946,6 +948,18 @@ export interface SecurityDetailView {
   position_reviews: PositionReviewView[]
   security_analysis: SecurityAnalysisRowView | null
   screening_run: ScreeningRunView | null
+}
+
+/**
+ * The store reader's selection contract, not a guarantee for arbitrary pure readers.
+ */
+export interface StoreReadingSemanticsView {
+  mode: 'recomputed_from_current_store'
+  point_in_time_guaranteed: false
+  known_at_applied: false
+  limitation: string
+  vintage_selection: 'publication_vintage_cutoff' | 'latest_stored_history' | null
+  vintage_cutoff: string | null
 }
 
 export interface TaskView {

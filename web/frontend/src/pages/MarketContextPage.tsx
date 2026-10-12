@@ -276,7 +276,7 @@ function LatestContext({ context }: { context: AssessmentExcerptView | null }) {
   return (
     <SectionCard
       description={`${LABEL.asOf} ${context.as_of} / ${context.age_days} 日前`}
-      meta={<div className="flex gap-2">{context.stale && <StaleBadge />}<Link className="text-sm underline underline-offset-4" to={`/macro/reports/${context.context_id}`}>詳細レポート</Link></div>}
+      meta={<div className="flex gap-2">{context.stale && <StaleBadge />}<Link className="text-sm underline underline-offset-4" to={`/market-context/assessments/${context.context_id}`}>詳細レポート</Link></div>}
       title={context.assessment ? '市場環境判断' : '現在のマクロ局面'}
     >
       <div className="grid gap-5 px-5 py-4 sm:px-6">
@@ -323,7 +323,7 @@ export function MarketContextPage() {
     const controller = new AbortController()
     setError(null)
     setLoading(true)
-    fetchJson<MarketContextView>('/api/macro', { signal: controller.signal })
+    fetchJson<MarketContextView>('/api/market-context', { signal: controller.signal })
       .then(setData)
       .catch((reason: unknown) => {
         if (reason instanceof DOMException && reason.name === 'AbortError') return
@@ -377,10 +377,11 @@ export function MarketContextPage() {
   }
 
   return (
-    <PageShell meta={<UpdatedAtBadge value={data.latest_context?.published_at ?? null} />} title="マクロ経済分析">
+    <PageShell meta={<UpdatedAtBadge value={data.latest_context?.published_at ?? null} />} title="市場環境">
       <LatestContext context={data.latest_context} />
 
       <section className="grid gap-4">
+        {data.reading?.read_semantics && <p className="text-sm text-muted-foreground">{data.reading.read_semantics.limitation}</p>}
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="flex items-center gap-2">
             <h2 className="text-xl font-semibold tracking-tight">マクロ経済指標</h2>
@@ -456,7 +457,7 @@ export function MarketContextPage() {
         {reports.length === 0
           ? <p className="border-t px-5 py-4 text-sm text-muted-foreground sm:px-6">発行済みレポートはありません。</p>
           : <div className="divide-y border-t">{reports.map((report) => (
-            <Link className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-5 py-3 transition-colors hover:bg-muted/40 sm:px-6" key={report.context_id} to={`/macro/reports/${report.context_id}`}>
+            <Link className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-5 py-3 transition-colors hover:bg-muted/40 sm:px-6" key={report.context_id} to={`/market-context/assessments/${report.context_id}`}>
               <div className="flex min-w-0 items-center gap-2"><span className="truncate text-sm font-medium">{report.summary}</span>{report.stale && <StaleBadge />}</div>
               <div className="flex shrink-0 items-center gap-3 font-mono text-xs text-muted-foreground tabular-nums"><span>{LABEL.asOf} {report.as_of}</span><UpdatedAtBadge className="hidden sm:inline-flex" compact value={report.published_at} /><ArrowRight aria-hidden="true" className="size-4" /></div>
             </Link>

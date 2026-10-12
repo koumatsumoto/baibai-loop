@@ -26,7 +26,7 @@ copy_read_timeout=300
 # still noticed by reading the portfolio rather than by auditing it.
 app_backup_generations=14
 machine_manifest_key="machine-manifest.json"
-machine_bundle_keys=(market.sqlite runs.sqlite macro.sqlite)
+machine_bundle_keys=(market.sqlite runs.sqlite indicators.sqlite)
 transfer_staging=""
 transfer_config=""
 # The serving prefix is thousands of small objects, so its wall clock is request
@@ -124,7 +124,7 @@ store_path() {
   case "$1" in
     market.sqlite) printf '%s/stores/market/market.sqlite\n' "${repo_root}" ;;
     runs.sqlite) printf '%s/stores/screening/runs.sqlite\n' "${repo_root}" ;;
-    macro.sqlite) printf '%s/stores/macro/macro.sqlite\n' "${repo_root}" ;;
+    indicators.sqlite) printf '%s/stores/market_context/indicators.sqlite\n' "${repo_root}" ;;
     baibai.sqlite) printf '%s/stores/application/baibai.sqlite\n' "${repo_root}" ;;
     *) printf 'unknown store key: %s\n' "$1" >&2; return 2 ;;
   esac
@@ -712,7 +712,7 @@ pull_app() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|seed-all|hydrate-market|publish-lake|push-machine|push-market|push-macro|push-app|upload-serving-views DIR|publish-serving-tail DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|seed-all|hydrate-market|publish-lake|push-machine|push-market|push-indicators|push-app|upload-serving-views DIR|publish-serving-tail DIR}\n' "$0" >&2
 }
 
 load_credentials
@@ -743,7 +743,7 @@ case "${1:-}" in
     pull_keys runs.sqlite
     ;;
   seed-all)
-    seed_keys market.sqlite runs.sqlite macro.sqlite baibai.sqlite
+    seed_keys market.sqlite runs.sqlite indicators.sqlite baibai.sqlite
     ;;
   push-machine)
     push_pulled_keys "${machine_bundle_keys[@]}"
@@ -765,21 +765,21 @@ case "${1:-}" in
     push_key_if_version market.sqlite "${market_version}"
     write_machine_manifest
     ;;
-  push-macro)
-    # Deep history is fetched locally with `macro refresh --all-history`, which the
+  push-indicators)
+    # Deep history is fetched locally with `market-context indicators refresh --all-history`, which the
     # cloud's rolling-window refresh never reaches, while the daily batch keeps adding
     # recent observations the local store has never seen. So the local store is only
     # publishable once it contains the cloud copy: pull it, merge it in, and let the
     # merge refuse the upload if any cloud row would be left behind.
     transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
-    macro_version="$(remote_version macro.sqlite)"
-    aws_s3 cp "s3://${stores_bucket}/macro.sqlite" "${transfer_staging}/macro.sqlite"
-    check_sqlite "${transfer_staging}/macro.sqlite"
-    migrate_downloaded_store macro "${transfer_staging}/macro.sqlite"
-    merge_indicator_store "${transfer_staging}/macro.sqlite" "$(store_path macro.sqlite)"
+    indicator_version="$(remote_version indicators.sqlite)"
+    aws_s3 cp "s3://${stores_bucket}/indicators.sqlite" "${transfer_staging}/indicators.sqlite"
+    check_sqlite "${transfer_staging}/indicators.sqlite"
+    migrate_downloaded_store indicators "${transfer_staging}/indicators.sqlite"
+    merge_indicator_store "${transfer_staging}/indicators.sqlite" "$(store_path indicators.sqlite)"
     cleanup_staging
     transfer_staging=""
-    push_key_if_version macro.sqlite "${macro_version}"
+    push_key_if_version indicators.sqlite "${indicator_version}"
     write_machine_manifest
     ;;
   push-app)

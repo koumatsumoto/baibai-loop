@@ -10,10 +10,10 @@ const HSTS_HEADER = API_HEADERS['Strict-Transport-Security']
 
 const TICKER_PATTERN = /^[0-9A-Z]{4}$/
 const SCREENING_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
-// Mirrors _MACRO_CONTEXT_ID_FORMAT in baibai_web.materialize; excludes
+// Mirrors _MARKET_CONTEXT_ASSESSMENT_ID_FORMAT in baibai_web.materialize; excludes
 // path separators so the id maps to exactly one serving key.
-const MACRO_CONTEXT_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/
-const MACRO_SERIES_ID_PATTERN = /^[a-z0-9._-]{1,128}$/
+const MARKET_CONTEXT_ASSESSMENT_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/
+const INDICATOR_SERIES_ID_PATTERN = /^[a-z0-9._-]{1,128}$/
 const ASSESSMENT_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/
 
 type RouteResult =
@@ -112,8 +112,8 @@ function resolveRoute(url: URL): RouteResult {
       return view('tasks.json')
     case '/api/meta':
       return view('meta.json')
-    case '/api/macro':
-      return view('macro.json')
+    case '/api/market-context':
+      return view('market-context.json')
     default:
       return (
         resolveScreeningHistory(url.pathname) ??
@@ -126,15 +126,15 @@ function resolveRoute(url: URL): RouteResult {
 }
 
 function resolveMacroSeries(pathname: string): RouteResult | null {
-  const prefix = '/api/macro/series/'
+  const prefix = '/api/market-context/indicators/'
   if (!pathname.startsWith(prefix)) {
     return null
   }
   const seriesId = pathname.slice(prefix.length)
-  if (!MACRO_SERIES_ID_PATTERN.test(seriesId)) {
-    return { kind: 'error', status: 404, detail: 'unknown macro series' }
+  if (!INDICATOR_SERIES_ID_PATTERN.test(seriesId)) {
+    return { kind: 'error', status: 404, detail: 'unknown indicator series' }
   }
-  return view(`macro-series--${seriesId}.json`)
+  return view(`indicator-series--${seriesId}.json`)
 }
 
 function resolveScreeningHistory(pathname: string): RouteResult | null {
@@ -166,15 +166,15 @@ async function screeningHistoryIndex(env: Env): Promise<Response> {
 }
 
 function resolveMacroContext(pathname: string): RouteResult | null {
-  const prefix = '/api/macro/context/'
+  const prefix = '/api/market-context/assessments/'
   if (!pathname.startsWith(prefix)) {
     return null
   }
   const contextId = pathname.slice(prefix.length)
-  if (!MACRO_CONTEXT_ID_PATTERN.test(contextId)) {
-    return { kind: 'error', status: 404, detail: 'unknown macro context' }
+  if (!MARKET_CONTEXT_ASSESSMENT_ID_PATTERN.test(contextId)) {
+    return { kind: 'error', status: 404, detail: 'unknown market context assessment' }
   }
-  return view(`macro-context--${contextId}.json`)
+  return view(`market-context-assessment--${contextId}.json`)
 }
 
 function resolveAssessment(pathname: string): RouteResult | null {

@@ -12,7 +12,9 @@ _OWNERS = {
         "engine/src/baibai_engine/foundation/repository_layout.py"
     ),
     "stores/market/market.sqlite": Path("engine/src/baibai_engine/foundation/repository_layout.py"),
-    "stores/macro/macro.sqlite": Path("engine/src/baibai_engine/foundation/repository_layout.py"),
+    "stores/market_context/indicators.sqlite": Path(
+        "engine/src/baibai_engine/foundation/repository_layout.py"
+    ),
     "stores/screening/runs.sqlite": Path(
         "engine/src/baibai_engine/foundation/repository_layout.py"
     ),

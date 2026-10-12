@@ -95,7 +95,7 @@ def test_publication_originals_preserve_unknown_fields_without_related_eligibili
     outcome = outcome_publication()
     PortfolioOutcomeStore(data.paths.application).publish(outcome)
     cases = [
-        ("macro.context", {"context_id": context.context_id}, context.document),
+        ("market_context.assessment", {"context_id": context.context_id}, context.document),
         ("research.thesis", {"thesis_id": "thesis-a"}, thesis),
         ("research.thesis_review", {"review_id": review["review_id"]}, review),
         (
@@ -113,21 +113,21 @@ def test_publication_originals_preserve_unknown_fields_without_related_eligibili
         result = data.get(name, selector)
         assert result["payload"]["payload"] == expected
         assert result["meta"]["validation"] == (
-            "stored_only" if name == "macro.context" else "current"
+            "stored_only" if name == "market_context.assessment" else "current"
         )
         assert data.get(name, resource_ref=result["resource_ref"])["payload"] == result["payload"]
         assert pages(data, name)
     with sqlite3.connect(data.paths.application) as con:
         assert list(con.iterdump()) == before
-    latest = data.get("macro.context", {"as_of": context.as_of.isoformat()})
+    latest = data.get("market_context.assessment", {"as_of": context.as_of.isoformat()})
     assert latest["meta"]["head_context_id"] == context.context_id
-    error(lambda: data.get("macro.context", {"latest": 1}), "INVALID_ARGUMENT")
+    error(lambda: data.get("market_context.assessment", {"latest": 1}), "INVALID_ARGUMENT")
 
 
 def test_old_publication_is_stored_only_but_current_corruption_is_error(data):
     with sqlite3.connect(data.paths.application) as con:
         con.execute(
-            "INSERT INTO macro_context VALUES(?,?,?,?,?,?)",
+            "INSERT INTO market_context_assessment VALUES(?,?,?,?,?,?)",
             (
                 "old",
                 1,
@@ -138,7 +138,7 @@ def test_old_publication_is_stored_only_but_current_corruption_is_error(data):
             ),
         )
         con.execute(
-            "INSERT INTO macro_context VALUES(?,?,?,?,?,?)",
+            "INSERT INTO market_context_assessment VALUES(?,?,?,?,?,?)",
             (
                 "bad",
                 ASSESSMENT_SCHEMA_VERSION,
@@ -153,9 +153,12 @@ def test_old_publication_is_stored_only_but_current_corruption_is_error(data):
                 ),
             ),
         )
-    assert data.get("macro.context", {"context_id": "old"})["meta"]["validation"] == "stored_only"
-    assert len(pages(data, "macro.context")) == 2
-    error(lambda: data.get("macro.context", {"context_id": "bad"}), "CONTRACT_MISMATCH")
+    assert (
+        data.get("market_context.assessment", {"context_id": "old"})["meta"]["validation"]
+        == "stored_only"
+    )
+    assert len(pages(data, "market_context.assessment")) == 2
+    error(lambda: data.get("market_context.assessment", {"context_id": "bad"}), "CONTRACT_MISMATCH")
 
 
 def test_er_saved_payload_survives_expiry_and_meta_does_not_change_ref(data, monkeypatch):
@@ -233,15 +236,17 @@ def test_context_schema_column_cannot_disguise_payload_as_historical(data):
     old = {"schema_version": 1, "context_id": "old", "as_of": "2026-01-01", "old_field": "raw"}
     with sqlite3.connect(data.paths.application) as con:
         con.execute(
-            "INSERT INTO macro_context VALUES(?,?,?,?,?,?)",
+            "INSERT INTO market_context_assessment VALUES(?,?,?,?,?,?)",
             ("old", 1, "2026-01-01", "2026-01-01T00:00:00Z", None, json.dumps(old)),
         )
-    result = data.get("macro.context", {"context_id": "old"})
+    result = data.get("market_context.assessment", {"context_id": "old"})
     assert result["payload"]["payload"] == old
     assert result["meta"]["validation"] == "stored_only"
     with sqlite3.connect(data.paths.application) as con:
-        con.execute("UPDATE macro_context SET schema_version=?", (ASSESSMENT_SCHEMA_VERSION,))
-    error(lambda: data.get("macro.context", {"context_id": "old"}), "CONTRACT_MISMATCH")
+        con.execute(
+            "UPDATE market_context_assessment SET schema_version=?", (ASSESSMENT_SCHEMA_VERSION,)
+        )
+    error(lambda: data.get("market_context.assessment", {"context_id": "old"}), "CONTRACT_MISMATCH")
 
 
 def test_review_list_distinguishes_missing_parent_from_empty_and_preserves_old(data):

@@ -16,7 +16,7 @@ from baibai_engine.research.operation.progress import (
     selection_sha256,
 )
 from baibai_engine.research.operation.service import OperationService
-from baibai_engine.research.triage.contracts import ResearchTriage
+from baibai_engine.research.triage.contracts import StoredResearchTriage
 from baibai_engine.research.triage.query import (
     current_research_triage,
     research_triage_payload_hash,
@@ -67,7 +67,7 @@ class ResearchSetAdmissionBinding:
 
 
 def _research_triage_decisions(
-    triage: ResearchTriage,
+    triage: StoredResearchTriage,
 ) -> tuple[tuple[str, ...], dict[str, str]]:
     """Read one research_triage payload as a ResearchTriage judgment, or fail closed."""
 
@@ -77,7 +77,7 @@ def _research_triage_decisions(
     return triage.admissible_research_tickers(), decisions
 
 
-def _review_set_entries_from_triage(triage: ResearchTriage) -> tuple[dict[str, object], ...]:
+def _review_set_entries_from_triage(triage: StoredResearchTriage) -> tuple[dict[str, object], ...]:
     rows: list[dict[str, object]] = []
     for entry in sorted(triage.entries, key=lambda item: item.ticker):
         snapshot = entry.candidate_snapshot

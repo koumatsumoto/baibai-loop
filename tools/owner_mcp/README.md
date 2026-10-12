@@ -69,7 +69,7 @@ Refreshを利用できないdeveloper接続では、同じTunnelを選んだ新�
 ## 保存dataの読み方
 
 1. `data_catalog()`で全resourceを確認する。`layer`（L1/L2/L3）と`domain`はAND条件。
-2. `data_catalog(resource_id="macro.observation")`などで実request schema、sort、time basisを確認する。
+2. `data_catalog(resource_id="market_context.observation")`などで実request schema、sort、time basisを確認する。
 3. `data_list(resource_id, filters, limit)`で列挙し、itemの`selector`を`data_get`へ渡す。
 4. getの`resource_ref`を保存する。同じresourceへの再getでpayloadが変われば`REFERENCE_MISMATCH`になる。
 
@@ -79,15 +79,15 @@ ledger/ER artifactだけはsingletonなので空selectorを使います。refは
 credentialを含むsource URL・provider errorは既存のredactionを通してからhash化します。
 
 ```json
-{"resource_id":"macro.reading","selector":{"as_of":"2026-09-18"}}
+{"resource_id":"market_context.reading","selector":{"as_of":"2026-09-18"}}
 ```
 
 ```json
-{"resource_id":"macro.observation","filters":{"series_id":"jp.10y","from":"2025-09-01","to":"2026-09-18","mode":"effective"},"limit":200}
+{"resource_id":"market_context.observation","filters":{"series_id":"jp.10y","from":"2025-09-01","to":"2026-09-18","mode":"effective"},"limit":200}
 ```
 
 例の日付は実際の評価日に置き換えてください。readingは現在のstore履歴と既存rulesから再計算したL2です。
-過去L3を自動で混ぜません。保存された市場環境判断は`macro.context`から別に取得します。
+過去L3を自動で混ぜません。保存された市場環境判断は`market_context.assessment`から別に取得します。
 
 利用可能なresource・selector・filter・sort・time basisは`data_catalog`の実応答を参照する。macro Readingの再計算と保存Contextの取得、ledgerの保存価格と現在quoteは別のresourceである。
 
@@ -97,7 +97,7 @@ credentialを含むsource URL・provider errorは既存のredactionを通して�
 macro observationのeffectiveは`as_of >= to`、省略時は`to`をcutoffとします。
 publication-quality vintageだけをcutoffへclampします。vintagesは退役系列を含むraw保存行で、`as_of`は不可です。
 calibrationでは最初の`meta.snapshot_token`を後続のfilters/selectorへ渡すとcohort→panel→forwardを固定できます。
-`macro.reading`は各pageの`meta.rules_revision`に、そのcallで再計算したrulesの版を返します。
+`market_context.reading`は各pageの`meta.rules_revision`に、そのcallで再計算したrulesの版を返します。
 一般mutable collectionはcall単位の整合であり、複数page全体のhistorical snapshotではありません。
 
 入力modelの不備は`INVALID_ARGUMENT`にfieldと短い理由を添えます。入力値・未知field名は返しません。
@@ -205,7 +205,7 @@ selectorは0〜1個です。`research_triage_id`はexact ID、`as_of`はexact日
 欠損sourceを別runやrevisionで補いません。
 
 `triage_ref`は`research_triage_id`、`research_triage_sha256`、`model_input_sha256`の3 fieldです。
-inputは保存済みexact Review Setとcanonical Triageがbindするexact Context本文から必要項目を抽出します。v3/v4の旧Contextは従来の6項目・schema 1/2を維持し、v5 assessmentの参照はschema 3で共通projectionの重要変化・根拠・反証・不確実性・含意・出典を返します。Contextがnullなら、後発判断があっても`missing`のままです。
+inputは保存済みexact Review Setとcanonical Triageがbindするexact判断本文から抽出します。保存Triage3については旧3/4 Contextの6項目・schema1/2、コンパクト5のschema3を維持し、元payload/hashと別の読取抽出として扱います。新Triage4の抽出はschema4で領域名のfieldを使います。assessment5/6はいずれも重要変化・反証・不確実性・含意・出典を持つコンパクト判断です。判断参照がnullなら後発判断があっても`missing`のままです。
 
 `input_basis`は`stored_publication_extract`で、`model_input_sha256`はこの抽出結果のhashです。過去runnerの全入力やexact promptを証明しません。保存済みprivate `input.json`は上書き再生成せず、残っている場合だけ別の受入作業で当時payloadとの一致を確認できます。元fileやmatching Run / Review Setが無い場合、当時の全入力を復元できたとは扱いません。
 
@@ -244,4 +244,6 @@ Owner toolsも完全な結果を返し、wire上限を超える場合は`RESULT_
 
 内部exception本文・credential・local pathは公開エラーに含めません。
 
-Market Contextの実装入口は`resources_market_context.py`と`read_api/market_context.py`で、L1指標とL2 Readingを分ける。L3は共有applicationのpublication readerを使う。現在のresource ID `macro.*`は公開契約として次の切替まで保持し、旧moduleの転送aliasは置かない。
+Market Contextの実装入口は`resources_market_context.py`と`read_api/market_context.py`で、L1指標とL2 Readingを分ける。L3は共有applicationのpublication readerを使う。resource IDは`market_context.*`へ統一し、旧moduleや公開名の転送aliasは置かない。保存済みIDは新しいassessment入口から読む。
+
+保存Readingのsnapshot・各系列・metaは共通`read_semantics`を返します。公表vintageと取得vintageの選択を区別し、Researchのknown_at/received_cutoffによる当時点再現を保証しない旨をWeb/Researchと同じserializerから渡します。

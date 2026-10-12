@@ -87,12 +87,12 @@ def _context(
     *,
     tickers: tuple[str, ...] = ("2331", "0001"),
     existing: ResearchTriage | None = None,
-    macro_context: StoredAssessment | None = None,
+    market_context_assessment: StoredAssessment | None = None,
 ) -> DailyAnalysisContext:
     return DailyAnalysisContext(
         review_set=_review_set(tickers=tickers),
         existing_triage=existing,
-        macro_context=macro_context,
+        market_context_assessment=market_context_assessment,
         known_at=datetime(2026, 9, 1, 18, tzinfo=_JST),
     )
 
@@ -108,7 +108,7 @@ def _args(tmp_path: Path, *, asof: date | None = _ASOF) -> SimpleNamespace:
     )
 
 
-def _macro_context() -> StoredAssessment:
+def _market_context_assessment() -> StoredAssessment:
     return StoredAssessment.from_payload(
         historical_context_payload(
             context_id="macro-context-2026-09-01-analysis",
@@ -330,7 +330,7 @@ def test_one_model_request_publishes_without_starting_an_operation(
     expected_status: str,
     awaits_human: bool,
 ) -> None:
-    context = _context(macro_context=_macro_context())
+    context = _context(market_context_assessment=_market_context_assessment())
     loaded: list[dict[str, object]] = []
 
     def load(asof, **paths):
@@ -345,7 +345,7 @@ def test_one_model_request_publishes_without_starting_an_operation(
         _review_set_id,
         decisions,
         *,
-        macro_context_id,
+        market_context_assessment_id,
         app_db_path,
         runs_db_path,
         published_at,
@@ -353,8 +353,8 @@ def test_one_model_request_publishes_without_starting_an_operation(
     ):
         assert app_db_path == tmp_path / "stores/application/baibai.sqlite"
         assert runs_db_path == tmp_path / "stores/screening/runs.sqlite"
-        assert context.macro_context is not None
-        assert macro_context_id == context.macro_context.context_id
+        assert context.market_context_assessment is not None
+        assert market_context_assessment_id == context.market_context_assessment.context_id
         assert known_at == context.known_at
         del published_at
         selected = tuple(item.ticker for item in decisions if item.verdict == "research")
@@ -385,7 +385,7 @@ def test_one_model_request_publishes_without_starting_an_operation(
     assert (summary["human_action"] is not None) is awaits_human
     input_payload = read_json(Path(str(summary["run_dir"])) / "input.json", root=tmp_path / "state")
     rendered = json.dumps(input_payload, ensure_ascii=False)
-    assert rendered.count("macro_context") == 1
+    assert rendered.count("market_context_assessment") == 1
     assert all(
         forbidden not in rendered
         for forbidden in (
@@ -405,7 +405,7 @@ def test_existing_exact_triage_launches_no_model_and_stays_awaiting_human(
 ) -> None:
     previous_input = tmp_path / "state" / "old-run" / "input.json"
     previous_input.parent.mkdir(parents=True)
-    saved_input = b'{"schema_version":1,"macro_context":{"summary":"old"}}\n'
+    saved_input = b'{"schema_version":1,"market_context_assessment":{"summary":"old"}}\n'
     previous_input.write_bytes(saved_input)
     review_set = _review_set()
     triage = _triage(review_set)
@@ -602,7 +602,7 @@ print(json.dumps({'type': 'turn.completed', 'usage': {'input_tokens': 321, 'outp
     )
     context = _context()
     model_input = analysis_cli.build_model_input(
-        context.review_set, context.macro_context, known_at=context.known_at
+        context.review_set, context.market_context_assessment, known_at=context.known_at
     )
     log = RunLog(run_dir / "run.log", state_root=state)
 
@@ -872,3 +872,49 @@ def test_latest_matches_run_and_review_set_by_instant_with_mixed_offsets(
     assert len(payloads) == len(calls) == 1
     assert payloads[0]["research_triage_id"] == result["research_triage_id"]
     assert payloads[0]["run_revision_id"] == selected.run_revision_id
+
+
+def test_saved_triage3_replays_and_same_binding_returns_original_without_model_or_write(
+    tmp_path, capsys
+):
+    from baibai_engine.batch_api import publish_daily_research_triage
+
+    review = _seed_canonical_review_set(tmp_path)
+    model, calls = _model_runner({"2331": "research"})
+    assert analysis_cli._run(_args(tmp_path), model_runner=model) == 0
+    initial = json.loads(capsys.readouterr().out)
+    db = tmp_path / "stores/application/baibai.sqlite"
+    with sqlite3.connect(db) as con:
+        old = json.loads(con.execute("SELECT payload FROM research_triage").fetchone()[0])
+        old["schema_version"] = 3
+        old["triage_contract_id"] = "research-triage-v3"
+        old["macro_context_id"] = old.pop("market_context_assessment_id")
+        raw = json.dumps(old, ensure_ascii=False)
+        con.execute("UPDATE research_triage SET payload=?", (raw,))
+    before = db.read_bytes()
+    assert analysis_cli._run(_args(tmp_path), model_runner=model) == 0
+    replay = json.loads(capsys.readouterr().out)
+    assert replay["research_triage_id"] == initial["research_triage_id"]
+    assert len(calls) == 1
+    decisions = [
+        dict(
+            ticker=e["ticker"],
+            verdict=e["decision"],
+            priority=e["priority"],
+            rationale=e["rationale"],
+            research_question=e["research_question"],
+            key_risk=e["key_risk"],
+        )
+        for e in old["entries"]
+    ]
+    reused = publish_daily_research_triage(
+        review.review_set_id,
+        decisions,
+        market_context_assessment_id=old["macro_context_id"],
+        app_db_path=db,
+        runs_db_path=tmp_path / "stores/screening/runs.sqlite",
+        published_at=datetime.fromisoformat(old["published_at"]),
+    )
+    assert reused.schema_version == 3
+    assert reused.publication_payload() == old
+    assert db.read_bytes() == before

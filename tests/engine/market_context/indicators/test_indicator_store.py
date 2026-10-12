@@ -79,7 +79,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
     def test_initialize_database_seeds_series_and_aliases(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "macro.sqlite"
+            db = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(db)
             try:
                 version = conn.execute("PRAGMA user_version").fetchone()[0]
@@ -96,7 +96,7 @@ class IndicatorsDBTests(unittest.TestCase):
     def test_the_immediately_previous_schema_is_migrated(self) -> None:
 
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             initialize_database(database).close()
             with sqlite3.connect(database) as connection:
                 connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
@@ -110,7 +110,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
     def test_a_failed_previous_schema_migration_rolls_back(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             initialize_database(database).close()
             with sqlite3.connect(database) as connection:
                 connection.executescript(
@@ -151,7 +151,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
     def test_an_unsupported_older_schema_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             initialize_database(database).close()
             with sqlite3.connect(database) as connection:
                 connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 2}")
@@ -164,7 +164,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
     def test_open_connection_preserves_series_removed_from_registry(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "macro.sqlite"
+            db = Path(tmp) / "indicators.sqlite"
             _write_retired_series(db)
             conn = open_connection(db)
             try:
@@ -191,7 +191,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
     def test_read_paths_hide_retired_series_without_deleting_its_facts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             _write_retired_series(database)
 
             service = IndicatorsService(database)
@@ -222,7 +222,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
     def test_reading_cli_replays_point_in_time_provider_vintage_at_asof(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(database)
             try:
                 insert_observations(
@@ -279,7 +279,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
     def test_refresh_prunes_retired_series_and_reports_deleted_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             _write_retired_series(database)
             definition = load_definitions().by_id()["us.10y"]
             refreshed = ObservationRecord(
@@ -340,7 +340,7 @@ class IndicatorsDBTests(unittest.TestCase):
         """
 
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             _write_retired_series(database)
             with sqlite3.connect(database) as connection:
                 indicators_db.set_registry_generation(connection, load_definitions().generation)
@@ -356,7 +356,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
     def test_refresh_prune_failure_rolls_back_every_retired_row(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             _write_retired_series(database)
             open_connection(database).close()
             before = _prune_store_rows(database)
@@ -390,7 +390,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
     def test_newer_store_registry_generation_rejects_stale_client_refresh(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             definitions = load_definitions()
             initialize_database(
                 database,
@@ -420,7 +420,7 @@ class IndicatorsDBTests(unittest.TestCase):
     def test_refresh_prune_reporting_failure_keeps_committed_rows(self) -> None:
         for error_type in (BrokenPipeError, OSError):
             with self.subTest(error=error_type), tempfile.TemporaryDirectory() as tmp:
-                database = Path(tmp) / "macro.sqlite"
+                database = Path(tmp) / "indicators.sqlite"
                 _write_retired_series(database)
                 committed: list[bool] = []
 
@@ -461,7 +461,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
     def test_refresh_prune_counts_and_deletes_under_one_writer_lock(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             _write_retired_series(database)
             original_prune = indicators_db.prune_definitions
             blocked: list[bool] = []
@@ -505,7 +505,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
     def test_refresh_prune_commit_failure_rolls_back_database(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             _write_retired_series(database)
             connection = open_connection(database)
             before = _prune_store_rows(database)
@@ -526,7 +526,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
     def test_refresh_without_retired_rows_updates_generation_without_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             definitions = load_definitions()
             connection = initialize_database(
                 database,
@@ -548,7 +548,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
     def test_observations_in_range_returns_latest_vintage_per_observed_date(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "macro.sqlite"
+            db = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(db)
             try:
                 series = get_series(conn, "us.10y")
@@ -589,7 +589,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
     def test_insert_gate_rejects_out_of_range_value_and_wrong_unit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(database)
             try:
                 for record, expected in (
@@ -613,7 +613,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
     def test_insert_gate_rolls_back_the_entire_batch_after_a_late_violation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(database)
             try:
                 with self.assertRaisesRegex(sqlite3.IntegrityError, "plausible range"):
@@ -635,7 +635,7 @@ class IndicatorsDBTests(unittest.TestCase):
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(database)
             try:
                 insert_observations(conn, [observation("us.10y", date(2026, 5, 1), 4.39)])
@@ -684,7 +684,7 @@ class IndicatorsDBTests(unittest.TestCase):
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(database)
             try:
                 insert_observations(
@@ -715,7 +715,7 @@ class IndicatorsDBTests(unittest.TestCase):
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(database)
             existing = observation("us.10y", date(2026, 5, 2), 4.40)
             try:
@@ -751,7 +751,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
     def test_update_gate_preserves_valid_observation_on_contract_violation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(database)
             try:
                 insert_observations(conn, [observation("us.10y", date(2026, 5, 1), 4.39)])
@@ -770,7 +770,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
     def test_registry_update_rejects_a_band_that_excludes_existing_history(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             original = _series("fred_csv", "TEST")
             conn = initialize_database(
                 database,
@@ -809,7 +809,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
     def test_series_contract_update_trigger_rejects_excluded_history(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             definition = _series("fred_csv", "TEST")
             conn = initialize_database(
                 database,
@@ -843,7 +843,7 @@ class IndicatorsDBTests(unittest.TestCase):
     ) -> None:
         for mode in ("missing", "changed", "unexpected"):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
-                database = Path(tmp) / "macro.sqlite"
+                database = Path(tmp) / "indicators.sqlite"
                 initialize_database(database).close()
                 with sqlite3.connect(database) as connection:
                     if mode in {"missing", "changed"}:
@@ -869,7 +869,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
     def test_jquants_range_excludes_vintages_published_after_end(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(database)
             try:
                 insert_observations(
@@ -914,7 +914,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
     def test_insert_observations_skips_unchanged_later_vintage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(database)
             try:
                 common = {
@@ -972,7 +972,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
     def test_delete_unchanged_vintages_preserves_changed_and_reverted_values(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(database)
             try:
                 insert_observations(
@@ -1007,7 +1007,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
     def test_zero_record_provider_run_is_not_cache_coverage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "macro.sqlite"
+            db = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(db)
             try:
                 record_provider_run(
@@ -1035,7 +1035,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
     def test_aliases_allow_same_alias_for_multiple_series(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "macro.sqlite"
+            db = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(db)
             try:
                 conn.execute(

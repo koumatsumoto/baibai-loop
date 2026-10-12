@@ -18,7 +18,7 @@ class MetaView(BaseModel):
     generated_at: datetime
     data_updated_at: datetime | None
     screening_as_of: date | None
-    macro_as_of: date | None
+    indicators_as_of: date | None
     app_db_updated_at: datetime | None
     batch: MetaBatch | None
 
@@ -645,7 +645,19 @@ class ReadingTrendView(BaseModel):
     direction: str
 
 
+class StoreReadingSemanticsView(BaseModel):
+    """The store reader's selection contract, not a guarantee for arbitrary pure readers."""
+
+    mode: Literal["recomputed_from_current_store"]
+    point_in_time_guaranteed: Literal[False]
+    known_at_applied: Literal[False]
+    limitation: str
+    vintage_selection: Literal["publication_vintage_cutoff", "latest_stored_history"] | None = None
+    vintage_cutoff: date | None = None
+
+
 class ReadingSeriesView(BaseModel):
+    read_semantics: StoreReadingSemanticsView | None = None
     series_id: str
     name: str
     category: str
@@ -694,6 +706,7 @@ class ReadingView(BaseModel):
     just gone silent — a low-frequency series stays inside its threshold for weeks.
     """
 
+    read_semantics: StoreReadingSemanticsView | None = None
     as_of: date
     rules_revision: str
     series: list[ReadingSeriesView]
@@ -797,7 +810,7 @@ class CapitalAllocationAssessmentView(BaseModel):
     decision: str
     headline: str
     research_triage_id: str
-    macro_context_id: str | None
+    market_context_assessment_id: str | None
     comparison: str
     foregone_alternatives: str
     research_operation_id: str | None = None
