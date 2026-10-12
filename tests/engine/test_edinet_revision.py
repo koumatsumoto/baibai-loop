@@ -26,6 +26,7 @@ _ENGINE_ROOT = Path(__file__).resolve().parents[2] / "engine/src/baibai_engine"
 _EXPECTED_MANIFEST = tuple(
     sorted(
         (
+            "market/edinet_models.py",
             "market/edinet_metrics/revision.py",
             "market/edinet_metrics/service.py",
             "market/edinet_metrics/store.py",

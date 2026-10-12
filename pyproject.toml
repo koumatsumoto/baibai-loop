@@ -618,5 +618,5 @@ forbidden_modules = [
 [[tool.importlinter.contracts]]
 name = "provider observation models and decoding do not load acquisition or storage"
 type = "forbidden"
-source_modules = ["baibai_engine.market.jpx_models", "baibai_engine.market.jquants_models", "baibai_engine.market.jquants_decode"]
+source_modules = ["baibai_engine.market.edinet_models", "baibai_engine.market.jpx_models", "baibai_engine.market.jquants_models", "baibai_engine.market.jquants_decode"]
 forbidden_modules = ["baibai_engine.market.providers", "baibai_engine.storage", "baibai_engine.screening", "baibai_engine.research", "baibai_engine.read_api", "baibai_engine.batch_api", "baibai_web", "baibai_batch", "tools"]

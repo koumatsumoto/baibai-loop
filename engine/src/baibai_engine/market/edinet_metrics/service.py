@@ -16,10 +16,10 @@ from baibai_engine.market.edinet_metrics.store import (
     EDINETMetricBaselineRow,
     read_edinet_metric_baseline,
 )
+from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.providers.edinet import (
     TARGET_DOC_TYPE_CODES,
     EdinetDocumentCandidate,
-    EdinetMetricRecord,
     EDINETProviderError,
     EDINETRateLimitError,
     QuarantinedDocumentEvent,

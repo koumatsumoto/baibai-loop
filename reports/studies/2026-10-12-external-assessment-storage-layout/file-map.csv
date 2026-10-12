@@ -231,8 +231,8 @@ engine/src/baibai_engine/market/metric_quality.py,unchanged,engine/src/baibai_en
 engine/src/baibai_engine/market/models.py,unchanged,engine/src/baibai_engine/market/models.py,Market disclosures,今回の配置対象外、現行を維持
 engine/src/baibai_engine/market/price_asof.py,unchanged,engine/src/baibai_engine/market/price_asof.py,Market disclosures,今回の配置対象外、現行を維持
 engine/src/baibai_engine/market/providers/__init__.py,unchanged,engine/src/baibai_engine/market/providers/__init__.py,Market disclosures,今回の配置対象外、現行を維持
-engine/src/baibai_engine/market/providers/edinet.py,update,engine/src/baibai_engine/market/providers/edinet.py,Market disclosures,移設caller/import・名称・文書の整合
-engine/src/baibai_engine/market/providers/edinet_csv.py,unchanged,engine/src/baibai_engine/market/providers/edinet_csv.py,Market disclosures,今回の配置対象外、現行を維持
+engine/src/baibai_engine/market/providers/edinet.py,update,engine/src/baibai_engine/market/providers/edinet.py,Market disclosures,EdinetMetricRecordと有限値検証をpure Market開示モデルへ分離
+engine/src/baibai_engine/market/providers/edinet_csv.py,update,engine/src/baibai_engine/market/providers/edinet_csv.py,Market disclosures,保存層・純粋観測型のownerへimportと参照を追従
 engine/src/baibai_engine/market/providers/edinet_facts.py,unchanged,engine/src/baibai_engine/market/providers/edinet_facts.py,Market disclosures,今回の配置対象外、現行を維持
 engine/src/baibai_engine/market/providers/jpx.py,update,engine/src/baibai_engine/market/providers/jpx.py,Market disclosures,JPX観測型・例外を純粋modelsへ分離しHTTP取得依存を除去
 engine/src/baibai_engine/market/providers/jquants.py,update,engine/src/baibai_engine/market/providers/jquants.py,Market disclosures,移設caller/import・名称・文書の整合
@@ -392,13 +392,13 @@ engine/src/baibai_engine/screening/freshness.py,unchanged,engine/src/baibai_engi
 engine/src/baibai_engine/screening/margin_inputs.py,update,engine/src/baibai_engine/screening/margin_inputs.py,Screening,移設caller/import・名称・文書の整合
 engine/src/baibai_engine/screening/margin_metrics.py,unchanged,engine/src/baibai_engine/screening/margin_metrics.py,Screening,今回の配置対象外、現行を維持
 engine/src/baibai_engine/screening/metrics/__init__.py,unchanged,engine/src/baibai_engine/screening/metrics/__init__.py,Screening,今回の配置対象外、現行を維持
-engine/src/baibai_engine/screening/metrics/capital.py,unchanged,engine/src/baibai_engine/screening/metrics/capital.py,Screening,今回の配置対象外、現行を維持
+engine/src/baibai_engine/screening/metrics/capital.py,update,engine/src/baibai_engine/screening/metrics/capital.py,Screening,保存層・純粋観測型のownerへimportと参照を追従
 engine/src/baibai_engine/screening/metrics/dividends.py,unchanged,engine/src/baibai_engine/screening/metrics/dividends.py,Screening,今回の配置対象外、現行を維持
 engine/src/baibai_engine/screening/metrics/history.py,unchanged,engine/src/baibai_engine/screening/metrics/history.py,Screening,今回の配置対象外、現行を維持
 engine/src/baibai_engine/screening/metrics/periods.py,unchanged,engine/src/baibai_engine/screening/metrics/periods.py,Screening,今回の配置対象外、現行を維持
 engine/src/baibai_engine/screening/metrics/profit.py,unchanged,engine/src/baibai_engine/screening/metrics/profit.py,Screening,今回の配置対象外、現行を維持
 engine/src/baibai_engine/screening/metrics/ratios.py,unchanged,engine/src/baibai_engine/screening/metrics/ratios.py,Screening,今回の配置対象外、現行を維持
-engine/src/baibai_engine/screening/metrics/snapshot.py,unchanged,engine/src/baibai_engine/screening/metrics/snapshot.py,Screening,今回の配置対象外、現行を維持
+engine/src/baibai_engine/screening/metrics/snapshot.py,update,engine/src/baibai_engine/screening/metrics/snapshot.py,Screening,保存層・純粋観測型のownerへimportと参照を追従
 engine/src/baibai_engine/screening/research_triage.py,update,engine/src/baibai_engine/screening/research_triage.py,Screening,移設caller/import・名称・文書の整合
 engine/src/baibai_engine/screening/research_triage_cli.py,unchanged,engine/src/baibai_engine/screening/research_triage_cli.py,Screening,今回の配置対象外、現行を維持
 engine/src/baibai_engine/screening/rule_config.py,unchanged,engine/src/baibai_engine/screening/rule_config.py,Screening,今回の配置対象外、現行を維持
@@ -630,8 +630,8 @@ tests/engine/macro/test_provider_pmi.py,unchanged,tests/engine/macro/test_provid
 tests/engine/macro/test_provider_transport.py,unchanged,tests/engine/macro/test_provider_transport.py,Macro,今回の配置対象外、現行を維持
 tests/engine/macro/test_provider_us.py,unchanged,tests/engine/macro/test_provider_us.py,Macro,今回の配置対象外、現行を維持
 tests/engine/screening/__init__.py,unchanged,tests/engine/screening/__init__.py,Screening,今回の配置対象外、現行を維持
-tests/engine/screening/metric_fixtures.py,unchanged,tests/engine/screening/metric_fixtures.py,Screening,今回の配置対象外、現行を維持
-tests/engine/screening/metric_snapshot_fixtures.py,unchanged,tests/engine/screening/metric_snapshot_fixtures.py,Screening,今回の配置対象外、現行を維持
+tests/engine/screening/metric_fixtures.py,update,tests/engine/screening/metric_fixtures.py,Screening,保存層・純粋観測型のownerへimportと参照を追従
+tests/engine/screening/metric_snapshot_fixtures.py,update,tests/engine/screening/metric_snapshot_fixtures.py,Screening,保存層・純粋観測型のownerへimportと参照を追従
 tests/engine/screening/test_metrics_capital.py,unchanged,tests/engine/screening/test_metrics_capital.py,Screening,今回の配置対象外、現行を維持
 tests/engine/screening/test_metrics_dividends.py,unchanged,tests/engine/screening/test_metrics_dividends.py,Screening,今回の配置対象外、現行を維持
 tests/engine/screening/test_metrics_history.py,unchanged,tests/engine/screening/test_metrics_history.py,Screening,今回の配置対象外、現行を維持

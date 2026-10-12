@@ -43,7 +43,7 @@ def test_removed_package_paths_have_no_compatibility_imports():
 def test_storage_reader_does_not_load_provider_or_writer_implementations():
     code = """
 import sys
-from baibai_engine.market import jpx_models, jquants_models, jquants_decode
+from baibai_engine.market import edinet_models, jpx_models, jquants_models, jquants_decode
 from baibai_engine.storage.observations import reader
 for prefix in (
     'baibai_engine.market.providers',

@@ -19,10 +19,8 @@ from pathlib import Path
 from typing import Any
 
 from baibai_engine.market.edinet_metrics.revision import has_hard_metric_failure
-from baibai_engine.market.providers.edinet import (
-    EdinetMetricRecord,
-    normalize_metric_record,
-)
+from baibai_engine.market.edinet_models import EdinetMetricRecord
+from baibai_engine.market.providers.edinet import normalize_metric_record
 from baibai_engine.storage.observations.schema import connect_current
 from baibai_engine.storage.observations.snapshot_coverage import date_covered
 

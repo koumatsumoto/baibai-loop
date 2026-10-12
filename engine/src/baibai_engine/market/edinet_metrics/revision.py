@@ -28,6 +28,7 @@ _ENTRY_MODULES = ("baibai_engine.market.edinet_metrics.service",)
 # manifest without a failing test.
 _TRACKED_PREFIXES = (
     "baibai_engine.market.edinet_metrics",
+    "baibai_engine.market.edinet_models",
     "baibai_engine.market.providers.edinet",
     "baibai_engine.market.providers.edinet_csv",
     "baibai_engine.market.metric_quality",
