@@ -214,6 +214,7 @@ def _acquire_pair(
     marked = False
     pair_content_bytes = 0
     pair_finished = checkpoint.last_response_finished_at_utc
+    received_html: list[tuple[int, RetailReceivedHTML]] = []
 
     def persist() -> None:
         nonlocal etag
@@ -257,14 +258,7 @@ def _acquire_pair(
         pair_finished = finished
 
     def on_received_html(received: RetailReceivedHTML) -> None:
-        save_raw_html(
-            store,
-            run_id=plan.run_id,
-            source=source,
-            ticker=ticker,
-            request_number=checkpoint.requests_started,
-            received=received,
-        )
+        received_html.append((checkpoint.requests_started, received))
 
     def on_outcome(result: RetailCollectionResult) -> None:
         nonlocal checkpoint
@@ -315,6 +309,24 @@ def _acquire_pair(
         on_outcome=on_outcome,
         rate_limiter=rate_limiter,
     )
+    # Diagnostic storage is outside the collector's typed/checkpoint deadline.
+    for request_number, received in received_html:
+        try:
+            save_raw_html(
+                store,
+                run_id=plan.run_id,
+                source=source,
+                ticker=ticker,
+                request_number=request_number,
+                received=received,
+            )
+        except Exception:
+            # Error messages may include credentials, signed URLs or bodies.
+            print(
+                f"::warning::Retail diagnostic raw save failed; source={source}; "
+                f"ticker={ticker}; request={request_number}; typed result unchanged",
+                file=sys.stderr,
+            )
     return checkpoint, etag, result
 
 

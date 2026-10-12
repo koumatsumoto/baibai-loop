@@ -1,9 +1,9 @@
-"""Raw preservation through the real collector and existing private checkpoint path."""
+"""Temporary diagnostic raw must not become a dependency of typed checkpoints."""
 
 import gzip
 import json
 from dataclasses import replace
-from datetime import datetime
+from datetime import UTC, date, datetime, timedelta, timezone
 
 import pytest
 import requests
@@ -12,7 +12,7 @@ from tests.engine.test_retail_dynamics_sources import monex_html, official_html,
 
 from baibai_batch.jobs import retail_daily as daily
 from baibai_batch.storage import retail_raw
-from baibai_batch.storage.lake_publish import LakePublishError
+from baibai_batch.storage.lake_publish import Boto3R2Store, LakePublishError
 from baibai_engine.batch_api import RetailReceivedHTML
 from baibai_engine.market.retail_dynamics import collection
 from baibai_engine.market.retail_dynamics.sources import monex, rakuten
@@ -145,7 +145,7 @@ def test_identical_html_across_received_batches_reuses_one_blob(connect):
     assert decoded[0][0]["batch_id"] != decoded[1][0]["batch_id"]
 
 
-def test_rakuten_outer_and_iframe_are_preserved_before_typed_checkpoint(connect):
+def test_rakuten_outer_and_iframe_are_preserved_after_typed_checkpoint(connect):
     outer, inner = official_html().encode(), rakuten_html().encode()
     session = Session([(200, outer, "utf-8"), (200, inner, "utf-8")])
     connect(session)
@@ -163,10 +163,11 @@ def test_rakuten_outer_and_iframe_are_preserved_before_typed_checkpoint(connect)
         fetched_at_utc=datetime.fromisoformat(metadata["fetched_at_utc"]),
     )
     assert checkpoint(store, p).journal.observations == (parsed,)
-    final = store.puts[-1]
-    assert final[0].startswith("coordination/retail-dynamics/")
+    typed_checkpoint = max(
+        i for i, item in enumerate(store.puts) if item[0].startswith("coordination/")
+    )
     for key in receipts(store):
-        assert next(i for i, item in enumerate(store.puts) if item[0] == key) < len(store.puts) - 1
+        assert next(i for i, item in enumerate(store.puts) if item[0] == key) > typed_checkpoint
 
 
 @pytest.mark.parametrize("status", [302, 403, 429, 500])
@@ -242,17 +243,24 @@ def test_authenticated_response_is_not_archived(connect):
 
 
 @pytest.mark.parametrize("fault", ["before", "after", "cas", "bad_receipt"])
-@pytest.mark.parametrize("write", [2, 3])
-def test_raw_save_failure_leaves_inflight_and_stops_before_second_http(connect, fault, write):
-    session = Session([(200, official_html().encode(), "utf-8")])
+@pytest.mark.parametrize("write", [4, 5])
+def test_raw_save_failure_warns_and_preserves_normal_typed_result(connect, capsys, fault, write):
+    session = Session(
+        [(200, official_html().encode(), "utf-8"), (200, rakuten_html().encode(), "utf-8")]
+    )
     connect(session)
     p, store = plan(sources=("rakuten",)), FakeObjectStore()
     store.put_fault = (write, fault)
-    with pytest.raises(RuntimeError, match="pair_checkpoint_callback_failed"):
-        daily.acquire_cohort(store, p, 0)
-    assert len(session.calls) == 1
-    assert checkpoint(store, p).journal.entries[0].state == "uncertain"
-    assert not checkpoint(store, p).journal.observations
+    daily.acquire_cohort(store, p, 0)
+    assert len(session.calls) == 2
+    assert checkpoint(store, p).journal.entries[0].state == "success"
+    assert len(checkpoint(store, p).journal.observations) == 1
+    output = capsys.readouterr()
+    assert "::warning::Retail diagnostic raw save failed" in output.err
+    assert "synthetic" not in output.err
+    assert "private-cookie-header" not in output.err
+    assert "private-authorization-header" not in output.err
+    assert output.out == ""
 
 
 def test_sample_readback_detects_corruption_without_a_per_response_download(connect):
@@ -293,3 +301,160 @@ def test_normal_capture_and_blob_reuse_do_not_download_raw_objects(connect):
     )
     assert len(blobs(store)) == 1
     assert len(receipts(store)) == 2
+
+
+def test_received_utc_day_controls_blob_sharing_not_batch_date():
+    store = FakeObjectStore()
+    first = datetime(2026, 10, 10, 23, 59, 59, tzinfo=UTC)
+    keys = []
+    for number, received in enumerate((first, first + timedelta(seconds=1)), start=1):
+        keys.append(
+            retail_raw.save_raw_html(
+                store,
+                run_id="retail-daily-2026-10-09",
+                source="monex",
+                ticker="7203",
+                request_number=number,
+                received=RetailReceivedHTML(monex.public_url("7203"), received, "utf-8", b"same"),
+            )
+        )
+    assert len(blobs(store)) == 2
+    assert keys[0].startswith(retail_raw.RECEIPT_PREFIX + "2026-10-10/")
+    assert keys[1].startswith(retail_raw.RECEIPT_PREFIX + "2026-10-11/")
+    old_receipt, _ = retail_raw.read_raw_html(store, keys[0])
+    new_receipt, _ = retail_raw.read_raw_html(store, keys[1])
+    del store.objects[keys[0]], store.objects[old_receipt["blob_key"]]
+    assert retail_raw.read_raw_html(store, keys[1]) == (new_receipt, b"same")
+    jst = (first + timedelta(seconds=1)).astimezone(timezone(timedelta(hours=9)))
+    same_day = retail_raw.save_raw_html(
+        store,
+        run_id="new-batch",
+        source="monex",
+        ticker="7203",
+        request_number=1,
+        received=RetailReceivedHTML(monex.public_url("7203"), jst, "utf-8", b"same"),
+    )
+    assert retail_raw.read_raw_html(store, same_day)[0]["blob_key"] == new_receipt["blob_key"]
+    assert len(blobs(store)) == 1
+
+
+def test_raw_latency_and_failure_are_outside_typed_pair_deadline(connect, monkeypatch, capsys):
+    session = Session([(200, monex_html().encode(), "utf-8")])
+    connect(session)
+    p, store = plan(), FakeObjectStore()
+    elapsed = []
+
+    def slow_failed_save(*args, **kwargs):
+        assert checkpoint(store, p).journal.entries[0].state == "success"
+        start = collection.time.monotonic()
+        collection.time.sleep(collection.DEFAULT_PAIR_TIME_LIMIT_SECONDS + 1)
+        elapsed.append(collection.time.monotonic() - start)
+        raise LakePublishError("private exception and signed URL must not be logged")
+
+    monkeypatch.setattr(daily, "save_raw_html", slow_failed_save)
+    report = daily.acquire_cohort(store, p, 0)
+    assert report["stop_reason"] is None
+    assert checkpoint(store, p).journal.entries[0].state == "success"
+    assert len(checkpoint(store, p).journal.observations) == 1
+    assert elapsed == [collection.DEFAULT_PAIR_TIME_LIMIT_SECONDS + 1]
+    warning = capsys.readouterr().err
+    assert "::warning::" in warning
+    assert "signed URL" not in warning
+    assert "private exception" not in warning
+
+
+@pytest.mark.parametrize("write", [1, 2, 3])
+def test_typed_checkpoint_failure_still_stops_without_optional_raw_save(connect, write):
+    session = Session(
+        [(200, official_html().encode(), "utf-8"), (200, rakuten_html().encode(), "utf-8")]
+    )
+    connect(session)
+    p, store = plan(sources=("rakuten",)), FakeObjectStore()
+    store.put_fault = (write, "before")
+    with pytest.raises(RuntimeError, match="pair_checkpoint_callback_failed"):
+        daily.acquire_cohort(store, p, 0)
+    assert not receipts(store)
+    assert not blobs(store)
+
+
+def test_inventory_three_utc_dates_legacy_and_exact_date_prefixes():
+    inventory = retail_raw.retention_inventory(
+        [
+            (retail_raw.BLOB_PREFIX + "2026-10-09/sha256/hash.html.gz", 100),
+            (retail_raw.RECEIPT_PREFIX + "2026-10-09/batch/monex/7203/1.json", 10),
+            (retail_raw.BLOB_PREFIX + "2026-10-10/sha256/hash.html.gz", 200),
+            (retail_raw.BLOB_PREFIX + "2026-10-11/sha256/hash.html.gz", 300),
+            (retail_raw.BLOB_PREFIX + "2026-10-12/sha256/hash.html.gz", 400),
+            ("retail-dynamics/raw-html/sha256/legacy.html.gz", 500),
+            ("retail-dynamics/raw-receipts/old-batch/monex/7203/1.json", 50),
+        ],
+        as_of=date(2026, 10, 12),
+    )
+    assert inventory["keep_from_utc_date"] == "2026-10-10"
+    assert inventory["legacy_or_unclassified"] == {"objects": 2, "bytes": 550}
+    days = inventory["dates"]
+    assert days["2026-10-09"]["status"] == "delete_candidate"
+    assert days["2026-10-09"]["objects"] == 2
+    assert days["2026-10-09"]["bytes"] == 110
+    assert days["2026-10-09"]["receipt_prefix"] == retail_raw.RECEIPT_PREFIX + "2026-10-09/"
+    assert days["2026-10-09"]["blob_prefix"] == retail_raw.BLOB_PREFIX + "2026-10-09/"
+    assert all(days[day]["status"] == "keep" for day in ("2026-10-10", "2026-10-11", "2026-10-12"))
+
+
+def test_inventory_cli_lists_only_raw_roots_without_mutations(monkeypatch, capsys):
+    class InventoryStore:
+        def __init__(self, *, bucket):
+            assert bucket == "baibai-stores"
+            self.prefixes = []
+
+        def iter_objects(self, prefix):
+            self.prefixes.append(prefix)
+            return iter(())
+
+    store = InventoryStore(bucket="baibai-stores")
+    monkeypatch.delenv("R2_STORES_BUCKET", raising=False)
+    monkeypatch.setattr(retail_raw, "Boto3R2Store", lambda **kwargs: store)
+    assert retail_raw.main(["--as-of", "2026-10-12"]) == 0
+    assert store.prefixes == ["retail-dynamics/raw-html/", "retail-dynamics/raw-receipts/"]
+    report = json.loads(capsys.readouterr().out)
+    assert report["mode"] == "read_only_inventory"
+    assert report["dates"] == {}
+
+
+def test_inventory_failure_does_not_log_sensitive_exception(monkeypatch, capsys):
+    def failed_store(**kwargs):
+        raise ValueError("private credential and signed URL")
+
+    monkeypatch.setattr(retail_raw, "Boto3R2Store", failed_store)
+    assert retail_raw.main([]) == 1
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == "Retail raw inventory failed; type=ValueError\n"
+
+
+def test_r2_inventory_paginates_keys_and_sizes_without_getting_bodies(monkeypatch):
+    calls = []
+
+    class Paginator:
+        def paginate(self, **kwargs):
+            calls.append(kwargs)
+            yield {"Contents": [{"Key": "first", "Size": 10}]}
+            yield {}
+            yield {"Contents": [{"Key": "second", "Size": 20}]}
+
+    class Client:
+        def get_paginator(self, name):
+            assert name == "list_objects_v2"
+            return Paginator()
+
+    store = Boto3R2Store(
+        bucket="synthetic",
+        env={
+            "R2_ACCOUNT_ID": "a" * 32,
+            "R2_ACCESS_KEY_ID": "synthetic-key",
+            "R2_SECRET_ACCESS_KEY": "synthetic-secret",
+        },
+    )
+    monkeypatch.setattr(store, "_client", lambda: Client())
+    assert list(store.iter_objects("retail-dynamics/raw-html/")) == [("first", 10), ("second", 20)]
+    assert calls == [{"Bucket": "synthetic", "Prefix": "retail-dynamics/raw-html/"}]

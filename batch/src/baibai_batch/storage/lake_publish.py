@@ -718,6 +718,21 @@ class Boto3R2Store:
             content_type=str(value.get("ContentType", "application/octet-stream")),
         )
 
+    def iter_objects(self, prefix: str) -> Iterator[tuple[str, int]]:
+        """List keys and sizes under one prefix without downloading object bodies."""
+        try:
+            for page in (
+                self._client()
+                .get_paginator("list_objects_v2")
+                .paginate(Bucket=self.bucket, Prefix=prefix)
+            ):
+                for item in page.get("Contents", []):
+                    yield item["Key"], item["Size"]
+        except ClientError as exc:
+            _raise_r2_error("list-objects", exc)
+        except BotoCoreError as exc:
+            raise LakePublishError("R2 list-objects failed") from exc
+
     def get_bytes(self, key: str) -> bytes:
         try:
             response = self._client().get_object(Bucket=self.bucket, Key=key)

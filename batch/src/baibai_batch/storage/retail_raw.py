@@ -1,22 +1,39 @@
-"""Private public-page bodies for retail reparsing; separate from disposable checkpoints."""
+"""Temporary private retail HTML for diagnosis; typed observations remain authoritative."""
 
 from __future__ import annotations
 
+import argparse
 import base64
 import gzip
 import hashlib
 import json
+import os
 import re
+import sys
 import tempfile
+from collections.abc import Iterable
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from baibai_batch.storage.lake_publish import LakePublishError, ObjectStore
+from baibai_batch.storage.lake_publish import Boto3R2Store, LakePublishError, ObjectStore
 from baibai_batch.storage.retail_staging import prefix, put_private, read_private
 from baibai_engine.batch_api import RetailReceivedHTML, RetailSource
 
-RECEIPT_FORMAT = "retail-public-html-receipt-v1"
-BLOB_PREFIX = "retail-dynamics/raw-html/sha256/"
+RECEIPT_FORMAT = "retail-public-html-receipt-v2"
+BLOB_PREFIX = "retail-dynamics/raw-html/utc-date/"
+RECEIPT_PREFIX = "retail-dynamics/raw-receipts/utc-date/"
+RETENTION_DAYS = 3
+
+
+def _received_date(received: datetime) -> date:
+    if received.utcoffset() is None:
+        raise ValueError("retail raw receipt requires a timezone-aware time")
+    return received.astimezone(UTC).date()
+
+
+def _blob_key(received: datetime, digest: str) -> str:
+    return f"{BLOB_PREFIX}{_received_date(received).isoformat()}/sha256/{digest}.html.gz"
 
 
 def read_raw_html(store: ObjectStore, receipt_key: str) -> tuple[dict[str, Any], bytes]:
@@ -30,7 +47,7 @@ def read_raw_html(store: ObjectStore, receipt_key: str) -> tuple[dict[str, Any],
     digest = receipt["body_sha256"]
     if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
         raise ValueError("invalid retail raw body hash")
-    key = BLOB_PREFIX + digest + ".html.gz"
+    key = _blob_key(datetime.fromisoformat(receipt["fetched_at_utc"]), digest)
     if receipt["blob_key"] != key:
         raise ValueError("retail raw blob reference changed")
     body = gzip.decompress(store.get_bytes(key))
@@ -48,14 +65,14 @@ def save_raw_html(
     request_number: int,
     received: RetailReceivedHTML,
 ) -> str:
-    """Called only by the existing collector's public HTTP 200 body callback."""
-    private_prefix = prefix(run_id)
+    """Save a received public HTTP 200 body, after the typed outcome checkpoint."""
+    prefix(run_id)
     if source not in {"monex", "rakuten"} or re.fullmatch(r"[0-9A-Z]{4}", ticker) is None:
         raise ValueError("invalid retail raw request identity")
     if type(request_number) is not int or request_number <= 0:
         raise ValueError("invalid retail raw request number")
     digest = hashlib.sha256(received.body).hexdigest()
-    key = BLOB_PREFIX + digest + ".html.gz"
+    key = _blob_key(received.fetched_at_utc, digest)
     compressed = gzip.compress(received.body, mtime=0)
     compressed_sha = hashlib.sha256(compressed).hexdigest()
     remote = store.head(key)
@@ -96,8 +113,8 @@ def save_raw_html(
         "blob_key": key,
     }
     receipt_key = (
-        private_prefix.replace("coordination/retail-dynamics/", "retail-dynamics/raw-receipts/", 1)
-        + f"/{source}/{ticker}/{request_number}.json"
+        f"{RECEIPT_PREFIX}{_received_date(received.fetched_at_utc).isoformat()}"
+        f"/{run_id}/{source}/{ticker}/{request_number}.json"
     )
     payload = json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode()
     existing = store.head(receipt_key)
@@ -110,3 +127,66 @@ def save_raw_html(
     ):
         raise LakePublishError("conflicting immutable retail raw receipt")
     return receipt_key
+
+
+def retention_inventory(objects: Iterable[tuple[str, int]], *, as_of: date) -> dict[str, Any]:
+    """Report date groups for review only; legacy keys are never deletion candidates."""
+    keep_from = as_of - timedelta(days=RETENTION_DAYS - 1)
+    groups: dict[str, dict[str, Any]] = {}
+    legacy = {"objects": 0, "bytes": 0}
+    for key, size in objects:
+        matched = re.fullmatch(
+            r"retail-dynamics/(raw-html|raw-receipts)/utc-date/(\d{4}-\d{2}-\d{2})/.+",
+            key,
+        )
+        if matched is None:
+            legacy["objects"] += 1
+            legacy["bytes"] += size
+            continue
+        day = date.fromisoformat(matched[2])
+        group = groups.setdefault(
+            day.isoformat(),
+            {
+                "status": "delete_candidate" if day < keep_from else "keep",
+                "objects": 0,
+                "bytes": 0,
+                "receipt_prefix": f"{RECEIPT_PREFIX}{day.isoformat()}/",
+                "blob_prefix": f"{BLOB_PREFIX}{day.isoformat()}/",
+            },
+        )
+        group["objects"] += 1
+        group["bytes"] += size
+    return {
+        "mode": "read_only_inventory",
+        "as_of_utc_date": as_of.isoformat(),
+        "keep_from_utc_date": keep_from.isoformat(),
+        "retention_utc_dates": RETENTION_DAYS,
+        "dates": dict(sorted(groups.items())),
+        "legacy_or_unclassified": legacy,
+    }
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Read-only inventory of diagnostic retail raw")
+    parser.add_argument("--as-of", type=date.fromisoformat, default=datetime.now(UTC).date())
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+        objects = (
+            item
+            for root in ("retail-dynamics/raw-html/", "retail-dynamics/raw-receipts/")
+            for item in store.iter_objects(root)
+        )
+        print(json.dumps(retention_inventory(objects, as_of=args.as_of), sort_keys=True))
+        return 0
+    except Exception as error:
+        print(f"Retail raw inventory failed; type={type(error).__name__}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
