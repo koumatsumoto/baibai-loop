@@ -43,7 +43,7 @@ function Receipt({ day, fetched, previous }: { day: string; fetched: string; pre
 
 export function ExternalAssessmentSection({ assessment }: { assessment: ExternalAssessment | null | undefined }) {
   if (!assessment) return <SectionCard title="外部参考評価" padded><p className="text-sm text-muted-foreground">保存済み外部観測なし</p></SectionCard>
-  const observed = assessment.model_valuations.length + assessment.analyst_ratings.length + assessment.quants_scores.length > 0 || assessment.tradingview.inputs.latest !== null
+  const observed = [...assessment.model_valuations, ...assessment.analyst_ratings, ...assessment.quants_scores].some(source => source.inputs.latest !== null) || assessment.tradingview.inputs.latest !== null
   const tv = assessment.tradingview.inputs.latest
   return <SectionCard title="外部参考評価" description="媒体が提示した値です。独自の企業価値評価とは分け、異なる尺度を多数決点へまとめません。" meta={<span className="text-xs">読取対象時点(UTC) {assessment.cutoff}</span>} padded>
     {!observed && <p className="text-sm text-muted-foreground">この対象時点以前の保存済み外部評価はありません。</p>}
@@ -59,9 +59,12 @@ export function ExternalAssessmentSection({ assessment }: { assessment: External
       })}
       {assessment.analyst_ratings.map(source => {
         const row = source.inputs.latest
-        if (!row) return null
+        if (!row) return <div key={source.distributor} className="grid gap-2"><h3 className="text-sm font-medium">{source.distributor} · アナリスト rating</h3>
+          <p className="text-sm text-muted-foreground">この対象時点以前の保存観測なし。欠測理由は未確認です。評価の不存在・中立評価を意味しません。</p>
+        </div>
         return <div key={row.distributor} className="grid gap-2"><h3 className="text-sm font-medium">{row.distributor} · アナリスト rating</h3>
           <Receipt day={row.snapshot_date} fetched={row.fetched_at_utc} previous={source.inputs.previous?.fetched_at_utc} />
+          <p className="text-xs">{row.rating === null ? '銘柄を確認できた応答を受領済みですが、rating値は欠測（正常null）です。' : '最新の保存観測です。受領後の取得失敗や未取得は反映しないため、現在値の保証ではありません。'}</p>
           <p className="text-xs">原評価元 {known(row.origin)} · 尺度 {known(row.rating_scale_min)}〜{known(row.rating_scale_max)} · 方向 {row.rating_scale_direction === 'higher_is_positive' ? '高いほど肯定的' : row.rating_scale_direction === 'lower_is_positive' ? '低いほど肯定的' : '未確認'} · 人数 {known(row.rating_count)} · 提供元更新 {known(row.rating_updated_at_utc ?? row.rating_updated_label)}</p>
           <Metrics comparisons={[source.comparison]} /><a className="text-xs underline" href={row.source_url} rel="noopener noreferrer" target="_blank">掲載元</a>
         </div>

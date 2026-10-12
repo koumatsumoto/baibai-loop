@@ -40,4 +40,37 @@ describe('外部参考評価の表示', () => {
   it('未取得を明示する', () => {
     expect(render(null)).toContain('保存済み外部観測なし')
   })
+
+  it('楽天の保存観測なしを他媒体の値や正常nullと混同しない', () => {
+    const assessment = structuredClone(fixture) as ExternalAssessment
+    const source = assessment.analyst_ratings[0]
+    source.inputs = { latest: null, previous: null }
+    source.comparison = { ...source.comparison, state: 'not_observed', reason: 'no_observation', latest_value: null, previous_value: null, delta: null, comparable: false }
+    const html = render(assessment)
+    expect(html).toContain('rakuten · アナリスト rating')
+    expect(html).toContain('欠測理由は未確認')
+    expect(html).toContain('評価の不存在・中立評価を意味しません')
+    expect(html).not.toContain('正常null')
+    expect(html).toContain('目標株価コンセンサス')
+    assessment.model_valuations = []
+    assessment.quants_scores = []
+    assessment.tradingview.inputs.latest = null
+    expect(render(assessment)).toContain('この対象時点以前の保存済み外部評価はありません')
+  })
+
+  it('楽天の正常nullは受領時刻とともに表示し、古い値を現在値にしない', () => {
+    const assessment = structuredClone(fixture) as ExternalAssessment
+    const source = assessment.analyst_ratings[0]
+    const row = source.inputs.latest!
+    row.rating = null
+    source.comparison = { ...source.comparison, state: 'missing', reason: 'latest_missing', latest_value: null, delta: null, comparable: false }
+    const html = render(assessment)
+    expect(html).toContain('rating値は欠測（正常null）')
+    expect(html).toContain(row.fetched_at_utc)
+    expect(html).not.toContain('欠測理由は未確認')
+    row.rating = 0
+    source.comparison.latest_value = 0
+    expect(render(assessment)).toContain('>0</td>')
+    expect(render(assessment)).toContain('現在値の保証ではありません')
+  })
 })

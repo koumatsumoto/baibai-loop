@@ -718,6 +718,10 @@ def test_export_reuses_research_history_and_ledger_per_export(
     from baibai_web.readmodel.stocks import screening as stocks
     from baibai_web.sources import db_sources
 
+    # Both exports compare the same read cutoff, including unobserved series.
+    mocker.patch("baibai_web.readmodel.stocks.detail.datetime").now.return_value = datetime(
+        2026, 10, 12, 12, tzinfo=JST
+    )
     prepare = mocker.spy(export_module, "prepare_security_inputs")
     convert = mocker.spy(stocks, "_machine_review_set_view")
     read = mocker.spy(db_sources, "list_thesis_publications")

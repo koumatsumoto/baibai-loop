@@ -14,7 +14,7 @@ from baibai_engine.external_assessment.observations.models import (
     QuantsScoreObservation,
 )
 
-METHOD_VERSION = "same-series-v2"
+METHOD_VERSION = "same-series-v3"
 
 
 class ModelValuationHistory(FrozenModel):
@@ -106,6 +106,7 @@ class ModelValuationAssessment(FrozenModel):
 
 
 class AnalystRatingAssessment(FrozenModel):
+    distributor: str
     inputs: AnalystRatingHistory
     comparison: MetricComparison
 

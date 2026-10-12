@@ -203,8 +203,11 @@ def analyze(history: ObservationHistory, *, evaluated_at: datetime) -> ExternalA
                 origin_reference(getattr(row, f"{metric}_origin"), row, "model_valuation", metric)
     ratings = []
     for rating_pair in history.analyst_ratings:
+        if rating_pair.latest is None:
+            continue
         ratings.append(
             AnalystRatingAssessment(
+                distributor=rating_pair.latest.distributor,
                 inputs=rating_pair,
                 comparison=_compare(
                     "rating",
@@ -220,10 +223,20 @@ def analyze(history: ObservationHistory, *, evaluated_at: datetime) -> ExternalA
                 ),
             )
         )
-        if rating_pair.latest is not None and rating_pair.latest.rating is not None:
+        if rating_pair.latest.rating is not None:
             origin_reference(
                 rating_pair.latest.origin, rating_pair.latest, "analyst_rating", "rating"
             )
+    # Absence of a saved response is not a received null. Keep the expected
+    # Rakuten series visible without manufacturing an observation or receipt.
+    if not any(item.distributor == "rakuten" for item in ratings):
+        ratings.append(
+            AnalystRatingAssessment(
+                distributor="rakuten",
+                inputs=AnalystRatingHistory(),
+                comparison=_compare("rating", None, None, ()),
+            )
+        )
     scores = []
     for score_pair in history.quants_scores:
         scores.append(
