@@ -205,7 +205,7 @@ ORDER BY balance_sheet_date, consolidation_basis, debt_category, due_from_months
 
 ## External Assessmentの保存済み照会
 
-`external_assessment.model_valuation_observations`、`external_assessment.analyst_rating_observations`、`external_assessment.quants_score_observations`は意味ごとのtyped datasetで、month partition、任意収録、履歴保持、coverage未証明である。既存のmarket storeとlake releaseを使う。未収録の旧releaseは新しいcurrent-schema作業コピーへhydrateすると未収録のtableが空となる。旧SQLiteの形をruntime readerが読み替えることはしない。
+`external_assessment.model_valuation_observations`、`external_assessment.analyst_rating_observations`、`external_assessment.quants_score_observations`は意味ごとのtyped datasetで、month partition、任意収録、履歴保持、coverage未証明である。既存のmarket storeとlake releaseを使う。External Assessmentを含まないreleaseをcurrent-schema作業コピーへhydrateした場合、そのtableは空となる。旧retail dataset名を含む固定releaseは元commitとの組合せで読み、新runtimeへ透過的に読み替えない。保存済み全履歴の改名は[明示cutover](../../batch/OPERATIONS.md#external-assessment-identity-cutover)で行う。旧SQLiteの形をruntime readerが読み替えることはしない。
 
 同じ銘柄を同日に複数回受信しても、`fetched_at_utc`が違えば別行にする。保存済みstageの再投入は元の受信時刻を維持し、同じキー・同じ内容なら無変更、異なる内容ならtransaction全体を拒否する。新しいHTTP受信の同値は改定とは数えない。将来別配信元を同じsemantic tableへ追加するときは、その配信元を含むキーへ明示的にcontractを変更する。
 
