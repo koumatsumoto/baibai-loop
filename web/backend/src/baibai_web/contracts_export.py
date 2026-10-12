@@ -28,12 +28,12 @@ from pydantic import BaseModel
 from pydantic.json_schema import models_json_schema
 
 from baibai_web.readmodel.models import (
+    AssessmentPublicationView,
     CapitalAllocationAssessmentView,
     DailyDeltaView,
     DashboardView,
-    MacroContextView,
-    MacroSeriesView,
-    MacroView,
+    IndicatorSeriesView,
+    MarketContextView,
     MetaView,
     OperationsView,
     ScreeningHistoryRunView,
@@ -57,9 +57,9 @@ ROOT_VIEWS: Mapping[str, type[BaseModel]] = {
     ): CapitalAllocationAssessmentView,
     "views/daily-delta.json": DailyDeltaView,
     "views/dashboard.json": DashboardView,
-    "views/macro.json": MacroView,
-    "views/macro-context--{context_id}.json": MacroContextView,
-    "views/macro-series--{series_id}.json": MacroSeriesView,
+    "views/macro.json": MarketContextView,
+    "views/macro-context--{context_id}.json": AssessmentPublicationView,
+    "views/macro-series--{series_id}.json": IndicatorSeriesView,
     "views/meta.json": MetaView,
     "views/operations.json": OperationsView,
     "views/screening_latest.json": ScreeningView,

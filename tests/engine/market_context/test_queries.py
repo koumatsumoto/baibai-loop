@@ -17,9 +17,9 @@ from baibai_engine.market_context.assessment.query import latest_assessment_payl
 from baibai_engine.market_context.benchmark import compute_benchmark_trend
 from baibai_engine.market_context.indicators.db import initialize_database, seed_definitions
 from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.macro import macro_reading_snapshot
 from baibai_engine.market_context.master import read_master_snapshot
 from baibai_engine.market_context.prices import read_price_bars
+from baibai_engine.market_context.reading.query import reading_snapshot
 from baibai_engine.market_context.sector import sector_relative_strength
 from baibai_engine.market_context.security import build_security_market_context
 from baibai_engine.market_context.snapshot import build_market_snapshot
@@ -175,7 +175,7 @@ def test_macro_cutoff_and_domain_import_do_not_reach_research_or_writers(tmp_pat
             "-c",
             """
 import sys
-from baibai_engine.market_context.macro import macro_reading_snapshot
+from baibai_engine.market_context.reading.query import reading_snapshot
 from baibai_engine.market_context.security import build_security_market_context
 assert not any(name.startswith(("baibai_engine.research", "baibai_engine.read_api", "baibai_engine.screening", "baibai_engine.position", "baibai_engine.market_context.indicators.providers")) for name in sys.modules)
 assert "baibai_engine.storage.application.write" not in sys.modules
@@ -231,14 +231,14 @@ def test_domain_reads_have_no_network_or_writes_and_missing_stores_stay_absent(
     monkeypatch.setattr(socket, "socket", forbidden)
     assert security(market_path)["price"] is not None
     assert build_market_snapshot(sqlite_path=market_path, asof_date=ASOF)["sectors"]
-    assert macro_reading_snapshot(macro_path, asof=ASOF)["asof"] == ASOF.isoformat()
+    assert reading_snapshot(macro_path, asof=ASOF)["asof"] == ASOF.isoformat()
     assert latest_assessment_payload(
         app_path, as_of=date(2026, 7, 19), known_at=datetime(2026, 7, 21, tzinfo=UTC)
     )["context_id"]
     assert before == [hashlib.sha256(path.read_bytes()).hexdigest() for path in paths]
     missing = tmp_path / "absent.sqlite"
     assert security(missing)["price"] is None
-    assert macro_reading_snapshot(missing, asof=ASOF) is None
+    assert reading_snapshot(missing, asof=ASOF) is None
     assert (
         latest_assessment_payload(missing, as_of=ASOF, known_at=datetime(2026, 7, 21, tzinfo=UTC))
         is None

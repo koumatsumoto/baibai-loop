@@ -115,7 +115,7 @@ def validate_market_store_hydration(path: Path) -> None:
         )
 
 
-def validate_macro_reading_rules(path: Path) -> None:
+def validate_reading_rules(path: Path) -> None:
     """Require the trusted reading rules to resolve every registered series."""
 
     try:
@@ -129,7 +129,7 @@ def validate_macro_reading_rules(path: Path) -> None:
 __all__ = [
     "MaterializationPreconditionError",
     "validate_application_store_schema",
-    "validate_macro_reading_rules",
     "validate_market_store_hydration",
     "validate_market_store_schema",
+    "validate_reading_rules",
 ]

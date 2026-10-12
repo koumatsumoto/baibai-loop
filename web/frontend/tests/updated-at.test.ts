@@ -21,7 +21,7 @@ describe('UpdatedAtBadge', () => {
   })
 
   it.each([
-    ['MacroPage.tsx', 'data.latest_context?.published_at ?? null'],
+    ['MarketContextPage.tsx', 'data.latest_context?.published_at ?? null'],
     ['AssessmentPage.tsx', 'data.published_at'],
     ['StocksPage.tsx', 'data.run.generated_at'],
     ['ResearchTriagePage.tsx', 'triage.published_at'],

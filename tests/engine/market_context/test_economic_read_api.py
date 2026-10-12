@@ -14,11 +14,11 @@ from baibai_engine.market_context.indicators.db import (
 )
 from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.market_context.reading.rules import ReadingRulesError
-from baibai_engine.read_api.freshness import macro_latest_observed_at
-from baibai_engine.read_api.macro import (
-    MacroGranularity,
-    macro_indicator_series,
-    macro_reading_snapshot,
+from baibai_engine.read_api.freshness import indicator_latest_observed_at
+from baibai_engine.read_api.market_context import (
+    IndicatorGranularity,
+    indicator_series,
+    reading_snapshot,
 )
 
 
@@ -76,7 +76,7 @@ def test_macro_indicator_series_aggregates_each_period_to_its_last_observation(
         f"{year}-12-31" for year in range(2016, 2026)
     ]
     assert yearly[-1]["value"] == (end - start).days / 1000.0
-    series = macro_indicator_series(database, series_id="us.10y")
+    series = indicator_series(database, series_id="us.10y")
     assert series is not None
     assert series["tradingview_symbol"] == "TVC:US10Y"
 
@@ -147,14 +147,14 @@ def test_macro_indicator_series_applies_jquants_publication_cutoff(tmp_path: Pat
     finally:
         connection.close()
 
-    august = macro_indicator_series(
+    august = indicator_series(
         database,
         series_id="jp.foreign_flows",
         start=date(2024, 8, 1),
         end=date(2024, 8, 31),
         limit=None,
     )
-    september = macro_indicator_series(
+    september = indicator_series(
         database,
         series_id="jp.foreign_flows",
         start=date(2024, 8, 1),
@@ -207,7 +207,7 @@ def test_macro_reading_snapshot_clamps_only_provider_declared_point_in_time_vint
     finally:
         connection.close()
 
-    payload = macro_reading_snapshot(database, asof=date(2024, 8, 31))
+    payload = reading_snapshot(database, asof=date(2024, 8, 31))
 
     assert payload is not None
     readings = {str(item["series_id"]): item for item in payload["series"]}  # type: ignore[index]
@@ -222,7 +222,7 @@ def test_macro_reading_snapshot_fails_closed_when_rules_are_missing(tmp_path: Pa
     initialize_database(database).close()
 
     with pytest.raises(ReadingRulesError, match="failed to read macro reading rules"):
-        macro_reading_snapshot(
+        reading_snapshot(
             database,
             asof=date(2026, 7, 26),
             rules_path=tmp_path / "missing-rules.yaml",
@@ -234,14 +234,14 @@ def test_macro_indicator_series_rejects_invalid_range_and_limit(tmp_path: Path) 
     initialize_database(database).close()
 
     with pytest.raises(ValueError, match="end must be on or after start"):
-        macro_indicator_series(
+        indicator_series(
             database,
             series_id="us.10y",
             start=date(2026, 2, 1),
             end=date(2026, 1, 1),
         )
     with pytest.raises(ValueError, match="limit must be positive"):
-        macro_indicator_series(database, series_id="us.10y", limit=0)
+        indicator_series(database, series_id="us.10y", limit=0)
 
 
 def test_macro_indicator_series_hides_retained_unregistered_metadata(tmp_path: Path) -> None:
@@ -270,7 +270,7 @@ def test_macro_indicator_series_hides_retained_unregistered_metadata(tmp_path: P
     finally:
         connection.close()
 
-    assert macro_indicator_series(database, series_id="retired.series") is None
+    assert indicator_series(database, series_id="retired.series") is None
     with sqlite3.connect(database) as check:
         assert (
             check.execute(
@@ -319,21 +319,21 @@ def test_retracted_observations_leave_the_chart_and_the_freshness_date(tmp_path:
     finally:
         connection.close()
 
-    chart = macro_indicator_series(database, series_id="us.10y", granularity="daily")
+    chart = indicator_series(database, series_id="us.10y", granularity="daily")
 
     assert chart is not None
     assert chart["points"] == [{"observed_at": "2026-05-01", "value": 4.39}]
-    assert macro_latest_observed_at(database) == date(2026, 5, 1)
+    assert indicator_latest_observed_at(database) == date(2026, 5, 1)
 
 
 def _points(
     database: Path,
-    granularity: MacroGranularity,
+    granularity: IndicatorGranularity,
     *,
     start: date,
     end: date,
 ) -> list[dict[str, object]]:
-    result = macro_indicator_series(
+    result = indicator_series(
         database,
         series_id="us.10y",
         start=start,

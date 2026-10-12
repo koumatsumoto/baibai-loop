@@ -13,7 +13,7 @@ def directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     reference = tmp_path / "reference"
     reference.mkdir()
     (reference / "thesis.md").write_text("# thesis\n", encoding="utf-8")
-    (reference / "macro.md").write_text("# macro\n", encoding="utf-8")
+    (reference / "market-context.md").write_text("# macro\n", encoding="utf-8")
     monkeypatch.setattr(check_reference_index, "_DIRECTORY", reference)
     monkeypatch.setattr(check_reference_index, "_INDEX", reference / "README.md")
     return reference
@@ -30,7 +30,7 @@ def test_the_repository_index_passes_its_own_gate() -> None:
 def test_an_index_naming_every_reference_passes(directory: Path) -> None:
     _index(
         directory,
-        "| thesis | [`thesis.md`](./thesis.md) |\n| macro | [`macro.md`](./macro.md) |\n",
+        "| thesis | [`thesis.md`](./thesis.md) |\n| macro | [`market-context.md`](./market-context.md) |\n",
     )
 
     assert check_reference_index.check() == ()
@@ -45,14 +45,14 @@ def test_a_reference_the_index_omits_is_refused(directory: Path) -> None:
 
     failures = check_reference_index.check()
 
-    assert any("does not index ['macro.md']" in failure for failure in failures)
+    assert any("does not index ['market-context.md']" in failure for failure in failures)
 
 
 def test_an_index_row_pointing_at_a_deleted_reference_is_refused(directory: Path) -> None:
     _index(
         directory,
         "| thesis | [`thesis.md`](./thesis.md) |\n"
-        "| macro | [`macro.md`](./macro.md) |\n"
+        "| macro | [`market-context.md`](./market-context.md) |\n"
         "| gone | [`retired.md`](./retired.md) |\n",
     )
 
@@ -67,7 +67,7 @@ def test_a_row_pointing_outside_the_directory_is_not_read_as_inventory(directory
     _index(
         directory,
         "| thesis | [`thesis.md`](./thesis.md) |\n"
-        "| macro | [`macro.md`](./macro.md) |\n"
+        "| macro | [`market-context.md`](./market-context.md) |\n"
         "| gates | [`../architecture.md`](../architecture.md) |\n",
     )
 

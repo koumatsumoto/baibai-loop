@@ -15,17 +15,17 @@ from baibai_engine.market_context.indicators.definitions import (
     load_definitions,
 )
 from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.read_api import MACRO_READING_RULES_PATH
-from baibai_web.readmodel.macro import build_macro, build_macro_series
-from baibai_web.sources.db_sources import DbMacroSource, load_macro_panel_config
-from baibai_web.sources.types import MacroGroupConfig, MacroSeriesConfig
+from baibai_engine.read_api import READING_RULES_PATH
+from baibai_web.readmodel.market_context import build_indicator_series, build_market_context
+from baibai_web.sources.db_sources import DbMarketContextSource, load_indicator_panel_config
+from baibai_web.sources.types import IndicatorGroupConfig, IndicatorSeriesConfig
 
-_PANEL_PATH = Path("web/config/macro-panel.yaml")
+_PANEL_PATH = Path("web/config/market-context-panel.yaml")
 _AS_OF = date(2026, 7, 25)
 
 
 def _configured_series_ids() -> list[str]:
-    groups = load_macro_panel_config(_PANEL_PATH)
+    groups = load_indicator_panel_config(_PANEL_PATH)
     return [series.series_id for group in groups for series in group.series]
 
 
@@ -41,13 +41,15 @@ def test_panel_covers_every_registered_series_exactly_once() -> None:
 
 
 def test_panel_groups_are_non_empty() -> None:
-    groups = load_macro_panel_config(_PANEL_PATH)
+    groups = load_indicator_panel_config(_PANEL_PATH)
     assert groups
     for group in groups:
         assert group.series, f"empty macro panel group: {group.title}"
 
 
-def _panel_source(tmp_path: Path, *, series_ids: tuple[str, ...], stored: str) -> DbMacroSource:
+def _panel_source(
+    tmp_path: Path, *, series_ids: tuple[str, ...], stored: str
+) -> DbMarketContextSource:
     store = tmp_path / "macro.sqlite"
     stored_definition = load_definitions().by_id()[stored]
     connection = initialize_database(
@@ -73,19 +75,19 @@ def _panel_source(tmp_path: Path, *, series_ids: tuple[str, ...], stored: str) -
     finally:
         connection.close()
     groups = (
-        MacroGroupConfig(
+        IndicatorGroupConfig(
             title="金利",
-            series=tuple(MacroSeriesConfig(series_id=item, label=None) for item in series_ids),
+            series=tuple(IndicatorSeriesConfig(series_id=item, label=None) for item in series_ids),
         ),
     )
     # No application store, so the report index is empty and only the panel is exercised.
-    return DbMacroSource(tmp_path / "absent.sqlite", store, groups, MACRO_READING_RULES_PATH)
+    return DbMarketContextSource(tmp_path / "absent.sqlite", store, groups, READING_RULES_PATH)
 
 
 def test_panel_keeps_a_configured_series_the_store_has_not_fetched(tmp_path: Path) -> None:
     source = _panel_source(tmp_path, series_ids=("us.10y", "jp.2y"), stored="us.10y")
 
-    view = build_macro(source, as_of=_AS_OF, known_at=datetime(2026, 7, 21, tzinfo=UTC))
+    view = build_market_context(source, as_of=_AS_OF, known_at=datetime(2026, 7, 21, tzinfo=UTC))
 
     rows = {series.series_id: series for group in view.groups for series in group.series}
     assert list(rows) == ["us.10y", "jp.2y"]
@@ -97,7 +99,7 @@ def test_panel_keeps_a_configured_series_the_store_has_not_fetched(tmp_path: Pat
     definition = load_definitions().by_id()["jp.2y"]
     assert rows["jp.2y"].name == definition.name
     assert rows["jp.2y"].unit == definition.unit
-    history = build_macro_series(source, series_id="us.10y", as_of=_AS_OF)
+    history = build_indicator_series(source, series_id="us.10y", as_of=_AS_OF)
     assert history is not None
     assert history.points
 
@@ -132,20 +134,20 @@ def test_panel_sparkline_uses_month_end_observations_and_is_bounded(tmp_path: Pa
     finally:
         connection.close()
     groups = (
-        MacroGroupConfig(
+        IndicatorGroupConfig(
             title="金利・金融政策",
-            series=(MacroSeriesConfig(series_id="us.10y", label=None),),
+            series=(IndicatorSeriesConfig(series_id="us.10y", label=None),),
         ),
     )
-    source = DbMacroSource(
+    source = DbMarketContextSource(
         tmp_path / "absent.sqlite",
         store,
         groups,
-        MACRO_READING_RULES_PATH,
+        READING_RULES_PATH,
     )
 
     as_of = date(2025, 2, 28)
-    view = build_macro(source, as_of=as_of, known_at=datetime(2026, 7, 21, tzinfo=UTC))
+    view = build_market_context(source, as_of=as_of, known_at=datetime(2026, 7, 21, tzinfo=UTC))
 
     points = view.groups[0].series[0].points
     assert len(points) == 13
@@ -155,7 +157,7 @@ def test_panel_sparkline_uses_month_end_observations_and_is_bounded(tmp_path: Pa
         point.observed_at.day == monthrange(point.observed_at.year, point.observed_at.month)[1]
         for point in points
     )
-    history = build_macro_series(source, series_id="us.10y", as_of=as_of)
+    history = build_indicator_series(source, series_id="us.10y", as_of=as_of)
     assert history is not None
     assert len(history.points) == 30
 
@@ -164,4 +166,4 @@ def test_panel_rejects_a_configured_series_no_registry_defines(tmp_path: Path) -
     source = _panel_source(tmp_path, series_ids=("us.10y", "jp.no_such_series"), stored="us.10y")
 
     with pytest.raises(ValueError, match=r"not registered: jp\.no_such_series"):
-        build_macro(source, as_of=_AS_OF, known_at=datetime(2026, 7, 21, tzinfo=UTC))
+        build_market_context(source, as_of=_AS_OF, known_at=datetime(2026, 7, 21, tzinfo=UTC))

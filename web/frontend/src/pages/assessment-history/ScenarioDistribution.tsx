@@ -1,8 +1,8 @@
-import type { MacroScenarioView } from '../../api/types'
+import type { HistoricalScenarioView } from '../../api/types'
 import { ReportToneBadge } from '../../components/report/ReportToneBadge'
-import { labelMacroValue, macroTone, scenarioDistribution } from '../../lib/macro-report'
+import { labelHistoricalValue, historicalTone, scenarioDistribution } from '../../lib/assessment-history'
 
-export function ScenarioDistribution({ scenarios }: { scenarios: readonly MacroScenarioView[] | null | undefined }) {
+export function ScenarioDistribution({ scenarios }: { scenarios: readonly HistoricalScenarioView[] | null | undefined }) {
   const distribution = scenarioDistribution(scenarios)
   if (distribution === null) return null
   return (
@@ -20,7 +20,7 @@ export function ScenarioDistribution({ scenarios }: { scenarios: readonly MacroS
       <div className="flex flex-wrap gap-x-4 gap-y-2">
         {distribution.map(({ probability, scenario }) => (
           <span className="inline-flex items-center gap-1.5 text-sm" key={scenario.case}>
-            <ReportToneBadge tone={macroTone(scenario.case)}>{labelMacroValue(scenario.case)}</ReportToneBadge>
+            <ReportToneBadge tone={historicalTone(scenario.case)}>{labelHistoricalValue(scenario.case)}</ReportToneBadge>
             <span className="font-mono tabular-nums">{Math.round(probability * 100)}%</span>
           </span>
         ))}

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from tests.helpers.assessment_history import historical_context_payload, seed_history
 
-from baibai_batch.validation.macro_stores import (
+from baibai_batch.validation.market_context_stores import (
     main,
     validate_published_contexts,
     validate_store,

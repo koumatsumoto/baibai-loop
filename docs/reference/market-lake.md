@@ -211,7 +211,7 @@ ORDER BY balance_sheet_date, consolidation_basis, debt_category, due_from_months
 
 領域は銘柄・cutoffについて、各datasetの配信元ごとに最新受領と直前受領を選ぶ。同じtableの別配信元の直近2行を比較相手にしない。最新の正常nullも受領として保持し、過去のnonnullへfallbackしない。未取得、受領済みで値がない、未知/変更された比較basisを区別する。最新・直前を含むL1値の再保存・再取得は不要で、株マップの取得済みscoreも同じ入口から利用できる。原評価元の関係は値の種類ごとに引用を束ねるだけで、独立票数や合成scoreを作らない。
 
-領域入口は`external_assessment.query.external_assessment`、Web・toolsの公開facadeは`read_api.external_assessment`であり、銘柄・受領cutoff・評価論理時刻を明示する。Webの銘柄詳細・ticker profile・次のCLIが同じ領域結果を読む。Web exportは外部観測だけを持つtickerも含め、一つの受領cutoffをexport全体で固定する。ticker profileは要求日のJST末を論理cutoffとし、profile全体のportfolio基準日は[Market Context読取](./macro.md#market-context-reads)に従う。lakeの固定releaseでも受信時刻のcutoffを併用する。
+領域入口は`external_assessment.query.external_assessment`、Web・toolsの公開facadeは`read_api.external_assessment`であり、銘柄・受領cutoff・評価論理時刻を明示する。Webの銘柄詳細・ticker profile・次のCLIが同じ領域結果を読む。Web exportは外部観測だけを持つtickerも含め、一つの受領cutoffをexport全体で固定する。ticker profileは要求日のJST末を論理cutoffとし、profile全体のportfolio基準日は[Market Context読取](./market-context.md#market-context-reads)に従う。lakeの固定releaseでも受信時刻のcutoffを併用する。
 
 ```bash
 uv run baibai-engine external-assessment show --ticker <TICKER> --cutoff <ISO_DATETIME_WITH_TIMEZONE> --db stores/market/market.sqlite

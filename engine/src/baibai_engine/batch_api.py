@@ -111,7 +111,7 @@ from baibai_engine.external_assessment.tradingview.diagnostics import (
 from baibai_engine.foundation.repository_layout import (
     APPLICATION_DB_PATH,
     CALIBRATION_DIR,
-    MACRO_DB_PATH,
+    INDICATORS_DB_PATH,
     MARKET_DB_PATH,
     RUNS_DB_PATH,
     StoreLayoutError,
@@ -132,7 +132,7 @@ from baibai_engine.market_context.assessment.projection import (
 from baibai_engine.market_context.assessment.query import latest_assessment_payload
 from baibai_engine.market_context.indicators.cli import parse_refresh_failure_count
 from baibai_engine.market_context.indicators.db import (
-    DEFAULT_DB_PATH as DEFAULT_MACRO_DB_PATH,
+    DEFAULT_DB_PATH as DEFAULT_INDICATORS_DB_PATH,
 )
 from baibai_engine.market_context.indicators.db import (
     SQLITE_SCHEMA_VERSION as MACRO_SCHEMA_VERSION,
@@ -141,10 +141,10 @@ from baibai_engine.market_context.indicators.db import (
     IndicatorsSchemaError,
 )
 from baibai_engine.market_context.indicators.db import (
-    open_connection as open_macro_store,
+    open_connection as open_indicator_store,
 )
 from baibai_engine.market_context.indicators.db import (
-    validate_current_schema as validate_macro_schema,
+    validate_current_schema as validate_indicator_schema,
 )
 from baibai_engine.market_context.indicators.definitions import (
     IndicatorDefinitions,
@@ -452,14 +452,14 @@ __all__ = [
     "ASSESSMENT_SCHEMA_VERSION",
     "ASSESSMENT_STALE_DAYS",
     "CALIBRATION_DIR",
+    "DEFAULT_INDICATORS_DB_PATH",
     "DEFAULT_LATEST_LOOKBACK_DAYS",
-    "DEFAULT_MACRO_DB_PATH",
     "EXTERNAL_ASSESSMENT_ANALYST_RATING_DATASET",
     "EXTERNAL_ASSESSMENT_MODEL_VALUATION_DATASET",
     "EXTERNAL_ASSESSMENT_QUANTS_SCORE_DATASET",
+    "INDICATORS_DB_PATH",
     "LAKE_DATASETS",
     "LATEST_FETCH_LOOKBACK_DAYS",
-    "MACRO_DB_PATH",
     "MACRO_SCHEMA_VERSION",
     "MARKET_DB_PATH",
     "MARKET_SCHEMA_VERSION",
@@ -530,7 +530,7 @@ __all__ = [
     "load_definitions",
     "load_lake_model_json",
     "load_latest_analysis_context",
-    "open_macro_store",
+    "open_indicator_store",
     "open_market_store",
     "parse_refresh_failure_count",
     "publish_daily_research_triage",
@@ -546,8 +546,8 @@ __all__ = [
     "tradingview_safe_progress",
     "tradingview_validate_time",
     "tradingview_verify_observations",
+    "validate_indicator_schema",
     "validate_lake_release_policy",
-    "validate_macro_schema",
     "validate_market_schema",
     "validated_review_set",
 ]

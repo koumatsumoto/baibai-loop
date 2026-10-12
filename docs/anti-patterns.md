@@ -31,11 +31,11 @@ artifactの意味は[reference index](./reference/README.md)、形は対応model
 
 ## 6. AP-06: Macroの層と参照方向を混同する
 
-観測・Reading・Context・connectionの役割は[macro](./reference/macro.md)。
+観測・Reading・Context・connectionの役割は[macro](./reference/market-context.md)。
 
 ## 7. AP-07: 公表日と観測時点を混同する
 
-[時刻の語彙](./domain-language.md#time-vocabulary)と[macro](./reference/macro.md)を参照する。公表予定の推定値を公式event日程として扱わない。
+[時刻の語彙](./domain-language.md#time-vocabulary)と[macro](./reference/market-context.md)を参照する。公表予定の推定値を公式event日程として扱わない。
 
 ## 8. AP-08: 保存・発行境界を別の入口から迂回する
 
@@ -51,7 +51,7 @@ YAML読込は`baibai_engine.foundation.yaml_io`、検証と性能変更の扱い
 
 ## 11. AP-11: 観測頻度と公表・取得頻度を同一視する
 
-鮮度と実効窓は[macro](./reference/macro.md#macro-reading)、信用残高の公表日基準は[移行契約](./reference/margin-publication-transition.md)。
+鮮度と実効窓は[macro](./reference/market-context.md#macro-reading)、信用残高の公表日基準は[移行契約](./reference/margin-publication-transition.md)。
 
 ## 12. AP-12: 資本・株式・実体・期間の基準を混ぜる
 

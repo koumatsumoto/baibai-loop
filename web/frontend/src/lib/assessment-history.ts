@@ -1,4 +1,4 @@
-import type { MacroCoreSectionView, MacroScenarioView, MacroSynthesisView } from '../api/types'
+import type { HistoricalCoreSectionView, HistoricalScenarioView, HistoricalSynthesisView } from '../api/types'
 import type { ReportTone } from '../components/report/ReportToneBadge'
 
 export const TRANSMISSION_CHANNEL_IDS = [
@@ -63,23 +63,23 @@ const ESTIMATE_COMPONENTS: Readonly<Record<string, { label: string; order: numbe
   resilience: { label: '財務耐性', order: 3 },
 }
 
-export interface MacroCorePartition {
-  channels: MacroCoreSectionView[]
-  regime: MacroCoreSectionView | null
-  risk: MacroCoreSectionView | null
-  monitoring: MacroCoreSectionView | null
-  other: MacroCoreSectionView[]
+export interface HistoricalCorePartition {
+  channels: HistoricalCoreSectionView[]
+  regime: HistoricalCoreSectionView | null
+  risk: HistoricalCoreSectionView | null
+  monitoring: HistoricalCoreSectionView | null
+  other: HistoricalCoreSectionView[]
 }
 
-export function labelMacroValue(value: string): string {
+export function labelHistoricalValue(value: string): string {
   return VALUE_LABELS[value] ?? value
 }
 
-export function labelMacroSection(sectionId: string): string {
+export function labelHistoricalSection(sectionId: string): string {
   return SECTION_LABELS[sectionId] ?? sectionId
 }
 
-export function macroTone(value: string): ReportTone {
+export function historicalTone(value: string): ReportTone {
   return MACRO_TONES[value] ?? 'muted'
 }
 
@@ -88,13 +88,13 @@ export function estimateComponent(value: string): { label: string; order: number
 }
 
 export interface ScenarioDistributionItem {
-  scenario: MacroScenarioView
+  scenario: HistoricalScenarioView
   probability: number
 }
 
-export function scenarioDistribution(scenarios: readonly MacroScenarioView[] | null | undefined): ScenarioDistributionItem[] | null {
+export function scenarioDistribution(scenarios: readonly HistoricalScenarioView[] | null | undefined): ScenarioDistributionItem[] | null {
   const expected = ['base', 'bear', 'bull'] as const
-  const byCase = new Map<string, MacroScenarioView>()
+  const byCase = new Map<string, HistoricalScenarioView>()
   for (const scenario of scenarios ?? []) {
     if (byCase.has(scenario.case)) return null
     byCase.set(scenario.case, scenario)
@@ -109,7 +109,7 @@ export function scenarioDistribution(scenarios: readonly MacroScenarioView[] | n
   return Math.abs(valid.reduce((sum, item) => sum + item.probability, 0) - 1) <= 1e-6 ? valid : null
 }
 
-export function partitionMacroCore(core: readonly MacroCoreSectionView[] | null | undefined): MacroCorePartition {
+export function partitionHistoricalCore(core: readonly HistoricalCoreSectionView[] | null | undefined): HistoricalCorePartition {
   const sections = core ?? []
   const byId = new Map(sections.map((section) => [section.section_id, section]))
   const known = new Set<string>([...TRANSMISSION_CHANNEL_IDS, ...INTEGRATED_SECTION_IDS])
@@ -125,13 +125,13 @@ export function partitionMacroCore(core: readonly MacroCoreSectionView[] | null 
   }
 }
 
-export function orderMacroScenarios(scenarios: readonly MacroScenarioView[] | null | undefined): MacroScenarioView[] {
+export function orderHistoricalScenarios(scenarios: readonly HistoricalScenarioView[] | null | undefined): HistoricalScenarioView[] {
   return [...(scenarios ?? [])].sort((left, right) => {
     const orderDelta = (SCENARIO_ORDER[left.case] ?? Number.MAX_SAFE_INTEGER) - (SCENARIO_ORDER[right.case] ?? Number.MAX_SAFE_INTEGER)
     return orderDelta || left.case.localeCompare(right.case)
   })
 }
 
-export function forceTitle(synthesis: MacroSynthesisView | null | undefined, forceId: string): string {
+export function forceTitle(synthesis: HistoricalSynthesisView | null | undefined, forceId: string): string {
   return synthesis?.dominant_forces?.find((force) => force.force_id === forceId)?.title ?? forceId
 }

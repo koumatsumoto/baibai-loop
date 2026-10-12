@@ -10,12 +10,15 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, ConfigDict, Field
 
 from baibai_engine.read_api import (
-    MacroGranularity,
+    IndicatorGranularity,
     PortfolioSnapshot,
     application_db_updated_at,
     capital_allocation_assessment_payload,
     close_change_since,
     current_portfolio,
+    indicator_fetch_health,
+    indicator_latest_observed_at,
+    indicator_series,
     latest_disclosure_dates_after,
     latest_research_triage_payload,
     latest_unadjusted_closes,
@@ -26,9 +29,6 @@ from baibai_engine.read_api import (
     list_task_payloads,
     list_thesis_publications,
     list_thesis_review_publications,
-    macro_indicator_series,
-    macro_latest_observed_at,
-    macro_series_fetch_health,
     next_earnings_dates,
     portfolio_ledger_document,
     previous_business_day,
@@ -50,12 +50,12 @@ from baibai_engine.read_api.market_context import (
     assessment_payload,
     latest_assessment_payload,
     list_assessment_payloads,
-    macro_reading_snapshot,
+    reading_snapshot,
 )
 from baibai_web.sources.screening_selection import operative_screening_run
 from baibai_web.sources.types import (
-    MacroGroupConfig,
-    MacroSeriesConfig,
+    IndicatorGroupConfig,
+    IndicatorSeriesConfig,
     PositionReviewSummary,
     ResearchRevision,
     ScreeningRunRecord,
@@ -281,29 +281,29 @@ class _DashboardConfig(BaseModel):
     groups: tuple[_GroupConfig, ...] = Field(min_length=1)
 
 
-def load_macro_panel_config(path: Path) -> tuple[MacroGroupConfig, ...]:
+def load_indicator_panel_config(path: Path) -> tuple[IndicatorGroupConfig, ...]:
     raw = safe_load(path.read_text(encoding="utf-8"))
     config = _DashboardConfig.model_validate(raw)
     identifiers = [item.id for group in config.groups for item in group.series]
     if len(identifiers) != len(set(identifiers)):
         raise ValueError("macro panel series IDs must be unique")
     return tuple(
-        MacroGroupConfig(
+        IndicatorGroupConfig(
             title=group.title,
             series=tuple(
-                MacroSeriesConfig(series_id=item.id, label=item.label) for item in group.series
+                IndicatorSeriesConfig(series_id=item.id, label=item.label) for item in group.series
             ),
         )
         for group in config.groups
     )
 
 
-class DbMacroSource:
+class DbMarketContextSource:
     def __init__(
         self,
         app_db_path: Path,
         indicators_db_path: Path,
-        groups: tuple[MacroGroupConfig, ...],
+        groups: tuple[IndicatorGroupConfig, ...],
         reading_rules_path: Path,
     ) -> None:
         self._app_db_path = app_db_path.resolve()
@@ -312,7 +312,7 @@ class DbMacroSource:
         self.groups = groups
 
     def reading(self, *, as_of: date) -> dict[str, object] | None:
-        reading = macro_reading_snapshot(
+        reading = reading_snapshot(
             self._indicators_db_path,
             asof=as_of,
             rules_path=self._reading_rules_path,
@@ -322,15 +322,15 @@ class DbMacroSource:
         return {"as_of": reading["asof"], **{k: v for k, v in reading.items() if k != "asof"}}
 
     def fetch_health(self) -> list[dict[str, object]]:
-        return macro_series_fetch_health(self._indicators_db_path)
+        return indicator_fetch_health(self._indicators_db_path)
 
-    def context_by_id(self, *, context_id: str, as_of: date) -> dict[str, object]:
+    def assessment_by_id(self, *, context_id: str, as_of: date) -> dict[str, object]:
         return assessment_payload(self._app_db_path, context_id=context_id)
 
-    def contexts(self) -> list[dict[str, object]]:
+    def assessment_history(self) -> list[dict[str, object]]:
         return list_assessment_payloads(self._app_db_path)
 
-    def latest_context(self, *, as_of: date, known_at: datetime) -> dict[str, object] | None:
+    def latest_assessment(self, *, as_of: date, known_at: datetime) -> dict[str, object] | None:
         return latest_assessment_payload(self._app_db_path, as_of=as_of, known_at=known_at)
 
     def series(
@@ -339,9 +339,9 @@ class DbMacroSource:
         *,
         start: date | None,
         end: date,
-        granularity: MacroGranularity,
+        granularity: IndicatorGranularity,
     ) -> dict[str, object] | None:
-        return macro_indicator_series(
+        return indicator_series(
             self._indicators_db_path,
             series_id=series_id,
             start=start,
@@ -368,8 +368,8 @@ class DbMetaSource:
         run, _ = operative_screening_run(DbScreeningSource(self._runs_db_path))
         return None if run is None else run.as_of
 
-    def macro_as_of(self) -> date | None:
-        return macro_latest_observed_at(self._indicators_db_path)
+    def indicator_as_of(self) -> date | None:
+        return indicator_latest_observed_at(self._indicators_db_path)
 
     def app_db_updated_at(self) -> datetime | None:
         return application_db_updated_at(self._app_db_path)
@@ -379,12 +379,12 @@ class DbMetaSource:
 
         screening_run, _ = operative_screening_run(DbScreeningSource(self._runs_db_path))
         screening_updated_at = None if screening_run is None else screening_run.generated_at
-        macro_observed_at = macro_latest_observed_at(self._indicators_db_path)
-        macro_updated_at = (
+        indicator_observed_at = indicator_latest_observed_at(self._indicators_db_path)
+        indicator_updated_at = (
             None
-            if macro_observed_at is None
+            if indicator_observed_at is None
             else datetime.combine(
-                macro_observed_at, datetime.min.time(), tzinfo=ZoneInfo("Asia/Tokyo")
+                indicator_observed_at, datetime.min.time(), tzinfo=ZoneInfo("Asia/Tokyo")
             )
         )
         return max(
@@ -393,7 +393,7 @@ class DbMetaSource:
                 for value in (
                     self.app_db_updated_at(),
                     screening_updated_at,
-                    macro_updated_at,
+                    indicator_updated_at,
                 )
                 if value is not None
             ),

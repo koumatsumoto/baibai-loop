@@ -18,7 +18,7 @@ import argparse
 from contextlib import closing
 from pathlib import Path
 
-from baibai_engine.batch_api import open_macro_store as open_indicator_store
+from baibai_engine.batch_api import open_indicator_store as open_indicator_store
 
 
 def migrate_indicator_store(path: Path) -> int:

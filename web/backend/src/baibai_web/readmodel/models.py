@@ -452,7 +452,7 @@ class SecurityDetailView(BaseModel):
     screening_run: ScreeningRunView | None
 
 
-class MacroMaterialDeltaView(BaseModel):
+class HistoricalMaterialDeltaView(BaseModel):
     channel: str
     direction: str
     materiality: str
@@ -461,35 +461,35 @@ class MacroMaterialDeltaView(BaseModel):
     source_ids: list[str]
 
 
-class MacroSizingCautionView(BaseModel):
+class HistoricalSizingCautionView(BaseModel):
     severity: str
     summary: str
     source_ids: list[str]
 
 
-class MacroSeriesReferenceView(BaseModel):
+class HistoricalSeriesReferenceView(BaseModel):
     series_id: str
     name: str
 
 
-class MacroFactSummaryView(BaseModel):
+class HistoricalFactSummaryView(BaseModel):
     summary: str
     source_ids: list[str]
 
 
-class MacroSectionJudgmentView(BaseModel):
+class HistoricalSectionJudgmentView(BaseModel):
     summary: str
     direction: str
     confidence: str
     source_ids: list[str]
 
 
-class MacroEconomicConnectionView(BaseModel):
+class HistoricalEconomicConnectionView(BaseModel):
     summary: str
     source_ids: list[str]
 
 
-class MacroRiskEnvironmentView(BaseModel):
+class HistoricalRiskEnvironmentView(BaseModel):
     stance: str
     confidence: str
     summary: str
@@ -497,52 +497,52 @@ class MacroRiskEnvironmentView(BaseModel):
     source_ids: list[str]
 
 
-class MacroScorecardConditionView(BaseModel):
+class HistoricalScorecardConditionView(BaseModel):
     series_id: str
     comparison: str
     threshold: float
     deadline: date
 
 
-class MacroScenarioView(BaseModel):
+class HistoricalScenarioView(BaseModel):
     case: str
     direction: str
     # Subjective weight on this case; None on revisions published before the field.
     probability: float | None = None
     summary: str
     conditions: list[str]
-    scorecard: list[MacroScorecardConditionView]
+    scorecard: list[HistoricalScorecardConditionView]
     economic_implications: list[str]
     source_ids: list[str]
 
 
-class MacroDominantForceView(BaseModel):
+class HistoricalDominantForceView(BaseModel):
     force_id: str
     title: str
     summary: str
     transmission: str
     core_section_ids: list[str]
-    series: list[MacroSeriesReferenceView]
+    series: list[HistoricalSeriesReferenceView]
     counter_evidence: str
     direction: str
     confidence: str
     source_ids: list[str]
 
 
-class MacroForceInteractionView(BaseModel):
+class HistoricalForceInteractionView(BaseModel):
     summary: str
     force_ids: list[str]
     source_ids: list[str]
 
 
-class MacroSynthesisView(BaseModel):
+class HistoricalSynthesisView(BaseModel):
     """The integrated layer: named cross-channel forces and how they combine."""
 
-    dominant_forces: list[MacroDominantForceView]
-    interactions: list[MacroForceInteractionView]
+    dominant_forces: list[HistoricalDominantForceView]
+    interactions: list[HistoricalForceInteractionView]
 
 
-class MacroEstimateCaveatView(BaseModel):
+class HistoricalEstimateCaveatView(BaseModel):
     summary: str
     applies_to: str
     affected_component: str
@@ -550,20 +550,20 @@ class MacroEstimateCaveatView(BaseModel):
     source_ids: list[str]
 
 
-class MacroResearchPriorityHintView(BaseModel):
+class HistoricalResearchPriorityHintView(BaseModel):
     summary: str
     applies_to: str
     source_ids: list[str]
 
 
-class MacroSectorTiltView(BaseModel):
+class HistoricalSectorTiltView(BaseModel):
     sector: str
     direction: str
     summary: str
     source_ids: list[str]
 
 
-class MacroMonitoringPointView(BaseModel):
+class HistoricalMonitoringPointView(BaseModel):
     event: str
     condition: str
     view_change: str
@@ -571,32 +571,32 @@ class MacroMonitoringPointView(BaseModel):
     source_ids: list[str]
 
 
-class MacroCoreSectionView(BaseModel):
+class HistoricalCoreSectionView(BaseModel):
     section_id: str
-    series: list[MacroSeriesReferenceView]
-    fact_summary: list[MacroFactSummaryView]
-    judgment: MacroSectionJudgmentView
-    economic_connection: MacroEconomicConnectionView
+    series: list[HistoricalSeriesReferenceView]
+    fact_summary: list[HistoricalFactSummaryView]
+    judgment: HistoricalSectionJudgmentView
+    economic_connection: HistoricalEconomicConnectionView
     change_since_previous: str | None
     previous_scorecard_review: str | None
-    material_deltas: list[MacroMaterialDeltaView]
-    risk_environment: MacroRiskEnvironmentView | None
-    scenarios: list[MacroScenarioView]
-    monitoring_points: list[MacroMonitoringPointView]
+    material_deltas: list[HistoricalMaterialDeltaView]
+    risk_environment: HistoricalRiskEnvironmentView | None
+    scenarios: list[HistoricalScenarioView]
+    monitoring_points: list[HistoricalMonitoringPointView]
 
 
-class MacroConnectionSectionView(BaseModel):
+class HistoricalConnectionSectionView(BaseModel):
     section_id: str
-    series: list[MacroSeriesReferenceView]
+    series: list[HistoricalSeriesReferenceView]
     core_section_ids: list[str]
-    fact_summary: list[MacroFactSummaryView]
-    judgment: MacroSectionJudgmentView
-    research_priority_hints: list[MacroResearchPriorityHintView]
-    sector_tilts: list[MacroSectorTiltView]
-    sizing_cautions: list[MacroSizingCautionView]
+    fact_summary: list[HistoricalFactSummaryView]
+    judgment: HistoricalSectionJudgmentView
+    research_priority_hints: list[HistoricalResearchPriorityHintView]
+    sector_tilts: list[HistoricalSectorTiltView]
+    sizing_cautions: list[HistoricalSizingCautionView]
     # Absent on revisions published before the integrated layer.
-    bargain_topography: MacroFactSummaryView | None = None
-    estimate_caveats: list[MacroEstimateCaveatView] = []
+    bargain_topography: HistoricalFactSummaryView | None = None
+    estimate_caveats: list[HistoricalEstimateCaveatView] = []
 
 
 class AssessmentClaimView(BaseModel):
@@ -613,7 +613,7 @@ class AssessmentContentView(BaseModel):
     inputs: list[dict[str, Any]] = []
 
 
-class MacroContextView(BaseModel):
+class AssessmentPublicationView(BaseModel):
     context_id: str
     as_of: date
     published_at: datetime
@@ -621,14 +621,14 @@ class MacroContextView(BaseModel):
     age_days: int
     stale: bool
     # Absent on revisions published before the integrated layer.
-    synthesis: MacroSynthesisView | None = None
-    core: list[MacroCoreSectionView] = []
-    connection: MacroConnectionSectionView | None = None
+    synthesis: HistoricalSynthesisView | None = None
+    core: list[HistoricalCoreSectionView] = []
+    connection: HistoricalConnectionSectionView | None = None
     assessment: AssessmentContentView | None = None
     historical_payload: dict[str, Any] | None = None
 
 
-class MacroContextRevisionView(BaseModel):
+class AssessmentRevisionView(BaseModel):
     context_id: str
     as_of: date
     published_at: datetime
@@ -637,7 +637,7 @@ class MacroContextRevisionView(BaseModel):
     stale: bool
 
 
-class MacroReadingTrendView(BaseModel):
+class ReadingTrendView(BaseModel):
     months: int
     anchor_observed_at: date
     anchor_value: float
@@ -645,7 +645,7 @@ class MacroReadingTrendView(BaseModel):
     direction: str
 
 
-class MacroReadingSeriesView(BaseModel):
+class ReadingSeriesView(BaseModel):
     series_id: str
     name: str
     category: str
@@ -670,12 +670,12 @@ class MacroReadingSeriesView(BaseModel):
     statistic_value: float | None
     percentile: float | None
     z_score: float | None
-    short_trend: MacroReadingTrendView | None
-    long_trend: MacroReadingTrendView | None
+    short_trend: ReadingTrendView | None
+    long_trend: ReadingTrendView | None
     flags: list[str]
 
 
-class MacroSeriesFetchHealthView(BaseModel):
+class IndicatorFetchHealthView(BaseModel):
     """The latest acquisition attempt for one series (not part of the reading itself)."""
 
     series_id: str
@@ -685,7 +685,7 @@ class MacroSeriesFetchHealthView(BaseModel):
     error_message: str | None
 
 
-class MacroReadingView(BaseModel):
+class ReadingView(BaseModel):
     """The machine reading of every registered series for one as-of date.
 
     A projection of the L2 reading, recomputed from the indicator store; the panel it
@@ -696,11 +696,11 @@ class MacroReadingView(BaseModel):
 
     as_of: date
     rules_revision: str
-    series: list[MacroReadingSeriesView]
-    fetch_health: list[MacroSeriesFetchHealthView]
+    series: list[ReadingSeriesView]
+    fetch_health: list[IndicatorFetchHealthView]
 
 
-class MacroContextExcerptView(BaseModel):
+class AssessmentExcerptView(BaseModel):
     """Existing L3 judgment fields shown before the current L2 readings."""
 
     context_id: str
@@ -709,48 +709,48 @@ class MacroContextExcerptView(BaseModel):
     age_days: int
     stale: bool
     summary: str
-    synthesis: MacroSynthesisView | None
-    risk_environment: MacroRiskEnvironmentView | None
-    scenarios: list[MacroScenarioView]
-    material_deltas: list[MacroMaterialDeltaView]
-    research_priority_hints: list[MacroResearchPriorityHintView]
-    bargain_topography: MacroFactSummaryView | None
-    estimate_caveats: list[MacroEstimateCaveatView]
-    sizing_cautions: list[MacroSizingCautionView]
+    synthesis: HistoricalSynthesisView | None
+    risk_environment: HistoricalRiskEnvironmentView | None
+    scenarios: list[HistoricalScenarioView]
+    material_deltas: list[HistoricalMaterialDeltaView]
+    research_priority_hints: list[HistoricalResearchPriorityHintView]
+    bargain_topography: HistoricalFactSummaryView | None
+    estimate_caveats: list[HistoricalEstimateCaveatView]
+    sizing_cautions: list[HistoricalSizingCautionView]
     warnings: list[str]
 
     assessment: AssessmentContentView | None = None
 
 
-class MacroPointView(BaseModel):
+class IndicatorPointView(BaseModel):
     observed_at: date
     value: float
 
 
-class MacroSeriesView(BaseModel):
+class IndicatorSeriesView(BaseModel):
     series_id: str
     label: str
     name: str
     unit: str
     tradingview_symbol: str | None
-    points: list[MacroPointView]
+    points: list[IndicatorPointView]
 
 
-class MacroGroupView(BaseModel):
+class IndicatorGroupView(BaseModel):
     title: str
-    series: list[MacroSeriesView]
+    series: list[IndicatorSeriesView]
 
 
-class MacroView(BaseModel):
+class MarketContextView(BaseModel):
     """Current L3 judgment first, followed by current L2 readings."""
 
-    latest_context: MacroContextExcerptView | None
-    reading: MacroReadingView | None
+    latest_context: AssessmentExcerptView | None
+    reading: ReadingView | None
     # Older revisions only; the latest revision is the structured excerpt above.
-    reports: list[MacroContextRevisionView]
+    reports: list[AssessmentRevisionView]
     # Group rows carry at most thirteen monthly period-end points for their fixed
     # overview sparkline. Full daily history remains one-series-only and lazy.
-    groups: list[MacroGroupView]
+    groups: list[IndicatorGroupView]
 
 
 class AllocationAlternativeView(BaseModel):

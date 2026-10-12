@@ -1,10 +1,10 @@
 import type {
-  MacroGroupView,
-  MacroPointView,
-  MacroReadingSeriesView,
-  MacroReadingView,
-  MacroSeriesFetchHealthView,
-  MacroSeriesView,
+  IndicatorGroupView,
+  IndicatorPointView,
+  ReadingSeriesView,
+  ReadingView,
+  IndicatorFetchHealthView,
+  IndicatorSeriesView,
 } from '../api/types'
 
 export interface SeriesWindowSummary {
@@ -15,18 +15,18 @@ export interface SeriesWindowSummary {
   readonly delta: number | null
 }
 
-export type MacroHistoryPeriod = '1y' | '5y' | '10y' | 'max'
-export type MacroHistoryGranularity = 'daily' | 'weekly' | 'monthly' | 'yearly'
+export type IndicatorHistoryPeriod = '1y' | '5y' | '10y' | 'max'
+export type IndicatorHistoryGranularity = 'daily' | 'weekly' | 'monthly' | 'yearly'
 
-export function macroSeriesHistoryUrl(seriesId: string | null): string | null {
+export function indicatorHistoryUrl(seriesId: string | null): string | null {
   return seriesId === null ? null : `/api/macro/series/${encodeURIComponent(seriesId)}`
 }
 
 export function transformSeriesHistory(
-  series: MacroSeriesView,
-  period: MacroHistoryPeriod,
-  granularity: MacroHistoryGranularity,
-): MacroSeriesView {
+  series: IndicatorSeriesView,
+  period: IndicatorHistoryPeriod,
+  granularity: IndicatorHistoryGranularity,
+): IndicatorSeriesView {
   const latest = series.points.at(-1)?.observed_at
   let points = series.points
   if (latest !== undefined && period !== 'max') {
@@ -36,7 +36,7 @@ export function transformSeriesHistory(
     points = points.filter((point) => point.observed_at >= cutoffText)
   }
   if (granularity !== 'daily') {
-    const byPeriod = new Map<string, MacroPointView>()
+    const byPeriod = new Map<string, IndicatorPointView>()
     for (const point of points) {
       const day = new Date(`${point.observed_at}T00:00:00Z`)
       let key: string
@@ -59,7 +59,7 @@ export function transformSeriesHistory(
 // At-a-glance summary for a sparkline: latest level plus the change across the
 // displayed window. Direction is not interpreted as good/bad here — macro series
 // have no universal sign — so callers show a neutral arrow, not a semantic color.
-export function seriesWindowSummary(points: readonly MacroPointView[]): SeriesWindowSummary {
+export function seriesWindowSummary(points: readonly IndicatorPointView[]): SeriesWindowSummary {
   if (points.length === 0) return { latest: null, delta: null }
   const latest = points[points.length - 1].value
   const delta = points.length >= 2 ? latest - points[0].value : null
@@ -78,7 +78,7 @@ export interface ReadingStatistics {
 // history does not fill the effective window has no historical position at all, so the
 // panel shows blanks and says why rather than ranking it inside its own short life; a
 // year-on-year series with no observation a year back has no current statistic to rank.
-export function readingStatistics(series: MacroReadingSeriesView): ReadingStatistics {
+export function readingStatistics(series: ReadingSeriesView): ReadingStatistics {
   if (series.insufficient_history) {
     return { percentilePct: null, zScore: null, withheldNote: `履歴不足（${series.window_years}y 窓）` }
   }
@@ -107,38 +107,38 @@ export const EXTREME_Z_SCORE = 3
 // what a percentile means. The fourth is the reading's own answer to "where are we" — a
 // policy rate at its ten-year high reads as +3.8 z because it is at its ten-year high —
 // so it is counted apart from the other three and never presented as a defect.
-export type MacroIndicatorStatus = 'fetch-failed' | 'stale' | 'insufficient-history' | 'extreme'
+export type IndicatorStatus = 'fetch-failed' | 'stale' | 'insufficient-history' | 'extreme'
 
-export const INDICATOR_STATUSES: readonly MacroIndicatorStatus[] = [
+export const INDICATOR_STATUSES: readonly IndicatorStatus[] = [
   'fetch-failed',
   'stale',
   'insufficient-history',
   'extreme',
 ]
 
-export const INDICATOR_STATUS_LABEL: Readonly<Record<MacroIndicatorStatus, string>> = {
+export const INDICATOR_STATUS_LABEL: Readonly<Record<IndicatorStatus, string>> = {
   'fetch-failed': '取得失敗',
   stale: 'stale',
   'insufficient-history': '履歴不足',
   extreme: '分布の端',
 }
 
-export interface MacroIndicatorRow {
+export interface IndicatorRow {
   // Chart side: label, unit, TradingView symbol and the points of the displayed window.
-  readonly series: MacroSeriesView
+  readonly series: IndicatorSeriesView
   // Reading side: where the series stands and how old it is. null while the reading is
   // unavailable, or for a series the registry has gained since the reading was computed.
-  readonly reading: MacroReadingSeriesView | null
+  readonly reading: ReadingSeriesView | null
   // The last acquisition attempt, present only when it failed. Staleness cannot see a
   // source that has just gone silent: a monthly series stays inside its threshold for
   // weeks after its provider stops answering.
-  readonly failedFetch: MacroSeriesFetchHealthView | null
-  readonly statuses: readonly MacroIndicatorStatus[]
+  readonly failedFetch: IndicatorFetchHealthView | null
+  readonly statuses: readonly IndicatorStatus[]
 }
 
-export interface MacroIndicatorGroup {
+export interface IndicatorGroup {
   readonly title: string
-  readonly rows: readonly MacroIndicatorRow[]
+  readonly rows: readonly IndicatorRow[]
 }
 
 // Join the indicator panel with the machine reading into the rows the Macro tab draws.
@@ -149,9 +149,9 @@ export interface MacroIndicatorGroup {
 // store has not fetched, so a row with no reading is a freshness state rather than an
 // error: it renders with blank statistics instead of disappearing.
 export function buildIndicatorGroups(
-  groups: readonly MacroGroupView[],
-  reading: MacroReadingView | null,
-): readonly MacroIndicatorGroup[] {
+  groups: readonly IndicatorGroupView[],
+  reading: ReadingView | null,
+): readonly IndicatorGroup[] {
   const readings = new Map((reading?.series ?? []).map((item) => [item.series_id, item]))
   const failures = new Map(
     (reading?.fetch_health ?? [])
@@ -169,10 +169,10 @@ export function buildIndicatorGroups(
 }
 
 function rowStatuses(
-  reading: MacroReadingSeriesView | null,
-  failedFetch: MacroSeriesFetchHealthView | null,
-): readonly MacroIndicatorStatus[] {
-  const statuses: MacroIndicatorStatus[] = []
+  reading: ReadingSeriesView | null,
+  failedFetch: IndicatorFetchHealthView | null,
+): readonly IndicatorStatus[] {
+  const statuses: IndicatorStatus[] = []
   if (failedFetch !== null) statuses.push('fetch-failed')
   if (reading === null) return statuses
   if (reading.stale) statuses.push('stale')
@@ -183,17 +183,17 @@ function rowStatuses(
   return statuses
 }
 
-export interface MacroIndicatorSummary {
+export interface IndicatorSummary {
   readonly seriesCount: number
-  readonly counts: Readonly<Record<MacroIndicatorStatus, number>>
+  readonly counts: Readonly<Record<IndicatorStatus, number>>
 }
 
 // Counts for the page's summary card. Every count is a pointer into the one table below:
 // the same classification filters the rows, so a non-zero count is reachable in one click.
 export function summarizeIndicators(
-  groups: readonly MacroIndicatorGroup[],
-): MacroIndicatorSummary {
-  const counts: Record<MacroIndicatorStatus, number> = {
+  groups: readonly IndicatorGroup[],
+): IndicatorSummary {
+  const counts: Record<IndicatorStatus, number> = {
     'fetch-failed': 0,
     stale: 0,
     'insufficient-history': 0,
@@ -214,15 +214,15 @@ export interface IndicatorFilter {
   readonly query: string
   // Selected states. Empty matches everything; several are read as a union, so picking
   // 取得失敗 and stale asks for the rows that carry either.
-  readonly statuses: ReadonlySet<MacroIndicatorStatus>
+  readonly statuses: ReadonlySet<IndicatorStatus>
 }
 
 // Narrow the table to the rows a filter asks for, dropping the groups left with none so
 // the result is the answer rather than seven headings around it.
 export function filterIndicatorGroups(
-  groups: readonly MacroIndicatorGroup[],
+  groups: readonly IndicatorGroup[],
   filter: IndicatorFilter,
-): readonly MacroIndicatorGroup[] {
+): readonly IndicatorGroup[] {
   const query = filter.query.trim().toLowerCase()
   if (query === '' && filter.statuses.size === 0) return groups
   return groups
@@ -234,9 +234,9 @@ export function filterIndicatorGroups(
 }
 
 function matchesFilter(
-  row: MacroIndicatorRow,
+  row: IndicatorRow,
   query: string,
-  statuses: ReadonlySet<MacroIndicatorStatus>,
+  statuses: ReadonlySet<IndicatorStatus>,
 ): boolean {
   if (statuses.size > 0 && !row.statuses.some((status) => statuses.has(status))) return false
   if (query === '') return true

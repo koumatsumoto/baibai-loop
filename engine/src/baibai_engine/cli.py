@@ -61,12 +61,8 @@ DOMAINS: Mapping[str, Domain] = {
         summary="machine screening: analyze securities and publish a Review Set",
     ),
     "market-context": Domain(
-        module="baibai_engine.market_context.assessment.cli",
-        summary="explicit market environment assessments and their history",
-    ),
-    "macro": Domain(
-        module="baibai_engine.market_context.indicators.cli",
-        summary="economic indicator observations and mechanical readings",
+        module="baibai_engine.market_context.cli",
+        summary="economic observations, mechanical readings, and explicit market assessments",
     ),
     "operation": Domain(
         module="baibai_engine.research.operation.cli",

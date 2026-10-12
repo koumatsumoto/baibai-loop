@@ -24,7 +24,7 @@ from tools.owner_mcp.server import call, create_server
 from baibai_engine.market_context.indicators.db import initialize_database as macro_init
 from baibai_engine.market_context.indicators.db import insert_observations
 from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.read_api.macro import macro_reading_snapshot
+from baibai_engine.read_api.market_context import reading_snapshot
 from baibai_engine.storage.lake.datasets import LAKE_DATASETS
 from baibai_engine.tasks.models import Task
 
@@ -35,7 +35,7 @@ def data(reader, tmp_path):
         Paths(
             application=reader.app_path,
             runs=reader.runs_path,
-            macro=tmp_path / "macro.sqlite",
+            indicators=tmp_path / "macro.sqlite",
             market=tmp_path / "market.sqlite",
             calibration=tmp_path / "calibration/current.sqlite",
             er=tmp_path / "er.yaml",
@@ -95,7 +95,7 @@ def test_catalog_is_complete_without_stores_and_schemas_are_live(data):
     assert (
         data.catalog(layer="L2", domain="macro")["resources"][0]["resource_id"] == "macro.reading"
     )
-    assert not data.paths.macro.exists()
+    assert not data.paths.indicators.exists()
     error(lambda: data.catalog("macro.reading", layer="L2"), "INVALID_ARGUMENT")
     error(lambda: data.catalog(domain="../"), "INVALID_ARGUMENT")
 
@@ -161,12 +161,12 @@ def test_cursor_continuation_validates_resource_filters_and_key(data):
 
 def test_missing_unwritten_empty_and_corrupt_are_distinct(data):
     error(lambda: data.list("macro.provider_run"), "SOURCE_UNAVAILABLE")
-    assert not data.paths.macro.exists()
-    sqlite3.connect(data.paths.macro).close()
+    assert not data.paths.indicators.exists()
+    sqlite3.connect(data.paths.indicators).close()
     error(lambda: data.list("macro.provider_run"), "SOURCE_UNAVAILABLE")
-    macro_init(data.paths.macro).close()
+    macro_init(data.paths.indicators).close()
     assert data.list("macro.provider_run")["items"] == []
-    with sqlite3.connect(data.paths.macro) as con:
+    with sqlite3.connect(data.paths.indicators) as con:
         con.execute("PRAGMA user_version=999")
     error(lambda: data.list("macro.provider_run"), "CONTRACT_MISMATCH")
     error(lambda: data.get("task", {"task_id": "missing"}), "SOURCE_UNAVAILABLE")
@@ -250,7 +250,7 @@ def test_bytes_pagination_never_skips_unreturned_items(data, reader, monkeypatch
 
 
 def test_macro_raw_effective_fixed_cutoff_reading_and_redaction(data):
-    with macro_init(data.paths.macro) as con:
+    with macro_init(data.paths.indicators) as con:
         insert_observations(
             con,
             [
@@ -291,7 +291,7 @@ def test_macro_raw_effective_fixed_cutoff_reading_and_redaction(data):
     assert "secret" not in json.dumps(got)
     assert got["meta"]["redacted"] is True
     snapshot = data.get("macro.reading", {"as_of": "2026-01-05"})
-    assert snapshot["payload"] == macro_reading_snapshot(data.paths.macro, asof=date(2026, 1, 5))
+    assert snapshot["payload"] == reading_snapshot(data.paths.indicators, asof=date(2026, 1, 5))
     assert (
         data.get("macro.reading", resource_ref=snapshot["resource_ref"])["payload"]
         == snapshot["payload"]
@@ -306,7 +306,7 @@ def test_macro_raw_effective_fixed_cutoff_reading_and_redaction(data):
 
 
 def test_provider_jst_boundary_offset_sort_and_read_only(data):
-    con = macro_init(data.paths.macro)
+    con = macro_init(data.paths.indicators)
     try:
         for key, stamp in [
             ("a", "2026-01-01T15:00:00+00:00"),
@@ -456,14 +456,14 @@ def test_cursor_rejects_invalid_day_key_before_store_read(data):
         {},
     )
     error(lambda: data.list("macro.observation", cursor=cursor), "INVALID_ARGUMENT")
-    assert not data.paths.macro.exists()
+    assert not data.paths.indicators.exists()
 
 
 def test_reading_list_carries_rules_revision_on_every_page(data):
-    with macro_init(data.paths.macro):
+    with macro_init(data.paths.indicators):
         pass
     filters = {"as_of": "2026-01-05"}
-    snapshot = macro_reading_snapshot(data.paths.macro, asof=date(2026, 1, 5))
+    snapshot = reading_snapshot(data.paths.indicators, asof=date(2026, 1, 5))
     whole = data.list("macro.reading", filters)
     assert whole["meta"]["rules_revision"] == snapshot["rules_revision"]
     page = data.list("macro.reading", filters, limit=1)

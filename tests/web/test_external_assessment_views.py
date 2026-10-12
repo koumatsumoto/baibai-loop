@@ -27,7 +27,12 @@ from baibai_engine.external_assessment.acquisition.collection import (
 from baibai_engine.external_assessment.acquisition.sources import ParseError, rakuten
 from baibai_engine.external_assessment.query import external_assessment
 from baibai_engine.external_assessment.store import save_observations
-from baibai_engine.read_api import APPLICATION_DB_PATH, MACRO_DB_PATH, MARKET_DB_PATH, RUNS_DB_PATH
+from baibai_engine.read_api import (
+    APPLICATION_DB_PATH,
+    INDICATORS_DB_PATH,
+    MARKET_DB_PATH,
+    RUNS_DB_PATH,
+)
 from baibai_engine.research.inputs import research_inputs
 from baibai_web.api.server import create_app
 from baibai_web.materialize import export_read_models
@@ -168,7 +173,7 @@ def test_rakuten_missingness_survives_checkpoint_store_api_export_and_research(
         known_at=received,
         market_path=market,
         runs_path=app_method_root / RUNS_DB_PATH,
-        macro_path=app_method_root / MACRO_DB_PATH,
+        macro_path=app_method_root / INDICATORS_DB_PATH,
         app_path=app_method_root / APPLICATION_DB_PATH,
     )["securities"]["9999"]["external_assessment"]
     for result in (detail, saved, inputs):

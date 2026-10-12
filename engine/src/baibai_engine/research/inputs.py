@@ -10,7 +10,7 @@ from baibai_engine.external_assessment.query import external_assessment
 from baibai_engine.foundation.sqlite_read import read_store_if_written
 from baibai_engine.market_context.assessment.projection import assessment_projection
 from baibai_engine.market_context.assessment.query import latest_assessment
-from baibai_engine.market_context.macro import macro_reading_snapshot
+from baibai_engine.market_context.reading.query import reading_snapshot
 from baibai_engine.market_context.security import build_security_market_context
 from baibai_engine.market_context.snapshot import build_market_snapshot
 from baibai_engine.screening.run_store import ScreeningRunReader
@@ -66,7 +66,7 @@ def research_inputs(
         "known_at": known_at.isoformat(),
         "market_context": {
             "market": build_market_snapshot(sqlite_path=market_path, asof_date=as_of),
-            "macro_reading": macro_reading_snapshot(macro_path, asof=as_of),
+            "macro_reading": reading_snapshot(macro_path, asof=as_of),
             "saved_macro_context": None
             if context is None
             else assessment_projection(context, as_of=as_of),

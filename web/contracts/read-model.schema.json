@@ -8,9 +8,9 @@
     "views/capital-allocation-assessment--{capital_allocation_assessment_id}.json": "#/$defs/CapitalAllocationAssessmentView",
     "views/daily-delta.json": "#/$defs/DailyDeltaView",
     "views/dashboard.json": "#/$defs/DashboardView",
-    "views/macro-context--{context_id}.json": "#/$defs/MacroContextView",
-    "views/macro-series--{series_id}.json": "#/$defs/MacroSeriesView",
-    "views/macro.json": "#/$defs/MacroView",
+    "views/macro-context--{context_id}.json": "#/$defs/AssessmentPublicationView",
+    "views/macro-series--{series_id}.json": "#/$defs/IndicatorSeriesView",
+    "views/macro.json": "#/$defs/MarketContextView",
     "views/meta.json": "#/$defs/MetaView",
     "views/operations.json": "#/$defs/OperationsView",
     "views/screening_latest.json": "#/$defs/ScreeningView",
@@ -404,6 +404,239 @@
       "title": "AssessmentContentView",
       "type": "object"
     },
+    "AssessmentExcerptView": {
+      "description": "Existing L3 judgment fields shown before the current L2 readings.",
+      "properties": {
+        "context_id": {
+          "title": "Context Id",
+          "type": "string"
+        },
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "published_at": {
+          "format": "date-time",
+          "title": "Published At",
+          "type": "string"
+        },
+        "age_days": {
+          "title": "Age Days",
+          "type": "integer"
+        },
+        "stale": {
+          "title": "Stale",
+          "type": "boolean"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "synthesis": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HistoricalSynthesisView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "risk_environment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HistoricalRiskEnvironmentView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scenarios": {
+          "items": {
+            "$ref": "#/$defs/HistoricalScenarioView"
+          },
+          "title": "Scenarios",
+          "type": "array"
+        },
+        "material_deltas": {
+          "items": {
+            "$ref": "#/$defs/HistoricalMaterialDeltaView"
+          },
+          "title": "Material Deltas",
+          "type": "array"
+        },
+        "research_priority_hints": {
+          "items": {
+            "$ref": "#/$defs/HistoricalResearchPriorityHintView"
+          },
+          "title": "Research Priority Hints",
+          "type": "array"
+        },
+        "bargain_topography": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HistoricalFactSummaryView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "estimate_caveats": {
+          "items": {
+            "$ref": "#/$defs/HistoricalEstimateCaveatView"
+          },
+          "title": "Estimate Caveats",
+          "type": "array"
+        },
+        "sizing_cautions": {
+          "items": {
+            "$ref": "#/$defs/HistoricalSizingCautionView"
+          },
+          "title": "Sizing Cautions",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        },
+        "assessment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AssessmentContentView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "context_id",
+        "as_of",
+        "published_at",
+        "age_days",
+        "stale",
+        "summary",
+        "synthesis",
+        "risk_environment",
+        "scenarios",
+        "material_deltas",
+        "research_priority_hints",
+        "bargain_topography",
+        "estimate_caveats",
+        "sizing_cautions",
+        "warnings",
+        "assessment"
+      ],
+      "title": "AssessmentExcerptView",
+      "type": "object"
+    },
+    "AssessmentPublicationView": {
+      "properties": {
+        "context_id": {
+          "title": "Context Id",
+          "type": "string"
+        },
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "published_at": {
+          "format": "date-time",
+          "title": "Published At",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "age_days": {
+          "title": "Age Days",
+          "type": "integer"
+        },
+        "stale": {
+          "title": "Stale",
+          "type": "boolean"
+        },
+        "synthesis": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HistoricalSynthesisView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "core": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/HistoricalCoreSectionView"
+          },
+          "title": "Core",
+          "type": "array"
+        },
+        "connection": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HistoricalConnectionSectionView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "assessment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AssessmentContentView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "historical_payload": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Historical Payload"
+        }
+      },
+      "required": [
+        "context_id",
+        "as_of",
+        "published_at",
+        "summary",
+        "age_days",
+        "stale",
+        "synthesis",
+        "core",
+        "connection",
+        "assessment",
+        "historical_payload"
+      ],
+      "title": "AssessmentPublicationView",
+      "type": "object"
+    },
     "AssessmentReviewView": {
       "properties": {
         "attempt": {
@@ -439,6 +672,46 @@
         "open_findings"
       ],
       "title": "AssessmentReviewView",
+      "type": "object"
+    },
+    "AssessmentRevisionView": {
+      "properties": {
+        "context_id": {
+          "title": "Context Id",
+          "type": "string"
+        },
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "published_at": {
+          "format": "date-time",
+          "title": "Published At",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "age_days": {
+          "title": "Age Days",
+          "type": "integer"
+        },
+        "stale": {
+          "title": "Stale",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "context_id",
+        "as_of",
+        "published_at",
+        "summary",
+        "age_days",
+        "stale"
+      ],
+      "title": "AssessmentRevisionView",
       "type": "object"
     },
     "CapitalAllocationAssessmentSummaryView": {
@@ -1210,6 +1483,732 @@
       "title": "ExternalAssessment",
       "type": "object"
     },
+    "HistoricalConnectionSectionView": {
+      "properties": {
+        "section_id": {
+          "title": "Section Id",
+          "type": "string"
+        },
+        "series": {
+          "items": {
+            "$ref": "#/$defs/HistoricalSeriesReferenceView"
+          },
+          "title": "Series",
+          "type": "array"
+        },
+        "core_section_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Core Section Ids",
+          "type": "array"
+        },
+        "fact_summary": {
+          "items": {
+            "$ref": "#/$defs/HistoricalFactSummaryView"
+          },
+          "title": "Fact Summary",
+          "type": "array"
+        },
+        "judgment": {
+          "$ref": "#/$defs/HistoricalSectionJudgmentView"
+        },
+        "research_priority_hints": {
+          "items": {
+            "$ref": "#/$defs/HistoricalResearchPriorityHintView"
+          },
+          "title": "Research Priority Hints",
+          "type": "array"
+        },
+        "sector_tilts": {
+          "items": {
+            "$ref": "#/$defs/HistoricalSectorTiltView"
+          },
+          "title": "Sector Tilts",
+          "type": "array"
+        },
+        "sizing_cautions": {
+          "items": {
+            "$ref": "#/$defs/HistoricalSizingCautionView"
+          },
+          "title": "Sizing Cautions",
+          "type": "array"
+        },
+        "bargain_topography": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HistoricalFactSummaryView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "estimate_caveats": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/HistoricalEstimateCaveatView"
+          },
+          "title": "Estimate Caveats",
+          "type": "array"
+        }
+      },
+      "required": [
+        "section_id",
+        "series",
+        "core_section_ids",
+        "fact_summary",
+        "judgment",
+        "research_priority_hints",
+        "sector_tilts",
+        "sizing_cautions",
+        "bargain_topography",
+        "estimate_caveats"
+      ],
+      "title": "HistoricalConnectionSectionView",
+      "type": "object"
+    },
+    "HistoricalCoreSectionView": {
+      "properties": {
+        "section_id": {
+          "title": "Section Id",
+          "type": "string"
+        },
+        "series": {
+          "items": {
+            "$ref": "#/$defs/HistoricalSeriesReferenceView"
+          },
+          "title": "Series",
+          "type": "array"
+        },
+        "fact_summary": {
+          "items": {
+            "$ref": "#/$defs/HistoricalFactSummaryView"
+          },
+          "title": "Fact Summary",
+          "type": "array"
+        },
+        "judgment": {
+          "$ref": "#/$defs/HistoricalSectionJudgmentView"
+        },
+        "economic_connection": {
+          "$ref": "#/$defs/HistoricalEconomicConnectionView"
+        },
+        "change_since_previous": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Change Since Previous"
+        },
+        "previous_scorecard_review": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Previous Scorecard Review"
+        },
+        "material_deltas": {
+          "items": {
+            "$ref": "#/$defs/HistoricalMaterialDeltaView"
+          },
+          "title": "Material Deltas",
+          "type": "array"
+        },
+        "risk_environment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HistoricalRiskEnvironmentView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scenarios": {
+          "items": {
+            "$ref": "#/$defs/HistoricalScenarioView"
+          },
+          "title": "Scenarios",
+          "type": "array"
+        },
+        "monitoring_points": {
+          "items": {
+            "$ref": "#/$defs/HistoricalMonitoringPointView"
+          },
+          "title": "Monitoring Points",
+          "type": "array"
+        }
+      },
+      "required": [
+        "section_id",
+        "series",
+        "fact_summary",
+        "judgment",
+        "economic_connection",
+        "change_since_previous",
+        "previous_scorecard_review",
+        "material_deltas",
+        "risk_environment",
+        "scenarios",
+        "monitoring_points"
+      ],
+      "title": "HistoricalCoreSectionView",
+      "type": "object"
+    },
+    "HistoricalDominantForceView": {
+      "properties": {
+        "force_id": {
+          "title": "Force Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "transmission": {
+          "title": "Transmission",
+          "type": "string"
+        },
+        "core_section_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Core Section Ids",
+          "type": "array"
+        },
+        "series": {
+          "items": {
+            "$ref": "#/$defs/HistoricalSeriesReferenceView"
+          },
+          "title": "Series",
+          "type": "array"
+        },
+        "counter_evidence": {
+          "title": "Counter Evidence",
+          "type": "string"
+        },
+        "direction": {
+          "title": "Direction",
+          "type": "string"
+        },
+        "confidence": {
+          "title": "Confidence",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "force_id",
+        "title",
+        "summary",
+        "transmission",
+        "core_section_ids",
+        "series",
+        "counter_evidence",
+        "direction",
+        "confidence",
+        "source_ids"
+      ],
+      "title": "HistoricalDominantForceView",
+      "type": "object"
+    },
+    "HistoricalEconomicConnectionView": {
+      "properties": {
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "summary",
+        "source_ids"
+      ],
+      "title": "HistoricalEconomicConnectionView",
+      "type": "object"
+    },
+    "HistoricalEstimateCaveatView": {
+      "properties": {
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "applies_to": {
+          "title": "Applies To",
+          "type": "string"
+        },
+        "affected_component": {
+          "title": "Affected Component",
+          "type": "string"
+        },
+        "materiality": {
+          "title": "Materiality",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "summary",
+        "applies_to",
+        "affected_component",
+        "materiality",
+        "source_ids"
+      ],
+      "title": "HistoricalEstimateCaveatView",
+      "type": "object"
+    },
+    "HistoricalFactSummaryView": {
+      "properties": {
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "summary",
+        "source_ids"
+      ],
+      "title": "HistoricalFactSummaryView",
+      "type": "object"
+    },
+    "HistoricalForceInteractionView": {
+      "properties": {
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "force_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Force Ids",
+          "type": "array"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "summary",
+        "force_ids",
+        "source_ids"
+      ],
+      "title": "HistoricalForceInteractionView",
+      "type": "object"
+    },
+    "HistoricalMaterialDeltaView": {
+      "properties": {
+        "channel": {
+          "title": "Channel",
+          "type": "string"
+        },
+        "direction": {
+          "title": "Direction",
+          "type": "string"
+        },
+        "materiality": {
+          "title": "Materiality",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "used_for": {
+          "title": "Used For",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "channel",
+        "direction",
+        "materiality",
+        "summary",
+        "used_for",
+        "source_ids"
+      ],
+      "title": "HistoricalMaterialDeltaView",
+      "type": "object"
+    },
+    "HistoricalMonitoringPointView": {
+      "properties": {
+        "event": {
+          "title": "Event",
+          "type": "string"
+        },
+        "condition": {
+          "title": "Condition",
+          "type": "string"
+        },
+        "view_change": {
+          "title": "View Change",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "event",
+        "condition",
+        "view_change",
+        "summary",
+        "source_ids"
+      ],
+      "title": "HistoricalMonitoringPointView",
+      "type": "object"
+    },
+    "HistoricalResearchPriorityHintView": {
+      "properties": {
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "applies_to": {
+          "title": "Applies To",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "summary",
+        "applies_to",
+        "source_ids"
+      ],
+      "title": "HistoricalResearchPriorityHintView",
+      "type": "object"
+    },
+    "HistoricalRiskEnvironmentView": {
+      "properties": {
+        "stance": {
+          "title": "Stance",
+          "type": "string"
+        },
+        "confidence": {
+          "title": "Confidence",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "falsifiers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Falsifiers",
+          "type": "array"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "stance",
+        "confidence",
+        "summary",
+        "falsifiers",
+        "source_ids"
+      ],
+      "title": "HistoricalRiskEnvironmentView",
+      "type": "object"
+    },
+    "HistoricalScenarioView": {
+      "properties": {
+        "case": {
+          "title": "Case",
+          "type": "string"
+        },
+        "direction": {
+          "title": "Direction",
+          "type": "string"
+        },
+        "probability": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Probability"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "conditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Conditions",
+          "type": "array"
+        },
+        "scorecard": {
+          "items": {
+            "$ref": "#/$defs/HistoricalScorecardConditionView"
+          },
+          "title": "Scorecard",
+          "type": "array"
+        },
+        "economic_implications": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Economic Implications",
+          "type": "array"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "case",
+        "direction",
+        "probability",
+        "summary",
+        "conditions",
+        "scorecard",
+        "economic_implications",
+        "source_ids"
+      ],
+      "title": "HistoricalScenarioView",
+      "type": "object"
+    },
+    "HistoricalScorecardConditionView": {
+      "properties": {
+        "series_id": {
+          "title": "Series Id",
+          "type": "string"
+        },
+        "comparison": {
+          "title": "Comparison",
+          "type": "string"
+        },
+        "threshold": {
+          "title": "Threshold",
+          "type": "number"
+        },
+        "deadline": {
+          "format": "date",
+          "title": "Deadline",
+          "type": "string"
+        }
+      },
+      "required": [
+        "series_id",
+        "comparison",
+        "threshold",
+        "deadline"
+      ],
+      "title": "HistoricalScorecardConditionView",
+      "type": "object"
+    },
+    "HistoricalSectionJudgmentView": {
+      "properties": {
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "direction": {
+          "title": "Direction",
+          "type": "string"
+        },
+        "confidence": {
+          "title": "Confidence",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "summary",
+        "direction",
+        "confidence",
+        "source_ids"
+      ],
+      "title": "HistoricalSectionJudgmentView",
+      "type": "object"
+    },
+    "HistoricalSectorTiltView": {
+      "properties": {
+        "sector": {
+          "title": "Sector",
+          "type": "string"
+        },
+        "direction": {
+          "title": "Direction",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "sector",
+        "direction",
+        "summary",
+        "source_ids"
+      ],
+      "title": "HistoricalSectorTiltView",
+      "type": "object"
+    },
+    "HistoricalSeriesReferenceView": {
+      "properties": {
+        "series_id": {
+          "title": "Series Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "series_id",
+        "name"
+      ],
+      "title": "HistoricalSeriesReferenceView",
+      "type": "object"
+    },
+    "HistoricalSizingCautionView": {
+      "properties": {
+        "severity": {
+          "title": "Severity",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "severity",
+        "summary",
+        "source_ids"
+      ],
+      "title": "HistoricalSizingCautionView",
+      "type": "object"
+    },
+    "HistoricalSynthesisView": {
+      "description": "The integrated layer: named cross-channel forces and how they combine.",
+      "properties": {
+        "dominant_forces": {
+          "items": {
+            "$ref": "#/$defs/HistoricalDominantForceView"
+          },
+          "title": "Dominant Forces",
+          "type": "array"
+        },
+        "interactions": {
+          "items": {
+            "$ref": "#/$defs/HistoricalForceInteractionView"
+          },
+          "title": "Interactions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "dominant_forces",
+        "interactions"
+      ],
+      "title": "HistoricalSynthesisView",
+      "type": "object"
+    },
     "HoldingDeltaView": {
       "description": "Observed holding price movement; holding decisions belong to Position Review.",
       "properties": {
@@ -1422,1260 +2421,7 @@
       "title": "HoldingView",
       "type": "object"
     },
-    "MacroConnectionSectionView": {
-      "properties": {
-        "section_id": {
-          "title": "Section Id",
-          "type": "string"
-        },
-        "series": {
-          "items": {
-            "$ref": "#/$defs/MacroSeriesReferenceView"
-          },
-          "title": "Series",
-          "type": "array"
-        },
-        "core_section_ids": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Core Section Ids",
-          "type": "array"
-        },
-        "fact_summary": {
-          "items": {
-            "$ref": "#/$defs/MacroFactSummaryView"
-          },
-          "title": "Fact Summary",
-          "type": "array"
-        },
-        "judgment": {
-          "$ref": "#/$defs/MacroSectionJudgmentView"
-        },
-        "research_priority_hints": {
-          "items": {
-            "$ref": "#/$defs/MacroResearchPriorityHintView"
-          },
-          "title": "Research Priority Hints",
-          "type": "array"
-        },
-        "sector_tilts": {
-          "items": {
-            "$ref": "#/$defs/MacroSectorTiltView"
-          },
-          "title": "Sector Tilts",
-          "type": "array"
-        },
-        "sizing_cautions": {
-          "items": {
-            "$ref": "#/$defs/MacroSizingCautionView"
-          },
-          "title": "Sizing Cautions",
-          "type": "array"
-        },
-        "bargain_topography": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/MacroFactSummaryView"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "estimate_caveats": {
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/MacroEstimateCaveatView"
-          },
-          "title": "Estimate Caveats",
-          "type": "array"
-        }
-      },
-      "required": [
-        "section_id",
-        "series",
-        "core_section_ids",
-        "fact_summary",
-        "judgment",
-        "research_priority_hints",
-        "sector_tilts",
-        "sizing_cautions",
-        "bargain_topography",
-        "estimate_caveats"
-      ],
-      "title": "MacroConnectionSectionView",
-      "type": "object"
-    },
-    "MacroContextExcerptView": {
-      "description": "Existing L3 judgment fields shown before the current L2 readings.",
-      "properties": {
-        "context_id": {
-          "title": "Context Id",
-          "type": "string"
-        },
-        "as_of": {
-          "format": "date",
-          "title": "As Of",
-          "type": "string"
-        },
-        "published_at": {
-          "format": "date-time",
-          "title": "Published At",
-          "type": "string"
-        },
-        "age_days": {
-          "title": "Age Days",
-          "type": "integer"
-        },
-        "stale": {
-          "title": "Stale",
-          "type": "boolean"
-        },
-        "summary": {
-          "title": "Summary",
-          "type": "string"
-        },
-        "synthesis": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/MacroSynthesisView"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "risk_environment": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/MacroRiskEnvironmentView"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "scenarios": {
-          "items": {
-            "$ref": "#/$defs/MacroScenarioView"
-          },
-          "title": "Scenarios",
-          "type": "array"
-        },
-        "material_deltas": {
-          "items": {
-            "$ref": "#/$defs/MacroMaterialDeltaView"
-          },
-          "title": "Material Deltas",
-          "type": "array"
-        },
-        "research_priority_hints": {
-          "items": {
-            "$ref": "#/$defs/MacroResearchPriorityHintView"
-          },
-          "title": "Research Priority Hints",
-          "type": "array"
-        },
-        "bargain_topography": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/MacroFactSummaryView"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "estimate_caveats": {
-          "items": {
-            "$ref": "#/$defs/MacroEstimateCaveatView"
-          },
-          "title": "Estimate Caveats",
-          "type": "array"
-        },
-        "sizing_cautions": {
-          "items": {
-            "$ref": "#/$defs/MacroSizingCautionView"
-          },
-          "title": "Sizing Cautions",
-          "type": "array"
-        },
-        "warnings": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Warnings",
-          "type": "array"
-        },
-        "assessment": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/AssessmentContentView"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        }
-      },
-      "required": [
-        "context_id",
-        "as_of",
-        "published_at",
-        "age_days",
-        "stale",
-        "summary",
-        "synthesis",
-        "risk_environment",
-        "scenarios",
-        "material_deltas",
-        "research_priority_hints",
-        "bargain_topography",
-        "estimate_caveats",
-        "sizing_cautions",
-        "warnings",
-        "assessment"
-      ],
-      "title": "MacroContextExcerptView",
-      "type": "object"
-    },
-    "MacroContextRevisionView": {
-      "properties": {
-        "context_id": {
-          "title": "Context Id",
-          "type": "string"
-        },
-        "as_of": {
-          "format": "date",
-          "title": "As Of",
-          "type": "string"
-        },
-        "published_at": {
-          "format": "date-time",
-          "title": "Published At",
-          "type": "string"
-        },
-        "summary": {
-          "title": "Summary",
-          "type": "string"
-        },
-        "age_days": {
-          "title": "Age Days",
-          "type": "integer"
-        },
-        "stale": {
-          "title": "Stale",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "context_id",
-        "as_of",
-        "published_at",
-        "summary",
-        "age_days",
-        "stale"
-      ],
-      "title": "MacroContextRevisionView",
-      "type": "object"
-    },
-    "MacroContextView": {
-      "properties": {
-        "context_id": {
-          "title": "Context Id",
-          "type": "string"
-        },
-        "as_of": {
-          "format": "date",
-          "title": "As Of",
-          "type": "string"
-        },
-        "published_at": {
-          "format": "date-time",
-          "title": "Published At",
-          "type": "string"
-        },
-        "summary": {
-          "title": "Summary",
-          "type": "string"
-        },
-        "age_days": {
-          "title": "Age Days",
-          "type": "integer"
-        },
-        "stale": {
-          "title": "Stale",
-          "type": "boolean"
-        },
-        "synthesis": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/MacroSynthesisView"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "core": {
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/MacroCoreSectionView"
-          },
-          "title": "Core",
-          "type": "array"
-        },
-        "connection": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/MacroConnectionSectionView"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "assessment": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/AssessmentContentView"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "historical_payload": {
-          "anyOf": [
-            {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Historical Payload"
-        }
-      },
-      "required": [
-        "context_id",
-        "as_of",
-        "published_at",
-        "summary",
-        "age_days",
-        "stale",
-        "synthesis",
-        "core",
-        "connection",
-        "assessment",
-        "historical_payload"
-      ],
-      "title": "MacroContextView",
-      "type": "object"
-    },
-    "MacroCoreSectionView": {
-      "properties": {
-        "section_id": {
-          "title": "Section Id",
-          "type": "string"
-        },
-        "series": {
-          "items": {
-            "$ref": "#/$defs/MacroSeriesReferenceView"
-          },
-          "title": "Series",
-          "type": "array"
-        },
-        "fact_summary": {
-          "items": {
-            "$ref": "#/$defs/MacroFactSummaryView"
-          },
-          "title": "Fact Summary",
-          "type": "array"
-        },
-        "judgment": {
-          "$ref": "#/$defs/MacroSectionJudgmentView"
-        },
-        "economic_connection": {
-          "$ref": "#/$defs/MacroEconomicConnectionView"
-        },
-        "change_since_previous": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Change Since Previous"
-        },
-        "previous_scorecard_review": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Previous Scorecard Review"
-        },
-        "material_deltas": {
-          "items": {
-            "$ref": "#/$defs/MacroMaterialDeltaView"
-          },
-          "title": "Material Deltas",
-          "type": "array"
-        },
-        "risk_environment": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/MacroRiskEnvironmentView"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "scenarios": {
-          "items": {
-            "$ref": "#/$defs/MacroScenarioView"
-          },
-          "title": "Scenarios",
-          "type": "array"
-        },
-        "monitoring_points": {
-          "items": {
-            "$ref": "#/$defs/MacroMonitoringPointView"
-          },
-          "title": "Monitoring Points",
-          "type": "array"
-        }
-      },
-      "required": [
-        "section_id",
-        "series",
-        "fact_summary",
-        "judgment",
-        "economic_connection",
-        "change_since_previous",
-        "previous_scorecard_review",
-        "material_deltas",
-        "risk_environment",
-        "scenarios",
-        "monitoring_points"
-      ],
-      "title": "MacroCoreSectionView",
-      "type": "object"
-    },
-    "MacroDominantForceView": {
-      "properties": {
-        "force_id": {
-          "title": "Force Id",
-          "type": "string"
-        },
-        "title": {
-          "title": "Title",
-          "type": "string"
-        },
-        "summary": {
-          "title": "Summary",
-          "type": "string"
-        },
-        "transmission": {
-          "title": "Transmission",
-          "type": "string"
-        },
-        "core_section_ids": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Core Section Ids",
-          "type": "array"
-        },
-        "series": {
-          "items": {
-            "$ref": "#/$defs/MacroSeriesReferenceView"
-          },
-          "title": "Series",
-          "type": "array"
-        },
-        "counter_evidence": {
-          "title": "Counter Evidence",
-          "type": "string"
-        },
-        "direction": {
-          "title": "Direction",
-          "type": "string"
-        },
-        "confidence": {
-          "title": "Confidence",
-          "type": "string"
-        },
-        "source_ids": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Source Ids",
-          "type": "array"
-        }
-      },
-      "required": [
-        "force_id",
-        "title",
-        "summary",
-        "transmission",
-        "core_section_ids",
-        "series",
-        "counter_evidence",
-        "direction",
-        "confidence",
-        "source_ids"
-      ],
-      "title": "MacroDominantForceView",
-      "type": "object"
-    },
-    "MacroEconomicConnectionView": {
-      "properties": {
-        "summary": {
-          "title": "Summary",
-          "type": "string"
-        },
-        "source_ids": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Source Ids",
-          "type": "array"
-        }
-      },
-      "required": [
-        "summary",
-        "source_ids"
-      ],
-      "title": "MacroEconomicConnectionView",
-      "type": "object"
-    },
-    "MacroEstimateCaveatView": {
-      "properties": {
-        "summary": {
-          "title": "Summary",
-          "type": "string"
-        },
-        "applies_to": {
-          "title": "Applies To",
-          "type": "string"
-        },
-        "affected_component": {
-          "title": "Affected Component",
-          "type": "string"
-        },
-        "materiality": {
-          "title": "Materiality",
-          "type": "string"
-        },
-        "source_ids": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Source Ids",
-          "type": "array"
-        }
-      },
-      "required": [
-        "summary",
-        "applies_to",
-        "affected_component",
-        "materiality",
-        "source_ids"
-      ],
-      "title": "MacroEstimateCaveatView",
-      "type": "object"
-    },
-    "MacroFactSummaryView": {
-      "properties": {
-        "summary": {
-          "title": "Summary",
-          "type": "string"
-        },
-        "source_ids": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Source Ids",
-          "type": "array"
-        }
-      },
-      "required": [
-        "summary",
-        "source_ids"
-      ],
-      "title": "MacroFactSummaryView",
-      "type": "object"
-    },
-    "MacroForceInteractionView": {
-      "properties": {
-        "summary": {
-          "title": "Summary",
-          "type": "string"
-        },
-        "force_ids": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Force Ids",
-          "type": "array"
-        },
-        "source_ids": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Source Ids",
-          "type": "array"
-        }
-      },
-      "required": [
-        "summary",
-        "force_ids",
-        "source_ids"
-      ],
-      "title": "MacroForceInteractionView",
-      "type": "object"
-    },
-    "MacroGroupView": {
-      "properties": {
-        "title": {
-          "title": "Title",
-          "type": "string"
-        },
-        "series": {
-          "items": {
-            "$ref": "#/$defs/MacroSeriesView"
-          },
-          "title": "Series",
-          "type": "array"
-        }
-      },
-      "required": [
-        "title",
-        "series"
-      ],
-      "title": "MacroGroupView",
-      "type": "object"
-    },
-    "MacroMaterialDeltaView": {
-      "properties": {
-        "channel": {
-          "title": "Channel",
-          "type": "string"
-        },
-        "direction": {
-          "title": "Direction",
-          "type": "string"
-        },
-        "materiality": {
-          "title": "Materiality",
-          "type": "string"
-        },
-        "summary": {
-          "title": "Summary",
-          "type": "string"
-        },
-        "used_for": {
-          "title": "Used For",
-          "type": "string"
-        },
-        "source_ids": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Source Ids",
-          "type": "array"
-        }
-      },
-      "required": [
-        "channel",
-        "direction",
-        "materiality",
-        "summary",
-        "used_for",
-        "source_ids"
-      ],
-      "title": "MacroMaterialDeltaView",
-      "type": "object"
-    },
-    "MacroMonitoringPointView": {
-      "properties": {
-        "event": {
-          "title": "Event",
-          "type": "string"
-        },
-        "condition": {
-          "title": "Condition",
-          "type": "string"
-        },
-        "view_change": {
-          "title": "View Change",
-          "type": "string"
-        },
-        "summary": {
-          "title": "Summary",
-          "type": "string"
-        },
-        "source_ids": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Source Ids",
-          "type": "array"
-        }
-      },
-      "required": [
-        "event",
-        "condition",
-        "view_change",
-        "summary",
-        "source_ids"
-      ],
-      "title": "MacroMonitoringPointView",
-      "type": "object"
-    },
-    "MacroPointView": {
-      "properties": {
-        "observed_at": {
-          "format": "date",
-          "title": "Observed At",
-          "type": "string"
-        },
-        "value": {
-          "title": "Value",
-          "type": "number"
-        }
-      },
-      "required": [
-        "observed_at",
-        "value"
-      ],
-      "title": "MacroPointView",
-      "type": "object"
-    },
-    "MacroReadingSeriesView": {
-      "properties": {
-        "series_id": {
-          "title": "Series Id",
-          "type": "string"
-        },
-        "name": {
-          "title": "Name",
-          "type": "string"
-        },
-        "category": {
-          "title": "Category",
-          "type": "string"
-        },
-        "geography": {
-          "title": "Geography",
-          "type": "string"
-        },
-        "frequency": {
-          "title": "Frequency",
-          "type": "string"
-        },
-        "unit": {
-          "title": "Unit",
-          "type": "string"
-        },
-        "latest_value": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Latest Value"
-        },
-        "observed_at": {
-          "anyOf": [
-            {
-              "format": "date",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Observed At"
-        },
-        "staleness_days": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Staleness Days"
-        },
-        "stale": {
-          "title": "Stale",
-          "type": "boolean"
-        },
-        "staleness_warn_days": {
-          "title": "Staleness Warn Days",
-          "type": "integer"
-        },
-        "next_print_estimate": {
-          "anyOf": [
-            {
-              "format": "date",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Next Print Estimate"
-        },
-        "print_due_in_days": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Print Due In Days"
-        },
-        "window_years": {
-          "title": "Window Years",
-          "type": "integer"
-        },
-        "window_observations": {
-          "title": "Window Observations",
-          "type": "integer"
-        },
-        "expected_observations": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Expected Observations"
-        },
-        "insufficient_history": {
-          "title": "Insufficient History",
-          "type": "boolean"
-        },
-        "statistic": {
-          "title": "Statistic",
-          "type": "string"
-        },
-        "statistic_unit": {
-          "title": "Statistic Unit",
-          "type": "string"
-        },
-        "statistic_value": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Statistic Value"
-        },
-        "percentile": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Percentile"
-        },
-        "z_score": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Z Score"
-        },
-        "short_trend": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/MacroReadingTrendView"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "long_trend": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/MacroReadingTrendView"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "flags": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Flags",
-          "type": "array"
-        }
-      },
-      "required": [
-        "series_id",
-        "name",
-        "category",
-        "geography",
-        "frequency",
-        "unit",
-        "latest_value",
-        "observed_at",
-        "staleness_days",
-        "stale",
-        "staleness_warn_days",
-        "next_print_estimate",
-        "print_due_in_days",
-        "window_years",
-        "window_observations",
-        "expected_observations",
-        "insufficient_history",
-        "statistic",
-        "statistic_unit",
-        "statistic_value",
-        "percentile",
-        "z_score",
-        "short_trend",
-        "long_trend",
-        "flags"
-      ],
-      "title": "MacroReadingSeriesView",
-      "type": "object"
-    },
-    "MacroReadingTrendView": {
-      "properties": {
-        "months": {
-          "title": "Months",
-          "type": "integer"
-        },
-        "anchor_observed_at": {
-          "format": "date",
-          "title": "Anchor Observed At",
-          "type": "string"
-        },
-        "anchor_value": {
-          "title": "Anchor Value",
-          "type": "number"
-        },
-        "change": {
-          "title": "Change",
-          "type": "number"
-        },
-        "direction": {
-          "title": "Direction",
-          "type": "string"
-        }
-      },
-      "required": [
-        "months",
-        "anchor_observed_at",
-        "anchor_value",
-        "change",
-        "direction"
-      ],
-      "title": "MacroReadingTrendView",
-      "type": "object"
-    },
-    "MacroReadingView": {
-      "description": "The machine reading of every registered series for one as-of date.\n\nA projection of the L2 reading, recomputed from the indicator store; the panel it\nfeeds is a display of that reading and not a second canonical artifact.\n``fetch_health`` rides along because staleness alone cannot see a provider that has\njust gone silent — a low-frequency series stays inside its threshold for weeks.",
-      "properties": {
-        "as_of": {
-          "format": "date",
-          "title": "As Of",
-          "type": "string"
-        },
-        "rules_revision": {
-          "title": "Rules Revision",
-          "type": "string"
-        },
-        "series": {
-          "items": {
-            "$ref": "#/$defs/MacroReadingSeriesView"
-          },
-          "title": "Series",
-          "type": "array"
-        },
-        "fetch_health": {
-          "items": {
-            "$ref": "#/$defs/MacroSeriesFetchHealthView"
-          },
-          "title": "Fetch Health",
-          "type": "array"
-        }
-      },
-      "required": [
-        "as_of",
-        "rules_revision",
-        "series",
-        "fetch_health"
-      ],
-      "title": "MacroReadingView",
-      "type": "object"
-    },
-    "MacroResearchPriorityHintView": {
-      "properties": {
-        "summary": {
-          "title": "Summary",
-          "type": "string"
-        },
-        "applies_to": {
-          "title": "Applies To",
-          "type": "string"
-        },
-        "source_ids": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Source Ids",
-          "type": "array"
-        }
-      },
-      "required": [
-        "summary",
-        "applies_to",
-        "source_ids"
-      ],
-      "title": "MacroResearchPriorityHintView",
-      "type": "object"
-    },
-    "MacroRiskEnvironmentView": {
-      "properties": {
-        "stance": {
-          "title": "Stance",
-          "type": "string"
-        },
-        "confidence": {
-          "title": "Confidence",
-          "type": "string"
-        },
-        "summary": {
-          "title": "Summary",
-          "type": "string"
-        },
-        "falsifiers": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Falsifiers",
-          "type": "array"
-        },
-        "source_ids": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Source Ids",
-          "type": "array"
-        }
-      },
-      "required": [
-        "stance",
-        "confidence",
-        "summary",
-        "falsifiers",
-        "source_ids"
-      ],
-      "title": "MacroRiskEnvironmentView",
-      "type": "object"
-    },
-    "MacroScenarioView": {
-      "properties": {
-        "case": {
-          "title": "Case",
-          "type": "string"
-        },
-        "direction": {
-          "title": "Direction",
-          "type": "string"
-        },
-        "probability": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Probability"
-        },
-        "summary": {
-          "title": "Summary",
-          "type": "string"
-        },
-        "conditions": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Conditions",
-          "type": "array"
-        },
-        "scorecard": {
-          "items": {
-            "$ref": "#/$defs/MacroScorecardConditionView"
-          },
-          "title": "Scorecard",
-          "type": "array"
-        },
-        "economic_implications": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Economic Implications",
-          "type": "array"
-        },
-        "source_ids": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Source Ids",
-          "type": "array"
-        }
-      },
-      "required": [
-        "case",
-        "direction",
-        "probability",
-        "summary",
-        "conditions",
-        "scorecard",
-        "economic_implications",
-        "source_ids"
-      ],
-      "title": "MacroScenarioView",
-      "type": "object"
-    },
-    "MacroScorecardConditionView": {
-      "properties": {
-        "series_id": {
-          "title": "Series Id",
-          "type": "string"
-        },
-        "comparison": {
-          "title": "Comparison",
-          "type": "string"
-        },
-        "threshold": {
-          "title": "Threshold",
-          "type": "number"
-        },
-        "deadline": {
-          "format": "date",
-          "title": "Deadline",
-          "type": "string"
-        }
-      },
-      "required": [
-        "series_id",
-        "comparison",
-        "threshold",
-        "deadline"
-      ],
-      "title": "MacroScorecardConditionView",
-      "type": "object"
-    },
-    "MacroSectionJudgmentView": {
-      "properties": {
-        "summary": {
-          "title": "Summary",
-          "type": "string"
-        },
-        "direction": {
-          "title": "Direction",
-          "type": "string"
-        },
-        "confidence": {
-          "title": "Confidence",
-          "type": "string"
-        },
-        "source_ids": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Source Ids",
-          "type": "array"
-        }
-      },
-      "required": [
-        "summary",
-        "direction",
-        "confidence",
-        "source_ids"
-      ],
-      "title": "MacroSectionJudgmentView",
-      "type": "object"
-    },
-    "MacroSectorTiltView": {
-      "properties": {
-        "sector": {
-          "title": "Sector",
-          "type": "string"
-        },
-        "direction": {
-          "title": "Direction",
-          "type": "string"
-        },
-        "summary": {
-          "title": "Summary",
-          "type": "string"
-        },
-        "source_ids": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Source Ids",
-          "type": "array"
-        }
-      },
-      "required": [
-        "sector",
-        "direction",
-        "summary",
-        "source_ids"
-      ],
-      "title": "MacroSectorTiltView",
-      "type": "object"
-    },
-    "MacroSeriesFetchHealthView": {
+    "IndicatorFetchHealthView": {
       "description": "The latest acquisition attempt for one series (not part of the reading itself).",
       "properties": {
         "series_id": {
@@ -2713,28 +2459,50 @@
         "record_count",
         "error_message"
       ],
-      "title": "MacroSeriesFetchHealthView",
+      "title": "IndicatorFetchHealthView",
       "type": "object"
     },
-    "MacroSeriesReferenceView": {
+    "IndicatorGroupView": {
       "properties": {
-        "series_id": {
-          "title": "Series Id",
+        "title": {
+          "title": "Title",
           "type": "string"
         },
-        "name": {
-          "title": "Name",
-          "type": "string"
+        "series": {
+          "items": {
+            "$ref": "#/$defs/IndicatorSeriesView"
+          },
+          "title": "Series",
+          "type": "array"
         }
       },
       "required": [
-        "series_id",
-        "name"
+        "title",
+        "series"
       ],
-      "title": "MacroSeriesReferenceView",
+      "title": "IndicatorGroupView",
       "type": "object"
     },
-    "MacroSeriesView": {
+    "IndicatorPointView": {
+      "properties": {
+        "observed_at": {
+          "format": "date",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "observed_at",
+        "value"
+      ],
+      "title": "IndicatorPointView",
+      "type": "object"
+    },
+    "IndicatorSeriesView": {
       "properties": {
         "series_id": {
           "title": "Series Id",
@@ -2765,7 +2533,7 @@
         },
         "points": {
           "items": {
-            "$ref": "#/$defs/MacroPointView"
+            "$ref": "#/$defs/IndicatorPointView"
           },
           "title": "Points",
           "type": "array"
@@ -2779,67 +2547,16 @@
         "tradingview_symbol",
         "points"
       ],
-      "title": "MacroSeriesView",
+      "title": "IndicatorSeriesView",
       "type": "object"
     },
-    "MacroSizingCautionView": {
-      "properties": {
-        "severity": {
-          "title": "Severity",
-          "type": "string"
-        },
-        "summary": {
-          "title": "Summary",
-          "type": "string"
-        },
-        "source_ids": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Source Ids",
-          "type": "array"
-        }
-      },
-      "required": [
-        "severity",
-        "summary",
-        "source_ids"
-      ],
-      "title": "MacroSizingCautionView",
-      "type": "object"
-    },
-    "MacroSynthesisView": {
-      "description": "The integrated layer: named cross-channel forces and how they combine.",
-      "properties": {
-        "dominant_forces": {
-          "items": {
-            "$ref": "#/$defs/MacroDominantForceView"
-          },
-          "title": "Dominant Forces",
-          "type": "array"
-        },
-        "interactions": {
-          "items": {
-            "$ref": "#/$defs/MacroForceInteractionView"
-          },
-          "title": "Interactions",
-          "type": "array"
-        }
-      },
-      "required": [
-        "dominant_forces",
-        "interactions"
-      ],
-      "title": "MacroSynthesisView",
-      "type": "object"
-    },
-    "MacroView": {
+    "MarketContextView": {
       "description": "Current L3 judgment first, followed by current L2 readings.",
       "properties": {
         "latest_context": {
           "anyOf": [
             {
-              "$ref": "#/$defs/MacroContextExcerptView"
+              "$ref": "#/$defs/AssessmentExcerptView"
             },
             {
               "type": "null"
@@ -2849,7 +2566,7 @@
         "reading": {
           "anyOf": [
             {
-              "$ref": "#/$defs/MacroReadingView"
+              "$ref": "#/$defs/ReadingView"
             },
             {
               "type": "null"
@@ -2858,14 +2575,14 @@
         },
         "reports": {
           "items": {
-            "$ref": "#/$defs/MacroContextRevisionView"
+            "$ref": "#/$defs/AssessmentRevisionView"
           },
           "title": "Reports",
           "type": "array"
         },
         "groups": {
           "items": {
-            "$ref": "#/$defs/MacroGroupView"
+            "$ref": "#/$defs/IndicatorGroupView"
           },
           "title": "Groups",
           "type": "array"
@@ -2877,7 +2594,7 @@
         "reports",
         "groups"
       ],
-      "title": "MacroView",
+      "title": "MarketContextView",
       "type": "object"
     },
     "MetaBatch": {
@@ -4086,6 +3803,289 @@
         "industry_average_score"
       ],
       "title": "QuantsScoreObservation",
+      "type": "object"
+    },
+    "ReadingSeriesView": {
+      "properties": {
+        "series_id": {
+          "title": "Series Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "geography": {
+          "title": "Geography",
+          "type": "string"
+        },
+        "frequency": {
+          "title": "Frequency",
+          "type": "string"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        },
+        "latest_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Latest Value"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Observed At"
+        },
+        "staleness_days": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Staleness Days"
+        },
+        "stale": {
+          "title": "Stale",
+          "type": "boolean"
+        },
+        "staleness_warn_days": {
+          "title": "Staleness Warn Days",
+          "type": "integer"
+        },
+        "next_print_estimate": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Print Estimate"
+        },
+        "print_due_in_days": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Print Due In Days"
+        },
+        "window_years": {
+          "title": "Window Years",
+          "type": "integer"
+        },
+        "window_observations": {
+          "title": "Window Observations",
+          "type": "integer"
+        },
+        "expected_observations": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Observations"
+        },
+        "insufficient_history": {
+          "title": "Insufficient History",
+          "type": "boolean"
+        },
+        "statistic": {
+          "title": "Statistic",
+          "type": "string"
+        },
+        "statistic_unit": {
+          "title": "Statistic Unit",
+          "type": "string"
+        },
+        "statistic_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Statistic Value"
+        },
+        "percentile": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Percentile"
+        },
+        "z_score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Z Score"
+        },
+        "short_trend": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReadingTrendView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "long_trend": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReadingTrendView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "flags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Flags",
+          "type": "array"
+        }
+      },
+      "required": [
+        "series_id",
+        "name",
+        "category",
+        "geography",
+        "frequency",
+        "unit",
+        "latest_value",
+        "observed_at",
+        "staleness_days",
+        "stale",
+        "staleness_warn_days",
+        "next_print_estimate",
+        "print_due_in_days",
+        "window_years",
+        "window_observations",
+        "expected_observations",
+        "insufficient_history",
+        "statistic",
+        "statistic_unit",
+        "statistic_value",
+        "percentile",
+        "z_score",
+        "short_trend",
+        "long_trend",
+        "flags"
+      ],
+      "title": "ReadingSeriesView",
+      "type": "object"
+    },
+    "ReadingTrendView": {
+      "properties": {
+        "months": {
+          "title": "Months",
+          "type": "integer"
+        },
+        "anchor_observed_at": {
+          "format": "date",
+          "title": "Anchor Observed At",
+          "type": "string"
+        },
+        "anchor_value": {
+          "title": "Anchor Value",
+          "type": "number"
+        },
+        "change": {
+          "title": "Change",
+          "type": "number"
+        },
+        "direction": {
+          "title": "Direction",
+          "type": "string"
+        }
+      },
+      "required": [
+        "months",
+        "anchor_observed_at",
+        "anchor_value",
+        "change",
+        "direction"
+      ],
+      "title": "ReadingTrendView",
+      "type": "object"
+    },
+    "ReadingView": {
+      "description": "The machine reading of every registered series for one as-of date.\n\nA projection of the L2 reading, recomputed from the indicator store; the panel it\nfeeds is a display of that reading and not a second canonical artifact.\n``fetch_health`` rides along because staleness alone cannot see a provider that has\njust gone silent — a low-frequency series stays inside its threshold for weeks.",
+      "properties": {
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "rules_revision": {
+          "title": "Rules Revision",
+          "type": "string"
+        },
+        "series": {
+          "items": {
+            "$ref": "#/$defs/ReadingSeriesView"
+          },
+          "title": "Series",
+          "type": "array"
+        },
+        "fetch_health": {
+          "items": {
+            "$ref": "#/$defs/IndicatorFetchHealthView"
+          },
+          "title": "Fetch Health",
+          "type": "array"
+        }
+      },
+      "required": [
+        "as_of",
+        "rules_revision",
+        "series",
+        "fetch_health"
+      ],
+      "title": "ReadingView",
       "type": "object"
     },
     "ResearchRevisionView": {

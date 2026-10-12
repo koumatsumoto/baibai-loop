@@ -8,7 +8,7 @@ from typing import Any, cast
 
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.indicators.read_contracts import point_in_time_providers
-from baibai_engine.read_api.macro import stored_macro_reading, stored_macro_rows
+from baibai_engine.read_api.market_context import stored_indicator_rows, stored_reading
 
 from .reader import OwnerError
 from .resource_types import Page, Paths, Record, record
@@ -37,8 +37,8 @@ def series_get(paths: Paths, selector: dict[str, Any]) -> Page:
 def observation_page(
     paths: Paths, filters: dict[str, Any], after: list[str | int | float] | None, limit: int
 ) -> Page:
-    rows = stored_macro_rows(
-        paths.macro, kind="observations", filters=filters, after=after, limit=limit
+    rows = stored_indicator_rows(
+        paths.indicators, kind="observations", filters=filters, after=after, limit=limit
     )
     definition = load_definitions().by_id().get(filters["series_id"])
     meta = {
@@ -57,8 +57,8 @@ def observation_page(
 
 
 def observation_get(paths: Paths, selector: dict[str, Any]) -> Page:
-    rows = stored_macro_rows(
-        paths.macro, kind="observations", filters=selector, after=None, limit=1, exact=True
+    rows = stored_indicator_rows(
+        paths.indicators, kind="observations", filters=selector, after=None, limit=1, exact=True
     )
     return Page([record(row, ("series_id", "observed_at", "vintage_at"), ()) for row in rows])
 
@@ -66,8 +66,8 @@ def observation_get(paths: Paths, selector: dict[str, Any]) -> Page:
 def provider_page(
     paths: Paths, filters: dict[str, Any], after: list[str | int | float] | None, limit: int
 ) -> Page:
-    rows = stored_macro_rows(
-        paths.macro, kind="provider_runs", filters=filters, after=after, limit=limit
+    rows = stored_indicator_rows(
+        paths.indicators, kind="provider_runs", filters=filters, after=after, limit=limit
     )
     return Page([record(row, ("run_id",), ("page_time", "run_id")) for row in rows])
 
@@ -79,7 +79,7 @@ def provider_get(paths: Paths, selector: dict[str, Any]) -> Page:
 def reading_get(paths: Paths, selector: dict[str, Any]) -> Page:
     snapshot = cast(
         dict[str, Any] | None,
-        stored_macro_reading(paths.macro, asof=date.fromisoformat(selector["as_of"])),
+        stored_reading(paths.indicators, asof=date.fromisoformat(selector["as_of"])),
     )
     if snapshot is None:
         raise FileNotFoundError("macro store unavailable")

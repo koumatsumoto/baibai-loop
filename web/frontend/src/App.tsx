@@ -11,7 +11,7 @@ const DashboardPage = lazy(() => import('./pages/DashboardPage').then((module) =
 const StocksPage = lazy(() => import('./pages/StocksPage').then((module) => ({ default: module.StocksPage })))
 const ResearchTriagePage = lazy(() => import('./pages/ResearchTriagePage').then((module) => ({ default: module.ResearchTriagePage })))
 const CapitalAllocationAssessmentPage = lazy(() => import('./pages/CapitalAllocationAssessmentPage').then((module) => ({ default: module.CapitalAllocationAssessmentPage })))
-const MacroPage = lazy(() => import('./pages/MacroPage').then((module) => ({ default: module.MacroPage })))
+const MarketContextPage = lazy(() => import('./pages/MarketContextPage').then((module) => ({ default: module.MarketContextPage })))
 const AssessmentPage = lazy(() => import('./pages/AssessmentPage').then((module) => ({ default: module.AssessmentPage })))
 const SecurityDetailPage = lazy(() => import('./pages/SecurityDetailPage').then((module) => ({ default: module.SecurityDetailPage })))
 const TasksPage = lazy(() => import('./pages/TasksPage').then((module) => ({ default: module.TasksPage })))
@@ -25,7 +25,7 @@ function App() {
             <Routes>
               <Route element={<AppLayout />}>
                 <Route path="/" element={<DashboardPage />} />
-                <Route path="/macro" element={<MacroPage />} />
+                <Route path="/macro" element={<MarketContextPage />} />
                 <Route path="/macro/reports/:contextId" element={<AssessmentPage />} />
                 <Route path="/stocks" element={<StocksPage />} />
                 <Route path="/tasks" element={<TasksPage />} />
