@@ -9,6 +9,30 @@ status: active
 
 `baibai-batch analysis run`は、保存済みの対象日Review Setを一つのAI判断へ渡し、engineのserviceを通してTriageを発行する。Screening Run・Review Setの生成、macro取得、cloud公開は行わない。操作の順序は[Research Triage skill](../../.agents/skills/research-triage/SKILL.md)が所有する。
 
+<a id="research-triage-contract"></a>
+
+## Research Triageの契約と発行
+
+`research/triage`が型・query・service・CLIを所有する。manual入口は`research triage scaffold / publish`であり、ScreeningにL3 writerを置かない。
+
+application DBのcurrent `research_triage`はReview Set全entryをexactly onceで保持する。
+current writerとactive read pathはcurrent schemaだけを扱い、retired shapeを補完・別名投影しない。
+
+- `research`: contiguousな`priority`、`rationale`、`research_question`、`key_risk`が必須
+- `skip`: `rationale`が必須で、`priority`、`research_question`、`key_risk`は禁止
+
+manual scaffoldはReview Set IDからrun storeのcanonical publicationを解決し、Review Setのas-of以下で最新のMacro Contextと、application DBのlatest current Triage IDを取得する。通常の`analysis run`はeditable scaffoldを介さず、strictなjudgment fieldから同じdomain objectを組み立てる。publisherは`review_set_id`、`run_revision_id`、`as_of`、`screening_rules_hash`、Candidate Discovery Method、全tickerを検証し、Review Set Entry snapshotをsource Review Setから上書きする。persisted field `candidate_snapshot`はstorage contractとして維持し、snapshotはidentity、`nominations`、grouped `analysis`だけを持つ。
+
+発行は最新Triageを期待するCASで競合を検出し、as-ofと発行時刻の後退を拒否する。同じID・同じcanonical payloadの再送は冪等であり、同じpriorから分岐した別draftは発行できない。保存済み読取・payload hash・実時刻でのhead順序は[query](../../engine/src/baibai_engine/research/triage/query.py)、CAS transactionは[ResearchTriageService](../../engine/src/baibai_engine/research/triage/service.py)、payloadの厳密な条件は[ResearchTriage model](../../engine/src/baibai_engine/research/triage/contracts.py)が所有する。
+
+Contextが無ければ`null`は正常、古ければwarningであり、どちらもReview Setのnomination、membership、orderを変えない。Context参照は任意であり、指定した場合はas-of以下の保存済みrevisionを検証する。明示的に古いeligible revisionを選ぶことはできるが、選択理由を既存の判断文へ残す。発行後payloadはimmutableである。
+
+ADVは固定floorのgateや自動skip条件ではない。Triageは低値・欠損だけで`skip`やpriorityを決めず、価値仮説を比較した後の実行可能性contextとしてrationaleへ反映できる。最終的な注文可否と数量はCapital Allocation後のhuman executionが所有する。
+
+Research Triageは新規のadmission可能範囲を定め、対象選択そのものや購入を認定しない。明示開始後の有限選択・部分完了・保有との合算は[Research進行](./analysis-operations.md#明示開始と固定対象)、操作は[Research skill](../../.agents/skills/research/SKILL.md)が所有する。
+
+E[r] calibration contextは共有read contractがartifact schema、generated/expiry、3y/5y、quantile/band、rules hash、E[r] model versionを検証する。ResearchはTriage rootのrules hashとReview Set Entryの`analysis.expected_return`のmodel/version・ratio-valued `er_annual`を使い、利用不能理由を明示する。これはhistorical contextで、membership/order、Triage、FV、buy judgmentへ伝播しない。
+
 ## 明示開始と固定対象
 
 ユーザーの開始要求を記録し、AIが新規・保有を合わせて最大3銘柄、0件も含む固定集合を選ぶ。Operationの`research_selection` artifactがticker・purpose・開始要求・新規Triage参照を所有する。再開・workspaceの`--force`で対象を追加・補充せず、同じ集合・Triage・分析対象日なら元のOperationを継続する。workspaceのas-ofはOperation.as_ofへ一致させ、再開で時点をずらさない。正式なThesis評価日や引用資料の日付はこの分析対象日と区別する。新規はTriage admission、保有は現在ledgerを検証し、保有をCAAの新規集合へ混ぜない。0件はOperationに提案なしの終了を残し、架空のCAAを作らない。

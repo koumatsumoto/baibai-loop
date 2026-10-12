@@ -41,9 +41,10 @@ from baibai_engine.research.capital_allocation_service import CapitalAllocationA
 from baibai_engine.research.operation.models import OperationPayload
 from baibai_engine.research.operation.service import OperationCompletionError, OperationService
 from baibai_engine.research.thesis_store import ThesisStoreService
+from baibai_engine.research.triage.contracts import ResearchTriage
+from baibai_engine.research.triage.service import ResearchTriageService
 from baibai_engine.research.workspace_cli import main as research_main
-from baibai_engine.screening.discovery.review_set import PublishedReviewSet
-from baibai_engine.screening.research_triage import ResearchTriage, ResearchTriageService
+from baibai_engine.screening.discovery.contracts import PublishedReviewSet
 
 ROOT = Path(__file__).resolve().parents[2]
 THESIS_FIXTURE = ROOT / "tests/fixtures/thesis/2331-decision.yaml"

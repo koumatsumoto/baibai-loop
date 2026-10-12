@@ -44,7 +44,7 @@ Valuationの機械ER/FV anchorは倍率・自己価格レンジとcarryの推計
 | Nomination | fact | Valuation ApproachがReview Set入りを推薦した事実 |
 | Review Set | artifact | configured Valuation Approachesが生成したNominationのexact union |
 | Review Set Entry | artifact entry | Review Set内の一銘柄と判断時機械座標 |
-| Research Triage | artifact / judgment | Review Set全件を`research / skip`に分類するcanonical L3 judgment |
+| Research Triage | artifact / judgment | ResearchがReview Set全件を`research / skip`に分類するcanonical L3 judgment |
 | Research Set | pipeline state | 明示開始後にAIが選ぶ新規調査集合。Triage admission内でOperationの新規/保有合算上限に従う |
 | Thesis | artifact / judgment | 一銘柄の投資仮説、valuation、risk、evidence |
 | Thesis Review | artifact / judgment | Thesisへの独立second pass |

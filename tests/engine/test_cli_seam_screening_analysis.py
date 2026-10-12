@@ -6,8 +6,9 @@ from pathlib import Path
 import yaml
 
 from baibai_engine.read_api import list_research_triage_payloads
+from baibai_engine.research.triage.contracts import ReviewSetEntrySnapshot
+from baibai_engine.research.workspace_cli import main as research_main
 from baibai_engine.screening.cli import main as screening_main
-from baibai_engine.screening.research_triage import ReviewSetEntrySnapshot
 from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
@@ -260,9 +261,9 @@ def test_research_triage_publish_cli_binds_every_review_set_entry(tmp_path: Path
     draft_path = tmp_path / "triage.yaml"
     app_db = tmp_path / "app.sqlite"
     assert (
-        screening_main(
+        research_main(
             [
-                "research-triage",
+                "triage",
                 "scaffold",
                 "--review-set-id",
                 review_set["review_set_id"],
@@ -291,9 +292,9 @@ def test_research_triage_publish_cli_binds_every_review_set_entry(tmp_path: Path
         )
     draft_path.write_text(yaml.safe_dump(draft, sort_keys=False), encoding="utf-8")
     assert (
-        screening_main(
+        research_main(
             [
-                "research-triage",
+                "triage",
                 "publish",
                 str(draft_path),
                 "--db",
@@ -340,9 +341,9 @@ def test_research_triage_scaffold_carries_machine_coordinates_and_fails_closed(
         == 0
     )
     assert (
-        screening_main(
+        research_main(
             [
-                "research-triage",
+                "triage",
                 "scaffold",
                 "--review-set-id",
                 yaml.safe_load(review_set_path.read_text(encoding="utf-8"))["review_set_id"],
@@ -375,9 +376,9 @@ def test_research_triage_scaffold_carries_machine_coordinates_and_fails_closed(
         "entries"
     ][0]["nominations"]
     assert (
-        screening_main(
+        research_main(
             [
-                "research-triage",
+                "triage",
                 "publish",
                 str(draft_output),
                 "--db",

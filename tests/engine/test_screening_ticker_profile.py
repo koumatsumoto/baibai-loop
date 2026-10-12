@@ -18,7 +18,7 @@ from baibai_engine.market_context.prices import read_price_bars
 from baibai_engine.position.ledger import PortfolioLedgerDocument
 from baibai_engine.read_api.ticker_profile import build_ticker_profile
 from baibai_engine.screening.cli import build_parser, ticker_profile_command
-from baibai_engine.screening.discovery import build_review_set
+from baibai_engine.screening.discovery.review_set import build_review_set
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.run_store import ScreeningRunStore
 

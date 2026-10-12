@@ -10,11 +10,6 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from baibai_engine.appdb.paths import database_path
-from baibai_engine.foundation.research_triage import ResearchTriage
-from baibai_engine.read_api.research_triage import (
-    current_research_triage,
-    research_triage_payload_hash,
-)
 from baibai_engine.research.operation.progress import (
     ResearchSelection,
     ResearchTarget,
@@ -22,6 +17,11 @@ from baibai_engine.research.operation.progress import (
     selection_sha256,
 )
 from baibai_engine.research.operation.service import OperationService
+from baibai_engine.research.triage.contracts import ResearchTriage
+from baibai_engine.research.triage.query import (
+    current_research_triage,
+    research_triage_payload_hash,
+)
 from baibai_engine.research.workspace.files import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceDataError,

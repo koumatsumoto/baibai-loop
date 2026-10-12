@@ -6,7 +6,6 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-from baibai_engine.foundation.research_triage import ResearchTriage
 from baibai_engine.position.ledger import replay_events_through
 from baibai_engine.position.ledger_read import load_ledger_document
 from baibai_engine.research.operation.progress import (
@@ -18,6 +17,7 @@ from baibai_engine.research.operation.progress import (
 )
 from baibai_engine.research.position_review_service import PositionReviewService
 from baibai_engine.research.thesis_store import load_reviewed_thesis
+from baibai_engine.research.triage.contracts import ResearchTriage
 
 
 def validate_selection(

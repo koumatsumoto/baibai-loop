@@ -33,6 +33,25 @@ description: 明示依頼で保存済みReview SetをTriage判断し、有限な
 
 5. 開始要求・選定理由・exact Triage IDと新規/保有purposeを[Research](../research/SKILL.md)へ渡す。日次やTriage発行だけで後続AI調査を起動しない。
 
+## 明示的なmanual draft
+
+通常のrunnerを使わず、人間が指定したReview Setからdraftを作成・発行する場合だけ`research triage scaffold / publish`を使う。型・保存・CASはResearchが所有する[同じ契約](../../../docs/reference/analysis-operations.md#research-triage-contract)に従う。旧ScreeningのTriage writerは使わない。
+
+```bash
+uv run baibai-engine research triage scaffold \
+  --review-set-id <REVIEW_SET_ID> --runs-db stores/screening/runs.sqlite \
+  --db stores/application/baibai.sqlite --output-path <DRAFT>
+```
+
+TODOを根拠のある`research / skip`判断へ置換してから発行する。
+
+```bash
+uv run baibai-engine research triage publish <DRAFT> \
+  --runs-db stores/screening/runs.sqlite --db stores/application/baibai.sqlite
+```
+
+発行後のcloud反映と後続Researchの開始条件は前節と同じである。
+
 ## 失敗時
 
 stdoutだけで原因が分からない場合に表示されたprivate logを確認する。入力・adapter・binding等の原因を解消し、同じ対象日でfreshに実行する。runnerのexact照合に任せ、blind retryや過去の成功結果で補完しない。

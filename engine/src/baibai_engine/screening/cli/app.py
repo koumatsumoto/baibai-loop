@@ -349,32 +349,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     review_set_show.add_argument("--format", choices=("yaml", "json"), default="yaml")
 
-    triage_parser = subparsers.add_parser(
-        "research-triage",
-        help="publish a ResearchTriage judgment",
-    )
-    triage_commands = triage_parser.add_subparsers(dest="research_triage_command", required=True)
-    triage_publish = triage_commands.add_parser(
-        "publish",
-        help="publish a ResearchTriage draft bound to an immutable Review Set",
-    )
-    triage_publish.add_argument("draft")
-    triage_publish.add_argument("--db", help="application DB path")
-    triage_publish.add_argument("--runs-db", help="screening run store path")
-    triage_scaffold = triage_commands.add_parser(
-        "scaffold",
-        help="create a fail-closed draft with Review Set machine coordinates",
-    )
-    triage_scaffold.add_argument("--review-set-id", required=True)
-    triage_scaffold.add_argument("--runs-db", help="screening run store path")
-    triage_scaffold.add_argument("--output-path", required=True)
-    triage_scaffold.add_argument("--db", help="application DB path")
-    triage_scaffold.add_argument(
-        "--force",
-        action="store_true",
-        help="overwrite an existing --output-path file",
-    )
-
     profile_parser = subparsers.add_parser(
         "ticker-profile",
         help=(
@@ -578,26 +552,6 @@ def main(argv: list[str] | None = None) -> int:
             output_path=Path(args.output_path) if args.output_path else None,
             force=args.force,
             output_format=args.format,
-        )
-
-    if args.command == "research-triage":
-        from baibai_engine.screening.research_triage_cli import (
-            publish_research_triage,
-            scaffold_research_triage,
-        )
-
-        if args.research_triage_command == "scaffold":
-            return scaffold_research_triage(
-                args.review_set_id,
-                output_path=Path(args.output_path),
-                app_db_path=Path(args.db) if args.db else None,
-                runs_db_path=Path(args.runs_db) if args.runs_db else None,
-                force=args.force,
-            )
-        return publish_research_triage(
-            Path(args.draft),
-            app_db_path=Path(args.db) if args.db else None,
-            runs_db_path=Path(args.runs_db) if args.runs_db else None,
         )
 
     if args.command == "ticker-profile":

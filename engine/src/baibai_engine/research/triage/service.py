@@ -10,33 +10,18 @@ from zoneinfo import ZoneInfo
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.appdb.paths import database_path
 from baibai_engine.appdb.write import connect_rw, initialize_database
-from baibai_engine.foundation.research_triage import (
-    RESEARCH_TRIAGE_CONTRACT_ID,
-    RESEARCH_TRIAGE_SCHEMA_VERSION,
+from baibai_engine.market_context.macro import macro_context_payload
+from baibai_engine.research.triage.contracts import (
     ResearchTriage,
-    ResearchTriageEntry,
     ReviewSetEntrySnapshot,
 )
-from baibai_engine.market_context.macro import macro_context_payload
-from baibai_engine.read_api.research_triage import (
-    _research_triage_head,
-    research_triage_payload_hash,
-)
-from baibai_engine.screening.discovery.review_set import PublishedReviewSet
+from baibai_engine.screening.discovery.contracts import PublishedReviewSet
+
+from .query import research_triage_head
 
 
 class ResearchTriageConflictError(ValueError):
     pass
-
-
-def latest_research_triage_id(db_path: Path | None = None) -> str | None:
-    app_db_path = database_path(db_path)
-    if not app_db_path.is_file():
-        return None
-    from baibai_engine.read_api.research_triage import latest_research_triage_payload
-
-    payload = latest_research_triage_payload(app_db_path)
-    return str(payload["research_triage_id"]) if payload is not None else None
 
 
 class ResearchTriageService:
@@ -112,7 +97,7 @@ class ResearchTriageService:
                     raise ResearchTriageConflictError(
                         "research triage JST publication date must not precede as-of"
                     )
-                head = _research_triage_head(connection)
+                head = research_triage_head(connection)
                 head_id = None if head is None else head.research_triage_id
                 if triage.expected_prior_research_triage_id != head_id:
                     raise ResearchTriageConflictError("research triage expected prior ID is stale")
@@ -143,14 +128,4 @@ class ResearchTriageService:
         return triage
 
 
-__all__ = [
-    "RESEARCH_TRIAGE_CONTRACT_ID",
-    "RESEARCH_TRIAGE_SCHEMA_VERSION",
-    "ResearchTriage",
-    "ResearchTriageConflictError",
-    "ResearchTriageEntry",
-    "ResearchTriageService",
-    "ReviewSetEntrySnapshot",
-    "latest_research_triage_id",
-    "research_triage_payload_hash",
-]
+__all__ = ["ResearchTriageConflictError", "ResearchTriageService"]
