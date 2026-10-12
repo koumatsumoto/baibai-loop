@@ -10,10 +10,9 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
-from tests.helpers.macro_context import macro_context_payload
+from tests.helpers.assessment_history import historical_context_payload, seed_history
 
-from baibai_engine.macro.context.models import MacroContextDocument
-from baibai_engine.macro.context.service import MacroContextService
+from baibai_engine.market_context.assessment.models import StoredAssessment
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.read_api import MaterializationPreconditionError
 from baibai_engine.storage.application.json import canonical_json
@@ -218,21 +217,21 @@ def test_macro_api_indexes_published_reports_without_full_sections(
     app_method_root: Path,
 ) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"
-    previous = MacroContextDocument.model_validate(
-        macro_context_payload(
+    previous = StoredAssessment.from_payload(
+        historical_context_payload(
             context_id="macro-context-2026-07-18-base",
             as_of="2026-07-18",
             published_at="2026-07-18T12:00:00+09:00",
         )
     )
-    document = MacroContextDocument.model_validate(
-        macro_context_payload(
+    document = StoredAssessment.from_payload(
+        historical_context_payload(
             as_of="2026-07-19",
             published_at="2026-07-20T12:00:00+09:00",
         )
     )
-    MacroContextService(db_path).publish(previous, expected_head=None)
-    MacroContextService(db_path).publish(document, expected_head=previous.context_id)
+    seed_history(db_path, (previous).document, supersedes=None)
+    seed_history(db_path, (document).document, supersedes=previous.context_id)
 
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         response = client.get("/api/macro?as_of=2026-07-19")
@@ -259,8 +258,8 @@ def test_macro_context_detail_renders_core_ten_plus_connection_and_series_names(
     app_method_root: Path,
 ) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"
-    document = MacroContextDocument.model_validate(macro_context_payload())
-    MacroContextService(db_path).publish(document, expected_head=None)
+    document = StoredAssessment.from_payload(historical_context_payload())
+    seed_history(db_path, (document).document, supersedes=None)
 
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         response = client.get(f"/api/macro/context/{document.context_id}?as_of=2026-07-19")
@@ -311,7 +310,7 @@ def test_macro_context_detail_serves_a_revision_without_the_strategy_layer(
 
     db_path = app_method_root / "stores/application/baibai.sqlite"
     initialize_database(db_path)
-    legacy = macro_context_payload(strategy_layer=False)
+    legacy = historical_context_payload(strategy_layer=False)
     with sqlite3.connect(db_path) as connection:
         connection.execute(
             """
@@ -337,21 +336,21 @@ def test_macro_context_detail_serves_a_revision_without_the_strategy_layer(
     assert body["connection"]["estimate_caveats"] == []
 
 
-def test_macro_context_detail_404_for_unknown_and_future_context(
+def test_history_id_is_available_independently_of_analysis_date(
     app_method_root: Path,
 ) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"
-    document = MacroContextDocument.model_validate(macro_context_payload())
-    MacroContextService(db_path).publish(document, expected_head=None)
+    document = StoredAssessment.from_payload(historical_context_payload())
+    seed_history(db_path, (document).document, supersedes=None)
 
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         assert client.get("/api/macro/context/does-not-exist").status_code == 404
-        # The context as_of is 2026-07-19; asking before it makes it not-yet-eligible.
+        # ID retrieval is historical viewing, not analytical eligibility.
         future = client.get(f"/api/macro/context/{document.context_id}?as_of=2026-07-01")
-        assert future.status_code == 404
+        assert future.status_code == 200
 
 
-def test_macro_api_does_not_serve_a_revision_from_an_earlier_contract(
+def test_macro_history_keeps_an_earlier_contract_visible(
     app_method_root: Path,
 ) -> None:
     """Older revisions stay in the table as a log; the UI is never asked to render them."""
@@ -384,16 +383,16 @@ def test_macro_api_does_not_serve_a_revision_from_an_earlier_contract(
         detail = client.get(f"/api/macro/context/{payload['context_id']}?as_of=2026-07-19")
         overview = client.get("/api/macro?as_of=2026-07-19")
 
-    assert detail.status_code == 404
-    assert overview.json()["reports"] == []
+    assert detail.status_code == 200
+    assert overview.json()["reports"][0]["context_id"] == payload["context_id"]
 
 
 def test_macro_api_preserves_immutable_context_when_series_definition_is_absent(
     app_method_root: Path, mocker
 ) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"
-    document = MacroContextDocument.model_validate(macro_context_payload())
-    MacroContextService(db_path).publish(document, expected_head=None)
+    document = StoredAssessment.from_payload(historical_context_payload())
+    seed_history(db_path, (document).document, supersedes=None)
     mocker.patch("baibai_web.readmodel.macro.macro_series_names", return_value={})
 
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:

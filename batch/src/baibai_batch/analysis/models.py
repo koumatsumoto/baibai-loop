@@ -2,22 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Literal, Self
+from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from baibai_engine.batch_api import DailyTriageDecision, ReviewSetEntrySnapshot
-
-
-class MacroProjection(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    status: Literal["missing", "current", "stale"]
-    as_of: str | None = None
-    age_days: int | None = Field(default=None, ge=0)
-    summary: str | None = None
-    synthesis: dict[str, object] | None = None
-    connection: dict[str, object] | None = None
 
 
 class TriageCandidate(BaseModel):
@@ -30,12 +19,13 @@ class TriageCandidate(BaseModel):
 class ModelInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    schema_version: Literal[1, 2]
+    schema_version: Literal[3]
     task: Literal["research-triage"]
     instruction: str
     policy: tuple[str, ...]
     as_of: str
-    macro_context: MacroProjection
+    known_at: str
+    macro_context: dict[str, Any]
     candidates: tuple[TriageCandidate, ...] = Field(min_length=1, max_length=80)
 
     @field_validator("policy", "candidates", mode="before")
@@ -79,7 +69,6 @@ class ModelUsage(BaseModel):
 
 
 __all__ = [
-    "MacroProjection",
     "ModelInput",
     "ModelOutput",
     "ModelUsage",

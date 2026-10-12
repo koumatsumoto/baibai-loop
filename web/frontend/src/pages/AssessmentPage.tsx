@@ -13,7 +13,7 @@ import { UpdatedAtBadge } from '../components/UpdatedAtBadge'
 import { Button } from '../components/ui/button'
 import { MacroReportContent } from './macro-report/MacroReportContent'
 
-export function MacroReportPage() {
+export function AssessmentPage() {
   const { contextId = '' } = useParams<{ contextId: string }>()
   const [data, setData] = useState<MacroContextView | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -40,7 +40,7 @@ export function MacroReportPage() {
     <PageShell
       above={<div><Button asChild size="sm" variant="ghost"><Link to="/macro"><ArrowLeft />Macro に戻る</Link></Button></div>}
       meta={<div className="flex flex-wrap items-center gap-2"><UpdatedAtBadge value={data.published_at} /><AsOfBadge compact value={data.as_of} /><span className="text-xs text-muted-foreground">{data.age_days}日前</span>{data.stale && <StaleBadge />}</div>}
-      title="マクロ環境レポート"
+      title="市場環境判断・保存履歴"
       width="reading"
     >
       <MacroReportContent data={data} />

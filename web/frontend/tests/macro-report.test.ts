@@ -198,3 +198,29 @@ describe('macro report render contract', () => {
     expect(markup.match(/source\.risk/g)).toHaveLength(1)
   })
 })
+
+it('shows the small assessment with its counter evidence and uncertainty', () => {
+  const current = report()
+  current.assessment = {
+    known_at: '2026-07-18T13:00:00+09:00',
+    changes: [{ summary: '金利上昇の根拠', source_ids: ['rates'] }],
+    counter_evidence: [{ summary: '需要改善という反証', source_ids: ['demand'] }],
+    uncertainties: [{ summary: '持続性は不明', source_ids: ['demand'] }],
+    implications: [{ summary: '資金調達と受注を調査', source_ids: ['rates', 'demand'] }],
+    inputs: [{ input_id: 'rates', status: 'ok', reference: 'fixed-reading', available_at: '2026-07-18T12:00:00+09:00' }],
+  }
+  const markup = renderToStaticMarkup(createElement(MacroReportContent, { data: current }))
+  expect(markup).toContain('需要改善という反証')
+  expect(markup).toContain('持続性は不明')
+  expect(markup).toContain('入力確定時刻')
+  expect(markup).not.toContain('regime changed')
+})
+
+it('preserves the old detailed report and the original stored body', () => {
+  const archived = report()
+  archived.historical_payload = { schema_version: 4, core: [{ summary: '保存された完全本文' }], inputs: { articles: [{ url: 'https://example.com/original' }] } }
+  const markup = renderToStaticMarkup(createElement(MacroReportContent, { data: archived }))
+  expect(markup).toContain('regime changed')
+  expect(markup).toContain('保存された完全本文')
+  expect(markup).toContain('https://example.com/original')
+})

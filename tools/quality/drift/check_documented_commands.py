@@ -34,7 +34,6 @@ _SCAN_FILES = (
     "batch/OPERATIONS.md",
     "tools/owner_mcp/OPERATIONS.md",
     "docs/reference/analysis-operations.md",
-    "docs/reference/macro-handoff.md",
 )
 _FENCE = re.compile(r"^\s*```")
 _INLINE_CODE = re.compile(r"`([^`]+)`")

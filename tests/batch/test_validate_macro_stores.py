@@ -6,18 +6,17 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
-from tests.helpers.macro_context import macro_context_payload
+from tests.helpers.assessment_history import historical_context_payload, seed_history
 
 from baibai_batch.validation.macro_stores import (
     main,
     validate_published_contexts,
     validate_store,
 )
-from baibai_engine.macro.context.models import (
-    MACRO_CONTEXT_SCHEMA_VERSION,
-    MacroContextDocument,
+from baibai_engine.market_context.assessment.models import (
+    ASSESSMENT_SCHEMA_VERSION,
+    StoredAssessment,
 )
-from baibai_engine.macro.context.service import MacroContextService
 from baibai_engine.market_context.indicators.db import (
     SQLITE_SCHEMA_VERSION,
     IndicatorsSchemaError,
@@ -193,9 +192,9 @@ def test_validate_store_refuses_a_store_on_another_schema(tmp_path: Path) -> Non
         validate_store(database, definitions=IndicatorDefinitions(series=(definition,)))
 
 
-def _publish_report(path: Path) -> MacroContextDocument:
-    document = MacroContextDocument.model_validate(macro_context_payload())
-    MacroContextService(path).publish(document, expected_head=None)
+def _publish_report(path: Path) -> StoredAssessment:
+    document = StoredAssessment.from_payload(historical_context_payload())
+    seed_history(path, (document).document, supersedes=None)
     return document
 
 
@@ -228,10 +227,6 @@ def test_validate_published_contexts_warns_instead_of_failing_on_a_retired_serie
     assert report.valid
     assert report.documents == 1
     assert any("cites retired series: us.10y" in warning for warning in report.warnings)
-    assert any(
-        "scorecard is unsettleable on retired series (us.10y)" in warning
-        for warning in report.warnings
-    )
 
 
 def test_validate_published_contexts_fails_when_a_stored_revision_cannot_be_read(
@@ -239,15 +234,15 @@ def test_validate_published_contexts_fails_when_a_stored_revision_cannot_be_read
 ) -> None:
     application_db = tmp_path / "app.sqlite"
     initialize_application_database(application_db)
-    payload = macro_context_payload()
-    payload["core"] = payload["core"][:9]
+    payload = historical_context_payload()
+    del payload["summary"]
     with sqlite3.connect(application_db) as connection:
         connection.execute(
             "INSERT INTO macro_context (context_id, schema_version, as_of, published_at, "
             "supersedes_id, payload) VALUES (?, ?, ?, ?, NULL, ?)",
             (
                 payload["context_id"],
-                MACRO_CONTEXT_SCHEMA_VERSION,
+                ASSESSMENT_SCHEMA_VERSION,
                 payload["as_of"],
                 payload["published_at"],
                 json.dumps(payload),
@@ -258,7 +253,7 @@ def test_validate_published_contexts_fails_when_a_stored_revision_cannot_be_read
 
     assert not report.valid
     assert report.documents == 1
-    assert "cannot be read at core" in report.failures[0]
+    assert "cannot be read" in report.failures[0]
 
 
 def test_main_reports_both_stores_and_fails_on_an_unreadable_revision(
@@ -269,7 +264,7 @@ def test_main_reports_both_stores_and_fails_on_an_unreadable_revision(
     _build_store(database, load_definitions().by_id()["us.10y"])
     application_db = tmp_path / "app.sqlite"
     initialize_application_database(application_db)
-    payload = macro_context_payload()
+    payload = historical_context_payload()
     payload["summary"] = "  "
     with sqlite3.connect(application_db) as connection:
         connection.execute(
@@ -277,7 +272,7 @@ def test_main_reports_both_stores_and_fails_on_an_unreadable_revision(
             "supersedes_id, payload) VALUES (?, ?, ?, ?, NULL, ?)",
             (
                 payload["context_id"],
-                MACRO_CONTEXT_SCHEMA_VERSION,
+                ASSESSMENT_SCHEMA_VERSION,
                 payload["as_of"],
                 payload["published_at"],
                 json.dumps(payload),

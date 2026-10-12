@@ -1,15 +1,15 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 import yaml
-from tests.helpers.macro_context import macro_context_payload
+from tests.helpers.assessment_history import historical_context_payload, seed_history
 from tests.helpers.research_triage import published_review_set, research_triage_payload
 
-from baibai_engine.macro.context.models import MacroContextDocument
-from baibai_engine.macro.context.service import MacroContextService
+from baibai_engine.market_context.assessment.models import StoredAssessment
 from baibai_engine.research.triage.cli import scaffold_research_triage
 from baibai_engine.research.triage.contracts import ResearchTriage
 from baibai_engine.research.triage.service import ResearchTriageConflictError, ResearchTriageService
@@ -25,8 +25,8 @@ def _review_set(*, as_of: str = "2026-07-19") -> dict[str, object]:
 
 
 def _publish_context(path: Path) -> str:
-    document = MacroContextDocument.model_validate(macro_context_payload())
-    MacroContextService(path).publish(document, expected_head=None)
+    document = StoredAssessment.from_payload(historical_context_payload())
+    seed_history(path, (document).document, supersedes=None)
     return document.context_id
 
 
@@ -98,7 +98,7 @@ def test_publish_requires_an_existing_nonfuture_context_when_one_is_named(
             _triage(macro_context_id="macro-context-2026-07-19-unknown"),
             review_set=PublishedReviewSet.model_validate(_review_set()),
         )
-    with pytest.raises(ResearchTriageConflictError, match="future macro context"):
+    with pytest.raises(ResearchTriageConflictError, match="unavailable"):
         service.publish(
             _triage(macro_context_id=context_id, as_of="2026-07-18"),
             review_set=PublishedReviewSet.model_validate(_review_set(as_of="2026-07-18")),
@@ -126,3 +126,14 @@ def test_publish_accepts_null_when_no_eligible_context_exists(tmp_path: Path) ->
     )
 
     assert published.macro_context_id is None
+
+
+def test_publish_checks_the_frozen_input_cutoff_before_judgment_publication(tmp_path: Path) -> None:
+    app_db = tmp_path / "app.sqlite"
+    context_id = _publish_context(app_db)
+    with pytest.raises(ResearchTriageConflictError, match="unavailable"):
+        ResearchTriageService(app_db).publish(
+            _triage(macro_context_id=context_id),
+            review_set=PublishedReviewSet.model_validate(_review_set()),
+            known_at=datetime.fromisoformat("2026-07-19T11:00:00+09:00"),
+        )

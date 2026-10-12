@@ -1,0 +1,216 @@
+from __future__ import annotations
+
+import json
+import sqlite3
+from datetime import UTC, date, datetime
+
+import pytest
+from tests.helpers.assessment_history import historical_context_payload as historical_payload
+from tests.helpers.assessment_history import seed_history
+
+from baibai_engine.market_context.assessment.cli import main
+from baibai_engine.market_context.assessment.models import MarketContextAssessment, StoredAssessment
+from baibai_engine.market_context.assessment.projection import assessment_projection
+from baibai_engine.market_context.assessment.query import (
+    assessment_by_id,
+    assessment_history,
+    latest_assessment,
+    select_assessment,
+)
+from baibai_engine.market_context.assessment.service import (
+    AssessmentConflictError,
+    AssessmentService,
+)
+
+
+def document(
+    *,
+    context_id="macro-context-2026-07-17-small",
+    published_at="2026-07-18T12:00:00+00:00",
+    summary="重要な変化は小さい。",
+):
+    return MarketContextAssessment.model_validate(
+        {
+            "context_id": context_id,
+            "as_of": "2026-07-17",
+            "known_at": "2026-07-17T06:00:00+00:00",
+            "published_at": published_at,
+            "summary": summary,
+            "inputs": [],
+        }
+    )
+
+
+def stored(doc):
+    return StoredAssessment.from_payload(doc.payload())
+
+
+def test_small_judgment_does_not_require_chapters_scenarios_or_scorecard():
+    doc = document()
+    assert doc.changes == doc.counter_evidence == doc.uncertainties == doc.implications == ()
+    assert not {"core", "scenarios", "scorecard", "synthesis"} & doc.payload().keys()
+    with pytest.raises(ValueError, match="schema_version"):
+        MarketContextAssessment.model_validate(historical_payload())
+
+
+def test_writer_preserves_old_payload_and_head_across_schemas(tmp_path):
+    db = tmp_path / "app.sqlite"
+    old = historical_payload(context_id="macro-context-2026-07-16-history", as_of="2026-07-16")
+    seed_history(db, old)
+    with sqlite3.connect(db) as conn:
+        before = conn.execute("select payload from macro_context").fetchone()[0]
+    service = AssessmentService(db)
+    assert service.head_id() == old["context_id"]
+    new = document()
+    service.publish(new, expected_head=old["context_id"])
+    service.publish(new, expected_head=old["context_id"])
+    with sqlite3.connect(db) as conn:
+        assert (
+            conn.execute(
+                "select payload from macro_context where context_id=?", (old["context_id"],)
+            ).fetchone()[0]
+            == before
+        )
+        assert (
+            conn.execute(
+                "select supersedes_id from macro_context where context_id=?", (new.context_id,)
+            ).fetchone()[0]
+            == old["context_id"]
+        )
+        assert conn.execute("select count(*) from macro_context").fetchone()[0] == 2
+    assert service.head_id() == new.context_id
+    with pytest.raises(AssessmentConflictError):
+        service.publish(document(summary="別の本文"), expected_head=old["context_id"])
+    with pytest.raises(AssessmentConflictError):
+        service.publish(document(context_id="macro-context-2026-07-17-other"), expected_head=None)
+
+
+def test_known_at_normal_historical_and_weekend_selection():
+    friday = stored(
+        document(
+            context_id="macro-context-2026-07-17-friday", published_at="2026-07-17T18:00:00+00:00"
+        )
+    )
+    weekend = stored(document())
+    records = [friday, weekend]
+    assert (
+        select_assessment(
+            records, as_of=date(2026, 7, 17), known_at=datetime(2026, 7, 18, 13, tzinfo=UTC)
+        )
+        == weekend
+    )
+    assert (
+        select_assessment(
+            records, as_of=date(2026, 7, 17), known_at=datetime(2026, 7, 17, 19, tzinfo=UTC)
+        )
+        == friday
+    )
+    assert (
+        select_assessment(
+            records, as_of=date(2026, 7, 17), known_at=datetime(2026, 7, 17, 17, tzinfo=UTC)
+        )
+        is None
+    )
+    assert (
+        select_assessment(
+            records, as_of=date(2026, 7, 16), known_at=datetime(2026, 7, 20, tzinfo=UTC)
+        )
+        is None
+    )
+
+
+def test_selector_orders_real_instants_not_iso_strings():
+    early = stored(
+        document(
+            context_id="macro-context-2026-07-17-early", published_at="2026-07-17T16:00:00+09:00"
+        )
+    )
+    late = stored(
+        document(
+            context_id="macro-context-2026-07-17-late", published_at="2026-07-17T08:00:00+00:00"
+        )
+    )
+    assert (
+        select_assessment(
+            [early, late], as_of=date(2026, 7, 17), known_at=datetime(2026, 7, 17, 9, tzinfo=UTC)
+        )
+        == late
+    )
+    with pytest.raises(ValueError, match="timezone"):
+        select_assessment(
+            [], as_of=date(2026, 7, 17), known_at=datetime.fromisoformat("2026-07-17T00:00:00")
+        )
+
+
+def test_history_id_access_has_no_analytical_cutoff(tmp_path):
+    db = tmp_path / "app.sqlite"
+    payload = {
+        "context_id": "macro-context-2026-07-17-v3",
+        "schema_version": 3,
+        "kind": "macro-context",
+        "as_of": "2026-07-17",
+        "published_at": "2026-07-20T12:00:00+09:00",
+        "summary": "当時の本文",
+        "sections": [{"summary": "保存済み節"}],
+        "inputs": {},
+    }
+    seed_history(db, payload)
+    assert assessment_by_id(db, context_id=payload["context_id"]).document == payload
+    assert len(assessment_history(db)) == 1
+    assert (
+        latest_assessment(db, as_of=date(2026, 7, 17), known_at=datetime(2026, 7, 18, tzinfo=UTC))
+        is None
+    )
+
+
+def test_input_time_and_evidence_resolution():
+    payload = document().payload()
+    payload["inputs"] = [
+        {
+            "input_id": "reading",
+            "reference": "macro.reading/fixed",
+            "layer": "L2",
+            "available_at": "2026-07-17T07:00:00+00:00",
+        }
+    ]
+    with pytest.raises(ValueError, match="unavailable"):
+        MarketContextAssessment.model_validate(payload)
+    payload["inputs"][0]["available_at"] = "2026-07-17T05:00:00+00:00"
+    payload["counter_evidence"] = [{"summary": "相反する材料", "source_ids": ["reading"]}]
+    payload["uncertainties"] = [{"summary": "観測が限られる", "source_ids": ["reading"]}]
+    projection = assessment_projection(
+        stored(MarketContextAssessment.model_validate(payload)), as_of=date(2026, 7, 17)
+    )
+    assert projection["counter_evidence"][0]["summary"] == "相反する材料"
+    assert projection["uncertainties"][0]["summary"] == "観測が限られる"
+    payload["changes"] = [{"summary": "変化", "source_ids": ["unknown"]}]
+    with pytest.raises(ValueError, match="unknown input"):
+        MarketContextAssessment.model_validate(payload)
+
+
+def test_missing_and_stale_are_distinct_and_do_not_create_a_store(tmp_path):
+    db = tmp_path / "absent.sqlite"
+    assert (
+        latest_assessment(db, as_of=date(2026, 7, 17), known_at=datetime(2026, 7, 18, tzinfo=UTC))
+        is None
+    )
+    assert not db.exists()
+    assert assessment_projection(None, as_of=date(2026, 7, 17))["status"] == "missing"
+    assert assessment_projection(stored(document()), as_of=date(2026, 10, 1))["status"] == "stale"
+
+
+def test_cli_new_writer_check_publish_and_history(tmp_path, capsys):
+    db = tmp_path / "app.sqlite"
+    draft = tmp_path / "draft.json"
+    draft.write_text(json.dumps(document().payload()))
+    prefix = ["assessment", "--db", str(db)]
+    assert main([*prefix, "publish", str(draft), "--check"]) == 0
+    assert not db.exists()
+    assert main([*prefix, "publish", str(draft)]) == 0
+    assert main([*prefix, "show", "--context-id", document().context_id]) == 0
+    capsys.readouterr()
+    assert (
+        main([*prefix, "latest", "--asof", "2026-07-17", "--known-at", "2026-07-17T19:00:00+00:00"])
+        == 0
+    )
+    assert capsys.readouterr().out.strip() == "null"

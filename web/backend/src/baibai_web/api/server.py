@@ -170,11 +170,10 @@ def create_app(
     def macro(
         sources: _SourceDependency,
         as_of: date | None = None,
+        known_at: datetime | None = None,
     ) -> MacroView:
-        return build_macro(
-            sources.macro,
-            as_of=as_of or datetime.now(_JST).date(),
-        )
+        cutoff = known_at or datetime.now(_JST)
+        return build_macro(sources.macro, as_of=as_of or cutoff.date(), known_at=cutoff)
 
     @app.get("/api/macro/series/{series_id}", response_model=MacroSeriesView)
     def macro_series(

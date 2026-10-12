@@ -43,6 +43,20 @@ export interface AnalystRatingObservation {
   rating_updated_label: string | null
 }
 
+export interface AssessmentClaimView {
+  summary: string
+  source_ids: string[]
+}
+
+export interface AssessmentContentView {
+  known_at: string
+  changes: AssessmentClaimView[]
+  counter_evidence: AssessmentClaimView[]
+  uncertainties: AssessmentClaimView[]
+  implications: AssessmentClaimView[]
+  inputs: Record<string, unknown>[]
+}
+
 export interface AssessmentReviewView {
   attempt: number
   reviewer_identity: string
@@ -255,6 +269,7 @@ export interface MacroContextExcerptView {
   estimate_caveats: MacroEstimateCaveatView[]
   sizing_cautions: MacroSizingCautionView[]
   warnings: string[]
+  assessment: AssessmentContentView | null
 }
 
 export interface MacroContextRevisionView {
@@ -275,7 +290,9 @@ export interface MacroContextView {
   stale: boolean
   synthesis: MacroSynthesisView | null
   core: MacroCoreSectionView[]
-  connection: MacroConnectionSectionView
+  connection: MacroConnectionSectionView | null
+  assessment: AssessmentContentView | null
+  historical_payload: Record<string, unknown> | null
 }
 
 export interface MacroCoreSectionView {

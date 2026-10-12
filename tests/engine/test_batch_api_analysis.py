@@ -5,12 +5,11 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
-from tests.helpers.macro_context import macro_context_payload
+from tests.helpers.assessment_history import historical_context_payload, seed_history
 from tests.helpers.research_triage import published_review_set
 
 import baibai_engine.batch_api as batch_api
-from baibai_engine.macro.context.models import MacroContextDocument
-from baibai_engine.macro.context.service import MacroContextService
+from baibai_engine.market_context.assessment.models import StoredAssessment
 from baibai_engine.read_api.research_triage import research_triage_payloads_for_review_set
 from baibai_engine.research.operation.models import OperationPayload
 from baibai_engine.research.operation.service import OperationService
@@ -156,8 +155,8 @@ def test_batch_api_reconciles_one_exact_triage_after_ambiguous_publish_response(
         def __init__(self, path) -> None:
             self._service = real_service(path)
 
-        def publish(self, triage, *, review_set):
-            self._service.publish(triage, review_set=review_set)
+        def publish(self, triage, *, review_set, known_at):
+            self._service.publish(triage, review_set=review_set, known_at=known_at)
             raise OSError("commit response unavailable")
 
     monkeypatch.setattr(batch_api, "ResearchTriageService", AmbiguousService)
@@ -250,28 +249,30 @@ def test_batch_api_binds_the_macro_context_loaded_before_a_new_head(
         tickers=("2331",),
     )
     monkeypatch.setattr(batch_api, "ScreeningRunReader", _Reader)
-    first = MacroContextDocument.model_validate(
-        macro_context_payload(
+    first = StoredAssessment.from_payload(
+        historical_context_payload(
             context_id="macro-context-2026-09-01-first",
             as_of="2026-09-01",
             published_at="2026-09-01T10:00:00+09:00",
         )
     )
-    MacroContextService(app_db).publish(first, expected_head=None)
-    loaded = batch_api.load_daily_analysis_context(date(2026, 9, 1), app_db_path=app_db)
+    seed_history(app_db, (first).document, supersedes=None)
+    loaded = batch_api.load_daily_analysis_context(
+        date(2026, 9, 1), app_db_path=app_db, known_at=_NOW
+    )
     assert loaded is not None
     assert loaded.macro_context is not None
     assert loaded.macro_context.context_id == first.context_id
-    assert batch_api.load_latest_analysis_context(app_db_path=app_db) == loaded
+    assert batch_api.load_latest_analysis_context(app_db_path=app_db, known_at=_NOW) == loaded
 
-    second = MacroContextDocument.model_validate(
-        macro_context_payload(
+    second = StoredAssessment.from_payload(
+        historical_context_payload(
             context_id="macro-context-2026-09-01-second",
             as_of="2026-09-01",
             published_at="2026-09-01T11:00:00+09:00",
         )
     )
-    MacroContextService(app_db).publish(second, expected_head=first.context_id)
+    seed_history(app_db, (second).document, supersedes=first.context_id)
 
     triage = batch_api.publish_daily_research_triage(
         "review-set-daily",
@@ -334,7 +335,9 @@ def test_latest_context_validates_every_publication_binding(
 
     monkeypatch.setattr(batch_api, "ScreeningRunReader", Reader)
     with pytest.raises(ValueError, match=message):
-        batch_api.load_latest_analysis_context(app_db_path=tmp_path / "unused.sqlite")
+        batch_api.load_latest_analysis_context(
+            app_db_path=tmp_path / "unused.sqlite", known_at=_NOW
+        )
     assert not (tmp_path / "unused.sqlite").exists()
 
 
@@ -350,5 +353,7 @@ def test_latest_context_requires_a_run(tmp_path, monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr(batch_api, "ScreeningRunReader", Reader)
     with pytest.raises(ValueError, match="latest Screening Run is unavailable"):
-        batch_api.load_latest_analysis_context(app_db_path=tmp_path / "unused.sqlite")
+        batch_api.load_latest_analysis_context(
+            app_db_path=tmp_path / "unused.sqlite", known_at=_NOW
+        )
     assert not (tmp_path / "unused.sqlite").exists()

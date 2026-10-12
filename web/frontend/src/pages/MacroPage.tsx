@@ -1,3 +1,4 @@
+import { AssessmentContent } from '../components/market-context/AssessmentContent'
 import { useEffect, useId, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { ArrowDown, ArrowRight, ArrowUp, CircleAlert, Minus, Search } from 'lucide-react'
@@ -272,7 +273,9 @@ function IndicatorDialog({ row, history, historyLoading, historyError, period, g
 }
 
 function LatestContext({ context }: { context: MacroContextExcerptView | null }) {
+
   if (context === null) return <Alert><CircleAlert /><AlertTitle>Macro Context なし</AlertTitle><AlertDescription>機械読み値は確認できますが、現在の環境判断はまだ発行されていません。</AlertDescription></Alert>
+  if (context.assessment) return <section className="grid gap-4"><h3 className="font-semibold">市場環境判断</h3><p>{context.summary}</p><AssessmentContent data={context.assessment} /></section>
   return (
     <SectionCard
       description={`${LABEL.asOf} ${context.as_of} / ${context.age_days} 日前`}

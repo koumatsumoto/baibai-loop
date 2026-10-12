@@ -13,7 +13,7 @@ EXPECTED = frozenset(
         "research",
         "position-review",
         "ledger-record",
-        "macro-context",
+        "market-context-assessment",
         "ops-maintenance",
     }
 )

@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from baibai_engine.market_context.macro import macro_context_payload
+from baibai_engine.market_context.assessment.query import assessment_by_id, select_assessment
 from baibai_engine.research.triage.contracts import (
     ResearchTriage,
     ReviewSetEntrySnapshot,
@@ -33,14 +33,20 @@ class ResearchTriageService:
         triage: ResearchTriage,
         *,
         review_set: PublishedReviewSet,
+        known_at: datetime | None = None,
         now: datetime | None = None,
     ) -> ResearchTriage:
         app_db_path = database_path(self._db_path)
         if triage.macro_context_id is not None:
             try:
-                macro_context_payload(
-                    app_db_path, context_id=triage.macro_context_id, as_of=triage.as_of
-                )
+                record = assessment_by_id(app_db_path, context_id=triage.macro_context_id)
+                if (
+                    select_assessment(
+                        [record], as_of=triage.as_of, known_at=known_at or triage.published_at
+                    )
+                    is None
+                ):
+                    raise ValueError("assessment was unavailable at the judgment time")
             except ValueError as error:
                 raise ResearchTriageConflictError(str(error)) from error
         if triage.review_set_id != review_set.review_set_id:

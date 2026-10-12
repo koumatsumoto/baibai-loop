@@ -35,7 +35,7 @@ _NOT_STORE_READERS = frozenset(
     }
 )
 # A caller asking for one identity that is absent is told so; that is not a degrade.
-_RAISES_FOR_UNKNOWN_ID = frozenset({"macro_context_payload"})
+_RAISES_FOR_UNKNOWN_ID = frozenset({"assessment_payload"})
 # The rule is "readers that answer what has been published degrade; readers that gate a
 # write raise". These two gate the daily batch, which must stop and name the fault
 # rather than skip a run that looked like a holiday.
@@ -63,6 +63,7 @@ _DECLARED_OUTSIDE_THE_SWEEP = frozenset(
 )
 
 _ARGUMENTS: dict[str, object] = {
+    "known_at": datetime(2026, 7, 29, tzinfo=UTC),
     "cutoff": datetime(2026, 7, 29, tzinfo=UTC),
     "evaluated_at": datetime(2026, 7, 29, tzinfo=UTC),
     "after": date(2026, 7, 28),

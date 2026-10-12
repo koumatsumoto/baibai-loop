@@ -11,13 +11,13 @@ from typing import Any
 from pydantic import Field, field_validator
 
 from baibai_batch.analysis.io import canonical_json
-from baibai_batch.analysis.model_input import build_model_input, review_set_candidates
+from baibai_batch.analysis.model_input import extract_legacy_model_input, review_set_candidates
 from baibai_engine.batch_api import validated_review_set
 from baibai_engine.foundation.repository_layout import APPLICATION_DB_PATH, RUNS_DB_PATH
-from baibai_engine.macro.context.models import MacroContextDocument
+from baibai_engine.market_context.assessment.models import StoredAssessment
 from baibai_engine.position.ledger import replay_events_through, require_resolved_expiries
 from baibai_engine.position.ledger_read import load_ledger_document
-from baibai_engine.read_api.macro import macro_context_payload
+from baibai_engine.read_api.market_context import assessment_payload
 from baibai_engine.read_api.research_triage import (
     current_research_triage,
     list_research_triage_payloads,
@@ -158,22 +158,20 @@ class Reader:
         macro = None
         if triage.macro_context_id is not None:
             try:
-                payload = macro_context_payload(
-                    self.app_path, context_id=triage.macro_context_id, as_of=triage.as_of
-                )
+                payload = assessment_payload(self.app_path, context_id=triage.macro_context_id)
             except ValueError as exc:
                 raise OwnerError("SOURCE_UNAVAILABLE") from exc
-            macro = MacroContextDocument.model_validate(payload)
+            macro = StoredAssessment.from_payload(payload)
             if macro.context_id != triage.macro_context_id or macro.as_of > triage.as_of:
                 raise OwnerError("CONTRACT_MISMATCH")
-        model_input = build_model_input(review_set, macro)
-        snapshots = {candidate.ticker: candidate.snapshot for candidate in model_input.candidates}
+        model_input = extract_legacy_model_input(review_set, macro)
+        snapshots = {entry.ticker: entry.snapshot for entry in review_set_candidates(review_set)}
         if {entry.ticker: entry.candidate_snapshot for entry in triage.entries} != snapshots:
             raise OwnerError("CONTRACT_MISMATCH")
         run_at = datetime.fromisoformat(run.run_at)
         if run_at.tzinfo is None or run_at.utcoffset() is None:
             raise OwnerError("CONTRACT_MISMATCH")
-        return model_input.model_dump(mode="json"), {
+        return model_input, {
             "as_of": triage.as_of.isoformat(),
             "published_at": triage.published_at.isoformat(),
             "review_set_id": triage.review_set_id,
@@ -194,7 +192,7 @@ class Reader:
                 model_input_sha256=digest(payload),
             ).model_dump(),
             **metadata,
-            "input_basis": "reconstructed_from_production_contract",
+            "input_basis": "stored_publication_extract",
         }
 
     def resolve(self, selector: Selector) -> dict[str, Any]:
@@ -243,7 +241,7 @@ class Reader:
             raise OwnerError("REFERENCE_MISMATCH")
         return {
             "triage_ref": reference.model_dump(),
-            "input_basis": "reconstructed_from_production_contract",
+            "input_basis": "stored_publication_extract",
             "model_input": payload,
         }
 

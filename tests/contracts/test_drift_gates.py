@@ -350,9 +350,9 @@ def test_cli_help_gate_rejects_an_unregistered_delegating_stub() -> None:
 def test_cli_help_gate_reaches_subcommands_behind_a_registered_delegation() -> None:
     # 実際の delegation を 1 本辿り、stub の向こう側まで検査が届くことを確かめる。
     context = check_cli_help.build_parser(
-        check_cli_help.DELEGATED_GROUPS["baibai-engine macro context"]
+        check_cli_help.DELEGATED_GROUPS["baibai-engine macro reading"]
     )
-    assert "publish" in check_cli_help._subparser_actions(context)[0].choices
+    assert "--asof" in context._option_string_actions
 
 
 def _skill(root: Path, body: str) -> None:

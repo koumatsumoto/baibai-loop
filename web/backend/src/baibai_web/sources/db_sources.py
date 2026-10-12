@@ -48,9 +48,9 @@ from baibai_engine.read_api.external_assessment import (
     observed_tickers,
 )
 from baibai_engine.read_api.market_context import (
-    latest_macro_context_payload,
-    list_macro_context_payloads,
-    macro_context_payload,
+    assessment_payload,
+    latest_assessment_payload,
+    list_assessment_payloads,
     macro_reading_snapshot,
 )
 from baibai_web.sources.types import (
@@ -325,13 +325,13 @@ class DbMacroSource:
         return macro_series_fetch_health(self._indicators_db_path)
 
     def context_by_id(self, *, context_id: str, as_of: date) -> dict[str, object]:
-        return macro_context_payload(self._app_db_path, context_id=context_id, as_of=as_of)
+        return assessment_payload(self._app_db_path, context_id=context_id)
 
     def contexts(self) -> list[dict[str, object]]:
-        return list_macro_context_payloads(self._app_db_path)
+        return list_assessment_payloads(self._app_db_path)
 
-    def latest_context(self, *, as_of: date) -> dict[str, object] | None:
-        return latest_macro_context_payload(self._app_db_path, as_of=as_of)
+    def latest_context(self, *, as_of: date, known_at: datetime) -> dict[str, object] | None:
+        return latest_assessment_payload(self._app_db_path, as_of=as_of, known_at=known_at)
 
     def series(
         self,

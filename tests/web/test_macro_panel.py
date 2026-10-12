@@ -4,7 +4,7 @@ tolerates a store that has not caught up with the registry."""
 from __future__ import annotations
 
 from calendar import monthrange
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -85,7 +85,7 @@ def _panel_source(tmp_path: Path, *, series_ids: tuple[str, ...], stored: str) -
 def test_panel_keeps_a_configured_series_the_store_has_not_fetched(tmp_path: Path) -> None:
     source = _panel_source(tmp_path, series_ids=("us.10y", "jp.2y"), stored="us.10y")
 
-    view = build_macro(source, as_of=_AS_OF)
+    view = build_macro(source, as_of=_AS_OF, known_at=datetime(2026, 7, 21, tzinfo=UTC))
 
     rows = {series.series_id: series for group in view.groups for series in group.series}
     assert list(rows) == ["us.10y", "jp.2y"]
@@ -145,7 +145,7 @@ def test_panel_sparkline_uses_month_end_observations_and_is_bounded(tmp_path: Pa
     )
 
     as_of = date(2025, 2, 28)
-    view = build_macro(source, as_of=as_of)
+    view = build_macro(source, as_of=as_of, known_at=datetime(2026, 7, 21, tzinfo=UTC))
 
     points = view.groups[0].series[0].points
     assert len(points) == 13
@@ -164,4 +164,4 @@ def test_panel_rejects_a_configured_series_no_registry_defines(tmp_path: Path) -
     source = _panel_source(tmp_path, series_ids=("us.10y", "jp.no_such_series"), stored="us.10y")
 
     with pytest.raises(ValueError, match=r"not registered: jp\.no_such_series"):
-        build_macro(source, as_of=_AS_OF)
+        build_macro(source, as_of=_AS_OF, known_at=datetime(2026, 7, 21, tzinfo=UTC))

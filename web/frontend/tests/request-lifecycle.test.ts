@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiError, fetchJson } from '../src/api/client'
 import { CapitalAllocationAssessmentPage } from '../src/pages/CapitalAllocationAssessmentPage'
-import { MacroReportPage } from '../src/pages/MacroReportPage'
+import { AssessmentPage } from '../src/pages/AssessmentPage'
 import { SecurityDetailPage } from '../src/pages/SecurityDetailPage'
 
 const hooks = vi.hoisted(() => ({
@@ -53,7 +53,7 @@ afterEach(() => {
 
 const pages = [
   { name: 'security', render: SecurityDetailPage, param: 'ticker', path: '/api/securities/', states: [null, false, null] },
-  { name: 'macro', render: MacroReportPage, param: 'contextId', path: '/api/macro/context/', states: [null, null] },
+  { name: 'macro', render: AssessmentPage, param: 'contextId', path: '/api/macro/context/', states: [null, null] },
   { name: 'CAA', render: CapitalAllocationAssessmentPage, param: 'capitalAllocationAssessmentId', path: '/api/capital-allocation-assessments/', states: [null, null] },
 ]
 

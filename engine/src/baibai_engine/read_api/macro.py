@@ -9,13 +9,15 @@ from pathlib import Path
 from typing import Literal
 
 from baibai_engine.foundation.redaction import redact_credentials
+from baibai_engine.market_context.assessment.models import ASSESSMENT_STALE_DAYS
+from baibai_engine.market_context.assessment.query import (
+    assessment_payload,
+    latest_assessment_payload,
+    list_assessment_payloads,
+)
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
 from baibai_engine.market_context.macro import (
-    MACRO_CONTEXT_STALE_DAYS,
     MACRO_READING_RULES_PATH,
-    latest_macro_context_payload,
-    list_macro_context_payloads,
-    macro_context_payload,
     macro_reading_snapshot,
     read_macro_snapshot,
 )
@@ -196,12 +198,12 @@ def _aggregate_period_end(
 __all__ = [
     # Re-exported so read-only consumers judge report freshness by the same policy the
     # engine's own consumers use, rather than keeping a second copy of the threshold.
-    "MACRO_CONTEXT_STALE_DAYS",
+    "ASSESSMENT_STALE_DAYS",
     "MACRO_READING_RULES_PATH",
     "MacroGranularity",
-    "latest_macro_context_payload",
-    "list_macro_context_payloads",
-    "macro_context_payload",
+    "assessment_payload",
+    "latest_assessment_payload",
+    "list_assessment_payloads",
     "macro_indicator_series",
     "macro_reading_snapshot",
     "macro_registered_series",

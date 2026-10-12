@@ -60,9 +60,13 @@ DOMAINS: Mapping[str, Domain] = {
         module="baibai_engine.screening.cli.app",
         summary="machine screening: analyze securities and publish a Review Set",
     ),
+    "market-context": Domain(
+        module="baibai_engine.market_context.assessment.cli",
+        summary="explicit market environment assessments and their history",
+    ),
     "macro": Domain(
         module="baibai_engine.market_context.indicators.cli",
-        summary="macro indicator series and the macro context reports built on them",
+        summary="economic indicator observations and mechanical readings",
     ),
     "operation": Domain(
         module="baibai_engine.research.operation.cli",

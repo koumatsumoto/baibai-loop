@@ -47,10 +47,10 @@
 - **入力** — 対象publicationはあるが、保存payload・entry snapshot・必須storeの内容が不正でAI入力を構築できない。
 - **期待** — non-zero、model process 0、canonical write 0。正常な`no_review_set`や空候補とは区別する。
 
-## 10. manual Macro Context trigger
+## 10. manual assessment trigger
 
-- **入力** — 人間がfull-depth Macro Contextを明示的に要求。
-- **期待** — daily analysisへ組み込まず`macro-context` skillで扱う。daily側のmodel requestは増えない。
+- **入力** — 人間が市場環境判断の作成を明示的に要求。
+- **期待** — daily analysisへ組み込まず`market-context-assessment` skillで扱う。daily側のmodel requestは増えない。
 
 ## 11. malicious source instruction
 

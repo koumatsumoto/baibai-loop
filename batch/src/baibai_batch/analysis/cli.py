@@ -318,6 +318,7 @@ def _execute(
     *,
     asof: date,
     latest: bool,
+    known_at: datetime,
     root: Path,
     state_root: Path,
     run_dir: Path,
@@ -328,9 +329,13 @@ def _execute(
     app_db_path = root / APPLICATION_DB_PATH
     runs_db_path = root / RUNS_DB_PATH
     context = (
-        load_latest_analysis_context(app_db_path=app_db_path, runs_db_path=runs_db_path)
+        load_latest_analysis_context(
+            app_db_path=app_db_path, runs_db_path=runs_db_path, known_at=known_at
+        )
         if latest
-        else load_daily_analysis_context(asof, app_db_path=app_db_path, runs_db_path=runs_db_path)
+        else load_daily_analysis_context(
+            asof, app_db_path=app_db_path, runs_db_path=runs_db_path, known_at=known_at
+        )
     )
     if context is None:
         summary["status"] = "no_review_set"
@@ -344,7 +349,7 @@ def _execute(
         _triage_summary(context.existing_triage, summary, published=False)
         return 0
 
-    model_input = build_model_input(context.review_set, context.macro_context)
+    model_input = build_model_input(context.review_set, context.macro_context, known_at=known_at)
     write_json_atomic(run_dir / "input.json", model_input.model_dump(mode="json"), root=state_root)
     preflight_bytes = _model_input_bytes(model_input)
     summary["model_input_bytes"] = preflight_bytes
@@ -378,6 +383,7 @@ def _execute(
         app_db_path=app_db_path,
         runs_db_path=runs_db_path,
         published_at=datetime.now(_JST),
+        known_at=known_at,
     )
     _triage_summary(triage, summary, published=True)
     return 0
@@ -434,6 +440,7 @@ def _run(args: argparse.Namespace, *, model_runner: ModelRunner = _run_model) ->
             exit_code = _execute(
                 asof=asof,
                 latest=args.latest,
+                known_at=args.known_at or datetime.now(_JST),
                 root=args.repo_root,
                 state_root=state_root,
                 run_dir=run_dir,
@@ -471,6 +478,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--latest",
         action="store_true",
         help="use the latest canonical Review Set only if it matches the latest Screening Run",
+    )
+    run.add_argument(
+        "--known-at", type=datetime.fromisoformat, help="explicit historical input cutoff"
     )
     run.add_argument("--state-dir", type=Path, default=default_state_dir())
     run.add_argument("--repo-root", type=Path, default=Path.cwd())

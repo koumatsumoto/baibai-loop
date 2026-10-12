@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -599,6 +599,20 @@ class MacroConnectionSectionView(BaseModel):
     estimate_caveats: list[MacroEstimateCaveatView] = []
 
 
+class AssessmentClaimView(BaseModel):
+    summary: str
+    source_ids: list[str] = []
+
+
+class AssessmentContentView(BaseModel):
+    known_at: datetime
+    changes: list[AssessmentClaimView] = []
+    counter_evidence: list[AssessmentClaimView] = []
+    uncertainties: list[AssessmentClaimView] = []
+    implications: list[AssessmentClaimView] = []
+    inputs: list[dict[str, Any]] = []
+
+
 class MacroContextView(BaseModel):
     context_id: str
     as_of: date
@@ -608,8 +622,10 @@ class MacroContextView(BaseModel):
     stale: bool
     # Absent on revisions published before the integrated layer.
     synthesis: MacroSynthesisView | None = None
-    core: list[MacroCoreSectionView]
-    connection: MacroConnectionSectionView
+    core: list[MacroCoreSectionView] = []
+    connection: MacroConnectionSectionView | None = None
+    assessment: AssessmentContentView | None = None
+    historical_payload: dict[str, Any] | None = None
 
 
 class MacroContextRevisionView(BaseModel):
@@ -702,6 +718,8 @@ class MacroContextExcerptView(BaseModel):
     estimate_caveats: list[MacroEstimateCaveatView]
     sizing_cautions: list[MacroSizingCautionView]
     warnings: list[str]
+
+    assessment: AssessmentContentView | None = None
 
 
 class MacroPointView(BaseModel):

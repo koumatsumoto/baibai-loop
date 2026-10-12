@@ -116,11 +116,12 @@ EDINET metricの`extractor_revision`は明示的な抽出意味revisionであり
 
 ER較正の意味契約と保存済み評価帯解釈・読取は`valuation/calibration/{contracts,query}`に集約し、較正実行・証拠生成・選抜評価はScreeningに残す。Research prepareはValuation queryを直接使い、`read_api/er_calibration_context`はWeb・外部照会の読取委譲だけを持つ。公式TOPIX gross-total-returnの観測型・検証は`market_context/observations/benchmark`、JPXファイル読取は`market/jpx_total_return`の実adapterが所有し、Nikkei ETF price-only方向評価と分ける。broker事実のdraft組立・予約束縛は`position/drafts`が所有し、CLIが`research/capital_allocation_query`の過去CAA銘柄読取をcallableで渡す。active予約・既知terminal（cancel / expire）の再試行では参照を呼ばず、現在適格性を再判定しない。意味の詳細は[較正文脈](./reference/estimate-calibration.md#判断面へ渡す較正文脈)・[Portfolio Ledger](./reference/portfolio-ledger.md#human-result-semantics)に従う。
 
+市場環境の明示判断は`market_context/assessment`が所有する。新writerは小さな判断一本で、旧固定章/確率/scorecard作成経路を持たない。履歴本文・ID・引用を保持し、分析入力は対象日とcallerが固定する利用可能時刻で選ぶ。
+
 残る差分は次に集約する。Issueの段階的実装を全体完了とは扱わない。
 
 | 未完了項目 | 現行と最終境界の差分 |
 | --- | --- |
-| Market Context/macro | 経済観測のregistry・取得・保存adapterは`market_context/indicators`、決定的算術・保存済みreaderは`market_context/reading`へ移設済み。純粋観測契約は`indicators/observations`。L3 Contextの実体は`macro/context`に残り、所有移設と重厚な旧report仕様の見直しは別の未完了単位 |
 | 永続identity | 既存table/index/dataset/key/plan形式/workflow名・concurrencyを維持中。稼働取得を途中で変更せず、値・時刻・既存判断と固定releaseの履歴を保って明示切替する |
 | daily独立公開 | Screening失敗とmacro公開はまだ独立していない。workflow/store/部分公開の分離が残る |
 | 最終運用受入 | 実体配置・保存・公開・画面・CLI・docsの結合、四媒体の取得/読戻し、AI運用の有用性/根拠/時間を実運用で確認する |

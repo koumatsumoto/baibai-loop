@@ -24,7 +24,6 @@ from typing import cast
 # させると配下の subcommand が丸ごと未検査になるので、未登録の stub は error にする。
 # 表を更新し忘れた delegation は gate をすり抜けない。
 DELEGATED_GROUPS: Mapping[str, str] = {
-    "baibai-engine macro context": "baibai_engine.macro.context.cli",
     "baibai-engine macro reading": "baibai_engine.market_context.reading.cli",
     "baibai-engine research evaluate": "baibai_engine.research.thesis_evaluation_cli",
 }
