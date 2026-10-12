@@ -188,7 +188,12 @@ def _wait_for_retry(deadline: datetime, *, started: float, budget: float) -> boo
 
 
 def _cohort_report(
-    plan: RunPlan, checkpoint: Checkpoint, index: int, stop_reason: str | None
+    plan: RunPlan,
+    checkpoint: Checkpoint,
+    index: int,
+    stop_reason: str | None,
+    started: float,
+    timings: dict[str, float],
 ) -> dict[str, object]:
     report = summarize(plan, [checkpoint.journal])
     report.update(
@@ -198,6 +203,10 @@ def _cohort_report(
         confirmed_http_requests=checkpoint.confirmed_http_requests,
         response_content_bytes=checkpoint.response_content_bytes,
         response_bytes_basis="uncompressed fully received bodies; wire bytes unmeasured",
+        cohort_complete=checkpoint.journal.halt_reason is None
+        and all(entry.state != "unattempted" for entry in checkpoint.journal.entries),
+        elapsed_seconds=round(time.monotonic() - started, 3),
+        **{key: round(value, 3) for key, value in timings.items()},
     )
     return report
 
@@ -210,6 +219,7 @@ def _acquire_pair(
     source: RetailSource,
     ticker: str,
     rate_limiter: RetailHostRateLimiter,
+    timings: dict[str, float],
 ) -> tuple[Checkpoint, str | None, RetailCollectionResult]:
     marked = False
     pair_content_bytes = 0
@@ -218,6 +228,7 @@ def _acquire_pair(
 
     def persist() -> None:
         nonlocal etag
+        storage_started = time.monotonic()
         receipt = put_private(
             store,
             checkpoint_key(plan, checkpoint.journal.cohort_index),
@@ -225,6 +236,7 @@ def _acquire_pair(
             previous_etag=etag,
         )
         etag = receipt.etag
+        timings["storage_elapsed_seconds"] += time.monotonic() - storage_started
 
     def before_request() -> None:
         nonlocal checkpoint, marked
@@ -300,6 +312,8 @@ def _acquire_pair(
         )
         persist()
 
+    collection_started = time.monotonic()
+    storage_before = timings["storage_elapsed_seconds"]
     result = retail_collect_pair(
         ticker,
         source=source,
@@ -309,7 +323,13 @@ def _acquire_pair(
         on_outcome=on_outcome,
         rate_limiter=rate_limiter,
     )
+    timings["collection_elapsed_seconds"] += (
+        time.monotonic()
+        - collection_started
+        - (timings["storage_elapsed_seconds"] - storage_before)
+    )
     # Diagnostic storage is outside the collector's typed/checkpoint deadline.
+    storage_started = time.monotonic()
     for request_number, received in received_html:
         try:
             save_raw_html(
@@ -327,6 +347,7 @@ def _acquire_pair(
                 f"ticker={ticker}; request={request_number}; typed result unchanged",
                 file=sys.stderr,
             )
+    timings["storage_elapsed_seconds"] += time.monotonic() - storage_started
     return checkpoint, etag, result
 
 
@@ -342,6 +363,8 @@ def acquire_cohort(
     if not 0 < soft_budget_seconds <= SOFT_BUDGET_SECONDS:
         raise ValueError("invalid retail soft budget")
     key = checkpoint_key(plan, index)
+    timings = {"collection_elapsed_seconds": 0.0, "storage_elapsed_seconds": 0.0}
+    storage_started = time.monotonic()
     terminal = read_terminal(store, plan)
     if terminal is not None:
         return {
@@ -350,13 +373,14 @@ def acquire_cohort(
             "request_reservations": 0,
         }
     saved = read_checkpoints(store, plan)
+    timings["storage_elapsed_seconds"] += time.monotonic() - storage_started
     pending = _pending_retry(plan, saved)
     checkpoint, etag = saved.get(index, (Checkpoint(new_journal(plan, index)), None))
     if pending is not None and pending[0] != index:
         if all(
             entry.state not in {"unattempted", "uncertain"} for entry in checkpoint.journal.entries
         ):
-            return _cohort_report(plan, checkpoint, index, None)
+            return _cohort_report(plan, checkpoint, index, None, started, timings)
         raise ValueError("another cohort has a pending provider retry")
     stop_reason = None
     rate_limiter = RetailHostRateLimiter()
@@ -398,6 +422,7 @@ def acquire_cohort(
                 entry.source,
                 entry.ticker,
                 rate_limiter,
+                timings,
             )
             if result.stop_reason == "rate_limited":
                 retry = checkpoint.retry_for(entry.source, entry.ticker)
@@ -415,8 +440,10 @@ def acquire_cohort(
             break
     # Even an untouched soft-stop cohort remains explicit, rather than disappearing.
     if etag is None:
+        storage_started = time.monotonic()
         put_private(store, key, checkpoint_bytes(plan, checkpoint), previous_etag=None)
-    return _cohort_report(plan, checkpoint, index, stop_reason)
+        timings["storage_elapsed_seconds"] += time.monotonic() - storage_started
+    return _cohort_report(plan, checkpoint, index, stop_reason, started, timings)
 
 
 def write_outputs(
@@ -599,10 +626,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "acquire":
             if report.get("status") in {"already_published", "already_partially_published"}:
                 return 0
-            journal = read_checkpoints(store, plan)[args.cohort][0].journal
-            if journal.halt_reason is not None or any(
-                entry.state == "unattempted" for entry in journal.entries
-            ):
+            if not report["cohort_complete"]:
                 return 1
         return 0
     except Exception as error:
