@@ -22,28 +22,28 @@ from baibai_batch.storage.lake_publish import (
     RemoteObject,
     publish_l1_release,
 )
-from baibai_engine.market.lake import models as lake_models
-from baibai_engine.market.lake import writer as lake_writer_module
-from baibai_engine.market.lake.keys import dataset_manifest_key
-from baibai_engine.market.lake.release import (
+from baibai_engine.storage.lake import models as lake_models
+from baibai_engine.storage.lake import writer as lake_writer_module
+from baibai_engine.storage.lake.keys import dataset_manifest_key
+from baibai_engine.storage.lake.release import (
     L1ReleasePointer,
     canonical_lake_model_bytes,
     create_l1_release,
 )
-from baibai_engine.market.lake.writer import (
+from baibai_engine.storage.lake.writer import (
     LakeBuildError,
     export_lake_legacy,
     export_legacy_sqlite,
     sealed_sqlite_snapshot,
 )
-from baibai_engine.market.sqlite import open_connection
-from baibai_engine.market.sqlite.lake_origin import (
+from baibai_engine.storage.observations.lake_origin import (
     LakeStoreOrigin,
     LakeStoreOriginError,
     read_lake_store_origin,
     write_lake_store_origin,
 )
-from baibai_engine.market.sqlite.snapshot import create_snapshot
+from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.observations.snapshot import create_snapshot
 
 
 @pytest.fixture(autouse=True)

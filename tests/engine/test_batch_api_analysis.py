@@ -9,13 +9,13 @@ from tests.helpers.macro_context import macro_context_payload
 from tests.helpers.research_triage import published_review_set
 
 import baibai_engine.batch_api as batch_api
-from baibai_engine.appdb.write import initialize_database
 from baibai_engine.macro.context.models import MacroContextDocument
 from baibai_engine.macro.context.service import MacroContextService
 from baibai_engine.read_api.research_triage import research_triage_payloads_for_review_set
 from baibai_engine.research.operation.models import OperationPayload
 from baibai_engine.research.operation.service import OperationService
 from baibai_engine.research.triage.service import ResearchTriageConflictError
+from baibai_engine.storage.application.write import initialize_database
 
 _JST = ZoneInfo("Asia/Tokyo")
 _NOW = datetime(2026, 9, 1, 18, 0, tzinfo=_JST)

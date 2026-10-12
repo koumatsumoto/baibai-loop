@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from baibai_engine.market.retail_dynamics.contract import (
+from baibai_engine.external_assessment.observations.contract import (
     ANALYST_RATING_COLUMNS,
     ANALYST_RATING_TABLE,
     MODEL_VALUATION_COLUMNS,
@@ -16,17 +16,17 @@ from baibai_engine.market.retail_dynamics.contract import (
     QUANTS_SCORE_TABLE,
     Column,
 )
-from baibai_engine.market.retail_dynamics.models import (
+from baibai_engine.external_assessment.observations.models import (
     AnalystRatingObservation,
     ModelValuationObservation,
     QuantsScoreObservation,
     ReceivedObservation,
     utc_datetime,
 )
-from baibai_engine.market.sqlite.read import connect_read_only
+from baibai_engine.external_assessment.tradingview.contract import COLUMNS as TV_COLUMNS
+from baibai_engine.external_assessment.tradingview.contract import TABLE as TV_TABLE
 from baibai_engine.market.ticker import normalize_ticker
-from baibai_engine.market.tradingview.contract import COLUMNS as TV_COLUMNS
-from baibai_engine.market.tradingview.contract import TABLE as TV_TABLE
+from baibai_engine.storage.observations.read import connect_read_only
 
 from .models import (
     AnalystRatingHistory,

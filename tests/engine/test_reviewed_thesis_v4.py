@@ -7,7 +7,6 @@ from decimal import Decimal
 import pytest
 from tests.helpers.research_v4 import pair_payload
 
-from baibai_engine.appdb.read import connect_read_only
 from baibai_engine.research.thesis import ThesisDocument, thesis_core_hash
 from baibai_engine.research.thesis_store import (
     ResearchConflictError,
@@ -15,6 +14,7 @@ from baibai_engine.research.thesis_store import (
     ThesisStoreService,
     load_latest_reviewed_thesis,
 )
+from baibai_engine.storage.application.read import connect_read_only
 from baibai_engine.valuation.scenario import (
     Projection,
     maximum_entry_price,
@@ -154,8 +154,8 @@ def test_invalid_pair_never_publishes(tmp_path, fault):
 def test_review_insert_failure_rolls_back_thesis_in_caller_transaction(tmp_path):
     import sqlite3
 
-    from baibai_engine.appdb.write import connect_rw, initialize_database
     from baibai_engine.research.thesis_store import publish_reviewed_thesis
+    from baibai_engine.storage.application.write import connect_rw, initialize_database
 
     db = tmp_path / "app.sqlite"
     initialize_database(db)

@@ -7,8 +7,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from baibai_engine.appdb.read import connect_read_only
 from baibai_engine.foundation.sqlite_pages import object_payload, select_page
+from baibai_engine.storage.application.read import connect_read_only
 
 from .stored import required_read
 

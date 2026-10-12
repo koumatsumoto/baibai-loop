@@ -9,7 +9,6 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from baibai_engine.appdb.paths import database_path
 from baibai_engine.research.operation.progress import (
     ResearchSelection,
     ResearchTarget,
@@ -28,6 +27,7 @@ from baibai_engine.research.workspace.files import (
     _load_mapping,
     _nonempty_string,
 )
+from baibai_engine.storage.application.paths import database_path
 
 # --------------------------------------------------------------------------- #
 # prepare

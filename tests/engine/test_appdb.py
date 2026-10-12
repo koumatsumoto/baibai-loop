@@ -6,8 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from baibai_engine.appdb import LATEST_VERSION
-from baibai_engine.appdb.write import backup_database, initialize_database, prune_backups
+from baibai_engine.storage.application import LATEST_VERSION
+from baibai_engine.storage.application.write import (
+    backup_database,
+    initialize_database,
+    prune_backups,
+)
 
 
 def test_initialize_creates_only_the_current_application_schema(tmp_path: Path) -> None:

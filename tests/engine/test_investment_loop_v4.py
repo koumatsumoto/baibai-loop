@@ -11,8 +11,6 @@ from tests.helpers.db_seed import seed_ledger
 from tests.helpers.research_triage import research_entry, research_triage_payload
 from tests.helpers.research_v4 import pair_payload
 
-from baibai_engine.appdb.write import connect_rw
-from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
 from baibai_engine.position.drafts import apply_draft, build_sell_execution_draft
 from baibai_engine.position.ledger import PortfolioLedgerDocument
 from baibai_engine.position.store import LedgerStoreService
@@ -29,6 +27,8 @@ from baibai_engine.research.planning import plan_limit
 from baibai_engine.research.position_review_service import PositionReviewService
 from baibai_engine.research.thesis import ThesisDocument, thesis_core_hash
 from baibai_engine.research.thesis_store import ThesisStoreService
+from baibai_engine.storage.application.write import connect_rw
+from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION
 
 
 @pytest.mark.parametrize(

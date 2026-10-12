@@ -26,7 +26,7 @@ def test_market_close_source_expected_schema_version_tracks_market() -> None:
     # A market schema version bump changes SQLITE_SCHEMA_VERSION; this coupling
     # assertion turns that bump into a red CI check so the boundary-crossing schema
     # literals in market_close_source cannot drift silently.
-    from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
+    from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION
 
     assert _EXPECTED_MARKET_SCHEMA_VERSION == SQLITE_SCHEMA_VERSION
 

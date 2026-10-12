@@ -132,13 +132,13 @@ portfolioの年次・3年・5年outcomeのprimary benchmarkはJPXのTOPIX gross 
 
 External Assessmentは媒体が提示した値・出所・尺度・時点を参照する。掲載先と原評価元を区別し、同じIFIS由来の目標値/ratingを独立した賛成票として数えない。原評価元が不明な系列の独立性は推測しない。外部モデル価格・アナリスト予測/rating・Quants scoreは別の型・結果であり、正規化した多数決点や独自FVへ統合しない。
 
-同じ配信元の受領間を、確認できた同じorigin・単位・株式基準・対象期間または尺度で比較する。欠測の回復・人数変更・同値の再観測は数値改善の主張と区別する。既存の企業固有評価は[Thesis](./thesis.md)が所有する。型と比較規則は`external_assessment/models.py`・`analysis.py`、cutoffと選択・保存契約は[market lake](./market-lake.md#retail-dynamics-query)を参照する。
+同じ配信元の受領間を、確認できた同じorigin・単位・株式基準・対象期間または尺度で比較する。欠測の回復・人数変更・同値の再観測は数値改善の主張と区別する。既存の企業固有評価は[Thesis](./thesis.md)が所有する。型と比較規則は`external_assessment/models.py`・`analysis.py`、cutoffと選択・保存契約は[market lake](./market-lake.md#external-assessment-query)を参照する。
 
 <a id="retail-dynamics"></a>
 
 ## 公開brokerページの観測
 
-`market/retail_dynamics`は既存のL1取得・保存adapter名であり、個人投資家の売買動向を表すdomain名ではない。配信画面で受信できた値を保存する。マネックスの公開Scouter Lite理論株価表から、目標株価コンセンサスとPER会社予想・PERアナリスト予想・PBRのモデル価格を取得する。目標株価の原データとモデル価格の算出主体は別々に記録する。ロックされたsummaryや割安・割高の目盛りから判断を作らない。
+`external_assessment/acquisition`は既存のL1取得・保存adapter名であり、個人投資家の売買動向を表すdomain名ではない。配信画面で受信できた値を保存する。マネックスの公開Scouter Lite理論株価表から、目標株価コンセンサスとPER会社予想・PERアナリスト予想・PBRのモデル価格を取得する。目標株価の原データとモデル価格の算出主体は別々に記録する。ロックされたsummaryや割安・割高の目盛りから判断を作らない。
 
 楽天の公開forecastページが指定するIFIS iframeから現在のレーティングを取得する。別の業績予想欄のアナリスト数をレーティング人数へ流用せず、確認できない尺度・方向・人数・公表日時はnullに保つ。画面の過去列は取得以前の受信履歴にはしない。両社が同じIFIS情報を配信しても独立した賛成票とは数えない。
 
@@ -146,11 +146,11 @@ External Assessmentは媒体が提示した値・出所・尺度・時点を参�
 
 公式outerのRICとiframe URLは要求先を確認する。観測の銘柄同一性はiframe応答の比較表または確認済みchart bindingで確かめる。「業績予測情報はありません」だけの共通ページは無効codeにも返るため、`no_estimates_identity_unconfirmed`として未収録に保つ。この理由は当該銘柄の予測・レーティングの不存在を確定したものではなく、正常nullの観測とも区別する。
 
-受信時刻とJST受信日、媒体が明示した更新日を区別する。保存と直近受領の選び方は[market lake](./market-lake.md#retail-dynamics-query)、比較の意味は[外部参考評価](#external-assessment)に従う。現adapterでは`share_basis`・評価対象期間・レーティング尺度が未確認のnullであり、数値deltaは基本的に`not_comparable`となる。受領履歴は利用できるが数値の変化比較は未実用の範囲を残し、未確認metadataを推測で補完しない。分析は入力参照とmethod versionを持つ読取結果であり、投資判断へ自動投入しない。
+受信時刻とJST受信日、媒体が明示した更新日を区別する。保存と直近受領の選び方は[market lake](./market-lake.md#external-assessment-query)、比較の意味は[外部参考評価](#external-assessment)に従う。現adapterでは`share_basis`・評価対象期間・レーティング尺度が未確認のnullであり、数値deltaは基本的に`not_comparable`となる。受領履歴は利用できるが数値の変化比較は未実用の範囲を残し、未確認metadataを推測で補完しない。分析は入力参照とmethod versionを持つ読取結果であり、投資判断へ自動投入しない。
 
 抽出済みtyped観測とDB/L1履歴を正本とする。日次の固定pair取得では公開HTTP 200の元本文とencodingを約3日のprivateな診断用データとして保存する。raw保存だけの失敗はwarningで知らせ、正常typedの保存・公開を妨げない。HTTP成功の原応答と、銘柄同一性・値が確認できたtyped観測は別であり、parse失敗や未確認の共通ページを正常観測へ変えない。過去に保存しなかった本文は取得当時の原応答として復元できない。日付別保持・候補確認・読戻しは[batch運用](../../batch/OPERATIONS.md#日次取得と固定コホートの再開)に従う。
 
-限定取得・保存済みstageの再投入は[batch運用](../../batch/OPERATIONS.md#retail-dynamics)、保存と照会は[market lake](./market-lake.md#retail-dynamics-query)を参照する。
+限定取得・保存済みstageの再投入は[batch運用](../../batch/OPERATIONS.md#retail-dynamics)、保存と照会は[market lake](./market-lake.md#external-assessment-query)を参照する。
 
 ## TradingViewの市場期待
 

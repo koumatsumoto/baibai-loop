@@ -8,9 +8,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from baibai_engine.external_assessment.acquisition.cli import add_acquisition_commands
+from baibai_engine.external_assessment.acquisition.cli import main as acquisition_main
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
-from baibai_engine.market.retail_dynamics.cli import add_acquisition_commands
-from baibai_engine.market.retail_dynamics.cli import main as acquisition_main
 
 from .query import external_assessment
 

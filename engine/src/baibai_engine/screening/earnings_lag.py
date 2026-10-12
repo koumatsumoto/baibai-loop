@@ -23,8 +23,8 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Literal
 
+from baibai_engine.market.jpx_models import JPXEarningsCalendarEntry
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
-from baibai_engine.market.providers.jpx import JPXEarningsCalendarEntry
 
 type NextEarningsStatus = Literal["announced", "scheduled", "estimated", "unknown"]
 

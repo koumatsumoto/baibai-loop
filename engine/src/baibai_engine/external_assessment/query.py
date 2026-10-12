@@ -18,14 +18,14 @@ def observed_tickers(path: Path, *, cutoff: datetime) -> list[str]:
     """Expose saved identities for Web export, including null/unresolved receipts."""
     from contextlib import closing
 
-    from baibai_engine.market.retail_dynamics.contract import (
+    from baibai_engine.external_assessment.observations.contract import (
         ANALYST_RATING_TABLE,
         MODEL_VALUATION_TABLE,
         QUANTS_SCORE_TABLE,
     )
-    from baibai_engine.market.retail_dynamics.models import utc_datetime
-    from baibai_engine.market.sqlite.read import connect_read_only
-    from baibai_engine.market.tradingview.contract import COLUMNS as TV_COLUMNS
+    from baibai_engine.external_assessment.observations.models import utc_datetime
+    from baibai_engine.external_assessment.tradingview.contract import COLUMNS as TV_COLUMNS
+    from baibai_engine.storage.observations.read import connect_read_only
 
     cutoff = utc_datetime(cutoff)
     if not path.is_file():

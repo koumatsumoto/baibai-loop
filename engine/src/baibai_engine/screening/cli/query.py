@@ -13,7 +13,6 @@ from uuid import uuid4
 
 import yaml
 
-from baibai_engine.appdb.paths import database_path
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
 from baibai_engine.market.store import latest_daily_bar_date
@@ -32,6 +31,7 @@ from baibai_engine.screening.run_store import (
     ScreeningRunReader,
     ScreeningRunStore,
 )
+from baibai_engine.storage.application.paths import database_path
 
 from .common import _NoAliasDumper, _parse_iso_date
 

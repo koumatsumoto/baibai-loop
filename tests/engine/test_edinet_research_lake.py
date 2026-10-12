@@ -12,13 +12,13 @@ from tools.l1_mcp.contract import L1Error, Query, ReleaseRef
 from tools.l1_mcp.server import Adapter
 
 from baibai_engine.market.edinet_facts.store import store_facts
-from baibai_engine.market.lake.duck import lake_session
-from baibai_engine.market.lake.hydrate import hydrate_market_store
-from baibai_engine.market.lake.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.market.lake.reader import resolve_release
-from baibai_engine.market.lake.release import create_l1_release
-from baibai_engine.market.lake.writer import export_legacy_sqlite, sealed_sqlite_snapshot
-from baibai_engine.market.sqlite import open_connection
+from baibai_engine.storage.lake.duck import lake_session
+from baibai_engine.storage.lake.hydrate import hydrate_market_store
+from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.lake.reader import resolve_release
+from baibai_engine.storage.lake.release import create_l1_release
+from baibai_engine.storage.lake.writer import export_legacy_sqlite, sealed_sqlite_snapshot
+from baibai_engine.storage.observations.schema import open_connection
 
 
 def test_facts_export_fixed_mcp_read_and_hydrate(tmp_path, monkeypatch):

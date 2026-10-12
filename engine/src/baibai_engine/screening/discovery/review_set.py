@@ -9,7 +9,6 @@ from math import isfinite
 from statistics import median
 from typing import NamedTuple
 
-from baibai_engine.appdb.json import canonical_json
 from baibai_engine.foundation.coerce import metric_map, optional_float, string_or_none
 from baibai_engine.screening.discovery.contracts import (
     APPROACH_IDS,
@@ -20,6 +19,7 @@ from baibai_engine.screening.discovery.contracts import (
 )
 from baibai_engine.screening.metrics import MIN_SECTOR_MEDIAN_POPULATION
 from baibai_engine.screening.rule_config import CandidateDiscoveryRules
+from baibai_engine.storage.application.json import canonical_json
 
 _ASSET_VALUE_EXCLUDED_SECTORS = frozenset(
     {

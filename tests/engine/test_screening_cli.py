@@ -22,31 +22,23 @@ ROOT = Path(__file__).resolve().parents[2]
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.market.bars import JQuantsDailyBar, JQuantsMarketCalendarDay
-from baibai_engine.market.edinet_metrics.revision import compute_extractor_revision
-from baibai_engine.market.jquants_models import (
-    JQuantsFinancialSummary,
-    JQuantsWeeklyMargin,
-)
-from baibai_engine.market.models import SecurityMaster
-from baibai_engine.market.providers.edinet import (
-    EdinetMetricRecord,
-    EDINETProviderError,
-    EDINETRateLimitError,
-)
-from baibai_engine.market.providers.jpx import (
+from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
+from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
+from baibai_engine.market.edinet_models import EdinetMetricRecord
+from baibai_engine.market.jpx_models import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
     JPXProviderError,
     JPXRegulationSnapshot,
 )
-from baibai_engine.market.providers.jquants import JQuantsProvider, JQuantsProviderError
-from baibai_engine.market.sqlite.ingest import (
-    open_connection,
-    store_edinet_metrics,
-    store_jquants_daily_bars,
-    store_jquants_weekly_margin,
+from baibai_engine.market.jquants_decode import JQuantsProviderError
+from baibai_engine.market.jquants_models import (
+    JQuantsFinancialSummary,
+    JQuantsWeeklyMargin,
 )
-from baibai_engine.market.sqlite.reader import read_edinet_metrics
+from baibai_engine.market.models import SecurityMaster
+from baibai_engine.market.providers.edinet import EDINETProviderError, EDINETRateLimitError
+from baibai_engine.market.providers.jquants import JQuantsProvider
 from baibai_engine.screening import cli as screening_cli
 from baibai_engine.screening.cli import (
     ProviderBundle,
@@ -66,6 +58,10 @@ from baibai_engine.screening.sqlite_coverage import (
     RequiredFieldCoverage,
     RequiredFieldRepairPlan,
 )
+from baibai_engine.storage.observations.ingest.edinet import store_edinet_metrics
+from baibai_engine.storage.observations.ingest.jquants import store_jquants_weekly_margin
+from baibai_engine.storage.observations.jquants import store_jquants_daily_bars
+from baibai_engine.storage.observations.schema import open_connection
 
 
 @dataclass
@@ -2092,7 +2088,7 @@ class ScreeningCliTests(unittest.TestCase):
                 revision = connection.execute(
                     "SELECT extractor_revision FROM edinet_metrics WHERE asof_date = '2026-04-25'"
                 ).fetchone()[0]
-            self.assertEqual(revision, compute_extractor_revision())
+            self.assertEqual(revision, EDINET_METRIC_REVISION)
 
 
 class IndexNextEarningsTests(unittest.TestCase):
@@ -2175,7 +2171,7 @@ def _edinet_document(
 
 def _seed_trading_days(sqlite_path: Path, start: date, end: date) -> None:
     """Weekday rows so the weekly-margin candidates have a calendar to derive from."""
-    from baibai_engine.market.sqlite.ingest import open_connection
+    from baibai_engine.storage.observations.schema import open_connection
 
     conn = open_connection(sqlite_path)
     try:

@@ -9,8 +9,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from baibai_engine.appdb.json import canonical_json
-from baibai_engine.appdb.write import connect_rw, initialize_database
 from baibai_engine.foundation.time import JST
 from baibai_engine.research.thesis import (
     ThesisDocument,
@@ -21,6 +19,8 @@ from baibai_engine.research.thesis import (
     require_recorded_identity,
     thesis_core_hash,
 )
+from baibai_engine.storage.application.json import canonical_json
+from baibai_engine.storage.application.write import connect_rw, initialize_database
 
 
 class ResearchConflictError(ValueError):

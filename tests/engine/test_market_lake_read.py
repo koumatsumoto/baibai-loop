@@ -20,33 +20,33 @@ import pytest
 from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
 
-from baibai_engine.market.lake import duck as duck_module
-from baibai_engine.market.lake import hydrate as hydrate_module
-from baibai_engine.market.lake import prefetch as prefetch_module
-from baibai_engine.market.lake.datasets import JQUANTS_DAILY_BARS
-from baibai_engine.market.lake.duck import (
+from baibai_engine.storage.lake import duck as duck_module
+from baibai_engine.storage.lake import hydrate as hydrate_module
+from baibai_engine.storage.lake import prefetch as prefetch_module
+from baibai_engine.storage.lake.datasets import JQUANTS_DAILY_BARS
+from baibai_engine.storage.lake.duck import (
     LakeCredentialError,
     LakeSession,
     R2ReadCredentials,
     lake_session,
 )
-from baibai_engine.market.lake.hydrate import (
+from baibai_engine.storage.lake.hydrate import (
     LakeHydrateError,
     dehydrate_market_store,
     hydrate_market_store,
 )
-from baibai_engine.market.lake.keys import (
+from baibai_engine.storage.lake.keys import (
     canonical_object_key,
     current_l1_pointer_key,
     release_manifest_key,
 )
-from baibai_engine.market.lake.models import (
+from baibai_engine.storage.lake.models import (
     DatasetManifest,
     L1ReleaseSourceRef,
     LakeObject,
     canonical_lake_model_bytes,
 )
-from baibai_engine.market.lake.objects import (
+from baibai_engine.storage.lake.objects import (
     LakeObjectCache,
     LakeObjectError,
     LocalMirrorSource,
@@ -54,12 +54,12 @@ from baibai_engine.market.lake.objects import (
     mirror_root,
     sha256_file,
 )
-from baibai_engine.market.lake.prefetch import (
+from baibai_engine.storage.lake.prefetch import (
     PrefetchingSource,
     hydration_order,
     prefetching_hydration_cache,
 )
-from baibai_engine.market.lake.reader import (
+from baibai_engine.storage.lake.reader import (
     LakeReadError,
     accepted_dataset,
     iter_partition_rows,
@@ -69,20 +69,18 @@ from baibai_engine.market.lake.reader import (
     selected_partitions,
     verify_object,
 )
-from baibai_engine.market.lake.release import (
-    L1ReleasePointer,
-    create_l1_release,
-)
-from baibai_engine.market.lake.retention import LakeRetentionError, exclusive_lock
-from baibai_engine.market.lake.writer import (
-    export_legacy_sqlite,
-    sealed_sqlite_snapshot,
-)
-from baibai_engine.market.sqlite import SQLITE_SCHEMA_VERSION, SQLiteSchemaError, open_connection
-from baibai_engine.market.sqlite.lake_origin import (
+from baibai_engine.storage.lake.release import L1ReleasePointer, create_l1_release
+from baibai_engine.storage.lake.retention import LakeRetentionError, exclusive_lock
+from baibai_engine.storage.lake.writer import export_legacy_sqlite, sealed_sqlite_snapshot
+from baibai_engine.storage.observations.lake_origin import (
     LakeStoreOrigin,
     read_lake_store_origin,
     write_lake_store_origin,
+)
+from baibai_engine.storage.observations.schema import (
+    SQLITE_SCHEMA_VERSION,
+    SQLiteSchemaError,
+    open_connection,
 )
 
 _COMMIT = "b" * 40
@@ -876,7 +874,7 @@ class TestCredentialBoundary:
             R2ReadCredentials.from_env({"R2_ACCOUNT_ID": "a" * 32})
 
     def test_a_session_without_credentials_cannot_produce_a_remote_uri(self) -> None:
-        from baibai_engine.market.lake.objects import R2ObjectSource
+        from baibai_engine.storage.lake.objects import R2ObjectSource
 
         with (
             lake_session() as session,

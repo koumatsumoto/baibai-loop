@@ -21,7 +21,6 @@ from zoneinfo import ZoneInfo
 
 from baibai_engine.external_assessment.query import external_assessment
 from baibai_engine.foundation.sqlite_read import read_rows
-from baibai_engine.market.sqlite.reader import read_jpx_earnings_calendar_snapshot
 from baibai_engine.market_context.benchmark import NIKKEI225_ETF_PROXY
 from baibai_engine.market_context.security import build_security_market_context
 from baibai_engine.read_api.position import (
@@ -31,6 +30,7 @@ from baibai_engine.read_api.position import (
 )
 from baibai_engine.screening.metrics import VALUATION_HISTORY_SESSIONS
 from baibai_engine.screening.run_store import ScreeningRunReader
+from baibai_engine.storage.observations.reader import read_jpx_earnings_calendar_snapshot
 
 
 def build_ticker_profile(

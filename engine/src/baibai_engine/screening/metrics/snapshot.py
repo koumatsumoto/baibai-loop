@@ -12,9 +12,9 @@ from baibai_engine.market.bars import (
     JQuantsDailyBar,
     asof_basis_closes,
 )
+from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.models import SecurityMaster
-from baibai_engine.market.providers.edinet import EdinetMetricRecord
 from baibai_engine.market_context.sector import sector_relative_strength
 from baibai_engine.screening.margin_metrics import MarginBalance, margin_supply_demand
 from baibai_engine.screening.metrics.capital import (

@@ -14,21 +14,22 @@ from tests.helpers.screening_sqlite import make_master_records
 from tools.l1_mcp.contract import Query
 from tools.l1_mcp.query import execute_query
 
-from baibai_engine.market.lake.duck import lake_session
-from baibai_engine.market.lake.hydrate import dehydrate_market_store, hydrate_market_store
-from baibai_engine.market.lake.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.market.lake.reader import resolve_release
-from baibai_engine.market.lake.release import create_l1_release
-from baibai_engine.market.lake.writer import (
+from baibai_engine.external_assessment.tradingview.collector import collect, preflight_snapshot
+from baibai_engine.storage.lake.duck import lake_session
+from baibai_engine.storage.lake.hydrate import dehydrate_market_store, hydrate_market_store
+from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.lake.reader import resolve_release
+from baibai_engine.storage.lake.release import create_l1_release
+from baibai_engine.storage.lake.writer import (
     export_legacy_sqlite,
     sealed_sqlite_snapshot,
     validate_legacy_parity,
 )
-from baibai_engine.market.sqlite import open_connection, store_jquants_market_calendar
-from baibai_engine.market.sqlite.ingest import store_jquants_master
-from baibai_engine.market.sqlite.lake_origin import LakeStoreOrigin, write_lake_store_origin
-from baibai_engine.market.sqlite.reader import read_eq_master_exact
-from baibai_engine.market.tradingview.collector import collect, preflight_snapshot
+from baibai_engine.storage.observations.ingest.jquants import store_jquants_master
+from baibai_engine.storage.observations.jquants import store_jquants_market_calendar
+from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
+from baibai_engine.storage.observations.reader import read_eq_master_exact
+from baibai_engine.storage.observations.schema import open_connection
 
 NAME = "tradingview.forecast_snapshots"
 
@@ -117,7 +118,7 @@ def test_l1_only_publish_restores_snapshot_without_market_push(
         )
     if not manual_observation:
         store_jquants_master(path, make_master_records(today), requested_asof=today)
-    from baibai_engine.market.tradingview.observations import ProviderHTTPError
+    from baibai_engine.external_assessment.tradingview.observations import ProviderHTTPError
 
     calls = 0
 

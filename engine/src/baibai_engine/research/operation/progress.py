@@ -7,9 +7,9 @@ from typing import Annotated, Literal, Self
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
-from baibai_engine.appdb.json import canonical_json
 from baibai_engine.research.operation.models import OperationPayload
 from baibai_engine.research.position_review import PositionReviewDocument
+from baibai_engine.storage.application.json import canonical_json
 
 
 class ResearchTarget(BaseModel):

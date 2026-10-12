@@ -6,7 +6,6 @@ import sqlite3
 from collections.abc import Sequence
 from pathlib import Path
 
-from baibai_engine.appdb.read import connect_read_only as connect_application_read_only
 from baibai_engine.foundation.sqlite_read import (
     connect_read_only as connect_read_only,
 )
@@ -16,6 +15,9 @@ from baibai_engine.foundation.sqlite_read import (
 from baibai_engine.foundation.sqlite_read import (
     is_unwritten_store,
     read_rows,
+)
+from baibai_engine.storage.application.read import (
+    connect_read_only as connect_application_read_only,
 )
 
 __all__ = ["is_unwritten_store", "read_rows"]

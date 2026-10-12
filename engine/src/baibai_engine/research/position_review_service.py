@@ -9,10 +9,6 @@ from datetime import datetime, time
 from decimal import Decimal
 from pathlib import Path
 
-from baibai_engine.appdb.json import canonical_json
-from baibai_engine.appdb.paths import database_path
-from baibai_engine.appdb.read import connect_read_only
-from baibai_engine.appdb.write import connect_rw, initialize_database
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 from baibai_engine.foundation.time import JST
 from baibai_engine.position.ledger import replay_events_through
@@ -35,6 +31,10 @@ from baibai_engine.research.thesis_store import (
     latest_thesis_id,
     load_reviewed_thesis,
 )
+from baibai_engine.storage.application.json import canonical_json
+from baibai_engine.storage.application.paths import database_path
+from baibai_engine.storage.application.read import connect_read_only
+from baibai_engine.storage.application.write import connect_rw, initialize_database
 
 
 class PositionReviewService:

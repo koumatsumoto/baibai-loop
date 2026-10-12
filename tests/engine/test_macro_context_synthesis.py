@@ -19,13 +19,13 @@ import pytest
 from pydantic import ValidationError
 from tests.helpers.macro_context import macro_context_payload
 
-from baibai_engine.appdb.write import initialize_database
 from baibai_engine.macro.context.models import (
     MacroContextDocument,
     require_integrated_strategy,
 )
 from baibai_engine.macro.context.service import MacroContextService
 from baibai_engine.read_api.macro import latest_macro_context_payload
+from baibai_engine.storage.application.write import initialize_database
 
 _RISK_SECTION = 8  # index of risk_environment in the fixed core order
 

@@ -12,13 +12,9 @@ import zipfile
 from collections.abc import Mapping, Sequence
 from datetime import date
 
+from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.metric_quality import TTMQuality
-from baibai_engine.market.providers.edinet import (
-    EdinetMetricRecord,
-    EDINETProviderError,
-    _coalesce,
-    _to_float,
-)
+from baibai_engine.market.providers.edinet import EDINETProviderError, _coalesce, _to_float
 
 
 def parse_csv_zip_metric_record(

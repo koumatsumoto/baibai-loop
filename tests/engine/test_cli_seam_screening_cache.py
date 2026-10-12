@@ -34,12 +34,12 @@ from tests.engine.test_screening_cli import (
 )
 from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
 
-from baibai_engine.market.sqlite import open_connection
-from baibai_engine.market.sqlite.reader import read_edinet_metrics
+from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
 from baibai_engine.screening import cli as screening_cli
 from baibai_engine.screening.cli import app
 from baibai_engine.screening.cli.cache import FIN_SUMMARY_REVISION_OVERLAP_DAYS
 from baibai_engine.screening.metrics import BARS_INPUT_WINDOW_DAYS, FIN_INPUT_WINDOW_DAYS
+from baibai_engine.storage.observations.schema import open_connection
 
 # The store path every command below derives from the working directory.
 _STORE = Path("stores/market/market.sqlite")

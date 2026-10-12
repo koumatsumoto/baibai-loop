@@ -9,7 +9,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.market.sqlite import connect_current, open_connection, record_source_coverage
+from baibai_engine.storage.observations.coverage import record_source_coverage
+from baibai_engine.storage.observations.schema import connect_current, open_connection
 
 from .extract import EXTRACTOR_REVISION
 from .models import DebtFact, ExtractedFacts, SegmentFact

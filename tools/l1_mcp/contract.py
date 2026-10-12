@@ -10,7 +10,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from baibai_engine.market.lake.keys import validate_identifier, validate_sha256
+from baibai_engine.storage.lake.keys import validate_identifier, validate_sha256
 
 type Scalar = str | int | float | bool | None
 type ErrorCode = Literal[

@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import AwareDatetime, Field, FiniteFloat
 
-from baibai_engine.market.retail_dynamics.models import (
+from baibai_engine.external_assessment.observations.models import (
     AnalystRatingObservation,
     FrozenModel,
     ModelValuationObservation,

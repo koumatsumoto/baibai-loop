@@ -14,14 +14,15 @@ from unittest.mock import patch
 from tests.helpers.screening_sqlite import make_master_records
 
 from baibai_engine.foundation.time import JST
+from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.master_snapshot import validate_master_snapshot
 from baibai_engine.market.providers.jquants import JQuantsProvider
-from baibai_engine.market.providers.jquants_decode import JQuantsProviderError
-from baibai_engine.market.sqlite.ingest import open_connection, store_jquants_master
-from baibai_engine.market.sqlite.reader import read_eq_master_asof, read_eq_master_exact
 from baibai_engine.screening.cli import backfill_master_command, bootstrap_cache_command
 from baibai_engine.screening.cli.providers import ProviderBundle
 from baibai_engine.screening.sqlite_coverage.jquants import _append_master_snapshot_issues
+from baibai_engine.storage.observations.ingest.jquants import store_jquants_master
+from baibai_engine.storage.observations.reader import read_eq_master_asof, read_eq_master_exact
+from baibai_engine.storage.observations.schema import open_connection
 
 
 class _MasterClient:
@@ -251,7 +252,7 @@ class MasterSnapshotStoreTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.market.sqlite.ingest.jquants.record_source_coverage",
+                    "baibai_engine.storage.observations.ingest.jquants.record_source_coverage",
                     side_effect=sqlite3.OperationalError("injected coverage failure"),
                 ),
                 self.assertRaises(sqlite3.OperationalError),
@@ -278,7 +279,7 @@ class MasterSnapshotStoreTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.market.sqlite.ingest.jquants.validate_master_snapshot",
+                    "baibai_engine.storage.observations.ingest.jquants.validate_master_snapshot",
                     return_value=inconsistent,
                 ),
                 self.assertRaisesRegex(JQuantsProviderError, "persisted count mismatch"),

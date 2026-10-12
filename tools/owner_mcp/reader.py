@@ -12,7 +12,6 @@ from pydantic import Field, field_validator
 
 from baibai_batch.analysis.io import canonical_json
 from baibai_batch.analysis.model_input import build_model_input, review_set_candidates
-from baibai_engine.appdb.read import connect_read_only
 from baibai_engine.batch_api import validated_review_set
 from baibai_engine.foundation.repository_layout import APPLICATION_DB_PATH, RUNS_DB_PATH
 from baibai_engine.macro.context.models import MacroContextDocument
@@ -26,6 +25,7 @@ from baibai_engine.read_api.research_triage import (
 )
 from baibai_engine.research.triage.contracts import ResearchTriage
 from baibai_engine.screening.run_store import RunStoreAmbiguousError, ScreeningRunReader
+from baibai_engine.storage.application.read import connect_read_only
 from tools.l1_mcp.contract import InputModel
 
 

@@ -1,12 +1,4 @@
-"""Reads of the EDINET slice of the market store.
-
-These are the only store reads the EDINET extraction performs, and the extractor's
-revision manifest is the import closure of that extraction. Leaving them in
-`sqlite_reader`, which also reads master snapshots, fin summaries, JPX regulations and
-weekly margin, would put all of those into the manifest — so an edit to any of them
-would discard every reusable EDINET metric row and force a full re-download of several
-thousand filings.
-"""
+"""EDINET開示・抽出baselineの読取とcoverage/count/品質の整合検査。"""
 
 from __future__ import annotations
 
@@ -19,12 +11,10 @@ from pathlib import Path
 from typing import Any
 
 from baibai_engine.market.edinet_metrics.revision import has_hard_metric_failure
-from baibai_engine.market.providers.edinet import (
-    EdinetMetricRecord,
-    normalize_metric_record,
-)
-from baibai_engine.market.sqlite import connect_current
-from baibai_engine.market.sqlite.snapshot_coverage import date_covered
+from baibai_engine.market.edinet_models import EdinetMetricRecord
+from baibai_engine.market.providers.edinet import normalize_metric_record
+from baibai_engine.storage.observations.schema import connect_current
+from baibai_engine.storage.observations.snapshot_coverage import date_covered
 
 
 class EDINETMetricBaselineError(RuntimeError):

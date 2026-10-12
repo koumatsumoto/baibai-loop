@@ -76,7 +76,7 @@ def test_snapshot_rejects_source_alias_without_changing_bytes(tmp_path, alias):
 @pytest.mark.parametrize("existing", [False, True])
 @pytest.mark.parametrize("failure", ["missing", "invalid", "backup", "validation"])
 def test_snapshot_failure_preserves_output(tmp_path, monkeypatch, existing, failure):
-    from baibai_engine.market.sqlite import snapshot
+    from baibai_engine.storage.observations import snapshot
 
     source = tmp_path / "source.sqlite"
     output = tmp_path / "output.sqlite"
@@ -113,7 +113,7 @@ def test_snapshot_failure_preserves_output(tmp_path, monkeypatch, existing, fail
 
 @pytest.mark.parametrize("failure", [False, True])
 def test_snapshot_closes_owned_connections(tmp_path, monkeypatch, failure):
-    from baibai_engine.market.sqlite import snapshot
+    from baibai_engine.storage.observations import snapshot
 
     source = tmp_path / "source.sqlite"
     with sqlite3.connect(source) as db:

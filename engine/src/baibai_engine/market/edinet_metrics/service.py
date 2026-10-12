@@ -1,4 +1,4 @@
-"""EDINET metricの抽出と保存。無関係なprovider・Screening preflightをrevision closureへ入れない。"""
+"""EDINET metricの抽出と保存。原CSVから抽出意味revision付きで保存する。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Protocol, TextIO
 
 from baibai_engine.market.edinet_metrics.revision import (
-    compute_extractor_revision,
+    EDINET_METRIC_REVISION,
     has_hard_metric_failure,
 )
 from baibai_engine.market.edinet_metrics.store import (
@@ -16,18 +16,18 @@ from baibai_engine.market.edinet_metrics.store import (
     EDINETMetricBaselineRow,
     read_edinet_metric_baseline,
 )
+from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.providers.edinet import (
     TARGET_DOC_TYPE_CODES,
     EdinetDocumentCandidate,
-    EdinetMetricRecord,
     EDINETProviderError,
     EDINETRateLimitError,
     QuarantinedDocumentEvent,
     select_document_candidates,
 )
 from baibai_engine.market.providers.edinet_csv import parse_csv_zip_metric_record
-from baibai_engine.market.sqlite.ingest.edinet import store_edinet_metrics
-from baibai_engine.market.sqlite.readiness import unreadable_store_reason
+from baibai_engine.storage.observations.ingest.edinet import store_edinet_metrics
+from baibai_engine.storage.observations.readiness import unreadable_store_reason
 
 
 class EdinetExtractionSource(Protocol):
@@ -102,7 +102,7 @@ def extract_edinet_metrics_command(
         file=out,
         flush=True,
     )
-    extractor_revision = compute_extractor_revision()
+    extractor_revision = EDINET_METRIC_REVISION
     try:
         baseline = read_edinet_metric_baseline(sqlite_path, asof_date)
     except EDINETMetricBaselineError as exc:

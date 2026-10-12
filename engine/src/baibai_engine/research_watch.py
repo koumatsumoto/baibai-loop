@@ -16,17 +16,10 @@ from typing import cast
 
 import yaml
 
-from baibai_engine.appdb.read import connect_read_only
 from baibai_engine.foundation.repository_layout import (
     APPLICATION_DB_PATH,
     StoreLayoutError,
     reject_noncanonical_store_paths,
-)
-from baibai_engine.market.sqlite import (
-    SQLiteSchemaError,
-    optional_float,
-    range_covered,
-    validate_current_schema,
 )
 from baibai_engine.position.ledger import (
     PortfolioLedgerError,
@@ -47,6 +40,10 @@ from baibai_engine.research.thesis import (
     ThesisError,
     ThesisReview,
 )
+from baibai_engine.storage.application.read import connect_read_only
+from baibai_engine.storage.observations.convert import optional_float
+from baibai_engine.storage.observations.coverage import range_covered
+from baibai_engine.storage.observations.schema import SQLiteSchemaError, validate_current_schema
 
 _GAP_QUANTUM = Decimal("0.000001")
 _ADJUSTMENT_FACTOR_ABS_TOLERANCE = 1e-12
@@ -219,11 +216,11 @@ def build_watch(
 def _load_latest_promoted_theses(app_db_path: Path, *, asof: date) -> dict[str, _ThesisPublication]:
     from contextlib import closing
 
-    from baibai_engine.appdb.read import connect_read_only
     from baibai_engine.research.thesis_store import (
         ResearchValidationError,
         load_latest_reviewed_thesis,
     )
+    from baibai_engine.storage.application.read import connect_read_only
 
     latest: dict[str, _ThesisPublication] = {}
     with closing(connect_read_only(app_db_path)) as connection:

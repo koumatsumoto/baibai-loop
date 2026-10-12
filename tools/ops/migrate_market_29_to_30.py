@@ -9,8 +9,8 @@ import sys
 from contextlib import closing
 from pathlib import Path
 
-from baibai_engine.market.retail_dynamics.contract import QUANTS_SCORE_DDL
-from baibai_engine.market.sqlite.schema import validate_current_schema
+from baibai_engine.external_assessment.observations.contract import QUANTS_SCORE_DDL
+from baibai_engine.storage.observations.schema import validate_current_schema
 
 
 def migrate_copy(source: Path, output: Path) -> None:

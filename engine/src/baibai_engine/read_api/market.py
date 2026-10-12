@@ -13,7 +13,7 @@ from baibai_engine.market.bars import (
     JQuantsDailyBar,
     asof_basis_closes,
 )
-from baibai_engine.market.sqlite.read import connect_read_only
+from baibai_engine.storage.observations.read import connect_read_only
 
 from .sqlite import read_rows as _read_rows
 
@@ -375,7 +375,7 @@ def stored_market_rows(
     after: list[str | int | float] | None = None,
     limit: int = 1,
 ) -> list[dict[str, object]]:
-    from baibai_engine.market.sqlite.stored import local_rows
+    from baibai_engine.storage.observations.stored import local_rows
 
     from .sqlite import connect_read_only
     from .stored import required_read

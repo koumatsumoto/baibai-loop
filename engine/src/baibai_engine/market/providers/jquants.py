@@ -16,19 +16,8 @@ from baibai_engine.market.bars import (
     JQuantsMarketCalendarDay,
 )
 from baibai_engine.market.config import JQUANTS_CLIENT_V2_METHODS
-from baibai_engine.market.jquants_models import (
-    JQuantsAllIssuesDailyMargin,
-    JQuantsFinancialSummary,
-    JQuantsMarginAlert,
-    JQuantsShortSaleReport,
-    JQuantsWeeklyMargin,
-)
-from baibai_engine.market.master_snapshot import validate_master_snapshot
-from baibai_engine.market.models import SecurityMaster
-from baibai_engine.market.providers.jquants_decode import (
-    JQuantsProviderError as JQuantsProviderError,
-)
-from baibai_engine.market.providers.jquants_decode import (
+from baibai_engine.market.jquants_decode import JQuantsProviderError as JQuantsProviderError
+from baibai_engine.market.jquants_decode import (
     _is_retryable_jquants_error,
     _parse_yyyymmdd_param,
     _payload_to_records,
@@ -45,13 +34,19 @@ from baibai_engine.market.providers.jquants_decode import (
     to_float,
     to_period,
 )
-from baibai_engine.market.providers.jquants_decode import (
+from baibai_engine.market.jquants_decode import (
     normalize_adjustment_factor_event as normalize_adjustment_factor_event,
 )
-from baibai_engine.market.providers.jquants_decode import (
-    parse_jquants_code as parse_jquants_code,
+from baibai_engine.market.jquants_decode import parse_jquants_code as parse_jquants_code
+from baibai_engine.market.jquants_models import (
+    JQuantsAllIssuesDailyMargin,
+    JQuantsFinancialSummary,
+    JQuantsMarginAlert,
+    JQuantsShortSaleReport,
+    JQuantsWeeklyMargin,
 )
-from baibai_engine.market.sqlite import store_jquants_daily_bars, store_jquants_market_calendar
+from baibai_engine.market.master_snapshot import validate_master_snapshot
+from baibai_engine.market.models import SecurityMaster
 from baibai_engine.market.store import (
     count_daily_bars,
     daily_bars_covered,
@@ -59,6 +54,10 @@ from baibai_engine.market.store import (
     latest_stored_daily_bar_date,
     read_daily_bars,
     read_market_calendar,
+)
+from baibai_engine.storage.observations.jquants import (
+    store_jquants_daily_bars,
+    store_jquants_market_calendar,
 )
 
 
@@ -384,7 +383,7 @@ class JQuantsProvider(_JQuantsTransport):
         if self._sqlite_path is not None:
             # Imported lazily to avoid a circular import: sqlite_reader pulls in
             # this module's schema dataclasses to materialise rows.
-            from baibai_engine.market.sqlite.reader import read_eq_master_exact
+            from baibai_engine.storage.observations.reader import read_eq_master_exact
 
             cached = read_eq_master_exact(self._sqlite_path, requested_asof)
             if cached is not None:
@@ -396,7 +395,7 @@ class JQuantsProvider(_JQuantsTransport):
             date=requested_asof.isoformat(),
         )
         if self._sqlite_path is not None:
-            from baibai_engine.market.sqlite.reader import read_eq_master_exact
+            from baibai_engine.storage.observations.reader import read_eq_master_exact
 
             stored = read_eq_master_exact(self._sqlite_path, requested_asof)
             if stored is None:
@@ -430,7 +429,7 @@ class JQuantsProvider(_JQuantsTransport):
 
         require_legacy_weekly_balance_date(week_end)
         if self._sqlite_path is not None:
-            from baibai_engine.market.sqlite.reader import read_weekly_margin
+            from baibai_engine.storage.observations.reader import read_weekly_margin
 
             cached = read_weekly_margin(self._sqlite_path, week_end)
             if cached is not None:
@@ -442,7 +441,7 @@ class JQuantsProvider(_JQuantsTransport):
             date_yyyymmdd=week_end.strftime("%Y%m%d"),
         )
         if self._sqlite_path is not None:
-            from baibai_engine.market.sqlite.reader import read_weekly_margin
+            from baibai_engine.storage.observations.reader import read_weekly_margin
 
             stored = read_weekly_margin(self._sqlite_path, week_end)
             if stored is None:
@@ -469,7 +468,7 @@ class JQuantsProvider(_JQuantsTransport):
             date_yyyymmdd=week_end.strftime("%Y%m%d"),
         )
         if self._sqlite_path is not None:
-            from baibai_engine.market.sqlite.reader import read_weekly_margin
+            from baibai_engine.storage.observations.reader import read_weekly_margin
 
             stored = read_weekly_margin(self._sqlite_path, week_end)
             if stored is None:
@@ -487,7 +486,7 @@ class JQuantsProvider(_JQuantsTransport):
     def get_mkt_margin_alert_range(self, start: date, end: date) -> list[JQuantsMarginAlert]:
         """Return the daily-publication designated-issue dataset for a date range."""
         if self._sqlite_path is not None:
-            from baibai_engine.market.sqlite.reader import read_margin_alerts
+            from baibai_engine.storage.observations.reader import read_margin_alerts
 
             cached = read_margin_alerts(self._sqlite_path, start, end)
             if cached is not None:
@@ -504,7 +503,7 @@ class JQuantsProvider(_JQuantsTransport):
         )
         records = self._load_or_fetch_range("get_mkt_margin_alert_range", start, end)
         if self._sqlite_path is not None:
-            from baibai_engine.market.sqlite.reader import read_margin_alerts
+            from baibai_engine.storage.observations.reader import read_margin_alerts
 
             stored = read_margin_alerts(self._sqlite_path, start, end)
             if stored is None:
@@ -528,7 +527,7 @@ class JQuantsProvider(_JQuantsTransport):
 
         require_all_issues_daily_balance_date(balance_date)
         if self._sqlite_path is not None:
-            from baibai_engine.market.sqlite.reader import read_all_issues_daily_margin
+            from baibai_engine.storage.observations.reader import read_all_issues_daily_margin
 
             cached = read_all_issues_daily_margin(self._sqlite_path, balance_date)
             if cached is not None:
@@ -540,7 +539,7 @@ class JQuantsProvider(_JQuantsTransport):
             date_yyyymmdd=balance_date.strftime("%Y%m%d"),
         )
         if self._sqlite_path is not None:
-            from baibai_engine.market.sqlite.reader import read_all_issues_daily_margin
+            from baibai_engine.storage.observations.reader import read_all_issues_daily_margin
 
             stored = read_all_issues_daily_margin(self._sqlite_path, balance_date)
             if stored is None:
@@ -562,7 +561,7 @@ class JQuantsProvider(_JQuantsTransport):
     ) -> list[JQuantsShortSaleReport]:
         """Return reports by disclosure date, preserving empty-range coverage."""
         if self._sqlite_path is not None:
-            from baibai_engine.market.sqlite.reader import read_short_sale_reports
+            from baibai_engine.storage.observations.reader import read_short_sale_reports
 
             cached = read_short_sale_reports(self._sqlite_path, start, end)
             if cached is not None:
@@ -572,7 +571,8 @@ class JQuantsProvider(_JQuantsTransport):
         )
         missing: tuple[tuple[date, date], ...] = ((start, end),)
         if self._sqlite_path is not None:
-            from baibai_engine.market.sqlite import connect_current, missing_intervals
+            from baibai_engine.storage.observations.coverage import missing_intervals
+            from baibai_engine.storage.observations.schema import connect_current
 
             conn = connect_current(self._sqlite_path)
             if conn is not None:
@@ -593,7 +593,7 @@ class JQuantsProvider(_JQuantsTransport):
                 )
                 cursor += timedelta(days=1)
         if self._sqlite_path is not None:
-            from baibai_engine.market.sqlite.reader import read_short_sale_reports
+            from baibai_engine.storage.observations.reader import read_short_sale_reports
 
             stored = read_short_sale_reports(self._sqlite_path, start, end)
             if stored is None:
@@ -619,12 +619,12 @@ class JQuantsProvider(_JQuantsTransport):
         )
         planned: tuple[tuple[date, date], ...] = ((start, end),)
         if self._sqlite_path is not None:
-            from baibai_engine.market.sqlite import (
-                connect_current,
+            from baibai_engine.storage.observations.coverage import (
                 merge_date_ranges,
                 missing_intervals,
             )
-            from baibai_engine.market.sqlite.ingest.jquants import SHORT_SALE_REPORT_SOURCE
+            from baibai_engine.storage.observations.jquants_contract import SHORT_SALE_REPORT_SOURCE
+            from baibai_engine.storage.observations.schema import connect_current
 
             conn = connect_current(self._sqlite_path)
             if conn is not None:
@@ -663,7 +663,7 @@ class JQuantsProvider(_JQuantsTransport):
                 )
                 cursor += timedelta(days=1)
         if self._sqlite_path is not None:
-            from baibai_engine.market.sqlite.reader import read_short_sale_reports
+            from baibai_engine.storage.observations.reader import read_short_sale_reports
 
             stored = read_short_sale_reports(self._sqlite_path, start, end)
             if stored is None:
@@ -709,7 +709,7 @@ class JQuantsProvider(_JQuantsTransport):
 
     def get_fin_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]:
         if self._sqlite_path is not None:
-            from baibai_engine.market.sqlite.reader import read_fin_summaries
+            from baibai_engine.storage.observations.reader import read_fin_summaries
 
             cached = read_fin_summaries(self._sqlite_path, start, end)
             if cached is not None:
@@ -736,7 +736,7 @@ class JQuantsProvider(_JQuantsTransport):
     def get_fy_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]:
         """Return only FY rows while still proving the full summary range is covered."""
         if self._sqlite_path is not None:
-            from baibai_engine.market.sqlite.reader import read_fy_summaries
+            from baibai_engine.storage.observations.reader import read_fy_summaries
 
             cached = read_fy_summaries(self._sqlite_path, start, end)
             if cached is not None:
@@ -787,8 +787,11 @@ class JQuantsProvider(_JQuantsTransport):
         self._raise_if_cache_only("jquants_fin_summaries", window)
         if self._sqlite_path is None:
             return len(self._load_or_fetch_range("get_fin_summary_range", start, end))
-        from baibai_engine.market.sqlite import merge_date_ranges
-        from baibai_engine.market.sqlite.reader import count_fin_summaries, fin_summaries_covered
+        from baibai_engine.storage.observations.coverage import merge_date_ranges
+        from baibai_engine.storage.observations.reader import (
+            count_fin_summaries,
+            fin_summaries_covered,
+        )
 
         overlap_start = max(start, end - timedelta(days=revision_overlap_days))
         planned = merge_date_ranges(
@@ -813,7 +816,7 @@ class JQuantsProvider(_JQuantsTransport):
 
     def _range_chunk_is_cached(self, method: str, start: date, end: date) -> bool:
         if self._sqlite_path is not None and method == "get_fin_summary_range":
-            from baibai_engine.market.sqlite.reader import fin_summaries_covered
+            from baibai_engine.storage.observations.reader import fin_summaries_covered
 
             return fin_summaries_covered(self._sqlite_path, start, end)
         return super()._range_chunk_is_cached(method, start, end)
@@ -832,7 +835,8 @@ class JQuantsProvider(_JQuantsTransport):
         """
         if self._sqlite_path is None or method != "get_fin_summary_range":
             return super()._missing_subranges(method, start, end)
-        from baibai_engine.market.sqlite import connect_current, missing_intervals
+        from baibai_engine.storage.observations.coverage import missing_intervals
+        from baibai_engine.storage.observations.schema import connect_current
 
         conn = connect_current(self._sqlite_path)
         if conn is None:
@@ -851,7 +855,7 @@ class JQuantsProvider(_JQuantsTransport):
         if self._sqlite_path is None:
             return
         if method == "get_eq_master":
-            from baibai_engine.market.sqlite.ingest import store_jquants_master
+            from baibai_engine.storage.observations.ingest.jquants import store_jquants_master
 
             requested_asof = params.get("requested_asof")
             if not isinstance(requested_asof, date):
@@ -859,7 +863,9 @@ class JQuantsProvider(_JQuantsTransport):
             store_jquants_master(self._sqlite_path, records, requested_asof=requested_asof)
             return
         if method == "get_fin_summary_range":
-            from baibai_engine.market.sqlite.ingest import store_jquants_fin_summaries
+            from baibai_engine.storage.observations.ingest.jquants import (
+                store_jquants_fin_summaries,
+            )
 
             start = params.get("start_dt")
             end = params.get("end_dt")
@@ -873,7 +879,7 @@ class JQuantsProvider(_JQuantsTransport):
             )
             return
         if method == "get_mkt_margin_interest":
-            from baibai_engine.market.sqlite.ingest import (
+            from baibai_engine.storage.observations.ingest.jquants import (
                 store_jquants_all_issues_daily_margin,
                 store_jquants_weekly_margin,
             )
@@ -890,7 +896,9 @@ class JQuantsProvider(_JQuantsTransport):
             store_jquants_weekly_margin(self._sqlite_path, records, week_end=week_end)
             return
         if method == "get_mkt_margin_alert_range":
-            from baibai_engine.market.sqlite.ingest import store_jquants_margin_alerts
+            from baibai_engine.storage.observations.ingest.jquants import (
+                store_jquants_margin_alerts,
+            )
 
             start = params.get("start_dt")
             end = params.get("end_dt")
@@ -906,7 +914,9 @@ class JQuantsProvider(_JQuantsTransport):
             )
             return
         if method == "get_mkt_short_sale_report":
-            from baibai_engine.market.sqlite.ingest import store_jquants_short_sale_reports
+            from baibai_engine.storage.observations.ingest.jquants import (
+                store_jquants_short_sale_reports,
+            )
 
             start = params.get("start_dt")
             end = params.get("end_dt")

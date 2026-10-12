@@ -8,16 +8,16 @@ import sqlite3
 import pytest
 from tests.engine.test_tradingview_collector import payload, stored
 
-from baibai_engine.market.sqlite import open_connection
-from baibai_engine.market.tradingview import cli
-from baibai_engine.market.tradingview.accepted import (
+from baibai_engine.external_assessment.tradingview import cli
+from baibai_engine.external_assessment.tradingview.accepted import (
     accept_observations,
     load_observations,
     verify_observations,
 )
-from baibai_engine.market.tradingview.collector import preflight_snapshot
-from baibai_engine.market.tradingview.diagnostics import SourceDataError
-from baibai_engine.market.tradingview.observations import COLUMNS, FetchError
+from baibai_engine.external_assessment.tradingview.collector import preflight_snapshot
+from baibai_engine.external_assessment.tradingview.diagnostics import SourceDataError
+from baibai_engine.external_assessment.tradingview.observations import COLUMNS, FetchError
+from baibai_engine.storage.observations.schema import open_connection
 
 
 def document():

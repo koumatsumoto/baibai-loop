@@ -9,15 +9,15 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
-from tests.engine.test_retail_dynamics_core import RECEIVED, rating, valuation
+from tests.engine.test_external_assessment_core import RECEIVED, rating, valuation
 
 from baibai_engine.external_assessment.analysis import FORECAST_METRICS
 from baibai_engine.external_assessment.cli import main
+from baibai_engine.external_assessment.observations.models import QuantsScoreObservation
 from baibai_engine.external_assessment.query import external_assessment, observed_tickers
-from baibai_engine.market.retail_dynamics.models import QuantsScoreObservation
-from baibai_engine.market.retail_dynamics.store import save_observations
-from baibai_engine.market.sqlite.schema import open_connection
-from baibai_engine.market.tradingview.contract import COLUMNS, TABLE
+from baibai_engine.external_assessment.store import save_observations
+from baibai_engine.external_assessment.tradingview.contract import COLUMNS, TABLE
+from baibai_engine.storage.observations.schema import open_connection
 
 
 def tv_row(path, fetched, *, status="ok", ticker="1234", **metrics):
@@ -204,8 +204,8 @@ def test_domain_import_does_not_start_composition_or_acquisition():
             """\nimport sys
 from baibai_engine.external_assessment.query import external_assessment
 assert not any(name.startswith(("baibai_engine.research", "baibai_engine.read_api", "baibai_engine.screening", "baibai_engine.valuation", "baibai_engine.market_context")) for name in sys.modules)
-assert "baibai_engine.market.retail_dynamics.collection" not in sys.modules
-assert "baibai_engine.market.tradingview.collector" not in sys.modules
+assert "baibai_engine.external_assessment.acquisition.collection" not in sys.modules
+assert "baibai_engine.external_assessment.tradingview.collector" not in sys.modules
 """,
         ],
         check=True,

@@ -4,9 +4,9 @@ import json
 from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
-from tests.engine.test_retail_dynamics_core import valuation
+from tests.engine.test_external_assessment_core import valuation
 
-from baibai_engine.market.retail_dynamics.store import save_observations
+from baibai_engine.external_assessment.store import save_observations
 from baibai_engine.read_api import MARKET_DB_PATH
 from baibai_web.api.server import create_app
 from baibai_web.materialize import export_read_models

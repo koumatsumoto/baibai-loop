@@ -8,7 +8,6 @@ import pytest
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
 
-from baibai_engine.appdb.write import initialize_database
 from baibai_engine.position.ledger import (
     ContributionEvent,
     PortfolioLedgerDocument,
@@ -16,6 +15,7 @@ from baibai_engine.position.ledger import (
 )
 from baibai_engine.position.ledger_read import LedgerConflictError
 from baibai_engine.position.store import LedgerStoreService
+from baibai_engine.storage.application.write import initialize_database
 
 FIXTURE = Path("tests/fixtures/portfolio-ledger/representative.yaml")
 
@@ -229,8 +229,8 @@ def test_ledger_queries_open_only_read_connections(tmp_path, monkeypatch):
 def test_optional_reader_distinguishes_unimported_from_required_ledger(tmp_path, unwritten):
     from contextlib import closing
 
-    from baibai_engine.appdb.read import connect_read_only
     from baibai_engine.position.ledger_read import load_ledger_document, load_ledger_in_transaction
+    from baibai_engine.storage.application.read import connect_read_only
 
     path = tmp_path / "app.sqlite"
     if unwritten:
@@ -272,8 +272,8 @@ def test_optional_reader_distinguishes_unimported_from_required_ledger(tmp_path,
 def test_shared_reader_rejects_damaged_canonical_state(tmp_path, damage, error):
     from contextlib import closing
 
-    from baibai_engine.appdb.read import connect_read_only
     from baibai_engine.position.ledger_read import load_ledger_document
+    from baibai_engine.storage.application.read import connect_read_only
 
     path = tmp_path / "app.sqlite"
     seed_ledger(path, _store_fixture())
@@ -299,9 +299,9 @@ def test_public_view_uses_shared_reader_validation(tmp_path):
 def test_reader_preserves_callers_snapshot_while_another_connection_appends(tmp_path):
     from contextlib import closing
 
-    from baibai_engine.appdb.read import connect_read_only
     from baibai_engine.position.ledger_read import load_ledger_in_transaction
     from baibai_engine.read_api.position import portfolio_ledger_document
+    from baibai_engine.storage.application.read import connect_read_only
 
     path = tmp_path / "app.sqlite"
     source = _store_fixture()

@@ -17,11 +17,11 @@ from tests.tools.test_owner_mcp import reader as reader
 from tests.tools.test_owner_mcp_resources import data as data
 from tests.tools.test_owner_mcp_resources import error, pages
 
-from baibai_engine.appdb.json import canonical_json
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.macro.context.models import MACRO_CONTEXT_SCHEMA_VERSION, MacroContextDocument
 from baibai_engine.macro.context.service import MacroContextService
 from baibai_engine.position.outcome_store import PortfolioOutcomeStore
+from baibai_engine.storage.application.json import canonical_json
 
 
 def test_publication_originals_preserve_unknown_fields_without_related_eligibility(data):

@@ -10,9 +10,9 @@ from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
 from tests.helpers.research_v4 import pair_payload
 
-from baibai_engine.market.sqlite import open_connection
 from baibai_engine.research.thesis_store import ThesisStoreService
 from baibai_engine.research_watch import build_watch
+from baibai_engine.storage.observations.schema import open_connection
 
 
 def test_watch_no_write_and_latest_legacy_does_not_fall_back(tmp_path):

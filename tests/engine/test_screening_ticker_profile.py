@@ -13,7 +13,6 @@ from tests.helpers.screening_run import screening_run_payload, security_analysis
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.market.sqlite.ingest import open_connection
 from baibai_engine.market_context.prices import read_price_bars
 from baibai_engine.position.ledger import PortfolioLedgerDocument
 from baibai_engine.read_api.ticker_profile import build_ticker_profile
@@ -21,6 +20,7 @@ from baibai_engine.screening.cli import build_parser, ticker_profile_command
 from baibai_engine.screening.discovery.review_set import build_review_set
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.run_store import ScreeningRunStore
+from baibai_engine.storage.observations.schema import open_connection
 
 _ASOF = date(2026, 5, 29)
 

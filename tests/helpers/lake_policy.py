@@ -14,7 +14,7 @@ from collections.abc import Iterable
 
 import pytest
 
-from baibai_engine.market.lake import models as lake_models
+from baibai_engine.storage.lake import models as lake_models
 
 FIXTURE_DATASETS = ("jquants.daily_bars", "jquants.short_sale_reports")
 

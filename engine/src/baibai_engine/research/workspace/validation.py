@@ -9,7 +9,6 @@ from pathlib import Path
 
 import yaml
 
-from baibai_engine.appdb.json import canonical_json
 from baibai_engine.position.ledger import replay_events_through
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research.thesis import (
@@ -31,6 +30,7 @@ from baibai_engine.research.workspace.files import (
     _load_mapping,
     _string_or_none,
 )
+from baibai_engine.storage.application.json import canonical_json
 
 
 def _verify_external_inputs(

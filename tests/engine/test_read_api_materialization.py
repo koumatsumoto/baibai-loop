@@ -14,15 +14,15 @@ from pathlib import Path
 import pytest
 from tests.helpers.screening_sqlite import market_store_with_fetch_claim
 
-from baibai_engine.appdb.schema import APPLICATION_SCHEMA_VERSION
-from baibai_engine.appdb.write import initialize_database
-from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION, open_connection
 from baibai_engine.read_api.materialization import (
     MaterializationPreconditionError,
     validate_application_store_schema,
     validate_market_store_hydration,
     validate_market_store_schema,
 )
+from baibai_engine.storage.application.schema import APPLICATION_SCHEMA_VERSION
+from baibai_engine.storage.application.write import initialize_database
+from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
 
 
 def test_current_application_and_market_schemas_are_accepted(tmp_path: Path) -> None:

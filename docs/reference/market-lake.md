@@ -43,7 +43,7 @@ uv run baibai-engine lake export-all \
 
 dataset追加時は次を同じ変更で揃える。
 
-1. `market/lake/datasets.py`のtyped契約
+1. `storage/lake/datasets.py`のtyped契約
 2. SQLite schemaとingest
 3. release profileのrequired/optional、coverage、floor
 4. export・resolve・hydrateのpositive/negative test
@@ -201,7 +201,7 @@ ORDER BY balance_sheet_date, consolidation_basis, debt_category, due_from_months
 
 原典に戻る範囲とsource意味は[data sources](./data-sources.md#edinet-research-facts)が所有する。ここから資金余命を評価する際の将来FCF・維持投資・借換えはResearchの見積りであり、L1 factへ保存しない。
 
-<a id="retail-dynamics-query"></a>
+<a id="external-assessment-query"></a>
 
 ## External Assessmentの保存済み照会
 

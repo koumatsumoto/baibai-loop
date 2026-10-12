@@ -12,11 +12,11 @@ from pathlib import Path
 import pytest
 from tests.helpers.research_triage import published_review_set, research_triage_payload
 
-from baibai_engine.appdb.json import canonical_json
 from baibai_engine.research.triage import query
 from baibai_engine.research.triage.contracts import ResearchTriage
 from baibai_engine.research.triage.service import ResearchTriageService
 from baibai_engine.screening.discovery.contracts import PublishedReviewSet
+from baibai_engine.storage.application.json import canonical_json
 
 
 def test_saved_triage_and_review_set_payloads_keep_pre_move_hashes() -> None:
@@ -56,7 +56,7 @@ print(json.dumps(sorted(name for name in sys.modules if name.startswith('baibai_
     modules = json.loads(result.stdout)
     forbidden = (
         "baibai_engine.read_api",
-        "baibai_engine.appdb.write",
+        "baibai_engine.storage.application.write",
         "baibai_engine.research.triage.service",
         "baibai_engine.research.triage.cli",
         "baibai_engine.screening.discovery.review_set",
@@ -68,7 +68,7 @@ print(json.dumps(sorted(name for name in sys.modules if name.startswith('baibai_
     )
     assert not [name for name in modules if name.startswith(forbidden)]
     if module.endswith("contracts"):
-        assert not [name for name in modules if name.startswith("baibai_engine.appdb")]
+        assert not [name for name in modules if name.startswith("baibai_engine.storage")]
 
 
 def test_owner_queries_are_read_only_and_absent_store_stays_absent(tmp_path, monkeypatch) -> None:

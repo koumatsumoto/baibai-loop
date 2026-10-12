@@ -16,7 +16,6 @@ ROOT = Path(__file__).resolve().parents[2]
 
 from tests.helpers.screening_sqlite import add_source_coverage as _add_source_coverage
 
-from baibai_engine.market.sqlite.ingest import open_connection
 from baibai_engine.screening.cli.cache import verify_cache_coverage_command
 from baibai_engine.screening.sqlite_coverage import core as coverage_core
 from baibai_engine.screening.sqlite_coverage import (
@@ -24,6 +23,7 @@ from baibai_engine.screening.sqlite_coverage import (
     read_required_field_coverage,
     verify_screening_sqlite_coverage,
 )
+from baibai_engine.storage.observations.schema import open_connection
 
 _DATA_TABLES = (
     "jquants_daily_bars",

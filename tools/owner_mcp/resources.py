@@ -12,10 +12,10 @@ from typing import Any
 from mcp.types import CallToolResult, TextContent
 from pydantic import BaseModel, ValidationError
 
-from baibai_engine.appdb.json import canonical_json
 from baibai_engine.foundation.redaction import redact_credentials
 from baibai_engine.read_api.calibration import SnapshotChangedError
 from baibai_engine.screening.run_store import RunStoreAmbiguousError
+from baibai_engine.storage.application.json import canonical_json
 from tools.l1_mcp.contract import LIMITS, wire
 
 from .catalog import descriptor, resources
