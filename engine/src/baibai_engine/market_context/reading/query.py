@@ -1,4 +1,4 @@
-"""保存済み観測からのMacro Readingと保存Contextの領域読取。取得・公開・UI合成へ依存しない。"""
+"""保存済み指標からReadingを計算する読取。取得・判断・公開・UI合成へ依存しない。"""
 
 from __future__ import annotations
 
@@ -12,16 +12,16 @@ from baibai_engine.market_context.reading.compute import compute_reading
 from baibai_engine.market_context.reading.models import ReadingSnapshot, snapshot_payload
 from baibai_engine.market_context.reading.reader import build_store_observation_reader
 from baibai_engine.market_context.reading.rules import (
-    DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH,
+    DEFAULT_RULES_PATH as READING_RULES_PATH,
 )
 from baibai_engine.market_context.reading.rules import load_reading_rules, rules_revision
 
 
-def macro_reading_snapshot(
+def reading_snapshot(
     path: Path,
     *,
     asof: date,
-    rules_path: Path = MACRO_READING_RULES_PATH,
+    rules_path: Path = READING_RULES_PATH,
 ) -> dict[str, object] | None:
     """Compute the L2 reading from the indicator store, or None when it is unavailable.
 
@@ -39,7 +39,7 @@ def macro_reading_snapshot(
     try:
         connection.execute("BEGIN")
         snapshot = snapshot_payload(
-            read_macro_snapshot(connection, asof=asof, rules_path=rules_path)
+            read_store_snapshot(connection, asof=asof, rules_path=rules_path)
         )
     except sqlite3.OperationalError as error:
         if not is_unwritten_store(error, path):
@@ -50,7 +50,7 @@ def macro_reading_snapshot(
     return snapshot
 
 
-def read_macro_snapshot(
+def read_store_snapshot(
     connection: sqlite3.Connection, *, asof: date, rules_path: Path
 ) -> ReadingSnapshot:
     definitions = load_definitions()
@@ -63,4 +63,4 @@ def read_macro_snapshot(
     )
 
 
-__all__ = ["MACRO_READING_RULES_PATH", "macro_reading_snapshot", "read_macro_snapshot"]
+__all__ = ["READING_RULES_PATH", "read_store_snapshot", "reading_snapshot"]

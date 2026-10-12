@@ -10,7 +10,9 @@ from baibai_batch.analysis.cli import main as analysis_main
 from baibai_batch.jobs.daily import main as daily_main
 from baibai_batch.jobs.external_assessment import main as external_assessment_acquisition_main
 from baibai_batch.jobs.tradingview import main as tradingview_main
-from baibai_batch.validation.macro_stores import main as validate_macro_stores_main
+from baibai_batch.validation.market_context_stores import (
+    main as validate_market_context_stores_main,
+)
 from baibai_engine.batch_api import StoreLayoutError, reject_noncanonical_store_paths
 
 Command = Callable[[list[str] | None], int]
@@ -20,7 +22,7 @@ _COMMANDS: dict[str, Command] = {
     "daily": daily_main,
     "external-assessment": external_assessment_acquisition_main,
     "tradingview": tradingview_main,
-    "validate-macro-stores": validate_macro_stores_main,
+    "validate-market-context-stores": validate_market_context_stores_main,
 }
 
 

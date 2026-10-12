@@ -2,6 +2,6 @@
 
 from pathlib import Path
 
-MACRO_PANEL_CONFIG_PATH = Path("web/config/macro-panel.yaml")
+INDICATOR_PANEL_CONFIG_PATH = Path("web/config/market-context-panel.yaml")
 
-__all__ = ["MACRO_PANEL_CONFIG_PATH"]
+__all__ = ["INDICATOR_PANEL_CONFIG_PATH"]

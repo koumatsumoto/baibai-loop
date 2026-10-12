@@ -1,12 +1,12 @@
-import type { MacroContextView, MacroCoreSectionView } from '../../api/types'
+import type { AssessmentPublicationView, HistoricalCoreSectionView } from '../../api/types'
 import { Card, CardDescription, CardHeader, CardTitle } from '../../components/ui/card'
 import { formatJstDateTime } from '../../lib/format'
-import { labelMacroValue, macroTone } from '../../lib/macro-report'
+import { labelHistoricalValue, historicalTone } from '../../lib/assessment-history'
 import { ReportToneBadge } from '../../components/report/ReportToneBadge'
 import { EvidenceDisclosure, JudgmentBadge } from './shared'
 import { ScenarioDistribution } from './ScenarioDistribution'
 
-export function MacroReportOverview({ data, regime, risk }: { data: MacroContextView; regime: MacroCoreSectionView | null; risk: MacroCoreSectionView | null }) {
+export function HistoricalReportOverview({ data, regime, risk }: { data: AssessmentPublicationView; regime: HistoricalCoreSectionView | null; risk: HistoricalCoreSectionView | null }) {
   const riskEnvironment = risk?.risk_environment
   return (
     <section aria-labelledby="macro-overview-title" className="grid gap-4">
@@ -31,7 +31,7 @@ export function MacroReportOverview({ data, regime, risk }: { data: MacroContext
           )}
           {riskEnvironment && (
             <div className="grid gap-2 rounded-lg border p-4">
-              <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">リスク環境</h3><ReportToneBadge tone={macroTone(riskEnvironment.stance)}>{labelMacroValue(riskEnvironment.stance)}</ReportToneBadge><span className="text-xs text-muted-foreground">確信度 {labelMacroValue(riskEnvironment.confidence)}</span></div>
+              <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">リスク環境</h3><ReportToneBadge tone={historicalTone(riskEnvironment.stance)}>{labelHistoricalValue(riskEnvironment.stance)}</ReportToneBadge><span className="text-xs text-muted-foreground">確信度 {labelHistoricalValue(riskEnvironment.confidence)}</span></div>
               <p>{riskEnvironment.summary}</p>
               <p className="text-xs text-muted-foreground">共通の出典は、後段の反証条件・シナリオ欄で確認できます。</p>
             </div>

@@ -46,8 +46,17 @@ def test_research_cli_exposes_research_set_and_capital_allocation() -> None:
     assert "assessment-scaffold" not in choices
 
 
-@pytest.mark.parametrize("domain", ["screening", "research", "position", "operation", "macro"])
+@pytest.mark.parametrize(
+    "domain", ["screening", "research", "position", "operation", "market-context"]
+)
 def test_routed_domain_help_reaches_its_parser(domain: str) -> None:
     with pytest.raises(SystemExit) as exit_info:
         main([domain, "--help"])
     assert exit_info.value.code == 0
+
+
+@pytest.mark.parametrize("group", ["indicators", "reading", "assessment"])
+def test_market_context_group_help_reaches_its_owner(group: str) -> None:
+    with pytest.raises(SystemExit) as result:
+        main(["market-context", group, "--help"])
+    assert result.value.code == 0

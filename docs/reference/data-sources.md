@@ -7,7 +7,7 @@ source_paths:
   - "../../stores/"
 related_docs:
   - "../architecture.md"
-  - "./macro.md"
+  - "./market-context.md"
 ---
 
 # データソース
@@ -24,7 +24,7 @@ related_docs:
 
 Tierは用途の分類であり、正確さや利用許諾の点数ではない。原公表機関と集約先、公的予測と実績、市場の織り込みと観測値を区別する。
 
-機械取得の仕様・column・単位変換はproviderとregistryを正本とする。指標の意味は[valuation metrics](./valuation-metrics.md)、macro観測・vintage・retractionは[macro](./macro.md)に従う。
+機械取得の仕様・column・単位変換はproviderとregistryを正本とする。指標の意味は[valuation metrics](./valuation-metrics.md)、macro観測・vintage・retractionは[macro](./market-context.md)に従う。
 
 <a id="スコアリング軸"></a>
 

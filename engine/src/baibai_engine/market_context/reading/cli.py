@@ -1,4 +1,4 @@
-"""``baibai-engine macro reading`` — print the L2 reading for an as-of date."""
+"""``baibai-engine market-context reading`` — print the L2 reading for an as-of date."""
 
 from __future__ import annotations
 
@@ -11,14 +11,14 @@ from pathlib import Path
 
 from baibai_engine.market_context.indicators import db as indicators_db
 from baibai_engine.market_context.indicators.db import DEFAULT_DB_PATH, IndicatorsSchemaError
-from baibai_engine.market_context.macro import read_macro_snapshot
+from baibai_engine.market_context.reading.query import read_store_snapshot
 
 from .models import ReadingSnapshot, SeriesReading, snapshot_payload
 from .rules import DEFAULT_RULES_PATH, ReadingRulesError
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="baibai-engine macro reading")
+    parser = argparse.ArgumentParser(prog="baibai-engine market-context reading")
     parser.add_argument("--asof", required=True, type=date.fromisoformat)
     parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
     parser.add_argument("--rules", type=Path, default=DEFAULT_RULES_PATH)
@@ -31,7 +31,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         conn = indicators_db.open_read_only_connection(args.db)
         try:
-            snapshot = read_macro_snapshot(conn, asof=args.asof, rules_path=args.rules)
+            snapshot = read_store_snapshot(conn, asof=args.asof, rules_path=args.rules)
         finally:
             conn.close()
     except IndicatorsSchemaError as exc:
@@ -51,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _print_table(snapshot: ReadingSnapshot) -> None:
-    print(f"# macro reading asof={snapshot.asof.isoformat()} rules={snapshot.rules_revision}")
+    print(f"# Reading asof={snapshot.asof.isoformat()} rules={snapshot.rules_revision}")
     print(
         "series_id\tlatest\tobserved_at\tnext_print\tdue_days\tstale_days\t3m\t12m\t"
         "statistic\tstat_value\tpercentile\tz\twindow\tnotes",

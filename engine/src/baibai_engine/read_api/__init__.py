@@ -10,7 +10,7 @@ stays reachable at its own module.
 from baibai_engine.foundation.repository_layout import (
     APPLICATION_DB_PATH,
     ER_LEVEL_CALIBRATION_CONTEXT_PATH,
-    MACRO_DB_PATH,
+    INDICATORS_DB_PATH,
     MARKET_DB_PATH,
     RUNS_DB_PATH,
     StoreLayoutError,
@@ -30,15 +30,8 @@ from .capital_allocation import (
 )
 from .freshness import (
     application_db_updated_at,
-    macro_latest_observed_at,
+    indicator_latest_observed_at,
     screening_latest_asof,
-)
-from .macro import (
-    MacroGranularity,
-    macro_indicator_series,
-    macro_registered_series,
-    macro_series_fetch_health,
-    macro_series_names,
 )
 from .market import (
     close_change_since,
@@ -52,18 +45,23 @@ from .market import (
 )
 from .market_context import (
     ASSESSMENT_STALE_DAYS,
-    MACRO_READING_RULES_PATH,
+    READING_RULES_PATH,
+    IndicatorGranularity,
     assessment_payload,
+    indicator_fetch_health,
+    indicator_series,
+    indicator_series_names,
     latest_assessment_payload,
     list_assessment_payloads,
-    macro_reading_snapshot,
+    reading_snapshot,
+    registered_indicator,
 )
 from .materialization import (
     MaterializationPreconditionError,
     validate_application_store_schema,
-    validate_macro_reading_rules,
     validate_market_store_hydration,
     validate_market_store_schema,
+    validate_reading_rules,
 )
 from .operations import list_operation_sessions
 from .position import list_portfolio_outcome_payloads, portfolio_ledger_document
@@ -94,12 +92,12 @@ __all__ = [
     "APPLICATION_DB_PATH",
     "ASSESSMENT_STALE_DAYS",
     "ER_LEVEL_CALIBRATION_CONTEXT_PATH",
-    "MACRO_DB_PATH",
-    "MACRO_READING_RULES_PATH",
+    "INDICATORS_DB_PATH",
     "MARKET_DB_PATH",
+    "READING_RULES_PATH",
     "RUNS_DB_PATH",
     "HoldingSnapshot",
-    "MacroGranularity",
+    "IndicatorGranularity",
     "MaterializationPreconditionError",
     "PortfolioLedgerError",
     "PortfolioSnapshot",
@@ -112,6 +110,10 @@ __all__ = [
     "close_change_since",
     "current_portfolio",
     "current_research_triage",
+    "indicator_fetch_health",
+    "indicator_latest_observed_at",
+    "indicator_series",
+    "indicator_series_names",
     "latest_assessment_payload",
     "latest_disclosure_dates_after",
     "latest_market_bar_date",
@@ -127,17 +129,13 @@ __all__ = [
     "list_thesis_publications",
     "list_thesis_review_publications",
     "machine_valuation_from_analysis",
-    "macro_indicator_series",
-    "macro_latest_observed_at",
-    "macro_reading_snapshot",
-    "macro_registered_series",
-    "macro_series_fetch_health",
-    "macro_series_names",
     "market_calendar_business_day",
     "next_earnings_dates",
     "portfolio_ledger_document",
     "previous_business_day",
     "previous_run_revision_id",
+    "reading_snapshot",
+    "registered_indicator",
     "reject_noncanonical_store_paths",
     "repository_root_error",
     "research_triage_payload",
@@ -154,9 +152,9 @@ __all__ = [
     "task_store_exists",
     "thesis_publication",
     "validate_application_store_schema",
-    "validate_macro_reading_rules",
     "validate_market_store_hydration",
     "validate_market_store_schema",
+    "validate_reading_rules",
     "worst_close_drawdown",
 ]
 

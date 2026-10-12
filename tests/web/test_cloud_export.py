@@ -20,7 +20,7 @@ from baibai_engine.market_context.indicators.db import insert_observations, open
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.market_context.reading.rules import (
-    DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH,
+    DEFAULT_RULES_PATH as READING_RULES_PATH,
 )
 from baibai_engine.position.drafts import apply_draft, build_sell_execution_draft
 from baibai_engine.position.store import LedgerStoreService
@@ -32,10 +32,10 @@ from baibai_web.api.server import create_app
 from baibai_web.materialize import main
 from baibai_web.readmodel.builders import build_meta
 from baibai_web.readmodel.models import (
+    AssessmentPublicationView,
     CapitalAllocationAssessmentView,
     DashboardView,
-    MacroContextView,
-    MacroView,
+    MarketContextView,
     MetaView,
     OperationsView,
     ScreeningView,
@@ -355,7 +355,9 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     meta = MetaView.model_validate_json((views / "meta.json").read_text(encoding="utf-8"))
     assert meta.batch == "daily"
     assert meta.screening_as_of == date(2026, 7, 8)
-    macro = MacroView.model_validate_json((views / "macro.json").read_text(encoding="utf-8"))
+    macro = MarketContextView.model_validate_json(
+        (views / "macro.json").read_text(encoding="utf-8")
+    )
     assert macro.reading.as_of == datetime.now(JST).date()
     assert sum(len(series.points) for group in macro.groups for series in group.series) == 0
     for name in ("security--0001.json", "security--0002.json", "security--2331.json"):
@@ -384,13 +386,13 @@ def test_export_writes_macro_context_detail_views(app_method_root: Path, tmp_pat
 
     detail_path = output_dir / "views" / f"macro-context--{document.context_id}.json"
     assert detail_path.is_file()
-    detail = MacroContextView.model_validate_json(detail_path.read_text(encoding="utf-8"))
+    detail = AssessmentPublicationView.model_validate_json(detail_path.read_text(encoding="utf-8"))
     assert detail.context_id == document.context_id
     assert len(detail.core) == 10
     assert detail.connection.section_id == "japan_equity_loop"
     # The current report is carried by the structured excerpt, not duplicated in
     # the collapsed past-revision index.
-    overview = MacroView.model_validate_json(
+    overview = MarketContextView.model_validate_json(
         (output_dir / "views/macro.json").read_text(encoding="utf-8")
     )
     assert overview.latest_context is not None
@@ -448,7 +450,7 @@ def test_export_fails_before_writing_when_reading_rules_are_absent(
     app_method_root: Path, tmp_path: Path, capsys
 ) -> None:
     (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
-    (app_method_root / MACRO_READING_RULES_PATH).unlink()
+    (app_method_root / READING_RULES_PATH).unlink()
     output_dir = tmp_path / "export"
 
     assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 1
@@ -460,7 +462,7 @@ def test_export_fails_before_writing_when_rules_do_not_cover_the_registry(
     app_method_root: Path, tmp_path: Path, capsys
 ) -> None:
     (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
-    (app_method_root / MACRO_READING_RULES_PATH).write_text(
+    (app_method_root / READING_RULES_PATH).write_text(
         "schema_version: 2\n"
         "defaults:\n"
         "  monthly:\n"

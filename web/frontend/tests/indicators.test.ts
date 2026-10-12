@@ -2,10 +2,10 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import type { MacroGroupView, MacroReadingSeriesView, MacroReadingView, MacroSeriesFetchHealthView, MacroSeriesView } from '../src/api/types'
-import { buildIndicatorGroups, filterIndicatorGroups, macroSeriesHistoryUrl, readingStatistics, seriesWindowSummary, statisticName, summarizeIndicators, transformSeriesHistory } from '../src/lib/macro'
+import type { IndicatorGroupView, ReadingSeriesView, ReadingView, IndicatorFetchHealthView, IndicatorSeriesView } from '../src/api/types'
+import { buildIndicatorGroups, filterIndicatorGroups, indicatorHistoryUrl, readingStatistics, seriesWindowSummary, statisticName, summarizeIndicators, transformSeriesHistory } from '../src/lib/indicators'
 
-const macroPageSource = readFileSync(resolve(import.meta.dirname, '../src/pages/MacroPage.tsx'), 'utf8')
+const macroPageSource = readFileSync(resolve(import.meta.dirname, '../src/pages/MarketContextPage.tsx'), 'utf8')
 
 describe('Macro information architecture', () => {
   it('puts current context before indicators and history', () => {
@@ -22,7 +22,7 @@ describe('Macro information architecture', () => {
   })
 })
 
-function readingSeries(overrides: Partial<MacroReadingSeriesView> = {}): MacroReadingSeriesView {
+function readingSeries(overrides: Partial<ReadingSeriesView> = {}): ReadingSeriesView {
   return {
     series_id: 'us.cpi_yoy',
     name: 'US CPI YoY',
@@ -53,7 +53,7 @@ function readingSeries(overrides: Partial<MacroReadingSeriesView> = {}): MacroRe
   }
 }
 
-function panelSeries(overrides: Partial<MacroSeriesView> = {}): MacroSeriesView {
+function panelSeries(overrides: Partial<IndicatorSeriesView> = {}): IndicatorSeriesView {
   return {
     series_id: 'us.cpi_yoy',
     label: 'US CPI YoY',
@@ -65,7 +65,7 @@ function panelSeries(overrides: Partial<MacroSeriesView> = {}): MacroSeriesView 
   }
 }
 
-function fetchRun(series_id: string, status: string): MacroSeriesFetchHealthView {
+function fetchRun(series_id: string, status: string): IndicatorFetchHealthView {
   return {
     series_id,
     status,
@@ -75,7 +75,7 @@ function fetchRun(series_id: string, status: string): MacroSeriesFetchHealthView
   }
 }
 
-function readingView(overrides: Partial<MacroReadingView> = {}): MacroReadingView {
+function readingView(overrides: Partial<ReadingView> = {}): ReadingView {
   return {
     as_of: '2026-07-27',
     rules_revision: 'v6',
@@ -85,7 +85,7 @@ function readingView(overrides: Partial<MacroReadingView> = {}): MacroReadingVie
   }
 }
 
-function panelGroup(title: string, series: readonly MacroSeriesView[]): MacroGroupView {
+function panelGroup(title: string, series: readonly IndicatorSeriesView[]): IndicatorGroupView {
   return { title, series: [...series] }
 }
 
@@ -115,8 +115,8 @@ describe('seriesWindowSummary', () => {
 
 describe('lazy series history', () => {
   it('has no history request until a series is opened', () => {
-    expect(macroSeriesHistoryUrl(null)).toBeNull()
-    expect(macroSeriesHistoryUrl('us.10y')).toBe('/api/macro/series/us.10y')
+    expect(indicatorHistoryUrl(null)).toBeNull()
+    expect(indicatorHistoryUrl('us.10y')).toBe('/api/macro/series/us.10y')
   })
 
   it('filters and aggregates one daily history in the browser', () => {

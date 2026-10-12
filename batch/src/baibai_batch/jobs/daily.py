@@ -396,29 +396,31 @@ def _read_run_view(run_yaml: Path) -> _RunView:
 
 
 @dataclass(frozen=True, slots=True)
-class _MacroSeries:
+class _IndicatorSeries:
     series_id: str
     frequency: str
     provider: str
     kind: str
 
 
-def _parse_macro_series(stdout: str) -> list[_MacroSeries]:
+def _parse_indicator_series(stdout: str) -> list[_IndicatorSeries]:
     try:
         payload = json.loads(stdout)
     except json.JSONDecodeError as exc:
         raise BatchStepError(
-            f"macro list --format json output is not parseable JSON: {exc}"
+            f"market-context indicators list --format json output is not parseable JSON: {exc}"
         ) from exc
     if not isinstance(payload, list):
-        raise BatchStepError("macro list --format json output is not a list")
-    series: list[_MacroSeries] = []
+        raise BatchStepError("market-context indicators list --format json output is not a list")
+    series: list[_IndicatorSeries] = []
     for entry in payload:
         if not isinstance(entry, dict):
-            raise BatchStepError("macro list --format json row is not an object")
+            raise BatchStepError(
+                "market-context indicators list --format json row is not an object"
+            )
         try:
             series.append(
-                _MacroSeries(
+                _IndicatorSeries(
                     series_id=str(entry["series_id"]),
                     frequency=str(entry["frequency"]),
                     provider=str(entry["provider"]),
@@ -426,11 +428,13 @@ def _parse_macro_series(stdout: str) -> list[_MacroSeries]:
                 )
             )
         except KeyError as exc:
-            raise BatchStepError(f"macro list --format json row missing field {exc}") from exc
+            raise BatchStepError(
+                f"market-context indicators list --format json row missing field {exc}"
+            ) from exc
     return series
 
 
-def _macro_refresh_groups(series: Sequence[_MacroSeries]) -> list[tuple[int, list[str]]]:
+def _indicator_refresh_groups(series: Sequence[_IndicatorSeries]) -> list[tuple[int, list[str]]]:
     """Group series by frequency window, refreshing base (http) before derived (local).
 
     A derived series reads other series from the store, so every ``http`` series
@@ -714,16 +718,16 @@ def _execute_daily_batch(
 
     refresh_groups: list[tuple[int, list[str]]] = []
     try:
-        macro_list = _run_step(
+        indicator_list = _run_step(
             runner,
-            name="macro-list",
-            argv=(_ENGINE, "macro", "list", "--format", "json"),
+            name="indicator-list",
+            argv=(_ENGINE, "market-context", "indicators", "list", "--format", "json"),
             cwd=root,
             echo_stdout=False,
             quiet=quiet,
             step_sink=step_sink,
         )
-        refresh_groups = _macro_refresh_groups(_parse_macro_series(macro_list.stdout))
+        refresh_groups = _indicator_refresh_groups(_parse_indicator_series(indicator_list.stdout))
     except BatchStepError as exc:
         _record_deferred(exc)
     for window_days, series_ids in refresh_groups:
@@ -731,10 +735,11 @@ def _execute_daily_batch(
         try:
             _run_step(
                 runner,
-                name=f"macro-refresh-{window_days}d",
+                name=f"indicator-refresh-{window_days}d",
                 argv=(
                     _ENGINE,
-                    "macro",
+                    "market-context",
+                    "indicators",
                     "refresh",
                     *series_ids,
                     "--start",

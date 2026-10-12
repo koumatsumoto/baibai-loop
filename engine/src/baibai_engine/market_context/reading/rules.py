@@ -16,10 +16,10 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from baibai_engine.foundation.repository_layout import MACRO_READING_RULES_PATH
+from baibai_engine.foundation.repository_layout import READING_RULES_PATH
 from baibai_engine.foundation.yaml_io import strict_safe_load
 
-DEFAULT_RULES_PATH = MACRO_READING_RULES_PATH
+DEFAULT_RULES_PATH = READING_RULES_PATH
 
 type FlagComparison = Literal["below", "at_or_below", "above", "at_or_above"]
 

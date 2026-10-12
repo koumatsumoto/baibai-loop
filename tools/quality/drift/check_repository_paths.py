@@ -25,7 +25,7 @@ _OWNERS = {
     "method/macro/reading/2026-08-01T100000+0900.yaml": Path(
         "engine/src/baibai_engine/foundation/repository_layout.py"
     ),
-    "web/config/macro-panel.yaml": Path("web/backend/src/baibai_web/repository_layout.py"),
+    "web/config/market-context-panel.yaml": Path("web/backend/src/baibai_web/repository_layout.py"),
     "reports/published/er-level-calibration-latest.yaml": Path(
         "engine/src/baibai_engine/foundation/repository_layout.py"
     ),

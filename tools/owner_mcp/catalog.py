@@ -11,8 +11,8 @@ from baibai_engine.storage.lake.datasets import LAKE_DATASETS
 
 from . import resource_models as m
 from . import resources_application as app
-from . import resources_macro as macro
 from . import resources_market as market
+from . import resources_market_context as market_context
 from . import resources_screening as screen
 from .resource_types import ResourceSpec
 
@@ -29,8 +29,8 @@ def resources() -> dict[str, ResourceSpec]:
             m.SeriesKey,
             m.SeriesFilters,
             ("series_id",),
-            macro.series_get,
-            macro.series_page,
+            market_context.series_get,
+            market_context.series_page,
         ),
         ResourceSpec(
             "macro.observation",
@@ -42,8 +42,8 @@ def resources() -> dict[str, ResourceSpec]:
             m.ObservationKey,
             m.ObservationFilters,
             ("observed_at", "vintage_at"),
-            macro.observation_get,
-            macro.observation_page,
+            market_context.observation_get,
+            market_context.observation_page,
             time_basis="observed_at / vintage_at",
         ),
         ResourceSpec(
@@ -56,8 +56,8 @@ def resources() -> dict[str, ResourceSpec]:
             m.ProviderKey,
             m.ProviderFilters,
             ("finished_at", "run_id"),
-            macro.provider_get,
-            macro.provider_page,
+            market_context.provider_get,
+            market_context.provider_page,
             time_basis="finished_at JST day",
         ),
         ResourceSpec(
@@ -70,8 +70,8 @@ def resources() -> dict[str, ResourceSpec]:
             m.ReadingIdentity,
             m.ReadingSelector,
             ("series_id",),
-            macro.reading_get,
-            macro.reading_page,
+            market_context.reading_get,
+            market_context.reading_page,
             time_basis="as_of",
         ),
         ResourceSpec(

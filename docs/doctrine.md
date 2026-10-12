@@ -52,7 +52,7 @@ AIはユーザーの明示開始で有限対象を調査・提案し、提案完
 
 ### 柱 2: マクロは機械読み値 + material delta、構造変化は企業価値への影響として扱う
 
-- **(a)** Market Contextは保存済みの環境観測、機械Reading、市場・業種・個別の相対状態を材料とし、AIは重要な変化と伝達経路だけを企業評価・リスクの取り方・提案へ接続する。毎回独立した全depth Macro Contextや主観確率を必須にしない。既存Macro Contextの意味と明示作成は[macro reference](./reference/macro.md)が所有する。環境上の含意は企業価値や機械rankingと別結果であり、乖離や攻め/守りの方向だけで自動数量・合成score・注文を決めない。対象時点・鮮度・不足を示し、環境の欠測だけで正常な他領域を止めず、重要な不足は提案の留保理由にする。
+- **(a)** Market Contextは保存済みの環境観測、機械Reading、市場・業種・個別の相対状態を材料とし、AIは重要な変化と伝達経路だけを企業評価・リスクの取り方・提案へ接続する。毎回独立した全depth Macro Contextや主観確率を必須にしない。既存Macro Contextの意味と明示作成は[macro reference](./reference/market-context.md)が所有する。環境上の含意は企業価値や機械rankingと別結果であり、乖離や攻め/守りの方向だけで自動数量・合成score・注文を決めない。対象時点・鮮度・不足を示し、環境の欠測だけで正常な他領域を止めず、重要な不足は提案の留保理由にする。
 - **(b)** AIを含む技術・産業構造変化は、その仮説を外すとBase/Downside projection、FVとrequired return、永久損失、最強反対仮説、またはCapital Allocation Assessmentが変わる場合だけmaterialとする。正の影響は一次情報と必要な独立裏取りからscenario assumption、FV、比較理由へ、負の影響は`structural_decline`、最強反対仮説、必要ならscenarioとFVへ接続する。「AIを使っている」「市場が成長する」という事実だけでbase scenarioや倍率を上げない。
 - **(c)** materialでない構造変化には言及・専用source・専用reviewを要求しない。AI theme、role、専用scoreでscreening、順位、sizingを変えず、企業ごとのE[r]と永久損失リスクを同じ土俵で比較する。
 
@@ -92,7 +92,7 @@ sourceの観測、規則による導出、機械見積り、AIの判断を区別
 
 ## 6. 分析階層：世界情勢 → 地域経済 → 個別資産
 
-Macro Contextは世界情勢、日本経済、個別資産への含意の順で整理する。これは分析の構成であり、因果が常に一方向へ流れるという仮定ではない。伝達経路と反証は[macro reference](./reference/macro.md)に従って検討する。
+Macro Contextは世界情勢、日本経済、個別資産への含意の順で整理する。これは分析の構成であり、因果が常に一方向へ流れるという仮定ではない。伝達経路と反証は[macro reference](./reference/market-context.md)に従って検討する。
 
 ## 7. 非目標
 

@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiError, fetchJson } from '../src/api/client'
-import { MacroPage } from '../src/pages/MacroPage'
+import { MarketContextPage } from '../src/pages/MarketContextPage'
 
 const hooks = vi.hoisted(() => ({
   effects: [] as { setup: () => (() => void) | undefined; dependencies: unknown[] }[],
@@ -42,7 +42,7 @@ async function settle() {
 function start(id: string | null) {
   hooks.setters = []
   hooks.values.set(7, id)
-  MacroPage()
+  MarketContextPage()
   const effect = hooks.effects.at(-1)!
   expect(effect.dependencies).toEqual([id])
   const cleanup = effect.setup()
@@ -110,7 +110,7 @@ function text(node: ReactNode): string {
 }
 it.each([true, false])('does not render a fallback chart or selected-period caption without history (error=%s)', failure => {
   hooks.values.set(0, { groups: [], reports: [] })
-  const tree = MacroPage()
+  const tree = MarketContextPage()
   const dialog = elements(tree).find(e => typeof e.type === 'function' && e.type.name === 'IndicatorDialog')!
   expect(dialog).toBeDefined()
   const render = dialog.type as (props: Record<string, unknown>) => ReactNode
@@ -136,7 +136,7 @@ it.each([45, 46])('keeps the v5 date, age, stale badge and detail link at %s day
       },
     },
   })
-  const latest = elements(MacroPage()).find(e => typeof e.type === 'function' && e.type.name === 'LatestContext')!
+  const latest = elements(MarketContextPage()).find(e => typeof e.type === 'function' && e.type.name === 'LatestContext')!
   expect(latest).toBeDefined()
   const html = renderToStaticMarkup(createElement(MemoryRouter, {}, latest))
   expect(html).toContain('2026-07-17')

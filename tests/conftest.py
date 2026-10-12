@@ -13,7 +13,7 @@ from baibai_engine.market_context.indicators.db import (
     initialize_database as initialize_indicators_db,
 )
 from baibai_engine.market_context.reading.rules import (
-    DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH,
+    DEFAULT_RULES_PATH as READING_RULES_PATH,
 )
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
@@ -86,13 +86,13 @@ def _guard_real_databases() -> Iterator[None]:
 def _seed_app_method_root(root: Path) -> None:
     config_dir = root / "web/config"
     config_dir.mkdir(parents=True)
-    (config_dir / "macro-panel.yaml").write_text(
-        Path("web/config/macro-panel.yaml").read_text(encoding="utf-8"),
+    (config_dir / "market-context-panel.yaml").write_text(
+        Path("web/config/market-context-panel.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    reading_rules = root / MACRO_READING_RULES_PATH
+    reading_rules = root / READING_RULES_PATH
     reading_rules.parent.mkdir(parents=True, exist_ok=True)
-    reading_rules.write_text(MACRO_READING_RULES_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+    reading_rules.write_text(READING_RULES_PATH.read_text(encoding="utf-8"), encoding="utf-8")
     indicators_dir = root / "stores/macro"
     indicators_dir.mkdir(parents=True, exist_ok=True)
     initialize_indicators_db(indicators_dir / "macro.sqlite").close()

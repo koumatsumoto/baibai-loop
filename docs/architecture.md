@@ -76,7 +76,7 @@ Portfolio/Positionは確認済み取引と保有を所有し、Researchへ逆依
 | 所有 | 主モデル・成果物 | 入力と出力 | 保存・公開入口 |
 | --- | --- | --- | --- |
 | Valuation | FinancialSnapshot、倍率/機械ER/FV、ER較正文脈、Projection、条件付き収益 | 財務・価格・配当の純粋L1入力とTTM規則から財務/倍率を計算し、仮定から価値/収益を測る。機械anchorと企業固有Projectionを区別 | L2機械値はSecurity Analysis、企業固有前提はThesisの一部。領域読取と外向け`read_api/valuation`・`read_api/er_calibration_context`。[Valuation](./reference/valuation-metrics.md#machine-valuation)・[Thesis](./reference/thesis.md#scenario-arithmetic) |
-| Market Context | Market Snapshot、Security Market Context、公式benchmark観測、Macro Reading/Context | 経済・金利・市場・業種・個別の保存観測から環境・価格状態・信用需給と相対値を返す | 観測はmarket/lake・macro、既存Macro Contextはapplication。領域読取と外向け`read_api/market_context`。[Market Context](./reference/macro.md#market-context-reads) |
+| Market Context | Market Snapshot、Security Market Context、公式benchmark観測、Reading、MarketContextAssessment、保存判断の履歴 | 経済・金利・市場・業種・個別の保存観測から環境・価格状態・信用需給と相対値を返す | 共有市場観測はmarket/lake、経済指標は既存指標DB、判断はapplication。`reading/query`がL2読取、`assessment`が現行判断と履歴読取、外向け入口は一つの`read_api/market_context`。[Market Context](./reference/market-context.md#market-context-reads) |
 | External Assessment | 提示値の受領履歴、出所別比較・欠測 | 媒体別のモデル価格・rating・Quants・TradingViewを出所/尺度/期間付きで扱う | typed L1はmarket/lake、比較は保存入力から再計算。`external_assessment/query`、外向け`read_api/external_assessment`とCLI。[入力](./reference/data-sources.md#external-assessment)・[読取](./reference/market-lake.md#external-assessment-query) |
 | Screening | Security Analysis、Nomination、Review Set | 三領域の結果を組み立て、母集団と候補探索を適用 | runs store。`screening`の公開入口と`batch_api`。[Screening](./reference/screening-runtime.md) |
 | Research | Triage、Research Set、Thesis/Review、CAA、Position Review提案 | 領域結果・出典・保有を調べ、一銘柄ずつの判断/提案を作る | applicationの判断履歴。`research/triage`・`research/workspace`・既存service。[Research](../.agents/skills/research/SKILL.md) |
@@ -89,7 +89,7 @@ L1/L2は定期処理へ、L3は明示開始へ分ける。新規と保有を区�
 
 ## 4. 保存責務と正本
 
-storageは物理保存の技術責務であり、保存DBをL3そのものと呼ばない。application DBには判断と周辺業務の両方が入り、再生成可能なL2も用途に応じて異なる保存場所を使う。現在の物理SQLiteはapplication・market・macro・screening runs・calibrationの五系統であり、三領域へ合わせて数を変えない。
+storageは物理保存の技術責務であり、保存DBをL3そのものと呼ばない。application DBには判断と周辺業務の両方が入り、再生成可能なL2も用途に応じて異なる保存場所を使う。現在の物理SQLiteはapplication・market・経済指標（現物名はmacro）・screening runs・calibrationの五系統であり、三領域へ合わせて数を変えない。Readingは保存指標とdated規則からread-timeに計算し、独立DBを新設しない。
 
 | 保存場所 | 正本・作業コピーの関係 | 意味/書込条件のowner |
 | --- | --- | --- |
@@ -116,14 +116,20 @@ EDINET metricの`extractor_revision`は明示的な抽出意味revisionであり
 
 ER較正の意味契約と保存済み評価帯解釈・読取は`valuation/calibration/{contracts,query}`に集約し、較正実行・証拠生成・選抜評価はScreeningに残す。Research prepareはValuation queryを直接使い、`read_api/er_calibration_context`はWeb・外部照会の読取委譲だけを持つ。公式TOPIX gross-total-returnの観測型・検証は`market_context/observations/benchmark`、JPXファイル読取は`market/jpx_total_return`の実adapterが所有し、Nikkei ETF price-only方向評価と分ける。broker事実のdraft組立・予約束縛は`position/drafts`が所有し、CLIが`research/capital_allocation_query`の過去CAA銘柄読取をcallableで渡す。active予約・既知terminal（cancel / expire）の再試行では参照を呼ばず、現在適格性を再判定しない。意味の詳細は[較正文脈](./reference/estimate-calibration.md#判断面へ渡す較正文脈)・[Portfolio Ledger](./reference/portfolio-ledger.md#human-result-semantics)に従う。
 
+Market ContextのCLIは`market-context indicators / reading / assessment`で各ownerへ直接渡す。Webは指標・Readingの組立、現行assessmentの内容、保存された過去本文の表示を分ける。Owner MCPも同じread ownerを使い、取得・判断作成を読取に混ぜない。
+
+現在の保存契約はapplication schema20の`macro_context / macro_context_head`、assessment schema5の`context_id`と`macro-context-*` identityを使う。これらは現行の保存identityであり、旧writerを残す意味ではない。保存済みJSON・引用・IDを内部配置の変更で書き換えない。指標DB/R2 key、table/index、外部API route・serving keyの名称切替は次の一回切替で扱う。
+
+Readingの現行選択先は`READING_RULES_PATH`が指す一つのdated fileである。保存された13判断が引用する`method/macro/reading/2026-08-01T100000+0900.yaml`を元bytes/pathで保持し、同内容の別current copyや転送aliasを置かない。新しいmethod置場の整理は、引用保全と一つの選択先を守る次段階の対象とする。
+
 市場環境の明示判断は`market_context/assessment`が所有する。新writerは小さな判断一本で、旧固定章/確率/scorecard作成経路を持たない。履歴本文・ID・引用を保持し、分析入力は対象日とcallerが固定する利用可能時刻で選ぶ。
 
 残る差分は次に集約する。Issueの段階的実装を全体完了とは扱わない。
 
 | 未完了項目 | 現行と最終境界の差分 |
 | --- | --- |
-| 永続identity | External Assessmentはtable/index/dataset・新規plan/cohort stage/raw prefix・workflow/concurrencyを領域名へ統一。schema30→31の隔離migrationと明示切替は[batch運用](../batch/OPERATIONS.md#external-assessment-identity-cutover)に従い、本番受入まで未完了。Market Contextの物理名・既存判断payloadの切替は別単位 |
-| daily運用受入 | #1439でScreening失敗/日本休日から指標更新を独立させ、runとReview Setのatomic保存・全views単一公開・旧history保持を実装済み。実運用の領域失敗/休日・lease/CAS・単一公開の受入は未完了 |
+| 永続identity | External Assessmentのschema30→31と領域名切替は#1438で実装済み・本番未反映。Market Contextの物理名・公開名と新writer契約の切替は次の隔離実装で扱う。全体実装・親レビュー後に値・時刻・保存JSON/引用を保って直列反映する |
+| daily本番受入 | #1439でrun/Review Setの単一transaction、Screening失敗/日本休日時の指標更新・単一公開、history/実計算時刻保持を実装しmain28aefaaaへ反映済み。既存予定runの実取得・store/serving読戻しによる本番受入は未確認 |
 | 最終運用受入 | 実体配置・保存・公開・画面・CLI・docsの結合、四媒体の取得/読戻し、AI運用の有用性/根拠/時間を実運用で確認する |
 
 この表は現行実装の未完了範囲を示す。後続の取り込み時にも同じ文書の差分を照合し、実装に合わせて該当行を更新する。詳細な判断と移行証拠は#1414に残し、仕様は本書とreferenceへ統合する。

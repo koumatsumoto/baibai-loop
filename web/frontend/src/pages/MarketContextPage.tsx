@@ -5,7 +5,7 @@ import { ArrowDown, ArrowRight, ArrowUp, CircleAlert, Minus, Search } from 'luci
 import { Area, AreaChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts'
 
 import { fetchJson } from '../api/client'
-import type { MacroContextExcerptView, MacroPointView, MacroReadingSeriesView, MacroReadingTrendView, MacroSeriesView, MacroView } from '../api/types'
+import type { AssessmentExcerptView, IndicatorPointView, ReadingSeriesView, ReadingTrendView, IndicatorSeriesView, MarketContextView } from '../api/types'
 import { InfoHint } from '../components/InfoHint'
 import { LoadingIndicator, LoadingPage } from '../components/LoadingIndicator'
 import { PageShell } from '../components/PageShell'
@@ -25,14 +25,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 import { EMPTY, formatJstDateTime, formatNumber, formatPct } from '../lib/format'
 import { LABEL } from '../lib/labels'
-import { EXTREME_Z_SCORE, INDICATOR_STATUSES, INDICATOR_STATUS_LABEL, buildIndicatorGroups, filterIndicatorGroups, macroSeriesHistoryUrl, readingStatistics, seriesWindowSummary, statisticName, summarizeIndicators, transformSeriesHistory, type MacroHistoryGranularity, type MacroHistoryPeriod, type MacroIndicatorRow, type MacroIndicatorStatus } from '../lib/macro'
+import { EXTREME_Z_SCORE, INDICATOR_STATUSES, INDICATOR_STATUS_LABEL, buildIndicatorGroups, filterIndicatorGroups, indicatorHistoryUrl, readingStatistics, seriesWindowSummary, statisticName, summarizeIndicators, transformSeriesHistory, type IndicatorHistoryGranularity, type IndicatorHistoryPeriod, type IndicatorRow, type IndicatorStatus } from '../lib/indicators'
 import { cn } from '../lib/utils'
 
-type MacroPeriod = MacroHistoryPeriod
-type MacroGranularity = MacroHistoryGranularity
 
-const PERIOD_LABEL: Readonly<Record<MacroPeriod, string>> = { '1y': '1年', '5y': '5年', '10y': '10年', max: '全期間' }
-const GRANULARITY_LABEL: Readonly<Record<MacroGranularity, string>> = { daily: '日次', weekly: '週次', monthly: '月次', yearly: '年次' }
+const PERIOD_LABEL: Readonly<Record<IndicatorHistoryPeriod, string>> = { '1y': '1年', '5y': '5年', '10y': '10年', max: '全期間' }
+const GRANULARITY_LABEL: Readonly<Record<IndicatorHistoryGranularity, string>> = { daily: '日次', weekly: '週次', monthly: '月次', yearly: '年次' }
 
 // Every term the table uses that needs a sentence to be read correctly. They live next to
 // their own label behind an ⓘ, so the numbers are never fenced off by a paragraph.
@@ -50,7 +48,7 @@ const HINT = {
   extreme: `|z| ≥ ${EXTREME_Z_SCORE}。実効窓の分布の端にいるという読み値そのもので、健全性の問題ではない。誤値でないことは経済分析レポートが一次情報と突き合わせて確認する。`,
 } as const
 
-const STATUS_HINT: Readonly<Record<MacroIndicatorStatus, string>> = {
+const STATUS_HINT: Readonly<Record<IndicatorStatus, string>> = {
   'fetch-failed': HINT.fetchFailed,
   stale: HINT.stale,
   'insufficient-history': HINT.insufficientHistory,
@@ -63,7 +61,7 @@ function fmtValue(value: number): string {
   return formatNumber(value, digits)
 }
 
-function statisticText(series: MacroReadingSeriesView): string {
+function statisticText(series: ReadingSeriesView): string {
   const name = statisticName(series.statistic)
   // The level itself is already in 最新値, so only a transformed statistic repeats a value.
   if (series.statistic === 'level') return name
@@ -80,7 +78,7 @@ function printDueText(days: number): string {
   return `${-days} 日超過`
 }
 
-function TrendCell({ trend }: { trend: MacroReadingTrendView | null }) {
+function TrendCell({ trend }: { trend: ReadingTrendView | null }) {
   if (!trend) return <span className="text-muted-foreground">{EMPTY}</span>
   // Neutral direction only: a rising series is not "good" and a falling one is not "bad".
   const Icon = trend.direction === 'up' ? ArrowUp : trend.direction === 'down' ? ArrowDown : Minus
@@ -94,7 +92,7 @@ function TrendCell({ trend }: { trend: MacroReadingTrendView | null }) {
 // The four states plus any threshold flags, as one set of badges. They are the row's only
 // marker of a problem, so they sit in the notes column on wide screens and directly under
 // the series name where that column is dropped.
-function StatusBadges({ row, className }: { row: MacroIndicatorRow; className?: string }) {
+function StatusBadges({ row, className }: { row: IndicatorRow; className?: string }) {
   const reading = row.reading
   const stats = reading === null ? null : readingStatistics(reading)
   // Insufficient history is already a state, so only the other withheld reason adds a badge.
@@ -118,7 +116,7 @@ function StatusBadges({ row, className }: { row: MacroIndicatorRow; className?: 
   )
 }
 
-function Sparkline({ points }: { points: readonly MacroPointView[] }) {
+function Sparkline({ points }: { points: readonly IndicatorPointView[] }) {
   // The gradient belongs to this chart's own SVG under an id React guarantees is unique,
   // so a sparkline placed anywhere carries its fill with it.
   const fillId = useId()
@@ -126,7 +124,7 @@ function Sparkline({ points }: { points: readonly MacroPointView[] }) {
   // table draws a hundred of these, so measuring each one buys nothing.
   if (points.length === 0) return <div aria-label="観測なし" className="grid h-8 w-24 place-items-center text-xs text-muted-foreground">{EMPTY}</div>
   return (
-    <AreaChart data={points as MacroPointView[]} height={32} margin={{ top: 2, right: 2, bottom: 2, left: 2 }} width={96}>
+    <AreaChart data={points as IndicatorPointView[]} height={32} margin={{ top: 2, right: 2, bottom: 2, left: 2 }} width={96}>
       <defs>
         <linearGradient id={fillId} x1="0" x2="0" y1="0" y2="1">
           <stop offset="0%" stopColor="var(--brand-lime)" stopOpacity={0.45} />
@@ -136,7 +134,7 @@ function Sparkline({ points }: { points: readonly MacroPointView[] }) {
       <YAxis domain={['auto', 'auto']} hide />
       <Area
         // Without a base, recharts anchors the fill at zero — or at the top of the plot for
-        // an all-negative series, which paints the band above the line. Macro carries
+        // an all-negative series, which paints the band above the line. Indicator sparklines carry
         // spreads and z-scores that sit below zero, so the base is pinned to the plot floor
         // and every series reads the same way.
         baseValue="dataMin"
@@ -155,7 +153,7 @@ function Sparkline({ points }: { points: readonly MacroPointView[] }) {
   )
 }
 
-function FullChart({ series }: { series: MacroSeriesView }) {
+function FullChart({ series }: { series: IndicatorSeriesView }) {
   const config = { value: { label: series.label, color: 'var(--chart-1)' } } satisfies ChartConfig
   if (series.points.length === 0) return <p className="py-12 text-center text-sm text-muted-foreground">観測値なし</p>
   // The right margin holds the last date label inside the plot, and the clip keeps any
@@ -173,7 +171,7 @@ function FullChart({ series }: { series: MacroSeriesView }) {
   )
 }
 
-function IndicatorRow({ row, onOpen }: { row: MacroIndicatorRow; onOpen: () => void }) {
+function IndicatorRow({ row, onOpen }: { row: IndicatorRow; onOpen: () => void }) {
   const { series, reading } = row
   const stats = reading === null ? null : readingStatistics(reading)
   const summary = seriesWindowSummary(series.points)
@@ -225,7 +223,7 @@ function DetailField({ label, children }: { label: string; children: ReactNode }
   )
 }
 
-function IndicatorDialog({ row, history, historyLoading, historyError, period, granularity, onClose }: { row: MacroIndicatorRow | null; history: MacroSeriesView | null; historyLoading: boolean; historyError: boolean; period: MacroPeriod; granularity: MacroGranularity; onClose: () => void }) {
+function IndicatorDialog({ row, history, historyLoading, historyError, period, granularity, onClose }: { row: IndicatorRow | null; history: IndicatorSeriesView | null; historyLoading: boolean; historyError: boolean; period: IndicatorHistoryPeriod; granularity: IndicatorHistoryGranularity; onClose: () => void }) {
   if (row === null) return null
   const { reading, failedFetch } = row
   const series = history === null ? row.series : transformSeriesHistory(history, period, granularity)
@@ -272,9 +270,9 @@ function IndicatorDialog({ row, history, historyLoading, historyError, period, g
   )
 }
 
-function LatestContext({ context }: { context: MacroContextExcerptView | null }) {
+function LatestContext({ context }: { context: AssessmentExcerptView | null }) {
 
-  if (context === null) return <Alert><CircleAlert /><AlertTitle>Macro Context なし</AlertTitle><AlertDescription>機械読み値は確認できますが、現在の環境判断はまだ発行されていません。</AlertDescription></Alert>
+  if (context === null) return <Alert><CircleAlert /><AlertTitle>市場環境判断なし</AlertTitle><AlertDescription>機械読み値は確認できますが、現在の環境判断はまだ発行されていません。</AlertDescription></Alert>
   return (
     <SectionCard
       description={`${LABEL.asOf} ${context.as_of} / ${context.age_days} 日前`}
@@ -308,16 +306,16 @@ function LatestContext({ context }: { context: MacroContextExcerptView | null })
   )
 }
 
-export function MacroPage() {
-  const [data, setData] = useState<MacroView | null>(null)
+export function MarketContextPage() {
+  const [data, setData] = useState<MarketContextView | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [period, setPeriod] = useState<MacroPeriod>('max')
-  const [granularity, setGranularity] = useState<MacroGranularity>('monthly')
+  const [period, setPeriod] = useState<IndicatorHistoryPeriod>('max')
+  const [granularity, setGranularity] = useState<IndicatorHistoryGranularity>('monthly')
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
-  const [statuses, setStatuses] = useState<ReadonlySet<MacroIndicatorStatus>>(new Set())
+  const [statuses, setStatuses] = useState<ReadonlySet<IndicatorStatus>>(new Set())
   const [openSeriesId, setOpenSeriesId] = useState<string | null>(null)
-  const [history, setHistory] = useState<MacroSeriesView | null>(null)
+  const [history, setHistory] = useState<IndicatorSeriesView | null>(null)
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState(false)
 
@@ -325,11 +323,11 @@ export function MacroPage() {
     const controller = new AbortController()
     setError(null)
     setLoading(true)
-    fetchJson<MacroView>('/api/macro', { signal: controller.signal })
+    fetchJson<MarketContextView>('/api/macro', { signal: controller.signal })
       .then(setData)
       .catch((reason: unknown) => {
         if (reason instanceof DOMException && reason.name === 'AbortError') return
-        setError(reason instanceof Error ? reason.message : 'Macro を読み込めませんでした')
+        setError(reason instanceof Error ? reason.message : '市場環境を読み込めませんでした')
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false)
@@ -339,7 +337,7 @@ export function MacroPage() {
 
   useEffect(() => {
     setHistoryError(false)
-    const historyUrl = macroSeriesHistoryUrl(openSeriesId)
+    const historyUrl = indicatorHistoryUrl(openSeriesId)
     if (historyUrl === null) {
       setHistory(null)
       setHistoryLoading(false)
@@ -348,7 +346,7 @@ export function MacroPage() {
     const controller = new AbortController()
     setHistory(null)
     setHistoryLoading(true)
-    fetchJson<MacroSeriesView>(historyUrl, { signal: controller.signal })
+    fetchJson<IndicatorSeriesView>(historyUrl, { signal: controller.signal })
       .then((value) => { if (!controller.signal.aborted) setHistory(value) })
       .catch((reason: unknown) => {
         if (controller.signal.aborted || (reason instanceof DOMException && reason.name === 'AbortError')) return
@@ -359,7 +357,7 @@ export function MacroPage() {
   }, [openSeriesId])
 
   if (error) return <PageState message={error} />
-  if (!data) return <LoadingPage label="Macro を読み込んでいます" />
+  if (!data) return <LoadingPage label="市場環境を読み込んでいます" />
 
   // Degrade gracefully rather than white-screen if a served view is ever missing a
   // field (e.g. a stale view during a deploy that precedes its re-materialization).
@@ -369,7 +367,7 @@ export function MacroPage() {
   const visibleGroups = filterIndicatorGroups(groups, { query, statuses })
   const openRow = groups.flatMap((group) => group.rows).find((row) => row.series.series_id === openSeriesId) ?? null
 
-  const toggleStatus = (status: MacroIndicatorStatus) => {
+  const toggleStatus = (status: IndicatorStatus) => {
     setStatuses((current) => {
       const next = new Set(current)
       if (next.has(status)) next.delete(status)
@@ -390,8 +388,8 @@ export function MacroPage() {
             <Badge variant="secondary">{formatNumber(summary.seriesCount)} 系列</Badge>
           </div>
           <div className="flex flex-wrap items-end gap-3">
-            <label className="grid gap-1"><span className="text-xs font-medium text-muted-foreground">詳細期間</span><Select onValueChange={(value) => setPeriod(value as MacroPeriod)} value={period}><SelectTrigger aria-label="詳細チャートの表示期間" className="w-24"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(PERIOD_LABEL).map(([value, text]) => <SelectItem key={value} value={value}>{text}</SelectItem>)}</SelectContent></Select></label>
-            <label className="grid gap-1"><span className="text-xs font-medium text-muted-foreground">詳細粒度</span><Select onValueChange={(value) => setGranularity(value as MacroGranularity)} value={granularity}><SelectTrigger aria-label="詳細チャートの表示粒度" className="w-28"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(GRANULARITY_LABEL).map(([value, text]) => <SelectItem key={value} value={value}>{text}</SelectItem>)}</SelectContent></Select></label>
+            <label className="grid gap-1"><span className="text-xs font-medium text-muted-foreground">詳細期間</span><Select onValueChange={(value) => setPeriod(value as IndicatorHistoryPeriod)} value={period}><SelectTrigger aria-label="詳細チャートの表示期間" className="w-24"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(PERIOD_LABEL).map(([value, text]) => <SelectItem key={value} value={value}>{text}</SelectItem>)}</SelectContent></Select></label>
+            <label className="grid gap-1"><span className="text-xs font-medium text-muted-foreground">詳細粒度</span><Select onValueChange={(value) => setGranularity(value as IndicatorHistoryGranularity)} value={granularity}><SelectTrigger aria-label="詳細チャートの表示粒度" className="w-28"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(GRANULARITY_LABEL).map(([value, text]) => <SelectItem key={value} value={value}>{text}</SelectItem>)}</SelectContent></Select></label>
             {loading && <LoadingIndicator className="self-end pb-2" label="マクロ経済指標を更新しています" size={24} />}
           </div>
         </div>

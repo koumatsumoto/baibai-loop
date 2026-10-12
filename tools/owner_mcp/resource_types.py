@@ -13,7 +13,7 @@ from baibai_engine.foundation.repository_layout import (
     APPLICATION_DB_PATH,
     CALIBRATION_DIR,
     ER_LEVEL_CALIBRATION_CONTEXT_PATH,
-    MACRO_DB_PATH,
+    INDICATORS_DB_PATH,
     MARKET_DB_PATH,
     RUNS_DB_PATH,
 )
@@ -22,7 +22,7 @@ from baibai_engine.foundation.repository_layout import (
 @dataclass(frozen=True)
 class Paths:
     application: Path = APPLICATION_DB_PATH
-    macro: Path = MACRO_DB_PATH
+    indicators: Path = INDICATORS_DB_PATH
     market: Path = MARKET_DB_PATH
     runs: Path = RUNS_DB_PATH
     calibration: Path = CALIBRATION_DIR / "current.sqlite"

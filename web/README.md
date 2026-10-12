@@ -12,7 +12,7 @@
 | 正本・test | [architecture](../docs/architecture.md)、[Python foundation](../docs/reference/python-foundation.md)、[tests/web](../tests/web)、[tests/contracts](../tests/contracts)、frontend / edge各directoryの`tests` |
 
 materialized JSONとfrontend assetは生成しますが、application DBやdomain storeは書きません。store authorityは[architecture](../docs/architecture.md#store-authority)を参照してください。
-表示分類は`config/macro-panel.yaml`、consumer契約を持つevidenceは`reports/published/`から読みます。serving R2 keyは`contracts/routes.json`が示す既存topologyを維持します。
+表示分類は`config/market-context-panel.yaml`、consumer契約を持つevidenceは`reports/published/`から読みます。serving R2 keyは`contracts/routes.json`が示す既存topologyを維持します。
 
 銘柄一覧・詳細・履歴の機械anchorは表示対象runの保存済みSecurity Analysisから読み、Review Set membershipを照会条件にしません。企業固有の調査評価との区別と欠測の意味は[Valuation metrics](../docs/reference/valuation-metrics.md#machine-valuation)を参照してください。
 
@@ -46,3 +46,5 @@ fixed-release読取と完全性確認は[market lake](../docs/reference/market-l
 secret設定・rotation・撤回・利用側受入は[運用手順](../batch/OPERATIONS.md#shared-read-setup)を参照してください。
 
 調査と提案の進行は保存済みOperationから表示する。新規・保有の固定対象、完了/調査未完了を区別し、CAA詳細は完了した新規の比較範囲と未完了理由・参照を表示する。提案工程完了を人間採否・注文・約定の成立として表示しない。
+
+指標/Readingの組立は`readmodel/market_context.py`、現行判断の内容とpublication metadataは`readmodel/assessment.py`、過去本文の章・主張・引用は`readmodel/assessment_history.py`が所有する。外部routeとserving keyは次の物理切替まで既存契約を維持する。

@@ -20,6 +20,7 @@ from baibai_engine.read_api import (
     validate_application_store_schema,
     validate_market_store_schema,
 )
+from baibai_web.readmodel.assessment import build_market_context_assessment_detail
 from baibai_web.readmodel.builders import (
     build_daily_delta,
     build_dashboard,
@@ -27,14 +28,14 @@ from baibai_web.readmodel.builders import (
     build_operations_view,
     build_tasks,
 )
-from baibai_web.readmodel.macro import build_macro, build_macro_context_detail, build_macro_series
+from baibai_web.readmodel.market_context import build_indicator_series, build_market_context
 from baibai_web.readmodel.models import (
+    AssessmentPublicationView,
     CapitalAllocationAssessmentView,
     DailyDeltaView,
     DashboardView,
-    MacroContextView,
-    MacroSeriesView,
-    MacroView,
+    IndicatorSeriesView,
+    MarketContextView,
     MetaView,
     OperationsView,
     ScreeningHistoryRunView,
@@ -49,7 +50,7 @@ from baibai_web.readmodel.stocks import (
     build_screening_history_run,
     build_security_detail,
 )
-from baibai_web.sources.factory import Sources, build_sources, load_macro_groups
+from baibai_web.sources.factory import Sources, build_sources, load_indicator_groups
 
 # Vite copies `web/frontend/public/` into the build as-is, but this app answers only the files named
 # here — one list so a route, its test and the UI's own <link> cannot drift apart.
@@ -88,7 +89,7 @@ def create_app(
     app.state.db_path = db_path
     app.state.runs_db_path = runs_db_path
     # Load once at startup so a broken dashboard config fails app creation, not a request.
-    app.state.macro_groups = load_macro_groups(resolved_root)
+    app.state.indicator_groups = load_indicator_groups(resolved_root)
     validate_application_store_schema((db_path or resolved_root / APPLICATION_DB_PATH).resolve())
     validate_market_store_schema((resolved_root / MARKET_DB_PATH).resolve())
 
@@ -166,23 +167,25 @@ def create_app(
             raise HTTPException(status_code=404, detail="capital allocation assessment not found")
         return view
 
-    @app.get("/api/macro", response_model=MacroView)
+    @app.get("/api/macro", response_model=MarketContextView)
     def macro(
         sources: _SourceDependency,
         as_of: date | None = None,
         known_at: datetime | None = None,
-    ) -> MacroView:
+    ) -> MarketContextView:
         cutoff = known_at or datetime.now(_JST)
-        return build_macro(sources.macro, as_of=as_of or cutoff.date(), known_at=cutoff)
+        return build_market_context(
+            sources.market_context, as_of=as_of or cutoff.date(), known_at=cutoff
+        )
 
-    @app.get("/api/macro/series/{series_id}", response_model=MacroSeriesView)
+    @app.get("/api/macro/series/{series_id}", response_model=IndicatorSeriesView)
     def macro_series(
         series_id: str,
         sources: _SourceDependency,
         as_of: date | None = None,
-    ) -> MacroSeriesView:
-        view = build_macro_series(
-            sources.macro,
+    ) -> IndicatorSeriesView:
+        view = build_indicator_series(
+            sources.market_context,
             series_id=series_id,
             as_of=as_of or datetime.now(_JST).date(),
         )
@@ -190,15 +193,15 @@ def create_app(
             raise HTTPException(status_code=404, detail="macro series is unavailable")
         return view
 
-    @app.get("/api/macro/context/{context_id}", response_model=MacroContextView)
+    @app.get("/api/macro/context/{context_id}", response_model=AssessmentPublicationView)
     def macro_context(
         context_id: str,
         sources: _SourceDependency,
         as_of: date | None = None,
-    ) -> MacroContextView:
+    ) -> AssessmentPublicationView:
         try:
-            return build_macro_context_detail(
-                sources.macro,
+            return build_market_context_assessment_detail(
+                sources.market_context,
                 context_id=context_id,
                 as_of=as_of or datetime.now(_JST).date(),
             )
@@ -281,7 +284,7 @@ def _build_sources(request: Request) -> Sources:
         request.app.state.root,
         db_path=request.app.state.db_path,
         runs_db_path=request.app.state.runs_db_path,
-        macro_groups=request.app.state.macro_groups,
+        indicator_groups=request.app.state.indicator_groups,
     )
 
 

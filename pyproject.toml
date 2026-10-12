@@ -508,7 +508,7 @@ forbidden_modules = [
 name = "market context reads observations and judgments without composition or writes"
 type = "forbidden"
 source_modules = [
-  "baibai_engine.market_context.macro", "baibai_engine.market_context.snapshot",
+  "baibai_engine.market_context.reading.query", "baibai_engine.market_context.snapshot",
   "baibai_engine.market_context.security", "baibai_engine.market_context.benchmark",
   "baibai_engine.market_context.sector", "baibai_engine.market_context.prices",
   "baibai_engine.market_context.master", "baibai_engine.market_context.history",
@@ -530,7 +530,7 @@ type = "forbidden"
 source_modules = ["baibai_engine.market_context.indicators"]
 forbidden_modules = [
   "baibai_engine.market_context.reading.compute", "baibai_engine.market_context.reading.reader",
-  "baibai_engine.market_context.macro", "baibai_engine.market_context.benchmark",
+  "baibai_engine.market_context.reading.query", "baibai_engine.market_context.benchmark",
   "baibai_engine.market_context.snapshot", "baibai_engine.market_context.security",
   "baibai_engine.market_context.assessment",
   "baibai_engine.screening", "baibai_engine.valuation", "baibai_engine.research",
@@ -539,7 +539,6 @@ forbidden_modules = [
 ]
 # Public CLI dispatch composes the separate read-only L2 and explicit L3 entries.
 ignore_imports = [
-  "baibai_engine.market_context.indicators.cli -> baibai_engine.market_context.reading.cli",
 ]
 
 [[tool.importlinter.contracts]]

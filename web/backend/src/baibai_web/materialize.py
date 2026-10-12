@@ -21,7 +21,7 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel
 
 from baibai_engine.read_api import (
-    MACRO_READING_RULES_PATH,
+    READING_RULES_PATH,
     MaterializationPreconditionError,
     PortfolioSnapshot,
     StoreLayoutError,
@@ -29,10 +29,11 @@ from baibai_engine.read_api import (
     repository_root_error,
     screening_run_asof_dates,
     validate_application_store_schema,
-    validate_macro_reading_rules,
     validate_market_store_hydration,
     validate_market_store_schema,
+    validate_reading_rules,
 )
+from baibai_web.readmodel.assessment import build_market_context_assessment_detail
 from baibai_web.readmodel.builders import (
     build_daily_delta,
     build_dashboard,
@@ -40,7 +41,7 @@ from baibai_web.readmodel.builders import (
     build_operations_view,
     build_tasks,
 )
-from baibai_web.readmodel.macro import build_macro, build_macro_context_detail, build_macro_series
+from baibai_web.readmodel.market_context import build_indicator_series, build_market_context
 from baibai_web.readmodel.models import DashboardView, MetaBatch, ScreeningView
 from baibai_web.readmodel.stocks import (
     build_assessment_detail,
@@ -86,7 +87,7 @@ def export_read_models(
 
     stores = build_sources(root)
     validate_application_store_schema(stores.app_db_path)
-    validate_macro_reading_rules(root / MACRO_READING_RULES_PATH)
+    validate_reading_rules(root / READING_RULES_PATH)
     validate_market_store_schema(stores.market_db_path)
     validate_market_store_hydration(stores.market_db_path)
     # These sources live only for this export. API requests keep the fresh DB sources.
@@ -148,27 +149,29 @@ def export_read_models(
 
     known_at = datetime.now(_JST)
     as_of = known_at.date()
-    macro = build_macro(stores.macro, as_of=as_of, known_at=known_at)
+    macro = build_market_context(stores.market_context, as_of=as_of, known_at=known_at)
     written.append(_write_model(views_dir / "macro.json", macro))
-    for group in stores.macro.groups:
+    for group in stores.market_context.groups:
         for configured in group.series:
             series_id = configured.series_id
             if _MACRO_SERIES_ID_FORMAT.fullmatch(series_id) is None:
                 _warn(f"macro series_id has an unexpected format: {series_id!r}; view skipped")
                 continue
-            series = build_macro_series(stores.macro, series_id=series_id, as_of=as_of)
+            series = build_indicator_series(stores.market_context, series_id=series_id, as_of=as_of)
             if series is None:  # pragma: no cover - group entries come from the registry
                 _warn(f"macro series view is unavailable for {series_id!r}; skipped")
                 continue
             written.append(_write_model(views_dir / f"macro-series--{series_id}.json", series))
 
-    for context in stores.macro.contexts():
+    for context in stores.market_context.assessment_history():
         context_id = str(context["context_id"])
         if _MACRO_CONTEXT_ID_FORMAT.fullmatch(context_id) is None:
             _warn(f"macro context_id has an unexpected format: {context_id!r}; report view skipped")
             continue
         try:
-            detail = build_macro_context_detail(stores.macro, context_id=context_id, as_of=as_of)
+            detail = build_market_context_assessment_detail(
+                stores.market_context, context_id=context_id, as_of=as_of
+            )
         except ValueError as error:
             # A not-yet-eligible (future as_of) revision is 404 on the API too; skip it
             # rather than fail the whole batch.

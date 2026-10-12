@@ -124,13 +124,13 @@ class ErLevelCalibrationContext:
 
 
 @dataclass(frozen=True, slots=True)
-class MacroSeriesConfig:
+class IndicatorSeriesConfig:
     series_id: str
     # None means "use the series registry name" (single source of truth for labels).
     label: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
-class MacroGroupConfig:
+class IndicatorGroupConfig:
     title: str
-    series: tuple[MacroSeriesConfig, ...]
+    series: tuple[IndicatorSeriesConfig, ...]

@@ -1,17 +1,25 @@
 ---
-title: "Market Context / Macro reference"
+title: "Market Context reference"
 summary: "Market Contextの保存済み市場・個別相対の読取、経済観測・Readingと明示作成する市場環境判断、保存履歴の契約。"
 doc_type: reference
 status: active
 ---
 
-# Market ContextとMacro
+# Market Context — 指標・Reading・判断・保存履歴
 
-本書はMarket Contextの市場・個別相対の読取と、既存macro観測・Reading・Macro Contextの契約を所有する。個別企業の価値評価は[Valuation metrics](./valuation-metrics.md)と[Thesis](./thesis.md)が所有する。
+本書はMarket Contextの市場・個別相対の読取、経済指標・Reading、明示的assessment、過去に保存された判断本文の読取契約を所有する。個別企業の価値評価は[Valuation metrics](./valuation-metrics.md)と[Thesis](./thesis.md)が所有する。
 
 Market Contextの`indicators`はL1のregistry・取得・DB adapter、`reading`はL2の決定的算術・保存済みreaderを所有する。観測契約は`indicators/observations.py`に置き、計算からDB adapterを参照しない。L3は`market_context/assessment`が所有し、旧reportは履歴として読む。
 
-既存macro工程はL1観測とL2 Readingを日次に更新し、人間の明示開始でL3 Macro Contextを作成する。新判断は下記assessmentの最小契約とreview手順に従う。Market Context全体へこのレポート作成を必須にせず、保存済み機械状態と発行済み判断は個別に読める。
+日次工程はL1観測とL2 Readingを更新し、人間の明示開始でMarketContextAssessmentを作成する。新判断は下記assessmentの最小契約とreview手順に従う。Market Context全体へこのレポート作成を必須にせず、保存済み機械状態と発行済み判断は個別に読める。
+
+## 現行配置と保全するidentity
+
+`indicators`はL1の取得/registry/観測DB、`reading/query.py`は保存観測からのL2読取、`assessment`は明示判断と保存履歴を所有する。Web/batch/Owner MCPの公開読取は`read_api/market_context.py`へ統合し、旧moduleを転送する入口は置かない。Webの現在の内容は`AssessmentContent`、過去の章・確率・主張・引用は歴史的本文の表示であり、新writerの必須構造ではない。
+
+この内部整理で保存形式は変更しない。指標は`stores/macro/macro.sqlite`/R2 `macro.sqlite`、判断はapplicationの`macro_context`、schema5/旧保存ID、外部HTTP `/api/macro*` と既存serving keyを維持する。これらの物理/公開名は次段階の一回切替で扱う。現在のモデル名を保存tableや旧IDへ機械的に置換しない。
+
+Readingは`READING_RULES_PATH`が選ぶ一つのdated fileを使う。13の保存判断が引用する`method/macro/reading/2026-08-01T100000+0900.yaml`は元bytes/pathのまま保全し、別のcurrent copyを作らない。規則のidentityはdated stemであり、単なる配置整理で値・revision・schemaを変えない。
 
 <a id="market-context-reads"></a>
 
@@ -21,7 +29,7 @@ Market Contextの`indicators`はL1のregistry・取得・DB adapter、`reading`�
 
 ## Market Contextの保存済み読取
 
-Market Contextは経済、市場全体、業種と個別株の相対状態を扱う分析領域である。L1観測、L2機械状態、L3環境判断を区別し、既存Macro ContextはL3成果物の一つとして参照する。領域読取は`market_context`、Web/batchの公開facadeは`read_api/market_context`が所有する。取得・書込・AI起動を行わず、欠測を別領域の障害や「変化なし」へ置き換えない。
+Market Contextは経済、市場全体、業種と個別株の相対状態を扱う分析領域である。L1観測、L2機械状態、L3環境判断を区別し、現行のMarketContextAssessmentと、旧Macro Contextを含む保存判断の履歴を参照する。領域読取は`market_context`、Web/batchの公開facadeは`read_api/market_context`が所有する。取得・書込・AI起動を行わず、欠測を別領域の障害や「変化なし」へ置き換えない。
 
 市場・業種・個別の異なる統計をまとめて一つのscoreにはしない。
 
@@ -30,7 +38,7 @@ Market Contextは経済、市場全体、業種と個別株の相対状態を扱
 | Security Analysisの業種relative strength | Screeningの既存比較母集団。20 bar騰落の業種平均－市場平均と業種順位 | `market_context/sector`が計算し、Screeningが入力母集団・価格窓を供給する。個別対業種の差ではない |
 | market snapshot | benchmarkの週次20/60 bar騰落・20 bar平均超のbreadth、同じ観測日の銘柄による業種中央値 | 1321 proxyの±3%方向注記は広いリスク許容判断ではない。breadthは既存最小標本数、sectorは既存対象を維持し、平均対平均と統合しない |
 | security market context | 指定銘柄（候補外も可）の価格・benchmark比較と、同業peerの20 bar中央値 | 個別とbenchmark/peerは指定銘柄の同じ開始・終了日を使う。peerは自銘柄を除き、端点不足を補間・前日値で埋めない |
-| Macro Reading / assessment | 保存済み経済観測・Reading規則、保存済み判断 | 観測/公表vintageの契約を維持する。判断は`as_of / known_at`で適格性を判定し実発行時刻で選ぶ。固定IDの履歴閲覧は旧schemaも本文のまま返す |
+| Reading / MarketContextAssessment・保存履歴 | 保存済み経済観測・Reading規則、保存済み判断 | 観測/公表vintageの契約を維持する。判断は`as_of / known_at`で適格性を判定し実発行時刻で選ぶ。固定IDの履歴閲覧は旧schemaも本文のまま返す |
 
 個別対業種の`relative_return_20d`は個別の価格騰落－peer中央値で、ratioの差（0.1＝10 percentage points）である。`comparison_start_date / comparison_end_date / master_snapshot_date`を併記し、peer数と比較基準を示す。市場・業種が上昇し個別が下落しても、乖離だけから割安と認定しない。財務・利益・企業価値の算術はValuationが所有する。
 
@@ -41,24 +49,24 @@ masterはrequested cutoff以下の最新の一つのsnapshotを集合ごと選�
 ```bash
 uv run baibai-engine screening market-snapshot --asof YYYY-MM-DD --weeks 12
 uv run baibai-engine screening ticker-profile --ticker <TICKER> --asof YYYY-MM-DD
-uv run baibai-engine macro reading --asof YYYY-MM-DD --format json
+uv run baibai-engine market-context reading --asof YYYY-MM-DD --format json
 ```
 
 `ticker-profile`はMarket Context、保存済みSecurity Analysis、event、portfolioを合成する。市場・分類とrunのcutoffは要求日を使うが、portfolioは現在のledger documentを独立の`ledger_as_of`で表示し、要求日への保有履歴再生は行わない。profile全体を完全な過去時点再現とは扱わない。既存の`price.self_range_percentile`は価格観測の順位割合で、Valuationのmin/max内位置と別の量であり、窓は合成callerが既存methodから渡す。
 
-日次のmacro独立公開、有限AI調査・提案への接続、環境判断の深度は固定せず、materialな根拠・反証・含意に合わせる。以下にL1/Readingとassessmentの契約を示す。
+日次の指標独立公開、有限AI調査・提案への接続、環境判断の深度は固定せず、materialな根拠・反証・含意に合わせる。以下にL1/Readingとassessmentの契約を示す。
 
 ## ① データ：indicator series を引く
 
 `list` / `search`はregistryだけを読み、観測storeの作成・更新・schema検査を行わない。取得・更新の手順は[`Macro履歴`](../../batch/OPERATIONS.md#macro履歴)、撤回と退役の操作は[`Macro観測とregistryの修正`](../../batch/OPERATIONS.md#macro観測とregistryの修正)を参照する。
 
-指標データは `baibai-engine macro`（`engine/src/baibai_engine/market_context/indicators/`）で、再現可能かつ出所（provenance）付きで取得・キャッシュする。
+指標データは `baibai-engine market-context indicators`（`engine/src/baibai_engine/market_context/indicators/`）で、再現可能かつ出所（provenance）付きで取得・キャッシュする。
 
 ```bash
-uv run baibai-engine macro list --category rates       # 登録 series を見る
-uv run baibai-engine macro search 失業率              # 名前/alias/category で検索
-uv run baibai-engine macro get jp.nikkei225 --start 2026-05-20 --end 2026-06-22
-uv run baibai-engine macro get jp.policy_rate --latest
+uv run baibai-engine market-context indicators list --category rates       # 登録 series を見る
+uv run baibai-engine market-context indicators search 失業率              # 名前/alias/category で検索
+uv run baibai-engine market-context indicators get jp.nikkei225 --start 2026-05-20 --end 2026-06-22
+uv run baibai-engine market-context indicators get jp.policy_rate --latest
 ```
 
 `get`は取得済み範囲を確認し、不足があればproviderを呼ぶ。同じ引数でもstore状態・source改定・実行日によって結果は変わる。計算の決定性は保存入力・採用vintage・規則・as-ofが固定された場合の性質である。`get --latest`はJSTの運用日を基準に、[reading rules](../../engine/src/baibai_engine/market_context/reading/rules.py)の公表ラグと猶予でcacheの鮮度を判定する。再取得の窓幅は鮮度閾値とは別で、[indicator service](../../engine/src/baibai_engine/market_context/indicators/service.py)が日次batchと共有する。
@@ -138,7 +146,7 @@ HTTP 429はclient内部の再試行が尽きた後、statusを持たない`Retry
 
 新ソース追加＝provider モジュールを 1 つ足して（`providers/` に 1 ファイル）`providers/registry.py` に 1 行登録し、series を registry（`indicators/registry/` の region 別 yaml）へ 1 entry 加える。provider の取得能力（all-history 起点・store 書き換え方針・refresh 可否・point-in-time vintage・必要 env）は各 provider の `ProviderSpec` が宣言し、service / store reader は provider 名で分岐しない。point-in-time replay を提供する provider の spec は fetch 実装を import しない read-safe module に置き、provider 実装と reader が同じ spec を参照する。registered provider との drift は test で検出する。1 series_id = 1 provider を厳守する。provider 取得は一時的な `IndicatorsProviderError` を 1 回 retry し、再失敗した場合は `provider_runs` に failed として記録する。
 
-`macro refresh` は複数 series を 1 pass で取得し、1 series の失敗は他 series を止めない。失敗した series は最後にまとめて stderr へ列挙し、exit code は非 0 になる（1 つの壊れたソースが同一グループの残り全系列を stale にしない）。1 pass は 1 つの fetch context を共有するので、複数 series が同じ bulk ファイルを参照しても download は 1 回、browser fallback を要する provider の起動も 1 回で済む。取得値は store へ入る前に有限値であることを検証し、NaN / ±inf は取得失敗として扱う（派生計算・percentile・export を汚染させない）。`provider_runs`は取得の成否と`record_count`を記録する。
+`market-context indicators refresh` は複数 series を 1 pass で取得し、1 series の失敗は他 series を止めない。失敗した series は最後にまとめて stderr へ列挙し、exit code は非 0 になる（1 つの壊れたソースが同一グループの残り全系列を stale にしない）。1 pass は 1 つの fetch context を共有するので、複数 series が同じ bulk ファイルを参照しても download は 1 回、browser fallback を要する provider の起動も 1 回で済む。取得値は store へ入る前に有限値であることを検証し、NaN / ±inf は取得失敗として扱う（派生計算・percentile・export を汚染させない）。`provider_runs`は取得の成否と`record_count`を記録する。
 
 ### PMI release manifestの更新
 
@@ -148,7 +156,7 @@ PMI は data API が無いため、月次 release URL の manifest（`engine/src
 
 1 月 = 1 PDF なので、通常の refresh は store に無い月と、manifest の release URL が store の値の出所と一致しない月だけを取得する。final headline は公表後に改定されないため、同じ URL から取り直した月は同じ値になる。URL を訂正すればその月は自動で取り直される。抽出規則の変更後など stream 全体を source から作り直すときは `refresh --all-history` を使う（全月を再取得する）。
 
-**新しい月の追記は `baibai_engine.market_context.indicators.pmi_manifest` で行う**: S&P Global の公式 press release ページ（`/Public/Release/PressReleases`）が列挙する最新 release を stream ごとに拾い、release title の完全一致で系列を同定し、**release PDF が自分をその PMI と名乗り・自分の embargo 日が index の公表日と同じ月であり・headline をその月に結び付けていること**を 3 つとも確かめてから追記する。抽出には「その release 自身の月」として渡さず後の月を渡すので、月を明示しない reading（`posted 54.8`）は採られず、月を名指した reading（`posted 54.8 in June`）だけが通る。title を別の PMI に取り違えても月の証明だけは通ってしまうので（services も manufacturing と同じ形で headline を述べる）、系列は PDF 自身の名乗りで、公表月は PDF 自身の embargo 日で確かめる。**月が飛ぶ追記は拒否する**: provider の追いつき guard は manifest の最新月しか見ないため、穴を越えた entry を書くと飛ばした月が二度と報告されない。edge WAF が plain HTTP を challenge page（200）で返すときは、PDF 経路と同じ headless browser で index を読み直す。書き込みは copy を text 編集して provider の loader で読めることを確かめ、通ったものだけを正本へ move する（正本への書き込みは検証後の move 1 回だけ）。追記後は `macro refresh` で該当月を取得して公表値と照合してから commit する。
+**新しい月の追記は `baibai_engine.market_context.indicators.pmi_manifest` で行う**: S&P Global の公式 press release ページ（`/Public/Release/PressReleases`）が列挙する最新 release を stream ごとに拾い、release title の完全一致で系列を同定し、**release PDF が自分をその PMI と名乗り・自分の embargo 日が index の公表日と同じ月であり・headline をその月に結び付けていること**を 3 つとも確かめてから追記する。抽出には「その release 自身の月」として渡さず後の月を渡すので、月を明示しない reading（`posted 54.8`）は採られず、月を名指した reading（`posted 54.8 in June`）だけが通る。title を別の PMI に取り違えても月の証明だけは通ってしまうので（services も manufacturing と同じ形で headline を述べる）、系列は PDF 自身の名乗りで、公表月は PDF 自身の embargo 日で確かめる。**月が飛ぶ追記は拒否する**: provider の追いつき guard は manifest の最新月しか見ないため、穴を越えた entry を書くと飛ばした月が二度と報告されない。edge WAF が plain HTTP を challenge page（200）で返すときは、PDF 経路と同じ headless browser で index を読み直す。書き込みは copy を text 編集して provider の loader で読めることを確かめ、通ったものだけを正本へ move する（正本への書き込みは検証後の move 1 回だけ）。追記後は `market-context indicators refresh` で該当月を取得して公表値と照合してから commit する。
 
 ```bash
 uv run python -m baibai_engine.market_context.indicators.pmi_manifest --dry-run   # 何が追記されるかだけ見る
@@ -158,10 +166,10 @@ uv run python -m baibai_engine.market_context.indicators.pmi_manifest           
 **過去月の穴埋めは同じページの archive snapshot から辿る**：この index は最新 1 か月分しか列挙しないため、それより古い release id はサイトからは辿れない。Wayback の同 URL の snapshot が捕捉時点の一覧（公表日・タイトル・release id）を持つので、そこから月ごとの id を復元する。**復元した対応付けは、manifest に既にある月の id と一致するかで検算する**（release は前月分を報告するので、publish 月 − 1 が observed_at になる）。id が復元できない月でも、翌月の release が前月値を restate していればそこから読める：`observed_at` をその月、`release_observed_at` を翌月にして翌月の URL を書く（restate は「前月を名指した値」か「月を伴わない `down from X`」で書かれるため、後者は前月分としてだけ読む）。manifest が公表カレンダーに追いつかない（release 済みの月が manifest に無い）状態は取得の無音の停止になるため、provider が明示エラーで失敗させる: 要求 end の月に対して manifest 最新月が前月に達していないとき（当月 10 日以降）にエラーになり、日次バッチの繰延べ失敗として表面化する。このガードは取得（refresh / all-history）だけを止め、読み取りは store にある月をそのまま返す（manifest の追記漏れが既存データを隠さないため）。
 
 ```bash
-uv run baibai-engine macro refresh jp.pmi_manufacturing --start 2026-05-01 --end 2026-06-30
-uv run baibai-engine macro refresh jp.bankruptcies --all-history --end 2026-07-24
-uv run baibai-engine macro get jp.bankruptcies --start 2003-01-01 --end 2026-07-24
-uv run baibai-engine macro get jp.pmi_manufacturing --start 2023-01-01 --end 2026-07-24
+uv run baibai-engine market-context indicators refresh jp.pmi_manufacturing --start 2026-05-01 --end 2026-06-30
+uv run baibai-engine market-context indicators refresh jp.bankruptcies --all-history --end 2026-07-24
+uv run baibai-engine market-context indicators get jp.bankruptcies --start 2003-01-01 --end 2026-07-24
+uv run baibai-engine market-context indicators get jp.pmi_manufacturing --start 2023-01-01 --end 2026-07-24
 ```
 
 `macro.sqlite` は schema / series registry と各 provider（PDF / API / CSV）から再構築する L1 store であり、定期 backup は持たない。ただし PMI 履歴のように publisher が古い URL を落とすと再取得できない部分があるため、R2 への push は上書き対象の 1 世代を `<key>.bak` として残す（[`batch/OPERATIONS.md`](../../batch/OPERATIONS.md)）。
@@ -183,8 +191,8 @@ uv run baibai-engine macro get jp.pmi_manufacturing --start 2023-01-01 --end 202
 macro reading は L1 store だけを入力に、登録全系列の **記述統計と鮮度** を決定論で出す L2 出力である。「今の VIX は歴史的に高いのか」を分析セッションごとに人が判断し直さないための共通の物差しであり、regime 分類・合成 score・売買 signal は出さない。
 
 ```bash
-uv run baibai-engine macro reading --asof 2026-07-24                 # 表形式
-uv run baibai-engine macro reading --asof 2026-07-24 --format json   # 機械読み
+uv run baibai-engine market-context reading --asof 2026-07-24                 # 表形式
+uv run baibai-engine market-context reading --asof 2026-07-24 --format json   # 機械読み
 ```
 
 ### 解釈上の注意
@@ -201,7 +209,7 @@ reading は L1 store を読むだけの純関数で、provider を呼ばず DB �
 
 過去as-ofの再計算は、全sourceの改定前情報を当時のまま再現する保証ではない。取得時刻と公表vintageを区別する。
 
-Baibai Loop の Macro タブは、上から **現在のマクロ局面 → マクロ経済指標 → 過去の経済分析レポート**の順に表示する。現在読み値は `web/config/macro-panel.yaml` の 7 group 順に `series_id` で join し、最新値・観測日・短期/長期トレンド・`statistic`・percentile・`z_score`・実効窓・注記を並べる。行を開いた後だけ拡大チャートを取得する。**チャートの期間・粒度と percentile の実効窓は別物**なので、列見出しの ⓘ で明示する。
+Baibai Loop の Macro タブは、上から **現在のマクロ局面 → マクロ経済指標 → 過去の経済分析レポート**の順に表示する。現在読み値は `web/config/market-context-panel.yaml` の 7 group 順に `series_id` で join し、最新値・観測日・短期/長期トレンド・`statistic`・percentile・`z_score`・実効窓・注記を並べる。行を開いた後だけ拡大チャートを取得する。**チャートの期間・粒度と percentile の実効窓は別物**なので、列見出しの ⓘ で明示する。
 
 取得失敗、stale、insufficient_history、分布の端は別の状態である。系列の開始時点や配信範囲による履歴不足は、再取得すれば必ず解消する障害ではない。現在読み値ではこれらを件数と絞り込みに使い、indicator storeがない場合は読み値をunavailableとして、保存済みContextとreport indexを表示する。
 

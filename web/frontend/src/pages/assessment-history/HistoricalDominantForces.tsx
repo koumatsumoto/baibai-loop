@@ -1,10 +1,10 @@
-import type { MacroSynthesisView } from '../../api/types'
+import type { HistoricalSynthesisView } from '../../api/types'
 import { CountercaseBlock } from '../../components/report/CountercaseBlock'
 import { SectionCard } from '../../components/SectionCard'
-import { forceTitle } from '../../lib/macro-report'
+import { forceTitle } from '../../lib/assessment-history'
 import { EvidenceDisclosure, JudgmentBadge } from './shared'
 
-export function MacroDominantForces({ synthesis }: { synthesis: MacroSynthesisView }) {
+export function HistoricalDominantForces({ synthesis }: { synthesis: HistoricalSynthesisView }) {
   const forces = synthesis.dominant_forces ?? []
   const interactions = synthesis.interactions ?? []
   return (

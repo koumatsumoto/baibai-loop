@@ -13,29 +13,29 @@ from pathlib import Path
 from baibai_engine.read_api import (
     APPLICATION_DB_PATH,
     ER_LEVEL_CALIBRATION_CONTEXT_PATH,
-    MACRO_DB_PATH,
-    MACRO_READING_RULES_PATH,
+    INDICATORS_DB_PATH,
     MARKET_DB_PATH,
+    READING_RULES_PATH,
     RUNS_DB_PATH,
     screening_calibration_method_identity,
     validate_application_store_schema,
     validate_market_store_schema,
 )
-from baibai_web.repository_layout import MACRO_PANEL_CONFIG_PATH
+from baibai_web.repository_layout import INDICATOR_PANEL_CONFIG_PATH
 from baibai_web.sources.calibration_context import load_er_level_calibration_context
 from baibai_web.sources.db_sources import (
     DbExternalAssessmentSource,
     DbLedgerSource,
-    DbMacroSource,
+    DbMarketContextSource,
     DbMarketPriceSource,
     DbMetaSource,
     DbOperationsSource,
     DbResearchSource,
     DbScreeningSource,
     DbTaskSource,
-    load_macro_panel_config,
+    load_indicator_panel_config,
 )
-from baibai_web.sources.types import ErLevelCalibrationContext, MacroGroupConfig
+from baibai_web.sources.types import ErLevelCalibrationContext, IndicatorGroupConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +47,7 @@ class Sources:
     research: DbResearchSource
     tasks: DbTaskSource
     screening: DbScreeningSource
-    macro: DbMacroSource
+    market_context: DbMarketContextSource
     operations: DbOperationsSource
     market: DbMarketPriceSource
     meta: DbMetaSource
@@ -57,10 +57,10 @@ class Sources:
     market_db_path: Path
 
 
-def load_macro_groups(root: Path) -> tuple[MacroGroupConfig, ...]:
+def load_indicator_groups(root: Path) -> tuple[IndicatorGroupConfig, ...]:
     """Load the macro panel config from its canonical repository location."""
 
-    return load_macro_panel_config(root / MACRO_PANEL_CONFIG_PATH)
+    return load_indicator_panel_config(root / INDICATOR_PANEL_CONFIG_PATH)
 
 
 def build_sources(
@@ -68,11 +68,11 @@ def build_sources(
     *,
     db_path: Path | None = None,
     runs_db_path: Path | None = None,
-    macro_groups: tuple[MacroGroupConfig, ...] | None = None,
+    indicator_groups: tuple[IndicatorGroupConfig, ...] | None = None,
 ) -> Sources:
     """Wire every application source for ``root``.
 
-    ``db_path`` / ``runs_db_path`` override the repository defaults. ``macro_groups``
+    ``db_path`` / ``runs_db_path`` override the repository defaults. ``indicator_groups``
     lets a caller reuse an already-loaded dashboard config (the FastAPI app loads it
     once at startup and fails fast on a bad file); by default the config is read
     from the repository.
@@ -81,8 +81,8 @@ def build_sources(
     resolved_db = (db_path or root / APPLICATION_DB_PATH).resolve()
     resolved_runs = (runs_db_path or root / RUNS_DB_PATH).resolve()
     resolved_market = (root / MARKET_DB_PATH).resolve()
-    indicators_db = root / MACRO_DB_PATH
-    groups = macro_groups if macro_groups is not None else load_macro_groups(root)
+    indicators_db = root / INDICATORS_DB_PATH
+    groups = indicator_groups if indicator_groups is not None else load_indicator_groups(root)
     validate_application_store_schema(resolved_db)
     validate_market_store_schema(resolved_market)
     return Sources(
@@ -91,7 +91,9 @@ def build_sources(
         research=DbResearchSource(resolved_db),
         tasks=DbTaskSource(resolved_db),
         screening=DbScreeningSource(resolved_runs),
-        macro=DbMacroSource(resolved_db, indicators_db, groups, root / MACRO_READING_RULES_PATH),
+        market_context=DbMarketContextSource(
+            resolved_db, indicators_db, groups, root / READING_RULES_PATH
+        ),
         operations=DbOperationsSource(resolved_db),
         market=DbMarketPriceSource(resolved_market),
         meta=DbMetaSource(resolved_db, resolved_runs, indicators_db),

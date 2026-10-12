@@ -87,7 +87,7 @@ credentialを含むsource URL・provider errorは既存のredactionを通して�
 ```
 
 例の日付は実際の評価日に置き換えてください。readingは現在のstore履歴と既存rulesから再計算したL2です。
-過去L3を自動で混ぜません。保存Macro Contextは`macro.context`から別に取得します。
+過去L3を自動で混ぜません。保存された市場環境判断は`macro.context`から別に取得します。
 
 利用可能なresource・selector・filter・sort・time basisは`data_catalog`の実応答を参照する。macro Readingの再計算と保存Contextの取得、ledgerの保存価格と現在quoteは別のresourceである。
 
@@ -193,7 +193,7 @@ current L1やSecurity Analysisから再計算せず、Triageの有無や判断�
 
 1. `triage_resolve(not_before="2026-09-14")`を呼びます。指定日以降の`as_of`、`published_at`、
    `research_triage_id`昇順で最初の完全なTriageを返します。
-2. responseの`triage_ref`全体を保存し、`as_of`、`run_at`、Review Set、run、Macro Context、
+2. responseの`triage_ref`全体を保存し、`as_of`、`run_at`、Review Set、run、assessment、
    rules / Candidate Discovery method identityを確認します。
 3. `triage_get_input(triage_ref=...)`で全候補を含む`model_input`を取得します。
    別Chatでも同じrefを渡します。再resolveは新しい比較の開始として扱います。
@@ -233,7 +233,7 @@ Owner toolsも完全な結果を返し、wire上限を超える場合は`RESULT_
 | code | 意味 |
 | --- | --- |
 | `INVALID_ARGUMENT` | selector・reference・日付・時刻が不正 |
-| `SOURCE_UNAVAILABLE` | canonical Triage、source run / Review Set、bound Macro Contextが利用不能 |
+| `SOURCE_UNAVAILABLE` | canonical Triage、source run / Review Set、bound assessmentが利用不能 |
 | `AMBIGUOUS_SELECTION` | exact日に複数の完全なTriage、またはpublic run IDに複数revisionが存在 |
 | `REFERENCE_MISMATCH` | 固定referenceと再読payloadのhashが不一致 |
 | `CONTRACT_MISMATCH` | schema・domain・source bindingが不整合、またはledgerが破損 |
@@ -243,3 +243,5 @@ Owner toolsも完全な結果を返し、wire上限を超える場合は`RESULT_
 | `RESULT_TOO_LARGE` | 完全な結果を上限内で返せない |
 
 内部exception本文・credential・local pathは公開エラーに含めません。
+
+Market Contextの実装入口は`resources_market_context.py`と`read_api/market_context.py`で、L1指標とL2 Readingを分ける。L3は共有applicationのpublication readerを使う。現在のresource ID `macro.*`は公開契約として次の切替まで保持し、旧moduleの転送aliasは置かない。

@@ -9,7 +9,7 @@ from functools import cache
 from pathlib import Path
 from typing import cast
 
-from baibai_engine.foundation.repository_layout import MACRO_DB_PATH
+from baibai_engine.foundation.repository_layout import INDICATORS_DB_PATH
 
 from .definitions import IndicatorDefinitions, SeriesDefinition, load_definitions
 from .observations import ObservationRecord
@@ -18,7 +18,7 @@ SQLITE_SCHEMA_VERSION = 7
 # The acquisition outcome that says "this observation is withdrawn from the reads".
 RETRACTED_STATUS = "retracted"
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
-DEFAULT_DB_PATH = MACRO_DB_PATH
+DEFAULT_DB_PATH = INDICATORS_DB_PATH
 _ROW_COUNT_SQL = {
     "series": "SELECT COUNT(*) FROM series",
     "aliases": "SELECT COUNT(*) FROM aliases",
