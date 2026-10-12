@@ -25,7 +25,7 @@
 ## 5. awaiting human selection
 
 - **入力** — 未判断のReview Setで2件が`research`、残りが`skip`。
-- **期待** — 発行成功後は`published_awaiting_human`。exact IDと全候補を提示し、人間の選択までResearchへ進まない。既存Triageの再表示では`awaiting_human`になる。
+- **期待** — 発行成功後は`published_research_available`。exact IDと全候補を提示し、ユーザーの明示開始なしではResearchへ進まない。既存Triageの再表示では`research_available`になる。
 
 ## 6. active Operation
 
@@ -35,7 +35,7 @@
 ## 7. exact Triage already published
 
 - **入力** — exact Review Setとrun revisionに対応するcanonical Research Triage。
-- **期待** — model process 0、Triage publish 0、Operation 0。`research`があっても人間がResearch Setを確定して`research prepare`を実行するまでOperationを開始しない。
+- **期待** — model process 0、Triage publish 0、Operation 0。`research`があってもユーザー明示開始に基づく有限選択で`research prepare`を実行するまでOperationを開始しない。
 
 ## 8. invalid AI result
 

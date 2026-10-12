@@ -74,7 +74,7 @@ Contextが無ければ`null`は正常、古ければwarningであり、どちら
 
 ADVは固定floorのgateや自動skip条件ではない。Triageは低値・欠損だけで`skip`やpriorityを決めず、価値仮説を比較した後の実行可能性contextとしてrationaleへ反映できる。最終的な注文可否と数量はCapital Allocation後のhuman executionが所有する。
 
-Research TriageはResearch Setのadmission可能範囲を定める。人間は`research` entryの部分集合だけをResearch Setとして確定できる。`research prepare --research-triage-id ... --ticker ...`はas-ofと比較snapshotをcanonical payloadから導出し、選択集合をmanifestへ固定し、そのnon-empty集合のResearch開始Operationを同時に作る。空集合はOperationなしの正常結果である。Review Set fileやrun storeは要求しない。status・scaffold・promoteを含む各gateがapplication DBを再読してpayload hashとadmissible ticker集合を検証し、workspaceへの後書きadmissionを拒否する。
+Research Triageは新規のadmission可能範囲を定め、対象選択そのものや購入を認定しない。明示開始後の有限選択・部分完了・保有との合算は[Research進行](./analysis-operations.md#明示開始と固定対象)、操作は[Research skill](../../.agents/skills/research/SKILL.md)が所有する。
 
 E[r] calibration contextは共有read contractがartifact schema、generated/expiry、3y/5y、quantile/band、rules hash、E[r] model versionを検証する。ResearchはTriage rootのrules hashとReview Set Entryの`analysis.expected_return`のmodel/version・ratio-valued `er_annual`を使い、利用不能理由を明示する。これはhistorical contextで、membership/order、Triage、FV、buy judgmentへ伝播しない。
 
@@ -86,7 +86,7 @@ daily runnerはcloud scheduleまたは明示的なlocal実行でL1 / L2 machine�
 screening run -> review-set publish -> web materialize -> publish
 ```
 
-cloudからL3 Research Triageを発行しない。local `baibai-batch analysis run`はpull済みruns storeから対象`as_of`のlatest published Review Setを読み、必要な場合だけReview Set全体を原則1 requestで分類してResearch Triageを発行する。対象日にReview Setが無ければ前営業日へfallbackしない。Research Set確定とCapital Allocation Assessmentは人間gateの後に残す。full-depth Macro Context、migration、全期間再取得はどちらの日次経路にも載せない。
+cloudからL3 Research Triageを発行しない。local `baibai-batch analysis run`はpull済みruns storeから対象`as_of`のlatest published Review Setを読み、必要な場合だけReview Set全体を原則1 requestで分類してResearch Triageを発行する。対象日にReview Setが無ければ前営業日へfallbackしない。有限選択とResearchは明示ユーザー開始で進め、提案完成と最終採否は分ける。full-depth Macro Context、migration、全期間再取得はどちらの日次経路にも載せない。
 
 ## Pruneと履歴
 
@@ -108,6 +108,6 @@ cloudからL3 Research Triageを発行しない。local `baibai-batch analysis r
 - Research Triageの全entry一致、priority、rules/method identity、expected prior ID
 - 対象日のReview Setなし、空Review Set、exact既存Triageでmodel process 0。active Operationはdaily Triageを止めない
 - 通常Review Setは共有Macro projectionを1回だけ含む1 AI request、invalid resultはcanonical write 0
-- Triage publishではOperation 0。人間がnon-empty Research Setを確定してResearchを開始した時だけOperation 1
+- Triage publishではOperation 0。ユーザーの明示開始と固定した新規/保有集合（0件も含む）でOperation 1
 - run storeとapplication DBがcurrent schemaに一致
 - Web/APIがReview Set、Research Triage、Capital Allocation Assessmentを同じbindingで表示

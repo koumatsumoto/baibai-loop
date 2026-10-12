@@ -137,7 +137,7 @@ ADV参加率はTriageの観測日付き流動性contextを参照し、欠損は�
 
 ## Workspaceとコマンド
 
-admissionはexact Triageと人間のResearch SetをOperationへ固定する。Workspaceはdraft作成・再利用・promoteを所有し、注文式やchecklist全行completeという第二gateを持たない。公開状態はexact Thesis/Reviewとの一致で決まる。保有Workspaceは対象holdingを確認し、無関係なledger更新で調査をやり直さない。
+新規admissionはexact Triageと明示開始後のAI選択をOperationへ固定し、保有は同じ有限対象の別purposeとする。Workspaceはdraft作成・再利用・promoteを所有し、注文式やchecklist全行completeという第二gateを持たない。公開状態はexact Thesis/Reviewとの一致で決まる。保有Workspaceは対象holdingを確認し、無関係なledger更新で調査をやり直さない。
 
 ```bash
 uv run baibai-engine research evaluate /tmp/thesis-draft.yaml --review /tmp/thesis-review.yaml

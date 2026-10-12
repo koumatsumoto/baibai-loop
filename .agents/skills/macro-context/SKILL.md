@@ -5,7 +5,7 @@ description: 人間の明示的な依頼でfull-depthのMacro Contextを評価�
 
 # Macro Context
 
-人間の明示的な依頼で実行する。日次の機械series/Reading更新からContext執筆を自動起動しない。成果物の構成と深度は[macro reference](../../../docs/reference/macro.md#depth-contract)に従う。
+独立した深い環境評価を明示依頼された場合の既存Macro Context発行手順である。通常の有限Researchでは保存済みReading・市場/業種/個別状態のmaterialな含意をThesis/提案へ接続し、この全depth手順を必須にしない。日次の機械更新からContext執筆を自動起動しない。成果物の構成と深度は[macro reference](../../../docs/reference/macro.md#depth-contract)に従う。
 
 ## 外部Chatとの引継ぎ
 

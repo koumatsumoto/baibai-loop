@@ -412,7 +412,7 @@ def test_zero_research_is_a_normal_prepared_workspace(tmp_path: Path) -> None:
     assert OperationService(db_path).active() is not None
 
 
-def test_human_can_confirm_empty_research_set_without_starting_operation(tmp_path: Path) -> None:
+def test_explicit_empty_selection_is_recorded_without_fake_proposal(tmp_path: Path) -> None:
     db_path = tmp_path / "app.sqlite"
     triage = _publish_triage(db_path)
 

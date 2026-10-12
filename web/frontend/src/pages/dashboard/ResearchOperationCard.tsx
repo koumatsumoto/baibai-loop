@@ -23,7 +23,7 @@ export function ResearchOperationCard({ operations }: { operations: OperationSes
           const outcome = outcomes.find(item => item.ticker === target.ticker)
           const draft = record(outcome?.draft)
           const state = outcome?.status === 'reviewed' ? 'Reviewed Thesis完了' : outcome?.status === 'proposal' ? `保有提案 ${draft?.action === 'hold' ? 'hold' : draft?.action === 'exit' ? 'exit' : '未確定'}（人間確認済み公開とは別）` : outcome?.status === 'unfinished' ? `調査未完了: ${String(outcome.reason)}` : '調査中'
-          return <p key={String(target.ticker)} className="mt-1"><span className="font-mono">{String(target.ticker)}</span> · {target.purpose === 'holding' ? '保有' : '新規'} · {state}</p>
+          return <p key={String(target.ticker)} className="mt-1"><span className="font-mono">{String(target.ticker)}</span> · {target.purpose === 'holding' ? '保有' : '新規'} · {state}{outcome?.status === 'proposal' && <span className="ml-2 text-xs text-muted-foreground">検証時点 {String(outcome.checked_at ?? '未記録')}</span>}</p>
         })}
         <p className="mt-1 break-all text-xs text-muted-foreground">{operation.operation_id} · {String(operation.payload.result ?? operation.payload.checkpoint)}</p>
       </div>

@@ -51,7 +51,7 @@ class ResearchSetAdmissionBinding:
     """The canonical ResearchTriage judgment a research workspace is bound to.
 
     ``admissible_tickers`` is the Research Triage's ``research`` set in judgment order: the exact
-    set a human may admit into the Research Set. The human still chooses
+    range an explicit AI selection may admit into new Research. The selection chooses
     which of those to research; what they cannot do is widen the set from the
     workspace, because a canonical thesis is produced per ticker and the Gate
     already decided this cycle's answer for each one.

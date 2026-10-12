@@ -121,9 +121,11 @@ ValuationはResearch・read_api・Screeningへ依存しない。保存済み解�
 
 Market ContextはL1 reader、macroの型・既存Reading計算と自領域の算術へ依存し、Research・CAA・Screening・Position・UI合成read_apiへ依存しない。SQLiteの汎用read-only/未作成判定は`foundation/sqlite_read`、application schema検証は`appdb/read`が所有する。領域読取は取得・書込を行わない。Webの`read_api/market_context`、既存CLI、batch/Triage callerが同じ領域読取へ委譲する。Macro Context packageの起動でwriterをeager importせず、発行は明示serviceだけを使う。
 
-現在もdailyのscreening失敗とmacro公開は独立していない。workflow/store/部分公開の分離と、AI調査・提案への新しい接続は未完了である。
+現在もdailyのscreening失敗とmacro公開は独立していない。workflow/store/部分公開の分離は未完了である。有限Researchの対象・部分完了・保有提案を既存Operationへ接続したが、最終配置と本番統合受入は未完了である。
 
 External Assessmentの読取は保存済み入力だけを使い、取得・書込・AI起動をしない。CLIの明示`collect / import`だけが既存L1取得・保存入口へ委譲する。L1取得後の検証はexact receipt keyの読戻しであり、分析の最新・直前selectorへ逆依存しない。型・比較・欠測の意味は[data sources](./reference/data-sources.md#external-assessment)、保存と読取の契約は[market lake](./reference/market-lake.md#retail-dynamics-query)が所有する。
+
+Researchは三領域の小さな読取とrun-storeの保存済み解析を調査入力へ合成する。UIのticker profileを領域入力として使わない。`research/operation/progress`が対象・被覆とCAA scope、既存PositionReview serviceが保有draftの検証を所有する。Operationのpayload/manifestを使い、予算DB・汎用承認基盤・新状態機械は作らない。現在のTriage型/serviceは`foundation/research_triage`・`screening/research_triage`配置に残る。Researchへの移動、storage構造整理、Valuation/Market Contextの残配置統合は別の未完了作業であり、将来配置を現行として記載しない。
 
 変更箇所は次の順に辿る。
 

@@ -1,6 +1,6 @@
 ---
 name: research-triage
-description: 保存済みReview SetをTriage判断し、人間のResearch Set選択へ渡す。
+description: 明示依頼で保存済みReview SetをTriage判断し、有限なAI調査選択へ渡す。
 ---
 
 # Research Triage
@@ -25,13 +25,13 @@ description: 保存済みReview SetをTriage判断し、人間のResearch Set選
 
    Screening Run・Review Setの生成が必要なら、先に[日次machine処理](../../../batch/OPERATIONS.md#日次機械工程--baibai-batch-daily)を完了する。このrunner自体は新しい市場データを取得せず、Review Setも生成しない。
 
-3. [終了状態](../../../docs/reference/analysis-operations.md#終了状態)を確認する。新しい発行が成功した`published_awaiting_human / published_all_skip`では、[実行境界](../../../batch/OPERATIONS.md#actions-write-boundary)と[application反映手順](../../../batch/OPERATIONS.md#application-db-を反映する)に従いクラウドへ反映する。
+3. [終了状態](../../../docs/reference/analysis-operations.md#終了状態)を確認する。新しい発行が成功した`published_research_available / published_all_skip`では、[実行境界](../../../batch/OPERATIONS.md#actions-write-boundary)と[application反映手順](../../../batch/OPERATIONS.md#application-db-を反映する)に従いクラウドへ反映する。
 
    正常なno-opだけで新たなpublishを実行しない。前回のクラウド反映が未完了なら、Triageを再生成せず反映手順で完了させる。
 
-4. research候補がある場合は、返されたexact Triage ID・as-ofを示す。選定を明示的に委任された場合は指定範囲の候補と選定理由を示して進む。それ以外はpriority順の全候補、理由、調査質問、主要リスクを示し、人間の選択を待つ。全skip・対象なしでは選択を求めない。
+4. research候補がある場合はexact Triage ID・as-ofとpriority順の候補、理由、調査質問、主要リスクを示す。Triage発行は調査開始・購入ではない。ユーザーが調査・提案まで明示開始したときは、保有と合わせた有限選択へ進める。上限や現在の目的は[Research](../research/SKILL.md)に従い、枠外の候補を価値のないskipへ書き換えない。
 
-5. 選択したtickerとexact Triage IDを[Research](../research/SKILL.md)へ渡す。Triage発行ではOperationを開始しない。
+5. 開始要求・選定理由・exact Triage IDと新規/保有purposeを[Research](../research/SKILL.md)へ渡す。日次やTriage発行だけで後続AI調査を起動しない。
 
 ## 失敗時
 
