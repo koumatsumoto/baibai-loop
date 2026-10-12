@@ -123,7 +123,7 @@ ER較正の意味契約と保存済み評価帯解釈・読取は`valuation/cali
 | 未完了項目 | 現行と最終境界の差分 |
 | --- | --- |
 | 永続identity | External Assessmentはtable/index/dataset・新規plan/cohort stage/raw prefix・workflow/concurrencyを領域名へ統一。schema30→31の隔離migrationと明示切替は[batch運用](../batch/OPERATIONS.md#external-assessment-identity-cutover)に従い、本番受入まで未完了。Market Contextの物理名・既存判断payloadの切替は別単位 |
-| daily独立公開 | Screening失敗とmacro公開はまだ独立していない。workflow/store/部分公開の分離が残る |
+| daily運用受入 | #1439でScreening失敗/日本休日から指標更新を独立させ、runとReview Setのatomic保存・全views単一公開・旧history保持を実装済み。実運用の領域失敗/休日・lease/CAS・単一公開の受入は未完了 |
 | 最終運用受入 | 実体配置・保存・公開・画面・CLI・docsの結合、四媒体の取得/読戻し、AI運用の有用性/根拠/時間を実運用で確認する |
 
 この表は現行実装の未完了範囲を示す。後続の取り込み時にも同じ文書の差分を照合し、実装に合わせて該当行を更新する。詳細な判断と移行証拠は#1414に残し、仕様は本書とreferenceへ統合する。

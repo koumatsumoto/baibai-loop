@@ -777,7 +777,7 @@ R2費用確認ではprivate stage/raw、lease、pull/hydrate、L1 export/upload/
 
 **前提**: schema31のtable/index/datasetは`external_assessment`へ統一する。値・元受領UTC・JST基準日・出所・parser履歴・NULLの意味と、他領域のdataset contractは変更しない。旧schema30を新runtimeで透過的に読むaliasや、旧planの再bindingは作らない。Market ContextのDB/table/判断payloadは対象外。旧29→30の株マップ追加toolは切替受入済みのため除去した。
 
-取得中の旧plan/writerを切り替えない。8301補完とcohort簡素化の受入後、旧batchが終端で新writerも開始しない運用窓を確保する。rawの新単一prefixの削除設定は上記のとおりユーザー担当であり、codeだけで完了にしない。旧raw・plan・terminalは移動/削除/書換えせず歴史として残す。
+取得中の旧plan/writerを切り替えない。8301補完とcohort簡素化の受入後、旧batchが終端で新writerも開始しない運用窓を確保する。#1439の日次工程は日本休日やScreening失敗でも指標更新・全views/machine store公開へ進むため、休日をwriter不在の根拠にしない。daily・TradingView・外部評価・materializeとlocal発行の実run/processを確認する。rawの新単一prefixの削除設定は上記のとおりユーザー担当であり、codeだけで完了にしない。旧raw・plan・terminalは移動/削除/書換えせず歴史として残す。
 
 **事前検証**: 旧release ID・manifest hash・producer commitと、旧runtimeで固定releaseへhydrateしたschema30コピーを揃える。切替前後の比較・受入中の旧組合せ読戻し・通常復旧に必要なgraphとDBだけを、通常mirrorのGC外へ一時保全する。永久archive/pinは追加しない。業務観測の全rowは新正本へ移す。
 
@@ -795,11 +795,13 @@ production policyは全datasetに同じsealed SQLite世代を要求するため�
 
 1. [既存publication lease](#ローカルからクラウドを更新する)を取得し、同じlease内で最新pointer bytes/ETag、旧release/hash、`market.sqlite`世代とmachine receiptを固定する。旧runtimeで最新固定releaseへhydrateし、この最新コピーから変換・準備をやり直す。途中の世代変化・lease期限切れでは停止する。
 2. 検証済み切替commitを使い、prepared releaseを`baibai_batch.storage.lake_publish.publish_l1_release`へ渡す。取得した旧pointer ETagを`PointerPrecondition`に指定し、`before_pointer_switch`で`publication_lease.verify_held`を呼ぶ。既存publisherがimmutable graphをupload/検証した後、currentをCASで切り替える。低レベルpublication CLIは異なるcurrentへの置換を拒否するので、この単発operator手順で既存functionを使う。
-3. `advance_lake_store_origin`で作業DBを新releaseへ結び付け、upload用snapshotを新releaseに対してdehydrateする。取得した旧market世代への条件付きPUTでschema31を反映する。旧cloud30とlocal31は通常mergeが拒否するので、この最初のPUTを`push-market`や無条件overwriteで代行しない。
-4. cloud/localがともに31となった後、同じlease内で既存`r2_transfer.sh push-market`を実行する。通常のmerge・snapshot/CAS pushと`write_machine_manifest`によって3 keyの実際の現行ETagをreceiptへ記録する。追加DB pushとbackup更新を伴うため、最初の旧sourceは受入まで一時保全する。runs/macroへ値の更新を加えない。
+3. `advance_lake_store_origin`で作業DBを新releaseへ結び付け、upload用snapshotを新releaseに対してdehydrateする。書込直前に`publication_lease.verify_held`を再確認し、取得した旧market世代への条件付きPUTでschema31を反映する。旧cloud30とlocal31は通常mergeが拒否するので、この最初のPUTを`push-market`や無条件overwriteで代行しない。
+4. cloud/localがともに31となった後、lease保持を再確認して同じlease内で既存`r2_transfer.sh push-market`を実行する。通常のmerge・snapshot/CAS pushと`write_machine_manifest`によって3 keyの実際の現行ETagをreceiptへ記録する。追加DB pushとbackup更新を伴うため、最初の旧sourceは受入まで一時保全する。receipt更新直前にもleaseの有効性を確認し、長いexport/読戻しで期限を超えたら継続しない。runs/macroへ値の更新を加えない。
 5. cleanな切替commitからfresh `pull-machine`→hydrateし、receiptの全世代一致、新名の全履歴digest、元時刻・store-local data・query/API/Researchの欠測区別を確認する。serving生成は既存materialize経路を使う。旧graph＋元commitの一時コピーでも履歴読戻しを確認する。受入完了後にleaseを解放し、新writerは新planだけを作る。
 
 **失敗時**: pointer切替前なら旧正本を維持して停止する。PUT応答が曖昧なら現在のETag/bytesを読み、旧・新・第三者のどれかを確定してから判断する。新writer開始前の同lease内で復帰する場合に限り、lease保持と新pointerのbytes/ETag一致を検査して旧pointer bytesを新ETagへの条件付きPUTで戻す。DB反映済みなら直前旧DB・対応codeもCASで戻し、復帰後の実世代でreceiptを更新する。pointerだけ戻してschema31 runtimeを残さない。第三者の更新・lease失効では上書きせず停止する。新観測が入った後は古いDBへ戻さず、全新規事実を保持した前進修復として扱う。復帰専用runtime分岐や永続rollback rootは追加しない。
+
+通常dailyの`market_updated=false`によるL1公開省略は、変更のない業務観測の扱いである。table/dataset名とschemaの切替には適用せず、この明示手順で新releaseを必ず生成・検証する。正常に読めるnoticeの明示falseだけで省略し、notice不明時に公開する#1439の通常契約は変更しない。
 
 本番反映・lifecycle設定・新取得はこの手順の記述だけでは実施済みにならない。切替受入後、一回限りtoolと専用testは除去する。
 
