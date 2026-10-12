@@ -336,7 +336,8 @@ def test_tracked_tree_stays_inside_the_path_filter_evaluation_limit() -> None:
     """
     tracked = _git(ROOT, "ls-files").splitlines()
 
-    assert len(tracked) < 1000
+    # Any two trees below half the documented limit have a diff below that limit.
+    assert 2 * len(tracked) < 3000
 
 
 def test_runs_that_cannot_deploy_stay_out_of_the_production_queue() -> None:

@@ -7,6 +7,8 @@ status: active
 
 # Baibai Loop docs
 
+Valuation・Market Context・External Assessmentの意味は[domain-language](./domain-language.md#analysis-domains)、現行実装の責務と移行状況は[architecture](./architecture.md#repository-map)が所有する。
+
 ## 初めて読むとき
 
 [doctrine](./doctrine.md)で目的と判断原則を確認し、[domain-languageのDecision flow](./domain-language.md#decision-flow)で観測・候補・判断・確認済み取引の関係を掴む。構成や変更箇所を調べるときは[architecture](./architecture.md#repository-map)へ進む。実際の操作は下表の入口から始め、必要なreferenceだけを参照する。
@@ -23,6 +25,7 @@ status: active
 | 外部ChatのMacro draftを受け渡す | [Macro handoff](./reference/macro-handoff.md) |
 | batch・storeを運用する | [Ops Maintenance](../.agents/skills/ops-maintenance/SKILL.md) |
 | 保存済み情報を表示・照会する | [Web](../web/README.md)・[Owner MCP](../tools/owner_mcp/README.md) |
+| 保存済みの機械評価と企業固有評価を読む | [Valuation metrics](./reference/valuation-metrics.md#machine-valuation)・[Thesis](./reference/thesis.md#scenario-arithmetic) |
 | 見積り方法を改善する | [Estimate calibration](./reference/estimate-calibration.md) |
 | PC・クラウドで開発する、Actionsとの分担を確認する | [AGENTS](../AGENTS.md)・[Python foundation](./reference/python-foundation.md#cloud-development-boundary) |
 | artifact・指標の意味を調べる | [Reference index](./reference/README.md) |

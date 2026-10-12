@@ -10,7 +10,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from baibai_engine.research.thesis import ThesisDocument, current_price_projection
-from baibai_engine.research.valuation import finite_decimal
+from baibai_engine.valuation.scenario import finite_decimal
 
 _CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid", allow_inf_nan=False)
 

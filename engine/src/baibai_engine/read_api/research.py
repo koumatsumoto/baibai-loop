@@ -170,7 +170,7 @@ def reviewed_thesis_projection(path: Path, *, thesis_id: str) -> dict[str, objec
 
     from baibai_engine.appdb.read import connect_read_only
     from baibai_engine.research.thesis_store import ResearchValidationError, load_reviewed_thesis
-    from baibai_engine.research.valuation import maximum_entry_price, project_return
+    from baibai_engine.valuation.scenario import maximum_entry_price, project_return
 
     publication = thesis_publication(path, thesis_id=thesis_id)
     if publication is None:

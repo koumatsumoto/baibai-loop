@@ -10,14 +10,12 @@ from baibai_engine.read_api import HoldingSnapshot
 from baibai_web.readmodel.builders.presentation import holding_view, text
 from baibai_web.readmodel.models import (
     PositionReviewView,
-    ReviewSetEntryView,
     SecurityDetailView,
 )
 from baibai_web.readmodel.stocks.presentation import _safe_snapshot
 from baibai_web.readmodel.stocks.research import _research_revision_view, _thesis_detail_view
 from baibai_web.readmodel.stocks.screening import (
     _JST,
-    _fair_value_by_ticker,
     _operative_run,
     _screening_run_view,
     _security_analysis_row_view,
@@ -44,7 +42,6 @@ class PreparedSecurityInputs:
     revisions: Mapping[str, list[ResearchRevision]]
     holdings: Mapping[str, HoldingSnapshot]
     reserved: set[str]
-    fair_value: Mapping[str, ReviewSetEntryView]
 
 
 def prepare_security_inputs(
@@ -56,7 +53,7 @@ def prepare_security_inputs(
     revisions: dict[str, list[ResearchRevision]] = {}
     for revision in research.revisions():
         revisions.setdefault(revision.ticker, []).append(revision)
-    run, review_sets = _operative_run(screening)
+    run, _review_sets = _operative_run(screening)
     rows: dict[str, Mapping[str, object]] = {}
     if run is not None:
         for row in run.rows:
@@ -71,7 +68,6 @@ def prepare_security_inputs(
         reserved=set()
         if snapshot is None
         else {item.ticker for item in snapshot.active_reservations},
-        fair_value=_fair_value_by_ticker(review_sets),
     )
 
 
@@ -126,7 +122,6 @@ def build_security_detail(
             held={ticker} if holding_snapshot is not None else set(),
             reserved=reserved_here,
             researched={ticker} if revisions else set(),
-            fair_value=inputs.fair_value,
         )
         if raw_security_analysis is not None
         else None

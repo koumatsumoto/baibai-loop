@@ -249,7 +249,7 @@ E[r]水準parameterを判断する事前登録済みrunだけ`--required-metric 
 | --- | --- | --- |
 | Candidate Discoveryのeligibility・order・depth | `method/screening/rules/`、`screening/rule_config.py`、`screening/discovery/` | Approachとunionの較正リプレイ |
 | Nomination union | 同上 + `engine/src/baibai_engine/screening/discovery/` | 較正リプレイ（Approach別Nomination + union） |
-| 機械 E[r]・FV アンカー | `engine/src/baibai_engine/screening/estimates.py` | 較正リプレイ（er 軸 IC / decile / 予測 vs 実現） |
+| 機械 E[r]・FV アンカー | `engine/src/baibai_engine/valuation/estimates.py` | 較正リプレイ（er 軸 IC / decile / 予測 vs 実現） |
 | valuation 指標の算出 | metrics 系 + [`valuation-metrics.md`](./valuation-metrics.md) | 算術・期間・単位・株式basisの回帰。methodの優劣を主張する変更は較正リプレイ |
 | マクロ判断の手順・レンズ | [macro](./macro.md)・skill `macro-context` | 保存した判断と後続の観測の照合 |
 | research の見積り手順 | [`thesis.md`](./thesis.md) + skill `research` | portfolio outcome と長期 horizon calibration |

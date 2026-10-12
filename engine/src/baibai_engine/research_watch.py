@@ -416,7 +416,7 @@ def _watch_row(
     reserved: bool,
     history: list[dict[str, object]],
 ) -> dict[str, object]:
-    from baibai_engine.research.valuation import maximum_entry_price
+    from baibai_engine.valuation.scenario import maximum_entry_price
 
     valuation = thesis.valuation
     maximum = None

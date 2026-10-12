@@ -130,7 +130,11 @@ def test_list_and_detail_bind_to_the_same_fallback_run_and_fv(tmp_path: Path, mo
     store.publish_run(
         screening_run_payload(
             as_of="2026-09-19",
-            security_analyses=[security_analysis("2331", metrics={"market_price_yen": 1000.0})],
+            security_analyses=[
+                security_analysis(
+                    "2331", metrics={"market_price_yen": 1000.0, "fv_sector_median_yen": 1500.0}
+                )
+            ],
         ),
         run_revision_id="run-complete",
     )
@@ -161,3 +165,37 @@ def test_list_and_detail_bind_to_the_same_fallback_run_and_fv(tmp_path: Path, mo
     assert listing.review_sets[0].review_set_id == "review-complete"
     assert listing.security_analyses[0].fair_value_anchor_yen == 1500.0
     assert detail.security_analysis.fair_value_anchor_yen == 1500.0
+
+
+def test_non_candidate_anchor_appears_in_list_detail_and_history(tmp_path, mocker):
+    from datetime import date
+
+    from baibai_web.readmodel.stocks.screening import build_screening_history_run
+
+    path = tmp_path / "runs.sqlite"
+    store = ScreeningRunStore(path)
+    store.publish_run(
+        screening_run_payload(
+            as_of="2026-09-19",
+            security_analyses=[
+                security_analysis(
+                    "9999",
+                    metrics={
+                        "market_price_yen": 1000.0,
+                        "fv_sector_median_yen": 1700.0,
+                    },
+                )
+            ],
+        ),
+        run_revision_id="no-candidates",
+    )
+    source = DbScreeningSource(path)
+    ledger, research = _dependencies(mocker)
+    research.position_reviews.return_value = []
+    listing = build_screening(source, ledger, research)
+    detail = build_security_detail("9999", ledger, research, source, mocker.Mock())
+    history = build_screening_history_run(source, ledger, research, as_of=date(2026, 9, 19))
+    assert listing.review_sets == []
+    for row in (listing.security_analyses[0], detail.security_analysis, history.rows[0]):
+        assert row.fair_value_anchor_yen == 1700.0
+        assert row.fair_value_gap_pct == 70.0

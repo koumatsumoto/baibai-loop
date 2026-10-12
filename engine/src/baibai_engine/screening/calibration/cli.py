@@ -19,9 +19,9 @@ from baibai_engine.market.lake.writer import (
     sealed_sqlite_snapshot,
 )
 from baibai_engine.market.sqlite.readiness import unreadable_store_reason
+from baibai_engine.valuation.estimates import EXPECTED_RETURN_MODEL_VERSION
 
 from ..discovery.review_set import APPROACH_IDS
-from ..estimates import EXPECTED_RETURN_MODEL_VERSION
 from ..rule_config import ScreeningRules
 from ..rules_identity import production_rules_contract_hash
 from .context import CalibrationContextError, build_er_distribution_context

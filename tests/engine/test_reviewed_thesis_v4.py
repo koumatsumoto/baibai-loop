@@ -15,7 +15,7 @@ from baibai_engine.research.thesis_store import (
     ThesisStoreService,
     load_latest_reviewed_thesis,
 )
-from baibai_engine.research.valuation import (
+from baibai_engine.valuation.scenario import (
     Projection,
     maximum_entry_price,
     project_return,
@@ -263,3 +263,24 @@ def test_conditions_keep_valuation_precision_for_small_surplus():
         required_annual_return_pct=Decimal("8.5"),
     )
     assert result.total_value_surplus_yen == Decimal("1e-38")
+
+
+def test_valuation_type_move_preserves_saved_thesis_json_and_core_identity():
+    """The pre-extraction v4 fixture identity remains valid without reissuing Review."""
+    import json
+
+    from baibai_engine.valuation.models import Valuation
+
+    thesis, review = pair_payload()
+    document = ThesisDocument.model_validate(thesis)
+    assert isinstance(document.valuation, Valuation)
+    assert (
+        thesis_core_hash(document)
+        == "76f780e59aeda17251c8db1c8fed1ba05bbc92254de22c4d66212437343d232a"
+    )
+    assert thesis_core_hash(document) == review["reviewed_thesis_sha256"]
+    encoded = document.model_dump(mode="json")
+    assert encoded["valuation"]["base"]["terminal_value_per_share_yen"] == "1204"
+    assert (
+        ThesisDocument.model_validate_json(json.dumps(encoded)).model_dump(mode="json") == encoded
+    )

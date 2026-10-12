@@ -102,6 +102,8 @@ __all__ = [
     "PortfolioLedgerError",
     "PortfolioSnapshot",
     "StoreLayoutError",
+    "StoredMachineValuation",
+    "anchor_gap_pct",
     "application_db_updated_at",
     "capital_allocation_assessment_payload",
     "close_change_since",
@@ -121,6 +123,7 @@ __all__ = [
     "list_task_payloads",
     "list_thesis_publications",
     "list_thesis_review_publications",
+    "machine_valuation_from_analysis",
     "macro_context_payload",
     "macro_indicator_series",
     "macro_latest_observed_at",
@@ -145,6 +148,7 @@ __all__ = [
     "screening_review_set_payloads",
     "screening_run_asof_dates",
     "screening_run_payload",
+    "stored_machine_valuation",
     "task_store_exists",
     "thesis_publication",
     "validate_application_store_schema",
@@ -157,3 +161,9 @@ __all__ = [
 from baibai_engine.read_api.position import current_portfolio
 
 from .research import reviewed_thesis_projection
+from .valuation import (
+    StoredMachineValuation,
+    anchor_gap_pct,
+    machine_valuation_from_analysis,
+    stored_machine_valuation,
+)

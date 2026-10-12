@@ -12,6 +12,20 @@ status: active
 [`architecture.md`](./architecture.md)、artifact固有のfield・式・warningは
 [`reference/`](./reference/)、operation手順は[各skill](../.agents/skills/)を正本とする。
 
+<a id="analysis-domains"></a>
+
+## 三つの分析領域
+
+| 領域 | 中心となる問い |
+| --- | --- |
+| Valuation / 独自価値評価 | 自分たちの前提で、この株にどれだけの価値・収益を見込むか |
+| Market Context / 市場環境 | 経済、市場全体、業種にどのような力が働いているか |
+| External Assessment / 外部参考評価 | 外部の媒体・評価者はこの株をどう評価して提示しているか |
+
+領域はL1観測・L2機械分析・L3 AI解釈という処理層と別の軸である。外部目標値は媒体が提示した値の観測であり、独自の企業価値認定ではない。Macro Contextは既存の判断成果物で、Market Context全体と同義ではない。現行配置は[architecture](./architecture.md#repository-map)を参照する。
+
+Valuationの機械ER/FV anchorは倍率・自己価格レンジとcarryの推計であり、企業を調査したBase/DownsideのProjectionとは別結果である。AIが置いた前提を算術で計算しても、その前提や結果は観測事実にならない。4 Approachは候補探索の視点であり、四つの完成した企業価値モデルではない。
+
 ## Canonical terms
 
 | term | 種別 | 意味 |
@@ -19,7 +33,9 @@ status: active
 | Candidate | pipeline role / state | 調査・投資候補。具体artifactが分かる箇所では具体名を優先する |
 | Candidate Discovery | activity | Security Analysis群からValuation ApproachごとのNominationを作りReview Setを形成する |
 | Candidate Discovery Method | method | approach集合、common eligibility、Nomination union ruleを束ねるversioned method identity |
-| Valuation Approach | method component | 価値機会を見る独立した探索観点 |
+| Valuation Approach | method component | Valuation内で価値機会を発見する探索観点 |
+| Machine Valuation | rebuildable estimate | 保存済みSecurity Analysisの機械ER・業種中央値/自己レンジanchor |
+| Projection | conditional valuation | 調査で置いた期間内累積分配と分配後残余価値。Thesisが内包する |
 | Screening Run | artifact | ある`as_of`に対するscreening一回分 |
 | Security Analysis | artifact entry | 一銘柄についてscreeningが作るobserved / derived / estimateの比較単位 |
 | Nomination | fact | Valuation ApproachがReview Set入りを推薦した事実 |

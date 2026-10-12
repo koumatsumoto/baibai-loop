@@ -1,6 +1,6 @@
 ---
 title: "Valuation metrics"
-summary: "screeningで使うvaluation指標の定義、単位、欠損、算出仕様。"
+summary: "機械ER/FV推計と読取、valuation指標の単位、欠損、入力basis。"
 doc_type: reference
 status: active
 ---
@@ -11,11 +11,33 @@ Baibai Loop スクリーニングで使う valuation 指標の算出仕様とデ
 
 Candidate Discoveryのprimary authorityは4 Valuation Approachesのnative eligibility / orderである。機械E[r]はvaluation reversionとcarryをまとめたsecondary return priorで、Review Set membership、global rank、AI research priorityを所有しない。
 
-Researchの判断見積りは[ThesisのBase/Downsideと共通算術](./thesis.md#scenario-arithmetic)に従う。通常12か月または理由付きの別期間について、sourceに基づく価値・累積分配・returnを計算し、[独立Review](./thesis.md#independent-second-pass)で反証する。
+Researchの判断見積りは[ThesisのBase/Downsideと共通算術](./thesis.md#scenario-arithmetic)に従う。銘柄とシナリオに対応する比較期間について、sourceに基づく価値・累積分配・returnを計算し、[独立Review](./thesis.md#independent-second-pass)で反証する。
 
 screening時点のE[r] / FV anchorは候補比較の文脈として表示・参照し、[Thesis payloadへ重複転記しない](./thesis.md#input-snapshot-and-lineage)。機械E[r]の5年priorと3y/5y calibrationは個別判断の期間を固定しない。
 
-計算の正本は[metrics](../../engine/src/baibai_engine/screening/metrics/)にある。会計期間とTTMは`periods`、株式・普通株自己資本basisは`capital`、配当と還元は`dividends`、利益は`profit`、価格履歴は`history`、Security Analysis向けの組立は`snapshot`が所有する。本書は指標の意味と、異なるbasisを混ぜないための理由を扱う。
+倍率など入力指標の計算の正本は[metrics](../../engine/src/baibai_engine/screening/metrics/)にある。会計期間とTTMは`periods`、株式・普通株自己資本basisは`capital`、配当と還元は`dividends`、利益は`profit`、価格履歴は`history`、Security Analysis向けの組立は`snapshot`が所有する。本書は指標の意味と、異なるbasisを混ぜないための理由を扱う。
+
+<a id="machine-valuation"></a>
+
+## 機械ER/FVと保存済み照会
+
+ERの計算は[`valuation/estimates.py`](../../engine/src/baibai_engine/valuation/estimates.py)が所有する。PBRと収益倍率（正の予想PERを優先し、なければ実績PER）の各軸で、業種中央値と自己レンジ中央値の低い方をanchorとする。片方欠測なら他方、軸が一つも取れなければ推計なし。配当の株式基準が未解決の場合も推計なしとする。
+
+```text
+upside_axis = min(available_sector_anchor, available_self_anchor) / current_multiple - 1
+upside_blend = mean(available_upside_axes)
+reversion_annual = 0.10 * clip(upside_blend, +/-0.50)
+carry_annual = dividend_yield + clip(-net_share_change_yoy, +/-0.05)
+er_annual = reversion_annual + carry_annual
+sector_median_anchor = price * mean(available_sector_anchor / current_multiple)
+self_range_anchor = price * mean(available_self_anchor / current_multiple)
+```
+
+ERは年率ratio（0.1＝10%/年）の機械priorで、モデル・単位・成分・前提を併記する。業種中央値anchorはERの保守側blendそのものではなく、自己レンジは現在fundamentalsを固定した価格比較（[§9](#9-過去自己比較過去-3-年レンジ)）である。企業固有の調査FV・期間内分配・Projectionと同一の評価名へまとめない。4 Approachの推薦式・推薦枠は[Screening runtime](./screening-runtime.md#candidate-discovery)が所有する。
+
+保存名`fv_sector_median_yen / fv_self_range_yen / er_*`とserializerの丸めは維持する。読取は再計算しない。`valuation.query.machine_valuation_from_analysis`が小さな機械評価結果へ投影し、Webの一覧・銘柄詳細・履歴は同じ保存値の業種中央値anchorと参考価格の乖離を表示する。Review Set入りを照会条件にせず、候補外の保存済みSecurity Analysisも読める。
+
+`read_api.stored_machine_valuation`はticker、cutoff、任意の固定run identityを受ける。通常はcutoff以下の最新runを`asof_date / run_at / run_revision_id`降順で選び、そのrun内でtickerを読む。最新全体が未来でも過去runを選び、固定runの未来as-ofや不明identityは拒否する。cutoffはrunの論理as-ofであり、後日に生成した過去as-ofのreplayも選択し得る。対象runなし、run内tickerなし、推計座標欠測を区別し、古いrunの値やReview Setで穴を埋めない。取得・DB書込・AI起動は行わない。ticker profileの保存済み解析も同じrun解決を使う。
 
 ## 1. 使用指標
 
