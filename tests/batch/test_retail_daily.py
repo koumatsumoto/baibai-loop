@@ -27,6 +27,7 @@ from baibai_engine.batch_api import (
     RetailCollectionOutcome,
     RetailCollectionResult,
     RetailModelValuationObservation,
+    RetailReceivedHTML,
     retail_collect_pair,
     retail_collector_binding,
 )
@@ -153,6 +154,113 @@ def completed_pair(p, journal, ticker, status):
         RetailCollectionOutcome("monex", ticker, "observed", http_status=200),
         observation(ticker, missing=status == "normal_null"),
     )
+
+
+@pytest.mark.parametrize(
+    ("status", "exit_code"),
+    [("observed", 0), ("parse_failure", 0), ("access_denied", 1), ("incomplete", 1)],
+)
+def test_acquire_cli_uses_own_durable_outcome_without_a_second_checkpoint_scan(
+    monkeypatch, capsys, status, exit_code
+):
+    p = plan(tickers=("7203", "9432"), cohort_size=1)
+    store = FakeObjectStore()
+    staging.save_new_plan(store, p)
+    seed_checkpoint(store, p, new_journal(p, 1))
+    transports = []
+
+    def collect(ticker, *, source, before_request, on_outcome, **kwargs):
+        before_request()
+        transports.append(ticker)
+        result = RetailCollectionResult(
+            (observation(ticker),) if status == "observed" else (),
+            (
+                RetailCollectionOutcome(
+                    source,
+                    ticker,
+                    status,
+                    {"parse_failure": "missing_theory_table", "incomplete": "wall_clock_limit"}.get(
+                        status
+                    ),
+                    403 if status == "access_denied" else 200,
+                ),
+            ),
+            1,
+            "uncertain_inflight" if status == "incomplete" else None,
+        )
+        if status != "incomplete":
+            on_outcome(result)
+        return result
+
+    monkeypatch.setattr(daily, "Boto3R2Store", lambda **kwargs: store)
+    monkeypatch.setattr(daily, "retail_collect_pair", collect)
+    store.events.clear()
+    args = ["acquire", "--run-id", p.run_id, "--cohort", "0"]
+    assert daily.main(args) == exit_code
+    report = json.loads(capsys.readouterr().out)
+    assert report["cohort_complete"] is (exit_code == 0)
+    # Other cohorts remain pending even when this one is complete.
+    assert report["state_counts"]["unattempted"] >= 1
+    other_key = staging.checkpoint_key(p, 1)
+    assert store.events.count(("HEAD", other_key)) == 2
+    assert store.events.count(("GET", other_key)) == 1
+    own_key = staging.checkpoint_key(p, 0)
+    assert store.events.count(("HEAD", own_key)) == 1
+    assert store.events.count(("GET", own_key)) == 0
+    assert transports == ["7203"]
+    if exit_code == 0:
+        previous = store.objects[own_key]
+        puts_before = len(store.puts)
+        assert daily.main(args) == 0
+        assert transports == ["7203"]
+        assert len(store.puts) == puts_before
+        assert store.objects[own_key] == previous
+
+
+def test_cohort_timing_separates_collection_from_checkpoint_and_raw_storage(monkeypatch):
+    p = plan()
+    store = FakeObjectStore()
+    clock = [0.0]
+    monkeypatch.setattr(daily.time, "monotonic", lambda: clock[0])
+
+    def timed(operation, seconds):
+        def run(*args, **kwargs):
+            clock[0] += seconds
+            return operation(*args, **kwargs)
+
+        return run
+
+    monkeypatch.setattr(store, "head", timed(store.head, 0.25))
+    monkeypatch.setattr(store, "get_bytes", timed(store.get_bytes, 0.5))
+    monkeypatch.setattr(store, "put_file", timed(store.put_file, 1.0))
+
+    def collect(ticker, *, source, before_request, on_outcome, on_received_html, **kwargs):
+        before_request()
+        clock[0] += 3.0  # HTTP, pacing and parsing, without checkpoint storage.
+        on_received_html(
+            RetailReceivedHTML("https://synthetic.invalid/source", RECEIVED, "utf-8", b"public")
+        )
+        result = RetailCollectionResult(
+            (observation(ticker),),
+            (RetailCollectionOutcome(source, ticker, "observed", http_status=200),),
+            1,
+        )
+        on_outcome(result)
+        return result
+
+    monkeypatch.setattr(daily, "retail_collect_pair", collect)
+    report = daily.acquire_cohort(store, p, 0)
+    assert report["cohort_complete"] is True
+    assert report["collection_elapsed_seconds"] == 3.0
+    # Two initial HEADs, two durable checkpoint PUTs, and raw HEAD/PUT pairs.
+    assert report["storage_elapsed_seconds"] == 5.0
+    assert report["elapsed_seconds"] == 8.0
+    monkeypatch.setattr(
+        daily, "retail_collect_pair", lambda *args, **kwargs: pytest.fail("already saved")
+    )
+    resumed = daily.acquire_cohort(store, p, 0)
+    assert resumed["collection_elapsed_seconds"] == 0.0
+    assert resumed["storage_elapsed_seconds"] == resumed["elapsed_seconds"] == 1.25
 
 
 def test_private_put_requires_generation_and_verifies_hashes_and_private_mode():
