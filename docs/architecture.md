@@ -1,176 +1,154 @@
 ---
 title: "Architecture"
-summary: "packageの責務・依存、情報層、store authority、実行環境と無人経路の停止方針。"
+summary: "最終設計の分析領域・依存・保存責務と、現行実装の移行状況。"
 doc_type: architecture
 status: active
 ---
 
 # Architecture
 
-Baibai Loopは単一distribution内で、domainを所有する`baibai_engine`、読み取り専用の表示を担う`baibai_web`、定期処理と転送を担う`baibai_batch`を分ける。開発・実行環境はUbuntu Linuxを対象とし、POSIX pathとGNU/Linuxのfilesystemを前提にする。
+Baibai Loopの目的は、割安銘柄を発見し、割安幅と条件付き収益を評価し、根拠を伴う一銘柄ずつの売買提案へつなげることである。実売買、提案の採用、注文・約定の確認は人間が行う。
 
-<a id="layers"></a>
-
-## 1. Packageの依存
-
-```mermaid
-flowchart LR
-    web[Web read model] --> read[engine read_api]
-    batch[Batch] --> api[engine batch_api / read_api]
-    research[Research / Operation] --> position[Position]
-    research --> read
-    research --> valuation[Valuation]
-    screening --> valuation
-    screening --> context[Market Context]
-    read --> context
-    context --> market
-    read --> external[External Assessment]
-    external --> market
-    read --> valuation
-    screening[Screening] --> market[Market source facts]
-    position --> market
-```
-
-図は主要な責務間の依存を示す。CLIで複数domainを合成する例外の範囲はimport-linter設定が所有する。
-
-engineはweb・batch・toolsへ依存しない。Webからengineへの入口は`read_api`、batchからは`batch_api`と`read_api`であり、import-linterが境界を検査する。batchはdomainの判断やwrite invariantを独自実装せず、engineのserviceへ委譲する。storeとserving objectの転送はbatchが担う。
-
-外部媒体のL1契約は`external_assessment/observations`、取得は`external_assessment/acquisition`と`external_assessment/tradingview`、SQL adapterは`external_assessment/store.py`が所有する。共有保存は`storage/application`・`storage/observations`・`storage/lake`へ配置する。`external_assessment`が出所別の受領履歴・比較・原評価元の関係を所有する。schema/lakeはL1のleaf contractだけを参照し、領域内部はResearch・Screening・Valuation・Market Context・UI合成read_apiへ依存しない。Web・CLI・ticker profileは領域の読取結果を合成し、順位・独自FV・配分を自動変更しない。入力の意味は[data sources](./reference/data-sources.md#retail-dynamics)を参照する。
-
-構造移設では現行table/dataset/key/plan形式をidentity moduleに局所化して保持する。永続名・workflow identityの切替は稼働取得の完了後に別PRで行い、固定releaseの値・取得時刻を照合する。配置変更だけでEDINETの保存行やrevisionを書き換えない。
-
-<a id="edinet-metric-revision"></a>
-
-EDINET metricの`extractor_revision`は明示的な抽出意味revisionであり、source bytesやimport pathから導出しない。数値・文書選択・訂正/取下げ・cache完全性・ticker/期間/連結/単位・NULLと0・quality/failure・保存時型変換の意味を変える時に更新する。配置・import・transport retryだけの変更では更新しない。初版は旧実装との意味同一を確認した旧tokenを継承し、保存済み行・値・日時・旧release/hashは変更しない。意味変更時の再抽出・反映は[batch運用](../batch/OPERATIONS.md#edinet-metrics-revision)が所有する。
-
-releaseの`producer_git_commit`は公開処理のcommitを表し、各行の元抽出commitとは呼ばない。行の意味revisionと文書identityは保存値自身が持つ。
-
-<a id="four-roles"></a>
-
-機構の役割は、業務の成果を「産む」、誤った出力を「止める」、結果を「測る」、判断材料を「見せる」で説明する。採否は[開発原則](./doctrine.md#development-investment-policy)に従う。この分類を全moduleに定型文として記載する義務は設けない。
-
-## 2. 業務と人間gate
-
-成果物と人間判断の関係は[Decision flow](./domain-language.md#decision-flow)、実行する操作は[目的別入口](./README.md#目的別の入口)から該当skillを参照する。
+この文書は設計上の境界・依存・保存責務を所有する。用語と成果物の関係は[domain-language](./domain-language.md)、実契約は[reference](./reference/README.md)、操作は[各skill](../.agents/skills/)と[batch運用](../batch/OPERATIONS.md)が所有する。Issueは意思決定と移行の証拠であり、現行仕様をコメントだけに置かない。以下に最終境界を示し、実装との差分は[移行状況](#migration-status)にまとめる。
 
 <a id="information-layers"></a>
 
-## 3. 情報の正本と保持
+## 1. 分析領域と情報層
 
-| 区分 | 内容 |
+業務の横方向には三つの分析領域がある。
+
+| 領域 | 所有する問いと結果 |
 | --- | --- |
-| L1 fact | sourceから取得した観測 |
-| L2 machine | 保存入力とmethodから導出する機械出力 |
-| L3 AI interpretation | 調査・解釈・条件付き評価・提案 |
-| 周辺業務 | 確認済み取引事実、task・Operation等の記録と進行状態 |
-| method / config | Git管理の計算規則、調査手法、表示設定 |
+| Valuation | 自分たちの仮定で企業の価値・割安幅・条件付き収益を測る |
+| Market Context | 経済・金利等の環境と市場全体・業種・個別相対の状態を、対象日と比較母集団を揃えて測る |
+| External Assessment | 誰が何を提示したかを出所付きで記録・比較する。実際の大衆行動を測定したとは呼ばない |
 
-application DBはL3判断と周辺業務の両方を保存する。保存先を分析層と同一視しない。人間の最終採否・証券注文・約定確認は外部アクターの責務であり、確認済み事実の記録はシステム内の周辺業務である。また、現在のsourceから再取得できることは、過去の改定前状態の再現を意味しない。再生成可能なL2に新たな永久保存を要求せず、復旧元と保持範囲は各storeの契約に従う。観測・導出・見積り・判断の区別は[doctrine](./doctrine.md#fact-analysis-separation)が所有する。
+縦方向には情報の役割がある。
 
-### Store authority
+| 層 | 内容 |
+| --- | --- |
+| L1 観測 | 原典から取得した値と、その出所・時点・被覆・欠測 |
+| L2 機械分析 | 固定した入力と規則から再現できる決定的な計算・比較 |
+| L3 AI | 解釈、仮定の設定、有限調査、判断、条件付き評価・提案 |
 
-| 保存場所 | 正本として所有する情報 | write owner |
+AIが置く仮定を決定的算術で計算しても、仮定は観測にならず、結果は条件付き見積りである。各領域でL1/L2/L3の責務を識別するが、九つの空package、三DB、三サービスを作る区分ではない。共有するL1の純粋モデルや小さな算術にも意味の所有者を保つ。
+
+判断用入力は値に加え、出所、対象・観測・取得・公開の時点、欠測と比較上の制約を持つ。転載を独立票と数えず、異種のrating・目標株価・Quants scoreを単一投票に潰さない。三領域の総合scoreや自動注文を追加しない。
+
+<a id="layers"></a>
+
+## 2. 最終依存境界
+
+```mermaid
+flowchart LR
+    web[Web] --> read[read_api]
+    batch[Batch] --> api[batch_api]
+    batch --> read
+    research[Research] --> valuation[Valuation]
+    research --> context[Market Context]
+    research --> external[External Assessment]
+    screening[Screening] --> valuation
+    screening --> context
+    screening --> external
+    read --> valuation
+    read --> context
+    read --> external
+    valuation --> facts[共有L1の純粋モデル・算術]
+    context --> facts
+    external --> facts
+    research --> position[Portfolio / Position]
+```
+
+図の矢印は業務入力・読取の依存を示す。三領域は相互やResearch・Screening・UIへ逆依存しない。Researchは領域の公開読取入口を呼び、UI向け`read_api`を内部業務入力にしない。Screeningは三領域の出力を組み立て、母集団・候補探索・Review Setを所有する。ResearchはTriage、有限調査、Thesis/Reviewと売買提案を所有する。
+
+Webのengine入口は`read_api`、Batchは`batch_api`/`read_api`である。Batchは判断や書込条件を複製せず、domainの既存serviceへ委譲する。domainが観測の意味・重複・書込条件を所有し、SQL/取得adapterが共有`storage`を使う。共有storageは純粋契約と技術helperだけを参照し、分析・AI・UI・取得serviceへ依存しない。純粋な型・算術は保存や取得を読み込まない。
+
+Portfolio/Positionは確認済み取引と保有を所有し、Researchへ逆依存しない。確認済みbroker factを扱う合成入口は保存済み判断の参照を解決し、Positionの事実記録へ委譲する。参照解決と取引事実の記録を別の責務として保つ。Operation/taskは進行状態であり、投資評価や取引事実を代行しない。
+
+実装は単一distributionの`baibai_engine`、表示を担う`baibai_web`、運用を担う`baibai_batch`で構成する。依存制約の厳密な範囲と公開CLIの合成例外は[import-linter設定](../pyproject.toml)が検査する。
+
+<a id="repository-map"></a>
+
+## 3. モデル・入力・出力の所有
+
+以下は意味の所有と公開境界の対応である。保存場所は領域数に合わせず、field・SQL・計算式はリンク先の実契約へ委譲する。
+
+| 所有 | 主モデル・成果物 | 入力と出力 | 保存・公開入口 |
+| --- | --- | --- | --- |
+| Valuation | FinancialSnapshot、倍率/機械ER/FV、Projection、条件付き収益 | 財務・価格・配当の純粋L1入力とTTM規則から財務/倍率を計算し、仮定から価値/収益を測る。機械anchorと企業固有Projectionを区別 | L2機械値はSecurity Analysis、企業固有前提はThesisの一部。領域読取と外向け`read_api/valuation`。[Valuation](./reference/valuation-metrics.md#machine-valuation)・[Thesis](./reference/thesis.md#scenario-arithmetic) |
+| Market Context | Market Snapshot、Security Market Context、Macro Reading/Context | 経済・金利・市場・業種・個別の保存観測から環境・価格状態・信用需給と相対値を返す | 観測はmarket/lake・macro、既存Macro Contextはapplication。領域読取と外向け`read_api/market_context`。[Market Context](./reference/macro.md#market-context-reads) |
+| External Assessment | 提示値の受領履歴、出所別比較・欠測 | 媒体別のモデル価格・rating・Quants・TradingViewを出所/尺度/期間付きで扱う | typed L1はmarket/lake、比較は保存入力から再計算。`external_assessment/query`、外向け`read_api/external_assessment`とCLI。[入力](./reference/data-sources.md#external-assessment)・[読取](./reference/market-lake.md#external-assessment-query) |
+| Screening | Security Analysis、Nomination、Review Set | 三領域の結果を組み立て、母集団と候補探索を適用 | runs store。`screening`の公開入口と`batch_api`。[Screening](./reference/screening-runtime.md) |
+| Research | Triage、Research Set、Thesis/Review、CAA、Position Review提案 | 領域結果・出典・保有を調べ、一銘柄ずつの判断/提案を作る | applicationの判断履歴。`research/triage`・`research/workspace`・既存service。[Research](../.agents/skills/research/SKILL.md) |
+| Portfolio/Position | Ledger、Reservation、Holding、Outcome | 人間確認済みbroker factを記録し、保有と資本を再構築 | application。Positionの事実記録・読取service。[Portfolio](./portfolio-management.md) |
+| Operation/task | Operation Session、調査進行、運用task | 明示開始・対象・成果・完了/未完了を記録 | application。Operation/taskの既存service。AI完了を採用・約定に変換しない |
+
+L1/L2は定期処理へ、L3は明示開始へ分ける。新規と保有を区別し、合算最大三対象を開始時に固定する。0件・部分完了・未完了も記録し、弱い候補で枠を埋めず、一銘柄ずつ提案する。AIの完了、人間の採用、注文、約定は別の事実・状態である。成果物間の関係は[Decision flow](./domain-language.md#decision-flow)、開始・発行の条件は各skillが所有する。
+
+<a id="store-authority"></a>
+
+## 4. 保存責務と正本
+
+storageは物理保存の技術責務であり、保存DBをL3そのものと呼ばない。application DBには判断と周辺業務の両方が入り、再生成可能なL2も用途に応じて異なる保存場所を使う。現在の物理SQLiteはapplication・market・macro・screening runs・calibrationの五系統であり、三領域へ合わせて数を変えない。
+
+| 保存場所 | 正本・作業コピーの関係 | 意味/書込条件のowner |
 | --- | --- | --- |
-| `stores/application/baibai.sqlite` | 判断、ledger、task、Operation、outcomeの作業コピー。正本はR2 `baibai-stores/baibai.sqlite` | engine application service |
-| R2 `lake/` | lake所有datasetのimmutable object、manifest、current pointer | `publish-lake` |
-| `stores/market/market.sqlite` | lake所有tableはruntime copy。`source_coverage`と`tse_capital_policy_snapshots`はlakeでなくR2のmarket storeが保持し、`lake_store_origin`はコピーの由来metadata | market provider・lake hydrate |
-| `stores/screening/runs.sqlite` | 再生成可能なScreening Run・Review Set | screening service |
-| `stores/screening/calibration/current.sqlite` | 再生成可能なcalibration snapshot | calibration service |
-| `stores/macro/macro.sqlite` | macro観測・vintage・取得情報。manual観測はGit seedから同期 | macro indicator service |
+| R2 `baibai-stores/baibai.sqlite` / `stores/application/baibai.sqlite` | クラウド正本と判断・ledger・task・Operation等の作業コピー | 各application domain service |
+| R2 `lake/` | 不変L1 object・manifest・current pointer | 観測domainの契約、既存`publish-lake` |
+| `stores/market/market.sqlite` | lake所有tableのruntime copy。`source_coverage`等のstore-local dataはR2 market store、`lake_store_origin`はコピーの由来 | source domain/SQL adapter。接続・schema・hydrateは共有storage |
+| `stores/screening/runs.sqlite` | 再生成可能なScreening Run・Review Set | Screening |
+| `stores/screening/calibration/current.sqlite` | 再生成可能なcalibration snapshot | Calibration |
+| `stores/macro/macro.sqlite` | 経済観測・vintage・取得情報の作業コピー | 現行macro観測service。所有移設は移行状況を参照 |
 
-market storeをファイルごと消すとstore-local dataも失うため、lake所有tableが再生成可能という理由だけで削除しない。データ状態の正本はクラウドに置き、PCとGitHub Actionsは取得した作業コピーから更新する。未公開の変更は正本と区別し、取得世代を保持して競合時の上書きを止める。application DBやmachine storeを読むときは、コピーの取得時点とクラウドへの反映状態を区別する。serving JSONは表示用の派生物であり、task本文や完了履歴を含むapplication DBの代替ではない。
+データ状態の正本はクラウド、PC/Actionsは更新元である。未公開変更を正本と区別し、取得世代を保持して競合上書きを止める。コピーの取得時点と反映状態を区別し、market storeを丸ごと消してstore-local dataを失わない。serving JSONは表示用派生物であり、application DBの本文や完了履歴の代替ではない。再取得できることは改定前情報の再現を保証しない。再生成可能なL2へ一律に永久保存を要求しない。
 
-lakeの公開・hydrate・保持は[market lake](./reference/market-lake.md)、storeの転送・移行・復旧は[batch運用](../batch/OPERATIONS.md)が所有する。methodと表示configの入口は[method](../method/README.md)と[web/config](../web/config)を参照する。
+共有技術保存は`storage/application`・`storage/observations`・`storage/lake`に配置する。source factの意味やsource別取得は`market`等のdomainに残り、market packageが共有物理保存を所有するとは呼ばない。保存・保持は[market lake](./reference/market-lake.md)、転送・復旧は[batch運用](../batch/OPERATIONS.md)を参照する。
+
+<a id="edinet-metric-revision"></a>
+
+EDINET metricの`extractor_revision`は明示的な抽出意味revisionであり、source bytes/import pathから導出しない。数値・文書選択・訂正/取下げ・cache完全性・ticker/期間/連結/単位・NULL/0・quality/failure・保存時型変換の意味変更時に更新する。配置・import・transport retryだけでは更新しない。初版は意味同一を確認した旧tokenを継承し、保存済み行・値・日時・旧release/hashを変更しない。[意味変更時の反映](../batch/OPERATIONS.md#edinet-metrics-revision)はbatch運用が所有する。releaseの`producer_git_commit`は公開処理のcommitであり、各行の元抽出commitとは区別する。
+
+<a id="migration-status"></a>
+
+## 5. 現行実装の移行状況
+
+main `31f4f308`では、#1426の有限Research/新規・保有提案、#1427の外部評価取得・共有storage・純粋観測型、#1428のTriage/Candidate契約、#1430の財務・価格/信用需給計算の所有移設を統合済みである。External Assessmentの取得/観測/保存adapterとTradingViewは同領域、Triageのcontracts/query/service/CLIはResearch、Candidate契約はScreeningが所有する。財務/TTM/倍率とFinancialSnapshotは`valuation/metrics`、価格騰落・出来高・標本volatility・安値乖離は`market_context/history`、信用需給は`market_context/margin`が所有する。倍率履歴の母分散sigma gapは`valuation/metrics/history`に分け、共有L1のsplit補正は`market/bars`を使う。Screeningは母集団/比較対象の選択、結果組立、保存、候補探索を所有する。これらを未完了の移設へ戻さない。
+
+残る差分は次に集約する。Issueの段階的実装を全体完了とは扱わない。
+
+| 未完了項目 | 現行と最終境界の差分 |
+| --- | --- |
+| ER/benchmarkの意味契約 | `foundation`等に残る領域意味を所有領域へ揃える。Research prepareのER入力には`read_api`経由が残る |
+| Market Context/macro | 相対市場計算・保存済み読取はある。経済観測・Reading計算・Contextの実体は`macro`に残り、重厚な旧report仕様の新利用への強制も見直す |
+| 永続identity | 既存table/index/dataset/key/plan形式/workflow名・concurrencyを維持中。稼働取得を途中で変更せず、値・時刻・既存判断と固定releaseの履歴を保って明示切替する |
+| daily独立公開 | Screening失敗とmacro公開はまだ独立していない。workflow/store/部分公開の分離が残る |
+| 周辺業務入口の所有 | 判断参照を解決するbroker fact合成入口は現行`research/broker_fact_service`にある。Positionの事実記録と分けた所有整理が残る |
+| 最終運用受入 | 実体配置・保存・公開・画面・CLI・docsの結合、四媒体の取得/読戻し、AI運用の有用性/根拠/時間を実運用で確認する |
+
+この表は上記mainの状態を示す。後続の取り込み時にも同じ文書の差分を照合し、実装に合わせて該当行を更新する。詳細な判断と移行証拠は#1414に残し、仕様は本書とreferenceへ統合する。
 
 <a id="cloud-serving-layer"></a>
 
-## 4. 実行環境
+## 6. 実行環境と公開入口
 
-PCでの全操作とGitHub Actionsでの更新は、クラウド正本という保存場所の方針と両立する。SQLiteへの編集は作業コピー上で行い、検証済みの変更をクラウドへ反映する。
-ChatGPTクラウド開発環境を含む作業分担は[Python foundation](./reference/python-foundation.md#cloud-development-boundary)に従う。
+Ubuntu Linux/POSIXを対象とし、作業分担は[Python foundation](./reference/python-foundation.md#cloud-development-boundary)に従う。SQLite編集は作業コピー上で行い、検証済み変更をクラウドへ反映する。
 
 ```text
 PCの作業コピー ──条件付き更新──> R2 stores（データ状態の正本）
                                       ↑
-GitHub Actions ──machine処理・転送──────┤
+GitHub Actions ──定期処理・転送─────────┤
        └──read model生成──> R2 serving ──> Worker ──> browser
 ```
 
-Owner MCPは所有者が保存済み情報を読むlocal adapterであり、store更新や定期batchを起動しない。toolと接続の契約は[Owner MCP](../tools/owner_mcp/README.md)を参照する。
-
-<a id="repository-map"></a>
-
-## 5. 機構と責務
-
-| 配置・module | 責務 |
-| --- | --- |
-| `engine/src/baibai_engine/market` | source factの取得・保存・公表日判断、固定release読取、market store |
-| `engine/src/baibai_engine/macro` | 経済系列の取得・保存、既存Reading計算kernel、Macro Contextの型・発行・scorecard |
-| `engine/src/baibai_engine/external_assessment` | 外部モデル価格・rating・Quants score・TradingView予測の保存済み読取、出所別比較と原評価元の関係 |
-| `engine/src/baibai_engine/market_context` | 市場snapshot、benchmark方向、業種平均対市場平均、個別対市場/同業、cutoff付きL1読取、保存済みReading/Context読取 |
-| `engine/src/baibai_engine/screening` | 必要入力のpreflight、Security Analysis、Candidate Discovery、calibration |
-| `engine/src/baibai_engine/valuation` | 小さな入力からの財務/TTM/倍率/相対評価、ER/FV機械推計、評価前提型、Projection、条件付き収益の純粋算術、保存済み推計の投影 |
-| `engine/src/baibai_engine/research` | Triage、統合Thesis、調査進行、独立Review・発行・store、CAA、Planning、Position Review |
-| `engine/src/baibai_engine/position` | 確認済み取引事実、ledger replay、保有と資本の評価、outcome |
-| `engine/src/baibai_engine/research/operation` | Research SetとCAAに束縛したOperation Session |
-| `engine/src/baibai_engine/tasks` | 運用task |
-| `engine/src/baibai_engine/storage/application` | application DB |
-| `engine/src/baibai_engine/read_api` | engineの読み取りuse case |
-| `web/` | read model、local UI、frontend、Worker、Web contract |
-| `batch/` | 定期処理、local Triage runner、転送、通知 |
-| `tools/` | 品質検査、実験、診断、所有者用adapter |
-| `method/` | 採用した計算規則と調査playbook |
-| `stores/` | 実行時store |
-| `reports/` | historical evidenceと明示的なconsumer artifact |
-
-Valuationの型・算術・機械推計と財務/TTM/倍率の計算本体は`valuation`が所有する。`valuation/metrics/models`のFinancialSnapshot保存形とTTMRulesをScreeningが組み立てに使い、計算へは4項目TTMRulesとpure L1入力だけを渡す。対象/比較母集団の選択、DerivedMetricsへの組立、Security Analysisへの保存、4 Approachの候補探索とcalibrationは`screening`に残る。Market Contextの価格騰落/出来高/標本volatility/安値乖離と信用需給、市場・業種・個別相対計算と保存済みmacro読取は`market_context`が所有する。倍率履歴の母分散sigma gapとは統合しない。共有L1 split補正は`market/bars`へ委譲する。macro観測の保存identity、既存Reading計算kernelとContextの発行経路は`macro`に残る。External Assessmentの保存済み読取・比較を`external_assessment`へ集約した。L1のtable・dataset・R2 key・取得runは既存名を維持し、公開domain/CLIはExternal Assessmentとして扱う。三領域を三サービス・三DB・9パッケージへ分割しない。
-
-ValuationはResearch・read_api・Screening・技術保存・HTTP providerへ依存しない。Marketのpure L1型/算術は計算入力として参照できる。保存済み解析の読取use caseは`read_api/valuation`がrun-store readerとValuationの小さな投影を組み合わせる。領域内部からResearchをeager importする`read_api/__init__.py`を呼ばない。Thesis全体や評価時点の価格factを扱う合成はResearchが所有する。保存済み評価の対象・cutoff・欠測は[Valuation metrics](./reference/valuation-metrics.md#machine-valuation)に従う。
-
-Market ContextはL1 reader、macroの型・既存Reading計算と自領域の算術へ依存し、Research・CAA・Screening・Position・UI合成read_apiへ依存しない。SQLiteの汎用read-only/未作成判定は`foundation/sqlite_read`、application schema検証は`storage/application/read`が所有する。領域読取は取得・書込を行わない。Webの`read_api/market_context`、既存CLI、batch/Triage callerが同じ領域読取へ委譲する。Macro Context packageの起動でwriterをeager importせず、発行は明示serviceだけを使う。
-
-現在もdailyのscreening失敗とmacro公開は独立していない。workflow/store/部分公開の分離は未完了である。有限Researchの対象・部分完了・保有提案を既存Operationへ接続したが、最終配置と本番統合受入は未完了である。
-
-External Assessmentの読取は保存済み入力だけを使い、取得・書込・AI起動をしない。CLIの明示`collect / import`だけが既存L1取得・保存入口へ委譲する。L1取得後の検証はexact receipt keyの読戻しであり、分析の最新・直前selectorへ逆依存しない。型・比較・欠測の意味は[data sources](./reference/data-sources.md#external-assessment)、保存と読取の契約は[market lake](./reference/market-lake.md#external-assessment-query)が所有する。
-
-Researchは三領域の小さな読取とrun-storeの保存済み解析を調査入力へ合成する。UIのticker profileを領域入力として使わない。`research/operation/progress`が対象・被覆とCAA scope、既存PositionReview serviceが保有draftの検証を所有する。Operationのpayload/manifestを使い、予算DB・汎用承認基盤・新状態機械は作らない。Triageの型・保存済みquery/hash/head・service・CLIは`research/triage`が所有し、Research内部はUIの`read_api`へ戻らない。Candidate/PublishedReviewSetの純粋契約は`screening/discovery/contracts`が所有し、生成・選抜をimportしない。ER/benchmark意味契約とmacro実体の残配置統合、永続identity切替と本番読戻しは別の未完了作業であり、将来配置を現行として記載しない。
-
-変更箇所は次の順に辿る。
-
-| 変更したいもの | 実装と検証の入口 |
-| --- | --- |
-| sourceの取得・保存 | `market/providers`、`storage/observations`、`market/edinet_metrics`とsource別test |
-| 機械ER/FV・条件付き収益算術 | `valuation/{estimates,models,scenario,query}`、`read_api/valuation`とvaluation test |
-| 財務/倍率と結果組立・候補選抜 | `valuation/metrics`、`market_context/{history,margin}`、`screening/metrics/snapshot`、`screening/discovery`と既存回帰 |
-| 較正 | `screening/calibration/evaluation`とcalibration test |
-| Researchの開始・下書き・発行 | `research/workspace/{admission,prepare,scaffold,status,validation,publication}`とworkspace test |
-| 調査sessionの完了 | `research/operation`とOperation test |
-| 市場・業種・個別相対の計算と読取 | `market_context/{history,margin,snapshot,benchmark,sector,security,prices,master,macro}`、`read_api/market_context`とMarket Context test |
-| 銘柄profile | `read_api/ticker_profile`は領域出力・event・保存済みSecurity Analysis・portfolioを合成する。portfolioの独立基準日は[Market Context読取](./reference/macro.md#market-context-reads)を参照 |
-| dashboard・企業画面 | `web/backend/src/baibai_web/readmodel/{builders,stocks}` → model → 生成contract → frontendと`tests/web` |
-
-業務の責務、情報の正本、実行環境は別の軸である。上表は現在の配置を示し、L1/L2/L3をそのままpackage階層にはしない。依存制約の厳密な範囲は[import-linter設定](../pyproject.toml)、入力の取得・計算の変更は[Screening reference](./reference/screening-runtime.md#market-store-inputs)から辿る。
-
-### CLI
-
-`baibai-engine`はdomainの読取・書込、`baibai-web`は表示・read model、`baibai-batch`はrepository内の運用処理の入口である。command・option・required・defaultはpublic `--help`を参照する。
-
-### 投資判断と取引事実の依存
-
-researchが企業評価と資本判断を所有し、core positionはresearchをimportしない。researchのbroker fact処理は保存済み判断のidentityを解決し、positionの事実記録へ渡す。
-
-資本の現在値と未評価は`position/valuation.py`、quoteと権利basisの読取は`position/market_source.py`、ledgerの再構築は`position/ledger_read.py`に集約する。Planning、Position Review、read APIはこれらを使い、同じ算術・SQL・保存値検証を再実装しない。
+`baibai-engine`はdomain操作、`baibai-web`は表示/read model、`baibai-batch`は運用の入口である。optionの正本はpublic `--help`。Owner MCPは保存済み情報を読むlocal adapterで、store更新や定期batchを起動しない。[Owner MCP](../tools/owner_mcp/README.md)と[docs portal](./README.md#目的別の入口)から実操作へ進む。
 
 <a id="failure-policy"></a>
 
-## 6. Failure policy
+## 7. 停止条件と変更の検証
 
-無人経路が停止するのは、必須入力を得られない場合、または続行すると壊れたstore・release・viewを次の利用者へ渡す場合である。optionalな観測の不足・古さだけで無関係な出力まで止めず、対象値の未評価と理由を示す。
+必須入力が得られない時や、壊れたstore/release/viewを次の利用者へ渡す時は止める。optionalな欠測・古さで無関係な出力まで止めず、対象値の未評価と理由を示す。正常な未作成と既存保存物の破損を区別し、個別隔離で必須集合やledgerを勝手に欠落させない。schema・coverage・世代/CAS・履歴保護を維持する。終了状態と公開/通知の成否は[batch運用](../batch/OPERATIONS.md)が所有する。
 
-正常な未作成と保存物の破損を区別する。public readerの未作成file・tableを持たないunwritten storeは空viewとし、既存schemaの不一致やcurrent schemaのtable欠損は拒否する。書込可否を判断するreaderは必要なstoreの不在も拒否する。個別recordの隔離は出力契約を保てる場合に限り、必須の集合やledgerを勝手に欠落させない。
+<a id="four-roles"></a>
+<a id="naming-and-history"></a>
 
-producerの計算identity変更は再生成の契機であり、それ自体を障害としない。入力世代の競合、履歴の後退、壊れた出力を防ぐ既存のschema・coverage・CAS等は維持する。batchの終了状態と公開・通知の成否は[batch運用](../batch/OPERATIONS.md)で扱う。
-
-## 7. Development gates
-
-型・保存・書込の条件はdomain model、DB constraint、serviceと対応testが所有する。検証層の使い分けと完全local gateは[Python foundation](./reference/python-foundation.md)を参照する。
+変更では配置・保存・画面・CLI・docsを同じ責務へ揃え、無価値な互換層・重複・汎用化を削る。内部の旧名・aliasは原則残さず、caller・model・serializer・CLI・test・active docsを同じ変更で揃える。provider-native fieldと保存済み判断のidentity・引用・実取引事実は内部命名と区別し、命名整理で書き換えない。意味のあるデータと既存判断の履歴を保持し、意味不変を前後比較で検証する。規則や意味の変更による再生成と、単なる配置変更を区別する。成果を産む・誤りを止める・測る・見せる役割は識別するが、定型的な枠や新機構を増やす目的にしない。採否は[開発原則](./doctrine.md#development-investment-policy)、field/type/書込条件はmodel・DB constraint・domain service、完全gateは[Python foundation](./reference/python-foundation.md#9-ci-and-local-parity)に従う。
