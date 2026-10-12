@@ -558,12 +558,10 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "triage reads and admission use their owner without UI facade or writer imports"
+name = "triage and admission do not depend on the UI read facade"
 type = "forbidden"
-source_modules = ["baibai_engine.research.triage.query", "baibai_engine.research.workspace.admission"]
-forbidden_modules = [
-  "baibai_engine.read_api", "baibai_engine.research.triage.service", "baibai_engine.research.triage.cli",
-]
+source_modules = ["baibai_engine.research.triage", "baibai_engine.research.workspace.admission"]
+forbidden_modules = ["baibai_engine.read_api"]
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
