@@ -21,8 +21,7 @@ from baibai_batch.storage.retail_staging import prefix, put_private, read_privat
 from baibai_engine.batch_api import RetailReceivedHTML, RetailSource
 
 RECEIPT_FORMAT = "retail-public-html-receipt-v2"
-BLOB_PREFIX = "retail-dynamics/raw-html/utc-date/"
-RECEIPT_PREFIX = "retail-dynamics/raw-receipts/utc-date/"
+RAW_PREFIX = "retail-dynamics/raw/"
 RETENTION_DAYS = 3
 
 
@@ -32,8 +31,12 @@ def _received_date(received: datetime) -> date:
     return received.astimezone(UTC).date()
 
 
+def _date_prefix(day: date) -> str:
+    return f"{RAW_PREFIX}utc-date/{day.isoformat()}"
+
+
 def _blob_key(received: datetime, digest: str) -> str:
-    return f"{BLOB_PREFIX}{_received_date(received).isoformat()}/sha256/{digest}.html.gz"
+    return f"{_date_prefix(_received_date(received))}/html/sha256/{digest}.html.gz"
 
 
 def read_raw_html(store: ObjectStore, receipt_key: str) -> tuple[dict[str, Any], bytes]:
@@ -113,7 +116,7 @@ def save_raw_html(
         "blob_key": key,
     }
     receipt_key = (
-        f"{RECEIPT_PREFIX}{_received_date(received.fetched_at_utc).isoformat()}"
+        f"{_date_prefix(_received_date(received.fetched_at_utc))}/receipts"
         f"/{run_id}/{source}/{ticker}/{request_number}.json"
     )
     payload = json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode()
@@ -130,28 +133,27 @@ def save_raw_html(
 
 
 def retention_inventory(objects: Iterable[tuple[str, int]], *, as_of: date) -> dict[str, Any]:
-    """Report date groups for review only; legacy keys are never deletion candidates."""
+    """Report date groups for review only; unclassified keys are not deletion candidates."""
     keep_from = as_of - timedelta(days=RETENTION_DAYS - 1)
     groups: dict[str, dict[str, Any]] = {}
-    legacy = {"objects": 0, "bytes": 0}
+    unclassified = {"objects": 0, "bytes": 0}
     for key, size in objects:
         matched = re.fullmatch(
-            r"retail-dynamics/(raw-html|raw-receipts)/utc-date/(\d{4}-\d{2}-\d{2})/.+",
+            r"retail-dynamics/raw/utc-date/(\d{4}-\d{2}-\d{2})/(html/sha256|receipts)/.+",
             key,
         )
         if matched is None:
-            legacy["objects"] += 1
-            legacy["bytes"] += size
+            unclassified["objects"] += 1
+            unclassified["bytes"] += size
             continue
-        day = date.fromisoformat(matched[2])
+        day = date.fromisoformat(matched[1])
         group = groups.setdefault(
             day.isoformat(),
             {
                 "status": "delete_candidate" if day < keep_from else "keep",
                 "objects": 0,
                 "bytes": 0,
-                "receipt_prefix": f"{RECEIPT_PREFIX}{day.isoformat()}/",
-                "blob_prefix": f"{BLOB_PREFIX}{day.isoformat()}/",
+                "prefix": _date_prefix(day) + "/",
             },
         )
         group["objects"] += 1
@@ -162,7 +164,7 @@ def retention_inventory(objects: Iterable[tuple[str, int]], *, as_of: date) -> d
         "keep_from_utc_date": keep_from.isoformat(),
         "retention_utc_dates": RETENTION_DAYS,
         "dates": dict(sorted(groups.items())),
-        "legacy_or_unclassified": legacy,
+        "unclassified": unclassified,
     }
 
 
@@ -176,11 +178,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
-        objects = (
-            item
-            for root in ("retail-dynamics/raw-html/", "retail-dynamics/raw-receipts/")
-            for item in store.iter_objects(root)
-        )
+        objects = store.iter_objects(RAW_PREFIX)
         print(json.dumps(retention_inventory(objects, as_of=args.as_of), sort_keys=True))
         return 0
     except Exception as error:
