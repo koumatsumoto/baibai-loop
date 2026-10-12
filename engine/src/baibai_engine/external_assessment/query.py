@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .analysis import analyze
 from .models import ExternalAssessment
-from .reader import read_observations
+from .reader import read_observations, tradingview_rows_at_cutoff
 
 
 def external_assessment(
@@ -25,7 +25,7 @@ def observed_tickers(path: Path, *, cutoff: datetime) -> list[str]:
     )
     from baibai_engine.market.retail_dynamics.models import utc_datetime
     from baibai_engine.market.sqlite.read import connect_read_only
-    from baibai_engine.market.tradingview.contract import TABLE
+    from baibai_engine.market.tradingview.contract import COLUMNS as TV_COLUMNS
 
     cutoff = utc_datetime(cutoff)
     if not path.is_file():
@@ -33,7 +33,7 @@ def observed_tickers(path: Path, *, cutoff: datetime) -> list[str]:
     tickers: set[str] = set()
     with closing(connect_read_only(path)) as connection:
         connection.execute("BEGIN")
-        for table in (MODEL_VALUATION_TABLE, ANALYST_RATING_TABLE, QUANTS_SCORE_TABLE, TABLE):
+        for table in (MODEL_VALUATION_TABLE, ANALYST_RATING_TABLE, QUANTS_SCORE_TABLE):
             if (
                 connection.execute(
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
@@ -45,4 +45,14 @@ def observed_tickers(path: Path, *, cutoff: datetime) -> list[str]:
                     (cutoff.isoformat(timespec="microseconds"),),
                 ).fetchall()
                 tickers.update(str(row[0]) for row in rows)
+        tickers.update(
+            str(row["ticker"])
+            for row in tradingview_rows_at_cutoff(
+                connection,
+                cutoff,
+                columns=tuple(
+                    column for column in TV_COLUMNS if column[0] in {"ticker", "fetched_at_utc"}
+                ),
+            )
+        )
     return sorted(tickers)

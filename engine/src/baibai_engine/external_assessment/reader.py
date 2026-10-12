@@ -70,9 +70,14 @@ def _pairs[T: ReceivedObservation](rows: list[T]) -> list[tuple[T, T | None]]:
     return [(members[0], members[1] if len(members) > 1 else None) for members in groups.values()]
 
 
-def _tradingview_rows(
-    conn: sqlite3.Connection, ticker: str, cutoff: datetime
-) -> list[TradingViewObservation]:
+def tradingview_rows_at_cutoff(
+    conn: sqlite3.Connection,
+    cutoff: datetime,
+    *,
+    ticker: str | None = None,
+    columns: tuple[Column, ...] = TV_COLUMNS,
+) -> list[sqlite3.Row]:
+    """Use the same exact received-time predicate for identities and value reads."""
     if (
         conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (TV_TABLE,)
@@ -80,19 +85,19 @@ def _tradingview_rows(
         is None
     ):
         return []
-    names = ",".join(column[0] for column in TV_COLUMNS)
-    # Date prunes future snapshots; Python checks the exact received-time cutoff,
-    # including subsecond precision and the stored ISO timestamp's optional fraction.
+    names = ",".join(column[0] for column in columns)
+    day = cutoff.astimezone(ZoneInfo("Asia/Tokyo")).date().isoformat()
+    predicate = "snapshot_date<=?" + (" AND ticker=?" if ticker is not None else "")
+    # Writers normalize received time to UTC with optional fractional seconds.
+    # Parse it here so enumerating identities and reading values agree exactly,
+    # also for equivalent aware ISO representations in saved input.
     rows = conn.execute(
-        f"SELECT {names} FROM {TV_TABLE} WHERE ticker=? AND snapshot_date<=?",  # nosec B608
-        (ticker, cutoff.astimezone(ZoneInfo("Asia/Tokyo")).date().isoformat()),
+        f"SELECT {names} FROM {TV_TABLE} WHERE {predicate}",  # nosec B608
+        (day, ticker) if ticker is not None else (day,),
     ).fetchall()
-    observations = [TradingViewObservation.model_validate(dict(row)) for row in rows]
-    return sorted(
-        (row for row in observations if utc_datetime(row.fetched_at_utc) <= cutoff),
-        key=lambda row: row.fetched_at_utc,
-        reverse=True,
-    )[:2]
+    return [
+        row for row in rows if utc_datetime(datetime.fromisoformat(row["fetched_at_utc"])) <= cutoff
+    ]
 
 
 def read_observations(sqlite_path: Path, ticker: str, cutoff: datetime) -> ObservationHistory:
@@ -119,7 +124,14 @@ def read_observations(sqlite_path: Path, ticker: str, cutoff: datetime) -> Obser
             QuantsScoreObservation.model_validate(dict(row))
             for row in _latest_rows(conn, QUANTS_SCORE_TABLE, QUANTS_SCORE_COLUMNS, ticker, cutoff)
         ]
-        tradingview = _tradingview_rows(conn, ticker, cutoff)
+        tradingview = sorted(
+            (
+                TradingViewObservation.model_validate(dict(row))
+                for row in tradingview_rows_at_cutoff(conn, cutoff, ticker=ticker)
+            ),
+            key=lambda row: row.fetched_at_utc,
+            reverse=True,
+        )[:2]
     finally:
         conn.close()
     return ObservationHistory(

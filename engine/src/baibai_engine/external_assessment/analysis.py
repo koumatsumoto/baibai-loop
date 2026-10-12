@@ -36,11 +36,34 @@ FORECAST_METRICS = tuple(
 )
 
 
+# Same-series numeric comparison uses only bases present in the saved contract.
+# A target price or EPS also needs a share basis, which this contract does not
+# record; those deltas are explicitly unsupported rather than a dead field lookup.
+_PERIOD_BASIS = ("provider_symbol", "target_period_label", "target_period_end")
+_MONEY_BASIS = (*_PERIOD_BASIS, "estimate_currency", "estimate_unit")
+TRADINGVIEW_COMPARISON_BASIS: dict[str, tuple[str, ...] | None] = {
+    "price_target_average": None,
+    "price_target_high": None,
+    "price_target_low": None,
+    "eps_forecast_next_fq": None,
+    "eps_forecast_next_fy": None,
+    "revenue_forecast_next_fq": _MONEY_BASIS,
+    "revenue_forecast_next_fy": _MONEY_BASIS,
+    "forward_pe": _PERIOD_BASIS,
+    "forward_ps": _PERIOD_BASIS,
+    "forward_ev_ebitda": _PERIOD_BASIS,
+    "ebitda_estimate_fy": _MONEY_BASIS,
+    "free_cash_flow_estimate_fy": _MONEY_BASIS,
+    "capex_estimate_fy": _MONEY_BASIS,
+    "total_debt_estimate_fy": _MONEY_BASIS,
+}
+
+
 def _compare(
     metric: str,
     latest: Observation | TradingViewObservation | None,
     previous: Observation | TradingViewObservation | None,
-    basis: tuple[str, ...],
+    basis: tuple[str, ...] | None,
 ) -> MetricComparison:
     if latest is None:
         return MetricComparison(metric=metric, state="not_observed", reason="no_observation")
@@ -75,8 +98,12 @@ def _compare(
         return MetricComparison.model_validate(
             {**values, "state": "count_changed", "reason": "count_changed"}
         )
+    if basis is None:
+        return MetricComparison.model_validate(
+            {**values, "state": "not_comparable", "reason": "comparison_basis_not_recorded"}
+        )
     for field in basis:
-        current, old = getattr(latest, field, None), getattr(previous, field, None)
+        current, old = getattr(latest, field), getattr(previous, field)
         if current is None or old is None or current == "" or old == "":
             return MetricComparison.model_validate(
                 {**values, "state": "not_comparable", "reason": f"unknown_{field}"}
@@ -244,13 +271,7 @@ def analyze(history: ObservationHistory, *, evaluated_at: datetime) -> ExternalA
                     metric,
                     tv.latest,
                     tv.previous,
-                    (
-                        "estimate_currency",
-                        "estimate_unit",
-                        "share_basis",
-                        "target_period_label",
-                        "target_period_end",
-                    ),
+                    TRADINGVIEW_COMPARISON_BASIS[metric],
                 )
                 for metric in FORECAST_METRICS
             ),

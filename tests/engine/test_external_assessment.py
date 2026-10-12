@@ -209,3 +209,111 @@ assert "baibai_engine.market.tradingview.collector" not in sys.modules
         ],
         check=True,
     )
+
+
+def test_tradingview_comparison_uses_metric_meaning_and_only_recorded_bases(tmp_path):
+    path = tmp_path / "market.sqlite"
+    first = datetime(2026, 10, 9, 7, tzinfo=UTC)
+    metadata = dict(
+        target_period_label="FY2027",
+        target_period_end="2027-03-31",
+        estimate_currency="JPY",
+        estimate_unit="currency",
+    )
+    tv_row(
+        path,
+        first,
+        forward_pe=10,
+        revenue_forecast_next_fy=100,
+        price_target_average=100,
+        eps_forecast_next_fy=10,
+        **metadata,
+    )
+    tv_row(
+        path,
+        first + timedelta(days=1),
+        forward_pe=12,
+        revenue_forecast_next_fy=120,
+        price_target_average=120,
+        eps_forecast_next_fy=12,
+        **metadata,
+    )
+    comparisons = {item.metric: item for item in read(path).tradingview.comparisons}
+    assert comparisons["forward_pe"].delta == 2
+    assert comparisons["revenue_forecast_next_fy"].delta == 20
+    for metric in ("price_target_average", "eps_forecast_next_fy"):
+        assert comparisons[metric].state == "not_comparable"
+        assert comparisons[metric].reason == "comparison_basis_not_recorded"
+        assert comparisons[metric].delta is None
+
+
+@pytest.mark.parametrize("metric", ["forward_pe", "forward_ps", "forward_ev_ebitda"])
+def test_tradingview_dimensionless_multiples_do_not_require_money_or_share_bases(tmp_path, metric):
+    path = tmp_path / "market.sqlite"
+    first = datetime(2026, 10, 9, 7, tzinfo=UTC)
+    metadata = dict(target_period_label="FY2027", target_period_end="2027-03-31")
+    tv_row(path, first, **{metric: 10}, **metadata)
+    tv_row(path, first + timedelta(days=1), **{metric: 12}, **metadata)
+    comparison = next(item for item in read(path).tradingview.comparisons if item.metric == metric)
+    assert comparison.comparable
+    assert comparison.delta == 2
+
+
+@pytest.mark.parametrize("missing", [False, True])
+@pytest.mark.parametrize(
+    "field", ["target_period_label", "target_period_end", "estimate_currency", "estimate_unit"]
+)
+def test_tradingview_unknown_or_changed_required_basis_prevents_delta(tmp_path, field, missing):
+    path = tmp_path / "market.sqlite"
+    first = datetime(2026, 10, 9, 7, tzinfo=UTC)
+    metadata = dict(
+        target_period_label="FY2027",
+        target_period_end="2027-03-31",
+        estimate_currency="JPY",
+        estimate_unit="currency",
+    )
+    tv_row(path, first, forward_pe=10, revenue_forecast_next_fy=100, **metadata)
+    latest_metadata = {**metadata, field: None if missing else "different"}
+    tv_row(
+        path,
+        first + timedelta(days=1),
+        forward_pe=12,
+        revenue_forecast_next_fy=120,
+        **latest_metadata,
+    )
+    comparisons = {item.metric: item for item in read(path).tradingview.comparisons}
+    money = comparisons["revenue_forecast_next_fy"]
+    assert money.state == "not_comparable"
+    assert money.reason == f"{'unknown' if missing else 'changed'}_{field}"
+    assert money.delta is None
+    multiple = comparisons["forward_pe"]
+    if field.startswith("target_period"):
+        assert multiple.state == "not_comparable"
+        assert multiple.delta is None
+    else:
+        assert multiple.delta == 2
+
+
+@pytest.mark.parametrize("stored_offset", [-7, 0, 9])
+@pytest.mark.parametrize("cutoff_offset", [-7, 0, 9])
+@pytest.mark.parametrize("fraction", [0, 123456])
+def test_tradingview_identity_and_value_reads_agree_at_subsecond_and_offset_boundaries(
+    tmp_path, stored_offset, cutoff_offset, fraction
+):
+    from datetime import timezone
+
+    path = tmp_path / "market.sqlite"
+    # Includes the JST day rollover and ISO strings with/without fractional seconds.
+    cutoff = datetime(2026, 10, 10, 15, microsecond=fraction, tzinfo=UTC)
+    stored_zone = timezone(timedelta(hours=stored_offset))
+    requested_cutoff = cutoff.astimezone(timezone(timedelta(hours=cutoff_offset)))
+    for ticker, shift in (("1001", -1), ("1002", 0), ("1003", 1)):
+        received = (cutoff + timedelta(microseconds=shift)).astimezone(stored_zone)
+        tv_row(path, received, ticker=ticker, eps_forecast_next_fy=1)
+    listed = observed_tickers(path, cutoff=requested_cutoff)
+    assert listed == ["1001", "1002"]
+    for ticker in ("1001", "1002", "1003"):
+        assessment = external_assessment(
+            path, ticker=ticker, cutoff=requested_cutoff, evaluated_at=requested_cutoff
+        )
+        assert (assessment.tradingview.inputs.latest is not None) == (ticker in listed)
