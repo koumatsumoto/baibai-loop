@@ -9,8 +9,6 @@ from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
 
-from baibai_engine.storage.application.json import canonical_json
-from baibai_engine.storage.application.write import connect_rw, initialize_database
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 from baibai_engine.foundation.time import JST
 from baibai_engine.research.capital_allocation import CapitalAllocationAssessment
@@ -39,6 +37,8 @@ from baibai_engine.research.operation.validation import validate_progress, valid
 from baibai_engine.research.position_review import PositionReviewDocument
 from baibai_engine.research.position_review_service import PositionReviewService
 from baibai_engine.research.thesis_store import load_reviewed_thesis
+from baibai_engine.storage.application.json import canonical_json
+from baibai_engine.storage.application.write import connect_rw, initialize_database
 
 
 class OperationNotFoundError(ValueError):

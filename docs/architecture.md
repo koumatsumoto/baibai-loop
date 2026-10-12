@@ -37,7 +37,13 @@ engineはweb・batch・toolsへ依存しない。Webからengineへの入口は`
 
 外部媒体のL1契約は`external_assessment/observations`、取得は`external_assessment/acquisition`と`external_assessment/tradingview`、SQL adapterは`external_assessment/store.py`が所有する。共有保存は`storage/application`・`storage/observations`・`storage/lake`へ配置する。`external_assessment`が出所別の受領履歴・比較・原評価元の関係を所有する。schema/lakeはL1のleaf contractだけを参照し、領域内部はResearch・Screening・Valuation・Market Context・UI合成read_apiへ依存しない。Web・CLI・ticker profileは領域の読取結果を合成し、順位・独自FV・配分を自動変更しない。入力の意味は[data sources](./reference/data-sources.md#retail-dynamics)を参照する。
 
-構造移設では現行table/dataset/key/plan形式をidentity moduleに局所化して保持する。永続名・workflow identityの切替は稼働取得の完了後に別PRで行い、固定releaseの値・取得時刻を照合する。EDINETのsource revisionもpath/bytesの移動で変わるため、計算値の変更とは分けて保存provenanceの切替で扱う。
+構造移設では現行table/dataset/key/plan形式をidentity moduleに局所化して保持する。永続名・workflow identityの切替は稼働取得の完了後に別PRで行い、固定releaseの値・取得時刻を照合する。配置変更だけでEDINETの保存行やrevisionを書き換えない。
+
+<a id="edinet-metric-revision"></a>
+
+EDINET metricの`extractor_revision`は明示的な抽出意味revisionであり、source bytesやimport pathから導出しない。数値・文書選択・訂正/取下げ・cache完全性・ticker/期間/連結/単位・NULLと0・quality/failure・保存時型変換の意味を変える時に更新する。配置・import・transport retryだけの変更では更新しない。初版は旧実装との意味同一を確認した旧tokenを継承し、保存済み行・値・日時・旧release/hashは変更しない。意味変更時の再抽出・反映は[batch運用](../batch/OPERATIONS.md#edinet-metrics-revision)が所有する。
+
+releaseの`producer_git_commit`は公開処理のcommitを表し、各行の元抽出commitとは呼ばない。行の意味revisionと文書identityは保存値自身が持つ。
 
 <a id="four-roles"></a>
 
@@ -108,7 +114,7 @@ Owner MCPは所有者が保存済み情報を読むlocal adapterであり、stor
 | `engine/src/baibai_engine/position` | 確認済み取引事実、ledger replay、保有と資本の評価、outcome |
 | `engine/src/baibai_engine/research/operation` | Research SetとCAAに束縛したOperation Session |
 | `engine/src/baibai_engine/tasks` | 運用task |
-| `engine/src/baibai_engine/appdb` | application DB |
+| `engine/src/baibai_engine/storage/application` | application DB |
 | `engine/src/baibai_engine/read_api` | engineの読み取りuse case |
 | `web/` | read model、local UI、frontend、Worker、Web contract |
 | `batch/` | 定期処理、local Triage runner、転送、通知 |

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Protocol, TextIO
 
 from baibai_engine.market.edinet_metrics.revision import (
-    compute_extractor_revision,
+    EDINET_METRIC_REVISION,
     has_hard_metric_failure,
 )
 from baibai_engine.market.edinet_metrics.store import (
@@ -102,7 +102,7 @@ def extract_edinet_metrics_command(
         file=out,
         flush=True,
     )
-    extractor_revision = compute_extractor_revision()
+    extractor_revision = EDINET_METRIC_REVISION
     try:
         baseline = read_edinet_metric_baseline(sqlite_path, asof_date)
     except EDINETMetricBaselineError as exc:

@@ -7,7 +7,6 @@ from datetime import date, datetime, time
 from math import isfinite
 from pathlib import Path
 
-from baibai_engine.appdb.paths import database_path
 from baibai_engine.foundation.repository_layout import (
     ER_LEVEL_CALIBRATION_CONTEXT_PATH,
     MACRO_DB_PATH,
@@ -41,6 +40,7 @@ from baibai_engine.research.workspace.files import (
     _write_workspace_file,
 )
 from baibai_engine.research.workspace.status import _write_status
+from baibai_engine.storage.application.paths import database_path
 
 
 def prepare_workspace(

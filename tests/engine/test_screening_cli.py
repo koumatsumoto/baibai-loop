@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.market.bars import JQuantsDailyBar, JQuantsMarketCalendarDay
-from baibai_engine.market.edinet_metrics.revision import compute_extractor_revision
+from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
 from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
 from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.jpx_models import (
@@ -2088,7 +2088,7 @@ class ScreeningCliTests(unittest.TestCase):
                 revision = connection.execute(
                     "SELECT extractor_revision FROM edinet_metrics WHERE asof_date = '2026-04-25'"
                 ).fetchone()[0]
-            self.assertEqual(revision, compute_extractor_revision())
+            self.assertEqual(revision, EDINET_METRIC_REVISION)
 
 
 class IndexNextEarningsTests(unittest.TestCase):

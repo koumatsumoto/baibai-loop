@@ -9,8 +9,8 @@ from tests.engine.test_position_review_v3 import NOW
 from tests.helpers.research_triage import research_entry, research_triage_payload
 from tests.helpers.research_v4 import pair_payload
 
-from baibai_engine.appdb.json import canonical_json
-from baibai_engine.appdb.write import connect_rw
+from baibai_engine.storage.application.json import canonical_json
+from baibai_engine.storage.application.write import connect_rw
 from baibai_engine.research.capital_allocation import (
     CapitalAllocationAssessment,
     capital_allocation_draft_sha256,
