@@ -443,9 +443,9 @@ def test_missing_or_unattempted_cohort_cannot_publish(publication):
         )
 
 
-def test_workflow_is_manual_serial_private_and_keeps_publication_inside_existing_lease():
+def test_workflow_is_daily_serial_private_and_keeps_publication_inside_existing_lease():
     workflow = yaml.load(WORKFLOW.read_text(), Loader=yaml.BaseLoader)
-    assert set(workflow["on"]) == {"workflow_dispatch"}
+    assert set(workflow["on"]) == {"workflow_dispatch", "schedule"}
     assert workflow["concurrency"]["group"] == "retail-dynamics-acquire"
     assert workflow["concurrency"]["cancel-in-progress"] == "false"
     acquire_job = workflow["jobs"]["acquire"]

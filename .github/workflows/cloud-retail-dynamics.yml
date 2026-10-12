@@ -1,8 +1,9 @@
 name: cloud-retail-dynamics
-run-name: "retail ${{ inputs.batch_id }}"
+run-name: "retail ${{ inputs.batch_id || github.event.schedule }}"
 
-# Manual acceptance only. A schedule is a separate operational decision.
 on:
+  schedule:
+    - cron: "13 10 * * *" # 19:13 JST, including rest days
   workflow_dispatch:
     inputs:
       batch_id:
@@ -32,10 +33,16 @@ concurrency:
 
 jobs:
   plan:
-    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    if: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    permissions:
+      contents: read
+      actions: read
     outputs:
+      batch_id: ${{ steps.status.outputs.run_id }}
+      eligible: ${{ steps.status.outputs.eligible }}
+      operation: ${{ inputs.operation || 'collect_and_publish' }}
       cohorts: ${{ steps.plan.outputs.cohorts }}
       terminal_status: ${{ steps.plan.outputs.terminal_status }}
       retry_only: ${{ steps.plan.outputs.retry_only }}
@@ -49,7 +56,7 @@ jobs:
     env:
       RETAIL_BATCH_ID: ${{ inputs.batch_id }}
       RETAIL_MASTER_ASOF: ${{ inputs.master_asof }}
-      RETAIL_OPERATION: ${{ inputs.operation }}
+      RETAIL_OPERATION: ${{ inputs.operation || 'collect_and_publish' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -59,32 +66,51 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked
+      - name: Pin the original scheduled run clock
+        id: clock
+        if: ${{ github.event_name == 'schedule' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          created_at="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq '.created_at')"
+          printf 'created_at=%s\n' "$created_at" >> "$GITHUB_OUTPUT"
       - name: Check the saved private plan
         id: status
         env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_batch.jobs.retail_daily status --run-id "$RETAIL_BATCH_ID"
-      - name: Provision DuckDB httpfs extension
-        if: ${{ steps.status.outputs.exists != 'true' }}
-        run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
-      - name: Freeze or verify the private plan
-        id: plan
-        env:
+          RETAIL_RUN_CREATED_AT: ${{ steps.clock.outputs.created_at }}
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
-          plan_args=()
+          status_args=(--run-id "$RETAIL_BATCH_ID")
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
+            status_args=(--scheduled --run-created-at "$RETAIL_RUN_CREATED_AT")
+          fi
+          uv run python -m baibai_batch.jobs.retail_daily status "${status_args[@]}"
+      - name: Provision DuckDB httpfs extension
+        if: ${{ steps.status.outputs.eligible == 'true' && steps.status.outputs.exists != 'true' }}
+        run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
+      - name: Freeze or verify the private plan
+        id: plan
+        if: ${{ steps.status.outputs.eligible == 'true' }}
+        env:
+          RETAIL_RUN_CREATED_AT: ${{ steps.clock.outputs.created_at }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          plan_args=(--run-id "$RETAIL_BATCH_ID" --master-asof "$RETAIL_MASTER_ASOF")
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
+            plan_args=(--scheduled --run-created-at "$RETAIL_RUN_CREATED_AT")
+          fi
           if [ "$RETAIL_OPERATION" = "publish_confirmed_partial" ]; then
             plan_args+=(--require-existing-plan)
           fi
-          uv run python -m baibai_batch.jobs.retail_daily plan --run-id "$RETAIL_BATCH_ID" --master-asof "$RETAIL_MASTER_ASOF" --directory "$RUNNER_TEMP/retail-plan" "${plan_args[@]}"
+          uv run python -m baibai_batch.jobs.retail_daily plan --directory "$RUNNER_TEMP/retail-plan" "${plan_args[@]}"
 
   acquire:
     needs: plan
-    if: ${{ inputs.operation == 'collect_and_publish' && needs.plan.outputs.terminal_status == 'pending' }}
+    if: ${{ needs.plan.outputs.operation == 'collect_and_publish' && needs.plan.outputs.terminal_status == 'pending' && needs.plan.outputs.cohorts != '[]' }}
     runs-on: ubuntu-latest
     timeout-minutes: 300
     strategy:
@@ -93,7 +119,7 @@ jobs:
       matrix:
         cohort: ${{ fromJSON(needs.plan.outputs.cohorts) }}
     env:
-      RETAIL_BATCH_ID: ${{ inputs.batch_id }}
+      RETAIL_BATCH_ID: ${{ needs.plan.outputs.batch_id }}
       RETAIL_COHORT: ${{ matrix.cohort }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -113,7 +139,7 @@ jobs:
 
   publish:
     needs: [plan, acquire]
-    if: ${{ always() && !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.terminal_status == 'pending' && (inputs.operation == 'publish_confirmed_partial' || (needs.acquire.result == 'success' && needs.plan.outputs.retry_only != 'true')) }}
+    if: ${{ always() && !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.terminal_status == 'pending' && (needs.plan.outputs.operation == 'publish_confirmed_partial' || ((needs.acquire.result == 'success' || needs.plan.outputs.cohorts == '[]') && needs.plan.outputs.retry_only != 'true')) }}
     runs-on: ubuntu-latest
     outputs:
       expected_pairs: ${{ steps.publish.outputs.retail_expected_pairs }}
@@ -130,8 +156,8 @@ jobs:
       queue: max
       cancel-in-progress: false
     env:
-      RETAIL_BATCH_ID: ${{ inputs.batch_id }}
-      RETAIL_OPERATION: ${{ inputs.operation }}
+      RETAIL_BATCH_ID: ${{ needs.plan.outputs.batch_id }}
+      RETAIL_OPERATION: ${{ needs.plan.outputs.operation }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -180,7 +206,7 @@ jobs:
 
   notify:
     needs: [plan, acquire, publish]
-    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    if: ${{ always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && needs.plan.outputs.eligible != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -195,7 +221,7 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           PYTHONPATH: batch/src
-          RETAIL_OPERATION: ${{ inputs.operation }}
+          RETAIL_OPERATION: ${{ needs.plan.outputs.operation || inputs.operation || 'collect_and_publish' }}
         run: |
           publication_mode=complete
           if [ "$RETAIL_OPERATION" = "publish_confirmed_partial" ]; then

@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 from collections.abc import Sequence
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -86,6 +86,40 @@ def frozen_lake_universe(
         [(str(ticker), str(market or ""), str(sector or "")) for ticker, market, sector in rows]
     )
     return tickers, _binding(tickers, master_asof, release.release_id, release.manifest_sha256)
+
+
+def calendar_master_asof(
+    session: LakeSession,
+    *,
+    release: FixedRelease,
+    cache: LakeObjectCache,
+    observation_date: date,
+) -> date:
+    """Resolve a saved master basis from a continuous, fixed-release JPX calendar."""
+    dataset = accepted_dataset(release, "jquants.market_calendar")
+    expected = observation_date
+    for year in (observation_date.year, observation_date.year - 1):
+        partitions = selected_partitions(release, dataset.name, periods=((year,),))
+        paths = materialize_partitions(cache, dataset=dataset, partitions=partitions)
+        try:
+            rows = session.connection.execute(
+                "SELECT day,is_business_day FROM read_parquet($files,union_by_name=false) "
+                "WHERE day<=$day ORDER BY day DESC",
+                {"files": [str(path) for path in paths], "day": expected.isoformat()},
+            ).fetchall()
+        except duckdb.Error as error:
+            raise LakeReadError(
+                f"retail calendar cannot be read: {session.redact(str(error))}"
+            ) from None
+        for day, business in rows:
+            if str(day) != expected.isoformat() or business not in (0, 1):
+                raise ValueError("retail continuous exact-date JPX calendar is unavailable")
+            if business == 1:
+                return expected
+            expected -= timedelta(days=1)
+        if expected.year == year:
+            raise ValueError("retail continuous exact-date JPX calendar is unavailable")
+    raise ValueError("retail previous business day is unavailable in JPX calendar")
 
 
 def _require_master_date(master_asof: date) -> None:

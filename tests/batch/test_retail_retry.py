@@ -438,7 +438,7 @@ def test_pending_retry_plan_selects_its_cohort_and_redispatch_can_reach_remainin
     output.write_text("")
     assert daily.main(args) == 0
     values = dict(line.split("=", 1) for line in output.read_text().splitlines())
-    assert values["cohorts"] == "[0, 1, 2]"
+    assert values["cohorts"] == "[2]"
     assert values["retry_only"] == "false"
     assert daily.acquire_cohort(store, p, 2)["stop_reason"] is None
     assert len(session.calls) == 2

@@ -858,21 +858,23 @@ import対象は明示した既存の隔離作業コピーであり、current mar
 
 本番導入は下記のcode/store切替を一組にする。後続の独立workflowでは取得をlease外で終え、公開段階で最新クラウド世代をpull/hydrateしてから確定stageを適用する。公開権限、private handoff、料金・所要時間の実測は定期実行前に別途受入する。保持・照会は[market lake](../docs/reference/market-lake.md#retail-dynamics-query)を参照する。
 
-### 固定コホートの手動受入と再開
+### 日次取得と固定コホートの再開
 
-`cloud-retail-dynamics.yml`は定期実行を持たない、main限定の手動受入入口である。上の限定collectorと分け、保存済み全普通株の取得をpublication lease外で行う。初回に最新L1のreleaseを固定し、指定したexact-dateの保存済みmasterに必要な年partitionだけを読み、固定universeを選ぶ。この計画段階でmarket.sqliteや他datasetを取得・hydrateしない。新しいmasterをproviderから取得せず、普通株のproduction floor、分類、master日付・release bindingが不足する場合は停止する。planはmaster日付・release・ticker集合・collector policyに固定され、同じbatch IDの再開では別universeへ置換しない。
+`cloud-retail-dynamics.yml`はmain限定で毎日19:13 JSTに日次取得し、同じ入口で手動受入・再開も行う。上の限定collectorと分け、保存済み全普通株の取得をpublication lease外で行う。scheduled runは元のGitHub run作成時刻からcron対象日と`retail-daily-YYYY-MM-DD`のbatch IDを決め、queue遅延や翌日のrerunで対象を別日へ進めない。実行時点が15:30 JSTより前なら取得・公開前にskipする。
+
+初回に最新L1のreleaseを固定し、日次取得ではそのJPXカレンダーで対象営業日のexact-date masterを選ぶ。休日も取得し、連続したカレンダーで直近営業日を確認してその保存済みmasterを使う。手動では従来どおりmaster日付を明示する。calendarと必要なmaster年partition以外をこの計画段階で取得・hydrateせず、新しいmasterをproviderから取得しない。calendarの対象日・連続性、普通株のproduction floor、分類、master日付・release bindingが不足する場合はprovider通信前に停止する。planはmaster日付・release・ticker集合・collector policyに固定され、同じbatch IDの再開では保存済みplanを読み、別universeへ置換しない。受領日時とJST受領日は実通信から保持し、休日や翌日の再開をmaster日付・cron対象日へ付け替えない。
 
 [GitHub-hosted runnerの1ジョブ6時間上限](https://docs.github.com/en/actions/reference/limits)に収めるため、既定50銘柄のコホートを直列のmatrix jobへ分ける。workflow全体の取得専用concurrencyで別batch ID・再実行も直列化する。新しいdaily policyは固定3hostごとに平均2HTTP/秒、最大4creditのtoken bucketをcohort内の全pair・再試行で共有する。任意の1秒窓で4件以下という厳密上限ではない。実際のHTTPは引き続き直列1件で、最大同時2件以下に収める。process開始時のcreditは0とし、cohort境界や再起動でcreditを増やさない。tokenはdurable予約の保存後、実送信直前に消費する。限定CLIの既存2秒間隔は変えない。hostが違ってもvendor quotaが独立とは断定せず、許容rateと全件所要時間は実証未完了として扱う。
 
 各pairは通信前後のcheckpointを含む実wall-clock上限を持つ。取得jobは4時間のsoft budgetに余裕を残して次pairを開始せず、4時間30分のprocess timeout、5時間のjob上限で打ち切る。HTTP timeoutの積だけを総所要時間の保証にしない。
 
-確定したtyped観測と安全な成否は、既存`baibai-stores`の`coordination/retail-dynamics/<batch_id>/`へ条件付き保存してjob間で引き継ぐ。raw HTML・認証情報は保存せず、値をlog・Git・Actions artifactへ出さない。各HTTPの前にinflightを永続化し、結果の確定時に同じ世代を条件付き更新する。成功・正常null・通常の確定失敗は再開時に取得しない。403、CAS不一致、保存結果が不明なPUT、inflightのままの中断は日次run全体を停止し、自動再試行や経路変更をしない。
+確定したtyped観測と安全な成否は、既存`baibai-stores`の`coordination/retail-dynamics/<batch_id>/`へ条件付き保存してjob間で引き継ぐ。raw HTML・認証情報は保存せず、値をlog・Git・Actions artifactへ出さない。各HTTPの前にinflightを永続化し、結果の確定時に同じ世代を条件付き更新する。成功・正常null・通常の確定失敗は再開時に取得しない。plan時の既存checkpoint走査を使って未着手を残すcohortだけを取得matrixへ渡し、全cohortが確定済みなら取得jobをskipして公開へ進む。403、CAS不一致、保存結果が不明なPUT、inflightのままの中断は日次run全体を停止し、自動再試行や経路変更をしない。
 
 新しいcollector policyのrunだけ、確定429を待機後の再試行対象にする。`Retry-After`の秒数またはHTTP-dateを受信完了UTC基準の期限へ変換し、期限を短縮しない。headerがないか不正なら5・10・20・40・80秒の指数backoffに0～1秒のjitterを加え、その期限をcheckpointへ固定する。初回に加えて最大5回のpair再試行を許可し、使用済み回数はHTTP開始前のCASで保存する。再dispatchで上限をresetしない。表現不能な有効待機値、5回使い切った後の429、応答不明は自動再送しない。Retry-Afterのraw headerは保存しない。
 
 1回のpair取得は引き続きcheckpointを含め120秒以内とし、429待機はその外側でjobのsoft budgetに含める。待機と次のpair・保存余裕が収まらないときは、期限を縮めず確定429と残り試行回数を保持して終了する。待機中は他pairも開始しない。typed観測がまだない楽天pairの再試行では、公開ページ→公式iframeを再度検証して取得するため、初回＋5回で最大12HTTPになる。HTTPライブラリの内部retryは無効のままにする。今回変更前に開始したrunや旧policyの保存planには新policyを適用せず、新batch IDを使う。
 
-**受入の前提**: PR1のcode/store切替とreadbackが完了し、PR2のレビュー・CI・private handoff・費用と所要時間の受入が成功していること。新credential・serverは不要だが、この文書や開発テストは実R2書込・workflow dispatch・定期有効化を実行した証拠ではない。operatorは保存済みmasterの日付と再開用batch IDを選び、次をmainへdispatchする。
+**受入の前提**: code/store切替とreadback、レビュー・CI・private handoff・費用と所要時間の受入を確認する。新credential・serverは不要だが、この文書や開発テストは本番日次・実R2書込・通知の受入証拠ではない。日次scheduleはmainへ反映されたworkflowを使う。失敗を再開するoperatorは元のrunをrerunするか、保存planと同じmaster日付・batch IDで次をmainへdispatchする。同日の新しいbatch IDを重複取得の代わりに作らない。
 
 ```bash
 gh workflow run cloud-retail-dynamics.yml --ref main \
