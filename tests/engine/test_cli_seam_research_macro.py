@@ -32,7 +32,7 @@ from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.macro.context.models import MacroContextDocument
 from baibai_engine.macro.context.service import MacroContextService
-from baibai_engine.macro.indicators.cli import main as macro_main
+from baibai_engine.market_context.indicators.cli import main as macro_main
 from baibai_engine.research.capital_allocation import (
     CapitalAllocationAssessment,
     capital_allocation_draft_sha256,

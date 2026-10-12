@@ -12,7 +12,7 @@ from tests.engine.macro.indicator_fixtures import (
 )
 from tests.engine.macro.provider_fixtures import SnapshotFixtures
 
-from baibai_engine.macro.indicators.providers import (
+from baibai_engine.market_context.indicators.providers import (
     IndicatorsProviderError,
     fetch_observations,
     parse_multpl_current,
@@ -20,9 +20,9 @@ from baibai_engine.macro.indicators.providers import (
     parse_trades_spec,
     parse_yahoo_chart,
 )
-from baibai_engine.macro.indicators.providers.cftc import parse_cftc_json
-from baibai_engine.macro.indicators.providers.jquants_indices import parse_index_bars
-from baibai_engine.macro.indicators.providers.nikkei_indexes import parse_nikkei_valuation
+from baibai_engine.market_context.indicators.providers.cftc import parse_cftc_json
+from baibai_engine.market_context.indicators.providers.jquants_indices import parse_index_bars
+from baibai_engine.market_context.indicators.providers.nikkei_indexes import parse_nikkei_valuation
 
 
 class IndicatorsProviderParserTests(SnapshotFixtures):
@@ -252,7 +252,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         )
 
         with patch(
-            "baibai_engine.macro.indicators.providers.multpl._today_jst",
+            "baibai_engine.market_context.indicators.providers.multpl._today_jst",
             return_value=date(2026, 7, 20),
         ):
             observations = fetch_observations(
@@ -291,7 +291,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         """
 
         with patch(
-            "baibai_engine.macro.indicators.providers.multpl._today_jst",
+            "baibai_engine.market_context.indicators.providers.multpl._today_jst",
             return_value=date(2026, 8, 3),
         ):
             observations = parse_multpl_history(
@@ -318,7 +318,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         """
 
         with patch(
-            "baibai_engine.macro.indicators.providers.multpl._today_jst",
+            "baibai_engine.market_context.indicators.providers.multpl._today_jst",
             return_value=date(2026, 9, 1),
         ):
             observations = parse_multpl_history(
@@ -345,7 +345,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         """
 
         with patch(
-            "baibai_engine.macro.indicators.providers.multpl._today_jst",
+            "baibai_engine.market_context.indicators.providers.multpl._today_jst",
             return_value=date(2026, 9, 1),
         ):
             observations = parse_multpl_history(
@@ -372,7 +372,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         """
 
         with patch(
-            "baibai_engine.macro.indicators.providers.multpl._today_jst",
+            "baibai_engine.market_context.indicators.providers.multpl._today_jst",
             return_value=date(2026, 9, 4),
         ):
             observations = parse_multpl_history(
@@ -392,7 +392,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         html = _multpl_monthly_table(floor=date(1871, 2, 1), latest=date(2026, 7, 1))
 
         with patch(
-            "baibai_engine.macro.indicators.providers.multpl._today_jst",
+            "baibai_engine.market_context.indicators.providers.multpl._today_jst",
             return_value=date(2026, 8, 3),
         ):
             observations = parse_multpl_history(
@@ -414,7 +414,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         )
 
         with patch(
-            "baibai_engine.macro.indicators.providers.multpl._today_jst",
+            "baibai_engine.market_context.indicators.providers.multpl._today_jst",
             return_value=date(2026, 9, 4),
         ):
             observations = parse_multpl_history(
@@ -436,7 +436,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         )
 
         with patch(
-            "baibai_engine.macro.indicators.providers.multpl._today_jst",
+            "baibai_engine.market_context.indicators.providers.multpl._today_jst",
             return_value=date(2026, 9, 1),
         ):
             observations = parse_multpl_history(
@@ -457,7 +457,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
 
         with (
             patch(
-                "baibai_engine.macro.indicators.providers.multpl._today_jst",
+                "baibai_engine.market_context.indicators.providers.multpl._today_jst",
                 return_value=date(2026, 8, 3),
             ),
             self.assertRaisesRegex(IndicatorsProviderError, "missing monthly value.*2020-05-01"),
@@ -474,7 +474,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         response = _FakeResponse(b"Current Shiller PE Ratio is 40.70")
 
         with patch(
-            "baibai_engine.macro.indicators.providers.multpl._today_jst",
+            "baibai_engine.market_context.indicators.providers.multpl._today_jst",
             return_value=date(2026, 7, 20),
         ):
             observations = fetch_observations(

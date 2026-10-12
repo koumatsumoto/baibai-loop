@@ -6,14 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from baibai_engine.macro.indicators.db import (
-    ObservationRecord,
+from baibai_engine.market_context.indicators.db import (
     get_series,
     initialize_database,
     insert_observations,
     retract_observations,
 )
-from baibai_engine.macro.reading.rules import ReadingRulesError
+from baibai_engine.market_context.indicators.observations import ObservationRecord
+from baibai_engine.market_context.reading.rules import ReadingRulesError
 from baibai_engine.read_api.freshness import macro_latest_observed_at
 from baibai_engine.read_api.macro import (
     MacroGranularity,

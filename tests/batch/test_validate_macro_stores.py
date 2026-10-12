@@ -18,19 +18,19 @@ from baibai_engine.macro.context.models import (
     MacroContextDocument,
 )
 from baibai_engine.macro.context.service import MacroContextService
-from baibai_engine.macro.indicators.db import (
+from baibai_engine.market_context.indicators.db import (
     SQLITE_SCHEMA_VERSION,
     IndicatorsSchemaError,
-    ObservationRecord,
     initialize_database,
     insert_observations,
     open_connection,
 )
-from baibai_engine.macro.indicators.definitions import (
+from baibai_engine.market_context.indicators.definitions import (
     IndicatorDefinitions,
     SeriesDefinition,
     load_definitions,
 )
+from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.storage.application.write import (
     initialize_database as initialize_application_database,
 )

@@ -13,9 +13,9 @@ from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.macro.context.models import MacroContextDocument
 from baibai_engine.macro.context.service import MacroContextService
-from baibai_engine.macro.indicators.db import initialize_database, seed_definitions
-from baibai_engine.macro.indicators.definitions import load_definitions
 from baibai_engine.market_context.benchmark import compute_benchmark_trend
+from baibai_engine.market_context.indicators.db import initialize_database, seed_definitions
+from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.macro import (
     latest_macro_context_payload,
     macro_reading_snapshot,
@@ -179,7 +179,7 @@ def test_macro_cutoff_and_domain_import_do_not_reach_research_or_writers(tmp_pat
 import sys
 from baibai_engine.market_context.macro import macro_reading_snapshot
 from baibai_engine.market_context.security import build_security_market_context
-assert not any(name.startswith(("baibai_engine.research", "baibai_engine.read_api", "baibai_engine.screening", "baibai_engine.position", "baibai_engine.macro.indicators.providers")) for name in sys.modules)
+assert not any(name.startswith(("baibai_engine.research", "baibai_engine.read_api", "baibai_engine.screening", "baibai_engine.position", "baibai_engine.market_context.indicators.providers")) for name in sys.modules)
 assert "baibai_engine.storage.application.write" not in sys.modules
 assert "baibai_engine.macro.context.service" not in sys.modules
 """,

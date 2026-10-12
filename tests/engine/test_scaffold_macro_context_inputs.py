@@ -7,12 +7,9 @@ import pytest
 import yaml
 
 from baibai_engine.macro.context.scaffold_inputs import main as scaffold_main
-from baibai_engine.macro.indicators.db import (
-    ObservationRecord,
-    initialize_database,
-    insert_observations,
-)
-from baibai_engine.macro.indicators.definitions import load_definitions
+from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
+from baibai_engine.market_context.indicators.definitions import load_definitions
+from baibai_engine.market_context.indicators.observations import ObservationRecord
 
 
 def _definition(series_id: str):

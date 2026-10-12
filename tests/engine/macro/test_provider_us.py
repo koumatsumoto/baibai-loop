@@ -14,18 +14,18 @@ from tests.engine.macro.indicator_fixtures import (
 )
 from tests.engine.macro.provider_fixtures import SnapshotFixtures
 
-from baibai_engine.macro.indicators.providers import (
+from baibai_engine.market_context.indicators.providers import (
     IndicatorsProviderError,
     parse_fred_csv,
     parse_h15_csv,
 )
-from baibai_engine.macro.indicators.providers.base import (
+from baibai_engine.market_context.indicators.providers.base import (
     MAX_CSV_RESPONSE_BYTES,
     BrowserUnavailableError,
     HttpSession,
 )
-from baibai_engine.macro.indicators.providers.frb_h15 import FrbH15Provider
-from baibai_engine.macro.indicators.providers.umich_sca import parse_umich_table
+from baibai_engine.market_context.indicators.providers.frb_h15 import FrbH15Provider
+from baibai_engine.market_context.indicators.providers.umich_sca import parse_umich_table
 
 
 class IndicatorsProviderParserTests(SnapshotFixtures):

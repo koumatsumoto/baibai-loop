@@ -307,7 +307,7 @@ def descriptor(spec: ResourceSpec, *, detail: bool = False) -> dict[str, Any]:
             examples=[{"resource_id": spec.resource_id}],
         )
         if spec.resource_id == "macro.series":
-            from baibai_engine.macro.indicators.definitions import load_definitions
+            from baibai_engine.market_context.indicators.definitions import load_definitions
 
             result["series_ids"] = [item.series_id for item in load_definitions().series]
     return result

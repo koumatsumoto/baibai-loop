@@ -22,11 +22,11 @@ from tests.engine.macro.indicator_fixtures import (
 )
 from tests.engine.macro.provider_fixtures import SnapshotFixtures
 
-from baibai_engine.macro.indicators.definitions import (
+from baibai_engine.market_context.indicators.definitions import (
     SeriesDefinition,
     load_definitions,
 )
-from baibai_engine.macro.indicators.providers import (
+from baibai_engine.market_context.indicators.providers import (
     IndicatorsProviderError,
     parse_boj_timeseries_json,
     parse_boj_xlsx,
@@ -34,7 +34,7 @@ from baibai_engine.macro.indicators.providers import (
     parse_mof_jgb_csv,
     parse_tsr_bankruptcies_json,
 )
-from baibai_engine.macro.indicators.providers.estat_dashboard import (
+from baibai_engine.market_context.indicators.providers.estat_dashboard import (
     EStatDashboardProvider,
     parse_dashboard_json,
 )
@@ -529,7 +529,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         preliminary["VALUE"]["@isProvisional"] = "1"
 
         with self.assertLogs(
-            "baibai_engine.macro.indicators.providers.estat_dashboard", level="WARNING"
+            "baibai_engine.market_context.indicators.providers.estat_dashboard", level="WARNING"
         ) as logs:
             observations = _parse_dashboard(
                 [
@@ -773,7 +773,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
 
         with (
             patch(
-                "baibai_engine.macro.indicators.providers.tsr_bankruptcies._today_jst",
+                "baibai_engine.market_context.indicators.providers.tsr_bankruptcies._today_jst",
                 return_value=date(2026, 7, 28),
             ),
             self.assertRaisesRegex(IndicatorsProviderError, "latest expected release"),
@@ -805,7 +805,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
             )
 
         with patch(
-            "baibai_engine.macro.indicators.providers.tsr_bankruptcies._today_jst",
+            "baibai_engine.market_context.indicators.providers.tsr_bankruptcies._today_jst",
             return_value=date(2026, 7, 24),
         ):
             observations = parse_tsr_bankruptcies_json(
@@ -836,7 +836,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
             )
 
         with patch(
-            "baibai_engine.macro.indicators.providers.tsr_bankruptcies._today_jst",
+            "baibai_engine.market_context.indicators.providers.tsr_bankruptcies._today_jst",
             return_value=date(2026, 7, 5),
         ):
             observations = parse_tsr_bankruptcies_json(
@@ -981,7 +981,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
                 )
 
     def test_split_stats_data_id_extracts_narrowing_params(self) -> None:
-        from baibai_engine.macro.indicators.providers.estat import _split_stats_data_id
+        from baibai_engine.market_context.indicators.providers.estat import _split_stats_data_id
 
         stats_id, narrowing = _split_stats_data_id("0003427113?cdCat01=0001&cdArea=00000&cdTab=1")
 
@@ -989,6 +989,6 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         self.assertEqual(narrowing, {"cdCat01": "0001", "cdArea": "00000", "cdTab": "1"})
 
     def test_split_stats_data_id_without_query_returns_empty_params(self) -> None:
-        from baibai_engine.macro.indicators.providers.estat import _split_stats_data_id
+        from baibai_engine.market_context.indicators.providers.estat import _split_stats_data_id
 
         self.assertEqual(_split_stats_data_id("0003427113"), ("0003427113", {}))

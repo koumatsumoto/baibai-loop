@@ -18,25 +18,23 @@ from tests.engine.macro.indicator_fixtures import (
 )
 from tests.engine.macro.provider_fixtures import SnapshotFixtures
 
-from baibai_engine.macro.indicators.db import (
-    ObservationRecord,
-)
-from baibai_engine.macro.indicators.definitions import (
+from baibai_engine.market_context.indicators.definitions import (
     load_definitions,
 )
-from baibai_engine.macro.indicators.providers import (
+from baibai_engine.market_context.indicators.observations import ObservationRecord
+from baibai_engine.market_context.indicators.providers import (
     IndicatorsProviderError,
     spglobal_pmi,
 )
-from baibai_engine.macro.indicators.providers.base import (
+from baibai_engine.market_context.indicators.providers.base import (
     FetchContext,
     HttpSession,
 )
-from baibai_engine.macro.indicators.providers.pmi_extraction import (
+from baibai_engine.market_context.indicators.providers.pmi_extraction import (
     PmiExtractionError,
     extract_pmi_value,
 )
-from baibai_engine.macro.indicators.providers.spglobal_pmi import (
+from baibai_engine.market_context.indicators.providers.spglobal_pmi import (
     MANIFEST_PATH,
     MAX_PMI_PDF_BYTES,
     SpGlobalPmiProvider,

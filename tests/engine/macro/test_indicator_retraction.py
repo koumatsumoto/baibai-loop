@@ -15,10 +15,10 @@ from tests.helpers.indicator_store import (
     observation,
 )
 
-from baibai_engine.macro.indicators.cli import (
+from baibai_engine.market_context.indicators.cli import (
     main,
 )
-from baibai_engine.macro.indicators.db import (
+from baibai_engine.market_context.indicators.db import (
     RETRACTED_STATUS,
     delete_unchanged_vintages,
     get_series,
@@ -29,14 +29,14 @@ from baibai_engine.macro.indicators.db import (
     retract_observations,
     row_count,
 )
-from baibai_engine.macro.indicators.definitions import (
+from baibai_engine.market_context.indicators.definitions import (
     IndicatorDefinitions,
     load_definitions,
 )
-from baibai_engine.macro.indicators.providers import (
+from baibai_engine.market_context.indicators.providers import (
     IndicatorsProviderError,
 )
-from baibai_engine.macro.indicators.service import (
+from baibai_engine.market_context.indicators.service import (
     IndicatorsService,
 )
 
@@ -230,7 +230,7 @@ class RetractionVintageTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    "baibai_engine.market_context.indicators.service.fetch_observations",
                     return_value=[week],
                 ),
                 redirect_stdout(io.StringIO()),
@@ -459,7 +459,7 @@ class RetractionVintageTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    "baibai_engine.market_context.indicators.service.fetch_observations",
                     return_value=[week],
                 ),
                 redirect_stdout(io.StringIO()),

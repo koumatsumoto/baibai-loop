@@ -98,7 +98,7 @@ storageは物理保存の技術責務であり、保存DBをL3そのものと呼
 | `stores/market/market.sqlite` | lake所有tableのruntime copy。`source_coverage`等のstore-local dataはR2 market store、`lake_store_origin`はコピーの由来 | source domain/SQL adapter。接続・schema・hydrateは共有storage |
 | `stores/screening/runs.sqlite` | 再生成可能なScreening Run・Review Set | Screening |
 | `stores/screening/calibration/current.sqlite` | 再生成可能なcalibration snapshot | Calibration |
-| `stores/macro/macro.sqlite` | 経済観測・vintage・取得情報の作業コピー | 現行macro観測service。所有移設は移行状況を参照 |
+| `stores/macro/macro.sqlite` | 経済観測・vintage・取得情報の作業コピー | `market_context/indicators`の観測service・DB adapter |
 
 データ状態の正本はクラウド、PC/Actionsは更新元である。未公開変更を正本と区別し、取得世代を保持して競合上書きを止める。コピーの取得時点と反映状態を区別し、market storeを丸ごと消してstore-local dataを失わない。serving JSONは表示用派生物であり、application DBの本文や完了履歴の代替ではない。再取得できることは改定前情報の再現を保証しない。再生成可能なL2へ一律に永久保存を要求しない。
 
@@ -120,7 +120,7 @@ ER較正の意味契約と保存済み評価帯解釈・読取は`valuation/cali
 
 | 未完了項目 | 現行と最終境界の差分 |
 | --- | --- |
-| Market Context/macro | 相対市場計算・保存済み読取はある。経済観測・Reading計算・Contextの実体は`macro`に残り、重厚な旧report仕様の新利用への強制も見直す |
+| Market Context/macro | 経済観測のregistry・取得・保存adapterは`market_context/indicators`、決定的算術・保存済みreaderは`market_context/reading`へ移設済み。純粋観測契約は`indicators/observations`。L3 Contextの実体は`macro/context`に残り、所有移設と重厚な旧report仕様の見直しは別の未完了単位 |
 | 永続identity | 既存table/index/dataset/key/plan形式/workflow名・concurrencyを維持中。稼働取得を途中で変更せず、値・時刻・既存判断と固定releaseの履歴を保って明示切替する |
 | daily独立公開 | Screening失敗とmacro公開はまだ独立していない。workflow/store/部分公開の分離が残る |
 | 最終運用受入 | 実体配置・保存・公開・画面・CLI・docsの結合、四媒体の取得/読戻し、AI運用の有用性/根拠/時間を実運用で確認する |

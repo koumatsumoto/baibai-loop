@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from baibai_batch.storage.migrate_store import main, migrate_indicator_store
-from baibai_engine.macro.indicators.db import (
+from baibai_engine.market_context.indicators.db import (
     SQLITE_SCHEMA_VERSION,
     IndicatorsSchemaError,
     open_connection,

@@ -16,29 +16,29 @@ from tests.helpers.indicator_store import (
     series_definition,
 )
 
-import baibai_engine.macro.indicators.db as indicators_db
-from baibai_engine.macro.indicators.db import (
-    ObservationRecord,
+import baibai_engine.market_context.indicators.db as indicators_db
+from baibai_engine.market_context.indicators.db import (
     get_series,
     initialize_database,
     insert_observations,
     record_provider_run,
 )
-from baibai_engine.macro.indicators.definitions import (
+from baibai_engine.market_context.indicators.definitions import (
     SeriesDefinition,
     load_definitions,
 )
-from baibai_engine.macro.indicators.providers import (
+from baibai_engine.market_context.indicators.observations import ObservationRecord
+from baibai_engine.market_context.indicators.providers import (
     spglobal_pmi,
 )
-from baibai_engine.macro.indicators.providers.base import (
+from baibai_engine.market_context.indicators.providers.base import (
     FetchContext,
     HttpSession,
 )
-from baibai_engine.macro.indicators.providers.estat_dashboard import (
+from baibai_engine.market_context.indicators.providers.estat_dashboard import (
     parse_dashboard_json,
 )
-from baibai_engine.macro.indicators.providers.spglobal_pmi import (
+from baibai_engine.market_context.indicators.providers.spglobal_pmi import (
     Release,
     SpGlobalPmiProvider,
     _parse_stream,
@@ -47,7 +47,7 @@ from baibai_engine.macro.indicators.providers.spglobal_pmi import (
 if TYPE_CHECKING:
     # Only the annotation is needed; importing it for real would pull Playwright
     # onto the import path of the whole suite, which the lazy launch avoids.
-    from baibai_engine.macro.indicators.providers.browser import BrowserFetcher
+    from baibai_engine.market_context.indicators.providers.browser import BrowserFetcher
 
 
 def _prune_store_rows(database: Path) -> dict[str, tuple[tuple[object, ...], ...]]:

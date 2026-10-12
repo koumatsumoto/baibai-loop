@@ -9,6 +9,8 @@ status: active
 
 本書はMarket Contextの市場・個別相対の読取と、既存macro観測・Reading・Macro Contextの契約を所有する。個別企業の価値評価は[Valuation metrics](./valuation-metrics.md)と[Thesis](./thesis.md)が所有する。
 
+Market Contextの`indicators`はL1のregistry・取得・DB adapter、`reading`はL2の決定的算術・保存済みreaderを所有する。観測契約は`indicators/observations.py`に置き、計算からDB adapterを参照しない。L3の実体は引き続き`macro/context`にあり、所有移設・レポート縮小・scorecard修正は別の変更単位である。
+
 既存macro工程はL1観測とL2 Readingを日次に更新し、人間の明示開始でL3 Macro Contextを作成する。Contextの独立レポート・Review・深度契約は引き続き本書の現行手順に従う。Market Context全体へこのレポート作成を必須にせず、保存済み機械状態と発行済み判断は個別に読める。
 
 <a id="market-context-reads"></a>
@@ -50,7 +52,7 @@ uv run baibai-engine macro reading --asof YYYY-MM-DD --format json
 
 `list` / `search`はregistryだけを読み、観測storeの作成・更新・schema検査を行わない。取得・更新の手順は[`Macro履歴`](../../batch/OPERATIONS.md#macro履歴)、撤回と退役の操作は[`Macro観測とregistryの修正`](../../batch/OPERATIONS.md#macro観測とregistryの修正)を参照する。
 
-指標データは `baibai-engine macro`（`engine/src/baibai_engine/macro/indicators/`）で、再現可能かつ出所（provenance）付きで取得・キャッシュする。
+指標データは `baibai-engine macro`（`engine/src/baibai_engine/market_context/indicators/`）で、再現可能かつ出所（provenance）付きで取得・キャッシュする。
 
 ```bash
 uv run baibai-engine macro list --category rates       # 登録 series を見る
@@ -59,11 +61,11 @@ uv run baibai-engine macro get jp.nikkei225 --start 2026-05-20 --end 2026-06-22
 uv run baibai-engine macro get jp.policy_rate --latest
 ```
 
-`get`は取得済み範囲を確認し、不足があればproviderを呼ぶ。同じ引数でもstore状態・source改定・実行日によって結果は変わる。計算の決定性は保存入力・採用vintage・規則・as-ofが固定された場合の性質である。`get --latest`はJSTの運用日を基準に、[reading rules](../../engine/src/baibai_engine/macro/reading/rules.py)の公表ラグと猶予でcacheの鮮度を判定する。再取得の窓幅は鮮度閾値とは別で、[indicator service](../../engine/src/baibai_engine/macro/indicators/service.py)が日次batchと共有する。
+`get`は取得済み範囲を確認し、不足があればproviderを呼ぶ。同じ引数でもstore状態・source改定・実行日によって結果は変わる。計算の決定性は保存入力・採用vintage・規則・as-ofが固定された場合の性質である。`get --latest`はJSTの運用日を基準に、[reading rules](../../engine/src/baibai_engine/market_context/reading/rules.py)の公表ラグと猶予でcacheの鮮度を判定する。再取得の窓幅は鮮度閾値とは別で、[indicator service](../../engine/src/baibai_engine/market_context/indicators/service.py)が日次batchと共有する。
 
 `refresh --all-history` は provider ごとの取得可能な先頭日から強制再取得する。派生系列（`derived` provider）は外部ソースを持たず入力系列の重なりが履歴なので、どの base 系列よりも古い床から入力を読み直して全期間を再計算する（base 系列を先に同期してから回す）。月次整列は月内の各入力の最終観測を使う。market data を月末まで使う数式は選択入力の最終観測日を出力日とし、月初への backdate を防ぐ。数式変更で observation grid を置換する系列は provider spec で個別に宣言し、既存 period を欠く候補なら削除前に失敗して履歴を保持する。FRED 系列は現在の `fredgraph.csv` が返す先頭日を再現可能な境界とし、その日より前の観測を残さない。各系列のobservationはregistryの`source_url`と一致するcacheだけを保持する。JP provider の契約期間や公表 archive が先頭日を制限する場合は、実際の取得範囲と制約を運用記録へ残す。
 
-同内容の再取得ではobservationのvintageを増やさず、provider runに取得記録を残す。値・単位・期間・取得状態・sourceが変わるrevisionや、変化後に同じ値へ戻るrevisionは保持する。日次batchはrolling窓を引き直すため窓内の取得断は次回成功時に埋まるが、窓外の欠落は[Macro履歴の復旧](../../batch/OPERATIONS.md#macro履歴)が必要になる。保存・重複排除は[indicator DB](../../engine/src/baibai_engine/macro/indicators/db.py)を参照する。
+同内容の再取得ではobservationのvintageを増やさず、provider runに取得記録を残す。値・単位・期間・取得状態・sourceが変わるrevisionや、変化後に同じ値へ戻るrevisionは保持する。日次batchはrolling窓を引き直すため窓内の取得断は次回成功時に埋まるが、窓外の欠落は[Macro履歴の復旧](../../batch/OPERATIONS.md#macro履歴)が必要になる。保存・重複排除は[indicator DB](../../engine/src/baibai_engine/market_context/indicators/db.py)を参照する。
 
 誤って入った observation は削除では消えない。cloudとのmergeは双方のfactを戻すno-loss契約なので、localで消しても次のpushで復活する。撤回は対象日の最新vintageをCASで名指しし、その下の状態を新しいvintageとして記録する。同じ撤回を繰り返すと意図しない旧値を戻し得るため、期待vintageが変われば拒否する。derived系列の保存観測は入力の撤回だけでは消えない。操作順と失敗時の行き先は[運用手順](../../batch/OPERATIONS.md#macro観測とregistryの修正)に従う。
 
@@ -76,7 +78,7 @@ point-in-time provider（`jquants_flows`）では撤回の vintage が公表時�
 
 registryは系列定義の正本である。通常のopenでは登録外のfactsを削除せず、現行系列を指定した明示的なrefreshが退役系列をpruneする。storeが新世代、または同世代でmembershipが異なる場合は拒否する。退役・改名は[registry修正手順](../../batch/OPERATIONS.md#macro観測とregistryの修正)に従い、過去の発行済みContextを書き換えない。
 
-全providerの観測は系列identity・単位・有限値・系列固有のbandを満たす必要がある。bandは明白な列・桁・単位ずれを検出するもので、景気急変を前回値との差だけで拒否する条件ではない。band内に収まるscale変更はprovider固有のheader・metadata照合で守る。例えば`jp.foreign_flows`は原典の千円単位を保持する。検証違反はそのseriesの取得失敗とし、部分取り込みしない。DB境界でも同じ制約を守り、schemaやtriggerの不整合を拒否する。厳密な条件は[service](../../engine/src/baibai_engine/macro/indicators/service.py)・[DB](../../engine/src/baibai_engine/macro/indicators/db.py)・[schema](../../engine/src/baibai_engine/macro/indicators/schema.sql)が所有する。storeは空・直前schemaからの一段移行・現行schemaだけを受け付け、複数世代のmigrationは持たない。
+全providerの観測は系列identity・単位・有限値・系列固有のbandを満たす必要がある。bandは明白な列・桁・単位ずれを検出するもので、景気急変を前回値との差だけで拒否する条件ではない。band内に収まるscale変更はprovider固有のheader・metadata照合で守る。例えば`jp.foreign_flows`は原典の千円単位を保持する。検証違反はそのseriesの取得失敗とし、部分取り込みしない。DB境界でも同じ制約を守り、schemaやtriggerの不整合を拒否する。厳密な条件は[service](../../engine/src/baibai_engine/market_context/indicators/service.py)・[DB](../../engine/src/baibai_engine/market_context/indicators/db.py)・[schema](../../engine/src/baibai_engine/market_context/indicators/schema.sql)が所有する。storeは空・直前schemaからの一段移行・現行schemaだけを受け付け、複数世代のmigrationは持たない。
 
 registryのband変更時は、Git管理外のstoreをread-only validatorで全履歴・全vintage検査する。CIのfixtureだけでは既存観測との整合を証明できない。検査はstoreを書き換えず、観測とcanonical trigger契約の違反を報告する。
 
@@ -84,7 +86,7 @@ registryのband変更時は、Git管理外のstoreをread-only validatorで全�
 
 ### データソース registry
 
-系列ID・source URL・unit・provider固有のselectorは[registry](../../engine/src/baibai_engine/macro/indicators/registry/)、取得能力と認証条件は[ProviderSpec](../../engine/src/baibai_engine/macro/indicators/provider_specs.py)と各[provider](../../engine/src/baibai_engine/macro/indicators/providers/)が所有する。下表はsourceを選ぶときの用途と制約を示す。
+系列ID・source URL・unit・provider固有のselectorは[registry](../../engine/src/baibai_engine/market_context/indicators/registry/)、取得能力と認証条件は[ProviderSpec](../../engine/src/baibai_engine/market_context/indicators/provider_specs.py)と各[provider](../../engine/src/baibai_engine/market_context/indicators/providers/)が所有する。下表はsourceを選ぶときの用途と制約を示す。
 
 | Provider | 用途 | 選択・運用上の制約 |
 | --- | --- | --- |
@@ -136,17 +138,17 @@ HTTP 429はclient内部の再試行が尽きた後、statusを持たない`Retry
 
 ### PMI release manifestの更新
 
-PMI は data API が無いため、月次 release URL の manifest（`engine/src/baibai_engine/macro/indicators/providers/pmi_release_urls.yaml`、`schema_version: 2`、PMI stream ごとに `observed_at` → 公式 release URL）を正本とし、`spglobal_pmi` provider が各 URL の公式 PDF を live 取得して headline 値を抽出する。release URL の validator は `https://www.pmi.spglobal.com/Public/Home/PressRelease/<32 hex>` だけを許可する。
+PMI は data API が無いため、月次 release URL の manifest（`engine/src/baibai_engine/market_context/indicators/providers/pmi_release_urls.yaml`、`schema_version: 2`、PMI stream ごとに `observed_at` → 公式 release URL）を正本とし、`spglobal_pmi` provider が各 URL の公式 PDF を live 取得して headline 値を抽出する。release URL の validator は `https://www.pmi.spglobal.com/Public/Home/PressRelease/<32 hex>` だけを許可する。
 
-抽出は対象月のheadline値だけを読み、sub-index・composite・閾値比較・flash見積り・複数月平均を混入させない。未対応の表現や矛盾する候補は取得失敗とし、値を推測しない。具体的な英文の認識規則と数値検証は[PMI extractor](../../engine/src/baibai_engine/macro/indicators/providers/pmi_extraction.py)が所有する。
+抽出は対象月のheadline値だけを読み、sub-index・composite・閾値比較・flash見積り・複数月平均を混入させない。未対応の表現や矛盾する候補は取得失敗とし、値を推測しない。具体的な英文の認識規則と数値検証は[PMI extractor](../../engine/src/baibai_engine/market_context/indicators/providers/pmi_extraction.py)が所有する。
 
 1 月 = 1 PDF なので、通常の refresh は store に無い月と、manifest の release URL が store の値の出所と一致しない月だけを取得する。final headline は公表後に改定されないため、同じ URL から取り直した月は同じ値になる。URL を訂正すればその月は自動で取り直される。抽出規則の変更後など stream 全体を source から作り直すときは `refresh --all-history` を使う（全月を再取得する）。
 
-**新しい月の追記は `baibai_engine.macro.indicators.pmi_manifest` で行う**: S&P Global の公式 press release ページ（`/Public/Release/PressReleases`）が列挙する最新 release を stream ごとに拾い、release title の完全一致で系列を同定し、**release PDF が自分をその PMI と名乗り・自分の embargo 日が index の公表日と同じ月であり・headline をその月に結び付けていること**を 3 つとも確かめてから追記する。抽出には「その release 自身の月」として渡さず後の月を渡すので、月を明示しない reading（`posted 54.8`）は採られず、月を名指した reading（`posted 54.8 in June`）だけが通る。title を別の PMI に取り違えても月の証明だけは通ってしまうので（services も manufacturing と同じ形で headline を述べる）、系列は PDF 自身の名乗りで、公表月は PDF 自身の embargo 日で確かめる。**月が飛ぶ追記は拒否する**: provider の追いつき guard は manifest の最新月しか見ないため、穴を越えた entry を書くと飛ばした月が二度と報告されない。edge WAF が plain HTTP を challenge page（200）で返すときは、PDF 経路と同じ headless browser で index を読み直す。書き込みは copy を text 編集して provider の loader で読めることを確かめ、通ったものだけを正本へ move する（正本への書き込みは検証後の move 1 回だけ）。追記後は `macro refresh` で該当月を取得して公表値と照合してから commit する。
+**新しい月の追記は `baibai_engine.market_context.indicators.pmi_manifest` で行う**: S&P Global の公式 press release ページ（`/Public/Release/PressReleases`）が列挙する最新 release を stream ごとに拾い、release title の完全一致で系列を同定し、**release PDF が自分をその PMI と名乗り・自分の embargo 日が index の公表日と同じ月であり・headline をその月に結び付けていること**を 3 つとも確かめてから追記する。抽出には「その release 自身の月」として渡さず後の月を渡すので、月を明示しない reading（`posted 54.8`）は採られず、月を名指した reading（`posted 54.8 in June`）だけが通る。title を別の PMI に取り違えても月の証明だけは通ってしまうので（services も manufacturing と同じ形で headline を述べる）、系列は PDF 自身の名乗りで、公表月は PDF 自身の embargo 日で確かめる。**月が飛ぶ追記は拒否する**: provider の追いつき guard は manifest の最新月しか見ないため、穴を越えた entry を書くと飛ばした月が二度と報告されない。edge WAF が plain HTTP を challenge page（200）で返すときは、PDF 経路と同じ headless browser で index を読み直す。書き込みは copy を text 編集して provider の loader で読めることを確かめ、通ったものだけを正本へ move する（正本への書き込みは検証後の move 1 回だけ）。追記後は `macro refresh` で該当月を取得して公表値と照合してから commit する。
 
 ```bash
-uv run python -m baibai_engine.macro.indicators.pmi_manifest --dry-run   # 何が追記されるかだけ見る
-uv run python -m baibai_engine.macro.indicators.pmi_manifest             # 検証を通った entry を追記する
+uv run python -m baibai_engine.market_context.indicators.pmi_manifest --dry-run   # 何が追記されるかだけ見る
+uv run python -m baibai_engine.market_context.indicators.pmi_manifest             # 検証を通った entry を追記する
 ```
 
 **過去月の穴埋めは同じページの archive snapshot から辿る**：この index は最新 1 か月分しか列挙しないため、それより古い release id はサイトからは辿れない。Wayback の同 URL の snapshot が捕捉時点の一覧（公表日・タイトル・release id）を持つので、そこから月ごとの id を復元する。**復元した対応付けは、manifest に既にある月の id と一致するかで検算する**（release は前月分を報告するので、publish 月 − 1 が observed_at になる）。id が復元できない月でも、翌月の release が前月値を restate していればそこから読める：`observed_at` をその月、`release_observed_at` を翌月にして翌月の URL を書く（restate は「前月を名指した値」か「月を伴わない `down from X`」で書かれるため、後者は前月分としてだけ読む）。manifest が公表カレンダーに追いつかない（release 済みの月が manifest に無い）状態は取得の無音の停止になるため、provider が明示エラーで失敗させる: 要求 end の月に対して manifest 最新月が前月に達していないとき（当月 10 日以降）にエラーになり、日次バッチの繰延べ失敗として表面化する。このガードは取得（refresh / all-history）だけを止め、読み取りは store にある月をそのまま返す（manifest の追記漏れが既存データを隠さないため）。

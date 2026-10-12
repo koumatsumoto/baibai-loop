@@ -13,21 +13,21 @@ from tests.engine.macro.indicator_fixtures import (
     _series,
 )
 
-from baibai_engine.macro.indicators.cli import (
+from baibai_engine.market_context.indicators.cli import (
     main,
 )
-from baibai_engine.macro.indicators.definitions import (
+from baibai_engine.market_context.indicators.definitions import (
     load_definitions,
 )
-from baibai_engine.macro.indicators.providers import (
+from baibai_engine.market_context.indicators.providers import (
     parse_estat_json,
     point_in_time_providers,
     registered_specs,
 )
-from baibai_engine.macro.indicators.providers.estat_dashboard import (
+from baibai_engine.market_context.indicators.providers.estat_dashboard import (
     source_url_selectors as estat_dashboard_selectors,
 )
-from baibai_engine.macro.indicators.providers.formulas import FORMULAS
+from baibai_engine.market_context.indicators.providers.formulas import FORMULAS
 
 
 class IndicatorsRegistryTests(unittest.TestCase):
@@ -41,7 +41,7 @@ class IndicatorsRegistryTests(unittest.TestCase):
         self.assertEqual(load_definitions().generation, 5)
         with (
             patch(
-                "baibai_engine.macro.indicators.definitions._REGISTRY_MEMBERSHIP_GENERATIONS",
+                "baibai_engine.market_context.indicators.definitions._REGISTRY_MEMBERSHIP_GENERATIONS",
                 {},
             ),
             self.assertRaisesRegex(ValueError, "without a new generation digest"),
@@ -181,9 +181,9 @@ class IndicatorsRegistryTests(unittest.TestCase):
         self.assertIsNone(by_id["jp.pmi_manufacturing"].tradingview_symbol)
 
     def test_tradingview_symbol_rejects_invalid_format(self) -> None:
-        canonical = Path("engine/src/baibai_engine/macro/indicators/registry/us.yaml").read_text(
-            encoding="utf-8"
-        )
+        canonical = Path(
+            "engine/src/baibai_engine/market_context/indicators/registry/us.yaml"
+        ).read_text(encoding="utf-8")
         for invalid in ("invalid symbol", ":", "TVC:", ":US10Y", "A:B:C"):
             with self.subTest(invalid=invalid), tempfile.TemporaryDirectory() as tmp:
                 definitions = Path(tmp) / "us.yaml"
@@ -336,7 +336,7 @@ class IndicatorsRegistryTests(unittest.TestCase):
                     load_definitions(definitions)
 
     def test_every_registered_series_provider_is_registered(self) -> None:
-        from baibai_engine.macro.indicators.providers import provider_spec
+        from baibai_engine.market_context.indicators.providers import provider_spec
 
         for series in load_definitions().series:
             with self.subTest(series_id=series.series_id):
@@ -382,8 +382,8 @@ def test_catalog_never_opens_a_store(tmp_path, monkeypatch, capsys):
     def unexpected(*args, **kwargs):
         raise AssertionError("catalog opened a store")
 
-    monkeypatch.setattr("baibai_engine.macro.indicators.db.open_connection", unexpected)
-    monkeypatch.setattr("baibai_engine.macro.indicators.cli.load_project_env", unexpected)
+    monkeypatch.setattr("baibai_engine.market_context.indicators.db.open_connection", unexpected)
+    monkeypatch.setattr("baibai_engine.market_context.indicators.cli.load_project_env", unexpected)
     before = set(tmp_path.rglob("*"))
     monkeypatch.chdir(tmp_path)
     for command in (["list", "--format", "json"], ["search", "CPI"]):

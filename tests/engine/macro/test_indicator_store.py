@@ -20,14 +20,13 @@ from tests.helpers.indicator_store import (
     observation,
 )
 
-import baibai_engine.macro.indicators.db as indicators_db
-from baibai_engine.macro.indicators.cli import (
+import baibai_engine.market_context.indicators.db as indicators_db
+from baibai_engine.market_context.indicators.cli import (
     main,
 )
-from baibai_engine.macro.indicators.db import (
+from baibai_engine.market_context.indicators.db import (
     SQLITE_SCHEMA_VERSION,
     IndicatorsSchemaError,
-    ObservationRecord,
     delete_unchanged_vintages,
     get_series,
     has_ok_coverage,
@@ -39,17 +38,18 @@ from baibai_engine.macro.indicators.db import (
     record_provider_run,
     row_count,
 )
-from baibai_engine.macro.indicators.definitions import (
+from baibai_engine.market_context.indicators.definitions import (
     IndicatorDefinitions,
     load_definitions,
 )
-from baibai_engine.macro.indicators.service import (
+from baibai_engine.market_context.indicators.observations import ObservationRecord
+from baibai_engine.market_context.indicators.service import (
     IndicatorsService,
     _prune_registry_for_refresh,
 )
-from baibai_engine.macro.indicators.service import list_series as catalog_list_series
-from baibai_engine.macro.indicators.service import search as catalog_search
-from baibai_engine.macro.reading.cli import main as reading_main
+from baibai_engine.market_context.indicators.service import list_series as catalog_list_series
+from baibai_engine.market_context.indicators.service import search as catalog_search
+from baibai_engine.market_context.reading.cli import main as reading_main
 
 
 class IndicatorsDBTests(unittest.TestCase):
@@ -294,7 +294,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    "baibai_engine.market_context.indicators.service.fetch_observations",
                     return_value=[refreshed],
                 ),
                 redirect_stdout(stdout),
@@ -376,7 +376,7 @@ class IndicatorsDBTests(unittest.TestCase):
                 # This test deliberately injects a non-canonical trigger to
                 # exercise prune rollback after open; schema-drift rejection is
                 # covered independently below.
-                patch("baibai_engine.macro.indicators.db._validate_trigger_contract"),
+                patch("baibai_engine.market_context.indicators.db._validate_trigger_contract"),
                 self.assertRaisesRegex(sqlite3.IntegrityError, "blocked"),
             ):
                 IndicatorsService(database).refresh_series(
@@ -444,12 +444,12 @@ class IndicatorsDBTests(unittest.TestCase):
 
                 with (
                     patch(
-                        "baibai_engine.macro.indicators.service.print",
+                        "baibai_engine.market_context.indicators.service.print",
                         side_effect=closed_output,
                         create=True,
                     ),
                     patch(
-                        "baibai_engine.macro.indicators.service.fetch_observations",
+                        "baibai_engine.market_context.indicators.service.fetch_observations",
                         return_value=[observation("us.10y", date(2026, 5, 1), 4.39)],
                     ),
                 ):
@@ -485,11 +485,11 @@ class IndicatorsDBTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.macro.indicators.service.db.prune_definitions",
+                    "baibai_engine.market_context.indicators.service.db.prune_definitions",
                     side_effect=checked_prune,
                 ),
                 patch(
-                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    "baibai_engine.market_context.indicators.service.fetch_observations",
                     return_value=[observation("us.10y", date(2026, 5, 1), 4.39)],
                 ),
             ):
@@ -513,7 +513,9 @@ class IndicatorsDBTests(unittest.TestCase):
             failing_connection.commit.side_effect = sqlite3.OperationalError("commit failed")
             try:
                 with (
-                    patch("baibai_engine.macro.indicators.service.print", create=True) as report,
+                    patch(
+                        "baibai_engine.market_context.indicators.service.print", create=True
+                    ) as report,
                     self.assertRaisesRegex(sqlite3.OperationalError, "commit failed"),
                 ):
                     _prune_registry_for_refresh(failing_connection, load_definitions())
@@ -534,7 +536,9 @@ class IndicatorsDBTests(unittest.TestCase):
                 ),
             )
             try:
-                with patch("baibai_engine.macro.indicators.service.print", create=True) as report:
+                with patch(
+                    "baibai_engine.market_context.indicators.service.print", create=True
+                ) as report:
                     _prune_registry_for_refresh(connection, definitions)
                 report.assert_not_called()
             finally:

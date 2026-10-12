@@ -8,11 +8,11 @@ from pathlib import Path
 import pytest
 from tests.helpers.indicator_store import observations, series_definition, store_reader
 
-from baibai_engine.macro.indicators.db import ObservationRecord
-from baibai_engine.macro.indicators.definitions import SeriesDefinition, load_definitions
-from baibai_engine.macro.reading.compute import MIN_WINDOW_OBSERVATIONS, compute_reading
-from baibai_engine.macro.reading.models import SeriesReading
-from baibai_engine.macro.reading.rules import (
+from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
+from baibai_engine.market_context.indicators.observations import ObservationRecord
+from baibai_engine.market_context.reading.compute import MIN_WINDOW_OBSERVATIONS, compute_reading
+from baibai_engine.market_context.reading.models import SeriesReading
+from baibai_engine.market_context.reading.rules import (
     DEFAULT_RULES_PATH,
     PUBLICATION_INTERVAL_DAYS,
     ReadingRules,

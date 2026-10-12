@@ -83,12 +83,12 @@ packages = [
 
 [tool.hatch.build.targets.wheel.force-include]
 "engine/src/baibai_engine/py.typed" = "baibai_engine/py.typed"
-"engine/src/baibai_engine/macro/indicators/schema.sql" = "baibai_engine/macro/indicators/schema.sql"
-"engine/src/baibai_engine/macro/indicators/registry/us.yaml" = "baibai_engine/macro/indicators/registry/us.yaml"
-"engine/src/baibai_engine/macro/indicators/registry/japan.yaml" = "baibai_engine/macro/indicators/registry/japan.yaml"
-"engine/src/baibai_engine/macro/indicators/registry/global.yaml" = "baibai_engine/macro/indicators/registry/global.yaml"
-"engine/src/baibai_engine/macro/indicators/registry/derived.yaml" = "baibai_engine/macro/indicators/registry/derived.yaml"
-"engine/src/baibai_engine/macro/indicators/providers/pmi_release_urls.yaml" = "baibai_engine/macro/indicators/providers/pmi_release_urls.yaml"
+"engine/src/baibai_engine/market_context/indicators/schema.sql" = "baibai_engine/market_context/indicators/schema.sql"
+"engine/src/baibai_engine/market_context/indicators/registry/us.yaml" = "baibai_engine/market_context/indicators/registry/us.yaml"
+"engine/src/baibai_engine/market_context/indicators/registry/japan.yaml" = "baibai_engine/market_context/indicators/registry/japan.yaml"
+"engine/src/baibai_engine/market_context/indicators/registry/global.yaml" = "baibai_engine/market_context/indicators/registry/global.yaml"
+"engine/src/baibai_engine/market_context/indicators/registry/derived.yaml" = "baibai_engine/market_context/indicators/registry/derived.yaml"
+"engine/src/baibai_engine/market_context/indicators/providers/pmi_release_urls.yaml" = "baibai_engine/market_context/indicators/providers/pmi_release_urls.yaml"
 "web/backend/src/baibai_web/py.typed" = "baibai_web/py.typed"
 "batch/src/baibai_batch/py.typed" = "baibai_batch/py.typed"
 
@@ -220,18 +220,15 @@ skips = ["B101"]
 root_packages = ["baibai_engine", "baibai_web", "baibai_batch", "tools"]
 
 [[tool.importlinter.contracts]]
-name = "macro layer stays independent of screening/position"
+name = "legacy macro context stays independent of screening/position"
 type = "forbidden"
 source_modules = ["baibai_engine.macro"]
 forbidden_modules = [
   "baibai_engine.screening",
   "baibai_engine.valuation",
-  "baibai_engine.market_context",
   "baibai_engine.external_assessment",
   "baibai_engine.position",
 ]
-
-ignore_imports = ["baibai_engine.macro.reading.cli -> baibai_engine.market_context.macro"]
 
 [[tool.importlinter.contracts]]
 name = "shared primitives are an import sink"
@@ -449,7 +446,7 @@ source_modules = ["baibai_engine.read_api"]
 forbidden_modules = [
   "baibai_engine.storage.application.write",
   "baibai_engine.cli",
-  "baibai_engine.macro.indicators.providers",
+  "baibai_engine.market_context.indicators.providers",
   "baibai_engine.position.cli",
   "baibai_engine.research.thesis_evaluation_cli",
   "baibai_engine.research.workspace_cli",
@@ -521,22 +518,40 @@ forbidden_modules = [
 [[tool.importlinter.contracts]]
 name = "market context reads observations and judgments without composition or writes"
 type = "forbidden"
-source_modules = ["baibai_engine.market_context"]
+source_modules = [
+  "baibai_engine.market_context.macro", "baibai_engine.market_context.snapshot",
+  "baibai_engine.market_context.security", "baibai_engine.market_context.benchmark",
+  "baibai_engine.market_context.sector", "baibai_engine.market_context.prices",
+  "baibai_engine.market_context.master", "baibai_engine.market_context.history",
+  "baibai_engine.market_context.margin", "baibai_engine.market_context.reading.reader",
+  "baibai_engine.market_context.reading.compute", "baibai_engine.market_context.reading.models",
+]
 forbidden_modules = [
   "baibai_engine.screening", "baibai_engine.valuation", "baibai_engine.research",
   "baibai_engine.position", "baibai_engine.tasks", "baibai_engine.read_api",
   "baibai_engine.storage.application.write", "baibai_engine.macro.context.service",
-  "baibai_engine.macro.context.cli", "baibai_engine.macro.reading.cli",
-  "baibai_engine.macro.indicators.service", "baibai_engine.macro.indicators.providers",
+  "baibai_engine.macro.context.cli", "baibai_engine.market_context.reading.cli",
+  "baibai_engine.market_context.indicators.service", "baibai_engine.market_context.indicators.providers",
 ]
 
 [[tool.importlinter.contracts]]
-name = "macro observations are independent of market context analysis"
+name = "economic observations do not depend on reading computation"
 type = "forbidden"
-source_modules = ["baibai_engine.macro.indicators"]
-forbidden_modules = ["baibai_engine.market_context"]
-# Public macro CLI dispatch composes L1 commands with the read-only L2 entry.
-ignore_imports = ["baibai_engine.macro.indicators.cli -> baibai_engine.macro.reading.cli"]
+source_modules = ["baibai_engine.market_context.indicators"]
+forbidden_modules = [
+  "baibai_engine.market_context.reading.compute", "baibai_engine.market_context.reading.reader",
+  "baibai_engine.market_context.macro", "baibai_engine.market_context.benchmark",
+  "baibai_engine.market_context.snapshot", "baibai_engine.market_context.security",
+  "baibai_engine.macro.context",
+  "baibai_engine.screening", "baibai_engine.valuation", "baibai_engine.research",
+  "baibai_engine.external_assessment", "baibai_engine.position", "baibai_engine.tasks",
+  "baibai_engine.read_api", "baibai_engine.storage.application.write",
+]
+# Public CLI dispatch composes the separate read-only L2 and explicit L3 entries.
+ignore_imports = [
+  "baibai_engine.market_context.indicators.cli -> baibai_engine.market_context.reading.cli",
+  "baibai_engine.market_context.indicators.cli -> baibai_engine.macro.context.cli",
+]
 
 [[tool.importlinter.contracts]]
 name = "external assessment reads sources without reverse domain or acquisition dependencies"
@@ -652,4 +667,18 @@ forbidden_modules = [
   "baibai_engine.storage.application.write", "baibai_engine.research.capital_allocation_service",
   "baibai_engine.research.capital_inputs", "baibai_engine.research.workspace",
   "baibai_engine.research.triage.service", "baibai_engine.research.thesis_store",
+]
+
+[[tool.importlinter.contracts]]
+name = "economic observation contracts and reading arithmetic are pure"
+type = "forbidden"
+source_modules = [
+  "baibai_engine.market_context.indicators.observations",
+  "baibai_engine.market_context.reading.models", "baibai_engine.market_context.reading.compute",
+]
+forbidden_modules = [
+  "baibai_engine.market_context.indicators.db", "baibai_engine.market_context.indicators.service",
+  "baibai_engine.market_context.indicators.providers", "baibai_engine.market_context.indicators.cli",
+  "baibai_engine.market_context.reading.reader", "baibai_engine.market_context.reading.cli",
+  "baibai_engine.storage", "baibai_engine.macro.context", "baibai_engine.read_api",
 ]

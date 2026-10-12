@@ -17,9 +17,8 @@ from baibai_batch.storage.merge_indicator_store import (
     main,
     merge_stores,
 )
-from baibai_engine.macro.indicators.db import (
+from baibai_engine.market_context.indicators.db import (
     SCHEMA_PATH,
-    ObservationRecord,
     initialize_database,
     insert_observations,
     observations_in_range,
@@ -27,7 +26,11 @@ from baibai_engine.macro.indicators.db import (
     retract_observations,
     seed_definitions,
 )
-from baibai_engine.macro.indicators.definitions import IndicatorDefinitions, load_definitions
+from baibai_engine.market_context.indicators.definitions import (
+    IndicatorDefinitions,
+    load_definitions,
+)
+from baibai_engine.market_context.indicators.observations import ObservationRecord
 
 STARTED_AT = datetime(2026, 7, 24, 11, 47, tzinfo=UTC)
 # Every observation carries an explicit vintage so a row present in both stores collides on

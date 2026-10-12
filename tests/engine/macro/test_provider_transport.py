@@ -12,12 +12,12 @@ from tests.engine.macro.indicator_fixtures import (
 )
 from tests.engine.macro.provider_fixtures import SnapshotFixtures
 
-from baibai_engine.macro.indicators.providers import (
+from baibai_engine.market_context.indicators.providers import (
     IndicatorsProviderError,
     fetch_observations,
     parse_ecb_fx_csv,
 )
-from baibai_engine.macro.indicators.providers.base import (
+from baibai_engine.market_context.indicators.providers.base import (
     BrowserUnavailableError,
     FetchContext,
     HttpSession,
@@ -123,11 +123,11 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         # the same reason the production launch is lazy.
         from playwright.sync_api import Error as PlaywrightError
 
-        from baibai_engine.macro.indicators.providers.browser import BrowserFetcher
+        from baibai_engine.market_context.indicators.providers.browser import BrowserFetcher
 
         with (
             patch(
-                "baibai_engine.macro.indicators.providers.browser.sync_playwright",
+                "baibai_engine.market_context.indicators.providers.browser.sync_playwright",
                 side_effect=PlaywrightError("no browser binary"),
             ),
             self.assertRaisesRegex(BrowserUnavailableError, r"failed to launch headless browser"),
@@ -135,11 +135,11 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
             BrowserFetcher().fetch_download("https://example.test/data", max_bytes=1000)
 
     def test_browser_launch_failure_on_a_full_disk_is_still_a_provider_failure(self) -> None:
-        from baibai_engine.macro.indicators.providers.browser import BrowserFetcher
+        from baibai_engine.market_context.indicators.providers.browser import BrowserFetcher
 
         with (
             patch(
-                "baibai_engine.macro.indicators.providers.browser.tempfile.TemporaryDirectory",
+                "baibai_engine.market_context.indicators.providers.browser.tempfile.TemporaryDirectory",
                 side_effect=OSError("No space left on device"),
             ),
             # A bare OSError would escape every handler that knows what a provider
@@ -149,7 +149,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
             BrowserFetcher().fetch_download("https://example.test/data", max_bytes=1000)
 
     def test_browser_launch_receives_only_allowlisted_runtime_environment(self) -> None:
-        from baibai_engine.macro.indicators.providers.browser import BrowserFetcher
+        from baibai_engine.market_context.indicators.providers.browser import BrowserFetcher
 
         context = MagicMock()
         playwright = MagicMock()
@@ -170,7 +170,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
 
         with (
             patch(
-                "baibai_engine.macro.indicators.providers.browser.sync_playwright",
+                "baibai_engine.market_context.indicators.providers.browser.sync_playwright",
                 return_value=starter,
             ),
             patch.dict("os.environ", inherited, clear=True),

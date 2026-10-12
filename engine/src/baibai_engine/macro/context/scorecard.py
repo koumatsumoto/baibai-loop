@@ -14,11 +14,12 @@ from typing import Literal, assert_never
 from pydantic import BaseModel, ConfigDict, Field
 
 from baibai_engine.foundation.time import JST
-from baibai_engine.macro.indicators import db as indicators_db
-from baibai_engine.macro.indicators.db import ObservationRecord
-from baibai_engine.macro.indicators.definitions import load_definitions
-from baibai_engine.macro.reading.reader import ObservationReader, build_store_observation_reader
-from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH, rules_revision
+from baibai_engine.market_context.indicators import db as indicators_db
+from baibai_engine.market_context.indicators.definitions import load_definitions
+from baibai_engine.market_context.indicators.observations import ObservationRecord
+from baibai_engine.market_context.reading.models import ObservationReader
+from baibai_engine.market_context.reading.reader import build_store_observation_reader
+from baibai_engine.market_context.reading.rules import DEFAULT_RULES_PATH, rules_revision
 from baibai_engine.storage.application.paths import database_path
 from baibai_engine.storage.application.read import connect_read_only
 

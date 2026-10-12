@@ -11,18 +11,19 @@ from tests.helpers.indicator_store import (
     observation,
 )
 
-from baibai_engine.macro.indicators.db import (
-    ObservationRecord,
-)
-from baibai_engine.macro.indicators.providers import (
+from baibai_engine.market_context.indicators.observations import ObservationRecord
+from baibai_engine.market_context.indicators.providers import (
     IndicatorsProviderError,
 )
-from baibai_engine.macro.indicators.providers.base import (
+from baibai_engine.market_context.indicators.providers.base import (
     FetchContext,
     HttpSession,
 )
-from baibai_engine.macro.indicators.providers.derived import DerivedProvider
-from baibai_engine.macro.indicators.providers.formulas import FORMULAS, DerivedComputationError
+from baibai_engine.market_context.indicators.providers.derived import DerivedProvider
+from baibai_engine.market_context.indicators.providers.formulas import (
+    FORMULAS,
+    DerivedComputationError,
+)
 
 
 class IndicatorsProviderParserTests(SnapshotFixtures):
