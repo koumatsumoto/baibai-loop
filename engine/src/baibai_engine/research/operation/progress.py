@@ -15,7 +15,7 @@ from baibai_engine.research.position_review import PositionReviewDocument
 class ResearchTarget(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    ticker: str = Field(pattern=r"^[0-9][0-9A-Z]{3}$")
+    ticker: str = Field(pattern=r"^[0-9A-Z]{4}$")
     purpose: Literal["new", "holding"]
 
 

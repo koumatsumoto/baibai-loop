@@ -75,6 +75,10 @@ class OperationService:
             raise OperationConflictError(
                 "start Research with `research prepare`; one research_selection is required"
             )
+        if ticker is not None and re.fullmatch(r"[0-9A-Z]{4}", ticker) is None:
+            raise OperationConflictError(
+                "current ticker must be a four-character alphanumeric code"
+            )
         if session_kind == "position-review" and any(
             item.purpose != "holding" for item in selection.targets
         ):

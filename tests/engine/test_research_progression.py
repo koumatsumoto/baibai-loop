@@ -386,3 +386,224 @@ def test_legacy_active_handoff_preserves_exact_subjects_and_recorded_confirmatio
             research_set=("1234", "5678"),
             started_at=NOW,
         )
+
+
+def test_analysis_asof_cannot_drift_on_combined_or_holding_workspace_reuse(holding_case, tmp_path):
+    from baibai_engine.research.workspace import prepare_holding_workspace
+
+    db, market, _ = holding_case
+    workspace = tmp_path / "workspace"
+    kwargs = dict(
+        research_triage_id=None,
+        db_path=db,
+        workspace=workspace,
+        request="synthetic explicit holding selection",
+        holding_tickers=("2331",),
+        started_at=NOW,
+        sqlite_path=market,
+        runs_path=tmp_path / "absent-runs",
+        macro_path=tmp_path / "absent-macro",
+    )
+    prepared = prepare_workspace(asof=NOW.date(), **kwargs)
+    operation = OperationService(db).get(prepared.operation_id)
+    before = {path: path.read_bytes() for path in workspace.rglob("*.yaml")}
+    with pytest.raises(ResearchWorkspaceConflictError, match="as_of"):
+        prepare_workspace(asof=NOW.date() + timedelta(days=1), force=True, **kwargs)
+    assert {path: path.read_bytes() for path in workspace.rglob("*.yaml")} == before
+    with pytest.raises(ResearchWorkspaceConflictError, match="as_of"):
+        prepare_holding_workspace(
+            asof=NOW.date() + timedelta(days=1),
+            ticker="2331",
+            db_path=db,
+            workspace=workspace / "holdings" / "2331",
+            started_at=NOW,
+            force=True,
+            sqlite_path=market,
+        )
+    assert {path: path.read_bytes() for path in workspace.rglob("*.yaml")} == before
+    resumed = prepare_workspace(asof=NOW.date(), force=True, **kwargs)
+    assert resumed.operation_id == operation.operation_id
+    assert OperationService(db).get(operation.operation_id) == operation
+    # Hand editing both workspace dates is not another path to shifting the Operation date.
+    import yaml
+
+    from baibai_engine.research.workspace import compute_status
+
+    for name in ("manifest.yaml", "research-workspace.yaml"):
+        path = workspace / name
+        value = yaml.safe_load(path.read_text())
+        value["as_of"] = (NOW.date() + timedelta(days=1)).isoformat()
+        path.write_text(yaml.safe_dump(value))
+    with pytest.raises(ResearchWorkspaceConflictError, match="as_of"):
+        compute_status(workspace, db_path=db, now=NOW)
+
+
+@pytest.mark.parametrize("active_selection", [False, True])
+def test_legacy_holding_manifest_is_readable_but_cannot_mutate_outside_operation(
+    holding_case, tmp_path, active_selection
+):
+    import yaml
+
+    from baibai_engine.foundation.research_triage import ResearchTriageEntry
+    from baibai_engine.research.workspace import (
+        compute_status,
+        promote,
+        scaffold_review,
+        scaffold_thesis,
+    )
+
+    db, market, _ = holding_case
+    if active_selection:
+        triage = seed_research(db)
+        triage = triage.model_copy(
+            update={
+                "entries": (
+                    *triage.entries,
+                    ResearchTriageEntry.model_validate(research_entry("9012", rank=3)),
+                )
+            }
+        )
+        with connect_rw(db) as connection:
+            connection.execute(
+                "UPDATE research_triage SET payload=? WHERE research_triage_id=?",
+                (triage.model_dump_json(), triage.research_triage_id),
+            )
+        start(db, market, (("1234", "new"), ("5678", "new"), ("9012", "new")))
+    workspace = tmp_path / "legacy-holding"
+    (workspace / "2331").mkdir(parents=True)
+    (workspace / "manifest.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "purpose": "position_review",
+                "holding_ticker": "2331",
+                "as_of": NOW.date().isoformat(),
+            }
+        )
+    )
+    (workspace / "research-workspace.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "as_of": NOW.date().isoformat(),
+                "research_set": ["2331"],
+                "position_review_subject": [{"ticker": "2331"}],
+            }
+        )
+    )
+    thesis, review = pair_payload(ticker="2331")
+    (workspace / "2331/thesis-draft.yaml").write_text(yaml.safe_dump(thesis))
+    (workspace / "2331/2026-09-07-2331-decision-review.yaml").write_text(yaml.safe_dump(review))
+    # Saved work remains inspectable; inspection is not permission to extend the fixed selection.
+    assert compute_status(workspace, db_path=db, now=NOW)["cases"][0]["ticker"] == "2331"
+    before = {path: path.read_bytes() for path in workspace.rglob("*.yaml")}
+    db_before = db.read_bytes()
+    for mutate in (
+        lambda: scaffold_thesis(
+            workspace=workspace,
+            ticker="2331",
+            sqlite_path=market,
+            target_session=NOW.date(),
+            retrieved_at=NOW,
+            db_path=db,
+            force=True,
+        ),
+        lambda: scaffold_review(workspace=workspace, ticker="2331", db_path=db, force=True),
+        lambda: promote(
+            workspace=workspace,
+            ticker="2331",
+            db_path=db,
+            thesis_id="outside-selection",
+            supersedes_id=None,
+            now=NOW,
+        ),
+    ):
+        with pytest.raises(ResearchWorkspaceConflictError, match="Operation ID"):
+            mutate()
+        assert {path: path.read_bytes() for path in workspace.rglob("*.yaml")} == before
+        assert db.read_bytes() == db_before
+
+
+def test_alphanumeric_holding_prepares_thesis_and_verified_proposal_end_to_end(tmp_path):
+    import yaml
+    from tests.helpers.db_seed import seed_ledger
+    from tests.helpers.ledger import load_portfolio_ledger
+    from tests.helpers.screening_sqlite import seed_daily_bars
+
+    from baibai_engine.research.workspace import (
+        prepare_holding_workspace,
+        promote,
+        scaffold_review,
+        scaffold_thesis,
+    )
+
+    db, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
+    from pathlib import Path
+
+    ledger = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
+    events = []
+    for event in ledger.events:
+        payload = event.model_dump(mode="json")
+        if payload.get("ticker") == "2331":
+            payload["ticker"] = "285A"
+        events.append(type(event).model_validate(payload))
+    ledger = ledger.model_copy(update={"events": tuple(events), "market_prices": ()})
+    seed_ledger(db, ledger)
+    seed_daily_bars(
+        market, [("285A", "2026-06-03", 1000.0, 1.0), ("285A", "2026-09-04", 1000.0, 1.0)]
+    )
+    workspace = tmp_path / "holding"
+    prepared = prepare_holding_workspace(
+        asof=NOW.date(),
+        db_path=db,
+        ticker="285A",
+        workspace=workspace,
+        request="synthetic explicit alpha-code holding research",
+        started_at=NOW,
+        sqlite_path=market,
+        runs_path=tmp_path / "absent-runs",
+        macro_path=tmp_path / "absent-macro",
+    )
+    operation = OperationService(db).get(prepared.operation_id)
+    assert operation.ticker == "285A"
+    assert selection_binding(operation.payload).targets[0].ticker == "285A"
+    scaffold_thesis(
+        workspace=workspace,
+        ticker="285A",
+        sqlite_path=market,
+        target_session=NOW.date(),
+        retrieved_at=NOW,
+        db_path=db,
+    )
+    thesis, review = pair_payload(ticker="285A")
+    (workspace / "285A/thesis-draft.yaml").write_text(yaml.safe_dump(thesis))
+    scaffold_review(workspace=workspace, ticker="285A", db_path=db)
+    (workspace / "285A/2026-09-07-285A-decision-review.yaml").write_text(yaml.safe_dump(review))
+    promoted = promote(
+        workspace=workspace,
+        ticker="285A",
+        db_path=db,
+        thesis_id="alpha-current",
+        supersedes_id=None,
+        now=NOW,
+    )
+    position = PositionReviewService(db, sqlite_path=market, clock=lambda: NOW)
+    draft = position.build(thesis_id=promoted.thesis_id, position_id="285A")
+    draft = draft.model_copy(
+        update={
+            "remaining_reward": RemainingReward(
+                status="uncertain", reason="synthetic uncertain future return"
+            )
+        }
+    )
+    before = ledger_rows(db)
+    captured = OperationService(db, sqlite_path=market).record_position_proposal(
+        operation.operation_id, draft, now=NOW
+    )
+    assert progress_binding(captured.payload).outcomes[0].ticker == "285A"
+    assert progress_binding(captured.payload).outcomes[0].draft.ticker == "285A"
+    assert ledger_rows(db) == before
+    completed = OperationService(db, sqlite_path=market).complete(
+        operation.operation_id, final_payload(captured), completed_at=NOW
+    )
+    assert completed.status == "completed"
+    with sqlite3.connect(db) as connection:
+        assert connection.execute("SELECT count(*) FROM position_review").fetchone()[0] == 0

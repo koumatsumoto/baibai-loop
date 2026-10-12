@@ -67,6 +67,8 @@ def prepare_workspace(
             db_path=db_path, expected_research_triage_id=research_triage_id
         )
     )
+    if gate is not None and asof is not None and asof != gate.asof:
+        raise ResearchWorkspaceDataError("--asof differs from the bound Research Triage")
     resolved_asof = gate.asof if gate is not None else asof
     if resolved_asof is None:
         raise ResearchWorkspaceDataError("--asof is required without Research Triage")
@@ -84,6 +86,10 @@ def prepare_workspace(
     service = OperationService(db_path, sqlite_path=sqlite_path)
     active = service.active()
     if active is not None:
+        if active.as_of != resolved_asof:
+            raise ResearchWorkspaceConflictError(
+                "active operation already exists with a different as_of"
+            )
         recorded = selection_binding(active.payload)
         if recorded is None:
             old_triage, old_tickers = research_binding(active.payload)
@@ -254,6 +260,10 @@ def prepare_holding_workspace(
     operation = service.active()
     selection = None if operation is None else selection_binding(operation.payload)
     if operation is not None:
+        if operation.as_of != asof:
+            raise ResearchWorkspaceConflictError(
+                "active Operation as_of differs from the holding workspace"
+            )
         if (
             selection is None
             and operation.session_kind == "position-review"

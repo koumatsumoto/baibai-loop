@@ -21,7 +21,6 @@ from baibai_engine.research.operation.progress import (
     selection_binding,
     selection_sha256,
 )
-from baibai_engine.research.operation.research_binding import research_binding
 from baibai_engine.research.operation.service import OperationService
 from baibai_engine.research.workspace.files import (
     ResearchWorkspaceConflictError,
@@ -190,34 +189,26 @@ def _require_primary_research_ticker(
             f"cannot {action} for {ticker}: {gate.research_triage_id} did not mark it research"
         )
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
-    if manifest.get("operation_id") is not None:
-        selection = workspace_selection(manifest, db_path=db_path, active=True)
-        purpose = "holding" if gate is None else "new"
-        if ResearchTarget(ticker=ticker, purpose=purpose) not in selection.targets:
-            raise ResearchWorkspaceConflictError(
-                "ticker/purpose is outside the fixed Operation selection"
-            )
-        if gate is not None and (
-            selection.research_triage_id != gate.research_triage_id
-            or set(research_set)
-            != {item.ticker for item in selection.targets if item.purpose == "new"}
-        ):
-            raise ResearchWorkspaceConflictError(
-                "workspace new targets differ from the fixed Operation"
-            )
-        return
-    if gate is not None:
-        active = OperationService(db_path).active()
-        try:
-            if active is None or active.session_kind != "capital-allocation":
-                raise ValueError("active capital-allocation Operation is required")
-            if research_binding(active.payload) != (
-                gate.research_triage_id,
-                frozenset(research_set),
-            ):
-                raise ValueError("workspace Research Set differs from the active Operation binding")
-        except ValueError as error:
-            raise ResearchWorkspaceConflictError(str(error)) from error
+    if (
+        not isinstance(manifest.get("operation_id"), str)
+        or not str(manifest["operation_id"]).strip()
+    ):
+        raise ResearchWorkspaceConflictError(
+            "current Operation ID is required for mutation; explicitly prepare the fixed selection"
+        )
+    selection = workspace_selection(manifest, db_path=db_path, active=True)
+    purpose = "holding" if gate is None else "new"
+    if ResearchTarget(ticker=ticker, purpose=purpose) not in selection.targets:
+        raise ResearchWorkspaceConflictError(
+            "ticker/purpose is outside the fixed Operation selection"
+        )
+    if gate is not None and (
+        selection.research_triage_id != gate.research_triage_id
+        or set(research_set) != {item.ticker for item in selection.targets if item.purpose == "new"}
+    ):
+        raise ResearchWorkspaceConflictError(
+            "workspace new targets differ from the fixed Operation"
+        )
 
 
 def workspace_selection(
@@ -225,6 +216,10 @@ def workspace_selection(
 ) -> ResearchSelection:
     identifier = _nonempty_string(manifest.get("operation_id"), label="manifest.operation_id")
     operation = OperationService(db_path).get(identifier)
+    if str(manifest.get("as_of")) != operation.as_of.isoformat():
+        raise ResearchWorkspaceConflictError(
+            "workspace analysis as_of differs from the fixed Operation"
+        )
     try:
         selection = selection_binding(operation.payload)
     except ValueError as error:
