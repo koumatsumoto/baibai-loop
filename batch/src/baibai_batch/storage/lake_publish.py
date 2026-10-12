@@ -667,7 +667,13 @@ def _ensure_immutable(
 class Boto3R2Store:
     """S3-compatible R2 adapter with reusable in-process connections."""
 
-    def __init__(self, *, bucket: str, env: Mapping[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        bucket: str,
+        env: Mapping[str, str] | None = None,
+        verify_put_with_head: bool = True,
+    ) -> None:
         source = dict(os.environ if env is None else env)
         account_id = _required(source, "R2_ACCOUNT_ID")
         if _R2_ACCOUNT_ID.fullmatch(account_id) is None:
@@ -677,6 +683,7 @@ class Boto3R2Store:
         self.access_key_id = _required(source, "R2_ACCESS_KEY_ID")
         self.secret_access_key = _required(source, "R2_SECRET_ACCESS_KEY")
         self._clients: dict[int, S3Client] = {}
+        self.verify_put_with_head = verify_put_with_head
 
     def _client(self, payload_bytes: int | None = None) -> S3Client:
         timeout = _operation_timeout(payload_bytes)
@@ -814,13 +821,26 @@ class Boto3R2Store:
         try:
             with path.open("rb") as body:
                 request["Body"] = body
-                self._client(path.stat().st_size).put_object(**request)
+                response = self._client(path.stat().st_size).put_object(**request)
         except (ConnectTimeoutError, ReadTimeoutError) as exc:
             raise LakePublishError("R2 put-object timed out") from exc
         except ClientError as exc:
             _raise_r2_error("put-object", exc)
         except BotoCoreError as exc:
             raise LakePublishError("R2 put-object failed") from exc
+        if not self.verify_put_with_head:
+            # Private acquisition uses the acknowledged conditional PUT generation.
+            # Content-MD5 verifies the submitted bytes; metadata is part of that PUT.
+            # An absent acknowledgement must stop, never be repaired by guessing.
+            etag = response.get("ETag", "").strip('"')
+            if not etag:
+                raise LakePublishError("R2 put-object acknowledgement lacks a generation")
+            return RemoteObject(
+                etag=etag,
+                size=path.stat().st_size,
+                metadata=request["Metadata"],
+                content_type=content_type,
+            )
         result = self.head(key)
         if result is None:
             raise LakePublishError(f"R2 object missing after successful put: {key}")

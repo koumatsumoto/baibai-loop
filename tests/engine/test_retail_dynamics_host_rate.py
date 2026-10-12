@@ -202,8 +202,8 @@ def test_float_rounding_cannot_inflate_remaining_above_attempt_limit(clock):
     assert result.requests == 1
 
 
-def test_v4_binding_includes_fixed_rate_policy(monkeypatch):
-    assert collection.PAIR_ACQUISITION_POLICY_VERSION == "retail-pair-acquisition-v4"
+def test_v5_binding_includes_fixed_rate_policy(monkeypatch):
+    assert collection.PAIR_ACQUISITION_POLICY_VERSION == "retail-pair-acquisition-v5"
     assert collection.HOST_REQUEST_RATE_PER_SECOND == 2
     assert collection.HOST_REQUEST_BURST_CREDITS == 4
     binding = collection.collector_binding()
@@ -211,15 +211,18 @@ def test_v4_binding_includes_fixed_rate_policy(monkeypatch):
     assert collection.collector_binding() != binding
 
 
-def test_kabumap_has_two_second_spacing_without_burst(clock):
+def test_kabumap_shares_two_requests_per_second_and_four_credit_burst(clock):
     bucket = collection.HostRateLimiter()
     url = "https://jp.kabumap.com/servlets/kabumap/Action"
     bucket.wait(url, deadline=120)
     first = clock.seconds
     bucket.wait(url, deadline=120)
-    assert clock.seconds - first == pytest.approx(2)
+    assert clock.seconds - first == pytest.approx(0.5)
     clock.seconds += 10
     bucket.wait(url, deadline=120)
     after_idle = clock.seconds
+    for _ in range(3):
+        bucket.wait(url, deadline=120)
+        assert clock.seconds == after_idle
     bucket.wait(url, deadline=120)
-    assert clock.seconds - after_idle == pytest.approx(2)
+    assert clock.seconds - after_idle == pytest.approx(0.5)
