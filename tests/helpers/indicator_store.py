@@ -7,12 +7,9 @@ from collections.abc import Callable, Iterable, Sequence
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from baibai_engine.macro.indicators.db import (
-    ObservationRecord,
-    initialize_database,
-    insert_observations,
-)
-from baibai_engine.macro.indicators.definitions import SeriesDefinition
+from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
+from baibai_engine.market_context.indicators.definitions import SeriesDefinition
+from baibai_engine.market_context.indicators.observations import ObservationRecord
 
 SOURCE_URL = "https://example.com/data.csv"
 

@@ -6,8 +6,8 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-from baibai_engine.macro.indicators.definitions import load_definitions
-from baibai_engine.macro.reading.rules import ReadingRulesError, load_reading_rules
+from baibai_engine.market_context.indicators.definitions import load_definitions
+from baibai_engine.market_context.reading.rules import ReadingRulesError, load_reading_rules
 from baibai_engine.storage.application.read import (
     connect_read_only as connect_application_read_only,
 )

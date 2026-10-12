@@ -350,7 +350,7 @@ vintage・retraction・generation・no-lossの意味は[Macro reference](../docs
 **系列の追加・退役・改名**:
 
 1. writerが競合しない時間に、現行mainで`uv run baibai-batch validate-macro-stores`を実行する。
-2. `engine/src/baibai_engine/macro/indicators/registry/`の定義を変更し、`definitions.py`の`_REGISTRY_MEMBERSHIP_GENERATIONS`へ変更後の集合に対応する、現在より大きいgenerationを設定する。過去と同じ集合へ戻る場合はdigestも同じなので、その既存keyの値を更新する。重複keyの追記や旧generation再利用はしない。
+2. `engine/src/baibai_engine/market_context/indicators/registry/`の定義を変更し、`definitions.py`の`_REGISTRY_MEMBERSHIP_GENERATIONS`へ変更後の集合に対応する、現在より大きいgenerationを設定する。過去と同じ集合へ戻る場合はdigestも同じなので、その既存keyの値を更新する。重複keyの追記や旧generation再利用はしない。
 3. 変更codeをmainへ反映し、同じcodeのlocalで現行系列を1件以上指定して明示的な`macro refresh`を実行する。退役IDだけの指定ではpruneへ進めない。全履歴再計算が必要ならbase→derivedの順に実行する。
 4. validator・Reading・意図した退役結果を確認後、`push-macro`を実行する。件数表示はcommit後の補助出力であり、ログの組合せをcommit条件にしない。発行済みContextの退役系列warningは確認するが本文を書き換えない。
 

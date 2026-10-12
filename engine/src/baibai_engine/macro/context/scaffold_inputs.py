@@ -35,15 +35,15 @@ import yaml
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.macro.indicators.db import (
+from baibai_engine.market_context.indicators.db import (
     DEFAULT_DB_PATH,
     IndicatorsSchemaError,
     open_read_only_connection,
 )
-from baibai_engine.macro.indicators.definitions import SeriesDefinition, load_definitions
-from baibai_engine.macro.reading.compute import compute_reading
-from baibai_engine.macro.reading.reader import build_store_observation_reader
-from baibai_engine.macro.reading.rules import (
+from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
+from baibai_engine.market_context.reading.compute import compute_reading
+from baibai_engine.market_context.reading.reader import build_store_observation_reader
+from baibai_engine.market_context.reading.rules import (
     DEFAULT_RULES_PATH,
     ReadingRulesError,
     load_reading_rules,

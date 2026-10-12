@@ -16,7 +16,9 @@ from pathlib import Path
 import pytest
 
 import baibai_engine.read_api as read_api
-from baibai_engine.macro.indicators.db import initialize_database as initialize_macro_database
+from baibai_engine.market_context.indicators.db import (
+    initialize_database as initialize_macro_database,
+)
 from baibai_engine.read_api.sqlite import read_rows
 from baibai_engine.screening.run_store import initialize_run_store
 from baibai_engine.screening.run_store.schema import RUN_STORE_SCHEMA_VERSION
@@ -587,8 +589,8 @@ def test_assessment_reader_rejects_an_unknown_version(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("mutation", ["missing-table", "missing-column"])
 def test_macro_partial_store_is_not_unpublished(tmp_path: Path, mutation: str) -> None:
-    from baibai_engine.macro.indicators.db import seed_definitions
-    from baibai_engine.macro.indicators.definitions import load_definitions
+    from baibai_engine.market_context.indicators.db import seed_definitions
+    from baibai_engine.market_context.indicators.definitions import load_definitions
 
     path = tmp_path / "macro.sqlite"
     with closing(initialize_macro_database(path)) as connection:

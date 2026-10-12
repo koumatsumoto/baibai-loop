@@ -27,12 +27,9 @@ from baibai_engine.macro.context.scorecard import (
     evaluate_scorecard,
 )
 from baibai_engine.macro.context.service import MacroContextService
-from baibai_engine.macro.indicators.db import (
-    ObservationRecord,
-    initialize_database,
-    insert_observations,
-)
-from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH, rules_revision
+from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
+from baibai_engine.market_context.indicators.observations import ObservationRecord
+from baibai_engine.market_context.reading.rules import DEFAULT_RULES_PATH, rules_revision
 
 
 def _document(*, deadline: str = "2026-10-31") -> MacroContextDocument:

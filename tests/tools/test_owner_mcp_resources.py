@@ -21,8 +21,9 @@ from tools.owner_mcp.resource_types import Paths
 from tools.owner_mcp.resources import Resources, decode_cursor, result_size
 from tools.owner_mcp.server import call, create_server
 
-from baibai_engine.macro.indicators.db import ObservationRecord, insert_observations
-from baibai_engine.macro.indicators.db import initialize_database as macro_init
+from baibai_engine.market_context.indicators.db import initialize_database as macro_init
+from baibai_engine.market_context.indicators.db import insert_observations
+from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.read_api.macro import macro_reading_snapshot
 from baibai_engine.storage.lake.datasets import LAKE_DATASETS
 from baibai_engine.tasks.models import Task
