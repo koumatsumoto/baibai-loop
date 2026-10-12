@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -100,6 +101,26 @@ class ScreeningRunReader:
                 ORDER BY asof_date DESC, julianday(run_at) DESC, run_revision_id DESC
                 LIMIT 1
                 """
+            ).fetchone()
+            return None if row is None else _run_from_row(connection, row)
+
+    def valuation_run(
+        self, *, as_of: date, run_revision_id: str | None = None
+    ) -> RunPublication | None:
+        """Resolve a retained analysis run without consulting candidate publications."""
+        if run_revision_id is not None:
+            run = self.get_run(run_revision_id)
+            if run is None:
+                raise ValueError(f"unknown run_revision_id: {run_revision_id}")
+            if run.as_of_date > as_of.isoformat():
+                raise ValueError(f"screening run as-of is after cutoff: {run.as_of_date} > {as_of}")
+            return run
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN")
+            row = connection.execute(
+                "SELECT * FROM screening_run WHERE asof_date <= ? "
+                "ORDER BY asof_date DESC, julianday(run_at) DESC, run_revision_id DESC LIMIT 1",
+                (as_of.isoformat(),),
             ).fetchone()
             return None if row is None else _run_from_row(connection, row)
 

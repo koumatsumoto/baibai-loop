@@ -19,6 +19,9 @@ flowchart LR
     batch[Batch] --> api[engine batch_api / read_api]
     research[Research / Operation] --> position[Position]
     research --> read
+    research --> valuation[Valuation]
+    screening --> valuation
+    read --> valuation
     screening[Screening] --> market[Market source facts]
     position --> market
 ```
@@ -45,10 +48,11 @@ engineはweb・batch・toolsへ依存しない。Webからengineへの入口は`
 | --- | --- |
 | L1 fact | sourceから取得した観測 |
 | L2 machine | 保存入力とmethodから導出する機械出力 |
-| L3 application data | 判断、確認済み取引事実、task・Operation等の運用状態 |
+| L3 AI interpretation | 調査・解釈・条件付き評価・提案 |
+| 周辺業務 | 確認済み取引事実、task・Operation等の記録と進行状態 |
 | method / config | Git管理の計算規則、調査手法、表示設定 |
 
-L3に保存した取引事実はAIの判断ではない。また、現在のsourceから再取得できることは、過去の改定前状態の再現を意味しない。再生成可能なL2に新たな永久保存を要求せず、復旧元と保持範囲は各storeの契約に従う。観測・導出・見積り・判断の区別は[doctrine](./doctrine.md#fact-analysis-separation)が所有する。
+application DBはL3判断と周辺業務の両方を保存する。保存先を分析層と同一視しない。人間の最終採否・証券注文・約定確認は外部アクターの責務であり、確認済み事実の記録はシステム内の周辺業務である。また、現在のsourceから再取得できることは、過去の改定前状態の再現を意味しない。再生成可能なL2に新たな永久保存を要求せず、復旧元と保持範囲は各storeの契約に従う。観測・導出・見積り・判断の区別は[doctrine](./doctrine.md#fact-analysis-separation)が所有する。
 
 ### Store authority
 
@@ -90,7 +94,8 @@ Owner MCPは所有者が保存済み情報を読むlocal adapterであり、stor
 | `engine/src/baibai_engine/market` | source factの取得・保存・公表日判断、固定release読取、market store |
 | `engine/src/baibai_engine/macro` | 観測、Reading、Macro Context |
 | `engine/src/baibai_engine/screening` | 必要入力のpreflight、Security Analysis、Candidate Discovery、Triage、calibration |
-| `engine/src/baibai_engine/research` | 企業評価、独立Review、CAA、Planning、Position Review |
+| `engine/src/baibai_engine/valuation` | 小さな入力からのER/FV機械推計、評価前提型、Projection、条件付き収益の純粋算術、保存済み推計の投影 |
+| `engine/src/baibai_engine/research` | 統合Thesis、調査進行、独立Review・発行・store、CAA、Planning、Position Review |
 | `engine/src/baibai_engine/position` | 確認済み取引事実、ledger replay、保有と資本の評価、outcome |
 | `engine/src/baibai_engine/research/operation` | Research SetとCAAに束縛したOperation Session |
 | `engine/src/baibai_engine/tasks` | 運用task |
@@ -103,11 +108,16 @@ Owner MCPは所有者が保存済み情報を読むlocal adapterであり、stor
 | `stores/` | 実行時store |
 | `reports/` | historical evidenceと明示的なconsumer artifact |
 
+Valuationの型・算術・機械推計は`valuation`に集約済み。Screeningのbuilderが必要入力だけを変換し、Security Analysisへの保存、4 Approachの候補探索とcalibrationは現在の`screening`配置に残る。Market ContextとExternal Assessmentの統合は未移行で、現行`macro`・`screening`の市場計算と`market/retail_dynamics`・`market/tradingview`を使う。三領域を三サービス・三DB・9パッケージへ分割しない。
+
+ValuationはResearch・read_api・Screeningへ依存しない。保存済み解析の読取use caseは`read_api/valuation`がrun-store readerとValuationの小さな投影を組み合わせる。領域内部からResearchをeager importする`read_api/__init__.py`を呼ばない。Thesis全体や評価時点の価格factを扱う合成はResearchが所有する。保存済み評価の対象・cutoff・欠測は[Valuation metrics](./reference/valuation-metrics.md#machine-valuation)に従う。
+
 変更箇所は次の順に辿る。
 
 | 変更したいもの | 実装と検証の入口 |
 | --- | --- |
 | sourceの取得・保存 | `market/providers`、`market/sqlite`、`market/edinet_metrics`とsource別test |
+| 機械ER/FV・条件付き収益算術 | `valuation/{estimates,models,scenario,query}`、`read_api/valuation`とvaluation test |
 | 指標と候補選抜 | `screening/metrics`、`screening/discovery`、`tests/engine/screening` |
 | 較正 | `screening/calibration/evaluation`とcalibration test |
 | Researchの開始・下書き・発行 | `research/workspace/{admission,prepare,scaffold,status,validation,publication}`とworkspace test |

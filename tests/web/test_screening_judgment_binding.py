@@ -6,7 +6,6 @@ from tests.helpers.research_triage import research_triage_payload, skip_entry
 
 from baibai_web.readmodel.stocks import build_screening
 from baibai_web.readmodel.stocks.screening import (
-    _review_set_entries_entry_view,
     _security_analysis_row_view,
 )
 from baibai_web.sources.db_sources import DbScreeningSource
@@ -212,13 +211,13 @@ def test_review_set_projects_the_frozen_typed_analysis_without_current_row_join(
     assert entry.analysis.context.next_earnings_status == "estimated"
 
 
-def test_security_row_projects_frozen_fv_gap_and_quality_statuses() -> None:
-    frozen = _review_set_entries_entry_view(_frozen_entry())
+def test_security_row_projects_saved_machine_anchor_and_quality_statuses() -> None:
     row = {
         "ticker": "2331",
         "name": "Current name",
         "metrics": {
             "market_price_yen": 1000.0,
+            "fv_sector_median_yen": 1500.0,
             "stale_fin_flag": True,
             "dividend_basis": "unresolved_split_basis",
         },
@@ -229,7 +228,6 @@ def test_security_row_projects_frozen_fv_gap_and_quality_statuses() -> None:
         held=set(),
         reserved=set(),
         researched=set(),
-        fair_value={"2331": frozen},
     )
 
     assert view.fair_value_anchor_yen == 1500.0
@@ -241,7 +239,6 @@ def test_security_row_projects_frozen_fv_gap_and_quality_statuses() -> None:
         held=set(),
         reserved=set(),
         researched=set(),
-        fair_value={"2331": frozen},
     )
     assert without_price.fair_value_gap_pct is None
     assert without_price.data_quality_flags == []

@@ -3,20 +3,22 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
+from baibai_engine.screening.security_analysis_builder import expected_return_inputs
+
 ROOT = Path(__file__).resolve().parents[2]
 
-from baibai_engine.screening.estimates import (
-    REALIZATION_RATE_ANNUAL,
-    SHARE_COUNT_CLIP,
-    UPSIDE_CAP,
-    estimate_expected_return,
-)
 from baibai_engine.screening.schema import (
     UNRESOLVED_DIVIDEND_BASIS,
     DerivedMetrics,
     FinancialSnapshot,
 )
 from baibai_engine.screening.security_analysis_builder import _close_from_snapshot
+from baibai_engine.valuation.estimates import (
+    REALIZATION_RATE_ANNUAL,
+    SHARE_COUNT_CLIP,
+    UPSIDE_CAP,
+    estimate_expected_return,
+)
 
 
 def _financial(
@@ -80,7 +82,9 @@ class EstimateExpectedReturnTest(unittest.TestCase):
             sector_median_value={"pbr": 1.2, "per_forward": 15.0},
             self_range_median={"pbr": 1.0},
         )
-        estimate = estimate_expected_return(_financial(), derived, close=1000.0)
+        estimate = estimate_expected_return(
+            expected_return_inputs(_financial(), derived, close=1000.0)
+        )
         assert estimate is not None
         self.assertAlmostEqual(estimate.upside_blend, 0.375)
         self.assertAlmostEqual(estimate.upside_capped, 0.375)
@@ -108,22 +112,30 @@ class EstimateExpectedReturnTest(unittest.TestCase):
             self_range_median={"pbr": 1.0},
         )
         financial = _financial(dividend_yield=None, dividend_basis=UNRESOLVED_DIVIDEND_BASIS)
-        self.assertIsNone(estimate_expected_return(financial, derived, close=1000.0))
+        self.assertIsNone(
+            estimate_expected_return(expected_return_inputs(financial, derived, close=1000.0))
+        )
         # negative assertion: 利回りが無いだけ (観測できない) の行は従来どおり値を出す。
         unavailable = _financial(dividend_yield=None, dividend_basis="unavailable")
-        estimate = estimate_expected_return(unavailable, derived, close=1000.0)
+        estimate = estimate_expected_return(
+            expected_return_inputs(unavailable, derived, close=1000.0)
+        )
         assert estimate is not None
         self.assertAlmostEqual(estimate.carry_annual, 0.02)
 
     def test_upside_is_capped_and_can_be_negative(self) -> None:
         # deep discount: anchor 3 倍 → +200% だが cap で +50% に制限。
         derived = _derived(sector_median_value={"pbr": 2.4, "per_forward": 30.0})
-        estimate = estimate_expected_return(_financial(), derived, close=1000.0)
+        estimate = estimate_expected_return(
+            expected_return_inputs(_financial(), derived, close=1000.0)
+        )
         assert estimate is not None
         self.assertAlmostEqual(estimate.upside_capped, UPSIDE_CAP)
         # 割高側: anchor が current より低ければ負の reversion。
         derived = _derived(sector_median_value={"pbr": 0.4, "per_forward": 5.0})
-        estimate = estimate_expected_return(_financial(), derived, close=1000.0)
+        estimate = estimate_expected_return(
+            expected_return_inputs(_financial(), derived, close=1000.0)
+        )
         assert estimate is not None
         self.assertLess(estimate.upside_blend, 0.0)
         self.assertLess(estimate.reversion_annual, 0.0)
@@ -131,19 +143,25 @@ class EstimateExpectedReturnTest(unittest.TestCase):
     def test_dilution_reduces_carry_and_is_clipped(self) -> None:
         derived = _derived(sector_median_value={"pbr": 1.0})
         financial = _financial(per_forward=None, dividend_yield=0.02, net_share_change_yoy=0.30)
-        estimate = estimate_expected_return(financial, derived, close=1000.0)
+        estimate = estimate_expected_return(
+            expected_return_inputs(financial, derived, close=1000.0)
+        )
         assert estimate is not None
         # 希薄化 30% は clip で -5% まで。carry = 0.02 - 0.05 = -0.03
         self.assertAlmostEqual(estimate.carry_annual, 0.02 - SHARE_COUNT_CLIP)
 
     def test_returns_none_without_any_anchor(self) -> None:
-        estimate = estimate_expected_return(_financial(), _derived(), close=1000.0)
+        estimate = estimate_expected_return(
+            expected_return_inputs(_financial(), _derived(), close=1000.0)
+        )
         self.assertIsNone(estimate)
 
     def test_trailing_per_used_when_forward_missing(self) -> None:
         derived = _derived(sector_median_value={"pbr": 1.0, "per_trailing": 12.0})
         financial = _financial(per_forward=None, per_trailing=8.0)
-        estimate = estimate_expected_return(financial, derived, close=1000.0)
+        estimate = estimate_expected_return(
+            expected_return_inputs(financial, derived, close=1000.0)
+        )
         assert estimate is not None
         self.assertEqual(estimate.anchor_metrics, "pbr,per_trailing")
 

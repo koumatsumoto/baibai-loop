@@ -23,7 +23,7 @@ status: active
 | 調べたいこと | 正本 |
 | --- | --- |
 | 見積りの較正とmethodの採否 | [estimate-calibration](./estimate-calibration.md) |
-| valuation指標と入力basis | [valuation-metrics](./valuation-metrics.md) |
+| 機械ER/FV、保存済み照会、valuation指標と入力basis | [valuation-metrics](./valuation-metrics.md) |
 | Candidate Discovery・Review Set・Triage | [screening-runtime](./screening-runtime.md) |
 | Macro観測・Reading・Context・分析レンズ | [macro](./macro.md) |
 | 情報源の選択と取得失敗 | [data-sources](./data-sources.md) |

@@ -21,7 +21,7 @@ from baibai_engine.research.capital_inputs import (
     evaluate_allocation_in_transaction,
 )
 from baibai_engine.research.decimal_number import decimal_to_number
-from baibai_engine.research.valuation import finite_decimal
+from baibai_engine.valuation.scenario import finite_decimal
 
 
 def plan_limit(

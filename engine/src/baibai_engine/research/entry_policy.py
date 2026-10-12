@@ -7,7 +7,7 @@ from datetime import date
 from decimal import Decimal
 
 from baibai_engine.research.thesis import ThesisDocument, current_price_projection
-from baibai_engine.research.valuation import finite_decimal, maximum_entry_price
+from baibai_engine.valuation.scenario import finite_decimal, maximum_entry_price
 
 
 @dataclass(frozen=True, slots=True)

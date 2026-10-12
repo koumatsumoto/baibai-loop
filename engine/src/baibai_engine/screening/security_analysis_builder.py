@@ -12,15 +12,20 @@ from datetime import date
 from baibai_engine.market.models import SecurityMaster
 from baibai_engine.market.valuation_catalysts import ValuationCatalystContext
 from baibai_engine.screening.schema import (
+    UNRESOLVED_DIVIDEND_BASIS,
     DerivedMetrics,
     FinancialSnapshot,
     FreshnessWarning,
     SecurityAnalysis,
     UniverseSnapshot,
 )
+from baibai_engine.valuation.estimates import (
+    ExpectedReturnEstimate,
+    ExpectedReturnInputs,
+    estimate_expected_return,
+)
 
 from .earnings_lag import EarningsLag
-from .estimates import ExpectedReturnEstimate, estimate_expected_return
 
 
 def build_security_analysis(
@@ -78,7 +83,7 @@ def build_security_analysis(
             derived=derived,
             freshness_warning_count=len(freshness_warnings),
             estimate=estimate_expected_return(
-                financial, derived, close=_close_from_snapshot(financial)
+                expected_return_inputs(financial, derived, close=_close_from_snapshot(financial))
             ),
             normalized_per_3fy=normalized_per_3fy,
             earnings_lag=earnings_lag,
@@ -179,7 +184,7 @@ def build_security_analysis_metrics(
         "next_earnings_status": None if earnings_lag is None else earnings_lag.next_earnings_status,
         "stale_fin_flag": None if earnings_lag is None else earnings_lag.stale_fin_flag,
         "edinet_freshness_warning_count": freshness_warning_count,
-        # 機械 E[r] はannual_ratio (0.08 = 8%/年)。成分と前提は estimates.py。
+        # 機械 E[r] はannual_ratio (0.08 = 8%/年)。成分と前提は valuation/estimates.py。
         "er_annual": estimate.er_annual if estimate else None,
         "er_reversion_annual": estimate.reversion_annual if estimate else None,
         "er_carry_annual": estimate.carry_annual if estimate else None,
@@ -236,3 +241,20 @@ def _close_from_snapshot(financial: FinancialSnapshot) -> float | None:
 
 def _date_iso(value: date | None) -> str | None:
     return value.isoformat() if value is not None else None
+
+
+def expected_return_inputs(
+    financial: FinancialSnapshot, derived: DerivedMetrics, *, close: float | None
+) -> ExpectedReturnInputs:
+    """Screening の大きな snapshot から Valuation の計算入力へ変換する。"""
+    return ExpectedReturnInputs(
+        pbr=financial.pbr,
+        per_forward=financial.per_forward,
+        per_trailing=financial.per_trailing,
+        sector_median_value=derived.sector_median_value,
+        self_range_median=derived.self_range_median,
+        dividend_yield=financial.dividend_yield,
+        net_share_change_yoy=financial.net_share_change_yoy,
+        dividend_basis_resolved=financial.dividend_basis != UNRESOLVED_DIVIDEND_BASIS,
+        close=close,
+    )

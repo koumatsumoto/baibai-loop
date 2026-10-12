@@ -21,6 +21,8 @@ description: 保存済みReview SetをTriage判断し、人間のResearch Set選
 
    過去日のreplayは`--asof YYYY-MM-DD`で指定する。両optionは同時に指定できない。option省略は当日JSTのexact指定であり、非営業日でも前営業日へ戻らない。取得失敗やReview Set未作成を「候補なし」と扱わない。
 
+   候補選抜と機械評価の照会は区別する。保存済みの候補外銘柄を含むER/FV anchorの意味と読取は[Valuation metrics](../../../docs/reference/valuation-metrics.md#machine-valuation)を参照する。
+
    Screening Run・Review Setの生成が必要なら、先に[日次machine処理](../../../batch/OPERATIONS.md#日次機械工程--baibai-batch-daily)を完了する。このrunner自体は新しい市場データを取得せず、Review Setも生成しない。
 
 3. [終了状態](../../../docs/reference/analysis-operations.md#終了状態)を確認する。新しい発行が成功した`published_awaiting_human / published_all_skip`では、[実行境界](../../../batch/OPERATIONS.md#actions-write-boundary)と[application反映手順](../../../batch/OPERATIONS.md#application-db-を反映する)に従いクラウドへ反映する。

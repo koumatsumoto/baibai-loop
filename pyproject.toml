@@ -225,6 +225,7 @@ type = "forbidden"
 source_modules = ["baibai_engine.macro"]
 forbidden_modules = [
   "baibai_engine.screening",
+  "baibai_engine.valuation",
   "baibai_engine.position",
 ]
 
@@ -234,6 +235,7 @@ type = "forbidden"
 source_modules = ["baibai_engine.foundation"]
 forbidden_modules = [
   "baibai_engine.screening",
+  "baibai_engine.valuation",
   "baibai_engine.macro",
   "baibai_engine.position",
   "baibai_engine.market",
@@ -250,6 +252,7 @@ forbidden_modules = [
   "baibai_engine.market",
   "baibai_engine.macro",
   "baibai_engine.screening",
+  "baibai_engine.valuation",
   "baibai_engine.position",
   "baibai_engine.research",
   "baibai_engine.read_api",
@@ -263,6 +266,7 @@ forbidden_modules = [
   "baibai_engine.market",
   "baibai_engine.macro",
   "baibai_engine.screening",
+  "baibai_engine.valuation",
   "baibai_engine.position",
   "baibai_engine.research",
   "baibai_engine.read_api",
@@ -274,6 +278,7 @@ type = "forbidden"
 source_modules = ["baibai_engine.market"]
 forbidden_modules = [
   "baibai_engine.screening",
+  "baibai_engine.valuation",
   "baibai_engine.macro",
   "baibai_engine.position",
 ]
@@ -305,6 +310,7 @@ source_modules = [
   "baibai_engine.market",
   "baibai_engine.macro",
   "baibai_engine.screening",
+  "baibai_engine.valuation",
   "baibai_engine.position",
 ]
 forbidden_modules = ["baibai_engine.research"]
@@ -319,7 +325,7 @@ ignore_imports = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "research only composes foundation and position domains"
+name = "research only composes valuation, foundation and position domains"
 type = "forbidden"
 # Current research behavior is decision composition plus portfolio-aware execution
 # and Position Review construction. It has no direct macro, market, screening,
@@ -342,6 +348,7 @@ source_modules = [
   "baibai_engine.market",
   "baibai_engine.macro",
   "baibai_engine.screening",
+  "baibai_engine.valuation",
   "baibai_engine.position",
   "baibai_engine.research",
 ]
@@ -361,6 +368,7 @@ forbidden_modules = [
   "baibai_engine.position",
   "baibai_engine.research",
   "baibai_engine.screening",
+  "baibai_engine.valuation",
   "baibai_engine.tasks",
 ]
 allow_indirect_imports = true
@@ -389,6 +397,7 @@ forbidden_modules = [
   "baibai_engine.position",
   "baibai_engine.research",
   "baibai_engine.screening",
+  "baibai_engine.valuation",
   "baibai_engine.tasks",
   "baibai_web",
   "tools",
@@ -414,7 +423,7 @@ forbidden_modules = [
 [[tool.importlinter.contracts]]
 name = "enterprise valuation is pure"
 type = "forbidden"
-source_modules = ["baibai_engine.research.valuation", "baibai_engine.research.thesis", "baibai_engine.research.entry_policy", "baibai_engine.research.position_review"]
+source_modules = ["baibai_engine.valuation", "baibai_engine.research.thesis", "baibai_engine.research.entry_policy", "baibai_engine.research.position_review"]
 forbidden_modules = ["baibai_engine.appdb", "baibai_engine.position", "baibai_engine.market", "baibai_engine.research.workspace", "baibai_engine.research.planning", "baibai_engine.research.thesis_store"]
 
 [[tool.importlinter.contracts]]
@@ -461,4 +470,14 @@ forbidden_modules = [
   "baibai_engine.market.retail_dynamics.analysis",
   "baibai_engine.market.retail_dynamics.cli",
   "baibai_engine.read_api.retail_dynamics",
+]
+
+[[tool.importlinter.contracts]]
+name = "valuation depends only on its inputs and foundation"
+type = "forbidden"
+source_modules = ["baibai_engine.valuation"]
+forbidden_modules = [
+  "baibai_engine.screening", "baibai_engine.research", "baibai_engine.read_api",
+  "baibai_engine.market", "baibai_engine.macro", "baibai_engine.position",
+  "baibai_engine.appdb", "baibai_engine.tasks",
 ]

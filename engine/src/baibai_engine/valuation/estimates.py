@@ -1,40 +1,16 @@
-"""機械期待値 E[r]: 成分分解付きの年率リターン見積り (単一の合成スコアではない)。
+"""倍率・自己価格レンジとcarryによる機械期待収益推計。
 
-doctrine 柱 5(b) との整合: E[r] は単位 (%/年) と前提 (anchor・実現率・cap) を持つ
-「見積り」であり、出力は必ず reversion / carry の成分と入力を併記する。採否判断は
-人間に残り、ランキングへの反映は #295 の事前登録検証を通過した場合のみ行う。
-
-式 (較正リプレイの実測に基づく形):
-
-- anchor 倍率 = min(sector 中央値倍率, 自己レンジ中央値倍率) — 保守側 (低い方) を
-  採る。片方欠損時はもう片方。
-  — 自己レンジ側は**倍率の履歴ではなく価格の履歴**である。`_valuation_history` が
-    fundamentals を最新値で固定して調整後終値だけを動かすので、価格比例の軸
-    (per_forward / per_trailing / pbr / p_s) では `自己中央値 / 現値` が軸によらず
-    `median(750 営業日終値) / 現値` に一致する (実データ 3,424 銘柄で 100% 一致)。
-    自己レンジ側が binding する銘柄では、この成分は倍率でなく価格の平均回帰を測る。
-- implied upside = anchor / current - 1 (signed。割高なら負)
-- reversion (年率) = REALIZATION_RATE_ANNUAL x clip(upside, ±UPSIDE_CAP)
-  — model policy parameter により過大な upside を保守側へ制限する。
-- carry (年率) = 配当利回り + clip(自社株買い利回り, ±SHARE_COUNT_CLIP)
-  — 配当利回りは carry 用に解決した将来利回り (予想 DPS を優先するが、正の直近実績の
-    2 倍を超える跳ねは実績へ倒す。予想を使えなければ
-    accrual 期間の分割 factor で調整した実績 DPS。分割前配当と分割後株価の混在で
-    利回りが膨らむのを防ぐ。詳細は metrics._resolve_dividend_carry)。
-  — 株数縮小利回り = -net_share_change_yoy (株数縮小 = 正)。これは自己株式を含む
-    グロス発行済株式数の前年比であり、過去の株数縮小・希薄化を表す。将来の自社株買い
-    cash や未消化枠ではない。
-- E[r] (年率) = reversion + carry
+意味・単位・入力basisは docs/reference/valuation-metrics.md が所有する。
+候補選抜と企業固有の調査 Projection は扱わない。
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from math import isfinite
 from statistics import fmean
 from typing import Literal
-
-from .schema import UNRESOLVED_DIVIDEND_BASIS, DerivedMetrics, FinancialSnapshot
 
 # 現在の MODEL_V1 policy parameters。実証的な変更は long-horizon authority を満たす
 # artifact と人間レビューを経て code で明示的に変更し、自動更新はしない。
@@ -75,31 +51,41 @@ class ExpectedReturnEstimate:
     )
 
 
-def estimate_expected_return(
-    financial: FinancialSnapshot,
-    derived: DerivedMetrics,
-    *,
-    close: float | None,
-) -> ExpectedReturnEstimate | None:
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ExpectedReturnInputs:
+    """倍率・比較 anchor・carry と、その価格/株式基準だけを受け取る。"""
+
+    pbr: float | None
+    per_forward: float | None
+    per_trailing: float | None
+    sector_median_value: Mapping[str, float | None]
+    self_range_median: Mapping[str, float | None]
+    dividend_yield: float | None
+    net_share_change_yoy: float | None
+    dividend_basis_resolved: bool
+    close: float | None
+
+
+def estimate_expected_return(inputs: ExpectedReturnInputs) -> ExpectedReturnEstimate | None:
     """E[r] と FV アンカーを見積もる。anchor 倍率が 1 軸も取れなければ None。
 
     配当の株式基準が確定できない行も None にする。carry は `dividend_yield or 0.0` で
     組むので、利回りを出さないことが下流では「無配」の主張になり、実際に配当を払って
     いる銘柄の見返りを過小評価する。未解決の株式基準を無配とみなさず、見積りを返さない。
     """
-    if financial.dividend_basis == UNRESOLVED_DIVIDEND_BASIS:
+    if not inputs.dividend_basis_resolved:
         return None
 
     upsides: dict[str, float] = {}
     sector_ratios: list[float] = []
     self_ratios: list[float] = []
 
-    for metric in _anchor_metrics(financial):
-        current = _positive(getattr(financial, metric))
+    for metric in _anchor_metrics(inputs):
+        current = _positive(getattr(inputs, metric))
         if current is None:
             continue
-        sector_median = _positive(derived.sector_median_value.get(metric))
-        self_median = _positive(derived.self_range_median.get(metric))
+        sector_median = _positive(inputs.sector_median_value.get(metric))
+        self_median = _positive(inputs.self_range_median.get(metric))
         anchors = [value for value in (sector_median, self_median) if value is not None]
         if not anchors:
             continue
@@ -119,9 +105,9 @@ def estimate_expected_return(
     upside_capped = _clip(upside_blend, UPSIDE_CAP)
     reversion_annual = REALIZATION_RATE_ANNUAL * upside_capped
 
-    dividend_yield = financial.dividend_yield
+    dividend_yield = inputs.dividend_yield
     share_count_yield = (
-        -financial.net_share_change_yoy if financial.net_share_change_yoy is not None else None
+        -inputs.net_share_change_yoy if inputs.net_share_change_yoy is not None else None
     )
     carry_annual = (dividend_yield or 0.0) + _clip(share_count_yield or 0.0, SHARE_COUNT_CLIP)
 
@@ -135,18 +121,20 @@ def estimate_expected_return(
         dividend_yield=dividend_yield,
         share_count_yield=share_count_yield,
         fv_sector_median_yen=(
-            close * fmean(sector_ratios) if close is not None and sector_ratios else None
+            inputs.close * fmean(sector_ratios)
+            if inputs.close is not None and sector_ratios
+            else None
         ),
         fv_self_range_yen=(
-            close * fmean(self_ratios) if close is not None and self_ratios else None
+            inputs.close * fmean(self_ratios) if inputs.close is not None and self_ratios else None
         ),
     )
 
 
-def _anchor_metrics(financial: FinancialSnapshot) -> tuple[str, ...]:
+def _anchor_metrics(inputs: ExpectedReturnInputs) -> tuple[str, ...]:
     """資産 anchor (pbr) + 収益 anchor (forward 優先、無ければ trailing)。"""
     earnings = next(
-        (metric for metric in _EARNINGS_METRICS if _positive(getattr(financial, metric))),
+        (metric for metric in _EARNINGS_METRICS if _positive(getattr(inputs, metric))),
         None,
     )
     return ("pbr", earnings) if earnings else ("pbr",)

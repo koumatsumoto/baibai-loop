@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from baibai_engine.read_api import anchor_gap_pct, machine_valuation_from_analysis
 from baibai_web.readmodel.builders.presentation import number, text
 from baibai_web.readmodel.models import (
     CapitalAllocationAssessmentSummaryView,
@@ -112,7 +113,6 @@ def build_screening(
         )
     held, reserved = _held_and_reserved_tickers(ledger)
     researched = {item.ticker for item in research.revisions()}
-    fair_value = _fair_value_by_ticker(review_sets)
     today = datetime.now(_JST).date()
     return ScreeningView(
         run=_screening_run_view(run, today=today),
@@ -122,7 +122,6 @@ def build_screening(
                 held=held,
                 reserved=reserved,
                 researched=researched,
-                fair_value=fair_value,
                 er_level_calibration=applicable_calibration,
             )
             for row in run.rows
@@ -188,8 +187,8 @@ def _operative_run(
     The L2 machine Review Set binds to a specific run revision; the L3 Research
     Triage refers to that published set.
     A newer revision of the same as-of — a determinism re-run, say — carries no
-    review_set of its own, so presenting it would blank the machine-review_set view
-    and the FV anchors that hang off it. Falling back to the newest review_set's run
+    review_set of its own, so presenting it would blank the machine-review_set view.
+    Falling back to the newest review_set's run
     keeps Security Analyses, their review_sets, and the research_triage join on one run.
 
     Every surface that shows a candidate resolves the run here, so the list and the
@@ -216,28 +215,6 @@ def _operative_run(
     return run, [_machine_review_set_view(item) for item in run_review_sets]
 
 
-def _fair_value_by_ticker(
-    review_sets: list[ReviewSetView],
-) -> Mapping[str, ReviewSetEntryView]:
-    """FV アンカーを持つのは entries だけなので、その範囲を ticker で引けるようにする。
-
-    複数 review_set が同じ run に束縛される場合は最新の review_set を採る。entries の
-    外にいる候補は FV を持たないまま残る。
-    """
-    if not review_sets:
-        return {}
-    newest = review_sets[0]
-    return {entry.ticker: entry for entry in newest.entries}
-
-
-def _review_entry_fair_value(entry: ReviewSetEntryView | None) -> float | None:
-    """Project the existing sector-median FV estimate without giving it membership authority."""
-
-    if entry is None:
-        return None
-    return entry.analysis.expected_return.fv_sector_median_yen
-
-
 def build_screening_history_run(
     screening: DbScreeningSource,
     ledger: LedgerSource,
@@ -252,12 +229,6 @@ def build_screening_history_run(
         return None
     held, reserved = _held_and_reserved_tickers(ledger)
     researched = {item.ticker for item in research.revisions()}
-    fair_value = _fair_value_by_ticker(
-        [
-            _machine_review_set_view(item)
-            for item in screening.review_sets(run_revision_id=run.run_revision_id)
-        ]
-    )
     return ScreeningHistoryRunView(
         run=_screening_run_view(run, today=datetime.now(_JST).date()),
         rows=[
@@ -266,7 +237,6 @@ def build_screening_history_run(
                 held=held,
                 reserved=reserved,
                 researched=researched,
-                fair_value=fair_value,
             )
             for row in run.rows
         ],
@@ -309,13 +279,6 @@ def _review_set_entries_entry_view(raw: Mapping[str, object]) -> ReviewSetEntryV
         nominations=[ReviewSetNominationView.model_validate(item) for item in nominations],
         analysis=ReviewSetAnalysisView.model_validate(normalized_analysis),
     )
-
-
-def _fair_value_gap_pct(anchor: float | None, price: float | None) -> float | None:
-    """FV アンカーと screening 参考価格の乖離率。導出は read model 側で 1 回だけ行う。"""
-    if anchor is None or price is None or price == 0:
-        return None
-    return round((anchor / price - 1) * 100, 4)
 
 
 def _research_triage_entry_view(raw: Mapping[str, object]) -> ResearchTriageEntryView:
@@ -397,7 +360,6 @@ def _security_analysis_row_view(
     held: set[str],
     reserved: set[str],
     researched: set[str],
-    fair_value: Mapping[str, ReviewSetEntryView] | None = None,
     er_level_calibration: ErLevelCalibrationContext | None = None,
 ) -> SecurityAnalysisRowView:
     ticker = str(row.get("ticker", ""))
@@ -410,9 +372,7 @@ def _security_analysis_row_view(
     # unresolved_split_basis を無配と読み違えないために Security Analysis 一覧まで届ける必要がある。
     text_values = {name: text(metrics.get(name)) for name in _METRIC_TEXT_FIELDS}
     flags = _data_quality_flags(row, metrics)
-    review_entry = (fair_value or {}).get(ticker)
-    anchor = _review_entry_fair_value(review_entry)
-    market_price = number(metrics.get("market_price_yen"))
+    valuation = machine_valuation_from_analysis(row)
     return SecurityAnalysisRowView(
         ticker=ticker,
         name=text(row.get("name")),
@@ -422,8 +382,8 @@ def _security_analysis_row_view(
         data_quality_flags=flags,
         portfolio_state=_portfolio_state(ticker, held=held, reserved=reserved),
         has_research=ticker in researched,
-        fair_value_anchor_yen=anchor,
-        fair_value_gap_pct=_fair_value_gap_pct(anchor, market_price),
+        fair_value_anchor_yen=valuation.sector_median_anchor_yen,
+        fair_value_gap_pct=anchor_gap_pct(valuation),
         er_level_quintile=_er_level_quintile(values.get("er_annual"), er_level_calibration),
         er_meets_8_5pct_band=_er_meets_hurdle(values.get("er_annual"), er_level_calibration),
         **values,

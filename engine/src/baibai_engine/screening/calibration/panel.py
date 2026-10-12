@@ -28,13 +28,13 @@ from baibai_engine.market.sqlite.reader import (
 )
 from baibai_engine.market.store import read_adjustment_factor_bars, read_daily_bars
 from baibai_engine.screening.margin_inputs import read_margin_supply_demand_inputs
+from baibai_engine.valuation.estimates import estimate_expected_return
 
 from ..discovery.review_set import (
     build_nomination_ranks,
     build_review_set,
     candidate_discovery_method_hash,
 )
-from ..estimates import estimate_expected_return
 from ..metrics import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,
@@ -55,7 +55,7 @@ from ..metrics import (
 from ..rule_config import ScreeningRules
 from ..schema import SECTOR_MEDIAN_BASIS_MARKET, SecurityAnalysis, TTMQuality
 from ..screening_run_serializer import security_analysis_payload
-from ..security_analysis_builder import build_security_analysis
+from ..security_analysis_builder import build_security_analysis, expected_return_inputs
 from ..universe import (
     POLICY_EXCLUSION_REASONS,
     build_universe,
@@ -445,7 +445,7 @@ def build_panel(
         derived = metric_result.derived[ticker]
         snapshot = universe_result.snapshots[ticker]
         estimate = estimate_expected_return(
-            financial, derived, close=latest_close_by_ticker.get(ticker)
+            expected_return_inputs(financial, derived, close=latest_close_by_ticker.get(ticker))
         )
         return_change = build_shareholder_return_change_signals(
             history_summaries_by_ticker.get(ticker, ()),

@@ -40,9 +40,11 @@ resolved valuationは価格factを参照する。unresolvedでは価格もnull�
 
 ## Valuationと純粋算術
 
+評価前提型は[`valuation/models.py`](../../engine/src/baibai_engine/valuation/models.py)、Projectionと純粋算術は[`valuation/scenario.py`](../../engine/src/baibai_engine/valuation/scenario.py)が所有する。Thesisはこれらを内包し、全体の検証・価格factとの合成・独立Review・store・調査進行はResearchに残る。保存済みThesis JSONとcore hashの形は変わらない。機械推計の意味と入口は[Valuation metrics](./valuation-metrics.md#machine-valuation)を参照する。
+
 `valuation.status`はresolved/unresolved。resolvedは正の有限な`required_annual_return_pct`、正整数`horizon_months`、価格参照、Base/DownsideのProjectionを必須とする。unresolvedは期間・要求年率・両Projectionをnull、`unresolved_reason`を必須とする。
 
-Projectionは`terminal_value_per_share_yen / cash_distribution_per_share_yen / calculation / source_ids`。terminalとcashは0以上の有限値。calculationに入力、単位、式、数値代入、結果、重要仮定を記す。通常12か月だが期限売却ではない。別期間の理由、重要な遅延・上振れは文章で扱う。
+Projectionは`terminal_value_per_share_yen / cash_distribution_per_share_yen / calculation / source_ids`。terminalとcashは0以上の有限値。calculationに入力、単位、式、数値代入、結果、重要仮定を記す。期間は銘柄とシナリオの比較窓で、保有期限や売却期限ではない。期間の根拠、重要な遅延・上振れは文章で扱う。
 
 ```text
 W = terminal + cumulative_cash

@@ -285,17 +285,7 @@ def _load_security_analysis_context(
             "note": "no screening run on or before asof",
         }
     reader = ScreeningRunReader(runs_db_path)
-    if run_revision_id is not None:
-        run = reader.get_run(run_revision_id)
-        if run is not None and run.as_of_date > asof_date.isoformat():
-            raise ValueError(
-                "screening run as-of is after ticker-profile asof: "
-                f"{run.as_of_date} > {asof_date.isoformat()}"
-            )
-    else:
-        run = reader.latest_run()
-        if run is not None and run.as_of_date > asof_date.isoformat():
-            run = None
+    run = reader.valuation_run(as_of=asof_date, run_revision_id=run_revision_id)
     if run is None:
         if run_revision_id is not None:
             raise ValueError(f"unknown run_revision_id: {run_revision_id}")

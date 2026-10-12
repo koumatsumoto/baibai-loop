@@ -25,7 +25,6 @@ from baibai_engine.screening.earnings_lag import (
     index_calendar_announcements,
     tickers_without_calendar_rows,
 )
-from baibai_engine.screening.estimates import EXPECTED_RETURN_MODEL_VERSION
 from baibai_engine.screening.freshness import (
     detect_edinet_freshness_warnings,
     load_disclosure_events,
@@ -58,6 +57,7 @@ from baibai_engine.screening.universe import (
     build_universe,
     candidate_comparison_population,
 )
+from baibai_engine.valuation.estimates import EXPECTED_RETURN_MODEL_VERSION
 
 from .providers import ProviderBundle
 
