@@ -428,3 +428,90 @@ def test_indicator_only_publication_keeps_the_existing_l1_release(
     assert "market_updated=" in steps_by_id["batch"]["run"]
     # The one existing complete store/view publication path also handles holidays.
     assert steps_by_id["upload-stores"]["if"] == "steps.batch.outputs.published == 'true'"
+
+
+@pytest.mark.parametrize(
+    ("notice_case", "expected_publish", "expected_warning"),
+    [
+        ("missing", True, True),
+        ("unreadable", True, True),
+        ("invalid_json", True, True),
+        ("invalid_field", True, True),
+        ("false", False, False),
+        ("true", True, False),
+    ],
+)
+def test_daily_notice_only_explicit_false_skips_actual_lake_command(
+    tmp_path: Path,
+    steps_by_id: dict[str, dict],
+    notice_case: str,
+    expected_publish: bool,
+    expected_warning: bool,
+) -> None:
+    runner_temp = tmp_path / "runner"
+    runner_temp.mkdir()
+    notice = runner_temp / "batch-notice.json"
+    private_marker = "private-notice-content-must-not-be-printed"
+    if notice_case == "unreadable":
+        notice.mkdir()  # read_text raises OSError even when tests run as root.
+    elif notice_case == "invalid_json":
+        notice.write_text(private_marker)
+    elif notice_case == "invalid_field":
+        notice.write_text('{"market_updated":"false","private":"' + private_marker + '"}')
+    elif notice_case in {"false", "true"}:
+        notice.write_text('{"market_updated":' + notice_case + "}")
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    uv = bin_dir / "uv"
+    uv.write_text(
+        '#!/usr/bin/env bash\nmkdir -p "$RUNNER_TEMP/serving/views"\n'
+        'printf "{}\\n" > "$RUNNER_TEMP/serving/views/meta.json"\n'
+    )
+    uv.chmod(0o755)
+    github_output = tmp_path / "outputs"
+    recorded = tmp_path / "lake-commands"
+    transfer = tmp_path / "batch/scripts/r2_transfer.sh"
+    transfer.parent.mkdir(parents=True)
+    transfer.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$1" >> "$RECORDED"\nprintf "{}\\n"\n')
+    transfer.chmod(0o755)
+    env = {
+        "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
+        "RUNNER_TEMP": str(runner_temp),
+        "GITHUB_OUTPUT": str(github_output),
+        "GITHUB_EVENT_NAME": "schedule",
+        "MANUAL_ASOF": "",
+        "RECORDED": str(recorded),
+    }
+    result = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", steps_by_id["batch"]["run"]],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert private_marker not in result.stdout + result.stderr
+    assert result.stderr == (
+        "::warning::Daily notice unavailable or invalid; continuing L1 publication.\n"
+        if expected_warning
+        else ""
+    )
+    outputs = dict(line.split("=", 1) for line in github_output.read_text().splitlines())
+    assert outputs["exit_code"] == "0"
+    assert outputs["published"] == "true"
+    assert outputs["market_updated"] == str(expected_publish).lower()
+    if outputs["published"] == "true" and outputs["market_updated"] == "true":
+        publish = subprocess.run(
+            ["bash", "-euo", "pipefail", "-c", steps_by_id["publish-lake"]["run"]],
+            cwd=tmp_path,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert publish.returncode == 0
+    assert recorded.exists() is expected_publish
+    if expected_publish:
+        assert recorded.read_text().splitlines() == ["publish-lake"]

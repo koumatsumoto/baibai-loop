@@ -178,7 +178,24 @@ jobs:
           else
             echo "published=false" >> "$GITHUB_OUTPUT"
           fi
-          uv run python -c 'import json, os; from pathlib import Path; p = Path(os.environ["RUNNER_TEMP"]) / "batch-notice.json"; d = json.loads(p.read_text()) if p.is_file() else {}; print("market_updated=" + str(d.get("market_updated") is True).lower())' >> "$GITHUB_OUTPUT"
+          # Skip L1 publication only for an explicit, readable boolean false.
+          python3 - <<'PYNOTICE' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          market_updated = True
+          try:
+              notice = json.loads((Path(os.environ["RUNNER_TEMP"]) / "batch-notice.json").read_text())
+              value = notice.get("market_updated") if isinstance(notice, dict) else None
+              if not isinstance(value, bool):
+                  raise ValueError
+              market_updated = value
+          except (OSError, ValueError):
+              print("::warning::Daily notice unavailable or invalid; continuing L1 publication.", file=sys.stderr)
+          print("market_updated=" + str(market_updated).lower())
+          PYNOTICE
           if [[ $code -ne 0 && $code -ne 3 ]]; then
             exit "$code"
           fi
