@@ -23,7 +23,7 @@ description: 明示依頼で保存済みReview SetをTriage判断し、有限な
 
    候補選抜と機械評価の照会は区別する。保存済みの候補外銘柄を含むER/FV anchorの意味と読取は[Valuation metrics](../../../docs/reference/valuation-metrics.md#machine-valuation)を参照する。
 
-   Screening Run・Review Setの生成が必要なら、先に[日次machine処理](../../../batch/OPERATIONS.md#日次機械工程--baibai-batch-daily)を完了する。このrunner自体は新しい市場データを取得せず、Review Setも生成しない。
+   Screening Run・Review Setの生成が必要なら、先に[日次machine処理](../../../batch/OPERATIONS.md#日次機械工程--baibai-batch-daily)を完了する。通常の日次`screening run`はrunとReview Setを同時に保存するため、後から`review-set publish`を重ねない。Screeningがfailed/非営業日skipなら新しい対象集合を作ったと扱わず、両IDと`screening_status`を確認する。このrunner自体は新しい市場データを取得せず、Review Setも生成しない。
 
 3. [終了状態](../../../docs/reference/analysis-operations.md#終了状態)を確認する。新しい発行が成功した`published_research_available / published_all_skip`では、[実行境界](../../../batch/OPERATIONS.md#actions-write-boundary)と[application反映手順](../../../batch/OPERATIONS.md#application-db-を反映する)に従いクラウドへ反映する。
 

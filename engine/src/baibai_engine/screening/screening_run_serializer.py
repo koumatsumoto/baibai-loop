@@ -42,6 +42,7 @@ def serialize_screening_run_yaml(
     document: ScreeningRunDocument,
     *,
     run_revision_id: str | None = None,
+    review_set_id: str | None = None,
 ) -> str:
     if document.run_date != document.asof_date:
         raise ScreeningRunSerializationError("run_date must equal asof_date")
@@ -53,6 +54,8 @@ def serialize_screening_run_yaml(
     front_matter = _screening_run_payload(document)
     if run_revision_id is not None:
         front_matter["run_revision_id"] = QuotedString(run_revision_id)
+    if review_set_id is not None:
+        front_matter["review_set_id"] = QuotedString(review_set_id)
     yaml_text = yaml.dump(
         front_matter,
         Dumper=_QuotedDumper,

@@ -35,7 +35,6 @@ from baibai_engine.read_api import (
     research_triage_payloads_for_review_set,
     reviewed_thesis_projection,
     safe_load,
-    screening_latest_asof,
     screening_review_set_payloads,
     screening_run_asof_dates,
     screening_run_payload,
@@ -53,6 +52,7 @@ from baibai_engine.read_api.market_context import (
     list_assessment_payloads,
     macro_reading_snapshot,
 )
+from baibai_web.sources.screening_selection import operative_screening_run
 from baibai_web.sources.types import (
     MacroGroupConfig,
     MacroSeriesConfig,
@@ -365,7 +365,8 @@ class DbMetaSource:
         self._indicators_db_path = indicators_db_path.resolve()
 
     def screening_as_of(self) -> date | None:
-        return screening_latest_asof(self._runs_db_path)
+        run, _ = operative_screening_run(DbScreeningSource(self._runs_db_path))
+        return None if run is None else run.as_of
 
     def macro_as_of(self) -> date | None:
         return macro_latest_observed_at(self._indicators_db_path)
@@ -376,7 +377,7 @@ class DbMetaSource:
     def data_updated_at(self) -> datetime | None:
         """Return the newest timestamp recorded by any UI data store."""
 
-        screening_run = DbScreeningSource(self._runs_db_path).latest_run()
+        screening_run, _ = operative_screening_run(DbScreeningSource(self._runs_db_path))
         screening_updated_at = None if screening_run is None else screening_run.generated_at
         macro_observed_at = macro_latest_observed_at(self._indicators_db_path)
         macro_updated_at = (

@@ -426,252 +426,295 @@ def bootstrap_cache_command(
     stdout: TextIO | None = None,
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
+    print(f"bootstrap-cache start: asof={asof_date.isoformat()}", file=out, flush=True)
+    failed = False
+    # Fixed acquisition groups share the existing providers/cache. Each writer
+    # owns its validated chunk commits; no restoration or second copy is made.
+    for acquire in (
+        _bootstrap_market_cache,
+        _bootstrap_financial_cache,
+        _bootstrap_edinet_cache,
+        _bootstrap_jpx_cache,
+    ):
+        try:
+            acquire(asof_date, providers, sqlite_path, out)
+        except (
+            JQuantsProviderError,
+            EDINETProviderError,
+            JPXProviderError,
+            EmptyRangeReplacementError,
+            sqlite3.Error,
+        ) as exc:
+            failed = True
+            print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+    print("bootstrap-cache incomplete" if failed else "bootstrap-cache done", file=out, flush=True)
+    return 1 if failed else 0
+
+
+def _bootstrap_market_cache(
+    asof_date: date,
+    providers: ProviderBundle,
+    sqlite_path: Path,
+    out: TextIO,
+) -> None:
     bars_start = asof_date - timedelta(days=BARS_INPUT_WINDOW_DAYS)
+    normalized_start = asof_date - timedelta(days=NORMALIZED_EPS_HISTORY_WINDOW_DAYS)
+    print("bootstrap-cache jquants eq_master: start", file=out, flush=True)
+    securities = providers.jquants.get_eq_master(asof_date)
+    print(
+        f"bootstrap-cache jquants eq_master: {len(securities)} row(s)",
+        file=out,
+        flush=True,
+    )
+    print(
+        "bootstrap-cache jquants daily_bars: "
+        f"{bars_start.isoformat()}..{asof_date.isoformat()} start",
+        file=out,
+        flush=True,
+    )
+    # `ensure_*` rather than `get_*`: the window is over three million rows and
+    # the only thing wanted from it here is the count on the next line.
+    bar_rows = providers.jquants.ensure_eq_bars_daily_range(bars_start, asof_date)
+    print(
+        f"bootstrap-cache jquants daily_bars: {bar_rows} row(s)",
+        file=out,
+        flush=True,
+    )
+    print(
+        "bootstrap-cache jquants split_normalization_bars: "
+        f"{normalized_start.isoformat()}..{asof_date.isoformat()} start",
+        file=out,
+        flush=True,
+    )
+    split_bars = providers.jquants.get_adjustment_factor_bars_range(normalized_start, asof_date)
+    print(
+        f"bootstrap-cache jquants split_normalization_bars: {len(split_bars)} row(s)",
+        file=out,
+        flush=True,
+    )
+    calendar_start = asof_date - timedelta(days=_CALENDAR_BOOTSTRAP_BACKWARD_DAYS)
+    calendar_end = asof_date + timedelta(days=_CALENDAR_BOOTSTRAP_FORWARD_DAYS)
+    print(
+        "bootstrap-cache jquants market_calendar: "
+        f"{calendar_start.isoformat()}..{calendar_end.isoformat()} start",
+        file=out,
+        flush=True,
+    )
+    calendar = providers.jquants.get_mkt_calendar(calendar_start, calendar_end)
+    print(
+        f"bootstrap-cache jquants market_calendar: {len(calendar)} row(s)",
+        file=out,
+        flush=True,
+    )
+    # Balance dates come from the stored trading calendar, so the bars fetch
+    # above has to have happened first; on a store with no bars this proposes
+    # nothing and the source stays empty rather than guessing Fridays.
+    margin_weeks = weekly_margin_candidate_dates(
+        sqlite_path,
+        asof_date - timedelta(days=_WEEKLY_MARGIN_BOOTSTRAP_DAYS),
+        asof_date,
+        publication_asof=asof_date,
+    )
+    print(
+        f"bootstrap-cache jquants weekly_margin: {len(margin_weeks)} week(s) start",
+        file=out,
+        flush=True,
+    )
+    margin_rows = 0
+    for week_end in margin_weeks:
+        if weekly_margin_empty_requires_refresh(sqlite_path, week_end, asof=asof_date) or (
+            week_end == LEGACY_WEEKLY_LAST_BALANCE_DATE
+            and asof_date >= LEGACY_WEEKLY_LAST_PUBLICATION_DATE
+            and final_legacy_week_requires_refresh(sqlite_path)
+        ):
+            # An older checkout may have cached an empty response before the
+            # final legacy week was published. Re-read this one boundary row
+            # after its official publication date so the transition cannot
+            # inherit that false-empty claim.
+            margin_rows += len(providers.jquants.refresh_mkt_margin_interest_week(week_end))
+        else:
+            margin_rows += len(providers.jquants.get_mkt_margin_interest_week(week_end))
+    print(
+        f"bootstrap-cache jquants weekly_margin: {margin_rows} row(s)",
+        file=out,
+        flush=True,
+    )
+    alert_start = asof_date - timedelta(days=_MARGIN_ALERT_REVISION_OVERLAP_DAYS)
+    print(
+        "bootstrap-cache jquants margin_alerts: "
+        f"{alert_start.isoformat()}..{asof_date.isoformat()} start",
+        file=out,
+        flush=True,
+    )
+    margin_alerts = providers.jquants.refresh_mkt_margin_alert_range(alert_start, asof_date)
+    print(
+        f"bootstrap-cache jquants margin_alerts: {len(margin_alerts)} row(s)",
+        file=out,
+        flush=True,
+    )
+    daily_margin_dates = all_issues_daily_margin_candidate_dates(
+        sqlite_path, ALL_ISSUES_DAILY_FIRST_BALANCE_DATE, asof_date
+    )
+    print(
+        f"bootstrap-cache jquants all_issues_daily_margin: {len(daily_margin_dates)} day(s) start",
+        file=out,
+        flush=True,
+    )
+    daily_margin_rows = sum(
+        len(providers.jquants.get_mkt_all_issues_daily_margin(balance_date))
+        for balance_date in daily_margin_dates
+    )
+    print(
+        f"bootstrap-cache jquants all_issues_daily_margin: {daily_margin_rows} row(s)",
+        file=out,
+        flush=True,
+    )
+    print(
+        "bootstrap-cache jquants short_sale_reports: "
+        f"{(asof_date - timedelta(days=_SHORT_SALE_REPORT_REVISION_OVERLAP_DAYS)).isoformat()}"
+        f"..{asof_date.isoformat()} start",
+        file=out,
+        flush=True,
+    )
+    short_reports = providers.jquants.refresh_mkt_short_sale_report_range(
+        asof_date - timedelta(days=_SHORT_SALE_REPORT_REVISION_OVERLAP_DAYS), asof_date
+    )
+    print(
+        f"bootstrap-cache jquants short_sale_reports: {len(short_reports)} row(s)",
+        file=out,
+        flush=True,
+    )
+
+
+def _bootstrap_financial_cache(
+    asof_date: date,
+    providers: ProviderBundle,
+    sqlite_path: Path,
+    out: TextIO,
+) -> None:
     fin_start = asof_date - timedelta(days=FIN_INPUT_WINDOW_DAYS)
     normalized_start = asof_date - timedelta(days=NORMALIZED_EPS_HISTORY_WINDOW_DAYS)
-    try:
-        print(f"bootstrap-cache start: asof={asof_date.isoformat()}", file=out, flush=True)
-        print("bootstrap-cache jquants eq_master: start", file=out, flush=True)
-        securities = providers.jquants.get_eq_master(asof_date)
+    print(
+        "bootstrap-cache jquants fin_summaries: "
+        f"{fin_start.isoformat()}..{asof_date.isoformat()} start",
+        file=out,
+        flush=True,
+    )
+    repair_plan = plan_required_field_repair(
+        sqlite_path,
+        start=fin_start,
+        asof=asof_date,
+    )
+    repair_ranges = repair_plan.ranges if repair_plan is not None else ()
+    if repair_plan is not None:
         print(
-            f"bootstrap-cache jquants eq_master: {len(securities)} row(s)",
+            "bootstrap-cache financial required-field coverage before: "
+            + repair_plan.coverage.summary_line(),
             file=out,
             flush=True,
         )
+        if repair_ranges:
+            first_start = repair_ranges[0][0].isoformat()
+            print(
+                "bootstrap-cache financial required-field repair: "
+                f"blocking={','.join(repair_plan.coverage.blocking_fields)} "
+                f"resume_from={first_start} remaining_ranges={len(repair_ranges)}",
+                file=out,
+                flush=True,
+            )
+    # The trailing window is re-read here and nowhere else in the run: the
+    # normalized-profit call below shares this source, and asking it there too
+    # would buy the same week twice.
+    summary_rows = providers.jquants.refresh_fin_summary_range(
+        fin_start,
+        asof_date,
+        revision_overlap_days=FIN_SUMMARY_REVISION_OVERLAP_DAYS,
+        repair_ranges=repair_ranges,
+        progress=lambda index, total, chunk_start, chunk_end: print(
+            "bootstrap-cache jquants fin_summaries chunk "
+            f"{index}/{total}: {chunk_start.isoformat()}..{chunk_end.isoformat()}",
+            file=out,
+            flush=True,
+        ),
+    )
+    print(
+        f"bootstrap-cache jquants fin_summaries: {summary_rows} row(s)",
+        file=out,
+        flush=True,
+    )
+    print(
+        "bootstrap-cache jquants normalized_profit_fy_summaries: "
+        f"{normalized_start.isoformat()}..{asof_date.isoformat()} start",
+        file=out,
+        flush=True,
+    )
+    fy_summaries = providers.jquants.get_fy_summary_range(normalized_start, asof_date)
+    print(
+        f"bootstrap-cache jquants normalized_profit_fy_summaries: {len(fy_summaries)} row(s)",
+        file=out,
+        flush=True,
+    )
+    repaired_coverage = read_required_field_coverage(
+        sqlite_path,
+        start=fin_start,
+        asof=asof_date,
+    )
+    if repaired_coverage is not None:
         print(
-            "bootstrap-cache jquants daily_bars: "
-            f"{bars_start.isoformat()}..{asof_date.isoformat()} start",
+            "bootstrap-cache financial required-field coverage after: "
+            + repaired_coverage.summary_line(),
             file=out,
             flush=True,
         )
-        # `ensure_*` rather than `get_*`: the window is over three million rows and
-        # the only thing wanted from it here is the count on the next line.
-        bar_rows = providers.jquants.ensure_eq_bars_daily_range(bars_start, asof_date)
+        if repaired_coverage.blocking_fields:
+            raise JQuantsProviderError(
+                "financial required-field repair remained incomplete for "
+                + ",".join(repaired_coverage.blocking_fields)
+            )
+
+
+def _bootstrap_edinet_cache(
+    asof_date: date,
+    providers: ProviderBundle,
+    sqlite_path: Path,
+    out: TextIO,
+) -> None:
+    fin_start = asof_date - timedelta(days=FIN_INPUT_WINDOW_DAYS)
+    if providers.edinet is not None:
         print(
-            f"bootstrap-cache jquants daily_bars: {bar_rows} row(s)",
-            file=out,
-            flush=True,
-        )
-        print(
-            "bootstrap-cache jquants split_normalization_bars: "
-            f"{normalized_start.isoformat()}..{asof_date.isoformat()} start",
-            file=out,
-            flush=True,
-        )
-        split_bars = providers.jquants.get_adjustment_factor_bars_range(normalized_start, asof_date)
-        print(
-            f"bootstrap-cache jquants split_normalization_bars: {len(split_bars)} row(s)",
-            file=out,
-            flush=True,
-        )
-        print(
-            "bootstrap-cache jquants fin_summaries: "
+            "bootstrap-cache edinet documents: "
             f"{fin_start.isoformat()}..{asof_date.isoformat()} start",
             file=out,
             flush=True,
         )
-        repair_plan = plan_required_field_repair(
-            sqlite_path,
-            start=fin_start,
-            asof=asof_date,
-        )
-        repair_ranges = repair_plan.ranges if repair_plan is not None else ()
-        if repair_plan is not None:
-            print(
-                "bootstrap-cache financial required-field coverage before: "
-                + repair_plan.coverage.summary_line(),
-                file=out,
-                flush=True,
-            )
-            if repair_ranges:
-                first_start = repair_ranges[0][0].isoformat()
-                print(
-                    "bootstrap-cache financial required-field repair: "
-                    f"blocking={','.join(repair_plan.coverage.blocking_fields)} "
-                    f"resume_from={first_start} remaining_ranges={len(repair_ranges)}",
-                    file=out,
-                    flush=True,
-                )
-        # The trailing window is re-read here and nowhere else in the run: the
-        # normalized-profit call below shares this source, and asking it there too
-        # would buy the same week twice.
-        summary_rows = providers.jquants.refresh_fin_summary_range(
-            fin_start,
-            asof_date,
-            revision_overlap_days=FIN_SUMMARY_REVISION_OVERLAP_DAYS,
-            repair_ranges=repair_ranges,
-            progress=lambda index, total, chunk_start, chunk_end: print(
-                "bootstrap-cache jquants fin_summaries chunk "
-                f"{index}/{total}: {chunk_start.isoformat()}..{chunk_end.isoformat()}",
-                file=out,
-                flush=True,
-            ),
-        )
+        edinet_result = providers.edinet.bootstrap_cache(fin_start, asof_date)
         print(
-            f"bootstrap-cache jquants fin_summaries: {summary_rows} row(s)",
+            "bootstrap-cache edinet documents: "
+            + ", ".join(f"{key}={value}" for key, value in sorted(edinet_result.items())),
             file=out,
             flush=True,
         )
-        repaired_coverage = read_required_field_coverage(
-            sqlite_path,
-            start=fin_start,
-            asof=asof_date,
-        )
-        if repaired_coverage is not None:
-            print(
-                "bootstrap-cache financial required-field coverage after: "
-                + repaired_coverage.summary_line(),
-                file=out,
-                flush=True,
-            )
-            if repaired_coverage.blocking_fields:
-                raise JQuantsProviderError(
-                    "financial required-field repair remained incomplete for "
-                    + ",".join(repaired_coverage.blocking_fields)
-                )
+    else:
         print(
-            "bootstrap-cache jquants normalized_profit_fy_summaries: "
-            f"{normalized_start.isoformat()}..{asof_date.isoformat()} start",
-            file=out,
-            flush=True,
+            "note: EDINET provider is not configured; skipping EDINET bootstrap",
+            file=sys.stderr,
         )
-        fy_summaries = providers.jquants.get_fy_summary_range(normalized_start, asof_date)
-        print(
-            f"bootstrap-cache jquants normalized_profit_fy_summaries: {len(fy_summaries)} row(s)",
-            file=out,
-            flush=True,
-        )
-        calendar_start = asof_date - timedelta(days=_CALENDAR_BOOTSTRAP_BACKWARD_DAYS)
-        calendar_end = asof_date + timedelta(days=_CALENDAR_BOOTSTRAP_FORWARD_DAYS)
-        print(
-            "bootstrap-cache jquants market_calendar: "
-            f"{calendar_start.isoformat()}..{calendar_end.isoformat()} start",
-            file=out,
-            flush=True,
-        )
-        calendar = providers.jquants.get_mkt_calendar(calendar_start, calendar_end)
-        print(
-            f"bootstrap-cache jquants market_calendar: {len(calendar)} row(s)",
-            file=out,
-            flush=True,
-        )
-        # Balance dates come from the stored trading calendar, so the bars fetch
-        # above has to have happened first; on a store with no bars this proposes
-        # nothing and the source stays empty rather than guessing Fridays.
-        margin_weeks = weekly_margin_candidate_dates(
-            sqlite_path,
-            asof_date - timedelta(days=_WEEKLY_MARGIN_BOOTSTRAP_DAYS),
-            asof_date,
-            publication_asof=asof_date,
-        )
-        print(
-            f"bootstrap-cache jquants weekly_margin: {len(margin_weeks)} week(s) start",
-            file=out,
-            flush=True,
-        )
-        margin_rows = 0
-        for week_end in margin_weeks:
-            if weekly_margin_empty_requires_refresh(sqlite_path, week_end, asof=asof_date) or (
-                week_end == LEGACY_WEEKLY_LAST_BALANCE_DATE
-                and asof_date >= LEGACY_WEEKLY_LAST_PUBLICATION_DATE
-                and final_legacy_week_requires_refresh(sqlite_path)
-            ):
-                # An older checkout may have cached an empty response before the
-                # final legacy week was published. Re-read this one boundary row
-                # after its official publication date so the transition cannot
-                # inherit that false-empty claim.
-                margin_rows += len(providers.jquants.refresh_mkt_margin_interest_week(week_end))
-            else:
-                margin_rows += len(providers.jquants.get_mkt_margin_interest_week(week_end))
-        print(
-            f"bootstrap-cache jquants weekly_margin: {margin_rows} row(s)",
-            file=out,
-            flush=True,
-        )
-        alert_start = asof_date - timedelta(days=_MARGIN_ALERT_REVISION_OVERLAP_DAYS)
-        print(
-            "bootstrap-cache jquants margin_alerts: "
-            f"{alert_start.isoformat()}..{asof_date.isoformat()} start",
-            file=out,
-            flush=True,
-        )
-        margin_alerts = providers.jquants.refresh_mkt_margin_alert_range(alert_start, asof_date)
-        print(
-            f"bootstrap-cache jquants margin_alerts: {len(margin_alerts)} row(s)",
-            file=out,
-            flush=True,
-        )
-        daily_margin_dates = all_issues_daily_margin_candidate_dates(
-            sqlite_path, ALL_ISSUES_DAILY_FIRST_BALANCE_DATE, asof_date
-        )
-        print(
-            "bootstrap-cache jquants all_issues_daily_margin: "
-            f"{len(daily_margin_dates)} day(s) start",
-            file=out,
-            flush=True,
-        )
-        daily_margin_rows = sum(
-            len(providers.jquants.get_mkt_all_issues_daily_margin(balance_date))
-            for balance_date in daily_margin_dates
-        )
-        print(
-            f"bootstrap-cache jquants all_issues_daily_margin: {daily_margin_rows} row(s)",
-            file=out,
-            flush=True,
-        )
-        print(
-            "bootstrap-cache jquants short_sale_reports: "
-            f"{(asof_date - timedelta(days=_SHORT_SALE_REPORT_REVISION_OVERLAP_DAYS)).isoformat()}"
-            f"..{asof_date.isoformat()} start",
-            file=out,
-            flush=True,
-        )
-        short_reports = providers.jquants.refresh_mkt_short_sale_report_range(
-            asof_date - timedelta(days=_SHORT_SALE_REPORT_REVISION_OVERLAP_DAYS), asof_date
-        )
-        print(
-            f"bootstrap-cache jquants short_sale_reports: {len(short_reports)} row(s)",
-            file=out,
-            flush=True,
-        )
-        if providers.edinet is not None:
-            print(
-                "bootstrap-cache edinet documents: "
-                f"{fin_start.isoformat()}..{asof_date.isoformat()} start",
-                file=out,
-                flush=True,
-            )
-            edinet_result = providers.edinet.bootstrap_cache(fin_start, asof_date)
-            print(
-                "bootstrap-cache edinet documents: "
-                + ", ".join(f"{key}={value}" for key, value in sorted(edinet_result.items())),
-                file=out,
-                flush=True,
-            )
-        else:
-            print(
-                "note: EDINET provider is not configured; skipping EDINET bootstrap",
-                file=sys.stderr,
-            )
-        print("bootstrap-cache jpx snapshots: start", file=out, flush=True)
-        jpx_result = providers.jpx.bootstrap_cache(asof_date)
-        print(
-            "bootstrap-cache jpx snapshots: "
-            + ", ".join(f"{key}={value}" for key, value in sorted(jpx_result.items())),
-            file=out,
-            flush=True,
-        )
-    except (
-        JQuantsProviderError,
-        EDINETProviderError,
-        JPXProviderError,
-        EmptyRangeReplacementError,
-        sqlite3.Error,
-    ) as exc:
-        print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
-        return 1
-    print("bootstrap-cache done", file=out, flush=True)
-    return 0
+
+
+def _bootstrap_jpx_cache(
+    asof_date: date,
+    providers: ProviderBundle,
+    sqlite_path: Path,
+    out: TextIO,
+) -> None:
+    print("bootstrap-cache jpx snapshots: start", file=out, flush=True)
+    jpx_result = providers.jpx.bootstrap_cache(asof_date)
+    print(
+        "bootstrap-cache jpx snapshots: "
+        + ", ".join(f"{key}={value}" for key, value in sorted(jpx_result.items())),
+        file=out,
+        flush=True,
+    )
 
 
 def refresh_edinet_documents_command(

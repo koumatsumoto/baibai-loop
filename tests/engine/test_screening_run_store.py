@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -243,3 +244,129 @@ def test_run_order_prune_and_read_api_use_real_instant(tmp_path, equal_instant):
     assert second[0]["run_revision_id"] == "run-z"
     store.prune(keep=1)
     assert [r.run_revision_id for r in reader.list_runs()] == ["run-z"]
+
+
+def _publish_pair(
+    store: ScreeningRunStore, payload: dict[str, object], *, revision: str | None = None
+):
+    rules = load_screening_rules()
+    return store.publish_run(
+        payload,
+        run_revision_id=revision,
+        review_set_rules=rules.candidate_discovery,
+        required_jpx_flags=rules.universe.required_jpx_flags,
+    )
+
+
+def test_paired_run_and_review_set_retry_reuses_both_identities(tmp_path: Path) -> None:
+    path = tmp_path / "runs.sqlite"
+    store = ScreeningRunStore(path)
+    first = _publish_pair(store, _run(), revision="paired-run")
+    assert first.inserted
+    assert first.review_set_id is not None
+    with sqlite3.connect(path) as connection:
+        before_dump = tuple(connection.iterdump())
+    retry = _publish_pair(store, _run())
+    assert not retry.inserted
+    assert retry.publication_id == first.publication_id
+    assert retry.review_set_id == first.review_set_id
+    with sqlite3.connect(path) as connection:
+        assert tuple(connection.iterdump()) == before_dump
+    pair = ScreeningRunReader(path).get_review_set(first.review_set_id)
+    assert pair is not None
+    assert pair.payload["run_revision_id"] == first.publication_id
+    assert pair.payload["created_at"] == _run()["run_at"]
+
+
+@pytest.mark.parametrize("failed_table", ["security_analysis", "review_set"])
+def test_paired_insert_failure_rolls_back_every_new_row_and_preserves_history(
+    tmp_path: Path, failed_table: str
+) -> None:
+    path = tmp_path / "runs.sqlite"
+    store = ScreeningRunStore(path)
+    old_pair = _publish_pair(store, _run(), revision="old-pair")
+    unpaired = {**_run(), "run_at": "2026-07-08T18:10:00+09:00"}
+    store.publish_run(unpaired, run_revision_id="retained-unpaired")
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            f"CREATE TRIGGER reject_new BEFORE INSERT ON {failed_table} "
+            "BEGIN SELECT RAISE(ABORT, 'injected insert failure'); END"
+        )
+        before = tuple(connection.iterdump())
+    new_run = {**_run(), "run_at": "2026-07-08T19:00:00+09:00"}
+    with pytest.raises(sqlite3.IntegrityError, match="injected insert failure"):
+        _publish_pair(store, new_run, revision="new-pair")
+    with sqlite3.connect(path) as connection:
+        assert tuple(connection.iterdump()) == before
+    reader = ScreeningRunReader(path)
+    assert reader.get_run("new-pair") is None
+    assert reader.get_run("retained-unpaired") is not None
+    assert old_pair.review_set_id is not None
+    assert reader.get_review_set(old_pair.review_set_id) is not None
+
+
+def test_review_set_retry_helper_does_not_rollback_the_parent_transaction(tmp_path: Path) -> None:
+    from baibai_engine.screening.discovery.contracts import PublishedReviewSet
+    from baibai_engine.screening.run_store.store import connect_rw
+
+    path = tmp_path / "runs.sqlite"
+    store = ScreeningRunStore(path)
+    result = _publish_pair(store, _run(), revision="paired-run")
+    assert result.review_set_id is not None
+    stored = ScreeningRunReader(path).get_review_set(result.review_set_id)
+    assert stored is not None
+    publication = PublishedReviewSet.model_validate(stored.payload)
+    with connect_rw(path) as connection:
+        connection.execute("CREATE TABLE parent_work (value TEXT)")
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute("INSERT INTO parent_work VALUES ('keep this commit')")
+        retry = store._publish_review_set_in_transaction(
+            connection,
+            publication,
+            source_payload_json=str(
+                connection.execute(
+                    "SELECT payload FROM screening_run WHERE run_revision_id = ?",
+                    (publication.run_revision_id,),
+                ).fetchone()[0]
+            ),
+        )
+        assert not retry.inserted
+        assert connection.in_transaction
+        connection.commit()
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT value FROM parent_work").fetchall() == [
+            ("keep this commit",)
+        ]
+
+
+def test_paired_empty_set_and_retained_unpaired_run_are_valid(tmp_path: Path) -> None:
+    path = tmp_path / "runs.sqlite"
+    store = ScreeningRunStore(path)
+    store.publish_run(_run(), run_revision_id="retained-unpaired")
+    empty_run = {**_run(), "run_at": "2026-07-08T19:00:00+09:00", "security_analyses": []}
+    result = _publish_pair(store, empty_run)
+    assert result.review_set_id is not None
+    reader = ScreeningRunReader(path)
+    empty_set = reader.get_review_set(result.review_set_id)
+    assert empty_set is not None
+    assert empty_set.payload["entries"] == []
+    assert reader.get_run("retained-unpaired") is not None
+    assert (
+        reader.valuation_run(as_of=date(2026, 7, 8), run_revision_id="retained-unpaired")
+        is not None
+    )
+
+
+def test_paired_conflicting_identity_preserves_existing_pair(tmp_path: Path) -> None:
+    from baibai_engine.screening.run_store.store import RunStoreConflictError
+
+    path = tmp_path / "runs.sqlite"
+    store = ScreeningRunStore(path)
+    _publish_pair(store, _run(), revision="paired-run")
+    with sqlite3.connect(path) as connection:
+        before = tuple(connection.iterdump())
+    for payload, revision in [({**_run(), "universe_size": 2}, "paired-run"), (_run(), "wrong-id")]:
+        with pytest.raises(RunStoreConflictError):
+            _publish_pair(store, payload, revision=revision)
+    with sqlite3.connect(path) as connection:
+        assert tuple(connection.iterdump()) == before

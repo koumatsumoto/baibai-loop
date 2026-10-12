@@ -507,6 +507,10 @@ class ScreeningCliTests(unittest.TestCase):
                 self.assertEqual(second, 2)
                 reader = ScreeningRunReader(Path("stores/screening/runs.sqlite"))
                 self.assertIsNotNone(reader.get_run("run-revision-resume"))
+                sets = reader.list_review_sets()
+                self.assertEqual(len(sets), 1)
+                self.assertEqual(sets[0].run_revision_id, "run-revision-resume")
+                self.assertEqual(sets[0].payload["created_at"], "2026-04-24T09:00:00+09:00")
             finally:
                 os.chdir(cwd)
 
@@ -2314,3 +2318,45 @@ class BackfillHistoryTests(unittest.TestCase):
         self.assertIn("get_fin_summary_range", [call[0] for call in provider.calls])
         self.assertIn("get_mkt_calendar", [call[0] for call in provider.calls])
         self.assertIn("daily_bars", errors.getvalue())
+
+
+def test_bootstrap_financial_failure_does_not_prevent_market_edinet_or_jpx(tmp_path: Path) -> None:
+    class FailingFinancial(FakeJQuantsProvider):
+        def refresh_fin_summary_range(self, *args, **kwargs):
+            raise JQuantsProviderError("financial HTTP failure")
+
+    jquants = FailingFinancial()
+    edinet = FakeEDINETProvider()
+    jpx = FakeJPXProvider()
+    assert (
+        bootstrap_cache_command(
+            asof_date=date(2026, 5, 8),
+            providers=ProviderBundle(jquants=jquants, edinet=edinet, jpx=jpx),
+            sqlite_path=tmp_path / "market.sqlite",
+            stdout=io.StringIO(),
+        )
+        == 1
+    )
+    names = [call[0] for call in jquants.calls]
+    assert "get_mkt_calendar" in names
+    assert "refresh_mkt_short_sale_report_range" in names
+    assert len(edinet.bootstrap_calls) == len(jpx.bootstrap_calls) == 1
+
+
+def test_bootstrap_market_failure_does_not_prevent_financial_edinet_or_jpx(tmp_path: Path) -> None:
+    jquants = _CorruptSQLiteJQuantsProvider()
+    edinet = FakeEDINETProvider()
+    jpx = FakeJPXProvider()
+    assert (
+        bootstrap_cache_command(
+            asof_date=date(2026, 5, 8),
+            providers=ProviderBundle(jquants=jquants, edinet=edinet, jpx=jpx),
+            sqlite_path=tmp_path / "market.sqlite",
+            stdout=io.StringIO(),
+        )
+        == 1
+    )
+    names = [call[0] for call in jquants.calls]
+    assert names.count("refresh_fin_summary_range") == 1
+    assert names.count("get_fy_summary_range") == 1
+    assert len(edinet.bootstrap_calls) == len(jpx.bootstrap_calls) == 1

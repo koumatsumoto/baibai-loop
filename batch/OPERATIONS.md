@@ -457,7 +457,7 @@ receiptが現在世代へ書き直される。次の`pull-machine`でreceipt一�
 ### 日次 workflow を手動実行する
 
 **前提**: 原因調査には使わず、ローカルで修正とgateを完了した後の最終確認に限定する。`asof`省略時は当日JSTを
-market calendarで判定し、非営業日は成功扱いでskipする。過去日を指定すると営業日gateをskipする。
+market calendarで判定し、非営業日はScreeningだけをskipして指標更新と単一公開を進める。過去日を指定するとScreeningの営業日gateをskipする。
 
 **実行**:
 
@@ -481,11 +481,11 @@ gh run list --workflow cloud-daily-batch.yml --limit 10
 **成功確認**: 対象runの終了通知を受けてconclusionを確認し、Discord通知、store push、serving freshnessを照合する。
 対象run IDを固定して[監視手順](#長時間処理の監視)に従う。
 
-**停止と復旧**: exit 1やcoverage不足ではuploadせず原因を直す。exit 3は後続の公開結果を確認し、公開成功なら繰延べた対象だけを復旧する。upload失敗・部分pushは対応する復旧節に従い、全工程をblindに再dispatchしない。
+**停止と復旧**: exit 1は安全な全viewsを作れないためuploadせず原因を直す。Screening入力不足・取得/計算失敗は指標更新と全views export後のexit 3で示す。exit 3は後続の公開結果を確認し、公開成功なら失敗した対象だけを復旧する。upload失敗・部分pushは対応する復旧節に従い、全工程をblindに再dispatchしない。
 
-scheduled runはcron日を対象に営業日gateを適用する。queue遅延でJST日付が変わっても対象を翌日へ進めない。coverage不足はpublish前に停止する。欠測はwatchdogで確認し、修正後の手動dispatchは現行mainから行う。
+scheduled runはcron日を対象に営業日gateを適用する。queue遅延でJST日付が変わっても対象を翌日へ進めない。Screening coverage不足はそのrunを発行せず、指標更新と公開可能な全viewsへ進む。欠測はwatchdogで確認し、修正後の手動dispatchは現行mainから行う。
 
-非営業日は既存servingを変更せずskipする。exit 3では後続公開の成否を別に確認する。
+非営業日は旧Screeningの値・ID・実計算時刻・historyを保持して指標を更新する。exit 3では後続公開の成否を別に確認する。
 
 ## Password rotation
 
@@ -561,7 +561,7 @@ uv run python -m baibai_web.materialize --output-dir <dir> [--batch daily|manual
 
 ## 日次機械工程 — baibai-batch daily
 
-calendar / coverage → ingest / bootstrap → screening / Review Set → deferred machine work → local export → pruneの順に進む。coverage / screening失敗はfatalで公開しない。一部後段処理はdeferredとなる。
+Screeningのcalendar判定、独立した市場/財務/EDINET/JPX取得、必要入力のcoverage検証、run + Review Setの一つのtransaction、独立した指標refresh、全viewsの単一exportへ進む。各取得は既存provider/cacheを再利用し、後半HTTP失敗でも検証してcommitしたL1 chunkを保持する。required-field不足を取得済み全観測の無効化へ置き換えず、source復元や全DB組戻しは行わない。Screeningの失敗は指標更新を止めない。
 
 以下は用途別の選択肢であり、続けて全件を実行しない。`.cache/daily-serving`はlocalの生成先である。
 
@@ -590,13 +590,13 @@ read -r -p '対象日 YYYY-MM-DD: ' asof &&
 
 | exit | ローカル処理の結果 |
 | --- | --- |
-| 0 | 正常完了、または非営業日skip。skipは新しいexportを作らない |
-| 1 | 致命的失敗。今回の結果を正常な公開へ進めない |
-| 3 | fresh screeningとlocal exportは作成済みだが、macro refreshやprune等の繰延べ工程が失敗 |
+| 0 | 全views export完了。非営業日はScreeningだけskipし、指標更新・exportを行う |
+| 1 | store検査/export等の致命的失敗。今回の結果を公開へ進めない |
+| 3 | 全views export完了だが、Screening取得/計算、指標refresh、prune等で失敗。新Screeningの有無は両IDとscreening_statusで確認 |
 
-クラウド公開はこの後にL1 release、machine store、serving views、history/freshnessの順で進む。local exportの有無を示す既存output名`published`を、R2公開成功と読み替えない。workflowが失敗しても一部反映が済んでいる場合がある。
+クラウド公開はこの後に既存L1 release、machine store、serving views、history/freshnessの順で一度進む。読み取り専用connectionの`PRAGMA data_version`でmarket storeのcommit変化を確認し、正常に読めるnoticeの明示的`market_updated=false`の時だけ既存L1 releaseを保持する。noticeの欠落・読取不能・不正JSON・field不正は詳細を含まないwarningで示し、既存L1公開経路へ進む。これは値のbyte比較ではなく、commit済みstore変更の検出である。Screening未更新なら`--skip-history`でhistoryを生成せず、workflowの新しい出力先にはhistoryを含めないため再uploadしない。run pruneも省き、旧値・ID・実計算時刻を保持する。local exportの有無を示す既存output名`published`を、R2公開成功と読み替えない。workflowが失敗しても一部反映が済んでいる場合がある。
 
-coverage / screening / Review Setの失敗はfatal、macro refreshなど一部後段の失敗はdeferred。対象日が非営業日ならskipする。詳細なstepとoptionはpublic `--help`と実run logを確認する。
+機械結果の`screening_status`は`published / failed / skipped_non_business_day`を区別する。Screeningが未更新でも指標・全viewsを更新し、画面生成時刻を旧Screeningの実計算時刻へ上書きしない。store schema/hydration検査と全views exportの失敗はfatalである。詳細なstepとoptionはpublic `--help`と実run logを確認する。
 
 ## local daily analysis — canonical Review SetのResearch Triage
 
@@ -612,7 +612,7 @@ message は 4 要素からなる。
 
 1. 見出し行 — label・as-of・失敗した step 名（あれば）。`[FAILED] as-of 2026-08-26 — failed step: hydrate`
 2. `executor: GitHub Actions|Local` — 実行環境から判定した固定2値。見出しの直後に必ず1行表示する
-3. `🆕 新規 Review Set 入り:` / `👋 Review Set 退出:` の 2 行 — それぞれ銘柄コード順・最大5件（超過時は全件数・表示件数・他の件数を明示）・`<ticker> <社名> E[r]±X.X%`。急落当日の候補と、Review Set から落ちた銘柄を通知だけで拾えるようにするための行である。**export に到達した run では常に出す** — 0 件の日は `なし`、delta view が読めない日は `計測なし（<理由>）` と書く。行が無いことは「0 件」「計測不能」「通知経路の異常」の3つを同時に意味してしまい、読み手が区別できない。非営業日の skip には Review Set が無いので出ない
+3. `🆕 新規 Review Set 入り:` / `👋 Review Set 退出:` の 2 行 — それぞれ銘柄コード順・最大5件（超過時は全件数・表示件数・他の件数を明示）・`<ticker> <社名> E[r]±X.X%`。急落当日の候補と、Review Set から落ちた銘柄を通知だけで拾えるようにするための行である。**新Screeningを発行した run では常に出す** — 0 件の日は `なし`、delta view が読めない日は `計測なし（<理由>）` と書く。行が無いことは「0 件」「計測不能」「通知経路の異常」の3つを同時に意味してしまい、読み手が区別できない。Screening未更新日は旧差分を再通知せず、`Screening更新なし（非営業日/失敗）; 保存済み結果を保持`を出す
 4. `run:` — GitHub Actions の run URL。所要時間・step ごとの結果・lake release・error の本文はこの run log にある
 
 label は5種。
@@ -620,8 +620,8 @@ label は5種。
 | label | 意味 |
 | --- | --- |
 | `[OK]` | batch exit 0、upload および lease release まで成功 |
-| `[SKIPPED]` | 非営業日 gate で skip（export なし） |
-| `[DEGRADED]` | batch exit 3。screening は publish 済みで、見出しに最初の繰延べ失敗 step（macro / prune / task-reconcile）を表示 |
+| `[SKIPPED]` | 全工程skipのnoticeを扱う既存label。通常dailyの日本休日は指標を公開するため`[OK]` |
+| `[DEGRADED]` | batch exit 3。全views export済みで、見出しに最初の失敗 stepを表示。Screening未更新の場合は保存済み結果の保持を明示 |
 | `[FAILED]` | batch の致命的失敗（見出しに batch 内の stage 名）、または lease 解放を含む batch 以外の step の失敗（見出しに step 名） |
 | `[CANCELLED]` | job が中断された（`timeout-minutes` 超過・手動 cancel） |
 

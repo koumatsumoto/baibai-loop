@@ -445,18 +445,26 @@ def run_command(
         raise AssertionError("screening renderer must produce a mapping")
     try:
         publication = ScreeningRunStore(run_store_path).publish_run(
-            raw_payload, run_revision_id=run_revision_id
+            raw_payload,
+            run_revision_id=run_revision_id,
+            review_set_rules=rules.candidate_discovery,
+            required_jpx_flags=rules.universe.required_jpx_flags,
         )
     except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
         print(f"screening run publication failed: {exc}", file=sys.stderr)
         return 1
-    yaml_text = serialize_screening_run_yaml(document, run_revision_id=publication.publication_id)
+    yaml_text = serialize_screening_run_yaml(
+        document,
+        run_revision_id=publication.publication_id,
+        review_set_id=publication.review_set_id,
+    )
     if output_path is not None:
         write_text_atomic(output_path, yaml_text)
     status = "partial warning" if partial_warning else "ok"
     print(
         "screening run done: "
         f"status={status}; run_revision_id={publication.publication_id}; "
+        f"review_set_id={publication.review_set_id}; "
         f"output={output_path}; "
         f"universe={universe_size}; analyzed_securities={len(security_analyses)}",
         file=out,

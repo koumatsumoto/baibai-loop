@@ -746,3 +746,41 @@ def test_export_reuses_research_history_and_ledger_per_export(
     first = tmp_path / "first/views/security--2331.json"
     second = tmp_path / "second/views/security--2331.json"
     assert json.loads(first.read_text()) == json.loads(second.read_text())
+
+
+def test_indicator_only_export_keeps_retained_history_bytes_and_screening_clock(
+    app_method_root: Path, tmp_path: Path
+) -> None:
+    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    output = tmp_path / "serving"
+    assert main(["--output-dir", str(output), "--repo-root", str(app_method_root)]) == 0
+    history_before = {
+        p.relative_to(output): p.read_bytes() for p in (output / "history").rglob("*.json")
+    }
+    assert history_before
+    screening_before = json.loads((output / "views/screening_latest.json").read_text())
+    _seed_macro_observations(app_method_root)
+    assert (
+        main(["--output-dir", str(output), "--repo-root", str(app_method_root), "--skip-history"])
+        == 0
+    )
+    assert {
+        p.relative_to(output): p.read_bytes() for p in (output / "history").rglob("*.json")
+    } == history_before
+    screening_after = json.loads((output / "views/screening_latest.json").read_text())
+    assert screening_after["run"] == screening_before["run"]
+    fresh_output = tmp_path / "indicator-only"
+    assert (
+        main(
+            [
+                "--output-dir",
+                str(fresh_output),
+                "--repo-root",
+                str(app_method_root),
+                "--skip-history",
+            ]
+        )
+        == 0
+    )
+    assert not (fresh_output / "history").exists()
+    assert (fresh_output / "views/meta.json").is_file()

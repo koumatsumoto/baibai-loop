@@ -199,3 +199,27 @@ def test_non_candidate_anchor_appears_in_list_detail_and_history(tmp_path, mocke
     for row in (listing.security_analyses[0], detail.security_analysis, history.rows[0]):
         assert row.fair_value_anchor_yen == 1700.0
         assert row.fair_value_gap_pct == 70.0
+
+
+def test_meta_uses_shared_operative_selection_and_keeps_raw_unpaired_history(
+    tmp_path: Path,
+) -> None:
+    from datetime import date
+
+    from baibai_engine.screening.run_store import ScreeningRunReader
+    from baibai_web.sources.db_sources import DbMetaSource
+
+    path = tmp_path / "runs.sqlite"
+    store = ScreeningRunStore(path)
+    _publish_run(store, "2026-09-19", "paired")
+    _insert_review_set(path, "paired", "2026-09-19", "review", "2026-09-19T18:00:00+09:00")
+    _publish_run(store, "2026-09-20", "retained-unpaired")
+    source = DbScreeningSource(path)
+    operative, _ = _operative_run(source)
+    assert operative is not None
+    meta = DbMetaSource(tmp_path / "app.sqlite", path, tmp_path / "indicators.sqlite")
+    assert meta.screening_as_of() == operative.as_of == date(2026, 9, 19)
+    assert meta.data_updated_at() == operative.generated_at
+    reader = ScreeningRunReader(path)
+    assert reader.get_run("retained-unpaired") is not None
+    assert reader.valuation_run(as_of=date(2026, 9, 20)).run_revision_id == "retained-unpaired"

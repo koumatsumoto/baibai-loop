@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 
 from tests.helpers.screening_sqlite import add_source_coverage, make_master_records
@@ -1008,3 +1010,34 @@ class JQuantsProviderMiscTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+def test_later_financial_http_failure_retains_validated_earlier_chunk(tmp_path: Path) -> None:
+    import sqlite3
+
+    class FailingSecondChunkClient:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def get_fin_summary_range(self, **params):
+            self.calls.append(params)
+            if len(self.calls) == 2:
+                raise ValueError("injected nonretryable HTTP failure")
+            return [{"Code": "23310", "DisclosedDate": str(params["start_dt"]), "FEPS": 10.0}]
+
+    client = FailingSecondChunkClient()
+    database = tmp_path / "market.sqlite"
+    provider = JQuantsProvider("fixture", tmp_path, client=client, sqlite_path=database)
+    provider._INTER_CHUNK_SLEEP_SECONDS = 0
+    with pytest.raises(JQuantsProviderError):
+        provider.refresh_fin_summary_range(
+            date(2026, 7, 1), date(2026, 8, 31), revision_overlap_days=7
+        )
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT ticker, disclosed_at, forecast_eps FROM jquants_fin_summaries"
+        ).fetchall() == [("2331", "2026-07-01", 10.0)]
+        assert connection.execute(
+            "SELECT coverage_start, coverage_end, status, record_count FROM source_coverage"
+        ).fetchall() == [("2026-07-01", "2026-07-31", "ok", 1)]
+    assert len(client.calls) == 2
