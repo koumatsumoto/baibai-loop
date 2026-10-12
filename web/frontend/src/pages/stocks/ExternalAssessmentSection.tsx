@@ -79,7 +79,7 @@ export function ExternalAssessmentSection({ assessment }: { assessment: External
         <Receipt day={tv.snapshot_date} fetched={tv.fetched_at_utc} previous={assessment.tradingview.inputs.previous?.fetched_at_utc} />
         <p className="text-xs">{assessment.tradingview.availability === 'unresolved' ? '応答内で未解決と記録された行です。' : assessment.tradingview.availability === 'all_null' ? '受領済みですが、予測欄には値がありません。' : '受領済みで予測欄に値があります。未確認の評価基準は補完しません。'}</p>
         <p className="text-xs">予測の通貨 {known(tv.estimate_currency)} · 単位 {known(tv.estimate_unit)} · 対象期 {known(tv.target_period_label)} / {known(tv.target_period_end)} · 提供元更新 {known(tv.provider_updated_at_utc)}</p>
-        <p className="text-xs">原評価元・株式基準は未確認です。次年度予測と年度estimateの絶対対象期が同じとは限りません。目標株価・EPSの差分は株式基準が未記録のため未対応です。倍率は対象期、企業総額は通貨・単位・対象期が確認できた同じ系列で比較します。</p>
+        <p className="text-xs">原評価元・株式基準は未確認です。行単位の対象期と各予測指標の対応が未確認のため、数値差分の比較は未対応です。年度metadataがあっても四半期・次年度・倍率の対象期へ割り当てません。</p>
         <p className="text-xs">参考close {number(tv.quote_close)} {known(tv.quote_currency)} · quote時刻 {known(tv.quote_at_utc)} · rating {known(tv.analyst_rating)} · recommendation人数 {known(tv.recommendation_total)}（各予測欄の寄与者数とは限りません）</p>
         <Metrics comparisons={assessment.tradingview.comparisons} />
       </div>}

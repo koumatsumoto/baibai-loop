@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from tests.engine.test_retail_dynamics_core import RECEIVED, rating, valuation
 
+from baibai_engine.external_assessment.analysis import FORECAST_METRICS
 from baibai_engine.external_assessment.cli import main
 from baibai_engine.external_assessment.query import external_assessment, observed_tickers
 from baibai_engine.market.retail_dynamics.models import QuantsScoreObservation
@@ -211,7 +212,8 @@ assert "baibai_engine.market.tradingview.collector" not in sys.modules
     )
 
 
-def test_tradingview_comparison_uses_metric_meaning_and_only_recorded_bases(tmp_path):
+@pytest.mark.parametrize("metric", FORECAST_METRICS)
+def test_tradingview_row_year_metadata_does_not_establish_each_metric_period(tmp_path, metric):
     path = tmp_path / "market.sqlite"
     first = datetime(2026, 10, 9, 7, tzinfo=UTC)
     metadata = dict(
@@ -220,78 +222,19 @@ def test_tradingview_comparison_uses_metric_meaning_and_only_recorded_bases(tmp_
         estimate_currency="JPY",
         estimate_unit="currency",
     )
-    tv_row(
-        path,
-        first,
-        forward_pe=10,
-        revenue_forecast_next_fy=100,
-        price_target_average=100,
-        eps_forecast_next_fy=10,
-        **metadata,
-    )
-    tv_row(
-        path,
-        first + timedelta(days=1),
-        forward_pe=12,
-        revenue_forecast_next_fy=120,
-        price_target_average=120,
-        eps_forecast_next_fy=12,
-        **metadata,
-    )
-    comparisons = {item.metric: item for item in read(path).tradingview.comparisons}
-    assert comparisons["forward_pe"].delta == 2
-    assert comparisons["revenue_forecast_next_fy"].delta == 20
-    for metric in ("price_target_average", "eps_forecast_next_fy"):
-        assert comparisons[metric].state == "not_comparable"
-        assert comparisons[metric].reason == "comparison_basis_not_recorded"
-        assert comparisons[metric].delta is None
-
-
-@pytest.mark.parametrize("metric", ["forward_pe", "forward_ps", "forward_ev_ebitda"])
-def test_tradingview_dimensionless_multiples_do_not_require_money_or_share_bases(tmp_path, metric):
-    path = tmp_path / "market.sqlite"
-    first = datetime(2026, 10, 9, 7, tzinfo=UTC)
-    metadata = dict(target_period_label="FY2027", target_period_end="2027-03-31")
-    tv_row(path, first, **{metric: 10}, **metadata)
-    tv_row(path, first + timedelta(days=1), **{metric: 12}, **metadata)
-    comparison = next(item for item in read(path).tradingview.comparisons if item.metric == metric)
-    assert comparison.comparable
-    assert comparison.delta == 2
-
-
-@pytest.mark.parametrize("missing", [False, True])
-@pytest.mark.parametrize(
-    "field", ["target_period_label", "target_period_end", "estimate_currency", "estimate_unit"]
-)
-def test_tradingview_unknown_or_changed_required_basis_prevents_delta(tmp_path, field, missing):
-    path = tmp_path / "market.sqlite"
-    first = datetime(2026, 10, 9, 7, tzinfo=UTC)
-    metadata = dict(
-        target_period_label="FY2027",
-        target_period_end="2027-03-31",
-        estimate_currency="JPY",
-        estimate_unit="currency",
-    )
-    tv_row(path, first, forward_pe=10, revenue_forecast_next_fy=100, **metadata)
-    latest_metadata = {**metadata, field: None if missing else "different"}
-    tv_row(
-        path,
-        first + timedelta(days=1),
-        forward_pe=12,
-        revenue_forecast_next_fy=120,
-        **latest_metadata,
-    )
-    comparisons = {item.metric: item for item in read(path).tradingview.comparisons}
-    money = comparisons["revenue_forecast_next_fy"]
-    assert money.state == "not_comparable"
-    assert money.reason == f"{'unknown' if missing else 'changed'}_{field}"
-    assert money.delta is None
-    multiple = comparisons["forward_pe"]
-    if field.startswith("target_period"):
-        assert multiple.state == "not_comparable"
-        assert multiple.delta is None
-    else:
-        assert multiple.delta == 2
+    tv_row(path, first, **{metric: 100}, **metadata)
+    tv_row(path, first + timedelta(days=1), **{metric: 120}, **metadata)
+    result = read(path).tradingview
+    comparison = next(item for item in result.comparisons if item.metric == metric)
+    assert comparison.state == "not_comparable"
+    assert comparison.reason == "metric_period_mapping_unconfirmed"
+    assert not comparison.comparable
+    assert comparison.delta is None
+    assert comparison.latest_value == 120
+    assert comparison.previous_value == 100
+    assert result.inputs.latest.target_period_label == "FY2027"
+    assert result.inputs.latest.target_period_end == "2027-03-31"
+    assert result.availability == "forecast_fields_present"
 
 
 @pytest.mark.parametrize("stored_offset", [-7, 0, 9])

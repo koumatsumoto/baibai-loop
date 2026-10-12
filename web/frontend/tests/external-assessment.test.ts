@@ -24,6 +24,8 @@ describe('外部参考評価の表示', () => {
     expect(html).toContain('独立票として合算しません')
     expect(html).toContain('>0</td>')
     expect(html).toContain('比較基準が未確認・変化')
+    expect(html).toContain('行単位の対象期と各予測指標の対応が未確認')
+    expect(html).toContain('数値差分の比較は未対応')
   })
 
   it('全nullの受領行と未解決行を予測ありへ変えない', () => {

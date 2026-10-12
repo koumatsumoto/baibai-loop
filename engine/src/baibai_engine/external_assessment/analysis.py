@@ -26,7 +26,6 @@ from .models import (
     QuantsScoreHistory,
     TradingViewAssessment,
     TradingViewHistory,
-    TradingViewObservation,
 )
 
 FORECAST_METRICS = tuple(
@@ -36,34 +35,11 @@ FORECAST_METRICS = tuple(
 )
 
 
-# Same-series numeric comparison uses only bases present in the saved contract.
-# A target price or EPS also needs a share basis, which this contract does not
-# record; those deltas are explicitly unsupported rather than a dead field lookup.
-_PERIOD_BASIS = ("provider_symbol", "target_period_label", "target_period_end")
-_MONEY_BASIS = (*_PERIOD_BASIS, "estimate_currency", "estimate_unit")
-TRADINGVIEW_COMPARISON_BASIS: dict[str, tuple[str, ...] | None] = {
-    "price_target_average": None,
-    "price_target_high": None,
-    "price_target_low": None,
-    "eps_forecast_next_fq": None,
-    "eps_forecast_next_fy": None,
-    "revenue_forecast_next_fq": _MONEY_BASIS,
-    "revenue_forecast_next_fy": _MONEY_BASIS,
-    "forward_pe": _PERIOD_BASIS,
-    "forward_ps": _PERIOD_BASIS,
-    "forward_ev_ebitda": _PERIOD_BASIS,
-    "ebitda_estimate_fy": _MONEY_BASIS,
-    "free_cash_flow_estimate_fy": _MONEY_BASIS,
-    "capex_estimate_fy": _MONEY_BASIS,
-    "total_debt_estimate_fy": _MONEY_BASIS,
-}
-
-
 def _compare(
     metric: str,
-    latest: Observation | TradingViewObservation | None,
-    previous: Observation | TradingViewObservation | None,
-    basis: tuple[str, ...] | None,
+    latest: Observation | None,
+    previous: Observation | None,
+    basis: tuple[str, ...],
 ) -> MetricComparison:
     if latest is None:
         return MetricComparison(metric=metric, state="not_observed", reason="no_observation")
@@ -98,10 +74,6 @@ def _compare(
         return MetricComparison.model_validate(
             {**values, "state": "count_changed", "reason": "count_changed"}
         )
-    if basis is None:
-        return MetricComparison.model_validate(
-            {**values, "state": "not_comparable", "reason": "comparison_basis_not_recorded"}
-        )
     for field in basis:
         current, old = getattr(latest, field), getattr(previous, field)
         if current is None or old is None or current == "" or old == "":
@@ -119,6 +91,40 @@ def _compare(
             "comparable": True,
             "delta": delta,
             "state": "same_value" if delta == 0 else "increased" if delta > 0 else "decreased",
+        }
+    )
+
+
+def _tradingview_comparison(metric: str, history: TradingViewHistory) -> MetricComparison:
+    # Row-level period metadata does not establish a period for each metric.
+    # Preserve received values and missingness, without any numerical delta path.
+    latest, previous = history.latest, history.previous
+    latest_value = getattr(latest, metric) if latest is not None else None
+    previous_value = getattr(previous, metric) if previous is not None else None
+    state = (
+        "not_observed"
+        if latest is None
+        else "missing"
+        if latest_value is None
+        else "first_observation"
+        if previous is None
+        else "recovered"
+        if previous_value is None
+        else "not_comparable"
+    )
+    return MetricComparison.model_validate(
+        {
+            "metric": metric,
+            "latest_value": latest_value,
+            "previous_value": previous_value,
+            "state": state,
+            "reason": {
+                "not_observed": "no_observation",
+                "missing": "latest_missing",
+                "first_observation": "no_previous_observation",
+                "recovered": "previous_missing",
+                "not_comparable": "metric_period_mapping_unconfirmed",
+            }[state],
         }
     )
 
@@ -266,15 +272,7 @@ def analyze(history: ObservationHistory, *, evaluated_at: datetime) -> ExternalA
             inputs=tv,
             availability=availability,
             forecast_fields=forecast_fields,
-            comparisons=tuple(
-                _compare(
-                    metric,
-                    tv.latest,
-                    tv.previous,
-                    TRADINGVIEW_COMPARISON_BASIS[metric],
-                )
-                for metric in FORECAST_METRICS
-            ),
+            comparisons=tuple(_tradingview_comparison(metric, tv) for metric in FORECAST_METRICS),
         ),
         origin_groups=tuple(
             OriginGroup(origin=origin, references=tuple(refs))
