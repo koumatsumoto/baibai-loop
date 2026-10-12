@@ -25,6 +25,7 @@ from baibai_batch.jobs.retail_cohorts import (
 from baibai_batch.jobs.schedule import retail_target_date
 from baibai_batch.storage.lake_publish import Boto3R2Store, ObjectStore
 from baibai_batch.storage.publish_market_lake import _resolve_serving_release, _serving_pointer
+from baibai_batch.storage.retail_raw import save_raw_html
 from baibai_batch.storage.retail_staging import (
     MAX_PAIR_RETRIES,
     Checkpoint,
@@ -43,6 +44,7 @@ from baibai_engine.batch_api import (
     LakeObjectCache,
     RetailCollectionResult,
     RetailHostRateLimiter,
+    RetailReceivedHTML,
     RetailSource,
     lake_session,
     retail_calendar_master_asof,
@@ -254,6 +256,16 @@ def _acquire_pair(
         pair_content_bytes += body_bytes
         pair_finished = finished
 
+    def on_received_html(received: RetailReceivedHTML) -> None:
+        save_raw_html(
+            store,
+            run_id=plan.run_id,
+            source=source,
+            ticker=ticker,
+            request_number=checkpoint.requests_started,
+            received=received,
+        )
+
     def on_outcome(result: RetailCollectionResult) -> None:
         nonlocal checkpoint
         if len(result.outcomes) != 1 or len(result.observations) > 1:
@@ -299,6 +311,7 @@ def _acquire_pair(
         source=source,
         before_request=before_request,
         on_response=on_response,
+        on_received_html=on_received_html,
         on_outcome=on_outcome,
         rate_limiter=rate_limiter,
     )

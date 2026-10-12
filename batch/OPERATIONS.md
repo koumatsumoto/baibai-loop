@@ -868,7 +868,26 @@ import対象は明示した既存の隔離作業コピーであり、current mar
 
 各pairは通信前後のcheckpointを含む実wall-clock上限を持つ。取得jobは4時間のsoft budgetに余裕を残して次pairを開始せず、4時間30分のprocess timeout、5時間のjob上限で打ち切る。HTTP timeoutの積だけを総所要時間の保証にしない。
 
-確定したtyped観測と安全な成否は、既存`baibai-stores`の`coordination/retail-dynamics/<batch_id>/`へ条件付き保存してjob間で引き継ぐ。raw HTML・認証情報は保存せず、値をlog・Git・Actions artifactへ出さない。各HTTPの前にinflightを永続化し、結果の確定時に同じ世代を条件付き更新する。成功・正常null・通常の確定失敗は再開時に取得しない。plan時の既存checkpoint走査を使って未着手を残すcohortだけを取得matrixへ渡し、全cohortが確定済みなら取得jobをskipして公開へ進む。403、CAS不一致、保存結果が不明なPUT、inflightのままの中断は日次run全体を停止し、自動再試行や経路変更をしない。
+確定したtyped観測と安全な成否は、既存`baibai-stores`の`coordination/retail-dynamics/<batch_id>/`へ条件付き保存してjob間で引き継ぐ。認証情報は保存せず、値やraw HTMLをlog・Git・Actions artifactへ出さない。各HTTPの前にinflightを永続化し、結果の確定時に同じ世代を条件付き更新する。成功・正常null・通常の確定失敗は再開時に取得しない。plan時の既存checkpoint走査を使って未着手を残すcohortだけを取得matrixへ渡し、全cohortが確定済みなら取得jobをskipして公開へ進む。403、CAS不一致、保存結果が不明なPUT、inflightのままの中断は日次run全体を停止し、自動再試行や経路変更をしない。
+
+新規取得のHTTP 200では、既存collectorが要求したMonex公開ページ、楽天公式outer、確認済みIFIS iframeの本文bytesをprivateなR2へ保存する。requestsによるHTTP転送圧縮の展開後、文字decode前の本文であり、受領時に選んだencodingとUTC時刻を残す。同一本文はSHA256をkeyとするgzip blob `retail-dynamics/raw-html/sha256/<hash>.html.gz`を再利用する。受領JSONは`retail-dynamics/raw-receipts/<batch_id>/<source>/<requested_ticker>/<request_number>.json`で、既存checkpointのrequest reservation番号に対応する。Cookie・認証headerや全response headerは保存せず、アカウントページへの取得を追加しない。本文と受領JSONは決定的hashと既存object APIの保存成功を確認してからtyped outcomeのcheckpointを確定し、保存失敗ならinflightのまま停止する。通常保存やblob再利用に本文GET読戻しを加えず、元bytesの照合はtest・少量の本番受入・再解析時に行う。200のparse失敗本文は再解析用に保持するが、typed failureを正常nullへ変えない。非200・未受領本文は成功原応答として保存しない。保存済みstageやterminalのno-opは再取得せず、取得当時に保存しなかったHTMLを後から補った受領にしない。限定`collect` CLIは従来の正規化stage出力のままで、private raw保全は日次の固定pair経路が行う。
+
+private本文の読戻しは既存runtimeの認証だけを使い、次の入口で受領JSONとgzip本文hashを確認する。`receipt_key`は確認した実keyへ置換する。本文や再解析した値をstdoutへ出さず、decodeしたHTMLと受領metadataを対応する既存parserへ渡す。
+
+```bash
+receipt_key='retail-dynamics/raw-receipts/<batch_id>/monex/<ticker>/<request_number>.json'
+uv run python - "$receipt_key" <<'PY'
+import sys
+from baibai_batch.storage.lake_publish import Boto3R2Store
+from baibai_batch.storage.retail_raw import read_raw_html
+from baibai_engine.foundation.env import load_project_env
+
+load_project_env()
+receipt, body = read_raw_html(Boto3R2Store(bucket="baibai-stores"), sys.argv[1])
+html = body.decode(receipt["encoding"])
+print(f"verified body bytes={len(body)}")
+PY
+```
 
 新しいcollector policyのrunだけ、確定429を待機後の再試行対象にする。`Retry-After`の秒数またはHTTP-dateを受信完了UTC基準の期限へ変換し、期限を短縮しない。headerがないか不正なら5・10・20・40・80秒の指数backoffに0～1秒のjitterを加え、その期限をcheckpointへ固定する。初回に加えて最大5回のpair再試行を許可し、使用済み回数はHTTP開始前のCASで保存する。再dispatchで上限をresetしない。表現不能な有効待機値、5回使い切った後の429、応答不明は自動再送しない。Retry-Afterのraw headerは保存しない。
 
@@ -897,9 +916,9 @@ gh workflow run cloud-retail-dynamics.yml --ref main \
 
 private handoffの操作数も費用確認に含める。各銘柄でMonex1HTTP/Rakuten2HTTPが正常に終わる前提なら、各HTTP前のmarker3回とpair確定2回でcheckpoint PUTは5回、3,692銘柄で18,460回となる（plan/terminal PUTは別）。各cohortの取得前とCLI終了判定時に全checkpointを再走査し、存在するprivate objectはHEAD→GET→HEAD、PUT応答の確認にもHEADを使う。これらは既存TransferReportの対象外であり、SDK内部retryやwire bytesも別である。実providerの分岐・失敗・途中停止・保存済みterminalによるskipで操作数は変わる。R2全体の容量・Class A/B操作・料金を追加rowやupload bytesだけから推定しない。
 
-初回の74cohortを順番に正常完走する同じ前提では、acquire前後のcheckpoint既存読取5,476回、publish時74回、plan既存読取75回からGETは5,625回となる。429再開枠を選ぶ新planはcheckpointも走査し、初回は存在しない74keyのHEADが加わる。plan/terminal PUTと応答確認、存在しないcheckpoint/terminalのHEADも含むprivate handoff小計はPUT18,462・GET5,625・HEAD35,342、合計59,429論理操作である。これはlease、L1、market.sqliteのpull/hydrate、SDK retry等を除いた理論小計で、run全体の実測や課金額ではない。再開planの追加走査はNcohort・既存McheckpointならN+M HEADとM GET、PUT0。検証済みterminalではcheckpointを走査しない。429再試行・部分復旧・保存済みplanの再開・既公開skipは別の操作数となる。
+初回の74cohortを順番に正常完走する同じ前提では、acquire前後のcheckpoint既存読取5,476回、publish時74回、plan既存読取75回からGETは5,625回となる。429再開枠を選ぶ新planはcheckpointも走査し、初回は存在しない74keyのHEADが加わる。plan/terminal PUTと応答確認、存在しないcheckpoint/terminalのHEADも含むprivate handoff小計はPUT18,462・GET5,625・HEAD35,342、合計59,429論理操作である。これはprivate raw本文/受領JSON、lease、L1、market.sqliteのpull/hydrate、SDK retry等を除いた理論小計で、run全体の実測や課金額ではない。再開planの追加走査はNcohort・既存McheckpointならN+M HEADとM GET、PUT0。検証済みterminalではcheckpointを走査しない。429再試行・部分復旧・保存済みplanの再開・既公開skipは別の操作数となる。
 
-受領履歴はL1で保持する。取得checkpointは引継ぎ用であり、検証用のraw応答やSQLite複製と同じ保存目的ではない。公開・readback完了後の整理では、固定planと小さなpublished manifestを残し、同batch IDを再取得へ戻さない。raw HTMLや重複検証copyの無期限保持は採用しない。正規化stageの容量だけをR2全体の容量・料金とみなさず、checkpointのClass A/B、既存全datasetのL1再exportとobject再利用、保存履歴を別に実測する。
+受領履歴はL1で保持する。取得checkpointは引継ぎ用であり、検証用のraw応答やSQLite複製と同じ保存目的ではない。公開・readback完了後の整理では、固定planと小さなpublished manifestを残し、同batch IDを再取得へ戻さない。private raw本文と受領JSONは再解析の正本として残し、checkpoint整理で削除しない。重複検証copyの無期限保持は採用しない。正規化stageの容量だけをR2全体の容量・料金とみなさず、checkpointのClass A/B、既存全datasetのL1再exportとobject再利用、保存履歴を別に実測する。
 
 <a id="market-28-to-29"></a>
 
