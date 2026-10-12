@@ -49,9 +49,10 @@ def notify_from_outputs(monkeypatch, values, *, partial, previous=False, acquire
     return sent[0]["content"]
 
 
+@pytest.mark.parametrize("old_binding", [False, True])
 @pytest.mark.parametrize("partial", [False, True])
 def test_real_cli_plan_publication_seal_and_resume_route_to_one_safe_notice(
-    publication, partial_batch, tmp_path, monkeypatch, partial
+    publication, partial_batch, tmp_path, monkeypatch, partial, old_binding
 ):
     # Both paths use the real MemoryR2Store, publisher and typed readback. Only
     # fixture binding is made equivalent to the saved-master CLI assertion.
@@ -60,6 +61,13 @@ def test_real_cli_plan_publication_seal_and_resume_route_to_one_safe_notice(
     else:
         store, original_plan, handle, database, mirror, root = publication
     p = replace(original_plan, universe_binding=json.dumps({"master_asof": "2026-10-09"}))
+    if old_binding:
+        p = replace(p, collector_binding="previous-collector")
+
+    def forbidden_http(*args, **kwargs):
+        raise AssertionError("confirmed stage must not acquire provider responses")
+
+    monkeypatch.setattr(daily, "retail_collect_pair", forbidden_http)
     journals = staging.read_checkpoints(store, original_plan)
     for index, (checkpoint, _) in journals.items():
         rebound = replace(

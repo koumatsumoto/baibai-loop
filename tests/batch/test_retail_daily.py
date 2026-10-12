@@ -417,7 +417,7 @@ def test_wrong_collector_and_journal_bindings_fail_before_http(monkeypatch):
     monkeypatch.setattr(daily, "retail_collect_pair", lambda *args, **kwargs: attempts.append(args))
     with pytest.raises(ValueError, match="collector binding changed"):
         daily.acquire_cohort(store, wrong, 0)
-    assert store.events == []
+    assert not any(operation == "PUT" for operation, _ in store.events)
     store.seed(
         staging.checkpoint_key(p, 0),
         staging.checkpoint_bytes(wrong, staging.Checkpoint(new_journal(wrong, 0))),
@@ -488,13 +488,12 @@ def test_new_plan_requires_cache_and_existing_release_before_master_or_plan_writ
     assert store.put_keys == []
 
 
-def test_wrong_saved_collector_binding_rejects_resume_before_release_reads(monkeypatch):
+def test_old_saved_collector_binding_can_load_without_release_reads(monkeypatch):
     p = replace(plan(), collector_binding="different-code")
     store = FakeObjectStore()
     staging.save_new_plan(store, p)
     store.events.clear()
-    with pytest.raises(ValueError, match="collector binding changed"):
-        daily.initialize(store, run_id=p.run_id, master_asof=ASOF, mirror=None)
+    assert daily.initialize(store, run_id=p.run_id, master_asof=ASOF, mirror=None) == p
     assert all(key == staging.prefix(p.run_id) + "/plan.json" for _, key in store.events)
 
 
@@ -634,3 +633,13 @@ def test_published_terminal_suppresses_refetch_when_checkpoint_payloads_are_abse
     store.seed(staging.prefix(p.run_id) + "/published.json", json.dumps(terminal).encode())
     with pytest.raises(ValueError, match="invalid retail published batch"):
         daily.acquire_cohort(store, p, 0)
+
+
+def test_old_binding_plan_with_pending_acquisition_is_rejected(monkeypatch):
+    p = replace(plan(), collector_binding="previous-collector")
+    store = FakeObjectStore()
+    staging.save_new_plan(store, p)
+    store.events.clear()
+    monkeypatch.setattr(daily, "Boto3R2Store", lambda **kwargs: store)
+    assert daily.main(["plan", "--run-id", p.run_id, "--master-asof", ASOF.isoformat()]) == 1
+    assert not any(operation == "PUT" for operation, _ in store.events)

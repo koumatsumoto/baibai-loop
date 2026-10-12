@@ -85,7 +85,6 @@ def initialize(
         raise ValueError("retail plan requires either a saved master or a scheduled date")
     existing = read_plan(store, run_id)
     if existing is not None:
-        require_binding(existing)
         saved_master = date.fromisoformat(json.loads(existing.universe_binding)["master_asof"])
         if master_asof is not None and saved_master != master_asof:
             raise ValueError("retail saved master assertion changed")
@@ -317,7 +316,6 @@ def acquire_cohort(
     started = time.monotonic()
     if not 0 < soft_budget_seconds <= SOFT_BUDGET_SECONDS:
         raise ValueError("invalid retail soft budget")
-    require_binding(plan)
     key = checkpoint_key(plan, index)
     terminal = read_terminal(store, plan)
     if terminal is not None:
@@ -350,6 +348,7 @@ def acquire_cohort(
             retry is not None and retry.next_retry_utc is not None
         ):
             continue
+        require_binding(plan)
         # Leave a normal completed checkpoint, rather than rely on runner killing
         # a request. The pair's own real timer also includes its durable callbacks.
         if time.monotonic() - started + PAIR_AND_CHECKPOINT_RESERVE_SECONDS >= soft_budget_seconds:
@@ -510,7 +509,6 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if plan is None:
             raise ValueError("retail fixed plan is missing")
-        require_binding(plan)
         if args.command == "plan":
             terminal = read_terminal(store, plan)
             saved = (
@@ -531,6 +529,8 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 )
             )
+            if terminal is None and (pending is not None or cohorts):
+                require_binding(plan)
             write_outputs(
                 plan, terminal, retry_cohort=pending[0] if pending else None, cohort_indices=cohorts
             )
