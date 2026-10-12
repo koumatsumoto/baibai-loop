@@ -22,6 +22,7 @@ def research_inputs(
     tickers: tuple[str, ...],
     as_of: date,
     cutoff: datetime,
+    known_at: datetime,
     market_path: Path,
     runs_path: Path,
     macro_path: Path,
@@ -34,7 +35,7 @@ def research_inputs(
             as_of=as_of, run_revision_id=run_revision_id
         ),
     )
-    context = latest_assessment(app_path, as_of=as_of, known_at=cutoff)
+    context = latest_assessment(app_path, as_of=as_of, known_at=known_at)
     securities: dict[str, object] = {}
     for ticker in tickers:
         analysis = (
@@ -62,6 +63,7 @@ def research_inputs(
     return {
         "as_of": as_of.isoformat(),
         "received_cutoff": cutoff.isoformat(),
+        "known_at": known_at.isoformat(),
         "market_context": {
             "market": build_market_snapshot(sqlite_path=market_path, asof_date=as_of),
             "macro_reading": macro_reading_snapshot(macro_path, asof=as_of),

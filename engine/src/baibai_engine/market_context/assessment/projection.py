@@ -19,8 +19,10 @@ def assessment_projection(record: StoredAssessment | None, *, as_of: date) -> di
             "uncertainties": [],
             "implications": [],
             "sources": [],
+            "synthesis": None,
         }
     body = record.document
+    synthesis: dict[str, Any] | None = None
     if record.schema_version == 5:
         changes = body["changes"]
         counter = body["counter_evidence"]
@@ -31,10 +33,38 @@ def assessment_projection(record: StoredAssessment | None, *, as_of: date) -> di
         # Historical report fields are quoted, never promoted into a new judgment.
         core = body.get("core", [])
         connection = body.get("connection", {})
+        if body.get("synthesis"):
+            synthesis = {
+                "dominant_forces": [
+                    {
+                        key: force[key]
+                        for key in (
+                            "force_id",
+                            "title",
+                            "summary",
+                            "transmission",
+                            "direction",
+                            "confidence",
+                            "counter_evidence",
+                            "source_ids",
+                        )
+                        if key in force
+                    }
+                    for force in body["synthesis"].get("dominant_forces", [])
+                ],
+                "interactions": [
+                    {
+                        key: item[key]
+                        for key in ("summary", "force_ids", "source_ids")
+                        if key in item
+                    }
+                    for item in body["synthesis"].get("interactions", [])
+                ],
+            }
         changes = [item for section in core for item in section.get("material_deltas", [])]
         counter = [
             {"summary": force["counter_evidence"], "source_ids": force.get("source_ids", [])}
-            for force in (body.get("synthesis") or {}).get("dominant_forces", [])
+            for force in (synthesis or {}).get("dominant_forces", [])
             if force.get("counter_evidence")
         ]
         counter.extend(
@@ -87,6 +117,7 @@ def assessment_projection(record: StoredAssessment | None, *, as_of: date) -> di
         "uncertainties": uncertainty,
         "implications": implications,
         "sources": sources,
+        "synthesis": synthesis,
     }
 
 

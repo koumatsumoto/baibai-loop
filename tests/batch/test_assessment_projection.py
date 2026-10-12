@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 
+from tests.helpers.assessment_history import historical_context_payload
 from tests.helpers.research_triage import published_review_set
 
 from baibai_batch.analysis.model_input import build_model_input
@@ -37,3 +38,28 @@ def test_counter_evidence_and_uncertainty_reach_model_input():
     assert body["known_at"] == cutoff.isoformat()
     assert body["macro_context"]["counter_evidence"] == doc.payload()["counter_evidence"]
     assert body["macro_context"]["uncertainties"] == doc.payload()["uncertainties"]
+
+
+def test_historical_synthesis_keeps_the_claim_counter_evidence_and_interactions():
+    original = historical_context_payload()
+    review = PublishedReviewSet.model_validate(published_review_set())
+    body = build_model_input(
+        review,
+        StoredAssessment.from_payload(original),
+        known_at=datetime(2026, 7, 19, 10, tzinfo=UTC),
+    ).model_dump(mode="json")
+    synthesis = body["macro_context"]["synthesis"]
+    assert synthesis["interactions"] == original["synthesis"]["interactions"]
+    assert {force["force_id"] for force in synthesis["dominant_forces"]} == {
+        "rates-repricing",
+        "fx-extreme",
+    }
+    for quoted, source in zip(
+        synthesis["dominant_forces"], original["synthesis"]["dominant_forces"], strict=True
+    ):
+        for field in ("summary", "transmission", "confidence", "counter_evidence", "source_ids"):
+            assert quoted[field] == source[field]
+        assert any(
+            item["summary"] == source["counter_evidence"]
+            for item in body["macro_context"]["counter_evidence"]
+        )

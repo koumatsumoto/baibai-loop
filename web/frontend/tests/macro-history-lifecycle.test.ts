@@ -1,4 +1,6 @@
-import { isValidElement, type ReactElement, type ReactNode } from 'react'
+import { createElement, isValidElement, type ReactElement, type ReactNode } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiError, fetchJson } from '../src/api/client'
@@ -119,4 +121,27 @@ it.each([true, false])('does not render a fallback chart or selected-period capt
   expect(elements(detail).some(e => typeof e.type === 'function' && e.type.name === 'FullChart')).toBe(false)
   expect(text(detail)).not.toContain('チャートは')
   expect(text(detail).includes('系列履歴を取得できませんでした')).toBe(failure)
+})
+
+it.each([45, 46])('keeps the v5 date, age, stale badge and detail link at %s days', age => {
+  const contextId = 'macro-context-2026-07-17-small'
+  hooks.values.set(0, {
+    groups: [], reports: [], reading: null,
+    latest_context: {
+      context_id: contextId, as_of: '2026-07-17', age_days: age, stale: age > 45,
+      published_at: '2026-07-19T12:00:00+09:00', summary: '保存済みの市場環境判断', warnings: [],
+      assessment: {
+        known_at: '2026-07-19T11:00:00+09:00', changes: [], counter_evidence: [],
+        uncertainties: [], implications: [], inputs: [],
+      },
+    },
+  })
+  const latest = elements(MacroPage()).find(e => typeof e.type === 'function' && e.type.name === 'LatestContext')!
+  expect(latest).toBeDefined()
+  const html = renderToStaticMarkup(createElement(MemoryRouter, {}, latest))
+  expect(html).toContain('2026-07-17')
+  expect(html).toContain(`${age} 日前`)
+  expect(html).toContain(`href="/macro/reports/${contextId}"`)
+  expect(html).toContain('保存済みの市場環境判断')
+  expect(html.includes('>stale<')).toBe(age > 45)
 })

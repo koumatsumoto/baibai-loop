@@ -52,12 +52,15 @@ def build_model_input(
     )
 
 
-def extract_legacy_model_input(
+def extract_publication_input(
     review_set: PublishedReviewSet, macro_context: StoredAssessment | None
 ) -> dict[str, Any]:
     """Quote stored publications; never claim this is the saved runner input.json."""
+    current = macro_context is not None and macro_context.schema_version == 5
     return {
-        "schema_version": 2
+        "schema_version": 3
+        if current
+        else 2
         if any(
             "ttm_quality_ev_ebitda" in entry.analysis.data_quality.model_fields_set
             or "ttm_quality_fcf" in entry.analysis.data_quality.model_fields_set
@@ -71,6 +74,8 @@ def extract_legacy_model_input(
         ),
         "policy": list(TRIAGE_POLICY),
         "as_of": review_set.as_of.isoformat(),
-        "macro_context": legacy_context_projection(macro_context, as_of=review_set.as_of),
+        "macro_context": assessment_projection(macro_context, as_of=review_set.as_of)
+        if current
+        else legacy_context_projection(macro_context, as_of=review_set.as_of),
         "candidates": [item.model_dump(mode="json") for item in review_set_candidates(review_set)],
     }

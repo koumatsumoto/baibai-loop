@@ -205,9 +205,11 @@ selectorは0〜1個です。`research_triage_id`はexact ID、`as_of`はexact日
 欠損sourceを別runやrevisionで補いません。
 
 `triage_ref`は`research_triage_id`、`research_triage_sha256`、`model_input_sha256`の3 fieldです。
-inputは保存済みexact Review Setとcanonical Triageがbindするexact Context本文から、旧入力形式の必要項目を抽出します。Contextがnullなら、後発判断があっても`missing`のままです。
+inputは保存済みexact Review Setとcanonical Triageがbindするexact Context本文から必要項目を抽出します。v3/v4の旧Contextは従来の6項目・schema 1/2を維持し、v5 assessmentの参照はschema 3で共通projectionの重要変化・根拠・反証・不確実性・含意・出典を返します。Contextがnullなら、後発判断があっても`missing`のままです。
 
 `input_basis`は`stored_publication_extract`で、`model_input_sha256`はこの抽出結果のhashです。過去runnerの全入力やexact promptを証明しません。保存済みprivate `input.json`は上書き再生成せず、残っている場合だけ別の受入作業で当時payloadとの一致を確認できます。元fileやmatching Run / Review Setが無い場合、当時の全入力を復元できたとは扱いません。
+
+この抽出には元runnerの入力確定時刻`known_at`を補いません。assessment自身の入力時刻やTriage発行時刻を代用せず、productionの完全な`ModelInput`とは区別します。
 
 resolve後にpolicyやsourceが変わりhashが一致しなくなった場合、input取得は失敗します。
 judgment取得はcanonical judgment hashだけを検証し、input policyの変更では拒否しません。

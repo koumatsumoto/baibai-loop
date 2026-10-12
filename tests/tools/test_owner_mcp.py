@@ -24,8 +24,10 @@ from tools.owner_mcp.reader import (
 )
 from tools.owner_mcp.server import call, create_server
 
-from baibai_batch.analysis.model_input import extract_legacy_model_input
-from baibai_engine.market_context.assessment.models import StoredAssessment
+from baibai_batch.analysis.model_input import extract_publication_input
+from baibai_engine.market_context.assessment.models import MarketContextAssessment, StoredAssessment
+from baibai_engine.market_context.assessment.projection import assessment_projection
+from baibai_engine.market_context.assessment.service import AssessmentService
 from baibai_engine.research.triage.contracts import ResearchTriage
 from baibai_engine.research.triage.query import latest_research_triage_id
 from baibai_engine.research.triage.service import ResearchTriageService
@@ -101,7 +103,7 @@ def test_fixed_input_and_full_judgment_across_clients(reader):
     before = [p.read_bytes() for p in (reader.app_path, reader.runs_path)]
     reference = ref(reader, research_triage_id=triage.research_triage_id)
     result = reader.get_input(reference)
-    expected = extract_legacy_model_input(review, None)
+    expected = extract_publication_input(review, None)
     assert result["model_input"] == expected
     assert reference.model_input_sha256 == digest(expected)
     assert result["input_basis"] == "stored_publication_extract"
@@ -138,7 +140,101 @@ def test_exact_macro_and_null_binding_survive_later_context(reader):
     )
     seed_history(reader.app_path, (b).document, supersedes=a.context_id)
     assert reader.get_input(missing_ref)["model_input"]["macro_context"]["status"] == "missing"
-    assert reader.get_input(bound_ref)["model_input"] == extract_legacy_model_input(review, a)
+    assert reader.get_input(bound_ref)["model_input"] == extract_publication_input(review, a)
+
+
+@pytest.mark.parametrize("schema_version", [3, 4, 5])
+def test_mcp_resolve_and_get_input_preserve_assessment_or_historical_projection(
+    reader, schema_version
+):
+    context_id = f"macro-context-2026-07-19-v{schema_version}"
+    if schema_version == 5:
+        body = MarketContextAssessment.model_validate(
+            {
+                "context_id": context_id,
+                "as_of": "2026-07-19",
+                "known_at": "2026-07-19T11:00:00+09:00",
+                "published_at": "2026-07-19T12:00:00+09:00",
+                "summary": "金利と需要に相反する材料がある。",
+                "inputs": [
+                    {
+                        "input_id": "reading",
+                        "reference": "reading/fixed-revision",
+                        "layer": "L2",
+                        "available_at": "2026-07-19T10:00:00+09:00",
+                    }
+                ],
+                "changes": [{"summary": "金利は上昇", "source_ids": ["reading"]}],
+                "counter_evidence": [{"summary": "需要には改善材料", "source_ids": ["reading"]}],
+                "uncertainties": [{"summary": "需要の持続性は不明", "source_ids": ["reading"]}],
+                "implications": [
+                    {"summary": "資金調達と受注を両方調査", "source_ids": ["reading"]}
+                ],
+            }
+        ).payload()
+        AssessmentService(reader.app_path).publish(
+            MarketContextAssessment.model_validate(body), expected_head=None
+        )
+    elif schema_version == 4:
+        body = historical_context_payload(context_id=context_id)
+        seed_history(reader.app_path, body)
+    else:
+        body = {
+            "schema_version": 3,
+            "kind": "macro-context",
+            "context_id": context_id,
+            "as_of": "2026-07-19",
+            "published_at": "2026-07-19T12:00:00+09:00",
+            "summary": "保存済み旧判断",
+            "sections": [{"summary": "当時の本文"}],
+            "inputs": {},
+        }
+        seed_history(reader.app_path, body)
+    triage, review = seed(reader, macro=context_id, published_at="2026-07-19T15:00:00+09:00")
+    before = [p.read_bytes() for p in (reader.app_path, reader.runs_path)]
+    adapter = Adapter()
+
+    async def check():
+        async with Client(create_server(adapter, reader)) as client:
+            resolved = await client.call_tool(
+                "triage_resolve", {"research_triage_id": triage.research_triage_id}
+            )
+            assert not resolved.is_error
+            result = await client.call_tool(
+                "triage_get_input", {"triage_ref": resolved.structured_content["triage_ref"]}
+            )
+            assert not result.is_error
+            assert resolved.structured_content["input_basis"] == "stored_publication_extract"
+            assert result.structured_content["input_basis"] == "stored_publication_extract"
+            extracted = result.structured_content["model_input"]
+            assert "known_at" not in extracted
+            assert (
+                digest(extracted) == resolved.structured_content["triage_ref"]["model_input_sha256"]
+            )
+            if schema_version == 5:
+                assert extracted["schema_version"] == 3
+                assert extracted["macro_context"] == assessment_projection(
+                    StoredAssessment.from_payload(body), as_of=review.as_of
+                )
+                for name in ("changes", "counter_evidence", "uncertainties", "implications"):
+                    assert extracted["macro_context"][name] == body[name]
+                assert extracted["macro_context"]["sources"] == body["inputs"]
+            else:
+                assert extracted["schema_version"] in (1, 2)
+                assert extracted["macro_context"] == {
+                    "status": "current",
+                    "as_of": body["as_of"],
+                    "age_days": 0,
+                    "summary": body["summary"],
+                    "synthesis": body.get("synthesis"),
+                    "connection": body.get("connection"),
+                }
+
+    try:
+        asyncio.run(check())
+    finally:
+        adapter.close()
+    assert before == [p.read_bytes() for p in (reader.app_path, reader.runs_path)]
 
 
 def test_policy_drift_refuses_input_but_not_judgment(reader, monkeypatch):
@@ -334,7 +430,7 @@ def test_old_quality_absence_and_explicit_null_keep_distinct_payload_hashes(read
     assert reader.get_input(reference)["model_input"] == old
     publication = review.model_dump(mode="json")
     publication["entries"][0]["analysis"]["data_quality"].update(quality)
-    projected = extract_legacy_model_input(PublishedReviewSet.model_validate(publication), None)
+    projected = extract_publication_input(PublishedReviewSet.model_validate(publication), None)
     assert projected["schema_version"] == 2
     assert projected["candidates"][0]["snapshot"]["analysis"]["data_quality"] == quality
     assert old["schema_version"] == 1

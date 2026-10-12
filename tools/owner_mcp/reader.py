@@ -11,7 +11,7 @@ from typing import Any
 from pydantic import Field, field_validator
 
 from baibai_batch.analysis.io import canonical_json
-from baibai_batch.analysis.model_input import extract_legacy_model_input, review_set_candidates
+from baibai_batch.analysis.model_input import extract_publication_input, review_set_candidates
 from baibai_engine.batch_api import validated_review_set
 from baibai_engine.foundation.repository_layout import APPLICATION_DB_PATH, RUNS_DB_PATH
 from baibai_engine.market_context.assessment.models import StoredAssessment
@@ -164,7 +164,7 @@ class Reader:
             macro = StoredAssessment.from_payload(payload)
             if macro.context_id != triage.macro_context_id or macro.as_of > triage.as_of:
                 raise OwnerError("CONTRACT_MISMATCH")
-        model_input = extract_legacy_model_input(review_set, macro)
+        model_input = extract_publication_input(review_set, macro)
         snapshots = {entry.ticker: entry.snapshot for entry in review_set_candidates(review_set)}
         if {entry.ticker: entry.candidate_snapshot for entry in triage.entries} != snapshots:
             raise OwnerError("CONTRACT_MISMATCH")

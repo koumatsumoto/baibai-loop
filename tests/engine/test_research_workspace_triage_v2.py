@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from tests.helpers.assessment_history import seed_history
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
 from tests.helpers.research_triage import (
@@ -14,6 +15,7 @@ from tests.helpers.research_triage import (
     skip_entry,
 )
 
+from baibai_engine.market_context.assessment.models import MarketContextAssessment
 from baibai_engine.position.ledger import ContributionEvent
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research import workspace as workspace_module
@@ -25,6 +27,7 @@ from baibai_engine.research.workspace import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceDataError,
     compute_status,
+    prepare_holding_workspace,
     prepare_workspace,
 )
 from baibai_engine.research.workspace import prepare as workspace_prepare
@@ -249,6 +252,7 @@ def _publish_triage(
     research: bool = True,
     second_research: bool = False,
     with_holdings: bool = False,
+    as_of: str = "2026-07-19",
 ) -> ResearchTriage:
     ledger = load_portfolio_ledger(
         Path(__file__).resolve().parents[1] / "fixtures/portfolio-ledger/representative.yaml"
@@ -282,17 +286,77 @@ def _publish_triage(
             research_triage_id="research-triage-workspace-v2",
             review_set_id="review-set-workspace-v2",
             run_revision_id="runrev-workspace-v2",
+            as_of=as_of,
             entries=entries,
         )
     )
     review_set = PublishedReviewSet.model_validate(
         published_review_set(
+            as_of=as_of,
             review_set_id=triage.review_set_id,
             run_revision_id=triage.run_revision_id,
             tickers=("2331", "0001"),
         )
     )
     return ResearchTriageService(db_path).publish(triage, review_set=review_set)
+
+
+@pytest.mark.parametrize("purpose", ["new", "holding"])
+def test_weekend_research_uses_fixed_known_at_and_preserves_external_cutoff(
+    tmp_path, monkeypatch, purpose
+):
+    from datetime import time
+
+    from baibai_engine.research import inputs
+
+    db = tmp_path / "app.sqlite"
+    friday = date(2026, 7, 17)
+    now = CASE_NOW
+    triage = _publish_triage(db, with_holdings=purpose == "holding", as_of=friday.isoformat())
+    for name, hour in (("available", 12), ("future", 19)):
+        body = MarketContextAssessment.model_validate(
+            {
+                "context_id": f"macro-context-2026-07-17-{name}",
+                "as_of": friday.isoformat(),
+                "known_at": "2026-07-19T11:00:00+09:00",
+                "published_at": f"2026-07-19T{hour}:00:00+09:00",
+                "summary": name,
+                "inputs": [],
+            }
+        ).payload()
+        seed_history(db, body)
+    original = inputs.external_assessment
+    external_times = []
+
+    def read_external(path, *, ticker, cutoff, evaluated_at):
+        external_times.append((cutoff, evaluated_at))
+        return original(path, ticker=ticker, cutoff=cutoff, evaluated_at=evaluated_at)
+
+    monkeypatch.setattr(inputs, "external_assessment", read_external)
+    workspace = tmp_path / "workspace"
+    kwargs = {
+        "db_path": db,
+        "workspace": workspace,
+        "request": "日曜に金曜対象の調査を開始",
+        "started_at": now,
+        "sqlite_path": tmp_path / "absent-market.sqlite",
+        "runs_path": tmp_path / "absent-runs.sqlite",
+        "macro_path": tmp_path / "absent-macro.sqlite",
+    }
+    if purpose == "new":
+        prepare_workspace(
+            research_triage_id=triage.research_triage_id, research_set=("2331",), **kwargs
+        )
+    else:
+        prepare_holding_workspace(asof=friday, ticker="2331", **kwargs)
+    result = yaml.safe_load((workspace / "domain-inputs.yaml").read_text())
+    assert result["known_at"] == now.isoformat()
+    cutoff = datetime.combine(friday, time.max, now.tzinfo)
+    assert result["received_cutoff"] == cutoff.isoformat()
+    assert external_times == [(cutoff, cutoff)]
+    context = result["market_context"]["saved_macro_context"]
+    assert context["context_id"] == "macro-context-2026-07-17-available"
+    assert context["summary"] == "available"
 
 
 def test_prepare_and_status_need_only_published_triage_id(

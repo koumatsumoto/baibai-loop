@@ -225,6 +225,8 @@ Baibai Loop の Macro タブは、上から **現在のマクロ局面 → マ�
 
 Research/Triageへ渡す共通projectionは要約・根拠・含意に加えて反証/不確実性を含む。旧Triageの実際の入力は保存されたrunner `input.json`が正本であり、上書き再生成しない。ファイルがない場合の照会は保存本文からの抽出で、当時の全入力一致や再現済みとは言わない。
 
+旧v4の共通projectionには支配的な力の主張・伝達経路・確信度・反証・出典と、force IDで対応する相互作用を小さな`synthesis`として引用する。これは保存済み判断の抽出であり、新判断の必須章や新しい評価ではない。Research workspaceのassessment選択は今回の固定`known_at`を使い、External Assessmentの受信cutoffとは分ける。
+
 ```bash
 uv run baibai-engine market-context assessment history
 uv run baibai-engine market-context assessment show --context-id macro-context-2026-07-17-example
