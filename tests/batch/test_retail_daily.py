@@ -653,7 +653,7 @@ def test_real_pair_collector_persists_two_rakuten_reservations_and_exact_receipt
     session = FakeSession()
 
     def real_collect(ticker, **kwargs):
-        return retail_collect_pair(ticker, session=session, **kwargs)
+        return retail_collect_pair(ticker, **{**kwargs, "session": session})
 
     monkeypatch.setattr(daily, "retail_collect_pair", real_collect)
     report = daily.acquire_cohort(store, p, 0)
@@ -708,7 +708,7 @@ def test_real_collector_aborts_before_transport_on_checkpoint_error(monkeypatch,
     monkeypatch.setattr(
         daily,
         "retail_collect_pair",
-        lambda ticker, **kwargs: retail_collect_pair(ticker, session=session, **kwargs),
+        lambda ticker, **kwargs: retail_collect_pair(ticker, **{**kwargs, "session": session}),
     )
     with pytest.raises(RuntimeError, match="pair_checkpoint_callback_failed"):
         daily.acquire_cohort(store, p, 0)

@@ -12,6 +12,8 @@ from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+import requests
+
 from baibai_batch.jobs.retail_cohorts import (
     RunPlan,
     begin_rate_limited_retry,
@@ -220,6 +222,7 @@ def _acquire_pair(
     ticker: str,
     rate_limiter: RetailHostRateLimiter,
     timings: dict[str, float],
+    session: requests.Session,
 ) -> tuple[Checkpoint, str | None, RetailCollectionResult]:
     marked = False
     pair_content_bytes = 0
@@ -314,8 +317,10 @@ def _acquire_pair(
 
     collection_started = time.monotonic()
     storage_before = timings["storage_elapsed_seconds"]
+    session.cookies.clear()
     result = retail_collect_pair(
         ticker,
+        session=session,
         source=source,
         before_request=before_request,
         on_response=on_response,
@@ -391,53 +396,58 @@ def acquire_cohort(
         entries = tuple(
             sorted(entries, key=lambda entry: (entry.source, entry.ticker) != retry_pair)
         )
-    for entry in entries:
-        retry = checkpoint.retry_for(entry.source, entry.ticker)
-        if entry.state != "unattempted" and not (
-            retry is not None and retry.next_retry_utc is not None
-        ):
-            continue
-        require_binding(plan)
-        # Leave a normal completed checkpoint, rather than rely on runner killing
-        # a request. The pair's own real timer also includes its durable callbacks.
-        if time.monotonic() - started + PAIR_AND_CHECKPOINT_RESERVE_SECONDS >= soft_budget_seconds:
-            stop_reason = "soft_budget"
-            break
-        while True:
+    with requests.Session() as session:
+        for entry in entries:
             retry = checkpoint.retry_for(entry.source, entry.ticker)
-            if (
-                retry is not None
-                and retry.next_retry_utc is not None
-                and not _wait_for_retry(
-                    retry.next_retry_utc, started=started, budget=soft_budget_seconds
-                )
+            if entry.state != "unattempted" and not (
+                retry is not None and retry.next_retry_utc is not None
             ):
-                stop_reason = "retry_pending_soft_budget"
+                continue
+            require_binding(plan)
+            # Leave a normal completed checkpoint, rather than rely on runner killing
+            # a request. The pair's own real timer also includes its durable callbacks.
+            if (
+                time.monotonic() - started + PAIR_AND_CHECKPOINT_RESERVE_SECONDS
+                >= soft_budget_seconds
+            ):
+                stop_reason = "soft_budget"
                 break
-            checkpoint, etag, result = _acquire_pair(
-                store,
-                plan,
-                checkpoint,
-                etag,
-                entry.source,
-                entry.ticker,
-                rate_limiter,
-                timings,
-            )
-            if result.stop_reason == "rate_limited":
+            while True:
                 retry = checkpoint.retry_for(entry.source, entry.ticker)
-                if retry is not None and retry.next_retry_utc is not None:
-                    continue
-                stop_reason = (
-                    "retry_after_unrepresentable"
-                    if retry and retry.retry_after_unrepresentable
-                    else "rate_limited_retry_exhausted"
+                if (
+                    retry is not None
+                    and retry.next_retry_utc is not None
+                    and not _wait_for_retry(
+                        retry.next_retry_utc, started=started, budget=soft_budget_seconds
+                    )
+                ):
+                    stop_reason = "retry_pending_soft_budget"
+                    break
+                checkpoint, etag, result = _acquire_pair(
+                    store,
+                    plan,
+                    checkpoint,
+                    etag,
+                    entry.source,
+                    entry.ticker,
+                    rate_limiter,
+                    timings,
+                    session,
                 )
-            elif result.stop_reason:
-                stop_reason = result.stop_reason
-            break
-        if stop_reason:
-            break
+                if result.stop_reason == "rate_limited":
+                    retry = checkpoint.retry_for(entry.source, entry.ticker)
+                    if retry is not None and retry.next_retry_utc is not None:
+                        continue
+                    stop_reason = (
+                        "retry_after_unrepresentable"
+                        if retry and retry.retry_after_unrepresentable
+                        else "rate_limited_retry_exhausted"
+                    )
+                elif result.stop_reason:
+                    stop_reason = result.stop_reason
+                break
+            if stop_reason:
+                break
     # Even an untouched soft-stop cohort remains explicit, rather than disappearing.
     if etag is None:
         storage_started = time.monotonic()
@@ -539,7 +549,10 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
         elif args.run_id is None or args.run_created_at is not None:
             raise ValueError("manual retail commands require a stable run id")
-        store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+        store = Boto3R2Store(
+            bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores",
+            verify_put_with_head=args.command != "acquire",
+        )
         if args.command == "plan":
             if args.master_asof is None and observation_date is None:
                 raise ValueError("saved master date required")
