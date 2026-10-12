@@ -7,9 +7,11 @@ status: active
 
 # Domain language
 
+割安銘柄の発見、割安幅と条件付き収益の評価、根拠付き売買提案に使う用語と成果物の関係を定義する。実売買は人間が行う。
+
 この文書はdomain termとterm同士の関係を所有する。目的と判断原則は
 [`doctrine.md`](./doctrine.md)、layer・dependency・physical authorityは
-[`architecture.md`](./architecture.md)、artifact固有のfield・式・warningは
+[`architecture.md`](./architecture.md)、実契約のfield・式・warningは
 [`reference/`](./reference/)、operation手順は[各skill](../.agents/skills/)を正本とする。
 
 <a id="analysis-domains"></a>
@@ -19,19 +21,22 @@ status: active
 | 領域 | 中心となる問い |
 | --- | --- |
 | Valuation / 独自価値評価 | 自分たちの前提で、この株にどれだけの価値・収益を見込むか |
-| Market Context / 市場環境 | 経済、市場全体、業種にどのような力が働いているか |
+| Market Context / 市場環境 | 市場全体・業種・個別相対はどのような状態か |
 | External Assessment / 外部参考評価 | 外部の媒体・評価者はこの株をどう評価して提示しているか |
 
-領域はL1観測・L2機械分析・L3 AI解釈という処理層と別の軸である。外部目標値は媒体が提示した値の観測であり、独自の企業価値認定ではない。Macro Contextは既存の判断成果物で、Market Context全体と同義ではない。現行配置は[architecture](./architecture.md#repository-map)を参照する。
+領域は業務の横方向、L1観測・L2決定的な計算・L3 AI解釈/調査/提案は縦方向の区別である。Macro ContextはMarket Context内の既存判断成果物で、領域全体と同義ではない。境界・保存責務と移行状況は[architecture](./architecture.md)が所有する。
 
-Valuationの機械ER/FV anchorは倍率・自己価格レンジとcarryの推計であり、企業を調査したBase/DownsideのProjectionとは別結果である。AIが置いた前提を算術で計算しても、その前提や結果は観測事実にならない。4 Approachは候補探索の視点であり、四つの完成した企業価値モデルではない。
+Valuationの機械ER/FV anchorは倍率・自己価格レンジとcarryの推計であり、企業を調査したBase/DownsideのProjectionとは別結果である。AIが置いた前提を固定すると算術は決定的に再現できるが、前提は観測にならず、結果は条件付き見積りである。4 Approachは候補探索の視点であり、四つの完成した企業価値モデルではない。
 
-外部参考評価の提示値は「その媒体がその値を提示した」というL1観測であり、独自の企業価値や実際の大衆売買を認定した事実ではない。L2は出所ごとの受領比較と被覆・欠測を返す。同じ原評価元の転載は関係を示し、モデル価格、アナリスト予測/rating、Quants scoreを同じ多数決点へ変換しない。`retail_dynamics`は既存L1の物理identifierで、分析領域名や個人投資家の売買計測を意味しない。
+外部参考評価の提示値は「その媒体がその値を提示した」というL1観測であり、独自の企業価値や実際の大衆行動を測定した事実ではない。L2は出所ごとの受領比較と被覆・欠測を返す。同じ原評価元の転載は関係を示し、尺度・期間の異なるモデル価格、アナリスト予測/rating、Quants scoreを単一投票へ潰さない。媒体のQuants総合scoreは媒体値であり、三領域の独自総合scoreではない。`retail_dynamics`は既存L1の物理identifierで、分析領域名や個人投資家の売買計測を意味しない。
 
 ## Canonical terms
 
 | term | 種別 | 意味 |
 | --- | --- | --- |
+| Observation | source fact | 原典の値・出所・時点・欠測を保持した観測 |
+| Assumption | judgment input | AI/人間が置く前提。観測と区別する |
+| Conditional Estimate | estimate | 観測と仮定/規則から導出する条件付き見積り |
 | Candidate | pipeline role / state | 調査・投資候補。具体artifactが分かる箇所では具体名を優先する |
 | Candidate Discovery | activity | Security Analysis群からValuation ApproachごとのNominationを作りReview Setを形成する |
 | Candidate Discovery Method | method | approach集合、common eligibility、Nomination union ruleを束ねるversioned method identity |
@@ -41,14 +46,15 @@ Valuationの機械ER/FV anchorは倍率・自己価格レンジとcarryの推計
 | Projection | conditional valuation | 調査で置いた期間内累積分配と分配後残余価値。Thesisが内包する |
 | Screening Run | artifact | ある`as_of`に対するscreening一回分 |
 | Security Analysis | artifact entry | 一銘柄についてscreeningが作るobserved / derived / estimateの比較単位 |
-| Nomination | fact | Valuation ApproachがReview Set入りを推薦した事実 |
+| Nomination | selection record | Valuation ApproachがReview Set入りを推薦した事実 |
 | Review Set | artifact | configured Valuation Approachesが生成したNominationのexact union |
 | Review Set Entry | artifact entry | Review Set内の一銘柄と判断時機械座標 |
 | Research Triage | artifact / judgment | ResearchがReview Set全件を`research / skip`に分類するcanonical L3 judgment |
-| Research Set | pipeline state | 明示開始後にAIが選ぶ新規調査集合。Triage admission内でOperationの新規/保有合算上限に従う |
+| Research Set | pipeline state | 明示開始時に固定する新規調査集合。Triage admission内で保有調査と合算最大三対象、0件も扱う |
 | Thesis | artifact / judgment | 一銘柄の投資仮説、valuation、risk、evidence |
 | Thesis Review | artifact / judgment | Thesisへの独立second pass |
 | Capital Allocation Assessment | artifact / judgment | reviewed Thesis群をportfolio全体に照らした配分判断 |
+| Trade Proposal | artifact / judgment | 一銘柄の新規買付または保有継続/売却検討の提案。AI完了と人間採用・約定を区別 |
 | Planning Limit | ephemeral input | broker操作前のprice / quantity / expiry guard |
 | broker fact | human-confirmed fact | 人間がbroker画面等から確認して報告したorder / fill fact |
 | Portfolio Ledger | artifact | human-confirmed event ledger |
@@ -80,11 +86,12 @@ Research Setはpipeline stateである。storeごとのauthorityは
 ## Decision flow
 
 ```text
-Screening Run -> Security Analysis[]
+三領域の保存済み観測・L2結果 -> Screening Run -> Security Analysis[]
              -> Valuation Approach[] -> Nomination[] -> Review Set
 Review Set -> Research Triage
-           -> 明示開始・Operationの固定選択 -> Research -> Thesis + Thesis Review
-           -> Capital Allocation Assessment -> Planning Limit
+           -> 明示開始・新規/保有合算最大三対象の固定選択
+           -> 有限Research -> Thesis + Thesis Review -> 一銘柄ずつの売買提案
+           -> Capital Allocation Assessment -> Planning Limit -> 人間の採用判断
            -> 人間のbroker操作・報告 -> Portfolio Ledger -> Holding
 Holding -> 同じ有限選択の保有調査 -> 検証済みPosition Review提案
        -> 人間確認と入力再検証 -> 確認済みPosition Review
@@ -97,7 +104,7 @@ provider facts -> Macro Reading -> Macro Context
 Macro Context -> Triage・Research・資本判断の補助入力
 ```
 
-これは成果物の関係であり、毎回すべてを実行する手順ではない。操作ごとの開始条件と人間確認は[各skill](../.agents/skills/)を参照する。
+これは成果物の関係であり、毎回すべてを実行する手順ではない。0件・部分完了・未完了は調査進行の結果として残し、AI完了を人間の採用や取引事実と混同しない。操作ごとの開始条件と人間確認は[各skill](../.agents/skills/)を参照する。
 
 ## Naming grammar
 
@@ -118,10 +125,11 @@ Macro Context -> Triage・Research・資本判断の補助入力
 
 | name | meaning |
 | --- | --- |
-| `as_of` | logical cutoff |
-| `observed_at` | source observation timestamp |
+| `as_of` | logical target/cutoff。判断の対象時点 |
+| `observed_at` | source observation timestamp。原典が観測した時点 |
+| `fetched_at` / `fetched_at_utc` | 原典を実際に取得・受領した時刻 |
 | `generated_at` | machine / projection generation timestamp |
 | `published_at` | canonical publication timestamp |
 | `occurred_at` | business event timestamp |
 
-内部の旧名・alias・adapterは原則残さず、caller・model・serializer・CLI・test・active docsを同じ変更で揃える。provider-native fieldと、保存済みjudgmentのidentity・引用・実取引事実は内部互換性と区別し、命名整理で書き換えない。
+対象・観測・取得・公開の時点は同じとは限らない。判断入力は値と出所、これらの時点、欠測/比較上の制約を持ち、原典が与えない時点や期間を推測で補わない。fieldごとの厳密な形はreferenceが所有する。
