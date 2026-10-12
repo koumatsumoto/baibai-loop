@@ -110,40 +110,6 @@ def normalize_market_calendar(record: Mapping[str, Any]) -> JQuantsMarketCalenda
     )
 
 
-_RETRYABLE_HTTP_STATUSES = frozenset({429, 500, 502, 503, 504})
-_RETRYABLE_TEXT_MARKERS = (
-    "Too Many Requests",
-    "Service Unavailable",
-    "Gateway Timeout",
-    "Bad Gateway",
-    "rate limit",
-)
-
-
-def _is_retryable_jquants_error(exc: Exception) -> bool:
-    """Detect transient HTTP errors worth retrying.
-
-    jquantsapi wraps urllib3 / requests exceptions, so status_code is not always
-    directly accessible. Prefer status_code (via `exc.response.status_code`) when
-    available; fall back to textual signatures that are unlikely to collide with
-    unrelated error messages. Non-retryable errors (auth, schema) fail fast.
-    """
-    response = getattr(exc, "response", None)
-    status_code = getattr(response, "status_code", None)
-    if isinstance(status_code, int):
-        return status_code in _RETRYABLE_HTTP_STATUSES
-    text = str(exc)
-    if any(evidence_hit in text for evidence_hit in _RETRYABLE_TEXT_MARKERS):
-        return True
-    # Last-resort substring check for the raw status tokens. Narrower than pure
-    # "429" match because it requires the status to appear as a standalone token.
-    for status in _RETRYABLE_HTTP_STATUSES:
-        token = f" {status} "
-        if token in f" {text} ":
-            return True
-    return False
-
-
 def _payload_to_records(payload: Any) -> list[dict[str, Any]]:
     if hasattr(payload, "to_dict"):
         try:

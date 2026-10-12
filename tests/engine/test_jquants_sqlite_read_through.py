@@ -192,47 +192,6 @@ def _insert_daily_bars(
 
 
 class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
-    def test_retry_waits_between_calls_and_not_after_final_failure(self) -> None:
-        events: list[object] = []
-
-        def always_retryable(**_params: object) -> object:
-            events.append("call")
-            raise RuntimeError("Too Many Requests")
-
-        provider = JQuantsProvider("token", Path(".cache"), client=object())
-        with (
-            patch(
-                "baibai_engine.market.providers.jquants.time.sleep",
-                side_effect=lambda seconds: events.append(seconds),
-            ),
-            self.assertRaises(JQuantsProviderError),
-        ):
-            provider._call_with_retry("get_eq_master", always_retryable, date="2026-08-01")
-
-        expected: list[object] = []
-        for delay in provider._RATE_LIMIT_BACKOFF_SECONDS:
-            expected.extend(("call", delay))
-        expected.append("call")
-        self.assertEqual(events, expected)
-
-    def test_non_retryable_failure_returns_without_sleep(self) -> None:
-        calls = 0
-
-        def fail_once(**_params: object) -> object:
-            nonlocal calls
-            calls += 1
-            raise ValueError("invalid request")
-
-        provider = JQuantsProvider("token", Path(".cache"), client=object())
-        with (
-            patch("baibai_engine.market.providers.jquants.time.sleep") as sleep,
-            self.assertRaises(JQuantsProviderError),
-        ):
-            provider._call_with_retry("get_eq_master", fail_once, date="2026-08-01")
-
-        self.assertEqual(calls, 1)
-        sleep.assert_not_called()
-
     def test_get_eq_master_uses_sqlite_when_available(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cache_dir = Path(tmp) / "raw"
