@@ -24,6 +24,8 @@ flowchart LR
     screening --> context[Market Context]
     read --> context
     context --> market
+    read --> external[External Assessment]
+    external --> market
     read --> valuation
     screening[Screening] --> market[Market source facts]
     position --> market
@@ -33,7 +35,7 @@ flowchart LR
 
 engineはweb・batch・toolsへ依存しない。Webからengineへの入口は`read_api`、batchからは`batch_api`と`read_api`であり、import-linterが境界を検査する。batchはdomainの判断やwrite invariantを独自実装せず、engineのserviceへ委譲する。storeとserving objectの転送はbatchが担う。
 
-公開brokerの取得・保存・読取・同一系列比較は`market/retail_dynamics`が所有する。schema/lakeはI/Oを持たないleaf contractだけを参照し、Web・toolsは専用read facadeを使う。Research、FV、Screening順位、配分・発注判断へ観測serviceを依存させない。入力の意味は[data sources](./reference/data-sources.md#retail-dynamics)を参照する。
+外部媒体のL1取得・typed観測保存は既存`market/retail_dynamics`と`market/tradingview`が所有し、保存identityを維持する。`external_assessment`が出所別の受領履歴・比較・原評価元の関係を所有する。schema/lakeはL1のleaf contractだけを参照し、領域内部はResearch・Screening・Valuation・Market Context・UI合成read_apiへ依存しない。Web・CLI・ticker profileは領域の読取結果を合成し、順位・独自FV・配分を自動変更しない。入力の意味は[data sources](./reference/data-sources.md#retail-dynamics)を参照する。
 
 <a id="four-roles"></a>
 
@@ -96,6 +98,7 @@ Owner MCPは所有者が保存済み情報を読むlocal adapterであり、stor
 | --- | --- |
 | `engine/src/baibai_engine/market` | source factの取得・保存・公表日判断、固定release読取、market store |
 | `engine/src/baibai_engine/macro` | 経済系列の取得・保存、既存Reading計算kernel、Macro Contextの型・発行・scorecard |
+| `engine/src/baibai_engine/external_assessment` | 外部モデル価格・rating・Quants score・TradingView予測の保存済み読取、出所別比較と原評価元の関係 |
 | `engine/src/baibai_engine/market_context` | 市場snapshot、benchmark方向、業種平均対市場平均、個別対市場/同業、cutoff付きL1読取、保存済みReading/Context読取 |
 | `engine/src/baibai_engine/screening` | 必要入力のpreflight、Security Analysis、Candidate Discovery、Triage、calibration |
 | `engine/src/baibai_engine/valuation` | 小さな入力からのER/FV機械推計、評価前提型、Projection、条件付き収益の純粋算術、保存済み推計の投影 |
@@ -112,13 +115,15 @@ Owner MCPは所有者が保存済み情報を読むlocal adapterであり、stor
 | `stores/` | 実行時store |
 | `reports/` | historical evidenceと明示的なconsumer artifact |
 
-Valuationの型・算術・機械推計は`valuation`に集約済み。Screeningのbuilderが必要入力だけを変換し、Security Analysisへの保存、4 Approachの候補探索とcalibrationは現在の`screening`配置に残る。Market Contextの市場・業種・個別相対計算と保存済みmacro読取は`market_context`へ集約した。macro観測の保存identity、既存Reading計算kernelとContextの発行経路は`macro`に残る。External Assessmentは未移行で、現行`market/retail_dynamics`・`market/tradingview`を使う。三領域を三サービス・三DB・9パッケージへ分割しない。
+Valuationの型・算術・機械推計は`valuation`に集約済み。Screeningのbuilderが必要入力だけを変換し、Security Analysisへの保存、4 Approachの候補探索とcalibrationは現在の`screening`配置に残る。Market Contextの市場・業種・個別相対計算と保存済みmacro読取は`market_context`へ集約した。macro観測の保存identity、既存Reading計算kernelとContextの発行経路は`macro`に残る。External Assessmentの保存済み読取・比較を`external_assessment`へ集約した。L1のtable・dataset・R2 key・取得runは既存名を維持し、公開domain/CLIはExternal Assessmentとして扱う。三領域を三サービス・三DB・9パッケージへ分割しない。
 
 ValuationはResearch・read_api・Screeningへ依存しない。保存済み解析の読取use caseは`read_api/valuation`がrun-store readerとValuationの小さな投影を組み合わせる。領域内部からResearchをeager importする`read_api/__init__.py`を呼ばない。Thesis全体や評価時点の価格factを扱う合成はResearchが所有する。保存済み評価の対象・cutoff・欠測は[Valuation metrics](./reference/valuation-metrics.md#machine-valuation)に従う。
 
 Market ContextはL1 reader、macroの型・既存Reading計算と自領域の算術へ依存し、Research・CAA・Screening・Position・UI合成read_apiへ依存しない。SQLiteの汎用read-only/未作成判定は`foundation/sqlite_read`、application schema検証は`appdb/read`が所有する。領域読取は取得・書込を行わない。Webの`read_api/market_context`、既存CLI、batch/Triage callerが同じ領域読取へ委譲する。Macro Context packageの起動でwriterをeager importせず、発行は明示serviceだけを使う。
 
 現在もdailyのscreening失敗とmacro公開は独立していない。workflow/store/部分公開の分離と、AI調査・提案への新しい接続は未完了である。
+
+External Assessmentの読取は保存済み入力だけを使い、取得・書込・AI起動をしない。CLIの明示`collect / import`だけが既存L1取得・保存入口へ委譲する。L1取得後の検証はexact receipt keyの読戻しであり、分析の最新・直前selectorへ逆依存しない。型・比較・欠測の意味は[data sources](./reference/data-sources.md#external-assessment)、保存と読取の契約は[market lake](./reference/market-lake.md#retail-dynamics-query)が所有する。
 
 変更箇所は次の順に辿る。
 

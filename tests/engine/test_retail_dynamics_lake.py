@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from tests.helpers.lake_policy import narrow_release_policy
 
+from baibai_engine.external_assessment.reader import read_observations
 from baibai_engine.market.lake.duck import lake_session
 from baibai_engine.market.lake.hydrate import hydrate_market_store
 from baibai_engine.market.lake.models import PRODUCTION_RELEASE_POLICY
@@ -23,11 +24,10 @@ from baibai_engine.market.retail_dynamics.models import (
     AnalystRatingObservation,
     ModelValuationObservation,
 )
-from baibai_engine.market.retail_dynamics.reader import read_observations
 from baibai_engine.market.retail_dynamics.store import save_observations
 from baibai_engine.market.sqlite import open_connection, store_jquants_market_calendar
 from baibai_engine.market.sqlite.schema import SQLiteSchemaError
-from baibai_engine.read_api.retail_dynamics import retail_dynamics_payload
+from baibai_engine.read_api.external_assessment import external_assessment
 
 VALUATION = "retail_dynamics.model_valuation_observations"
 RATING = "retail_dynamics.analyst_rating_observations"
@@ -89,8 +89,8 @@ def test_optional_release_roundtrip_preserves_received_history_and_other_dataset
         hydrate_market_store(
             session, release=old, cache=old_cache, store=restored, dataset_names=(CALENDAR,)
         )
-    assert read_observations(restored, "7203", RECEIVED).model_valuation.latest is None
-    assert read_observations(restored, "7203", RECEIVED).analyst_rating.latest is None
+    assert read_observations(restored, "7203", RECEIVED).model_valuations == ()
+    assert read_observations(restored, "7203", RECEIVED).analyst_ratings == ()
 
     observations = []
     for ticker in ("7203", "6758", "9432"):
@@ -127,7 +127,7 @@ def test_optional_release_roundtrip_preserves_received_history_and_other_dataset
         assert read_observations(restored, ticker, cutoff) == read_observations(
             path, ticker, cutoff
         )
-        assert read_observations(restored, ticker, RECEIVED).model_valuation.previous is None
+        assert read_observations(restored, ticker, RECEIVED).model_valuations[0].previous is None
     with sqlite3.connect(restored) as conn:
         assert conn.execute("SELECT COUNT(*) FROM jquants_market_calendar").fetchone()[0] == 2
     assert save_observations(restored, observations) == 0
@@ -149,14 +149,16 @@ def test_read_facade_keeps_latest_null_and_rejects_obsolete_schema(tmp_path: Pat
         ],
     )
     cutoff = RECEIVED + timedelta(seconds=1)
-    payload = retail_dynamics_payload(path, ticker="7203", cutoff=cutoff, evaluated_at=cutoff)
-    assert payload["inputs"]["model_valuation"]["latest"]["consensus_target"] is None
-    assert payload["inputs"]["model_valuation"]["previous"]["consensus_target"] == 100
-    assert payload["model_valuation"][0]["state"] == "missing"
+    payload = external_assessment(
+        path, ticker="7203", cutoff=cutoff, evaluated_at=cutoff
+    ).model_dump(mode="json")
+    assert payload["model_valuations"][0]["inputs"]["latest"]["consensus_target"] is None
+    assert payload["model_valuations"][0]["inputs"]["previous"]["consensus_target"] == 100
+    assert payload["model_valuations"][0]["comparisons"][0]["state"] == "missing"
     with sqlite3.connect(path) as conn:
         conn.execute("PRAGMA user_version=28")
     with pytest.raises(SQLiteSchemaError):
-        retail_dynamics_payload(path, ticker="7203", cutoff=cutoff, evaluated_at=cutoff)
+        external_assessment(path, ticker="7203", cutoff=cutoff, evaluated_at=cutoff)
 
 
 def test_retail_release_policy_is_optional_history_with_unproven_coverage() -> None:

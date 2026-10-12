@@ -16,6 +16,8 @@ materialized JSONとfrontend assetは生成しますが、application DBやdomai
 
 銘柄一覧・詳細・履歴の機械anchorは表示対象runの保存済みSecurity Analysisから読み、Review Set membershipを照会条件にしません。企業固有の調査評価との区別と欠測の意味は[Valuation metrics](../docs/reference/valuation-metrics.md#machine-valuation)を参照してください。
 
+銘柄詳細の[External Assessment](../docs/reference/data-sources.md#external-assessment)は保存済み外部提示値と出所別比較を表示します。外部観測だけを持つ銘柄もexportへ含め、独自FV・推薦順位とは別結果として扱います。
+
 ## ローカルUI
 
 環境の準備と起動は[Python foundationのbootstrap](../docs/reference/python-foundation.md#development-bootstrap)に従う。

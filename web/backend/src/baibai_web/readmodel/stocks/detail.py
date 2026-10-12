@@ -21,6 +21,7 @@ from baibai_web.readmodel.stocks.screening import (
     _security_analysis_row_view,
 )
 from baibai_web.sources.protocols import (
+    ExternalAssessmentSource,
     LedgerSource,
     MarketPriceSource,
     ResearchSource,
@@ -37,6 +38,7 @@ class PreparedSecurityInputs:
     """銘柄詳細を見せるための索引を、1回のexportまたはrequest内で共有する。"""
 
     today: date
+    external_cutoff: datetime
     run: ScreeningRunRecord | None
     rows: Mapping[str, Mapping[str, object]]
     revisions: Mapping[str, list[ResearchRevision]]
@@ -49,7 +51,8 @@ def prepare_security_inputs(
     research: ResearchSource,
     screening: ScreeningSource,
 ) -> PreparedSecurityInputs:
-    today = datetime.now(_JST).date()
+    external_cutoff = datetime.now(_JST)
+    today = external_cutoff.date()
     revisions: dict[str, list[ResearchRevision]] = {}
     for revision in research.revisions():
         revisions.setdefault(revision.ticker, []).append(revision)
@@ -61,6 +64,7 @@ def prepare_security_inputs(
     snapshot = _safe_snapshot(ledger)
     return PreparedSecurityInputs(
         today=today,
+        external_cutoff=external_cutoff,
         run=run,
         rows=rows,
         revisions=revisions,
@@ -79,6 +83,7 @@ def build_security_detail(
     market: MarketPriceSource,
     *,
     prepared: PreparedSecurityInputs | None = None,
+    external_assessment: ExternalAssessmentSource | None = None,
 ) -> SecurityDetailView | None:
     """Build one security page, returning None only when no source knows the ticker."""
 
@@ -91,7 +96,28 @@ def build_security_detail(
     run = inputs.run
     raw_security_analysis = inputs.rows.get(ticker)
     holding_snapshot = inputs.holdings.get(ticker)
-    if holding_snapshot is None and latest_revision is None and raw_security_analysis is None:
+    assessment = (
+        None
+        if external_assessment is None
+        else external_assessment.assessment(
+            ticker,
+            cutoff=inputs.external_cutoff,
+        )
+    )
+    has_external = assessment is not None and bool(
+        assessment.model_valuations
+        or assessment.analyst_ratings
+        or assessment.quants_scores
+        or assessment.tradingview.inputs.latest is not None
+    )
+    if not has_external:
+        assessment = None
+    if (
+        holding_snapshot is None
+        and latest_revision is None
+        and raw_security_analysis is None
+        and not has_external
+    ):
         return None
 
     security_name = (
@@ -127,6 +153,7 @@ def build_security_detail(
         else None
     )
     return SecurityDetailView(
+        external_assessment=assessment,
         ticker=ticker,
         company_name=(
             latest_revision.company_name if latest_revision is not None else security_name

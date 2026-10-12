@@ -1,4 +1,4 @@
-"""Immutable received observations and reproducible comparison results; no I/O."""
+"""Immutable received observations; no analysis or I/O."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator,
 from baibai_engine.market.ticker import normalize_ticker
 
 CONTRACT_VERSION: Literal["1"] = "1"
-METHOD_VERSION = "same-series-v1"
 VALUATION_METRICS = ("consensus_target", "per_company_forecast", "per_consensus", "pbr")
 QUANTS_METRICS = (
     "growth_score",
@@ -151,56 +150,3 @@ class QuantsScoreObservation(ReceivedObservation):
 
 
 type Observation = ModelValuationObservation | AnalystRatingObservation | QuantsScoreObservation
-
-
-class ModelValuationHistory(FrozenModel):
-    latest: ModelValuationObservation | None = None
-    previous: ModelValuationObservation | None = None
-
-
-class AnalystRatingHistory(FrozenModel):
-    latest: AnalystRatingObservation | None = None
-    previous: AnalystRatingObservation | None = None
-
-
-class QuantsScoreHistory(FrozenModel):
-    latest: QuantsScoreObservation | None = None
-    previous: QuantsScoreObservation | None = None
-
-
-class ObservationHistory(FrozenModel):
-    ticker: str
-    cutoff: datetime
-    model_valuation: ModelValuationHistory = Field(default_factory=ModelValuationHistory)
-    analyst_rating: AnalystRatingHistory = Field(default_factory=AnalystRatingHistory)
-    quants_score: QuantsScoreHistory = Field(default_factory=QuantsScoreHistory)
-
-
-class MetricComparison(FrozenModel):
-    metric: str
-    state: Literal[
-        "not_observed",
-        "first_observation",
-        "missing",
-        "recovered",
-        "count_changed",
-        "not_comparable",
-        "same_value",
-        "increased",
-        "decreased",
-    ]
-    comparable: bool = False
-    reason: str | None = None
-    latest_value: float | None = None
-    previous_value: float | None = None
-    latest_count: int | None = None
-    previous_count: int | None = None
-    delta: float | None = None
-
-
-class RetailDynamicsAnalysis(FrozenModel):
-    evaluated_at: datetime
-    method_version: str = METHOD_VERSION
-    inputs: ObservationHistory
-    model_valuation: tuple[MetricComparison, ...]
-    analyst_rating: MetricComparison

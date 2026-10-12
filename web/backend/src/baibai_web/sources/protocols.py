@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import date
+from datetime import date, datetime
 from typing import Protocol
 
 from baibai_engine.read_api import PortfolioSnapshot
+from baibai_engine.read_api.external_assessment import ExternalAssessment
 from baibai_web.sources.types import (
     PositionReviewSummary,
     ResearchRevision,
@@ -14,6 +15,11 @@ from baibai_web.sources.types import (
     TaskRecord,
     ThesisDetail,
 )
+
+
+class ExternalAssessmentSource(Protocol):
+    def assessment(self, ticker: str, *, cutoff: datetime) -> ExternalAssessment: ...
+    def observed_tickers(self, *, cutoff: datetime) -> list[str]: ...
 
 
 class LedgerSource(Protocol):

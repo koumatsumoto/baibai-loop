@@ -42,6 +42,11 @@ from baibai_engine.read_api import (
     task_store_exists,
     thesis_publication,
 )
+from baibai_engine.read_api.external_assessment import (
+    ExternalAssessment,
+    external_assessment,
+    observed_tickers,
+)
 from baibai_engine.read_api.market_context import (
     latest_macro_context_payload,
     list_macro_context_payloads,
@@ -469,3 +474,14 @@ def _mapping(value: object, *, label: str) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
         raise ValueError(f"{label} must be an object")
     return value
+
+
+class DbExternalAssessmentSource:
+    def __init__(self, path: Path) -> None:
+        self._path = path.resolve()
+
+    def assessment(self, ticker: str, *, cutoff: datetime) -> ExternalAssessment:
+        return external_assessment(self._path, ticker=ticker, cutoff=cutoff, evaluated_at=cutoff)
+
+    def observed_tickers(self, *, cutoff: datetime) -> list[str]:
+        return observed_tickers(self._path, cutoff=cutoff)

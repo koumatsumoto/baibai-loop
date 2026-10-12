@@ -227,6 +227,7 @@ forbidden_modules = [
   "baibai_engine.screening",
   "baibai_engine.valuation",
   "baibai_engine.market_context",
+  "baibai_engine.external_assessment",
   "baibai_engine.position",
 ]
 
@@ -240,6 +241,7 @@ forbidden_modules = [
   "baibai_engine.screening",
   "baibai_engine.valuation",
   "baibai_engine.market_context",
+  "baibai_engine.external_assessment",
   "baibai_engine.macro",
   "baibai_engine.position",
   "baibai_engine.market",
@@ -258,6 +260,7 @@ forbidden_modules = [
   "baibai_engine.screening",
   "baibai_engine.valuation",
   "baibai_engine.market_context",
+  "baibai_engine.external_assessment",
   "baibai_engine.position",
   "baibai_engine.research",
   "baibai_engine.read_api",
@@ -273,6 +276,7 @@ forbidden_modules = [
   "baibai_engine.screening",
   "baibai_engine.valuation",
   "baibai_engine.market_context",
+  "baibai_engine.external_assessment",
   "baibai_engine.position",
   "baibai_engine.research",
   "baibai_engine.read_api",
@@ -286,6 +290,7 @@ forbidden_modules = [
   "baibai_engine.screening",
   "baibai_engine.valuation",
   "baibai_engine.market_context",
+  "baibai_engine.external_assessment",
   "baibai_engine.macro",
   "baibai_engine.position",
 ]
@@ -319,6 +324,7 @@ source_modules = [
   "baibai_engine.screening",
   "baibai_engine.valuation",
   "baibai_engine.market_context",
+  "baibai_engine.external_assessment",
   "baibai_engine.position",
 ]
 forbidden_modules = ["baibai_engine.research"]
@@ -358,6 +364,7 @@ source_modules = [
   "baibai_engine.screening",
   "baibai_engine.valuation",
   "baibai_engine.market_context",
+  "baibai_engine.external_assessment",
   "baibai_engine.position",
   "baibai_engine.research",
 ]
@@ -379,6 +386,7 @@ forbidden_modules = [
   "baibai_engine.screening",
   "baibai_engine.valuation",
   "baibai_engine.market_context",
+  "baibai_engine.external_assessment",
   "baibai_engine.tasks",
 ]
 allow_indirect_imports = true
@@ -409,6 +417,7 @@ forbidden_modules = [
   "baibai_engine.screening",
   "baibai_engine.valuation",
   "baibai_engine.market_context",
+  "baibai_engine.external_assessment",
   "baibai_engine.tasks",
   "baibai_web",
   "tools",
@@ -449,8 +458,6 @@ type = "forbidden"
 source_modules = ["baibai_engine.market.retail_dynamics.contract", "baibai_engine.market.retail_dynamics.models"]
 forbidden_modules = [
   "baibai_engine.market.retail_dynamics.store",
-  "baibai_engine.market.retail_dynamics.reader",
-  "baibai_engine.market.retail_dynamics.analysis",
   "baibai_engine.market.retail_dynamics.collection",
   "baibai_engine.market.retail_dynamics.sources",
   "baibai_engine.market.retail_dynamics.cli",
@@ -459,9 +466,9 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "retail dynamics read facade cannot acquire or write"
+name = "external assessment read facade cannot acquire or write"
 type = "forbidden"
-source_modules = ["baibai_engine.read_api.retail_dynamics"]
+source_modules = ["baibai_engine.read_api.external_assessment"]
 forbidden_modules = [
   "baibai_engine.market.retail_dynamics.sources",
   "baibai_engine.market.retail_dynamics.collection",
@@ -470,17 +477,14 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "retail dynamics observations do not enter investment decisions"
+name = "external acquisition does not enter investment decisions"
 type = "forbidden"
 source_modules = ["baibai_engine.screening", "baibai_engine.position", "baibai_engine.research"]
 forbidden_modules = [
   "baibai_engine.market.retail_dynamics.sources",
   "baibai_engine.market.retail_dynamics.collection",
   "baibai_engine.market.retail_dynamics.store",
-  "baibai_engine.market.retail_dynamics.reader",
-  "baibai_engine.market.retail_dynamics.analysis",
   "baibai_engine.market.retail_dynamics.cli",
-  "baibai_engine.read_api.retail_dynamics",
 ]
 
 [[tool.importlinter.contracts]]
@@ -490,6 +494,7 @@ source_modules = ["baibai_engine.valuation"]
 forbidden_modules = [
   "baibai_engine.screening", "baibai_engine.research", "baibai_engine.read_api",
   "baibai_engine.market_context",
+  "baibai_engine.external_assessment",
   "baibai_engine.market", "baibai_engine.macro", "baibai_engine.position",
   "baibai_engine.appdb", "baibai_engine.tasks",
 ]
@@ -513,3 +518,17 @@ source_modules = ["baibai_engine.macro.indicators"]
 forbidden_modules = ["baibai_engine.market_context"]
 # Public macro CLI dispatch composes L1 commands with the read-only L2 entry.
 ignore_imports = ["baibai_engine.macro.indicators.cli -> baibai_engine.macro.reading.cli"]
+
+[[tool.importlinter.contracts]]
+name = "external assessment reads sources without reverse domain or acquisition dependencies"
+type = "forbidden"
+source_modules = ["baibai_engine.external_assessment"]
+forbidden_modules = [
+  "baibai_engine.research", "baibai_engine.screening", "baibai_engine.position",
+  "baibai_engine.valuation", "baibai_engine.market_context", "baibai_engine.read_api",
+  "baibai_engine.market.retail_dynamics.collection", "baibai_engine.market.retail_dynamics.store",
+  "baibai_engine.market.retail_dynamics.sources", "baibai_engine.market.retail_dynamics.cli",
+  "baibai_engine.market.tradingview.collector", "baibai_engine.market.tradingview.accepted",
+]
+# Only the explicitly invoked public CLI composes existing L1 acquisition commands.
+ignore_imports = ["baibai_engine.external_assessment.cli -> baibai_engine.market.retail_dynamics.cli"]

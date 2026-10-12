@@ -10,7 +10,7 @@ import re
 import sqlite3
 from collections.abc import Callable
 from contextlib import closing
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -61,6 +61,8 @@ _DECLARED_OUTSIDE_THE_SWEEP = frozenset(
 )
 
 _ARGUMENTS: dict[str, object] = {
+    "cutoff": datetime(2026, 7, 29, tzinfo=UTC),
+    "evaluated_at": datetime(2026, 7, 29, tzinfo=UTC),
     "after": date(2026, 7, 28),
     "as_of": date(2026, 7, 29),
     "asof": date(2026, 7, 29),

@@ -26,6 +26,7 @@ status: active
 | 機械ER/FV、保存済み照会、valuation指標と入力basis | [valuation-metrics](./valuation-metrics.md) |
 | Candidate Discovery・Review Set・Triage | [screening-runtime](./screening-runtime.md) |
 | Market Context、市場/個別相対、Macro観測・Reading・Context | [macro](./macro.md) |
+| 外部参考評価・原評価元・尺度・欠測 | [data-sources](./data-sources.md#external-assessment)・[保存済み照会](./market-lake.md#retail-dynamics-query) |
 | 情報源の選択と取得失敗 | [data-sources](./data-sources.md) |
 | 信用残高の公表制度変更と移行 | [margin-publication-transition](./margin-publication-transition.md) |
 | lakeの公開・固定release・hydrate・保持 | [market-lake](./market-lake.md) |

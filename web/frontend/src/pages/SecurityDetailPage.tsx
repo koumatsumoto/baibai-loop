@@ -16,6 +16,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { LABEL } from '../lib/labels'
 import { cn } from '../lib/utils'
 
+import { ExternalAssessmentSection } from './stocks/ExternalAssessmentSection'
+
 function Field({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
   return (
     <div className={cn('grid gap-1', className)}>
@@ -110,6 +112,8 @@ export function SecurityDetailPage() {
       title={<span className="font-mono">{data.ticker}</span>}
       width="reading"
     >
+      <ExternalAssessmentSection assessment={data.external_assessment} />
+
       {data.holding && (
         <SectionCard description="portfolio ledger" meta={<AsOfBadge value={data.holding.market_price_as_of} />} padded title="現在の保有">
           <>

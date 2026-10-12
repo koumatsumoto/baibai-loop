@@ -24,6 +24,7 @@ from baibai_engine.read_api import (
 from baibai_web.repository_layout import MACRO_PANEL_CONFIG_PATH
 from baibai_web.sources.calibration_context import load_er_level_calibration_context
 from baibai_web.sources.db_sources import (
+    DbExternalAssessmentSource,
     DbLedgerSource,
     DbMacroSource,
     DbMarketPriceSource,
@@ -41,6 +42,7 @@ from baibai_web.sources.types import ErLevelCalibrationContext, MacroGroupConfig
 class Sources:
     """DB-backed application sources wired for one repository root."""
 
+    external_assessment: DbExternalAssessmentSource
     ledger: DbLedgerSource
     research: DbResearchSource
     tasks: DbTaskSource
@@ -84,6 +86,7 @@ def build_sources(
     validate_application_store_schema(resolved_db)
     validate_market_store_schema(resolved_market)
     return Sources(
+        external_assessment=DbExternalAssessmentSource(resolved_market),
         ledger=DbLedgerSource(resolved_db, resolved_market),
         research=DbResearchSource(resolved_db),
         tasks=DbTaskSource(resolved_db),

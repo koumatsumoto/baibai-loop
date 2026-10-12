@@ -227,6 +227,7 @@ def create_app(
             sources.research,
             sources.screening,
             sources.market,
+            external_assessment=sources.external_assessment,
         )
         if view is None:
             raise HTTPException(status_code=404, detail="unknown ticker")

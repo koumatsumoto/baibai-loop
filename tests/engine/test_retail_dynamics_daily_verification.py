@@ -11,6 +11,7 @@ import pytest
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.r2_store import MemoryR2Store
 
+from baibai_engine.external_assessment.reader import read_observations
 from baibai_engine.market.lake.duck import lake_session
 from baibai_engine.market.lake.keys import current_l1_pointer_key
 from baibai_engine.market.lake.models import canonical_lake_model_bytes
@@ -27,7 +28,6 @@ from baibai_engine.market.retail_dynamics.models import (
     AnalystRatingObservation,
     ModelValuationObservation,
 )
-from baibai_engine.market.retail_dynamics.reader import read_observations
 from baibai_engine.market.retail_dynamics.store import save_observations
 from baibai_engine.market.retail_dynamics.universe import frozen_lake_universe, frozen_universe
 from baibai_engine.market.retail_dynamics.verification import history_digests, verify_observations
@@ -519,10 +519,10 @@ def test_actual_receipt_readback_preserves_latest_null_and_both_previous_histori
     before = hashlib.sha256(database.read_bytes()).hexdigest()
     verify_observations(database, [old_model, old_rating, missing_model, missing_rating])
     history = read_observations(database, "7203", latest_at)
-    assert history.model_valuation.latest == missing_model
-    assert history.model_valuation.previous == old_model
-    assert history.analyst_rating.latest == missing_rating
-    assert history.analyst_rating.previous == old_rating
+    assert history.model_valuations[0].latest == missing_model
+    assert history.model_valuations[0].previous == old_model
+    assert history.analyst_ratings[0].latest == missing_rating
+    assert history.analyst_ratings[0].previous == old_rating
     assert hashlib.sha256(database.read_bytes()).hexdigest() == before
 
 

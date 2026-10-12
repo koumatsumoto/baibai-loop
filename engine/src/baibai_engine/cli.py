@@ -44,9 +44,9 @@ class Domain:
 # 各 domain が「何を読んで何を書くか」。`--help` は AGENTS.md の停止条件なので、
 # domain の役割はここから 1 行で読める必要がある。
 DOMAINS: Mapping[str, Domain] = {
-    "retail-dynamics": Domain(
-        module="baibai_engine.market.retail_dynamics.cli",
-        summary="bounded public broker observations and explicit local stage import",
+    "external-assessment": Domain(
+        module="baibai_engine.external_assessment.cli",
+        summary="saved external assessments, bounded acquisition and explicit local stage import",
     ),
     "tradingview": Domain(
         module="baibai_engine.market.tradingview.cli",

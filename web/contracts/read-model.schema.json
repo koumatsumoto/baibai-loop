@@ -106,6 +106,217 @@
       "title": "AllocationAlternativeView",
       "type": "object"
     },
+    "AnalystRatingAssessment": {
+      "additionalProperties": false,
+      "properties": {
+        "inputs": {
+          "$ref": "#/$defs/AnalystRatingHistory"
+        },
+        "comparison": {
+          "$ref": "#/$defs/MetricComparison"
+        }
+      },
+      "required": [
+        "inputs",
+        "comparison"
+      ],
+      "title": "AnalystRatingAssessment",
+      "type": "object"
+    },
+    "AnalystRatingHistory": {
+      "additionalProperties": false,
+      "properties": {
+        "latest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AnalystRatingObservation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "previous": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AnalystRatingObservation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "AnalystRatingHistory",
+      "type": "object",
+      "required": [
+        "latest",
+        "previous"
+      ]
+    },
+    "AnalystRatingObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "fetched_at_utc": {
+          "format": "date-time",
+          "title": "Fetched At Utc",
+          "type": "string"
+        },
+        "snapshot_date": {
+          "format": "date",
+          "title": "Snapshot Date",
+          "type": "string"
+        },
+        "distributor": {
+          "minLength": 1,
+          "title": "Distributor",
+          "type": "string"
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Origin"
+        },
+        "source_url": {
+          "minLength": 1,
+          "title": "Source Url",
+          "type": "string"
+        },
+        "parser_version": {
+          "minLength": 1,
+          "title": "Parser Version",
+          "type": "string"
+        },
+        "contract_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Contract Version",
+          "type": "string"
+        },
+        "rating": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rating"
+        },
+        "rating_scale_min": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rating Scale Min"
+        },
+        "rating_scale_max": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rating Scale Max"
+        },
+        "rating_scale_direction": {
+          "anyOf": [
+            {
+              "enum": [
+                "higher_is_positive",
+                "lower_is_positive"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rating Scale Direction"
+        },
+        "rating_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rating Count"
+        },
+        "rating_updated_at_utc": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rating Updated At Utc"
+        },
+        "rating_updated_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rating Updated Label"
+        }
+      },
+      "required": [
+        "ticker",
+        "fetched_at_utc",
+        "snapshot_date",
+        "distributor",
+        "origin",
+        "source_url",
+        "parser_version",
+        "contract_version",
+        "rating",
+        "rating_scale_min",
+        "rating_scale_max",
+        "rating_scale_direction",
+        "rating_count",
+        "rating_updated_at_utc",
+        "rating_updated_label"
+      ],
+      "title": "AnalystRatingObservation",
+      "type": "object"
+    },
     "AssessmentReviewView": {
       "properties": {
         "attempt": {
@@ -808,6 +1019,74 @@
         "n"
       ],
       "title": "ErLevelCalibrationStatsView",
+      "type": "object"
+    },
+    "ExternalAssessment": {
+      "additionalProperties": false,
+      "properties": {
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "cutoff": {
+          "format": "date-time",
+          "title": "Cutoff",
+          "type": "string"
+        },
+        "evaluated_at": {
+          "format": "date-time",
+          "title": "Evaluated At",
+          "type": "string"
+        },
+        "method_version": {
+          "default": "same-series-v2",
+          "title": "Method Version",
+          "type": "string"
+        },
+        "model_valuations": {
+          "items": {
+            "$ref": "#/$defs/ModelValuationAssessment"
+          },
+          "title": "Model Valuations",
+          "type": "array"
+        },
+        "analyst_ratings": {
+          "items": {
+            "$ref": "#/$defs/AnalystRatingAssessment"
+          },
+          "title": "Analyst Ratings",
+          "type": "array"
+        },
+        "quants_scores": {
+          "items": {
+            "$ref": "#/$defs/QuantsScoreAssessment"
+          },
+          "title": "Quants Scores",
+          "type": "array"
+        },
+        "tradingview": {
+          "$ref": "#/$defs/TradingViewAssessment"
+        },
+        "origin_groups": {
+          "items": {
+            "$ref": "#/$defs/OriginGroup"
+          },
+          "title": "Origin Groups",
+          "type": "array"
+        }
+      },
+      "required": [
+        "ticker",
+        "cutoff",
+        "evaluated_at",
+        "method_version",
+        "model_valuations",
+        "analyst_ratings",
+        "quants_scores",
+        "tradingview",
+        "origin_groups"
+      ],
+      "title": "ExternalAssessment",
       "type": "object"
     },
     "HoldingDeltaView": {
@@ -2518,6 +2797,597 @@
       "title": "MetaView",
       "type": "object"
     },
+    "MetricComparison": {
+      "additionalProperties": false,
+      "properties": {
+        "metric": {
+          "title": "Metric",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "not_observed",
+            "first_observation",
+            "missing",
+            "recovered",
+            "count_changed",
+            "not_comparable",
+            "same_value",
+            "increased",
+            "decreased"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "comparable": {
+          "default": false,
+          "title": "Comparable",
+          "type": "boolean"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "latest_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latest Value"
+        },
+        "previous_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Previous Value"
+        },
+        "latest_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latest Count"
+        },
+        "previous_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Previous Count"
+        },
+        "delta": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Delta"
+        }
+      },
+      "required": [
+        "metric",
+        "state",
+        "comparable",
+        "reason",
+        "latest_value",
+        "previous_value",
+        "latest_count",
+        "previous_count",
+        "delta"
+      ],
+      "title": "MetricComparison",
+      "type": "object"
+    },
+    "ModelValuationAssessment": {
+      "additionalProperties": false,
+      "properties": {
+        "inputs": {
+          "$ref": "#/$defs/ModelValuationHistory"
+        },
+        "comparisons": {
+          "items": {
+            "$ref": "#/$defs/MetricComparison"
+          },
+          "title": "Comparisons",
+          "type": "array"
+        }
+      },
+      "required": [
+        "inputs",
+        "comparisons"
+      ],
+      "title": "ModelValuationAssessment",
+      "type": "object"
+    },
+    "ModelValuationHistory": {
+      "additionalProperties": false,
+      "properties": {
+        "latest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelValuationObservation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "previous": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelValuationObservation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "ModelValuationHistory",
+      "type": "object",
+      "required": [
+        "latest",
+        "previous"
+      ]
+    },
+    "ModelValuationObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "fetched_at_utc": {
+          "format": "date-time",
+          "title": "Fetched At Utc",
+          "type": "string"
+        },
+        "snapshot_date": {
+          "format": "date",
+          "title": "Snapshot Date",
+          "type": "string"
+        },
+        "distributor": {
+          "minLength": 1,
+          "title": "Distributor",
+          "type": "string"
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Origin"
+        },
+        "source_url": {
+          "minLength": 1,
+          "title": "Source Url",
+          "type": "string"
+        },
+        "parser_version": {
+          "minLength": 1,
+          "title": "Parser Version",
+          "type": "string"
+        },
+        "contract_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Contract Version",
+          "type": "string"
+        },
+        "consensus_target": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Consensus Target"
+        },
+        "per_company_forecast": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Per Company Forecast"
+        },
+        "per_consensus": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Per Consensus"
+        },
+        "pbr": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pbr"
+        },
+        "currency": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Currency"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        },
+        "share_basis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Share Basis"
+        },
+        "consensus_target_origin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Consensus Target Origin"
+        },
+        "consensus_target_period": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Consensus Target Period"
+        },
+        "consensus_target_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Consensus Target Count"
+        },
+        "consensus_target_updated_at_utc": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Consensus Target Updated At Utc"
+        },
+        "consensus_target_updated_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Consensus Target Updated Label"
+        },
+        "per_company_forecast_origin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Per Company Forecast Origin"
+        },
+        "per_company_forecast_period": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Per Company Forecast Period"
+        },
+        "per_company_forecast_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Per Company Forecast Count"
+        },
+        "per_company_forecast_updated_at_utc": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Per Company Forecast Updated At Utc"
+        },
+        "per_company_forecast_updated_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Per Company Forecast Updated Label"
+        },
+        "per_consensus_origin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Per Consensus Origin"
+        },
+        "per_consensus_period": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Per Consensus Period"
+        },
+        "per_consensus_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Per Consensus Count"
+        },
+        "per_consensus_updated_at_utc": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Per Consensus Updated At Utc"
+        },
+        "per_consensus_updated_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Per Consensus Updated Label"
+        },
+        "pbr_origin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pbr Origin"
+        },
+        "pbr_period": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pbr Period"
+        },
+        "pbr_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pbr Count"
+        },
+        "pbr_updated_at_utc": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pbr Updated At Utc"
+        },
+        "pbr_updated_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pbr Updated Label"
+        }
+      },
+      "required": [
+        "ticker",
+        "fetched_at_utc",
+        "snapshot_date",
+        "distributor",
+        "origin",
+        "source_url",
+        "parser_version",
+        "contract_version",
+        "consensus_target",
+        "per_company_forecast",
+        "per_consensus",
+        "pbr",
+        "currency",
+        "unit",
+        "share_basis",
+        "consensus_target_origin",
+        "consensus_target_period",
+        "consensus_target_count",
+        "consensus_target_updated_at_utc",
+        "consensus_target_updated_label",
+        "per_company_forecast_origin",
+        "per_company_forecast_period",
+        "per_company_forecast_count",
+        "per_company_forecast_updated_at_utc",
+        "per_company_forecast_updated_label",
+        "per_consensus_origin",
+        "per_consensus_period",
+        "per_consensus_count",
+        "per_consensus_updated_at_utc",
+        "per_consensus_updated_label",
+        "pbr_origin",
+        "pbr_period",
+        "pbr_count",
+        "pbr_updated_at_utc",
+        "pbr_updated_label"
+      ],
+      "title": "ModelValuationObservation",
+      "type": "object"
+    },
     "OperationSessionView": {
       "properties": {
         "operation_id": {
@@ -2606,6 +3476,63 @@
         "outcomes"
       ],
       "title": "OperationsView",
+      "type": "object"
+    },
+    "OriginGroup": {
+      "additionalProperties": false,
+      "properties": {
+        "origin": {
+          "title": "Origin",
+          "type": "string"
+        },
+        "references": {
+          "items": {
+            "$ref": "#/$defs/OriginReference"
+          },
+          "title": "References",
+          "type": "array"
+        }
+      },
+      "required": [
+        "origin",
+        "references"
+      ],
+      "title": "OriginGroup",
+      "type": "object"
+    },
+    "OriginReference": {
+      "additionalProperties": false,
+      "properties": {
+        "distributor": {
+          "title": "Distributor",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "metric": {
+          "title": "Metric",
+          "type": "string"
+        },
+        "fetched_at_utc": {
+          "format": "date-time",
+          "title": "Fetched At Utc",
+          "type": "string"
+        },
+        "source_url": {
+          "title": "Source Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "distributor",
+        "kind",
+        "metric",
+        "fetched_at_utc",
+        "source_url"
+      ],
+      "title": "OriginReference",
       "type": "object"
     },
     "PortfolioOutcomeView": {
@@ -2737,6 +3664,260 @@
         "note"
       ],
       "title": "PositionReviewView",
+      "type": "object"
+    },
+    "QuantsScoreAssessment": {
+      "additionalProperties": false,
+      "properties": {
+        "inputs": {
+          "$ref": "#/$defs/QuantsScoreHistory"
+        },
+        "comparisons": {
+          "items": {
+            "$ref": "#/$defs/MetricComparison"
+          },
+          "title": "Comparisons",
+          "type": "array"
+        }
+      },
+      "required": [
+        "inputs",
+        "comparisons"
+      ],
+      "title": "QuantsScoreAssessment",
+      "type": "object"
+    },
+    "QuantsScoreHistory": {
+      "additionalProperties": false,
+      "properties": {
+        "latest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QuantsScoreObservation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "previous": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QuantsScoreObservation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "QuantsScoreHistory",
+      "type": "object",
+      "required": [
+        "latest",
+        "previous"
+      ]
+    },
+    "QuantsScoreObservation": {
+      "additionalProperties": false,
+      "description": "Provider's quantitative scores; independent of human analyst consensus.",
+      "properties": {
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "fetched_at_utc": {
+          "format": "date-time",
+          "title": "Fetched At Utc",
+          "type": "string"
+        },
+        "snapshot_date": {
+          "format": "date",
+          "title": "Snapshot Date",
+          "type": "string"
+        },
+        "distributor": {
+          "const": "kabumap",
+          "default": "kabumap",
+          "title": "Distributor",
+          "type": "string"
+        },
+        "origin": {
+          "const": "Quants Research",
+          "default": "Quants Research",
+          "title": "Origin",
+          "type": "string"
+        },
+        "source_url": {
+          "minLength": 1,
+          "title": "Source Url",
+          "type": "string"
+        },
+        "parser_version": {
+          "minLength": 1,
+          "title": "Parser Version",
+          "type": "string"
+        },
+        "contract_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Contract Version",
+          "type": "string"
+        },
+        "score_as_of_date": {
+          "format": "date",
+          "title": "Score As Of Date",
+          "type": "string"
+        },
+        "score_scale_max": {
+          "const": 10,
+          "default": 10,
+          "title": "Score Scale Max",
+          "type": "integer"
+        },
+        "composite_scale_max": {
+          "const": 100,
+          "default": 100,
+          "title": "Composite Scale Max",
+          "type": "integer"
+        },
+        "growth_score": {
+          "anyOf": [
+            {
+              "maximum": 10,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Growth Score"
+        },
+        "undervaluation_score": {
+          "anyOf": [
+            {
+              "maximum": 10,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Undervaluation Score"
+        },
+        "size_score": {
+          "anyOf": [
+            {
+              "maximum": 10,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size Score"
+        },
+        "technical_score": {
+          "anyOf": [
+            {
+              "maximum": 10,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Technical Score"
+        },
+        "financial_health_score": {
+          "anyOf": [
+            {
+              "maximum": 10,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Financial Health Score"
+        },
+        "market_trend_score": {
+          "anyOf": [
+            {
+              "maximum": 10,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Market Trend Score"
+        },
+        "composite_score": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Composite Score"
+        },
+        "industry_average_score": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Industry Average Score"
+        }
+      },
+      "required": [
+        "ticker",
+        "fetched_at_utc",
+        "snapshot_date",
+        "distributor",
+        "origin",
+        "source_url",
+        "parser_version",
+        "contract_version",
+        "score_as_of_date",
+        "score_scale_max",
+        "composite_scale_max",
+        "growth_score",
+        "undervaluation_score",
+        "size_score",
+        "technical_score",
+        "financial_health_score",
+        "market_trend_score",
+        "composite_score",
+        "industry_average_score"
+      ],
+      "title": "QuantsScoreObservation",
       "type": "object"
     },
     "ResearchRevisionView": {
@@ -4519,6 +5700,17 @@
     },
     "SecurityDetailView": {
       "properties": {
+        "external_assessment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExternalAssessment"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "ticker": {
           "title": "Ticker",
           "type": "string"
@@ -4601,6 +5793,7 @@
         }
       },
       "required": [
+        "external_assessment",
         "ticker",
         "company_name",
         "sector",
@@ -4765,6 +5958,433 @@
         "projection"
       ],
       "title": "ThesisDetailView",
+      "type": "object"
+    },
+    "TradingViewAssessment": {
+      "additionalProperties": false,
+      "properties": {
+        "inputs": {
+          "$ref": "#/$defs/TradingViewHistory"
+        },
+        "availability": {
+          "enum": [
+            "not_observed",
+            "unresolved",
+            "all_null",
+            "forecast_fields_present"
+          ],
+          "title": "Availability",
+          "type": "string"
+        },
+        "forecast_fields": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Forecast Fields",
+          "type": "array"
+        },
+        "comparisons": {
+          "items": {
+            "$ref": "#/$defs/MetricComparison"
+          },
+          "title": "Comparisons",
+          "type": "array"
+        }
+      },
+      "required": [
+        "inputs",
+        "availability",
+        "forecast_fields",
+        "comparisons"
+      ],
+      "title": "TradingViewAssessment",
+      "type": "object"
+    },
+    "TradingViewHistory": {
+      "additionalProperties": false,
+      "properties": {
+        "latest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TradingViewObservation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "previous": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TradingViewObservation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "TradingViewHistory",
+      "type": "object",
+      "required": [
+        "latest",
+        "previous"
+      ]
+    },
+    "TradingViewObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "snapshot_date": {
+          "format": "date",
+          "title": "Snapshot Date",
+          "type": "string"
+        },
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "provider_symbol": {
+          "title": "Provider Symbol",
+          "type": "string"
+        },
+        "fetched_at_utc": {
+          "format": "date-time",
+          "title": "Fetched At Utc",
+          "type": "string"
+        },
+        "fetch_status": {
+          "enum": [
+            "ok",
+            "unresolved"
+          ],
+          "title": "Fetch Status",
+          "type": "string"
+        },
+        "quote_at_utc": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quote At Utc"
+        },
+        "estimate_currency": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Estimate Currency"
+        },
+        "estimate_unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Estimate Unit"
+        },
+        "provider_updated_at_utc": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider Updated At Utc"
+        },
+        "target_period_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Period Label"
+        },
+        "target_period_end": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Period End"
+        },
+        "analyst_rating": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Analyst Rating"
+        },
+        "recommendation_total": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recommendation Total"
+        },
+        "price_target_average": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Price Target Average"
+        },
+        "price_target_high": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Price Target High"
+        },
+        "price_target_low": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Price Target Low"
+        },
+        "eps_forecast_next_fq": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Eps Forecast Next Fq"
+        },
+        "eps_forecast_next_fy": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Eps Forecast Next Fy"
+        },
+        "revenue_forecast_next_fq": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Revenue Forecast Next Fq"
+        },
+        "revenue_forecast_next_fy": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Revenue Forecast Next Fy"
+        },
+        "forward_pe": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Forward Pe"
+        },
+        "forward_ps": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Forward Ps"
+        },
+        "forward_ev_ebitda": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Forward Ev Ebitda"
+        },
+        "ebitda_estimate_fy": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ebitda Estimate Fy"
+        },
+        "free_cash_flow_estimate_fy": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Free Cash Flow Estimate Fy"
+        },
+        "capex_estimate_fy": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capex Estimate Fy"
+        },
+        "total_debt_estimate_fy": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Debt Estimate Fy"
+        },
+        "quote_close": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quote Close"
+        },
+        "quote_currency": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quote Currency"
+        }
+      },
+      "required": [
+        "snapshot_date",
+        "ticker",
+        "provider_symbol",
+        "fetched_at_utc",
+        "fetch_status",
+        "quote_at_utc",
+        "estimate_currency",
+        "estimate_unit",
+        "provider_updated_at_utc",
+        "target_period_label",
+        "target_period_end",
+        "analyst_rating",
+        "recommendation_total",
+        "price_target_average",
+        "price_target_high",
+        "price_target_low",
+        "eps_forecast_next_fq",
+        "eps_forecast_next_fy",
+        "revenue_forecast_next_fq",
+        "revenue_forecast_next_fy",
+        "forward_pe",
+        "forward_ps",
+        "forward_ev_ebitda",
+        "ebitda_estimate_fy",
+        "free_cash_flow_estimate_fy",
+        "capex_estimate_fy",
+        "total_debt_estimate_fy",
+        "quote_close",
+        "quote_currency"
+      ],
+      "title": "TradingViewObservation",
       "type": "object"
     },
     "UpcomingEventView": {
