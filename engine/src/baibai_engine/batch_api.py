@@ -12,9 +12,102 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from baibai_engine.appdb.paths import database_path
-from baibai_engine.appdb.read import connect_read_only
-from baibai_engine.appdb.schema import APPLICATION_SCHEMA_VERSION
+from baibai_engine.external_assessment.acquisition.cli import (
+    main as external_assessment_acquisition_main,
+)
+from baibai_engine.external_assessment.acquisition.collection import (
+    PARSE_FAILURE_REASONS as external_assessment_parse_failure_reasons,
+)
+from baibai_engine.external_assessment.acquisition.collection import (
+    CollectionOutcome as ExternalAssessmentCollectionOutcome,
+)
+from baibai_engine.external_assessment.acquisition.collection import (
+    CollectionResult as ExternalAssessmentCollectionResult,
+)
+from baibai_engine.external_assessment.acquisition.collection import (
+    HostRateLimiter as ExternalAssessmentHostRateLimiter,
+)
+from baibai_engine.external_assessment.acquisition.collection import (
+    ReceivedHTML as ExternalAssessmentReceivedHTML,
+)
+from baibai_engine.external_assessment.acquisition.collection import (
+    Source as ExternalAssessmentSource,
+)
+from baibai_engine.external_assessment.acquisition.collection import (
+    collect_pair as external_assessment_collect_pair,
+)
+from baibai_engine.external_assessment.acquisition.collection import (
+    collector_binding as external_assessment_collector_binding,
+)
+from baibai_engine.external_assessment.acquisition.collection import (
+    load_staging as external_assessment_load_staging,
+)
+from baibai_engine.external_assessment.acquisition.collection import (
+    save_staging as external_assessment_save_staging,
+)
+from baibai_engine.external_assessment.acquisition.universe import (
+    calendar_master_asof as external_assessment_calendar_master_asof,
+)
+from baibai_engine.external_assessment.acquisition.universe import (
+    frozen_lake_universe as external_assessment_frozen_lake_universe,
+)
+from baibai_engine.external_assessment.acquisition.universe import (
+    frozen_universe as external_assessment_frozen_universe,
+)
+from baibai_engine.external_assessment.acquisition.verification import (
+    history_digests as external_assessment_history_digests,
+)
+from baibai_engine.external_assessment.acquisition.verification import (
+    verify_observations as external_assessment_verify_observations,
+)
+from baibai_engine.external_assessment.acquisition.verification import (
+    verify_release_history as external_assessment_verify_release_history,
+)
+from baibai_engine.external_assessment.observations.identity import (
+    ANALYST_RATING_DATASET as EXTERNAL_ASSESSMENT_ANALYST_RATING_DATASET,
+)
+from baibai_engine.external_assessment.observations.identity import (
+    MODEL_VALUATION_DATASET as EXTERNAL_ASSESSMENT_MODEL_VALUATION_DATASET,
+)
+from baibai_engine.external_assessment.observations.identity import (
+    QUANTS_SCORE_DATASET as EXTERNAL_ASSESSMENT_QUANTS_SCORE_DATASET,
+)
+from baibai_engine.external_assessment.observations.models import (
+    AnalystRatingObservation as ExternalAssessmentAnalystRatingObservation,
+)
+from baibai_engine.external_assessment.observations.models import (
+    ModelValuationObservation as ExternalAssessmentModelValuationObservation,
+)
+from baibai_engine.external_assessment.observations.models import (
+    Observation as ExternalAssessmentObservation,
+)
+from baibai_engine.external_assessment.observations.models import (
+    QuantsScoreObservation as ExternalAssessmentQuantsScoreObservation,
+)
+from baibai_engine.external_assessment.store import (
+    save_observations as external_assessment_save_observations,
+)
+from baibai_engine.external_assessment.tradingview.accepted import (
+    accept_observations as tradingview_accept_observations,
+)
+from baibai_engine.external_assessment.tradingview.accepted import (
+    load_observations as tradingview_load_observations,
+)
+from baibai_engine.external_assessment.tradingview.accepted import (
+    verify_observations as tradingview_verify_observations,
+)
+from baibai_engine.external_assessment.tradingview.collector import (
+    preflight_snapshot as tradingview_preflight,
+)
+from baibai_engine.external_assessment.tradingview.collector import (
+    validate_time as tradingview_validate_time,
+)
+from baibai_engine.external_assessment.tradingview.diagnostics import (
+    failure_line as tradingview_failure_line,
+)
+from baibai_engine.external_assessment.tradingview.diagnostics import (
+    safe_progress as tradingview_safe_progress,
+)
 from baibai_engine.foundation.repository_layout import (
     APPLICATION_DB_PATH,
     CALIBRATION_DIR,
@@ -53,114 +146,6 @@ from baibai_engine.macro.indicators.service import (
     DEFAULT_LATEST_LOOKBACK_DAYS,
     LATEST_FETCH_LOOKBACK_DAYS,
 )
-from baibai_engine.market.lake.datasets import LAKE_DATASETS
-from baibai_engine.market.lake.duck import lake_session
-from baibai_engine.market.lake.hydrate import hydrate_market_store
-from baibai_engine.market.lake.identity import verified_git_commit as lake_verified_git_commit
-from baibai_engine.market.lake.keys import (
-    current_l1_pointer_key as lake_current_l1_pointer_key,
-)
-from baibai_engine.market.lake.keys import dataset_manifest_key as lake_dataset_manifest_key
-from baibai_engine.market.lake.keys import release_manifest_key as lake_release_manifest_key
-from baibai_engine.market.lake.models import DatasetManifest as LakeDatasetManifest
-from baibai_engine.market.lake.models import ReleaseManifest as LakeReleaseManifest
-from baibai_engine.market.lake.models import SQLiteSnapshotSourceRef as LakeSQLiteSnapshotSourceRef
-from baibai_engine.market.lake.models import (
-    canonical_lake_model_bytes,
-    load_lake_model_json,
-)
-from baibai_engine.market.lake.models import validate_release_policy as validate_lake_release_policy
-from baibai_engine.market.lake.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.market.lake.objects import mirror_path as lake_mirror_path
-from baibai_engine.market.lake.reader import FixedRelease as LakeFixedRelease
-from baibai_engine.market.lake.reader import LakeReadError, resolve_release
-from baibai_engine.market.lake.release import L1ReleasePointer
-from baibai_engine.market.lake.release import create_l1_release as create_lake_l1_release
-from baibai_engine.market.lake.writer import (
-    LakeBuildError,
-    LakeBuildReport,
-    export_lake_legacy,
-)
-from baibai_engine.market.retail_dynamics.cli import main as retail_dynamics_main
-from baibai_engine.market.retail_dynamics.collection import (
-    PARSE_FAILURE_REASONS as retail_parse_failure_reasons,
-)
-from baibai_engine.market.retail_dynamics.collection import (
-    CollectionOutcome as RetailCollectionOutcome,
-)
-from baibai_engine.market.retail_dynamics.collection import (
-    CollectionResult as RetailCollectionResult,
-)
-from baibai_engine.market.retail_dynamics.collection import HostRateLimiter as RetailHostRateLimiter
-from baibai_engine.market.retail_dynamics.collection import ReceivedHTML as RetailReceivedHTML
-from baibai_engine.market.retail_dynamics.collection import Source as RetailSource
-from baibai_engine.market.retail_dynamics.collection import collect_pair as retail_collect_pair
-from baibai_engine.market.retail_dynamics.collection import (
-    collector_binding as retail_collector_binding,
-)
-from baibai_engine.market.retail_dynamics.collection import load_staging as retail_load_staging
-from baibai_engine.market.retail_dynamics.collection import save_staging as retail_save_staging
-from baibai_engine.market.retail_dynamics.models import (
-    AnalystRatingObservation as RetailAnalystRatingObservation,
-)
-from baibai_engine.market.retail_dynamics.models import (
-    ModelValuationObservation as RetailModelValuationObservation,
-)
-from baibai_engine.market.retail_dynamics.models import Observation as RetailObservation
-from baibai_engine.market.retail_dynamics.models import (
-    QuantsScoreObservation as RetailQuantsScoreObservation,
-)
-from baibai_engine.market.retail_dynamics.store import save_observations as retail_save_observations
-from baibai_engine.market.retail_dynamics.universe import (
-    calendar_master_asof as retail_calendar_master_asof,
-)
-from baibai_engine.market.retail_dynamics.universe import (
-    frozen_lake_universe as retail_frozen_lake_universe,
-)
-from baibai_engine.market.retail_dynamics.universe import frozen_universe as retail_frozen_universe
-from baibai_engine.market.retail_dynamics.verification import (
-    history_digests as retail_history_digests,
-)
-from baibai_engine.market.retail_dynamics.verification import (
-    verify_observations as retail_verify_observations,
-)
-from baibai_engine.market.retail_dynamics.verification import (
-    verify_release_history as retail_verify_release_history,
-)
-from baibai_engine.market.sqlite import open_connection as open_market_store
-from baibai_engine.market.sqlite.lake_origin import (
-    LakeStoreOrigin,
-    LakeStoreOriginError,
-    advance_lake_store_origin,
-    read_lake_store_origin,
-)
-from baibai_engine.market.sqlite.schema import (
-    SQLITE_SCHEMA_VERSION as MARKET_SCHEMA_VERSION,
-)
-from baibai_engine.market.sqlite.schema import (
-    SQLiteSchemaError as MarketSchemaError,
-)
-from baibai_engine.market.sqlite.schema import (
-    validate_current_schema as validate_market_schema,
-)
-from baibai_engine.market.sqlite.snapshot import create_snapshot as create_market_snapshot
-from baibai_engine.market.tradingview.accepted import (
-    accept_observations as tradingview_accept_observations,
-)
-from baibai_engine.market.tradingview.accepted import (
-    load_observations as tradingview_load_observations,
-)
-from baibai_engine.market.tradingview.accepted import (
-    verify_observations as tradingview_verify_observations,
-)
-from baibai_engine.market.tradingview.collector import (
-    preflight_snapshot as tradingview_preflight,
-)
-from baibai_engine.market.tradingview.collector import (
-    validate_time as tradingview_validate_time,
-)
-from baibai_engine.market.tradingview.diagnostics import failure_line as tradingview_failure_line
-from baibai_engine.market.tradingview.diagnostics import safe_progress as tradingview_safe_progress
 from baibai_engine.market_context.macro import latest_macro_context_payload
 from baibai_engine.research.triage.contracts import (
     ResearchTriage,
@@ -175,6 +160,43 @@ from baibai_engine.research.triage.service import ResearchTriageConflictError, R
 from baibai_engine.screening.discovery.contracts import PublishedReviewSet
 from baibai_engine.screening.run_store import ReviewSetPublication, ScreeningRunReader
 from baibai_engine.screening.run_store.schema import RUN_STORE_SCHEMA_VERSION
+from baibai_engine.storage.application.paths import database_path
+from baibai_engine.storage.application.read import connect_read_only
+from baibai_engine.storage.application.schema import APPLICATION_SCHEMA_VERSION
+from baibai_engine.storage.lake.datasets import LAKE_DATASETS
+from baibai_engine.storage.lake.duck import lake_session
+from baibai_engine.storage.lake.hydrate import hydrate_market_store
+from baibai_engine.storage.lake.identity import verified_git_commit as lake_verified_git_commit
+from baibai_engine.storage.lake.keys import current_l1_pointer_key as lake_current_l1_pointer_key
+from baibai_engine.storage.lake.keys import dataset_manifest_key as lake_dataset_manifest_key
+from baibai_engine.storage.lake.keys import release_manifest_key as lake_release_manifest_key
+from baibai_engine.storage.lake.models import DatasetManifest as LakeDatasetManifest
+from baibai_engine.storage.lake.models import ReleaseManifest as LakeReleaseManifest
+from baibai_engine.storage.lake.models import SQLiteSnapshotSourceRef as LakeSQLiteSnapshotSourceRef
+from baibai_engine.storage.lake.models import canonical_lake_model_bytes, load_lake_model_json
+from baibai_engine.storage.lake.models import (
+    validate_release_policy as validate_lake_release_policy,
+)
+from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.lake.objects import mirror_path as lake_mirror_path
+from baibai_engine.storage.lake.reader import FixedRelease as LakeFixedRelease
+from baibai_engine.storage.lake.reader import LakeReadError, resolve_release
+from baibai_engine.storage.lake.release import L1ReleasePointer
+from baibai_engine.storage.lake.release import create_l1_release as create_lake_l1_release
+from baibai_engine.storage.lake.writer import LakeBuildError, LakeBuildReport, export_lake_legacy
+from baibai_engine.storage.observations import open_connection as open_market_store
+from baibai_engine.storage.observations.lake_origin import (
+    LakeStoreOrigin,
+    LakeStoreOriginError,
+    advance_lake_store_origin,
+    read_lake_store_origin,
+)
+from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION as MARKET_SCHEMA_VERSION
+from baibai_engine.storage.observations.schema import SQLiteSchemaError as MarketSchemaError
+from baibai_engine.storage.observations.schema import (
+    validate_current_schema as validate_market_schema,
+)
+from baibai_engine.storage.observations.snapshot import create_snapshot as create_market_snapshot
 
 
 class DailyTriageDecision(BaseModel):
@@ -418,6 +440,9 @@ __all__ = [
     "CALIBRATION_DIR",
     "DEFAULT_LATEST_LOOKBACK_DAYS",
     "DEFAULT_MACRO_DB_PATH",
+    "EXTERNAL_ASSESSMENT_ANALYST_RATING_DATASET",
+    "EXTERNAL_ASSESSMENT_MODEL_VALUATION_DATASET",
+    "EXTERNAL_ASSESSMENT_QUANTS_SCORE_DATASET",
     "LAKE_DATASETS",
     "LATEST_FETCH_LOOKBACK_DAYS",
     "MACRO_CONTEXT_SCHEMA_VERSION",
@@ -430,6 +455,15 @@ __all__ = [
     "RUN_STORE_SCHEMA_VERSION",
     "DailyAnalysisContext",
     "DailyTriageDecision",
+    "ExternalAssessmentAnalystRatingObservation",
+    "ExternalAssessmentCollectionOutcome",
+    "ExternalAssessmentCollectionResult",
+    "ExternalAssessmentHostRateLimiter",
+    "ExternalAssessmentModelValuationObservation",
+    "ExternalAssessmentObservation",
+    "ExternalAssessmentQuantsScoreObservation",
+    "ExternalAssessmentReceivedHTML",
+    "ExternalAssessmentSource",
     "IndicatorDefinitions",
     "IndicatorsSchemaError",
     "L1ReleasePointer",
@@ -448,15 +482,6 @@ __all__ = [
     "MarketSchemaError",
     "PublishedReviewSet",
     "ResearchTriage",
-    "RetailAnalystRatingObservation",
-    "RetailCollectionOutcome",
-    "RetailCollectionResult",
-    "RetailHostRateLimiter",
-    "RetailModelValuationObservation",
-    "RetailObservation",
-    "RetailQuantsScoreObservation",
-    "RetailReceivedHTML",
-    "RetailSource",
     "ReviewSetEntrySnapshot",
     "StoreLayoutError",
     "advance_lake_store_origin",
@@ -467,6 +492,19 @@ __all__ = [
     "create_market_snapshot",
     "database_path",
     "export_lake_legacy",
+    "external_assessment_acquisition_main",
+    "external_assessment_calendar_master_asof",
+    "external_assessment_collect_pair",
+    "external_assessment_collector_binding",
+    "external_assessment_frozen_lake_universe",
+    "external_assessment_frozen_universe",
+    "external_assessment_history_digests",
+    "external_assessment_load_staging",
+    "external_assessment_parse_failure_reasons",
+    "external_assessment_save_observations",
+    "external_assessment_save_staging",
+    "external_assessment_verify_observations",
+    "external_assessment_verify_release_history",
     "hydrate_market_store",
     "lake_current_l1_pointer_key",
     "lake_dataset_manifest_key",
@@ -486,19 +524,6 @@ __all__ = [
     "reject_noncanonical_store_paths",
     "repository_root_error",
     "resolve_release",
-    "retail_calendar_master_asof",
-    "retail_collect_pair",
-    "retail_collector_binding",
-    "retail_dynamics_main",
-    "retail_frozen_lake_universe",
-    "retail_frozen_universe",
-    "retail_history_digests",
-    "retail_load_staging",
-    "retail_parse_failure_reasons",
-    "retail_save_observations",
-    "retail_save_staging",
-    "retail_verify_observations",
-    "retail_verify_release_history",
     "scorecard_series_ids",
     "tradingview_accept_observations",
     "tradingview_failure_line",

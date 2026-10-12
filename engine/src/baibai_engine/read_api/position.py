@@ -7,7 +7,6 @@ from collections.abc import Mapping
 from contextlib import closing
 from pathlib import Path
 
-from baibai_engine.appdb.read import connect_read_only
 from baibai_engine.position.ledger import (
     PortfolioLedgerDocument,
     PortfolioLedgerError,
@@ -20,6 +19,7 @@ from baibai_engine.position.valuation import current_portfolio
 from baibai_engine.read_api.sqlite import (
     read_application_rows as read_rows,
 )
+from baibai_engine.storage.application.read import connect_read_only
 
 __all__ = [
     "PortfolioLedgerError",
@@ -66,8 +66,8 @@ def ledger_rows(
     after: list[str | int | float] | None = None,
     limit: int = 1,
 ) -> list[dict[str, object]]:
-    from baibai_engine.appdb.read import connect_read_only
     from baibai_engine.position.ledger_read import stored_ledger_rows
+    from baibai_engine.storage.application.read import connect_read_only
 
     from .stored import required_read
 

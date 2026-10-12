@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from baibai_engine.market.sqlite.schema import open_connection
 from baibai_engine.read_api.market import (
     close_change_since,
     latest_disclosure_dates_after,
@@ -12,6 +11,7 @@ from baibai_engine.read_api.market import (
     previous_business_day,
     worst_close_drawdown,
 )
+from baibai_engine.storage.observations.schema import open_connection
 
 
 def _seed_bars(path: Path, rows: list[tuple[str, str, float | None]]) -> None:

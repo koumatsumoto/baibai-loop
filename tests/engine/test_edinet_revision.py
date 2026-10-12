@@ -23,17 +23,21 @@ _ENGINE_ROOT = Path(__file__).resolve().parents[2] / "engine/src/baibai_engine"
 # disappearing from the extraction path visible: the manifest decides when a reusable
 # EDINET metric baseline is thrown away, so it must not drift silently in either
 # direction. Every entry can change what an EDINET metric row says.
-_EXPECTED_MANIFEST = (
-    "market/edinet_metrics/revision.py",
-    "market/edinet_metrics/service.py",
-    "market/edinet_metrics/store.py",
-    "market/metric_quality.py",
-    "market/providers/edinet.py",
-    "market/providers/edinet_csv.py",
-    "market/sqlite/convert.py",
-    "market/sqlite/ingest/edinet.py",
-    "market/sqlite/snapshot_coverage.py",
-    "market/ticker.py",
+_EXPECTED_MANIFEST = tuple(
+    sorted(
+        (
+            "market/edinet_metrics/revision.py",
+            "market/edinet_metrics/service.py",
+            "market/edinet_metrics/store.py",
+            "market/metric_quality.py",
+            "market/providers/edinet.py",
+            "market/providers/edinet_csv.py",
+            "storage/observations/convert.py",
+            "storage/observations/ingest/edinet.py",
+            "storage/observations/snapshot_coverage.py",
+            "market/ticker.py",
+        )
+    )
 )
 
 # What the extraction reaches *outside* the tracked prefixes. Importing the entry also
@@ -53,10 +57,10 @@ _EXPECTED_MANIFEST = (
 # manifest: the closure would then reach a fifth module and this test fails.
 _UNTRACKED_REACHED_MODULES = frozenset(
     {
-        "baibai_engine.market.sqlite.readiness",
-        "baibai_engine.market.sqlite",
-        "baibai_engine.market.sqlite.coverage",
-        "baibai_engine.market.sqlite.schema",
+        "baibai_engine.storage.observations.readiness",
+        "baibai_engine.storage.observations",
+        "baibai_engine.storage.observations.coverage",
+        "baibai_engine.storage.observations.schema",
     }
 )
 
@@ -90,9 +94,9 @@ _UNREFERENCED_ARTIFACTS = (
     "market/providers/jquants_decode.py",
     "market/jpx_sources.py",
     "market/master_snapshot.py",
-    "market/sqlite/ingest/jpx.py",
-    "market/sqlite/ingest/jquants.py",
-    "market/sqlite/reader.py",
+    "storage/observations/ingest/jpx.py",
+    "storage/observations/ingest/jquants.py",
+    "storage/observations/reader.py",
     # Coverage verification, which reports what the store holds without producing rows.
     "screening/sqlite_coverage/core.py",
     "screening/sqlite_coverage/jpx.py",
@@ -139,11 +143,11 @@ def test_manifest_excludes_the_commands_that_share_the_cli_with_the_extraction()
     for artifact in (
         "screening/cli/cache.py",
         "screening/cli/providers.py",
-        "market/sqlite/reader.py",
+        "storage/observations/reader.py",
         "market/providers/jpx.py",
         "market/providers/jquants.py",
         "market/providers/jquants_decode.py",
-        "market/sqlite/ingest/jpx.py",
+        "storage/observations/ingest/jpx.py",
         "screening/sqlite_coverage/core.py",
         "screening/metrics/snapshot.py",
         "screening/schema.py",
@@ -156,7 +160,7 @@ def test_manifest_excludes_the_commands_that_share_the_cli_with_the_extraction()
     for artifact in (
         "market/providers/edinet.py",
         "market/providers/edinet_csv.py",
-        "market/sqlite/ingest/edinet.py",
+        "storage/observations/ingest/edinet.py",
         "market/edinet_metrics/store.py",
         "market/metric_quality.py",
     ):
@@ -198,7 +202,7 @@ def test_extractor_revision_changes_when_any_manifest_artifact_changes() -> None
 
 
 @pytest.mark.parametrize(
-    "artifact", ["market/providers/jquants_decode.py", "market/sqlite/readiness.py"]
+    "artifact", ["market/providers/jquants_decode.py", "storage/observations/readiness.py"]
 )
 def test_unrelated_source_bytes_do_not_change_revision(
     artifact: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

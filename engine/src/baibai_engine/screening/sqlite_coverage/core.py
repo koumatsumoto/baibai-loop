@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from datetime import date, timedelta
 from pathlib import Path
 
-from baibai_engine.market.sqlite import (
+from baibai_engine.storage.observations import (
     SQLITE_SCHEMA_VERSION,
     SQLiteSchemaError,
     daily_bars_covered_by_data,

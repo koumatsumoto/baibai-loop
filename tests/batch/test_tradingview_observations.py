@@ -15,10 +15,13 @@ from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_batch.jobs.tradingview_observations import DATASET, main, publish_and_verify, stage
 from baibai_batch.storage import publish_market_lake as publisher
-from baibai_engine.market.lake.duck import lake_session
-from baibai_engine.market.lake.hydrate import dehydrate_market_store, hydrate_market_store
-from baibai_engine.market.lake.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.market.tradingview.accepted import accept_observations, load_observations
+from baibai_engine.external_assessment.tradingview.accepted import (
+    accept_observations,
+    load_observations,
+)
+from baibai_engine.storage.lake.duck import lake_session
+from baibai_engine.storage.lake.hydrate import dehydrate_market_store, hydrate_market_store
+from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
 
 WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/cloud-tradingview-snapshot.yml"
 

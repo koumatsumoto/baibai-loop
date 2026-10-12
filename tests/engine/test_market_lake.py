@@ -12,16 +12,16 @@ from pydantic import ValidationError
 from tests.helpers.lake_policy import narrow_release_policy
 
 from baibai_engine.cli import DOMAINS
-from baibai_engine.market.lake import models as lake_models
-from baibai_engine.market.lake.cli import main as lake_main
-from baibai_engine.market.lake.inventory import inventory
-from baibai_engine.market.lake.keys import (
+from baibai_engine.storage.lake import models as lake_models
+from baibai_engine.storage.lake.cli import main as lake_main
+from baibai_engine.storage.lake.inventory import inventory
+from baibai_engine.storage.lake.keys import (
     canonical_object_key,
     current_l1_pointer_key,
     dataset_manifest_key,
     release_manifest_key,
 )
-from baibai_engine.market.lake.models import (
+from baibai_engine.storage.lake.models import (
     MAX_LAKE_JSON_BYTES,
     DatasetManifest,
     PartitionManifest,
@@ -611,7 +611,7 @@ def test_validate_cli_is_read_only_and_redacts_rejected_values(
 
 
 def test_lake_domain_is_exposed_by_the_root_cli() -> None:
-    assert DOMAINS["lake"].module == "baibai_engine.market.lake.cli"
+    assert DOMAINS["lake"].module == "baibai_engine.storage.lake.cli"
 
 
 def test_inventory_reports_every_class_against_its_own_budget(tmp_path: Path) -> None:
@@ -666,8 +666,8 @@ def test_every_lake_dataset_states_a_release_policy() -> None:
     は False である。ここが要求するのは policy が存在することだけである。
     """
 
-    from baibai_engine.market.lake.datasets import LAKE_DATASETS
-    from baibai_engine.market.lake.models import PRODUCTION_RELEASE_POLICY
+    from baibai_engine.storage.lake.datasets import LAKE_DATASETS
+    from baibai_engine.storage.lake.models import PRODUCTION_RELEASE_POLICY
 
     stated = {item.dataset for item in PRODUCTION_RELEASE_POLICY.datasets}
 
@@ -683,7 +683,7 @@ def test_a_replaced_snapshot_carries_no_history_floor() -> None:
     進んだだけで停止した。
     """
 
-    from baibai_engine.market.lake.models import PRODUCTION_RELEASE_POLICY
+    from baibai_engine.storage.lake.models import PRODUCTION_RELEASE_POLICY
 
     policy = {item.dataset: item for item in PRODUCTION_RELEASE_POLICY.datasets}
 
@@ -705,14 +705,15 @@ def test_only_a_replaced_table_is_exempt_from_the_history_floor() -> None:
 
     import re
 
-    from baibai_engine.market.lake.datasets import LAKE_DATASETS
-    from baibai_engine.market.lake.models import PRODUCTION_RELEASE_POLICY
+    from baibai_engine.storage.lake.datasets import LAKE_DATASETS
+    from baibai_engine.storage.lake.models import PRODUCTION_RELEASE_POLICY
 
     # Source writers live in market; inspect the owner of both snapshot datasets.
     market = Path(__file__).resolve().parents[2] / "engine/src/baibai_engine/market"
     replaced = {
         match.group(1)
-        for path in market.rglob("*.py")
+        for source_root in (market, market.parent / "storage" / "observations")
+        for path in source_root.rglob("*.py")
         for match in re.finditer(r"DELETE FROM (\w+)\s*(?:\"|')", path.read_text(encoding="utf-8"))
     }
     snapshot_datasets = {
@@ -739,7 +740,7 @@ def test_the_seasonal_calendar_floor_clears_its_measured_trough() -> None:
     観測最小の半分に置く。
     """
 
-    from baibai_engine.market.lake.models import PRODUCTION_RELEASE_POLICY
+    from baibai_engine.storage.lake.models import PRODUCTION_RELEASE_POLICY
 
     policy = {item.dataset: item for item in PRODUCTION_RELEASE_POLICY.datasets}
     calendar = policy["jpx.earnings_calendar"]

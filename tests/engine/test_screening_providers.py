@@ -51,12 +51,12 @@ from baibai_engine.market.providers.jquants import (
     normalize_market_calendar,
     parse_jquants_code,
 )
-from baibai_engine.market.sqlite.ingest import (
+from baibai_engine.screening.schema import TTMQuality
+from baibai_engine.storage.observations.ingest import (
     store_edinet_documents,
     store_edinet_metrics,
     store_jpx_regulations,
 )
-from baibai_engine.screening.schema import TTMQuality
 
 
 def _FixedHtmlSession(content: bytes) -> FakeSession:

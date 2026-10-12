@@ -17,12 +17,12 @@ from baibai_engine.market.providers.edinet import (
     select_document_candidates,
 )
 from baibai_engine.market.providers.jpx import JPXProvider, JPXProviderError
-from baibai_engine.market.sqlite.ingest import (
+from baibai_engine.storage.observations.ingest import (
     open_connection,
     store_edinet_documents,
     store_jpx_regulations,
 )
-from baibai_engine.market.sqlite.reader import (
+from baibai_engine.storage.observations.reader import (
     has_jpx_regulation_data,
     read_edinet_documents,
     read_edinet_metrics,

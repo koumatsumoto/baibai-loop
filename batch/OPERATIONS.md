@@ -845,7 +845,7 @@ storeのmergeでは同日でも別docIDの成否を混同しない。共有docID
 
 ## 公開broker観測の限定取得
 
-手動の限定入口は`baibai-engine external-assessment`または`baibai-batch retail-dynamics`である。取得は公開ページの通常HTTP経路を使い、明示した少数銘柄を直列で読み、前HTTP完了から次開始まで最低2秒を空ける。待機もrequest数・wall-clockの上限に含める。403・429は当該sourceの残りを止め、別sourceの確定した成功は保持する。スケジュール、publication lease、R2更新、UI反映はこの入口に含まれない。
+手動の限定入口は`baibai-engine external-assessment`または`baibai-batch external-assessment`である。取得は公開ページの通常HTTP経路を使い、明示した少数銘柄を直列で読み、前HTTP完了から次開始まで最低2秒を空ける。待機もrequest数・wall-clockの上限に含める。403・429は当該sourceの残りを止め、別sourceの確定した成功は保持する。スケジュール、publication lease、R2更新、UI反映はこの入口に含まれない。
 
 取得先はprivateなローカルstageとし、ログへ値やHTMLを出さない。既存の出力先は通信前に拒否し、保存時の競合も上書きしない。部分成功をimportする前に再取得する場合も必ず別名を選ぶ。例の保存先directoryと現行schemaの隔離market作業コピーをあらかじめ用意し、repositoryや公開Actions artifactへstageを置かない。
 
@@ -857,7 +857,7 @@ uv run baibai-engine external-assessment import --input /tmp/private-retail/obse
 
 import対象は明示した既存の隔離作業コピーであり、current market schemaに整合させる。CLIは新規DBの初期化も旧schemaの移行も行わない。成功時はstage件数・新規挿入件数を確認し、再投入では新規挿入0を確認する。partialまたは失敗時はsafe summaryで未試行・HTTP障害・parse障害を正常nullと区別し、成功stageを保持する。schema・破損・保存障害は取得欠測へ置き換えず、コピーの整合を直してから再投入する。
 
-本番導入は下記のcode/store切替を一組にする。後続の独立workflowでは取得をlease外で終え、公開段階で最新クラウド世代をpull/hydrateしてから確定stageを適用する。公開権限、private handoff、料金・所要時間の実測は定期実行前に別途受入する。保持・照会は[market lake](../docs/reference/market-lake.md#retail-dynamics-query)を参照する。
+本番導入は下記のcode/store切替を一組にする。後続の独立workflowでは取得をlease外で終え、公開段階で最新クラウド世代をpull/hydrateしてから確定stageを適用する。公開権限、private handoff、料金・所要時間の実測は定期実行前に別途受入する。保持・照会は[market lake](../docs/reference/market-lake.md#external-assessment-query)を参照する。
 
 ### 日次取得と固定コホートの再開
 
@@ -880,7 +880,7 @@ typed outcomeのcheckpoint確定後にrawを保存する。rawだけの保存失
 次のread-only inventoryはこの単一rootだけをLISTし、本文とJSONを合算した日付別object数/bytesとprefixを示す。調査対象をUTC当日と前2日の3日付、古い日を整理候補として分類するが、これはlifecycleの実削除済み判定ではない。本文GET・PUT・DELETEやlifecycle設定を行わない。
 
 ```bash
-uv run python -m baibai_batch.storage.retail_raw --as-of 2026-10-12
+uv run python -m baibai_batch.storage.external_assessment_raw --as-of 2026-10-12
 ```
 
 この例では10月10〜12日を調査対象、それ以前を整理候補とする。本文共有は同日内だけなので、保持日のreceiptが古い日のblobを参照しない。期限外の補助データで本文・receiptの削除順を厳密に管理する独自GCは作らず、R2標準lifecycleを使う。設定と適用確認はユーザーが担当する。inventoryはread-onlyであり、設定されるまでは期限を超えたrawが残る。
@@ -894,7 +894,7 @@ receipt_key='retail-dynamics/raw/utc-date/<YYYY-MM-DD>/receipts/<batch_id>/monex
 uv run python - "$receipt_key" <<'PY'
 import sys
 from baibai_batch.storage.lake_publish import Boto3R2Store
-from baibai_batch.storage.retail_raw import read_raw_html
+from baibai_batch.storage.external_assessment_raw import read_raw_html
 from baibai_engine.foundation.env import load_project_env
 
 load_project_env()

@@ -14,9 +14,9 @@ from mcp.server import MCPServer
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import StrictInt, ValidationError
 
-from baibai_engine.market.lake.datasets import LAKE_DATASETS
-from baibai_engine.market.lake.objects import LakeObjectCache, LakeObjectError, LakeObjectSource
-from baibai_engine.market.lake.reader import (
+from baibai_engine.storage.lake.datasets import LAKE_DATASETS
+from baibai_engine.storage.lake.objects import LakeObjectCache, LakeObjectError, LakeObjectSource
+from baibai_engine.storage.lake.reader import (
     FixedRelease,
     LakeReadError,
     accepted_dataset,

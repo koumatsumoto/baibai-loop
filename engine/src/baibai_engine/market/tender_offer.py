@@ -27,7 +27,6 @@ from pathlib import Path
 from typing import Protocol
 
 from baibai_engine.market.delistings import DelistingRecord, read_jpx_delistings
-from baibai_engine.market.sqlite import connect_current, open_connection
 from baibai_engine.market.valuation_catalysts import (
     TENDER_OFFER_REGISTRATION_CORRECTION_DOC_TYPE,
     TENDER_OFFER_REGISTRATION_DOC_TYPE,
@@ -37,6 +36,7 @@ from baibai_engine.market.valuation_catalysts import (
     edinet_code_to_ticker,
     is_usable_filing_status,
 )
+from baibai_engine.storage.observations import connect_current, open_connection
 
 # JPX names the mechanism in the delisting reason. Only a reason that names a tender
 # offer can be priced from a tender-offer filing; a share consolidation or a demand for

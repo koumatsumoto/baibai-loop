@@ -168,8 +168,8 @@ def reviewed_thesis_projection(path: Path, *, thesis_id: str) -> dict[str, objec
     from contextlib import closing
     from decimal import Decimal
 
-    from baibai_engine.appdb.read import connect_read_only
     from baibai_engine.research.thesis_store import ResearchValidationError, load_reviewed_thesis
+    from baibai_engine.storage.application.read import connect_read_only
     from baibai_engine.valuation.scenario import maximum_entry_price, project_return
 
     publication = thesis_publication(path, thesis_id=thesis_id)

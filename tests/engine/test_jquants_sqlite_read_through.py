@@ -15,14 +15,14 @@ ROOT = Path(__file__).resolve().parents[2]
 from tests.helpers.screening_sqlite import add_source_coverage, make_master_records
 
 from baibai_engine.market.providers.jquants import JQuantsProvider, JQuantsProviderError
-from baibai_engine.market.sqlite import range_covered
-from baibai_engine.market.sqlite.ingest import (
+from baibai_engine.screening.sqlite_coverage import plan_required_field_repair
+from baibai_engine.storage.observations import range_covered
+from baibai_engine.storage.observations.ingest import (
     open_connection,
     store_jquants_daily_bars,
     store_jquants_fin_summaries,
     store_jquants_master,
 )
-from baibai_engine.screening.sqlite_coverage import plan_required_field_repair
 
 
 class _RecordingClient:
@@ -983,7 +983,7 @@ class CachedRangeInspectionCostTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.market.sqlite.reader.read_fin_summaries",
+                    "baibai_engine.storage.observations.reader.read_fin_summaries",
                     side_effect=AssertionError,
                 ),
                 patch("baibai_engine.market.providers.jquants.time.sleep"),

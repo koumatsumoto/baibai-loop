@@ -14,11 +14,11 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.appdb.json import canonical_json
 from baibai_engine.foundation.repository_layout import RUNS_DB_PATH
 from baibai_engine.screening.discovery.contracts import PublishedReviewSet
 from baibai_engine.screening.discovery.review_set import validate_review_set_payload
 from baibai_engine.screening.rule_config import CandidateDiscoveryRules
+from baibai_engine.storage.application.json import canonical_json
 
 from .schema import RUN_STORE_SCHEMA_VERSION, SCHEMA_SQL
 

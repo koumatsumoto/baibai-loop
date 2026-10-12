@@ -22,24 +22,24 @@ from baibai_batch.storage.lake_publish import (
     RemoteObject,
     publish_l1_release,
 )
-from baibai_engine.market.lake import models as lake_models
-from baibai_engine.market.lake.datasets import LAKE_DATASETS
-from baibai_engine.market.lake.hydrate import hydrate_market_store
-from baibai_engine.market.lake.keys import (
+from baibai_engine.storage.lake import models as lake_models
+from baibai_engine.storage.lake.datasets import LAKE_DATASETS
+from baibai_engine.storage.lake.hydrate import hydrate_market_store
+from baibai_engine.storage.lake.keys import (
     current_l1_pointer_key,
     dataset_manifest_key,
     release_manifest_key,
 )
-from baibai_engine.market.lake.models import (
+from baibai_engine.storage.lake.models import (
     ReleaseManifest,
     canonical_lake_model_bytes,
     load_lake_model_json,
 )
-from baibai_engine.market.lake.objects import open_lake
-from baibai_engine.market.lake.prefetch import prefetching_hydration_cache
-from baibai_engine.market.lake.reader import resolve_current_release
-from baibai_engine.market.lake.release import L1ReleasePointer, create_l1_release
-from baibai_engine.market.lake.writer import export_lake_legacy
+from baibai_engine.storage.lake.objects import open_lake
+from baibai_engine.storage.lake.prefetch import prefetching_hydration_cache
+from baibai_engine.storage.lake.reader import resolve_current_release
+from baibai_engine.storage.lake.release import L1ReleasePointer, create_l1_release
+from baibai_engine.storage.lake.writer import export_lake_legacy
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("BAIBAI_R2_ACCEPTANCE") != "1",

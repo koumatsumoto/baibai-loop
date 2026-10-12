@@ -13,9 +13,9 @@ from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from baibai_engine.market.lake.datasets import LAKE_DATASETS
-from baibai_engine.market.lake.keys import dataset_manifest_key, release_manifest_key
-from baibai_engine.market.lake.models import (
+from baibai_engine.storage.lake.datasets import LAKE_DATASETS
+from baibai_engine.storage.lake.keys import dataset_manifest_key, release_manifest_key
+from baibai_engine.storage.lake.models import (
     DatasetManifest,
     L1ReleaseSourceRef,
     LakeObject,
@@ -26,8 +26,8 @@ from baibai_engine.market.lake.models import (
     SQLiteSnapshotSourceRef,
     canonical_lake_model_bytes,
 )
-from baibai_engine.market.sqlite import open_connection
-from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
+from baibai_engine.storage.observations import open_connection
+from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION
 
 
 def release_source(release_id: str = "20260130T000000Z-release") -> L1ReleaseSourceRef:

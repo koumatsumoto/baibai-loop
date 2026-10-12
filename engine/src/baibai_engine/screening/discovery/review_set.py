@@ -9,7 +9,7 @@ from math import isfinite
 from statistics import median
 from typing import NamedTuple
 
-from baibai_engine.appdb.json import canonical_json
+from baibai_engine.storage.application.json import canonical_json
 from baibai_engine.foundation.coerce import metric_map, optional_float, string_or_none
 from baibai_engine.screening.discovery.contracts import (
     APPROACH_IDS,

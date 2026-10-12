@@ -12,13 +12,13 @@ from typing import TextIO, cast
 import yaml
 
 from baibai_engine.foundation.filesystem import write_text_atomic
-from baibai_engine.market.lake.retention import lake_writer_lock
-from baibai_engine.market.lake.writer import (
+from baibai_engine.storage.lake.retention import lake_writer_lock
+from baibai_engine.storage.lake.writer import (
     LakeBuildError,
     LegacySQLiteSnapshot,
     sealed_sqlite_snapshot,
 )
-from baibai_engine.market.sqlite.readiness import unreadable_store_reason
+from baibai_engine.storage.observations.readiness import unreadable_store_reason
 from baibai_engine.valuation.estimates import EXPECTED_RETURN_MODEL_VERSION
 
 from ..discovery.contracts import APPROACH_IDS

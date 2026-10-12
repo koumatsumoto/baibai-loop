@@ -12,14 +12,14 @@ import pytest
 from fastapi.testclient import TestClient
 from tests.helpers.macro_context import macro_context_payload
 
-from baibai_engine.appdb.json import canonical_json
-from baibai_engine.appdb.schema import APPLICATION_SCHEMA_VERSION
-from baibai_engine.appdb.write import initialize_database
 from baibai_engine.macro.context.models import MacroContextDocument
 from baibai_engine.macro.context.service import MacroContextService
 from baibai_engine.macro.indicators.definitions import load_definitions
-from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION, open_connection
 from baibai_engine.read_api import MaterializationPreconditionError
+from baibai_engine.storage.application.json import canonical_json
+from baibai_engine.storage.application.schema import APPLICATION_SCHEMA_VERSION
+from baibai_engine.storage.application.write import initialize_database
+from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
 from baibai_web.api.server import PUBLIC_ASSETS, create_app
 from baibai_web.cli import main
 

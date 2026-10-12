@@ -26,8 +26,8 @@ from baibai_engine.market.providers.edinet import (
     select_document_candidates,
 )
 from baibai_engine.market.providers.edinet_csv import parse_csv_zip_metric_record
-from baibai_engine.market.sqlite.ingest.edinet import store_edinet_metrics
-from baibai_engine.market.sqlite.readiness import unreadable_store_reason
+from baibai_engine.storage.observations.ingest.edinet import store_edinet_metrics
+from baibai_engine.storage.observations.readiness import unreadable_store_reason
 
 
 class EdinetExtractionSource(Protocol):

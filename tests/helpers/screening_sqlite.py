@@ -15,7 +15,7 @@ from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
-from baibai_engine.market.sqlite.ingest import open_connection
+from baibai_engine.storage.observations.ingest import open_connection
 
 
 def make_master_records(

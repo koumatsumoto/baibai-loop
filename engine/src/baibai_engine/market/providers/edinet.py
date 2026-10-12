@@ -248,7 +248,7 @@ class EDINETProvider:
         for document in documents:
             document["doc_date"] = on_date.isoformat()
         if self._sqlite_path is not None:
-            from baibai_engine.market.sqlite.ingest.edinet import store_edinet_documents
+            from baibai_engine.storage.observations.ingest.edinet import store_edinet_documents
 
             store_edinet_documents(
                 self._sqlite_path,

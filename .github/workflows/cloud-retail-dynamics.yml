@@ -1,5 +1,5 @@
 name: cloud-retail-dynamics
-run-name: "retail ${{ inputs.batch_id || github.event.schedule }}"
+run-name: "external assessment ${{ inputs.batch_id || github.event.schedule }}"
 
 on:
   schedule:
@@ -46,17 +46,17 @@ jobs:
       cohorts: ${{ steps.plan.outputs.cohorts }}
       terminal_status: ${{ steps.plan.outputs.terminal_status }}
       retry_only: ${{ steps.plan.outputs.retry_only }}
-      expected_pairs: ${{ steps.plan.outputs.retail_expected_pairs }}
-      typed_pairs: ${{ steps.plan.outputs.retail_typed_pairs }}
-      known_failure_pairs: ${{ steps.plan.outputs.retail_known_failure_pairs }}
-      normal_null_pairs: ${{ steps.plan.outputs.retail_normal_null_pairs }}
-      uncertain_pairs: ${{ steps.plan.outputs.retail_uncertain_pairs }}
-      unattempted_pairs: ${{ steps.plan.outputs.retail_unattempted_pairs }}
-      rows_added: ${{ steps.plan.outputs.retail_rows_added }}
+      expected_pairs: ${{ steps.plan.outputs.external_assessment_expected_pairs }}
+      typed_pairs: ${{ steps.plan.outputs.external_assessment_typed_pairs }}
+      known_failure_pairs: ${{ steps.plan.outputs.external_assessment_known_failure_pairs }}
+      normal_null_pairs: ${{ steps.plan.outputs.external_assessment_normal_null_pairs }}
+      uncertain_pairs: ${{ steps.plan.outputs.external_assessment_uncertain_pairs }}
+      unattempted_pairs: ${{ steps.plan.outputs.external_assessment_unattempted_pairs }}
+      rows_added: ${{ steps.plan.outputs.external_assessment_rows_added }}
     env:
-      RETAIL_BATCH_ID: ${{ inputs.batch_id }}
-      RETAIL_MASTER_ASOF: ${{ inputs.master_asof }}
-      RETAIL_OPERATION: ${{ inputs.operation || 'collect_and_publish' }}
+      EXTERNAL_ASSESSMENT_BATCH_ID: ${{ inputs.batch_id }}
+      EXTERNAL_ASSESSMENT_MASTER_ASOF: ${{ inputs.master_asof }}
+      EXTERNAL_ASSESSMENT_OPERATION: ${{ inputs.operation || 'collect_and_publish' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -77,16 +77,16 @@ jobs:
       - name: Check the saved private plan
         id: status
         env:
-          RETAIL_RUN_CREATED_AT: ${{ steps.clock.outputs.created_at }}
+          EXTERNAL_ASSESSMENT_RUN_CREATED_AT: ${{ steps.clock.outputs.created_at }}
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
-          status_args=(--run-id "$RETAIL_BATCH_ID")
+          status_args=(--run-id "$EXTERNAL_ASSESSMENT_BATCH_ID")
           if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
-            status_args=(--scheduled --run-created-at "$RETAIL_RUN_CREATED_AT")
+            status_args=(--scheduled --run-created-at "$EXTERNAL_ASSESSMENT_RUN_CREATED_AT")
           fi
-          uv run python -m baibai_batch.jobs.retail_daily status "${status_args[@]}"
+          uv run python -m baibai_batch.jobs.external_assessment_daily status "${status_args[@]}"
       - name: Provision DuckDB httpfs extension
         if: ${{ steps.status.outputs.eligible == 'true' && steps.status.outputs.exists != 'true' }}
         run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
@@ -94,19 +94,19 @@ jobs:
         id: plan
         if: ${{ steps.status.outputs.eligible == 'true' }}
         env:
-          RETAIL_RUN_CREATED_AT: ${{ steps.clock.outputs.created_at }}
+          EXTERNAL_ASSESSMENT_RUN_CREATED_AT: ${{ steps.clock.outputs.created_at }}
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
-          plan_args=(--run-id "$RETAIL_BATCH_ID" --master-asof "$RETAIL_MASTER_ASOF")
+          plan_args=(--run-id "$EXTERNAL_ASSESSMENT_BATCH_ID" --master-asof "$EXTERNAL_ASSESSMENT_MASTER_ASOF")
           if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
-            plan_args=(--scheduled --run-created-at "$RETAIL_RUN_CREATED_AT")
+            plan_args=(--scheduled --run-created-at "$EXTERNAL_ASSESSMENT_RUN_CREATED_AT")
           fi
-          if [ "$RETAIL_OPERATION" = "publish_confirmed_partial" ]; then
+          if [ "$EXTERNAL_ASSESSMENT_OPERATION" = "publish_confirmed_partial" ]; then
             plan_args+=(--require-existing-plan)
           fi
-          uv run python -m baibai_batch.jobs.retail_daily plan --directory "$RUNNER_TEMP/retail-plan" "${plan_args[@]}"
+          uv run python -m baibai_batch.jobs.external_assessment_daily plan --directory "$RUNNER_TEMP/external-assessment-plan" "${plan_args[@]}"
 
   acquire:
     needs: plan
@@ -119,8 +119,8 @@ jobs:
       matrix:
         cohort: ${{ fromJSON(needs.plan.outputs.cohorts) }}
     env:
-      RETAIL_BATCH_ID: ${{ needs.plan.outputs.batch_id }}
-      RETAIL_COHORT: ${{ matrix.cohort }}
+      EXTERNAL_ASSESSMENT_BATCH_ID: ${{ needs.plan.outputs.batch_id }}
+      EXTERNAL_ASSESSMENT_COHORT: ${{ matrix.cohort }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -135,20 +135,20 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: timeout --signal=TERM --kill-after=30s 270m uv run python -m baibai_batch.jobs.retail_daily acquire --run-id "$RETAIL_BATCH_ID" --cohort "$RETAIL_COHORT"
+        run: timeout --signal=TERM --kill-after=30s 270m uv run python -m baibai_batch.jobs.external_assessment_daily acquire --run-id "$EXTERNAL_ASSESSMENT_BATCH_ID" --cohort "$EXTERNAL_ASSESSMENT_COHORT"
 
   publish:
     needs: [plan, acquire]
     if: ${{ always() && !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.terminal_status == 'pending' && (needs.plan.outputs.operation == 'publish_confirmed_partial' || ((needs.acquire.result == 'success' || needs.plan.outputs.cohorts == '[]') && needs.plan.outputs.retry_only != 'true')) }}
     runs-on: ubuntu-latest
     outputs:
-      expected_pairs: ${{ steps.publish.outputs.retail_expected_pairs }}
-      typed_pairs: ${{ steps.publish.outputs.retail_typed_pairs }}
-      known_failure_pairs: ${{ steps.publish.outputs.retail_known_failure_pairs }}
-      normal_null_pairs: ${{ steps.publish.outputs.retail_normal_null_pairs }}
-      uncertain_pairs: ${{ steps.publish.outputs.retail_uncertain_pairs }}
-      unattempted_pairs: ${{ steps.publish.outputs.retail_unattempted_pairs }}
-      rows_added: ${{ steps.publish.outputs.retail_rows_added }}
+      expected_pairs: ${{ steps.publish.outputs.external_assessment_expected_pairs }}
+      typed_pairs: ${{ steps.publish.outputs.external_assessment_typed_pairs }}
+      known_failure_pairs: ${{ steps.publish.outputs.external_assessment_known_failure_pairs }}
+      normal_null_pairs: ${{ steps.publish.outputs.external_assessment_normal_null_pairs }}
+      uncertain_pairs: ${{ steps.publish.outputs.external_assessment_uncertain_pairs }}
+      unattempted_pairs: ${{ steps.publish.outputs.external_assessment_unattempted_pairs }}
+      rows_added: ${{ steps.publish.outputs.external_assessment_rows_added }}
     # The existing publication lease expires after 120 minutes.
     timeout-minutes: 110
     concurrency:
@@ -156,8 +156,8 @@ jobs:
       queue: max
       cancel-in-progress: false
     env:
-      RETAIL_BATCH_ID: ${{ needs.plan.outputs.batch_id }}
-      RETAIL_OPERATION: ${{ needs.plan.outputs.operation }}
+      EXTERNAL_ASSESSMENT_BATCH_ID: ${{ needs.plan.outputs.batch_id }}
+      EXTERNAL_ASSESSMENT_OPERATION: ${{ needs.plan.outputs.operation }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -175,7 +175,7 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_batch.storage.publication_lease acquire --purpose operator --handle "$RUNNER_TEMP/retail-publication-lease.json"
+        run: uv run python -m baibai_batch.storage.publication_lease acquire --purpose operator --handle "$RUNNER_TEMP/external-assessment-publication-lease.json"
       - name: Pull and hydrate the latest canonical release
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
@@ -192,17 +192,17 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           publish_command=publish
-          if [ "$RETAIL_OPERATION" = "publish_confirmed_partial" ]; then
+          if [ "$EXTERNAL_ASSESSMENT_OPERATION" = "publish_confirmed_partial" ]; then
             publish_command=publish-confirmed-partial
           fi
-          uv run python -m baibai_batch.jobs.retail_daily "$publish_command" --run-id "$RETAIL_BATCH_ID" --directory "$RUNNER_TEMP/retail-readback" --lease-handle "$RUNNER_TEMP/retail-publication-lease.json"
+          uv run python -m baibai_batch.jobs.external_assessment_daily "$publish_command" --run-id "$EXTERNAL_ASSESSMENT_BATCH_ID" --directory "$RUNNER_TEMP/external-assessment-readback" --lease-handle "$RUNNER_TEMP/external-assessment-publication-lease.json"
       - name: Release publication lease
         if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' }}
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_batch.storage.publication_lease release --handle "$RUNNER_TEMP/retail-publication-lease.json"
+        run: uv run python -m baibai_batch.storage.publication_lease release --handle "$RUNNER_TEMP/external-assessment-publication-lease.json"
 
   notify:
     needs: [plan, acquire, publish]
@@ -221,13 +221,13 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           PYTHONPATH: batch/src
-          RETAIL_OPERATION: ${{ needs.plan.outputs.operation || inputs.operation || 'collect_and_publish' }}
+          EXTERNAL_ASSESSMENT_OPERATION: ${{ needs.plan.outputs.operation || inputs.operation || 'collect_and_publish' }}
         run: |
           publication_mode=complete
-          if [ "$RETAIL_OPERATION" = "publish_confirmed_partial" ]; then
+          if [ "$EXTERNAL_ASSESSMENT_OPERATION" = "publish_confirmed_partial" ]; then
             publication_mode=confirmed_partial
           fi
-          python3 -m baibai_batch.observability.retail_discord \
+          python3 -m baibai_batch.observability.external_assessment_discord \
             --plan-result "${{ needs.plan.result }}" \
             --acquire-result "${{ needs.acquire.result }}" \
             --publish-result "${{ needs.publish.result }}" \

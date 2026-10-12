@@ -9,13 +9,13 @@ from baibai_engine.market.jquants_models import (
     JQuantsAllIssuesDailyMargin,
     JQuantsWeeklyMargin,
 )
-from baibai_engine.market.sqlite.reader import (
+from baibai_engine.screening.margin_metrics import MarginBalance
+from baibai_engine.storage.observations.reader import (
     MarginCadence,
     published_margin_balance_dates,
     read_all_issues_daily_margin,
     read_weekly_margin,
 )
-from baibai_engine.screening.margin_metrics import MarginBalance
 
 # Balance dates the delta axis reaches back over. They are weekly, so this is about
 # half a year — 26 to 28 calendar weeks in practice, because the exchange skips

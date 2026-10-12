@@ -40,13 +40,6 @@ from baibai_engine.market.providers.jpx import (
     JPXRegulationSnapshot,
 )
 from baibai_engine.market.providers.jquants import JQuantsProvider, JQuantsProviderError
-from baibai_engine.market.sqlite.ingest import (
-    open_connection,
-    store_edinet_metrics,
-    store_jquants_daily_bars,
-    store_jquants_weekly_margin,
-)
-from baibai_engine.market.sqlite.reader import read_edinet_metrics
 from baibai_engine.screening import cli as screening_cli
 from baibai_engine.screening.cli import (
     ProviderBundle,
@@ -66,6 +59,13 @@ from baibai_engine.screening.sqlite_coverage import (
     RequiredFieldCoverage,
     RequiredFieldRepairPlan,
 )
+from baibai_engine.storage.observations.ingest import (
+    open_connection,
+    store_edinet_metrics,
+    store_jquants_daily_bars,
+    store_jquants_weekly_margin,
+)
+from baibai_engine.storage.observations.reader import read_edinet_metrics
 
 
 @dataclass
@@ -2175,7 +2175,7 @@ def _edinet_document(
 
 def _seed_trading_days(sqlite_path: Path, start: date, end: date) -> None:
     """Weekday rows so the weekly-margin candidates have a calendar to derive from."""
-    from baibai_engine.market.sqlite.ingest import open_connection
+    from baibai_engine.storage.observations.ingest import open_connection
 
     conn = open_connection(sqlite_path)
     try:

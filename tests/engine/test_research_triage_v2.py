@@ -15,7 +15,7 @@ from tests.helpers.research_triage import (
     skip_entry,
 )
 
-from baibai_engine.appdb.write import initialize_database
+from baibai_engine.storage.application.write import initialize_database
 from baibai_engine.research.triage.contracts import ResearchTriage, ResearchTriageEntry
 from baibai_engine.research.triage.service import ResearchTriageConflictError, ResearchTriageService
 from baibai_engine.screening.discovery.contracts import PublishedReviewSet

@@ -9,8 +9,8 @@ from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
 
-from baibai_engine.appdb.json import canonical_json
-from baibai_engine.appdb.write import connect_rw, initialize_database
+from baibai_engine.storage.application.json import canonical_json
+from baibai_engine.storage.application.write import connect_rw, initialize_database
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 from baibai_engine.foundation.time import JST
 from baibai_engine.research.capital_allocation import CapitalAllocationAssessment

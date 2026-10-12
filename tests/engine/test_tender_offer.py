@@ -9,7 +9,6 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from baibai_engine.market.delistings import DelistingRecord, store_jpx_delistings
-from baibai_engine.market.sqlite.ingest import open_connection
 from baibai_engine.market.tender_offer import (
     TenderOfferError,
     build_tender_offer_exit_values,
@@ -20,6 +19,7 @@ from baibai_engine.market.tender_offer import (
     read_tender_offer_outcome,
     store_tender_offer_exit_values,
 )
+from baibai_engine.storage.observations.ingest import open_connection
 
 _PRICE = "jptoo-ton_cor:PriceOfPurchaseEtcTextBlock"
 _FUNDING = "jptoo-ton_cor:FundEtcForPurchaseEtcTextBlock"

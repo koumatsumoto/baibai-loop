@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 from mcp.types import CallToolResult, TextContent
 
-from baibai_engine.market.tradingview.client import BATCH_TOOL, fetch_batch
+from baibai_engine.external_assessment.tradingview.client import BATCH_TOOL, fetch_batch
 
 SCANNER_ERROR = (
     "tradingview api: https://scanner.tradingview.com/japan/scan?label-product=tv-mcp: 429"
@@ -64,7 +64,10 @@ def test_tool_error_is_not_converted_to_missing() -> None:
     ],
 )
 def test_tool_status_extraction_does_not_retry_or_disclose(text, status):
-    from baibai_engine.market.tradingview.observations import FetchError, ProviderHTTPError
+    from baibai_engine.external_assessment.tradingview.observations import (
+        FetchError,
+        ProviderHTTPError,
+    )
 
     session = SimpleNamespace(
         call_tool=AsyncMock(
@@ -85,8 +88,8 @@ def test_tool_status_extraction_does_not_retry_or_disclose(text, status):
     "error", [SCANNER_ERROR, SCANNER_ERROR_WITH_SUFFIX, "HTTP 429 private-token https://secret"]
 )
 def test_unsuccessful_envelope_reports_safe_status_without_retry(structured, error):
-    from baibai_engine.market.tradingview.cli import failure_line
-    from baibai_engine.market.tradingview.observations import ProviderHTTPError
+    from baibai_engine.external_assessment.tradingview.cli import failure_line
+    from baibai_engine.external_assessment.tradingview.observations import ProviderHTTPError
 
     payload = {"success": False, "error": error, "token": "private-token"}
     session = SimpleNamespace(
@@ -124,7 +127,7 @@ def test_unsuccessful_envelope_reports_safe_status_without_retry(structured, err
     ],
 )
 def test_unrecognized_envelope_stays_invalid_without_text_fallback(payload):
-    from baibai_engine.market.tradingview.observations import ProviderPayloadError
+    from baibai_engine.external_assessment.tradingview.observations import ProviderPayloadError
 
     session = SimpleNamespace(
         call_tool=AsyncMock(

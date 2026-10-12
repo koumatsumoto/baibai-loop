@@ -1,0 +1,12 @@
+---
+title: "External Assessmentとstorageの構造移設比較"
+summary: "親決定に沿う一回限りのtracked file対応表。永続identity切替前の段階。"
+doc_type: report
+status: historical
+---
+
+# 構造移設比較
+
+基準commit `cc5afa9a629ad6011369b80bb1905ccd4ccd7faa` の全tracked 1,020ファイルを `file-map.csv` に記録する。move/update/unchanged、最終path、owner、理由は今回の構造移設の範囲であり、親による後続のValuation/Market Context/Research整理を完了扱いにしない。追加されたidentity境界とpackage init、移設回帰テストはPR差分で照合する。
+
+実DB/table/dataset/raw prefix/plan形式とworkflow登録名・concurrencyは保持する。旧packageのimport再exportは作らない。EDINET抽出revisionはsource path/bytesの移動で変化するため、計算値を変えないprovenance切替を後段の保存移行で扱う。実データ取得・書込・移動・削除は行っていない。

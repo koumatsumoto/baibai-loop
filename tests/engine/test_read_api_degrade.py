@@ -16,14 +16,14 @@ from pathlib import Path
 import pytest
 
 import baibai_engine.read_api as read_api
-from baibai_engine.appdb.schema import APPLICATION_SCHEMA_VERSION
-from baibai_engine.appdb.write import initialize_database
 from baibai_engine.macro.indicators.db import initialize_database as initialize_macro_database
-from baibai_engine.market.sqlite.schema import _SCHEMA_SQL as MARKET_SCHEMA_SQL
-from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
 from baibai_engine.read_api.sqlite import read_rows
 from baibai_engine.screening.run_store import initialize_run_store
 from baibai_engine.screening.run_store.schema import RUN_STORE_SCHEMA_VERSION
+from baibai_engine.storage.application.schema import APPLICATION_SCHEMA_VERSION
+from baibai_engine.storage.application.write import initialize_database
+from baibai_engine.storage.observations.schema import _SCHEMA_SQL as MARKET_SCHEMA_SQL
+from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION
 
 # These parse Git-managed YAML paths, not runtime stores.
 _NOT_STORE_READERS = frozenset(

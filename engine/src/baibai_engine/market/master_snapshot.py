@@ -9,7 +9,7 @@ from datetime import date, datetime
 from typing import Any, Final
 
 from baibai_engine.market.providers.jquants_decode import JQuantsProviderError
-from baibai_engine.market.sqlite.convert import code_quality, is_common_stock_flag
+from baibai_engine.storage.observations.convert import code_quality, is_common_stock_flag
 
 MASTER_SOURCE: Final = "jquants_master_snapshots"
 MASTER_OPERATION: Final = "get_eq_master"

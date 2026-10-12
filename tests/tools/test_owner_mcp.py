@@ -25,7 +25,7 @@ from tools.owner_mcp.reader import (
 from tools.owner_mcp.server import call, create_server
 
 from baibai_batch.analysis.model_input import build_model_input
-from baibai_engine.appdb.write import initialize_database
+from baibai_engine.storage.application.write import initialize_database
 from baibai_engine.macro.context.models import MacroContextDocument
 from baibai_engine.macro.context.service import MacroContextService
 from baibai_engine.research.triage.contracts import ResearchTriage

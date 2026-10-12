@@ -16,8 +16,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import cast
 
-from baibai_engine.appdb.json import canonical_json
 from baibai_engine.foundation.repository_layout import CALIBRATION_DIR
+from baibai_engine.storage.application.json import canonical_json
 
 from ..metrics import VALUATION_CALCULATION_REVISION
 from .forward import (

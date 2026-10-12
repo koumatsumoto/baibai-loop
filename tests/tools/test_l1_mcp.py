@@ -18,16 +18,16 @@ from tools.l1_mcp.gateway import ORIGIN, Gateway
 from tools.l1_mcp.query import run_child
 from tools.l1_mcp.server import Adapter, create_server
 
-from baibai_engine.market.lake import models
-from baibai_engine.market.lake.duck import lake_session
-from baibai_engine.market.lake.hydrate import hydrate_market_store
-from baibai_engine.market.lake.keys import current_l1_pointer_key
-from baibai_engine.market.lake.models import canonical_lake_model_bytes
-from baibai_engine.market.lake.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.market.lake.reader import resolve_release
-from baibai_engine.market.lake.release import L1ReleasePointer, create_l1_release
-from baibai_engine.market.lake.writer import export_legacy_sqlite, sealed_sqlite_snapshot
-from baibai_engine.market.sqlite import open_connection
+from baibai_engine.storage.lake import models
+from baibai_engine.storage.lake.duck import lake_session
+from baibai_engine.storage.lake.hydrate import hydrate_market_store
+from baibai_engine.storage.lake.keys import current_l1_pointer_key
+from baibai_engine.storage.lake.models import canonical_lake_model_bytes
+from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.lake.reader import resolve_release
+from baibai_engine.storage.lake.release import L1ReleasePointer, create_l1_release
+from baibai_engine.storage.lake.writer import export_legacy_sqlite, sealed_sqlite_snapshot
+from baibai_engine.storage.observations import open_connection
 
 
 @pytest.fixture

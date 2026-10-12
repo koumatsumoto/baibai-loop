@@ -8,7 +8,6 @@ from datetime import date
 from pathlib import Path
 from typing import cast
 
-from baibai_engine.appdb.read import connect_read_only as connect_application_read_only
 from baibai_engine.foundation.sqlite_read import connect_read_only, is_unwritten_store, read_rows
 from baibai_engine.macro.context.models import (
     MACRO_CONTEXT_SCHEMA_VERSION,
@@ -22,6 +21,9 @@ from baibai_engine.macro.reading.models import ReadingSnapshot, snapshot_payload
 from baibai_engine.macro.reading.reader import build_store_observation_reader
 from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH
 from baibai_engine.macro.reading.rules import load_reading_rules, rules_revision
+from baibai_engine.storage.application.read import (
+    connect_read_only as connect_application_read_only,
+)
 
 
 def _read_application_rows(

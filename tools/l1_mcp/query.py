@@ -20,9 +20,9 @@ from typing import Any
 
 import duckdb
 
-from baibai_engine.market.lake.datasets import LakeDataset
-from baibai_engine.market.lake.objects import LakeObjectCache
-from baibai_engine.market.lake.reader import (
+from baibai_engine.storage.lake.datasets import LakeDataset
+from baibai_engine.storage.lake.objects import LakeObjectCache
+from baibai_engine.storage.lake.reader import (
     FixedRelease,
     accepted_dataset,
     partition_objects,

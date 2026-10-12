@@ -8,8 +8,6 @@ from tempfile import TemporaryDirectory
 
 import openpyxl
 
-from baibai_engine.market.sqlite import connect_current
-from baibai_engine.market.sqlite.ingest import open_connection
 from baibai_engine.market.valuation_catalysts import (
     ValuationCatalystError,
     edinet_identity_covered,
@@ -18,6 +16,8 @@ from baibai_engine.market.valuation_catalysts import (
     read_valuation_catalyst_contexts,
     store_tse_capital_policy_rows,
 )
+from baibai_engine.storage.observations import connect_current
+from baibai_engine.storage.observations.ingest import open_connection
 
 
 # The two real layouts. The 2025 sheets put the contact application next to the update

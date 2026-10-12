@@ -12,11 +12,11 @@ from contextlib import closing
 from datetime import date
 from pathlib import Path
 
-from baibai_engine.appdb.json import canonical_json
-from baibai_engine.appdb.paths import database_path
-from baibai_engine.appdb.read import connect_read_only
-from baibai_engine.appdb.write import connect_rw, initialize_database
 from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH as READING_RULES_PATH
+from baibai_engine.storage.application.json import canonical_json
+from baibai_engine.storage.application.paths import database_path
+from baibai_engine.storage.application.read import connect_read_only
+from baibai_engine.storage.application.write import connect_rw, initialize_database
 
 from .models import (
     MACRO_CONTEXT_SCHEMA_VERSION,

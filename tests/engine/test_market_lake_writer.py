@@ -10,17 +10,17 @@ from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
 from tools.diagnostics.benchmark_l1_export import benchmark
 
-from baibai_engine.market.lake import identity as identity_module
-from baibai_engine.market.lake import write_cli as write_cli_module
-from baibai_engine.market.lake import writer as writer_module
-from baibai_engine.market.lake.datasets import require_lake_dataset
-from baibai_engine.market.lake.immutable import install_immutable_bytes
-from baibai_engine.market.lake.keys import current_l1_pointer_key
-from baibai_engine.market.lake.models import canonical_lake_model_bytes
-from baibai_engine.market.lake.objects import sha256_bytes as _sha256_bytes
-from baibai_engine.market.lake.release import L1ReleasePointer, create_l1_release
-from baibai_engine.market.lake.retention import LakeRetentionError, apply_gc, plan_gc
-from baibai_engine.market.lake.writer import (
+from baibai_engine.storage.lake import identity as identity_module
+from baibai_engine.storage.lake import write_cli as write_cli_module
+from baibai_engine.storage.lake import writer as writer_module
+from baibai_engine.storage.lake.datasets import require_lake_dataset
+from baibai_engine.storage.lake.immutable import install_immutable_bytes
+from baibai_engine.storage.lake.keys import current_l1_pointer_key
+from baibai_engine.storage.lake.models import canonical_lake_model_bytes
+from baibai_engine.storage.lake.objects import sha256_bytes as _sha256_bytes
+from baibai_engine.storage.lake.release import L1ReleasePointer, create_l1_release
+from baibai_engine.storage.lake.retention import LakeRetentionError, apply_gc, plan_gc
+from baibai_engine.storage.lake.writer import (
     LakeBuildError,
     LakeBuildReport,
     export_lake_legacy,
@@ -28,8 +28,8 @@ from baibai_engine.market.lake.writer import (
     sealed_sqlite_snapshot,
     validate_legacy_parity,
 )
-from baibai_engine.market.sqlite import open_connection
-from baibai_engine.market.sqlite.lake_origin import LakeStoreOrigin, write_lake_store_origin
+from baibai_engine.storage.observations import open_connection
+from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
 
 _COMMIT = "a" * 40
 
@@ -448,7 +448,7 @@ def test_immutable_metadata_link_failure_leaves_final_absent(
         del source, destination
         raise OSError("injected link failure")
 
-    monkeypatch.setattr("baibai_engine.market.lake.immutable.os.link", fail_link)
+    monkeypatch.setattr("baibai_engine.storage.lake.immutable.os.link", fail_link)
     with pytest.raises(OSError, match="injected"):
         install_immutable_bytes(target, b"{}\n")
 
@@ -697,7 +697,7 @@ def test_sealed_snapshot_rejects_invalid_store(tmp_path, failure):
 
 @pytest.mark.parametrize("failure", ["parquet", "inventory"])
 def test_final_parity_failure_keeps_previous_release(tmp_path, monkeypatch, failure):
-    from baibai_engine.market.lake.keys import dataset_manifest_key
+    from baibai_engine.storage.lake.keys import dataset_manifest_key
 
     narrow_release_policy(monkeypatch, datasets=("jquants.daily_bars",))
     source = market_store(tmp_path / "market.sqlite")

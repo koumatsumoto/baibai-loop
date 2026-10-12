@@ -11,12 +11,12 @@ import yaml
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
 
-from baibai_engine.appdb.write import initialize_database
 from baibai_engine.position.cli import main
 from baibai_engine.position.drafts import apply_draft, load_draft
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research.broker_fact_service import build_broker_fact_draft
 from baibai_engine.research.capital_allocation_service import CapitalAllocationAssessmentService
+from baibai_engine.storage.application.write import initialize_database
 
 ROOT = Path(__file__).parents[2]
 LEDGER = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"

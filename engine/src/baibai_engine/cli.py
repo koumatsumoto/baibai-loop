@@ -49,11 +49,11 @@ DOMAINS: Mapping[str, Domain] = {
         summary="saved external assessments, bounded acquisition and explicit local stage import",
     ),
     "tradingview": Domain(
-        module="baibai_engine.market.tradingview.cli",
+        module="baibai_engine.external_assessment.tradingview.cli",
         summary="TradingView OAuth and analyst expectation snapshot acquisition",
     ),
     "lake": Domain(
-        module="baibai_engine.market.lake.cli",
+        module="baibai_engine.storage.lake.cli",
         summary="immutable market-data manifests, object keys, and read-only inventory",
     ),
     "screening": Domain(
@@ -83,7 +83,7 @@ DOMAINS: Mapping[str, Domain] = {
         summary="dated operation tasks — the canonical record of what is waiting on a date",
     ),
     "db": Domain(
-        module="baibai_engine.appdb.cli",
+        module="baibai_engine.storage.application.cli",
         summary="application database maintenance: init, backup, and schema/row inspection",
     ),
 }

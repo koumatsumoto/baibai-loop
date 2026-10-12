@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from baibai_engine.market.lake.datasets import LAKE_DATASETS
+from baibai_engine.storage.lake.datasets import LAKE_DATASETS
 
 from . import resource_models as m
 from . import resources_application as app

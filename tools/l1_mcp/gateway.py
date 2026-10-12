@@ -8,9 +8,9 @@ from pathlib import Path
 
 import requests
 
-from baibai_engine.market.lake.keys import current_l1_pointer_key, validate_lake_object_key
-from baibai_engine.market.lake.models import MAX_LAKE_JSON_BYTES
-from baibai_engine.market.lake.objects import mirror_path
+from baibai_engine.storage.lake.keys import current_l1_pointer_key, validate_lake_object_key
+from baibai_engine.storage.lake.models import MAX_LAKE_JSON_BYTES
+from baibai_engine.storage.lake.objects import mirror_path
 
 from .contract import LIMITS, L1Error, Limits
 

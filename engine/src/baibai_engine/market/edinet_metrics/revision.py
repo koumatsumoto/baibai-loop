@@ -31,10 +31,10 @@ _TRACKED_PREFIXES = (
     "baibai_engine.market.providers.edinet",
     "baibai_engine.market.providers.edinet_csv",
     "baibai_engine.market.metric_quality",
-    "baibai_engine.market.sqlite.ingest.edinet",
-    "baibai_engine.market.sqlite.snapshot_coverage",
+    "baibai_engine.storage.observations.ingest.edinet",
+    "baibai_engine.storage.observations.snapshot_coverage",
     "baibai_engine.market.ticker",
-    "baibai_engine.market.sqlite.convert",
+    "baibai_engine.storage.observations.convert",
 )
 
 

@@ -5,26 +5,26 @@ import sqlite3
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from tests.batch.test_retail_daily import FakeObjectStore, checkpoint, plan
-from tests.batch.test_retail_raw import Session
-from tests.batch.test_retail_raw import connect as connect
-from tests.engine.test_retail_dynamics_daily_verification import ASOF, seed_database
+from tests.batch.test_external_assessment_daily import FakeObjectStore, checkpoint, plan
+from tests.batch.test_external_assessment_raw import Session
+from tests.batch.test_external_assessment_raw import connect as connect
+from tests.engine.test_external_assessment_daily_verification import ASOF, seed_database
 from tests.helpers.l1_release import market_store
 from tools.ops.migrate_market_29_to_30 import migrate_copy
 
-from baibai_batch.jobs import retail_daily
-from baibai_batch.jobs.retail_cohorts import make_plan
-from baibai_batch.storage.retail_raw import RAW_PREFIX, read_raw_html
-from baibai_batch.storage.retail_staging import read_checkpoints
+from baibai_batch.jobs import external_assessment_daily as external_assessment_daily
+from baibai_batch.jobs.external_assessment_cohorts import make_plan
+from baibai_batch.storage.external_assessment_raw import RAW_PREFIX, read_raw_html
+from baibai_batch.storage.external_assessment_staging import read_checkpoints
+from baibai_engine.external_assessment.acquisition import collection
+from baibai_engine.external_assessment.acquisition.sources import ParseError, kabumap
+from baibai_engine.external_assessment.acquisition.universe import frozen_universe
+from baibai_engine.external_assessment.acquisition.verification import verify_observations
+from baibai_engine.external_assessment.observations.contract import QUANTS_SCORE_TABLE
+from baibai_engine.external_assessment.observations.models import QuantsScoreObservation
 from baibai_engine.external_assessment.reader import read_observations
-from baibai_engine.market.retail_dynamics import collection
-from baibai_engine.market.retail_dynamics.contract import QUANTS_SCORE_TABLE
-from baibai_engine.market.retail_dynamics.models import QuantsScoreObservation
-from baibai_engine.market.retail_dynamics.sources import ParseError, kabumap
-from baibai_engine.market.retail_dynamics.store import ObservationConflictError, save_observations
-from baibai_engine.market.retail_dynamics.universe import frozen_universe
-from baibai_engine.market.retail_dynamics.verification import verify_observations
-from baibai_engine.market.sqlite.schema import SQLiteSchemaError, open_connection
+from baibai_engine.external_assessment.store import ObservationConflictError, save_observations
+from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
 
 RECEIVED = datetime(2026, 10, 12, 15, 0, 0, 123456, tzinfo=UTC)
 
@@ -122,7 +122,7 @@ def test_shift_jis_daily_checkpoint_and_single_root_raw_reparse(connect):
     session = Session([(200, html().encode("shift_jis"), "SHIFT_JIS")])
     connect(session)
     p, store = plan(tickers=("130A",), sources=("kabumap",)), FakeObjectStore()
-    report = retail_daily.acquire_cohort(store, p, 0)
+    report = external_assessment_daily.acquire_cohort(store, p, 0)
     saved = checkpoint(store, p)
     assert report["confirmed_http_requests"] == 1
     assert saved.journal.entries[0].state == "success"
@@ -136,16 +136,16 @@ def test_shift_jis_daily_checkpoint_and_single_root_raw_reparse(connect):
         text=body.decode(meta["encoding"]), received=datetime.fromisoformat(meta["fetched_at_utc"])
     )
     assert reparsed == saved.journal.observations[0]
-    retail_daily.acquire_cohort(store, p, 0)
+    external_assessment_daily.acquire_cohort(store, p, 0)
     assert len(session.calls) == 1
 
 
 @pytest.mark.parametrize("status", [403, 429])
 def test_daily_denial_or_rate_limit_stops_before_next_ticker(connect, monkeypatch, status):
     connect(Session([(status, b"synthetic denial", "utf-8")]))
-    monkeypatch.setattr(retail_daily, "_wait_for_retry", lambda *args, **kwargs: False)
+    monkeypatch.setattr(external_assessment_daily, "_wait_for_retry", lambda *args, **kwargs: False)
     p, store = plan(tickers=("130A", "8306"), sources=("kabumap",)), FakeObjectStore()
-    retail_daily.acquire_cohort(store, p, 0)
+    external_assessment_daily.acquire_cohort(store, p, 0)
     entries = checkpoint(store, p).journal.entries
     assert [entry.state for entry in entries] == ["failure", "unattempted"]
     assert entries[0].http_status == status

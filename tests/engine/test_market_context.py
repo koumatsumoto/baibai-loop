@@ -15,7 +15,6 @@ from baibai_engine.macro.context.models import MacroContextDocument
 from baibai_engine.macro.context.service import MacroContextService
 from baibai_engine.macro.indicators.db import initialize_database, seed_definitions
 from baibai_engine.macro.indicators.definitions import load_definitions
-from baibai_engine.market.sqlite.ingest import open_connection
 from baibai_engine.market_context.benchmark import compute_benchmark_trend
 from baibai_engine.market_context.macro import (
     latest_macro_context_payload,
@@ -29,6 +28,7 @@ from baibai_engine.market_context.prices import read_price_bars
 from baibai_engine.market_context.sector import sector_relative_strength
 from baibai_engine.market_context.security import build_security_market_context
 from baibai_engine.market_context.snapshot import build_market_snapshot
+from baibai_engine.storage.observations.ingest import open_connection
 
 ASOF = date(2026, 5, 29)
 
@@ -180,7 +180,7 @@ import sys
 from baibai_engine.market_context.macro import macro_reading_snapshot
 from baibai_engine.market_context.security import build_security_market_context
 assert not any(name.startswith(("baibai_engine.research", "baibai_engine.read_api", "baibai_engine.screening", "baibai_engine.position", "baibai_engine.macro.indicators.providers")) for name in sys.modules)
-assert "baibai_engine.appdb.write" not in sys.modules
+assert "baibai_engine.storage.application.write" not in sys.modules
 assert "baibai_engine.macro.context.service" not in sys.modules
 """,
         ],

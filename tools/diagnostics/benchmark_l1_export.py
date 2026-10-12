@@ -18,21 +18,21 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from baibai_engine.foundation.filesystem import write_bytes_atomic
-from baibai_engine.market.lake.identity import verified_git_commit
-from baibai_engine.market.lake.objects import sha256_file
-from baibai_engine.market.lake.writer import LakeExportReport, export_lake_legacy
-from baibai_engine.market.sqlite.lake_origin import read_lake_store_origin
-from baibai_engine.market.sqlite.snapshot import create_snapshot
+from baibai_engine.storage.lake.identity import verified_git_commit
+from baibai_engine.storage.lake.objects import sha256_file
+from baibai_engine.storage.lake.writer import LakeExportReport, export_lake_legacy
+from baibai_engine.storage.observations.lake_origin import read_lake_store_origin
+from baibai_engine.storage.observations.snapshot import create_snapshot
 
 
 def _implementation_sha256() -> str:
     root = Path(__file__).resolve().parents[2]
     paths = (
         Path(__file__).resolve(),
-        root / "engine/src/baibai_engine/market/lake/writer.py",
-        root / "engine/src/baibai_engine/market/lake/models.py",
-        root / "engine/src/baibai_engine/market/lake/immutable.py",
-        root / "engine/src/baibai_engine/market/sqlite/snapshot.py",
+        root / "engine/src/baibai_engine/storage/lake/writer.py",
+        root / "engine/src/baibai_engine/storage/lake/models.py",
+        root / "engine/src/baibai_engine/storage/lake/immutable.py",
+        root / "engine/src/baibai_engine/storage/observations/snapshot.py",
     )
     digest = hashlib.sha256()
     for path in paths:

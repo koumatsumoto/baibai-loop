@@ -10,8 +10,6 @@ from typing import get_args
 
 from pydantic import BaseModel
 
-from baibai_engine.appdb.paths import database_path
-from baibai_engine.appdb.read import connect_read_only
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
 from baibai_engine.position.market_source import read_unadjusted_close
@@ -39,6 +37,8 @@ from baibai_engine.research.workspace.validation import (
     _validate_editable_drafts,
     _verify_external_inputs,
 )
+from baibai_engine.storage.application.paths import database_path
+from baibai_engine.storage.application.read import connect_read_only
 
 _THESIS_DRAFT_HEADER = "# 企業評価 draft。未確認は理由付き unresolved とし、一次資料で補う。\n"
 

@@ -13,7 +13,6 @@ from baibai_batch.validation.macro_stores import (
     validate_published_contexts,
     validate_store,
 )
-from baibai_engine.appdb.write import initialize_database as initialize_application_database
 from baibai_engine.macro.context.models import (
     MACRO_CONTEXT_SCHEMA_VERSION,
     MacroContextDocument,
@@ -31,6 +30,9 @@ from baibai_engine.macro.indicators.definitions import (
     IndicatorDefinitions,
     SeriesDefinition,
     load_definitions,
+)
+from baibai_engine.storage.application.write import (
+    initialize_database as initialize_application_database,
 )
 
 

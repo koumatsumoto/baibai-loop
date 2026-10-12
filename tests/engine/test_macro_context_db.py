@@ -12,7 +12,6 @@ import pytest
 from pydantic import ValidationError
 from tests.helpers.macro_context import macro_context_payload
 
-from baibai_engine.appdb.write import initialize_database
 from baibai_engine.macro.context.models import (
     CORE_SECTION_ORDER,
     MacroContext,
@@ -21,6 +20,7 @@ from baibai_engine.macro.context.models import (
 )
 from baibai_engine.macro.context.service import MacroContextConflictError, MacroContextService
 from baibai_engine.read_api.macro import latest_macro_context_payload
+from baibai_engine.storage.application.write import initialize_database
 
 
 def _document(
@@ -590,8 +590,8 @@ def test_document_rejects_failed_series_hidden_by_successful_source(
 
 @pytest.mark.parametrize("state", ["missing", "unwritten", "obsolete", "partial", "corrupt"])
 def test_macro_reads_preserve_store_state(tmp_path, state):
-    from baibai_engine.appdb.schema import APPLICATION_SCHEMA_VERSION
     from baibai_engine.macro.context.service import MacroContextNotFoundError
+    from baibai_engine.storage.application.schema import APPLICATION_SCHEMA_VERSION
 
     path = tmp_path / "read-only" / "app.sqlite"
     if state != "missing":

@@ -35,7 +35,9 @@ flowchart LR
 
 engineはweb・batch・toolsへ依存しない。Webからengineへの入口は`read_api`、batchからは`batch_api`と`read_api`であり、import-linterが境界を検査する。batchはdomainの判断やwrite invariantを独自実装せず、engineのserviceへ委譲する。storeとserving objectの転送はbatchが担う。
 
-外部媒体のL1取得・typed観測保存は既存`market/retail_dynamics`と`market/tradingview`が所有し、保存identityを維持する。`external_assessment`が出所別の受領履歴・比較・原評価元の関係を所有する。schema/lakeはL1のleaf contractだけを参照し、領域内部はResearch・Screening・Valuation・Market Context・UI合成read_apiへ依存しない。Web・CLI・ticker profileは領域の読取結果を合成し、順位・独自FV・配分を自動変更しない。入力の意味は[data sources](./reference/data-sources.md#retail-dynamics)を参照する。
+外部媒体のL1契約は`external_assessment/observations`、取得は`external_assessment/acquisition`と`external_assessment/tradingview`、SQL adapterは`external_assessment/store.py`が所有する。共有保存は`storage/application`・`storage/observations`・`storage/lake`へ配置する。`external_assessment`が出所別の受領履歴・比較・原評価元の関係を所有する。schema/lakeはL1のleaf contractだけを参照し、領域内部はResearch・Screening・Valuation・Market Context・UI合成read_apiへ依存しない。Web・CLI・ticker profileは領域の読取結果を合成し、順位・独自FV・配分を自動変更しない。入力の意味は[data sources](./reference/data-sources.md#retail-dynamics)を参照する。
+
+構造移設では現行table/dataset/key/plan形式をidentity moduleに局所化して保持する。永続名・workflow identityの切替は稼働取得の完了後に別PRで行い、固定releaseの値・取得時刻を照合する。EDINETのsource revisionもpath/bytesの移動で変わるため、計算値の変更とは分けて保存provenanceの切替で扱う。
 
 <a id="four-roles"></a>
 
@@ -123,7 +125,7 @@ Market ContextはL1 reader、macroの型・既存Reading計算と自領域の算
 
 現在もdailyのscreening失敗とmacro公開は独立していない。workflow/store/部分公開の分離は未完了である。有限Researchの対象・部分完了・保有提案を既存Operationへ接続したが、最終配置と本番統合受入は未完了である。
 
-External Assessmentの読取は保存済み入力だけを使い、取得・書込・AI起動をしない。CLIの明示`collect / import`だけが既存L1取得・保存入口へ委譲する。L1取得後の検証はexact receipt keyの読戻しであり、分析の最新・直前selectorへ逆依存しない。型・比較・欠測の意味は[data sources](./reference/data-sources.md#external-assessment)、保存と読取の契約は[market lake](./reference/market-lake.md#retail-dynamics-query)が所有する。
+External Assessmentの読取は保存済み入力だけを使い、取得・書込・AI起動をしない。CLIの明示`collect / import`だけが既存L1取得・保存入口へ委譲する。L1取得後の検証はexact receipt keyの読戻しであり、分析の最新・直前selectorへ逆依存しない。型・比較・欠測の意味は[data sources](./reference/data-sources.md#external-assessment)、保存と読取の契約は[market lake](./reference/market-lake.md#external-assessment-query)が所有する。
 
 Researchは三領域の小さな読取とrun-storeの保存済み解析を調査入力へ合成する。UIのticker profileを領域入力として使わない。`research/operation/progress`が対象・被覆とCAA scope、既存PositionReview serviceが保有draftの検証を所有する。Operationのpayload/manifestを使い、予算DB・汎用承認基盤・新状態機械は作らない。Triageの型・保存済みquery/hash/head・service・CLIは`research/triage`が所有し、Research内部はUIの`read_api`へ戻らない。Candidate/PublishedReviewSetの純粋契約は`screening/discovery/contracts`が所有し、生成・選抜をimportしない。storage構造整理、ER/benchmark意味契約とValuation/Market Contextの残配置統合は別の未完了作業であり、将来配置を現行として記載しない。
 
@@ -131,7 +133,7 @@ Researchは三領域の小さな読取とrun-storeの保存済み解析を調査
 
 | 変更したいもの | 実装と検証の入口 |
 | --- | --- |
-| sourceの取得・保存 | `market/providers`、`market/sqlite`、`market/edinet_metrics`とsource別test |
+| sourceの取得・保存 | `market/providers`、`storage/observations`、`market/edinet_metrics`とsource別test |
 | 機械ER/FV・条件付き収益算術 | `valuation/{estimates,models,scenario,query}`、`read_api/valuation`とvaluation test |
 | 指標と候補選抜 | `screening/metrics`、`screening/discovery`、`tests/engine/screening` |
 | 較正 | `screening/calibration/evaluation`とcalibration test |

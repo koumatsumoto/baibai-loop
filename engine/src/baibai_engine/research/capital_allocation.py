@@ -14,7 +14,7 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from baibai_engine.appdb.json import canonical_json
+from baibai_engine.storage.application.json import canonical_json
 from baibai_engine.research.operation.progress import ResearchComparisonScope
 
 CAPITAL_ALLOCATION_ASSESSMENT_SCHEMA_VERSION = 1

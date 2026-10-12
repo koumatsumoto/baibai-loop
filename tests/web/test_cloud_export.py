@@ -15,8 +15,6 @@ from tests.helpers.macro_context import macro_context_payload
 from tests.helpers.research_triage import research_entry, research_triage_payload, skip_entry
 from tests.helpers.screening_sqlite import market_store_with_fetch_claim
 
-from baibai_engine.appdb import LATEST_VERSION
-from baibai_engine.appdb.json import canonical_json
 from baibai_engine.macro.context.models import MacroContextDocument
 from baibai_engine.macro.context.service import MacroContextService
 from baibai_engine.macro.indicators.db import (
@@ -29,6 +27,8 @@ from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH as MACRO_READIN
 from baibai_engine.position.drafts import apply_draft, build_sell_execution_draft
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.screening.run_store import ScreeningRunReader
+from baibai_engine.storage.application import LATEST_VERSION
+from baibai_engine.storage.application.json import canonical_json
 from baibai_web import materialize as export_module
 from baibai_web.api.server import create_app
 from baibai_web.materialize import main

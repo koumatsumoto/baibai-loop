@@ -313,7 +313,7 @@ class JPXProvider:
 
     def get_regulation_snapshot(self, asof_date: date) -> JPXRegulationSnapshot:
         if self._sqlite_path is not None:
-            from baibai_engine.market.sqlite.reader import read_jpx_regulations
+            from baibai_engine.storage.observations.reader import read_jpx_regulations
 
             cached = read_jpx_regulations(self._sqlite_path, asof_date)
             if cached is not None:
@@ -351,7 +351,7 @@ class JPXProvider:
             source_names=tuple(sorted(fetched_source_names)),
         )
         if self._sqlite_path is not None:
-            from baibai_engine.market.sqlite.ingest import store_jpx_regulations
+            from baibai_engine.storage.observations.ingest import store_jpx_regulations
 
             store_jpx_regulations(
                 self._sqlite_path,
@@ -363,7 +363,9 @@ class JPXProvider:
 
     def get_earnings_calendar_snapshot(self, asof_date: date) -> JPXEarningsCalendarSnapshot:
         if self._sqlite_path is not None:
-            from baibai_engine.market.sqlite.reader import read_jpx_earnings_calendar_snapshot
+            from baibai_engine.storage.observations.reader import (
+                read_jpx_earnings_calendar_snapshot,
+            )
 
             cached = read_jpx_earnings_calendar_snapshot(
                 self._sqlite_path,
@@ -418,14 +420,16 @@ class JPXProvider:
             superseded_record_count=len(superseded),
         )
         if self._sqlite_path is not None:
-            from baibai_engine.market.sqlite.ingest import store_jpx_earnings_calendar_snapshot
+            from baibai_engine.storage.observations.ingest import (
+                store_jpx_earnings_calendar_snapshot,
+            )
 
             store_jpx_earnings_calendar_snapshot(self._sqlite_path, snapshot)
         return snapshot
 
     def has_regulation_cache(self, asof_date: date) -> bool:
         if self._sqlite_path is not None:
-            from baibai_engine.market.sqlite.reader import has_jpx_regulation_data
+            from baibai_engine.storage.observations.reader import has_jpx_regulation_data
 
             if has_jpx_regulation_data(self._sqlite_path, asof_date):
                 return True

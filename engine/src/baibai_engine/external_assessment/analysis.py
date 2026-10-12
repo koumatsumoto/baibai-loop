@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from baibai_engine.market.retail_dynamics.models import (
+from baibai_engine.external_assessment.observations.models import (
     QUANTS_METRICS,
     VALUATION_METRICS,
     Observation,
     utc_datetime,
 )
-from baibai_engine.market.tradingview.observations import FIELDS
+from baibai_engine.external_assessment.tradingview.observations import FIELDS
 
 from .models import (
     AnalystRatingAssessment,

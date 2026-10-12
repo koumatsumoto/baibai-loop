@@ -6,11 +6,13 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-from baibai_engine.appdb.read import connect_read_only as connect_application_read_only
 from baibai_engine.macro.indicators.definitions import load_definitions
 from baibai_engine.macro.reading.rules import ReadingRulesError, load_reading_rules
-from baibai_engine.market.sqlite.read import connect_read_only as connect_market_read_only
-from baibai_engine.market.sqlite.schema import SQLiteSchemaError
+from baibai_engine.storage.application.read import (
+    connect_read_only as connect_application_read_only,
+)
+from baibai_engine.storage.observations.read import connect_read_only as connect_market_read_only
+from baibai_engine.storage.observations.schema import SQLiteSchemaError
 
 from .sqlite import is_missing_table_error
 
@@ -67,7 +69,7 @@ def validate_market_store_hydration(path: Path) -> None:
     # Imported here rather than at module scope: the lake package pulls Arrow and DuckDB
     # in, and `read_api` is imported by every read-only consumer including the local API
     # server, while this validator runs once per export.
-    from baibai_engine.market.lake.datasets import LAKE_DATASETS
+    from baibai_engine.storage.lake.datasets import LAKE_DATASETS
 
     uri = f"{path.resolve().as_uri()}?mode=ro"
     unfilled: list[str] = []

@@ -13,7 +13,7 @@ from baibai_engine.market.delistings import (
     read_jpx_delistings,
     store_jpx_delistings,
 )
-from baibai_engine.market.sqlite.ingest import open_connection
+from baibai_engine.storage.observations.ingest import open_connection
 
 
 class JPXDelistingTest(unittest.TestCase):

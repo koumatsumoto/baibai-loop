@@ -7,8 +7,6 @@ from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
 
-from baibai_engine.appdb.paths import database_path
-from baibai_engine.appdb.read import connect_read_only
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
 from baibai_engine.research.thesis import (
@@ -32,6 +30,8 @@ from baibai_engine.research.workspace.validation import (
     _validate_editable_drafts,
     _verify_external_inputs,
 )
+from baibai_engine.storage.application.paths import database_path
+from baibai_engine.storage.application.read import connect_read_only
 
 # --------------------------------------------------------------------------- #
 # status

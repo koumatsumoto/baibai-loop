@@ -9,10 +9,13 @@ import httpx2
 import pytest
 from tests.engine.test_tradingview_collector import Timer, payload, store, stored
 
-from baibai_engine.market.tradingview import cli
-from baibai_engine.market.tradingview.collector import collect, preflight_snapshot
-from baibai_engine.market.tradingview.diagnostics import SourceDataError, TimeGuardError
-from baibai_engine.market.tradingview.observations import FetchError
+from baibai_engine.external_assessment.tradingview import cli
+from baibai_engine.external_assessment.tradingview.collector import collect, preflight_snapshot
+from baibai_engine.external_assessment.tradingview.diagnostics import (
+    SourceDataError,
+    TimeGuardError,
+)
+from baibai_engine.external_assessment.tradingview.observations import FetchError
 
 DAY = date(2026, 10, 11)
 MASTER = date(2026, 10, 9)

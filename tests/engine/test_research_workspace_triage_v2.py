@@ -41,7 +41,7 @@ def test_research_writes_recheck_operation_binding(
 ) -> None:
     import json
 
-    from baibai_engine.appdb.write import connect_rw
+    from baibai_engine.storage.application.write import connect_rw
 
     db, workspace = tmp_path / "app.sqlite", tmp_path / "workspace"
     triage = _publish_triage(db, second_research=True)

@@ -12,7 +12,7 @@ from baibai_engine.market.bars import (
     JQuantsMarketCalendarDay,
 )
 from baibai_engine.market.providers.jquants_decode import JQuantsProviderError
-from baibai_engine.market.sqlite import (
+from baibai_engine.storage.observations import (
     connect_current,
     daily_bars_covered_by_data,
     optional_float,
