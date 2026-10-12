@@ -227,7 +227,7 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 
 - 各業種内の銘柄の valuation 指標から中央値を算出
 - 集計タイミング: screening 実行時（日次）
-- 集計対象（比較母集団）: `candidate_discovery.common_eligibility` を満たす母集団（時価総額・上場期間・JPX規制の条件を満たす銘柄）。screenは全普通株を評価し、ADVは比較母集団のmembershipを変えない。sector relative strengthと市場全体fallbackも同じ母集団で算出する
+- 集計対象（比較母集団）: `candidate_discovery.common_eligibility` を満たす母集団（時価総額・上場期間・JPX規制の条件を満たす銘柄）。screenは全普通株を評価し、ADVは比較母集団のmembershipを変えない。業種relative strengthの母集団は[Market Context読取](./macro.md#market-context-reads)に従い、市場全体fallbackもこの比較母集団で算出する
 
 ### 8.3 サンプル数下限
 

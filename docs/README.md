@@ -21,6 +21,7 @@ Valuation・Market Context・External Assessmentの意味は[domain-language](./
 | 選んだ企業を調査して配分を判断する | [Research](../.agents/skills/research/SKILL.md) |
 | 注文結果・入出金を記録する | [Ledger Record](../.agents/skills/ledger-record/SKILL.md) |
 | 保有銘柄を見直す | [Position Review](../.agents/skills/position-review/SKILL.md) |
+| 保存済み市場・業種・個別相対を読む | [Market Context読取](./reference/macro.md#market-context-reads) |
 | Macro Contextを書く | [Macro Context](../.agents/skills/macro-context/SKILL.md) |
 | 外部ChatのMacro draftを受け渡す | [Macro handoff](./reference/macro-handoff.md) |
 | batch・storeを運用する | [Ops Maintenance](../.agents/skills/ops-maintenance/SKILL.md) |

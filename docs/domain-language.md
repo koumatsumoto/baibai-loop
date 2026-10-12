@@ -54,8 +54,10 @@ Valuationの機械ER/FV anchorは倍率・自己価格レンジとcarryの推計
 | Holding | derived state | Ledger replayから得る保有状態 |
 | Position Review | artifact / judgment | Holdingの`hold / exit / null`再評価 |
 | Portfolio Outcome | artifact | portfolio-wide TWR / benchmark comparison publication |
-| Macro Reading | rebuildable artifact | provider factからのdeterministic machine reading |
-| Macro Context | artifact / judgment | 現在のmacro judgment |
+| Market Snapshot | rebuildable state | benchmarkの週次方向、観測日を揃えたbreadthと業種中央値 |
+| Security Market Context | rebuildable state | 指定銘柄の価格状態と同一端点での対benchmark/同業相対値 |
+| Macro Reading | rebuildable artifact | Market Contextで参照する、経済系列からのdeterministic machine reading |
+| Macro Context | artifact / judgment | Market Context内の既存環境判断成果物。領域全体とは区別 |
 | E[r] Calibration Context | rebuildable context | 過去較正をResearch Triage等が読むL2 current context |
 | Operation Session | application state | human gateをまたぐworkflow session |
 
@@ -85,6 +87,7 @@ Holding -> Position Review
 Portfolio Ledger -> Portfolio Outcome
 実現結果 -> Calibration -> 次のmethod改善
 
+保存済み価格・master -> Market Snapshot / Security Market Context
 provider facts -> Macro Reading -> Macro Context
 Macro Context -> Triage・Research・資本判断の補助入力
 ```

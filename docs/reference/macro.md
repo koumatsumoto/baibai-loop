@@ -1,15 +1,46 @@
 ---
-title: "Reference — macro analysis"
-summary: "マクロ環境分析：L1 指標を毎営業日 L2 reading で機械読み値にし、人間が判断するときだけ L3 macro context report（core 環境評価 10 + synthesis 統合評価 + connection 日本株ループ接続）を書く。"
+title: "Market Context / Macro reference"
+summary: "Market Contextの保存済み市場・個別相対の読取、経済観測・Readingと既存Macro Contextの契約。"
 doc_type: reference
 status: active
 ---
 
-# Reference — マクロ環境分析
+# Market ContextとMacro
 
-マクロ環境分析は **独立した機能のまとまり**（データ取得層 + 機械読み値 + リサーチの実践）であり、形式化した独自ループにはしない。狙いは、個別銘柄のinvestment caseと評価期間内の見返りを変え得る外部経路と共通riskを判断層へ供給すること。sector順位、相場方向、買い時、投入額を決めない。
+本書はMarket Contextの市場・個別相対の読取と、既存macro観測・Reading・Macro Contextの契約を所有する。個別企業の価値評価は[Valuation metrics](./valuation-metrics.md)と[Thesis](./thesis.md)が所有する。
 
-扱うものは性質の異なる 4 種：**① データ（L1 の事実）／ ② 機械読み値（L2 macro reading）／ ③ 環境認識（L3 macro context report）／ ④ 知見（調べ方のメタ知識）**。①②は毎営業日 CI が機械で回し、③は人間が判断するときだけ書く。本工程の統計的な位置付けは末尾の「誠実性」に従う。
+既存macro工程はL1観測とL2 Readingを日次に更新し、人間の明示開始でL3 Macro Contextを作成する。Contextの独立レポート・Review・深度契約は引き続き本書の現行手順に従う。Market Context全体へこのレポート作成を必須にせず、保存済み機械状態と発行済み判断は個別に読める。
+
+<a id="market-context-reads"></a>
+
+## Market Contextの保存済み読取
+
+Market Contextは経済、市場全体、業種と個別株の相対状態を扱う分析領域である。L1観測、L2機械状態、L3環境判断を区別し、既存Macro ContextはL3成果物の一つとして参照する。領域読取は`market_context`、Web/batchの公開facadeは`read_api/market_context`が所有する。取得・書込・AI起動を行わず、欠測を別領域の障害や「変化なし」へ置き換えない。
+
+市場・業種・個別の異なる統計をまとめて一つのscoreにはしない。
+
+| 出口 | 統計・対象 | 意味と欠測 |
+| --- | --- | --- |
+| Security Analysisの業種relative strength | Screeningの既存比較母集団。20 bar騰落の業種平均－市場平均と業種順位 | `market_context/sector`が計算し、Screeningが入力母集団・価格窓を供給する。個別対業種の差ではない |
+| market snapshot | benchmarkの週次20/60 bar騰落・20 bar平均超のbreadth、同じ観測日の銘柄による業種中央値 | 1321 proxyの±3%方向注記は広いリスク許容判断ではない。breadthは既存最小標本数、sectorは既存対象を維持し、平均対平均と統合しない |
+| security market context | 指定銘柄（候補外も可）の価格・benchmark比較と、同業peerの20 bar中央値 | 個別とbenchmark/peerは指定銘柄の同じ開始・終了日を使う。peerは自銘柄を除き、端点不足を補間・前日値で埋めない |
+| Macro Reading / Context | 保存済み経済観測・既存Reading規則、保存済み判断 | 観測/公表vintageの既存契約を維持する。Contextはcutoff以下の現行schemaから既存publication順で選び、固定IDも未来as-ofを拒否する |
+
+個別対業種の`relative_return_20d`は個別の価格騰落－peer中央値で、ratioの差（0.1＝10 percentage points）である。`comparison_start_date / comparison_end_date / master_snapshot_date`を併記し、peer数と比較基準を示す。市場・業種が上昇し個別が下落しても、乖離だけから割安と認定しない。財務・利益・企業価値の算術はValuationが所有する。
+
+masterはrequested cutoff以下の最新の一つのsnapshotを集合ごと選ぶ。そのsnapshotにいないtickerを古いsnapshotから復活させず、未来分類を使わない。価格はcutoff以下のraw closeを保存済み分割factorの後方累積で揃え、closeがnullの分割eventも落とさない。現金配当込みreturnではない。価格の観測日、requested cutoff、master snapshotの日は同一とは限らないため、各基準日を見て読む。
+
+既存CLIは次の領域計算を参照する。
+
+```bash
+uv run baibai-engine screening market-snapshot --asof YYYY-MM-DD --weeks 12
+uv run baibai-engine screening ticker-profile --ticker <TICKER> --asof YYYY-MM-DD
+uv run baibai-engine macro reading --asof YYYY-MM-DD --format json
+```
+
+`ticker-profile`はMarket Context、保存済みSecurity Analysis、event、portfolioを合成する。市場・分類とrunのcutoffは要求日を使うが、portfolioは現在のledger documentを独立の`ledger_as_of`で表示し、要求日への保有履歴再生は行わない。profile全体を完全な過去時点再現とは扱わない。既存の`price.self_range_percentile`は価格観測の順位割合で、Valuationのmin/max内位置と別の量であり、窓は合成callerが既存methodから渡す。
+
+日次のmacro独立公開、有限AI調査・提案への新しい接続、独立Macro Contextの深度契約の見直しは未完了である。以下のL1/Reading/既存Context仕様は現行契約として維持する。
 
 ## ① データ：indicator series を引く
 
@@ -233,7 +264,7 @@ published revisionの文書内部の整合は読取時にも検証する。変�
 - **テーマ被覆**: 金利・政策 / インフレ・コスト / 需要・雇用 / 為替・流動性・credit / 日本の政策・金利 / 日本の需要 / energy・地政学・通商 / 市場内部・バリュエーション の8象限すべてにfactを置く。`inputs.articles`は件数を品質の代理にせず、各 load-bearing claim と dominant force に有効な一次情報、支持 evidence、counter-evidence が解決することを独立 review で確認する。自前の `machine_snapshots` / `reading_snapshots` を外部 evidence と数えない。
 - **日本の需要fact最低ライン**: セクション3または7に、実質賃金（毎月勤労統計）または実質消費、鉱工業生産を必ず含める。取得可能ならインバウンド（訪日外客数）・機械受注も置く。米国factだけで需要判断を組み立てない。
 - **円水準の両側リスク**: セクション6に、円安継続と円反転（介入・利上げ）の両経路が輸出企業（為替換算益の剥落）と輸入コスト企業（margin回復）へ与える非対称を1つのjudgmentとして書く。片側の監視条件だけで済ませない。
-- **バーゲン地形**: connection に`screening market-snapshot`のbenchmark 20d/60d・breadth・`benchmark_trend`をfact引用し、「この局面でミスプライスがどこに出やすいか（全面安で広く出る / 回転相場で取り残しに出る / 全面高でプールが縮む）」を`bargain_topography`として書く。機械 gate ではなく独立 review が接地を確認する。オプション IV は「市場が何をどれだけ恐れているか」の観測として併記できるが、買い時や投入判断には使わない。
+- **バーゲン地形**: connection に[Market Context読取](#market-context-reads)の市場snapshotをfact引用し、「この局面でミスプライスがどこに出やすいか（全面安で広く出る / 回転相場で取り残しに出る / 全面高でプールが縮む）」を`bargain_topography`として書く。機械 gate ではなく独立 review が接地を確認する。オプション IV は「市場が何をどれだけ恐れているか」の観測として併記できるが、買い時や投入判断には使わない。
 - **日本株バリュエーションアンカー**: セクション8に市場全体のPERまたは益回り（日経・JPX公表の一次値、または全universeのin-house中央値）とJGB 10yの対比を置き、個別FVアンカーの妥当性を外側から検算できるようにする。
 - **hintの識別力**: 全候補に等しく当てはまる助言（「net cash重視」等）はhintではない。各 research 優先度ヒントと sector tilt は、どの候補タイプ・sectorに効くかを`applies_to`で判別できる形で書く。
 - **energy・通商・地政学**: セクション4または5に、原油と通商政策（関税）・地政学tailのfactを最低1つずつ置く。
@@ -294,7 +325,7 @@ macro contextはdiscount rate、需要、資金調達、共通tail risk、sizing
 マクロの読みは機械スクリーニングの `run` には接続しない（`run` は財務事実だけを扱う決定論的なエンジンのまま）。効かせるのは判断層だけ：
 
 - **Research Triage**（[`./screening-runtime.md`](./screening-runtime.md)）：material deltaと`as_of`鮮度warningをcontext-level summaryとして出す。E[r]とSecurity Analysisの事実層は変えない。
-- **research**：material deltaが個別企業のinvestment case、Base/Downsideまたは反証条件へ影響する場合だけ、Thesisのjudgmentへ因果とsourceを残す。判断期間と算術は[Thesis](./thesis.md#scenario-arithmetic)に従い、通常12か月と理由付き別期間のどちらでも、その期間に効く材料を扱う。マクロを数値ドライバー、採用gate、投入額ルールにはしない。
+- **research**：material deltaが個別企業のinvestment case、Base/Downsideまたは反証条件へ影響する場合だけ、Thesisのjudgmentへ因果とsourceを残す。判断期間と算術は[Thesis](./thesis.md#scenario-arithmetic)に従い、記録された比較期間に効く材料を扱う。マクロを数値ドライバー、採用gate、投入額ルールにはしない。
 - **connection セクション**：Research Triageがresearch優先度ヒントとsizing cautionを消化する入口になる（skill `research-triage`）。
 
 行動指示（売買タイミング・現金比率・配分指示）はcore にもconnection にも書かない。sector tiltとresearch優先度ヒントは着手順位を判断するjudgment入力であり、機械ranking・hard gate・自動sizingへは接続しない。

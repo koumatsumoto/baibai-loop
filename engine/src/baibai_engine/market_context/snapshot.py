@@ -5,13 +5,12 @@ time series of the mechanical benchmark trend and universe breadth, plus a
 sector map (per-sector return medians and breadth) at the evaluation date. It
 also feeds the macro-context workflow with machine-collected inputs. All
 fields are deterministic transforms of stored daily bars; thresholds and
-window lengths are shared with :mod:`baibai_engine.screening.benchmark_trend` so the two
+window lengths are shared with :mod:`baibai_engine.market_context.benchmark` so the two
 never disagree.
 """
 
 from __future__ import annotations
 
-import sqlite3
 import statistics
 from bisect import bisect_right
 from collections.abc import Sequence
@@ -19,7 +18,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
-from .benchmark_trend import (
+from .benchmark import (
     BREADTH_MA_WINDOW_BARS,
     DEFAULT_MIN_BREADTH_SAMPLE,
     LONG_TREND_WINDOW_BARS,
@@ -27,6 +26,8 @@ from .benchmark_trend import (
     TREND_WINDOW_BARS,
     classify_benchmark_trend,
 )
+from .master import read_master_snapshot
+from .prices import read_price_bars, trailing_return
 
 DEFAULT_HISTORY_WEEKS = 12
 
@@ -67,7 +68,12 @@ def build_market_snapshot(
     ]
     start = point_dates[0] - timedelta(days=_POINT_LOOKBACK_CALENDAR_DAYS)
     series_by_ticker = _load_series(sqlite_path, start=start, end=asof_date)
-    sector_by_ticker = _load_sectors(sqlite_path)
+    master = read_master_snapshot(sqlite_path, as_of=asof_date)
+    sector_by_ticker = (
+        {}
+        if master is None
+        else {ticker: str(row["sector_33"]) for ticker, row in master.securities.items()}
+    )
     benchmark = series_by_ticker.get(benchmark_ticker)
     points = [
         _point(
@@ -82,6 +88,7 @@ def build_market_snapshot(
         "as_of": asof_date.isoformat(),
         "benchmark_ticker": benchmark_ticker,
         "history_weeks": history_weeks,
+        "master_snapshot_date": None if master is None else master.as_of.isoformat(),
         "points": points,
         "sectors": _sector_table(
             series_by_ticker,
@@ -101,8 +108,8 @@ def _point(
 ) -> dict[str, object]:
     benchmark_prices = benchmark.prefix(point_date) if benchmark is not None else ()
     observation_date = benchmark.last_date_on(point_date) if benchmark is not None else None
-    return_20d = _trailing_return(benchmark_prices, TREND_WINDOW_BARS)
-    return_60d = _trailing_return(benchmark_prices, LONG_TREND_WINDOW_BARS)
+    return_20d = trailing_return(benchmark_prices, TREND_WINDOW_BARS)
+    return_60d = trailing_return(benchmark_prices, LONG_TREND_WINDOW_BARS)
     breadth, sample = _breadth(
         series_by_ticker,
         observation_date=observation_date,
@@ -181,10 +188,10 @@ def _sector_table(
         breadth_sample = 0
         for series in members:
             prices = series.prefix(asof_date)
-            short = _trailing_return(prices, _SECTOR_RETURN_WINDOW_BARS)
+            short = trailing_return(prices, _SECTOR_RETURN_WINDOW_BARS)
             if short is not None:
                 returns_20d.append(short)
-            longer = _trailing_return(prices, _SECTOR_LONG_RETURN_WINDOW_BARS)
+            longer = trailing_return(prices, _SECTOR_LONG_RETURN_WINDOW_BARS)
             if longer is not None:
                 returns_60d.append(longer)
             if len(prices) >= BREADTH_MA_WINDOW_BARS:
@@ -212,73 +219,8 @@ def _sector_sort_key(row: dict[str, object]) -> float:
     return float(value) if isinstance(value, int | float) else 0.0
 
 
-def _trailing_return(prices: Sequence[float], window_bars: int) -> float | None:
-    if len(prices) < window_bars + 1:
-        return None
-    past = prices[-(window_bars + 1)]
-    if past == 0:
-        return None
-    return prices[-1] / past - 1
-
-
 def _load_series(sqlite_path: Path, *, start: date, end: date) -> dict[str, _Series]:
-    if not sqlite_path.exists():
-        return {}
-    conn = sqlite3.connect(sqlite_path)
-    try:
-        rows = conn.execute(
-            "SELECT ticker, traded_at, close, adjustment_factor FROM jquants_daily_bars "
-            "WHERE traded_at >= ? AND traded_at <= ? ORDER BY ticker, traded_at",
-            (start.isoformat(), end.isoformat()),
-        ).fetchall()
-    finally:
-        conn.close()
-    # cache の adjustment_close は incremental 取得で遡及の有無が混在するため使わず、
-    # 不変イベントの adjustment_factor の後方累積で末尾基準の価格系列を組む。
-    raw: dict[str, list[tuple[date, float | None, float | None]]] = {}
-    for ticker, traded_at, close, adjustment_factor in rows:
-        if not isinstance(traded_at, str):
-            continue
-        raw.setdefault(str(ticker), []).append(
-            (
-                date.fromisoformat(traded_at),
-                float(close) if isinstance(close, int | float) else None,
-                float(adjustment_factor) if isinstance(adjustment_factor, int | float) else None,
-            )
-        )
-    series: dict[str, _Series] = {}
-    for ticker, entries in raw.items():
-        factor = 1.0
-        dates: list[date] = []
-        prices: list[float] = []
-        for traded_at, close, adjustment_factor in reversed(entries):
-            if close is not None:
-                dates.append(traded_at)
-                prices.append(close * factor)
-            if adjustment_factor not in (None, 0.0, 1.0):
-                assert adjustment_factor is not None
-                factor *= adjustment_factor
-        dates.reverse()
-        prices.reverse()
-        series[ticker] = _Series(dates=dates, prices=prices)
-    return series
-
-
-def _load_sectors(sqlite_path: Path) -> dict[str, str]:
-    if not sqlite_path.exists():
-        return {}
-    conn = sqlite3.connect(sqlite_path)
-    try:
-        rows = conn.execute(
-            "SELECT ticker, sector_33 FROM jquants_master_snapshots "
-            "WHERE snapshot_date = (SELECT MAX(snapshot_date) "
-            "FROM jquants_master_snapshots WHERE snapshot_date != 'unknown') "
-            "ORDER BY ticker"
-        ).fetchall()
-    finally:
-        conn.close()
-    sectors: dict[str, str] = {}
-    for ticker, sector in rows:
-        if isinstance(sector, str) and sector:
-            sectors[str(ticker)] = sector
-    return sectors
+    return {
+        ticker: _Series(dates=[bar.traded_at for bar in bars], prices=[bar.price for bar in bars])
+        for ticker, bars in read_price_bars(sqlite_path, start=start, end=end).items()
+    }

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, fields
 from datetime import date, timedelta
-from statistics import mean, median
+from statistics import median
 
 from baibai_engine.market.bars import (
     JQuantsAdjustmentFactorEvent,
@@ -15,6 +15,7 @@ from baibai_engine.market.bars import (
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.models import SecurityMaster
 from baibai_engine.market.providers.edinet import EdinetMetricRecord
+from baibai_engine.market_context.sector import sector_relative_strength
 from baibai_engine.screening.margin_metrics import MarginBalance, margin_supply_demand
 from baibai_engine.screening.metrics.capital import (
     ENTITY_SCALE_MISMATCH,
@@ -210,9 +211,8 @@ def build_metrics(
         for metric in VALUATION_METRICS
     }
 
-    sector_returns: dict[str, list[float]] = {}
     ticker_returns_4w: dict[str, float] = {}
-    for ticker, security in securities_by_ticker.items():
+    for ticker in securities_by_ticker:
         ticker_bars = bars_by_ticker.get(ticker, ())
         adjustment_events = (
             adjustment_events_by_ticker.get(ticker, ())
@@ -227,20 +227,13 @@ def build_metrics(
         )
         if four_week is not None:
             ticker_returns_4w[ticker] = four_week
-            if _in_population(ticker):
-                sector_returns.setdefault(security.sector_33, []).append(four_week)
 
-    population_returns_4w = [
-        value for ticker, value in ticker_returns_4w.items() if _in_population(ticker)
-    ]
-    market_return_4w = mean(population_returns_4w) if population_returns_4w else None
-    sector_rs = {
-        sector: (mean(values) - market_return_4w)
-        if values and market_return_4w is not None
-        else None
-        for sector, values in sector_returns.items()
-    }
-    rs_percentiles = _rank_to_percentiles(sector_rs)
+    sector_context = sector_relative_strength(
+        {ticker: value for ticker, value in ticker_returns_4w.items() if _in_population(ticker)},
+        {ticker: security.sector_33 for ticker, security in securities_by_ticker.items()},
+    )
+    sector_rs = sector_context.relative_returns
+    rs_percentiles = sector_context.percentiles
 
     history_window_start = asof_date - timedelta(days=PRICE_HISTORY_WINDOW_DAYS)
     price_history_sessions: dict[str, int] = {
@@ -344,7 +337,7 @@ def build_metrics(
             sector_relative_strength_4w=sector_rs.get(sector),
             sector_relative_strength_percentile=rs_percentiles.get(sector),
             ticker_return_4w=ticker_returns_4w.get(ticker),
-            sector_return_4w=mean(sector_returns[sector]) if sector in sector_returns else None,
+            sector_return_4w=sector_context.mean_returns.get(sector),
             short_history_flag=listing_span_days < PRICE_HISTORY_WINDOW_DAYS,
             split_adjustment_flag=_has_split_adjustment_within_sessions(
                 ticker_bars,
@@ -757,14 +750,3 @@ def _count_ttm_qualities(snapshots: Sequence[FinancialSnapshot]) -> dict[str, in
             if quality is not None:
                 counts[quality.value] += 1
     return counts
-
-
-def _rank_to_percentiles(values: Mapping[str, float | None]) -> dict[str, float | None]:
-    available = sorted((value, key) for key, value in values.items() if value is not None)
-    if not available:
-        return dict.fromkeys(values)
-    total = len(available)
-    output: dict[str, float | None] = dict.fromkeys(values)
-    for index, (_, key) in enumerate(available, start=1):
-        output[key] = index / total
-    return output

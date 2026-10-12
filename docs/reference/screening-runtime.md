@@ -92,6 +92,8 @@ cloudからL3 Research Triageを発行しない。local `baibai-batch analysis r
 
 `prune --keep N`は新しいrunをN世代残し、子のSecurity AnalysisとReview Setを同一transactionで削除して`VACUUM`する。Research Triage、thesis、Capital Allocation Assessment、Position Reviewはapplication DBのcanonical judgmentなのでrun pruneから独立する。
 
+市場・業種・個別相対の算術とcutoffは[Market Context読取](./macro.md#market-context-reads)が所有する。Screeningは業種平均対市場平均に既存の比較母集団を渡し、ValuationのER/FVや4 Approachの推薦式へ環境scoreを追加しない。
+
 ## Market store inputs
 
 価格、財務、銘柄master、calendar、信用・空売り、JPX規制、EDINET、上場廃止・現金公開買付けとcoverageを読む。現行table/columnはschema、lake datasetは`baibai-engine lake inventory`を参照する。

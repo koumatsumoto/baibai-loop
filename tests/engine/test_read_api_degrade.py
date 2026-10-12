@@ -64,6 +64,8 @@ _ARGUMENTS: dict[str, object] = {
     "after": date(2026, 7, 28),
     "as_of": date(2026, 7, 29),
     "asof": date(2026, 7, 29),
+    "asof_date": date(2026, 7, 29),
+    "self_range_window_bars": 750,
     "capital_allocation_assessment_id": "assessment-20260729-a",
     "context_id": "macro-context-2026-07-29-a",
     "day": date(2026, 7, 29),
@@ -83,7 +85,7 @@ _ARGUMENTS: dict[str, object] = {
 }
 
 
-_STORE_PARAMETERS = ("path", "db_path", "indicators_db_path")
+_STORE_PARAMETERS = ("path", "db_path", "indicators_db_path", "sqlite_path")
 
 
 def _published_callables() -> dict[str, object]:

@@ -13,7 +13,10 @@ from pydantic import ValidationError
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.repository_layout import APPLICATION_DB_PATH
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.read_api.macro import MACRO_CONTEXT_STALE_DAYS, latest_macro_context_payload
+from baibai_engine.market_context.macro import (
+    MACRO_CONTEXT_STALE_DAYS,
+    latest_macro_context_payload,
+)
 from baibai_engine.screening.discovery.review_set import PublishedReviewSet
 from baibai_engine.screening.run_store import ScreeningRunReader
 

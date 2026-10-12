@@ -14,8 +14,9 @@ from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.sqlite.ingest import open_connection
+from baibai_engine.market_context.prices import read_price_bars
 from baibai_engine.position.ledger import PortfolioLedgerDocument
-from baibai_engine.read_api.ticker_profile import _load_bars, build_ticker_profile
+from baibai_engine.read_api.ticker_profile import build_ticker_profile
 from baibai_engine.screening.cli import build_parser, ticker_profile_command
 from baibai_engine.screening.discovery import build_review_set
 from baibai_engine.screening.rule_config import load_screening_rules
@@ -195,7 +196,7 @@ class BuildTickerProfileTests(unittest.TestCase):
             finally:
                 conn.close()
 
-            with_event = _load_bars(
+            with_event = read_price_bars(
                 sqlite_path,
                 tickers=("6731",),
                 start=date(2023, 12, 26),
@@ -211,7 +212,7 @@ class BuildTickerProfileTests(unittest.TestCase):
                 conn.commit()
             finally:
                 conn.close()
-            without_event = _load_bars(
+            without_event = read_price_bars(
                 sqlite_path,
                 tickers=("6731",),
                 start=date(2023, 12, 26),
@@ -608,3 +609,11 @@ def test_sector_uses_only_peers_with_exact_target_interval(tmp_path, target_coun
     else:
         assert sector["peer_count"] == 2
         assert sector["peer_median_return_20d"] == pytest.approx(0.3)
+
+
+def test_profile_declares_the_independent_ledger_date(tmp_path):
+    _write_portfolio_ledger(tmp_path, ticker="BBBB", sector="機械", price_yen=500)
+    profile = _dated_profile(tmp_path, date(2026, 5, 28))
+    assert profile["asof"] == "2026-05-28"
+    assert profile["portfolio"]["ledger_as_of"] == "2026-05-29T15:30:00+09:00"
+    assert profile["portfolio"]["open_position_count"] == 1
