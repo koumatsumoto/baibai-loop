@@ -11,15 +11,17 @@ import pytest
 import yaml
 from tests.engine.test_capital_allocation import _payload as assessment_payload
 from tests.engine.test_position_outcome_store import _publication as outcome_publication
-from tests.helpers.macro_context import macro_context_payload
+from tests.helpers.assessment_history import historical_context_payload, seed_history
 from tests.helpers.research_v4 import pair_payload
 from tests.tools.test_owner_mcp import reader as reader
 from tests.tools.test_owner_mcp_resources import data as data
 from tests.tools.test_owner_mcp_resources import error, pages
 
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.macro.context.models import MACRO_CONTEXT_SCHEMA_VERSION, MacroContextDocument
-from baibai_engine.macro.context.service import MacroContextService
+from baibai_engine.market_context.assessment.models import (
+    ASSESSMENT_SCHEMA_VERSION,
+    StoredAssessment,
+)
 from baibai_engine.position.outcome_store import PortfolioOutcomeStore
 from baibai_engine.storage.application.json import canonical_json
 
@@ -27,8 +29,8 @@ from baibai_engine.storage.application.json import canonical_json
 def test_publication_originals_preserve_unknown_fields_without_related_eligibility(data):
     thesis, review = pair_payload()
     thesis["saved_extension"] = {"unrecognized": "preserved"}
-    context = MacroContextDocument.model_validate(macro_context_payload())
-    MacroContextService(data.paths.application).publish(context, expected_head=None)
+    context = StoredAssessment.from_payload(historical_context_payload())
+    seed_history(data.paths.application, (context).document, supersedes=None)
     assessment = assessment_payload()
     position = {
         "schema_version": 3,
@@ -93,7 +95,7 @@ def test_publication_originals_preserve_unknown_fields_without_related_eligibili
     outcome = outcome_publication()
     PortfolioOutcomeStore(data.paths.application).publish(outcome)
     cases = [
-        ("macro.context", {"context_id": context.context_id}, context.model_dump(mode="json")),
+        ("macro.context", {"context_id": context.context_id}, context.document),
         ("research.thesis", {"thesis_id": "thesis-a"}, thesis),
         ("research.thesis_review", {"review_id": review["review_id"]}, review),
         (
@@ -110,7 +112,9 @@ def test_publication_originals_preserve_unknown_fields_without_related_eligibili
     for name, selector, expected in cases:
         result = data.get(name, selector)
         assert result["payload"]["payload"] == expected
-        assert result["meta"]["validation"] == "current"
+        assert result["meta"]["validation"] == (
+            "stored_only" if name == "macro.context" else "current"
+        )
         assert data.get(name, resource_ref=result["resource_ref"])["payload"] == result["payload"]
         assert pages(data, name)
     with sqlite3.connect(data.paths.application) as con:
@@ -137,13 +141,13 @@ def test_old_publication_is_stored_only_but_current_corruption_is_error(data):
             "INSERT INTO macro_context VALUES(?,?,?,?,?,?)",
             (
                 "bad",
-                MACRO_CONTEXT_SCHEMA_VERSION,
+                ASSESSMENT_SCHEMA_VERSION,
                 "2026-01-02",
                 "2026-01-02T00:00:00Z",
                 None,
                 json.dumps(
                     {
-                        "schema_version": MACRO_CONTEXT_SCHEMA_VERSION,
+                        "schema_version": ASSESSMENT_SCHEMA_VERSION,
                         "context_id": "bad",
                     }
                 ),
@@ -236,7 +240,7 @@ def test_context_schema_column_cannot_disguise_payload_as_historical(data):
     assert result["payload"]["payload"] == old
     assert result["meta"]["validation"] == "stored_only"
     with sqlite3.connect(data.paths.application) as con:
-        con.execute("UPDATE macro_context SET schema_version=?", (MACRO_CONTEXT_SCHEMA_VERSION,))
+        con.execute("UPDATE macro_context SET schema_version=?", (ASSESSMENT_SCHEMA_VERSION,))
     error(lambda: data.get("macro.context", {"context_id": "old"}), "CONTRACT_MISMATCH")
 
 

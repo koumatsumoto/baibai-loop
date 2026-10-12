@@ -63,7 +63,7 @@ TABLES = {
 
 
 def validate_publication(table: str, row: dict[str, Any]) -> str:
-    from baibai_engine.macro.context.models import MacroContextDocument
+    from baibai_engine.market_context.assessment.models import MarketContextAssessment
     from baibai_engine.position.outcome_models import PortfolioOutcomePayload
     from baibai_engine.research.capital_allocation import CapitalAllocationAssessment
     from baibai_engine.research.operation.models import OperationSession
@@ -73,7 +73,7 @@ def validate_publication(table: str, row: dict[str, Any]) -> str:
     from baibai_engine.tasks.models import Task
 
     models: dict[str, type[BaseModel]] = {
-        "macro_context": MacroContextDocument,
+        "macro_context": MarketContextAssessment,
         "research_triage": ResearchTriage,
         "thesis": ThesisDocument,
         "thesis_review": ThesisReview,
@@ -133,17 +133,23 @@ def publication_rows(
             from datetime import date, datetime
             from zoneinfo import ZoneInfo
 
-            from baibai_engine.market_context.macro import latest_macro_context_row
+            from baibai_engine.market_context.assessment.query import latest_assessment
 
+            # This external read boundary freezes its clock; historical callers supply known_at.
+            known_at = (
+                datetime.fromisoformat(str(filters["known_at"]))
+                if "known_at" in filters
+                else datetime.now(ZoneInfo("Asia/Tokyo"))
+            )
             cutoff = (
                 date.fromisoformat(str(filters["as_of"]))
                 if "as_of" in filters
-                else datetime.now(ZoneInfo("Asia/Tokyo")).date()
+                else known_at.astimezone(ZoneInfo("Asia/Tokyo")).date()
             )
-            chosen = latest_macro_context_row(connection, as_of=cutoff)
+            chosen = latest_assessment(path, as_of=cutoff, known_at=known_at)
             if chosen is None:
                 return [], {}
-            filters = {"context_id": chosen["context_id"]}
+            filters = {"context_id": chosen.context_id}
         if table == "thesis_review" and "thesis_id" in filters:
             parent = connection.execute(
                 "SELECT 1 FROM thesis WHERE thesis_id=?", (filters["thesis_id"],)

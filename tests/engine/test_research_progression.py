@@ -319,6 +319,7 @@ def test_domain_inputs_are_read_only_and_do_not_require_independent_macro_report
         tickers=("1234", "2331"),
         as_of=NOW.date(),
         cutoff=NOW,
+        known_at=NOW,
         market_path=market,
         runs_path=tmp_path / "absent-runs.sqlite",
         macro_path=tmp_path / "absent-macro.sqlite",

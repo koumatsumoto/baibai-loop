@@ -1,3 +1,4 @@
+import { AssessmentContent } from '../components/market-context/AssessmentContent'
 import { useEffect, useId, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { ArrowDown, ArrowRight, ArrowUp, CircleAlert, Minus, Search } from 'lucide-react'
@@ -272,16 +273,18 @@ function IndicatorDialog({ row, history, historyLoading, historyError, period, g
 }
 
 function LatestContext({ context }: { context: MacroContextExcerptView | null }) {
+
   if (context === null) return <Alert><CircleAlert /><AlertTitle>Macro Context なし</AlertTitle><AlertDescription>機械読み値は確認できますが、現在の環境判断はまだ発行されていません。</AlertDescription></Alert>
   return (
     <SectionCard
       description={`${LABEL.asOf} ${context.as_of} / ${context.age_days} 日前`}
       meta={<div className="flex gap-2">{context.stale && <StaleBadge />}<Link className="text-sm underline underline-offset-4" to={`/macro/reports/${context.context_id}`}>詳細レポート</Link></div>}
-      title="現在のマクロ局面"
+      title={context.assessment ? '市場環境判断' : '現在のマクロ局面'}
     >
       <div className="grid gap-5 px-5 py-4 sm:px-6">
         {context.warnings.length > 0 && <div className="flex flex-wrap gap-1.5">{context.warnings.map((warning) => <Badge key={warning} variant="outline">{warning}</Badge>)}</div>}
         <p className="whitespace-pre-wrap text-sm leading-7">{context.summary}</p>
+        {context.assessment ? <AssessmentContent data={context.assessment} /> : <>
         {context.synthesis !== null && (
           <div className="grid gap-3 md:grid-cols-2">
             <div><h4 className="text-sm font-semibold">支配的な力</h4><ul className="mt-1 grid gap-2">{context.synthesis.dominant_forces.map((force) => <li key={force.force_id}><p className="text-sm font-medium">{force.title}</p><p className="text-sm text-muted-foreground">{force.summary}</p><p className="text-xs text-muted-foreground">伝播: {force.transmission}</p></li>)}</ul></div>
@@ -299,6 +302,7 @@ function LatestContext({ context }: { context: MacroContextExcerptView | null })
             {context.sizing_cautions.length > 0 && <div><h5 className="text-xs font-semibold">Sizing caution</h5><ul className="mt-1 list-disc pl-5 text-sm text-muted-foreground">{context.sizing_cautions.map((item) => <li key={item.summary}>{item.summary}</li>)}</ul></div>}
           </div>
         </details>
+        </>}
       </div>
     </SectionCard>
   )

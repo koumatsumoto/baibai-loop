@@ -8,7 +8,7 @@ _FX_INPUT_ID = "usd-jpy"
 _SNAPSHOT_INPUT_ID = "snapshot-market-2026-07-19"
 
 
-def macro_context_payload(
+def historical_context_payload(
     *,
     context_id: str = "macro-context-2026-07-19-base",
     as_of: str = "2026-07-19",
@@ -333,3 +333,31 @@ def _core_section(
         "scenarios": scenarios or [],
         "monitoring_points": monitoring_points or [],
     }
+
+
+def seed_history(path, payload: dict[str, Any], *, supersedes: str | None = None) -> None:
+    """Seed an immutable historical fixture without reviving an old publication writer."""
+    from baibai_engine.storage.application.json import canonical_json
+    from baibai_engine.storage.application.write import connect_rw, initialize_database
+
+    initialize_database(path)
+    connection = connect_rw(path)
+    try:
+        connection.execute(
+            "INSERT INTO macro_context(context_id,schema_version,as_of,published_at,supersedes_id,payload) VALUES(?,?,?,?,?,?)",
+            (
+                payload["context_id"],
+                payload["schema_version"],
+                payload["as_of"],
+                payload["published_at"],
+                supersedes,
+                canonical_json(payload),
+            ),
+        )
+        connection.execute(
+            "INSERT INTO macro_context_head(singleton,context_id) VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET context_id=excluded.context_id",
+            (payload["context_id"],),
+        )
+        connection.commit()
+    finally:
+        connection.close()

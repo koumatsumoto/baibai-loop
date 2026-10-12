@@ -214,6 +214,15 @@ class ContextSelector(OneSelector):
     context_id: Identifier | None = None
     latest: Literal[True] | None = None
     as_of: Day | None = None
+    known_at: Instant | None = None
+
+    @model_validator(mode="after")
+    def one(self) -> ContextSelector:
+        if sum(value is not None for value in (self.context_id, self.latest, self.as_of)) != 1:
+            raise ValueError("exactly one selector required")
+        if self.context_id is not None and self.known_at is not None:
+            raise ValueError("history ID access does not use an analysis cutoff")
+        return self
 
 
 class TriageFilters(DateRange):

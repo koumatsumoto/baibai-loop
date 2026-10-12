@@ -8,7 +8,9 @@ from pathlib import Path
 
 from baibai_engine.external_assessment.query import external_assessment
 from baibai_engine.foundation.sqlite_read import read_store_if_written
-from baibai_engine.market_context.macro import latest_macro_context_payload, macro_reading_snapshot
+from baibai_engine.market_context.assessment.projection import assessment_projection
+from baibai_engine.market_context.assessment.query import latest_assessment
+from baibai_engine.market_context.macro import macro_reading_snapshot
 from baibai_engine.market_context.security import build_security_market_context
 from baibai_engine.market_context.snapshot import build_market_snapshot
 from baibai_engine.screening.run_store import ScreeningRunReader
@@ -20,6 +22,7 @@ def research_inputs(
     tickers: tuple[str, ...],
     as_of: date,
     cutoff: datetime,
+    known_at: datetime,
     market_path: Path,
     runs_path: Path,
     macro_path: Path,
@@ -32,7 +35,7 @@ def research_inputs(
             as_of=as_of, run_revision_id=run_revision_id
         ),
     )
-    context = latest_macro_context_payload(app_path, as_of=as_of)
+    context = latest_assessment(app_path, as_of=as_of, known_at=known_at)
     securities: dict[str, object] = {}
     for ticker in tickers:
         analysis = (
@@ -60,12 +63,13 @@ def research_inputs(
     return {
         "as_of": as_of.isoformat(),
         "received_cutoff": cutoff.isoformat(),
+        "known_at": known_at.isoformat(),
         "market_context": {
             "market": build_market_snapshot(sqlite_path=market_path, asof_date=as_of),
             "macro_reading": macro_reading_snapshot(macro_path, asof=as_of),
             "saved_macro_context": None
             if context is None
-            else {key: context.get(key) for key in ("context_id", "as_of", "summary")},
+            else assessment_projection(context, as_of=as_of),
         },
         "securities": securities,
     }

@@ -322,6 +322,88 @@
       "title": "AnalystRatingObservation",
       "type": "object"
     },
+    "AssessmentClaimView": {
+      "properties": {
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "source_ids": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "summary",
+        "source_ids"
+      ],
+      "title": "AssessmentClaimView",
+      "type": "object"
+    },
+    "AssessmentContentView": {
+      "properties": {
+        "known_at": {
+          "format": "date-time",
+          "title": "Known At",
+          "type": "string"
+        },
+        "changes": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/AssessmentClaimView"
+          },
+          "title": "Changes",
+          "type": "array"
+        },
+        "counter_evidence": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/AssessmentClaimView"
+          },
+          "title": "Counter Evidence",
+          "type": "array"
+        },
+        "uncertainties": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/AssessmentClaimView"
+          },
+          "title": "Uncertainties",
+          "type": "array"
+        },
+        "implications": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/AssessmentClaimView"
+          },
+          "title": "Implications",
+          "type": "array"
+        },
+        "inputs": {
+          "default": [],
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Inputs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "known_at",
+        "changes",
+        "counter_evidence",
+        "uncertainties",
+        "implications",
+        "inputs"
+      ],
+      "title": "AssessmentContentView",
+      "type": "object"
+    },
     "AssessmentReviewView": {
       "properties": {
         "attempt": {
@@ -1526,6 +1608,17 @@
           },
           "title": "Warnings",
           "type": "array"
+        },
+        "assessment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AssessmentContentView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -1543,7 +1636,8 @@
         "bargain_topography",
         "estimate_caveats",
         "sizing_cautions",
-        "warnings"
+        "warnings",
+        "assessment"
       ],
       "title": "MacroContextExcerptView",
       "type": "object"
@@ -1628,6 +1722,7 @@
           "default": null
         },
         "core": {
+          "default": [],
           "items": {
             "$ref": "#/$defs/MacroCoreSectionView"
           },
@@ -1635,7 +1730,39 @@
           "type": "array"
         },
         "connection": {
-          "$ref": "#/$defs/MacroConnectionSectionView"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MacroConnectionSectionView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "assessment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AssessmentContentView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "historical_payload": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Historical Payload"
         }
       },
       "required": [
@@ -1647,7 +1774,9 @@
         "stale",
         "synthesis",
         "core",
-        "connection"
+        "connection",
+        "assessment",
+        "historical_payload"
       ],
       "title": "MacroContextView",
       "type": "object"

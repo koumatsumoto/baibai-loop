@@ -14,6 +14,7 @@ series is normal operation and rewriting history is not an option.
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import sqlite3
 import sys
@@ -26,15 +27,13 @@ from baibai_engine.batch_api import (
     DEFAULT_MACRO_DB_PATH as DEFAULT_DB_PATH,
 )
 from baibai_engine.batch_api import (
-    MACRO_CONTEXT_SCHEMA_VERSION,
     IndicatorDefinitions,
     IndicatorsSchemaError,
-    MacroContextDocument,
-    cited_series_ids,
+    StoredAssessment,
+    assessment_series_ids,
     connect_read_only,
     database_path,
     load_definitions,
-    scorecard_series_ids,
     validate_macro_schema,
 )
 
@@ -155,9 +154,11 @@ def validate_published_contexts(
     connection = connect_read_only(database)
     try:
         rows = connection.execute(
-            "SELECT context_id, payload FROM macro_context WHERE schema_version = ? "
-            "ORDER BY published_at, context_id",
-            (MACRO_CONTEXT_SCHEMA_VERSION,),
+            (
+                "SELECT context_id, schema_version, as_of, published_at, payload "
+                "FROM macro_context "
+                "ORDER BY published_at, context_id"
+            ),
         ).fetchall()
     finally:
         connection.close()
@@ -165,21 +166,20 @@ def validate_published_contexts(
     for row in rows:
         context_id = str(row["context_id"])
         try:
-            document = MacroContextDocument.model_validate_json(str(row["payload"]))
-        except ValidationError as exc:
-            first = exc.errors()[0]
-            location = ".".join(str(part) for part in first["loc"]) or "root"
-            failures.append(f"{context_id}: cannot be read at {location}: {first['msg']}")
+            document = StoredAssessment.from_payload(json.loads(str(row["payload"])))
+            if (
+                document.context_id != context_id
+                or document.schema_version != row["schema_version"]
+                or document.as_of.isoformat() != row["as_of"]
+            ):
+                raise ValueError("publication identity differs")
+        except (ValidationError, ValueError, KeyError, TypeError) as exc:
+            failures.append(f"{context_id}: cannot be read: {exc}")
             continue
-        retired = sorted(cited_series_ids(document) - registry)
+        retired = sorted(assessment_series_ids(document) - registry)
         if retired:
             warnings.append(f"{context_id}: cites retired series: {', '.join(retired)}")
-        unsettleable = sorted(scorecard_series_ids(document) - registry)
-        if unsettleable:
-            warnings.append(
-                f"{context_id}: scorecard is unsettleable on retired series "
-                f"({', '.join(unsettleable)})"
-            )
+
     return PublishedContextReport(
         documents=len(rows),
         failures=tuple(failures),

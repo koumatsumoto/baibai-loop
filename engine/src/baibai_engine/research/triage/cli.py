@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import sqlite3
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import yaml
@@ -13,11 +13,10 @@ from pydantic import ValidationError
 
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.repository_layout import APPLICATION_DB_PATH
+from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.market_context.macro import (
-    MACRO_CONTEXT_STALE_DAYS,
-    latest_macro_context_payload,
-)
+from baibai_engine.market_context.assessment.models import ASSESSMENT_STALE_DAYS
+from baibai_engine.market_context.assessment.query import latest_assessment_payload
 from baibai_engine.screening.discovery.contracts import PublishedReviewSet
 from baibai_engine.screening.run_store import ScreeningRunReader
 
@@ -72,14 +71,15 @@ def scaffold_research_triage(
         if not review_set.entries:
             raise ValueError("Review Set must contain entries")
         as_of = review_set.as_of.isoformat()
-        latest_context = latest_macro_context_payload(
+        latest_context = latest_assessment_payload(
             app_db_path or APPLICATION_DB_PATH,
             as_of=date.fromisoformat(as_of),
+            known_at=datetime.now(JST),
         )
         if latest_context is not None:
             context_asof = date.fromisoformat(str(latest_context["as_of"]))
             age_days = (date.fromisoformat(as_of) - context_asof).days
-            if age_days > MACRO_CONTEXT_STALE_DAYS:
+            if age_days > ASSESSMENT_STALE_DAYS:
                 print(
                     "warning: latest eligible macro context is stale: "
                     f"{latest_context['context_id']} age_days={age_days}",

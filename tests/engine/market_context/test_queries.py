@@ -5,24 +5,19 @@ import socket
 import sqlite3
 import subprocess
 import sys
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from tests.helpers.macro_context import macro_context_payload
+from tests.helpers.assessment_history import historical_context_payload, seed_history
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
-from baibai_engine.macro.context.models import MacroContextDocument
-from baibai_engine.macro.context.service import MacroContextService
+from baibai_engine.market_context.assessment.models import StoredAssessment
+from baibai_engine.market_context.assessment.query import assessment_payload as read_context
+from baibai_engine.market_context.assessment.query import latest_assessment_payload
 from baibai_engine.market_context.benchmark import compute_benchmark_trend
 from baibai_engine.market_context.indicators.db import initialize_database, seed_definitions
 from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.macro import (
-    latest_macro_context_payload,
-    macro_reading_snapshot,
-)
-from baibai_engine.market_context.macro import (
-    macro_context_payload as read_context,
-)
+from baibai_engine.market_context.macro import macro_reading_snapshot
 from baibai_engine.market_context.master import read_master_snapshot
 from baibai_engine.market_context.prices import read_price_bars
 from baibai_engine.market_context.sector import sector_relative_strength
@@ -152,25 +147,28 @@ def test_null_close_split_factor_adjusts_past_prices_without_future_events(tmp_p
 
 def test_macro_cutoff_and_domain_import_do_not_reach_research_or_writers(tmp_path):
     path = tmp_path / "app.sqlite"
-    service = MacroContextService(path)
     for day, prior in (("2026-07-19", None), ("2026-07-20", "macro-context-2026-07-19-past")):
         identifier = f"macro-context-{day}-" + ("past" if prior is None else "future")
-        service.publish(
-            MacroContextDocument.model_validate(
-                macro_context_payload(
-                    context_id=identifier,
-                    as_of=day,
-                    published_at=f"{day}T12:00:00+09:00",
+        seed_history(
+            path,
+            (
+                StoredAssessment.from_payload(
+                    historical_context_payload(
+                        context_id=identifier,
+                        as_of=day,
+                        published_at=f"{day}T12:00:00+09:00",
+                    )
                 )
-            ),
-            expected_head=prior,
+            ).document,
+            supersedes=prior,
         )
     assert (
-        latest_macro_context_payload(path, as_of=date(2026, 7, 19))["context_id"]
+        latest_assessment_payload(
+            path, as_of=date(2026, 7, 19), known_at=datetime(2026, 7, 21, tzinfo=UTC)
+        )["context_id"]
         == "macro-context-2026-07-19-past"
     )
-    with pytest.raises(ValueError, match="future macro context"):
-        read_context(path, context_id="macro-context-2026-07-20-future", as_of=date(2026, 7, 19))
+    assert read_context(path, context_id="macro-context-2026-07-20-future")["as_of"] == "2026-07-20"
     subprocess.run(
         [
             sys.executable,
@@ -181,7 +179,7 @@ from baibai_engine.market_context.macro import macro_reading_snapshot
 from baibai_engine.market_context.security import build_security_market_context
 assert not any(name.startswith(("baibai_engine.research", "baibai_engine.read_api", "baibai_engine.screening", "baibai_engine.position", "baibai_engine.market_context.indicators.providers")) for name in sys.modules)
 assert "baibai_engine.storage.application.write" not in sys.modules
-assert "baibai_engine.macro.context.service" not in sys.modules
+assert "baibai_engine.market_context.assessment.service" not in sys.modules
 """,
         ],
         check=True,
@@ -200,8 +198,10 @@ def test_domain_reads_have_no_network_or_writes_and_missing_stores_stay_absent(
     seed_definitions(connection, load_definitions())
     connection.commit()
     connection.close()
-    MacroContextService(app_path).publish(
-        MacroContextDocument.model_validate(macro_context_payload()), expected_head=None
+    seed_history(
+        app_path,
+        (StoredAssessment.from_payload(historical_context_payload())).document,
+        supersedes=None,
     )
     paths = (market_path, macro_path, app_path)
     before = [hashlib.sha256(path.read_bytes()).hexdigest() for path in paths]
@@ -232,10 +232,15 @@ def test_domain_reads_have_no_network_or_writes_and_missing_stores_stay_absent(
     assert security(market_path)["price"] is not None
     assert build_market_snapshot(sqlite_path=market_path, asof_date=ASOF)["sectors"]
     assert macro_reading_snapshot(macro_path, asof=ASOF)["asof"] == ASOF.isoformat()
-    assert latest_macro_context_payload(app_path, as_of=date(2026, 7, 19))["context_id"]
+    assert latest_assessment_payload(
+        app_path, as_of=date(2026, 7, 19), known_at=datetime(2026, 7, 21, tzinfo=UTC)
+    )["context_id"]
     assert before == [hashlib.sha256(path.read_bytes()).hexdigest() for path in paths]
     missing = tmp_path / "absent.sqlite"
     assert security(missing)["price"] is None
     assert macro_reading_snapshot(missing, asof=ASOF) is None
-    assert latest_macro_context_payload(missing, as_of=ASOF) is None
+    assert (
+        latest_assessment_payload(missing, as_of=ASOF, known_at=datetime(2026, 7, 21, tzinfo=UTC))
+        is None
+    )
     assert not missing.exists()

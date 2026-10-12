@@ -118,13 +118,18 @@ from baibai_engine.foundation.repository_layout import (
     reject_noncanonical_store_paths,
     repository_root_error,
 )
-from baibai_engine.macro.context.models import (
-    MACRO_CONTEXT_SCHEMA_VERSION,
-    MACRO_CONTEXT_STALE_DAYS,
-    MacroContextDocument,
-    cited_series_ids,
-    scorecard_series_ids,
+from baibai_engine.market_context.assessment.models import (
+    ASSESSMENT_SCHEMA_VERSION,
+    ASSESSMENT_STALE_DAYS,
+    StoredAssessment,
+    require_aware,
 )
+from baibai_engine.market_context.assessment.projection import (
+    assessment_projection,
+    assessment_series_ids,
+    legacy_context_projection,
+)
+from baibai_engine.market_context.assessment.query import latest_assessment_payload
 from baibai_engine.market_context.indicators.cli import parse_refresh_failure_count
 from baibai_engine.market_context.indicators.db import (
     DEFAULT_DB_PATH as DEFAULT_MACRO_DB_PATH,
@@ -149,7 +154,6 @@ from baibai_engine.market_context.indicators.service import (
     DEFAULT_LATEST_LOOKBACK_DAYS,
     LATEST_FETCH_LOOKBACK_DAYS,
 )
-from baibai_engine.market_context.macro import latest_macro_context_payload
 from baibai_engine.research.triage.contracts import (
     ResearchTriage,
     ResearchTriageEntry,
@@ -235,7 +239,8 @@ class DailyAnalysisContext:
 
     review_set: PublishedReviewSet
     existing_triage: ResearchTriage | None
-    macro_context: MacroContextDocument | None
+    macro_context: StoredAssessment | None
+    known_at: datetime
 
 
 def validated_review_set(publication: ReviewSetPublication) -> PublishedReviewSet:
@@ -254,6 +259,7 @@ def validated_review_set(publication: ReviewSetPublication) -> PublishedReviewSe
 def load_daily_analysis_context(
     as_of: date,
     *,
+    known_at: datetime,
     app_db_path: Path | None = None,
     runs_db_path: Path | None = None,
 ) -> DailyAnalysisContext | None:
@@ -262,11 +268,12 @@ def load_daily_analysis_context(
     publication = ScreeningRunReader(runs_db_path).latest_review_set(as_of_date=as_of.isoformat())
     if publication is None:
         return None
-    return _analysis_context(publication, app_db_path=app_db_path)
+    return _analysis_context(publication, app_db_path=app_db_path, known_at=known_at)
 
 
 def load_latest_analysis_context(
     *,
+    known_at: datetime,
     app_db_path: Path | None = None,
     runs_db_path: Path | None = None,
 ) -> DailyAnalysisContext:
@@ -281,11 +288,11 @@ def load_latest_analysis_context(
         raise ValueError("latest Screening Run is unavailable")
     if publication.run_revision_id != latest_run.run_revision_id:
         raise ValueError("latest Review Set does not match the latest Screening Run revision")
-    return _analysis_context(publication, app_db_path=app_db_path)
+    return _analysis_context(publication, app_db_path=app_db_path, known_at=known_at)
 
 
 def _analysis_context(
-    publication: ReviewSetPublication, *, app_db_path: Path | None
+    publication: ReviewSetPublication, *, app_db_path: Path | None, known_at: datetime
 ) -> DailyAnalysisContext:
     review_set = validated_review_set(publication)
     app_path = database_path(app_db_path)
@@ -295,14 +302,13 @@ def _analysis_context(
         existing_triage = ResearchTriage.model_validate(exact_triages[0])
         if existing_triage.run_revision_id != review_set.run_revision_id:
             raise ValueError("canonical Research Triage run binding differs from the Review Set")
-    macro_payload = latest_macro_context_payload(app_path, as_of=review_set.as_of)
-    macro_context = (
-        None if macro_payload is None else MacroContextDocument.model_validate(macro_payload)
-    )
+    macro_payload = latest_assessment_payload(app_path, as_of=review_set.as_of, known_at=known_at)
+    macro_context = None if macro_payload is None else StoredAssessment.from_payload(macro_payload)
     return DailyAnalysisContext(
         review_set=review_set,
         existing_triage=existing_triage,
         macro_context=macro_context,
+        known_at=known_at,
     )
 
 
@@ -314,6 +320,7 @@ def publish_daily_research_triage(
     app_db_path: Path | None = None,
     runs_db_path: Path | None = None,
     published_at: datetime,
+    known_at: datetime | None = None,
 ) -> ResearchTriage:
     """Build a canonical Triage from strict judgments and delegate every invariant."""
 
@@ -388,7 +395,9 @@ def publish_daily_research_triage(
         entries=tuple(entries),
     )
     try:
-        return ResearchTriageService(app_db_path).publish(triage, review_set=review_set)
+        return ResearchTriageService(app_db_path).publish(
+            triage, review_set=review_set, known_at=known_at
+        )
     except (OSError, ResearchTriageConflictError, sqlite3.Error):
         # A commit response can be ambiguous. Reconcile only this exact Review Set once;
         # every unrelated head/binding conflict still fails closed.
@@ -440,6 +449,8 @@ def _matching_daily_triage(
 __all__ = [
     "APPLICATION_DB_PATH",
     "APPLICATION_SCHEMA_VERSION",
+    "ASSESSMENT_SCHEMA_VERSION",
+    "ASSESSMENT_STALE_DAYS",
     "CALIBRATION_DIR",
     "DEFAULT_LATEST_LOOKBACK_DAYS",
     "DEFAULT_MACRO_DB_PATH",
@@ -448,8 +459,6 @@ __all__ = [
     "EXTERNAL_ASSESSMENT_QUANTS_SCORE_DATASET",
     "LAKE_DATASETS",
     "LATEST_FETCH_LOOKBACK_DAYS",
-    "MACRO_CONTEXT_SCHEMA_VERSION",
-    "MACRO_CONTEXT_STALE_DAYS",
     "MACRO_DB_PATH",
     "MACRO_SCHEMA_VERSION",
     "MARKET_DB_PATH",
@@ -481,15 +490,16 @@ __all__ = [
     "LakeStoreOrigin",
     "LakeStoreOriginError",
     "LocalMirrorSource",
-    "MacroContextDocument",
     "MarketSchemaError",
     "PublishedReviewSet",
     "ResearchTriage",
     "ReviewSetEntrySnapshot",
     "StoreLayoutError",
+    "StoredAssessment",
     "advance_lake_store_origin",
+    "assessment_projection",
+    "assessment_series_ids",
     "canonical_lake_model_bytes",
-    "cited_series_ids",
     "connect_read_only",
     "create_lake_l1_release",
     "create_market_snapshot",
@@ -515,6 +525,7 @@ __all__ = [
     "lake_release_manifest_key",
     "lake_session",
     "lake_verified_git_commit",
+    "legacy_context_projection",
     "load_daily_analysis_context",
     "load_definitions",
     "load_lake_model_json",
@@ -526,8 +537,8 @@ __all__ = [
     "read_lake_store_origin",
     "reject_noncanonical_store_paths",
     "repository_root_error",
+    "require_aware",
     "resolve_release",
-    "scorecard_series_ids",
     "tradingview_accept_observations",
     "tradingview_failure_line",
     "tradingview_load_observations",

@@ -168,6 +168,7 @@ def test_rakuten_missingness_survives_checkpoint_store_api_export_and_research(
         tickers=("9999",),
         as_of=received.date(),
         cutoff=received,
+        known_at=received,
         market_path=market,
         runs_path=app_method_root / RUNS_DB_PATH,
         macro_path=app_method_root / MACRO_DB_PATH,

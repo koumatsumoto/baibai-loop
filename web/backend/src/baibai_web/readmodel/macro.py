@@ -12,7 +12,7 @@ from datetime import (
 )
 
 from baibai_engine.read_api import (
-    MACRO_CONTEXT_STALE_DAYS,
+    ASSESSMENT_STALE_DAYS,
     macro_registered_series,
     macro_series_names,
 )
@@ -24,6 +24,7 @@ from baibai_web.sources.types import (
 )
 
 from .models import (
+    AssessmentContentView,
     MacroConnectionSectionView,
     MacroContextExcerptView,
     MacroContextRevisionView,
@@ -61,10 +62,11 @@ def build_macro(
     source: DbMacroSource,
     *,
     as_of: date,
+    known_at: datetime,
 ) -> MacroView:
     """Build the daily entrance with bounded sparklines, never full indicator history."""
 
-    latest_context_raw = source.latest_context(as_of=as_of)
+    latest_context_raw = source.latest_context(as_of=as_of, known_at=known_at)
     fetch_health = source.fetch_health()
     current_payload = source.reading(as_of=as_of)
     reading = (
@@ -82,7 +84,7 @@ def build_macro(
             published_at=datetime.fromisoformat(str(item["published_at"])),
             summary=str(item["summary"]),
             age_days=(age_days := (as_of - report_asof).days),
-            stale=age_days > MACRO_CONTEXT_STALE_DAYS,
+            stale=age_days > ASSESSMENT_STALE_DAYS,
         )
         for item in source.contexts()
         if str(item["context_id"]) != latest_context_id
@@ -139,11 +141,16 @@ def _macro_context_excerpt(
         risk_environment=None if risk_section is None else risk_section.risk_environment,
         scenarios=[] if risk_section is None else risk_section.scenarios,
         material_deltas=[delta for section in context.core for delta in section.material_deltas],
-        research_priority_hints=context.connection.research_priority_hints,
-        bargain_topography=context.connection.bargain_topography,
-        estimate_caveats=context.connection.estimate_caveats,
-        sizing_cautions=context.connection.sizing_cautions,
+        research_priority_hints=[]
+        if context.connection is None
+        else context.connection.research_priority_hints,
+        bargain_topography=None
+        if context.connection is None
+        else context.connection.bargain_topography,
+        estimate_caveats=[] if context.connection is None else context.connection.estimate_caveats,
+        sizing_cautions=[] if context.connection is None else context.connection.sizing_cautions,
         warnings=warnings,
+        assessment=context.assessment,
     )
 
 
@@ -170,22 +177,45 @@ def _build_macro_context_view(
 ) -> MacroContextView:
     context_as_of = date.fromisoformat(str(raw_context["as_of"]))
     age_days = (as_of - context_as_of).days
-    connection = raw_context["connection"]
-    if not isinstance(connection, Mapping):
-        raise ValueError("macro context connection must be an object")
+    if raw_context.get("schema_version") == 5:
+        return MacroContextView(
+            context_id=str(raw_context["context_id"]),
+            as_of=context_as_of,
+            published_at=datetime.fromisoformat(str(raw_context["published_at"])),
+            summary=str(raw_context["summary"]),
+            age_days=age_days,
+            stale=age_days > ASSESSMENT_STALE_DAYS,
+            assessment=AssessmentContentView.model_validate(
+                {
+                    key: raw_context[key]
+                    for key in (
+                        "known_at",
+                        "changes",
+                        "counter_evidence",
+                        "uncertainties",
+                        "implications",
+                        "inputs",
+                    )
+                }
+            ),
+        )
+    connection = raw_context.get("connection")
     return MacroContextView(
         context_id=str(raw_context["context_id"]),
         as_of=context_as_of,
         published_at=datetime.fromisoformat(str(raw_context["published_at"])),
         summary=str(raw_context["summary"]),
         age_days=age_days,
-        stale=age_days > MACRO_CONTEXT_STALE_DAYS,
+        stale=age_days > ASSESSMENT_STALE_DAYS,
         synthesis=_macro_synthesis_view(raw_context.get("synthesis"), series_names=series_names),
         core=[
             _macro_core_section_view(item, series_names=series_names)
-            for item in _mapping_items(raw_context["core"])
+            for item in _mapping_items(raw_context.get("core", []))
         ],
-        connection=_macro_connection_section_view(connection, series_names=series_names),
+        connection=_macro_connection_section_view(connection, series_names=series_names)
+        if isinstance(connection, Mapping)
+        else None,
+        historical_payload=dict(raw_context),
     )
 
 

@@ -21,11 +21,11 @@ current writerとactive read pathはcurrent schemaだけを扱い、retired shap
 - `research`: contiguousな`priority`、`rationale`、`research_question`、`key_risk`が必須
 - `skip`: `rationale`が必須で、`priority`、`research_question`、`key_risk`は禁止
 
-manual scaffoldはReview Set IDからrun storeのcanonical publicationを解決し、Review Setのas-of以下で最新のMacro Contextと、application DBのlatest current Triage IDを取得する。通常の`analysis run`はeditable scaffoldを介さず、strictなjudgment fieldから同じdomain objectを組み立てる。publisherは`review_set_id`、`run_revision_id`、`as_of`、`screening_rules_hash`、Candidate Discovery Method、全tickerを検証し、Review Set Entry snapshotをsource Review Setから上書きする。persisted field `candidate_snapshot`はstorage contractとして維持し、snapshotはidentity、`nominations`、grouped `analysis`だけを持つ。
+manual scaffoldはReview Set IDからrun storeのcanonical publicationを解決し、入力確定時刻known_atまでに発行された、Review Setのas-of以下で最新の市場環境判断と、application DBのlatest current Triage IDを取得する。通常の`analysis run`はeditable scaffoldを介さず、strictなjudgment fieldから同じdomain objectを組み立てる。publisherは`review_set_id`、`run_revision_id`、`as_of`、`screening_rules_hash`、Candidate Discovery Method、全tickerを検証し、Review Set Entry snapshotをsource Review Setから上書きする。persisted field `candidate_snapshot`はstorage contractとして維持し、snapshotはidentity、`nominations`、grouped `analysis`だけを持つ。
 
 発行は最新Triageを期待するCASで競合を検出し、as-ofと発行時刻の後退を拒否する。同じID・同じcanonical payloadの再送は冪等であり、同じpriorから分岐した別draftは発行できない。保存済み読取・payload hash・実時刻でのhead順序は[query](../../engine/src/baibai_engine/research/triage/query.py)、CAS transactionは[ResearchTriageService](../../engine/src/baibai_engine/research/triage/service.py)、payloadの厳密な条件は[ResearchTriage model](../../engine/src/baibai_engine/research/triage/contracts.py)が所有する。
 
-Contextが無ければ`null`は正常、古ければwarningであり、どちらもReview Setのnomination、membership、orderを変えない。Context参照は任意であり、指定した場合はas-of以下の保存済みrevisionを検証する。明示的に古いeligible revisionを選ぶことはできるが、選択理由を既存の判断文へ残す。発行後payloadはimmutableである。
+市場環境判断が無ければ`null`は正常、古ければwarningであり、どちらもReview Setのnomination、membership、orderを変えない。参照は任意であり、指定した場合は`as_of`以下かつ入力確定時刻`known_at`までに発行された保存済みrevisionを検証する。`analysis run`はこの時刻を入力から発行確認まで固定し、`--known-at`で過去cutoffを指定できる。manual発行でcutoffが無い場合はTriageの発行時刻を使う。明示的に古いeligible revisionを選ぶ場合は選択理由を判断文へ残す。発行後payloadと既存runnerの`input.json`はimmutableである。
 
 ADVは固定floorのgateや自動skip条件ではない。Triageは低値・欠損だけで`skip`やpriorityを決めず、価値仮説を比較した後の実行可能性contextとしてrationaleへ反映できる。最終的な注文可否と数量はCapital Allocation後のhuman executionが所有する。
 
@@ -61,7 +61,7 @@ L3の提案完成はOperation `completed`であり、人間採否・注文・約
 
 `--latest`はpull済みruns storeの最新as-of・同日最新canonical publicationを既存resolverで選ぶ。`--asof`とは排他である。最新Screening RunとReview Setのrevision一致とpayloadのidentity bindingを確認し、同じexact Review Setの既存Triage・Macro Contextを結合する。Review SetまたはRunがない、revisionが不一致、payloadやbindingが不正な場合は`failed`（non-zero）となり、model起動・canonical writeは0。新しい日や同日の後続revisionが未発行でも古いReview Setへfallbackしない。calendar上の未実行判定は行わず、同期済みstoreの整合を確認する。
 
-Review Set全件、[TRIAGE_POLICY](../../batch/src/baibai_batch/analysis/policy.py)、利用可能なMacro Contextの共有projectionを一つのpayloadとして渡す。AIにrepository・runbook・成功logを読ませず、ID・CAS・publish操作を判断させない。
+Review Set全件、[TRIAGE_POLICY](../../batch/src/baibai_batch/analysis/policy.py)、利用可能な市場環境判断の根拠・含意・反証/不確実性を含む共有projectionを一つのpayloadとして渡す。AIにrepository・runbook・成功logを読ませず、ID・CAS・publish操作を判断させない。
 
 Triageの対象集合と保存bindingはengineが検証する。候補を`research / skip`へ分類し、調査優先度を決めるもので、購入やOperation開始ではない。active OperationがあってもTriageは実行できる。
 

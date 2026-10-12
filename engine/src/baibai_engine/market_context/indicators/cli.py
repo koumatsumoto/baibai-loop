@@ -63,17 +63,12 @@ def parse_refresh_failure_count(stderr: str) -> int | None:
 # `baibai-engine macro` の入口なので、ここに並べて初めて `--help` が domain の完全な
 # command 一覧になる。引数は各 group の parser が持つため、argv は解析せず転送する。
 _GROUP_COMMANDS: tuple[tuple[str, str], ...] = (
-    ("context", "macro context reports for human judgment"),
     ("reading", "daily machine reading of the registered series"),
 )
 
 
 def _run_group(command: str, arguments: list[str]) -> int:
     match command:
-        case "context":
-            from baibai_engine.macro.context.cli import main as context_main
-
-            return context_main(arguments)
         case "reading":
             from baibai_engine.market_context.reading.cli import main as reading_main
 

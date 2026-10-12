@@ -145,8 +145,9 @@ def export_read_models(
         _write_model(views_dir / "operations.json", build_operations_view(stores.operations))
     )
 
-    as_of = datetime.now(_JST).date()
-    macro = build_macro(stores.macro, as_of=as_of)
+    known_at = datetime.now(_JST)
+    as_of = known_at.date()
+    macro = build_macro(stores.macro, as_of=as_of, known_at=known_at)
     written.append(_write_model(views_dir / "macro.json", macro))
     for group in stores.macro.groups:
         for configured in group.series:

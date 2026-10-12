@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 import yaml
-from tests.helpers.macro_context import macro_context_payload
+from tests.helpers.assessment_history import historical_context_payload, seed_history
 from tests.helpers.research_triage import (
     published_review_set,
     research_entry,
@@ -30,9 +30,7 @@ from tests.helpers.research_v4 import pair_payload
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.macro.context.models import MacroContextDocument
-from baibai_engine.macro.context.service import MacroContextService
-from baibai_engine.market_context.indicators.cli import main as macro_main
+from baibai_engine.market_context.assessment.models import StoredAssessment
 from baibai_engine.research.capital_allocation import (
     CapitalAllocationAssessment,
     capital_allocation_draft_sha256,
@@ -75,15 +73,18 @@ def _publish_research_triage(db_path: Path) -> str:
         "thesis-20260721-0001-r2", thesis, review
     )
     context_id = "macro-context-2026-07-21-cli-seam"
-    MacroContextService(db_path).publish(
-        MacroContextDocument.model_validate(
-            macro_context_payload(
-                context_id=context_id,
-                as_of="2026-07-21",
-                published_at="2026-07-21T12:00:00+09:00",
+    seed_history(
+        db_path,
+        (
+            StoredAssessment.from_payload(
+                historical_context_payload(
+                    context_id=context_id,
+                    as_of="2026-07-21",
+                    published_at="2026-07-21T12:00:00+09:00",
+                )
             )
-        ),
-        expected_head=None,
+        ).document,
+        supersedes=None,
     )
     research_triage = ResearchTriage.model_validate(
         research_triage_payload(
@@ -337,29 +338,3 @@ def test_proposal_completion_requires_canonical_assessment_but_no_human_adoption
     assert completed.status == "completed"
     assert completed.payload.human_confirmation is None
     assert service.active() is None
-
-
-def test_macro_context_publish_routes_argv_and_stores_the_revision(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """`macro context publish <draft>` must reach the context CLI and write the head.
-
-    The macro parser only lists `context`; the group's own `--db`, its subcommand,
-    and the positional draft are parsed by the routed module. `--check` never
-    touches the store, so a real publish is the only way this seam is exercised
-    all the way to the row and the head pointer.
-    """
-    db_path = tmp_path / "app.sqlite"
-    payload = macro_context_payload()
-    draft = _write_yaml(tmp_path / "macro-context-draft.yaml", payload)
-
-    assert macro_main(["context", "--db", str(db_path), "publish", str(draft)]) == 0
-
-    assert yaml.safe_load(capsys.readouterr().out)["context_id"] == payload["context_id"]
-    with sqlite3.connect(db_path) as connection:
-        assert connection.execute("SELECT context_id FROM macro_context").fetchall() == [
-            (payload["context_id"],)
-        ]
-        assert connection.execute("SELECT context_id FROM macro_context_head").fetchall() == [
-            (payload["context_id"],)
-        ]

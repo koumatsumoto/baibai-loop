@@ -11,12 +11,11 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
-from tests.helpers.macro_context import macro_context_payload
+from tests.helpers.assessment_history import historical_context_payload, seed_history
 from tests.helpers.research_triage import research_entry, research_triage_payload, skip_entry
 from tests.helpers.screening_sqlite import market_store_with_fetch_claim
 
-from baibai_engine.macro.context.models import MacroContextDocument
-from baibai_engine.macro.context.service import MacroContextService
+from baibai_engine.market_context.assessment.models import StoredAssessment
 from baibai_engine.market_context.indicators.db import insert_observations, open_connection
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.indicators.observations import ObservationRecord
@@ -199,8 +198,10 @@ def _seed_macro_observations(root: Path) -> None:
 
 def test_build_meta_derives_store_asof_from_fixture_stores(app_method_root: Path) -> None:
     _seed_macro_observations(app_method_root)
-    MacroContextService(app_method_root / "stores/application/baibai.sqlite").publish(
-        MacroContextDocument.model_validate(macro_context_payload()), expected_head=None
+    seed_history(
+        app_method_root / "stores/application/baibai.sqlite",
+        (StoredAssessment.from_payload(historical_context_payload())).document,
+        supersedes=None,
     )
 
     view = build_meta(_meta_source(app_method_root), batch="daily")
@@ -375,8 +376,8 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
 def test_export_writes_macro_context_detail_views(app_method_root: Path, tmp_path: Path) -> None:
     (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
     db_path = app_method_root / "stores/application/baibai.sqlite"
-    document = MacroContextDocument.model_validate(macro_context_payload())
-    MacroContextService(db_path).publish(document, expected_head=None)
+    document = StoredAssessment.from_payload(historical_context_payload())
+    seed_history(db_path, (document).document, supersedes=None)
     output_dir = tmp_path / "export"
 
     assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 0

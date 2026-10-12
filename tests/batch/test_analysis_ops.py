@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from pydantic import ValidationError
-from tests.helpers.macro_context import macro_context_payload
+from tests.helpers.assessment_history import historical_context_payload
 from tests.helpers.research_triage import published_review_set, research_triage_payload
 from tests.helpers.screening_run import screening_run_payload, security_analysis
 
@@ -19,7 +19,7 @@ from baibai_batch.analysis.cli import PipelineLock, RunLog
 from baibai_batch.analysis.io import ensure_private_dir, read_json
 from baibai_batch.analysis.models import ModelOutput, ModelUsage
 from baibai_engine.batch_api import DailyAnalysisContext
-from baibai_engine.macro.context.models import MacroContextDocument
+from baibai_engine.market_context.assessment.models import StoredAssessment
 from baibai_engine.read_api import research_triage_payloads_for_review_set
 from baibai_engine.research.triage.contracts import ResearchTriage
 from baibai_engine.screening.discovery.contracts import PublishedReviewSet
@@ -87,12 +87,13 @@ def _context(
     *,
     tickers: tuple[str, ...] = ("2331", "0001"),
     existing: ResearchTriage | None = None,
-    macro_context: MacroContextDocument | None = None,
+    macro_context: StoredAssessment | None = None,
 ) -> DailyAnalysisContext:
     return DailyAnalysisContext(
         review_set=_review_set(tickers=tickers),
         existing_triage=existing,
         macro_context=macro_context,
+        known_at=datetime(2026, 9, 1, 18, tzinfo=_JST),
     )
 
 
@@ -100,15 +101,16 @@ def _args(tmp_path: Path, *, asof: date | None = _ASOF) -> SimpleNamespace:
     return SimpleNamespace(
         asof=asof,
         latest=False,
+        known_at=datetime(2026, 9, 1, 18, tzinfo=_JST),
         state_dir=tmp_path / "state",
         repo_root=tmp_path,
         format="json",
     )
 
 
-def _macro_context() -> MacroContextDocument:
-    return MacroContextDocument.model_validate(
-        macro_context_payload(
+def _macro_context() -> StoredAssessment:
+    return StoredAssessment.from_payload(
+        historical_context_payload(
             context_id="macro-context-2026-09-01-analysis",
             as_of="2026-09-01",
             published_at="2026-09-01T10:00:00+09:00",
@@ -347,11 +349,13 @@ def test_one_model_request_publishes_without_starting_an_operation(
         app_db_path,
         runs_db_path,
         published_at,
+        known_at,
     ):
         assert app_db_path == tmp_path / "stores/application/baibai.sqlite"
         assert runs_db_path == tmp_path / "stores/screening/runs.sqlite"
         assert context.macro_context is not None
         assert macro_context_id == context.macro_context.context_id
+        assert known_at == context.known_at
         del published_at
         selected = tuple(item.ticker for item in decisions if item.verdict == "research")
         triage = _triage(context.review_set, research=selected)
@@ -375,6 +379,7 @@ def test_one_model_request_publishes_without_starting_an_operation(
         {
             "app_db_path": tmp_path / "stores/application/baibai.sqlite",
             "runs_db_path": tmp_path / "stores/screening/runs.sqlite",
+            "known_at": context.known_at,
         }
     ]
     assert (summary["human_action"] is not None) is awaits_human
@@ -389,7 +394,7 @@ def test_one_model_request_publishes_without_starting_an_operation(
             "review_set_id",
             "run_revision_id",
             "expected_prior",
-            "publish",
+            "assessment publish",
             "workspace",
         )
     )
@@ -398,9 +403,13 @@ def test_one_model_request_publishes_without_starting_an_operation(
 def test_existing_exact_triage_launches_no_model_and_stays_awaiting_human(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    previous_input = tmp_path / "state" / "old-run" / "input.json"
+    previous_input.parent.mkdir(parents=True)
+    saved_input = b'{"schema_version":1,"macro_context":{"summary":"old"}}\n'
+    previous_input.write_bytes(saved_input)
     review_set = _review_set()
     triage = _triage(review_set)
-    context = DailyAnalysisContext(review_set, triage, None)
+    context = DailyAnalysisContext(review_set, triage, None, datetime(2026, 9, 1, 18, tzinfo=_JST))
     monkeypatch.setattr(
         analysis_cli, "load_daily_analysis_context", lambda _asof, **_kwargs: context
     )
@@ -417,6 +426,7 @@ def test_existing_exact_triage_launches_no_model_and_stays_awaiting_human(
     assert summary["status"] == "research_available"
     assert summary["model_process_launches"] == 0
     assert calls == publish_calls == []
+    assert previous_input.read_bytes() == saved_input
 
 
 @pytest.mark.parametrize("failure", ["adapter", "publish"])
@@ -591,7 +601,9 @@ print(json.dumps({'type': 'turn.completed', 'usage': {'input_tokens': 321, 'outp
         analysis_cli, "resolve_executable", lambda name: str(fake) if name == "codex" else name
     )
     context = _context()
-    model_input = analysis_cli.build_model_input(context.review_set, context.macro_context)
+    model_input = analysis_cli.build_model_input(
+        context.review_set, context.macro_context, known_at=context.known_at
+    )
     log = RunLog(run_dir / "run.log", state_root=state)
 
     output, usage, input_bytes = analysis_cli._run_model(model_input, run_dir, state, log)
@@ -623,7 +635,7 @@ def test_success_hands_every_canonical_candidate_to_the_human(
         analysis_cli,
         "load_daily_analysis_context",
         lambda _asof, **_kwargs: DailyAnalysisContext(
-            review_set, triage if existing else None, None
+            review_set, triage if existing else None, None, datetime(2026, 9, 1, 18, tzinfo=_JST)
         ),
     )
     published = []

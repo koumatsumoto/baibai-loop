@@ -220,17 +220,6 @@ skips = ["B101"]
 root_packages = ["baibai_engine", "baibai_web", "baibai_batch", "tools"]
 
 [[tool.importlinter.contracts]]
-name = "legacy macro context stays independent of screening/position"
-type = "forbidden"
-source_modules = ["baibai_engine.macro"]
-forbidden_modules = [
-  "baibai_engine.screening",
-  "baibai_engine.valuation",
-  "baibai_engine.external_assessment",
-  "baibai_engine.position",
-]
-
-[[tool.importlinter.contracts]]
 name = "shared primitives are an import sink"
 type = "forbidden"
 source_modules = ["baibai_engine.foundation"]
@@ -239,7 +228,7 @@ forbidden_modules = [
   "baibai_engine.valuation",
   "baibai_engine.market_context",
   "baibai_engine.external_assessment",
-  "baibai_engine.macro",
+
   "baibai_engine.position",
   "baibai_engine.market",
   "baibai_engine.storage",
@@ -253,7 +242,7 @@ type = "forbidden"
 source_modules = ["baibai_engine.storage.application"]
 forbidden_modules = [
   "baibai_engine.market",
-  "baibai_engine.macro",
+
   "baibai_engine.screening",
   "baibai_engine.valuation",
   "baibai_engine.market_context",
@@ -269,7 +258,7 @@ type = "forbidden"
 source_modules = ["baibai_engine.tasks"]
 forbidden_modules = [
   "baibai_engine.market",
-  "baibai_engine.macro",
+
   "baibai_engine.screening",
   "baibai_engine.valuation",
   "baibai_engine.market_context",
@@ -295,7 +284,7 @@ forbidden_modules = [
   "baibai_engine.external_assessment.tradingview.collector",
   "baibai_engine.external_assessment.tradingview.client",
   "baibai_engine.external_assessment.tradingview.cli",
-  "baibai_engine.macro",
+
   "baibai_engine.position",
 ]
 
@@ -327,7 +316,7 @@ type = "forbidden"
 source_modules = [
   "baibai_engine.foundation",
   "baibai_engine.market",
-  "baibai_engine.macro",
+
   "baibai_engine.screening",
   "baibai_engine.valuation",
   "baibai_engine.market_context",
@@ -350,7 +339,7 @@ type = "forbidden"
 # Three-domain composition uses saved query boundaries; direct acquisition is forbidden.
 source_modules = ["baibai_engine.research"]
 forbidden_modules = [
-  "baibai_engine.macro",
+
   "baibai_engine.market",
   "baibai_engine.screening",
   "baibai_engine.tasks",
@@ -373,7 +362,7 @@ type = "forbidden"
 source_modules = [
   "baibai_engine.foundation",
   "baibai_engine.market",
-  "baibai_engine.macro",
+
   "baibai_engine.screening",
   "baibai_engine.valuation",
   "baibai_engine.market_context",
@@ -392,7 +381,7 @@ forbidden_modules = [
   "baibai_engine.batch_api",
   "baibai_engine.cli",
   "baibai_engine.foundation",
-  "baibai_engine.macro",
+
   "baibai_engine.market",
   "baibai_engine.position",
   "baibai_engine.research",
@@ -423,7 +412,7 @@ source_modules = ["baibai_batch"]
 forbidden_modules = [
   "baibai_engine.storage",
   "baibai_engine.foundation",
-  "baibai_engine.macro",
+
   "baibai_engine.market",
   "baibai_engine.position",
   "baibai_engine.research",
@@ -511,7 +500,7 @@ forbidden_modules = [
   "baibai_engine.screening", "baibai_engine.research", "baibai_engine.read_api",
   "baibai_engine.market_context",
   "baibai_engine.external_assessment",
-  "baibai_engine.market.providers", "baibai_engine.market.store", "baibai_engine.market.edinet_metrics", "baibai_engine.market.edinet_facts", "baibai_engine.macro", "baibai_engine.position",
+  "baibai_engine.market.providers", "baibai_engine.market.store", "baibai_engine.market.edinet_metrics", "baibai_engine.market.edinet_facts", "baibai_engine.position",
   "baibai_engine.storage", "baibai_engine.tasks",
 ]
 
@@ -525,12 +514,13 @@ source_modules = [
   "baibai_engine.market_context.master", "baibai_engine.market_context.history",
   "baibai_engine.market_context.margin", "baibai_engine.market_context.reading.reader",
   "baibai_engine.market_context.reading.compute", "baibai_engine.market_context.reading.models",
+  "baibai_engine.market_context.assessment.query", "baibai_engine.market_context.assessment.projection", "baibai_engine.market_context.assessment.models",
 ]
 forbidden_modules = [
   "baibai_engine.screening", "baibai_engine.valuation", "baibai_engine.research",
   "baibai_engine.position", "baibai_engine.tasks", "baibai_engine.read_api",
-  "baibai_engine.storage.application.write", "baibai_engine.macro.context.service",
-  "baibai_engine.macro.context.cli", "baibai_engine.market_context.reading.cli",
+  "baibai_engine.storage.application.write", "baibai_engine.market_context.assessment.service",
+  "baibai_engine.market_context.assessment.cli", "baibai_engine.market_context.reading.cli",
   "baibai_engine.market_context.indicators.service", "baibai_engine.market_context.indicators.providers",
 ]
 
@@ -542,7 +532,7 @@ forbidden_modules = [
   "baibai_engine.market_context.reading.compute", "baibai_engine.market_context.reading.reader",
   "baibai_engine.market_context.macro", "baibai_engine.market_context.benchmark",
   "baibai_engine.market_context.snapshot", "baibai_engine.market_context.security",
-  "baibai_engine.macro.context",
+  "baibai_engine.market_context.assessment",
   "baibai_engine.screening", "baibai_engine.valuation", "baibai_engine.research",
   "baibai_engine.external_assessment", "baibai_engine.position", "baibai_engine.tasks",
   "baibai_engine.read_api", "baibai_engine.storage.application.write",
@@ -550,7 +540,6 @@ forbidden_modules = [
 # Public CLI dispatch composes the separate read-only L2 and explicit L3 entries.
 ignore_imports = [
   "baibai_engine.market_context.indicators.cli -> baibai_engine.market_context.reading.cli",
-  "baibai_engine.market_context.indicators.cli -> baibai_engine.macro.context.cli",
 ]
 
 [[tool.importlinter.contracts]]
@@ -571,7 +560,7 @@ name = "candidate and triage contracts do not load calculation, storage, or writ
 type = "forbidden"
 source_modules = ["baibai_engine.screening.discovery.contracts", "baibai_engine.research.triage.contracts"]
 forbidden_modules = [
-  "baibai_engine.storage", "baibai_engine.market", "baibai_engine.macro",
+  "baibai_engine.storage", "baibai_engine.market",
   "baibai_engine.valuation", "baibai_engine.market_context", "baibai_engine.external_assessment",
   "baibai_engine.position", "baibai_engine.tasks", "baibai_engine.read_api", "baibai_engine.batch_api",
   "baibai_engine.screening.discovery.review_set", "baibai_engine.screening.metrics",
@@ -593,7 +582,7 @@ type = "forbidden"
 source_modules = ["baibai_engine.research.triage.query"]
 forbidden_modules = [
   "baibai_engine.storage.application.write", "baibai_engine.research.workspace", "baibai_engine.research.operation",
-  "baibai_engine.screening.cli", "baibai_engine.market", "baibai_engine.macro",
+  "baibai_engine.screening.cli", "baibai_engine.market",
   "baibai_engine.research.triage.service", "baibai_engine.research.triage.cli", "baibai_engine.read_api",
 ]
 
@@ -646,7 +635,7 @@ source_modules = ["baibai_engine.valuation.metrics", "baibai_engine.market_conte
 forbidden_modules = [
   "baibai_engine.storage", "baibai_engine.market.providers", "baibai_engine.market.store",
   "baibai_engine.market.edinet_metrics", "baibai_engine.market.edinet_facts", "baibai_engine.market_context.prices",
-  "baibai_engine.screening", "baibai_engine.read_api", "baibai_engine.research", "baibai_engine.macro",
+  "baibai_engine.screening", "baibai_engine.read_api", "baibai_engine.research",
 ]
 
 [[tool.importlinter.contracts]]
@@ -656,7 +645,7 @@ source_modules = ["baibai_engine.valuation.calibration.contracts", "baibai_engin
 forbidden_modules = [
   "baibai_engine.storage", "baibai_engine.read_api", "baibai_engine.research",
   "baibai_engine.screening", "baibai_engine.position", "baibai_engine.market",
-  "baibai_engine.macro", "baibai_engine.valuation.calibration.query",
+  "baibai_engine.valuation.calibration.query",
 ]
 
 [[tool.importlinter.contracts]]
@@ -680,5 +669,5 @@ forbidden_modules = [
   "baibai_engine.market_context.indicators.db", "baibai_engine.market_context.indicators.service",
   "baibai_engine.market_context.indicators.providers", "baibai_engine.market_context.indicators.cli",
   "baibai_engine.market_context.reading.reader", "baibai_engine.market_context.reading.cli",
-  "baibai_engine.storage", "baibai_engine.macro.context", "baibai_engine.read_api",
+  "baibai_engine.storage", "baibai_engine.market_context.assessment", "baibai_engine.read_api",
 ]
