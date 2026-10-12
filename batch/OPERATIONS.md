@@ -870,24 +870,26 @@ import対象は明示した既存の隔離作業コピーであり、current mar
 
 確定したtyped観測と安全な成否は、既存`baibai-stores`の`coordination/retail-dynamics/<batch_id>/`へ条件付き保存してjob間で引き継ぐ。認証情報は保存せず、値やraw HTMLをlog・Git・Actions artifactへ出さない。各HTTPの前にinflightを永続化し、結果の確定時に同じ世代を条件付き更新する。成功・正常null・通常の確定失敗は再開時に取得しない。plan時の既存checkpoint走査を使って未着手を残すcohortだけを取得matrixへ渡し、全cohortが確定済みなら取得jobをskipして公開へ進む。providerの403、typed/checkpointのCAS不一致・保存結果が不明なPUT、inflightのままの中断は日次run全体を停止し、自動再試行や経路変更をしない。
 
-正本は抽出済みのtyped観測とDB/L1履歴である。新規取得のHTTP 200の本文は、開発時の事後検証・調査用に約3日だけprivateなR2へ保存する。対象は既存collectorが要求したMonex公開ページ、楽天公式outer、確認済みIFIS iframeであり、requestsによるHTTP転送圧縮の展開後、文字decode前のbytes、受領時のencodingと実受領UTC時刻を残す。blobは`retail-dynamics/raw-html/utc-date/<YYYY-MM-DD>/sha256/<hash>.html.gz`、受領JSONは`retail-dynamics/raw-receipts/utc-date/<YYYY-MM-DD>/<batch_id>/<source>/<requested_ticker>/<request_number>.json`に置く。日付はbatch予定日や表示更新日でなく実受領UTC日とし、SHA256による本文共有は同日内だけに限る。
+正本は抽出済みのtyped観測とDB/L1履歴である。新規取得のHTTP 200の本文は、開発時の事後検証・調査用に約3日だけprivateなR2へ保存する。対象は既存collectorが要求したMonex公開ページ、楽天公式outer、確認済みIFIS iframeであり、requestsによるHTTP転送圧縮の展開後、文字decode前のbytes、受領時のencodingと実受領UTC時刻を残す。blobは`retail-dynamics/raw/utc-date/<YYYY-MM-DD>/html/sha256/<hash>.html.gz`、受領JSONは`retail-dynamics/raw/utc-date/<YYYY-MM-DD>/receipts/<batch_id>/<source>/<requested_ticker>/<request_number>.json`に置く。日付はbatch予定日や表示更新日でなく実受領UTC日とし、SHA256による本文共有は同日内だけに限る。
 
 typed outcomeのcheckpoint確定後にrawを保存する。rawだけの保存失敗・競合は本文・URL・例外messageを含めないActions warningを出し、正常なtyped結果と公開を維持する。raw保存はcollectorのpair deadline外で行い、保存が遅れても確定済みtypedをinflightへ戻さない。既存typed/checkpoint自体の保存失敗時停止は維持する。Cookie・認証headerや全response headerを保存せず、認証付きrequestやアカウントページを取得対象に加えない。通常保存・blob再利用に本文GETを加えず、元bytes照合はtest・少量の受入・再解析時に行う。200のparse失敗本文も一時調査用に保存するが、typed failureを正常nullへ変えない。非200・未受領本文を成功原応答として保存しない。保存済みstage/terminalのno-opで再取得やraw補完は行わない。限定`collect` CLIは従来の正規化stage出力のままである。
 
-保持対象は確認時点のUTC当日と前2日の3日付とする（厳密な72時間ではない）。次のread-only inventoryで日付別の保持対象・削除候補prefix、object数、圧縮本文とJSONの合計bytesを確認する。rawの2rootだけをLISTし、本文GET・PUT・DELETEやlifecycle設定を行わない。
+本文と受領JSONの一時保存rootは`retail-dynamics/raw/`に統一する。ユーザーが既存R2の標準lifecycleへ、この単一prefixだけを対象とする`Expiration: {Days: 3}`を設定し、既存の別ルールは維持する。設定後の削除は通常expiration後24時間以内だが遅延する場合もあるため、実保持は概ね3〜4日であり厳密な72時間TTLではない（[R2公式仕様](https://developers.cloudflare.com/r2/buckets/object-lifecycles/)）。codeの変更だけでlifecycle適用済みとは扱わない。DB/L1・typed checkpoint・別用途rawはこのroot外であり、対象に含めない。
+
+次のread-only inventoryはこの単一rootだけをLISTし、本文とJSONを合算した日付別object数/bytesとprefixを示す。調査対象をUTC当日と前2日の3日付、古い日を整理候補として分類するが、これはlifecycleの実削除済み判定ではない。本文GET・PUT・DELETEやlifecycle設定を行わない。
 
 ```bash
 uv run python -m baibai_batch.storage.retail_raw --as-of 2026-10-12
 ```
 
-この例では10月10〜12日を保持し、それ以前の日付を候補とする。実削除は対象prefixと不可逆性を実行時に確認してから、古い日のreceipt prefix、同じ日のblob prefixの順に行う。日付を跨ぐ本文共有はないため、保持日のreceiptが古い日のblobを参照しない。object作成日時だけの一律TTLを共有blobへ適用しない。inventoryは候補確認のみで、自動期限切れ・削除を実装しないため、削除手順の適用までは3日を超えるrawが残る。
+この例では10月10〜12日を調査対象、それ以前を整理候補とする。本文共有は同日内だけなので、保持日のreceiptが古い日のblobを参照しない。期限外の補助データで本文・receiptの削除順を厳密に管理する独自GCは作らず、R2標準lifecycleを使う。設定と適用確認はユーザーが担当する。inventoryはread-onlyであり、設定されるまでは期限を超えたrawが残る。
 
-旧`raw-html/sha256/`と日付区切りのない旧receiptは`legacy_or_unclassified`件数に分け、自動削除候補や新形式readerの対象に含めない。旧rawの大規模移行・互換読み替えは行わず、存在を確認した場合は対象を別途確認する。調査上必要なサンプルだけ、元receiptと本文を対応付けて手動で明示したprivateコピーを残す。専用pin管理や参照数管理を追加せず、typed/L1・checkpoint・EDINET等の別用途rawをこの削除範囲に含めない。
+旧`retail-dynamics/raw-html/`・`retail-dynamics/raw-receipts/`は新しい単一prefixのlifecycle・reader・inventoryの対象外である。切替前に存在を確認し、実データがあれば黙って移動・削除しない。互換層や大規模移行機構は追加しない。新root内で日付形式を認識できないkeyはinventoryの`unclassified`に分ける。調査上必要なサンプルだけ元receiptと本文を対応付け、期限外保持が必要ならraw root外の明示したprivate領域へ手動コピーする。専用pin管理や参照数管理は追加しない。
 
 private本文の読戻しは既存runtimeの認証だけを使い、次の入口で受領JSONとgzip本文hashを確認する。`receipt_key`は確認した実keyへ置換する。本文や再解析した値をstdoutへ出さず、decodeしたHTMLと受領metadataを対応する既存parserへ渡す。
 
 ```bash
-receipt_key='retail-dynamics/raw-receipts/utc-date/<YYYY-MM-DD>/<batch_id>/monex/<ticker>/<request_number>.json'
+receipt_key='retail-dynamics/raw/utc-date/<YYYY-MM-DD>/receipts/<batch_id>/monex/<ticker>/<request_number>.json'
 uv run python - "$receipt_key" <<'PY'
 import sys
 from baibai_batch.storage.lake_publish import Boto3R2Store

@@ -64,11 +64,19 @@ def connect(monkeypatch):
 
 
 def receipts(store):
-    return [key for key in store.objects if key.startswith("retail-dynamics/raw-receipts/")]
+    return [
+        key
+        for key in store.objects
+        if key.startswith(retail_raw.RAW_PREFIX) and "/receipts/" in key
+    ]
 
 
 def blobs(store):
-    return [key for key in store.objects if key.startswith(retail_raw.BLOB_PREFIX)]
+    return [
+        key
+        for key in store.objects
+        if key.startswith(retail_raw.RAW_PREFIX) and "/html/sha256/" in key
+    ]
 
 
 def test_exact_bytes_encoding_reparse_and_typed_idempotency(tmp_path, connect):
@@ -138,7 +146,13 @@ def test_identical_html_across_received_batches_reuses_one_blob(connect):
     daily.acquire_cohort(store, second, 0)
     assert len(blobs(store)) == 1
     assert len(receipts(store)) == 2
-    assert sum(key.startswith(retail_raw.BLOB_PREFIX) for key, *_ in store.puts) == 1
+    assert (
+        sum(
+            key.startswith(retail_raw.RAW_PREFIX) and "/html/sha256/" in key
+            for key, *_ in store.puts
+        )
+        == 1
+    )
     decoded = [retail_raw.read_raw_html(store, key) for key in receipts(store)]
     assert all(raw == body for _, raw in decoded)
     assert decoded[0][0]["blob_key"] == decoded[1][0]["blob_key"]
@@ -269,7 +283,7 @@ def test_sample_readback_detects_corruption_without_a_per_response_download(conn
             raw = super().get_bytes(key)
             return (
                 gzip.compress(b"wrong raw body", mtime=0)
-                if key.startswith(retail_raw.BLOB_PREFIX)
+                if key.startswith(retail_raw.RAW_PREFIX) and "/html/sha256/" in key
                 else raw
             )
 
@@ -279,7 +293,7 @@ def test_sample_readback_detects_corruption_without_a_per_response_download(conn
     daily.acquire_cohort(store, p, 0)
     assert checkpoint(store, p).journal.entries[0].state == "success"
     assert not any(
-        action == "GET" and key.startswith("retail-dynamics/") for action, key in store.events
+        action == "GET" and key.startswith(retail_raw.RAW_PREFIX) for action, key in store.events
     )
     with pytest.raises(LakePublishError, match="raw body readback mismatch"):
         retail_raw.read_raw_html(store, receipts(store)[0])
@@ -293,10 +307,13 @@ def test_normal_capture_and_blob_reuse_do_not_download_raw_objects(connect):
     daily.acquire_cohort(store, p, 0)
     daily.acquire_cohort(store, replace(p, run_id="another-raw-receipt"), 0)
     assert not any(
-        action == "GET" and key.startswith("retail-dynamics/") for action, key in store.events
+        action == "GET" and key.startswith(retail_raw.RAW_PREFIX) for action, key in store.events
     )
     assert (
-        sum(action == "HEAD" and key.startswith("retail-dynamics/") for action, key in store.events)
+        sum(
+            action == "HEAD" and key.startswith(retail_raw.RAW_PREFIX)
+            for action, key in store.events
+        )
         == 4
     )
     assert len(blobs(store)) == 1
@@ -319,8 +336,8 @@ def test_received_utc_day_controls_blob_sharing_not_batch_date():
             )
         )
     assert len(blobs(store)) == 2
-    assert keys[0].startswith(retail_raw.RECEIPT_PREFIX + "2026-10-10/")
-    assert keys[1].startswith(retail_raw.RECEIPT_PREFIX + "2026-10-11/")
+    assert keys[0].startswith(retail_raw.RAW_PREFIX + "utc-date/2026-10-10/receipts/")
+    assert keys[1].startswith(retail_raw.RAW_PREFIX + "utc-date/2026-10-11/receipts/")
     old_receipt, _ = retail_raw.read_raw_html(store, keys[0])
     new_receipt, _ = retail_raw.read_raw_html(store, keys[1])
     del store.objects[keys[0]], store.objects[old_receipt["blob_key"]]
@@ -377,31 +394,30 @@ def test_typed_checkpoint_failure_still_stops_without_optional_raw_save(connect,
     assert not blobs(store)
 
 
-def test_inventory_three_utc_dates_legacy_and_exact_date_prefixes():
+def test_inventory_three_utc_dates_unclassified_and_exact_date_prefixes():
     inventory = retail_raw.retention_inventory(
         [
-            (retail_raw.BLOB_PREFIX + "2026-10-09/sha256/hash.html.gz", 100),
-            (retail_raw.RECEIPT_PREFIX + "2026-10-09/batch/monex/7203/1.json", 10),
-            (retail_raw.BLOB_PREFIX + "2026-10-10/sha256/hash.html.gz", 200),
-            (retail_raw.BLOB_PREFIX + "2026-10-11/sha256/hash.html.gz", 300),
-            (retail_raw.BLOB_PREFIX + "2026-10-12/sha256/hash.html.gz", 400),
-            ("retail-dynamics/raw-html/sha256/legacy.html.gz", 500),
-            ("retail-dynamics/raw-receipts/old-batch/monex/7203/1.json", 50),
+            (retail_raw.RAW_PREFIX + "utc-date/2026-10-09/html/sha256/hash.html.gz", 100),
+            (retail_raw.RAW_PREFIX + "utc-date/2026-10-09/receipts/batch/monex/7203/1.json", 10),
+            (retail_raw.RAW_PREFIX + "utc-date/2026-10-10/html/sha256/hash.html.gz", 200),
+            (retail_raw.RAW_PREFIX + "utc-date/2026-10-11/html/sha256/hash.html.gz", 300),
+            (retail_raw.RAW_PREFIX + "utc-date/2026-10-12/html/sha256/hash.html.gz", 400),
+            (retail_raw.RAW_PREFIX + "unclassified.html.gz", 500),
+            (retail_raw.RAW_PREFIX + "unclassified.json", 50),
         ],
         as_of=date(2026, 10, 12),
     )
     assert inventory["keep_from_utc_date"] == "2026-10-10"
-    assert inventory["legacy_or_unclassified"] == {"objects": 2, "bytes": 550}
+    assert inventory["unclassified"] == {"objects": 2, "bytes": 550}
     days = inventory["dates"]
     assert days["2026-10-09"]["status"] == "delete_candidate"
     assert days["2026-10-09"]["objects"] == 2
     assert days["2026-10-09"]["bytes"] == 110
-    assert days["2026-10-09"]["receipt_prefix"] == retail_raw.RECEIPT_PREFIX + "2026-10-09/"
-    assert days["2026-10-09"]["blob_prefix"] == retail_raw.BLOB_PREFIX + "2026-10-09/"
+    assert days["2026-10-09"]["prefix"] == retail_raw.RAW_PREFIX + "utc-date/2026-10-09/"
     assert all(days[day]["status"] == "keep" for day in ("2026-10-10", "2026-10-11", "2026-10-12"))
 
 
-def test_inventory_cli_lists_only_raw_roots_without_mutations(monkeypatch, capsys):
+def test_inventory_cli_lists_only_raw_root_without_mutations(monkeypatch, capsys):
     class InventoryStore:
         def __init__(self, *, bucket):
             assert bucket == "baibai-stores"
@@ -415,7 +431,7 @@ def test_inventory_cli_lists_only_raw_roots_without_mutations(monkeypatch, capsy
     monkeypatch.delenv("R2_STORES_BUCKET", raising=False)
     monkeypatch.setattr(retail_raw, "Boto3R2Store", lambda **kwargs: store)
     assert retail_raw.main(["--as-of", "2026-10-12"]) == 0
-    assert store.prefixes == ["retail-dynamics/raw-html/", "retail-dynamics/raw-receipts/"]
+    assert store.prefixes == [retail_raw.RAW_PREFIX]
     report = json.loads(capsys.readouterr().out)
     assert report["mode"] == "read_only_inventory"
     assert report["dates"] == {}
@@ -456,5 +472,5 @@ def test_r2_inventory_paginates_keys_and_sizes_without_getting_bodies(monkeypatc
         },
     )
     monkeypatch.setattr(store, "_client", lambda: Client())
-    assert list(store.iter_objects("retail-dynamics/raw-html/")) == [("first", 10), ("second", 20)]
-    assert calls == [{"Bucket": "synthetic", "Prefix": "retail-dynamics/raw-html/"}]
+    assert list(store.iter_objects(retail_raw.RAW_PREFIX)) == [("first", 10), ("second", 20)]
+    assert calls == [{"Bucket": "synthetic", "Prefix": retail_raw.RAW_PREFIX}]
