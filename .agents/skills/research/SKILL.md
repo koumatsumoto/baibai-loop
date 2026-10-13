@@ -48,6 +48,7 @@ uv run baibai-engine research prepare \
    ratio-v1とProjectionの数値は、[draft算術](../../../docs/reference/thesis.md#draft-calculation)の`research calculate <INPUTS>`で生成し、必要な既存欄へ渡す。terminal/cashの元となる企業見積りと算式は一次資料から別途確認する。
 3. `research evaluate`で計算資料とerrorsを確認する。必要価値・時間感度の解釈は[valuation context](../../../docs/reference/thesis.md#valuation-context)に従う。Review未添付だけの`review_required`は計算資料があってもexit 2であり、他のerrorを無視する許可ではない。
 4. `research review-scaffold`を用い、作者と別の作業者がsource・算術・経済的反証を確認する。`evaluate --review`で一組を検証し、coreを変えたらReviewを取り直す。
+   更新時は、過去の不足が評価日までの新しい一次資料で解消していないか確認する。不明事項は重要な事実欠落と見積りの幅を分け、判断を左右するものは結論が逆転する条件と程度を既存欄に記す。利益・倍率・要求見返りで同じリスクの影響を重複控除せず、利益悪化と資金制約による倍率低下など経済経路が異なる影響は区別して反映する。根拠付きの回復・成長をBaseから一律に除かない。
    Review側も資料・単位・期間・重要仮定を独立に確認した入力で`research calculate <REVIEW_INPUTS>`を呼び、`recalculated_projections`を既存Review欄へ渡す。作者の出力や入力をそのままコピーして独立検算としない。計算成功は公開可否や事業前提の確認を意味しない。
 5. `candidate / defer / reject`を確定し、`research promote`でThesisとReviewを公開する。経済的に判断できたdefer/rejectは完成できる。調査自体が終わらない根拠不足は未完了として記録し、経済的見送りに偽装しない。将来見積りに幅があることだけを不合格にせず、資料で確認すべき事実の欠落とは区別する。
 
