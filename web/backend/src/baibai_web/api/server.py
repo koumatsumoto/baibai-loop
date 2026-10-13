@@ -31,6 +31,7 @@ from baibai_web.readmodel.builders import (
 from baibai_web.readmodel.market_context import build_indicator_series, build_market_context
 from baibai_web.readmodel.models import (
     AssessmentPublicationView,
+    CapitalAllocationAssessmentsView,
     CapitalAllocationAssessmentView,
     DailyDeltaView,
     DashboardView,
@@ -38,6 +39,7 @@ from baibai_web.readmodel.models import (
     MarketContextView,
     MetaView,
     OperationsView,
+    ResearchTriageDetailView,
     ScreeningHistoryRunView,
     ScreeningHistoryView,
     ScreeningView,
@@ -50,6 +52,8 @@ from baibai_web.readmodel.stocks import (
     build_screening_history_run,
     build_security_detail,
 )
+from baibai_web.readmodel.stocks.research import build_assessment_list
+from baibai_web.readmodel.triage import build_research_triage_detail
 from baibai_web.sources.factory import Sources, build_sources, load_indicator_groups
 
 # Vite copies `web/frontend/public/` into the build as-is, but this app answers only the files named
@@ -153,6 +157,19 @@ def create_app(
         )
         if view is None:
             raise HTTPException(status_code=404, detail="screening history not found")
+        return view
+
+    @app.get("/api/capital-allocation-assessments", response_model=CapitalAllocationAssessmentsView)
+    def assessments(sources: _SourceDependency) -> CapitalAllocationAssessmentsView:
+        return build_assessment_list(sources.research)
+
+    @app.get("/api/research-triages/{research_triage_id}", response_model=ResearchTriageDetailView)
+    def research_triage(
+        research_triage_id: str, sources: _SourceDependency
+    ) -> ResearchTriageDetailView:
+        view = build_research_triage_detail(sources.research, research_triage_id=research_triage_id)
+        if view is None:
+            raise HTTPException(status_code=404, detail="research triage not found")
         return view
 
     @app.get(

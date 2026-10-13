@@ -85,11 +85,11 @@ class AssetValueAnalysis(_StrictAnalysisGroup):
 
 
 class ReinvestmentAnalysis(_StrictAnalysisGroup):
-    p_s_sector_gap: float | int
-    operating_return_on_capital_proxy: float | int
-    sales_yoy: float | int
-    operating_margin: float | int
-    fcf_yield: float | int
+    p_s_sector_gap: float | int | None
+    operating_return_on_capital_proxy: float | int | None
+    sales_yoy: float | int | None
+    operating_margin: float | int | None
+    fcf_yield: float | int | None
 
 
 class ExpectedReturnAnalysis(_StrictAnalysisGroup):

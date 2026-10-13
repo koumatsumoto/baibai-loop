@@ -50,6 +50,8 @@ from baibai_web.readmodel.stocks import (
     build_security_detail,
     prepare_security_inputs,
 )
+from baibai_web.readmodel.stocks.research import build_assessment_list
+from baibai_web.readmodel.triage import build_research_triage_detail
 from baibai_web.sources.db_sources import DbLedgerSource, DbResearchSource, DbScreeningSource
 from baibai_web.sources.factory import build_sources
 from baibai_web.sources.protocols import LedgerSource, ResearchSource
@@ -151,6 +153,27 @@ def export_read_models(
     written.append(
         _write_model(views_dir / "operations.json", build_operations_view(stores.operations))
     )
+
+    written.append(
+        _write_model(
+            views_dir / "capital-allocation-assessments.json",
+            build_assessment_list(stores.research),
+        )
+    )
+    for raw_triage in stores.research.research_triage_history():
+        research_triage_id = str(raw_triage["research_triage_id"])
+        if _ASSESSMENT_ID_FORMAT.fullmatch(research_triage_id) is None:
+            _warn(
+                f"research_triage_id has an unexpected format: {research_triage_id!r}; view skipped"
+            )
+            continue
+        triage = build_research_triage_detail(
+            stores.research, research_triage_id=research_triage_id
+        )
+        if triage is not None:
+            written.append(
+                _write_model(views_dir / f"research-triage--{research_triage_id}.json", triage)
+            )
 
     known_at = datetime.now(_JST)
     as_of = prepared_security.today

@@ -20,10 +20,8 @@ from baibai_web.readmodel.models import (
     ErLevelCalibrationHorizonView,
     ErLevelCalibrationStatsView,
     ExternalAssessmentSecurityView,
-    ResearchTriageEntryView,
     ResearchTriageView,
     ReviewSetAnalysisView,
-    ReviewSetEntrySnapshotView,
     ReviewSetEntryView,
     ReviewSetNominationView,
     ReviewSetView,
@@ -34,11 +32,10 @@ from baibai_web.readmodel.models import (
 )
 from baibai_web.readmodel.stocks.presentation import (
     _held_and_reserved_tickers,
-    _mapping_items,
     _mapping_items_optional,
     _portfolio_state,
 )
-from baibai_web.readmodel.stocks.research import _assessment_summary_view
+from baibai_web.readmodel.stocks.research import _assessment_summary_view, _research_triage_view
 from baibai_web.sources.db_sources import DbScreeningSource
 from baibai_web.sources.protocols import (
     ExternalAssessmentSource,
@@ -289,39 +286,6 @@ def _review_set_entries_entry_view(raw: Mapping[str, object]) -> ReviewSetEntryV
         sector_33=text(raw.get("sector_33")),
         nominations=[ReviewSetNominationView.model_validate(item) for item in nominations],
         analysis=ReviewSetAnalysisView.model_validate(normalized_analysis),
-    )
-
-
-def _research_triage_entry_view(raw: Mapping[str, object]) -> ResearchTriageEntryView:
-    """Project one current Research Triage entry and its judgment-time snapshot."""
-
-    snapshot = raw.get("candidate_snapshot")
-    if not isinstance(snapshot, Mapping):
-        raise ValueError("Research Triage candidate_snapshot must be an object")
-    analysis = snapshot.get("analysis")
-    if not isinstance(analysis, Mapping):
-        raise ValueError("Research Triage Review Set Entry analysis must be an object")
-    normalized = {
-        "name": snapshot.get("name"),
-        "sector_33": snapshot.get("sector_33"),
-        "nominations": snapshot.get("nominations"),
-        "expected_return": analysis.get("expected_return"),
-        "data_quality": analysis.get("data_quality"),
-    }
-    return ResearchTriageEntryView.model_validate(
-        {**raw, "review_set_entry_snapshot": ReviewSetEntrySnapshotView.model_validate(normalized)}
-    )
-
-
-def _research_triage_view(raw: Mapping[str, object]) -> ResearchTriageView:
-    entries = [_research_triage_entry_view(item) for item in _mapping_items(raw.get("entries"))]
-    return ResearchTriageView(
-        research_triage_id=str(raw["research_triage_id"]),
-        review_set_id=str(raw["review_set_id"]),
-        run_revision_id=str(raw["run_revision_id"]),
-        as_of=date.fromisoformat(str(raw["as_of"])),
-        published_at=datetime.fromisoformat(str(raw["published_at"])),
-        entries=entries,
     )
 
 

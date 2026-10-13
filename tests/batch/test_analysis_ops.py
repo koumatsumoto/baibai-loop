@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from pydantic import ValidationError
+from tests.engine.test_review_set import _analysis
 from tests.helpers.assessment_history import historical_context_payload
 from tests.helpers.research_triage import published_review_set, research_triage_payload
 from tests.helpers.screening_run import screening_run_payload, security_analysis
@@ -17,6 +18,7 @@ from tests.helpers.screening_run import screening_run_payload, security_analysis
 import baibai_batch.analysis.cli as analysis_cli
 from baibai_batch.analysis.cli import PipelineLock, RunLog
 from baibai_batch.analysis.io import ensure_private_dir, read_json
+from baibai_batch.analysis.model_input import build_model_input
 from baibai_batch.analysis.models import ModelOutput, ModelUsage
 from baibai_batch.analysis.policy import TRIAGE_POLICY
 from baibai_engine.batch_api import DailyAnalysisContext
@@ -32,6 +34,31 @@ from baibai_engine.storage.application.write import initialize_database
 
 _JST = ZoneInfo("Asia/Tokyo")
 _ASOF = date(2026, 9, 1)
+
+
+@pytest.mark.parametrize("sales_yoy", [-0.01, None])
+def test_model_input_keeps_partial_reinvestment_observations(sales_yoy) -> None:
+    rules = load_screening_rules()
+    row = _analysis("1111")
+    row["metrics"]["sales_yoy"] = sales_yoy
+    payload = published_review_set(as_of=_ASOF.isoformat(), tickers=("1111",))
+    payload.update(
+        build_review_set(
+            [row],
+            rules=rules.candidate_discovery,
+            required_jpx_flags=rules.universe.required_jpx_flags,
+        )
+    )
+    review_set = PublishedReviewSet.model_validate(payload)
+
+    model_input = build_model_input(
+        review_set, None, known_at=datetime(2026, 9, 1, 18, tzinfo=_JST)
+    )
+
+    candidate = model_input.model_dump(mode="json")["candidates"][0]
+    assert candidate["snapshot"]["analysis"] == payload["entries"][0]["analysis"]
+    assert candidate["snapshot"]["analysis"]["reinvestment"]["sales_yoy"] == sales_yoy
+    assert candidate["snapshot"]["nominations"] == payload["entries"][0]["nominations"]
 
 
 def _review_set(*, tickers: tuple[str, ...] = ("2331", "0001")) -> PublishedReviewSet:

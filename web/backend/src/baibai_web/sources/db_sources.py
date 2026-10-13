@@ -26,6 +26,7 @@ from baibai_engine.read_api import (
     list_operation_sessions,
     list_portfolio_outcome_payloads,
     list_position_review_publications,
+    list_research_triage_payloads,
     list_task_payloads,
     list_thesis_publications,
     list_thesis_review_publications,
@@ -33,6 +34,7 @@ from baibai_engine.read_api import (
     next_earnings_dates,
     portfolio_ledger_document,
     previous_business_day,
+    research_triage_payload,
     research_triage_payloads_for_review_set,
     reviewed_thesis_projection,
     safe_load,
@@ -250,6 +252,12 @@ class DbResearchSource:
 
     def assessments(self) -> list[dict[str, object]]:
         return list_capital_allocation_assessment_payloads(self._path)
+
+    def research_triage(self, research_triage_id: str) -> dict[str, object] | None:
+        return research_triage_payload(self._path, research_triage_id)
+
+    def research_triage_history(self) -> list[dict[str, object]]:
+        return list_research_triage_payloads(self._path)
 
     def assessment(self, capital_allocation_assessment_id: str) -> dict[str, object] | None:
         return capital_allocation_assessment_payload(

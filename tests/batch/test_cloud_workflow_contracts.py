@@ -201,12 +201,13 @@ def test_web_workflow_keeps_all_gates_before_the_only_deploy_step() -> None:
     deploy_index = names.index("Deploy Worker and UI assets")
 
     assert all(names.index(gate) < deploy_index for gate in gates)
+    assert all("if" not in steps[names.index(gate)] for gate in gates)
     assert names.index("Verify current production target") < deploy_index
     assert names.count("Deploy Worker and UI assets") == 1
     deploy = steps[deploy_index]
     assert deploy["if"] == (
         "${{ success() "
-        "&& (github.event_name == 'push' || github.event_name == 'workflow_dispatch') "
+        "&& github.event_name == 'workflow_dispatch' "
         "&& github.ref == 'refs/heads/main' "
         "&& steps.deploy-target.outputs.current == 'true' }}"
     )
@@ -252,12 +253,12 @@ def test_each_failed_web_gate_leaves_deploy_call_count_zero(failed_gate: str) ->
     assert deploy_calls == 0
 
 
-def test_only_named_events_can_reach_production() -> None:
+def test_only_manual_main_runs_can_reach_production() -> None:
     """`github.ref` is the default branch for schedule, workflow_run and friends.
 
     Testing "not a pull request" would therefore hand production to any trigger
-    added to `on:` later. The condition names the two events that may deploy, and
-    the trigger set is pinned so a third one cannot arrive unnoticed.
+    added to `on:` later. PR/push keep their quality checks, while only an explicit
+    main dispatch can check the production target or deploy.
     """
     workflow = _workflow("web.yml")
     triggers = workflow["on"]
@@ -267,18 +268,20 @@ def test_only_named_events_can_reach_production() -> None:
     assert set(triggers) == {"pull_request", "push", "workflow_dispatch"}
     for gated in ("Verify current production target", "Deploy Worker and UI assets"):
         condition = str(by_name[gated]["if"])
-        assert (
-            "(github.event_name == 'push' || github.event_name == 'workflow_dispatch')"
-        ) in condition
+        assert "github.event_name == 'workflow_dispatch'" in condition
         assert "github.ref == 'refs/heads/main'" in condition
+        assert "||" not in condition
+        assert "'push'" not in condition
+    assert by_name["Verify current production target"]["if"] == (
+        "${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}"
+    )
 
 
 def test_web_trigger_covers_every_tree_the_job_publishes() -> None:
     """Editing this workflow is gated before merge but never publishes by itself.
 
-    On `push` the filter is exactly what `wrangler deploy` ships, so a CI-only
-    edit cannot reach production; on `pull_request` the file is included so its
-    own change still has to pass the job it defines.
+    On `push` the filter checks the frontend/edge trees; on `pull_request` the
+    workflow file is included so its own change passes the job it defines.
     """
     triggers = _workflow("web.yml")["on"]
     assert isinstance(triggers, dict)
@@ -343,9 +346,9 @@ def test_tracked_tree_stays_inside_the_path_filter_evaluation_limit() -> None:
 def test_runs_that_cannot_deploy_stay_out_of_the_production_queue() -> None:
     """A concurrency group holds one pending run and evicts the previous one.
 
-    A dispatch on a feature branch sharing the production group would therefore
-    cancel a queued deploy, leaving production behind main with only a notice
-    annotation on a green run as evidence.
+    A push quality run or feature-branch dispatch sharing the production group
+    would cancel a queued deploy, leaving production behind main with only a
+    notice annotation on a green run as evidence.
     """
     workflow = _workflow("web.yml")
     jobs = workflow["jobs"]
@@ -358,9 +361,13 @@ def test_runs_that_cannot_deploy_stay_out_of_the_production_queue() -> None:
 
     assert set(jobs) == {"quality"}
     assert "needs" not in quality
+    assert "if" not in quality
     assert "concurrency" not in quality
     assert "github.event.pull_request.number" in group
-    assert "github.ref == 'refs/heads/main' && format('{0}-production-deploy'" in group
+    assert (
+        "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' "
+        "&& format('{0}-production-deploy'"
+    ) in group
     assert "format('{0}-{1}', github.workflow, github.run_id)" in group
     assert concurrency["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
 
