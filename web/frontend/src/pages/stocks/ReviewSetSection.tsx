@@ -73,8 +73,8 @@ function FrozenAnalysis({ analysis }: { analysis: ReviewSetAnalysisView }) {
         ['special gain flag', String(current.forecast_special_gain_flag ?? EMPTY)], ['full-year loss flag', String(current.forecast_full_year_loss_flag ?? EMPTY)],
       ]} title="Current earnings" />
       <FrozenGroup fields={[
-        ['normalized PER 3FY', number(normalized.normalized_per_3fy)], ['sector gap', number(normalized.normalized_per_3fy_sector_gap)],
-      ]} title="Normalized earnings" />
+        ['3FY平均EPSベースPER', number(normalized.normalized_per_3fy)], ['sector gap', number(normalized.normalized_per_3fy_sector_gap)],
+      ]} title="3FY平均EPS" />
       <FrozenGroup fields={[
         ['asset-backed ratio', percent(asset.asset_backed_ratio)], ['Net cash / MC', percent(asset.net_cash_to_market_cap)],
         ['investment securities', number(asset.investment_securities)], ['equity ratio', percent(asset.equity_ratio)],
@@ -112,7 +112,7 @@ export function ReviewSetSection({ reviewSet, runAsOf }: { reviewSet: ReviewSetV
   const { pathname, search } = useLocation()
   return (
     <SectionCard
-      description="configured Valuation Approaches が生成した Nomination の exact union。配列順は優先度ではなく、表示値は選定時にfreezeされたsnapshot。"
+      description="各Approachの推薦を統合した集合。3FY平均EPSは一時損益・循環を調整した代表利益ではありません。利益倍率の探索でCFは同順位時の補助です。表示値は選定時のsnapshot、配列順は優先度ではありません。"
       meta={reviewSet === null ? null : <div className="flex flex-wrap items-center justify-end gap-3">
         <UpdatedAtBadge value={reviewSet.created_at} /><AsOfBadge compact value={runAsOf} />
         <div className="flex flex-col items-end gap-1">
@@ -126,7 +126,7 @@ export function ReviewSetSection({ reviewSet, runAsOf }: { reviewSet: ReviewSetV
         <Table className="min-w-[1500px]">
           <TableHeader><TableRow>
             <TableHead>銘柄 / 名称</TableHead><TableHead>sector</TableHead><TableHead>評価法 / Approach内順位</TableHead>
-            <TableHead className="text-right">PER (F/T)</TableHead><TableHead className="text-right">Norm PER</TableHead><TableHead className="text-right">PBR</TableHead>
+            <TableHead className="text-right">PER (F/T)</TableHead><TableHead className="text-right">3FY平均EPSベースPER</TableHead><TableHead className="text-right">PBR</TableHead>
             <TableHead className="text-right">FCF yield</TableHead><TableHead className="text-right">Net cash / MC</TableHead><TableHead className="text-right">sales YoY</TableHead>
             <TableHead className="text-right">機械E[r] (secondary)</TableHead><TableHead>注記</TableHead><TableHead>選定時分析</TableHead>
           </TableRow></TableHeader>

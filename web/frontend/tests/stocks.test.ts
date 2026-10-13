@@ -6,6 +6,7 @@ import {
   parseOptionalNumber,
   projectSecurityRows,
   sortSecurityRows,
+  valuationApproachLabel,
   type SecurityFilters,
 } from '../src/lib/stocks'
 
@@ -109,6 +110,10 @@ describe('Security Analysis filters', () => {
 })
 
 describe('Security Analysis sorting and pagination', () => {
+  it('labels the existing normalized approach as average EPS and preserves its rank', () => {
+    expect(valuationApproachLabel('normalized-earnings-power', 7)).toBe('3FY平均EPS #7')
+  })
+
   it('defaults cleanly to ticker ascending and keeps nulls last in both directions', () => {
     const rows = [row('3', { pbr: null }), row('2', { pbr: 2 }), row('1', { pbr: 1 })]
     expect(sortSecurityRows(rows, { key: 'ticker', direction: 'asc' }).map((item) => item.ticker)).toEqual(['1', '2', '3'])

@@ -1,5 +1,6 @@
 """保存済み機械推計の対象集合・cutoff・副作用と、Valuation の依存境界。"""
 
+import copy
 import hashlib
 import socket
 import sqlite3
@@ -28,9 +29,128 @@ from baibai_engine.screening.security_analysis_builder import (
 from baibai_engine.storage.application.json import canonical_json
 from baibai_engine.valuation.estimates import estimate_expected_return
 from baibai_engine.valuation.metrics.models import FinancialSnapshot
-from baibai_engine.valuation.query import anchor_gap_pct, machine_valuation_from_analysis
+from baibai_engine.valuation.query import (
+    anchor_gap_pct,
+    cash_flow_from_analysis,
+    machine_valuation_from_analysis,
+)
 
 CUTOFF = date(2026, 9, 19)
+
+
+@pytest.mark.parametrize(
+    ("jq_ocf", "edinet_ocf", "capex", "fcf"),
+    [(120.0, -35.0, 20.0, -55.0), (0.0, 0.0, 0.0, 0.0), (None, None, None, None)],
+)
+def test_saved_cf_sources_reach_research_without_recomputing_or_changing_selection(
+    tmp_path, jq_ocf, edinet_ocf, capex, fcf
+):
+    row = security_analysis(
+        "1234",
+        per_forward=10.0,
+        metrics={
+            "per_forward_sector_gap": -0.2,
+            "normalized_per_3fy": 12.0,
+            "ocf_ttm": jq_ocf,
+            "ocf_yield": None if jq_ocf is None else jq_ocf / 1000,
+            "edinet_ocf_ttm": edinet_ocf,
+            "capex_ttm": capex,
+            "fcf_ttm": fcf,
+            "fcf_yield": None if fcf is None else fcf / 1000,
+            "fin_latest_disclosed_date": "2026-09-18",
+            "edinet_source_doc_id": "S100SYNTHETIC",
+            "edinet_document_type": "160",
+            "edinet_source_submit_datetime": "2026-09-10 12:00",
+            "edinet_source_period_start": "2026-04-01",
+            # Half-year document metadata may contain a future fiscal year end.
+            "edinet_source_period_end": "2027-03-31",
+            "edinet_capex_source": "purchase_of_fixed_assets",
+        },
+        ttm_quality={"ocf_yield": "exact", "fcf_yield": "approximated"},
+    )
+    original = copy.deepcopy(row)
+    rules = load_screening_rules()
+    selection = canonical_json(
+        build_review_set(
+            [row],
+            rules=rules.candidate_discovery,
+            required_jpx_flags=rules.universe.required_jpx_flags,
+        )
+    )
+    path = tmp_path / "runs.sqlite"
+    store = ScreeningRunStore(path)
+    store.publish_run(
+        screening_run_payload(as_of=CUTOFF.isoformat(), security_analyses=[row]),
+        run_revision_id="cf-fixed",
+    )
+    store.publish_run(
+        screening_run_payload(
+            as_of="2026-09-20",
+            security_analyses=[security_analysis("1234", metrics={"fcf_ttm": 999.0})],
+        ),
+        run_revision_id="future",
+    )
+    before = path.read_bytes()
+    now = datetime.fromisoformat("2026-09-19T18:00:00+09:00")
+    inputs = research_inputs(
+        tickers=("1234", "9999"),
+        as_of=CUTOFF,
+        cutoff=now,
+        known_at=now,
+        market_path=tmp_path / "absent-market",
+        runs_path=path,
+        indicators_path=tmp_path / "absent-indicators",
+        app_path=tmp_path / "absent-app",
+        run_revision_id="cf-fixed",
+    )
+    security = inputs["securities"]["1234"]
+    assert security["machine_valuation"]["run_revision_id"] == "cf-fixed"
+    assert security["cash_flow"] == {
+        "jquants": {
+            "ocf_ttm": jq_ocf,
+            "ocf_yield": None if jq_ocf is None else jq_ocf / 1000,
+            "ttm_quality": "exact",
+            "fin_latest_disclosed_date": "2026-09-18",
+        },
+        "edinet": {
+            "edinet_ocf_ttm": edinet_ocf,
+            "capex_ttm": capex,
+            "fcf_ttm": fcf,
+            "fcf_yield": None if fcf is None else fcf / 1000,
+            "ttm_quality": "approximated",
+            "edinet_capex_source": "purchase_of_fixed_assets",
+            "document_metadata": {
+                "edinet_source_doc_id": "S100SYNTHETIC",
+                "edinet_document_type": "160",
+                "edinet_source_submit_datetime": "2026-09-10 12:00",
+                "edinet_source_period_start": "2026-04-01",
+                "edinet_source_period_end": "2027-03-31",
+            },
+        },
+    }
+    assert inputs["securities"]["9999"]["cash_flow"] is None
+    assert row == original
+    assert (
+        canonical_json(
+            build_review_set(
+                [row],
+                rules=rules.candidate_discovery,
+                required_jpx_flags=rules.universe.required_jpx_flags,
+            )
+        )
+        == selection
+    )
+    assert path.read_bytes() == before
+
+
+def test_absent_cf_and_document_metadata_stay_missing():
+    for analysis in ({}, {"metrics": {}}, {"metrics": None}):
+        cf = cash_flow_from_analysis(analysis)
+        assert all(value is None for value in cf["jquants"].values())
+        assert all(value is None for value in cf["edinet"]["document_metadata"].values())
+        assert cf["edinet"]["edinet_ocf_ttm"] is None
+        assert cf["edinet"]["capex_ttm"] is None
+        assert cf["edinet"]["fcf_ttm"] is None
 
 
 @pytest.mark.parametrize(

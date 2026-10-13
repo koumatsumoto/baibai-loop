@@ -16,7 +16,7 @@ function FilterLabel({ title, children }: { title: string; children: ReactNode }
 }
 const SORT_LABELS: Record<SecuritySortKey, string> = {
   ticker: '銘柄コード', name: '会社名', sector_33: '業種', market_cap_oku: '時価総額',
-  per_forward: '予想PER', per_trailing: '実績PER', normalized_per_3fy: '平常PER', pbr: 'PBR',
+  per_forward: '予想PER', per_trailing: '実績PER', normalized_per_3fy: '3FY平均EPSベースPER', pbr: 'PBR',
   dividend_yield: '配当利回り', net_cash_to_market_cap: 'ネットキャッシュ比率', fcf_yield: 'FCF利回り',
   sales_yoy: '売上成長率', operating_profit_yoy: '営業益成長率', er_annual: '機械E[r]',
   fair_value_gap_pct: '機械anchor乖離', next_earnings_date: '次の決算',

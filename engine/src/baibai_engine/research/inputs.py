@@ -14,7 +14,10 @@ from baibai_engine.market_context.reading.query import reading_snapshot
 from baibai_engine.market_context.security import build_security_market_context
 from baibai_engine.market_context.snapshot import build_market_snapshot
 from baibai_engine.screening.run_store import ScreeningRunReader
-from baibai_engine.valuation.query import machine_valuation_from_analysis
+from baibai_engine.valuation.query import (
+    cash_flow_from_analysis,
+    machine_valuation_from_analysis,
+)
 
 
 def research_inputs(
@@ -53,6 +56,7 @@ def research_inputs(
                 "as_of": run.as_of_date if run is not None else None,
                 "estimate": asdict(machine_valuation_from_analysis(analysis)),
             },
+            "cash_flow": None if analysis is None else cash_flow_from_analysis(analysis),
             "market_context": build_security_market_context(
                 sqlite_path=market_path, ticker=ticker, asof_date=as_of, self_range_window_bars=750
             ),
