@@ -66,6 +66,7 @@ _DECLARED_OUTSIDE_THE_SWEEP = frozenset(
         "research_triage_payload_hash",  # hashes a typed payload, not a store
         "safe_load",  # a YAML helper re-exported for callers
         "screening_calibration_method_identity",  # reads Git-managed method config
+        "prepare_market_context_inputs",  # requires an explicit shared master; covered by prepared-context tests
     }
 )
 

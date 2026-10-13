@@ -114,3 +114,23 @@ def test_prepared_scope_cannot_change_dates(context_store: Path) -> None:
             self_range_window_bars=750,
             prepared=prepared,
         )
+
+
+@pytest.mark.parametrize("create_empty", [False, True])
+def test_shared_unwritten_store_keeps_unknown_and_null(tmp_path: Path, create_empty: bool) -> None:
+    path = tmp_path / "unwritten.sqlite"
+    if create_empty:
+        path.touch()
+    prepared = prepare_market_context_inputs(sqlite_path=path, asof_date=ASOF, master=None)
+    assert prepared.series_by_ticker == {}
+    assert prepared.benchmark_trend is None
+    assert build_security_market_context(
+        sqlite_path=path,
+        ticker="AAAA",
+        asof_date=ASOF,
+        self_range_window_bars=750,
+        prepared=prepared,
+    ) == {"master": None, "price": None, "relative": None, "benchmark_trend": None}
+    snapshot = build_market_snapshot(sqlite_path=path, asof_date=ASOF, prepared=prepared)
+    assert snapshot["sectors"] == []
+    assert all(point["benchmark_trend"] == "unknown" for point in snapshot["points"])
