@@ -1,8 +1,6 @@
 name: cloud-daily-batch
-# Display metadata, never executed. It is also the only place the day a recovery
-# dispatch is for appears in the run listing, which is what lets the watchdog tell a
-# past-dated recovery from the run that answers for today. A scheduled firing leaves
-# the date empty, which reads as "for its own day".
+# Display the requested recovery day. The watchdog reads the actual notice as-of
+# from the terminal step result, including for delayed starts and reruns.
 run-name: "daily ${{ inputs.asof || '' }}"
 
 on:
@@ -183,11 +181,20 @@ jobs:
           import json
           import os
           import sys
+          from datetime import date
           from pathlib import Path
 
           market_updated = True
+          asof = "unknown"
           try:
               notice = json.loads((Path(os.environ["RUNNER_TEMP"]) / "batch-notice.json").read_text())
+              if isinstance(notice, dict) and isinstance(notice.get("asof"), str):
+                  candidate = notice["asof"]
+                  try:
+                      if date.fromisoformat(candidate).isoformat() == candidate:
+                          asof = candidate
+                  except ValueError:
+                      pass
               value = notice.get("market_updated") if isinstance(notice, dict) else None
               if not isinstance(value, bool):
                   raise ValueError
@@ -195,6 +202,7 @@ jobs:
           except (OSError, ValueError):
               print("::warning::Daily notice unavailable or invalid; continuing L1 publication.", file=sys.stderr)
           print("market_updated=" + str(market_updated).lower())
+          print("asof=" + asof)
           PYNOTICE
           if [[ $code -ne 0 && $code -ne 3 ]]; then
             exit "$code"
@@ -340,7 +348,7 @@ jobs:
       # The webhook secret is scoped to this step only. A delivery failure never
       # fails the run: a red job means the day's artefacts were not published
       # (docs/architecture.md, Failure policy), and a broken webhook is not that.
-      - name: "Notify Discord #batch-runs"
+      - name: "Notify Discord #batch-runs for ${{ steps.batch.outputs.asof || 'unknown' }}"
         id: notify
         if: ${{ always() }}
         continue-on-error: true

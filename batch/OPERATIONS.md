@@ -632,7 +632,7 @@ status）で残り、webhook URL・response body は log に出ない。`#batch-
 
 ### 欠測の検知（`cloud-batch-watchdog`）
 
-daily scheduled runが欠測したときだけ`[MISSING]`を通知する。正常または対象runがin-flightなら通知しない。watchdog自身の失敗をdaily欠測と混同せず、両workflowの実run状態を確認する。過去日を確認する場合:
+dailyの対象日について成功runがないときだけ`[MISSING]`を通知する。成功対象日は該当attemptの終端stepに残したnoticeの`asof`を読み、run作成日や予定日から推定しない。判定窓は最新attemptの更新時刻を使う。対象runがin-flightなら通知せず、結果の対象日を確認できない場合やAPI読取失敗はwatchdog自身の失敗として止める。両workflowの実run状態を確認し、過去日を確認する場合:
 
 ```bash
 gh workflow run cloud-batch-watchdog.yml -f check_date=YYYY-MM-DD

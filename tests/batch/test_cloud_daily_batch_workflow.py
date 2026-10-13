@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import unittest
@@ -325,7 +326,10 @@ def test_notify_step_name_keeps_the_channel_out_of_a_yaml_comment(
 ) -> None:
     # An unquoted ` #` starts a YAML comment, which would truncate the name to
     # "Notify Discord" in the Actions UI.
-    assert steps_by_id["notify"]["name"] == "Notify Discord #batch-runs"
+    assert (
+        steps_by_id["notify"]["name"]
+        == "Notify Discord #batch-runs for ${{ steps.batch.outputs.asof || 'unknown' }}"
+    )
 
 
 def test_webhook_secret_is_scoped_to_the_notify_step_alone(
@@ -439,6 +443,7 @@ def test_indicator_only_publication_keeps_the_existing_l1_release(
         ("invalid_field", True, True),
         ("false", False, False),
         ("true", True, False),
+        ("invalid_asof", False, False),
     ],
 )
 def test_daily_notice_only_explicit_false_skips_actual_lake_command(
@@ -459,7 +464,11 @@ def test_daily_notice_only_explicit_false_skips_actual_lake_command(
     elif notice_case == "invalid_field":
         notice.write_text('{"market_updated":"false","private":"' + private_marker + '"}')
     elif notice_case in {"false", "true"}:
-        notice.write_text('{"market_updated":' + notice_case + "}")
+        notice.write_text(
+            json.dumps({"market_updated": notice_case == "true", "asof": "2026-10-14"})
+        )
+    elif notice_case == "invalid_asof":
+        notice.write_text(json.dumps({"market_updated": False, "asof": "2026-13-40"}))
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -502,6 +511,7 @@ def test_daily_notice_only_explicit_false_skips_actual_lake_command(
     assert outputs["exit_code"] == "0"
     assert outputs["published"] == "true"
     assert outputs["market_updated"] == str(expected_publish).lower()
+    assert outputs["asof"] == ("2026-10-14" if notice_case in {"false", "true"} else "unknown")
     if outputs["published"] == "true" and outputs["market_updated"] == "true":
         publish = subprocess.run(
             ["bash", "-euo", "pipefail", "-c", steps_by_id["publish-lake"]["run"]],
