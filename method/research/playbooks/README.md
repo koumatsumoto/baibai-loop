@@ -28,4 +28,4 @@ Valuation ApproachからFundamental Researchへ渡す、人間向けresearch che
 | `current-earnings-power-research-v1` | current earnings power | [`2026-08-30T000000+0900.md`](./current-earnings-power/2026-08-30T000000+0900.md) |
 | `normalized-earnings-power-research-v1` | normalized earnings power | [`2026-08-30T000000+0900.md`](./normalized-earnings-power/2026-08-30T000000+0900.md) |
 | `asset-value-research-v1` | asset backing | [`2026-08-30T000000+0900.md`](./asset-value/2026-08-30T000000+0900.md) |
-| `reinvestment-value-research-v1` | reinvestment value | [`2026-08-30T000000+0900.md`](./reinvestment-value/2026-08-30T000000+0900.md) |
+| `reinvestment-value-research-v2` | reinvestment value | [`2026-10-13T232400+0900.md`](./reinvestment-value/2026-10-13T232400+0900.md) |

@@ -1295,6 +1295,203 @@ def test_risk_only_case_completes_review_promotion_and_no_allocation(tmp_path):
     )
 
 
+@pytest.mark.parametrize("complete_at_night", [False, True])
+def test_night_research_reaches_next_morning_planning_through_delta_refresh(
+    tmp_path, complete_at_night
+):
+    from contextlib import closing
+    from datetime import timedelta
+
+    from tests.helpers.research_v4 import pair_payload
+
+    from baibai_engine.research.capital_allocation import (
+        CapitalAllocationAssessment,
+        capital_allocation_draft_sha256,
+    )
+    from baibai_engine.research.capital_allocation_scaffold import scaffold_capital_allocation
+    from baibai_engine.research.capital_allocation_service import CapitalAllocationAssessmentService
+    from baibai_engine.research.planning import plan_limit
+    from baibai_engine.research.thesis import ThesisDocument, thesis_core_hash
+    from baibai_engine.research.thesis_store import load_reviewed_thesis
+    from baibai_engine.storage.application.read import connect_read_only
+    from baibai_engine.storage.observations.schema import open_connection
+
+    night = datetime.fromisoformat("2026-09-07T18:00:00+09:00")
+    morning = night.replace(hour=9) + timedelta(days=1)
+    db, market, workspace = (
+        tmp_path / "app.sqlite",
+        tmp_path / "market.sqlite",
+        tmp_path / "research",
+    )
+    triage = _publish_triage(db, as_of=night.date().isoformat())
+    with closing(open_connection(market)) as connection:
+        connection.execute(
+            "INSERT INTO jquants_daily_bars(ticker,traded_at,close,adjustment_factor) VALUES ('2331','2026-09-07',1000,1)"
+        )
+        connection.execute("INSERT INTO jquants_market_calendar VALUES ('2026-09-08',1)")
+        connection.commit()
+    prepared = prepare_workspace(
+        request="synthetic explicit overnight research",
+        research_triage_id=triage.research_triage_id,
+        db_path=db,
+        workspace=workspace,
+        research_set=("2331",),
+        started_at=night,
+        sqlite_path=market,
+        runs_path=tmp_path / "absent-runs",
+        indicators_path=tmp_path / "absent-indicators",
+    )
+    path = workspace / "2331/thesis-draft.yaml"
+    path.parent.mkdir(exist_ok=True)
+    raw, review = pair_payload(ticker="2331", quote_as_of=night.date().isoformat())
+    raw["input_snapshot"]["sources"][0]["retrieved_at"] = night.replace(hour=16).isoformat()
+    raw["judgment"]["proposed_at"] = night.replace(hour=16).isoformat()
+    raw["valuation"]["required_annual_return_pct"] = 6
+    review["reviewed_thesis_sha256"] = thesis_core_hash(ThesisDocument.model_validate(raw))
+    path.write_text(yaml.safe_dump(raw))
+    review_path = path.parent / "2026-09-07-2331-decision-review.yaml"
+    review_path.write_text(yaml.safe_dump(review))
+    workspace_module.promote(
+        workspace=workspace,
+        ticker="2331",
+        db_path=db,
+        thesis_id="night",
+        supersedes_id=None,
+        now=night,
+    )
+
+    def publish_allocate(thesis_id, assessment_id, now):
+        payload = scaffold_capital_allocation(
+            db_path=db,
+            capital_allocation_assessment_id=assessment_id,
+            as_of=now.date(),
+            research_triage_id=triage.research_triage_id,
+            thesis_ids=[thesis_id],
+            published_at=now,
+        )
+        payload.update(
+            result="allocate",
+            headline="synthetic allocation",
+            comparison="same horizon and future cash checked",
+            forgone="cash alternative checked",
+        )
+        payload["alternatives"][0].update(
+            disposition="allocate", rationale="synthetic value comparison"
+        )
+        assessment = CapitalAllocationAssessment.model_validate(payload)
+        assessment = assessment.model_copy(
+            update={
+                "review": assessment.review.model_copy(
+                    update={"draft_sha256": capital_allocation_draft_sha256(assessment)}
+                )
+            }
+        )
+        CapitalAllocationAssessmentService(db, clock=lambda: now, sqlite_path=market).publish(
+            assessment
+        )
+
+    def plan(assessment_id, now):
+        return plan_limit(
+            capital_allocation_assessment_id=assessment_id,
+            db_path=db,
+            sqlite_path=market,
+            target_session=morning.date(),
+            budget_min_yen=200000,
+            budget_max_yen=300000,
+            now=now,
+        )
+
+    night_assessment = "capital-allocation-assessment-20260907-night"
+    publish_allocate("night", night_assessment, night)
+    assert plan(night_assessment, night)["status"] == "planned_limit"
+    before = plan(night_assessment, morning)
+    assert before["status"] == "defer"
+    assert before["defer_reasons"] == ["valuation_basis_requires_refresh"]
+
+    original = path.read_bytes()
+    original_document = ThesisDocument.model_validate(yaml.safe_load(original))
+    if complete_at_night:
+        service = OperationService(db, sqlite_path=market)
+        operation = service.get(prepared.operation_id)
+        service.complete(
+            operation.operation_id,
+            operation.payload.model_copy(
+                update={
+                    "artifacts": (
+                        *operation.payload.artifacts,
+                        {"kind": "capital_allocation_assessment", "ref": night_assessment},
+                    ),
+                    "result": "proposal completed",
+                    "next": "human decision remains external",
+                }
+            ),
+            completed_at=night,
+        )
+        workspace = tmp_path / "morning-research"
+        prepared = prepare_workspace(
+            request="synthetic explicit morning delta refresh",
+            research_triage_id=triage.research_triage_id,
+            db_path=db,
+            workspace=workspace,
+            research_set=("2331",),
+            started_at=morning,
+            sqlite_path=market,
+            runs_path=tmp_path / "absent-runs",
+            indicators_path=tmp_path / "absent-indicators",
+        )
+        path = workspace / "2331/thesis-draft.yaml"
+        review_path = path.parent / "2026-09-07-2331-decision-review.yaml"
+    workspace_module.scaffold_thesis(
+        workspace=workspace,
+        ticker="2331",
+        db_path=db,
+        sqlite_path=market,
+        target_session=morning.date(),
+        retrieved_at=morning,
+        force=True,
+        from_thesis_id="night",
+    )
+    refreshed = yaml.safe_load(path.read_text())
+    assert (
+        refreshed["input_snapshot"]["sources"]
+        == original_document.model_dump(mode="json")["input_snapshot"]["sources"]
+    )
+    assert refreshed["valuation"] == original_document.model_dump(mode="json")["valuation"]
+    assert (
+        compute_status(workspace, db_path=db, now=morning)["cases"][0]["status"]
+        == "ready_for_review"
+    )
+    # An author and independent reviewer confirm the new basis; the scaffold alone is insufficient.
+    refreshed["valuation"]["base"]["calculation"] += "。翌朝の価値・12か月・未権利分配を再確認"
+    path.write_text(yaml.safe_dump(refreshed))
+    review.update(
+        review_id="review-morning",
+        reviewed_at=morning.isoformat(),
+        reviewed_thesis_sha256=thesis_core_hash(ThesisDocument.model_validate(refreshed)),
+    )
+    review_path.write_text(yaml.safe_dump(review))
+    workspace_module.promote(
+        workspace=workspace,
+        ticker="2331",
+        db_path=db,
+        thesis_id="morning",
+        supersedes_id="night",
+        now=morning,
+    )
+    morning_assessment = "capital-allocation-assessment-20260908-morning"
+    publish_allocate("morning", morning_assessment, morning)
+    after = plan(morning_assessment, morning)
+    assert after["status"] == "planned_limit"
+    assert after["quantity"] == 300
+    assert after["price_as_of"] == "2026-09-07"
+    assert after["valuation_as_of"] == "2026-09-08"
+    assert after["available_cash_yen"] == before["available_cash_yen"]
+    assert OperationService(db).active().operation_id == prepared.operation_id
+    with closing(connect_read_only(db)) as connection:
+        stored = load_reviewed_thesis(connection, "night")
+    assert stored.document == original_document
+
+
 def test_saved_v3_triage_workspace_resumes_with_original_payload_hash(tmp_path):
     import sqlite3
     from hashlib import sha256

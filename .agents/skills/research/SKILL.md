@@ -36,6 +36,8 @@ uv run baibai-engine research prepare \
 
 選択済み入力の`cash_flow`と3FY平均EPSベースの機械倍率は、[Valuationの意味とCF文脈](../../../docs/reference/valuation-metrics.md#researchへ渡すcf文脈)に従って読む。
 
+小型であることやFCFが0・負であることだけで経済的見送りにしない。サイズ・ADVは執行の制約、負FCFは維持投資/成長投資・運転資金・回収・資金余力の問いへ接続する。CFのsourceと品質・期間を保ち、半期の`approximated`値を通年実績と読み替えず、資料で確認すべき重大な不足を免除しない。
+
 市場・業種との個別相対値は[Market Context読取](../../../docs/reference/market-context.md#market-context-reads)で比較基準日・母集団とともに確認し、乖離を企業価値認定へ置き換えない。
 
 外部の目標値・rating・scoreは[External Assessmentの保存済み照会](../../../docs/reference/market-lake.md#external-assessment-query)で出所・尺度・時点とともに参照し、同原評価元を独立票として数えず、企業固有評価の代用にしない。
@@ -92,6 +94,8 @@ uv run baibai-engine research capital-allocation-publish \
 ## 4. 当日の注文案と人間判断
 
 公開済みCAAのallocate対象だけに`research plan-limit --capital-allocation-assessment-id <ASSESSMENT_ID>`を使う。対象の企業評価はcanonicalなThesis/Reviewから解決する。正式評価日と最新確定quoteを確認し、古い企業評価を更新する場合は元資料を引き継いで変更部分を再Reviewする。
+
+夜間の案を翌朝使う場合も、現在の企業評価基準日を確認する。日付が変わったなら`thesis-scaffold --from-thesis-id`で差分draftを作り、価値・期間・未受取cashを確認して新revisionと独立Review、当日のCAAを作る。Operationがactiveなら固定対象のまま続けられる。前夜に完了済みなら新しい明示開始で同じ対象と既存資料を引き継ぎ、完了workspaceへ成果を追記しない。
 
 発注sessionは既存calendarで確認できる当日または次の有効営業日を`--target-session`へ指定する。返された有効期限をbroker報告へ渡し、失効・calendar不明の案はdeferする。価格超過は注文案のdeferであり、企業rejectや保有exitへ変換しない。
 

@@ -35,7 +35,7 @@ Security Analysisは`observed / derived / estimate`を混同しない。欠損�
 
 ## Candidate Discovery
 
-共通eligibilityは時価総額100億円以上、上場期間182日以上、JPX flag、これら必須factの有無だけを扱う。ADVは値が低い場合も欠損時も除外に使わず、Security Analysis、Review Set、Research Triage、UIへ執行可能性のcontextとして残す。その後、各approachが独立にnominateする。現行の採用値は[screening rules](../../method/screening/rules/)、完全なeligibility・並び順・method hashは[Review Set実装](../../engine/src/baibai_engine/screening/discovery/review_set.py)を正本とする。
+共通eligibilityは正の有限な時価総額fact、上場期間182日以上、JPX flag、これら必須factの有無を扱う。現行rulesの時価総額floorは0で、100億円未満も候補発見と業種・市場の比較母集団に含める。サイズとADVは執行可能性のcontextとしてSecurity Analysis、Review Set、Research Triage、Research入力へ残す。ADVは値が低い場合も欠損時も除外に使わない。その後、各approachが独立にnominateする。採用理由は[#1481](https://github.com/koumatsumoto/baibai-loop/issues/1481)、現行値は[screening rules](../../method/screening/rules/)、完全なeligibility・並び順・method hashは[Review Set実装](../../engine/src/baibai_engine/screening/discovery/review_set.py)を正本とする。
 
 | valuation approach | 主座標 |
 | --- | --- |
@@ -48,6 +48,8 @@ Asset Valueは正のasset-backed ratioを持つ非金融企業を対象とする
 
 Reinvestment Valueはsector-relative P/Sの割安さと、利益率・capital returnの質を組み合わせる。sector母数が薄い場合はmarket medianを使う。capital returnは`operating_profit_ttm / (same_state_equity_yen + debt - cash)`で、自己資本はJ-Quantsの同一実績行、debt/cashは選択したEDINET recordに基づく。両sourceのBS日一致を保証する厳密ROICではない。TTM営業利益が作れなければ累計利益の年率換算や別の利益で補わない。株式・会計basisは[valuation metrics](./valuation-metrics.md#51-資本の分母)に従う。
 
+FCF yieldは有限な既知値を必須とし、0・負値も推薦対象にする。既存の利益率・capital-return floorは維持し、FCFは順位の末尾の従キーで高い順に比較する。負FCFを成長投資と認定せず、欠測を0へ補完しない。ResearchはCFのsource・品質・期間、維持投資/成長投資・運転資金・回収・資金余力を確認する。半期の`approximated`値や書類metadataの年度末を、通年実績CFや測定期間へ読み替えない。
+
 ReinvestmentのNomination条件と、Review SetからTriageへ渡す観測は分ける。他Approachで推薦された銘柄も、既知のP/S gap・売上YoY・FCF yield・利益率・capital-return proxyを項目ごとに保持し、負値や0を欠測へ変えない。比率は必要入力が揃い分母が正の場合だけ計算し、計算不能な項目はnullとする。過去の保存snapshotがグループ全体をnullとしていた場合、その欠落を現在値で補わない。
 
 primary coordinateがnull、非有限、またはapproachの要件を満たさない銘柄は、そのapproachでnominateしない。金融sector除外、quality threshold、median population / fallback、従キー、tickerまでmethod hashに含め、同じSecurity Analysisとrulesから同じ結果を再構成する。
@@ -57,6 +59,8 @@ primary coordinateがnull、非有限、またはapproachの要件を満たさ�
 各Valuation ApproachのNominationをtickerで統合し、重複tickerは1entryへまとめ、全Nominationを保持する。各Approachのconfigured nomination depthに従う集合のunionであり、採用Approachとdepthは[現行rules](../../method/screening/rules/)を参照する。ticker昇順はbyte-equivalentなserializationのためだけに使い、global rankやresearch priorityを意味しない。
 
 publisherはsource run、as-of、rules hash、method hash、全Security Analysisからpayloadを再計算し、不一致を拒否する。published rootは`screening_rules_hash`をprovenanceとして持つ。Review Setはapplication DBやResearch Triageを読まず、同じrun・rules・implementationから同じNomination unionを再構築するL2である。各entryはidentity、`nominations`、grouped `analysis`だけを持つ。`analysis.expected_return`はsecondary machine priorのsnapshotであり、membershipを持たない。
+
+旧rulesの指定は設定値の指定であり、過去の算式を凍結しない。再実行は現行算式を含むmethod hashを持つため、method IDだけで旧methodの再現と扱わない。保存済みrun・Review Setのexact読取は原hashとNominationを保持し、現行算式で再計算しない。
 
 Normalized Earnings Powerのnative eligibility/orderは`normalized_per_3fy`と同sector gapを使う。FV/E[r] estimatorは`normalized_per_3fy`を入力にしない。
 

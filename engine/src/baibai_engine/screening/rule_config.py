@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from math import isfinite
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -42,7 +43,7 @@ class CommonEligibilityRules(BaseModel):
 
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
-    min_market_cap_oku: float = Field(default=100, ge=0)
+    min_market_cap_oku: float = Field(default=0, ge=0)
     min_listing_span_days: int = Field(default=182, ge=0)
     exclude_jpx_flagged: bool = True
 
@@ -63,6 +64,10 @@ class CommonEligibilityRules(BaseModel):
         """
         facts = (market_cap_oku, listing_span_days, jpx_flags)
         if require_facts and any(value is None for value in facts):
+            return False
+        if market_cap_oku is not None and (not isfinite(market_cap_oku) or market_cap_oku <= 0):
+            return False
+        if listing_span_days is not None and not isfinite(listing_span_days):
             return False
         if market_cap_oku is not None and market_cap_oku < self.min_market_cap_oku:
             return False
