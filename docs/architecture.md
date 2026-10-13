@@ -15,7 +15,7 @@ Baibai Loopの目的は、割安銘柄を発見し、割安幅と条件付き収
 
 ## 1. 分析領域と情報層
 
-業務の横方向は[三分析領域](./domain-language.md#analysis-domains)、縦方向は次の情報層で区別する。領域ごとの所有は[下表](#repository-map)に示す。
+中心ユースケースは、L1観測を使った決定的L2の日次機会発見を行うScreeningと、候補・三領域の結果・一次資料を用いてL3調査と売買提案を行うResearchである。[三分析領域](./domain-language.md#analysis-domains)は何を分析するか、Screening/Researchはそれらをどう使うかという横断業務を表す。Position/Portfolioは取引事実と資本を扱う周辺業務で、人間の採否・注文は外部工程である。情報の縦方向は次の層で区別し、領域ごとの所有は[下表](#repository-map)に示す。
 
 | 層 | 内容 |
 | --- | --- |

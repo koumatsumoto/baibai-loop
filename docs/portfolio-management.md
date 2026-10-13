@@ -1,6 +1,6 @@
 ---
 title: "Portfolio management"
-summary: "投資価値rankingを先に行い、資金目安、human-confirmed ledger、保有規律、年次評価を運用する方針。"
+summary: "企業別の機会評価を資本判断へ接続し、資金目安、human-confirmed ledger、保有規律、年次評価を運用する方針。"
 doc_type: governance
 status: active
 related_docs:
@@ -12,7 +12,7 @@ related_docs:
 
 # Portfolio management
 
-資本判断はresearch、確認済みcash・数量・注文・約定はpositionが所有する。企業評価は[Reviewed Thesis](./reference/thesis.md)、候補比較は[CAA](./reference/capital-allocation-assessment.md)、保有継続・回収は[Position Review](./reference/position-review.md)を参照する。
+[投資目的とリスク許容](./doctrine.md#investment-strategy)に従い、資本判断はresearch、確認済みcash・数量・注文・約定はpositionが所有する。企業評価は[Reviewed Thesis](./reference/thesis.md)、候補比較は[CAA](./reference/capital-allocation-assessment.md)、保有継続・回収は[Position Review](./reference/position-review.md)を参照する。
 
 <a id="capital-guidance"></a>
 ## 資金目安
