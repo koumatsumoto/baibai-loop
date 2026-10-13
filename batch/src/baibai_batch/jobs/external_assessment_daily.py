@@ -217,7 +217,9 @@ def acquire_cohort(
         except Exception:
             _raw_warning()
         session = resources.enter_context(requests.Session())
-        for entry in original.result.entries:
+        # Rotate hosts while keeping the saved source-major entry order unchanged.
+        # Stable sorting retains the plan's source order within each ticker.
+        for entry in sorted(original.result.entries, key=lambda entry: entry.ticker):
             if entry.state != "unattempted":
                 continue
             if time.monotonic() - started + PAIR_AND_STAGE_RESERVE_SECONDS >= soft_budget_seconds:
