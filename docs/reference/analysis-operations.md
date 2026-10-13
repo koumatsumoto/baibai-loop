@@ -41,7 +41,7 @@ E[r] calibration contextは共有read contractがartifact schema、generated/exp
 
 保存済み三領域を`research/inputs.py`で合成した`domain-inputs.yaml`は調査の入力である。機械anchor、個別/市場/業種、Reading、外部提示値を意味ごとに保持し、欠測を新規取得やAI起動で埋めない。既存Market Context Assessmentは任意の参照であり、毎回独立した全depth reportや主観確率を作る前提にしない。重要な環境上の含意だけを企業評価・提案のsource、仮定、反対仮説へ接続する。
 
-通常の`research prepare`・`position-prepare`は、保存候補の`as_of`を保ちながら、調査開始時の入力確定時刻`now`を`known_at`と`received_cutoff`に使う。External Assessmentの`evaluated_at`も同じ時刻であり、開始後の受領値は含めない。金曜候補を日曜に調査する場合、日曜の開始までに受領した外部評価を利用できる。`as_of`末へ受領cutoffを切り戻さず、過去時点のバックテストとは扱わない。`research_inputs`へ直接渡す明示cutoffは保持し、保存済み判断を再計算しない。Readingの対象日と保存履歴の扱いは[Readingの読取契約](./market-context.md#reading)に従う。
+通常の`research prepare`・`position-prepare`は、保存候補の`as_of`を保ちながら、Operationに保存された調査開始時刻`started_at`を`known_at`と`received_cutoff`に使う。同じOperationの再開・workspaceの`--force`でもこの入力確定時刻を保持し、新しい明示開始のOperationで更新する。External Assessmentの`evaluated_at`も同じ時刻であり、開始後の受領値は含めない。金曜候補を日曜に調査する場合、日曜の開始までに受領した外部評価を利用できる。`as_of`末へ受領cutoffを切り戻さず、過去時点のバックテストとは扱わない。`research_inputs`へ直接渡す明示cutoffは保持し、保存済み判断を再計算しない。Readingの対象日と保存履歴の扱いは[Readingの読取契約](./market-context.md#reading)に従う。
 
 ## 成果の被覆とL3完了
 
