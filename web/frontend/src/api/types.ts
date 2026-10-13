@@ -918,6 +918,10 @@ export interface SecurityAnalysisRowView {
   er_carry_annual: number | null
   net_share_change_yoy: number | null
   carry_missing_assumption: string | null
+  er_model_version: string | null
+  er_unit: string | null
+  er_anchor_metrics: string | null
+  er_assumptions: string | null
   net_cash_to_market_cap: number | null
   fcf_yield: number | null
   ocf_yield: number | null

@@ -36,7 +36,7 @@ def _assessment_payload(raw: object) -> dict[str, object]:
     if not isinstance(payload, dict):
         raise ValueError("capital allocation assessment payload must be an object")
     version = payload.get("schema_version")
-    if version != 1:
+    if version not in (1, 2):
         raise ValueError(f"unsupported capital allocation schema_version: {version!r}")
     alternatives = payload.get("alternatives")
     if not isinstance(alternatives, list):
