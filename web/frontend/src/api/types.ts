@@ -121,6 +121,7 @@ export interface CapitalAllocationAssessmentSummaryView {
   research_triage_id: string
   alternative_count: number
   allocated_ticker: string | null
+  research_operation_id: string | null
 }
 
 export interface CapitalAllocationAssessmentView {
@@ -138,6 +139,10 @@ export interface CapitalAllocationAssessmentView {
   unfinished_research: UnfinishedResearchView[]
   alternatives: AllocationAlternativeView[]
   content_review: AssessmentReviewView
+}
+
+export interface CapitalAllocationAssessmentsView {
+  assessments: CapitalAllocationAssessmentSummaryView[]
 }
 
 /**
@@ -552,6 +557,25 @@ export interface ModelValuationObservation {
   pbr_updated_label: string | null
 }
 
+export interface OperationResearchTargetView {
+  ticker: string
+  purpose: 'new' | 'holding'
+  outcome_status: 'reviewed' | 'proposal' | 'unfinished' | null
+  thesis_id: string | null
+  thesis_review_id: string | null
+  unfinished_reason: string | null
+  references: string[]
+  checked_at: string | null
+  holding_proposal: Record<string, unknown> | null
+}
+
+export interface OperationResearchView {
+  request: string
+  research_triage_id: string | null
+  targets: OperationResearchTargetView[]
+  capital_allocation_assessment_id: string | null
+}
+
 export interface OperationSessionView {
   operation_id: string
   session_kind: string
@@ -561,6 +585,7 @@ export interface OperationSessionView {
   started_at: string
   completed_at: string | null
   payload: Record<string, unknown>
+  research: OperationResearchView | null
 }
 
 export interface OperationsView {
@@ -697,6 +722,16 @@ export interface ResearchRevisionView {
   pmax_raw_yen: number | null
   review_id: string | null
   status: string
+}
+
+export interface ResearchTriageDetailView {
+  research_triage_id: string
+  review_set_id: string
+  run_revision_id: string
+  as_of: string
+  published_at: string
+  entries: ResearchTriageEntryView[]
+  payload: Record<string, unknown>
 }
 
 export interface ResearchTriageEntryView {

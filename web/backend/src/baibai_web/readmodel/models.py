@@ -119,6 +119,25 @@ class TasksView(BaseModel):
     ledger_error: str | None
 
 
+class OperationResearchTargetView(BaseModel):
+    ticker: str
+    purpose: Literal["new", "holding"]
+    outcome_status: Literal["reviewed", "proposal", "unfinished"] | None
+    thesis_id: str | None
+    thesis_review_id: str | None
+    unfinished_reason: str | None
+    references: list[str]
+    checked_at: datetime | None
+    holding_proposal: dict[str, object] | None
+
+
+class OperationResearchView(BaseModel):
+    request: str
+    research_triage_id: str | None
+    targets: list[OperationResearchTargetView]
+    capital_allocation_assessment_id: str | None
+
+
 class OperationSessionView(BaseModel):
     operation_id: str
     session_kind: str
@@ -128,6 +147,7 @@ class OperationSessionView(BaseModel):
     started_at: datetime
     completed_at: datetime | None
     payload: dict[str, object]
+    research: OperationResearchView | None = None
 
 
 class PortfolioOutcomeView(BaseModel):
@@ -436,6 +456,10 @@ class ResearchTriageView(BaseModel):
     as_of: date
     published_at: datetime
     entries: list[ResearchTriageEntryView]
+
+
+class ResearchTriageDetailView(ResearchTriageView):
+    payload: dict[str, object]
 
 
 class ResearchRevisionView(BaseModel):
@@ -818,6 +842,11 @@ class CapitalAllocationAssessmentSummaryView(BaseModel):
     research_triage_id: str
     alternative_count: int
     allocated_ticker: str | None
+    research_operation_id: str | None = None
+
+
+class CapitalAllocationAssessmentsView(BaseModel):
+    assessments: list[CapitalAllocationAssessmentSummaryView]
 
 
 class UnfinishedResearchView(BaseModel):

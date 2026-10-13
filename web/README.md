@@ -12,6 +12,8 @@
 | 正本・test | [architecture](../docs/architecture.md)、[Python foundation](../docs/reference/python-foundation.md)、[tests/web](../tests/web)、[tests/contracts](../tests/contracts)、frontend / edge各directoryの`tests` |
 
 materialized JSONとfrontend assetは生成しますが、application DBやdomain storeは書きません。store authorityは[architecture](../docs/architecture.md#store-authority)を参照してください。
+
+調査・提案の保存履歴は現在Screeningから独立して読めます。`/api/capital-allocation-assessments`は保存済み全CAAの一覧、`/api/research-triages/{research_triage_id}`は指定IDの判断本文と保存payloadを返します。`/api/operations`の`research`は保存された選択・成果だけを投影し、0件選択、まだ成果の記録がない対象、未完了、新規企業評価、保有提案を区別します。保有提案のdraft・検証日時は当時の保存値です。`payload.human_confirmation`や公開Position Review、約定とは別の情報であり、現在値で補完しません。Operationに保持されていない公開Position Reviewは、既存銘柄詳細の要約表示の範囲です。現行ScreeningのReview Set/Triage bindingは維持します。
 表示分類は`config/market-context-panel.yaml`、consumer契約を持つevidenceは`reports/published/`から読みます。serving R2 keyは`contracts/routes.json`が示す既存topologyを維持します。
 
 銘柄一覧・詳細・履歴の機械anchorは表示対象runの保存済みSecurity Analysisから読み、Review Set membershipを照会条件にしません。企業固有の調査評価との区別と欠測の意味は[Valuation metrics](../docs/reference/valuation-metrics.md#machine-valuation)を参照してください。

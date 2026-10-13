@@ -33,11 +33,13 @@ from baibai_web.materialize import main
 from baibai_web.readmodel.builders import build_meta
 from baibai_web.readmodel.models import (
     AssessmentPublicationView,
+    CapitalAllocationAssessmentsView,
     CapitalAllocationAssessmentView,
     DashboardView,
     MarketContextView,
     MetaView,
     OperationsView,
+    ResearchTriageDetailView,
     ScreeningView,
     SecurityDetailView,
     TasksView,
@@ -335,6 +337,7 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
         "market-context.json",
         "screening_latest.json",
         "operations.json",
+        "capital-allocation-assessments.json",
         "tasks.json",
         "meta.json",
         "security--0001.json",
@@ -444,10 +447,24 @@ def test_export_keeps_historical_assessment_detail_outside_current_screening_ind
         detail_path.read_text(encoding="utf-8")
     )
     assert detail.capital_allocation_assessment_id == assessment_id
+    index_path = output_dir / "views/capital-allocation-assessments.json"
+    index = CapitalAllocationAssessmentsView.model_validate_json(index_path.read_text())
+    assert [item.capital_allocation_assessment_id for item in index.assessments] == [assessment_id]
+    triage_path = output_dir / "views/research-triage--research-triage-historical.json"
+    saved = ResearchTriageDetailView.model_validate_json(triage_path.read_text())
+    assert saved.payload == historical_triage
+    assert saved.run_revision_id == "run-revision-historical"
+    assert saved.review_set_id == "review-set-historical"
+    assert (output_dir / "views/research-triage--research-triage-current.json").is_file()
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         api_detail = client.get(f"/api/capital-allocation-assessments/{assessment_id}")
+        api_index = client.get("/api/capital-allocation-assessments")
+        api_triage = client.get("/api/research-triages/research-triage-historical")
+        assert client.get("/api/research-triages/missing").status_code == 404
     assert api_detail.status_code == 200
     assert json.loads(detail_path.read_text(encoding="utf-8")) == api_detail.json()
+    assert json.loads(index_path.read_text()) == api_index.json()
+    assert json.loads(triage_path.read_text()) == api_triage.json()
 
 
 def test_export_fails_before_writing_when_reading_rules_are_absent(
