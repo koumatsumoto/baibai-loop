@@ -1,122 +1,97 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ArrowDown, ArrowUp, Search } from 'lucide-react'
-import { Link } from 'react-router'
-
+import { useMemo, type ReactNode } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router'
+import { Search } from 'lucide-react'
+import type { ReviewSetEntryView, ReviewSetView } from '../../api/types'
 import { SectionCard } from '../../components/SectionCard'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table'
 import { EMPTY, formatJstDateTime, formatNumber } from '../../lib/format'
-import { parseOptionalNumber, projectSecurityRows, SECURITY_PAGE_SIZE, type SecurityFilters, type SecuritySearchRow, type SecuritySort, type SecuritySortKey } from '../../lib/stocks'
+import { parseOptionalNumber, projectSecurityRows, SECURITY_PAGE_SIZE, valuationApproachLabel, type SecurityFilters, type SecuritySearchRow, type SecuritySort, type SecuritySortKey } from '../../lib/stocks'
 
-function number(value: number | null, digits = 2): string {
-  return value === null ? EMPTY : formatNumber(value, digits)
-}
-
-function ratio(value: number | null): string {
-  return value === null ? EMPTY : `${formatNumber(value * 100, 1)}%`
-}
-
-function percent(value: number | null): string {
-  return value === null ? EMPTY : `${formatNumber(value, 1)}%`
-}
-
-function SortHead({ label, column, sort, onSort, className }: { label: string; column: SecuritySortKey; sort: SecuritySort; onSort: (column: SecuritySortKey) => void; className?: string }) {
-  const active = sort.key === column
-  const Icon = sort.direction === 'asc' ? ArrowUp : ArrowDown
-  const nextDirection = active && sort.direction === 'asc' ? '降順' : '昇順'
-  return <TableHead aria-sort={active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'} className={className}><button aria-label={`${label}を${nextDirection}で並べ替え`} className="inline-flex items-center gap-1 hover:underline focus-visible:outline-none focus-visible:ring-2" onClick={() => onSort(column)} type="button">{label}{active && <Icon aria-hidden="true" className="size-3" />}</button></TableHead>
-}
-
+function number(value: number | null | undefined): string { return value == null ? EMPTY : formatNumber(value, 2) }
+function ratio(value: number | null | undefined): string { return value == null ? '未観測' : `${formatNumber(value * 100, 1)}%` }
 function FilterLabel({ title, children }: { title: string; children: ReactNode }) {
   return <label className="grid gap-1"><span className="text-xs font-medium text-muted-foreground">{title}</span>{children}</label>
 }
+const SORT_LABELS: Record<SecuritySortKey, string> = {
+  ticker: '銘柄コード', name: '会社名', sector_33: '業種', market_cap_oku: '時価総額',
+  per_forward: '予想PER', per_trailing: '実績PER', normalized_per_3fy: '平常PER', pbr: 'PBR',
+  dividend_yield: '配当利回り', net_cash_to_market_cap: 'ネットキャッシュ比率', fcf_yield: 'FCF利回り',
+  sales_yoy: '売上成長率', operating_profit_yoy: '営業益成長率', er_annual: '機械E[r]',
+  fair_value_gap_pct: '機械anchor乖離', next_earnings_date: '次の決算',
+}
 
-export function SecurityAnalysisSection({ rows, runAsOf, externalCutoff }: { rows: SecuritySearchRow[]; runAsOf: string | null; externalCutoff?: string | null }) {
-  const sectors = useMemo(() => [...new Set(rows.map((row) => row.sector_33).filter((item): item is string => item !== null))].sort((a, b) => a.localeCompare(b, 'ja-JP')), [rows])
-  const [query, setQuery] = useState('')
-  const [sector, setSector] = useState('all')
-  const [perMax, setPerMax] = useState('')
-  const [pbrMax, setPbrMax] = useState('')
-  const [dividendMin, setDividendMin] = useState('')
-  const [heldOnly, setHeldOnly] = useState(false)
-  const [researchOnly, setResearchOnly] = useState(false)
-  const [detail, setDetail] = useState(false)
-  const [sort, setSort] = useState<SecuritySort>({ key: 'ticker', direction: 'asc' })
-  const [page, setPage] = useState(1)
+export function SecuritySearchItem({ row, candidate }: { row: SecuritySearchRow; candidate?: ReviewSetEntryView }) {
+  const { pathname, search } = useLocation()
+  const origin = { exploration: pathname + search }
+  const analysis = 'er_annual' in row ? row : null
+  return <li className="grid gap-3 px-5 py-4 sm:px-6 lg:grid-cols-[minmax(14rem,2fr)_minmax(20rem,3fr)_minmax(14rem,2fr)] lg:items-start">
+    <div className="grid min-w-0 gap-1.5">
+      <Link className="font-medium underline-offset-4 hover:underline" state={origin} to={`/securities/${row.ticker}`}>{row.name ?? '名称未確認'} <span className="font-mono text-xs text-muted-foreground">{row.ticker}</span></Link>
+      <p className="text-xs text-muted-foreground">{row.sector_33 ?? '業種未確認'}{analysis?.market_cap_oku != null && ` · 時価総額 ${formatNumber(analysis.market_cap_oku, 0)}億円`}</p>
+      <div className="flex flex-wrap gap-1">{candidate?.nominations.map(n => <Badge key={n.valuation_approach_id} variant="outline">{valuationApproachLabel(n.valuation_approach_id, n.rank)}</Badge>)}{row.portfolio_state !== 'unheld' && <Badge variant="secondary">{row.portfolio_state === 'held' || row.portfolio_state === 'held_and_reserved' ? '保有' : '予約'}</Badge>}{row.has_research && <Badge variant="secondary">企業調査あり</Badge>}</div>
+    </div>
+    {analysis ? <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs sm:grid-cols-3">
+      {[
+        ['PER 予想 / 実績', `${number(analysis.per_forward)} / ${number(analysis.per_trailing)}`],
+        ['PBR', number(analysis.pbr)], ['配当利回り', ratio(analysis.dividend_yield)],
+        ['機械E[r]（%/年）', ratio(analysis.er_annual)], ['FCF利回り', ratio(analysis.fcf_yield)], ['Net cash / 時価総額', ratio(analysis.net_cash_to_market_cap)],
+      ].map(([label, value]) => <div key={label}><dt className="text-muted-foreground">{label}</dt><dd className="mt-1 font-mono tabular-nums">{value}</dd></div>)}
+    </dl> : <p className="text-sm text-muted-foreground">保存済み外部参考評価 · 機械分析なし</p>}
+    <div className="grid gap-1.5 text-xs text-muted-foreground">
+      {analysis?.next_earnings_date && <p>次の決算 {analysis.next_earnings_date}</p>}
+      {analysis && analysis.data_quality_flags.length > 0 && <p className="break-words">入力の注意 {analysis.data_quality_flags.length}件（詳細で確認）</p>}
+      <Link className="text-foreground underline underline-offset-4" state={origin} to={`/securities/${row.ticker}`}>評価・市場指標・外部参考を読む →</Link>
+    </div>
+  </li>
+}
 
-  const filters: SecurityFilters = useMemo(() => ({
-    query,
-    sector,
-    perMax: parseOptionalNumber(perMax),
-    pbrMax: parseOptionalNumber(pbrMax),
-    dividendMinPct: parseOptionalNumber(dividendMin),
-    heldOnly,
-    researchOnly,
-  }), [query, sector, perMax, pbrMax, dividendMin, heldOnly, researchOnly])
-  const projection = useMemo(() => projectSecurityRows(rows, filters, sort, page), [rows, filters, sort, page])
-
-  useEffect(() => setPage(1), [query, sector, perMax, pbrMax, dividendMin, heldOnly, researchOnly])
-
-  const onSort = (key: SecuritySortKey) => {
-    setSort((current) => current.key === key ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' } : { key, direction: 'asc' })
+export function SecurityAnalysisSection({ rows, runAsOf, externalCutoff, reviewSet }: { rows: SecuritySearchRow[]; runAsOf: string | null; externalCutoff?: string | null; reviewSet?: ReviewSetView | null }) {
+  const sectors = useMemo(() => [...new Set(rows.flatMap(row => row.sector_33 === null ? [] : [row.sector_33]))].sort((a, b) => a.localeCompare(b, 'ja-JP')), [rows])
+  const candidates = useMemo(() => new Map(reviewSet?.entries.map(entry => [entry.ticker, entry]) ?? []), [reviewSet])
+  const { pathname, search } = useLocation()
+  const navigate = useNavigate()
+  const params = useMemo(() => new URLSearchParams(search), [search])
+  const query = params.get('q') ?? ''
+  const sector = params.get('sector') ?? 'all'
+  const perMax = params.get('per') ?? ''
+  const pbrMax = params.get('pbr') ?? ''
+  const dividendMin = params.get('dividend') ?? ''
+  const heldOnly = params.get('held') === '1'
+  const researchOnly = params.get('researched') === '1'
+  const candidatesOnly = params.get('candidates') === '1'
+  const sort: SecuritySort = { key: (params.get('sort') ?? 'ticker') as SecuritySortKey, direction: params.get('direction') === 'desc' ? 'desc' : 'asc' }
+  const page = Math.floor(parseOptionalNumber(params.get('page') ?? '1') ?? 1)
+  const filters: SecurityFilters = { query, sector, perMax: parseOptionalNumber(perMax), pbrMax: parseOptionalNumber(pbrMax), dividendMinPct: parseOptionalNumber(dividendMin), heldOnly, researchOnly }
+  const projection = projectSecurityRows(candidatesOnly ? rows.filter(row => candidates.has(row.ticker)) : rows, filters, sort, page)
+  function updateParam(name: string, value: string) {
+    const next = new URLSearchParams(params)
+    if (value) next.set(name, value)
+    else next.delete(name)
+    if (name !== 'page') next.delete('page')
+    navigate({ pathname, search: next.size ? `?${next}` : '' }, { replace: true })
   }
   const start = projection.filteredTotal === 0 ? 0 : (projection.page - 1) * SECURITY_PAGE_SIZE + 1
   const end = Math.min(projection.page * SECURITY_PAGE_SIZE, projection.filteredTotal)
-
-  return (
-    <SectionCard description={`Security Analysis 基準 ${runAsOf ?? '未発行'}。保存済み外部観測も検索できます。Review Set の選定順とは独立。`} title="銘柄検索">
-      <div className="grid gap-4 border-b px-5 py-4 sm:px-6">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-          <FilterLabel title="検索">
-            <div className="relative lg:col-span-2"><Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" /><Input aria-label="tickerまたは会社名を検索" className="pl-8" onChange={(event) => setQuery(event.target.value)} placeholder="ticker前方 / 名称部分" value={query} /></div>
-          </FilterLabel>
-          <FilterLabel title="sector"><select className="h-9 rounded-md border bg-background px-3 text-sm" onChange={(event) => setSector(event.target.value)} value={sector}><option value="all">すべて</option>{sectors.map((item) => <option key={item} value={item}>{item}</option>)}</select></FilterLabel>
-          <FilterLabel title="PER ≤"><Input inputMode="decimal" onChange={(event) => setPerMax(event.target.value)} value={perMax} /></FilterLabel>
-          <FilterLabel title="PBR ≤"><Input inputMode="decimal" onChange={(event) => setPbrMax(event.target.value)} value={pbrMax} /></FilterLabel>
-          <FilterLabel title="配当 ≥ %"><Input inputMode="decimal" onChange={(event) => setDividendMin(event.target.value)} value={dividendMin} /></FilterLabel>
-        </div>
-        <div className="flex flex-wrap items-center gap-4 text-sm">
-          <label className="inline-flex items-center gap-2"><input checked={heldOnly} onChange={(event) => setHeldOnly(event.target.checked)} type="checkbox" />保有のみ</label>
-          <label className="inline-flex items-center gap-2"><input checked={researchOnly} onChange={(event) => setResearchOnly(event.target.checked)} type="checkbox" />researchありのみ</label>
-          <label className="inline-flex items-center gap-2"><input checked={detail} onChange={(event) => setDetail(event.target.checked)} type="checkbox" />詳細列を表示</label>
-          <span className="ml-auto text-xs text-muted-foreground">{start}–{end} / {projection.filteredTotal} 件</span>
-        </div>
-        {externalCutoff && <p className="text-xs text-muted-foreground">外部観測の読取時点 {formatJstDateTime(externalCutoff)} JST。機械分析のない銘柄はPER・PBR・配当の条件では抽出しません。</p>}
+  return <SectionCard title="銘柄検索" description={`機械分析の基準 ${runAsOf ?? '未発行'}。候補の理由は選定時のApproachです。E[r]による採否ではありません。`}>
+    <div className="grid gap-3 border-b px-5 py-4 sm:px-6">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <FilterLabel title="銘柄コード・会社名"><div className="relative"><Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" /><Input aria-label="tickerまたは会社名を検索" className="pl-8" onChange={event => updateParam('q', event.target.value)} placeholder="銘柄コードの前方 / 会社名の部分一致" value={query} /></div></FilterLabel>
+        <FilterLabel title="業種"><select className="h-9 rounded-md border bg-background px-3 text-sm" onChange={event => updateParam('sector', event.target.value === 'all' ? '' : event.target.value)} value={sector}><option value="all">すべての業種</option>{sectors.map(item => <option key={item}>{item}</option>)}</select></FilterLabel>
       </div>
-      <Table className={detail ? 'min-w-[2600px]' : 'min-w-[1900px]'}>
-        <TableHeader><TableRow>
-          <SortHead column="ticker" label="ticker / name" onSort={onSort} sort={sort} /><SortHead column="sector_33" label="sector" onSort={onSort} sort={sort} />
-          <SortHead className="text-right" column="market_cap_oku" label="market cap" onSort={onSort} sort={sort} />
-          <SortHead className="text-right" column="per_forward" label="PER F" onSort={onSort} sort={sort} /><SortHead className="text-right" column="per_trailing" label="PER T" onSort={onSort} sort={sort} /><SortHead className="text-right" column="normalized_per_3fy" label="Norm PER 3FY" onSort={onSort} sort={sort} />
-          <SortHead className="text-right" column="pbr" label="PBR" onSort={onSort} sort={sort} /><SortHead className="text-right" column="dividend_yield" label="dividend" onSort={onSort} sort={sort} />
-          <SortHead className="text-right" column="net_cash_to_market_cap" label="Net cash / MC" onSort={onSort} sort={sort} /><SortHead className="text-right" column="fcf_yield" label="FCF yield" onSort={onSort} sort={sort} />
-          <SortHead className="text-right" column="sales_yoy" label="sales YoY" onSort={onSort} sort={sort} /><SortHead className="text-right" column="operating_profit_yoy" label="OP YoY" onSort={onSort} sort={sort} />
-          <SortHead className="text-right" column="er_annual" label="機械E[r]（%/年）" onSort={onSort} sort={sort} /><SortHead className="text-right" column="fair_value_gap_pct" label="機械anchor乖離" onSort={onSort} sort={sort} />
-          <SortHead column="next_earnings_date" label="next earnings" onSort={onSort} sort={sort} /><TableHead>data quality</TableHead><TableHead>portfolio / research</TableHead>
-          {detail && <><TableHead className="text-right">EV/EBITDA</TableHead><TableHead className="text-right">P/S</TableHead><TableHead className="text-right">PCFR</TableHead><TableHead className="text-right">OCF yield</TableHead><TableHead className="text-right">equity ratio</TableHead><TableHead className="text-right">avg turnover</TableHead><TableHead className="text-right">margin short / ADV</TableHead><TableHead className="text-right">20d</TableHead><TableHead className="text-right">52w low</TableHead><TableHead className="text-right">sector RS%</TableHead></>}
-        </TableRow></TableHeader>
-        <TableBody>{projection.rows.map((row) => !('er_annual' in row) ? <TableRow key={row.ticker}>
-          <TableCell><Link className="font-mono font-semibold hover:underline" to={`/securities/${row.ticker}`}>{row.ticker}</Link><span className="ml-2 text-muted-foreground">{row.name ?? '名称未確認'}</span></TableCell>
-          <TableCell>{row.sector_33 ?? EMPTY}</TableCell>
-          <TableCell colSpan={detail ? 25 : 15}><Badge variant="outline">保存済み外部参考評価</Badge><span className="ml-2 text-muted-foreground">機械分析なし</span>{row.portfolio_state !== 'unheld' && <Badge className="ml-2" variant="secondary">{row.portfolio_state}</Badge>}{row.has_research && <Badge className="ml-2" variant="outline">research</Badge>}</TableCell>
-        </TableRow> : <TableRow key={row.ticker}>
-          <TableCell><Link className="font-mono font-semibold hover:underline" to={`/securities/${row.ticker}`}>{row.ticker}</Link><span className="ml-2 text-muted-foreground">{row.name ?? EMPTY}</span></TableCell>
-          <TableCell>{row.sector_33 ?? EMPTY}</TableCell><TableCell className="text-right font-mono">{row.market_cap_oku === null ? EMPTY : `${number(row.market_cap_oku, 0)} 億`}</TableCell>
-          <TableCell className="text-right font-mono">{number(row.per_forward)}</TableCell><TableCell className="text-right font-mono">{number(row.per_trailing)}</TableCell><TableCell className="text-right font-mono">{number(row.normalized_per_3fy)}</TableCell><TableCell className="text-right font-mono">{number(row.pbr)}</TableCell>
-          <TableCell className="text-right font-mono">{ratio(row.dividend_yield)}</TableCell><TableCell className="text-right font-mono">{ratio(row.net_cash_to_market_cap)}</TableCell><TableCell className="text-right font-mono">{ratio(row.fcf_yield)}</TableCell>
-          <TableCell className="text-right font-mono">{ratio(row.sales_yoy)}</TableCell><TableCell className="text-right font-mono">{ratio(row.operating_profit_yoy)}</TableCell><TableCell className="text-right font-mono">{ratio(row.er_annual)}</TableCell><TableCell className="text-right font-mono">{percent(row.fair_value_gap_pct)}</TableCell>
-          <TableCell>{row.next_earnings_date ?? EMPTY}</TableCell><TableCell><div className="flex max-w-64 flex-wrap gap-1">{row.data_quality_flags.length === 0 ? EMPTY : row.data_quality_flags.map((flag) => <Badge key={flag} variant="outline">{flag}</Badge>)}</div></TableCell>
-          <TableCell><div className="flex gap-1"><Badge variant="secondary">{row.portfolio_state}</Badge>{row.has_research && <Badge variant="outline">research</Badge>}</div></TableCell>
-          {detail && <><TableCell className="text-right font-mono">{number(row.ev_ebitda)}</TableCell><TableCell className="text-right font-mono">{number(row.p_s)}</TableCell><TableCell className="text-right font-mono">{number(row.pcfr)}</TableCell><TableCell className="text-right font-mono">{ratio(row.ocf_yield)}</TableCell><TableCell className="text-right font-mono">{ratio(row.equity_ratio)}</TableCell><TableCell className="text-right font-mono">{row.avg_turnover_oku === null ? EMPTY : `${number(row.avg_turnover_oku)} 億`}</TableCell><TableCell className="text-right font-mono">{number(row.margin_short_to_adv)}</TableCell><TableCell className="text-right font-mono">{ratio(row.price_change_20d)}</TableCell><TableCell className="text-right font-mono">{ratio(row.gap_from_52w_low)}</TableCell><TableCell className="text-right font-mono">{ratio(row.sector_relative_strength_percentile)}</TableCell></>}
-        </TableRow>)}</TableBody>
-      </Table>
-      <div className="flex items-center justify-between border-t px-5 py-3 sm:px-6">
-        <Button disabled={projection.page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))} size="sm" variant="outline">前</Button>
-        <span className="font-mono text-xs text-muted-foreground">{projection.page} / {projection.pageCount}</span>
-        <Button disabled={projection.page >= projection.pageCount} onClick={() => setPage((value) => Math.min(projection.pageCount, value + 1))} size="sm" variant="outline">次</Button>
-      </div>
-    </SectionCard>
-  )
+      <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm"><label className="inline-flex items-center gap-2"><input checked={candidatesOnly} onChange={event => updateParam('candidates', event.target.checked ? '1' : '')} type="checkbox" />機械の候補のみ</label><label className="inline-flex items-center gap-2"><input checked={heldOnly} onChange={event => updateParam('held', event.target.checked ? '1' : '')} type="checkbox" />保有のみ</label><label className="inline-flex items-center gap-2"><input checked={researchOnly} onChange={event => updateParam('researched', event.target.checked ? '1' : '')} type="checkbox" />企業調査あり</label></div>
+      <details><summary className="cursor-pointer text-sm">数値条件・並べ替え</summary><div className="mt-3 grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <FilterLabel title="実績PER ≤"><Input inputMode="decimal" onChange={event => updateParam('per', event.target.value)} value={perMax} /></FilterLabel>
+        <FilterLabel title="PBR ≤"><Input inputMode="decimal" onChange={event => updateParam('pbr', event.target.value)} value={pbrMax} /></FilterLabel>
+        <FilterLabel title="配当利回り ≥ %"><Input inputMode="decimal" onChange={event => updateParam('dividend', event.target.value)} value={dividendMin} /></FilterLabel>
+        <FilterLabel title="並べ替え"><select className="h-9 rounded-md border bg-background px-3 text-sm" onChange={event => updateParam('sort', event.target.value)} value={sort.key}>{Object.entries(SORT_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></FilterLabel>
+        <FilterLabel title="順序"><select className="h-9 rounded-md border bg-background px-3 text-sm" onChange={event => updateParam('direction', event.target.value)} value={sort.direction}><option value="asc">昇順</option><option value="desc">降順</option></select></FilterLabel>
+      </div></details>
+      <p aria-live="polite" className="text-xs text-muted-foreground">{start}–{end} / {projection.filteredTotal}件</p>
+      {externalCutoff && <p className="text-xs text-muted-foreground">外部観測の読取時点 {formatJstDateTime(externalCutoff)} JST。機械分析なしの銘柄は数値条件では抽出しません。</p>}
+    </div>
+    {projection.filteredTotal === 0 ? <p className="px-5 py-8 text-sm text-muted-foreground">条件に合う銘柄はありません。</p> : <ul className="divide-y">{projection.rows.map(row => <SecuritySearchItem candidate={candidates.get(row.ticker)} key={row.ticker} row={row} />)}</ul>}
+    <div className="flex items-center justify-between gap-2 border-t px-5 py-3 sm:px-6"><Button disabled={projection.page <= 1} onClick={() => updateParam('page', String(projection.page - 1))} size="sm" variant="outline">前</Button><span aria-live="polite" className="text-xs text-muted-foreground">{start}–{end} / {projection.filteredTotal}件 · {projection.page}/{projection.pageCount}</span><Button disabled={projection.page >= projection.pageCount} onClick={() => updateParam('page', String(projection.page + 1))} size="sm" variant="outline">次</Button></div>
+  </SectionCard>
 }

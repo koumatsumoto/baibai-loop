@@ -8,24 +8,24 @@ function activeLabels(pathname: string): string[] {
 
 describe('NAV_TABS active matching', () => {
   it('activates exactly one tab per route', () => {
-    for (const pathname of ['/', '/market-context', '/market-context/assessments/x', '/stocks', '/research-triage', '/stocks/capital-allocation-assessments/x', '/securities/2331', '/tasks']) {
+    for (const pathname of ['/', '/market-context', '/market-context/assessments/x', '/stocks', '/stocks/explore', '/research-triage', '/stocks/capital-allocation-assessments/x', '/securities/2331', '/tasks']) {
       expect(activeLabels(pathname)).toHaveLength(1)
     }
   })
 
   it('keeps Dashboard exact so it does not match sub-routes', () => {
     expect(activeLabels('/')).toEqual(['Dashboard'])
-    expect(activeLabels('/market-context')).toEqual(['Market Context'])
+    expect(activeLabels('/market-context')).toEqual(['調査・提案'])
   })
 
   it('keeps Market Context active on the report detail route', () => {
-    expect(activeLabels('/market-context/assessments/macro-context-2026-07-01')).toEqual(['Market Context'])
+    expect(activeLabels('/market-context/assessments/macro-context-2026-07-01')).toEqual(['調査・提案'])
   })
 
   it('keeps Stocks active on triage, allocation assessment and security detail routes', () => {
-    expect(activeLabels('/research-triage')).toEqual(['Stocks'])
-    expect(activeLabels('/stocks/capital-allocation-assessments/capital-allocation-assessment-20260728-cycle')).toEqual(['Stocks'])
-    expect(activeLabels('/securities/2331')).toEqual(['Stocks'])
+    expect(activeLabels('/research-triage')).toEqual(['調査・提案'])
+    expect(activeLabels('/stocks/capital-allocation-assessments/capital-allocation-assessment-20260728-cycle')).toEqual(['調査・提案'])
+    expect(activeLabels('/securities/2331')).toEqual(['調査・提案'])
   })
 
   it('keeps Tasks isolated from Dashboard', () => {

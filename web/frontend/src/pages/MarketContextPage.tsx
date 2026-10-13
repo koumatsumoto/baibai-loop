@@ -1,4 +1,3 @@
-import { AssessmentContent } from '../components/market-context/AssessmentContent'
 import { useEffect, useId, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { ArrowDown, ArrowRight, ArrowUp, CircleAlert, Minus, Search } from 'lucide-react'
@@ -9,6 +8,8 @@ import type { AssessmentExcerptView, IndicatorPointView, ReadingSeriesView, Read
 import { InfoHint } from '../components/InfoHint'
 import { LoadingIndicator, LoadingPage } from '../components/LoadingIndicator'
 import { PageShell } from '../components/PageShell'
+import { ResearchNav } from '../components/ResearchNav'
+import { MarketSnapshotSection } from './research/MarketEvidence'
 import { PageState } from '../components/PageState'
 import { SectionCard } from '../components/SectionCard'
 import { StaleBadge } from '../components/StaleBadge'
@@ -17,7 +18,6 @@ import { UpdatedAtBadge } from '../components/UpdatedAtBadge'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
-import { Card } from '../components/ui/card'
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '../components/ui/chart'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog'
 import { Input } from '../components/ui/input'
@@ -271,39 +271,14 @@ function IndicatorDialog({ row, history, historyLoading, historyError, period, g
 }
 
 function LatestContext({ context }: { context: AssessmentExcerptView | null }) {
-
-  if (context === null) return <Alert><CircleAlert /><AlertTitle>市場環境判断なし</AlertTitle><AlertDescription>機械読み値は確認できますが、現在の環境判断はまだ発行されていません。</AlertDescription></Alert>
-  return (
-    <SectionCard
-      description={`${LABEL.asOf} ${context.as_of} / ${context.age_days} 日前`}
-      meta={<div className="flex gap-2">{context.stale && <StaleBadge />}<Link className="text-sm underline underline-offset-4" to={`/market-context/assessments/${context.context_id}`}>詳細レポート</Link></div>}
-      title={context.assessment ? '市場環境判断' : '現在のマクロ局面'}
-    >
-      <div className="grid gap-5 px-5 py-4 sm:px-6">
-        {context.warnings.length > 0 && <div className="flex flex-wrap gap-1.5">{context.warnings.map((warning) => <Badge key={warning} variant="outline">{warning}</Badge>)}</div>}
-        <p className="whitespace-pre-wrap text-sm leading-7">{context.summary}</p>
-        {context.assessment ? <AssessmentContent data={context.assessment} /> : <>
-        {context.synthesis !== null && (
-          <div className="grid gap-3 md:grid-cols-2">
-            <div><h4 className="text-sm font-semibold">支配的な力</h4><ul className="mt-1 grid gap-2">{context.synthesis.dominant_forces.map((force) => <li key={force.force_id}><p className="text-sm font-medium">{force.title}</p><p className="text-sm text-muted-foreground">{force.summary}</p><p className="text-xs text-muted-foreground">伝播: {force.transmission}</p></li>)}</ul></div>
-            <div><h4 className="text-sm font-semibold">相互作用</h4><ul className="mt-1 grid gap-2">{context.synthesis.interactions.map((item, index) => <li className="text-sm text-muted-foreground" key={`${item.force_ids.join('-')}-${index}`}>{item.summary}</li>)}</ul></div>
-          </div>
-        )}
-        {context.risk_environment !== null && <div><h4 className="text-sm font-semibold">リスク環境 · {context.risk_environment.stance} / {context.risk_environment.confidence}</h4><p className="mt-1 text-sm text-muted-foreground">{context.risk_environment.summary}</p><ul className="mt-1 list-disc pl-5 text-sm text-muted-foreground">{context.risk_environment.falsifiers.map((item) => <li key={item}>{item}</li>)}</ul></div>}
-        {context.scenarios.length > 0 && <div><h4 className="text-sm font-semibold">シナリオ</h4><div className="mt-1 grid gap-2 sm:grid-cols-3">{context.scenarios.map((scenario) => <Card className="p-3" key={scenario.case}><p className="text-sm font-medium">{scenario.case}{scenario.probability === null ? '' : ` · ${formatPct(scenario.probability * 100)}`}</p><p className="mt-1 text-xs text-muted-foreground">{scenario.summary}</p></Card>)}</div></div>}
-        <details className="rounded-md border p-3" open={false}>
-          <summary className="cursor-pointer text-sm font-semibold">Research への接続</summary>
-          <div className="mt-3 grid gap-4">
-            <div><h5 className="text-xs font-semibold">優先確認</h5><ul className="mt-1 list-disc pl-5 text-sm text-muted-foreground">{context.research_priority_hints.map((item) => <li key={`${item.applies_to}-${item.summary}`}>{item.summary}（{item.applies_to}）</li>)}</ul></div>
-            {context.bargain_topography !== null && <div><h5 className="text-xs font-semibold">割安地形</h5><p className="text-sm text-muted-foreground">{context.bargain_topography.summary}</p></div>}
-            <div><h5 className="text-xs font-semibold">見積り上の注意</h5><ul className="mt-1 list-disc pl-5 text-sm text-muted-foreground">{context.estimate_caveats.map((item) => <li key={`${item.applies_to}-${item.affected_component}`}>{item.summary}（{item.affected_component} / {item.applies_to} / {item.materiality}）</li>)}</ul></div>
-            {context.sizing_cautions.length > 0 && <div><h5 className="text-xs font-semibold">Sizing caution</h5><ul className="mt-1 list-disc pl-5 text-sm text-muted-foreground">{context.sizing_cautions.map((item) => <li key={item.summary}>{item.summary}</li>)}</ul></div>}
-          </div>
-        </details>
-        </>}
-      </div>
-    </SectionCard>
-  )
+  if (!context) return <SectionCard padded title="市場環境の判断"><p className="text-sm text-muted-foreground">保存済みの判断はありません。観測値を売買判断で補完しません。</p></SectionCard>
+  return <SectionCard padded title="市場環境の判断" description={`${LABEL.asOf} ${context.as_of} / ${context.age_days} 日前`} meta={<div className="flex flex-wrap gap-2"><UpdatedAtBadge value={context.published_at} />{context.stale && <StaleBadge />}</div>}>
+    <div className="grid gap-4">
+      <p className="whitespace-pre-wrap text-sm leading-7">{context.summary}</p>
+      {context.warnings.length > 0 && <div className="flex flex-wrap gap-1">{context.warnings.map(warning => <Badge key={warning} variant="outline">{warning}</Badge>)}</div>}
+      <Link className="text-sm underline underline-offset-4" to={`/market-context/assessments/${context.context_id}`}>この判断の根拠・反証・調査への含意を読む →</Link>
+    </div>
+  </SectionCard>
 }
 
 export function MarketContextPage() {
@@ -377,10 +352,11 @@ export function MarketContextPage() {
   }
 
   return (
-    <PageShell meta={<UpdatedAtBadge value={data.latest_context?.published_at ?? null} />} title="市場環境">
+    <PageShell above={<ResearchNav />} title="市場環境" lead="調査・提案を読むための市場環境と保存済みの根拠です。観測や機械分析だけで売買判断を作りません。">
+      <MarketSnapshotSection snapshot={data.market_snapshot} />
       <LatestContext context={data.latest_context} />
 
-      <section className="grid gap-4">
+      <details className="rounded-lg border bg-card p-4 sm:p-5"><summary className="cursor-pointer font-medium">指標の値・推移を調べる（{summary.seriesCount} 系列）</summary><section className="mt-5 grid gap-4">
         {data.reading?.read_semantics && <p className="text-sm text-muted-foreground">{data.reading.read_semantics.limitation}</p>}
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="flex items-center gap-2">
@@ -450,10 +426,10 @@ export function MarketContextPage() {
               </Table>
             </SectionCard>
           ))}
-      </section>
+      </section></details>
 
       <details className="rounded-lg border bg-card shadow-sm">
-        <summary className="cursor-pointer px-5 py-4 text-lg font-semibold sm:px-6">過去の経済分析レポート（{reports.length}）</summary>
+        <summary className="cursor-pointer px-5 py-4 text-lg font-semibold sm:px-6">保存済み市場判断・過去の経済分析レポート（{reports.length}）</summary>
         {reports.length === 0
           ? <p className="border-t px-5 py-4 text-sm text-muted-foreground sm:px-6">発行済みレポートはありません。</p>
           : <div className="divide-y border-t">{reports.map((report) => (

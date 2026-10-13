@@ -1,4 +1,4 @@
-import { Link } from 'react-router'
+import { Link, useLocation } from 'react-router'
 
 import type { ReviewSetAnalysisView, ReviewSetEntryView, ReviewSetView } from '../../api/types'
 import { AsOfBadge } from '../../components/AsOfBadge'
@@ -109,6 +109,7 @@ function FrozenAnalysis({ analysis }: { analysis: ReviewSetAnalysisView }) {
 }
 
 export function ReviewSetSection({ reviewSet, runAsOf }: { reviewSet: ReviewSetView | null; runAsOf: string }) {
+  const { pathname, search } = useLocation()
   return (
     <SectionCard
       description="configured Valuation Approaches が生成した Nomination の exact union。配列順は優先度ではなく、表示値は選定時にfreezeされたsnapshot。"
@@ -131,7 +132,7 @@ export function ReviewSetSection({ reviewSet, runAsOf }: { reviewSet: ReviewSetV
           </TableRow></TableHeader>
           <TableBody>{reviewSet.entries.map((entry) => (
             <TableRow key={entry.ticker}>
-              <TableCell><Link className="font-mono font-semibold hover:underline" to={`/securities/${entry.ticker}`}>{entry.ticker}</Link><span className="ml-2 text-muted-foreground">{entry.name}</span></TableCell>
+              <TableCell><Link className="font-mono font-semibold hover:underline" state={{ exploration: pathname + search }} to={`/securities/${entry.ticker}`}>{entry.ticker}</Link><span className="ml-2 text-muted-foreground">{entry.name}</span></TableCell>
               <TableCell>{entry.sector_33 ?? EMPTY}</TableCell>
               <TableCell><div className="flex flex-wrap gap-1">{entry.nominations.map((nomination) => <Badge key={nomination.valuation_approach_id} variant="secondary">{valuationApproachLabel(nomination.valuation_approach_id, nomination.rank)}</Badge>)}</div></TableCell>
               <TableCell className="text-right font-mono">{number(entry.analysis.valuation.per_forward)} / {number(entry.analysis.valuation.per_trailing)}</TableCell>

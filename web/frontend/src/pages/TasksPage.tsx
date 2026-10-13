@@ -21,7 +21,7 @@ const STATUS_LABEL: Record<string, string> = { active: '進行中', completed: '
 const EVENT_KIND_LABEL: Record<UpcomingEventView['kind'], string> = { earnings: '決算', reservation_expiry: '予約期限' }
 
 function NextTaskCard({ task }: { task: TaskView | null }) {
-  return <SectionCard meta={task?.overdue === true && <Badge variant="destructive">期限超過</Badge>} padded title="次のタスク">{task === null ? <p className="text-sm text-muted-foreground">未完了のタスクはありません。</p> : <div className="flex flex-wrap items-center gap-x-4 gap-y-2"><time className="shrink-0 font-mono text-sm font-semibold" dateTime={task.due_date}>{formatJstDate(task.due_date)}</time><p className="min-w-[16rem] flex-1 font-medium">{task.title}</p></div>}</SectionCard>
+  return <SectionCard meta={task?.overdue === true && <Badge variant="destructive">期限超過</Badge>} padded title="期限が近い用件">{task === null ? <p className="text-sm text-muted-foreground">未完了のタスクはありません。</p> : <div className="flex flex-wrap items-center gap-x-4 gap-y-2"><time className="shrink-0 font-mono text-sm font-semibold" dateTime={task.due_date}>{formatJstDate(task.due_date)}</time><p className="min-w-[16rem] flex-1 font-medium">{task.title}</p></div>}</SectionCard>
 }
 
 function OperationCard({ operations, error }: { operations: OperationSessionView[]; error: string | null }) {
@@ -50,5 +50,11 @@ export function TasksPage() {
   }, [])
   if (error !== null) return <PageState message={error} title="Tasks read error" />
   if (data === null) return <LoadingPage label="Tasks を読み込んでいます" />
-  return <PageShell lead="次に行う判断、進行中の運用、近いイベントを確認するread-only workflow面です。" title="Tasks"><NextTaskCard task={data.next_task} /><OperationCard error={operationsError} operations={operations?.operations ?? []} /><EventsCard events={data.upcoming_events} ledgerError={data.ledger_error} /><TaskList data={data} /></PageShell>
+  return <PageShell lead="期限付きの用件と、近い決算・予約期限を確認します。調査・提案は専用の入口から読めます。" title="Tasks">
+    <NextTaskCard task={data.next_task} />
+    <EventsCard events={data.upcoming_events} ledgerError={data.ledger_error} />
+    <TaskList data={data} />
+    <Link className="w-fit text-sm underline" to="/stocks">調査・提案を見る →</Link>
+    <details className="rounded-lg border bg-card p-4"><summary className="cursor-pointer font-medium">運用記録を確認する</summary><div className="mt-4"><OperationCard error={operationsError} operations={operations?.operations ?? []} /></div></details>
+  </PageShell>
 }
