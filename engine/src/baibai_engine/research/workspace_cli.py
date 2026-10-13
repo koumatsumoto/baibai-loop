@@ -92,7 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_parser.add_argument("--holding-ticker", action="append", default=[])
     prepare_parser.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
     prepare_parser.add_argument("--runs-path", type=Path, default=RUNS_DB_PATH)
-    prepare_parser.add_argument("--macro-path", type=Path, default=INDICATORS_DB_PATH)
+    prepare_parser.add_argument("--indicators-path", type=Path, default=INDICATORS_DB_PATH)
     prepare_parser.add_argument("--workspace", required=True, type=Path)
     prepare_parser.add_argument(
         "--ticker",
@@ -116,7 +116,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     holding_prepare_parser.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
     holding_prepare_parser.add_argument("--runs-path", type=Path, default=RUNS_DB_PATH)
-    holding_prepare_parser.add_argument("--macro-path", type=Path, default=INDICATORS_DB_PATH)
+    holding_prepare_parser.add_argument("--indicators-path", type=Path, default=INDICATORS_DB_PATH)
     holding_prepare_parser.add_argument("--ticker", required=True)
     holding_prepare_parser.add_argument("--workspace", required=True, type=Path)
     holding_prepare_parser.add_argument(
@@ -250,7 +250,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     asof=args.asof,
                     sqlite_path=args.sqlite_path,
                     runs_path=args.runs_path,
-                    macro_path=args.macro_path,
+                    indicators_path=args.indicators_path,
                     started_at=resolved_now,
                     force=args.force,
                 )
@@ -277,7 +277,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     started_at=resolved_now,
                     sqlite_path=args.sqlite_path,
                     runs_path=args.runs_path,
-                    macro_path=args.macro_path,
+                    indicators_path=args.indicators_path,
                     force=args.force,
                 )
                 _emit(

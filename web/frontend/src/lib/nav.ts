@@ -4,7 +4,7 @@ export const ACTIONS_URL =
   'https://github.com/koumatsumoto/baibai-loop/actions/workflows/cloud-daily-batch.yml'
 
 // The four top-level tabs. A tab is "active" for its own routes and for the
-// tab-less detail routes that belong to it (report detail under Macro; Research Triage,
+// tab-less detail routes that belong to it (assessment detail under Market Context; Research Triage,
 // Capital Allocation Assessment and security detail under Stocks), so the header reflects the
 // current section.
 export interface NavTab {
@@ -16,9 +16,9 @@ export interface NavTab {
 export const NAV_TABS: readonly NavTab[] = [
   { to: '/', label: 'Dashboard', match: (pathname) => pathname === '/' },
   {
-    to: '/macro',
-    label: 'Macro',
-    match: (pathname) => pathname === '/macro' || pathname.startsWith('/macro/'),
+    to: '/market-context',
+    label: 'Market Context',
+    match: (pathname) => pathname === '/market-context' || pathname.startsWith('/market-context/'),
   },
   {
     to: '/stocks',

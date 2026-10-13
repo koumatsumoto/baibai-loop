@@ -23,7 +23,7 @@ from baibai_engine.read_api.research_triage import (
     list_research_triage_payloads,
     research_triage_payload_hash,
 )
-from baibai_engine.research.triage.contracts import ResearchTriage
+from baibai_engine.research.triage.contracts import StoredResearchTriage
 from baibai_engine.screening.run_store import RunStoreAmbiguousError, ScreeningRunReader
 from baibai_engine.storage.application.read import connect_read_only
 from tools.l1_mcp.contract import InputModel
@@ -121,7 +121,7 @@ class Reader:
             "candidates": candidates,
         }
 
-    def judgment(self, identifier: str) -> ResearchTriage:
+    def judgment(self, identifier: str) -> StoredResearchTriage:
         triage = current_research_triage(self.app_path, identifier)
         if triage is None:
             raise OwnerError("SOURCE_UNAVAILABLE")
@@ -129,13 +129,13 @@ class Reader:
             raise OwnerError("CONTRACT_MISMATCH")
         return triage
 
-    def reconstruct(self, triage: ResearchTriage) -> tuple[dict[str, Any], dict[str, Any]]:
+    def reconstruct(self, triage: StoredResearchTriage) -> tuple[dict[str, Any], dict[str, Any]]:
         try:
             return self._reconstruct(triage)
         except ValueError as exc:
             raise OwnerError("CONTRACT_MISMATCH") from exc
 
-    def _reconstruct(self, triage: ResearchTriage) -> tuple[dict[str, Any], dict[str, Any]]:
+    def _reconstruct(self, triage: StoredResearchTriage) -> tuple[dict[str, Any], dict[str, Any]]:
         if not self.runs_path.is_file():
             raise OwnerError("SOURCE_UNAVAILABLE")
         reader = ScreeningRunReader(self.runs_path)
@@ -155,16 +155,23 @@ class Reader:
             or run.payload.get("screening_rules_hash") != triage.screening_rules_hash
         ):
             raise OwnerError("CONTRACT_MISMATCH")
-        macro = None
-        if triage.macro_context_id is not None:
+        assessment = None
+        if triage.market_context_assessment_id is not None:
             try:
-                payload = assessment_payload(self.app_path, context_id=triage.macro_context_id)
+                payload = assessment_payload(
+                    self.app_path, context_id=triage.market_context_assessment_id
+                )
             except ValueError as exc:
                 raise OwnerError("SOURCE_UNAVAILABLE") from exc
-            macro = StoredAssessment.from_payload(payload)
-            if macro.context_id != triage.macro_context_id or macro.as_of > triage.as_of:
+            assessment = StoredAssessment.from_payload(payload)
+            if (
+                assessment.context_id != triage.market_context_assessment_id
+                or assessment.as_of > triage.as_of
+            ):
                 raise OwnerError("CONTRACT_MISMATCH")
-        model_input = extract_publication_input(review_set, macro)
+        model_input = extract_publication_input(
+            review_set, assessment, legacy_triage=triage.schema_version == 3
+        )
         snapshots = {entry.ticker: entry.snapshot for entry in review_set_candidates(review_set)}
         if {entry.ticker: entry.candidate_snapshot for entry in triage.entries} != snapshots:
             raise OwnerError("CONTRACT_MISMATCH")
@@ -178,12 +185,12 @@ class Reader:
             "run_revision_id": triage.run_revision_id,
             "public_run_id": run.public_run_id,
             "run_at": run.run_at,
-            "macro_context_id": triage.macro_context_id,
+            "market_context_assessment_id": triage.market_context_assessment_id,
             "screening_rules_hash": triage.screening_rules_hash,
             "candidate_discovery_method": triage.candidate_discovery_method.model_dump(mode="json"),
         }
 
-    def resolved(self, triage: ResearchTriage) -> dict[str, Any]:
+    def resolved(self, triage: StoredResearchTriage) -> dict[str, Any]:
         payload, metadata = self.reconstruct(triage)
         return {
             "triage_ref": TriageRef(
@@ -201,7 +208,7 @@ class Reader:
         if selector.research_triage_id is not None:
             return self.resolved(self.judgment(selector.research_triage_id))
         triages = [
-            ResearchTriage.model_validate(payload)
+            StoredResearchTriage.from_payload(payload)
             for payload in list_research_triage_payloads(self.app_path)
         ]
         triages.sort(
@@ -229,7 +236,7 @@ class Reader:
             raise OwnerError("SOURCE_UNAVAILABLE")
         return matches[0]
 
-    def verified_judgment(self, reference: TriageRef) -> ResearchTriage:
+    def verified_judgment(self, reference: TriageRef) -> StoredResearchTriage:
         triage = self.judgment(reference.research_triage_id)
         if research_triage_payload_hash(triage) != reference.research_triage_sha256:
             raise OwnerError("REFERENCE_MISMATCH")

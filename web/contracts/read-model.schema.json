@@ -1,16 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Baibai Loop read model",
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "roots": {
     "/api/screening/history": "#/$defs/ScreeningHistoryView",
     "history/candidate-views/{as_of}.json": "#/$defs/ScreeningHistoryRunView",
     "views/capital-allocation-assessment--{capital_allocation_assessment_id}.json": "#/$defs/CapitalAllocationAssessmentView",
     "views/daily-delta.json": "#/$defs/DailyDeltaView",
     "views/dashboard.json": "#/$defs/DashboardView",
-    "views/macro-context--{context_id}.json": "#/$defs/AssessmentPublicationView",
-    "views/macro-series--{series_id}.json": "#/$defs/IndicatorSeriesView",
-    "views/macro.json": "#/$defs/MarketContextView",
+    "views/indicator-series--{series_id}.json": "#/$defs/IndicatorSeriesView",
+    "views/market-context-assessment--{context_id}.json": "#/$defs/AssessmentPublicationView",
+    "views/market-context.json": "#/$defs/MarketContextView",
     "views/meta.json": "#/$defs/MetaView",
     "views/operations.json": "#/$defs/OperationsView",
     "views/screening_latest.json": "#/$defs/ScreeningView",
@@ -799,7 +799,7 @@
           "title": "Research Triage Id",
           "type": "string"
         },
-        "macro_context_id": {
+        "market_context_assessment_id": {
           "anyOf": [
             {
               "type": "string"
@@ -808,7 +808,7 @@
               "type": "null"
             }
           ],
-          "title": "Macro Context Id"
+          "title": "Market Context Assessment Id"
         },
         "comparison": {
           "title": "Comparison",
@@ -867,7 +867,7 @@
         "decision",
         "headline",
         "research_triage_id",
-        "macro_context_id",
+        "market_context_assessment_id",
         "comparison",
         "foregone_alternatives",
         "research_operation_id",
@@ -2636,7 +2636,7 @@
           ],
           "title": "Screening As Of"
         },
-        "macro_as_of": {
+        "indicators_as_of": {
           "anyOf": [
             {
               "format": "date",
@@ -2646,7 +2646,7 @@
               "type": "null"
             }
           ],
-          "title": "Macro As Of"
+          "title": "Indicators As Of"
         },
         "app_db_updated_at": {
           "anyOf": [
@@ -2675,7 +2675,7 @@
         "generated_at",
         "data_updated_at",
         "screening_as_of",
-        "macro_as_of",
+        "indicators_as_of",
         "app_db_updated_at",
         "batch"
       ],
@@ -3807,6 +3807,17 @@
     },
     "ReadingSeriesView": {
       "properties": {
+        "read_semantics": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StoreReadingSemanticsView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "series_id": {
           "title": "Series Id",
           "type": "string"
@@ -3989,6 +4000,7 @@
         }
       },
       "required": [
+        "read_semantics",
         "series_id",
         "name",
         "category",
@@ -4055,6 +4067,17 @@
     "ReadingView": {
       "description": "The machine reading of every registered series for one as-of date.\n\nA projection of the L2 reading, recomputed from the indicator store; the panel it\nfeeds is a display of that reading and not a second canonical artifact.\n``fetch_health`` rides along because staleness alone cannot see a provider that has\njust gone silent — a low-frequency series stays inside its threshold for weeks.",
       "properties": {
+        "read_semantics": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StoreReadingSemanticsView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "as_of": {
           "format": "date",
           "title": "As Of",
@@ -4080,6 +4103,7 @@
         }
       },
       "required": [
+        "read_semantics",
         "as_of",
         "rules_revision",
         "series",
@@ -5973,6 +5997,69 @@
         "screening_run"
       ],
       "title": "SecurityDetailView",
+      "type": "object"
+    },
+    "StoreReadingSemanticsView": {
+      "description": "The store reader's selection contract, not a guarantee for arbitrary pure readers.",
+      "properties": {
+        "mode": {
+          "const": "recomputed_from_current_store",
+          "title": "Mode",
+          "type": "string"
+        },
+        "point_in_time_guaranteed": {
+          "const": false,
+          "title": "Point In Time Guaranteed",
+          "type": "boolean"
+        },
+        "known_at_applied": {
+          "const": false,
+          "title": "Known At Applied",
+          "type": "boolean"
+        },
+        "limitation": {
+          "title": "Limitation",
+          "type": "string"
+        },
+        "vintage_selection": {
+          "anyOf": [
+            {
+              "enum": [
+                "publication_vintage_cutoff",
+                "latest_stored_history"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vintage Selection"
+        },
+        "vintage_cutoff": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vintage Cutoff"
+        }
+      },
+      "required": [
+        "mode",
+        "point_in_time_guaranteed",
+        "known_at_applied",
+        "limitation",
+        "vintage_selection",
+        "vintage_cutoff"
+      ],
+      "title": "StoreReadingSemanticsView",
       "type": "object"
     },
     "TaskView": {

@@ -53,7 +53,7 @@ afterEach(() => {
 
 const pages = [
   { name: 'security', render: SecurityDetailPage, param: 'ticker', path: '/api/securities/', states: [null, false, null] },
-  { name: 'macro', render: AssessmentPage, param: 'contextId', path: '/api/macro/context/', states: [null, null] },
+  { name: 'market-context', render: AssessmentPage, param: 'contextId', path: '/api/market-context/assessments/', states: [null, null] },
   { name: 'CAA', render: CapitalAllocationAssessmentPage, param: 'capitalAllocationAssessmentId', path: '/api/capital-allocation-assessments/', states: [null, null] },
 ]
 

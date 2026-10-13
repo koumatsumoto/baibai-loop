@@ -177,7 +177,7 @@ taskを止めてもWSL内の既存processがすべて終了するとは限りま
 稼働checkoutへ変更を取り込んだ後、既存Tunnelのmetadataを[READMEのRefresh手順](./README.md#tool定義の更新)で更新し、新しいChatで更新したtool名とschemaを確認します。
 PRのfixture/local store検証だけでは、この受入を完了したと扱いません。Refresh待ちは未完了として記録します。
 
-catalog → macro.reading → 複数系列の履歴 → provider_run → exact Macro ContextをTriageなしで辿り、
+catalog → market_context.reading → 複数系列の履歴 → provider_run → exact Market Context AssessmentをTriageなしで辿り、
 reading refの再取得を確認します。L1 resolve/describe/queryは従来のfixed releaseで確認します。
 保存runの全Security Analysisはcursorで最後まで取得し、ordinal・件数を照合します。
 calibrationは同じsnapshot_tokenでcohort/panel/forwardを確認し、不在なら生成せず不在と記録します。

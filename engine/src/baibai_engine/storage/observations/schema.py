@@ -31,7 +31,7 @@ from baibai_engine.external_assessment.tradingview.contract import COLUMNS as TV
 from baibai_engine.external_assessment.tradingview.contract import DDL as TV_DDL
 from baibai_engine.external_assessment.tradingview.contract import TABLE as TV_TABLE
 
-SQLITE_SCHEMA_VERSION = 30
+SQLITE_SCHEMA_VERSION = 31
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
 # EDINET serves a filing's descriptive columns only while its public-inspection period

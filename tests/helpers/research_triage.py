@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-TRIAGE_CONTRACT_ID = "research-triage-v3"
+TRIAGE_CONTRACT_ID = "research-triage-v4"
 RULES_HASH = "a" * 64
 METHOD_HASH = "b" * 64
 
@@ -175,11 +175,11 @@ def research_triage_payload(
     run_revision_id: str = "runrev-test",
     as_of: str = "2026-07-19",
     published_at: str | None = None,
-    macro_context_id: str | None = None,
+    market_context_assessment_id: str | None = None,
     expected_prior_research_triage_id: str | None = None,
     triage_contract_id: str = TRIAGE_CONTRACT_ID,
     entries: Sequence[Mapping[str, Any]] | None = None,
-    schema_version: int = 3,
+    schema_version: int = 4,
     **extra: Any,
 ) -> dict[str, Any]:
     """A publishable research_triage document at the current schema version."""
@@ -192,7 +192,7 @@ def research_triage_payload(
         "run_revision_id": run_revision_id,
         "as_of": as_of,
         "published_at": published_at or f"{as_of}T14:00:00+09:00",
-        "macro_context_id": macro_context_id,
+        "market_context_assessment_id": market_context_assessment_id,
         "expected_prior_research_triage_id": expected_prior_research_triage_id,
         "screening_rules_hash": RULES_HASH,
         "candidate_discovery_method": candidate_method(),
@@ -211,7 +211,7 @@ def research_triage_from_review_set(
     as_of: str,
     entries: Sequence[Mapping[str, Any]],
     published_at: str | None = None,
-    macro_context_id: str | None = None,
+    market_context_assessment_id: str | None = None,
 ) -> dict[str, Any]:
     """The draft an operator writes against one published review_set.
 
@@ -224,7 +224,7 @@ def research_triage_from_review_set(
         run_revision_id=run_revision_id,
         as_of=as_of,
         published_at=published_at or f"{as_of}T15:00:00+09:00",
-        macro_context_id=macro_context_id,
+        market_context_assessment_id=market_context_assessment_id,
         expected_prior_research_triage_id=None,
         screening_rules_hash=review_set["screening_rules_hash"],
         candidate_discovery_method=review_set["method"],

@@ -7,8 +7,8 @@ from ..observations import ObservationRecord
 from .base import (
     FetchContext,
     HttpSession,
+    IndicatorDataProvider,
     IndicatorsProviderError,
-    MacroDataProvider,
     ProviderSpec,
 )
 from .boj import BojProvider
@@ -34,7 +34,7 @@ from .yahoo import YahooChartProvider
 # The single registration point. Adding a provider means importing its class and
 # adding one line here; the service and store read capabilities from each
 # provider's ProviderSpec, never from a name branch.
-_PROVIDERS: dict[str, MacroDataProvider] = {
+_PROVIDERS: dict[str, IndicatorDataProvider] = {
     provider.name: provider
     for provider in (
         FredProvider(),
@@ -83,7 +83,7 @@ def fetch_observations(
         )
 
 
-def resolve_provider(name: str) -> MacroDataProvider:
+def resolve_provider(name: str) -> IndicatorDataProvider:
     provider = _PROVIDERS.get(name)
     if provider is None:
         raise IndicatorsProviderError(f"unsupported indicator provider: {name}")

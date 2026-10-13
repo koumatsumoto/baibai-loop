@@ -135,7 +135,7 @@ from baibai_engine.market_context.indicators.db import (
     DEFAULT_DB_PATH as DEFAULT_INDICATORS_DB_PATH,
 )
 from baibai_engine.market_context.indicators.db import (
-    SQLITE_SCHEMA_VERSION as MACRO_SCHEMA_VERSION,
+    SQLITE_SCHEMA_VERSION as INDICATOR_SCHEMA_VERSION,
 )
 from baibai_engine.market_context.indicators.db import (
     IndicatorsSchemaError,
@@ -158,6 +158,7 @@ from baibai_engine.research.triage.contracts import (
     ResearchTriage,
     ResearchTriageEntry,
     ReviewSetEntrySnapshot,
+    StoredResearchTriage,
 )
 from baibai_engine.research.triage.query import (
     latest_research_triage_id,
@@ -238,8 +239,8 @@ class DailyAnalysisContext:
     """Current machine and canonical inputs resolved before a model can run."""
 
     review_set: PublishedReviewSet
-    existing_triage: ResearchTriage | None
-    macro_context: StoredAssessment | None
+    existing_triage: ResearchTriage | StoredResearchTriage | None
+    market_context_assessment: StoredAssessment | None
     known_at: datetime
 
 
@@ -297,17 +298,21 @@ def _analysis_context(
     review_set = validated_review_set(publication)
     app_path = database_path(app_db_path)
     exact_triages = research_triage_payloads_for_review_set(app_path, review_set.review_set_id)
-    existing_triage: ResearchTriage | None = None
+    existing_triage: ResearchTriage | StoredResearchTriage | None = None
     if exact_triages:
-        existing_triage = ResearchTriage.model_validate(exact_triages[0])
+        existing_triage = StoredResearchTriage.from_payload(exact_triages[0])
         if existing_triage.run_revision_id != review_set.run_revision_id:
             raise ValueError("canonical Research Triage run binding differs from the Review Set")
-    macro_payload = latest_assessment_payload(app_path, as_of=review_set.as_of, known_at=known_at)
-    macro_context = None if macro_payload is None else StoredAssessment.from_payload(macro_payload)
+    assessment_payload = latest_assessment_payload(
+        app_path, as_of=review_set.as_of, known_at=known_at
+    )
+    market_context_assessment = (
+        None if assessment_payload is None else StoredAssessment.from_payload(assessment_payload)
+    )
     return DailyAnalysisContext(
         review_set=review_set,
         existing_triage=existing_triage,
-        macro_context=macro_context,
+        market_context_assessment=market_context_assessment,
         known_at=known_at,
     )
 
@@ -316,12 +321,12 @@ def publish_daily_research_triage(
     review_set_id: str,
     decisions: Sequence[DailyTriageDecision | Mapping[str, object]],
     *,
-    macro_context_id: str | None,
+    market_context_assessment_id: str | None,
     app_db_path: Path | None = None,
     runs_db_path: Path | None = None,
     published_at: datetime,
     known_at: datetime | None = None,
-) -> ResearchTriage:
+) -> StoredResearchTriage:
     """Build a canonical Triage from strict judgments and delegate every invariant."""
 
     publication = ScreeningRunReader(runs_db_path).get_review_set(review_set_id)
@@ -353,7 +358,7 @@ def publish_daily_research_triage(
         app_path,
         review_set,
         requested_decisions,
-        macro_context_id=macro_context_id,
+        market_context_assessment_id=market_context_assessment_id,
     )
     if existing is not None:
         return existing
@@ -378,7 +383,7 @@ def publish_daily_research_triage(
         )
     identifier_digest = sha256(review_set.review_set_id.encode()).hexdigest()[:16]
     triage = ResearchTriage(
-        schema_version=3,
+        schema_version=4,
         kind="research_triage",
         research_triage_id=(
             f"research-triage-{review_set.as_of.strftime('%Y%m%d')}-{identifier_digest}"
@@ -387,17 +392,18 @@ def publish_daily_research_triage(
         run_revision_id=review_set.run_revision_id,
         as_of=review_set.as_of,
         published_at=published_at,
-        macro_context_id=macro_context_id,
+        market_context_assessment_id=market_context_assessment_id,
         expected_prior_research_triage_id=latest_research_triage_id(app_db_path),
         screening_rules_hash=review_set.screening_rules_hash,
         candidate_discovery_method=review_set.method,
-        triage_contract_id="research-triage-v3",
+        triage_contract_id="research-triage-v4",
         entries=tuple(entries),
     )
     try:
-        return ResearchTriageService(app_db_path).publish(
+        published = ResearchTriageService(app_db_path).publish(
             triage, review_set=review_set, known_at=known_at
         )
+        return StoredResearchTriage.from_payload(published.model_dump(mode="json"))
     except (OSError, ResearchTriageConflictError, sqlite3.Error):
         # A commit response can be ambiguous. Reconcile only this exact Review Set once;
         # every unrelated head/binding conflict still fails closed.
@@ -405,7 +411,7 @@ def publish_daily_research_triage(
             app_path,
             review_set,
             requested_decisions,
-            macro_context_id=macro_context_id,
+            market_context_assessment_id=market_context_assessment_id,
         )
         if reconciled is not None:
             return reconciled
@@ -419,12 +425,12 @@ def _matching_daily_triage(
         str, tuple[Literal["research", "skip"], int | None, str, str | None, str | None]
     ],
     *,
-    macro_context_id: str | None,
-) -> ResearchTriage | None:
+    market_context_assessment_id: str | None,
+) -> StoredResearchTriage | None:
     payloads = research_triage_payloads_for_review_set(app_path, review_set.review_set_id)
     if not payloads:
         return None
-    existing = ResearchTriage.model_validate(payloads[0])
+    existing = StoredResearchTriage.from_payload(payloads[0])
     existing_decisions = {
         entry.ticker: (
             entry.decision,
@@ -437,7 +443,7 @@ def _matching_daily_triage(
     }
     if (
         existing.run_revision_id == review_set.run_revision_id
-        and existing.macro_context_id == macro_context_id
+        and existing.market_context_assessment_id == market_context_assessment_id
         and existing_decisions == requested_decisions
     ):
         return existing
@@ -458,9 +464,9 @@ __all__ = [
     "EXTERNAL_ASSESSMENT_MODEL_VALUATION_DATASET",
     "EXTERNAL_ASSESSMENT_QUANTS_SCORE_DATASET",
     "INDICATORS_DB_PATH",
+    "INDICATOR_SCHEMA_VERSION",
     "LAKE_DATASETS",
     "LATEST_FETCH_LOOKBACK_DAYS",
-    "MACRO_SCHEMA_VERSION",
     "MARKET_DB_PATH",
     "MARKET_SCHEMA_VERSION",
     "RUNS_DB_PATH",
@@ -496,6 +502,7 @@ __all__ = [
     "ReviewSetEntrySnapshot",
     "StoreLayoutError",
     "StoredAssessment",
+    "StoredResearchTriage",
     "advance_lake_store_origin",
     "assessment_projection",
     "assessment_series_ids",

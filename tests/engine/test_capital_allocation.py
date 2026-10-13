@@ -11,7 +11,7 @@ from baibai_engine.research.capital_allocation import (
 
 def _payload() -> dict[str, object]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "capital_allocation_assessment",
         "capital_allocation_assessment_id": "capital-allocation-assessment-20260830-test",
         "as_of": date(2026, 8, 30),
@@ -19,7 +19,7 @@ def _payload() -> dict[str, object]:
         "result": "allocate",
         "headline": "one ready alternative merits capital",
         "research_triage_id": "research-triage-test",
-        "macro_context_id": None,
+        "market_context_assessment_id": None,
         "comparison": "the allocated alternative dominates the researched set",
         "forgone": "cash remains the comparison baseline",
         "alternatives": [

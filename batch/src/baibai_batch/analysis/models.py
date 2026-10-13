@@ -19,13 +19,13 @@ class TriageCandidate(BaseModel):
 class ModelInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    schema_version: Literal[3]
+    schema_version: Literal[4]
     task: Literal["research-triage"]
     instruction: str
     policy: tuple[str, ...]
     as_of: str
     known_at: str
-    macro_context: dict[str, Any]
+    market_context_assessment: dict[str, Any]
     candidates: tuple[TriageCandidate, ...] = Field(min_length=1, max_length=80)
 
     @field_validator("policy", "candidates", mode="before")

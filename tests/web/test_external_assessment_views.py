@@ -173,7 +173,7 @@ def test_rakuten_missingness_survives_checkpoint_store_api_export_and_research(
         known_at=received,
         market_path=market,
         runs_path=app_method_root / RUNS_DB_PATH,
-        macro_path=app_method_root / INDICATORS_DB_PATH,
+        indicators_path=app_method_root / INDICATORS_DB_PATH,
         app_path=app_method_root / APPLICATION_DB_PATH,
     )["securities"]["9999"]["external_assessment"]
     for result in (detail, saved, inputs):

@@ -25,7 +25,7 @@ def research_inputs(
     known_at: datetime,
     market_path: Path,
     runs_path: Path,
-    macro_path: Path,
+    indicators_path: Path,
     app_path: Path,
     run_revision_id: str | None = None,
 ) -> dict[str, object]:
@@ -66,8 +66,8 @@ def research_inputs(
         "known_at": known_at.isoformat(),
         "market_context": {
             "market": build_market_snapshot(sqlite_path=market_path, asof_date=as_of),
-            "macro_reading": reading_snapshot(macro_path, asof=as_of),
-            "saved_macro_context": None
+            "reading": reading_snapshot(indicators_path, asof=as_of),
+            "saved_market_context_assessment": None
             if context is None
             else assessment_projection(context, as_of=as_of),
         },

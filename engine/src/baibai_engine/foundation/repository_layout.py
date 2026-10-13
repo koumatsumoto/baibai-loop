@@ -5,7 +5,7 @@ from pathlib import Path
 APPLICATION_DB_PATH = Path("stores/application/baibai.sqlite")
 MARKET_DB_PATH = Path("stores/market/market.sqlite")
 RUNS_DB_PATH = Path("stores/screening/runs.sqlite")
-INDICATORS_DB_PATH = Path("stores/macro/macro.sqlite")
+INDICATORS_DB_PATH = Path("stores/market_context/indicators.sqlite")
 CALIBRATION_DIR = Path("stores/screening/calibration")
 ER_LEVEL_CALIBRATION_CONTEXT_PATH = Path("reports/published/er-level-calibration-latest.yaml")
 SCREENING_RULES_PATH = Path("method/screening/rules/2026-09-23T103000+0900.yaml")

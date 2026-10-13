@@ -100,6 +100,8 @@ def open_connection(
     definitions: IndicatorDefinitions | None = None,
 ) -> sqlite3.Connection:
     if not db_path.exists():
+        if db_path.resolve() == DEFAULT_DB_PATH.resolve():
+            raise FileNotFoundError("canonical indicator store requires explicit provisioning")
         return initialize_database(db_path, definitions=definitions)
     conn = _connect(db_path)
     try:

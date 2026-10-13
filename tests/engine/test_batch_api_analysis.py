@@ -81,14 +81,14 @@ def test_batch_api_publishes_once_and_reuses_same_exact_judgment(
     first = batch_api.publish_daily_research_triage(
         "review-set-daily",
         _decisions(),
-        macro_context_id=None,
+        market_context_assessment_id=None,
         app_db_path=app_db,
         published_at=_NOW,
     )
     repeated = batch_api.publish_daily_research_triage(
         "review-set-daily",
         _decisions(),
-        macro_context_id=None,
+        market_context_assessment_id=None,
         app_db_path=app_db,
         published_at=datetime(2026, 9, 1, 18, 1, tzinfo=_JST),
     )
@@ -113,7 +113,7 @@ def test_batch_api_rejects_changed_or_incomplete_ai_decisions(
     batch_api.publish_daily_research_triage(
         "review-set-daily",
         _decisions(),
-        macro_context_id=None,
+        market_context_assessment_id=None,
         app_db_path=app_db,
         published_at=_NOW,
     )
@@ -122,7 +122,7 @@ def test_batch_api_rejects_changed_or_incomplete_ai_decisions(
         batch_api.publish_daily_research_triage(
             "review-set-daily",
             _decisions(research=False),
-            macro_context_id=None,
+            market_context_assessment_id=None,
             app_db_path=app_db,
             published_at=datetime(2026, 9, 1, 18, 1, tzinfo=_JST),
         )
@@ -130,7 +130,7 @@ def test_batch_api_rejects_changed_or_incomplete_ai_decisions(
         batch_api.publish_daily_research_triage(
             "review-set-daily",
             [],
-            macro_context_id=None,
+            market_context_assessment_id=None,
             app_db_path=app_db,
             published_at=_NOW,
         )
@@ -164,7 +164,7 @@ def test_batch_api_reconciles_one_exact_triage_after_ambiguous_publish_response(
     triage = batch_api.publish_daily_research_triage(
         "review-set-daily",
         _decisions(),
-        macro_context_id=None,
+        market_context_assessment_id=None,
         app_db_path=app_db,
         published_at=_NOW,
     )
@@ -190,7 +190,7 @@ def test_batch_api_rejects_reader_identity_mismatch_before_write(
         batch_api.publish_daily_research_triage(
             "review-set-daily",
             _decisions(),
-            macro_context_id=None,
+            market_context_assessment_id=None,
             app_db_path=app_db,
             published_at=_NOW,
         )
@@ -228,7 +228,7 @@ def test_daily_triage_publishes_while_research_operation_is_active(
     triage = batch_api.publish_daily_research_triage(
         "review-set-daily",
         _decisions(),
-        macro_context_id=None,
+        market_context_assessment_id=None,
         app_db_path=app_db,
         published_at=_NOW,
     )
@@ -237,7 +237,7 @@ def test_daily_triage_publishes_while_research_operation_is_active(
     assert OperationService(app_db).active() == operation
 
 
-def test_batch_api_binds_the_macro_context_loaded_before_a_new_head(
+def test_batch_api_binds_the_market_context_assessment_loaded_before_a_new_head(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     app_db = tmp_path / "app.sqlite"
@@ -261,8 +261,8 @@ def test_batch_api_binds_the_macro_context_loaded_before_a_new_head(
         date(2026, 9, 1), app_db_path=app_db, known_at=_NOW
     )
     assert loaded is not None
-    assert loaded.macro_context is not None
-    assert loaded.macro_context.context_id == first.context_id
+    assert loaded.market_context_assessment is not None
+    assert loaded.market_context_assessment.context_id == first.context_id
     assert batch_api.load_latest_analysis_context(app_db_path=app_db, known_at=_NOW) == loaded
 
     second = StoredAssessment.from_payload(
@@ -277,15 +277,15 @@ def test_batch_api_binds_the_macro_context_loaded_before_a_new_head(
     triage = batch_api.publish_daily_research_triage(
         "review-set-daily",
         _decisions(),
-        macro_context_id=loaded.macro_context.context_id,
+        market_context_assessment_id=loaded.market_context_assessment.context_id,
         app_db_path=app_db,
         published_at=_NOW,
     )
 
-    assert triage.macro_context_id == first.context_id
+    assert triage.market_context_assessment_id == first.context_id
 
 
-def test_batch_api_rejects_an_invalid_explicit_macro_context(
+def test_batch_api_rejects_an_invalid_explicit_market_context_assessment(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     app_db = tmp_path / "app.sqlite"
@@ -302,7 +302,7 @@ def test_batch_api_rejects_an_invalid_explicit_macro_context(
         batch_api.publish_daily_research_triage(
             "review-set-daily",
             _decisions(),
-            macro_context_id="macro-context-missing",
+            market_context_assessment_id="macro-context-missing",
             app_db_path=app_db,
             published_at=_NOW,
         )

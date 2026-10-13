@@ -10,7 +10,7 @@ from hashlib import sha256
 from pathlib import Path
 
 from baibai_engine.foundation.sqlite_read import read_rows
-from baibai_engine.research.triage.contracts import ResearchTriage
+from baibai_engine.research.triage.contracts import ResearchTriage, StoredResearchTriage
 from baibai_engine.storage.application.json import canonical_json
 from baibai_engine.storage.application.paths import database_path
 from baibai_engine.storage.application.read import connect_read_only
@@ -19,20 +19,20 @@ from baibai_engine.storage.application.read import connect_read_only
 # is not chronological when published_at values use different UTC offsets.
 RESEARCH_TRIAGE_HEAD_ORDER = "as_of DESC, julianday(published_at) DESC, research_triage_id DESC"
 # The interpolated order is a fixed module constant, never caller input.
-_CURRENT_SCHEMA = 3
+_READABLE_SCHEMAS = (3, 4)
 _SELECT = (  # nosec B608
     "SELECT payload FROM research_triage "
-    f"WHERE json_extract(payload, '$.schema_version') = {_CURRENT_SCHEMA} "  # nosec B608
+    f"WHERE json_extract(payload, '$.schema_version') IN {_READABLE_SCHEMAS} "  # nosec B608
     f"ORDER BY {RESEARCH_TRIAGE_HEAD_ORDER}"
 )
 _SELECT_BY_REVIEW_SET = (
     "SELECT payload FROM research_triage WHERE review_set_id = ? "
-    f"AND json_extract(payload, '$.schema_version') = {_CURRENT_SCHEMA} "
+    f"AND json_extract(payload, '$.schema_version') IN {_READABLE_SCHEMAS} "
     f"ORDER BY {RESEARCH_TRIAGE_HEAD_ORDER}"  # nosec B608
 )
 _SELECT_BY_ID = (
     "SELECT payload FROM research_triage WHERE research_triage_id = ? "
-    f"AND json_extract(payload, '$.schema_version') = {_CURRENT_SCHEMA}"  # nosec B608
+    f"AND json_extract(payload, '$.schema_version') IN {_READABLE_SCHEMAS}"  # nosec B608
 )
 
 
@@ -48,7 +48,7 @@ def research_triage_head(connection: sqlite3.Connection) -> _ResearchTriageHead 
 
     row = connection.execute(
         "SELECT research_triage_id, as_of, published_at FROM research_triage "
-        f"WHERE json_extract(payload, '$.schema_version') = {_CURRENT_SCHEMA} "
+        f"WHERE json_extract(payload, '$.schema_version') IN {_READABLE_SCHEMAS} "
         f"ORDER BY {RESEARCH_TRIAGE_HEAD_ORDER} LIMIT 1"  # nosec B608
     ).fetchone()
     if row is None:
@@ -100,17 +100,21 @@ def research_triage_payload(path: Path, research_triage_id: str) -> dict[str, ob
     return _payload(rows[0][0]) if rows else None
 
 
-def current_research_triage(path: Path, research_triage_id: str) -> ResearchTriage | None:
+def current_research_triage(path: Path, research_triage_id: str) -> StoredResearchTriage | None:
     """Return one current-contract judgment."""
 
     payload = research_triage_payload(path, research_triage_id)
-    return ResearchTriage.model_validate(payload) if payload is not None else None
+    return StoredResearchTriage.from_payload(payload) if payload is not None else None
 
 
-def research_triage_payload_hash(triage: ResearchTriage) -> str:
+def research_triage_payload_hash(triage: ResearchTriage | StoredResearchTriage) -> str:
     """Hash the canonical persisted current payload exactly once for workspace binding."""
 
-    payload = canonical_json(triage.model_dump(mode="json"))
+    payload = canonical_json(
+        triage.publication_payload()
+        if isinstance(triage, StoredResearchTriage)
+        else triage.model_dump(mode="json")
+    )
     return sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -118,7 +122,7 @@ def _payload(raw: object) -> dict[str, object]:
     payload = json.loads(str(raw))
     if not isinstance(payload, dict):
         raise ValueError("research_triage payload must be an object")
-    if payload.get("schema_version") != _CURRENT_SCHEMA:
+    if payload.get("schema_version") not in _READABLE_SCHEMAS:
         raise ValueError(
             f"unsupported research triage schema_version: {payload.get('schema_version')!r}"
         )

@@ -46,7 +46,7 @@ class RetractionVintageTests(unittest.TestCase):
 
     def test_retraction_hides_the_observation_date_from_range_and_latest_reads(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            conn = initialize_database(Path(tmp) / "macro.sqlite")
+            conn = initialize_database(Path(tmp) / "indicators.sqlite")
             try:
                 series = get_series(conn, "us.10y")
                 insert_observations(
@@ -86,7 +86,7 @@ class RetractionVintageTests(unittest.TestCase):
         """A replay must show what was believed then, not what is believed now."""
 
         with tempfile.TemporaryDirectory() as tmp:
-            conn = initialize_database(Path(tmp) / "macro.sqlite")
+            conn = initialize_database(Path(tmp) / "indicators.sqlite")
             try:
                 series = get_series(conn, "jp.foreign_flows")
                 insert_observations(
@@ -135,7 +135,7 @@ class RetractionVintageTests(unittest.TestCase):
         """A source that asserts the date again outranks the retraction, which is correct."""
 
         with tempfile.TemporaryDirectory() as tmp:
-            conn = initialize_database(Path(tmp) / "macro.sqlite")
+            conn = initialize_database(Path(tmp) / "indicators.sqlite")
             try:
                 series = get_series(conn, "us.10y")
                 insert_observations(
@@ -168,7 +168,7 @@ class RetractionVintageTests(unittest.TestCase):
 
     def test_delete_unchanged_vintages_keeps_a_retraction_of_an_identical_value(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            conn = initialize_database(Path(tmp) / "macro.sqlite")
+            conn = initialize_database(Path(tmp) / "indicators.sqlite")
             try:
                 series = get_series(conn, "us.10y")
                 insert_observations(
@@ -199,7 +199,7 @@ class RetractionVintageTests(unittest.TestCase):
         """Otherwise the next push restores the retracted row and undoes the decision."""
 
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(database)
             try:
                 series = get_series(conn, "jp.foreign_flows")
@@ -268,7 +268,7 @@ class RetractionVintageTests(unittest.TestCase):
         """A faulty writer stamping a wrong value over a good one must not cost the good one."""
 
         with tempfile.TemporaryDirectory() as tmp:
-            conn = initialize_database(Path(tmp) / "macro.sqlite")
+            conn = initialize_database(Path(tmp) / "indicators.sqlite")
             try:
                 series = get_series(conn, "us.10y")
                 insert_observations(
@@ -307,7 +307,7 @@ class RetractionVintageTests(unittest.TestCase):
         """The wrong vintage still exists on the other side; the fallback has to outrank it."""
 
         with tempfile.TemporaryDirectory() as tmp:
-            conn = initialize_database(Path(tmp) / "macro.sqlite")
+            conn = initialize_database(Path(tmp) / "indicators.sqlite")
             try:
                 series = get_series(conn, "us.10y")
                 wrong = observation(
@@ -343,7 +343,7 @@ class RetractionVintageTests(unittest.TestCase):
         """Without this, a second pass reads the restored row and puts the wrong value back."""
 
         with tempfile.TemporaryDirectory() as tmp:
-            conn = initialize_database(Path(tmp) / "macro.sqlite")
+            conn = initialize_database(Path(tmp) / "indicators.sqlite")
             try:
                 series = get_series(conn, "us.10y")
                 insert_observations(
@@ -384,7 +384,7 @@ class RetractionVintageTests(unittest.TestCase):
         """Recomputation cannot repair a derived row whose input date has gone."""
 
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             registry = load_definitions().by_id()
             definitions = IndicatorDefinitions(
                 series=tuple(
@@ -432,7 +432,7 @@ class RetractionVintageTests(unittest.TestCase):
         """The restored row is an ordinary `ok` row, so only the vintage rule protects it."""
 
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(database)
             try:
                 series = get_series(conn, "jp.foreign_flows")
@@ -492,7 +492,7 @@ class RetractionVintageTests(unittest.TestCase):
         """A retraction list that no longer matches the store is a stale list, not a no-op."""
 
         with tempfile.TemporaryDirectory() as tmp:
-            conn = initialize_database(Path(tmp) / "macro.sqlite")
+            conn = initialize_database(Path(tmp) / "indicators.sqlite")
             try:
                 with self.assertRaisesRegex(ValueError, "no observation to retract"):
                     retract_observations(
@@ -506,7 +506,7 @@ class RetractionVintageTests(unittest.TestCase):
 
     def test_retracting_an_already_retracted_date_writes_nothing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            conn = initialize_database(Path(tmp) / "macro.sqlite")
+            conn = initialize_database(Path(tmp) / "indicators.sqlite")
             try:
                 series = get_series(conn, "us.10y")
                 insert_observations(
@@ -535,7 +535,7 @@ class RetractionVintageTests(unittest.TestCase):
 
     def test_retract_cli_names_every_observation_it_withdrew(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(database)
             try:
                 series = get_series(conn, "us.10y")
@@ -570,7 +570,7 @@ class RetractionVintageTests(unittest.TestCase):
         """The widened CHECK is what makes a retraction storable at all, so pin it."""
 
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(database)
             try:
                 series = get_series(conn, "us.10y")

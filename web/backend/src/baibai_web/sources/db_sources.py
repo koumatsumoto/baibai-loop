@@ -286,7 +286,7 @@ def load_indicator_panel_config(path: Path) -> tuple[IndicatorGroupConfig, ...]:
     config = _DashboardConfig.model_validate(raw)
     identifiers = [item.id for group in config.groups for item in group.series]
     if len(identifiers) != len(set(identifiers)):
-        raise ValueError("macro panel series IDs must be unique")
+        raise ValueError("indicator panel series IDs must be unique")
     return tuple(
         IndicatorGroupConfig(
             title=group.title,

@@ -58,6 +58,8 @@ class CapitalAllocationAssessmentService:
             self._verify_bindings(connection, assessment, now=now, require_review_binding=False)
 
     def publish(self, assessment: CapitalAllocationAssessment) -> CapitalAllocationAssessment:
+        if not isinstance(assessment, CapitalAllocationAssessment):
+            raise CapitalAllocationConflictError("stored allocation projections are read-only")
         now = self._operation_now()
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
@@ -69,7 +71,12 @@ class CapitalAllocationAssessmentService:
                     (assessment.capital_allocation_assessment_id,),
                 ).fetchone()
                 if row is not None:
-                    stored = CapitalAllocationAssessment.model_validate(json.loads(str(row[0])))
+                    stored_payload = json.loads(str(row[0]))
+                    if stored_payload.get("schema_version") != 2:
+                        raise CapitalAllocationConflictError(
+                            "historical publication cannot be reissued"
+                        )
+                    stored = CapitalAllocationAssessment.model_validate(stored_payload)
                     if stored.model_dump(exclude={"published_at"}) == assessment.model_dump(
                         exclude={"published_at"}
                     ):

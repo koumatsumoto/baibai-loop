@@ -1,4 +1,4 @@
-"""L2 macro reading: machine-computed descriptive statistics over the L1 store.
+"""L2 Reading: machine-computed descriptive statistics over the L1 store.
 
 Every registered series gets the same treatment every business day — level,
 direction, position in its own history, threshold notes and how old the reading is

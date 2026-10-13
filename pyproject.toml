@@ -215,7 +215,7 @@ exclude_dirs = ["/tests/", "/.venv/"]
 skips = ["B101"]
 
 # Import-direction contracts encode the subsystem dependency DAG
-# (macro / screening / position / research / shared) so a structural edit that
+# (Valuation / Market Context / External Assessment / Screening / Position / Research / shared) so a structural edit that
 # reintroduces a cross-subsystem edge fails CI rather than passing every other gate.
 [tool.importlinter]
 root_packages = ["baibai_engine", "baibai_web", "baibai_batch", "tools"]

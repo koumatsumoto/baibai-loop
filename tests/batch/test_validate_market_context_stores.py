@@ -79,7 +79,7 @@ def _build_store(path: Path, definition: SeriesDefinition) -> None:
 def test_validate_store_accepts_every_stored_vintage_within_registry_contract(
     tmp_path: Path,
 ) -> None:
-    database = tmp_path / "macro.sqlite"
+    database = tmp_path / "indicators.sqlite"
     definition = _definition()
     _build_store(database, definition)
 
@@ -108,7 +108,7 @@ def test_validate_store_rejects_invalid_registry_generation_state(
     mutation: str,
     message: str,
 ) -> None:
-    database = tmp_path / "macro.sqlite"
+    database = tmp_path / "indicators.sqlite"
     definition = _definition()
     _build_store(database, definition)
     with sqlite3.connect(database) as connection:
@@ -127,7 +127,7 @@ def test_validate_store_rejects_invalid_registry_generation_state(
 
 
 def test_validate_store_reports_band_drift_with_observation_identity(tmp_path: Path) -> None:
-    database = tmp_path / "macro.sqlite"
+    database = tmp_path / "indicators.sqlite"
     definition = _definition()
     _build_store(database, definition)
 
@@ -143,7 +143,7 @@ def test_validate_store_reports_band_drift_with_observation_identity(tmp_path: P
 
 
 def test_validate_store_reports_a_series_absent_from_current_registry(tmp_path: Path) -> None:
-    database = tmp_path / "macro.sqlite"
+    database = tmp_path / "indicators.sqlite"
     _build_store(database, _definition())
 
     report = validate_store(
@@ -161,7 +161,7 @@ def test_validate_store_reads_without_modifying_or_creating_sidecars(
 ) -> None:
     """The live store is git-ignored and irreplaceable in part; a scan must not touch it."""
 
-    database = tmp_path / "macro.sqlite"
+    database = tmp_path / "indicators.sqlite"
     definition = _definition()
     _build_store(database, definition)
     before = database.stat()
@@ -182,7 +182,7 @@ def test_validate_store_reads_without_modifying_or_creating_sidecars(
 
 
 def test_validate_store_refuses_a_store_on_another_schema(tmp_path: Path) -> None:
-    database = tmp_path / "macro.sqlite"
+    database = tmp_path / "indicators.sqlite"
     definition = _definition()
     _build_store(database, definition)
     with sqlite3.connect(database) as connection:
@@ -238,7 +238,7 @@ def test_validate_published_contexts_fails_when_a_stored_revision_cannot_be_read
     del payload["summary"]
     with sqlite3.connect(application_db) as connection:
         connection.execute(
-            "INSERT INTO macro_context (context_id, schema_version, as_of, published_at, "
+            "INSERT INTO market_context_assessment (context_id, schema_version, as_of, published_at, "
             "supersedes_id, payload) VALUES (?, ?, ?, ?, NULL, ?)",
             (
                 payload["context_id"],
@@ -260,7 +260,7 @@ def test_main_reports_both_stores_and_fails_on_an_unreadable_revision(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    database = tmp_path / "macro.sqlite"
+    database = tmp_path / "indicators.sqlite"
     _build_store(database, load_definitions().by_id()["us.10y"])
     application_db = tmp_path / "app.sqlite"
     initialize_application_database(application_db)
@@ -268,7 +268,7 @@ def test_main_reports_both_stores_and_fails_on_an_unreadable_revision(
     payload["summary"] = "  "
     with sqlite3.connect(application_db) as connection:
         connection.execute(
-            "INSERT INTO macro_context (context_id, schema_version, as_of, published_at, "
+            "INSERT INTO market_context_assessment (context_id, schema_version, as_of, published_at, "
             "supersedes_id, payload) VALUES (?, ?, ?, ?, NULL, ?)",
             (
                 payload["context_id"],
@@ -284,7 +284,7 @@ def test_main_reports_both_stores_and_fails_on_an_unreadable_revision(
     captured = capsys.readouterr()
     assert exit_code == 1
     assert "ok: schema v" in captured.out
-    assert "published macro context revisions cannot be read" in captured.err
+    assert "published market context assessment revisions cannot be read" in captured.err
 
 
 def test_main_skips_the_report_check_without_an_application_store(
@@ -293,7 +293,7 @@ def test_main_skips_the_report_check_without_an_application_store(
 ) -> None:
     """A fresh checkout has published nothing; absence is a valid state."""
 
-    database = tmp_path / "macro.sqlite"
+    database = tmp_path / "indicators.sqlite"
     _build_store(database, load_definitions().by_id()["us.10y"])
 
     exit_code = main(["--db", str(database), "--app-db", str(tmp_path / "absent.sqlite")])

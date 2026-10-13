@@ -14,8 +14,8 @@
 
 ## 3. one Review Set request
 
-- **入力** — 20件の未判断Review Setとcanonical Macro Context。
-- **期待** — model process 1、request 1。短いpolicyと共有macro projectionを1回だけ渡し、repository file / command / log / runbookを読ませない。
+- **入力** — 20件の未判断Review Setとcanonical Market Context Assessment。
+- **期待** — model process 1、request 1。短いpolicyと共有assessment projectionを1回だけ渡し、repository file / command / log / runbookを読ませない。
 
 ## 4. research 0
 

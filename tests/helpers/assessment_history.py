@@ -176,7 +176,7 @@ def historical_context_payload(
         },
     }
     if strategy_layer:
-        payload["synthesis"] = macro_synthesis_payload([*source_ids, _FX_INPUT_ID])
+        payload["synthesis"] = historical_synthesis_payload([*source_ids, _FX_INPUT_ID])
         payload["connection"]["bargain_topography"] = {
             "summary": "割安は全面安ではなく金利敏感セクターの取り残しに出やすい。",
             "source_ids": [_SNAPSHOT_INPUT_ID],
@@ -193,7 +193,7 @@ def historical_context_payload(
     return payload
 
 
-def macro_synthesis_payload(source_ids: list[str] | None = None) -> dict[str, Any]:
+def historical_synthesis_payload(source_ids: list[str] | None = None) -> dict[str, Any]:
     # Each force assigns a distinct series to each named section (rates_policy /
     # valuation lend us.10y, japan / fx lend usd_jpy), which the document validator
     # requires of a cross-channel claim.
@@ -344,7 +344,7 @@ def seed_history(path, payload: dict[str, Any], *, supersedes: str | None = None
     connection = connect_rw(path)
     try:
         connection.execute(
-            "INSERT INTO macro_context(context_id,schema_version,as_of,published_at,supersedes_id,payload) VALUES(?,?,?,?,?,?)",
+            "INSERT INTO market_context_assessment(context_id,schema_version,as_of,published_at,supersedes_id,payload) VALUES(?,?,?,?,?,?)",
             (
                 payload["context_id"],
                 payload["schema_version"],
@@ -355,7 +355,7 @@ def seed_history(path, payload: dict[str, Any], *, supersedes: str | None = None
             ),
         )
         connection.execute(
-            "INSERT INTO macro_context_head(singleton,context_id) VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET context_id=excluded.context_id",
+            "INSERT INTO market_context_assessment_head(singleton,context_id) VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET context_id=excluded.context_id",
             (payload["context_id"],),
         )
         connection.commit()

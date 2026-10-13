@@ -32,7 +32,7 @@ from baibai_engine.storage.lake.keys import current_l1_pointer_key
 CREATED = datetime(2026, 10, 11, 10, 13, tzinfo=UTC)
 FRIDAY = date(2026, 10, 9)
 CALENDAR = [("2026-10-09", 1), ("2026-10-10", 0), ("2026-10-11", 0), ("2026-10-12", 0)]
-WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/cloud-retail-dynamics.yml"
+WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/cloud-external-assessment.yml"
 
 
 def outputs(path):
@@ -87,7 +87,7 @@ def test_new_daily_plan_reads_calendar_and_exact_master_only_and_resumes_its_rel
     tmp_path, monkeypatch, day
 ):
     store, release, _ = build_master_lake(tmp_path, monkeypatch, snapshot=FRIDAY, calendar=CALENDAR)
-    run_id = f"retail-daily-{day.isoformat()}"
+    run_id = f"external-assessment-daily-{day.isoformat()}"
     p = daily.initialize(
         store, run_id=run_id, master_asof=None, observation_date=day, mirror=tmp_path / "cache"
     )
@@ -140,7 +140,7 @@ def test_scheduled_status_and_plan_reuse_the_original_id_before_any_new_lake_rea
 ):
     p = replace(
         plan(),
-        run_id="retail-daily-2026-10-11",
+        run_id="external-assessment-daily-2026-10-11",
         universe_binding=json.dumps({"master_asof": FRIDAY.isoformat()}),
     )
     store = FakeObjectStore()
@@ -169,7 +169,7 @@ def test_new_year_rest_day_uses_previous_calendar_and_master_year(tmp_path, monk
     store, _, _ = build_master_lake(tmp_path, monkeypatch, snapshot=basis, calendar=calendar)
     p = daily.initialize(
         store,
-        run_id="retail-daily-2026-01-02",
+        run_id="external-assessment-daily-2026-01-02",
         master_asof=None,
         observation_date=date(2026, 1, 2),
         mirror=tmp_path / "cache",
@@ -218,7 +218,7 @@ def test_invalid_scheduled_or_manual_arguments_never_open_store(monkeypatch, arg
 def test_holiday_receipt_keeps_actual_day_and_same_plan_resume_never_repeats_http(monkeypatch):
     p = replace(
         plan(),
-        run_id="retail-daily-2026-10-11",
+        run_id="external-assessment-daily-2026-10-11",
         universe_binding=json.dumps({"master_asof": FRIDAY.isoformat()}),
     )
     store = FakeObjectStore()

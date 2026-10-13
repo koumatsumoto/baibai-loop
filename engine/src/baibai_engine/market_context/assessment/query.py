@@ -24,7 +24,7 @@ def select_assessment(
     eligible = [
         r
         for r in records
-        if r.schema_version in (3, 4, 5)
+        if r.schema_version in (3, 4, 5, 6)
         and r.as_of <= as_of
         and r.published_at.astimezone(UTC) <= known_at.astimezone(UTC)
     ]
@@ -43,7 +43,8 @@ def assessment_history(path: Path | None) -> list[StoredAssessment]:
     try:
         try:
             rows = connection.execute(
-                "SELECT context_id, schema_version, as_of, published_at, payload FROM macro_context"
+                "SELECT context_id, schema_version, as_of, published_at, payload "
+                "FROM market_context_assessment"
             ).fetchall()
         except sqlite3.OperationalError as error:
             if is_unwritten_store(error, resolved):
@@ -86,7 +87,7 @@ def assessment_by_id(path: Path | None, *, context_id: str) -> StoredAssessment:
     try:
         try:
             row = connection.execute(
-                "SELECT payload FROM macro_context WHERE context_id=?", (context_id,)
+                "SELECT payload FROM market_context_assessment WHERE context_id=?", (context_id,)
             ).fetchone()
         except sqlite3.OperationalError as error:
             if is_unwritten_store(error, resolved):

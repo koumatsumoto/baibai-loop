@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -17,7 +18,7 @@ from baibai_engine.research.operation.progress import (
 )
 from baibai_engine.research.position_review_service import PositionReviewService
 from baibai_engine.research.thesis_store import load_reviewed_thesis
-from baibai_engine.research.triage.contracts import ResearchTriage
+from baibai_engine.research.triage.contracts import StoredResearchTriage
 
 
 def validate_selection(
@@ -31,7 +32,7 @@ def validate_selection(
         ).fetchone()
         if row is None:
             raise ValueError("selected Research Triage is unavailable")
-        triage = ResearchTriage.model_validate_json(row[0])
+        triage = StoredResearchTriage.from_payload(json.loads(row[0]))
         if triage.published_at > now:
             raise ValueError("Research selection precedes Triage publication")
         if not new <= set(triage.admissible_research_tickers()):

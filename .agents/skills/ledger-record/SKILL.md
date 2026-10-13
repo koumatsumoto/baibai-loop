@@ -45,7 +45,7 @@ uv run baibai-engine position sell-execution-draft --db stores/application/baiba
 2. 人間がpayloadとcash・予約・holdingの差分を確認する。
 3. `position apply-draft <DRAFT> --db stores/application/baibai.sqlite --confirmed`で適用する。入力状態が変わりstaleになった場合は、draftを作り直して再確認する。
 
-新しいOperationは開始しない。取引事実の保存を無関係なmarket/macro不足で止めず、公開actionから売買数量を推定しない。反映が必要なら[Ops Maintenance](../ops-maintenance/SKILL.md)へ進む。
+新しいOperationは開始しない。取引事実の保存を無関係なmarket/market-context不足で止めず、公開actionから売買数量を推定しない。反映が必要なら[Ops Maintenance](../ops-maintenance/SKILL.md)へ進む。
 
 ## Portfolio outcome
 

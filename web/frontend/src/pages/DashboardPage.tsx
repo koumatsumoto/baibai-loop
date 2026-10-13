@@ -37,7 +37,7 @@ import { cn } from '../lib/utils'
 // repeats what the numbers already say.
 const HINT = {
   allocation: '次の買いに動かせる資金がどれだけ残っているかと、これまでの判断が実際に効いているかを 1 か所で確かめる。配分は判断材料であり、比率を目安へ近づけること自体は目的ではない。',
-  delta: '前回の機械実行と比べた候補プールへの出入り、機械 E[r] の変化、FV に達した保有を並べる。Macro の現在局面と指標は専用画面で読む。売買の指示ではなく、次にどこを見るかを決める材料。答えられなかった区分は明示するので、空欄と「計測できなかった」を混同しない。',
+  delta: '前回の機械実行と比べた候補プールへの出入り、機械 E[r] の変化、FV に達した保有を並べる。市場環境の判断と指標は専用画面で読む。売買の指示ではなく、次にどこを見るかを決める材料。答えられなかった区分は明示するので、空欄と「計測できなかった」を混同しない。',
   holdings: '保有中の各銘柄の取得原価・現値・FV との乖離。売買判断そのものではなく、どの銘柄を次に見直すかを決めるための現状。',
   reservations: '発注済みで未約定の指値が押さえている現金。購入余力から差し引かれているので、次の提案の上限に効く。',
   outcomes: '税・費用込みの総合 return を、同じ期間の配当込み TOPIX と同じ basis で比べた結果。短期の数字で方針を変えるためではなく、見積りが実現と合っているかを年単位で確かめるために置いている。',
@@ -436,7 +436,7 @@ export function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null
               <p className="py-8 text-center text-sm text-muted-foreground">閾値に触れる変化はありません。</p>
             )}
           <div className="px-5 py-3 sm:px-6">
-            <Link className="text-sm font-medium underline underline-offset-4" to="/macro">現在のマクロ局面を見る</Link>
+            <Link className="text-sm font-medium underline underline-offset-4" to="/market-context">現在のマクロ局面を見る</Link>
           </div>
         </div>
       )}

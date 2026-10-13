@@ -102,7 +102,7 @@ def build_assessment_publication(
 ) -> AssessmentPublicationView:
     context_as_of = date.fromisoformat(str(raw_context["as_of"]))
     age_days = (as_of - context_as_of).days
-    if raw_context.get("schema_version") == 5:
+    if raw_context.get("schema_version") in (5, 6):
         return AssessmentPublicationView(
             context_id=str(raw_context["context_id"]),
             as_of=context_as_of,

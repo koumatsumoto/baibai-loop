@@ -100,7 +100,7 @@ class BrowserFetcher:
         if self._context is not None:
             return self._context
         try:
-            self._profile = tempfile.TemporaryDirectory(prefix="baibai-macro-browser-")
+            self._profile = tempfile.TemporaryDirectory(prefix="baibai-indicators-browser-")
             preferences = Path(self._profile.name) / "Default" / "Preferences"
             preferences.parent.mkdir(parents=True, exist_ok=True)
             # Force PDFs to download rather than open in the viewer so the bytes

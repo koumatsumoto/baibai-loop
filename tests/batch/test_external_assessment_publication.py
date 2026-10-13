@@ -14,7 +14,7 @@ from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.r2_store import MemoryR2Store
 from tools.quality.drift.check_workflow_trust import check_workflow
 
-from baibai_batch.jobs import external_assessment_publication as retail
+from baibai_batch.jobs import external_assessment_publication as external_assessment
 from baibai_batch.jobs.external_assessment_cohorts import (
     make_plan,
     new_result,
@@ -45,7 +45,7 @@ from baibai_engine.batch_api import (
     lake_session,
 )
 
-WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/cloud-retail-dynamics.yml"
+WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/cloud-external-assessment.yml"
 RECEIVED = datetime(2026, 9, 30, 15, tzinfo=UTC)
 
 
@@ -74,9 +74,9 @@ def publication(tmp_path, monkeypatch):
         "jquants.master_snapshots",
         "jquants.daily_bars",
         "jquants.short_sale_reports",
-        retail.VALUATION_DATASET,
-        retail.RATING_DATASET,
-        retail.QUANTS_DATASET,
+        external_assessment.VALUATION_DATASET,
+        external_assessment.RATING_DATASET,
+        external_assessment.QUANTS_DATASET,
     )
     narrow_release_policy(monkeypatch, datasets=datasets, minimum_population_count=None)
     monkeypatch.setattr(publisher, "lake_verified_git_commit", lambda: "a" * 40)
@@ -180,7 +180,7 @@ def test_real_remote_graph_readback_preserves_null_receipts_history_and_unrelate
     store, plan, handle, database, mirror, tmp_path = publication
     before = publisher._serving_pointer(store).pointer
     original = store.get_bytes(stage_key(plan, 0))
-    report = retail.publish_and_verify(
+    report = external_assessment.publish_and_verify(
         store,
         plan,
         handle=handle,
@@ -218,9 +218,9 @@ def test_real_remote_graph_readback_preserves_null_receipts_history_and_unrelate
     assert not (tmp_path / "readback/readback.sqlite").exists()
     pointer = publisher._serving_pointer(store).pointer
     after = publisher._resolve_serving_release(store, tmp_path / "readback/mirror", pointer)
-    assert len(after.dataset_manifests[retail.VALUATION_DATASET].partitions) == 3
+    assert len(after.dataset_manifests[external_assessment.VALUATION_DATASET].partitions) == 3
     for name, manifest in after.dataset_manifests.items():
-        if name in {retail.VALUATION_DATASET, retail.RATING_DATASET}:
+        if name in {external_assessment.VALUATION_DATASET, external_assessment.RATING_DATASET}:
             for partition in manifest.partitions:
                 for obj in partition.objects:
                     publisher._fetch(
@@ -239,7 +239,7 @@ def test_real_remote_graph_readback_preserves_null_receipts_history_and_unrelate
         )
     assert "123456" not in capsys.readouterr().out
     count = len(store.put_keys)
-    repeat = retail.publish_and_verify(
+    repeat = external_assessment.publish_and_verify(
         store,
         plan,
         handle=handle,
@@ -267,7 +267,7 @@ def test_stale_origin_is_rejected_before_stage_changes_or_canonical_upload(publi
     before = external_assessment_history_digests(database)
     puts = len(store.put_keys)
     with pytest.raises(LakePublishError, match="fresh current hydrate"):
-        retail.publish_and_verify(
+        external_assessment.publish_and_verify(
             store,
             plan,
             handle=handle,
@@ -279,7 +279,7 @@ def test_stale_origin_is_rejected_before_stage_changes_or_canonical_upload(publi
     assert len(store.put_keys) == puts
 
 
-def test_readback_gets_only_retail_parquet_and_keeps_new_object_byte_verification(
+def test_readback_gets_only_external_assessment_parquet_and_keeps_new_object_byte_verification(
     publication, monkeypatch
 ):
     store, plan, handle, database, mirror, tmp_path = publication
@@ -289,18 +289,18 @@ def test_readback_gets_only_retail_parquet_and_keeps_new_object_byte_verificatio
     assert any("jquants.daily_bars" in key for key in forbidden)
     download, get = store.download_file, store.get_bytes
 
-    def download_only_retail(key, path, *, expect_bytes=None):
+    def download_only_external_assessment(key, path, *, expect_bytes=None):
         assert key not in forbidden, "unchanged Parquet GET is forbidden"
         return download(key, path, expect_bytes=expect_bytes)
 
-    def get_only_retail(key):
+    def get_only_external_assessment(key):
         assert key not in forbidden, "unchanged Parquet GET is forbidden"
         return get(key)
 
-    monkeypatch.setattr(store, "download_file", download_only_retail)
-    monkeypatch.setattr(store, "get_bytes", get_only_retail)
+    monkeypatch.setattr(store, "download_file", download_only_external_assessment)
+    monkeypatch.setattr(store, "get_bytes", get_only_external_assessment)
     store.get_keys.clear()
-    retail.publish_and_verify(
+    external_assessment.publish_and_verify(
         store,
         plan,
         handle=handle,
@@ -316,7 +316,9 @@ def test_readback_gets_only_retail_parquet_and_keeps_new_object_byte_verificatio
     assert not (tmp_path / "retail-only-readback/readback.sqlite").exists()
 
 
-def test_corrupt_retail_independent_byte_readback_cannot_mark_published(publication, monkeypatch):
+def test_corrupt_external_assessment_independent_byte_readback_cannot_mark_published(
+    publication, monkeypatch
+):
     store, plan, handle, database, mirror, tmp_path = publication
     directory = tmp_path / "corrupt-readback"
     download = store.download_file
@@ -328,7 +330,7 @@ def test_corrupt_retail_independent_byte_readback_cannot_mark_published(publicat
 
     monkeypatch.setattr(store, "download_file", corrupt_readback)
     with pytest.raises(LakePublishError, match="digest mismatch"):
-        retail.publish_and_verify(
+        external_assessment.publish_and_verify(
             store,
             plan,
             handle=handle,
@@ -339,12 +341,12 @@ def test_corrupt_retail_independent_byte_readback_cannot_mark_published(publicat
     assert not any(key.endswith("/published.json") for key in store.values)
 
 
-def fixed_retail_readback(publication):
+def fixed_external_assessment_readback(publication):
     store, _, _, database, _, tmp_path = publication
     mirror = tmp_path / "typed-readback"
     pointer = publisher._serving_pointer(store).pointer
     fixed = publisher._resolve_serving_release(store, mirror, pointer)
-    for name in (retail.VALUATION_DATASET, retail.RATING_DATASET):
+    for name in (external_assessment.VALUATION_DATASET, external_assessment.RATING_DATASET):
         for partition in fixed.dataset_manifests[name].partitions:
             for obj in partition.objects:
                 publisher._fetch(store, mirror, obj.key, expected_sha256=obj.sha256)
@@ -352,11 +354,11 @@ def fixed_retail_readback(publication):
 
 
 def test_missing_old_month_history_fails_even_without_current_receipts(publication):
-    fixed, cache, database = fixed_retail_readback(publication)
+    fixed, cache, database = fixed_external_assessment_readback(publication)
     manifests = dict(fixed.dataset_manifests)
-    original = manifests[retail.VALUATION_DATASET]
+    original = manifests[external_assessment.VALUATION_DATASET]
     assert len(original.partitions) == 2
-    manifests[retail.VALUATION_DATASET] = original.model_copy(
+    manifests[external_assessment.VALUATION_DATASET] = original.model_copy(
         update={"partitions": original.partitions[1:]}
     )
     with lake_session() as session, pytest.raises(ValueError, match="changed received history"):
@@ -371,7 +373,7 @@ def test_missing_old_month_history_fails_even_without_current_receipts(publicati
 
 @pytest.mark.parametrize("updates", [{"rating": 1}, {"rating_updated_label": None}])
 def test_typed_null_and_metadata_receipts_must_match_all_columns(publication, updates):
-    fixed, cache, database = fixed_retail_readback(publication)
+    fixed, cache, database = fixed_external_assessment_readback(publication)
     original = ExternalAssessmentAnalystRatingObservation(
         ticker="6758",
         fetched_at_utc=datetime(2026, 7, 31, 15, tzinfo=UTC),
@@ -399,10 +401,12 @@ def test_typed_null_and_metadata_receipts_must_match_all_columns(publication, up
             )
 
 
-def test_missing_retail_dataset_is_empty_only_when_expected_history_is_empty(publication):
-    fixed, cache, database = fixed_retail_readback(publication)
+def test_missing_external_assessment_dataset_is_empty_only_when_expected_history_is_empty(
+    publication,
+):
+    fixed, cache, database = fixed_external_assessment_readback(publication)
     manifests = dict(fixed.dataset_manifests)
-    del manifests[retail.RATING_DATASET]
+    del manifests[external_assessment.RATING_DATASET]
     with lake_session() as session, pytest.raises(ValueError, match="changed received history"):
         external_assessment_verify_release_history(
             session,
@@ -418,7 +422,7 @@ def test_pointer_conflict_keeps_canonical_generation_and_does_not_mark_published
     before = publisher._serving_pointer(store).pointer
     store.conflict_pointer = True
     with pytest.raises(LakeCASConflict):
-        retail.publish_and_verify(
+        external_assessment.publish_and_verify(
             store,
             plan,
             handle=handle,
@@ -439,7 +443,7 @@ def test_expired_replaced_or_released_lease_is_rejected_before_publication(publi
     release(store, handle)
     puts = len(store.put_keys)
     with pytest.raises(LeaseError):
-        retail.publish_and_verify(
+        external_assessment.publish_and_verify(
             store,
             plan,
             handle=handle,
@@ -456,7 +460,7 @@ def test_missing_or_unattempted_cohort_cannot_publish(publication):
     saved = store.values.pop(key)
     puts = len(store.put_keys)
     with pytest.raises(ValueError, match="missing cohort"):
-        retail.publish_and_verify(
+        external_assessment.publish_and_verify(
             store,
             plan,
             handle=handle,
@@ -469,7 +473,7 @@ def test_missing_or_unattempted_cohort_cannot_publish(publication):
     checkpoint = CohortStage(new_result(plan, 0))
     store.store_object(key, stage_bytes(plan, checkpoint))
     with pytest.raises(ValueError, match="all fixed pairs attempted"):
-        retail.publish_and_verify(
+        external_assessment.publish_and_verify(
             store,
             plan,
             handle=handle,
@@ -482,7 +486,7 @@ def test_missing_or_unattempted_cohort_cannot_publish(publication):
 def test_workflow_is_daily_serial_private_and_keeps_publication_inside_existing_lease():
     workflow = yaml.load(WORKFLOW.read_text(), Loader=yaml.BaseLoader)
     assert set(workflow["on"]) == {"workflow_dispatch", "schedule"}
-    assert workflow["concurrency"]["group"] == "retail-dynamics-acquire"
+    assert workflow["concurrency"]["group"] == "external-assessment-acquire"
     assert workflow["concurrency"]["cancel-in-progress"] == "false"
     acquire_job = workflow["jobs"]["acquire"]
     assert acquire_job["strategy"]["max-parallel"] == "1"
@@ -511,8 +515,11 @@ def test_workflow_is_daily_serial_private_and_keeps_publication_inside_existing_
 
 
 def test_selected_month_history_keeps_old_receipts_and_ignores_other_months(publication):
-    fixed, cache, database = fixed_retail_readback(publication)
-    selected = {(retail.VALUATION_DATASET, 2026, 9), (retail.RATING_DATASET, 2026, 9)}
+    fixed, cache, database = fixed_external_assessment_readback(publication)
+    selected = {
+        (external_assessment.VALUATION_DATASET, 2026, 9),
+        (external_assessment.RATING_DATASET, 2026, 9),
+    }
     expected = external_assessment_history_digests(database, partitions=selected)
     with lake_session() as session:
         external_assessment_verify_release_history(
@@ -526,7 +533,7 @@ def test_selected_month_history_keeps_old_receipts_and_ignores_other_months(publ
     # An old receipt in the selected month must still match all its metadata.
     with sqlite3.connect(database) as connection:
         connection.execute(
-            "UPDATE retail_model_valuation_observations SET consensus_target_updated_label='changed' WHERE snapshot_date >= '2026-09-01' AND snapshot_date < '2026-10-01'"
+            "UPDATE external_assessment_model_valuation_observations SET consensus_target_updated_label='changed' WHERE snapshot_date >= '2026-09-01' AND snapshot_date < '2026-10-01'"
         )
     changed = external_assessment_history_digests(database, partitions=selected)
     assert changed != expected
@@ -542,18 +549,18 @@ def test_selected_month_history_keeps_old_receipts_and_ignores_other_months(publ
     # The August partition is outside this readback scope.
     with sqlite3.connect(database) as connection:
         connection.execute(
-            "DELETE FROM retail_analyst_rating_observations WHERE snapshot_date < '2026-09-01'"
+            "DELETE FROM external_assessment_analyst_rating_observations WHERE snapshot_date < '2026-09-01'"
         )
     assert external_assessment_history_digests(database, partitions=selected) == changed
 
 
 def test_selected_month_missing_old_receipt_is_detected(publication):
-    fixed, cache, database = fixed_retail_readback(publication)
-    selected = {(retail.VALUATION_DATASET, 2026, 9)}
+    fixed, cache, database = fixed_external_assessment_readback(publication)
+    selected = {(external_assessment.VALUATION_DATASET, 2026, 9)}
     expected = external_assessment_history_digests(database, partitions=selected)
     manifests = dict(fixed.dataset_manifests)
-    original = manifests[retail.VALUATION_DATASET]
-    manifests[retail.VALUATION_DATASET] = original.model_copy(
+    original = manifests[external_assessment.VALUATION_DATASET]
+    manifests[external_assessment.VALUATION_DATASET] = original.model_copy(
         update={
             "partitions": tuple(part for part in original.partitions if part.values["month"] != 9)
         }
@@ -596,7 +603,7 @@ def test_quants_score_optional_l1_publication_and_idempotent_terminal(publicatio
         item,
     )
     put_private(store, stage_key(p, 0), stage_bytes(p, CohortStage(journal)), previous_etag=None)
-    report = retail.publish_and_verify(
+    report = external_assessment.publish_and_verify(
         store,
         p,
         handle=handle,
@@ -610,14 +617,18 @@ def test_quants_score_optional_l1_publication_and_idempotent_terminal(publicatio
     external_assessment_verify_observations(database, [item])
     after = external_assessment_history_digests(database)
     assert (
-        after["retail_model_valuation_observations"]
-        == before["retail_model_valuation_observations"]
+        after["external_assessment_model_valuation_observations"]
+        == before["external_assessment_model_valuation_observations"]
     )
     assert (
-        after["retail_analyst_rating_observations"] == before["retail_analyst_rating_observations"]
+        after["external_assessment_analyst_rating_observations"]
+        == before["external_assessment_analyst_rating_observations"]
     )
-    assert after["retail_quants_score_observations"] != before["retail_quants_score_observations"]
-    repeat = retail.publish_and_verify(
+    assert (
+        after["external_assessment_quants_score_observations"]
+        != before["external_assessment_quants_score_observations"]
+    )
+    repeat = external_assessment.publish_and_verify(
         store,
         p,
         handle=handle,

@@ -63,10 +63,14 @@ def scaffold_capital_allocation(
             item.thesis_id for item in scope.outcomes if item.status == "reviewed"
         }:
             raise CapitalAllocationConflictError("Thesis IDs differ from completed new research")
-    macro_context_id = triage.get("macro_context_id")
+    market_context_assessment_id = (
+        triage.get("macro_context_id")
+        if triage.get("schema_version") == 3
+        else triage.get("market_context_assessment_id")
+    )
     return {
         **({"research_scope": scope.model_dump(mode="json")} if scope is not None else {}),
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "capital_allocation_assessment",
         "capital_allocation_assessment_id": capital_allocation_assessment_id,
         "as_of": as_of.isoformat(),
@@ -74,7 +78,9 @@ def scaffold_capital_allocation(
         "result": "no_allocation",
         "headline": _TODO,
         "research_triage_id": research_triage_id,
-        "macro_context_id": macro_context_id if isinstance(macro_context_id, str) else None,
+        "market_context_assessment_id": market_context_assessment_id
+        if isinstance(market_context_assessment_id, str)
+        else None,
         "comparison": _TODO,
         "forgone": _TODO,
         "alternatives": alternatives,

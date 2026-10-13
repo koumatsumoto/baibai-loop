@@ -19,7 +19,7 @@ export type IndicatorHistoryPeriod = '1y' | '5y' | '10y' | 'max'
 export type IndicatorHistoryGranularity = 'daily' | 'weekly' | 'monthly' | 'yearly'
 
 export function indicatorHistoryUrl(seriesId: string | null): string | null {
-  return seriesId === null ? null : `/api/macro/series/${encodeURIComponent(seriesId)}`
+  return seriesId === null ? null : `/api/market-context/indicators/${encodeURIComponent(seriesId)}`
 }
 
 export function transformSeriesHistory(
@@ -57,7 +57,7 @@ export function transformSeriesHistory(
 }
 
 // At-a-glance summary for a sparkline: latest level plus the change across the
-// displayed window. Direction is not interpreted as good/bad here — macro series
+// displayed window. Direction is not interpreted as good/bad here — indicator series
 // have no universal sign — so callers show a neutral arrow, not a semantic color.
 export function seriesWindowSummary(points: readonly IndicatorPointView[]): SeriesWindowSummary {
   if (points.length === 0) return { latest: null, delta: null }
@@ -141,7 +141,7 @@ export interface IndicatorGroup {
   readonly rows: readonly IndicatorRow[]
 }
 
-// Join the indicator panel with the machine reading into the rows the Macro tab draws.
+// Join the indicator panel with the machine reading into the rows the Market Context tab draws.
 //
 // Both projections cover the same registry — the panel places every registered series in
 // exactly one group, the reading computes one row per registered series — so the join is

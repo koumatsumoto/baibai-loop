@@ -11,13 +11,13 @@
     "/api/operations": "views/operations.json",
     "/api/tasks": "views/tasks.json",
     "/api/meta": "views/meta.json",
-    "/api/macro": "views/macro.json"
+    "/api/market-context": "views/market-context.json"
   },
   "edge_routes": {},
   "patterns": {
     "/api/screening/history/{as_of}": "history/candidate-views/{as_of}.json",
-    "/api/macro/series/{series_id}": "views/macro-series--{series_id}.json",
-    "/api/macro/context/{context_id}": "views/macro-context--{context_id}.json",
+    "/api/market-context/indicators/{series_id}": "views/indicator-series--{series_id}.json",
+    "/api/market-context/assessments/{context_id}": "views/market-context-assessment--{context_id}.json",
     "/api/capital-allocation-assessments/{capital_allocation_assessment_id}": "views/capital-allocation-assessment--{capital_allocation_assessment_id}.json",
     "/api/securities/{ticker}": "views/security--{ticker}.json"
   }

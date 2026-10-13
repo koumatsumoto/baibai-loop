@@ -23,7 +23,7 @@ export function AssessmentPage() {
     const controller = new AbortController()
     setData(null)
     setError(null)
-    fetchJson<AssessmentPublicationView>(`/api/macro/context/${encodeURIComponent(contextId)}`, { signal: controller.signal })
+    fetchJson<AssessmentPublicationView>(`/api/market-context/assessments/${encodeURIComponent(contextId)}`, { signal: controller.signal })
       .then((result) => {
         if (!controller.signal.aborted) setData(result)
       })
@@ -39,7 +39,7 @@ export function AssessmentPage() {
 
   return (
     <PageShell
-      above={<div><Button asChild size="sm" variant="ghost"><Link to="/macro"><ArrowLeft />市場環境に戻る</Link></Button></div>}
+      above={<div><Button asChild size="sm" variant="ghost"><Link to="/market-context"><ArrowLeft />市場環境に戻る</Link></Button></div>}
       meta={<div className="flex flex-wrap items-center gap-2"><UpdatedAtBadge value={data.published_at} /><AsOfBadge compact value={data.as_of} /><span className="text-xs text-muted-foreground">{data.age_days}日前</span>{data.stale && <StaleBadge />}</div>}
       title="市場環境判断・保存履歴"
       width="reading"

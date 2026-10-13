@@ -44,13 +44,13 @@ def test_panel_groups_are_non_empty() -> None:
     groups = load_indicator_panel_config(_PANEL_PATH)
     assert groups
     for group in groups:
-        assert group.series, f"empty macro panel group: {group.title}"
+        assert group.series, f"empty indicator panel group: {group.title}"
 
 
 def _panel_source(
     tmp_path: Path, *, series_ids: tuple[str, ...], stored: str
 ) -> DbMarketContextSource:
-    store = tmp_path / "macro.sqlite"
+    store = tmp_path / "indicators.sqlite"
     stored_definition = load_definitions().by_id()[stored]
     connection = initialize_database(
         store,
@@ -105,7 +105,7 @@ def test_panel_keeps_a_configured_series_the_store_has_not_fetched(tmp_path: Pat
 
 
 def test_panel_sparkline_uses_month_end_observations_and_is_bounded(tmp_path: Path) -> None:
-    store = tmp_path / "macro.sqlite"
+    store = tmp_path / "indicators.sqlite"
     definition = load_definitions().by_id()["us.10y"]
     connection = initialize_database(
         store,

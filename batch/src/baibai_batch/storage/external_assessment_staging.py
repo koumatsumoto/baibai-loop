@@ -126,11 +126,10 @@ def _terminal_object(items: list[tuple[str, object]]) -> dict[str, object]:
 
 
 def _valid_partial_counts(value: dict[str, object], plan: RunPlan) -> bool:
-    # Older sealed terminals remain historical evidence; acquisition stages have no legacy reader.
     states, coverage = value["state_counts"], value["receipt_date_coverage"]
     if (
         not isinstance(states, dict)
-        or set(states) not in (_TERMINAL_STATES, _TERMINAL_STATES | {"uncertain"})
+        or set(states) != _TERMINAL_STATES
         or any(type(count) is not int or count < 0 for count in states.values())
         or sum(states.values()) != value["expected_pairs"]
         or states["success"] + states["normal_null"] != value["observations"]

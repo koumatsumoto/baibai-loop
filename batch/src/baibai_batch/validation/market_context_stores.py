@@ -156,7 +156,7 @@ def validate_published_contexts(
         rows = connection.execute(
             (
                 "SELECT context_id, schema_version, as_of, published_at, payload "
-                "FROM macro_context "
+                "FROM market_context_assessment "
                 "ORDER BY published_at, context_id"
             ),
         ).fetchall()
@@ -218,7 +218,7 @@ def main(argv: list[str] | None = None) -> int:
         contexts = validate_published_contexts(application_db)
     except (OSError, sqlite3.Error, ValueError) as exc:
         print(
-            f"error: unable to read published macro contexts {application_db}: {exc}",
+            f"error: unable to read published market context assessments {application_db}: {exc}",
             file=sys.stderr,
         )
         return 1
@@ -252,10 +252,12 @@ def _render_context_report(report: PublishedContextReport) -> int:
     for warning in report.warnings:
         print(f"warning: {warning}", file=sys.stderr)
     if report.valid:
-        print(f"ok: {report.documents} published macro context revisions read", flush=True)
+        print(
+            f"ok: {report.documents} published market context assessment revisions read", flush=True
+        )
         return 0
     print(
-        f"error: {len(report.failures)} of {report.documents} published macro context "
+        f"error: {len(report.failures)} of {report.documents} published market context assessment "
         "revisions cannot be read",
         file=sys.stderr,
     )

@@ -19,7 +19,7 @@ def build_meta(source: DbMetaSource, *, batch: MetaBatch | None = None) -> MetaV
         generated_at=datetime.now(_JST),
         data_updated_at=source.data_updated_at(),
         screening_as_of=source.screening_as_of(),
-        macro_as_of=source.indicator_as_of(),
+        indicators_as_of=source.indicator_as_of(),
         app_db_updated_at=source.app_db_updated_at(),
         batch=batch,
     )

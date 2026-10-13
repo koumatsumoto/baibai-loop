@@ -14,7 +14,7 @@ from .stored import required_read
 
 # Table/column names are domain-owned literals, never caller SQL.
 TABLES = {
-    "macro_context": (
+    "market_context_assessment": (
         "context_id",
         ("as_of", "published_at", "context_id"),
         "context_id, schema_version, as_of, published_at, supersedes_id",
@@ -73,7 +73,7 @@ def validate_publication(table: str, row: dict[str, Any]) -> str:
     from baibai_engine.tasks.models import Task
 
     models: dict[str, type[BaseModel]] = {
-        "macro_context": MarketContextAssessment,
+        "market_context_assessment": MarketContextAssessment,
         "research_triage": ResearchTriage,
         "thesis": ThesisDocument,
         "thesis_review": ThesisReview,
@@ -94,7 +94,7 @@ def validate_publication(table: str, row: dict[str, Any]) -> str:
             for field in ("ticker", "as_of"):
                 if field in source and source[field] != row[field]:
                     raise ValueError("thesis identity differs")
-    if table == "macro_context":
+    if table == "market_context_assessment":
         for field in ("schema_version", "as_of"):
             if field in payload and payload[field] != row[field]:
                 raise ValueError("context identity differs")
@@ -129,7 +129,7 @@ def publication_rows(
         select += f", julianday({time_column}) AS page_time"
     date_column = "period_end_date" if table == "portfolio_outcome" else "as_of"
     with required_read(path, connect_read_only) as connection:
-        if table == "macro_context" and ("latest" in filters or "as_of" in filters):
+        if table == "market_context_assessment" and ("latest" in filters or "as_of" in filters):
             from datetime import date, datetime
             from zoneinfo import ZoneInfo
 
@@ -185,9 +185,9 @@ def publication_rows(
             limit=limit,
         )
         meta: dict[str, object] = {}
-        if table == "macro_context":
+        if table == "market_context_assessment":
             head = connection.execute(
-                "SELECT context_id FROM macro_context_head WHERE singleton=1"
+                "SELECT context_id FROM market_context_assessment_head WHERE singleton=1"
             ).fetchone()
             meta["head_context_id"] = None if head is None else head[0]
         for row in rows:

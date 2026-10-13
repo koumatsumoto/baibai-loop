@@ -21,7 +21,9 @@ from tools.owner_mcp.resource_types import Paths
 from tools.owner_mcp.resources import Resources, decode_cursor, result_size
 from tools.owner_mcp.server import call, create_server
 
-from baibai_engine.market_context.indicators.db import initialize_database as macro_init
+from baibai_engine.market_context.indicators.db import (
+    initialize_database as initialize_indicator_database,
+)
 from baibai_engine.market_context.indicators.db import insert_observations
 from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.read_api.market_context import reading_snapshot
@@ -35,7 +37,7 @@ def data(reader, tmp_path):
         Paths(
             application=reader.app_path,
             runs=reader.runs_path,
-            indicators=tmp_path / "macro.sqlite",
+            indicators=tmp_path / "indicators.sqlite",
             market=tmp_path / "market.sqlite",
             calibration=tmp_path / "calibration/current.sqlite",
             er=tmp_path / "er.yaml",
@@ -61,11 +63,11 @@ def pages(data, resource, filters=None, limit=2):
 
 def test_catalog_is_complete_without_stores_and_schemas_are_live(data):
     expected = {
-        "macro.series",
-        "macro.observation",
-        "macro.provider_run",
-        "macro.reading",
-        "macro.context",
+        "market_context.indicator_series",
+        "market_context.observation",
+        "market_context.provider_run",
+        "market_context.reading",
+        "market_context.assessment",
         "market.source_coverage",
         "market.capital_policy_snapshot",
         "screening.run",
@@ -93,10 +95,11 @@ def test_catalog_is_complete_without_stores_and_schemas_are_live(data):
         assert detail["filter_schema"] == spec.filters.model_json_schema()
         assert detail["selector_schema"] == spec.selector.model_json_schema()
     assert (
-        data.catalog(layer="L2", domain="macro")["resources"][0]["resource_id"] == "macro.reading"
+        data.catalog(layer="L2", domain="market_context")["resources"][0]["resource_id"]
+        == "market_context.reading"
     )
     assert not data.paths.indicators.exists()
-    error(lambda: data.catalog("macro.reading", layer="L2"), "INVALID_ARGUMENT")
+    error(lambda: data.catalog("market_context.reading", layer="L2"), "INVALID_ARGUMENT")
     error(lambda: data.catalog(domain="../"), "INVALID_ARGUMENT")
 
 
@@ -104,11 +107,14 @@ def test_catalog_is_complete_without_stores_and_schemas_are_live(data):
     ("resource", "filters"),
     [
         ("unknown", {}),
-        ("macro.series", {"sql": "DROP TABLE series"}),
-        ("macro.series", {"path": "/etc/passwd"}),
-        ("macro.observation", {"series_id": "jp.10y", "from": "2026-02-30", "to": "2026-03-01"}),
+        ("market_context.indicator_series", {"sql": "DROP TABLE series"}),
+        ("market_context.indicator_series", {"path": "/etc/passwd"}),
         (
-            "macro.observation",
+            "market_context.observation",
+            {"series_id": "jp.10y", "from": "2026-02-30", "to": "2026-03-01"},
+        ),
+        (
+            "market_context.observation",
             {
                 "series_id": "jp.10y",
                 "from": "2026-02-01",
@@ -117,7 +123,7 @@ def test_catalog_is_complete_without_stores_and_schemas_are_live(data):
             },
         ),
         (
-            "macro.observation",
+            "market_context.observation",
             {
                 "series_id": "jp.10y",
                 "from": "2026-02-01",
@@ -137,38 +143,50 @@ def test_invalid_resource_filters(data, resource, filters):
 
 @pytest.mark.parametrize("limit", [True, False, 0, -1, 2001, 1.0, "1"])
 def test_strict_limit(data, limit):
-    error(lambda: data.list("macro.series", limit=limit), "INVALID_ARGUMENT")
+    error(lambda: data.list("market_context.indicator_series", limit=limit), "INVALID_ARGUMENT")
 
 
 def test_cursor_continuation_validates_resource_filters_and_key(data):
-    first = data.list("macro.series", limit=1)
+    first = data.list("market_context.indicator_series", limit=1)
     assert first["next_cursor"]
-    assert len(pages(data, "macro.series", limit=1)) == len(data.list("macro.series")["items"])
-    error(lambda: data.list("macro.provider_run", cursor=first["next_cursor"]), "INVALID_ARGUMENT")
+    assert len(pages(data, "market_context.indicator_series", limit=1)) == len(
+        data.list("market_context.indicator_series")["items"]
+    )
     error(
-        lambda: data.list("macro.series", {"category": "different"}, cursor=first["next_cursor"]),
+        lambda: data.list("market_context.provider_run", cursor=first["next_cursor"]),
+        "INVALID_ARGUMENT",
+    )
+    error(
+        lambda: data.list(
+            "market_context.indicator_series",
+            {"category": "different"},
+            cursor=first["next_cursor"],
+        ),
         "INVALID_ARGUMENT",
     )
     for raw in ["garbage", "e30=", "A" * 40000]:
-        error(lambda raw=raw: data.list("macro.series", cursor=raw), "INVALID_ARGUMENT")
+        error(
+            lambda raw=raw: data.list("market_context.indicator_series", cursor=raw),
+            "INVALID_ARGUMENT",
+        )
     obj = decode_cursor(first["next_cursor"]).model_dump()
     obj["after"] = [False]
     import base64
 
     cursor = base64.urlsafe_b64encode(wire(obj)).decode()
-    error(lambda: data.list("macro.series", cursor=cursor), "INVALID_ARGUMENT")
+    error(lambda: data.list("market_context.indicator_series", cursor=cursor), "INVALID_ARGUMENT")
 
 
 def test_missing_unwritten_empty_and_corrupt_are_distinct(data):
-    error(lambda: data.list("macro.provider_run"), "SOURCE_UNAVAILABLE")
+    error(lambda: data.list("market_context.provider_run"), "SOURCE_UNAVAILABLE")
     assert not data.paths.indicators.exists()
     sqlite3.connect(data.paths.indicators).close()
-    error(lambda: data.list("macro.provider_run"), "SOURCE_UNAVAILABLE")
-    macro_init(data.paths.indicators).close()
-    assert data.list("macro.provider_run")["items"] == []
+    error(lambda: data.list("market_context.provider_run"), "SOURCE_UNAVAILABLE")
+    initialize_indicator_database(data.paths.indicators).close()
+    assert data.list("market_context.provider_run")["items"] == []
     with sqlite3.connect(data.paths.indicators) as con:
         con.execute("PRAGMA user_version=999")
-    error(lambda: data.list("macro.provider_run"), "CONTRACT_MISMATCH")
+    error(lambda: data.list("market_context.provider_run"), "CONTRACT_MISMATCH")
     error(lambda: data.get("task", {"task_id": "missing"}), "SOURCE_UNAVAILABLE")
 
 
@@ -249,8 +267,8 @@ def test_bytes_pagination_never_skips_unreturned_items(data, reader, monkeypatch
     )
 
 
-def test_macro_raw_effective_fixed_cutoff_reading_and_redaction(data):
-    with macro_init(data.paths.indicators) as con:
+def test_indicator_raw_effective_fixed_cutoff_reading_and_redaction(data):
+    with initialize_indicator_database(data.paths.indicators) as con:
         insert_observations(
             con,
             [
@@ -278,35 +296,41 @@ def test_macro_raw_effective_fixed_cutoff_reading_and_redaction(data):
         "to": "2026-01-03",
         "as_of": "2026-01-05",
     }
-    effective = pages(data, "macro.observation", filters, limit=1)
+    effective = pages(data, "market_context.observation", filters, limit=1)
     assert [row["payload"]["observed_at"] for row in effective] == ["2026-01-01", "2026-01-03"]
     raw = pages(
         data,
-        "macro.observation",
+        "market_context.observation",
         {**{k: v for k, v in filters.items() if k != "as_of"}, "mode": "vintages"},
         limit=1,
     )
     assert len(raw) == 5
-    got = data.get("macro.observation", raw[0]["selector"])
+    got = data.get("market_context.observation", raw[0]["selector"])
     assert "secret" not in json.dumps(got)
     assert got["meta"]["redacted"] is True
-    snapshot = data.get("macro.reading", {"as_of": "2026-01-05"})
+    snapshot = data.get("market_context.reading", {"as_of": "2026-01-05"})
     assert snapshot["payload"] == reading_snapshot(data.paths.indicators, asof=date(2026, 1, 5))
+    assert snapshot["meta"]["read_semantics"] == snapshot["payload"]["read_semantics"]
+    assert snapshot["meta"]["read_semantics"]["point_in_time_guaranteed"] is False
+    one = data.get("market_context.reading", {"as_of": "2026-01-05", "series_id": "us.10y"})
+    assert one["payload"]["read_semantics"]["vintage_selection"] == "latest_stored_history"
     assert (
-        data.get("macro.reading", resource_ref=snapshot["resource_ref"])["payload"]
+        data.get("market_context.reading", resource_ref=snapshot["resource_ref"])["payload"]
         == snapshot["payload"]
     )
     reference = snapshot["resource_ref"]
     reference["identity"]["rules_revision"] = "different"
-    error(lambda: data.get("macro.reading", resource_ref=reference), "REFERENCE_MISMATCH")
+    error(lambda: data.get("market_context.reading", resource_ref=reference), "REFERENCE_MISMATCH")
     error(
-        lambda: data.get("macro.reading", {"as_of": "2026-01-05", "rules_revision": "different"}),
+        lambda: data.get(
+            "market_context.reading", {"as_of": "2026-01-05", "rules_revision": "different"}
+        ),
         "INVALID_ARGUMENT",
     )
 
 
 def test_provider_jst_boundary_offset_sort_and_read_only(data):
-    con = macro_init(data.paths.indicators)
+    con = initialize_indicator_database(data.paths.indicators)
     try:
         for key, stamp in [
             ("a", "2026-01-01T15:00:00+00:00"),
@@ -331,7 +355,7 @@ def test_provider_jst_boundary_offset_sort_and_read_only(data):
         con.commit()
         before = list(con.iterdump())
         items = pages(
-            data, "macro.provider_run", {"from": "2026-01-02", "to": "2026-01-02"}, limit=1
+            data, "market_context.provider_run", {"from": "2026-01-02", "to": "2026-01-02"}, limit=1
         )
         assert [row["selector"]["run_id"] for row in items] == ["a", "b"]
         assert list(con.iterdump()) == before
@@ -427,13 +451,17 @@ def test_protocol_three_tools_accept_objects_without_gateway(reader):
         try:
             async with Client(create_server(adapter, reader)) as client:
                 result = await client.call_tool(
-                    "data_get", {"resource_id": "macro.series", "selector": {"series_id": "jp.10y"}}
+                    "data_get",
+                    {
+                        "resource_id": "market_context.indicator_series",
+                        "selector": {"series_id": "jp.10y"},
+                    },
                 )
                 assert not result.is_error
                 repeated = await client.call_tool(
                     "data_get",
                     {
-                        "resource_id": "macro.series",
+                        "resource_id": "market_context.indicator_series",
                         "resource_ref": result.structured_content["resource_ref"],
                     },
                 )
@@ -450,25 +478,25 @@ def test_cursor_rejects_invalid_day_key_before_store_read(data):
     from tools.owner_mcp.resources import encode_cursor
 
     cursor = encode_cursor(
-        "macro.observation",
+        "market_context.observation",
         {"series_id": "jp.10y", "from": "2026-01-01", "to": "2026-01-31"},
         ["2026-02-30", "2026-01-31T00:00:00Z"],
         {},
     )
-    error(lambda: data.list("macro.observation", cursor=cursor), "INVALID_ARGUMENT")
+    error(lambda: data.list("market_context.observation", cursor=cursor), "INVALID_ARGUMENT")
     assert not data.paths.indicators.exists()
 
 
 def test_reading_list_carries_rules_revision_on_every_page(data):
-    with macro_init(data.paths.indicators):
+    with initialize_indicator_database(data.paths.indicators):
         pass
     filters = {"as_of": "2026-01-05"}
     snapshot = reading_snapshot(data.paths.indicators, asof=date(2026, 1, 5))
-    whole = data.list("macro.reading", filters)
+    whole = data.list("market_context.reading", filters)
     assert whole["meta"]["rules_revision"] == snapshot["rules_revision"]
-    page = data.list("macro.reading", filters, limit=1)
+    page = data.list("market_context.reading", filters, limit=1)
     assert page["next_cursor"]
-    second = data.list("macro.reading", cursor=page["next_cursor"], limit=1)
+    second = data.list("market_context.reading", cursor=page["next_cursor"], limit=1)
     for result in (page, second):
         assert result["meta"]["rules_revision"] == snapshot["rules_revision"]
         assert "rules_revision" not in result["items"][0]["selector"]
@@ -503,7 +531,7 @@ def test_public_argument_errors_identify_reason_without_exposing_input(
     filters = {"series_id": "us.10y", "from": "2026-01-01", "to": "2026-01-05", **changes}
     if removed:
         filters.pop(removed)
-    result = error(lambda: data.list("macro.observation", filters), "INVALID_ARGUMENT")
+    result = error(lambda: data.list("market_context.observation", filters), "INVALID_ARGUMENT")
     assert expected in result.content[0].text
     assert expected in result.structured_content["error"]["message"]
     serialized = result.model_dump_json()

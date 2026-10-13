@@ -27,7 +27,7 @@ description: 人間の明示開始から保存済み入力を固定し、小さ�
    ```
 
    headがnullの場合だけ`--expected-head`を省略する。同じIDは同じ本文・発行状態の再試行だけを許す。CAS競合でheadだけ更新して無条件再試行しない。
-5. 発行IDを指定して本文を読戻す。cloud反映はOps Maintenanceのapplication反映へ進む。観測storeの`push-macro`だけでは判断の反映にならない。
+5. 発行IDを指定して本文を読戻す。cloud反映はOps Maintenanceのapplication反映へ進む。観測storeの`push-indicators`だけでは判断の反映にならない。
 
    ```bash
    context_id='発行結果のcontext_id'

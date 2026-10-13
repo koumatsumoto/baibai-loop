@@ -144,8 +144,8 @@ class HttpSession(Protocol):
     ) -> requests.Response: ...
 
 
-class MacroDataProvider(Protocol):
-    """A macro data source. Each provider isolates its own auth/parse/quirks."""
+class IndicatorDataProvider(Protocol):
+    """An indicator data source. Each provider isolates its own auth/parse/quirks."""
 
     name: str
     spec: ProviderSpec

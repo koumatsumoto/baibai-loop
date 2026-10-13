@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from tests.batch.test_external_assessment_publication import publication as publication
 
-from baibai_batch.jobs import external_assessment_publication as retail
+from baibai_batch.jobs import external_assessment_publication as external_assessment
 from baibai_batch.storage import lake_publish, publication_lease
 from baibai_batch.storage import publish_market_lake as publisher
 from baibai_batch.storage.publication_lease import LeaseError
@@ -50,7 +50,7 @@ def test_lease_lost_during_remote_closure_stops_before_pointer_switch(
 
     monkeypatch.setattr(lake_publish, "_ensure_immutable", lose_lease)
     with pytest.raises(LeaseError):
-        retail.publish_and_verify(
+        external_assessment.publish_and_verify(
             store,
             plan,
             handle=handle,
@@ -69,7 +69,7 @@ def test_pointer_generation_conflict_remains_enforced_with_a_valid_lease(publica
     previous = publisher._serving_pointer(store).pointer
     store.conflict_pointer = True
     with pytest.raises(lake_publish.LakeCASConflict):
-        retail.publish_and_verify(
+        external_assessment.publish_and_verify(
             store,
             plan,
             handle=handle,

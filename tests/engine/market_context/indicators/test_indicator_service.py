@@ -53,7 +53,7 @@ from baibai_engine.market_context.indicators.service import (
 class IndicatorsServiceTests(unittest.TestCase):
     def test_refresh_rejects_observation_for_another_registered_series(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             requested = _series(
                 "fred_csv",
                 "TEST",
@@ -99,7 +99,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_refresh_rejects_observation_with_wrong_unit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             definition = _series(
                 "fred_csv",
                 "TEST",
@@ -146,7 +146,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_refresh_rejects_one_out_of_range_value_without_partial_insert(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             definition = _series(
                 "fred_csv",
                 "TEST",
@@ -196,7 +196,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_refresh_without_plausible_range_keeps_backward_compatibility(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             definition = _series("fred_csv", "TEST")
             definitions = IndicatorDefinitions(series=(definition,))
             initialize_database(database, definitions=definitions).close()
@@ -227,7 +227,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_refresh_accepts_values_on_both_plausible_boundaries(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             definition = _series(
                 "fred_csv",
                 "TEST",
@@ -268,7 +268,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_refresh_all_history_uses_provider_floor_and_forces_fetch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             _write_observation(
                 database,
                 "us.fed_funds.upper",
@@ -307,7 +307,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_failed_full_history_refresh_preserves_existing_observations(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             _write_observation(
                 database,
                 "us.fed_funds.upper",
@@ -342,11 +342,11 @@ class IndicatorsServiceTests(unittest.TestCase):
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             definition = load_definitions().by_id()["us.net_liquidity"]
             old_source = (
                 "https://github.com/koumatsumoto/baibai-loop/blob/main/"
-                "src/baibai_engine/macro/indicators/providers/formulas.py"
+                "src/baibai_engine/market-context/indicators/providers/formulas.py"
             )
             previous_source = old_source.replace("/main/src/", "/main/engine/src/")
             records = [
@@ -410,7 +410,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_http_full_history_source_correction_still_removes_previous_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             definition = load_definitions().by_id()["us.fed_funds.upper"]
             old = observation(
                 definition,
@@ -445,7 +445,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_derived_full_history_refresh_replaces_the_previous_alignment_grid(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             _write_observation(
                 database,
                 "us.erp",
@@ -489,7 +489,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_derived_full_history_refresh_rejects_period_coverage_loss(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             for observed_at, value in (
                 (date(2020, 1, 2), -0.5),
                 (date(2025, 1, 2), -0.6),
@@ -544,7 +544,7 @@ class IndicatorsServiceTests(unittest.TestCase):
         # stamps a fresh now() vintage on every fetch, yet the store must
         # converge to one vintage per observed_at when the values are unchanged.
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             service = IndicatorsService(database)
 
             def _refetch(*_args: object, **_kwargs: object) -> list[ObservationRecord]:
@@ -586,7 +586,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_range_refresh_adds_a_vintage_only_when_the_source_revises_a_value(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             service = IndicatorsService(database)
             common = {
                 "series_id": "us.10y",
@@ -632,7 +632,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_refresh_all_history_uses_the_jquants_rolling_window(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(database)
             try:
                 insert_observations(
@@ -699,7 +699,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_refresh_all_history_uses_boj_timeseries_floor(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(database)
             try:
                 insert_observations(
@@ -753,7 +753,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_refresh_all_history_uses_tsr_bankruptcies_floor(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             observation = ObservationRecord(
                 series_id="jp.bankruptcies",
                 observed_at=date(2003, 1, 1),
@@ -775,7 +775,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_empty_full_history_refresh_fails_and_preserves_existing_observations(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             _write_observation(
                 database,
                 "us.fed_funds.upper",
@@ -815,7 +815,7 @@ class IndicatorsServiceTests(unittest.TestCase):
         # One broken source must not leave every other series in the group stale,
         # and every failure must be reported (not just the first).
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             initialize_database(database).close()
 
             def _fetch(
@@ -866,7 +866,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_refresh_series_reports_an_unknown_series_without_stopping_the_pass(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             initialize_database(database).close()
 
             with patch(
@@ -889,7 +889,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_unknown_only_refresh_does_not_prune_retired_series(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             _write_retired_series(database)
 
             outcomes = IndicatorsService(database).refresh_series(
@@ -913,7 +913,7 @@ class IndicatorsServiceTests(unittest.TestCase):
         # A shared context is what makes a bulk source file download once for every
         # series that maps to it and a browser-backed provider launch once.
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             initialize_database(database).close()
             cache_sizes: list[int] = []
 
@@ -945,7 +945,7 @@ class IndicatorsServiceTests(unittest.TestCase):
         # A provider can raise an unwrapped third-party error (a dead headless
         # browser does). It must stay one series' failure, not abort the pass.
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             initialize_database(database).close()
 
             def _fetch(
@@ -982,7 +982,7 @@ class IndicatorsServiceTests(unittest.TestCase):
         # it survived, the retry would re-read it and every later series sharing the
         # URL would inherit the failure.
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             initialize_database(database).close()
             cache_key = ("https://example.com/bulk.csv", ())
             cache_sizes: list[int] = []
@@ -1023,7 +1023,7 @@ class IndicatorsServiceTests(unittest.TestCase):
     def test_refresh_rejects_a_non_finite_value_before_the_store(self) -> None:
         for value in (float("nan"), float("inf"), float("-inf")):
             with self.subTest(value=value), tempfile.TemporaryDirectory() as tmp:
-                database = Path(tmp) / "macro.sqlite"
+                database = Path(tmp) / "indicators.sqlite"
                 initialize_database(database).close()
 
                 with (
@@ -1056,7 +1056,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_refresh_cli_reports_every_failed_series_and_exits_non_zero(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             initialize_database(database).close()
             errors = io.StringIO()
 
@@ -1134,7 +1134,7 @@ class IndicatorsServiceTests(unittest.TestCase):
         # ECB FX (and any newest-first provider) returns observations descending;
         # get_range must normalize to ascending observed_at on the provider-fetch path.
         with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "macro.sqlite"
+            db = Path(tmp) / "indicators.sqlite"
             initialize_database(db).close()
             descending = [
                 ObservationRecord(
@@ -1166,7 +1166,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_get_range_retries_transient_provider_error_once(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "macro.sqlite"
+            db = Path(tmp) / "indicators.sqlite"
             initialize_database(db).close()
             observation = ObservationRecord(
                 series_id="us.10y",
@@ -1209,7 +1209,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_get_range_daily_partial_provider_run_does_not_cover_unobserved_tail(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "macro.sqlite"
+            db = Path(tmp) / "indicators.sqlite"
             initialize_database(db).close()
             first_observation = ObservationRecord(
                 series_id="jp.10y",
@@ -1267,7 +1267,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_get_range_uses_cache_when_coverage_exists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "macro.sqlite"
+            db = Path(tmp) / "indicators.sqlite"
             _write_observation_with_coverage(
                 db,
                 "us.10y",
@@ -1289,7 +1289,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_get_latest_uses_fresh_cached_observation_before_provider(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "macro.sqlite"
+            db = Path(tmp) / "indicators.sqlite"
             today = date(2026, 7, 27)
             observed_at = today
             _write_observation(
@@ -1316,7 +1316,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_get_latest_uses_short_daily_provider_lookback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "macro.sqlite"
+            db = Path(tmp) / "indicators.sqlite"
             initialize_database(db).close()
             today = date(2026, 7, 27)
             observation = ObservationRecord(
@@ -1348,7 +1348,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_get_latest_refreshes_stale_latest_even_when_range_has_coverage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "macro.sqlite"
+            db = Path(tmp) / "indicators.sqlite"
             today = date(2026, 7, 27)
             _write_observation_with_coverage(
                 db,
@@ -1387,7 +1387,7 @@ class IndicatorsServiceTests(unittest.TestCase):
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             today = date(2026, 7, 27)
             definition = load_definitions().by_id()["us.consumer_sentiment"]
             _write_observation_with_coverage(
@@ -1425,7 +1425,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_get_latest_accepts_cache_at_series_staleness_boundary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             today = date(2026, 7, 27)
             _write_observation(
                 database,
@@ -1450,7 +1450,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_multpl_latest_uses_reading_staleness_rule(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
+            database = Path(tmp) / "indicators.sqlite"
             today = date(2026, 7, 27)
             _write_observation(
                 database,
@@ -1487,7 +1487,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_cli_search_and_cached_get(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "macro.sqlite"
+            db = Path(tmp) / "indicators.sqlite"
             _write_observation_with_coverage(
                 db,
                 "us.10y",
@@ -1519,6 +1519,6 @@ class IndicatorsServiceTests(unittest.TestCase):
 
     def test_cli_unknown_series_returns_controlled_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "macro.sqlite"
+            db = Path(tmp) / "indicators.sqlite"
 
             self.assertEqual(main(["get", "jp.cpi.stale", "--latest", "--db", str(db)]), 1)

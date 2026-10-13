@@ -16,11 +16,11 @@ from baibai_engine.market_context.assessment.query import (
     list_assessment_payloads,
 )
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
-from baibai_engine.market_context.reading.models import snapshot_payload
 from baibai_engine.market_context.reading.query import (
     READING_RULES_PATH,
     read_store_snapshot,
     reading_snapshot,
+    store_snapshot_payload,
 )
 from baibai_engine.market_context.reading.reader import build_store_observation_reader
 from baibai_engine.market_context.security import build_security_market_context
@@ -74,7 +74,7 @@ def indicator_fetch_health(path: Path) -> list[dict[str, object]]:
 
 
 def indicator_series_names() -> dict[str, str]:
-    """Return canonical macro series display names for read-only consumers."""
+    """Return canonical indicator series display names for read-only consumers."""
     return {item.series_id: item.name for item in load_definitions().series}
 
 
@@ -107,9 +107,9 @@ def indicator_series(
     limit: int | None = 36,
 ) -> dict[str, object] | None:
     if granularity not in {"daily", "weekly", "monthly", "yearly"}:
-        raise ValueError(f"unsupported macro granularity: {granularity}")
+        raise ValueError(f"unsupported indicator granularity: {granularity}")
     if start is not None and end is not None and end < start:
-        raise ValueError("macro indicator end must be on or after start")
+        raise ValueError("indicator end must be on or after start")
     if not path.is_file():
         return None
     registry = _registry_by_id()
@@ -147,7 +147,7 @@ def indicator_series(
     points = _aggregate_period_end(points, granularity=granularity)
     if limit is not None:
         if limit < 1:
-            raise ValueError("macro indicator limit must be positive")
+            raise ValueError("indicator limit must be positive")
         points = points[-limit:]
     return {
         "series_id": series_id,
@@ -192,7 +192,7 @@ def _aggregate_period_end(
             case "yearly":
                 key = (observed_at.year,)
             case _:
-                raise AssertionError(f"unreachable macro granularity: {granularity}")
+                raise AssertionError(f"unreachable indicator granularity: {granularity}")
         period_end[key] = point
     return list(period_end.values())
 
@@ -292,7 +292,7 @@ def stored_indicator_rows(
                 limit=limit,
             )
         if kind != "provider_runs":
-            raise ValueError("unknown macro row kind")
+            raise ValueError("unknown indicator row kind")
         from baibai_engine.foundation.sqlite_pages import jst_day_ranges
 
         return select_page(
@@ -317,6 +317,6 @@ def stored_reading(path: Path, *, asof: date) -> dict[str, object]:
 
     with required_read(path, open_read_only_connection) as connection:
         validate_current_schema(connection)
-        return snapshot_payload(
+        return store_snapshot_payload(
             read_store_snapshot(connection, asof=asof, rules_path=READING_RULES_PATH)
         )

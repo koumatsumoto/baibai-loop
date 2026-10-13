@@ -31,7 +31,7 @@ def test_api_exposes_read_views_and_spa_fallback(app_method_root: Path) -> None:
         screening = client.get("/api/screening/latest")
         screening_history = client.get("/api/screening/history")
         previous_screening = client.get("/api/screening/history/2026-07-01")
-        macro = client.get("/api/macro?as_of=2026-07-19")
+        market_context_response = client.get("/api/market-context?as_of=2026-07-19")
         detail = client.get("/api/securities/2331")
 
         assert health.status_code == 200
@@ -50,10 +50,10 @@ def test_api_exposes_read_views_and_spa_fallback(app_method_root: Path) -> None:
         assert len(previous_screening.json()["rows"]) == 3
         assert previous_screening.json()["rows"][0]["portfolio_state"] == "held"
         assert previous_screening.json()["rows"][0]["has_research"] is True
-        assert macro.status_code == 200
-        assert macro.json()["reading"]["as_of"] == "2026-07-19"
-        assert macro.json()["reports"] == []
-        assert [group["title"] for group in macro.json()["groups"]] == [
+        assert market_context_response.status_code == 200
+        assert market_context_response.json()["reading"]["as_of"] == "2026-07-19"
+        assert market_context_response.json()["reports"] == []
+        assert [group["title"] for group in market_context_response.json()["groups"]] == [
             "金利・金融政策",
             "インフレ・賃金",
             "景気・雇用",
@@ -62,13 +62,13 @@ def test_api_exposes_read_views_and_spa_fallback(app_method_root: Path) -> None:
             "コモディティ",
             "株式・バリュエーション",
         ]
-        macro_series = {
+        indicator_series = {
             series["series_id"]: series
-            for group in macro.json()["groups"]
+            for group in market_context_response.json()["groups"]
             for series in group["series"]
         }
-        assert macro_series["us.10y"]["tradingview_symbol"] == "TVC:US10Y"
-        assert macro_series["jp.pmi_manufacturing"]["tradingview_symbol"] is None
+        assert indicator_series["us.10y"]["tradingview_symbol"] == "TVC:US10Y"
+        assert indicator_series["jp.pmi_manufacturing"]["tradingview_symbol"] is None
         assert detail.status_code == 200
         assert detail.json()["ticker"] == "2331"
         assert len(detail.json()["latest_thesis"]["projection"]["raw"]["permanent_loss_risks"]) == 7
@@ -119,7 +119,7 @@ def test_api_meta_reports_store_freshness(app_method_root: Path) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["screening_as_of"] == "2026-07-08"
-    assert body["macro_as_of"] is None
+    assert body["indicators_as_of"] is None
     # Newest judgment write in the fixture is a task created on 2026-07-18 (JST date).
     assert datetime.fromisoformat(body["app_db_updated_at"]) == datetime(
         2026, 7, 18, 0, 0, tzinfo=ZoneInfo("Asia/Tokyo")
@@ -129,10 +129,10 @@ def test_api_meta_reports_store_freshness(app_method_root: Path) -> None:
     assert datetime.fromisoformat(body["generated_at"]).tzinfo is not None
 
 
-def test_macro_series_api_returns_only_the_requested_series(app_method_root: Path) -> None:
+def test_indicator_series_api_returns_only_the_requested_series(app_method_root: Path) -> None:
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
-        response = client.get("/api/macro/series/us.10y?as_of=2026-07-19")
-        missing = client.get("/api/macro/series/not.registered")
+        response = client.get("/api/market-context/indicators/us.10y?as_of=2026-07-19")
+        missing = client.get("/api/market-context/indicators/not.registered")
 
     assert response.status_code == 200
     assert response.json()["series_id"] == "us.10y"
@@ -140,9 +140,11 @@ def test_macro_series_api_returns_only_the_requested_series(app_method_root: Pat
     assert missing.status_code == 404
 
 
-def test_macro_brief_reports_every_registered_series_without_history(app_method_root: Path) -> None:
+def test_market_context_overview_reports_every_registered_series_without_history(
+    app_method_root: Path,
+) -> None:
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
-        response = client.get("/api/macro?as_of=2026-07-19")
+        response = client.get("/api/market-context?as_of=2026-07-19")
 
     assert response.status_code == 200
     brief = response.json()
@@ -163,7 +165,7 @@ def test_macro_brief_reports_every_registered_series_without_history(app_method_
     )
 
 
-def test_macro_reading_api_surfaces_a_failed_acquisition_before_it_turns_stale(
+def test_reading_api_surfaces_a_failed_acquisition_before_it_turns_stale(
     app_method_root: Path,
 ) -> None:
     """A silent provider must be visible immediately, not after the staleness threshold.
@@ -173,7 +175,7 @@ def test_macro_reading_api_surfaces_a_failed_acquisition_before_it_turns_stale(
     signal that arrives on the day it breaks.
     """
 
-    store = app_method_root / "stores/macro/macro.sqlite"
+    store = app_method_root / "stores/market_context/indicators.sqlite"
     with sqlite3.connect(store) as connection:
         connection.execute(
             """
@@ -189,7 +191,7 @@ def test_macro_reading_api_surfaces_a_failed_acquisition_before_it_turns_stale(
         )
 
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
-        body = client.get("/api/macro?as_of=2026-07-19").json()["reading"]
+        body = client.get("/api/market-context?as_of=2026-07-19").json()["reading"]
 
     failed = [item for item in body["fetch_health"] if item["status"] != "ok"]
     assert [item["series_id"] for item in failed] == ["us.10y"]
@@ -199,21 +201,21 @@ def test_macro_reading_api_surfaces_a_failed_acquisition_before_it_turns_stale(
     assert body["series"]
 
 
-def test_macro_brief_survives_without_an_indicator_store(
+def test_market_context_overview_survives_without_an_indicator_store(
     app_method_root: Path,
 ) -> None:
     """A missing store must let the page hide the panel, not fail the request handler."""
 
-    (app_method_root / "stores/macro/macro.sqlite").unlink()
+    (app_method_root / "stores/market_context/indicators.sqlite").unlink()
 
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
-        response = client.get("/api/macro?as_of=2026-07-19")
+        response = client.get("/api/market-context?as_of=2026-07-19")
 
     assert response.status_code == 200
     assert response.json()["reading"] is None
 
 
-def test_macro_api_indexes_published_reports_without_full_sections(
+def test_market_context_api_indexes_published_reports_without_full_sections(
     app_method_root: Path,
 ) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"
@@ -234,7 +236,7 @@ def test_macro_api_indexes_published_reports_without_full_sections(
     seed_history(db_path, (document).document, supersedes=previous.context_id)
 
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
-        response = client.get("/api/macro?as_of=2026-07-19")
+        response = client.get("/api/market-context?as_of=2026-07-19")
 
     assert response.status_code == 200
     body = response.json()
@@ -254,7 +256,7 @@ def test_macro_api_indexes_published_reports_without_full_sections(
     assert [report["context_id"] for report in body["reports"]] == [previous.context_id]
 
 
-def test_macro_context_detail_renders_core_ten_plus_connection_and_series_names(
+def test_market_context_assessment_detail_renders_core_ten_plus_connection_and_series_names(
     app_method_root: Path,
 ) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"
@@ -262,7 +264,9 @@ def test_macro_context_detail_renders_core_ten_plus_connection_and_series_names(
     seed_history(db_path, (document).document, supersedes=None)
 
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
-        response = client.get(f"/api/macro/context/{document.context_id}?as_of=2026-07-19")
+        response = client.get(
+            f"/api/market-context/assessments/{document.context_id}?as_of=2026-07-19"
+        )
 
     assert response.status_code == 200
     body = response.json()
@@ -303,7 +307,7 @@ def test_macro_context_detail_renders_core_ten_plus_connection_and_series_names(
     assert body["connection"]["estimate_caveats"][0]["affected_component"] == "fv_anchor"
 
 
-def test_macro_context_detail_serves_a_revision_without_the_strategy_layer(
+def test_market_context_assessment_detail_serves_a_revision_without_the_strategy_layer(
     app_method_root: Path,
 ) -> None:
     """A report published before the integrated layer keeps its detail page."""
@@ -314,19 +318,21 @@ def test_macro_context_detail_serves_a_revision_without_the_strategy_layer(
     with sqlite3.connect(db_path) as connection:
         connection.execute(
             """
-            INSERT INTO macro_context (
+            INSERT INTO market_context_assessment (
                 context_id, schema_version, as_of, published_at, supersedes_id, payload
             ) VALUES (?, 4, ?, ?, NULL, ?)
             """,
             (legacy["context_id"], legacy["as_of"], legacy["published_at"], json.dumps(legacy)),
         )
         connection.execute(
-            "INSERT INTO macro_context_head(singleton, context_id) VALUES (1, ?)",
+            "INSERT INTO market_context_assessment_head(singleton, context_id) VALUES (1, ?)",
             (legacy["context_id"],),
         )
 
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
-        response = client.get(f"/api/macro/context/{legacy['context_id']}?as_of=2026-07-19")
+        response = client.get(
+            f"/api/market-context/assessments/{legacy['context_id']}?as_of=2026-07-19"
+        )
 
     assert response.status_code == 200
     body = response.json()
@@ -344,13 +350,15 @@ def test_history_id_is_available_independently_of_analysis_date(
     seed_history(db_path, (document).document, supersedes=None)
 
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
-        assert client.get("/api/macro/context/does-not-exist").status_code == 404
+        assert client.get("/api/market-context/assessments/does-not-exist").status_code == 404
         # ID retrieval is historical viewing, not analytical eligibility.
-        future = client.get(f"/api/macro/context/{document.context_id}?as_of=2026-07-01")
+        future = client.get(
+            f"/api/market-context/assessments/{document.context_id}?as_of=2026-07-01"
+        )
         assert future.status_code == 200
 
 
-def test_macro_history_keeps_an_earlier_contract_visible(
+def test_assessment_history_keeps_an_earlier_contract_visible(
     app_method_root: Path,
 ) -> None:
     """Older revisions stay in the table as a log; the UI is never asked to render them."""
@@ -367,7 +375,7 @@ def test_macro_history_keeps_an_earlier_contract_visible(
     with sqlite3.connect(db_path) as connection:
         connection.execute(
             """
-            INSERT INTO macro_context(
+            INSERT INTO market_context_assessment(
                 context_id, schema_version, as_of, published_at, supersedes_id, payload
             ) VALUES (?, 2, ?, ?, NULL, ?)
             """,
@@ -380,14 +388,16 @@ def test_macro_history_keeps_an_earlier_contract_visible(
         )
 
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
-        detail = client.get(f"/api/macro/context/{payload['context_id']}?as_of=2026-07-19")
-        overview = client.get("/api/macro?as_of=2026-07-19")
+        detail = client.get(
+            f"/api/market-context/assessments/{payload['context_id']}?as_of=2026-07-19"
+        )
+        overview = client.get("/api/market-context?as_of=2026-07-19")
 
     assert detail.status_code == 200
     assert overview.json()["reports"][0]["context_id"] == payload["context_id"]
 
 
-def test_macro_api_preserves_immutable_context_when_series_definition_is_absent(
+def test_market_context_api_preserves_immutable_context_when_series_definition_is_absent(
     app_method_root: Path, mocker
 ) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"
@@ -396,7 +406,9 @@ def test_macro_api_preserves_immutable_context_when_series_definition_is_absent(
     mocker.patch("baibai_web.readmodel.assessment.indicator_series_names", return_value={})
 
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
-        response = client.get(f"/api/macro/context/{document.context_id}?as_of=2026-07-19")
+        response = client.get(
+            f"/api/market-context/assessments/{document.context_id}?as_of=2026-07-19"
+        )
 
     assert response.status_code == 200
     assert response.json()["core"][0]["series"] == [{"series_id": "us.10y", "name": "us.10y"}]

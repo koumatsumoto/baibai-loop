@@ -175,7 +175,7 @@ class ReadingRules(_StrictModel):
         base = self.defaults.get(frequency)
         if base is None:
             raise ReadingRulesError(
-                f"macro reading rules have no defaults for frequency {frequency!r} "
+                f"Reading rules have no defaults for frequency {frequency!r} "
                 f"(needed by {series_id})"
             )
         override = self.overrides.get(series_id, SeriesOverride())
@@ -198,14 +198,12 @@ class ReadingRules(_StrictModel):
         explicit_staleness_warn_days = staleness_warn_days is not None
         if staleness_warn_days is None:
             if publication_lag_days is None or staleness_margin_days is None:
-                raise ReadingRulesError(
-                    f"macro reading rules cannot derive staleness for {series_id!r}"
-                )
+                raise ReadingRulesError(f"Reading rules cannot derive staleness for {series_id!r}")
             try:
                 publication_interval_days = PUBLICATION_INTERVAL_DAYS[publication_cadence]
             except KeyError as exc:
                 raise ReadingRulesError(
-                    f"macro reading rules cannot derive a publication interval "
+                    f"Reading rules cannot derive a publication interval "
                     f"for cadence {publication_cadence!r} (needed by {series_id})"
                 ) from exc
             staleness_warn_days = (
@@ -297,15 +295,15 @@ def load_reading_rules(path: Path = DEFAULT_RULES_PATH) -> ReadingRules:
     try:
         raw = strict_safe_load(path.read_text(encoding="utf-8"))
     except ValueError as exc:
-        raise ReadingRulesError(f"invalid macro reading rules: {path}: {exc}") from exc
+        raise ReadingRulesError(f"invalid Reading rules: {path}: {exc}") from exc
     except OSError as exc:
-        raise ReadingRulesError(f"failed to read macro reading rules: {path}: {exc}") from exc
+        raise ReadingRulesError(f"failed to read Reading rules: {path}: {exc}") from exc
     if not isinstance(raw, Mapping):
-        raise ReadingRulesError(f"macro reading rules root must be a mapping: {path}")
+        raise ReadingRulesError(f"Reading rules root must be a mapping: {path}")
     try:
         return ReadingRules.model_validate(raw)
     except ValidationError as exc:
-        raise ReadingRulesError(f"invalid macro reading rules: {path}: {exc}") from exc
+        raise ReadingRulesError(f"invalid Reading rules: {path}: {exc}") from exc
 
 
 def rules_revision(path: Path = DEFAULT_RULES_PATH) -> str:
@@ -330,7 +328,7 @@ def _publication_cadence(frequency: str, *, series_id: str) -> PublicationCadenc
             return frequency
         case _:
             raise ReadingRulesError(
-                f"macro reading rules cannot derive a publication cadence "
+                f"Reading rules cannot derive a publication cadence "
                 f"for frequency {frequency!r} (needed by {series_id})"
             )
 

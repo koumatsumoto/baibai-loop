@@ -29,7 +29,7 @@ class AssessmentService:
             if connection.execute("PRAGMA user_version").fetchone()[0] == 0:
                 return None
             row = connection.execute(
-                "SELECT context_id FROM macro_context_head WHERE singleton=1"
+                "SELECT context_id FROM market_context_assessment_head WHERE singleton=1"
             ).fetchone()
             return None if row is None else str(row[0])
 
@@ -42,11 +42,12 @@ class AssessmentService:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 row = connection.execute(
-                    "SELECT context_id FROM macro_context_head WHERE singleton=1"
+                    "SELECT context_id FROM market_context_assessment_head WHERE singleton=1"
                 ).fetchone()
                 current = None if row is None else str(row[0])
                 saved = connection.execute(
-                    "SELECT payload, supersedes_id FROM macro_context WHERE context_id=?",
+                    "SELECT payload, supersedes_id FROM market_context_assessment "
+                    "WHERE context_id=?",
                     (document.context_id,),
                 ).fetchone()
                 if saved is not None:
@@ -66,7 +67,8 @@ class AssessmentService:
                     )
                 connection.execute(
                     (
-                        "INSERT INTO macro_context(context_id,schema_version,as_of,published_at,"
+                        "INSERT INTO market_context_assessment("
+                        "context_id,schema_version,as_of,published_at,"
                         "supersedes_id,payload) VALUES(?,?,?,?,?,?)"
                     ),
                     (
@@ -80,7 +82,8 @@ class AssessmentService:
                 )
                 connection.execute(
                     (
-                        "INSERT INTO macro_context_head(singleton,context_id) VALUES(1,?) "
+                        "INSERT INTO market_context_assessment_head(singleton,context_id) "
+                        "VALUES(1,?) "
                         "ON CONFLICT(singleton) DO UPDATE SET context_id=excluded.context_id"
                     ),
                     (document.context_id,),

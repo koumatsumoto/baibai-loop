@@ -131,7 +131,7 @@ describe('Dashboard valuation display', () => {
     const meta: MetaView = {
       generated_at: '2026-09-24T20:42:00+09:00',
       data_updated_at: '2026-09-24T00:00:00+09:00',
-      screening_as_of: null, macro_as_of: null, app_db_updated_at: null, batch: null,
+      screening_as_of: null, indicators_as_of: null, app_db_updated_at: null, batch: null,
     }
     const html = renderToStaticMarkup(createElement(FreshnessMeta, {
       meta, deployedAt: '2026-09-24T19:00:00+09:00',

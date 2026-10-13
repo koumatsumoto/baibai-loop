@@ -389,7 +389,7 @@ def test_acquire_main_does_not_write_publication_outputs(tmp_path, monkeypatch):
 def test_workflow_has_one_terminal_notifier_outside_matrix_with_step_only_existing_secret():
     repository = Path(__file__).resolve().parents[2]
     workflow = yaml.load(
-        (repository / ".github/workflows/cloud-retail-dynamics.yml").read_text(),
+        (repository / ".github/workflows/cloud-external-assessment.yml").read_text(),
         Loader=yaml.BaseLoader,
     )
     assert set(workflow["on"]) == {"workflow_dispatch", "schedule"}

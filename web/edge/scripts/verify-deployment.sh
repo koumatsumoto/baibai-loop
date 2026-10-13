@@ -86,8 +86,8 @@ paths=(
   /api/screening/history
   /api/operations
   /api/meta
-  /api/macro
-  /api/macro/series/us.10y
+  /api/market-context
+  /api/market-context/indicators/us.10y
   "/api/securities/${ticker}"
 )
 
@@ -96,8 +96,8 @@ paths=(
 # every route the Worker answers is exercised without depending on which keys exist.
 absent_key_paths=(
   /api/screening/history/2000-01-01
-  /api/macro/context/no-such-context
-  /api/macro/series/no.such.series
+  /api/market-context/assessments/no-such-context
+  /api/market-context/indicators/no.such.series
   /api/assessments/no-such-assessment
   /api/securities/ZZZZ
 )

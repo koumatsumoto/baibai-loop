@@ -183,7 +183,7 @@ def _unfetched_indicator_view(configured: IndicatorSeriesConfig) -> IndicatorSer
 
     registered = registered_indicator(configured.series_id)
     if registered is None:
-        raise ValueError(f"configured macro series is not registered: {configured.series_id}")
+        raise ValueError(f"configured indicator series is not registered: {configured.series_id}")
     name = str(registered["name"])
     return IndicatorSeriesView(
         series_id=configured.series_id,

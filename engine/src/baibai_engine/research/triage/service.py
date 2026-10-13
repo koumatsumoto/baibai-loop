@@ -36,10 +36,14 @@ class ResearchTriageService:
         known_at: datetime | None = None,
         now: datetime | None = None,
     ) -> ResearchTriage:
+        if not isinstance(triage, ResearchTriage):
+            raise ResearchTriageConflictError("stored Triage projections are read-only")
         app_db_path = database_path(self._db_path)
-        if triage.macro_context_id is not None:
+        if triage.market_context_assessment_id is not None:
             try:
-                record = assessment_by_id(app_db_path, context_id=triage.macro_context_id)
+                record = assessment_by_id(
+                    app_db_path, context_id=triage.market_context_assessment_id
+                )
                 if (
                     select_assessment(
                         [record], as_of=triage.as_of, known_at=known_at or triage.published_at

@@ -89,7 +89,7 @@ L1/L2は定期処理へ、L3は明示開始へ分ける。新規と保有を区�
 
 ## 4. 保存責務と正本
 
-storageは物理保存の技術責務であり、保存DBをL3そのものと呼ばない。application DBには判断と周辺業務の両方が入り、再生成可能なL2も用途に応じて異なる保存場所を使う。現在の物理SQLiteはapplication・market・経済指標（現物名はmacro）・screening runs・calibrationの五系統であり、三領域へ合わせて数を変えない。Readingは保存指標とdated規則からread-timeに計算し、独立DBを新設しない。
+storageは物理保存の技術責務であり、保存DBをL3そのものと呼ばない。application DBには判断と周辺業務の両方が入り、再生成可能なL2も用途に応じて異なる保存場所を使う。runtimeの物理SQLiteはapplication・market・経済指標・screening runs・calibrationの五系統であり、三領域へ合わせて数を変えない。Readingは保存指標とdated規則からread-timeに計算し、独立DBを新設しない。
 
 | 保存場所 | 正本・作業コピーの関係 | 意味/書込条件のowner |
 | --- | --- | --- |
@@ -98,7 +98,7 @@ storageは物理保存の技術責務であり、保存DBをL3そのものと呼
 | `stores/market/market.sqlite` | lake所有tableのruntime copy。`source_coverage`等のstore-local dataはR2 market store、`lake_store_origin`はコピーの由来 | source domain/SQL adapter。接続・schema・hydrateは共有storage |
 | `stores/screening/runs.sqlite` | 再生成可能なScreening Run・Review Set | Screening |
 | `stores/screening/calibration/current.sqlite` | 再生成可能なcalibration snapshot | Calibration |
-| `stores/macro/macro.sqlite` | 経済観測・vintage・取得情報の作業コピー | `market_context/indicators`の観測service・DB adapter |
+| `stores/market_context/indicators.sqlite` | 経済観測・vintage・取得情報の作業コピー | `market_context/indicators`の観測service・DB adapter |
 
 データ状態の正本はクラウド、PC/Actionsは更新元である。未公開変更を正本と区別し、取得世代を保持して競合上書きを止める。コピーの取得時点と反映状態を区別し、market storeを丸ごと消してstore-local dataを失わない。serving JSONは表示用派生物であり、application DBの本文や完了履歴の代替ではない。再取得できることは改定前情報の再現を保証しない。再生成可能なL2へ一律に永久保存を要求しない。
 
@@ -118,9 +118,9 @@ ER較正の意味契約と保存済み評価帯解釈・読取は`valuation/cali
 
 Market ContextのCLIは`market-context indicators / reading / assessment`で各ownerへ直接渡す。Webは指標・Readingの組立、現行assessmentの内容、保存された過去本文の表示を分ける。Owner MCPも同じread ownerを使い、取得・判断作成を読取に混ぜない。
 
-現在の保存契約はapplication schema20の`macro_context / macro_context_head`、assessment schema5の`context_id`と`macro-context-*` identityを使う。これらは現行の保存identityであり、旧writerを残す意味ではない。保存済みJSON・引用・IDを内部配置の変更で書き換えない。指標DB/R2 key、table/index、外部API route・serving keyの名称切替は次の一回切替で扱う。
+runtimeはapplication schema21の`market_context_assessment / market_context_assessment_head`と指標schema7の`stores/market_context/indicators.sqlite`を使う。新規assessmentはschema6・`market-context-assessment-*`、新規Triageはschema4・CAAはschema2で`market_context_assessment_id`を参照する。schema5もコンパクト判断の保存履歴であり、旧3/4の章立て履歴とは分ける。保存済みID・JSON・hash・引用・原時刻は再発行しない。旧Triage3/CAA1は元payloadを保持する読取projectionで参照・再開し、新writerへ読み替えて発行しない。HTTP/serving/MCPも領域名の入口一本とし、物理ストアの移行は[batch運用](../batch/OPERATIONS.md#market-context-identity-cutover)の明示手順で行う。
 
-Readingの現行選択先は`READING_RULES_PATH`が指す一つのdated fileである。保存された13判断が引用する`method/macro/reading/2026-08-01T100000+0900.yaml`を元bytes/pathで保持し、同内容の別current copyや転送aliasを置かない。新しいmethod置場の整理は、引用保全と一つの選択先を守る次段階の対象とする。
+Readingの現行選択先は`READING_RULES_PATH`が指す一つのdated fileである。保存された13判断が引用する`method/macro/reading/2026-08-01T100000+0900.yaml`を元bytes/pathで保持し、同内容の別current copyや転送aliasを置かない。methodの移設・複製・revision変更は名前切替の条件にしない。
 
 市場環境の明示判断は`market_context/assessment`が所有する。新writerは小さな判断一本で、旧固定章/確率/scorecard作成経路を持たない。履歴本文・ID・引用を保持し、分析入力は対象日とcallerが固定する利用可能時刻で選ぶ。
 
@@ -128,9 +128,9 @@ Readingの現行選択先は`READING_RULES_PATH`が指す一つのdated fileで�
 
 | 未完了項目 | 現行と最終境界の差分 |
 | --- | --- |
-| 永続identity | 指標DB/R2のmacro名、application判断table/index・ID/参照形式、外部API/serving名を維持中。#1438の外部評価移行と競合させず、値・vintage・原日時・JSON/引用を保つ切替を全体実装/レビュー後に行う。物理名の実装は本番移行を待たず隔離branchで準備できる |
+| 永続identityの本番受入 | External Assessmentのschema30→31とMarket Contextのapplication20→21/物理・公開名/新writer契約は隔離実装。最新正本からの一回切替・receipt/世代・保存JSON/参照の本番読戻しは未確認。通常batchへ移行を代行させない |
 | daily本番受入 | #1439でrun/Review Setの単一transaction、Screening失敗/日本休日時の指標更新・単一公開、history/実計算時刻保持を実装しmain28aefaaaへ反映済み。既存予定runの実取得・store/serving読戻しによる本番受入は未確認 |
-| 最終運用受入 | 実体配置・保存・公開・画面・CLI・docsの結合、四媒体の取得/読戻し、AI運用の有用性/根拠/時間を実運用で確認する |
+| 最終運用受入 | 実体配置・保存・公開・画面・CLI・docsの結合、四媒体の取得/読戻し、AI運用の有用性/根拠/時間を実運用で確認する。Readingのas_ofとResearchのknown_at/received_cutoffを混同せず、bulk改定履歴と公表vintageの異なる意味が三面へ同じ説明で伝わることを確認する |
 
 この表は現行実装の未完了範囲を示す。後続の取り込み時にも同じ文書の差分を照合し、実装に合わせて該当行を更新する。詳細な判断と移行証拠は#1414に残し、仕様は本書とreferenceへ統合する。
 

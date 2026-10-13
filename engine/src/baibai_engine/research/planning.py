@@ -14,7 +14,7 @@ from baibai_engine.position.ledger_read import load_ledger_in_transaction
 from baibai_engine.position.market_source import next_order_session
 from baibai_engine.position.policy import PORTFOLIO_POLICY
 from baibai_engine.position.valuation import current_portfolio
-from baibai_engine.research.capital_allocation import CapitalAllocationAssessment
+from baibai_engine.research.capital_allocation import StoredCapitalAllocationAssessment
 from baibai_engine.research.capital_inputs import (
     evaluate_allocation_in_transaction,
 )
@@ -45,7 +45,7 @@ def plan_limit(
         ).fetchone()
         if row is None:
             raise ValueError("allocation assessment is unavailable")
-        assessment = CapitalAllocationAssessment.model_validate(json.loads(str(row[0])))
+        assessment = StoredCapitalAllocationAssessment.from_payload(json.loads(str(row[0])))
         if assessment.result != "allocate":
             raise ValueError("assessment is not an allocate decision")
         alternative = next(

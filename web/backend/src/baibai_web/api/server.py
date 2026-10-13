@@ -167,8 +167,8 @@ def create_app(
             raise HTTPException(status_code=404, detail="capital allocation assessment not found")
         return view
 
-    @app.get("/api/macro", response_model=MarketContextView)
-    def macro(
+    @app.get("/api/market-context", response_model=MarketContextView)
+    def market_context_overview(
         sources: _SourceDependency,
         as_of: date | None = None,
         known_at: datetime | None = None,
@@ -178,8 +178,8 @@ def create_app(
             sources.market_context, as_of=as_of or cutoff.date(), known_at=cutoff
         )
 
-    @app.get("/api/macro/series/{series_id}", response_model=IndicatorSeriesView)
-    def macro_series(
+    @app.get("/api/market-context/indicators/{series_id}", response_model=IndicatorSeriesView)
+    def indicator_series_view(
         series_id: str,
         sources: _SourceDependency,
         as_of: date | None = None,
@@ -190,11 +190,13 @@ def create_app(
             as_of=as_of or datetime.now(_JST).date(),
         )
         if view is None:
-            raise HTTPException(status_code=404, detail="macro series is unavailable")
+            raise HTTPException(status_code=404, detail="indicator series is unavailable")
         return view
 
-    @app.get("/api/macro/context/{context_id}", response_model=AssessmentPublicationView)
-    def macro_context(
+    @app.get(
+        "/api/market-context/assessments/{context_id}", response_model=AssessmentPublicationView
+    )
+    def market_context_assessment(
         context_id: str,
         sources: _SourceDependency,
         as_of: date | None = None,

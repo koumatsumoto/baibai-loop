@@ -286,7 +286,7 @@ def test_published_terminal_suppresses_refetch_when_checkpoint_payloads_are_abse
     p = plan()
     store = FakeObjectStore()
     terminal = {
-        "format": "retail-published-batch-v1",
+        "format": "external-assessment-published-batch-v1",
         "plan_sha256": p.plan_sha256,
         "release_id": "synthetic-published",
         "release_manifest_sha256": "a" * 64,

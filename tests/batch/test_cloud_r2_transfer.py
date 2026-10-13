@@ -57,6 +57,17 @@ if [[ "$1 $2" == "s3api head-object" ]]; then
     shift
   done
   slug="$(printf '%s' "$key" | tr / _)"
+  if [[ -n "$wants_etag" && "${AWS_FAKE_REQUIRE_EXISTING_ETAG:-}" == "1" ]]; then
+    exists=0
+    [[ -s "${AWS_FAKE_STATE}/generation-${slug}" ]] && exists=1
+    for existing in ${AWS_FAKE_EXISTING_KEY:+${AWS_FAKE_EXISTING_KEY//:/ }}; do
+      [[ "$key" == "$existing" ]] && exists=1
+    done
+    if [[ "$exists" == 0 || -f "${AWS_FAKE_STATE}/deleted-${slug}" ]]; then
+      printf 'NoSuchKey\\n' >&2
+      exit 254
+    fi
+  fi
   if [[ -n "$wants_etag" ]]; then
     # Counts the calls per key so a test can make one object change mid-pull:
     # the version query runs once before the downloads and once after.
@@ -148,7 +159,11 @@ if [[ "$1 $2" == "s3api put-object" ]]; then
   body=""
   expected=""
   wants_etag=""
+  expected_absent=""
   while [[ $# -gt 0 ]]; do
+    if [[ "$1" == "--if-none-match" ]]; then
+      expected_absent="$2"
+    fi
     if [[ "$1" == "--key" ]]; then
       key="$2"
     fi
@@ -163,10 +178,22 @@ if [[ "$1 $2" == "s3api put-object" ]]; then
     fi
     shift
   done
-  if [[ "$key" == "baibai.sqlite" && -n "$expected" ]]; then
+  if [[ "$expected_absent" == "*" ]]; then
+    slug="$(printf '%s' "$key" | tr / _)"
+    exists=0
+    [[ -s "${AWS_FAKE_STATE}/generation-${slug}" ]] && exists=1
+    for existing in ${AWS_FAKE_EXISTING_KEY:+${AWS_FAKE_EXISTING_KEY//:/ }}; do
+      [[ "$key" == "$existing" ]] && exists=1
+    done
+    if [[ "$exists" == 1 && ! -f "${AWS_FAKE_STATE}/deleted-${slug}" ]]; then
+      printf 'PreconditionFailed\\n' >&2
+      exit 255
+    fi
+  fi
+  if [[ ( "$key" == "baibai.sqlite" || "${AWS_FAKE_REQUIRE_EXISTING_ETAG:-}" == "1" ) && -n "$expected" ]]; then
     current='"etag-stable"'
-    if [[ -s "${AWS_FAKE_STATE}/generation-baibai.sqlite" ]]; then
-      current="\\\"etag-put-$(wc -c < "${AWS_FAKE_STATE}/generation-baibai.sqlite" | tr -d ' ')\\\""
+    if [[ -s "${AWS_FAKE_STATE}/generation-${key}" ]]; then
+      current="\\\"etag-put-$(wc -c < "${AWS_FAKE_STATE}/generation-${key}" | tr -d ' ')\\\""
     fi
     if [[ "$expected" != "$current" ]]; then
       printf 'PreconditionFailed\\n' >&2
@@ -309,7 +336,7 @@ def _environment(bin_dir: Path, log: Path) -> dict[str, str]:
     state.mkdir(exist_ok=True)
     generation_dir = bin_dir.parent / "r2-generations"
     generation_dir.mkdir(exist_ok=True)
-    for key in ("market.sqlite", "runs.sqlite", "macro.sqlite"):
+    for key in ("market.sqlite", "runs.sqlite", "indicators.sqlite"):
         (generation_dir / f"{key}.etag").write_text('"etag-stable"\n', encoding="utf-8")
     environment = {
         **os.environ,
@@ -617,7 +644,7 @@ def test_pull_runs_is_scoped_to_the_cloud_authoritative_run_store() -> None:
 
     assert "pull_keys runs.sqlite" in block
     assert "market.sqlite" not in block
-    assert "macro.sqlite" not in block
+    assert "indicators.sqlite" not in block
 
 
 @pytest.mark.parametrize("subcommand", ["upload-serving-views", "publish-serving-tail"])
@@ -707,7 +734,7 @@ def test_initial_seed_ignores_a_kept_generation_of_an_absent_store(tmp_path: Pat
     # recovery seed after the real key was lost would be refused.
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
-    env["AWS_FAKE_EXISTING_KEY"] = "macro.sqlite.bak"
+    env["AWS_FAKE_EXISTING_KEY"] = "indicators.sqlite.bak"
 
     completed = subprocess.run(
         [TRANSFER_SCRIPT, "seed-all"],
@@ -832,7 +859,7 @@ def test_a_push_that_stops_partway_leaves_no_receipt_for_the_set_it_made(
     assert len(pushed) == 2
     assert "--key market.sqlite" in pushed[0]
     assert "--key runs.sqlite" in pushed[1]
-    assert not any("--key macro.sqlite" in command for command in pushed)
+    assert not any("--key indicators.sqlite" in command for command in pushed)
     assert _receipt(Path(env["AWS_FAKE_STATE"])) is None
 
 
@@ -845,7 +872,7 @@ def test_a_bundle_pull_refuses_a_set_the_receipt_does_not_name(tmp_path: Path) -
         '  "keys": {\n'
         '    "market.sqlite": "etag-before-the-failed-push",\n'
         '    "runs.sqlite": "etag-stable",\n'
-        '    "macro.sqlite": "etag-stable"\n  }\n}\n'
+        '    "indicators.sqlite": "etag-stable"\n  }\n}\n'
     )
 
     completed = _pull_machine(tmp_path, receipt=stale)
@@ -870,13 +897,20 @@ def test_a_bundle_pull_accepts_the_set_the_receipt_names(tmp_path: Path) -> None
         '  "keys": {\n'
         '    "market.sqlite": "etag-stable",\n'
         '    "runs.sqlite": "etag-stable",\n'
-        '    "macro.sqlite": "etag-stable"\n  }\n}\n'
+        '    "indicators.sqlite": "etag-stable"\n  }\n}\n'
     )
 
     completed = _pull_machine(tmp_path, receipt=current)
 
     assert completed.returncode == 0, completed.stderr
     assert "machine bundle receipt matches" in completed.stdout
+
+
+def test_legacy_indicator_key_cannot_satisfy_new_machine_receipt(tmp_path: Path) -> None:
+    receipt = '{"keys":{"market.sqlite":"etag-stable","runs.sqlite":"etag-stable","macro.sqlite":"etag-stable"}}'
+    result = _pull_machine(tmp_path, receipt=receipt)
+    assert result.returncode == 1
+    assert "receipt names no generation" in result.stderr
 
 
 def test_a_receipt_that_does_not_read_back_refuses_rather_than_passing(tmp_path: Path) -> None:
@@ -1030,7 +1064,7 @@ def test_the_documented_recovery_puts_a_partially_pushed_bucket_back_in_step(
     # The generations moved: the recovery published a set, it did not restate the old one.
     assert '"market.sqlite": "etag-put-3"' in rewritten
     assert '"runs.sqlite": "etag-put-2"' in rewritten
-    assert '"macro.sqlite": "etag-put-2"' in rewritten
+    assert '"indicators.sqlite": "etag-put-2"' in rewritten
 
     # And the receipt the recovery wrote is one a later pull verifies against.
     verified = run("pull-machine")
@@ -1090,7 +1124,7 @@ def test_machine_store_push_reports_where_each_key_spends_its_time(tmp_path: Pat
     )
     # The staged snapshot is what gets uploaded, so its size is the transferred byte
     # count. The fake snapshot writes one byte.
-    assert reported == {"market.sqlite": "1", "runs.sqlite": "1", "macro.sqlite": "1"}
+    assert reported == {"market.sqlite": "1", "runs.sqlite": "1", "indicators.sqlite": "1"}
 
 
 def _push_app(
@@ -1266,7 +1300,7 @@ def test_machine_store_backups_stay_a_single_generation(tmp_path: Path) -> None:
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
     env["GITHUB_ACTIONS"] = "true"
-    env["AWS_FAKE_EXISTING_KEY"] = "macro.sqlite"
+    env["AWS_FAKE_EXISTING_KEY"] = "indicators.sqlite"
 
     subprocess.run(
         [TRANSFER_SCRIPT, "push-machine"],
@@ -1281,7 +1315,7 @@ def test_machine_store_backups_stay_a_single_generation(tmp_path: Path) -> None:
     ]
 
     assert len(backups) == 1
-    assert "--key macro.sqlite.bak " in f"{backups[0]} "
+    assert "--key indicators.sqlite.bak " in f"{backups[0]} "
 
 
 def test_machine_store_push_keeps_one_generation_of_the_store_it_replaces(
@@ -1290,7 +1324,7 @@ def test_machine_store_push_keeps_one_generation_of_the_store_it_replaces(
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
     env["GITHUB_ACTIONS"] = "true"
-    env["AWS_FAKE_EXISTING_KEY"] = "macro.sqlite"
+    env["AWS_FAKE_EXISTING_KEY"] = "indicators.sqlite"
 
     completed = subprocess.run(
         [TRANSFER_SCRIPT, "push-machine"],
@@ -1307,7 +1341,7 @@ def test_machine_store_push_keeps_one_generation_of_the_store_it_replaces(
     uploads = [
         index
         for index, command in enumerate(commands)
-        if command.startswith("s3api put-object ") and "--key macro.sqlite" in command
+        if command.startswith("s3api put-object ") and "--key indicators.sqlite" in command
     ]
     assert len(backups) == 1
     assert len(uploads) == 1
@@ -1315,8 +1349,8 @@ def test_machine_store_push_keeps_one_generation_of_the_store_it_replaces(
     # CopyObject: `aws s3 cp` picks its S3-to-S3 implementation by object size and both
     # branches ask R2 for tagging operations it does not implement.
     assert commands[backups[0]].startswith("s3api copy-object ")
-    assert "--key macro.sqlite.bak" in commands[backups[0]]
-    assert "--copy-source baibai-stores/macro.sqlite" in commands[backups[0]]
+    assert "--key indicators.sqlite.bak" in commands[backups[0]]
+    assert "--copy-source baibai-stores/indicators.sqlite" in commands[backups[0]]
     assert '--copy-source-if-match "etag-stable"' in commands[backups[0]]
     assert backups[0] < uploads[0]
 
@@ -1346,14 +1380,14 @@ def test_store_backup_waits_past_the_cli_default_read_timeout(tmp_path: Path) ->
     assert int(arguments[arguments.index("--cli-read-timeout") + 1]) > 60
 
 
-def test_macro_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> None:
+def test_indicator_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> None:
     # Runs outside GitHub Actions on purpose: the deep history this publishes is fetched
     # locally, and the merge — not the caller's environment — is what guarantees the cloud
     # store is not rolled back.
     bin_dir, log = _fake_aws(tmp_path)
 
     completed = subprocess.run(
-        [TRANSFER_SCRIPT, "push-macro"],
+        [TRANSFER_SCRIPT, "push-indicators"],
         cwd=REPO_ROOT,
         env=_environment(bin_dir, log),
         check=False,
@@ -1366,13 +1400,13 @@ def test_macro_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> N
     downloads = [
         index
         for index, command in enumerate(commands)
-        if command.startswith("s3 cp s3://baibai-stores/macro.sqlite ")
+        if command.startswith("s3 cp s3://baibai-stores/indicators.sqlite ")
     ]
     merges = [index for index, command in enumerate(commands) if command.startswith("merge ")]
     uploads = [
         index
         for index, command in enumerate(commands)
-        if command.startswith("s3api put-object ") and "--key macro.sqlite" in command
+        if command.startswith("s3api put-object ") and "--key indicators.sqlite" in command
     ]
     migrations = [index for index, command in enumerate(commands) if command.startswith("migrate ")]
     assert len(downloads) == 1
@@ -1380,9 +1414,9 @@ def test_macro_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> N
     assert len(merges) == 1
     assert len(uploads) == 1
     assert downloads[0] < migrations[0] < merges[0] < uploads[0]
-    assert "--store macro" in commands[migrations[0]]
+    assert "--store indicators" in commands[migrations[0]]
     assert "--target" in commands[merges[0]]
-    assert "stores/macro/macro.sqlite" in commands[merges[0]]
+    assert "stores/market_context/indicators.sqlite" in commands[merges[0]]
     assert '--if-match "etag-stable"' in commands[uploads[0]]
     # Only the indicator store is published; market and runs stay owned by the batch.
     # The receipt that follows reads their generations back, so what has to stay absent
@@ -1396,13 +1430,13 @@ def test_macro_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> N
     assert all("runs.sqlite" not in command for command in writes)
 
 
-def test_macro_push_uploads_nothing_when_the_merge_refuses(tmp_path: Path) -> None:
+def test_indicator_push_uploads_nothing_when_the_merge_refuses(tmp_path: Path) -> None:
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
     env["MERGE_FAKE_EXIT"] = "1"
 
     completed = subprocess.run(
-        [TRANSFER_SCRIPT, "push-macro"],
+        [TRANSFER_SCRIPT, "push-indicators"],
         cwd=REPO_ROOT,
         env=env,
         check=False,
@@ -1413,7 +1447,7 @@ def test_macro_push_uploads_nothing_when_the_merge_refuses(tmp_path: Path) -> No
     assert completed.returncode != 0
     commands = _transfer_commands(log)
     assert not any(
-        command.startswith("s3api put-object ") and "--key macro.sqlite" in command
+        command.startswith("s3api put-object ") and "--key indicators.sqlite" in command
         for command in commands
     )
 
@@ -1460,7 +1494,7 @@ def test_market_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> 
         if command.startswith(("s3api put-object ", "s3api copy-object ", "s3 cp "))
     ]
     assert all("runs.sqlite" not in command for command in writes)
-    assert all("macro.sqlite" not in command for command in writes)
+    assert all("indicators.sqlite" not in command for command in writes)
 
 
 def test_market_dehydrate_resolves_current_and_leaves_identity_check_to_the_core(
@@ -1579,7 +1613,7 @@ def _machine_stores(root: Path) -> dict[str, Path]:
     return {
         "market.sqlite": root / "stores/market/market.sqlite",
         "runs.sqlite": root / "stores/screening/runs.sqlite",
-        "macro.sqlite": root / "stores/macro/macro.sqlite",
+        "indicators.sqlite": root / "stores/market_context/indicators.sqlite",
     }
 
 
@@ -1649,7 +1683,7 @@ def test_pull_machine_replaces_every_store_when_no_push_intervened(tmp_path: Pat
     } == {
         "market.sqlite.etag": '"etag-stable"\n',
         "runs.sqlite.etag": '"etag-stable"\n',
-        "macro.sqlite.etag": '"etag-stable"\n',
+        "indicators.sqlite.etag": '"etag-stable"\n',
     }
     assert not list(root.glob(".r2-transfer.*"))
 
@@ -1765,3 +1799,151 @@ def test_an_unknown_publish_lake_argument_is_refused(tmp_path: Path) -> None:
 
     assert completed.returncode == 2
     assert "usage:" in completed.stderr
+
+
+@pytest.mark.parametrize("place_new_keys", [False, True])
+def test_initial_identity_cutover_receipt_uses_one_push_market_and_fresh_pull(
+    tmp_path, place_new_keys
+):
+    """Real transfer script, isolated SQLite bodies, fake R2 only; no live credentials/requests."""
+    import json
+    import sqlite3
+
+    bin_dir, log = _fake_aws(tmp_path)
+    root = _fake_repo(tmp_path)
+    env = _environment(bin_dir, log)
+    env.update(
+        AWS_FAKE_EXISTING_KEY="market.sqlite:runs.sqlite:macro.sqlite:baibai.sqlite:machine-manifest.json",
+        AWS_FAKE_REQUIRE_EXISTING_ETAG="1",
+        SNAPSHOT_FAKE_COPY="1",
+    )
+    state = Path(env["AWS_FAKE_STATE"])
+    records = Path(env["R2_GENERATION_DIR"])
+    (records / "indicators.sqlite.etag").unlink()
+    (records / "macro.sqlite.etag").write_text('"etag-stable"\n')
+    old_receipt = json.dumps(
+        {
+            "schema_version": 1,
+            "keys": {
+                "market.sqlite": "etag-stable",
+                "runs.sqlite": "etag-stable",
+                "macro.sqlite": "etag-stable",
+            },
+        }
+    )
+    (state / "put-machine-manifest.json").write_text(old_receipt)
+
+    def db(path, version):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(path) as con:
+            con.execute("CREATE TABLE proof(value TEXT)")
+            con.execute("INSERT INTO proof VALUES('unchanged')")
+            con.execute(f"PRAGMA user_version={version}")
+        return path
+
+    market = db(root / "stores/market/market.sqlite", 31)
+    indicators = db(root / "stores/market_context/indicators.sqlite", 7)
+    app = db(root / "stores/application/baibai.sqlite", 21)
+    (state / "put-macro.sqlite").write_bytes(indicators.read_bytes())
+    old_indicator = (state / "put-macro.sqlite").read_bytes()
+
+    def put(key, body, condition, value):
+        return subprocess.run(
+            [
+                bin_dir / "aws",
+                "s3api",
+                "put-object",
+                "--bucket",
+                "baibai-stores",
+                "--key",
+                key,
+                "--body",
+                body,
+                condition,
+                value,
+                "--query",
+                "ETag",
+                "--output",
+                "text",
+            ],
+            env=env,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    def transfer(command, **overrides):
+        return subprocess.run(
+            [root / "batch/scripts/r2_transfer.sh", command],
+            cwd=root,
+            env={**env, **overrides},
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    assert put("market.sqlite", market, "--if-match", '"etag-stable"').returncode == 0
+    if place_new_keys:
+        assert put("indicators.sqlite", indicators, "--if-none-match", "*").returncode == 0
+        assert put("indicators.sqlite", indicators, "--if-none-match", "*").returncode != 0
+        assert put("baibai.sqlite", app, "--if-match", '"etag-stable"').returncode == 0
+        wrong_machine = transfer("push-machine", GITHUB_ACTIONS="true")
+        assert wrong_machine.returncode != 0
+        assert "no pulled R2 generation recorded for indicators.sqlite" in wrong_machine.stderr
+        assert (records / "market.sqlite.etag").read_text().strip() == '"etag-stable"'
+        early_pull = transfer("pull-machine")
+        assert early_pull.returncode != 0
+        assert "receipt names" in early_pull.stderr
+    log.write_text("")
+    refreshed = transfer("push-market")
+    commands = _transfer_commands(log)
+    puts = [c for c in commands if c.startswith("s3api put-object ")]
+    market_puts = [c for c in puts if "--key market.sqlite " in c]
+    assert len(market_puts) == 1
+    assert '--if-match "etag-put-1"' in market_puts[0]
+    if not place_new_keys:
+        assert refreshed.returncode != 0
+        assert _receipt(state) == old_receipt
+        assert not [c for c in puts if "--key machine-manifest.json" in c]
+        return
+    assert refreshed.returncode == 0, refreshed.stderr
+    merged = next(c for c in commands if c.startswith("merge "))
+    assert "merge_market_store" in merged
+    assert commands.index(merged) < commands.index(market_puts[0])
+    assert "--key machine-manifest.json" in puts[-1]
+    receipt = json.loads(_receipt(state))
+    assert receipt["keys"] == {
+        "market.sqlite": "etag-put-2",
+        "runs.sqlite": "etag-stable",
+        "indicators.sqlite": "etag-put-1",
+    }
+    assert "macro.sqlite" not in receipt["keys"]
+    assert not (records / "market.sqlite.etag").exists()
+    clean = _fake_repo(tmp_path / "clean")
+    fresh_records = tmp_path / "fresh-generations"
+    fresh_env = {**env, "R2_GENERATION_DIR": str(fresh_records)}
+
+    def fresh_transfer(command):
+        return subprocess.run(
+            [clean / "batch/scripts/r2_transfer.sh", command],
+            cwd=clean,
+            env=fresh_env,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    fresh = fresh_transfer("pull-machine")
+    assert fresh.returncode == 0, fresh.stderr
+    assert "machine bundle receipt matches" in fresh.stdout
+    for key, version in receipt["keys"].items():
+        assert (fresh_records / f"{key}.etag").read_text().strip() == f'"{version}"'
+    assert fresh_transfer("pull-app").returncode == 0
+    assert (fresh_records / "baibai.sqlite.etag").read_text().strip() == '"etag-put-1"'
+    assert (state / "put-macro.sqlite").read_bytes() == old_indicator
+    assert (
+        len((state / "generation-runs.sqlite").read_bytes()) == 0
+        if (state / "generation-runs.sqlite").exists()
+        else True
+    )
+    assert not [c for c in _transfer_commands(log) if c.startswith("s3api delete-object ")]

@@ -44,11 +44,11 @@ _READING_FIELDS: Mapping[str, str] = {
 # rate window は数分に及ぶことがあるため末尾は 10 分まで伸ばす。
 _RATE_LIMIT_BACKOFF_SECONDS = (30, 60, 120, 300, 600)
 _RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
-# 1 process が待避に費やせる総時間。日次 batch の 1 pass は 3 系列 x service の 2 回
-# 再試行 = 6 fetch を回すので、fetch ごとの予算では上限が 6 倍になり、拒否が続けば
-# 111 分眠って job timeout を超える——cancel は macro の失敗でなく、その日の
-# screening publish ごと失われることを意味する。予算は provider が持ち、pass 全体で
-# 1 つとする。使い切ったあとは待たずに落ちる: 数時間待っても拒否は明けない。
+# 429待機の総予算は系列・再試行ごとに増やさず、同一processの取得passで共有する。
+# 長い待機がjobのhard timeoutを超えるとprocessがcancelされ、通常の失敗returnでは
+# ないため、#1439の領域別失敗処理や最後の単一exportまで戻れない。既にcommitした
+# chunkは残るが、cancel時点の未完工程・公開は未実行となる。予算切れでは待たずに
+# 取得失敗として返し、独立工程がその失敗を処理できる範囲に待機を制限する。
 _BACKOFF_BUDGET_SECONDS = 20 * 60
 
 
