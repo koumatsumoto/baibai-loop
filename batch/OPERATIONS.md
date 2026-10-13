@@ -220,24 +220,6 @@ source versionを限定したtemporary one-shot toolとexact commandを用意し
 cloud反映が終わるまで保持する。完了証拠を残してから同じdeliveryのcleanupで削除する。現在のtreeに汎用cutover
 commandはないため、version不一致を見つけたoperatorは手書きSQLで進めず、schema変更issueへtoolを再構築する。
 
-<a id="explicit-research-cutover"></a>
-
-### 明示Research入口の21→22切替（#1481）
-
-PRレビュー・matching codeのmain反映後に、operatorが段階的に行う。runtimeやdailyは21を自動変換しない。22はCAAの`research_triage_id`をNULL許容にするだけで、新tableや判断の再生成を伴わない。
-
-1. application writerと未公開作業を確認し、21に対応するcheckoutで空の領域へfreshに`pull-app`する。DBと取得ETagを一組で保全する。過去の開発用コピーを公開元にしない。
-2. WAL込みの確認済み21 snapshotを入力に、22のmatching checkoutで以下の一時toolを実行する。出力は未存在の別ファイルとし、元DBを置換しない。
-
-   ```bash
-   uv run python -m tools.cutover.explicit_research_21_to_22 \
-     --source <SOURCE_SCHEMA21> --output <NEW_COPY_SCHEMA22>
-   ```
-
-3. `all_table_rows_unchanged`、全tableのrow counts、integrity/FK、台帳・未約定・既存Thesis/Review/CAA/完了Operationを確認する。toolは全rowの値とpayloadを照合し、元のhash・参照を保持する。失敗時の`.partial`は調査用に保持し、blind retryで上書きしない。
-4. 元DBも保持したまま、検証済み22の作業コピーと同じ取得世代を既存のapplication公開経路へ渡す。世代が変わっていれば公開せず、writer終了後にfreshな21からやり直す。前節のCAS・ledger preflight・Actions materializeを維持し、UI codeも合わせて反映する。
-5. fresh pull/readbackで旧記録と新しい両Research入口、提案一覧・詳細を確認する。移行証拠を残すまで一時toolを保持する。codeとstoreが揃う前のmaterialize失敗をデータ消失と解釈しない。
-
 ### application DB を復元する
 
 application DBは判断とledgerを保持するため再生成しない。通常のコピー更新は前節の`pull-app`を使う。この節は、明示的に選んだ過去snapshotへクラウド正本を戻す復旧である。
