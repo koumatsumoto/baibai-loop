@@ -356,7 +356,7 @@ def test_reinvestment_sector_floor_uses_inclusive_shared_population_boundary() -
 def test_current_discovery_contract_names_its_methods() -> None:
     method_ids = {key: value.method_id for key, value in RULES.approaches.items()}
 
-    assert RULES.method_id == "multi-valuation-v5"
+    assert RULES.method_id == "multi-valuation-v6"
     assert method_ids == {
         "current-earnings-power": "current-earnings-power-v1",
         "normalized-earnings-power": "normalized-earnings-power-v1",
@@ -364,6 +364,8 @@ def test_current_discovery_contract_names_its_methods() -> None:
         "reinvestment-value": "reinvestment-value-v5",
     }
     assert RULES.nomination_depth == 20
+    assert RULES.common_eligibility.min_listing_span_days == 0
+    assert "yoy_deterioration_threshold" not in SCREENING_RULES.quality.model_dump()
     assert "min_avg_turnover_oku" not in RULES.common_eligibility.model_dump()
 
 
@@ -427,12 +429,28 @@ def test_reinvestment_still_requires_a_finite_fcf_fact(fcf_yield):
 
 @pytest.mark.parametrize(
     ("span", "flags", "expected"),
-    [(181, [], False), (182, [], True), (182, ["取引停止"], False), (182, None, False)],
+    [
+        (20, [], True),
+        (181, [], True),
+        (182, [], True),
+        (-1, [], False),
+        (None, [], False),
+        (float("nan"), [], False),
+        (float("inf"), [], False),
+        (20, ["取引停止"], False),
+        (20, None, False),
+    ],
 )
-def test_discovery_scope_keeps_seasoning_and_jpx_evidence(span, flags, expected):
+def test_discovery_keeps_short_history_context_and_requires_valid_scope_facts(
+    span, flags, expected
+):
     row = _analysis("1111")
     row.update(market_cap_oku=50, listing_span_days=span, jpx_flags=flags)
-    assert bool(_build_review_set([row])["entries"]) is expected
+    entries = _build_review_set([row])["entries"]
+    assert bool(entries) is expected
+    if expected:
+        assert len(entries[0]["nominations"]) == 4
+        assert entries[0]["analysis"]["identity_liquidity"]["listing_span_days"] == span
 
 
 def test_shared_production_and_calibration_population_includes_small_caps():
@@ -442,6 +460,7 @@ def test_shared_production_and_calibration_population_includes_small_caps():
     rows = [_analysis(str(1000 + index)) for index in range(4)]
     for row, cap in zip(rows, (50, 100, None, 0), strict=True):
         row["market_cap_oku"] = cap
+        row["listing_span_days"] = 76
     snapshots = {
         row["ticker"]: UniverseSnapshot(
             market_cap_oku=row["market_cap_oku"],

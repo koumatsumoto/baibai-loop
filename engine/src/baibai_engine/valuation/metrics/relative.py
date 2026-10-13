@@ -11,6 +11,8 @@ from .history import self_range_percentile, sigma_gap
 from .models import FinancialSnapshot
 
 VALUATION_METRICS = ("per_forward", "per_trailing", "pbr", "ev_ebitda", "p_s")
+# 少数の同業標本へ依存しすぎない計算上の慣例。経済的最適値ではない (#12, #1153)。
+# docs/reference/valuation-metrics.md#median-population-rationale
 MIN_SECTOR_MEDIAN_POPULATION = 10
 SECTOR_MEDIAN_BASIS_SECTOR = "sector"
 SECTOR_MEDIAN_BASIS_MARKET = "market"

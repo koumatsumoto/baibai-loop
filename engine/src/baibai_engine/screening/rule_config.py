@@ -25,26 +25,32 @@ class UniverseRules(BaseModel):
 
 
 class QualityRules(BaseModel):
+    """利用者へ入力不足を伝えるwarningであり、企業の経済的除外ではない。
+
+    理由と廃止gateとの区別: docs/reference/screening-runtime.md#data-quality-context
+    """
+
     model_config = ConfigDict(frozen=True, strict=True)
 
     partial_warning_ttm_ratio: float = Field(ge=0)
     partial_warning_ttm_count: int = Field(ge=0)
     partial_warning_yoy_missing_ratio: float = Field(ge=0)
-    yoy_deterioration_threshold: float
 
 
 class CommonEligibilityRules(BaseModel):
     """Analysis-layer scope parameters applied when ranking research candidates.
 
-    The screen itself covers every common stock; size, seasoning, and
-    trading-restriction exclusions are applied here so they stay visible,
-    configurable facts instead of silently narrowing the data.
+    The screen evaluates every common stock with enough bar history. This
+    predicate shares valid scope facts and configured exclusions between
+    Candidate Discovery and its comparison population.
     """
 
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
     min_market_cap_oku: float = Field(default=0, ge=0)
-    min_listing_span_days: int = Field(default=182, ge=0)
+    # IPOの価格履歴は必要財務履歴ではない。期間をcontextへ残す (#1481)。
+    # docs/reference/screening-runtime.md#history-context
+    min_listing_span_days: int = Field(default=0, ge=0)
     exclude_jpx_flagged: bool = True
 
     def matches(
@@ -61,6 +67,8 @@ class CommonEligibilityRules(BaseModel):
         ``require_facts=True`` disqualifies rows with missing scope facts.
         Candidate Discovery uses this mode so the eligible population matches the
         calibration population; diagnostics separately count missing facts.
+        欠測を確認済みの無規制・正の尺度へ読み替えない:
+        docs/reference/screening-runtime.md#history-context
         """
         facts = (market_cap_oku, listing_span_days, jpx_flags)
         if require_facts and any(value is None for value in facts):

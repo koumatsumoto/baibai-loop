@@ -13,6 +13,23 @@ screeningはValuationの財務/倍率計算・機械推計とMarket Contextの�
 
 機械E[r]/FV anchor、Market Context Assessment、portfolio stateは参考文脈である。Review Setのnomination、membership、orderには使わない。ER/FVの推計・保存済み照会は[Valuation metrics](./valuation-metrics.md#machine-valuation)、企業固有の条件付き評価は[Thesis](./thesis.md#scenario-arithmetic)が所有する。
 
+<a id="rule-purpose"></a>
+
+## ルールの目的と根拠
+
+データが計算可能か、価値Approachが適用できるか、どこまで調査するか、購入時に何を求めるかは別の問いである。再現テストの成功は算術・契約の確認であり、経済的な閾値の最適性を意味しない。
+
+| 種類・適用範囲 | 守る理由と限界 | 根拠の区分・正本 |
+| --- | --- | --- |
+| 入力scope・妥当性（L1→Security Analysis） | 普通株の指標を他のinstrumentへ適用せず、必要な価格・財務・権利単位を揃える。対象市場・最小20barは計算対象の契約で、投資適格性や最適上場期間ではない | 定義・算術のcorrectness。[入力scope](#input-scope)、[指標・期間・欠測](./valuation-metrics.md)、導入[#12](https://github.com/koumatsumoto/baibai-loop/issues/12)、分析層との分離[#222](https://github.com/koumatsumoto/baibai-loop/issues/222) |
+| 共通factと短い履歴（Candidate Discovery・比較母集団） | 必須factを共有し、未観測を0や無規制へ変えない。規模・IPO価格履歴だけで企業価値の問いを消さない | fact妥当性と規制方針。[履歴context](#history-context)。規模・182日・正FCFの一律除外は[#1481](https://github.com/koumatsumoto/baibai-loop/issues/1481)で見直した。解除は発見目的との整合であり収益優位の実証ではない |
+| Approachの資格・順位（独立Nomination） | 利益、資産、再投資という異なる価値仮説に、意味の合うnative座標を使う。資格外を企業の経済的rejectへ読み替えない | [適用境界](#approach-applicability)。Asset/Reinvestmentの境界は[#1153](https://github.com/koumatsumoto/baibai-loop/issues/1153)のsemantic correction。各順位の長期優越性は別の検証課題 |
+| 品質warning（runの利用判断） | 不完全なTTM・YoYを表示し、欠測を確認済み事実にしない。warning件数・比率を投資不適格判定へ転用しない | 運用上の診断。[品質context](#data-quality-context)、[#12](https://github.com/koumatsumoto/baibai-loop/issues/12)。廃止した一律YoY悪化gateの設定は[#1481](https://github.com/koumatsumoto/baibai-loop/issues/1481)で整理 |
+| 探索と作業の容量（Review Set・Research Operation） | 有限の入力・作者/独立Review負荷を守る。top20、最大3件、ticker順は利回りや経済的rejectの閾値ではなく、枠を埋めるノルマでもない | 運用都合。[Nomination容量](#nomination-capacity)、[明示開始と固定対象](./analysis-operations.md#明示開始と固定対象)、[#1414](https://github.com/koumatsumoto/baibai-loop/issues/1414)。候補外の明示開始もResearchの正本で扱う |
+| 機械E[r]（参考prior・較正） | 相対倍率・自己レンジ・carryによる近似の系統誤差を測る。会社の利益・倍率・分配・購入要求率を代行しない | 経済的な推計仮定。[機械算式](./valuation-metrics.md#machine-valuation)、[較正と企業判断の区別](./estimate-calibration.md#estimator-vs-decision)。係数変更には長期evidenceが必要 |
+| 企業評価と要求率（Thesis→CAA/Planning） | 事業根拠から独立にBase/Downsideと期間を構成し、記録した要求率で比較する。同じリスクを利益・倍率・率へ説明なく重複控除しない | 判断・暫定政策。通常6%は最適性実証済みではない。[要求年率](../portfolio-management.md#required-return-policy)、[企業の条件付き算術](./thesis.md#scenario-arithmetic)、[#1464](https://github.com/koumatsumoto/baibai-loop/issues/1464)。契約条件からの機械算術も企業仮定の採否とは分ける |
+| 現在からの増分と執行（正式提案・人間の採否） | 受取済み分配の再算入、古い期間の年率水増し、未確認cash/注文の仮定を防ぐ。集中・ADV warningと資金不足は別に扱う | 算術・事実の整合と資本方針。[評価基準日](./thesis.md#planning-only-execution-pricing)、[予約とwarning](../portfolio-management.md#reservation-and-warnings)、[資金・保有・未約定の台帳](./portfolio-ledger.md#snapshot-equations)、[#1242](https://github.com/koumatsumoto/baibai-loop/issues/1242)。broker事実は人間が確認する |
+
 ## Public CLI
 
 screening runtimeの公開commandは`baibai-engine screening --help`から辿る。本書で扱う
@@ -35,14 +52,22 @@ Security Analysisは`observed / derived / estimate`を混同しない。欠損�
 
 ## Candidate Discovery
 
-共通eligibilityは正の有限な時価総額fact、上場期間182日以上、JPX flag、これら必須factの有無を扱う。現行rulesの時価総額floorは0で、100億円未満も候補発見と業種・市場の比較母集団に含める。サイズとADVは執行可能性のcontextとしてSecurity Analysis、Review Set、Research Triage、Research入力へ残す。ADVは値が低い場合も欠損時も除外に使わない。その後、各approachが独立にnominateする。採用理由は[#1481](https://github.com/koumatsumoto/baibai-loop/issues/1481)、現行値は[screening rules](../../method/screening/rules/)、完全なeligibility・並び順・method hashは[Review Set実装](../../engine/src/baibai_engine/screening/discovery/review_set.py)を正本とする。
+<a id="input-scope"></a>
 
-| valuation approach | 主座標 |
+Security Analysisは普通株・対象市場・20bar以上を評価対象とする。各指標の入力期間・TTM・株式basisは[Valuation metrics](./valuation-metrics.md)に従い、productionと較正replayで共有する。入力不足はnullや品質contextとして残し、実績・予測・観測期間を混ぜて穴埋めしない。
+
+<a id="history-context"></a>
+
+共通eligibilityは正の有限な時価総額fact、非負で有限な価格barの期間、JPX flag、これら必須factの有無を扱う。現行rulesの時価総額・bar期間floorは0で、100億円未満や182日未満も候補発見と業種・市場の比較母集団に含める。bar期間は最古の利用可能な価格barからの日数proxyで、実上場日や財務履歴ではない。短い履歴、サイズ、ADVはcontextとしてSecurity Analysis、Review Set、Research Triage、Research入力へ残し、各指標に必要な履歴・財務入力とJPX制約は保つ。ADVは値が低い場合も欠損時も除外に使わない。その後、各approachが独立にnominateする。採用理由は[#1481](https://github.com/koumatsumoto/baibai-loop/issues/1481)、現行値は[screening rules](../../method/screening/rules/)、完全なeligibility・並び順・method hashは[Review Set実装](../../engine/src/baibai_engine/screening/discovery/review_set.py)を正本とする。
+
+<a id="approach-applicability"></a>
+
+| valuation approach | 主座標・適用する理由 |
 | --- | --- |
-| `current-earnings-power` | sector-relative current PER、current cash-flow yield |
-| `normalized-earnings-power` | 3FY normalized PERのsector gap |
-| `asset-value` | 正のasset-backed ratio、PBR context |
-| `reinvestment-value` | 割安なsector-relative P/S、sector-relative capital-return proxy / margin、growth、FCF yield |
+| `current-earnings-power` | 正のcurrent PERとsector gapで、現在利益の持続性と業種割安の理由を問う。CFは従キーと裏付けのcontextで、一過性利益はResearchで反証する |
+| `normalized-earnings-power` | 3FY normalized PERのsector gapで、一期間の異常から離れた利益力を問う。株式basisと連続FYを揃え、事業構造の変化はResearchで確認する。[先行測定](../../reports/studies/2026-08-02-normalized-per-production/report.md)があるが、3FYを全社共通の調査資格にはしない |
+| `asset-value` | 正のasset-backed ratioから、株主へ実現する資産の拘束・換金可能性を問う。非金融のasset proxyを金融資産・資金調達そのものへ適用しない |
+| `reinvestment-value` | 割安なsector-relative P/Sと相対的な収益性で、売上成長が価値へ変わるかを問う。FCFの符号だけで投資回収や資金余力を認定しない |
 
 Asset Valueは正のasset-backed ratioを持つ非金融企業を対象とする。金融業ではcash、debt、securitiesが事業上のasset / fundingそのものなので、非金融企業向けgross asset proxyを残余価値として適用しない。net cashは比較文脈として残し、候補の採否には使わない。
 
@@ -56,6 +81,10 @@ primary coordinateがnull、非有限、またはapproachの要件を満たさ�
 
 ## Review Set
 
+<a id="nomination-capacity"></a>
+
+各Approach top20は有限の発見・Triage入力枠で、rank21以下を経済的rejectにしない。容量の変更は調査負荷と失う機会を比較し、推薦件数や取引件数の増加自体を成果にしない。企業評価の適用範囲や正式Researchの開始とは別の契約である。
+
 各Valuation ApproachのNominationをtickerで統合し、重複tickerは1entryへまとめ、全Nominationを保持する。各Approachのconfigured nomination depthに従う集合のunionであり、採用Approachとdepthは[現行rules](../../method/screening/rules/)を参照する。ticker昇順はbyte-equivalentなserializationのためだけに使い、global rankやresearch priorityを意味しない。
 
 publisherはsource run、as-of、rules hash、method hash、全Security Analysisからpayloadを再計算し、不一致を拒否する。published rootは`screening_rules_hash`をprovenanceとして持つ。Review Setはapplication DBやResearch Triageを読まず、同じrun・rules・implementationから同じNomination unionを再構築するL2である。各entryはidentity、`nominations`、grouped `analysis`だけを持つ。`analysis.expected_return`はsecondary machine priorのsnapshotであり、membershipを持たない。
@@ -65,6 +94,12 @@ publisherはsource run、as-of、rules hash、method hash、全Security Analysis
 Normalized Earnings Powerのnative eligibility/orderは`normalized_per_3fy`と同sector gapを使う。FV/E[r] estimatorは`normalized_per_3fy`を入力にしない。
 
 MCPは保存済みcanonical Review Setをread-onlyで参照できる。これはscreening結果の検証用read boundaryであり、Review Set membership、Nomination、Research Triage、Research Setを変更するauthorityを持たない。tool契約は[Owner MCP](../../tools/owner_mcp/README.md#triage前のreview-set)を参照する。
+
+<a id="data-quality-context"></a>
+
+## 品質context
+
+TTM非exactと業績YoY欠測の件数・比率はrunのpartial warningを決める。書込済み成果物の品質を説明するもので、会社を一律除外するgateではない。指標をNominationへ使えるかは各Approachの必要入力で決める。旧`yoy_deterioration_threshold`は現行rulesから除き、較正の業績変化による[診断群](./estimate-calibration.md#diagnostic-thresholds)とは分ける。
 
 ## Research Triage
 

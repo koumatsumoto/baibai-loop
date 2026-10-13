@@ -14,6 +14,8 @@ from typing import Literal
 
 # 現在の MODEL_V1 policy parameters。実証的な変更は long-horizon authority を満たす
 # artifact と人間レビューを経て code で明示的に変更し、自動更新はしない。
+# Researchの条件付き評価・購入要求率とは別の推計仮定である。
+# docs/reference/estimate-calibration.md#estimator-vs-decision
 REALIZATION_RATE_ANNUAL = 0.10
 UPSIDE_CAP = 0.50
 SHARE_COUNT_CLIP = 0.05

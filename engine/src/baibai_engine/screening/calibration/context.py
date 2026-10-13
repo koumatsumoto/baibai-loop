@@ -44,7 +44,11 @@ def build_er_distribution_context(
     *,
     generated_at: datetime | None = None,
 ) -> dict[str, object]:
-    """Build schema v2 from every horizon-specific eligible cohort."""
+    """Build schema v2 from every horizon-specific eligible cohort.
+
+    機械priorの誤差を示す分布で、購入floorや4 Approachの優越性を代行しない。
+    docs/reference/estimate-calibration.md#estimator-vs-decision
+    """
 
     readiness = evaluation.get("evidence_readiness")
     scope = evaluation.get("scope")

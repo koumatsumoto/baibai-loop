@@ -15,6 +15,12 @@ UNRESOLVED_DIVIDEND_BASIS = "unresolved_split_basis"
 
 
 class TTMRules(BaseModel):
+    """変則決算や前年期間のずれを区別し、別期間の利益をTTMへ混ぜない。
+
+    算術の期間照合であり、購入の要求期間ではない。
+    docs/reference/screening-runtime.md#input-scope
+    """
+
     model_config = ConfigDict(frozen=True, strict=True)
 
     full_year_min_days: int = Field(ge=1)

@@ -45,6 +45,8 @@ def evaluate_entry(
         reasons.append("latest_thesis_required")
     if thesis.judgment.disposition != "candidate" or thesis.investment_case.status != "intact":
         reasons.append("thesis_not_candidate")
+    # 将来cash・期間の起点を揃え、受取済み分配の再算入を防ぐ (#1242)。
+    # docs/reference/thesis.md#planning-only-execution-pricing
     if thesis.input_snapshot.as_of != as_of:
         reasons.append("valuation_basis_requires_refresh")
     if held_quantity > 0:

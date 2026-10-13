@@ -21,8 +21,8 @@ DECILES = 10
 
 COMPARISON_TOP_NS: tuple[int, ...] = (5, 10, 20)
 
-# gate 条件付き spread の対象 gate (業績悪化 gate。rule_config の deterioration
-# threshold と同じ -0.3 を事前固定で用いる) 。
+# 業績悪化の条件付き spread 用に事前固定した診断帯。productionの除外gateではない。
+# docs/reference/estimate-calibration.md#diagnostic-thresholds (#1481)
 DETERIORATION_THRESHOLD = -0.3
 
 MIN_QUALITY_CONTROL_GROUP = 5

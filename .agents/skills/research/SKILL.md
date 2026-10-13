@@ -52,6 +52,8 @@ AIは同じ`domain-inputs.yaml`の選択済み三領域と`explicit_research_req
 
 小型であることやFCFが0・負であることだけで経済的見送りにしない。サイズ・ADVは執行の制約、負FCFは維持投資/成長投資・運転資金・回収・資金余力の問いへ接続する。CFのsourceと品質・期間を保ち、半期の`approximated`値を通年実績と読み替えず、資料で確認すべき重大な不足を免除しない。
 
+短い価格bar期間も一律の見送り条件にしない。`listing_span_days`は利用可能な価格履歴の日数proxyであり、実上場日や財務履歴ではない。企業評価に必要な財務期間は一次資料で確認し、短い自己価格レンジを長期の価値根拠と読み替えない。
+
 市場・業種との個別相対値は[Market Context読取](../../../docs/reference/market-context.md#market-context-reads)で比較基準日・母集団とともに確認し、乖離を企業価値認定へ置き換えない。
 
 外部の目標値・rating・scoreは[External Assessmentの保存済み照会](../../../docs/reference/market-lake.md#external-assessment-query)で出所・尺度・時点とともに参照し、同原評価元を独立票として数えず、企業固有評価の代用にしない。

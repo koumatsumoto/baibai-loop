@@ -49,6 +49,7 @@ from baibai_engine.valuation.metrics.relative import (
 # 1200 日、fin summaries は TTM 合成と前年同期 YoY に 730 日を要する。本番 run と
 # 較正リプレイ (calibration/panel.py) が同じ値を import する。窓がずれると
 # リプレイは本番と別物の指標を測るため、ここ以外に窓を定義しない。
+# 期間の理由と適用先: docs/reference/screening-runtime.md#input-scope
 BARS_INPUT_WINDOW_DAYS = 1200
 
 FIN_INPUT_WINDOW_DAYS = 730
