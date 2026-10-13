@@ -188,7 +188,7 @@ uv run baibai-engine market-context indicators get jp.pmi_manufacturing --start 
 
 ## ② 機械読み値：Reading
 
-macro reading は L1 store だけを入力に、登録全系列の **記述統計と鮮度** を決定論で出す L2 出力である。「今の VIX は歴史的に高いのか」を分析セッションごとに人が判断し直さないための共通の物差しであり、regime 分類・合成 score・売買 signal は出さない。
+ReadingはL1 store だけを入力に、登録全系列の **記述統計と鮮度** を決定論で出す L2 出力である。「今の VIX は歴史的に高いのか」を分析セッションごとに人が判断し直さないための共通の物差しであり、regime 分類・合成 score・売買 signal は出さない。
 
 ```bash
 uv run baibai-engine market-context reading --asof 2026-07-24                 # 表形式

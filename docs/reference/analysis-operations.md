@@ -7,7 +7,7 @@ status: active
 
 # Research進行とTriage runner
 
-`baibai-batch analysis run`は、保存済みの対象日Review Setを一つのAI判断へ渡し、engineのserviceを通してTriageを発行する。Screening Run・Review Setの生成、macro取得、cloud公開は行わない。操作の順序は[Research Triage skill](../../.agents/skills/research-triage/SKILL.md)が所有する。
+`baibai-batch analysis run`は、保存済みの対象日Review Setを一つのAI判断へ渡し、engineのserviceを通してTriageを発行する。Screening Run・Review Setの生成、指標取得、cloud公開は行わない。操作の順序は[Research Triage skill](../../.agents/skills/research-triage/SKILL.md)が所有する。
 
 <a id="research-triage-contract"></a>
 
@@ -39,7 +39,7 @@ E[r] calibration contextは共有read contractがartifact schema、generated/exp
 
 `research prepare`は新規workspaceと、選んだ保有の`holdings/<ticker>` workspaceを同じOperationへ束縛する。`position-prepare`単独も明示開始要求から保有Operationを作る。manifestのOperation IDとselection hashは対象の付け替えを検出し、completed Operationへ新しい調査を足さない。旧manifestのOperation ID欠如は履歴statusで読めるが、scaffold/review/promoteのmutation入口としては認めず、明示prepareによる束縛が必要である。
 
-保存済み三領域を`research/inputs.py`で合成した`domain-inputs.yaml`は調査の入力である。機械anchor、個別/市場/業種、macro Reading、外部提示値を意味ごとに保持し、欠測を新規取得やAI起動で埋めない。既存Market Context Assessmentは任意の参照であり、毎回独立した全depth reportや主観確率を作る前提にしない。重要な環境上の含意だけを企業評価・提案のsource、仮定、反対仮説へ接続する。
+保存済み三領域を`research/inputs.py`で合成した`domain-inputs.yaml`は調査の入力である。機械anchor、個別/市場/業種、Reading、外部提示値を意味ごとに保持し、欠測を新規取得やAI起動で埋めない。既存Market Context Assessmentは任意の参照であり、毎回独立した全depth reportや主観確率を作る前提にしない。重要な環境上の含意だけを企業評価・提案のsource、仮定、反対仮説へ接続する。
 
 ## 成果の被覆とL3完了
 

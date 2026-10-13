@@ -98,7 +98,7 @@ J-Quantsのread取得は[provider](../../engine/src/baibai_engine/market/provide
 - E[r]だけを変更してもmembership/order不変
 - Research Triageの全entry一致、priority、rules/method identity、expected prior ID
 - 対象日のReview Setなし、空Review Set、exact既存Triageでmodel process 0。active Operationはdaily Triageを止めない
-- 通常Review Setは共有Macro projectionを1回だけ含む1 AI request、invalid resultはcanonical write 0
+- 通常Review Setは共有Market Context Assessment projectionを1回だけ含む1 AI request、invalid resultはcanonical write 0
 - Triage publishではOperation 0。ユーザーの明示開始と固定した新規/保有集合（0件も含む）でOperation 1
 - run storeとapplication DBがcurrent schemaに一致
 - Web/APIがReview Set、Research Triage、Capital Allocation Assessmentを同じbindingで表示
