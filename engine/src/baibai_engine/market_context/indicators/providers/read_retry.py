@@ -9,7 +9,7 @@ from typing import Any, Self, cast
 from requests import PreparedRequest, Response, Session
 from requests.adapters import HTTPAdapter
 from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
-from urllib3.exceptions import HTTPError, InvalidHeader
+from urllib3.exceptions import DecodeError, HTTPError, InvalidHeader, ProtocolError
 from urllib3.response import BaseHTTPResponse, HTTPResponse
 from urllib3.util import Retry
 
@@ -119,6 +119,10 @@ class _ReadPool(HTTPConnectionPool):
                 raise ProviderFetchStoppedError(
                     f"indicator HTTP {response.status} body failed: {type(exc).__name__}"
                 ) from None
+            elif isinstance(exc, DecodeError):
+                # Content decoding is still receipt of this GET's body. urllib3
+                # retries ProtocolError, while CSV/JSON parsing stays outside it.
+                raise ProtocolError("failed to decode indicator response body", exc) from exc
             else:
                 raise
         return response

@@ -235,6 +235,44 @@ def test_http200_body_timeout_then_success_uses_the_same_get(wire, series_id):
 
 
 @pytest.mark.parametrize("series_id", IDS)
+def test_broken_gzip_then_valid_body_recovers_within_the_same_get(wire, series_id):
+    def reply(sid, url):
+        value = payload(sid)
+        body = value if isinstance(value, bytes) else json.dumps(value).encode()
+        return (
+            200,
+            {"Content-Encoding": "gzip"},
+            (b"not a gzip body" if len(wire.calls) == 1 else gzip.compress(body)),
+        )
+
+    wire.reply = reply
+    assert len(wire.fetch(series_id)) == 1
+    assert len(wire.calls) == 2
+    assert wire.waits == [30]
+
+
+@pytest.mark.parametrize("series_id", IDS)
+def test_continuous_gzip_failure_is_bounded_by_the_same_six_attempts(wire, series_id):
+    wire.reply = lambda sid, url: (200, {"Content-Encoding": "gzip"}, b"not a gzip body")
+    with pytest.raises(ProviderFetchStoppedError):
+        wire.fetch(series_id)
+    assert len(wire.calls) == 6
+    assert wire.waits == [30, 60, 120, 300, 600]
+
+
+def test_valid_gzip_with_invalid_csv_is_not_retried(wire):
+    wire.reply = lambda sid, url: (
+        200,
+        {"Content-Encoding": "gzip"},
+        gzip.compress(b"observation_date,OTHER\n2026-07-24,20\n"),
+    )
+    with pytest.raises(ProviderFetchStoppedError, match="missing column"):
+        wire.fetch("vix")
+    assert len(wire.calls) == 1
+    assert wire.waits == []
+
+
+@pytest.mark.parametrize("series_id", IDS)
 def test_status_and_body_failures_share_the_six_attempt_limit(wire, series_id):
     wire.reply = lambda sid, url: (
         (429, {}, {}) if len(wire.calls) <= 3 else (200, {}, BodyTimeout(b"partial body"))
