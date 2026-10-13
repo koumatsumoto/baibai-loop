@@ -12,6 +12,7 @@ from .benchmark import NIKKEI225_ETF_PROXY, compute_benchmark_trend
 from .history import trailing_return
 from .master import MasterSnapshot, read_master_snapshot
 from .prices import PriceBar, read_price_bars
+from .snapshot import PreparedMarketContext
 
 _WEEK_52_WINDOW_BARS = 252
 _VOL_WINDOW_BARS = 20
@@ -28,17 +29,30 @@ def build_security_market_context(
     asof_date: date,
     self_range_window_bars: int,
     benchmark_ticker: str = NIKKEI225_ETF_PROXY,
+    prepared: PreparedMarketContext | None = None,
 ) -> dict[str, object]:
+    if prepared is not None and (
+        prepared.sqlite_path != sqlite_path.resolve()
+        or prepared.asof_date != asof_date
+        or prepared.benchmark_ticker != benchmark_ticker
+    ):
+        raise ValueError("prepared market context does not match the requested scope")
     bars = read_price_bars(
         sqlite_path,
         tickers=(ticker,),
         start=asof_date - timedelta(days=_TICKER_LOOKBACK_CALENDAR_DAYS),
         end=asof_date,
     ).get(ticker, [])
-    master = read_master_snapshot(sqlite_path, as_of=asof_date)
+    master = (
+        read_master_snapshot(sqlite_path, as_of=asof_date) if prepared is None else prepared.master
+    )
     security = None if master is None else master.securities.get(ticker)
     sector = None if security is None else security.get("sector_33")
-    benchmark = compute_benchmark_trend(sqlite_path, asof_date, benchmark_ticker=benchmark_ticker)
+    benchmark = (
+        compute_benchmark_trend(sqlite_path, asof_date, benchmark_ticker=benchmark_ticker)
+        if prepared is None
+        else prepared.benchmark_trend
+    )
     return {
         "master": security,
         "price": _price_block(bars, self_range_window_bars=self_range_window_bars),
@@ -50,6 +64,7 @@ def build_security_market_context(
             master=master,
             asof_date=asof_date,
             benchmark_ticker=benchmark_ticker,
+            prepared=prepared,
         ),
         "benchmark_trend": None if benchmark is None else benchmark.to_dict(),
     }
@@ -106,17 +121,19 @@ def _relative_block(
     master: MasterSnapshot | None,
     asof_date: date,
     benchmark_ticker: str,
+    prepared: PreparedMarketContext | None,
 ) -> dict[str, object] | None:
     if not bars:
         return None
     prices = [bar.price for bar in bars]
-    benchmark_bars = read_price_bars(
-        sqlite_path,
-        tickers=(benchmark_ticker,),
-        start=bars[-min(len(bars), max(_RETURN_WINDOWS_BARS) + 1)].traded_at,
-        end=asof_date,
-    ).get(benchmark_ticker, [])
-    benchmark_prices = {bar.traded_at: bar.price for bar in benchmark_bars}
+    start = bars[-min(len(bars), max(_RETURN_WINDOWS_BARS) + 1)].traded_at
+    if prepared is not None and start >= prepared.benchmark_start:
+        benchmark_prices = prepared.benchmark_prices
+    else:
+        benchmark_bars = read_price_bars(
+            sqlite_path, tickers=(benchmark_ticker,), start=start, end=asof_date
+        ).get(benchmark_ticker, [])
+        benchmark_prices = {bar.traded_at: bar.price for bar in benchmark_bars}
     versus_benchmark = {}
     for window in _RETURN_WINDOWS_BARS:
         own = trailing_return(prices, window)
@@ -128,7 +145,13 @@ def _relative_block(
         "benchmark_ticker": benchmark_ticker,
         **versus_benchmark,
         "sector": _sector_block(
-            sqlite_path, ticker=ticker, bars=bars, sector=sector, asof_date=asof_date, master=master
+            sqlite_path,
+            ticker=ticker,
+            bars=bars,
+            sector=sector,
+            asof_date=asof_date,
+            master=master,
+            prepared=prepared,
         )
         if sector
         else None,
@@ -143,6 +166,7 @@ def _sector_block(
     sector: str,
     asof_date: date,
     master: MasterSnapshot | None,
+    prepared: PreparedMarketContext | None,
 ) -> dict[str, object] | None:
     endpoints = _window_endpoints(bars, _PEER_RETURN_WINDOW_BARS)
     if endpoints is None:
@@ -158,17 +182,28 @@ def _sector_block(
     )
     if not peers:
         return None
-    bars_by_ticker = read_price_bars(
-        sqlite_path,
-        tickers=tuple(peers),
-        start=endpoints[0],
-        end=asof_date,
-    )
     returns = []
-    for peer_bars in bars_by_ticker.values():
-        peer_return = _endpoint_return({bar.traded_at: bar.price for bar in peer_bars}, endpoints)
-        if peer_return is not None:
-            returns.append(peer_return)
+    if prepared is not None and endpoints[0] >= prepared.start:
+        for peer in peers:
+            series = prepared.series_by_ticker.get(peer)
+            if series is None:
+                continue
+            peer_return = _endpoint_return(
+                {day: value for day in endpoints if (value := series.price_on(day)) is not None},
+                endpoints,
+            )
+            if peer_return is not None:
+                returns.append(peer_return)
+    else:
+        bars_by_ticker = read_price_bars(
+            sqlite_path, tickers=tuple(peers), start=endpoints[0], end=asof_date
+        )
+        for peer_bars in bars_by_ticker.values():
+            peer_return = _endpoint_return(
+                {bar.traded_at: bar.price for bar in peer_bars}, endpoints
+            )
+            if peer_return is not None:
+                returns.append(peer_return)
     if not returns:
         return None
     own_return = _endpoint_return({bar.traded_at: bar.price for bar in bars}, endpoints)

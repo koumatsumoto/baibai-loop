@@ -18,6 +18,7 @@ from baibai_engine.read_api import (
 from baibai_web.sources.db_sources import (
     DbMarketContextSource,
 )
+from baibai_web.sources.protocols import MarketPriceSource
 from baibai_web.sources.types import (
     IndicatorSeriesConfig,
 )
@@ -29,6 +30,7 @@ from .models import (
     IndicatorPointView,
     IndicatorSeriesView,
     MarketContextView,
+    MarketSnapshotView,
     ReadingView,
 )
 
@@ -43,6 +45,7 @@ def build_market_context(
     *,
     as_of: date,
     known_at: datetime,
+    market: MarketPriceSource | None = None,
 ) -> MarketContextView:
     """Build the daily entrance with bounded sparklines, never full indicator history."""
 
@@ -70,6 +73,11 @@ def build_market_context(
         if str(item["context_id"]) != latest_context_id
     ]
     return MarketContextView(
+        market_snapshot=(
+            None
+            if market is None or (snapshot := market.market_snapshot(as_of=as_of)) is None
+            else MarketSnapshotView.model_validate(snapshot)
+        ),
         latest_context=(
             None
             if latest_context_raw is None

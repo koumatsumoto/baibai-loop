@@ -11,6 +11,7 @@ from baibai_web.readmodel.builders.presentation import holding_view, text
 from baibai_web.readmodel.models import (
     PositionReviewView,
     SecurityDetailView,
+    SecurityMarketContextView,
 )
 from baibai_web.readmodel.stocks.presentation import _safe_snapshot
 from baibai_web.readmodel.stocks.research import _research_revision_view, _thesis_detail_view
@@ -155,6 +156,11 @@ def build_security_detail(
         else None
     )
     return SecurityDetailView(
+        market_context=(
+            None
+            if (context := market.security_market_context(ticker, as_of=today)) is None
+            else SecurityMarketContextView.model_validate(context)
+        ),
         external_assessment=assessment,
         ticker=ticker,
         company_name=(

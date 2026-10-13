@@ -736,6 +736,78 @@
       "title": "AssessmentRevisionView",
       "type": "object"
     },
+    "BenchmarkTrendView": {
+      "properties": {
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "benchmark_ticker": {
+          "title": "Benchmark Ticker",
+          "type": "string"
+        },
+        "observation_date": {
+          "format": "date",
+          "title": "Observation Date",
+          "type": "string"
+        },
+        "benchmark_return_20d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Benchmark Return 20D"
+        },
+        "benchmark_return_60d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Benchmark Return 60D"
+        },
+        "benchmark_gap_from_high": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Benchmark Gap From High"
+        },
+        "trend_state": {
+          "enum": [
+            "uptrend",
+            "downtrend",
+            "neutral",
+            "unknown"
+          ],
+          "title": "Trend State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "as_of",
+        "benchmark_ticker",
+        "observation_date",
+        "benchmark_return_20d",
+        "benchmark_return_60d",
+        "benchmark_gap_from_high",
+        "trend_state"
+      ],
+      "title": "BenchmarkTrendView",
+      "type": "object"
+    },
     "CapitalAllocationAssessmentSummaryView": {
       "properties": {
         "capital_allocation_assessment_id": {
@@ -2650,6 +2722,17 @@
     "MarketContextView": {
       "description": "Current L3 judgment first, followed by current L2 readings.",
       "properties": {
+        "market_snapshot": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MarketSnapshotView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "latest_context": {
           "anyOf": [
             {
@@ -2686,12 +2769,199 @@
         }
       },
       "required": [
+        "market_snapshot",
         "latest_context",
         "reading",
         "reports",
         "groups"
       ],
       "title": "MarketContextView",
+      "type": "object"
+    },
+    "MarketPointView": {
+      "properties": {
+        "observation_date": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Observation Date"
+        },
+        "date": {
+          "format": "date",
+          "title": "Date",
+          "type": "string"
+        },
+        "benchmark_return_20d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Benchmark Return 20D"
+        },
+        "benchmark_return_60d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Benchmark Return 60D"
+        },
+        "breadth_pct_above_ma20": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Breadth Pct Above Ma20"
+        },
+        "breadth_sample_size": {
+          "title": "Breadth Sample Size",
+          "type": "integer"
+        },
+        "benchmark_trend": {
+          "enum": [
+            "uptrend",
+            "downtrend",
+            "neutral",
+            "unknown"
+          ],
+          "title": "Benchmark Trend",
+          "type": "string"
+        }
+      },
+      "required": [
+        "observation_date",
+        "date",
+        "benchmark_return_20d",
+        "benchmark_return_60d",
+        "breadth_pct_above_ma20",
+        "breadth_sample_size",
+        "benchmark_trend"
+      ],
+      "title": "MarketPointView",
+      "type": "object"
+    },
+    "MarketSectorView": {
+      "properties": {
+        "sector_33": {
+          "title": "Sector 33",
+          "type": "string"
+        },
+        "ticker_count": {
+          "title": "Ticker Count",
+          "type": "integer"
+        },
+        "median_return_20d": {
+          "title": "Median Return 20D",
+          "type": "number"
+        },
+        "median_return_60d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Median Return 60D"
+        },
+        "pct_above_ma20": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Pct Above Ma20"
+        }
+      },
+      "required": [
+        "sector_33",
+        "ticker_count",
+        "median_return_20d",
+        "median_return_60d",
+        "pct_above_ma20"
+      ],
+      "title": "MarketSectorView",
+      "type": "object"
+    },
+    "MarketSnapshotView": {
+      "properties": {
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "benchmark_ticker": {
+          "title": "Benchmark Ticker",
+          "type": "string"
+        },
+        "history_weeks": {
+          "title": "History Weeks",
+          "type": "integer"
+        },
+        "master_snapshot_date": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Master Snapshot Date"
+        },
+        "points": {
+          "items": {
+            "$ref": "#/$defs/MarketPointView"
+          },
+          "title": "Points",
+          "type": "array"
+        },
+        "sectors": {
+          "items": {
+            "$ref": "#/$defs/MarketSectorView"
+          },
+          "title": "Sectors",
+          "type": "array"
+        },
+        "return_basis": {
+          "const": "price_return_excluding_cash_dividends",
+          "default": "price_return_excluding_cash_dividends",
+          "title": "Return Basis",
+          "type": "string"
+        }
+      },
+      "required": [
+        "as_of",
+        "benchmark_ticker",
+        "history_weeks",
+        "master_snapshot_date",
+        "points",
+        "sectors",
+        "return_basis"
+      ],
+      "title": "MarketSnapshotView",
       "type": "object"
     },
     "MetaBatch": {
@@ -6391,6 +6661,17 @@
     },
     "SecurityDetailView": {
       "properties": {
+        "market_context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SecurityMarketContextView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "external_assessment": {
           "anyOf": [
             {
@@ -6484,6 +6765,7 @@
         }
       },
       "required": [
+        "market_context",
         "external_assessment",
         "ticker",
         "company_name",
@@ -6496,6 +6778,383 @@
         "screening_run"
       ],
       "title": "SecurityDetailView",
+      "type": "object"
+    },
+    "SecurityMarketContextView": {
+      "properties": {
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "master": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SecurityMarketMasterView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "price": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SecurityPriceContextView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "relative": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SecurityRelativeContextView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "benchmark_trend": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BenchmarkTrendView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "return_basis": {
+          "const": "price_return_excluding_cash_dividends",
+          "default": "price_return_excluding_cash_dividends",
+          "title": "Return Basis",
+          "type": "string"
+        }
+      },
+      "required": [
+        "as_of",
+        "master",
+        "price",
+        "relative",
+        "benchmark_trend",
+        "return_basis"
+      ],
+      "title": "SecurityMarketContextView",
+      "type": "object"
+    },
+    "SecurityMarketMasterView": {
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "market_segment": {
+          "title": "Market Segment",
+          "type": "string"
+        },
+        "sector_33": {
+          "title": "Sector 33",
+          "type": "string"
+        },
+        "is_common_stock": {
+          "title": "Is Common Stock",
+          "type": "boolean"
+        },
+        "snapshot_date": {
+          "format": "date",
+          "title": "Snapshot Date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "market_segment",
+        "sector_33",
+        "is_common_stock",
+        "snapshot_date"
+      ],
+      "title": "SecurityMarketMasterView",
+      "type": "object"
+    },
+    "SecurityPeerContextView": {
+      "properties": {
+        "sector_33": {
+          "title": "Sector 33",
+          "type": "string"
+        },
+        "peer_count": {
+          "title": "Peer Count",
+          "type": "integer"
+        },
+        "peer_median_return_20d": {
+          "title": "Peer Median Return 20D",
+          "type": "number"
+        },
+        "relative_return_20d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Relative Return 20D"
+        },
+        "comparison_start_date": {
+          "format": "date",
+          "title": "Comparison Start Date",
+          "type": "string"
+        },
+        "comparison_end_date": {
+          "format": "date",
+          "title": "Comparison End Date",
+          "type": "string"
+        },
+        "master_snapshot_date": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Master Snapshot Date"
+        }
+      },
+      "required": [
+        "sector_33",
+        "peer_count",
+        "peer_median_return_20d",
+        "relative_return_20d",
+        "comparison_start_date",
+        "comparison_end_date",
+        "master_snapshot_date"
+      ],
+      "title": "SecurityPeerContextView",
+      "type": "object"
+    },
+    "SecurityPriceContextView": {
+      "properties": {
+        "resolved_date": {
+          "format": "date",
+          "title": "Resolved Date",
+          "type": "string"
+        },
+        "close": {
+          "title": "Close",
+          "type": "number"
+        },
+        "price_basis": {
+          "const": "adjusted_close_preferred",
+          "title": "Price Basis",
+          "type": "string"
+        },
+        "return_1d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Return 1D"
+        },
+        "return_5d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Return 5D"
+        },
+        "return_20d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Return 20D"
+        },
+        "return_60d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Return 60D"
+        },
+        "high_52w": {
+          "title": "High 52W",
+          "type": "number"
+        },
+        "low_52w": {
+          "title": "Low 52W",
+          "type": "number"
+        },
+        "gap_from_52w_low": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Gap From 52W Low"
+        },
+        "gap_from_52w_high": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Gap From 52W High"
+        },
+        "self_range_percentile": {
+          "title": "Self Range Percentile",
+          "type": "number"
+        },
+        "self_range_window_bars": {
+          "title": "Self Range Window Bars",
+          "type": "integer"
+        },
+        "realized_vol_20d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Realized Vol 20D"
+        },
+        "avg_turnover_20d_oku": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Avg Turnover 20D Oku"
+        },
+        "bar_count": {
+          "title": "Bar Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "resolved_date",
+        "close",
+        "price_basis",
+        "return_1d",
+        "return_5d",
+        "return_20d",
+        "return_60d",
+        "high_52w",
+        "low_52w",
+        "gap_from_52w_low",
+        "gap_from_52w_high",
+        "self_range_percentile",
+        "self_range_window_bars",
+        "realized_vol_20d",
+        "avg_turnover_20d_oku",
+        "bar_count"
+      ],
+      "title": "SecurityPriceContextView",
+      "type": "object"
+    },
+    "SecurityRelativeContextView": {
+      "properties": {
+        "benchmark_ticker": {
+          "title": "Benchmark Ticker",
+          "type": "string"
+        },
+        "relative_1d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Relative 1D"
+        },
+        "relative_5d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Relative 5D"
+        },
+        "relative_20d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Relative 20D"
+        },
+        "relative_60d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Relative 60D"
+        },
+        "sector": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SecurityPeerContextView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "benchmark_ticker",
+        "relative_1d",
+        "relative_5d",
+        "relative_20d",
+        "relative_60d",
+        "sector"
+      ],
+      "title": "SecurityRelativeContextView",
       "type": "object"
     },
     "StoreReadingSemanticsView": {

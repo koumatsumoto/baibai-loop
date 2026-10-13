@@ -53,4 +53,12 @@ CAAの銘柄リンクは、そのCAAが参照したThesis/Review本文と原評�
 
 指標/Readingの組立は`readmodel/market_context.py`、現行判断の内容とpublication metadataは`readmodel/assessment.py`、過去本文の章・主張・引用は`readmodel/assessment_history.py`が所有する。外部routeとserving keyは次の物理切替まで既存契約を維持する。
 
+既存`/api/market-context`の`market_snapshot`は市場・業種の価格状態、`/api/securities/{ticker}`の
+`market_context`は個別価格とbenchmark/自己除外peer比較を既存domain読取から渡す。
+`as_of`（要求日）、価格の`resolved_date`、benchmarkの`observation_date`、masterの日付、peerの
+比較端点を区別する。`return_basis=price_return_excluding_cash_dividends`は配当を含まない
+分割調整値を優先した価格騰落で、Thesis/注文の未調整価格と混同しない。市場業種中央値と個別peer中央値は
+別母集団で、欠測はnullのまま返す。bulk exportだけが単一生成内でmaster・市場短期系列・benchmarkを
+共有し、計算はdomainに保つ。永続cacheや別の分析正本は作らない。
+
 候補探索の銘柄検索はSecurity Analysisと、読取時点以前に保存された外部観測の銘柄を扱います。機械分析のない銘柄は外部参考評価の記録として表示し、PER・PBR・配当条件の数値対象にはしません。保存masterに名称があれば検索・詳細へ表示し、なければtickerと「名称未確認」で辿れます。run未発行でも保存外部観測を検索できます。
