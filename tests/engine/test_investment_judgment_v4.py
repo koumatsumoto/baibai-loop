@@ -14,11 +14,12 @@ from baibai_engine.research.position_review import (
     RemainingReward,
     evaluate_position_review,
 )
-from baibai_engine.research.thesis import ThesisDocument
+from baibai_engine.research.thesis import ThesisDocument, thesis_core_hash
 
 
-def entry(**changes):
-    thesis = ThesisDocument.model_validate(pair_payload()[0])
+def entry(thesis=None, **changes):
+    if thesis is None:
+        thesis = ThesisDocument.model_validate(pair_payload()[0])
     args = dict(
         reviewed=True,
         latest=True,
@@ -26,7 +27,7 @@ def entry(**changes):
         price_yen=Decimal(1000),
         price_as_of=date(2026, 9, 4),
         basis_confirmed=True,
-        minimum_required_annual_return_pct=Decimal("8.5"),
+        minimum_required_annual_return_pct=Decimal("6"),
         market_price_max_age_days=7,
         held_quantity=0,
         active_reservation=False,
@@ -50,6 +51,7 @@ def entry(**changes):
         ({"held_quantity": 100}, 0, "already_held"),
         ({"active_reservation": True}, 0, "active_reservation_exists"),
         ({"assessment_executed": True}, 0, "assessment_already_executed"),
+        ({"reviewed": False}, 0, "reviewed_thesis_required"),
         ({"latest": False}, 0, "latest_thesis_required"),
         ({"as_of": date(2026, 9, 8)}, 0, "valuation_basis_requires_refresh"),
         (
@@ -65,6 +67,48 @@ def test_current_entry_without_mutating_enterprise(changes, quantity, reason):
     assert thesis.judgment.disposition == "candidate"
     assert (reason in result.reasons) if reason else result.eligible
     assert result.maximum_price_yen == entry()[1].maximum_price_yen
+
+
+@pytest.mark.parametrize(("rate", "eligible"), [("5.9999", False), ("6", True), ("6.0001", True)])
+def test_six_percent_entry_floor_boundary(rate, eligible):
+    payload, _ = pair_payload()
+    payload["valuation"]["required_annual_return_pct"] = rate
+    _, result = entry(ThesisDocument.model_validate(payload))
+    assert result.eligible is eligible
+    assert ("required_return_below_current_policy" in result.reasons) is not eligible
+
+
+def test_lower_floor_preserves_recorded_thesis_and_pmax():
+    payload, _ = pair_payload()
+    payload["valuation"]["required_annual_return_pct"] = "8.5"
+    thesis = ThesisDocument.model_validate(payload)
+    original_json, original_hash = thesis.model_dump_json(), thesis_core_hash(thesis)
+    _, previous = entry(
+        thesis, price_yen=Decimal(1140), minimum_required_annual_return_pct=Decimal("8.5")
+    )
+    _, current = entry(thesis, price_yen=Decimal(1140))
+    assert current.maximum_price_yen == previous.maximum_price_yen
+    assert current.reasons == previous.reasons == ("price_above_pmax",)
+    assert thesis.model_dump_json() == original_json
+    assert thesis_core_hash(thesis) == original_hash
+
+    payload["valuation"]["required_annual_return_pct"] = "6"
+    revised = ThesisDocument.model_validate(payload)
+    _, new_evaluation = entry(revised, price_yen=Decimal(1140))
+    assert new_evaluation.eligible
+    assert new_evaluation.maximum_price_yen > current.maximum_price_yen
+    assert thesis_core_hash(revised) != original_hash
+
+
+@pytest.mark.parametrize(("status", "disposition"), [("broken", "reject"), ("uncertain", "defer")])
+def test_six_percent_does_not_make_unresolved_economic_case_eligible(status, disposition):
+    payload, _ = pair_payload()
+    payload["valuation"]["required_annual_return_pct"] = "6"
+    payload["investment_case"]["status"] = status
+    payload["judgment"]["disposition"] = disposition
+    _, result = entry(ThesisDocument.model_validate(payload))
+    assert not result.eligible
+    assert "thesis_not_candidate" in result.reasons
 
 
 @pytest.mark.parametrize(

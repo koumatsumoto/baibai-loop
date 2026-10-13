@@ -23,8 +23,9 @@ PORTFOLIO_POLICY: dict[str, Any] = {
     "order_constraints": {"board_lot": 100},
     "valuation": {
         "market_price_max_age_days": 7,
-        # Position size does not repair an insufficient expected return.
-        "minimum_required_annual_return_pct": 8.5,
+        # 暫定の通常購入floor。新しい通常評価もこの率を出発点とする。
+        # 記録済みThesisの要求率・Pmaxは変更しない。採用理由は refs #1464。
+        "minimum_required_annual_return_pct": 6.0,
     },
 }
 
