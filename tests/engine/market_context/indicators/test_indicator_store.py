@@ -10,6 +10,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from tests.engine.market_context.indicators.indicator_fixtures import (
     _prune_store_rows,
     _retired_counts,
@@ -1055,3 +1056,12 @@ class IndicatorsDBTests(unittest.TestCase):
                 conn.close()
 
             self.assertEqual([row[0] for row in rows], ["us.cpi.core", "us.cpi.headline"])
+
+
+def test_missing_canonical_indicator_path_cannot_create_an_empty_store(tmp_path, monkeypatch):
+    from baibai_engine.foundation.repository_layout import INDICATORS_DB_PATH
+
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(FileNotFoundError, match="explicit provisioning"):
+        open_connection()
+    assert not INDICATORS_DB_PATH.exists()

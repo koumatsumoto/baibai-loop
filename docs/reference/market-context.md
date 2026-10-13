@@ -17,7 +17,7 @@ Market Contextの`indicators`はL1のregistry・取得・DB adapter、`reading`�
 
 `indicators`はL1の取得/registry/観測DB、`reading/query.py`は保存観測からのL2読取、`assessment`は明示判断と保存履歴を所有する。Web/batch/Owner MCPの公開読取は`read_api/market_context.py`へ統合し、旧moduleを転送する入口は置かない。Webの現在の内容は`AssessmentContent`、過去の章・確率・主張・引用は歴史的本文の表示であり、新writerの必須構造ではない。
 
-runtimeの指標DBは`stores/market_context/indicators.sqlite`/R2 `indicators.sqlite`（schema7）、判断はapplication schema21の`market_context_assessment / market_context_assessment_head`に保存する。新規判断はschema6・`market-context-assessment-*` identityを使う。旧`macro-context-*` ID・JSON・引用・hashは変更せず、新しい`/api/market-context/assessments/{context_id}`から直接読む。schema5/6は同じコンパクト意味、旧3/4は保存された章立て履歴であり、新writerの構造とは分ける。新Triage4・CAA2は`market_context_assessment_id`を参照し、保存Triage3・CAA1は元payload/hashを保つ読取で利用・再開する。一回切替と本番受入は[運用手順](../../batch/OPERATIONS.md#market-context-identity-cutover)に従う。
+runtimeの指標DBは`stores/market_context/indicators.sqlite`/R2 `indicators.sqlite`（schema7）、判断はapplication schema21の`market_context_assessment / market_context_assessment_head`に保存する。新規判断はschema6・`market-context-assessment-*` identityを使う。旧`macro-context-*` ID・JSON・引用・hashは変更せず、新しい`/api/market-context/assessments/{context_id}`から直接読む。schema5/6は同じコンパクト意味、旧3/4は保存された章立て履歴であり、新writerの構造とは分ける。新Triage4・CAA2は`market_context_assessment_id`を参照し、保存Triage3・CAA1は元payload/hashを保つ読取で利用・再開する。保存名の切替は完了しており、通常の取得・反映・復旧は[運用手順](../../batch/OPERATIONS.md#store-identity-recovery)に従う。
 
 Readingは`READING_RULES_PATH`が選ぶ一つのdated fileを使う。13の保存判断が引用する`method/macro/reading/2026-08-01T100000+0900.yaml`は元bytes/pathのまま保全し、別のcurrent copyを作らない。規則のidentityはdated stemであり、単なる配置整理で値・revision・schemaを変えない。
 

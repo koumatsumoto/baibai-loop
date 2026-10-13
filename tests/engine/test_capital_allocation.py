@@ -1,12 +1,16 @@
 from datetime import UTC, date, datetime
+from hashlib import sha256
 
 import pytest
 from pydantic import ValidationError
 
 from baibai_engine.research.capital_allocation import (
     CapitalAllocationAssessment,
+    StoredCapitalAllocationAssessment,
     capital_allocation_draft_sha256,
 )
+from baibai_engine.research.capital_allocation_service import CapitalAllocationAssessmentService
+from baibai_engine.storage.application.json import canonical_json
 
 
 def _payload() -> dict[str, object]:
@@ -72,3 +76,24 @@ def test_review_digest_changes_with_judgment_but_not_publication_time() -> None:
     assessment = CapitalAllocationAssessment.model_validate(_payload())
     later = assessment.model_copy(update={"published_at": datetime(2026, 8, 30, 13, tzinfo=UTC)})
     assert capital_allocation_draft_sha256(assessment) == capital_allocation_draft_sha256(later)
+
+
+def test_saved_allocation_keeps_original_payload_and_review_hash_without_an_old_writer(tmp_path):
+    current = CapitalAllocationAssessment.model_validate(_payload()).payload()
+    old = {**current, "schema_version": 1, "macro_context_id": "macro-context-2026-07-17-saved"}
+    old.pop("market_context_assessment_id")
+    allocation = StoredCapitalAllocationAssessment.from_payload(old)
+    assert allocation.schema_version == 1
+    assert allocation.market_context_assessment_id == old["macro_context_id"]
+    assert allocation.payload() == old
+    reviewed = {k: v for k, v in old.items() if k not in {"review", "published_at"}}
+    assert (
+        capital_allocation_draft_sha256(allocation)
+        == sha256(canonical_json(reviewed).encode()).hexdigest()
+    )
+    with pytest.raises(ValidationError):
+        CapitalAllocationAssessment.model_validate(old)
+    database = tmp_path / "not-created.sqlite"
+    with pytest.raises(ValueError, match="read-only"):
+        CapitalAllocationAssessmentService(database).publish(allocation)
+    assert not database.exists()
