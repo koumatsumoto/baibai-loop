@@ -177,6 +177,7 @@ class _RemotePublication:
     """
 
     store: ObjectStore
+    verified_readback_root: Path | None = None
     verified: dict[str, tuple[str, int, str]] = field(default_factory=dict)
     manifest_payloads: dict[str, bytes] = field(default_factory=dict)
     uploaded_objects: int = 0
@@ -386,10 +387,19 @@ class _RemotePublication:
         )
 
     def _require_bytes(self, *, key: str, expected_sha256: str, expected_size: int) -> None:
+        destination = (
+            _mirror_path(self.verified_readback_root, key)
+            if self.verified_readback_root is not None
+            else None
+        )
+        if destination is not None:
+            destination.parent.mkdir(parents=True, exist_ok=True)
         temporary_path: Path | None = None
         try:
             with tempfile.NamedTemporaryFile(
-                prefix="baibai-lake-readback-", delete=False
+                prefix="baibai-lake-readback-",
+                dir=None if destination is None else destination.parent,
+                delete=False,
             ) as target:
                 temporary_path = Path(target.name)
             self.store.download_file(key, temporary_path, expect_bytes=expected_size)
@@ -400,6 +410,8 @@ class _RemotePublication:
                 or _sha256(temporary_path) != expected_sha256
             ):
                 raise LakePublishError(f"remote object bytes postcondition failed: {key}")
+            if destination is not None:
+                temporary_path.replace(destination)
         finally:
             if temporary_path is not None:
                 temporary_path.unlink(missing_ok=True)
@@ -413,9 +425,10 @@ def publish_l1_release(
     pointer_precondition: PointerPrecondition | None = None,
     expected_release_sha256: str | None = None,
     before_pointer_switch: Callable[[], None] | None = None,
+    verified_readback_root: Path | None = None,
 ) -> PublishReport:
     """Upload immutable graph nodes, then atomically switch the one mutable pointer."""
-    publication = _RemotePublication(store=store)
+    publication = _RemotePublication(store=store, verified_readback_root=verified_readback_root)
     pointer_key = lake_current_l1_pointer_key()
     if pointer_precondition is None:
         initial = publication.head(pointer_key)

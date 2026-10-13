@@ -153,6 +153,10 @@ def publish_and_verify(
         for item in observations
     }
     expected_history = external_assessment_history_digests(sqlite_path, partitions=changed)
+    # Keep the publisher's verified remote bytes in this attempt's private mirror.
+    # The fixed-release reader rechecks their SHA before validating typed history.
+    readback_mirror = directory / "mirror"
+    readback_mirror.mkdir(mode=0o700)
     verify_held(store, handle)
     publication = (
         publish_market_lake(
@@ -160,6 +164,7 @@ def publish_and_verify(
             mirror_root=mirror,
             store=store,
             before_pointer_switch=lambda: verify_held(store, handle),
+            verified_readback_root=readback_mirror,
         )
         if inserted
         else None
@@ -171,8 +176,6 @@ def publish_and_verify(
         != (publication.release_id, publication.release_manifest_sha256)
     ):
         raise LakePublishError("external assessment publication changed before readback")
-    readback_mirror = directory / "mirror"
-    readback_mirror.mkdir(mode=0o700)
     after = _resolve_serving_release(store, readback_mirror, current)
     if set(after.dataset_names()) != set(before.dataset_names()) | {item[0] for item in changed}:
         raise LakePublishError("external assessment publication changed dataset inventory")

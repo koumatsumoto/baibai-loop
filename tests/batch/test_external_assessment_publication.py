@@ -310,17 +310,18 @@ def test_readback_gets_only_external_assessment_parquet_and_keeps_new_object_byt
     )
     new_parquet = {key for key in store.values.keys() - before_keys if key.endswith(".parquet")}
     assert len(new_parquet) == 2
-    # New objects retain publisher byte readback, then independent typed readback.
-    assert all(store.get_keys.count(key) == 2 for key in new_parquet)
+    # Typed history uses the publisher's verified remote bytes, not the export files.
+    assert all(store.get_keys.count(key) == 1 for key in new_parquet)
     assert not forbidden.intersection(store.get_keys)
     assert not (tmp_path / "retail-only-readback/readback.sqlite").exists()
 
 
-def test_corrupt_external_assessment_independent_byte_readback_cannot_mark_published(
+def test_corrupt_external_assessment_byte_readback_cannot_switch_pointer_or_mark_published(
     publication, monkeypatch
 ):
     store, plan, handle, database, mirror, tmp_path = publication
     directory = tmp_path / "corrupt-readback"
+    before = publisher._serving_pointer(store)
     download = store.download_file
 
     def corrupt_readback(key, path, *, expect_bytes=None):
@@ -329,7 +330,7 @@ def test_corrupt_external_assessment_independent_byte_readback_cannot_mark_publi
             path.write_bytes(b"synthetic-corrupt-parquet")
 
     monkeypatch.setattr(store, "download_file", corrupt_readback)
-    with pytest.raises(LakePublishError, match="digest mismatch"):
+    with pytest.raises(LakePublishError, match="bytes postcondition failed"):
         external_assessment.publish_and_verify(
             store,
             plan,
@@ -339,6 +340,48 @@ def test_corrupt_external_assessment_independent_byte_readback_cannot_mark_publi
             directory=directory,
         )
     assert not any(key.endswith("/published.json") for key in store.values)
+    assert publisher._serving_pointer(store) == before
+
+
+def test_fixed_release_refetches_retained_bytes_from_a_different_generation(
+    publication, monkeypatch
+):
+    store, plan, handle, database, mirror, tmp_path = publication
+    before_keys = set(store.values)
+    previous_bytes = next(
+        item.body
+        for key, item in store.values.items()
+        if external_assessment.VALUATION_DATASET in key and key.endswith(".parquet")
+    )
+    publish = external_assessment.publish_market_lake
+    replaced_keys = []
+
+    def replace_retained_generation(**kwargs):
+        result = publish(**kwargs)
+        key = next(
+            key
+            for key in store.values.keys() - before_keys
+            if external_assessment.VALUATION_DATASET in key and key.endswith(".parquet")
+        )
+        # A filename alone is insufficient: old verified bytes have another SHA.
+        (kwargs["verified_readback_root"] / key).write_bytes(previous_bytes)
+        replaced_keys.append(key)
+        return result
+
+    monkeypatch.setattr(external_assessment, "publish_market_lake", replace_retained_generation)
+    store.get_keys.clear()
+    report = external_assessment.publish_and_verify(
+        store,
+        plan,
+        handle=handle,
+        sqlite_path=database,
+        mirror=mirror,
+        directory=tmp_path / "generation-readback",
+    )
+    assert report["readback"] == "verified"
+    key = replaced_keys[0]
+    assert store.get_keys.count(key) == 2
+    assert (tmp_path / "generation-readback/mirror" / key).read_bytes() == store.values[key].body
 
 
 def fixed_external_assessment_readback(publication):

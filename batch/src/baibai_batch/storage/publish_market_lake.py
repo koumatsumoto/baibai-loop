@@ -90,6 +90,7 @@ def publish_market_lake(
     store: ObjectStore,
     release_id: str | None = None,
     before_pointer_switch: Callable[[], None] | None = None,
+    verified_readback_root: Path | None = None,
 ) -> MarketLakePublishReport:
     """Derive every partition from the store, seal a release, and publish it.
 
@@ -136,6 +137,7 @@ def publish_market_lake(
             store=store,
             pointer_precondition=serving.precondition,
             before_pointer_switch=before_pointer_switch,
+            verified_readback_root=verified_readback_root,
         )
     target_origin = LakeStoreOrigin(
         release_id=published.release_id,
