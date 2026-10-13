@@ -5,9 +5,14 @@ import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
+from typing import Any, Self, cast
 
-from requests.exceptions import ConnectionError as RequestsConnectionError
-from requests.exceptions import RetryError, Timeout
+from requests import PreparedRequest, Response
+from requests.adapters import HTTPAdapter
+from urllib3.connectionpool import HTTPSConnectionPool
+from urllib3.exceptions import HTTPError, InvalidHeader
+from urllib3.response import BaseHTTPResponse
+from urllib3.util import Retry
 
 from baibai_engine.foundation.env import load_project_env
 
@@ -17,6 +22,7 @@ from .base import (
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
+    ProviderFetchStoppedError,
     ProviderSpec,
     record_observation,
 )
@@ -44,27 +50,122 @@ _READING_FIELDS: Mapping[str, str] = {
 # rate window は数分に及ぶことがあるため末尾は 10 分まで伸ばす。
 _RATE_LIMIT_BACKOFF_SECONDS = (30, 60, 120, 300, 600)
 _RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
-# 429待機の総予算は系列・再試行ごとに増やさず、同一processの取得passで共有する。
-# 長い待機がjobのhard timeoutを超えるとprocessがcancelされ、通常の失敗returnでは
-# ないため、#1439の領域別失敗処理や最後の単一exportまで戻れない。既にcommitした
-# chunkは残るが、cancel時点の未完工程・公開は未実行となる。予算切れでは待たずに
-# 取得失敗として返し、独立工程がその失敗を処理できる範囲に待機を制限する。
-_BACKOFF_BUDGET_SECONDS = 20 * 60
+# 3系列・全営業日で共有するprocess内の取得予算。SDK内部の待機と通信時間も数え、
+# deadlineに収まらない待機は短縮せず停止する。job残時間の伝達とは別の既存20分上限。
+_FETCH_BUDGET_SECONDS = 20 * 60
 
 
 @dataclass(slots=True)
-class _BackoffBudget:
-    """How much waiting this process may still spend on rate limits."""
+class _FetchDeadline:
+    seconds: float = _FETCH_BUDGET_SECONDS
+    expires_at: float | None = None
 
-    remaining_seconds: float
+    def check(self, waiting: float = 0.0) -> None:
+        now = time.monotonic()
+        if self.expires_at is None:
+            self.expires_at = now + self.seconds
+        if now + waiting >= self.expires_at:
+            raise ProviderFetchStoppedError("jquants_options fetch deadline exhausted")
 
-    def spend(self, seconds: float) -> bool:
-        """Wait, or report that the budget cannot cover this wait."""
-        if seconds > self.remaining_seconds:
-            return False
-        self.remaining_seconds -= seconds
-        time.sleep(seconds)
-        return True
+    def wait(self, seconds: float) -> None:
+        self.check(seconds)
+        if seconds > 0:
+            time.sleep(seconds)
+
+
+class _OptionsReadRetry(Retry):
+    """Retry one GET, retaining the same deadline through urllib3's clones."""
+
+    def __init__(self, *, deadline: _FetchDeadline, **kwargs: Any) -> None:
+        self.deadline = deadline
+        super().__init__(**kwargs)
+
+    def new(self, **kw: Any) -> Self:
+        return super().new(deadline=self.deadline, **kw)
+
+    def get_backoff_time(self) -> float:
+        if not self.history:
+            return 0.0
+        return float(_RATE_LIMIT_BACKOFF_SECONDS[min(len(self.history), 5) - 1])
+
+    def sleep(self, response: BaseHTTPResponse | None = None) -> None:
+        waiting = self.get_backoff_time()
+        if response is not None and self.respect_retry_after_header:
+            try:
+                retry_after = self.get_retry_after(response)
+            except InvalidHeader:
+                retry_after = None
+            if retry_after is not None:
+                waiting = retry_after
+        self.deadline.wait(waiting)
+
+
+class _OptionsReadPool(HTTPSConnectionPool):
+    """Read the SDK's JSON body while urllib3 still owns this GET's retry state."""
+
+    def urlopen(self, *args: Any, **kwargs: Any) -> BaseHTTPResponse:
+        # urllib3 owns/reclaims the connection until _make_request reads the body.
+        kwargs["preload_content"] = True
+        kwargs["decode_content"] = True
+        return super().urlopen(*args, **kwargs)
+
+    def _make_request(self, conn: Any, *args: Any, **kwargs: Any) -> BaseHTTPResponse:
+        # Inspect the status before reading: a body timeout must not retry auth,
+        # and a 429 must keep its Retry-After even if its error body is incomplete.
+        kwargs["preload_content"] = False
+        response = super()._make_request(conn, *args, **kwargs)
+        try:
+            response.read(decode_content=True, cache_content=True)
+        except HTTPError as exc:
+            if response.status in _RETRYABLE_STATUSES:
+                conn.close()
+            elif response.status >= 400:
+                raise ProviderFetchStoppedError(
+                    f"jquants_options HTTP {response.status} body failed: {type(exc).__name__}"
+                ) from None
+            else:
+                raise
+        return response
+
+
+class _OptionsReadAdapter(HTTPAdapter):
+    def __init__(self, original: HTTPAdapter, deadline: _FetchDeadline) -> None:
+        self.deadline = deadline
+        super().__init__(
+            pool_connections=original._pool_connections,
+            pool_maxsize=original._pool_maxsize,
+            pool_block=original._pool_block,
+            max_retries=_OptionsReadRetry(
+                deadline=deadline,
+                total=5,
+                allowed_methods=frozenset({"GET"}),
+                status_forcelist=_RETRYABLE_STATUSES,
+            ),
+        )
+        # Copy the mapping so no SDK/global pool is changed, including proxy pools.
+        self.poolmanager.pool_classes_by_scheme = {
+            **self.poolmanager.pool_classes_by_scheme,
+            "https": _OptionsReadPool,
+        }
+
+    def proxy_manager_for(self, proxy: str, **proxy_kwargs: Any) -> Any:
+        manager = super().proxy_manager_for(proxy, **proxy_kwargs)
+        manager.pool_classes_by_scheme = {
+            **manager.pool_classes_by_scheme,
+            "https": _OptionsReadPool,
+        }
+        return manager
+
+    def build_response(self, req: PreparedRequest, resp: Any) -> Response:
+        response = super().build_response(req, resp)
+        # requests would otherwise read an already-consumed stream outside retry.
+        response._content = resp.data
+        response._content_consumed = True
+        return response
+
+    def send(self, request: PreparedRequest, *args: Any, **kwargs: Any) -> Response:
+        self.deadline.check()
+        return super().send(request, *args, **kwargs)
 
 
 class JQuantsOptionsProvider:
@@ -88,9 +189,10 @@ class JQuantsOptionsProvider:
         # ので memo でよい。休場日 (年 16 日ほど) の None も憶える——憶えないと 3 系列
         # がそれぞれ空のチェーンを取りに行く。
         self._readings: dict[date, FearReadings | None] = {}
-        # 待避の予算は series でも fetch でもなく provider が持つ。service は fetch を
-        # 2 回試み、1 pass は 3 系列を回すので、fetch ごとに配ると上限が 6 倍になる。
-        self._budget = _BackoffBudget(_BACKOFF_BUDGET_SECONDS)
+        self._deadline = _FetchDeadline()
+        # A failed chain is also one shared result: another reading must not reset
+        # that day's HTTP retry budget. This memo lasts only in this provider process.
+        self._failures: dict[date, str] = {}
 
     def fetch(
         self,
@@ -104,7 +206,7 @@ class JQuantsOptionsProvider:
         del session, context
         field = _reading_field(series.provider_series_id)
         api_key = _read_api_key()
-        client = _client(api_key)
+        client = _client(api_key, deadline=self._deadline)
         observations: list[ObservationRecord] = []
         for day in _days(start, end):
             reading = self._day_reading(client, day, api_key=api_key)
@@ -121,8 +223,16 @@ class JQuantsOptionsProvider:
     def _day_reading(self, client: object, day: date, *, api_key: str) -> FearReadings | None:
         if day in self._readings:
             return self._readings[day]
-        rows = _fetch_chain(client, day, api_key=api_key, budget=self._budget)
-        reading = _reading(rows, day) if rows else None
+        if day in self._failures:
+            raise ProviderFetchStoppedError(self._failures[day]) from None
+        try:
+            self._deadline.check()
+            rows = _fetch_chain(client, day, api_key=api_key)
+            reading = _reading(rows, day) if rows else None
+        except IndicatorsProviderError as exc:
+            message = _redact(str(exc), api_key)
+            self._failures[day] = message
+            raise ProviderFetchStoppedError(message) from None
         self._readings[day] = reading
         return reading
 
@@ -135,7 +245,7 @@ def _reading_field(provider_series_id: str) -> str:
     field = _READING_FIELDS.get(provider_series_id)
     if field is None:
         supported = ", ".join(sorted(_READING_FIELDS))
-        raise IndicatorsProviderError(
+        raise ProviderFetchStoppedError(
             f"unsupported jquants_options series {provider_series_id!r}; supported: {supported}"
         )
     return field
@@ -157,35 +267,40 @@ def _read_api_key() -> str:
     load_project_env()
     token = os.environ.get(_API_KEY_ENV)
     if not token:
-        raise IndicatorsProviderError(
+        raise ProviderFetchStoppedError(
             f"missing {_API_KEY_ENV}; set it in the environment or .env to fetch jquants_options"
         )
     return token
 
 
-def _client(api_key: str) -> object:
+def _client(api_key: str, *, deadline: _FetchDeadline) -> object:
     try:
         import jquantsapi
     except ModuleNotFoundError as exc:
-        raise IndicatorsProviderError("jquantsapi is not installed") from exc
-    return jquantsapi.ClientV2(api_key=api_key)
+        raise ProviderFetchStoppedError("jquantsapi is not installed") from exc
+    client = jquantsapi.ClientV2(api_key=api_key)
+    # ClientV2 2.7 exposes no public transport setting. Keep its ordinary session's
+    # TLS/proxy and pool sizing; replace only this client's HTTPS read adapter.
+    session = client._request_session()
+    original = cast("HTTPAdapter", session.adapters["https://"])
+    session.mount("https://", _OptionsReadAdapter(original, deadline))
+    original.close()
+    return client
 
 
-def _fetch_chain(
-    client: object, day: date, *, api_key: str, budget: _BackoffBudget
-) -> list[Mapping[str, object]]:
+def _fetch_chain(client: object, day: date, *, api_key: str) -> list[Mapping[str, object]]:
     method = getattr(client, "get_drv_bars_daily_opt_225", None)
     if not callable(method):
-        raise IndicatorsProviderError(
+        raise ProviderFetchStoppedError(
             "jquantsapi.ClientV2 has no callable get_drv_bars_daily_opt_225"
         )
-    frame = _call_with_backoff(method, day, api_key=api_key, budget=budget)
+    frame = _call(method, day, api_key=api_key)
     to_dict = getattr(frame, "to_dict", None)
     if not callable(to_dict):
-        raise IndicatorsProviderError("unexpected jquants_options payload: not a DataFrame")
+        raise ProviderFetchStoppedError("unexpected jquants_options payload: not a DataFrame")
     records = to_dict(orient="records")
     if not isinstance(records, list):
-        raise IndicatorsProviderError("unexpected jquants_options payload: records is not a list")
+        raise ProviderFetchStoppedError("unexpected jquants_options payload: records is not a list")
     rows = [record for record in records if isinstance(record, Mapping)]
     _require_requested_day(rows, day)
     # The duplicate check speaks about the snapshot the readings use. Run against the
@@ -210,7 +325,7 @@ def _require_one_row_per_contract(rows: Sequence[Mapping[str, object]], day: dat
     for row in rows:
         key = (str(row.get("SQD")), str(row.get("Strike")), str(row.get("PCDiv")))
         if key in seen:
-            raise IndicatorsProviderError(
+            raise ProviderFetchStoppedError(
                 f"jquants_options returned {day.isoformat()} twice for the same contract "
                 f"(expiry {key[0]}, strike {key[1]}, side {key[2]})"
             )
@@ -228,54 +343,22 @@ def _require_requested_day(rows: Sequence[Mapping[str, object]], day: date) -> N
     answered = {parsed for row in rows if (parsed := as_date(row.get("Date"))) is not None}
     if answered and answered != {day}:
         seen = ", ".join(sorted(value.isoformat() for value in sorted(answered))[:3])
-        raise IndicatorsProviderError(
+        raise ProviderFetchStoppedError(
             f"jquants_options answered for {seen} when {day.isoformat()} was requested"
         )
 
 
-def _call_with_backoff(
-    method: object, day: date, *, api_key: str, budget: _BackoffBudget
-) -> object:
-    """Call the endpoint, waiting out a rate limit rather than ending the range.
-
-    Without this a single 429 discards every day already fetched, and a range long
-    enough to be worth fetching is long enough to meet one. Errors that will not
-    change on a retry (auth, a bad date) fail on the first attempt, and the waiting
-    stops once the run has spent its budget — a pass where every day waits the full
-    ladder would otherwise outlast any job that scheduled it.
-    """
+def _call(method: object, day: date, *, api_key: str) -> object:
+    """Call the SDK method once; pagination and HTTP retries belong to the adapter."""
     assert callable(method)
-    last: Exception | None = None
-    for delay_seconds in (0, *_RATE_LIMIT_BACKOFF_SECONDS):
-        if delay_seconds and not budget.spend(delay_seconds):
-            break
-        try:
-            return method(date_yyyymmdd=day.strftime("%Y%m%d"))
-        except Exception as exc:
-            last = exc
-            if not _is_retryable(exc):
-                break
-    # api_key が例外文字列に混入し得るので redact し、from None で原因チェーンも断つ。
-    sanitized = _redact(str(last), api_key)
-    raise IndicatorsProviderError(
-        f"failed to fetch jquants_options for {day.isoformat()}: {type(last).__name__}: {sanitized}"
-    ) from None
-
-
-def _is_retryable(exc: Exception) -> bool:
-    """Whether waiting could change the answer.
-
-    The client retries the rate-limited statuses inside its own session and, once its
-    attempts run out, raises a RetryError carrying no response at all — so a status
-    code is exactly what a 429 never arrives with, and classifying on the status alone
-    made the wait unreachable for the one case it exists for. The exceptions the
-    library raises directly (auth, a date outside the published history) do carry a
-    response, and those are the ones a retry cannot change.
-    """
-    if isinstance(exc, RetryError | RequestsConnectionError | Timeout):
-        return True
-    status = getattr(getattr(exc, "response", None), "status_code", None)
-    return isinstance(status, int) and status in _RETRYABLE_STATUSES
+    try:
+        return method(date_yyyymmdd=day.strftime("%Y%m%d"))
+    except Exception as exc:
+        sanitized = _redact(str(exc), api_key)
+        raise ProviderFetchStoppedError(
+            f"failed to fetch jquants_options for {day.isoformat()}: "
+            f"{type(exc).__name__}: {sanitized}"
+        ) from None
 
 
 def _redact(message: str, secret: str) -> str:
