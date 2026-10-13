@@ -37,9 +37,11 @@ E[r] calibration contextは共有read contractがartifact schema、generated/exp
 
 ユーザーの開始要求を記録し、AIが新規・保有を合わせて最大3銘柄、0件も含む固定集合を選ぶ。Operationの`research_selection` artifactがticker・purpose・開始要求・新規Triage参照を所有する。再開・workspaceの`--force`で対象を追加・補充せず、同じ集合・Triage・分析対象日なら元のOperationを継続する。workspaceのas-ofはOperation.as_ofへ一致させ、再開で時点をずらさない。正式なThesis評価日や引用資料の日付はこの分析対象日と区別する。新規はTriage admission、保有は現在ledgerを検証し、保有をCAAの新規集合へ混ぜない。0件はOperationに提案なしの終了を残し、架空のCAAを作らない。
 
-`research prepare`は新規workspaceと、選んだ保有の`holdings/<ticker>` workspaceを同じOperationへ束縛する。`position-prepare`単独も明示開始要求から保有Operationを作る。manifestのOperation IDとselection hashは対象の付け替えを検出し、completed Operationへ新しい調査を足さない。旧manifestのOperation ID欠如は履歴statusで読めるが、scaffold/review/promoteのmutation入口としては認めない。
+`research prepare`は新規workspaceと、選んだ保有の`holdings/<ticker>` workspaceを同じOperationへ束縛する。`position-prepare`単独も明示開始要求から保有Operationを作る。必要な保存入力はOperation作成・workspace書込より先に読み、exact runの欠落等で読取が失敗したら新規開始状態を残さず、再開元のOperation・入力も変更しない。manifestのOperation IDとselection hashは対象の付け替えを検出し、completed Operationへ新しい調査を足さない。旧manifestのOperation ID欠如は履歴statusで読めるが、scaffold/review/promoteのmutation入口としては認めない。
 
-保存済み三領域を`research/inputs.py`で合成した`domain-inputs.yaml`は調査の入力である。機械anchor、個別/市場/業種、Reading、外部提示値を意味ごとに保持し、欠測を新規取得やAI起動で埋めない。既存Market Context Assessmentは任意の参照であり、毎回独立した全depth reportや主観確率を作る前提にしない。重要な環境上の含意だけを企業評価・提案のsource、仮定、反対仮説へ接続する。
+保存済み三領域を`research/inputs.py`で合成した`domain-inputs.yaml`はAIの読取入口である。prepareは選択済み新規だけの機械snapshotと、exact Triageの調査理由・質問・主要リスク・元のpriorityを`research_triage`として引用する。保存Triageの判断を新しい観測・判断へ置換せず、canonical Triage/Review Setとmanifestのbindingを保持する。全候補snapshotを持つ`research-workspace.yaml`は内部照合用であり、AIへ全文を再入力しない。親入力の`securities`は選択済み新規/保有だけを含み、保有子はmanifestの`domain_inputs_ref`で親を相対参照して共通入力を複写しない。保有単独は自身の入力を持ち、0件では対象行が空となる。
+
+機械anchor、個別/市場/業種、Reading、外部提示値を意味ごとに保持し、欠測を新規取得やAI起動で埋めない。既存Market Context Assessmentは任意の参照であり、毎回独立した全depth reportや主観確率を作る前提にしない。重要な環境上の含意だけを企業評価・提案のsource、仮定、反対仮説へ接続する。
 
 通常の`research prepare`・`position-prepare`は、保存候補の`as_of`を保ちながら、Operationに保存された調査開始時刻`started_at`を`known_at`と`received_cutoff`に使う。同じOperationの再開・workspaceの`--force`でもこの入力確定時刻を保持し、新しい明示開始のOperationで更新する。External Assessmentの`evaluated_at`も同じ時刻であり、開始後の受領値は含めない。金曜候補を日曜に調査する場合、日曜の開始までに受領した外部評価を利用できる。`as_of`末へ受領cutoffを切り戻さず、過去時点のバックテストとは扱わない。`research_inputs`へ直接渡す明示cutoffは保持し、保存済み判断を再計算しない。Readingの対象日と保存履歴の扱いは[Readingの読取契約](./market-context.md#reading)に従う。
 

@@ -62,6 +62,7 @@ class ResearchSetAdmissionBinding:
     screening_rules_hash: str
     admissible_tickers: tuple[str, ...]
     triage_decision_by_ticker: dict[str, str]
+    research_focus_by_ticker: dict[str, dict[str, str | None]]
     review_set_entries: tuple[dict[str, object], ...]
     run_revision_id: str | None = None
 
@@ -117,6 +118,14 @@ def _resolve_research_triage(
         screening_rules_hash=triage.screening_rules_hash,
         admissible_tickers=admissible_tickers,
         triage_decision_by_ticker=decisions,
+        research_focus_by_ticker={
+            entry.ticker: {
+                "rationale": entry.rationale,
+                "research_question": entry.research_question,
+                "key_risk": entry.key_risk,
+            }
+            for entry in triage.entries
+        },
         review_set_entries=_review_set_entries_from_triage(triage),
         run_revision_id=triage.run_revision_id,
     )

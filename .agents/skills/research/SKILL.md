@@ -26,7 +26,7 @@ uv run baibai-engine research prepare \
 
 対象purposeごとに必要なflagだけを使う。新規は`--ticker`、保有は`--holding-ticker`を同じ呼出しで指定し、合算上限を守る。新規のない開始はTriage IDを省略して`--asof`を指定できる。0件も開始要求と提案なしの終了を残す。
 
-新規workspaceと`holdings/<ticker>`は同じOperationを参照する。三領域の保存済み`domain-inputs.yaml`を読み、観測・機械anchor・AI前提を分ける。保存された旧章立てreportの全文作成を前提にせず、materialな環境変化だけ企業評価と提案へ接続する。既存Thesisがあれば`--from-thesis-id`で引き継ぐ。再開で別Triage・対象集合へ差し替えず、執筆済みworkspaceを保持する。
+新規workspaceと`holdings/<ticker>`は同じOperationを参照する。AIの読取入口は親の`domain-inputs.yaml`一本とし、選択済み新規の機械snapshot・保存Triageの調査理由/質問/リスクと、選択済み新規/保有の三領域入力を読む。観測・機械anchor・保存判断・今回置く仮定を分ける。`research-workspace.yaml`の全候補snapshotは内部のcanonical照合用であり、AIへ再度全文を渡さない。保有子workspaceのmanifestにある`domain_inputs_ref`は子workspaceを基準に親入力を指す。同じ作業では共通入力を重ねて読まず、保有単独の開始は自身の`domain-inputs.yaml`を読む。保存された旧章立てreportの全文作成を前提にせず、materialな環境変化だけ企業評価と提案へ接続する。既存Thesisがあれば`--from-thesis-id`で引き継ぐ。再開で別Triage・対象集合へ差し替えず、執筆済みworkspaceを保持する。
 
 <a id="company-research"></a>
 
