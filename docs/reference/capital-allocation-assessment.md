@@ -13,7 +13,7 @@ status: active
 
 allocateは一つのalternativeを選び、そのThesisとReviewへ束縛する。no_allocationとdeferは選択対象を持たない。完了した経済的reject・unresolvedは比較できる。調査未完了と保有提案はalternativesへ混ぜず、配分対象は現在の購入条件を満たす必要がある。
 
-`comparison / forgone / alternatives[].rationale`には重要仮定、根拠の強弱、不利な条件での見返りを記す。同じBase年率でも倍率上昇と業績回復への依存を分け、Pmax内という理由だけで配分しない。詳しい算術の読み方は[Thesis](./thesis.md#valuation-context)を参照する。
+`comparison / forgone / alternatives[].rationale`には、[投資目的とリスク許容](../doctrine.md#investment-strategy)に沿って、重要な成立条件、確からしさを支える根拠と反証、実現までの時間、上振れ・下振れの見返りを記す。同じBase年率でも倍率上昇と業績回復への依存を分け、Pmax内という理由だけで配分しない。詳しい算術の読み方は[Thesis](./thesis.md#valuation-context)を参照する。
 
 ## 保存とReview
 

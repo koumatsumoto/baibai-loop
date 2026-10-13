@@ -89,8 +89,8 @@ Research Setはpipeline stateである。storeごとのauthorityは
 保存済み市場・財務観測 -> Valuation / Market ContextのL2結果
              -> Screening Run -> Security Analysis[]
              -> Valuation Approach[] -> Nomination[] -> Review Set
-Review Set -> Research Triage
-           -> 明示開始・新規/保有合算最大三対象の固定選択
+Review Set -> Research Triage -> 新規admission
+新規admission / Holding -> 明示開始・新規/保有合算最大三対象の固定選択
            -> 三領域の保存済み入力による有限Research -> Thesis + Thesis Review
 reviewed Thesis群 -> Capital Allocation Assessment -> Planning Limit
                   -> 一銘柄ずつの新規買付/見送り提案
@@ -108,7 +108,7 @@ Portfolio Ledger -> Portfolio Outcome
 Market Context Assessment -> Triage・Research・資本判断の補助入力
 ```
 
-新規提案はCAA/Planning、保有提案はPosition Reviewの成果に含む。共通の新しいTrade Proposal永続artifactを追加したという意味ではない。
+新規はTriage admission、保有は現在ledgerから選び、保有ResearchにScreening候補のmembershipは要求しない。新規提案はCAA/Planning、保有提案はPosition Reviewの成果に含む。共通の新しいTrade Proposal永続artifactを追加したという意味ではない。
 
 これは成果物の関係であり、毎回すべてを実行する手順ではない。0件・部分完了・未完了は調査進行の結果として残し、AI完了を人間の採用や取引事実と混同しない。操作ごとの開始条件と人間確認は[各skill](../.agents/skills/)を参照する。
 
