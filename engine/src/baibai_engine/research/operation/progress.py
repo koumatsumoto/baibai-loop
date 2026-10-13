@@ -7,6 +7,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
+from baibai_engine.research.explicit_selection import ExplicitResearchRun
 from baibai_engine.research.operation.models import OperationPayload
 from baibai_engine.research.position_review import PositionReviewDocument
 from baibai_engine.storage.application.json import canonical_json
@@ -25,13 +26,24 @@ class ResearchSelection(BaseModel):
     kind: Literal["research_selection"] = "research_selection"
     request: str = Field(min_length=1, pattern=r"\S")
     research_triage_id: str | None = None
+    explicit_run: ExplicitResearchRun | None = Field(default=None, exclude_if=lambda v: v is None)
     targets: tuple[ResearchTarget, ...] = Field(max_length=3)
 
     @model_validator(mode="after")
     def fixed_subjects(self) -> Self:
         if len({item.ticker for item in self.targets}) != len(self.targets):
             raise ValueError("selected tickers must be unique across new and holding purposes")
-        if any(item.purpose == "new" for item in self.targets) and not self.research_triage_id:
+        if self.research_triage_id and self.explicit_run is not None:
+            raise ValueError("Research Triage and explicit run are mutually exclusive sources")
+        if self.explicit_run is not None and set(self.explicit_run.analyses) != {
+            item.ticker for item in self.targets
+        }:
+            raise ValueError("explicit analysis snapshot must exactly cover the fixed targets")
+        if (
+            any(item.purpose == "new" for item in self.targets)
+            and not self.research_triage_id
+            and self.explicit_run is None
+        ):
             raise ValueError("new research targets require Research Triage admission")
         return self
 

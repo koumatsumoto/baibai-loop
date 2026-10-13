@@ -136,6 +136,8 @@ class OperationResearchView(BaseModel):
     research_triage_id: str | None
     targets: list[OperationResearchTargetView]
     capital_allocation_assessment_id: str | None
+    source_run_revision_id: str | None = None
+    source_analysis_as_of: date | None = None
 
 
 class OperationSessionView(BaseModel):
@@ -939,7 +941,7 @@ class CapitalAllocationAssessmentSummaryView(BaseModel):
     published_at: datetime
     decision: str
     headline: str
-    research_triage_id: str
+    research_triage_id: str | None
     alternative_count: int
     allocated_ticker: str | None
     research_operation_id: str | None = None
@@ -961,7 +963,7 @@ class CapitalAllocationAssessmentView(BaseModel):
     published_at: datetime
     decision: str
     headline: str
-    research_triage_id: str
+    research_triage_id: str | None
     market_context_assessment_id: str | None
     comparison: str
     foregone_alternatives: str

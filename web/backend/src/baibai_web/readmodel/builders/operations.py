@@ -61,6 +61,8 @@ def _operation_view(raw: Mapping[str, object]) -> OperationSessionView:
     assessment = next(
         (item for item in artifacts if item.get("kind") == "capital_allocation_assessment"), {}
     )
+    explicit = selection.get("explicit_run")
+    explicit = explicit if isinstance(explicit, Mapping) else {}
     return view.model_copy(
         update={
             "research": OperationResearchView(
@@ -68,6 +70,8 @@ def _operation_view(raw: Mapping[str, object]) -> OperationSessionView:
                 research_triage_id=text(selection.get("research_triage_id")),
                 targets=targets,
                 capital_allocation_assessment_id=text(assessment.get("ref")),
+                source_run_revision_id=text(explicit.get("run_revision_id")),
+                source_analysis_as_of=explicit.get("as_of"),
             )
         }
     )

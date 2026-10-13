@@ -13,12 +13,20 @@ function session(targets: OperationResearchTargetView[]): OperationSessionView {
     operation_id: 'op-20260907-capital-allocation-1', session_kind: 'capital-allocation', status: 'completed',
     as_of: '2026-09-07', ticker: null, started_at: '2026-09-07T18:00:00+09:00', completed_at: '2026-09-07T18:00:00+09:00',
     payload: { checkpoint: 'synthetic proposal complete', result: 'synthetic completion', human_confirmation: null },
-    research: { request: 'synthetic explicit request', research_triage_id: null, targets, capital_allocation_assessment_id: null },
+    research: { request: 'synthetic explicit request', research_triage_id: null, targets, capital_allocation_assessment_id: null, source_run_revision_id: null, source_analysis_as_of: null },
   }
 }
 function render(operation: OperationSessionView) { return renderToStaticMarkup(createElement(MemoryRouter, null, createElement(Fragment, null, createElement(HoldingProposals, { operations: [operation] }), createElement(ResearchOperationCard, { operations: [operation] })))) }
 
 describe('有限調査と提案の表示', () => {
+  it('ユーザー指定の要求と固定runを表示し、Triage参照を補わない', () => {
+    const operation = session([target('1234', 'new')])
+    operation.research!.source_run_revision_id = 'synthetic-explicit-run'
+    operation.research!.source_analysis_as_of = '2026-09-07'
+    const html = render(operation)
+    for (const text of ['ユーザー指定の調査', 'synthetic-explicit-run', 'synthetic explicit request', '2026-09-07']) expect(html).toContain(text)
+    expect(html).not.toContain('/research-triage')
+  })
   it('部分完了と保有提案を表示し、人間確認済み公開と分ける', () => {
     const html = render(session([target('1234', 'new', { outcome_status: 'reviewed' }), target('5678', 'new', { outcome_status: 'unfinished', unfinished_reason: '一次資料の確認未完了' }), target('2331', 'holding', { outcome_status: 'proposal', holding_proposal: { action: 'hold' }, checked_at: '2026-09-07T18:00:00+09:00' })]))
     for (const text of ['提案工程完了', '固定対象 3件', '調査未完了: 一次資料の確認未完了', '保有提案 hold（人間確認済み公開とは別）', '検証時点 2026-09-07T18:00:00+09:00']) expect(html).toContain(text)

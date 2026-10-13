@@ -52,6 +52,7 @@ export function ResearchOperationCard({ operations, names = new Map() }: { opera
       })}
       {research.capital_allocation_assessment_id && <Link className="w-fit text-sm underline" to={`/stocks/capital-allocation-assessments/${research.capital_allocation_assessment_id}`}>この調査の配分提案・見送りを見る →</Link>}
       {research.research_triage_id && <Link className="w-fit text-xs underline" to={`/research-triage?research_triage_id=${encodeURIComponent(research.research_triage_id)}`}>対象選定時の調査判断を見る →</Link>}
+      {research.source_run_revision_id && <p className="text-xs text-muted-foreground">ユーザー指定の調査 · 分析基準日 {research.source_analysis_as_of} · Run: {research.source_run_revision_id}</p>}
       <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">今回の記録・参照</summary><div className="mt-2 grid gap-2 break-words"><p>{research.request}</p><p>{String(operation.payload.result ?? operation.payload.checkpoint)}</p>{operation.payload.next != null && <p>次の確認: {String(operation.payload.next)}</p>}<p className="break-all">Operation: {operation.operation_id}</p>{research.targets.map(target => <p className="break-all" key={`${target.purpose}-${target.ticker}`}>{target.ticker} · {target.thesis_id ?? ''}{target.references.length > 0 && ` · ${target.references.join(' · ')}`}</p>)}</div></details>
     </article>
   })

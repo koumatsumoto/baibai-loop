@@ -91,7 +91,9 @@ def promote(
         raise ResearchWorkspaceConflictError(str(error)) from error
     except (ResearchValidationError, ValidationError) as error:
         raise ResearchWorkspaceDataError(str(error)) from error
-    if gate is not None and isinstance(manifest.get("operation_id"), str):
+    if manifest.get("purpose") != "position_review" and isinstance(
+        manifest.get("operation_id"), str
+    ):
         OperationService(db_path).record_thesis(
             str(manifest["operation_id"]), resolved_thesis_id, now=now
         )

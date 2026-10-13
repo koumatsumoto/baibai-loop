@@ -128,7 +128,7 @@ export interface CapitalAllocationAssessmentSummaryView {
   published_at: string
   decision: string
   headline: string
-  research_triage_id: string
+  research_triage_id: string | null
   alternative_count: number
   allocated_ticker: string | null
   research_operation_id: string | null
@@ -140,7 +140,7 @@ export interface CapitalAllocationAssessmentView {
   published_at: string
   decision: string
   headline: string
-  research_triage_id: string
+  research_triage_id: string | null
   market_context_assessment_id: string | null
   comparison: string
   foregone_alternatives: string
@@ -613,6 +613,8 @@ export interface OperationResearchView {
   research_triage_id: string | null
   targets: OperationResearchTargetView[]
   capital_allocation_assessment_id: string | null
+  source_run_revision_id: string | null
+  source_analysis_as_of: string | null
 }
 
 export interface OperationSessionView {

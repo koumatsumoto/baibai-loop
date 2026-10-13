@@ -126,24 +126,36 @@ class CapitalAllocationAssessmentService:
             raise CapitalAllocationConflictError(
                 f"content review binds a different draft, expected {expected_draft}"
             )
-        research_triage = self._research_triage(connection, assessment.research_triage_id)
+        research_triage = (
+            {}
+            if assessment.research_triage_id is None
+            else self._research_triage(connection, assessment.research_triage_id)
+        )
         # Validate the authored draft before replacing its timestamp, so a draft
         # from before this Operation cannot be made current by the writer's clock.
         self._verify_research_set(
             connection,
             assessment.model_copy(update={"published_at": min(assessment.published_at, now)}),
         )
+        # NULLはTriageを偽造しないための表現。対象資格を無検証にする意味ではない。
+        # 上で固定Operationの完成Thesis/Reviewと未完了被覆へ束縛している。
+        # docs/reference/capital-allocation-assessment.md#research-source / refs #1481
         research_triage_as_of = str(research_triage.get("as_of", ""))
         if research_triage_as_of and assessment.as_of < date.fromisoformat(research_triage_as_of):
             raise CapitalAllocationConflictError(
                 f"assessment as_of {assessment.as_of} precedes research triage "
                 f"{research_triage_as_of}"
             )
-        research_triage_tickers = _admissible_research_tickers(
-            research_triage, assessment.research_triage_id
+        research_triage_tickers = (
+            None
+            if assessment.research_triage_id is None
+            else (_admissible_research_tickers(research_triage, assessment.research_triage_id))
         )
         for alternative in assessment.alternatives:
-            if alternative.ticker not in research_triage_tickers:
+            if (
+                research_triage_tickers is not None
+                and alternative.ticker not in research_triage_tickers
+            ):
                 raise CapitalAllocationConflictError(
                     f"alternative {alternative.ticker} is not researchable in "
                     f"{assessment.research_triage_id}"

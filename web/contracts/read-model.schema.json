@@ -833,8 +833,15 @@
           "type": "string"
         },
         "research_triage_id": {
-          "title": "Research Triage Id",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Research Triage Id"
         },
         "alternative_count": {
           "title": "Alternative Count",
@@ -903,8 +910,15 @@
           "type": "string"
         },
         "research_triage_id": {
-          "title": "Research Triage Id",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Research Triage Id"
         },
         "market_context_assessment_id": {
           "anyOf": [
@@ -3783,13 +3797,40 @@
             }
           ],
           "title": "Capital Allocation Assessment Id"
+        },
+        "source_run_revision_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Run Revision Id"
+        },
+        "source_analysis_as_of": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Analysis As Of"
         }
       },
       "required": [
         "request",
         "research_triage_id",
         "targets",
-        "capital_allocation_assessment_id"
+        "capital_allocation_assessment_id",
+        "source_run_revision_id",
+        "source_analysis_as_of"
       ],
       "title": "OperationResearchView",
       "type": "object"

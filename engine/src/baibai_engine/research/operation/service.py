@@ -9,9 +9,10 @@ from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
 
-from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
+from baibai_engine.foundation.repository_layout import MARKET_DB_PATH, RUNS_DB_PATH
 from baibai_engine.foundation.time import JST
 from baibai_engine.research.capital_allocation import StoredCapitalAllocationAssessment
+from baibai_engine.research.explicit_selection import verify_explicit_research_run
 from baibai_engine.research.operation.models import (
     OperationPayload,
     OperationSession,
@@ -37,6 +38,8 @@ from baibai_engine.research.position_review import PositionReviewDocument
 from baibai_engine.research.position_review_service import PositionReviewService
 from baibai_engine.research.thesis_store import load_reviewed_thesis
 from baibai_engine.storage.application.json import canonical_json
+from baibai_engine.storage.application.paths import database_path
+from baibai_engine.storage.application.read import connect_read_only
 from baibai_engine.storage.application.write import connect_rw, initialize_database
 
 
@@ -53,9 +56,16 @@ class OperationCompletionError(ValueError):
 
 
 class OperationService:
-    def __init__(self, db_path: Path | None = None, *, sqlite_path: Path = MARKET_DB_PATH) -> None:
+    def __init__(
+        self,
+        db_path: Path | None = None,
+        *,
+        sqlite_path: Path = MARKET_DB_PATH,
+        runs_path: Path = RUNS_DB_PATH,
+    ) -> None:
         self._db_path = db_path
         self._sqlite_path = sqlite_path
+        self._runs_path = runs_path
 
     def start(
         self,
@@ -73,6 +83,10 @@ class OperationService:
         if selection is None:
             raise OperationConflictError(
                 "start Research with `research prepare`; one research_selection is required"
+            )
+        if selection.explicit_run is not None:
+            verify_explicit_research_run(
+                selection.explicit_run, path=self._runs_path, as_of=as_of, known_at=started_at
             )
         if ticker is not None and re.fullmatch(r"[0-9A-Z]{4}", ticker) is None:
             raise OperationConflictError(
@@ -274,8 +288,14 @@ class OperationService:
         return [_from_row(row) for row in rows]
 
     def active(self) -> OperationSession | None:
-        operations = self.list(status="active")
-        return None if not operations else operations[0]
+        path = database_path(self._db_path)
+        if not path.is_file():
+            return None
+        with closing(connect_read_only(path)) as connection:
+            row = connection.execute(
+                "SELECT * FROM operation_session WHERE status='active'"
+            ).fetchone()
+        return None if row is None else _from_row(row)
 
     def _replace_active(
         self,

@@ -4,7 +4,7 @@ Runtime code creates the current shape or rejects a different version; semantic
 cutovers are explicit operator work against a verified backup.
 """
 
-APPLICATION_SCHEMA_VERSION = 21
+APPLICATION_SCHEMA_VERSION = 22
 
 SCHEMA_SQL = """
 CREATE TABLE task (
@@ -91,7 +91,7 @@ CREATE TABLE capital_allocation_assessment (
     as_of TEXT NOT NULL,
     published_at TEXT NOT NULL,
     result TEXT NOT NULL CHECK (result IN ('allocate', 'no_allocation', 'defer')),
-    research_triage_id TEXT NOT NULL REFERENCES research_triage(research_triage_id),
+    research_triage_id TEXT REFERENCES research_triage(research_triage_id),
     payload TEXT NOT NULL CHECK (json_valid(payload))
 ) STRICT;
 CREATE INDEX capital_allocation_assessment_asof_idx

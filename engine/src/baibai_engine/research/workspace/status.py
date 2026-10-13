@@ -17,7 +17,10 @@ from baibai_engine.research.thesis import (
 from baibai_engine.research.thesis_store import (
     load_reviewed_thesis,
 )
-from baibai_engine.research.workspace.admission import ResearchSetAdmissionBinding
+from baibai_engine.research.workspace.admission import (
+    ResearchSetAdmissionBinding,
+    workspace_selection,
+)
 from baibai_engine.research.workspace.files import (
     ResearchWorkspaceDataError,
     _dump_yaml,
@@ -59,6 +62,15 @@ def compute_status(
     status["research_triage"] = _research_triage_view(
         gate, purpose=str(manifest.get("purpose") or "fundamental_research")
     )
+    inputs = manifest.get("inputs")
+    if isinstance(inputs, Mapping) and inputs.get("explicit_run") is not None:
+        selection = workspace_selection(manifest, db_path=db_path)
+        assert selection.explicit_run is not None
+        status["explicit_research_request"] = {
+            "request": selection.request,
+            "analysis_as_of": selection.explicit_run.as_of.isoformat(),
+            **selection.explicit_run.binding(),
+        }
     return status
 
 

@@ -25,7 +25,7 @@ def validate_selection(
     connection: sqlite3.Connection, selection: ResearchSelection, *, now: datetime
 ) -> None:
     new = {item.ticker for item in selection.targets if item.purpose == "new"}
-    if new:
+    if new and selection.explicit_run is None:
         row = connection.execute(
             "SELECT payload FROM research_triage WHERE research_triage_id=?",
             (selection.research_triage_id,),
