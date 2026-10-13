@@ -337,11 +337,11 @@ class ReviewSetAssetValueView(BaseModel):
 
 
 class ReviewSetReinvestmentView(BaseModel):
-    p_s_sector_gap: float
-    operating_return_on_capital_proxy: float
-    sales_yoy: float
-    operating_margin: float
-    fcf_yield: float
+    p_s_sector_gap: float | None
+    operating_return_on_capital_proxy: float | None
+    sales_yoy: float | None
+    operating_margin: float | None
+    fcf_yield: float | None
 
 
 class ReviewSetExpectedReturnView(BaseModel):

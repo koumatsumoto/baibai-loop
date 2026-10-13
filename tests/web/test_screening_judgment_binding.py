@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
+import pytest
 from tests.helpers.research_triage import research_triage_payload, skip_entry
 
 from baibai_web.readmodel.stocks import build_screening
@@ -187,12 +188,14 @@ def test_screening_projects_only_the_assessment_bound_to_the_current_triage(
     ] == ["assessment-current"]
 
 
+@pytest.mark.parametrize("sales_yoy", [0.12, -0.01, None])
 def test_review_set_projects_the_frozen_typed_analysis_without_current_row_join(
-    tmp_path, mocker
+    tmp_path, mocker, sales_yoy
 ) -> None:
     source = _source(tmp_path, mocker)
     frozen = _review_set()
     frozen["payload"] = {"entries": [_frozen_entry()]}
+    frozen["payload"]["entries"][0]["analysis"]["reinvestment"]["sales_yoy"] = sales_yoy
     mocker.patch.object(source, "review_sets", return_value=[frozen])
     ledger, research = _dependencies(mocker)
 
@@ -205,7 +208,7 @@ def test_review_set_projects_the_frozen_typed_analysis_without_current_row_join(
     assert entry.analysis.normalized_earnings.normalized_per_3fy == 10.0
     assert entry.analysis.asset_value.net_cash_to_market_cap == 0.3
     assert entry.analysis.reinvestment is not None
-    assert entry.analysis.reinvestment.sales_yoy == 0.12
+    assert entry.analysis.reinvestment.sales_yoy == sales_yoy
     assert entry.analysis.expected_return.er_annual == 0.11
     assert entry.analysis.data_quality.stale_fin_flag is True
     assert entry.analysis.context.next_earnings_status == "estimated"

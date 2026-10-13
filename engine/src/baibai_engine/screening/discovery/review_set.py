@@ -14,6 +14,7 @@ from baibai_engine.screening.discovery.contracts import (
     APPROACH_IDS,
     Nomination,
     PublishedReviewSet,
+    ReinvestmentAnalysis,
     ReviewSetAnalysis,
     ReviewSetEntry,
 )
@@ -420,7 +421,7 @@ def _quality_floor(values: Sequence[_ReinvestmentValues]) -> _QualityFloors:
 
 def _analysis(row: Mapping[str, object], *, normalized_gap: float | None) -> dict[str, object]:
     metrics = dict(metric_map(row.get("metrics")))
-    reinvestment = _reinvestment_values(row)
+    reinvestment = _reinvestment_observations(row)
     quality = dict(metric_map(row.get("ttm_quality")))
     machine_valuation = machine_valuation_from_analysis(row)
     return {
@@ -454,15 +455,7 @@ def _analysis(row: Mapping[str, object], *, normalized_gap: float | None) -> dic
                 "equity_ratio",
             )
         },
-        "reinvestment": None
-        if reinvestment is None
-        else {
-            "p_s_sector_gap": reinvestment.p_s_gap,
-            "operating_return_on_capital_proxy": reinvestment.capital_return,
-            "sales_yoy": reinvestment.sales_yoy,
-            "operating_margin": reinvestment.operating_margin,
-            "fcf_yield": reinvestment.fcf_yield,
-        },
+        "reinvestment": reinvestment.model_dump(mode="json"),
         "expected_return": {
             **{
                 key: metrics.get(key)
@@ -510,6 +503,34 @@ def _analysis(row: Mapping[str, object], *, normalized_gap: float | None) -> dic
     }
 
 
+def _reinvestment_observations(row: Mapping[str, object]) -> ReinvestmentAnalysis:
+    """Preserve known coordinates independently of the nomination requirements."""
+    metrics = metric_map(row.get("metrics"))
+    operating_profit = _finite(metrics.get("operating_profit_ttm"))
+    sales = _positive(metrics.get("sales_ttm"))
+    equity = _finite(metrics.get("same_state_equity_yen"))
+    debt = _finite(metrics.get("debt"))
+    cash = _finite(metrics.get("cash"))
+    capital = (
+        _positive(equity + debt - cash)
+        if equity is not None and debt is not None and cash is not None
+        else None
+    )
+    return ReinvestmentAnalysis(
+        p_s_sector_gap=_finite(metrics.get("p_s_sector_gap")),
+        operating_return_on_capital_proxy=(
+            operating_profit / capital
+            if operating_profit is not None and capital is not None
+            else None
+        ),
+        sales_yoy=_finite(metrics.get("sales_yoy")),
+        operating_margin=(
+            operating_profit / sales if operating_profit is not None and sales is not None else None
+        ),
+        fcf_yield=_finite(metrics.get("fcf_yield")),
+    )
+
+
 def _reinvestment_values(
     row: Mapping[str, object],
 ) -> _ReinvestmentValues | None:
@@ -539,16 +560,11 @@ def _reinvestment_values(
     assert p_s_gap is not None
     assert sales_yoy is not None
     assert fcf_yield is not None
-    assert operating_profit_ttm is not None
-    assert sales_ttm is not None
-    assert same_state_equity_yen is not None
-    assert debt is not None
-    assert cash is not None
-    operating_margin = operating_profit_ttm / sales_ttm
-    invested_capital = same_state_equity_yen + debt - cash
-    if invested_capital <= 0:
+    observations = _reinvestment_observations(row)
+    operating_margin = observations.operating_margin
+    capital_return = observations.operating_return_on_capital_proxy
+    if operating_margin is None or capital_return is None:
         return None
-    capital_return = operating_profit_ttm / invested_capital
     if operating_margin <= 0 or capital_return <= 0:
         return None
     return _ReinvestmentValues(p_s_gap, capital_return, sales_yoy, operating_margin, fcf_yield)
