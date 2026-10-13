@@ -11,6 +11,7 @@ from typing import Literal
 
 import httpx2
 from mcp.client.auth.exceptions import OAuthFlowError
+from mcp.shared.exceptions import MCPError
 
 from baibai_engine.external_assessment.tradingview.auth import (
     AuthenticationError,
@@ -186,4 +187,9 @@ def failure_line(exc: BaseException) -> str:
             line += f"; retry_not_before_utc={retry_at}"
     if isinstance(detail, ProviderPayloadError):
         line += f"; validation_reason={detail.reason}; validation_field={detail.field or '-'}"
+    if category == "internal":
+        # Identify the selected SDK leaf without its message, data or traceback.
+        line += f"; exception_type={type(detail).__name__}"
+        if isinstance(detail, MCPError):
+            line += f"; mcp_error_code={detail.code}"
     return line

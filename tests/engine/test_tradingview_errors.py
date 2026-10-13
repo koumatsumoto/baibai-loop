@@ -4,6 +4,7 @@ from datetime import datetime
 import httpx2
 import pytest
 from mcp.client.auth.exceptions import OAuthTokenError
+from mcp.shared.exceptions import MCPError
 
 from baibai_engine.external_assessment.tradingview import cli, diagnostics
 from baibai_engine.external_assessment.tradingview.auth import (
@@ -34,6 +35,34 @@ def test_safe_category_through_nested_sdk_groups(error, category):
         "private", [RuntimeError("private"), ExceptionGroup("private", [error])]
     )
     assert cli.failure_category(wrapped) == category
+
+
+@pytest.mark.parametrize(
+    ("error", "detail"),
+    [
+        (RuntimeError("private-token https://private-response"), "exception_type=RuntimeError"),
+        (
+            MCPError(-32000, "private-token", {"access_token": "private-token"}),
+            "exception_type=MCPError; mcp_error_code=-32000",
+        ),
+    ],
+)
+def test_internal_diagnostics_identify_leaf_without_exposing_payload(error, detail):
+    from baibai_engine.external_assessment.tradingview.diagnostics import (
+        CollectionFailure,
+        CollectionProgress,
+    )
+
+    wrapped = ExceptionGroup(
+        "private-group",
+        [CollectionFailure(error, CollectionProgress("2026-10-13", "fetch", 150, 3, 2, 3, 50))],
+    )
+    line = cli.failure_line(wrapped)
+    assert cli.failure_category(wrapped) == "internal"
+    assert "chunks_completed=2" in line
+    assert line.endswith(detail)
+    for forbidden in ("private", "https://", "access_token", "Traceback"):
+        assert forbidden not in line
 
 
 @pytest.mark.parametrize(

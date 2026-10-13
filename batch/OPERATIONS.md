@@ -924,7 +924,7 @@ TradingView stepのsafe failure line、`TradingView progress:` summaryの順に�
 - `provider_response`: 固定validation reasonを起点に応答契約を調べる。Secret・raw body・symbol一覧をIssueやlogへ転載しない。
 - `provider_transport`: 接続・通信の失敗を確認し、provider側の状態と次slotを見て再取得を判断する。
 - `time_guard`: target日がJST当日で15:30以降か確認する。条件を満たさなければ取得せず、過去日を現在値で補完しない。
-- `internal`: safe failure lineと失敗stepを確認し、実装エラーとして原因を調べる。
+- `internal`: safe failure lineの`exception_type`と失敗stepを起点に未分類の例外を調べる。`MCPError`では標準RPCの`mcp_error_code`も返すが、HTTP statusとは別である。例外本文・data・tracebackは出さず、原因未確認のまま正常partialへ変更しない。
 - `timeout`: 最後のphase / chunkとprovider時間を確認し、原因確認なしにtimeoutを延長しない。
 - `storage`: calendar / master / schemaとlocal storeの整合を確認し、修復までpublishしない。
 
