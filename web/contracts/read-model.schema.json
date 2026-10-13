@@ -90,6 +90,24 @@
             }
           ],
           "title": "Valuation As Of"
+        },
+        "thesis_projection": {
+          "additionalProperties": true,
+          "title": "Thesis Projection",
+          "type": "object"
+        },
+        "thesis_review": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Thesis Review"
         }
       },
       "required": [
@@ -101,7 +119,9 @@
         "case_status",
         "base_annualized_return_pct",
         "pmax_raw_yen",
-        "valuation_as_of"
+        "valuation_as_of",
+        "thesis_projection",
+        "thesis_review"
       ],
       "title": "AllocationAlternativeView",
       "type": "object"

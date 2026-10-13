@@ -123,6 +123,10 @@ def _allocation_alternative_view(raw: Mapping[str, object]) -> AllocationAlterna
         ),
         pmax_raw_yen=number(machine_values.get("pmax_raw_yen")),
         valuation_as_of=text(machine_values.get("as_of")),
+        thesis_projection=dict(machine_values),
+        thesis_review=(
+            dict(review) if isinstance(review := raw.get("thesis_review"), Mapping) else None
+        ),
     )
 
 
