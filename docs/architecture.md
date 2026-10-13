@@ -107,7 +107,7 @@ EDINET metricの`extractor_revision`は明示的な抽出意味revisionであり
 
 Readingの現行選択先は`READING_RULES_PATH`が指す`method/macro/reading/2026-08-01T100000+0900.yaml`である。保存判断が引用する元bytes/pathを保持し、名前切替のための移設・複製・revision変更を行わない。
 
-External AssessmentとMarket Contextの永続identityの本番移行は完了し、main `7336def3`でのmaterialize・Web確認、停止していた六workflowの再開・読戻しも確認済みである。実装・移行と通常運用の受入は区別し、残る未完了範囲を次に示す。
+External AssessmentとMarket Contextの永続identityの本番移行は完了している。移行・公開・再開の確認証拠は[Issue #1414](https://github.com/koumatsumoto/baibai-loop/issues/1414)へ集約し、通常運用の未完了範囲を次に示す。
 
 | 未完了項目 | 受入で確認すること |
 | --- | --- |
