@@ -175,6 +175,67 @@ def test_null_and_nonpositive_primary_coordinates_do_not_nominate() -> None:
 
 
 @pytest.mark.parametrize(
+    ("field", "value"),
+    [("sales_yoy", -0.01), ("sales_yoy", 0.0), ("sales_yoy", None), ("fcf_yield", None)],
+)
+def test_reinvestment_observations_survive_ineligibility(field, value) -> None:
+    row = _analysis("1111")
+    row["metrics"][field] = value
+
+    entry = _build_review_set([row])["entries"][0]
+
+    assert [(item["valuation_approach_id"], item["rank"]) for item in entry["nominations"]] == [
+        ("current-earnings-power", 1),
+        ("normalized-earnings-power", 1),
+        ("asset-value", 1),
+    ]
+    observations = entry["analysis"]["reinvestment"]
+    assert observations == {
+        "p_s_sector_gap": -0.4,
+        "operating_return_on_capital_proxy": pytest.approx(12 / 110),
+        "sales_yoy": row["metrics"]["sales_yoy"],
+        "operating_margin": 0.12,
+        "fcf_yield": row["metrics"]["fcf_yield"],
+    }
+
+
+@pytest.mark.parametrize(
+    ("changed", "margin", "capital_return"),
+    [
+        ({"operating_profit_ttm": -12.0}, -0.12, -12 / 110),
+        ({"operating_profit_ttm": 0.0}, 0.0, 0.0),
+        ({"operating_profit_ttm": None}, None, None),
+        ({"sales_ttm": None}, None, 12 / 110),
+        ({"sales_ttm": 0.0}, None, 12 / 110),
+        ({"sales_ttm": -100.0}, None, 12 / 110),
+        ({"cash": None}, 0.12, None),
+        ({"cash": 140.0}, 0.12, None),
+        ({"cash": 150.0}, 0.12, None),
+    ],
+)
+def test_reinvestment_ratios_preserve_signed_profit_and_require_valid_denominators(
+    changed, margin, capital_return
+) -> None:
+    row = _analysis("1111")
+    row["metrics"].update(changed)
+
+    entry = _build_review_set([row])["entries"][0]
+    observations = entry["analysis"]["reinvestment"]
+
+    assert not any(
+        item["valuation_approach_id"] == "reinvestment-value" for item in entry["nominations"]
+    )
+    assert observations["operating_margin"] == (
+        pytest.approx(margin) if margin is not None else None
+    )
+    assert observations["operating_return_on_capital_proxy"] == (
+        pytest.approx(capital_return) if capital_return is not None else None
+    )
+    assert observations["sales_yoy"] == 0.05
+    assert observations["p_s_sector_gap"] == -0.4
+
+
+@pytest.mark.parametrize(
     "financial_sector",
     ["銀行業", "保険業", "その他金融業", "証券・商品先物取引業"],
 )

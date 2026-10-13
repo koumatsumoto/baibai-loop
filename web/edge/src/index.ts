@@ -108,6 +108,8 @@ function resolveRoute(url: URL): RouteResult {
       return { kind: 'screening-history-index' }
     case '/api/operations':
       return view('operations.json')
+    case '/api/capital-allocation-assessments':
+      return view('capital-allocation-assessments.json')
     case '/api/tasks':
       return view('tasks.json')
     case '/api/meta':
@@ -119,6 +121,7 @@ function resolveRoute(url: URL): RouteResult {
         resolveScreeningHistory(url.pathname) ??
         resolveIndicatorSeries(url.pathname) ??
         resolveMarketContextAssessment(url.pathname) ??
+        resolveResearchTriage(url.pathname) ??
         resolveAssessment(url.pathname) ??
         resolveSecurity(url.pathname)
       )
@@ -187,6 +190,18 @@ function resolveAssessment(pathname: string): RouteResult | null {
     return { kind: 'error', status: 404, detail: 'unknown capital allocation assessment' }
   }
   return view(`capital-allocation-assessment--${assessmentId}.json`)
+}
+
+function resolveResearchTriage(pathname: string): RouteResult | null {
+  const prefix = '/api/research-triages/'
+  if (!pathname.startsWith(prefix)) {
+    return null
+  }
+  const triageId = pathname.slice(prefix.length)
+  if (!ASSESSMENT_ID_PATTERN.test(triageId)) {
+    return { kind: 'error', status: 404, detail: 'unknown research triage' }
+  }
+  return view(`research-triage--${triageId}.json`)
 }
 
 function resolveSecurity(pathname: string): RouteResult {

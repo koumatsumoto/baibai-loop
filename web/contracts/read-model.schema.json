@@ -6,6 +6,7 @@
     "/api/screening/history": "#/$defs/ScreeningHistoryView",
     "history/candidate-views/{as_of}.json": "#/$defs/ScreeningHistoryRunView",
     "views/capital-allocation-assessment--{capital_allocation_assessment_id}.json": "#/$defs/CapitalAllocationAssessmentView",
+    "views/capital-allocation-assessments.json": "#/$defs/CapitalAllocationAssessmentsView",
     "views/daily-delta.json": "#/$defs/DailyDeltaView",
     "views/dashboard.json": "#/$defs/DashboardView",
     "views/indicator-series--{series_id}.json": "#/$defs/IndicatorSeriesView",
@@ -13,6 +14,7 @@
     "views/market-context.json": "#/$defs/MarketContextView",
     "views/meta.json": "#/$defs/MetaView",
     "views/operations.json": "#/$defs/OperationsView",
+    "views/research-triage--{research_triage_id}.json": "#/$defs/ResearchTriageDetailView",
     "views/screening_latest.json": "#/$defs/ScreeningView",
     "views/security--{ticker}.json": "#/$defs/SecurityDetailView",
     "views/tasks.json": "#/$defs/TasksView"
@@ -776,6 +778,18 @@
             }
           ],
           "title": "Allocated Ticker"
+        },
+        "research_operation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Research Operation Id"
         }
       },
       "required": [
@@ -786,7 +800,8 @@
         "headline",
         "research_triage_id",
         "alternative_count",
-        "allocated_ticker"
+        "allocated_ticker",
+        "research_operation_id"
       ],
       "title": "CapitalAllocationAssessmentSummaryView",
       "type": "object"
@@ -897,6 +912,22 @@
         "content_review"
       ],
       "title": "CapitalAllocationAssessmentView",
+      "type": "object"
+    },
+    "CapitalAllocationAssessmentsView": {
+      "properties": {
+        "assessments": {
+          "items": {
+            "$ref": "#/$defs/CapitalAllocationAssessmentSummaryView"
+          },
+          "title": "Assessments",
+          "type": "array"
+        }
+      },
+      "required": [
+        "assessments"
+      ],
+      "title": "CapitalAllocationAssessmentsView",
       "type": "object"
     },
     "DailyDeltaView": {
@@ -3339,6 +3370,160 @@
       "title": "ModelValuationObservation",
       "type": "object"
     },
+    "OperationResearchTargetView": {
+      "properties": {
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "purpose": {
+          "enum": [
+            "new",
+            "holding"
+          ],
+          "title": "Purpose",
+          "type": "string"
+        },
+        "outcome_status": {
+          "anyOf": [
+            {
+              "enum": [
+                "reviewed",
+                "proposal",
+                "unfinished"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Outcome Status"
+        },
+        "thesis_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Thesis Id"
+        },
+        "thesis_review_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Thesis Review Id"
+        },
+        "unfinished_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Unfinished Reason"
+        },
+        "references": {
+          "items": {
+            "type": "string"
+          },
+          "title": "References",
+          "type": "array"
+        },
+        "checked_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Checked At"
+        },
+        "holding_proposal": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Holding Proposal"
+        }
+      },
+      "required": [
+        "ticker",
+        "purpose",
+        "outcome_status",
+        "thesis_id",
+        "thesis_review_id",
+        "unfinished_reason",
+        "references",
+        "checked_at",
+        "holding_proposal"
+      ],
+      "title": "OperationResearchTargetView",
+      "type": "object"
+    },
+    "OperationResearchView": {
+      "properties": {
+        "request": {
+          "title": "Request",
+          "type": "string"
+        },
+        "research_triage_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Research Triage Id"
+        },
+        "targets": {
+          "items": {
+            "$ref": "#/$defs/OperationResearchTargetView"
+          },
+          "title": "Targets",
+          "type": "array"
+        },
+        "capital_allocation_assessment_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Capital Allocation Assessment Id"
+        }
+      },
+      "required": [
+        "request",
+        "research_triage_id",
+        "targets",
+        "capital_allocation_assessment_id"
+      ],
+      "title": "OperationResearchView",
+      "type": "object"
+    },
     "OperationSessionView": {
       "properties": {
         "operation_id": {
@@ -3390,6 +3575,17 @@
           "additionalProperties": true,
           "title": "Payload",
           "type": "object"
+        },
+        "research": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OperationResearchView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -3400,7 +3596,8 @@
         "ticker",
         "started_at",
         "completed_at",
-        "payload"
+        "payload",
+        "research"
       ],
       "title": "OperationSessionView",
       "type": "object"
@@ -4229,6 +4426,55 @@
         "status"
       ],
       "title": "ResearchRevisionView",
+      "type": "object"
+    },
+    "ResearchTriageDetailView": {
+      "properties": {
+        "research_triage_id": {
+          "title": "Research Triage Id",
+          "type": "string"
+        },
+        "review_set_id": {
+          "title": "Review Set Id",
+          "type": "string"
+        },
+        "run_revision_id": {
+          "title": "Run Revision Id",
+          "type": "string"
+        },
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "published_at": {
+          "format": "date-time",
+          "title": "Published At",
+          "type": "string"
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/ResearchTriageEntryView"
+          },
+          "title": "Entries",
+          "type": "array"
+        },
+        "payload": {
+          "additionalProperties": true,
+          "title": "Payload",
+          "type": "object"
+        }
+      },
+      "required": [
+        "research_triage_id",
+        "review_set_id",
+        "run_revision_id",
+        "as_of",
+        "published_at",
+        "entries",
+        "payload"
+      ],
+      "title": "ResearchTriageDetailView",
       "type": "object"
     },
     "ResearchTriageEntryView": {
@@ -5244,24 +5490,59 @@
     "ReviewSetReinvestmentView": {
       "properties": {
         "p_s_sector_gap": {
-          "title": "P S Sector Gap",
-          "type": "number"
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "P S Sector Gap"
         },
         "operating_return_on_capital_proxy": {
-          "title": "Operating Return On Capital Proxy",
-          "type": "number"
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Operating Return On Capital Proxy"
         },
         "sales_yoy": {
-          "title": "Sales Yoy",
-          "type": "number"
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sales Yoy"
         },
         "operating_margin": {
-          "title": "Operating Margin",
-          "type": "number"
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Operating Margin"
         },
         "fcf_yield": {
-          "title": "Fcf Yield",
-          "type": "number"
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fcf Yield"
         }
       },
       "required": [

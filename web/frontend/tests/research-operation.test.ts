@@ -10,6 +10,7 @@ function session(targets: object[], outcomes: object[]): OperationSessionView {
     operation_id: 'op-20260907-capital-allocation-1', session_kind: 'capital-allocation', status: 'completed',
     as_of: '2026-09-07', ticker: null, started_at: '2026-09-07T18:00:00+09:00', completed_at: '2026-09-07T18:00:00+09:00',
     payload: { checkpoint: 'synthetic proposal complete', artifacts: [{ kind: 'research_selection', request: 'synthetic explicit request', targets }, { kind: 'research_progress', outcomes }], result: 'synthetic completion', human_confirmation: null },
+    research: null,
   }
 }
 function render(operation: OperationSessionView) { return renderToStaticMarkup(createElement(MemoryRouter, null, createElement(Fragment, null, createElement(HoldingProposals, { operations: [operation] }), createElement(ResearchOperationCard, { operations: [operation] })))) }

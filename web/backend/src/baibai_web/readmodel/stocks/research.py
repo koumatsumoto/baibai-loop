@@ -10,12 +10,20 @@ from baibai_web.readmodel.models import (
     AllocationAlternativeView,
     AssessmentReviewView,
     CapitalAllocationAssessmentSummaryView,
+    CapitalAllocationAssessmentsView,
     CapitalAllocationAssessmentView,
     ResearchRevisionView,
+    ResearchTriageEntryView,
+    ResearchTriageView,
+    ReviewSetEntrySnapshotView,
     ThesisDetailView,
     UnfinishedResearchView,
 )
-from baibai_web.readmodel.stocks.presentation import _mapping_items_optional, _mapping_optional
+from baibai_web.readmodel.stocks.presentation import (
+    _mapping_items,
+    _mapping_items_optional,
+    _mapping_optional,
+)
 from baibai_web.sources.protocols import (
     ResearchSource,
 )
@@ -38,6 +46,13 @@ def build_assessment_detail(
     return _assessment_view(raw)
 
 
+def build_assessment_list(research: ResearchSource) -> CapitalAllocationAssessmentsView:
+    """List saved assessments independently of the current Screening publication."""
+    return CapitalAllocationAssessmentsView(
+        assessments=[_assessment_summary_view(item) for item in research.assessments()]
+    )
+
+
 def _assessment_summary_view(raw: Mapping[str, object]) -> CapitalAllocationAssessmentSummaryView:
     alternatives = _mapping_items_optional(raw.get("alternatives"))
     allocated = next(
@@ -49,6 +64,9 @@ def _assessment_summary_view(raw: Mapping[str, object]) -> CapitalAllocationAsse
         None,
     )
     return CapitalAllocationAssessmentSummaryView(
+        research_operation_id=text(
+            _mapping_optional(raw.get("research_scope")).get("operation_id")
+        ),
         capital_allocation_assessment_id=str(raw["capital_allocation_assessment_id"]),
         as_of=date.fromisoformat(str(raw["as_of"])),
         published_at=datetime.fromisoformat(str(raw["published_at"])),
@@ -144,4 +162,37 @@ def _research_revision_view(revision: ResearchRevision) -> ResearchRevisionView:
 def _thesis_detail_view(detail: ThesisDetail) -> ThesisDetailView:
     return ThesisDetailView(
         revision=_research_revision_view(detail.revision), projection=detail.projection
+    )
+
+
+def _research_triage_entry_view(raw: Mapping[str, object]) -> ResearchTriageEntryView:
+    """Project one current Research Triage entry and its judgment-time snapshot."""
+
+    snapshot = raw.get("candidate_snapshot")
+    if not isinstance(snapshot, Mapping):
+        raise ValueError("Research Triage candidate_snapshot must be an object")
+    analysis = snapshot.get("analysis")
+    if not isinstance(analysis, Mapping):
+        raise ValueError("Research Triage Review Set Entry analysis must be an object")
+    normalized = {
+        "name": snapshot.get("name"),
+        "sector_33": snapshot.get("sector_33"),
+        "nominations": snapshot.get("nominations"),
+        "expected_return": analysis.get("expected_return"),
+        "data_quality": analysis.get("data_quality"),
+    }
+    return ResearchTriageEntryView.model_validate(
+        {**raw, "review_set_entry_snapshot": ReviewSetEntrySnapshotView.model_validate(normalized)}
+    )
+
+
+def _research_triage_view(raw: Mapping[str, object]) -> ResearchTriageView:
+    entries = [_research_triage_entry_view(item) for item in _mapping_items(raw.get("entries"))]
+    return ResearchTriageView(
+        research_triage_id=str(raw["research_triage_id"]),
+        review_set_id=str(raw["review_set_id"]),
+        run_revision_id=str(raw["run_revision_id"]),
+        as_of=date.fromisoformat(str(raw["as_of"])),
+        published_at=datetime.fromisoformat(str(raw["published_at"])),
+        entries=entries,
     )

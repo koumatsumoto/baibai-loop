@@ -3,13 +3,14 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
 
-import type { ReviewSetExpectedReturnView, ReviewSetView } from '../src/api/types'
+import type { ReviewSetExpectedReturnView, ReviewSetReinvestmentView, ReviewSetView } from '../src/api/types'
 import { ReviewSetSection } from '../src/pages/stocks/ReviewSetSection'
 
 function renderQuality(
   ev: 'exact' | 'approximated' | 'unavailable' | null | undefined,
   fcf: 'exact' | 'approximated' | 'unavailable' | null | undefined,
   carry: Partial<ReviewSetExpectedReturnView> = {},
+  reinvestment: ReviewSetReinvestmentView | null = null,
 ): string {
   const dataQuality = {
     bs_carry_forward_fields: null,
@@ -33,7 +34,7 @@ function renderQuality(
         current_earnings: { fcf_yield: null, ocf_yield: null, forecast_special_gain_flag: null, forecast_full_year_loss_flag: null },
         normalized_earnings: { normalized_per_3fy: null, normalized_per_3fy_sector_gap: null },
         asset_value: { asset_backed_ratio: null, net_cash_to_market_cap: null, investment_securities: null, equity_ratio: null },
-        reinvestment: null,
+        reinvestment,
         expected_return: {
           er_annual: null, er_reversion_annual: null, er_carry_annual: null,
           fv_sector_median_yen: null, fv_self_range_yen: null, er_origin: null,
@@ -67,6 +68,23 @@ describe('Review Set TTM quality', () => {
     expect(html.includes('FCF TTM')).toBe(showFcf)
     if (showEv) expect(html).toContain('approximated')
     if (showFcf) expect(html).toContain('unavailable')
+  })
+})
+
+describe('partial Reinvestment observations', () => {
+  it.each([
+    [-0.01, '-1%'],
+    [0, '0%'],
+    [null, '—'],
+  ] as const)('distinguishes known growth %s from missing growth', (salesYoY, expected) => {
+    const html = renderQuality(null, null, {}, {
+      p_s_sector_gap: -0.4, operating_return_on_capital_proxy: 0.1,
+      sales_yoy: salesYoY, operating_margin: null, fcf_yield: 0.08,
+    })
+    expect(html).toMatch(new RegExp(`sales YoY</dt><dd[^>]*>${expected}</dd>`))
+    expect(html).toMatch(/operating margin<\/dt><dd[^>]*>—<\/dd>/)
+    expect(html).toMatch(/P\/S sector gap<\/dt><dd[^>]*>-0.4<\/dd>/)
+    expect(html).not.toContain('not applicable')
   })
 })
 
