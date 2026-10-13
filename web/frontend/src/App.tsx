@@ -8,7 +8,7 @@ import { TooltipProvider } from './components/ui/tooltip'
 import './styles.css'
 
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })))
-const StocksPage = lazy(() => import('./pages/StocksPage').then((module) => ({ default: module.StocksPage })))
+const ResearchPage = lazy(() => import('./pages/ResearchPage').then((module) => ({ default: module.ResearchPage })))
 const CandidateExplorationPage = lazy(() => import('./pages/CandidateExplorationPage').then((module) => ({ default: module.CandidateExplorationPage })))
 const ResearchTriagePage = lazy(() => import('./pages/ResearchTriagePage').then((module) => ({ default: module.ResearchTriagePage })))
 const CapitalAllocationAssessmentPage = lazy(() => import('./pages/CapitalAllocationAssessmentPage').then((module) => ({ default: module.CapitalAllocationAssessmentPage })))
@@ -28,7 +28,7 @@ function App() {
                 <Route path="/" element={<DashboardPage />} />
                 <Route path="/market-context" element={<MarketContextPage />} />
                 <Route path="/market-context/assessments/:contextId" element={<AssessmentPage />} />
-                <Route path="/stocks" element={<StocksPage />} />
+                <Route path="/stocks" element={<ResearchPage />} />
                 <Route path="/stocks/explore" element={<CandidateExplorationPage />} />
                 <Route path="/tasks" element={<TasksPage />} />
                 <Route path="/research-triage" element={<ResearchTriagePage />} />

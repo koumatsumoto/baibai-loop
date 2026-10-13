@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router'
+import { Link, useLocation, useParams } from 'react-router'
 
 import { ApiError, fetchJson } from '../api/client'
 import type { SecurityAnalysisRowView, SecurityDetailView } from '../api/types'
@@ -68,6 +68,8 @@ export function ScreeningMetrics({ row }: { row: SecurityAnalysisRowView }) {
 
 export function SecurityDetailPage() {
   const { ticker = '' } = useParams()
+  const origin = useLocation().state as { exploration?: string } | null
+  const exploration = origin?.exploration ?? '/stocks/explore'
   const [data, setData] = useState<SecurityDetailView | null>(null)
   const [notFound, setNotFound] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -102,7 +104,7 @@ export function SecurityDetailPage() {
     <PageShell
       above={(
         <div className="grid gap-4"><ResearchNav /><nav className="flex items-center gap-2 text-sm text-muted-foreground" aria-label="パンくず">
-          <Link className="underline-offset-4 hover:text-foreground hover:underline" to="/stocks/explore">候補探索</Link>
+          <Link className="underline-offset-4 hover:text-foreground hover:underline" to={exploration}>候補探索</Link>
           <span>/</span>
           <span className="font-mono text-foreground">{data.ticker}</span>
         </nav></div>

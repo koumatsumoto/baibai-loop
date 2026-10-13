@@ -26,6 +26,7 @@ vi.mock('react', async (importOriginal) => ({
 vi.mock('react-router', async (importOriginal) => ({
   ...await importOriginal<typeof import('react-router')>(),
   useParams: () => hooks.params,
+  useLocation: () => ({ state: null }),
 }))
 vi.mock('../src/api/client', async (importOriginal) => ({
   ...await importOriginal<typeof import('../src/api/client')>(),

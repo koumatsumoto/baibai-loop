@@ -22,7 +22,7 @@ export function AllocationProposals({ assessments }: { assessments: CapitalAlloc
   </SectionCard>
 }
 
-export function StocksPage() {
+export function ResearchPage() {
   const [data, setData] = useState<ScreeningView | null>(null)
   const [operations, setOperations] = useState<OperationsView | null>(null)
   const [error, setError] = useState<string | null>(null)

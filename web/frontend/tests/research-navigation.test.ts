@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
 import type { CapitalAllocationAssessmentSummaryView } from '../src/api/types'
 import { ResearchNav } from '../src/components/ResearchNav'
-import { AllocationProposals } from '../src/pages/StocksPage'
+import { AllocationProposals } from '../src/pages/ResearchPage'
 
 function render(node: ReturnType<typeof createElement>, path = '/stocks') {
   return renderToStaticMarkup(createElement(MemoryRouter, { initialEntries: [path] }, node))

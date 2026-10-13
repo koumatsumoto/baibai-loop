@@ -14,7 +14,7 @@ function records(value: unknown): Record<string, unknown>[] {
 export function HoldingProposals({ operations, names = new Map() }: { operations: OperationSessionView[]; names?: ReadonlyMap<string, string | null> }) {
   const proposals = operations.flatMap(operation => records(records(operation.payload.artifacts).find(item => item.kind === 'research_progress')?.outcomes).filter(item => item.status === 'proposal').map(outcome => ({ operation, outcome })))
   if (proposals.length === 0) return null
-  return <SectionCard padded title="保有の見直し案" description="調査記録に保存した案です。人間確認後のPosition Review公開や、注文・約定とは別です。">
+  return <SectionCard padded title="保有の見直し案" description="保存した保有案です。人間の採否・注文・約定は別工程です。">
     <div className="grid gap-3">{proposals.map(({ operation, outcome }) => {
       const draft = record(outcome.draft)
       const quote = record(draft?.quote)
@@ -25,7 +25,7 @@ export function HoldingProposals({ operations, names = new Map() }: { operations
         {reward?.reason != null && <p className="text-sm">{String(reward.reason)}</p>}
         {draft?.unresolved_reason != null && <p className="text-sm">未確定の理由: {String(draft.unresolved_reason)}</p>}
         <p className="text-xs text-muted-foreground">検証時点 {String(outcome.checked_at ?? '未記録')}</p>
-        <p className="break-words text-xs text-muted-foreground">{quote ? `保存した価格 ${String(quote.price_yen)}円 · ${String(quote.price_basis)} · ${String(quote.observed_at)}` : '価格の入力は記録されていません。'}</p>
+        <p className="break-words text-xs text-muted-foreground">{quote ? `保存した価格 ${String(quote.price_yen ?? '未記録')}円 · ${String(quote.price_basis ?? '未記録')} · ${String(quote.observed_at ?? '未記録')}` : '価格の入力は記録されていません。'}</p>
         <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">保存した判断の参照</summary><p className="mt-2 break-all">Thesis: {String(draft?.thesis_id ?? '未記録')} · Review: {String(outcome.thesis_review_id ?? '未記録')} · Operation: {operation.operation_id}</p></details>
         <Link className="w-fit text-xs underline" to={`/securities/${ticker}`}>最新の銘柄情報を見る →</Link>
       </article>
@@ -50,7 +50,7 @@ export function ResearchOperationCard({ operations, names = new Map() }: { opera
         const ticker = String(target.ticker)
         const outcome = outcomes.find(item => item.ticker === target.ticker)
         const draft = record(outcome?.draft)
-        const state = outcome?.status === 'reviewed' ? 'Reviewed Thesis完了' : outcome?.status === 'proposal' ? `保有提案 ${draft?.action === 'hold' ? 'hold' : draft?.action === 'exit' ? 'exit' : '未確定'}（人間確認済み公開とは別）` : outcome?.status === 'unfinished' ? `調査未完了: ${String(outcome.reason)}` : '調査中'
+        const state = outcome?.status === 'reviewed' ? '企業評価・レビュー完了' : outcome?.status === 'proposal' ? `保有提案 ${draft?.action === 'hold' ? 'hold' : draft?.action === 'exit' ? 'exit' : '未確定'}（人間確認済み公開とは別）` : outcome?.status === 'unfinished' ? `調査未完了: ${String(outcome.reason)}` : '調査中'
         return <div className="grid gap-2 border-t pt-3 text-sm" key={ticker}>
           <p className="font-medium">{names.get(ticker) ?? ticker}<span className="ml-2 text-xs text-muted-foreground">{target.purpose === 'holding' ? '保有の見直し' : '新規の企業調査'}</span></p>
           <p>{state}</p>

@@ -11,6 +11,7 @@ const allowedRouterImports = new Set([
   'Route',
   'Routes',
   'useLocation',
+  'useNavigate',
   'useParams',
 ])
 
