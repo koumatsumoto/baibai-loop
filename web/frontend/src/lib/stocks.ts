@@ -120,10 +120,10 @@ export function projectSecurityRows(
 
 export function valuationApproachLabel(approach: string, rank: number): string {
   const labels: Readonly<Record<string, string>> = {
-    'current-earnings-power': 'Current',
-    'normalized-earnings-power': 'Normalized',
-    'asset-value': 'Asset',
-    'reinvestment-value': 'Reinvestment',
+    'current-earnings-power': '現在収益力',
+    'normalized-earnings-power': '平常収益力',
+    'asset-value': '資産価値',
+    'reinvestment-value': '再投資価値',
   }
   return `${labels[approach] ?? approach} #${rank}`
 }

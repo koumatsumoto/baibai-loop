@@ -20,7 +20,7 @@ export function ResearchTriageEntries({ triage, names }: { triage: ResearchTriag
   </article>)}</div>
 }
 export function ResearchTriagePage() {
-  const requestedId = new URLSearchParams(useLocation().search).get('research_triage_id')
+  const researchTriageId = new URLSearchParams(useLocation().search).get('research_triage_id')
   const [triage, setTriage] = useState<ResearchTriageView | null>(null)
   const [names, setNames] = useState<ReadonlyMap<string, string | null>>(new Map())
   const [payload, setPayload] = useState<Record<string, unknown> | null>(null)
@@ -33,8 +33,8 @@ export function ResearchTriagePage() {
     setTriage(null)
     setPayload(null)
     setNames(new Map())
-    const request = requestedId
-      ? fetchJson<ResearchTriageDetailView>(`/api/research-triages/${encodeURIComponent(requestedId)}`, { signal: controller.signal }).then(data => { if (!controller.signal.aborted) { setTriage(data); setPayload(data.payload) } })
+    const request = researchTriageId
+      ? fetchJson<ResearchTriageDetailView>(`/api/research-triages/${encodeURIComponent(researchTriageId)}`, { signal: controller.signal }).then(data => { if (!controller.signal.aborted) { setTriage(data); setPayload(data.payload) } })
       : fetchJson<ScreeningView>('/api/screening/latest', { signal: controller.signal }).then(data => {
           if (controller.signal.aborted) return
           const latest = data.research_triages[0] ?? null
@@ -45,7 +45,7 @@ export function ResearchTriagePage() {
     request.catch((reason: unknown) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '調査判断を読み込めませんでした') })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
-  }, [requestedId])
+  }, [researchTriageId])
   if (error) return <PageState message={error} title="指定した調査判断を読み込めませんでした" />
   if (loading) return <LoadingPage label="調査判断を読み込んでいます" />
   if (!triage) return <PageShell above={<ResearchNav />} title="調査優先度・見送りの根拠"><p className="text-sm text-muted-foreground">表示できる調査判断はまだありません。</p></PageShell>
