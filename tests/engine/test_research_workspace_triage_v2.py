@@ -301,8 +301,10 @@ def _publish_triage(
     return ResearchTriageService(db_path).publish(triage, review_set=review_set)
 
 
-@pytest.mark.parametrize("purpose", ["new", "holding"])
-def test_weekend_research_includes_received_observations_only_through_start(tmp_path, purpose):
+@pytest.mark.parametrize("purpose", ["new", "holding", "combined"])
+def test_weekend_research_keeps_start_cutoff_on_resume_and_refreshes_for_new_operation(
+    tmp_path, purpose
+):
     from datetime import timedelta
 
     from baibai_engine.external_assessment.observations.models import (
@@ -314,7 +316,12 @@ def test_weekend_research_includes_received_observations_only_through_start(tmp_
     db = tmp_path / "app.sqlite"
     friday = date(2026, 7, 17)
     now = CASE_NOW
-    triage = _publish_triage(db, with_holdings=purpose == "holding", as_of=friday.isoformat())
+    triage = _publish_triage(
+        db,
+        with_holdings=purpose != "new",
+        second_research=purpose == "combined",
+        as_of=friday.isoformat(),
+    )
     for name, hour in (("available", 12), ("future", 19)):
         body = MarketContextAssessment.model_validate(
             {
@@ -357,37 +364,100 @@ def test_weekend_research_includes_received_observations_only_through_start(tmp_
     workspace = tmp_path / "workspace"
     kwargs = {
         "db_path": db,
-        "workspace": workspace,
         "request": "日曜に金曜対象の調査を開始",
-        "started_at": now,
         "sqlite_path": market,
         "runs_path": tmp_path / "absent-runs.sqlite",
         "indicators_path": tmp_path / "absent-indicators.sqlite",
     }
     if purpose == "new":
-        prepare_workspace(
-            research_triage_id=triage.research_triage_id, research_set=("2331",), **kwargs
+        prepare = prepare_workspace
+        kwargs.update(research_triage_id=triage.research_triage_id, research_set=("2331",))
+    elif purpose == "combined":
+        prepare = prepare_workspace
+        kwargs.update(
+            research_triage_id=triage.research_triage_id,
+            research_set=("0001",),
+            holding_tickers=("2331",),
         )
     else:
-        prepare_holding_workspace(asof=friday, ticker="2331", **kwargs)
-    result = yaml.safe_load((workspace / "domain-inputs.yaml").read_text())
-    assert result["known_at"] == now.isoformat()
-    assert result["as_of"] == friday.isoformat()
-    assert result["received_cutoff"] == now.isoformat()
-    external = result["securities"]["2331"]["external_assessment"]
-    assert datetime.fromisoformat(external["cutoff"]) == now
-    assert datetime.fromisoformat(external["evaluated_at"]) == now
-    latest = external["model_valuations"][0]["inputs"]["latest"]
-    assert latest["consensus_target"] == 1200
-    assert datetime.fromisoformat(latest["fetched_at_utc"]) == now - timedelta(hours=1)
-    quants = external["quants_scores"][0]["inputs"]["latest"]
-    assert quants["growth_score"] == 6
-    assert quants["score_as_of_date"] == now.date().isoformat()
-    assert datetime.fromisoformat(quants["fetched_at_utc"]) == now - timedelta(hours=1)
-    assert market.read_bytes() == before
-    context = result["market_context"]["saved_market_context_assessment"]
-    assert context["context_id"] == "market-context-assessment-2026-07-17-available"
-    assert context["summary"] == "available"
+        prepare = prepare_holding_workspace
+        kwargs.update(asof=friday, ticker="2331")
+
+    def assert_inputs(root, *, cutoff, target, growth, received, context_name):
+        paths = [root / "domain-inputs.yaml"]
+        if purpose == "combined":
+            paths.append(root / "holdings/2331/domain-inputs.yaml")
+        for path in paths:
+            result = yaml.safe_load(path.read_text())
+            assert result["known_at"] == cutoff.isoformat()
+            assert result["as_of"] == friday.isoformat()
+            assert result["received_cutoff"] == cutoff.isoformat()
+            external = result["securities"]["2331"]["external_assessment"]
+            assert datetime.fromisoformat(external["cutoff"]) == cutoff
+            assert datetime.fromisoformat(external["evaluated_at"]) == cutoff
+            latest = external["model_valuations"][0]["inputs"]["latest"]
+            assert latest["consensus_target"] == target
+            assert datetime.fromisoformat(latest["fetched_at_utc"]) == received
+            quants = external["quants_scores"][0]["inputs"]["latest"]
+            assert quants["growth_score"] == growth
+            assert quants["score_as_of_date"] == now.date().isoformat()
+            assert datetime.fromisoformat(quants["fetched_at_utc"]) == received
+            context = result["market_context"]["saved_market_context_assessment"]
+            assert context["context_id"] == f"market-context-assessment-2026-07-17-{context_name}"
+            assert context["summary"] == context_name
+        assert market.read_bytes() == before
+
+    first = prepare(workspace=workspace, started_at=now, **kwargs)
+    service = OperationService(db, sqlite_path=market)
+    original = service.get(first.operation_id)
+    db_before_resume = db.read_bytes()
+    for root, force, at in (
+        (workspace, False, now),
+        (workspace, True, now + timedelta(hours=2)),
+        (tmp_path / "same-operation", False, now + timedelta(hours=2)),
+    ):
+        if at != now:
+            resumed = prepare(workspace=root, started_at=at, force=force, **kwargs)
+            assert resumed.operation_id == first.operation_id
+        assert service.get(first.operation_id) == original
+        assert db.read_bytes() == db_before_resume
+        assert_inputs(
+            root,
+            cutoff=now,
+            target=1200,
+            growth=6,
+            received=now - timedelta(hours=1),
+            context_name="available",
+        )
+
+    tickers = ("0001", "2331") if purpose == "combined" else ("2331",)
+    for ticker in tickers:
+        ended = service.record_unfinished(
+            first.operation_id,
+            ticker=ticker,
+            reason="synthetic finite investigation ended",
+            references=("https://example.invalid/source",),
+            now=now + timedelta(hours=2),
+        )
+    completed = service.complete(
+        first.operation_id,
+        ended.payload.model_copy(update={"result": "unfinished", "next": "new explicit request"}),
+        completed_at=now + timedelta(hours=2),
+    )
+    later = now + timedelta(hours=3)
+    fresh_workspace = tmp_path / "new-operation"
+    fresh = prepare(workspace=fresh_workspace, started_at=later, **kwargs)
+    assert fresh.operation_id != first.operation_id
+    assert service.get(first.operation_id) == completed
+    assert service.get(fresh.operation_id).started_at == later
+    assert_inputs(
+        fresh_workspace,
+        cutoff=later,
+        target=1800,
+        growth=9,
+        received=now + timedelta(hours=1),
+        context_name="future",
+    )
 
 
 def test_prepare_and_status_need_only_published_triage_id(

@@ -169,8 +169,8 @@ def prepare_workspace(
         research_inputs(
             tickers=tuple(item.ticker for item in selection.targets),
             as_of=resolved_asof,
-            cutoff=now,
-            known_at=now,
+            cutoff=operation.started_at,
+            known_at=operation.started_at,
             market_path=sqlite_path,
             runs_path=runs_path,
             indicators_path=indicators_path,
@@ -292,8 +292,8 @@ def prepare_holding_workspace(
         research_inputs(
             tickers=(ticker,),
             as_of=asof,
-            cutoff=now,
-            known_at=now,
+            cutoff=operation.started_at,
+            known_at=operation.started_at,
             market_path=sqlite_path,
             runs_path=runs_path,
             indicators_path=indicators_path,
