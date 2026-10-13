@@ -97,8 +97,10 @@ def test_plan_has_deterministic_disjoint_bounded_cohorts():
 def test_resume_rejects_changed_plan_binding(change):
     original = plan()
     journal = new_result(original, 0)
-    changed = plan(**change)
+    changed = replace(original, **change)
     assert original.plan_sha256 != changed.plan_sha256
+    assert plan_bytes(load_plan(plan_bytes(original))) == plan_bytes(original)
+    assert plan_bytes(load_plan(plan_bytes(changed))) == plan_bytes(changed)
     with pytest.raises(ValueError, match="binding"):
         load_result(changed, result_value(original, journal))
 

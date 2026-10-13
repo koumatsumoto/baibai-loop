@@ -6,7 +6,13 @@ from datetime import UTC, datetime, timedelta
 import pytest
 import requests
 from tests.batch.test_external_assessment_daily import FakeObjectStore, plan
-from tests.engine.test_external_assessment_sources import monex_html, official_html, rakuten_html
+from tests.engine.test_external_assessment_sources import (
+    monex_html,
+    official_html,
+    rakuten_html,
+    rakuten_no_estimates_html,
+)
+from tests.engine.test_kabumap import html as kabumap_html
 
 from baibai_batch.jobs import external_assessment_daily as daily
 from baibai_batch.storage import external_assessment_staging as staging
@@ -69,6 +75,7 @@ def wire_collector(monkeypatch, store, p, clock, responses):
             result.status_code = status
             result.url = url
             result.encoding = "utf-8"
+            result.headers["Content-Type"] = "text/html; charset=utf-8"
             result._content = body.encode()
             if header is not None:
                 result.headers["Retry-After"] = header
@@ -217,3 +224,89 @@ def test_host_bucket_is_shared_across_pairs_and_resets_without_restart_credit(mo
     daily.acquire_cohort(store, p, 0)
     assert client.limiters[0] is client.limiters[1]
     assert (client.calls[1][1] - client.calls[0][1]).total_seconds() >= 0.5
+
+
+def test_rotated_hosts_preserve_saved_order_and_partial_receipts_on_resume(monkeypatch, clock):
+    p = plan(tickers=("130A", "7203", "8301"), sources=("kabumap", "monex", "rakuten"))
+    store = FakeObjectStore()
+    original_plan = staging.plan_bytes(p)
+    client = wire_collector(
+        monkeypatch,
+        store,
+        p,
+        clock,
+        [
+            (200, None, kabumap_html("130A")),
+            (200, None, monex_html("130A", value="--")),
+            (200, None, official_html("130A")),
+            (200, None, rakuten_html("130A", value="0")),
+            (200, None, kabumap_html("7203")),
+            (200, None, monex_html("7203").replace("theory_summary_inner", "missing")),
+            (200, None, official_html("7203")),
+            (200, None, rakuten_no_estimates_html()),
+        ],
+    )
+    collect = daily.external_assessment_collect_pair
+    seen = []
+
+    def limited(ticker, *, source, **kwargs):
+        seen.append((source, ticker))
+        result = collect(ticker, source=source, **kwargs)
+        if (source, ticker) == ("rakuten", "7203"):
+            clock.elapsed = 101
+        return result
+
+    monkeypatch.setattr(daily, "external_assessment_collect_pair", limited)
+    report = daily.acquire_cohort(store, p, 0, soft_budget_seconds=1000)
+    assert report["stop_reason"] == "soft_budget"
+    assert report["state_counts"] == {
+        "success": 3,
+        "normal_null": 1,
+        "failure": 2,
+        "unattempted": 3,
+    }
+    assert seen == [(source, ticker) for ticker in ("130A", "7203") for source in p.sources]
+    assert len(client.calls) == report["provider_requests"] == 8
+    assert all(limiter is client.limiters[0] for limiter in client.limiters)
+    saved = staging.read_stage(store, p, 0)[0]
+    assert (
+        tuple((entry.source, entry.ticker) for entry in saved.result.entries) == p.cohorts[0].pairs
+    )
+    assert staging.plan_bytes(p) == original_plan
+    received = {
+        (entry.source, entry.ticker): entry
+        for entry in saved.result.entries
+        if entry.state != "unattempted"
+    }
+    assert received["rakuten", "130A"].observation.rating == 0
+    assert received["monex", "130A"].observation.pbr is None
+    assert received["monex", "7203"].reason == "missing_theory_table"
+    assert received["rakuten", "7203"].reason == "no_estimates_identity_unconfirmed"
+
+    store.events.clear()
+    resumed = wire_collector(
+        monkeypatch,
+        store,
+        p,
+        clock,
+        [
+            (200, None, kabumap_html("8301")),
+            (200, None, monex_html("8301")),
+            (200, None, official_html("8301")),
+            (200, None, rakuten_html("8301")),
+        ],
+    )
+    report = daily.acquire_cohort(store, p, 0)
+    assert report["cohort_complete"] is True
+    assert len(resumed.calls) == report["provider_requests"] == 4
+    complete = staging.read_stage(store, p, 0)[0]
+    assert all(
+        received[key] == entry
+        for entry in complete.result.entries
+        if (key := (entry.source, entry.ticker)) in received
+    )
+    before = store.objects.copy()
+    report = daily.acquire_cohort(store, p, 0)
+    assert report["provider_requests"] == 0
+    assert len(resumed.calls) == 4
+    assert store.objects == before

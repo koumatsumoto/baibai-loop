@@ -8,6 +8,7 @@ import re
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from functools import cached_property
 from typing import Literal, cast
 
 from baibai_batch.analysis.io import canonical_json
@@ -90,7 +91,7 @@ class RunPlan:
         ):
             raise ValueError("plan requires distinct supported sources")
 
-    @property
+    @cached_property
     def cohorts(self) -> tuple[Cohort, ...]:
         return tuple(
             Cohort(
@@ -100,7 +101,7 @@ class RunPlan:
             for chunk in (self.tickers[start : start + self.cohort_size],)
         )
 
-    @property
+    @cached_property
     def plan_sha256(self) -> str:
         return hashlib.sha256(plan_bytes(self)).hexdigest()
 
