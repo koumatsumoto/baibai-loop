@@ -41,7 +41,7 @@ E[r] calibration contextは共有read contractがartifact schema、generated/exp
 
 保存済み三領域を`research/inputs.py`で合成した`domain-inputs.yaml`はAIの読取入口である。prepareは選択済み新規だけの機械snapshotと、exact Triageの調査理由・質問・主要リスク・元のpriorityを`research_triage`として引用する。保存Triageの判断を新しい観測・判断へ置換せず、canonical Triage/Review Setとmanifestのbindingを保持する。全候補snapshotを持つ`research-workspace.yaml`は内部照合用であり、AIへ全文を再入力しない。親入力の`securities`は選択済み新規/保有だけを含み、保有子はmanifestの`domain_inputs_ref`で親を相対参照して共通入力を複写しない。保有単独は自身の入力を持ち、0件では対象行が空となる。
 
-機械anchor、個別/市場/業種、Reading、外部提示値を意味ごとに保持し、欠測を新規取得やAI起動で埋めない。既存Market Context Assessmentは任意の参照であり、毎回独立した全depth reportや主観確率を作る前提にしない。重要な環境上の含意だけを企業評価・提案のsource、仮定、反対仮説へ接続する。
+機械anchor、[出所別のCF文脈](./valuation-metrics.md#researchへ渡すcf文脈)、個別/市場/業種、Reading、外部提示値を意味ごとに保持し、欠測を新規取得やAI起動で埋めない。CF文脈は元Security Analysisから引用し、保存済みReview Set/Triageのpayloadやhashへ追加しない。既存Market Context Assessmentは任意の参照であり、毎回独立した全depth reportや主観確率を作る前提にしない。重要な環境上の含意だけを企業評価・提案のsource、仮定、反対仮説へ接続する。
 
 通常の`research prepare`・`position-prepare`は、保存候補の`as_of`を保ちながら、Operationに保存された調査開始時刻`started_at`を`known_at`と`received_cutoff`に使う。同じOperationの再開・workspaceの`--force`でもこの入力確定時刻を保持し、新しい明示開始のOperationで更新する。External Assessmentの`evaluated_at`も同じ時刻であり、開始後の受領値は含めない。金曜候補を日曜に調査する場合、日曜の開始までに受領した外部評価を利用できる。`as_of`末へ受領cutoffを切り戻さず、過去時点のバックテストとは扱わない。`research_inputs`へ直接渡す明示cutoffは保持し、保存済み判断を再計算しない。Readingの対象日と保存履歴の扱いは[Readingの読取契約](./market-context.md#reading)に従う。
 

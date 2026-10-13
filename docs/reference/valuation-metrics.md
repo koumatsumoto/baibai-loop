@@ -49,7 +49,7 @@ ERは年率ratio（0.1＝10%/年）の機械priorで、モデル・単位・成�
 | --- | --- | --- |
 | PER (Forward) | 株価 / 会社予想 EPS | 株価、会社予想 EPS |
 | PER (Trailing) | 時価総額 / 直近 4 四半期の純利益 | 時価総額、純利益 直近 4Q 合算 |
-| PER (3FY normalized) | 株価 / 直近 3 FY の分割補正後 EPS 平均 | 株価、FY EPS、株式分割・併合係数 |
+| PER (3FY平均EPSベース) | 株価 / 直近 3 FY の分割補正後 EPS 算術平均 | 株価、FY EPS、株式分割・併合係数 |
 | PBR | 株価 / 1 株純資産（BPS） | 株価、BPS |
 | EV/EBITDA | (時価総額 + 有利子負債 - 現金) / EBITDA | 時価総額、有利子負債、現金、EBITDA |
 | P/S | 株価 / 1 株売上高 | 株価、直近 4Q 売上 |
@@ -57,6 +57,14 @@ ERは年率ratio（0.1＝10%/年）の機械priorで、モデル・単位・成�
 | Net cash ratio | (現金 - 有利子負債) / 時価総額 | EDINET CSV-derived cash / debt、時価総額 |
 | Asset-backed ratio | (Net cash + 投資有価証券) / 時価総額 | EDINET CSV-derived cash / debt / 投資有価証券、時価総額 |
 | FCF yield | (営業 CF - 設備投資支出) / 時価総額 | EDINET CSV-derived CFO / capex、時価総額 |
+
+`normalized_per_3fy`は連続3FYの実績EPS平均に基づく保存名であり、一時損益・景気循環を調整した正常利益ではない。企業固有の代表利益は一次資料と仮定から[Thesis](./thesis.md#scenario-arithmetic)で構成する。Current/Normalized Earningsの探索は業種gapとPERを優先し、CFは同順位時の補助であり、CF品質の選別済みとは扱わない。
+
+### Researchへ渡すCF文脈
+
+`valuation.query.cash_flow_from_analysis`は保存済みSecurity Analysisの金額・利回り・品質を出所別に読む。J-QuantsのOCF TTMと、選択EDINET書類のOCF/capex/FCFは別系列であり、同一期間・連結範囲を保証しない。異なる系列のOCFとcapexを減算してFCFを作らない。
+
+Researchの選択済み銘柄入力の`cash_flow`は、機械anchorと同じrunの保存値を引用し、EDINETの書類ID・種類・提出日時・書類metadata期間・capex出所を残す。書類metadata期間はCF実測期間ではなく、最新財務開示日もOCF合成期間ではない。必要なら原典のCF計算書で期間・連結範囲・単位を確認する。欠測はnullのまま、明示0と負値は保持し、後日の資料で補完しない。Researchの合成入口と入力確定時刻は[Research進行](./analysis-operations.md#明示開始と固定対象)に従う。
 
 ## 2. Forward PER の取得方針（重要）
 

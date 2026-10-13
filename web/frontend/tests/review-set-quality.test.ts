@@ -11,6 +11,7 @@ function renderQuality(
   fcf: 'exact' | 'approximated' | 'unavailable' | null | undefined,
   carry: Partial<ReviewSetExpectedReturnView> = {},
   reinvestment: ReviewSetReinvestmentView | null = null,
+  averagePer: number | null = null,
 ): string {
   const dataQuality = {
     bs_carry_forward_fields: null,
@@ -32,7 +33,7 @@ function renderQuality(
         identity_liquidity: { market_cap_oku: null, avg_turnover_oku: null, listing_span_days: null, jpx_flags: null },
         valuation: { per_forward: null, per_trailing: null, pbr: null, ev_ebitda: null, p_s: null, pcfr: null },
         current_earnings: { fcf_yield: null, ocf_yield: null, forecast_special_gain_flag: null, forecast_full_year_loss_flag: null },
-        normalized_earnings: { normalized_per_3fy: null, normalized_per_3fy_sector_gap: null },
+        normalized_earnings: { normalized_per_3fy: averagePer, normalized_per_3fy_sector_gap: null },
         asset_value: { asset_backed_ratio: null, net_cash_to_market_cap: null, investment_securities: null, equity_ratio: null },
         reinvestment,
         expected_return: {
@@ -57,6 +58,16 @@ function renderQuality(
 }
 
 describe('Review Set TTM quality', () => {
+  it('describes average EPS and the limited CF role without changing frozen numbers', () => {
+    const html = renderQuality('exact', 'exact', {}, null, 11.25)
+    expect(html).toContain('3FY平均EPSベースPER')
+    expect(html).toMatch(/3FY平均EPSベースPER<\/dt><dd[^>]*>11.25<\/dd>/)
+    expect(html).toContain('3FY平均EPSは一時損益・循環を調整した代表利益ではありません。')
+    expect(html).toContain('利益倍率の探索でCFは同順位時の補助です。')
+    expect(html).not.toContain('平常PER')
+    expect(html).not.toContain('平常収益力')
+  })
+
   it.each([
     ['exact', 'exact', false, false],
     ['approximated', 'unavailable', true, true],
