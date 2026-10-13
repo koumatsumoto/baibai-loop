@@ -24,7 +24,7 @@ status: active
 | Market Context / 市場環境 | 経済・金利等の環境と市場全体・業種・個別相対はどのような状態か |
 | External Assessment / 外部参考評価 | 外部の媒体・評価者はこの株をどう評価して提示しているか |
 
-領域は業務の横方向、L1観測・L2決定的な計算・L3 AI解釈/調査/提案は縦方向の区別である。Market Context AssessmentはMarket ContextのL3判断成果物で、領域全体と同義ではない。Readingは同領域の登録指標系列を機械的に読むL2であり、Market SnapshotやSecurity Market Contextとは別の結果である。境界・保存責務と移行状況は[architecture](./architecture.md)が所有する。
+領域は業務の横方向、L1観測・L2決定的な計算・L3 AI解釈/調査/提案は縦方向の区別である。Market Context AssessmentはMarket ContextのL3判断成果物で、領域全体と同義ではない。Readingは同領域の登録指標系列を機械的に読むL2であり、Market SnapshotやSecurity Market Contextとは別の結果である。境界・保存責務は[architecture](./architecture.md)が所有する。
 
 Valuationの機械ER/FV anchorは倍率・自己価格レンジとcarryの推計であり、企業を調査したBase/DownsideのProjectionとは別結果である。AIが置いた前提を固定すると算術は決定的に再現できるが、前提は観測にならず、結果は条件付き見積りである。4 Approachは候補探索の視点であり、四つの完成した企業価値モデルではない。
 

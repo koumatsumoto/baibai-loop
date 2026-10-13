@@ -110,6 +110,12 @@ portfolioの年次・3年・5年outcomeのprimary benchmarkはJPXのTOPIX gross 
 
 保存場所と正本は[architecture](../architecture.md#store-authority)、L1の保持・公開・hydrateは[market lake](./market-lake.md)が所有する。正規化済みfactを保持していても、訂正前情報や当時の公開範囲を持たない期間まで完全なPITと扱わない。
 
+<a id="edinet-metric-revision"></a>
+
+## EDINET metricの抽出意味revision
+
+EDINET metricの`extractor_revision`は明示的な抽出意味revisionであり、source bytes/import pathから導出しない。数値・文書選択・訂正/取下げ・cache完全性・ticker/期間/連結/単位・NULL/0・quality/failure・保存時型変換の意味変更時に更新する。配置・import・transport retryだけでは更新しない。初版は意味同一を確認した旧tokenを継承し、保存済み行・値・日時・旧release/hashを変更しない。[意味変更時の反映](../../batch/OPERATIONS.md#edinet-metrics-revision)はbatch運用が所有する。releaseの`producer_git_commit`は公開処理のcommitであり、各行の元抽出commitとは区別する。
+
 <a id="edinet-research-facts"></a>
 
 ## EDINETのResearch補助fact

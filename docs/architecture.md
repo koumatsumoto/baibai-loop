@@ -1,6 +1,6 @@
 ---
 title: "Architecture"
-summary: "最終設計の分析領域・依存・保存責務と、現行実装の移行状況。"
+summary: "分析領域・依存・保存責務と、現行writer・保存履歴の境界。"
 doc_type: architecture
 status: active
 ---
@@ -9,7 +9,7 @@ status: active
 
 Baibai Loopの目的は、割安銘柄を発見し、割安幅と条件付き収益を評価し、根拠を伴う一銘柄ずつの売買提案へつなげることである。実売買、提案の採用、注文・約定の確認は人間が行う。
 
-この文書は設計上の境界・依存・保存責務を所有する。用語と成果物の関係は[domain-language](./domain-language.md)、実契約は[reference](./reference/README.md)、操作は[各skill](../.agents/skills/)と[batch運用](../batch/OPERATIONS.md)が所有する。Issueは意思決定と移行の証拠であり、現行仕様をコメントだけに置かない。以下に最終境界を示し、実装との差分は[移行状況](#migration-status)にまとめる。
+この文書は設計上の境界・依存・保存責務を所有する。用語と成果物の関係は[domain-language](./domain-language.md)、実契約は[reference](./reference/README.md)、操作は[各skill](../.agents/skills/)と[batch運用](../batch/OPERATIONS.md)が所有する。Issueは意思決定と移行の証拠であり、現行仕様をコメントだけに置かない。以下に責務と現行境界を示す。
 
 <a id="information-layers"></a>
 
@@ -97,24 +97,17 @@ storageは物理保存の技術責務であり、保存DBをL3そのものと呼
 
 <a id="edinet-metric-revision"></a>
 
-EDINET metricの`extractor_revision`は明示的な抽出意味revisionであり、source bytes/import pathから導出しない。数値・文書選択・訂正/取下げ・cache完全性・ticker/期間/連結/単位・NULL/0・quality/failure・保存時型変換の意味変更時に更新する。配置・import・transport retryだけでは更新しない。初版は意味同一を確認した旧tokenを継承し、保存済み行・値・日時・旧release/hashを変更しない。[意味変更時の反映](../batch/OPERATIONS.md#edinet-metrics-revision)はbatch運用が所有する。releaseの`producer_git_commit`は公開処理のcommitであり、各行の元抽出commitとは区別する。
+EDINET metricのrevisionは抽出意味の変更時だけ明示更新し、配置・import・transport retryでは更新しない。対象とprovenanceは[データソース](./reference/data-sources.md#edinet-metric-revision)、[反映手順](../batch/OPERATIONS.md#edinet-metrics-revision)はbatch運用が所有する。
 
 <a id="migration-status"></a>
 
-## 5. 現行実装の移行状況
+## 5. 現行writerと保存履歴
 
 現行配置は[所有表](#repository-map)に集約する。Market ContextのCLIは`market-context indicators / reading / assessment`で各ownerへ直接渡し、Web・Owner MCPも同じ読取ownerを使う。新規writerと保存済み判断の読取は区別し、旧payloadを新規判断として再発行しない。schema・参照field・履歴読取の詳細は[Market Context reference](./reference/market-context.md#現行配置と保全するidentity)、外部評価の永続名は[保存済み照会](./reference/market-lake.md#external-assessment-query)が所有する。
 
 Readingの現行選択先は`READING_RULES_PATH`が指す`method/macro/reading/2026-08-01T100000+0900.yaml`である。保存判断が引用する元bytes/pathを保持し、名前切替のための移設・複製・revision変更を行わない。
 
-External AssessmentとMarket Contextの永続identityの本番移行は完了している。移行・公開・再開の確認証拠は[Issue #1414](https://github.com/koumatsumoto/baibai-loop/issues/1414)へ集約し、通常運用の未完了範囲を次に示す。
-
-| 未完了項目 | 受入で確認すること |
-| --- | --- |
-| daily本番受入 | run/Review Setの単一transaction、Screening失敗/日本休日時の独立指標更新・単一公開は実装済み。再開後の予定runで、営業日の実取得・store/serving読戻しを確認する |
-| 最終運用受入 | 配置・保存・公開・画面・CLI・docsの結合、四媒体の取得/読戻し、AI運用の有用性/根拠/時間を実運用で確認する。Readingのas_ofとResearchのknown_at/received_cutoff、公表vintageと後日取得/改定履歴の違いが各読取面へ同じ説明で伝わることを確認する |
-
-後続の取り込み時は該当行を更新する。判断経緯と移行証拠は#1414、現行仕様は本書とreferenceに集約する。
+実装・移行と通常運用の受入は区別する。進捗・未完了の受入・確認証拠は[Issue #1414](https://github.com/koumatsumoto/baibai-loop/issues/1414)へ集約し、現行仕様は本書とreferenceで管理する。
 
 <a id="cloud-serving-layer"></a>
 
