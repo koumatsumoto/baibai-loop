@@ -112,6 +112,16 @@ export interface AssessmentRevisionView {
   stale: boolean
 }
 
+export interface BenchmarkTrendView {
+  as_of: string
+  benchmark_ticker: string
+  observation_date: string
+  benchmark_return_20d: number | null
+  benchmark_return_60d: number | null
+  benchmark_gap_from_high: number | null
+  trend_state: 'uptrend' | 'downtrend' | 'neutral' | 'unknown'
+}
+
 export interface CapitalAllocationAssessmentSummaryView {
   capital_allocation_assessment_id: string
   as_of: string
@@ -477,10 +487,39 @@ export interface IndicatorSeriesView {
  * Current L3 judgment first, followed by current L2 readings.
  */
 export interface MarketContextView {
+  market_snapshot: MarketSnapshotView | null
   latest_context: AssessmentExcerptView | null
   reading: ReadingView | null
   reports: AssessmentRevisionView[]
   groups: IndicatorGroupView[]
+}
+
+export interface MarketPointView {
+  observation_date: string | null
+  date: string
+  benchmark_return_20d: number | null
+  benchmark_return_60d: number | null
+  breadth_pct_above_ma20: number | null
+  breadth_sample_size: number
+  benchmark_trend: 'uptrend' | 'downtrend' | 'neutral' | 'unknown'
+}
+
+export interface MarketSectorView {
+  sector_33: string
+  ticker_count: number
+  median_return_20d: number
+  median_return_60d: number | null
+  pct_above_ma20: number | null
+}
+
+export interface MarketSnapshotView {
+  as_of: string
+  benchmark_ticker: string
+  history_weeks: number
+  master_snapshot_date: string | null
+  points: MarketPointView[]
+  sectors: MarketSectorView[]
+  return_basis: 'price_return_excluding_cash_dividends'
 }
 
 export type MetaBatch = 'daily' | 'manual'
@@ -995,6 +1034,7 @@ export interface SecurityAnalysisRowView {
 }
 
 export interface SecurityDetailView {
+  market_context: SecurityMarketContextView | null
   external_assessment: ExternalAssessment | null
   ticker: string
   company_name: string | null
@@ -1005,6 +1045,61 @@ export interface SecurityDetailView {
   position_reviews: PositionReviewView[]
   security_analysis: SecurityAnalysisRowView | null
   screening_run: ScreeningRunView | null
+}
+
+export interface SecurityMarketContextView {
+  as_of: string
+  master: SecurityMarketMasterView | null
+  price: SecurityPriceContextView | null
+  relative: SecurityRelativeContextView | null
+  benchmark_trend: BenchmarkTrendView | null
+  return_basis: 'price_return_excluding_cash_dividends'
+}
+
+export interface SecurityMarketMasterView {
+  name: string
+  market_segment: string
+  sector_33: string
+  is_common_stock: boolean
+  snapshot_date: string
+}
+
+export interface SecurityPeerContextView {
+  sector_33: string
+  peer_count: number
+  peer_median_return_20d: number
+  relative_return_20d: number | null
+  comparison_start_date: string
+  comparison_end_date: string
+  master_snapshot_date: string | null
+}
+
+export interface SecurityPriceContextView {
+  resolved_date: string
+  close: number
+  price_basis: 'adjusted_close_preferred'
+  return_1d: number | null
+  return_5d: number | null
+  return_20d: number | null
+  return_60d: number | null
+  high_52w: number
+  low_52w: number
+  gap_from_52w_low: number | null
+  gap_from_52w_high: number | null
+  self_range_percentile: number
+  self_range_window_bars: number
+  realized_vol_20d: number | null
+  avg_turnover_20d_oku: number | null
+  bar_count: number
+}
+
+export interface SecurityRelativeContextView {
+  benchmark_ticker: string
+  relative_1d: number | null
+  relative_5d: number | null
+  relative_20d: number | null
+  relative_60d: number | null
+  sector: SecurityPeerContextView | null
 }
 
 /**

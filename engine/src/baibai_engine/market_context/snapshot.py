@@ -12,22 +12,26 @@ never disagree.
 from __future__ import annotations
 
 import statistics
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
 from .benchmark import (
+    _BENCHMARK_LOOKBACK_CALENDAR_DAYS,
     BREADTH_MA_WINDOW_BARS,
     DEFAULT_MIN_BREADTH_SAMPLE,
     LONG_TREND_WINDOW_BARS,
     NIKKEI225_ETF_PROXY,
     TREND_WINDOW_BARS,
+    BenchmarkTrendSnapshot,
+    _load_benchmark_series,
+    benchmark_trend_from_series,
     classify_benchmark_trend,
 )
 from .history import trailing_return
-from .master import read_master_snapshot
+from .master import MasterSnapshot, read_master_snapshot
 from .prices import read_price_bars
 
 DEFAULT_HISTORY_WEEKS = 12
@@ -49,6 +53,54 @@ class _Series:
         index = bisect_right(self.dates, upto)
         return self.dates[index - 1] if index else None
 
+    def price_on(self, day: date) -> float | None:
+        index = bisect_left(self.dates, day)
+        return self.prices[index] if index < len(self.dates) and self.dates[index] == day else None
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedMarketContext:
+    """単一exportの市場短期系列・master・benchmarkだけを共有する。"""
+
+    sqlite_path: Path
+    asof_date: date
+    history_weeks: int
+    start: date
+    master: MasterSnapshot | None
+    series_by_ticker: dict[str, _Series]
+    benchmark_ticker: str
+    benchmark_start: date
+    benchmark_prices: dict[date, float]
+    benchmark_trend: BenchmarkTrendSnapshot | None
+
+
+def prepare_market_context_inputs(
+    *,
+    sqlite_path: Path,
+    asof_date: date,
+    master: MasterSnapshot | None,
+    history_weeks: int = DEFAULT_HISTORY_WEEKS,
+    benchmark_ticker: str = NIKKEI225_ETF_PROXY,
+) -> PreparedMarketContext:
+    """既存masterを引き継ぎ、同じ生成の全体/個別viewへ渡す。永続cacheなし。"""
+    start = asof_date - timedelta(days=7 * (history_weeks - 1) + _POINT_LOOKBACK_CALENDAR_DAYS)
+    benchmark_series = _load_benchmark_series(sqlite_path, asof_date, ticker=benchmark_ticker)
+    return PreparedMarketContext(
+        sqlite_path=sqlite_path.resolve(),
+        asof_date=asof_date,
+        history_weeks=history_weeks,
+        start=start,
+        master=master,
+        series_by_ticker=_load_series(sqlite_path, start=start, end=asof_date),
+        benchmark_ticker=benchmark_ticker,
+        # Keep the original benchmark loader's window, including sparse histories.
+        benchmark_start=asof_date - timedelta(days=_BENCHMARK_LOOKBACK_CALENDAR_DAYS),
+        benchmark_prices=dict(benchmark_series),
+        benchmark_trend=benchmark_trend_from_series(
+            benchmark_series, asof_date=asof_date, benchmark_ticker=benchmark_ticker
+        ),
+    )
+
 
 def build_market_snapshot(
     *,
@@ -57,6 +109,7 @@ def build_market_snapshot(
     history_weeks: int = DEFAULT_HISTORY_WEEKS,
     benchmark_ticker: str = NIKKEI225_ETF_PROXY,
     min_breadth_sample: int = DEFAULT_MIN_BREADTH_SAMPLE,
+    prepared: PreparedMarketContext | None = None,
 ) -> dict[str, object]:
     """Assemble the market snapshot as of ``asof_date``.
 
@@ -68,8 +121,21 @@ def build_market_snapshot(
         asof_date - timedelta(days=7 * offset) for offset in range(history_weeks - 1, -1, -1)
     ]
     start = point_dates[0] - timedelta(days=_POINT_LOOKBACK_CALENDAR_DAYS)
-    series_by_ticker = _load_series(sqlite_path, start=start, end=asof_date)
-    master = read_master_snapshot(sqlite_path, as_of=asof_date)
+    if prepared is not None and (
+        prepared.sqlite_path != sqlite_path.resolve()
+        or prepared.asof_date != asof_date
+        or prepared.history_weeks != history_weeks
+        or prepared.benchmark_ticker != benchmark_ticker
+    ):
+        raise ValueError("prepared market context does not match the requested scope")
+    series_by_ticker = (
+        _load_series(sqlite_path, start=start, end=asof_date)
+        if prepared is None
+        else prepared.series_by_ticker
+    )
+    master = (
+        read_master_snapshot(sqlite_path, as_of=asof_date) if prepared is None else prepared.master
+    )
     sector_by_ticker = (
         {}
         if master is None

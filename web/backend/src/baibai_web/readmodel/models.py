@@ -484,7 +484,105 @@ class PositionReviewView(BaseModel):
     note: str | None
 
 
+class MarketPointView(BaseModel):
+    observation_date: date | None
+    date: date
+    benchmark_return_20d: float | None
+    benchmark_return_60d: float | None
+    breadth_pct_above_ma20: float | None
+    breadth_sample_size: int
+    benchmark_trend: Literal["uptrend", "downtrend", "neutral", "unknown"]
+
+
+class MarketSectorView(BaseModel):
+    sector_33: str
+    ticker_count: int
+    median_return_20d: float
+    median_return_60d: float | None
+    pct_above_ma20: float | None
+
+
+class MarketSnapshotView(BaseModel):
+    as_of: date
+    benchmark_ticker: str
+    history_weeks: int
+    master_snapshot_date: date | None
+    points: list[MarketPointView]
+    sectors: list[MarketSectorView]
+    return_basis: Literal["price_return_excluding_cash_dividends"] = (
+        "price_return_excluding_cash_dividends"
+    )
+
+
+class SecurityMarketMasterView(BaseModel):
+    name: str
+    market_segment: str
+    sector_33: str
+    is_common_stock: bool
+    snapshot_date: date
+
+
+class SecurityPriceContextView(BaseModel):
+    resolved_date: date
+    close: float
+    price_basis: Literal["adjusted_close_preferred"]
+    return_1d: float | None
+    return_5d: float | None
+    return_20d: float | None
+    return_60d: float | None
+    high_52w: float
+    low_52w: float
+    gap_from_52w_low: float | None
+    gap_from_52w_high: float | None
+    self_range_percentile: float
+    self_range_window_bars: int
+    realized_vol_20d: float | None
+    avg_turnover_20d_oku: float | None
+    bar_count: int
+
+
+class SecurityPeerContextView(BaseModel):
+    sector_33: str
+    peer_count: int
+    peer_median_return_20d: float
+    relative_return_20d: float | None
+    comparison_start_date: date
+    comparison_end_date: date
+    master_snapshot_date: date | None
+
+
+class SecurityRelativeContextView(BaseModel):
+    benchmark_ticker: str
+    relative_1d: float | None
+    relative_5d: float | None
+    relative_20d: float | None
+    relative_60d: float | None
+    sector: SecurityPeerContextView | None
+
+
+class BenchmarkTrendView(BaseModel):
+    as_of: date
+    benchmark_ticker: str
+    observation_date: date
+    benchmark_return_20d: float | None
+    benchmark_return_60d: float | None
+    benchmark_gap_from_high: float | None
+    trend_state: Literal["uptrend", "downtrend", "neutral", "unknown"]
+
+
+class SecurityMarketContextView(BaseModel):
+    as_of: date
+    master: SecurityMarketMasterView | None
+    price: SecurityPriceContextView | None
+    relative: SecurityRelativeContextView | None
+    benchmark_trend: BenchmarkTrendView | None
+    return_basis: Literal["price_return_excluding_cash_dividends"] = (
+        "price_return_excluding_cash_dividends"
+    )
+
+
 class SecurityDetailView(BaseModel):
+    market_context: SecurityMarketContextView | None = None
     external_assessment: ExternalAssessment | None = None
     ticker: str
     company_name: str | None
@@ -801,6 +899,8 @@ class IndicatorGroupView(BaseModel):
 
 class MarketContextView(BaseModel):
     """Current L3 judgment first, followed by current L2 readings."""
+
+    market_snapshot: MarketSnapshotView | None = None
 
     latest_context: AssessmentExcerptView | None
     reading: ReadingView | None

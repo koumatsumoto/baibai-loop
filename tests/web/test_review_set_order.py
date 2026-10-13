@@ -153,6 +153,7 @@ def test_list_and_detail_bind_to_the_same_fallback_run_and_fv(tmp_path: Path, mo
     ledger, research = _dependencies(mocker)
     research.position_reviews.return_value = []
     market = mocker.Mock()
+    market.security_market_context.return_value = None
 
     listing = build_screening(source, ledger, research)
     detail = build_security_detail("2331", ledger, research, source, market)
@@ -193,7 +194,9 @@ def test_non_candidate_anchor_appears_in_list_detail_and_history(tmp_path, mocke
     ledger, research = _dependencies(mocker)
     research.position_reviews.return_value = []
     listing = build_screening(source, ledger, research)
-    detail = build_security_detail("9999", ledger, research, source, mocker.Mock())
+    market = mocker.Mock()
+    market.security_market_context.return_value = None
+    detail = build_security_detail("9999", ledger, research, source, market)
     history = build_screening_history_run(source, ledger, research, as_of=date(2026, 9, 19))
     assert listing.review_sets == []
     for row in (listing.security_analyses[0], detail.security_analysis, history.rows[0]):
