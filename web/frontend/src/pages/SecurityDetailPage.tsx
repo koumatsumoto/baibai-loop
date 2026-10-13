@@ -8,6 +8,7 @@ import { ReviewedThesisContent } from '../components/ReviewedThesisContent'
 import { LoadingPage } from '../components/LoadingIndicator'
 import { PageShell } from '../components/PageShell'
 import { ResearchNav } from '../components/ResearchNav'
+import { SecurityMarketContextSection } from './research/MarketEvidence'
 import { SectionCard } from '../components/SectionCard'
 import { PageState } from '../components/PageState'
 import { PctBadge } from '../components/PctBadge'
@@ -223,6 +224,7 @@ export function SecurityDetailPage() {
           <ScreeningMetrics row={data.security_analysis} />
         </SectionCard>
       )}
+      <SecurityMarketContextSection context={data.market_context} />
       <ExternalAssessmentSection assessment={data.external_assessment} />
       <Link className="text-sm underline" to="/stocks">調査・提案を見る →</Link>
     </PageShell>

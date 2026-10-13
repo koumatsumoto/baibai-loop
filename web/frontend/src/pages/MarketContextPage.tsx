@@ -9,6 +9,7 @@ import { InfoHint } from '../components/InfoHint'
 import { LoadingIndicator, LoadingPage } from '../components/LoadingIndicator'
 import { PageShell } from '../components/PageShell'
 import { ResearchNav } from '../components/ResearchNav'
+import { MarketSnapshotSection } from './research/MarketEvidence'
 import { PageState } from '../components/PageState'
 import { SectionCard } from '../components/SectionCard'
 import { StaleBadge } from '../components/StaleBadge'
@@ -271,7 +272,7 @@ function IndicatorDialog({ row, history, historyLoading, historyError, period, g
 
 function LatestContext({ context }: { context: AssessmentExcerptView | null }) {
   if (!context) return <SectionCard padded title="市場環境の判断"><p className="text-sm text-muted-foreground">保存済みの判断はありません。観測値を売買判断で補完しません。</p></SectionCard>
-  return <SectionCard padded title="市場環境の判断" description={`${LABEL.asOf} ${context.as_of} / ${context.age_days} 日前`} meta={context.stale && <StaleBadge />}>
+  return <SectionCard padded title="市場環境の判断" description={`${LABEL.asOf} ${context.as_of} / ${context.age_days} 日前`} meta={<div className="flex flex-wrap gap-2"><UpdatedAtBadge value={context.published_at} />{context.stale && <StaleBadge />}</div>}>
     <div className="grid gap-4">
       <p className="whitespace-pre-wrap text-sm leading-7">{context.summary}</p>
       {context.warnings.length > 0 && <div className="flex flex-wrap gap-1">{context.warnings.map(warning => <Badge key={warning} variant="outline">{warning}</Badge>)}</div>}
@@ -351,7 +352,8 @@ export function MarketContextPage() {
   }
 
   return (
-    <PageShell above={<ResearchNav />} meta={<UpdatedAtBadge value={data.latest_context?.published_at ?? null} />} title="市場環境" lead="調査・提案を読むための市場環境と保存済みの根拠です。観測や機械分析だけで売買判断を作りません。">
+    <PageShell above={<ResearchNav />} title="市場環境" lead="調査・提案を読むための市場環境と保存済みの根拠です。観測や機械分析だけで売買判断を作りません。">
+      <MarketSnapshotSection snapshot={data.market_snapshot} />
       <LatestContext context={data.latest_context} />
 
       <details className="rounded-lg border bg-card p-4 sm:p-5"><summary className="cursor-pointer font-medium">指標の値・推移を調べる（{summary.seriesCount} 系列）</summary><section className="mt-5 grid gap-4">

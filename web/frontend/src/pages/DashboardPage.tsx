@@ -435,7 +435,7 @@ export function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null
               <p className="py-8 text-center text-sm text-muted-foreground">閾値に触れる変化はありません。</p>
             )}
           <div className="px-5 py-3 sm:px-6">
-            <Link className="text-sm font-medium underline underline-offset-4" to="/market-context">現在のマクロ局面を見る</Link>
+            <Link className="text-sm font-medium underline underline-offset-4" to="/market-context">市場環境の根拠を見る</Link>
           </div>
         </div>
       )}
