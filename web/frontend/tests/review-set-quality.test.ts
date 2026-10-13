@@ -3,12 +3,13 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
 
-import type { ReviewSetView } from '../src/api/types'
+import type { ReviewSetExpectedReturnView, ReviewSetView } from '../src/api/types'
 import { ReviewSetSection } from '../src/pages/stocks/ReviewSetSection'
 
 function renderQuality(
   ev: 'exact' | 'approximated' | 'unavailable' | null | undefined,
   fcf: 'exact' | 'approximated' | 'unavailable' | null | undefined,
+  carry: Partial<ReviewSetExpectedReturnView> = {},
 ): string {
   const dataQuality = {
     bs_carry_forward_fields: null,
@@ -37,6 +38,8 @@ function renderQuality(
           er_annual: null, er_reversion_annual: null, er_carry_annual: null,
           fv_sector_median_yen: null, fv_self_range_yen: null, er_origin: null,
           er_model_version: null, er_unit: null, er_assumptions: null,
+          dividend_yield: null, dividend_basis: null, net_share_change_yoy: null,
+          carry_missing_assumption: null, ...carry,
         },
         data_quality: dataQuality,
         context: {
@@ -64,5 +67,28 @@ describe('Review Set TTM quality', () => {
     expect(html.includes('FCF TTM')).toBe(showFcf)
     if (showEv) expect(html).toContain('approximated')
     if (showFcf) expect(html).toContain('unavailable')
+  })
+})
+
+describe('machine carry inputs', () => {
+  it('distinguishes missing inputs from observed zero with the same carry', () => {
+    const missing = renderQuality(null, null, {
+      er_carry_annual: 0, dividend_basis: 'unavailable', carry_missing_assumption: 'synthetic assumption',
+    })
+    const zero = renderQuality(null, null, {
+      er_carry_annual: 0, dividend_yield: 0, net_share_change_yoy: 0,
+      dividend_basis: 'actual_reported', carry_missing_assumption: 'synthetic assumption',
+    })
+    expect(missing).toContain('未観測・未記録')
+    expect(missing).toContain('unavailable')
+    expect(zero).not.toContain('未観測・未記録')
+    expect(zero).toContain('actual_reported')
+    expect(zero).toContain('0%')
+    expect(missing).toContain('欠測の成分は計算上0寄与。無配・株数不変の確認ではありません。')
+    expect(zero).toContain('欠測の成分は計算上0寄与。無配・株数不変の確認ではありません。')
+  })
+
+  it('shows that an old frozen snapshot has no carry metadata', () => {
+    expect(renderQuality(null, null)).toContain('この保存snapshotには仮定の記録がありません。')
   })
 })

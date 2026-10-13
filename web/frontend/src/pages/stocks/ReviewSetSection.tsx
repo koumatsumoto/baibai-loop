@@ -85,6 +85,10 @@ function FrozenAnalysis({ analysis }: { analysis: ReviewSetAnalysisView }) {
       ]} title="Reinvestment" />
       <FrozenGroup fields={[
         ['machine E[r] annual', percent(expected.er_annual)], ['reversion', percent(expected.er_reversion_annual)], ['carry', percent(expected.er_carry_annual)],
+        ['配当利回り入力', expected.dividend_yield == null ? '未観測・未記録' : percent(expected.dividend_yield)],
+        ['配当basis', expected.dividend_basis ?? '未記録'],
+        ['発行済株式数YoY入力', expected.net_share_change_yoy == null ? '未観測・未記録' : percent(expected.net_share_change_yoy)],
+        ['carryの欠測', expected.carry_missing_assumption == null ? 'この保存snapshotには仮定の記録がありません。' : '欠測の成分は計算上0寄与。無配・株数不変の確認ではありません。'],
         ['機械・業種中央値 anchor', `${number(expected.fv_sector_median_yen, 0)} 円`], ['機械・自己レンジ anchor', `${number(expected.fv_self_range_yen, 0)} 円`],
         ['origin', expected.er_origin ?? EMPTY], ['model', expected.er_model_version ?? EMPTY], ['unit', expected.er_unit ?? EMPTY], ['assumptions', expected.er_assumptions ?? EMPTY],
       ]} title="Machine return prior (secondary context)" />

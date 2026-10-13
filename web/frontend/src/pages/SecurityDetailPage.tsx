@@ -41,8 +41,9 @@ function ScreeningMetrics({ row }: { row: SecurityAnalysisRowView }) {
       <Field label="EV/EBITDA"><span className="font-mono tabular-nums">{row.ev_ebitda ?? '—'}</span></Field>
       <Field label="P/S"><span className="font-mono tabular-nums">{row.p_s ?? '—'}</span></Field>
       <Field label="PCFR"><span className="font-mono tabular-nums">{row.pcfr ?? '—'}</span></Field>
-      <Field label="配当利回り"><FractionMetric value={row.dividend_yield} /></Field>
-      <Field label="E[r] (rev/carry)"><span className="font-mono tabular-nums"><FractionMetric value={row.er_annual} /> (<FractionMetric value={row.er_reversion_annual} /> / <FractionMetric value={row.er_carry_annual} />)</span></Field>
+      <Field label="配当利回り">{row.dividend_yield === null ? '未観測・未記録' : <FractionMetric value={row.dividend_yield} />}<span className="text-xs text-muted-foreground">basis: {row.dividend_basis ?? '未記録'}</span></Field>
+      <Field label="発行済株式数YoY入力">{row.net_share_change_yoy == null ? '未観測・未記録' : <FractionMetric value={row.net_share_change_yoy} />}</Field>
+      <Field label="E[r] (rev/carry)"><span className="font-mono tabular-nums"><FractionMetric value={row.er_annual} /> (<FractionMetric value={row.er_reversion_annual} /> / <FractionMetric value={row.er_carry_annual} />)</span>{row.carry_missing_assumption && <p className="text-xs text-muted-foreground">欠測の成分は計算上0寄与。無配・株数不変の確認ではありません。</p>}</Field>
       <Field label="Net cash / MC"><FractionMetric value={row.net_cash_to_market_cap} /></Field>
       <Field label="FCF yield"><FractionMetric value={row.fcf_yield} /></Field>
       <Field label="OCF yield"><FractionMetric value={row.ocf_yield} /></Field>

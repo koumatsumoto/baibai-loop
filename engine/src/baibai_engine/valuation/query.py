@@ -6,6 +6,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from math import isfinite
 
+from .estimates import EXPECTED_RETURN_MODEL_VERSION
+
+CARRY_MISSING_ASSUMPTION = (
+    "Missing dividend_yield and net_share_change_yoy contribute zero to machine carry; "
+    "missing inputs are not observed zero dividends or unchanged shares."
+)
+
 
 @dataclass(frozen=True, slots=True)
 class MachineValuation:
@@ -21,6 +28,10 @@ class MachineValuation:
     unit: str | None
     assumptions: str | None
     market_price_yen: float | None
+    dividend_yield: float | None
+    dividend_basis: str | None
+    net_share_change_yoy: float | None
+    carry_missing_assumption: str | None
 
 
 def machine_valuation_from_analysis(analysis: Mapping[str, object]) -> MachineValuation:
@@ -38,6 +49,12 @@ def machine_valuation_from_analysis(analysis: Mapping[str, object]) -> MachineVa
         unit=_text(metrics.get("er_unit")),
         assumptions=_text(metrics.get("er_assumptions")),
         market_price_yen=_number(metrics.get("market_price_yen")),
+        dividend_yield=_number(metrics.get("dividend_yield")),
+        dividend_basis=_text(metrics.get("dividend_basis")),
+        net_share_change_yoy=_number(metrics.get("net_share_change_yoy")),
+        carry_missing_assumption=CARRY_MISSING_ASSUMPTION
+        if metrics.get("er_model_version") == EXPECTED_RETURN_MODEL_VERSION
+        else None,
     )
 
 

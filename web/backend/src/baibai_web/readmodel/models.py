@@ -182,6 +182,8 @@ class SecurityAnalysisRowView(BaseModel):
     er_annual: float | None
     er_reversion_annual: float | None
     er_carry_annual: float | None
+    net_share_change_yoy: float | None = None
+    carry_missing_assumption: str | None = None
     net_cash_to_market_cap: float | None
     fcf_yield: float | None
     ocf_yield: float | None
@@ -337,6 +339,10 @@ class ReviewSetExpectedReturnView(BaseModel):
     er_model_version: str | None
     er_unit: str | None
     er_assumptions: str | None
+    dividend_yield: float | None = None
+    dividend_basis: str | None = None
+    net_share_change_yoy: float | None = None
+    carry_missing_assumption: str | None = None
 
 
 class ReviewSetDataQualityView(BaseModel):

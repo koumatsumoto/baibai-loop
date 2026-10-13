@@ -33,6 +33,10 @@ sector_median_anchor = price * mean(available_sector_anchor / current_multiple)
 self_range_anchor = price * mean(available_self_anchor / current_multiple)
 ```
 
+carryの`dividend_yield / net_share_change_yoy`が欠測なら、その成分の計算上の寄与は0である。これは無配・株数不変を観測した意味ではない。Valuationの公開読取、Researchの機械anchor、新しいReview Set/Triage入力は、この二つのnullable入力と`dividend_basis`、`carry_missing_assumption`を併記する。株数変化はclip前のグロス発行済株式数YoY（増加が正、減少が負）であり、将来の自社株買いcashではない。ER値・算式・既存の`er_assumptions`は変更しない。
+
+保存済みReview Set/Triageに成分fieldが無い場合は「そのsnapshotに記録なし」であり、nullや0を補完して保存・再発行しない。新しいTriage runnerも欠測・field不在をゼロ観測の根拠にしない。直接のValuation/Research読取は元Security Analysisに残る成分を引用できるが、凍結した判断入力へ後から混ぜない。
+
 ERは年率ratio（0.1＝10%/年）の機械priorで、モデル・単位・成分・前提を併記する。業種中央値anchorはERの保守側blendそのものではなく、自己レンジは現在fundamentalsを固定した価格比較（[§9](#9-過去自己比較過去-3-年レンジ)）である。企業固有の調査FV・期間内分配・Projectionと同一の評価名へまとめない。4 Approachの推薦式・推薦枠は[Screening runtime](./screening-runtime.md#candidate-discovery)が所有する。
 
 保存名`fv_sector_median_yen / fv_self_range_yen / er_*`とserializerの丸めは維持する。読取は再計算しない。`valuation.query.machine_valuation_from_analysis`が小さな機械評価結果へ投影し、Webの一覧・銘柄詳細・履歴は同じ保存値の業種中央値anchorと参考価格の乖離を表示する。Review Set入りを照会条件にせず、候補外の保存済みSecurity Analysisも読める。

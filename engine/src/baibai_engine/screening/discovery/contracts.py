@@ -102,6 +102,27 @@ class ExpectedReturnAnalysis(_StrictAnalysisGroup):
     er_model_version: str | None
     er_unit: str | None
     er_assumptions: str | None
+    dividend_yield: float | int | None = None
+    dividend_basis: str | None = None
+    net_share_change_yoy: float | int | None = None
+    carry_missing_assumption: str | None = None
+
+    @model_serializer(mode="wrap")
+    def _preserve_saved_carry_inputs(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> dict[str, Any]:
+        # A frozen publication's absent fields must not become explicit nulls:
+        # its original candidate/input hash and judgment meaning stay unchanged.
+        result: dict[str, Any] = handler(self)
+        for key in (
+            "dividend_yield",
+            "dividend_basis",
+            "net_share_change_yoy",
+            "carry_missing_assumption",
+        ):
+            if key not in self.model_fields_set:
+                result.pop(key, None)
+        return result
 
 
 class DataQualityAnalysis(_StrictAnalysisGroup):

@@ -356,6 +356,8 @@ def _security_analysis_row_view(
         has_research=ticker in researched,
         fair_value_anchor_yen=valuation.sector_median_anchor_yen,
         fair_value_gap_pct=anchor_gap_pct(valuation),
+        net_share_change_yoy=valuation.net_share_change_yoy,
+        carry_missing_assumption=valuation.carry_missing_assumption,
         er_level_quintile=_er_level_quintile(values.get("er_annual"), er_level_calibration),
         er_meets_8_5pct_band=_er_meets_hurdle(values.get("er_annual"), er_level_calibration),
         **values,

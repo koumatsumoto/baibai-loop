@@ -23,6 +23,7 @@ from baibai_engine.valuation.metrics.relative import (
     MIN_SECTOR_MEDIAN_POPULATION,
     normalized_earnings_sector_gaps,
 )
+from baibai_engine.valuation.query import machine_valuation_from_analysis
 
 _ASSET_VALUE_EXCLUDED_SECTORS = frozenset(
     {
@@ -421,6 +422,7 @@ def _analysis(row: Mapping[str, object], *, normalized_gap: float | None) -> dic
     metrics = dict(metric_map(row.get("metrics")))
     reinvestment = _reinvestment_values(row)
     quality = dict(metric_map(row.get("ttm_quality")))
+    machine_valuation = machine_valuation_from_analysis(row)
     return {
         "identity_liquidity": {
             key: row.get(key)
@@ -462,18 +464,24 @@ def _analysis(row: Mapping[str, object], *, normalized_gap: float | None) -> dic
             "fcf_yield": reinvestment.fcf_yield,
         },
         "expected_return": {
-            key: metrics.get(key)
-            for key in (
-                "er_annual",
-                "er_reversion_annual",
-                "er_carry_annual",
-                "fv_sector_median_yen",
-                "fv_self_range_yen",
-                "er_origin",
-                "er_model_version",
-                "er_unit",
-                "er_assumptions",
-            )
+            **{
+                key: metrics.get(key)
+                for key in (
+                    "er_annual",
+                    "er_reversion_annual",
+                    "er_carry_annual",
+                    "fv_sector_median_yen",
+                    "fv_self_range_yen",
+                    "er_origin",
+                    "er_model_version",
+                    "er_unit",
+                    "er_assumptions",
+                )
+            },
+            "dividend_yield": machine_valuation.dividend_yield,
+            "dividend_basis": machine_valuation.dividend_basis,
+            "net_share_change_yoy": machine_valuation.net_share_change_yoy,
+            "carry_missing_assumption": machine_valuation.carry_missing_assumption,
         },
         "data_quality": {
             **{
