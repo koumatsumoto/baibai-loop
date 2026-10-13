@@ -110,19 +110,19 @@ export function SecurityDetailPage() {
           <span className="font-mono text-foreground">{data.ticker}</span>
         </nav></div>
       )}
-      // The heading is the ticker, so the name is what a reader actually recognises the
-      // page by and keeps its weight; the sector trails it as context.
       lead={<>{data.ticker} · {data.sector ?? '業種未確認'}</>}
       meta={(
         <div className="flex flex-wrap items-center gap-2">
           {data.holding && <Badge variant="secondary">保有</Badge>}
-          {data.revisions.length > 0 && <Badge variant="outline">research {data.revisions.length}</Badge>}
+          {data.revisions.length > 0 && <Badge variant="outline">企業調査 {data.revisions.length}</Badge>}
           <TradingViewButton labeled ticker={data.ticker} />
         </div>
       )}
       title={data.company_name ?? data.ticker}
       width="reading"
     >
+      <nav aria-label="銘柄の根拠" className="flex flex-wrap gap-x-4 gap-y-2 text-sm"><a className="underline" href="#research">企業評価</a>{data.security_analysis && <a className="underline" href="#valuation">価値の指標</a>}<a className="underline" href="#market-context">市場の指標</a><a className="underline" href="#external-assessment">外部参考評価</a></nav>
+      <div className="scroll-mt-24" id="research">
       <SectionCard
         description="latest research"
         meta={thesis && <AsOfBadge value={thesis.revision.as_of} />}
@@ -141,12 +141,13 @@ export function SecurityDetailPage() {
               </dl>
               <p className="text-sm text-muted-foreground">candidate は配分検討に使える企業評価です。現在価格の条件、allocate の判断、実約定は別に確認します。</p>
               <ReviewedThesisContent projection={thesis.projection} />
-              <code className="truncate rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground" title={thesis.revision.thesis_id}>{thesis.revision.thesis_id}</code>
+              <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">企業評価の参照記録</summary><p className="mt-2 break-all">Thesis: {thesis.revision.thesis_id}</p></details>
             </div>
           )}
         </>
       </SectionCard>
 
+      </div>
       {data.holding && (
         <SectionCard description="portfolio ledger" meta={<AsOfBadge value={data.holding.market_price_as_of} />} padded title="現在の保有">
           <>
@@ -214,18 +215,20 @@ export function SecurityDetailPage() {
 
       </div></details>
 
-      {data.security_analysis && (
-        <SectionCard
-          description="latest screening"
-          meta={data.screening_run && <AsOfBadge value={data.screening_run.as_of} />}
-          padded
-          title="保存済み機械評価・市場指標"
-        >
-          <ScreeningMetrics row={data.security_analysis} />
-        </SectionCard>
-      )}
-      <SecurityMarketContextSection context={data.market_context} />
-      <ExternalAssessmentSection assessment={data.external_assessment} />
+      {data.security_analysis && <div className="scroll-mt-24" id="valuation"><SectionCard description="保存済みの機械評価。企業固有のThesisや配分判断とは別です。" meta={data.screening_run && <AsOfBadge value={data.screening_run.as_of} />} padded title="価値の指標">
+        <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+          <Field label="PER 予想 / 実績">{data.security_analysis.per_forward ?? '未観測'} / {data.security_analysis.per_trailing ?? '未観測'}</Field>
+          <Field label="PBR">{data.security_analysis.pbr ?? '未観測'}</Field>
+          <Field label="機械E[r]（%/年）"><FractionMetric value={data.security_analysis.er_annual} /></Field>
+          <Field label="配当利回り"><FractionMetric value={data.security_analysis.dividend_yield} /></Field>
+          <Field label="FCF利回り"><FractionMetric value={data.security_analysis.fcf_yield} /></Field>
+          <Field label="Net cash / 時価総額"><FractionMetric value={data.security_analysis.net_cash_to_market_cap} /></Field>
+        </dl>
+        {data.security_analysis.carry_missing_assumption && <p className="mt-4 text-xs text-muted-foreground">E[r]の欠測成分は計算上0寄与です。無配・株数不変の確認ではありません。</p>}
+        <details className="mt-4"><summary className="cursor-pointer text-sm">全指標・計算前提・入力の注意</summary><div className="mt-4"><ScreeningMetrics row={data.security_analysis} /></div></details>
+      </SectionCard></div>}
+      <div className="scroll-mt-24" id="market-context"><SecurityMarketContextSection context={data.market_context} /></div>
+      <div className="scroll-mt-24" id="external-assessment"><ExternalAssessmentSection assessment={data.external_assessment} /></div>
       <Link className="text-sm underline" to="/stocks">調査・提案を見る →</Link>
     </PageShell>
   )
