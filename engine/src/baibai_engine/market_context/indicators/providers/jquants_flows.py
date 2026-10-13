@@ -13,8 +13,10 @@ from .base import (
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
+    ProviderFetchStoppedError,
     parse_float,
 )
+from .read_retry import ReadDeadline, jquants_read_client, read_deadline
 
 # screening と同じ資格情報を使う。env 名は screening 側 (ScreeningConfig.from_env が読む
 # "JQUANTS_API_KEY") と一致させ、indicators 用に別 secret を増やさない。
@@ -73,8 +75,13 @@ class JQuantsFlowsProvider:
         context: FetchContext | None = None,
     ) -> list[ObservationRecord]:
         api_key = _read_api_key()
-        rows = _fetch_trades_spec(api_key, start=start, end=end)
-        return parse_trades_spec(series, rows, start=start, end=end)
+        try:
+            rows = _fetch_trades_spec(
+                api_key, start=start, end=end, deadline=read_deadline(self.name, context)
+            )
+            return parse_trades_spec(series, rows, start=start, end=end)
+        except IndicatorsProviderError as exc:
+            raise ProviderFetchStoppedError(_redact(str(exc), api_key)) from None
 
 
 def parse_trades_spec(
@@ -140,18 +147,16 @@ def _read_api_key() -> str:
     load_project_env()
     token = os.environ.get(_API_KEY_ENV)
     if not token:
-        raise IndicatorsProviderError(
+        raise ProviderFetchStoppedError(
             f"missing {_API_KEY_ENV}; set it in the environment or .env to fetch jquants_flows"
         )
     return token
 
 
-def _fetch_trades_spec(api_key: str, *, start: date, end: date) -> list[Mapping[str, object]]:
-    try:
-        import jquantsapi
-    except ModuleNotFoundError as exc:
-        raise IndicatorsProviderError("jquantsapi is not installed") from exc
-    client = jquantsapi.ClientV2(api_key=api_key)
+def _fetch_trades_spec(
+    api_key: str, *, start: date, end: date, deadline: ReadDeadline
+) -> list[Mapping[str, object]]:
+    client = jquants_read_client(api_key, deadline=deadline)
     try:
         frame = client.get_eq_investor_types(
             section=_MARKET_SECTION,

@@ -1,18 +1,8 @@
 from __future__ import annotations
 
 import os
-import time
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Any, Self, cast
-
-from requests import PreparedRequest, Response
-from requests.adapters import HTTPAdapter
-from urllib3.connectionpool import HTTPSConnectionPool
-from urllib3.exceptions import HTTPError, InvalidHeader
-from urllib3.response import BaseHTTPResponse
-from urllib3.util import Retry
 
 from baibai_engine.foundation.env import load_project_env
 
@@ -33,6 +23,7 @@ from .option_iv import (
     quotes_from_records,
     settlement_rows,
 )
+from .read_retry import ReadDeadline, jquants_read_client, read_deadline
 
 # jquants_flows / jquants_indices と同じ資格情報。indicators 用に secret を増やさない。
 _API_KEY_ENV = "JQUANTS_API_KEY"
@@ -44,128 +35,6 @@ _READING_FIELDS: Mapping[str, str] = {
     "n225_iv_skew": "iv_skew",
     "n225_iv_term": "iv_term",
 }
-
-# J-Quants は連続した日次呼び出しに 429 を返す。この endpoint は 1 営業日 1 呼び出し
-# なので長い range 取得ほど拒否域に入りやすく、market 側と同じ形の待避を持たせる。
-# rate window は数分に及ぶことがあるため末尾は 10 分まで伸ばす。
-_RATE_LIMIT_BACKOFF_SECONDS = (30, 60, 120, 300, 600)
-_RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
-# 3系列・全営業日で共有するprocess内の取得予算。SDK内部の待機と通信時間も数え、
-# deadlineに収まらない待機は短縮せず停止する。job残時間の伝達とは別の既存20分上限。
-_FETCH_BUDGET_SECONDS = 20 * 60
-
-
-@dataclass(slots=True)
-class _FetchDeadline:
-    seconds: float = _FETCH_BUDGET_SECONDS
-    expires_at: float | None = None
-
-    def check(self, waiting: float = 0.0) -> None:
-        now = time.monotonic()
-        if self.expires_at is None:
-            self.expires_at = now + self.seconds
-        if now + waiting >= self.expires_at:
-            raise ProviderFetchStoppedError("jquants_options fetch deadline exhausted")
-
-    def wait(self, seconds: float) -> None:
-        self.check(seconds)
-        if seconds > 0:
-            time.sleep(seconds)
-
-
-class _OptionsReadRetry(Retry):
-    """Retry one GET, retaining the same deadline through urllib3's clones."""
-
-    def __init__(self, *, deadline: _FetchDeadline, **kwargs: Any) -> None:
-        self.deadline = deadline
-        super().__init__(**kwargs)
-
-    def new(self, **kw: Any) -> Self:
-        return super().new(deadline=self.deadline, **kw)
-
-    def get_backoff_time(self) -> float:
-        if not self.history:
-            return 0.0
-        return float(_RATE_LIMIT_BACKOFF_SECONDS[min(len(self.history), 5) - 1])
-
-    def sleep(self, response: BaseHTTPResponse | None = None) -> None:
-        waiting = self.get_backoff_time()
-        if response is not None and self.respect_retry_after_header:
-            try:
-                retry_after = self.get_retry_after(response)
-            except InvalidHeader:
-                retry_after = None
-            if retry_after is not None:
-                waiting = retry_after
-        self.deadline.wait(waiting)
-
-
-class _OptionsReadPool(HTTPSConnectionPool):
-    """Read the SDK's JSON body while urllib3 still owns this GET's retry state."""
-
-    def urlopen(self, *args: Any, **kwargs: Any) -> BaseHTTPResponse:
-        # urllib3 owns/reclaims the connection until _make_request reads the body.
-        kwargs["preload_content"] = True
-        kwargs["decode_content"] = True
-        return super().urlopen(*args, **kwargs)
-
-    def _make_request(self, conn: Any, *args: Any, **kwargs: Any) -> BaseHTTPResponse:
-        # Inspect the status before reading: a body timeout must not retry auth,
-        # and a 429 must keep its Retry-After even if its error body is incomplete.
-        kwargs["preload_content"] = False
-        response = super()._make_request(conn, *args, **kwargs)
-        try:
-            response.read(decode_content=True, cache_content=True)
-        except HTTPError as exc:
-            if response.status in _RETRYABLE_STATUSES:
-                conn.close()
-            elif response.status >= 400:
-                raise ProviderFetchStoppedError(
-                    f"jquants_options HTTP {response.status} body failed: {type(exc).__name__}"
-                ) from None
-            else:
-                raise
-        return response
-
-
-class _OptionsReadAdapter(HTTPAdapter):
-    def __init__(self, original: HTTPAdapter, deadline: _FetchDeadline) -> None:
-        self.deadline = deadline
-        super().__init__(
-            pool_connections=original._pool_connections,
-            pool_maxsize=original._pool_maxsize,
-            pool_block=original._pool_block,
-            max_retries=_OptionsReadRetry(
-                deadline=deadline,
-                total=5,
-                allowed_methods=frozenset({"GET"}),
-                status_forcelist=_RETRYABLE_STATUSES,
-            ),
-        )
-        # Copy the mapping so no SDK/global pool is changed, including proxy pools.
-        self.poolmanager.pool_classes_by_scheme = {
-            **self.poolmanager.pool_classes_by_scheme,
-            "https": _OptionsReadPool,
-        }
-
-    def proxy_manager_for(self, proxy: str, **proxy_kwargs: Any) -> Any:
-        manager = super().proxy_manager_for(proxy, **proxy_kwargs)
-        manager.pool_classes_by_scheme = {
-            **manager.pool_classes_by_scheme,
-            "https": _OptionsReadPool,
-        }
-        return manager
-
-    def build_response(self, req: PreparedRequest, resp: Any) -> Response:
-        response = super().build_response(req, resp)
-        # requests would otherwise read an already-consumed stream outside retry.
-        response._content = resp.data
-        response._content_consumed = True
-        return response
-
-    def send(self, request: PreparedRequest, *args: Any, **kwargs: Any) -> Response:
-        self.deadline.check()
-        return super().send(request, *args, **kwargs)
 
 
 class JQuantsOptionsProvider:
@@ -189,9 +58,9 @@ class JQuantsOptionsProvider:
         # ので memo でよい。休場日 (年 16 日ほど) の None も憶える——憶えないと 3 系列
         # がそれぞれ空のチェーンを取りに行く。
         self._readings: dict[date, FearReadings | None] = {}
-        self._deadline = _FetchDeadline()
+        self._failure_context: FetchContext | None = None
         # A failed chain is also one shared result: another reading must not reset
-        # that day's HTTP retry budget. This memo lasts only in this provider process.
+        # that day's HTTP retry budget. Failures last only for this fetch pass.
         self._failures: dict[date, str] = {}
 
     def fetch(
@@ -203,13 +72,17 @@ class JQuantsOptionsProvider:
         session: HttpSession,
         context: FetchContext | None = None,
     ) -> list[ObservationRecord]:
-        del session, context
+        del session
+        if context is None or context is not self._failure_context:
+            self._failures.clear()
+            self._failure_context = context
+        deadline = read_deadline(self.name, context)
         field = _reading_field(series.provider_series_id)
         api_key = _read_api_key()
-        client = _client(api_key, deadline=self._deadline)
+        client = jquants_read_client(api_key, deadline=deadline)
         observations: list[ObservationRecord] = []
         for day in _days(start, end):
-            reading = self._day_reading(client, day, api_key=api_key)
+            reading = self._day_reading(client, day, api_key=api_key, deadline=deadline)
             if reading is None:
                 # A closed market returns nothing; that is the day's fact, not a
                 # failure, and skipping keeps the series free of invented points.
@@ -220,13 +93,15 @@ class JQuantsOptionsProvider:
             observations.append(record_observation(series, observed_at=day, value=value))
         return observations
 
-    def _day_reading(self, client: object, day: date, *, api_key: str) -> FearReadings | None:
+    def _day_reading(
+        self, client: object, day: date, *, api_key: str, deadline: ReadDeadline
+    ) -> FearReadings | None:
         if day in self._readings:
             return self._readings[day]
         if day in self._failures:
             raise ProviderFetchStoppedError(self._failures[day]) from None
         try:
-            self._deadline.check()
+            deadline.check()
             rows = _fetch_chain(client, day, api_key=api_key)
             reading = _reading(rows, day) if rows else None
         except IndicatorsProviderError as exc:
@@ -271,21 +146,6 @@ def _read_api_key() -> str:
             f"missing {_API_KEY_ENV}; set it in the environment or .env to fetch jquants_options"
         )
     return token
-
-
-def _client(api_key: str, *, deadline: _FetchDeadline) -> object:
-    try:
-        import jquantsapi
-    except ModuleNotFoundError as exc:
-        raise ProviderFetchStoppedError("jquantsapi is not installed") from exc
-    client = jquantsapi.ClientV2(api_key=api_key)
-    # ClientV2 2.7 exposes no public transport setting. Keep its ordinary session's
-    # TLS/proxy and pool sizing; replace only this client's HTTPS read adapter.
-    session = client._request_session()
-    original = cast("HTTPAdapter", session.adapters["https://"])
-    session.mount("https://", _OptionsReadAdapter(original, deadline))
-    original.close()
-    return client
 
 
 def _fetch_chain(client: object, day: date, *, api_key: str) -> list[Mapping[str, object]]:

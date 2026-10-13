@@ -12,10 +12,12 @@ from .base import (
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
+    ProviderFetchStoppedError,
     ProviderSpec,
     parse_float,
     record_observation,
 )
+from .read_retry import ReadDeadline, jquants_read_client, read_deadline
 
 # jquants_flows と同じ資格情報。indicators 用に別 secret を増やさない。
 # Env var name (a credential key, not a secret value); B105 false positive.
@@ -60,8 +62,17 @@ class JQuantsIndicesProvider:
         context: FetchContext | None = None,
     ) -> list[ObservationRecord]:
         api_key = _read_api_key()
-        rows = _fetch_index_bars(api_key, series.provider_series_id, start=start, end=end)
-        return parse_index_bars(series, rows, start=start, end=end)
+        try:
+            rows = _fetch_index_bars(
+                api_key,
+                series.provider_series_id,
+                start=start,
+                end=end,
+                deadline=read_deadline(self.name, context),
+            )
+            return parse_index_bars(series, rows, start=start, end=end)
+        except IndicatorsProviderError as exc:
+            raise ProviderFetchStoppedError(_redact(str(exc), api_key)) from None
 
 
 def parse_index_bars(
@@ -93,14 +104,14 @@ def _read_api_key() -> str:
     load_project_env()
     token = os.environ.get(_API_KEY_ENV)
     if not token:
-        raise IndicatorsProviderError(
+        raise ProviderFetchStoppedError(
             f"missing {_API_KEY_ENV}; set it in the environment or .env to fetch jquants_indices"
         )
     return token
 
 
 def _fetch_index_bars(
-    api_key: str, provider_series_id: str, *, start: date, end: date
+    api_key: str, provider_series_id: str, *, start: date, end: date, deadline: ReadDeadline
 ) -> list[Mapping[str, object]]:
     method_name = _INDEX_METHODS.get(provider_series_id)
     if method_name is None:
@@ -108,11 +119,7 @@ def _fetch_index_bars(
         raise IndicatorsProviderError(
             f"unsupported jquants_indices series {provider_series_id!r}; supported: {supported}"
         )
-    try:
-        import jquantsapi
-    except ModuleNotFoundError as exc:
-        raise IndicatorsProviderError("jquantsapi is not installed") from exc
-    client = jquantsapi.ClientV2(api_key=api_key)
+    client = jquants_read_client(api_key, deadline=deadline)
     method = getattr(client, method_name, None)
     if not callable(method):
         raise IndicatorsProviderError(f"jquantsapi.ClientV2 has no callable {method_name}")

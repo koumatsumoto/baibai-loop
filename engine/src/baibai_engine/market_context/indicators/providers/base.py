@@ -15,6 +15,7 @@ from ..provider_specs import RangeReplacementPolicy as RangeReplacementPolicy
 
 if TYPE_CHECKING:
     from .browser import BrowserFetcher
+    from .read_retry import ReadDeadline
 
 HTTP_TIMEOUT_SECONDS = 30
 MAX_CSV_RESPONSE_BYTES = 8_000_000
@@ -90,6 +91,7 @@ class FetchContext:
     ) -> None:
         self.session = requests.Session()
         self.bytes_cache: dict[BytesCacheKey, bytes] = {}
+        self.read_deadlines: dict[str, ReadDeadline] = {}
         # Navigation URL -> why the browser was turned away there. The reason is
         # kept, not just the fact: a later series that skips the navigation is
         # the only one reporting, so the evidence has to travel with the record.
