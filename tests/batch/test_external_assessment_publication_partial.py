@@ -254,7 +254,7 @@ def test_partial_independent_readback_failure_cannot_seal_the_batch(partial_batc
             path.write_bytes(b"synthetic-corrupt-readback")
 
     monkeypatch.setattr(store, "download_file", corrupt_readback)
-    with pytest.raises(LakePublishError, match="digest mismatch"):
+    with pytest.raises(LakePublishError, match="bytes postcondition failed"):
         publish_partial(partial_batch)
     assert checkpoint_payloads(store) == original
     assert read_terminal(store, plan) is None
