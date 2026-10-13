@@ -11,6 +11,7 @@ import type {
   HoldingView,
   OperationsView,
   PortfolioOutcomeView,
+  ReservationView,
   WarningView,
 } from '../api/types'
 import { AsOfBadge } from '../components/AsOfBadge'
@@ -38,7 +39,7 @@ const HINT = {
   allocation: '次の買いに動かせる資金がどれだけ残っているかと、これまでの判断が実際に効いているかを 1 か所で確かめる。配分は判断材料であり、比率を目安へ近づけること自体は目的ではない。',
   delta: '前回の機械実行と比べた候補プールへの出入り、機械 E[r] の変化、FV に達した保有を並べる。市場環境の判断と指標は専用画面で読む。売買の指示ではなく、次にどこを見るかを決める材料。答えられなかった区分は明示するので、空欄と「計測できなかった」を混同しない。',
   holdings: '保有中の各銘柄の取得原価・現値・FV との乖離。売買判断そのものではなく、どの銘柄を次に見直すかを決めるための現状。',
-  reservations: '発注済みで未約定の指値が押さえている現金。購入余力から差し引かれているので、次の提案の上限に効く。',
+  reservations: '報告済みの未約定注文。買付だけ資金を予約し、売付の見込代金は現金に加えません。約定・取消・失効は次の明示報告で更新します。',
   outcomes: '税・費用込みの総合 return を、同じ期間の配当込み TOPIX と同じ basis で比べた結果。短期の数字で方針を変えるためではなく、見積りが実現と合っているかを年単位で確かめるために置いている。',
 } as const
 
@@ -489,6 +490,32 @@ function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) {
   )
 }
 
+export function PendingOrdersCard({ reservations }: { reservations: ReservationView[] }) {
+  return <SectionCard hint={HINT.reservations} meta={<Badge variant="secondary">{reservations.length} 件</Badge>} title="未約定注文">
+    <Table>
+      <TableHeader className="bg-muted/60"><TableRow className="hover:bg-transparent">
+        <TableHead className="pl-5 sm:pl-6">銘柄</TableHead>
+        <TableHead className="text-right">数量 / 指値</TableHead>
+        <TableHead className="text-right">予約額</TableHead>
+        <TableHead className="pr-5 text-right sm:pr-6">期限</TableHead>
+      </TableRow></TableHeader>
+      <TableBody>{reservations.map((reservation) => <TableRow key={reservation.reservation_id}>
+        <TableCell className="pl-5 sm:pl-6">
+          <span className="mr-2">{reservation.side === 'sell' ? '売' : '買'}</span>
+          <Link className="font-mono font-semibold text-foreground underline-offset-4 hover:underline" to={`/securities/${reservation.ticker}`}>{reservation.ticker}</Link>
+          {reservation.route_label && <span className="ml-2 text-xs text-muted-foreground">{reservation.route_label}</span>}
+        </TableCell>
+        <TableCell className="text-right font-mono tabular-nums">
+          {reservation.remaining_quantity.toLocaleString('ja-JP')} 株
+          <span className="ml-2 text-xs text-muted-foreground">× {formatYen(Number(reservation.price_guard_yen))}</span>
+        </TableCell>
+        <TableCell className="text-right">{reservation.side === 'sell' ? '—' : <YenAmount className="font-medium" value={reservation.reserved_yen} />}</TableCell>
+        <TableCell className="pr-5 text-right sm:pr-6">{reservation.expiry_label ?? <AsOfBadge compact value={reservation.expires_at} />}</TableCell>
+      </TableRow>)}</TableBody>
+    </Table>
+  </SectionCard>
+}
+
 export function DashboardPage() {
   const [data, setData] = useState<DashboardView | null>(null)
   const [operations, setOperations] = useState<OperationsView | null>(null)
@@ -537,35 +564,7 @@ export function DashboardPage() {
         </Card>
       )}
 
-      {data.reservations.length > 0 && (
-        <SectionCard hint={HINT.reservations} meta={<Badge variant="secondary">{data.reservations.length} 件</Badge>} title="資金予約">
-          <Table>
-            <TableHeader className="bg-muted/60">
-              <TableRow className="hover:bg-transparent">
-                <TableHead className="pl-5 sm:pl-6">銘柄</TableHead>
-                <TableHead className="text-right">数量 / 指値</TableHead>
-                <TableHead className="text-right">予約額</TableHead>
-                <TableHead className="pr-5 text-right sm:pr-6">期限</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data.reservations.map((reservation) => (
-                <TableRow key={reservation.reservation_id}>
-                  <TableCell className="pl-5 sm:pl-6">
-                    <Link className="font-mono font-semibold text-foreground underline-offset-4 hover:underline" to={`/securities/${reservation.ticker}`}>{reservation.ticker}</Link>
-                  </TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">
-                    {reservation.remaining_quantity.toLocaleString('ja-JP')} 株
-                    <span className="ml-2 text-xs text-muted-foreground">× {formatYen(Number(reservation.price_guard_yen))}</span>
-                  </TableCell>
-                  <TableCell className="text-right"><YenAmount className="font-medium" value={reservation.reserved_yen} /></TableCell>
-                  <TableCell className="pr-5 text-right sm:pr-6"><AsOfBadge compact value={reservation.expires_at} /></TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </SectionCard>
-      )}
+      {data.reservations.length > 0 && <PendingOrdersCard reservations={data.reservations} />}
 
       <Link className="text-sm font-medium underline underline-offset-4" to="/stocks">調査・提案を見る →</Link>
       {operations && <OutcomeCard outcomes={operations.outcomes} />}

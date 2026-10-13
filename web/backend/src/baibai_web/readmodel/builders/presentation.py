@@ -112,7 +112,7 @@ def upcoming_events(
                 )
             )
     for reservation in reservations:
-        event_date = reservation.expires_at.date()
+        event_date = (reservation.expires_at - timedelta(microseconds=1)).date()
         if today <= event_date <= window_end:
             events.append(
                 UpcomingEventView(

@@ -176,6 +176,7 @@ def build_parser() -> argparse.ArgumentParser:
     broker_fact_parser.add_argument(
         "--status", choices=("open", "filled", "cancelled", "expired"), required=True
     )
+    broker_fact_parser.add_argument("--side", choices=("buy", "sell"), default="buy")
     broker_fact_parser.add_argument("--occurred-at", type=_datetime_argument, required=True)
     broker_fact_parser.add_argument("--ticker")
     broker_fact_parser.add_argument("--quantity", type=int)
@@ -190,6 +191,8 @@ def build_parser() -> argparse.ArgumentParser:
     broker_fact_parser.add_argument("--common-factor", action="append", default=[])
     broker_fact_parser.add_argument("--price-guard-yen", type=_decimal_argument)
     broker_fact_parser.add_argument("--expires-at", type=_datetime_argument)
+    broker_fact_parser.add_argument("--expiry-label")
+    broker_fact_parser.add_argument("--route-label")
     broker_fact_parser.add_argument("--ordered-at", type=_datetime_argument)
     broker_fact_parser.add_argument("--out", type=Path, required=True)
     sell_parser = subparsers.add_parser(
@@ -201,6 +204,7 @@ def build_parser() -> argparse.ArgumentParser:
     sell_parser.add_argument("--ticker", required=True)
     sell_parser.add_argument("--quantity", type=int, required=True)
     sell_parser.add_argument("--price-yen", type=_decimal_argument, required=True)
+    sell_parser.add_argument("--reservation-id")
     sell_occurrence = sell_parser.add_mutually_exclusive_group(required=True)
     sell_occurrence.add_argument("--occurred-at", type=_datetime_argument)
     sell_occurrence.add_argument("--occurred-on", type=_date_argument)
@@ -660,6 +664,7 @@ def _run_record_broker_fact(args: argparse.Namespace, *, now: datetime | None) -
             partial(historical_allocated_ticker, db_path=args.db),
             decision_reference=args.decision_reference,
             status=args.status,
+            side=args.side,
             occurred_at=args.occurred_at,
             ticker=args.ticker,
             quantity=args.quantity,
@@ -670,6 +675,8 @@ def _run_record_broker_fact(args: argparse.Namespace, *, now: datetime | None) -
             common_factors=tuple(sorted(set(args.common_factor))),
             price_guard_yen=args.price_guard_yen,
             expires_at=args.expires_at,
+            expiry_label=args.expiry_label,
+            route_label=args.route_label,
             ordered_at=args.ordered_at,
             now=now,
         )
@@ -706,6 +713,7 @@ def _run_sell_execution_draft(args: argparse.Namespace) -> int:
             ticker=args.ticker,
             quantity=args.quantity,
             price_yen=args.price_yen,
+            reservation_id=args.reservation_id,
             fees_yen=args.fees_yen,
             tax_yen=args.tax_yen,
             decision_reference=args.decision_reference,
