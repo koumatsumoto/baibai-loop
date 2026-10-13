@@ -92,11 +92,15 @@ def cutover(source: Path, output: Path) -> dict[str, object]:
     }
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     print(json.dumps(cutover(args.source, args.output), ensure_ascii=False, sort_keys=True))
     return 0
 

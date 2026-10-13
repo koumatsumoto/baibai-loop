@@ -50,7 +50,7 @@ Valuationの機械ER/FV anchorは倍率・自己価格レンジとcarryの推計
 | Review Set | artifact | configured Valuation Approachesが生成したNominationのexact union |
 | Review Set Entry | artifact entry | Review Set内の一銘柄と判断時機械座標 |
 | Research Triage | artifact / judgment | ResearchがReview Set全件を`research / skip`に分類するcanonical L3 judgment |
-| Research Set | pipeline state | 明示開始時に固定する新規調査集合。Triage admission内で保有調査と合算最大三対象、0件も扱う |
+| Research Set | pipeline state | 明示開始時に固定する新規調査集合。Triage経由または[ユーザー指定source](./reference/analysis-operations.md#explicit-research-source)から選び、保有調査と合算最大三対象、0件も扱う |
 | Thesis | artifact / judgment | 一銘柄の投資仮説、valuation、risk、evidence |
 | Thesis Review | artifact / judgment | Thesisへの独立second pass |
 | Capital Allocation Assessment | artifact / judgment | reviewed Thesis群をportfolio全体に照らした配分判断 |
@@ -90,6 +90,7 @@ Research Setはpipeline stateである。storeごとのauthorityは
              -> Screening Run -> Security Analysis[]
              -> Valuation Approach[] -> Nomination[] -> Review Set
 Review Set -> Research Triage -> 新規admission
+保存済みSecurity Analysis + ユーザー明示指定 -> 新規admission
 新規admission / Holding -> 明示開始・新規/保有合算最大三対象の固定選択
            -> 三領域の保存済み入力による有限Research -> Thesis + Thesis Review
 reviewed Thesis群 -> Capital Allocation Assessment -> Planning Limit

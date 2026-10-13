@@ -13,7 +13,7 @@ from baibai_engine.market_context.assessment.query import latest_assessment
 from baibai_engine.market_context.reading.query import reading_snapshot
 from baibai_engine.market_context.security import build_security_market_context
 from baibai_engine.market_context.snapshot import build_market_snapshot
-from baibai_engine.research.explicit_selection import ExplicitResearchRun
+from baibai_engine.research.operation.progress import ExplicitResearchRun
 from baibai_engine.screening.run_store import ScreeningRunReader
 from baibai_engine.valuation.query import (
     cash_flow_from_analysis,

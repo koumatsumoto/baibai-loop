@@ -289,11 +289,14 @@ def test_bad_explicit_source_stops_before_application_or_workspace_write(tmp_pat
     assert runs.read_bytes() == before
 
 
-def test_api_start_rejects_forged_analysis_snapshot_and_preserves_old_selection_hash(tmp_path):
+@pytest.mark.parametrize("change", ["value", "representation"])
+def test_api_start_rejects_forged_analysis_snapshot_and_preserves_old_selection_hash(
+    tmp_path, change
+):
     runs, db = tmp_path / "runs.sqlite", tmp_path / "absent-app.sqlite"
     seed_run(runs)
     source = load_explicit_research_run(runs, run_revision_id=RUN, tickers=("1234",), known_at=NOW)
-    source.analyses["1234"]["avg_turnover_oku"] = 99999
+    source.analyses["1234"]["avg_turnover_oku"] = 99999 if change == "value" else 10
     selection = ResearchSelection(
         request=REQUEST,
         explicit_run=source,

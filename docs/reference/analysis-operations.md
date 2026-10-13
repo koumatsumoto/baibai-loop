@@ -29,13 +29,13 @@ manual scaffoldはReview Set IDからrun storeのcanonical publicationを解決�
 
 ADVは固定floorのgateや自動skip条件ではない。Triageは低値・欠損だけで`skip`やpriorityを決めず、価値仮説を比較した後の実行可能性contextとしてrationaleへ反映できる。最終的な注文可否と数量はCapital Allocation後のhuman executionが所有する。
 
-Research Triageは新規のadmission可能範囲を定め、対象選択そのものや購入を認定しない。明示開始後の有限選択・部分完了・保有との合算は[Research進行](./analysis-operations.md#明示開始と固定対象)、操作は[Research skill](../../.agents/skills/research/SKILL.md)が所有する。
+Research TriageはTriage経由のadmission可能範囲を定め、対象選択そのものや購入を認定しない。候補順位は調査効率のためであり、枠外を経済的否定へ読み替えない。ユーザー指定の独立入口は[明示source](#explicit-research-source)、有限選択・部分完了・保有との合算は次節、操作は[Research skill](../../.agents/skills/research/SKILL.md)が所有する。
 
 E[r] calibration contextは共有read contractがartifact schema、generated/expiry、3y/5y、quantile/band、rules hash、E[r] model versionを検証する。ResearchはTriage rootのrules hashとReview Set Entryの`analysis.expected_return`のmodel/version・ratio-valued `er_annual`を使い、利用不能理由を明示する。これはhistorical contextで、membership/order、Triage、FV、buy judgmentへ伝播しない。
 
 ## 明示開始と固定対象
 
-ユーザーの開始要求を記録し、AIが新規・保有を合わせて最大3銘柄、0件も含む固定集合を選ぶ。Operationの`research_selection` artifactがticker・purpose・開始要求・新規Triage参照を所有する。再開・workspaceの`--force`で対象を追加・補充せず、同じ集合・Triage・分析対象日なら元のOperationを継続する。workspaceのas-ofはOperation.as_ofへ一致させ、再開で時点をずらさない。正式なThesis評価日や引用資料の日付はこの分析対象日と区別する。新規はTriage admission、保有は現在ledgerを検証し、保有をCAAの新規集合へ混ぜない。0件はOperationに提案なしの終了を残し、架空のCAAを作らない。
+ユーザーの開始要求を記録し、新規・保有を合わせて最大3銘柄、0件も含む固定集合を選ぶ。Operationの`research_selection` artifactがticker・purpose・開始要求・開始sourceを所有する。新規はexact Triageのresearch admissionから選ぶか、下記の明示sourceを使う。保有は現在ledgerを検証し、CAAの新規集合へ混ぜない。再開・workspaceの`--force`で対象を追加・補充せず、同じ集合・source・分析対象日なら元のOperationを継続する。workspaceのas-ofはOperation.as_ofへ一致させ、再開で時点をずらさない。正式なThesis評価日や引用資料の日付はこの分析対象日と区別する。0件はOperationに提案なしの終了を残し、架空のCAAを作らない。
 
 `research prepare`は新規workspaceと、選んだ保有の`holdings/<ticker>` workspaceを同じOperationへ束縛する。`position-prepare`単独も明示開始要求から保有Operationを作る。必要な保存入力はOperation作成・workspace書込より先に読み、exact runの欠落等で読取が失敗したら新規開始状態を残さず、再開元のOperation・入力も変更しない。manifestのOperation IDとselection hashは対象の付け替えを検出し、completed Operationへ新しい調査を足さない。旧manifestのOperation ID欠如は履歴statusで読めるが、scaffold/review/promoteのmutation入口としては認めない。
 
@@ -44,6 +44,16 @@ E[r] calibration contextは共有read contractがartifact schema、generated/exp
 機械anchor、[出所別のCF文脈](./valuation-metrics.md#researchへ渡すcf文脈)、個別/市場/業種、Reading、外部提示値を意味ごとに保持し、欠測を新規取得やAI起動で埋めない。CF文脈は元Security Analysisから引用し、保存済みReview Set/Triageのpayloadやhashへ追加しない。既存Market Context Assessmentは任意の参照であり、毎回独立した全depth reportや主観確率を作る前提にしない。重要な環境上の含意だけを企業評価・提案のsource、仮定、反対仮説へ接続する。
 
 通常の`research prepare`・`position-prepare`は、保存候補の`as_of`を保ちながら、Operationに保存された調査開始時刻`started_at`を`known_at`と`received_cutoff`に使う。同じOperationの再開・workspaceの`--force`でもこの入力確定時刻を保持し、新しい明示開始のOperationで更新する。External Assessmentの`evaluated_at`も同じ時刻であり、開始後の受領値は含めない。金曜候補を日曜に調査する場合、日曜の開始までに受領した外部評価を利用できる。`as_of`末へ受領cutoffを切り戻さず、過去時点のバックテストとは扱わない。`research_inputs`へ直接渡す明示cutoffは保持し、保存済み判断を再計算しない。Readingの対象日と保存履歴の扱いは[Readingの読取契約](./market-context.md#reading)に従う。
+
+<a id="explicit-research-source"></a>
+
+### ユーザー指定の開始source
+
+`research prepare --run-revision-id`は、ユーザーが銘柄を明示して調査を開始する入口であり、Triage経由とは排他である。指定runに保存されたSecurity Analysisから開始時点で利用可能だった選択銘柄の分析とrun metadataを引用する。runが未知、銘柄分析がない、runが開始cutoffより未来の場合は開始状態を残さず失敗する。機械推計の欠測は不足として保持し、Review Set membershipや推薦順位を開始条件にしない。
+
+Operationの既存selectionに`explicit_run`を保存し、要求・ticker/purpose・run・分析基準日を固定する。選択銘柄だけのsnapshot/hashを保持するため、source runの通常整理後も根拠が残り、同じactive Operationを再開できる。再開の`--force`でもsource、対象、要求、入力cutoffを付け替えない。旧selectionにfieldを後付けせず、その保存形とhashを維持する。
+
+AIへ渡す`domain-inputs.yaml`は同じsnapshotからValuation/CFを合成し、`explicit_research_request`に開始要求とrun bindingを引用する。Triageの判断やpriority、架空のNominationは作らない。新規・保有のpurposeと独立Reviewは既存経路のまま検証し、既存Thesis更新は当時の正規selectionも利用できる。CAA/Planningの接続は[Research source](./capital-allocation-assessment.md#research-source)、操作は[Research skill](../../.agents/skills/research/SKILL.md)を参照する。背景は[旧設定点検 #1481](https://github.com/koumatsumoto/baibai-loop/issues/1481)。
 
 ## 成果の被覆とL3完了
 

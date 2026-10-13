@@ -7,7 +7,7 @@ description: ユーザーの明示開始で有限対象を調査し、独立Revi
 
 ## 開始条件
 
-ユーザーが明示的に調査・評価・提案を開始したときだけ実行する。保存済み三領域、保有、既存調査を読み、新規・保有を合わせて最大3銘柄、0件も正常として選び、選定理由を示す。新規はexact Triageのresearch admission内、保有は現在ledgerの対象から選ぶ。上限を埋めるための弱い対象追加、脱落ごとの補充、日次自動起動は行わない。
+ユーザーが明示的に調査・評価・提案を開始したときだけ実行する。保存済み三領域、保有、既存調査を読み、新規・保有を合わせて最大3銘柄、0件も正常として選び、選定理由を示す。新規はexact Triageのresearch admission内、またはユーザー指定の[明示source](../../../docs/reference/analysis-operations.md#explicit-research-source)から始める。保有は現在ledgerの対象から選ぶ。上限を埋めるための弱い対象追加、脱落ごとの補充、日次自動起動は行わない。
 
 有限集合と開始要求はOperationが所有する。厳密な被覆・完了・再開・既存activeの扱いは[Research進行](../../../docs/reference/analysis-operations.md#明示開始と固定対象)が正本である。選定理由や開始記録を人間の最終採否と表現しない。
 
@@ -25,6 +25,20 @@ uv run baibai-engine research prepare \
 ```
 
 対象purposeごとに必要なflagだけを使う。新規は`--ticker`、保有は`--holding-ticker`を同じ呼出しで指定し、合算上限を守る。新規のない開始はTriage IDを省略して`--asof`を指定できる。0件も開始要求と提案なしの終了を残す。
+
+ユーザーが候補所属に関係なく銘柄を指定した場合は、Triage IDの代わりに保存runを指定する。両sourceを同時に指定しない。
+
+```bash
+uv run baibai-engine research prepare \
+  --request '<USER_START_REQUEST>' \
+  --run-revision-id <RUN_REVISION_ID> \
+  --db stores/application/baibai.sqlite \
+  --workspace .cache/research/<ASOF> \
+  --ticker <NEW_TICKER> \
+  --sqlite-path stores/market/market.sqlite
+```
+
+AIは同じ`domain-inputs.yaml`の選択済み三領域と`explicit_research_request`を読む。runの選び直し、Triageや保存候補の作成、原典不足の機械値による補完はしない。厳密なsourceと再開の契約は上のreferenceを参照する。
 
 新規workspaceと`holdings/<ticker>`は同じOperationを参照する。AIの読取入口は親の`domain-inputs.yaml`一本とし、選択済み新規の機械snapshot・保存Triageの調査理由/質問/リスクと、選択済み新規/保有の三領域入力を読む。観測・機械anchor・保存判断・今回置く仮定を分ける。`research-workspace.yaml`の全候補snapshotは内部のcanonical照合用であり、AIへ再度全文を渡さない。保有子workspaceのmanifestにある`domain_inputs_ref`は子workspaceを基準に親入力を指す。同じ作業では共通入力を重ねて読まず、保有単独の開始は自身の`domain-inputs.yaml`を読む。保存された旧章立てreportの全文作成を前提にせず、materialな環境変化だけ企業評価と提案へ接続する。既存Thesisがあれば`--from-thesis-id`で引き継ぐ。再開で別Triage・対象集合へ差し替えず、執筆済みworkspaceを保持する。
 
@@ -78,6 +92,8 @@ uv run baibai-engine research capital-allocation-scaffold \
 ```
 
 `--thesis-id`はOperationに記録した完了新規の全件だけを指定する。CAA scopeには未完了の理由・参照も固定される。保有は[Position Review](../position-review/SKILL.md)の検証済みdraftを別成果として残す。比較の内容は[CAA reference](../../../docs/reference/capital-allocation-assessment.md)に従い、重要仮定・反証と採用/見送り理由をAssessmentだけに書く。
+
+明示sourceのCAA scaffoldでは`--research-triage-id`を省略する。同じOperationの完了新規を指定し、check・独立content review・publish・完了は同じ手順で行う。
 
 ```bash
 uv run baibai-engine research capital-allocation-publish \
