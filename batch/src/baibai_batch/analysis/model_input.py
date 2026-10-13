@@ -45,7 +45,9 @@ def build_model_input(
         task="research-triage",
         instruction=(
             "Use only this JSON. Do not call tools or read files. "
-            "Compare every candidate and return exactly one strict decision for each ticker."
+            "Compare every candidate and return exactly one strict decision for each ticker. "
+            "Missing carry inputs contribute zero in machine E[r]; missing or absent "
+            "component metadata is not evidence of zero dividends or unchanged shares."
         ),
         policy=TRIAGE_POLICY,
         as_of=review_set.as_of.isoformat(),

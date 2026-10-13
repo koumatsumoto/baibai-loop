@@ -15,6 +15,7 @@ materialized JSONとfrontend assetは生成しますが、application DBやdomai
 表示分類は`config/market-context-panel.yaml`、consumer契約を持つevidenceは`reports/published/`から読みます。serving R2 keyは`contracts/routes.json`が示す既存topologyを維持します。
 
 銘柄一覧・詳細・履歴の機械anchorは表示対象runの保存済みSecurity Analysisから読み、Review Set membershipを照会条件にしません。企業固有の調査評価との区別と欠測の意味は[Valuation metrics](../docs/reference/valuation-metrics.md#machine-valuation)を参照してください。
+機械E[r]の保存済みモデル・単位・anchor指標・前提も同じread modelへ渡し、銘柄詳細で年率と成分に併記します。
 
 銘柄詳細の[External Assessment](../docs/reference/data-sources.md#external-assessment)は保存済み外部提示値と出所別比較を表示します。外部観測だけを持つ銘柄もexportへ含め、独自FV・推薦順位とは別結果として扱います。
 

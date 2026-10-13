@@ -182,6 +182,12 @@ class SecurityAnalysisRowView(BaseModel):
     er_annual: float | None
     er_reversion_annual: float | None
     er_carry_annual: float | None
+    net_share_change_yoy: float | None = None
+    carry_missing_assumption: str | None = None
+    er_model_version: str | None = None
+    er_unit: str | None = None
+    er_anchor_metrics: str | None = None
+    er_assumptions: str | None = None
     net_cash_to_market_cap: float | None
     fcf_yield: float | None
     ocf_yield: float | None
@@ -204,8 +210,7 @@ class SecurityAnalysisRowView(BaseModel):
     data_quality_flags: list[str]
     portfolio_state: PortfolioState
     has_research: bool
-    # FV アンカーは machine review_set の entries だけが持つので、entries へ入らな
-    # かった候補では空になる。read-only app は FV を導出しない。
+    # 保存済みSecurity Analysisの機械anchor。Review Set入りを条件にせず再計算もしない。
     fair_value_anchor_yen: float | None = None
     fair_value_gap_pct: float | None = None
     # Historical calibration context only. It never alters E[r], rank, or review_set.
@@ -337,6 +342,10 @@ class ReviewSetExpectedReturnView(BaseModel):
     er_model_version: str | None
     er_unit: str | None
     er_assumptions: str | None
+    dividend_yield: float | None = None
+    dividend_basis: str | None = None
+    net_share_change_yoy: float | None = None
+    carry_missing_assumption: str | None = None
 
 
 class ReviewSetDataQualityView(BaseModel):

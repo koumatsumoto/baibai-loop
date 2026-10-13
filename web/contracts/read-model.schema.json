@@ -4993,6 +4993,54 @@
             }
           ],
           "title": "Er Assumptions"
+        },
+        "dividend_yield": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dividend Yield"
+        },
+        "dividend_basis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dividend Basis"
+        },
+        "net_share_change_yoy": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Net Share Change Yoy"
+        },
+        "carry_missing_assumption": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Carry Missing Assumption"
         }
       },
       "required": [
@@ -5004,7 +5052,11 @@
         "er_origin",
         "er_model_version",
         "er_unit",
-        "er_assumptions"
+        "er_assumptions",
+        "dividend_yield",
+        "dividend_basis",
+        "net_share_change_yoy",
+        "carry_missing_assumption"
       ],
       "title": "ReviewSetExpectedReturnView",
       "type": "object"
@@ -5609,6 +5661,78 @@
           ],
           "title": "Er Carry Annual"
         },
+        "net_share_change_yoy": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Net Share Change Yoy"
+        },
+        "carry_missing_assumption": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Carry Missing Assumption"
+        },
+        "er_model_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Er Model Version"
+        },
+        "er_unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Er Unit"
+        },
+        "er_anchor_metrics": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Er Anchor Metrics"
+        },
+        "er_assumptions": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Er Assumptions"
+        },
         "net_cash_to_market_cap": {
           "anyOf": [
             {
@@ -5863,6 +5987,12 @@
         "er_annual",
         "er_reversion_annual",
         "er_carry_annual",
+        "net_share_change_yoy",
+        "carry_missing_assumption",
+        "er_model_version",
+        "er_unit",
+        "er_anchor_metrics",
+        "er_assumptions",
         "net_cash_to_market_cap",
         "fcf_yield",
         "ocf_yield",
