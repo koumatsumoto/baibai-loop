@@ -82,6 +82,27 @@ terminalは分配後に残る価値、cashは当該期間の累積分配であ�
 uv run baibai-engine research calculate /tmp/research-calculation-inputs.json
 ```
 
+現金額面と転換価値の超過分を株式で交付するCBに限り、`research calculate --cash-share-cb <INPUTS>`で別の条件付き計算を行える。既存Thesisのschemaや`evaluate`には接続せず、JSONの計算資料だけを返す。額面・本数・通知ごとの対象本数、既存株数、社債債務を既に認識した株主価値、転換価額、各年度の契約上の「1株当たり特別配当」と調整参照終値を入力する。特別配当の年度累計・基準額への超過判定、決議・適用日と参照終値期間は作者が原契約と開示で確認する。算術は各調整の0.1円切捨て、1円未満の調整繰越し、通知単位の1株未満切捨てを適用する。
+
+決済VWAPは評価時点の株価や配当調整用の参照終値とは別の入力である。端数の単元未満株の現金精算価額は**決済VWAPと等しいという明示的な試算**であり、実際の買取価格を確定しない。独立した決済VWAPでの価格と、VWAPを終期株価と同一視する条件付き固定点を並べる。整数株の切捨てによって厳密な固定点が存在しなければ、整数株の固定点はnullとし、連続近似と丸めギャップを示す。額面現金は既計上の社債債務消滅に対応し、株主価値から再控除しない。未転換は追加株式0として表示する。出力の金額は精度を保つ十進数文字列である。利益・倍率、行使時期・確率、実際の決済条件、Thesisの採否と注文は別途判断する。
+
+```bash
+uv run baibai-engine research calculate --cash-share-cb /tmp/cb-inputs.json
+```
+
+`/tmp/cb-inputs.json`の最小例（架空の単位・価格）は次のとおり。通知単位の本数と単元株数も仮定として指定する。
+
+```json
+{"valuation_as_of":"2026-10-13","terminal_as_of":"2028-10-13",
+ "face_value_yen_per_bond":"100","bond_count":1,"settlement_group_bond_counts":[1],
+ "share_unit":1,"odd_lot_cash_price_basis":"settlement_vwap",
+ "conversion_price_yen":"10.0","existing_shares":10,
+ "equity_value_yen_with_bond_liability":"1000",
+ "special_dividend_adjustments":[{"special_dividend_per_share_yen":"2.5",
+                                   "reference_close_yen":"20.0"}],
+ "settlement_vwap_yen":"20"}
+```
+
 <a id="valuation-context"></a>
 
 ### 原価格の成立条件と時間感度
