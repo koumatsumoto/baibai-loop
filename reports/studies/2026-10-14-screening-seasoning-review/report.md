@@ -67,7 +67,28 @@ E[r]水準は`estimator_policy`のmandatory `er_calibration`に`er_level_calibra
 
 価格・財務履歴は2016-08以降を持つが、EDINET metrics・JPX規制sourceは2026-05-08以降である。最古完全cohortが2026-05なら、3yは2029-05以降、5yは2031-05以降の満期を要し、source completenessも別に必要である。E[r]の分布が成立しても、新4 Approachの長期優越性や個別企業の採否は実証されない。満期未到来を実装未完とは呼ばず、現在可能な生成・不足検証を区別する。
 
-83cohortのpanel生成は完了し、forward計算を継続中。生成・評価の最終結果は同じscopeでこの記録へ追記する。
+## 較正の最終結果
+
+最終v6で83cohortを再構築した。panelは312,774行、forwardは1,564,285行（resolved 1,097,033行、観測した現金支配権exit 5,580行、破綻型exit 1,031行）。全83cohortのforwardが保存済みで、`integrity_check=ok`、foreign key違反0、全panelのmethod hashは`dab39de9fccb070c`だった。件数はticker/as-of/horizon行であり、独立した会社・イベント数ではない。集計は[calibration-validation.json](./calibration-validation.json)に残した。
+
+| 固定scopeの評価 | 3y | 5y |
+| --- | ---: | ---: |
+| required cohort | 19 | 19 |
+| er_calibration / er_level_calibrationのmetric eligible | 各19 | 各19 |
+| integrity eligible / blocked | 17 / 2 | 18 / 1 |
+| entry year 2020 / 2021 | 12 / 7 | 12 / 7 |
+| 重複しないforward window | 1 | 1 |
+
+**E[r] contextは生成しなかった。** 正式evaluatorのrequired scopeは`evidence_complete=false / blocked`で、`--context-out`はexit 1・`evidence is not complete`で書込を拒否した。通常の評価artifact出力自体はexit 0で成功したが、evidence成立や採用を意味しない。失敗した月を除外し、35組の成功だけで新contextを作ることはしていない。旧published artifactは元bytes・hash・生成日のまま保持した。
+
+具体的な不足は次のとおり。
+
+- 2020-06-30の3y/5y: `entry_price_gap`。7531の最新non-null closeは2020-06-10で、entry許容15日より古い20日前だった。6月末までの日次rowは存在するがcloseはnullで、単にrowがないという説明は誤りである。7351の未上場entryとは分類が分かれている。より新しい正のcloseを裏付ける保存事実が必要であり、古い価格の持越し・0補完・日数gateの拡大はしない。実際の無売買かsource欠落かも、今回の保存値だけでは断定しない。
+- 2021-04-30の3y: `unpriced_exit_flips_direction`。stale exitは216行、delisting除外は205行。Review Setのmedian excessは報告値+5.7887pt、全損置換+0.9771pt、中立置換0ptで、既存の「正 / 非正」判定が揃わない。E[r] spreadの方向自体は安定しているが、全体integrityの条件は結果確認後に変更しない。未価格exitの価格・廃止理由・対価の裏付けを整え、同scopeで再生成・評価できるまで不足を残す。これら置換値を観測実現returnとして保存しない。
+
+**4 Approach unionの長期evidenceもblockedである。** required scope全19cohortでJPX入力がunavailable、Asset/Reinvestmentの長期入力を満たさず、全4 Approach/union fidelityがunresolvedとなった。全83cohortのJPX入力は78 unavailable / 5 completeで、3y/5yに成熟したfull union fidelityは0。全期間の3yは47 resolved cohort・非重複窓2、5yは23 resolved cohort・非重複窓1であり、月次cohort数を独立標本数に読み替えない。
+
+現在可能な正式生成・評価・context拒否・不足検証は完了した。追加取得・課金・制限回避・scope変更は0。新係数や新screenの利益優位を主張していない。残る価格/exit・長期fidelityの不足は測定上の制約で、採用済みルール修正の実装未完ではない。
 
 ## 検証と反映境界
 
@@ -75,4 +96,4 @@ E[r]水準は`estimator_policy`のmandatory `er_calibration`に`er_level_calibra
 
 実データコピーがあると既存Researchテストの一部が既定pathを読んだため、fixture gateでは取得コピーを一時的に隔離し、後で同じbytesを復元した。環境に残る退場packageのbytecodeだけも除去した。テスト条件やruntimeのvalidationを緩めず、fixture gateと固定L1の実データ検証を分けた。指標storeのschema v7・122系列・459,859観測の検証も成功。application storeは取得しておらず、同storeの検証は未実行。
 
-branch/draft PRで提出し、main push・merge・本番反映は親レビュー後とする。#1481は①②および横断点検の残作業があるためcloseしない。個人の保有・損益・非公開Research本文は記録していない。
+ルール修正は親レビューとCI後にPR #1487としてmain `cb748541d6d67fe059ee020e0d1a588783e948b4`へmergeされた。この追記PRは測定結果だけを扱い、本番Screeningの反映は別の正式publicationと受入で確認する。#1481は①②および横断点検の残作業があるためcloseしない。個人の保有・損益・非公開Research本文は記録していない。
