@@ -537,10 +537,8 @@ def test_research_triage_reader_excludes_an_unknown_version(tmp_path: Path) -> N
     assert read_api.latest_research_triage_payload(store) is None
 
 
-@pytest.mark.parametrize("schema_version", [2])
-def test_assessment_reader_rejects_each_retired_version(
-    tmp_path: Path, schema_version: int
-) -> None:
+def test_assessment_reader_rejects_retired_lane_payload(tmp_path: Path) -> None:
+    schema_version = 2
     store = tmp_path / "app.sqlite"
     with sqlite3.connect(store) as connection:
         connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION}")
@@ -564,7 +562,7 @@ def test_assessment_reader_rejects_each_retired_version(
             ),
         )
 
-    with pytest.raises(ValueError, match="unsupported capital allocation schema_version"):
+    with pytest.raises(ValueError, match="capital allocation alternatives must be a list"):
         read_api.list_capital_allocation_assessment_payloads(store)
 
 

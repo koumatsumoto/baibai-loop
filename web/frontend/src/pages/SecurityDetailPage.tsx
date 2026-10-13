@@ -31,7 +31,7 @@ function FractionMetric({ value }: { value: number | null }) {
   return <PctBadge fraction value={value} />
 }
 
-function ScreeningMetrics({ row }: { row: SecurityAnalysisRowView }) {
+export function ScreeningMetrics({ row }: { row: SecurityAnalysisRowView }) {
   return (
     <dl className="grid gap-6 sm:grid-cols-2 lg:grid-cols-5">
       <Field label="時価総額"><span className="font-mono tabular-nums">{row.market_cap_oku === null ? '—' : `${row.market_cap_oku.toLocaleString('ja-JP')} 億円`}</span></Field>
@@ -42,7 +42,11 @@ function ScreeningMetrics({ row }: { row: SecurityAnalysisRowView }) {
       <Field label="P/S"><span className="font-mono tabular-nums">{row.p_s ?? '—'}</span></Field>
       <Field label="PCFR"><span className="font-mono tabular-nums">{row.pcfr ?? '—'}</span></Field>
       <Field label="配当利回り"><FractionMetric value={row.dividend_yield} /></Field>
-      <Field label="E[r] (rev/carry)"><span className="font-mono tabular-nums"><FractionMetric value={row.er_annual} /> (<FractionMetric value={row.er_reversion_annual} /> / <FractionMetric value={row.er_carry_annual} />)</span></Field>
+      <Field label="機械E[r]（%/年 · reversion / carry）"><span className="font-mono tabular-nums"><FractionMetric value={row.er_annual} /> (<FractionMetric value={row.er_reversion_annual} /> / <FractionMetric value={row.er_carry_annual} />)</span></Field>
+      <Field className="sm:col-span-2 lg:col-span-5" label="機械E[r]のモデル・前提">
+        <p>モデル {row.er_model_version ?? '未確認'} · 保存単位 {row.er_unit ?? '未確認'} · anchor指標 {row.er_anchor_metrics ?? '未確認'}</p>
+        <p className="whitespace-pre-wrap">{row.er_assumptions ?? '保存された前提はありません。'}</p>
+      </Field>
       <Field label="Net cash / MC"><FractionMetric value={row.net_cash_to_market_cap} /></Field>
       <Field label="FCF yield"><FractionMetric value={row.fcf_yield} /></Field>
       <Field label="OCF yield"><FractionMetric value={row.ocf_yield} /></Field>
@@ -208,7 +212,7 @@ export function SecurityDetailPage() {
           description="latest screening"
           meta={data.screening_run && <AsOfBadge value={data.screening_run.as_of} />}
           padded
-          title="Screening 指標"
+          title="保存済み機械評価・市場指標"
         >
           <ScreeningMetrics row={data.security_analysis} />
         </SectionCard>

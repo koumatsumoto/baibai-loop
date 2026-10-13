@@ -5609,6 +5609,54 @@
           ],
           "title": "Er Carry Annual"
         },
+        "er_model_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Er Model Version"
+        },
+        "er_unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Er Unit"
+        },
+        "er_anchor_metrics": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Er Anchor Metrics"
+        },
+        "er_assumptions": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Er Assumptions"
+        },
         "net_cash_to_market_cap": {
           "anyOf": [
             {
@@ -5863,6 +5911,10 @@
         "er_annual",
         "er_reversion_annual",
         "er_carry_annual",
+        "er_model_version",
+        "er_unit",
+        "er_anchor_metrics",
+        "er_assumptions",
         "net_cash_to_market_cap",
         "fcf_yield",
         "ocf_yield",
