@@ -10,7 +10,7 @@ description: 有限Operationの保有を再評価して提案を保持し、人�
 ## 手順
 
 1. 人間の依頼範囲と対象holdingを確認する。売買報告の扱いは[Ledger Record](../ledger-record/SKILL.md#売買報告の扱い)に従い、既存台帳から対象を読む。全銘柄の価格更新や、無関係な入出金の再確認を前提にしない。
-2. 混在Operationでは`research prepare`が作った`holdings/<ticker>`を使う。保有単独の明示開始では`research position-prepare --request '<USER_START_REQUEST>' --asof <ASOF> --ticker <TICKER>`でworkspaceと有限Operationを作る。現行のReviewed Thesisがあれば`thesis-scaffold --from-thesis-id`で元資料と予測を引き継ぐ。旧版しかない場合は新しいdraftを作り、現在の証拠と独立Reviewを揃えて`--supersedes-id`で旧IDを参照する。自動変換で旧評価を実行しない。
+2. 混在Operationでは`research prepare`が作った`holdings/<ticker>`を使う。入力は子manifestの`domain_inputs_ref`が指す親`domain-inputs.yaml`を参照し、対象tickerの入力を使う。保有単独の明示開始では`research position-prepare --request '<USER_START_REQUEST>' --asof <ASOF> --ticker <TICKER>`でworkspaceと有限Operationを作り、自身の`domain-inputs.yaml`を読む。現行のReviewed Thesisがあれば`thesis-scaffold --from-thesis-id`で元資料と予測を引き継ぐ。旧版しかない場合は新しいdraftを作り、現在の証拠と独立Reviewを揃えて`--supersedes-id`で旧IDを参照する。自動変換で旧評価を実行しない。
 3. 決算・guidance・資本政策・投資理由の変化を一次資料で確認し、[Researchの企業別調査](../research/SKILL.md#company-research)に従ってThesisとReviewをpromoteする。同じOperationの保有purposeとして継続し、新規CAA・購入Planningへ混ぜない。
 4. `position position-review-build`で対象holdingと最新Reviewed Thesisを組み立て、`remaining_reward`と経済的な理由を記入する。現在からの増分、分配、期間の扱いはreferenceに従う。
 5. `position position-review --input <draft>`でcheckする。対象の数量・basis・quote・Thesisが変わった場合は再確認し、提出したremainingを機械値で上書きしない。

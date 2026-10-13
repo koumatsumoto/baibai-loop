@@ -38,6 +38,249 @@ from baibai_engine.screening.discovery.contracts import PublishedReviewSet
 CASE_NOW = datetime.fromisoformat("2026-07-19T18:00:00+09:00")
 
 
+@pytest.mark.parametrize("scope", ["new", "holding", "combined", "empty", "empty-no-triage"])
+def test_research_read_input_quotes_only_selected_triage_entries(tmp_path, scope, monkeypatch):
+    from baibai_engine.research.triage.query import research_triage_payload as read_triage
+
+    db = tmp_path / "app.sqlite"
+    triage = _publish_triage(
+        db, second_research=True, with_holdings=scope in {"holding", "combined"}
+    )
+    canonical_before = read_triage(db, triage.research_triage_id)
+    calibration = {
+        "status": "historical_context_only",
+        "interpretation": "historical distribution; not an individual security forecast",
+        "candidates": {"0001": {"horizons": ["synthetic band"]}, "2331": {"horizons": []}},
+    }
+    monkeypatch.setattr(
+        workspace_prepare, "_load_er_distribution_context", lambda **kwargs: calibration
+    )
+    selected = ("0001",) if scope in {"new", "combined"} else ()
+    holdings = ("2331",) if scope in {"holding", "combined"} else ()
+    bound_triage = None if scope in {"holding", "empty-no-triage"} else triage.research_triage_id
+    workspace = tmp_path / "workspace"
+    prepared = prepare_workspace(
+        research_triage_id=bound_triage,
+        asof=CASE_NOW.date(),
+        db_path=db,
+        workspace=workspace,
+        request="synthetic explicit selected scope",
+        research_set=selected,
+        holding_tickers=holdings,
+        started_at=CASE_NOW,
+        sqlite_path=tmp_path / "absent-market",
+        runs_path=tmp_path / "absent-runs",
+        indicators_path=tmp_path / "absent-indicators",
+    )
+    inputs = yaml.safe_load((workspace / "domain-inputs.yaml").read_text())
+    assert set(inputs["securities"]) == set(selected + holdings)
+    assert inputs["research_targets"] == [
+        *({"ticker": ticker, "purpose": "new"} for ticker in selected),
+        *({"ticker": ticker, "purpose": "holding"} for ticker in holdings),
+    ]
+    assert prepared.actionable == bool(selected + holdings)
+    assert read_triage(db, triage.research_triage_id) == canonical_before
+    assert [
+        case["ticker"] for case in compute_status(workspace, db_path=db, now=CASE_NOW)["cases"]
+    ] == list(selected)
+    if bound_triage is None:
+        assert "research_triage" not in inputs
+    else:
+        manifest = yaml.safe_load((workspace / "manifest.yaml").read_text())
+        quoted = inputs["research_triage"]
+        assert {key: quoted[key] for key in ("research_triage_id", "payload_sha256")} == manifest[
+            "inputs"
+        ]["research_triage"]
+        assert [row["ticker"] for row in quoted["entries"]] == list(selected)
+        assert inputs["er_realized_distribution_context"] == {
+            **calibration,
+            "candidates": {ticker: calibration["candidates"][ticker] for ticker in selected},
+        }
+        for row in quoted["entries"]:
+            source = next(entry for entry in triage.entries if entry.ticker == row["ticker"])
+            assert row["analysis"] == source.candidate_snapshot.analysis.model_dump(mode="json")
+            assert row["nominations"] == [
+                item.model_dump(mode="json") for item in source.candidate_snapshot.nominations
+            ]
+            assert row["research_priority"] == source.priority == 2
+            assert row["rationale"] == source.rationale
+            assert row["research_question"] == source.research_question
+            assert row["key_risk"] == source.key_risk
+        # The full canonical comparison remains internal; the AI reads the scoped input above.
+        internal = yaml.safe_load((workspace / "research-workspace.yaml").read_text())
+        assert len(internal["review_set_entries"]) == prepared.review_set_size == 2
+        assert internal["er_realized_distribution_context"] == calibration
+    for ticker in holdings:
+        child = workspace / "holdings" / ticker
+        manifest = yaml.safe_load((child / "manifest.yaml").read_text())
+        assert manifest["operation_id"] == prepared.operation_id
+        assert manifest["domain_inputs_ref"] == "../../domain-inputs.yaml"
+        assert (child / manifest["domain_inputs_ref"]).resolve() == (
+            workspace / "domain-inputs.yaml"
+        ).resolve()
+        assert not (child / "domain-inputs.yaml").exists()
+        assert compute_status(child, db_path=db, now=CASE_NOW)["cases"][0]["ticker"] == ticker
+
+
+def test_holding_resume_retains_parent_input_and_removes_old_duplicate(tmp_path):
+    from datetime import timedelta
+
+    db = tmp_path / "app.sqlite"
+    triage = _publish_triage(db, second_research=True, with_holdings=True)
+    workspace = tmp_path / "workspace"
+    kwargs = dict(
+        db_path=db,
+        started_at=CASE_NOW,
+        sqlite_path=tmp_path / "absent-market",
+        runs_path=tmp_path / "absent-runs",
+        indicators_path=tmp_path / "absent-indicators",
+    )
+    prepared = prepare_workspace(
+        research_triage_id=triage.research_triage_id,
+        workspace=workspace,
+        request="synthetic explicit mixed scope",
+        research_set=("0001",),
+        holding_tickers=("2331",),
+        **kwargs,
+    )
+    child = workspace / "holdings/2331"
+    parent_before = (workspace / "domain-inputs.yaml").read_bytes()
+    db_before = db.read_bytes()
+    # A force rebuild replaces a prior generated copy, without touching authored drafts.
+    (child / "domain-inputs.yaml").write_text("old generated duplicate")
+    _authored_case(child, "2331", "reject")
+    authored_before = {path: path.read_bytes() for path in (child / "2331").glob("*.yaml")}
+    resumed = prepare_holding_workspace(
+        workspace=child, asof=CASE_NOW.date(), ticker="2331", force=True, **kwargs
+    )
+    assert resumed.operation_id == prepared.operation_id
+    assert yaml.safe_load((child / "manifest.yaml").read_text())["domain_inputs_ref"] == (
+        "../../domain-inputs.yaml"
+    )
+    assert not (child / "domain-inputs.yaml").exists()
+    assert (workspace / "domain-inputs.yaml").read_bytes() == parent_before
+    assert {path: path.read_bytes() for path in (child / "2331").glob("*.yaml")} == authored_before
+    assert db.read_bytes() == db_before
+    service = OperationService(db)
+    for ticker in ("0001", "2331"):
+        ended = service.record_unfinished(
+            prepared.operation_id,
+            ticker=ticker,
+            reason="synthetic finite investigation ended",
+            references=("https://example.invalid/source",),
+            now=CASE_NOW,
+        )
+    service.complete(
+        prepared.operation_id,
+        ended.payload.model_copy(update={"result": "unfinished", "next": "new explicit request"}),
+        completed_at=CASE_NOW,
+    )
+    kwargs["started_at"] = CASE_NOW + timedelta(hours=1)
+    fresh = prepare_holding_workspace(
+        workspace=child,
+        asof=CASE_NOW.date(),
+        ticker="2331",
+        force=True,
+        request="synthetic new standalone holding request",
+        **kwargs,
+    )
+    assert fresh.operation_id != prepared.operation_id
+    assert "domain_inputs_ref" not in yaml.safe_load((child / "manifest.yaml").read_text())
+    standalone = yaml.safe_load((child / "domain-inputs.yaml").read_text())
+    assert set(standalone["securities"]) == {"2331"}
+    assert "research_triage" not in standalone
+    assert standalone["known_at"] == kwargs["started_at"].isoformat()
+    assert (workspace / "domain-inputs.yaml").read_bytes() == parent_before
+
+
+@pytest.mark.parametrize("resume", [False, True])
+def test_missing_exact_run_does_not_start_or_change_research(tmp_path, resume):
+    from datetime import timedelta
+
+    from tests.helpers.screening_run import screening_run_payload, security_analysis
+
+    from baibai_engine.screening.run_store import ScreeningRunStore
+
+    db = tmp_path / "app.sqlite"
+    triage = _publish_triage(db)
+    workspace = tmp_path / "workspace"
+    kwargs = dict(
+        research_triage_id=triage.research_triage_id,
+        db_path=db,
+        workspace=workspace,
+        request="synthetic explicit start",
+        research_set=("2331",),
+        started_at=CASE_NOW,
+        sqlite_path=tmp_path / "absent-market",
+        indicators_path=tmp_path / "absent-indicators",
+    )
+    if resume:
+        prepare_workspace(runs_path=tmp_path / "absent-runs", **kwargs)
+    service = OperationService(db)
+    operation_before = service.active()
+    db_before = db.read_bytes()
+    files_before = {path: path.read_bytes() for path in workspace.rglob("*") if path.is_file()}
+    runs = tmp_path / "runs.sqlite"
+    store = ScreeningRunStore(runs)
+    payload = screening_run_payload(
+        as_of=CASE_NOW.date().isoformat(), security_analyses=[security_analysis("2331")]
+    )
+    store.publish_run(
+        screening_run_payload(
+            as_of=(CASE_NOW.date() - timedelta(days=1)).isoformat(),
+            security_analyses=[security_analysis("2331")],
+        ),
+        run_revision_id="retained-other-run",
+    )
+    runs_before = runs.read_bytes()
+    kwargs["started_at"] = CASE_NOW + timedelta(hours=1)
+    with pytest.raises(ValueError, match="unknown run_revision_id"):
+        prepare_workspace(runs_path=runs, force=resume, **kwargs)
+    assert service.active() == operation_before
+    assert db.read_bytes() == db_before
+    assert {
+        path: path.read_bytes() for path in workspace.rglob("*") if path.is_file()
+    } == files_before
+    assert runs.read_bytes() == runs_before
+    if not resume:
+        assert not workspace.exists()
+    store.publish_run(payload, run_revision_id=triage.run_revision_id)
+    prepared = prepare_workspace(runs_path=runs, force=resume, **kwargs)
+    operation = service.get(prepared.operation_id)
+    expected_cutoff = CASE_NOW if resume else kwargs["started_at"]
+    assert operation.started_at == expected_cutoff
+    assert yaml.safe_load((workspace / "domain-inputs.yaml").read_text())["known_at"] == (
+        expected_cutoff.isoformat()
+    )
+
+
+def test_unreadable_holding_input_leaves_no_operation_or_workspace(tmp_path, monkeypatch):
+    db = tmp_path / "app.sqlite"
+    _publish_triage(db, with_holdings=True)
+    workspace = tmp_path / "holding"
+    service = OperationService(db)
+    before = db.read_bytes()
+
+    def unavailable(**kwargs):
+        assert service.active() is None
+        assert not workspace.exists()
+        raise ValueError("synthetic unreadable input")
+
+    monkeypatch.setattr(workspace_prepare, "research_inputs", unavailable)
+    with pytest.raises(ValueError, match="synthetic unreadable input"):
+        prepare_holding_workspace(
+            asof=CASE_NOW.date(),
+            db_path=db,
+            ticker="2331",
+            workspace=workspace,
+            request="synthetic explicit holding start",
+            started_at=CASE_NOW,
+        )
+    assert service.active() is None
+    assert db.read_bytes() == before
+    assert not workspace.exists()
+
+
 @pytest.mark.parametrize("mutation", ["extend", "shrink", "other-triage", "inactive"])
 def test_research_writes_recheck_operation_binding(
     tmp_path: Path, mutation: str, subtests: pytest.Subtests
@@ -386,7 +629,11 @@ def test_weekend_research_keeps_start_cutoff_on_resume_and_refreshes_for_new_ope
     def assert_inputs(root, *, cutoff, target, growth, received, context_name):
         paths = [root / "domain-inputs.yaml"]
         if purpose == "combined":
-            paths.append(root / "holdings/2331/domain-inputs.yaml")
+            child = root / "holdings/2331"
+            manifest = yaml.safe_load((child / "manifest.yaml").read_text())
+            assert manifest["domain_inputs_ref"] == "../../domain-inputs.yaml"
+            assert not (child / "domain-inputs.yaml").exists()
+            assert (child / manifest["domain_inputs_ref"]).resolve() == paths[0].resolve()
         for path in paths:
             result = yaml.safe_load(path.read_text())
             assert result["known_at"] == cutoff.isoformat()

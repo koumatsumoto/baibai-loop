@@ -32,6 +32,8 @@ from baibai_engine.research.workspace.admission import (
 from baibai_engine.research.workspace.files import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceDataError,
+    _load_mapping,
+    _string_or_none,
     _write_workspace_file,
 )
 from baibai_engine.research.workspace.status import _write_status
@@ -112,17 +114,6 @@ def prepare_workspace(
     reserved = {reservation.ticker for reservation in snapshot.active_reservations.values()}
     if set(selected) & held or not set(holding_tickers) <= held:
         raise ResearchWorkspaceDataError("ticker purposes must agree with current holdings")
-    operation = active or service.start(
-        session_kind="capital-allocation",
-        as_of=resolved_asof,
-        started_at=now,
-        payload=OperationPayload(
-            checkpoint="Explicit research started; fixed AI selection recorded",
-            artifacts=(selection.model_dump(mode="json"),),
-            canonical_refs=() if research_triage_id is None else (research_triage_id,),
-            next="research only the fixed targets; record completed or unfinished outcomes",
-        ),
-    )
     annotated = (
         []
         if gate is None
@@ -142,6 +133,49 @@ def prepare_workspace(
         workspace_doc["er_realized_distribution_context"] = _load_er_distribution_context(
             screening_rules_hash=gate.screening_rules_hash, candidates=annotated, asof=resolved_asof
         )
+    input_cutoff = now if active is None else active.started_at
+    domain_inputs = research_inputs(
+        tickers=tuple(item.ticker for item in selection.targets),
+        as_of=resolved_asof,
+        cutoff=input_cutoff,
+        known_at=input_cutoff,
+        market_path=sqlite_path,
+        runs_path=runs_path,
+        indicators_path=indicators_path,
+        app_path=database_path(db_path),
+        run_revision_id=None if gate is None else gate.run_revision_id,
+    )
+    domain_inputs["research_targets"] = [item.model_dump(mode="json") for item in selection.targets]
+    if gate is not None:
+        domain_inputs["research_triage"] = {
+            "research_triage_id": gate.research_triage_id,
+            "payload_sha256": gate.payload_hash,
+            "entries": [
+                {**row, **gate.research_focus_by_ticker[str(row["ticker"])]}
+                for row in annotated
+                if row["ticker"] in selected
+            ],
+        }
+        context = workspace_doc["er_realized_distribution_context"]
+        assert isinstance(context, dict)
+        selected_context = dict(context)
+        candidates = context.get("candidates")
+        if isinstance(candidates, Mapping):
+            selected_context["candidates"] = {
+                ticker: value for ticker, value in candidates.items() if ticker in selected
+            }
+        domain_inputs["er_realized_distribution_context"] = selected_context
+    operation = active or service.start(
+        session_kind="capital-allocation",
+        as_of=resolved_asof,
+        started_at=now,
+        payload=OperationPayload(
+            checkpoint="Explicit research started; fixed AI selection recorded",
+            artifacts=(selection.model_dump(mode="json"),),
+            canonical_refs=() if research_triage_id is None else (research_triage_id,),
+            next="research only the fixed targets; record completed or unfinished outcomes",
+        ),
+    )
     workspace.mkdir(parents=True, exist_ok=True)
     _write_workspace_file(workspace / "research-workspace.yaml", workspace_doc)
     inputs = (
@@ -164,20 +198,7 @@ def prepare_workspace(
             "selection_sha256": selection_sha256(selection),
         },
     )
-    _write_workspace_file(
-        workspace / "domain-inputs.yaml",
-        research_inputs(
-            tickers=tuple(item.ticker for item in selection.targets),
-            as_of=resolved_asof,
-            cutoff=operation.started_at,
-            known_at=operation.started_at,
-            market_path=sqlite_path,
-            runs_path=runs_path,
-            indicators_path=indicators_path,
-            app_path=database_path(db_path),
-            run_revision_id=None if gate is None else gate.run_revision_id,
-        ),
-    )
+    _write_workspace_file(workspace / "domain-inputs.yaml", domain_inputs)
     for ticker in holding_tickers:
         prepare_holding_workspace(
             asof=resolved_asof,
@@ -189,6 +210,7 @@ def prepare_workspace(
             sqlite_path=sqlite_path,
             runs_path=runs_path,
             indicators_path=indicators_path,
+            domain_inputs_ref="../../domain-inputs.yaml",
         )
     _write_status(workspace, db_path=db_path)
     return ResearchPreparation(
@@ -214,6 +236,7 @@ def prepare_holding_workspace(
     runs_path: Path = RUNS_DB_PATH,
     indicators_path: Path = INDICATORS_DB_PATH,
     force: bool = False,
+    domain_inputs_ref: str | None = None,
 ) -> ResearchPreparation:
     """Attach a holding workspace to the same finite Operation; never use new admission."""
     now = started_at or datetime.now(JST)
@@ -248,6 +271,26 @@ def prepare_holding_workspace(
         selection = ResearchSelection(
             request=request, targets=(ResearchTarget(ticker=ticker, purpose="holding"),)
         )
+    assert selection is not None
+    if domain_inputs_ref is None and operation is not None and manifest_path.exists():
+        previous = _load_mapping(manifest_path, label="workspace manifest")
+        if previous.get("operation_id") == operation.operation_id:
+            domain_inputs_ref = _string_or_none(previous.get("domain_inputs_ref"))
+    domain_inputs = None
+    if domain_inputs_ref is None:
+        input_cutoff = now if operation is None else operation.started_at
+        domain_inputs = research_inputs(
+            tickers=(ticker,),
+            as_of=asof,
+            cutoff=input_cutoff,
+            known_at=input_cutoff,
+            market_path=sqlite_path,
+            runs_path=runs_path,
+            indicators_path=indicators_path,
+            app_path=database_path(db_path),
+        )
+        domain_inputs["research_targets"] = [{"ticker": ticker, "purpose": "holding"}]
+    if operation is None:
         operation = service.start(
             session_kind="position-review",
             as_of=asof,
@@ -259,7 +302,6 @@ def prepare_holding_workspace(
                 next="validate a holding proposal or record unfinished research",
             ),
         )
-    assert selection is not None
     workspace.mkdir(parents=True, exist_ok=True)
     _write_workspace_file(
         workspace / "research-workspace.yaml",
@@ -285,21 +327,15 @@ def prepare_holding_workspace(
             "as_of": asof.isoformat(),
             "operation_id": operation.operation_id,
             "selection_sha256": selection_sha256(selection),
+            **({"domain_inputs_ref": domain_inputs_ref} if domain_inputs_ref is not None else {}),
         },
     )
-    _write_workspace_file(
-        workspace / "domain-inputs.yaml",
-        research_inputs(
-            tickers=(ticker,),
-            as_of=asof,
-            cutoff=operation.started_at,
-            known_at=operation.started_at,
-            market_path=sqlite_path,
-            runs_path=runs_path,
-            indicators_path=indicators_path,
-            app_path=database_path(db_path),
-        ),
-    )
+    domain_inputs_path = workspace / "domain-inputs.yaml"
+    if domain_inputs_ref is not None:
+        domain_inputs_path.unlink(missing_ok=True)
+    else:
+        assert domain_inputs is not None
+        _write_workspace_file(domain_inputs_path, domain_inputs)
     _write_status(workspace, db_path=db_path)
     return ResearchPreparation(
         workspace=workspace,
