@@ -2,7 +2,7 @@ import type { ExternalAssessmentSecurityView, SecurityAnalysisRowView } from '..
 
 export type SecuritySearchRow = SecurityAnalysisRowView | ExternalAssessmentSecurityView
 
-export const SECURITY_PAGE_SIZE = 100
+export const SECURITY_PAGE_SIZE = 12
 
 export type SecuritySortKey =
   | 'ticker'

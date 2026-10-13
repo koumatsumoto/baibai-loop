@@ -18,7 +18,7 @@ import {
 import { ACTIONS_URL, NAV_TABS } from '../lib/nav'
 import { cn } from '../lib/utils'
 
-// The run history lives behind the gear, apart from the judgment tabs: the three
+// The run history lives behind the gear, apart from the workflow navigation: the
 // tabs answer "what should I do", this menu answers "is the machinery ok".
 function DevMenu() {
   return (

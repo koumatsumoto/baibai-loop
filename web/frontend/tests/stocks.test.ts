@@ -116,11 +116,11 @@ describe('Security Analysis sorting and pagination', () => {
     expect(sortSecurityRows(rows, { key: 'pbr', direction: 'desc' }).map((item) => item.ticker)).toEqual(['2', '1', '3'])
   })
 
-  it('returns no more than 100 rows and clamps a stale page after filtering', () => {
+  it('returns no more than 12 rows and clamps a stale page after filtering', () => {
     const rows = Array.from({ length: 205 }, (_, index) => row(String(index).padStart(4, '0')))
     const second = projectSecurityRows(rows, noFilters, { key: 'ticker', direction: 'asc' }, 2)
-    expect(second.rows).toHaveLength(100)
-    expect(second.rows[0].ticker).toBe('0100')
+    expect(second.rows).toHaveLength(12)
+    expect(second.rows[0].ticker).toBe('0012')
 
     const filtered = projectSecurityRows(
       rows,

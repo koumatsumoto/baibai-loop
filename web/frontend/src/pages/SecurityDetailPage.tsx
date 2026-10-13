@@ -7,6 +7,7 @@ import { AsOfBadge } from '../components/AsOfBadge'
 import { ReviewedThesisContent } from '../components/ReviewedThesisContent'
 import { LoadingPage } from '../components/LoadingIndicator'
 import { PageShell } from '../components/PageShell'
+import { ResearchNav } from '../components/ResearchNav'
 import { SectionCard } from '../components/SectionCard'
 import { PageState } from '../components/PageState'
 import { PctBadge } from '../components/PctBadge'
@@ -100,15 +101,15 @@ export function SecurityDetailPage() {
   return (
     <PageShell
       above={(
-        <nav className="flex items-center gap-2 text-sm text-muted-foreground" aria-label="パンくず">
-          <Link className="underline-offset-4 hover:text-foreground hover:underline" to="/stocks">Stocks</Link>
+        <div className="grid gap-4"><ResearchNav /><nav className="flex items-center gap-2 text-sm text-muted-foreground" aria-label="パンくず">
+          <Link className="underline-offset-4 hover:text-foreground hover:underline" to="/stocks/explore">候補探索</Link>
           <span>/</span>
           <span className="font-mono text-foreground">{data.ticker}</span>
-        </nav>
+        </nav></div>
       )}
       // The heading is the ticker, so the name is what a reader actually recognises the
       // page by and keeps its weight; the sector trails it as context.
-      lead={<><span className="font-medium text-foreground">{data.company_name ?? '名称未確認'}</span> · {data.sector ?? 'sector —'}</>}
+      lead={<>{data.ticker} · {data.sector ?? '業種未確認'}</>}
       meta={(
         <div className="flex flex-wrap items-center gap-2">
           {data.holding && <Badge variant="secondary">保有</Badge>}
@@ -116,10 +117,32 @@ export function SecurityDetailPage() {
           <TradingViewButton labeled ticker={data.ticker} />
         </div>
       )}
-      title={<span className="font-mono">{data.ticker}</span>}
+      title={data.company_name ?? data.ticker}
       width="reading"
     >
-      <ExternalAssessmentSection assessment={data.external_assessment} />
+      <SectionCard
+        description="latest research"
+        meta={thesis && <AsOfBadge value={thesis.revision.as_of} />}
+        padded
+        title="最新の企業評価"
+      >
+        <>
+          {!thesis ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">research 記録なし</div>
+          ) : (
+            <div className="grid gap-6">
+              <dl className="grid gap-4 sm:grid-cols-3">
+                <Field label="企業評価"><span>{thesis.revision.disposition}</span></Field>
+                <Field label="評価状態"><span>{thesis.revision.status}</span></Field>
+                <Field label="Pmax（原評価・丸め前）"><YenAmount value={thesis.revision.pmax_raw_yen} /></Field>
+              </dl>
+              <p className="text-sm text-muted-foreground">candidate は配分検討に使える企業評価です。現在価格の条件、allocate の判断、実約定は別に確認します。</p>
+              <ReviewedThesisContent projection={thesis.projection} />
+              <code className="truncate rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground" title={thesis.revision.thesis_id}>{thesis.revision.thesis_id}</code>
+            </div>
+          )}
+        </>
+      </SectionCard>
 
       {data.holding && (
         <SectionCard description="portfolio ledger" meta={<AsOfBadge value={data.holding.market_price_as_of} />} padded title="現在の保有">
@@ -145,31 +168,7 @@ export function SecurityDetailPage() {
         </SectionCard>
       )}
 
-      <SectionCard
-        description="latest research"
-        meta={thesis && <AsOfBadge value={thesis.revision.as_of} />}
-        padded
-        title="最新の企業評価"
-      >
-        <>
-          {!thesis ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">research 記録なし</div>
-          ) : (
-            <div className="grid gap-6">
-              <dl className="grid gap-4 sm:grid-cols-3">
-                <Field label="企業評価"><span>{thesis.revision.disposition}</span></Field>
-                <Field label="評価状態"><span>{thesis.revision.status}</span></Field>
-                <Field label="Pmax（原評価・丸め前）"><YenAmount value={thesis.revision.pmax_raw_yen} /></Field>
-              </dl>
-              <p className="text-sm text-muted-foreground">candidate は配分検討に使える企業評価です。現在価格の条件、allocate の判断、実約定は別に確認します。</p>
-              <ReviewedThesisContent projection={thesis.projection} />
-              <code className="truncate rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground" title={thesis.revision.thesis_id}>{thesis.revision.thesis_id}</code>
-            </div>
-          )}
-        </>
-      </SectionCard>
-
-      <SectionCard description="過去の判断記録" meta={<Badge variant="secondary">{data.revisions.length} 件</Badge>} title="Research 履歴">
+      <details className="rounded-lg border bg-card p-4"><summary className="cursor-pointer font-medium">過去の企業評価・保有判断</summary><div className="mt-4 grid gap-4"><SectionCard description="過去の判断記録" meta={<Badge variant="secondary">{data.revisions.length} 件</Badge>} title="Research 履歴">
         {data.revisions.length === 0 ? (
           <p className="py-8 text-center text-sm text-muted-foreground">research 記録なし</p>
         ) : (
@@ -210,6 +209,8 @@ export function SecurityDetailPage() {
         )}
       </SectionCard>
 
+      </div></details>
+
       {data.security_analysis && (
         <SectionCard
           description="latest screening"
@@ -220,6 +221,8 @@ export function SecurityDetailPage() {
           <ScreeningMetrics row={data.security_analysis} />
         </SectionCard>
       )}
+      <ExternalAssessmentSection assessment={data.external_assessment} />
+      <Link className="text-sm underline" to="/stocks">調査・提案を見る →</Link>
     </PageShell>
   )
 }

@@ -46,9 +46,9 @@ write-capableなcanonical R2 bindingを付けません。新routeはmaterializer
 fixed-release読取と完全性確認は[market lake](../docs/reference/market-lake.md#shared-raw-read)、
 secret設定・rotation・撤回・利用側受入は[運用手順](../batch/OPERATIONS.md#shared-read-setup)を参照してください。
 
-調査と提案の進行は保存済みOperationから表示する。新規・保有の固定対象、完了/調査未完了を区別し、CAA詳細は完了した新規の比較範囲と未完了理由・参照を表示する。提案工程完了を人間採否・注文・約定の成立として表示しない。
+Dashboardは資産・保有・予約・運用成績を表示する。「調査・提案」では提案を先に置き、候補探索・市場環境を二次ナビゲーションで読む。Tasksは期限付き用件・イベントの閲覧を保つ。調査と提案の進行は保存済みOperationから表示する。新規・保有の固定対象、完了/調査未完了を区別し、CAA詳細は完了した新規の比較範囲と未完了理由・参照を表示する。提案工程完了を人間採否・注文・約定の成立として表示しない。
 CAAの銘柄リンクは、そのCAAが参照したThesis/Review本文と原評価へ進みます。改訂後の評価を読む「最新の銘柄情報」は別リンクとし、当時の根拠を最新評価で置き換えません。
 
 指標/Readingの組立は`readmodel/market_context.py`、現行判断の内容とpublication metadataは`readmodel/assessment.py`、過去本文の章・主張・引用は`readmodel/assessment_history.py`が所有する。外部routeとserving keyは次の物理切替まで既存契約を維持する。
 
-Stocksの銘柄検索はSecurity Analysisと、読取時点以前に保存された外部観測の銘柄を扱います。機械分析のない銘柄は外部参考評価の記録として表示し、PER・PBR・配当条件の数値対象にはしません。保存masterに名称があれば検索・詳細へ表示し、なければtickerと「名称未確認」で辿れます。run未発行でも保存外部観測を検索できます。
+候補探索の銘柄検索はSecurity Analysisと、読取時点以前に保存された外部観測の銘柄を扱います。機械分析のない銘柄は外部参考評価の記録として表示し、PER・PBR・配当条件の数値対象にはしません。保存masterに名称があれば検索・詳細へ表示し、なければtickerと「名称未確認」で辿れます。run未発行でも保存外部観測を検索できます。
