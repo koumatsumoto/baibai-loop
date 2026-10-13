@@ -58,6 +58,7 @@ def build_broker_fact_draft(
     *,
     decision_reference: str,
     status: BrokerFactStatus,
+    side: Literal["buy", "sell"] = "buy",
     occurred_at: datetime,
     ticker: str | None = None,
     quantity: int | None = None,
@@ -69,6 +70,8 @@ def build_broker_fact_draft(
     common_factors: tuple[str, ...] = (),
     price_guard_yen: Decimal | None = None,
     expires_at: datetime | None = None,
+    expiry_label: str | None = None,
+    route_label: str | None = None,
     ordered_at: datetime | None = None,
     now: datetime | None = None,
 ) -> tuple[LedgerDraft | None, tuple[str, ...]]:
@@ -100,6 +103,8 @@ def build_broker_fact_draft(
         and all(item in reservations_by_id or item in released_ids for item in requested_ids)
     )
     if selected or known_terminal:
+        if status == "filled" and any(item.side != side for item in selected):
+            raise ValueError("broker fact side does not match the active order")
         if status in {"cancelled", "expired"} and any(
             item not in reservations_by_id and item not in released_ids for item in requested_ids
         ):
@@ -111,12 +116,14 @@ def build_broker_fact_draft(
             for item in selected
         ):
             raise ValueError("decision_reference does not match the active reservation")
-    else:
+    elif side == "buy":
         if status in {"cancelled", "expired"}:
             raise ValueError(f"{status} requires an active reservation")
         allocated_ticker = resolve_allocated_ticker(decision_reference)
         if ticker != allocated_ticker:
             raise ValueError("broker fact ticker does not match the allocation assessment")
+    elif status != "open":
+        raise ValueError("sell broker fact requires an active order")
 
     if len(requested_ids) > 1:
         assert status in {"cancelled", "expired"}
@@ -133,6 +140,7 @@ def build_broker_fact_draft(
             source,
             decision_reference=decision_reference,
             status=status,
+            side=side,
             occurred_at=occurred_at,
             ticker=ticker,
             quantity=quantity,
@@ -143,6 +151,8 @@ def build_broker_fact_draft(
             common_factors=common_factors,
             price_guard_yen=price_guard_yen,
             expires_at=expires_at,
+            expiry_label=expiry_label,
+            route_label=route_label,
             ordered_at=ordered_at,
             now=now,
         )
@@ -241,6 +251,7 @@ def build_sell_execution_draft(
     ticker: str,
     quantity: int,
     price_yen: Decimal,
+    reservation_id: str | None = None,
     fees_yen: int | None = None,
     tax_yen: int | None = None,
     decision_reference: str | None = None,
@@ -263,12 +274,23 @@ def build_sell_execution_draft(
         occurred_at = datetime.combine(occurred_on, time.min, tzinfo=JST)
     assert occurred_at is not None
     source, expected_head = service.load_with_head()
+    if reservation_id is not None:
+        active = {
+            item.reservation_id: item
+            for item in reservation_snapshots(replay_events_through(source.events, source.as_of))
+        }
+        order = active.get(reservation_id)
+        if order is None or order.side != "sell" or order.ticker != ticker:
+            raise ValueError("reservation_id must identify an active sell order for ticker")
+        if decision_reference is None:
+            decision_reference = order.decision_reference
     suffix = _sell_event_suffix(
         occurred_at=occurred_at,
         ticker=ticker,
         quantity=quantity,
         price_yen=price_yen,
         decision_reference=decision_reference,
+        reservation_id=reservation_id,
         occurred_on=occurred_on,
     )
     occurred_at_text = occurred_at.isoformat()
@@ -278,6 +300,7 @@ def build_sell_execution_draft(
             "type": "execution",
             "occurred_at": occurred_at_text,
             "execution_id": f"sell-execution-{suffix}",
+            "reservation_id": reservation_id,
             "ticker": ticker,
             "side": "sell",
             "quantity": quantity,
@@ -332,6 +355,7 @@ def _sell_event_suffix(
     quantity: int,
     price_yen: Decimal,
     decision_reference: str | None,
+    reservation_id: str | None = None,
     occurred_on: date | None = None,
 ) -> str:
     raw = "|".join(
@@ -347,6 +371,8 @@ def _sell_event_suffix(
             ),
         )
     )
+    if reservation_id is not None:
+        raw += f"|{reservation_id}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 

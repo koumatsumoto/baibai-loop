@@ -43,12 +43,15 @@ class HoldingView(BaseModel):
 
 class ReservationView(BaseModel):
     reservation_id: str
+    side: Literal["buy", "sell"]
     ticker: str
     sector: str
     remaining_quantity: int
     price_guard_yen: str
     reserved_yen: int
     expires_at: datetime
+    expiry_label: str | None
+    route_label: str | None
 
 
 class WarningView(BaseModel):

@@ -796,12 +796,15 @@ export interface ResearchTriageView {
 
 export interface ReservationView {
   reservation_id: string
+  side: 'buy' | 'sell'
   ticker: string
   sector: string
   remaining_quantity: number
   price_guard_yen: string
   reserved_yen: number
   expires_at: string
+  expiry_label: string | null
+  route_label: string | null
 }
 
 export interface ReviewSetAnalysisView {

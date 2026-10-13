@@ -45,6 +45,129 @@ def test_open_report_creates_a_source_bound_reservation() -> None:
     assert result.document.events[-1].decision_reference == PROPOSAL
 
 
+def test_sell_order_and_partial_fill_leave_cash_and_unfilled_shares_distinct() -> None:
+    original = load_portfolio_ledger(FIXTURE)
+    before = portfolio_snapshot(original)
+    opened = record_broker_fact(
+        original,
+        decision_reference="human-report-2331-sell",
+        status="open",
+        side="sell",
+        occurred_at=_at(9),
+        ticker="2331",
+        quantity=200,
+        sector="サービス業",
+        price_guard_yen=Decimal("1000"),
+        expires_at=datetime(2026, 7, 20, 15, 30, tzinfo=JST),
+        now=_at(12),
+    )
+    open_snapshot = portfolio_snapshot(opened.document)
+    sell = next(item for item in open_snapshot.active_reservations if item.side == "sell")
+    assert sell.remaining_quantity == 200
+    assert sell.reserved_yen == 0
+    assert open_snapshot.available_cash_yen == before.available_cash_yen
+    assert open_snapshot.reserved_cash_yen == before.reserved_cash_yen
+    assert next(item for item in open_snapshot.holdings if item.ticker == "2331").quantity == 200
+
+    repeated = record_broker_fact(
+        opened.document,
+        decision_reference="human-report-2331-sell",
+        status="open",
+        side="sell",
+        occurred_at=_at(9),
+        ticker="2331",
+        quantity=200,
+        sector="サービス業",
+        price_guard_yen=Decimal("1000"),
+        expires_at=datetime(2026, 7, 20, 15, 30, tzinfo=JST),
+        now=_at(12),
+    )
+    assert repeated.changed is False
+
+    filled = record_broker_fact(
+        opened.document,
+        decision_reference="human-report-2331-sell",
+        status="filled",
+        side="sell",
+        occurred_at=_at(10),
+        ticker="2331",
+        quantity=100,
+        price_yen=Decimal("1010"),
+        reservation_id=sell.reservation_id,
+        now=_at(12),
+    )
+    after = portfolio_snapshot(filled.document)
+    assert (
+        next(item for item in after.active_reservations if item.side == "sell").remaining_quantity
+        == 100
+    )
+    assert next(item for item in after.holdings if item.ticker == "2331").quantity == 100
+    assert after.available_cash_yen == before.available_cash_yen + 101_000
+    assert after.reserved_cash_yen == before.reserved_cash_yen
+
+    cancelled = record_broker_fact(
+        filled.document,
+        decision_reference="human-report-2331-sell",
+        status="cancelled",
+        occurred_at=_at(11),
+        reservation_id=sell.reservation_id,
+        now=_at(12),
+    )
+    final = portfolio_snapshot(cancelled.document)
+    assert all(item.side != "sell" for item in final.active_reservations)
+    assert final.available_cash_yen == after.available_cash_yen
+    assert next(item for item in final.holdings if item.ticker == "2331").quantity == 100
+
+
+def test_sell_orders_cannot_commit_more_shares_than_held() -> None:
+    opened = record_broker_fact(
+        load_portfolio_ledger(FIXTURE),
+        decision_reference="human-report-2331-sell",
+        status="open",
+        side="sell",
+        occurred_at=_at(9),
+        ticker="2331",
+        quantity=200,
+        sector="サービス業",
+        price_guard_yen=Decimal("1000"),
+        expires_at=datetime(2026, 7, 20, 15, 30, tzinfo=JST),
+        now=_at(12),
+    )
+    with pytest.raises(BrokerFactRecordingError, match="exceeds uncommitted holding"):
+        record_broker_fact(
+            opened.document,
+            decision_reference="human-report-2331-second-sell",
+            status="open",
+            side="sell",
+            occurred_at=_at(10),
+            ticker="2331",
+            quantity=100,
+            sector="サービス業",
+            price_guard_yen=Decimal("990"),
+            expires_at=datetime(2026, 7, 20, 15, 30, tzinfo=JST),
+            now=_at(12),
+        )
+
+    order_id = next(
+        item.reservation_id
+        for item in portfolio_snapshot(opened.document).active_reservations
+        if item.side == "sell"
+    )
+    with pytest.raises(BrokerFactRecordingError, match="below limit price"):
+        record_broker_fact(
+            opened.document,
+            decision_reference="human-report-2331-sell",
+            status="filled",
+            side="sell",
+            occurred_at=_at(10),
+            ticker="2331",
+            quantity=100,
+            price_yen=Decimal("990"),
+            reservation_id=order_id,
+            now=_at(12),
+        )
+
+
 def test_filled_report_consumes_the_matching_active_reservation() -> None:
     opened = record_broker_fact(
         load_portfolio_ledger(FIXTURE),
