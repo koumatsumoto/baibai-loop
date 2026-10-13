@@ -253,7 +253,7 @@ E[r]水準parameterを判断する事前登録済みrunだけ`--required-metric 
 | Nomination union | 同上 + `engine/src/baibai_engine/screening/discovery/` | 較正リプレイ（Approach別Nomination + union） |
 | 機械 E[r]・FV アンカー | `engine/src/baibai_engine/valuation/estimates.py` | 較正リプレイ（er 軸 IC / decile / 予測 vs 実現） |
 | valuation 指標の算出 | metrics 系 + [`valuation-metrics.md`](./valuation-metrics.md) | 算術・期間・単位・株式basisの回帰。methodの優劣を主張する変更は較正リプレイ |
-| マクロ判断の手順・レンズ | [macro](./market-context.md)・skill `market-context-assessment` | 保存した判断と後続の観測の照合 |
+| マクロ判断の手順・レンズ | [Market Context](./market-context.md)・skill `market-context-assessment` | 保存した判断と後続の観測の照合 |
 | research の見積り手順 | [`thesis.md`](./thesis.md) + skill `research` | portfolio outcome と長期 horizon calibration |
 | 資本・cap・sizing | [`portfolio-management.md`](../portfolio-management.md) + `position/policy.py` | 保有 outcome |
 | research triageの判断 | `batch/src/baibai_batch/analysis/policy.py` | Review SetからResearch Setまでの実運用の検証 |
@@ -273,7 +273,7 @@ matched 比較の被覆率・membership 数・集中度など、forward outcome 
 - **満期済み窓を根拠に cleanup するときは、残る変動幅を示す。** as-of 範囲が固定で満期済みでも値は不動ではない。forward row は build のたびに再計算され、FY 配当や退場銘柄の exit が backfill されれば `total` basis の pair 数と中央値は動く。したがって次の bullet の `insufficient` 保持規則より削除を優先してよいのは、**その窓の効果が確定しており、かつ窓内の coverage backfill では結論が反転しないことを示した**ときに限る。示せないなら保持規則が優先する。
 - `negative` / `inconclusive` が確定した軸は、判定 PR で panel 列・派生計算・評価枝・専用 test を削除し、dated report と git history を反証証跡の正本とする（残すのは `adoption_candidate` / `insufficient` / control 再利用列 / production annotation 入力列のみ）。
 - rules variant の計測は本番 rules を変えず `SCREENING_RULES_PATH` で variant を指し、別 store（`stores/screening/calibration/variants/<variant>/`）へ panel を構築する。rules_hash provenance が混線を機械検出する。
-- 機械レバー（approach / Review Set / E[r]）の実証的改訂は 3y/5y eligible evidence を必須の関門にし、判断レバー（macro / research 手順）は保有 outcome と運用の事後検証で改める。
+- 機械レバー（approach / Review Set / E[r]）の実証的改訂は 3y/5y eligible evidence を必須の関門にし、判断レバー（市場環境判断 / research 手順）は保有 outcome と運用の事後検証で改める。
 
 ### 採用後
 

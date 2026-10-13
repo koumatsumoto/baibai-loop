@@ -375,7 +375,7 @@ def rating(at=RECEIVED, **kwargs):
     )
 
 
-def non_retail_digest(path):
+def other_dataset_digest(path):
     with sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True) as connection:
         rows = {
             table: connection.execute(f'SELECT * FROM "{table}" ORDER BY 1,2').fetchall()
@@ -568,7 +568,7 @@ def test_readback_compares_definition_provenance_and_source_metadata_not_only_nu
 def test_history_digests_cover_both_tables_and_old_rows_without_mutating_other_tables(tmp_path):
     database = tmp_path / "market.sqlite"
     seed_database(database, count=1)
-    other_before = non_retail_digest(database)
+    other_before = other_dataset_digest(database)
     empty = history_digests(database)
     assert set(empty) == {MODEL_VALUATION_TABLE, ANALYST_RATING_TABLE, QUANTS_SCORE_TABLE}
     assert set(empty.values()) == {hashlib.sha256(b"").hexdigest()}
@@ -591,7 +591,7 @@ def test_history_digests_cover_both_tables_and_old_rows_without_mutating_other_t
     changed_rating = history_digests(database)
     assert changed_rating[MODEL_VALUATION_TABLE] == changed_old[MODEL_VALUATION_TABLE]
     assert changed_rating[ANALYST_RATING_TABLE] != changed_old[ANALYST_RATING_TABLE]
-    assert non_retail_digest(database) == other_before
+    assert other_dataset_digest(database) == other_before
     before_read = hashlib.sha256(database.read_bytes()).hexdigest()
     assert history_digests(database) == changed_rating
     assert hashlib.sha256(database.read_bytes()).hexdigest() == before_read

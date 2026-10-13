@@ -145,7 +145,7 @@ def test_null_close_split_factor_adjusts_past_prices_without_future_events(tmp_p
     assert all(bar.price == 200 for bar in earlier)
 
 
-def test_macro_cutoff_and_domain_import_do_not_reach_research_or_writers(tmp_path):
+def test_assessment_cutoff_and_domain_import_do_not_reach_research_or_writers(tmp_path):
     path = tmp_path / "app.sqlite"
     for day, prior in (("2026-07-19", None), ("2026-07-20", "macro-context-2026-07-19-past")):
         identifier = f"macro-context-{day}-" + ("past" if prior is None else "future")

@@ -24,7 +24,7 @@ status: active
 | Market Context / 市場環境 | 経済・金利等の環境と市場全体・業種・個別相対はどのような状態か |
 | External Assessment / 外部参考評価 | 外部の媒体・評価者はこの株をどう評価して提示しているか |
 
-領域は業務の横方向、L1観測・L2決定的な計算・L3 AI解釈/調査/提案は縦方向の区別である。Macro ContextはMarket Context内の既存判断成果物で、領域全体と同義ではない。境界・保存責務と移行状況は[architecture](./architecture.md)が所有する。
+領域は業務の横方向、L1観測・L2決定的な計算・L3 AI解釈/調査/提案は縦方向の区別である。Market Context AssessmentはMarket ContextのL3判断成果物で、領域全体と同義ではない。Readingは同領域の登録指標系列を機械的に読むL2であり、Market SnapshotやSecurity Market Contextとは別の結果である。境界・保存責務と移行状況は[architecture](./architecture.md)が所有する。
 
 Valuationの機械ER/FV anchorは倍率・自己価格レンジとcarryの推計であり、企業を調査したBase/DownsideのProjectionとは別結果である。AIが置いた前提を固定すると算術は決定的に再現できるが、前提は観測にならず、結果は条件付き見積りである。4 Approachは候補探索の視点であり、四つの完成した企業価値モデルではない。
 
@@ -64,8 +64,8 @@ Valuationの機械ER/FV anchorは倍率・自己価格レンジとcarryの推計
 | Portfolio Outcome | artifact | portfolio-wide TWR / benchmark comparison publication |
 | Market Snapshot | rebuildable state | benchmarkの週次方向、観測日を揃えたbreadthと業種中央値 |
 | Security Market Context | rebuildable state | 指定銘柄の価格状態と同一端点での対benchmark/同業相対値 |
-| Macro Reading | rebuildable artifact | Market Contextで参照する、経済系列からのdeterministic machine reading |
-| Macro Context | artifact / judgment | Market Context内の既存環境判断成果物。領域全体とは区別 |
+| Reading | rebuildable state | Market Contextの登録指標系列から得る決定的な記述統計・鮮度・変化。独立DB/判断成果物ではない |
+| Market Context Assessment | artifact / judgment | Market Contextが所有し、明示開始で作る重要変化・根拠・反証・不確実性・調査/リスクへの含意 |
 | E[r] Calibration Context | rebuildable context | Screeningが生成し、Valuationの契約・解釈でResearch Triage等が読む過去較正のL2 current context |
 | Official Benchmark Observation | observation | Market Contextが意味契約を所有する公式TOPIX gross-total-return観測。price-only市場方向評価とは別 |
 | Operation Session | application state | 明示開始に束縛した有限調査と成果の状態。L3完了と人間採否・取引事実を区別 |
@@ -101,13 +101,19 @@ Portfolio Ledger -> Portfolio Outcome
 
 保存済み価格・master -> Market Snapshot / Security Market Context
 外部媒体の提示値 -> External Assessmentの出所別比較・欠測 -> 判断の参考
-provider facts -> Macro Reading -> Macro Context
-Macro Context -> Triage・Research・資本判断の補助入力
+登録指標の保存観測 -> Reading（機械的な統計・鮮度・変化）
+保存済み観測・Reading・市場/個別状態・一次資料
+       -> 明示作成するMarket Context Assessment
+Market Context Assessment -> Triage・Research・資本判断の補助入力
 ```
 
 新規提案はCAA/Planning、保有提案はPosition Reviewの成果に含む。共通の新しいTrade Proposal永続artifactを追加したという意味ではない。
 
 これは成果物の関係であり、毎回すべてを実行する手順ではない。0件・部分完了・未完了は調査進行の結果として残し、AI完了を人間の採用や取引事実と混同しない。操作ごとの開始条件と人間確認は[各skill](../.agents/skills/)を参照する。
+
+Readingの現行範囲は`market_context/indicators`のregistryに登録された系列で、経済統計・金利・信用/流動性・為替/商品・株価指数やvolatility等を含む。`market_context/reading`がdated規則で統計と鮮度を計算し、市場全体/業種のbreadthや指定銘柄の相対状態は別の`market_context/snapshot / security`が所有する。全Market ContextのL2を一つのReadingへ統合したという意味ではない。現行canonical名はReadingとし、旧資料のMacro Readingはこの指標読取の歴史的呼称として読む。
+
+Market Context Assessmentの実モデルは`market_context/assessment/models.py`の`MarketContextAssessment`である。旧Macro Contextのschema3/4は保存された章立て判断の歴史的用語、schema5/6は同じコンパクト判断の意味を持つ。`macro-context-*`等の保存identityや引用は文字列のまま保全し、名称やID prefixだけで内容を旧章立てへ分類しない。Readingは判断を自動生成せず、L3の明示作成と履歴読取を分ける。
 
 ## Naming grammar
 

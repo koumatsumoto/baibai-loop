@@ -26,7 +26,7 @@ uv run baibai-engine research prepare \
 
 対象purposeごとに必要なflagだけを使う。新規は`--ticker`、保有は`--holding-ticker`を同じ呼出しで指定し、合算上限を守る。新規のない開始はTriage IDを省略して`--asof`を指定できる。0件も開始要求と提案なしの終了を残す。
 
-新規workspaceと`holdings/<ticker>`は同じOperationを参照する。三領域の保存済み`domain-inputs.yaml`を読み、観測・機械anchor・AI前提を分ける。独立したMacro Contextの全文作成を前提にせず、materialな環境変化だけ企業評価と提案へ接続する。既存Thesisがあれば`--from-thesis-id`で引き継ぐ。再開で別Triage・対象集合へ差し替えず、執筆済みworkspaceを保持する。
+新規workspaceと`holdings/<ticker>`は同じOperationを参照する。三領域の保存済み`domain-inputs.yaml`を読み、観測・機械anchor・AI前提を分ける。保存された旧章立てreportの全文作成を前提にせず、materialな環境変化だけ企業評価と提案へ接続する。既存Thesisがあれば`--from-thesis-id`で引き継ぐ。再開で別Triage・対象集合へ差し替えず、執筆済みworkspaceを保持する。
 
 <a id="company-research"></a>
 
@@ -41,7 +41,7 @@ uv run baibai-engine research prepare \
 この節は企業の調査・算術・独立Reviewを扱う。保有を扱う場合は同じ有限Operationの保有workspaceを使い、新規CAA・購入Planningへ混ぜない。
 
 1. `research thesis-scaffold`でdraftを作り、明示mappingされたplaybookの問いを一次資料で検討する。[事業モデル別調査](../../../docs/reference/business-model-research.md)は指定された試行の補助として使い、全社共通の追加gateにしない。
-2. [Thesis reference](../../../docs/reference/thesis.md)に従って企業評価とBase/Downsideを構成する。束縛されたMacro Contextのestimate caveatは、materialなものだけを仮定・source・反対仮説へ接続する。機械推計の照会・意味は[Valuation metrics](../../../docs/reference/valuation-metrics.md#machine-valuation)を参照し、企業固有評価との区別はThesis referenceに従う。
+2. [Thesis reference](../../../docs/reference/thesis.md)に従って企業評価とBase/Downsideを構成する。束縛された市場環境判断の含意・留意点は、materialなものだけを仮定・source・反対仮説へ接続する。機械推計の照会・意味は[Valuation metrics](../../../docs/reference/valuation-metrics.md#machine-valuation)を参照し、企業固有評価との区別はThesis referenceに従う。
    利益の1株換算には直近の自己株控除株数を起点とし、その資料の重要後発事象と評価日までの一次開示で増資・自己株処分・消却を照合する。株式分割の確認だけで株数の更新を済ませず、実行済みと予定を分けて計算basisに残す。
 3. `research evaluate`で計算資料とerrorsを確認する。必要価値・時間感度の解釈は[valuation context](../../../docs/reference/thesis.md#valuation-context)に従う。Review未添付だけの`review_required`は計算資料があってもexit 2であり、他のerrorを無視する許可ではない。
 4. `research review-scaffold`を用い、作者と別の作業者がsource・算術・経済的反証を確認する。`evaluate --review`で一組を検証し、coreを変えたらReviewを取り直す。

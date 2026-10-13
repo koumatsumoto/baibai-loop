@@ -506,7 +506,8 @@ def _require_no_stale_derived_dependents(
             if vintage_at is None:
                 continue
             stale.append(
-                f"macro retract {derived_id} --observed-at {observed_at.isoformat()} "
+                f"market-context indicators retract {derived_id} "
+                f"--observed-at {observed_at.isoformat()} "
                 f"--expected-vintage {vintage_at.isoformat()}"
             )
     if stale:

@@ -5,20 +5,20 @@ import { describe, expect, it } from 'vitest'
 import type { IndicatorGroupView, ReadingSeriesView, ReadingView, IndicatorFetchHealthView, IndicatorSeriesView } from '../src/api/types'
 import { buildIndicatorGroups, filterIndicatorGroups, indicatorHistoryUrl, readingStatistics, seriesWindowSummary, statisticName, summarizeIndicators, transformSeriesHistory } from '../src/lib/indicators'
 
-const macroPageSource = readFileSync(resolve(import.meta.dirname, '../src/pages/MarketContextPage.tsx'), 'utf8')
+const marketContextPageSource = readFileSync(resolve(import.meta.dirname, '../src/pages/MarketContextPage.tsx'), 'utf8')
 
-describe('Macro information architecture', () => {
+describe('Market Context information architecture', () => {
   it('puts current context before indicators and history', () => {
     const headings = ['現在のマクロ局面', 'マクロ経済指標', '過去の経済分析レポート']
-    expect(macroPageSource).toContain('title="市場環境"')
-    expect(macroPageSource.indexOf(headings[0])).toBeLessThan(macroPageSource.indexOf(headings[1]))
-    expect(macroPageSource.indexOf(headings[1])).toBeLessThan(macroPageSource.indexOf(headings[2]))
+    expect(marketContextPageSource).toContain('title="市場環境"')
+    expect(marketContextPageSource.indexOf(headings[0])).toBeLessThan(marketContextPageSource.indexOf(headings[1]))
+    expect(marketContextPageSource.indexOf(headings[1])).toBeLessThan(marketContextPageSource.indexOf(headings[2]))
   })
 
   it('does not restore the retired daily comparison presentation', () => {
-    expect(macroPageSource).not.toContain('machine_update')
-    expect(macroPageSource).not.toContain('前回からの変化')
-    expect(macroPageSource).not.toContain('分析後に何が変わったか')
+    expect(marketContextPageSource).not.toContain('machine_update')
+    expect(marketContextPageSource).not.toContain('前回からの変化')
+    expect(marketContextPageSource).not.toContain('分析後に何が変わったか')
   })
 })
 

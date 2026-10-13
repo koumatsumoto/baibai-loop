@@ -39,7 +39,7 @@ E[r] calibration contextは共有read contractがartifact schema、generated/exp
 
 `research prepare`は新規workspaceと、選んだ保有の`holdings/<ticker>` workspaceを同じOperationへ束縛する。`position-prepare`単独も明示開始要求から保有Operationを作る。manifestのOperation IDとselection hashは対象の付け替えを検出し、completed Operationへ新しい調査を足さない。旧manifestのOperation ID欠如は履歴statusで読めるが、scaffold/review/promoteのmutation入口としては認めず、明示prepareによる束縛が必要である。
 
-保存済み三領域を`research/inputs.py`で合成した`domain-inputs.yaml`は調査の入力である。機械anchor、個別/市場/業種、macro Reading、外部提示値を意味ごとに保持し、欠測を新規取得やAI起動で埋めない。既存Macro Contextは任意の参照であり、毎回独立した全depth reportや主観確率を作る前提にしない。重要な環境上の含意だけを企業評価・提案のsource、仮定、反対仮説へ接続する。
+保存済み三領域を`research/inputs.py`で合成した`domain-inputs.yaml`は調査の入力である。機械anchor、個別/市場/業種、macro Reading、外部提示値を意味ごとに保持し、欠測を新規取得やAI起動で埋めない。既存Market Context Assessmentは任意の参照であり、毎回独立した全depth reportや主観確率を作る前提にしない。重要な環境上の含意だけを企業評価・提案のsource、仮定、反対仮説へ接続する。
 
 ## 成果の被覆とL3完了
 
@@ -59,7 +59,7 @@ L3の提案完成はOperation `completed`であり、人間採否・注文・約
 
 `--asof YYYY-MM-DD`は対象日の最新Review Setを使う。option省略は今日JSTのexact指定であり、対象日になければ`no_review_set`（exit 0）となり、別日へfallbackしない。
 
-`--latest`はpull済みruns storeの最新as-of・同日最新canonical publicationを既存resolverで選ぶ。`--asof`とは排他である。最新Screening RunとReview Setのrevision一致とpayloadのidentity bindingを確認し、同じexact Review Setの既存Triage・Macro Contextを結合する。Review SetまたはRunがない、revisionが不一致、payloadやbindingが不正な場合は`failed`（non-zero）となり、model起動・canonical writeは0。新しい日や同日の後続revisionが未発行でも古いReview Setへfallbackしない。calendar上の未実行判定は行わず、同期済みstoreの整合を確認する。
+`--latest`はpull済みruns storeの最新as-of・同日最新canonical publicationを既存resolverで選ぶ。`--asof`とは排他である。最新Screening RunとReview Setのrevision一致とpayloadのidentity bindingを確認し、同じexact Review Setの既存Triage・Market Context Assessmentを結合する。Review SetまたはRunがない、revisionが不一致、payloadやbindingが不正な場合は`failed`（non-zero）となり、model起動・canonical writeは0。新しい日や同日の後続revisionが未発行でも古いReview Setへfallbackしない。calendar上の未実行判定は行わず、同期済みstoreの整合を確認する。
 
 Review Set全件、[TRIAGE_POLICY](../../batch/src/baibai_batch/analysis/policy.py)、利用可能な市場環境判断の根拠・含意・反証/不確実性を含む共有projectionを一つのpayloadとして渡す。AIにrepository・runbook・成功logを読ませず、ID・CAS・publish操作を判断させない。
 

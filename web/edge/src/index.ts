@@ -117,15 +117,15 @@ function resolveRoute(url: URL): RouteResult {
     default:
       return (
         resolveScreeningHistory(url.pathname) ??
-        resolveMacroSeries(url.pathname) ??
-        resolveMacroContext(url.pathname) ??
+        resolveIndicatorSeries(url.pathname) ??
+        resolveMarketContextAssessment(url.pathname) ??
         resolveAssessment(url.pathname) ??
         resolveSecurity(url.pathname)
       )
   }
 }
 
-function resolveMacroSeries(pathname: string): RouteResult | null {
+function resolveIndicatorSeries(pathname: string): RouteResult | null {
   const prefix = '/api/market-context/indicators/'
   if (!pathname.startsWith(prefix)) {
     return null
@@ -165,7 +165,7 @@ async function screeningHistoryIndex(env: Env): Promise<Response> {
   return jsonResponse({ dates }, 200)
 }
 
-function resolveMacroContext(pathname: string): RouteResult | null {
+function resolveMarketContextAssessment(pathname: string): RouteResult | null {
   const prefix = '/api/market-context/assessments/'
   if (!pathname.startsWith(prefix)) {
     return null

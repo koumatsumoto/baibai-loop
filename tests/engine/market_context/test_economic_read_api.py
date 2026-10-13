@@ -22,7 +22,7 @@ from baibai_engine.read_api.market_context import (
 )
 
 
-def test_macro_indicator_series_aggregates_each_period_to_its_last_observation(
+def test_indicator_series_aggregates_each_period_to_its_last_observation(
     tmp_path: Path,
 ) -> None:
     database = tmp_path / "indicators.sqlite"
@@ -81,7 +81,7 @@ def test_macro_indicator_series_aggregates_each_period_to_its_last_observation(
     assert series["tradingview_symbol"] == "TVC:US10Y"
 
 
-def test_macro_indicator_series_filters_range_before_aggregation_and_keeps_latest_vintage(
+def test_indicator_series_filters_range_before_aggregation_and_keeps_latest_vintage(
     tmp_path: Path,
 ) -> None:
     database = tmp_path / "indicators.sqlite"
@@ -120,7 +120,7 @@ def test_macro_indicator_series_filters_range_before_aggregation_and_keeps_lates
     assert points == [{"observed_at": "2026-01-02", "value": 2.5}]
 
 
-def test_macro_indicator_series_applies_jquants_publication_cutoff(tmp_path: Path) -> None:
+def test_indicator_series_applies_jquants_publication_cutoff(tmp_path: Path) -> None:
     database = tmp_path / "indicators.sqlite"
     connection = initialize_database(database)
     try:
@@ -168,7 +168,7 @@ def test_macro_indicator_series_applies_jquants_publication_cutoff(tmp_path: Pat
     assert september["points"] == [{"observed_at": "2024-08-23", "value": -400000000.0}]
 
 
-def test_macro_reading_snapshot_clamps_only_provider_declared_point_in_time_vintages(
+def test_reading_snapshot_clamps_only_provider_declared_point_in_time_vintages(
     tmp_path: Path,
 ) -> None:
     database = tmp_path / "indicators.sqlite"
@@ -249,7 +249,7 @@ def test_macro_reading_snapshot_clamps_only_provider_declared_point_in_time_vint
         indicators_path=database,
         app_path=tmp_path / "missing-app.sqlite",
     )
-    assert inputs["market_context"]["macro_reading"] == payload
+    assert inputs["market_context"]["reading"] == payload
     web = ReadingView.model_validate({**payload, "as_of": payload["asof"], "fetch_health": []})
     assert web.read_semantics.limitation == semantics["limitation"]
     assert web.series[0].read_semantics.limitation == semantics["limitation"]
@@ -267,11 +267,11 @@ def test_macro_reading_snapshot_clamps_only_provider_declared_point_in_time_vint
         assert enriched == pure_row
 
 
-def test_macro_reading_snapshot_fails_closed_when_rules_are_missing(tmp_path: Path) -> None:
+def test_reading_snapshot_fails_closed_when_rules_are_missing(tmp_path: Path) -> None:
     database = tmp_path / "indicators.sqlite"
     initialize_database(database).close()
 
-    with pytest.raises(ReadingRulesError, match="failed to read macro reading rules"):
+    with pytest.raises(ReadingRulesError, match="failed to read Reading rules"):
         reading_snapshot(
             database,
             asof=date(2026, 7, 26),
@@ -279,7 +279,7 @@ def test_macro_reading_snapshot_fails_closed_when_rules_are_missing(tmp_path: Pa
         )
 
 
-def test_macro_indicator_series_rejects_invalid_range_and_limit(tmp_path: Path) -> None:
+def test_indicator_series_rejects_invalid_range_and_limit(tmp_path: Path) -> None:
     database = tmp_path / "indicators.sqlite"
     initialize_database(database).close()
 
@@ -294,7 +294,7 @@ def test_macro_indicator_series_rejects_invalid_range_and_limit(tmp_path: Path) 
         indicator_series(database, series_id="us.10y", limit=0)
 
 
-def test_macro_indicator_series_hides_retained_unregistered_metadata(tmp_path: Path) -> None:
+def test_indicator_series_hides_retained_unregistered_metadata(tmp_path: Path) -> None:
     database = tmp_path / "indicators.sqlite"
     connection = initialize_database(database)
     try:

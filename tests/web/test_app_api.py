@@ -31,7 +31,7 @@ def test_api_exposes_read_views_and_spa_fallback(app_method_root: Path) -> None:
         screening = client.get("/api/screening/latest")
         screening_history = client.get("/api/screening/history")
         previous_screening = client.get("/api/screening/history/2026-07-01")
-        macro = client.get("/api/market-context?as_of=2026-07-19")
+        market_context_response = client.get("/api/market-context?as_of=2026-07-19")
         detail = client.get("/api/securities/2331")
 
         assert health.status_code == 200
@@ -50,10 +50,10 @@ def test_api_exposes_read_views_and_spa_fallback(app_method_root: Path) -> None:
         assert len(previous_screening.json()["rows"]) == 3
         assert previous_screening.json()["rows"][0]["portfolio_state"] == "held"
         assert previous_screening.json()["rows"][0]["has_research"] is True
-        assert macro.status_code == 200
-        assert macro.json()["reading"]["as_of"] == "2026-07-19"
-        assert macro.json()["reports"] == []
-        assert [group["title"] for group in macro.json()["groups"]] == [
+        assert market_context_response.status_code == 200
+        assert market_context_response.json()["reading"]["as_of"] == "2026-07-19"
+        assert market_context_response.json()["reports"] == []
+        assert [group["title"] for group in market_context_response.json()["groups"]] == [
             "金利・金融政策",
             "インフレ・賃金",
             "景気・雇用",
@@ -62,13 +62,13 @@ def test_api_exposes_read_views_and_spa_fallback(app_method_root: Path) -> None:
             "コモディティ",
             "株式・バリュエーション",
         ]
-        macro_series = {
+        indicator_series = {
             series["series_id"]: series
-            for group in macro.json()["groups"]
+            for group in market_context_response.json()["groups"]
             for series in group["series"]
         }
-        assert macro_series["us.10y"]["tradingview_symbol"] == "TVC:US10Y"
-        assert macro_series["jp.pmi_manufacturing"]["tradingview_symbol"] is None
+        assert indicator_series["us.10y"]["tradingview_symbol"] == "TVC:US10Y"
+        assert indicator_series["jp.pmi_manufacturing"]["tradingview_symbol"] is None
         assert detail.status_code == 200
         assert detail.json()["ticker"] == "2331"
         assert len(detail.json()["latest_thesis"]["projection"]["raw"]["permanent_loss_risks"]) == 7
@@ -129,7 +129,7 @@ def test_api_meta_reports_store_freshness(app_method_root: Path) -> None:
     assert datetime.fromisoformat(body["generated_at"]).tzinfo is not None
 
 
-def test_macro_series_api_returns_only_the_requested_series(app_method_root: Path) -> None:
+def test_indicator_series_api_returns_only_the_requested_series(app_method_root: Path) -> None:
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         response = client.get("/api/market-context/indicators/us.10y?as_of=2026-07-19")
         missing = client.get("/api/market-context/indicators/not.registered")
@@ -140,7 +140,9 @@ def test_macro_series_api_returns_only_the_requested_series(app_method_root: Pat
     assert missing.status_code == 404
 
 
-def test_macro_brief_reports_every_registered_series_without_history(app_method_root: Path) -> None:
+def test_market_context_overview_reports_every_registered_series_without_history(
+    app_method_root: Path,
+) -> None:
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         response = client.get("/api/market-context?as_of=2026-07-19")
 
@@ -163,7 +165,7 @@ def test_macro_brief_reports_every_registered_series_without_history(app_method_
     )
 
 
-def test_macro_reading_api_surfaces_a_failed_acquisition_before_it_turns_stale(
+def test_reading_api_surfaces_a_failed_acquisition_before_it_turns_stale(
     app_method_root: Path,
 ) -> None:
     """A silent provider must be visible immediately, not after the staleness threshold.
@@ -199,7 +201,7 @@ def test_macro_reading_api_surfaces_a_failed_acquisition_before_it_turns_stale(
     assert body["series"]
 
 
-def test_macro_brief_survives_without_an_indicator_store(
+def test_market_context_overview_survives_without_an_indicator_store(
     app_method_root: Path,
 ) -> None:
     """A missing store must let the page hide the panel, not fail the request handler."""
@@ -213,7 +215,7 @@ def test_macro_brief_survives_without_an_indicator_store(
     assert response.json()["reading"] is None
 
 
-def test_macro_api_indexes_published_reports_without_full_sections(
+def test_market_context_api_indexes_published_reports_without_full_sections(
     app_method_root: Path,
 ) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"
@@ -356,7 +358,7 @@ def test_history_id_is_available_independently_of_analysis_date(
         assert future.status_code == 200
 
 
-def test_macro_history_keeps_an_earlier_contract_visible(
+def test_assessment_history_keeps_an_earlier_contract_visible(
     app_method_root: Path,
 ) -> None:
     """Older revisions stay in the table as a log; the UI is never asked to render them."""
@@ -395,7 +397,7 @@ def test_macro_history_keeps_an_earlier_contract_visible(
     assert overview.json()["reports"][0]["context_id"] == payload["context_id"]
 
 
-def test_macro_api_preserves_immutable_context_when_series_definition_is_absent(
+def test_market_context_api_preserves_immutable_context_when_series_definition_is_absent(
     app_method_root: Path, mocker
 ) -> None:
     db_path = app_method_root / "stores/application/baibai.sqlite"

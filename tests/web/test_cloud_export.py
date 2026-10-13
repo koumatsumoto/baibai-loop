@@ -161,7 +161,7 @@ def _insert_review_set(root: Path, *, review_set_id: str) -> str:
     return run.run_revision_id
 
 
-def _seed_macro_observations(root: Path) -> None:
+def _seed_indicator_observations(root: Path) -> None:
     conn = open_connection(root / "stores/market_context/indicators.sqlite")
     try:
         insert_observations(
@@ -197,7 +197,7 @@ def _seed_macro_observations(root: Path) -> None:
 
 
 def test_build_meta_derives_store_asof_from_fixture_stores(app_method_root: Path) -> None:
-    _seed_macro_observations(app_method_root)
+    _seed_indicator_observations(app_method_root)
     seed_history(
         app_method_root / "stores/application/baibai.sqlite",
         (StoredAssessment.from_payload(historical_context_payload())).document,
@@ -217,7 +217,7 @@ def test_build_meta_derives_store_asof_from_fixture_stores(app_method_root: Path
 def test_build_meta_freshness_ignores_retained_unregistered_series(
     app_method_root: Path,
 ) -> None:
-    _seed_macro_observations(app_method_root)
+    _seed_indicator_observations(app_method_root)
     database = app_method_root / "stores/market_context/indicators.sqlite"
     connection = open_connection(database)
     try:
@@ -355,11 +355,13 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     meta = MetaView.model_validate_json((views / "meta.json").read_text(encoding="utf-8"))
     assert meta.batch == "daily"
     assert meta.screening_as_of == date(2026, 7, 8)
-    macro = MarketContextView.model_validate_json(
+    market_context = MarketContextView.model_validate_json(
         (views / "market-context.json").read_text(encoding="utf-8")
     )
-    assert macro.reading.as_of == datetime.now(JST).date()
-    assert sum(len(series.points) for group in macro.groups for series in group.series) == 0
+    assert market_context.reading.as_of == datetime.now(JST).date()
+    assert (
+        sum(len(series.points) for group in market_context.groups for series in group.series) == 0
+    )
     for name in ("security--0001.json", "security--0002.json", "security--2331.json"):
         detail = SecurityDetailView.model_validate_json((views / name).read_text(encoding="utf-8"))
         assert detail.security_analysis is not None
@@ -456,7 +458,7 @@ def test_export_fails_before_writing_when_reading_rules_are_absent(
     output_dir = tmp_path / "export"
 
     assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 1
-    assert "failed to read macro reading rules" in capsys.readouterr().err
+    assert "failed to read Reading rules" in capsys.readouterr().err
     assert not output_dir.exists()
 
 
@@ -478,7 +480,7 @@ def test_export_fails_before_writing_when_rules_do_not_cover_the_registry(
     output_dir = tmp_path / "export"
 
     assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 1
-    assert "macro reading rules have no defaults for frequency" in capsys.readouterr().err
+    assert "Reading rules have no defaults for frequency" in capsys.readouterr().err
     assert not output_dir.exists()
 
 
@@ -521,17 +523,17 @@ def test_exported_views_match_api_responses(app_method_root: Path, tmp_path: Pat
 
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         api_screening = client.get("/api/screening/latest").json()
-        api_macro = client.get("/api/market-context").json()
+        api_market_context = client.get("/api/market-context").json()
         api_dashboard = client.get("/api/dashboard").json()
         api_tasks = client.get("/api/tasks").json()
     exported_screening = json.loads(
         (output_dir / "views/screening_latest.json").read_text(encoding="utf-8")
     )
     assert exported_screening == api_screening
-    exported_macro = json.loads(
+    exported_market_context = json.loads(
         (output_dir / "views/market-context.json").read_text(encoding="utf-8")
     )
-    assert exported_macro == api_macro
+    assert exported_market_context == api_market_context
     exported_dashboard = json.loads(
         (output_dir / "views/dashboard.json").read_text(encoding="utf-8")
     )
@@ -765,7 +767,7 @@ def test_indicator_only_export_keeps_retained_history_bytes_and_screening_clock(
     }
     assert history_before
     screening_before = json.loads((output / "views/screening_latest.json").read_text())
-    _seed_macro_observations(app_method_root)
+    _seed_indicator_observations(app_method_root)
     assert (
         main(["--output-dir", str(output), "--repo-root", str(app_method_root), "--skip-history"])
         == 0

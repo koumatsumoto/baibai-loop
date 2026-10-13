@@ -7,7 +7,7 @@ checkable without a network call.
 
 The readings answer "how expensive is protection, and how lopsided", which is a
 different question from what the index level says. They are observations for a
-human reading the macro context, not inputs to a mechanical timing rule.
+human assessing the market context, not inputs to a mechanical timing rule.
 """
 
 from __future__ import annotations

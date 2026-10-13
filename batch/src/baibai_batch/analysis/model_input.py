@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from baibai_batch.analysis.models import ModelInput, TriageCandidate
-from baibai_batch.analysis.policy import TRIAGE_POLICY
+from baibai_batch.analysis.policy import HISTORICAL_TRIAGE_POLICY, TRIAGE_POLICY
 from baibai_engine.batch_api import (
     PublishedReviewSet,
     ReviewSetEntrySnapshot,
@@ -84,7 +84,7 @@ def extract_publication_input(
             "Use only this JSON. Do not call tools or read files. "
             "Compare every candidate and return exactly one strict decision for each ticker."
         ),
-        "policy": list(TRIAGE_POLICY),
+        "policy": list(HISTORICAL_TRIAGE_POLICY if legacy_triage else TRIAGE_POLICY),
         "as_of": review_set.as_of.isoformat(),
         ("macro_context" if legacy_triage else "market_context_assessment"): assessment_projection(
             market_context_assessment, as_of=review_set.as_of

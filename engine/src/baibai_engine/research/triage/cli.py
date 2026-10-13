@@ -81,7 +81,7 @@ def scaffold_research_triage(
             age_days = (date.fromisoformat(as_of) - context_asof).days
             if age_days > ASSESSMENT_STALE_DAYS:
                 print(
-                    "warning: latest eligible macro context is stale: "
+                    "warning: latest eligible market context assessment is stale: "
                     f"{latest_context['context_id']} age_days={age_days}",
                     file=sys.stderr,
                 )

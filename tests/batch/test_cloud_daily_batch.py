@@ -51,7 +51,7 @@ REVIEW_SET_OK = CommandResult(
 )
 
 
-def _macro_list_row(
+def _indicator_list_row(
     series_id: str,
     category: str,
     geography: str,
@@ -74,15 +74,15 @@ def _macro_list_row(
     }
 
 
-MACRO_LIST_OK = CommandResult(
+INDICATOR_LIST_OK = CommandResult(
     0,
     json.dumps(
         [
-            _macro_list_row("us.10y", "rates", "us", "daily", "fred_csv"),
-            _macro_list_row("jp.foreign_flows", "flows", "jp", "weekly", "jquants_flows"),
-            _macro_list_row("jp.cpi_all", "prices", "jp", "monthly", "estat"),
-            _macro_list_row("jp.gdp", "growth", "jp", "quarterly", "estat"),
-            _macro_list_row("jp.bankruptcies", "credit", "jp", "monthly", "tsr_bankruptcies"),
+            _indicator_list_row("us.10y", "rates", "us", "daily", "fred_csv"),
+            _indicator_list_row("jp.foreign_flows", "flows", "jp", "weekly", "jquants_flows"),
+            _indicator_list_row("jp.cpi_all", "prices", "jp", "monthly", "estat"),
+            _indicator_list_row("jp.gdp", "growth", "jp", "quarterly", "estat"),
+            _indicator_list_row("jp.bankruptcies", "credit", "jp", "monthly", "tsr_bankruptcies"),
         ]
     ),
     "",
@@ -146,7 +146,7 @@ def _success_script() -> dict[str, list[CommandResult]]:
         "screening run": [RUN_OK],
         "task reconcile-earnings": [OK],
         "screening extract-edinet-facts": [OK],
-        "market-context indicators list": [MACRO_LIST_OK],
+        "market-context indicators list": [INDICATOR_LIST_OK],
         "market-context indicators refresh": [OK, OK, OK],
         "export": [OK],
         "screening prune": [OK],
@@ -418,7 +418,7 @@ def test_daily_batch_continues_when_run_reports_partial_warning(tmp_path: Path, 
     assert "partial warning (run is published" in capsys.readouterr().out
 
 
-def test_daily_batch_defers_macro_refresh_failure_until_after_export(
+def test_daily_batch_defers_indicator_refresh_failure_until_after_export(
     tmp_path: Path, capsys
 ) -> None:
     script = _success_script()
@@ -470,7 +470,7 @@ def test_daily_batch_always_echoes_registry_prune_audit_lines(
     assert exit_code == (3 if returncode else 0)
 
 
-def test_daily_batch_defers_macro_list_failure_and_still_exports(tmp_path: Path) -> None:
+def test_daily_batch_defers_indicator_list_failure_and_still_exports(tmp_path: Path) -> None:
     script = _success_script()
     script["market-context indicators list"] = [CommandResult(1, "", "boom\n")]
     runner = _runner(script)
@@ -944,8 +944,10 @@ def test_main_rejects_an_invalid_asof_before_writing_a_notice(tmp_path: Path, ca
 def test_parse_indicator_series_reads_json_list() -> None:
     stdout = json.dumps(
         [
-            _macro_list_row("us.10y", "rates", "us", "daily", "fred_csv"),
-            _macro_list_row("jp.pmi_manufacturing", "activity", "jp", "monthly", "spglobal_pmi"),
+            _indicator_list_row("us.10y", "rates", "us", "daily", "fred_csv"),
+            _indicator_list_row(
+                "jp.pmi_manufacturing", "activity", "jp", "monthly", "spglobal_pmi"
+            ),
         ]
     )
 
@@ -963,11 +965,11 @@ def test_indicator_refresh_groups_buckets_every_series_by_frequency_window() -> 
     parsed = _parse_indicator_series(
         json.dumps(
             [
-                _macro_list_row("us.10y", "rates", "us", "daily", "fred_csv"),
-                _macro_list_row(
+                _indicator_list_row("us.10y", "rates", "us", "daily", "fred_csv"),
+                _indicator_list_row(
                     "jp.pmi_manufacturing", "activity", "jp", "monthly", "spglobal_pmi"
                 ),
-                _macro_list_row("jp.cpi", "prices", "jp", "monthly", "estat"),
+                _indicator_list_row("jp.cpi", "prices", "jp", "monthly", "estat"),
             ]
         )
     )
@@ -984,11 +986,11 @@ def test_indicator_refresh_groups_orders_derived_after_base() -> None:
     parsed = _parse_indicator_series(
         json.dumps(
             [
-                _macro_list_row(
+                _indicator_list_row(
                     "gold_copper_ratio", "commodity", "world", "daily", "derived", kind="local"
                 ),
-                _macro_list_row("us.10y", "rates", "us", "daily", "fred_csv"),
-                _macro_list_row("gold", "commodity", "world", "daily", "yahoo"),
+                _indicator_list_row("us.10y", "rates", "us", "daily", "fred_csv"),
+                _indicator_list_row("gold", "commodity", "world", "daily", "yahoo"),
             ]
         )
     )

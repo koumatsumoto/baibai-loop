@@ -1,4 +1,4 @@
-"""Shapes of the L2 macro reading (machine-computed descriptive statistics)."""
+"""Shapes of the L2 Reading (machine-computed descriptive statistics)."""
 
 from __future__ import annotations
 

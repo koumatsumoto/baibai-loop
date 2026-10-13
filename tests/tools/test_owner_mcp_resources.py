@@ -21,7 +21,9 @@ from tools.owner_mcp.resource_types import Paths
 from tools.owner_mcp.resources import Resources, decode_cursor, result_size
 from tools.owner_mcp.server import call, create_server
 
-from baibai_engine.market_context.indicators.db import initialize_database as macro_init
+from baibai_engine.market_context.indicators.db import (
+    initialize_database as initialize_indicator_database,
+)
 from baibai_engine.market_context.indicators.db import insert_observations
 from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.read_api.market_context import reading_snapshot
@@ -180,7 +182,7 @@ def test_missing_unwritten_empty_and_corrupt_are_distinct(data):
     assert not data.paths.indicators.exists()
     sqlite3.connect(data.paths.indicators).close()
     error(lambda: data.list("market_context.provider_run"), "SOURCE_UNAVAILABLE")
-    macro_init(data.paths.indicators).close()
+    initialize_indicator_database(data.paths.indicators).close()
     assert data.list("market_context.provider_run")["items"] == []
     with sqlite3.connect(data.paths.indicators) as con:
         con.execute("PRAGMA user_version=999")
@@ -265,8 +267,8 @@ def test_bytes_pagination_never_skips_unreturned_items(data, reader, monkeypatch
     )
 
 
-def test_macro_raw_effective_fixed_cutoff_reading_and_redaction(data):
-    with macro_init(data.paths.indicators) as con:
+def test_indicator_raw_effective_fixed_cutoff_reading_and_redaction(data):
+    with initialize_indicator_database(data.paths.indicators) as con:
         insert_observations(
             con,
             [
@@ -328,7 +330,7 @@ def test_macro_raw_effective_fixed_cutoff_reading_and_redaction(data):
 
 
 def test_provider_jst_boundary_offset_sort_and_read_only(data):
-    con = macro_init(data.paths.indicators)
+    con = initialize_indicator_database(data.paths.indicators)
     try:
         for key, stamp in [
             ("a", "2026-01-01T15:00:00+00:00"),
@@ -486,7 +488,7 @@ def test_cursor_rejects_invalid_day_key_before_store_read(data):
 
 
 def test_reading_list_carries_rules_revision_on_every_page(data):
-    with macro_init(data.paths.indicators):
+    with initialize_indicator_database(data.paths.indicators):
         pass
     filters = {"as_of": "2026-01-05"}
     snapshot = reading_snapshot(data.paths.indicators, asof=date(2026, 1, 5))

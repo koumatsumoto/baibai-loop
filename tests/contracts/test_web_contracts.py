@@ -110,12 +110,12 @@ def test_dynamic_routes_map_to_exact_edge_keys_and_materializer_outputs() -> Non
             'f"{screening_as_of.isoformat()}.json"',
         ),
         "/api/market-context/assessments/{context_id}": (
-            "resolveMacroContext",
+            "resolveMarketContextAssessment",
             "`market-context-assessment--${contextId}.json`",
             'f"market-context-assessment--{context_id}.json"',
         ),
         "/api/market-context/indicators/{series_id}": (
-            "resolveMacroSeries",
+            "resolveIndicatorSeries",
             "`indicator-series--${seriesId}.json`",
             'f"indicator-series--{series_id}.json"',
         ),

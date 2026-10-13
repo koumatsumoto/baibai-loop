@@ -37,7 +37,13 @@ from baibai_engine.storage.application.write import initialize_database
 
 
 def seed(
-    reader, *, identifier="triage-a", day="2026-07-19", published_at=None, macro=None, triaged=True
+    reader,
+    *,
+    identifier="triage-a",
+    day="2026-07-19",
+    published_at=None,
+    assessment_id=None,
+    triaged=True,
 ):
     review = PublishedReviewSet.model_validate(
         published_review_set(
@@ -77,7 +83,7 @@ def seed(
             run_revision_id=review.run_revision_id,
             as_of=day,
             published_at=published_at,
-            market_context_assessment_id=macro,
+            market_context_assessment_id=assessment_id,
             expected_prior_research_triage_id=latest_research_triage_id(reader.app_path),
         )
     )
@@ -122,7 +128,7 @@ def test_fixed_input_and_full_judgment_across_clients(reader):
     assert before == [p.read_bytes() for p in (reader.app_path, reader.runs_path)]
 
 
-def test_exact_macro_and_null_binding_survive_later_context(reader):
+def test_exact_assessment_and_null_binding_survive_later_context(reader):
     seed(reader)
     missing_ref = ref(reader)
     a = StoredAssessment.from_payload(
@@ -130,7 +136,10 @@ def test_exact_macro_and_null_binding_survive_later_context(reader):
     )
     seed_history(reader.app_path, (a).document, supersedes=None)
     _, review = seed(
-        reader, identifier="triage-b", published_at="2026-07-19T15:00:00+09:00", macro=a.context_id
+        reader,
+        identifier="triage-b",
+        published_at="2026-07-19T15:00:00+09:00",
+        assessment_id=a.context_id,
     )
     bound_ref = ref(reader)
     b = StoredAssessment.from_payload(
@@ -201,7 +210,9 @@ def test_mcp_resolve_and_get_input_preserve_assessment_or_historical_projection(
             "inputs": {},
         }
         seed_history(reader.app_path, body)
-    triage, review = seed(reader, macro=context_id, published_at="2026-07-19T15:00:00+09:00")
+    triage, review = seed(
+        reader, assessment_id=context_id, published_at="2026-07-19T15:00:00+09:00"
+    )
     if legacy_triage:
         old_triage = triage.model_dump(mode="json")
         old_triage["schema_version"] = 3

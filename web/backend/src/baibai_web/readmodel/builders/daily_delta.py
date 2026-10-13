@@ -41,7 +41,7 @@ def build_daily_delta(
     reports observations only: which tickers entered or left the Review Set, which
     machine estimates moved, and which holdings stand at or above their recorded fair
     value. Whether any of that is worth a research cycle or a Position Review is the
-    reader's call. Macro context and readings belong to the dedicated Macro view.
+    reader's call. Assessments and readings belong to the dedicated Market Context view.
 
     Sections degrade independently. A store that cannot answer is named in
     ``unavailable`` rather than reported as an empty result, because "no store" and

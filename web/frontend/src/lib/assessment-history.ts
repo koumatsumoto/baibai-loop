@@ -43,7 +43,7 @@ const VALUE_LABELS: Readonly<Record<string, string>> = {
 
 const SCENARIO_ORDER: Readonly<Record<string, number>> = { base: 0, bear: 1, bull: 2 }
 
-const MACRO_TONES: Readonly<Record<string, ReportTone>> = {
+const HISTORICAL_REPORT_TONES: Readonly<Record<string, ReportTone>> = {
   supportive: 'positive',
   adverse: 'warning',
   mixed: 'muted',
@@ -80,7 +80,7 @@ export function labelHistoricalSection(sectionId: string): string {
 }
 
 export function historicalTone(value: string): ReportTone {
-  return MACRO_TONES[value] ?? 'muted'
+  return HISTORICAL_REPORT_TONES[value] ?? 'muted'
 }
 
 export function estimateComponent(value: string): { label: string; order: number } {

@@ -84,7 +84,7 @@ def test_scaffold_warns_but_keeps_a_stale_context(
         yaml.safe_load(output.read_text(encoding="utf-8"))["market_context_assessment_id"]
         == context_id
     )
-    assert "warning: latest eligible macro context is stale" in capsys.readouterr().err
+    assert "warning: latest eligible market context assessment is stale" in capsys.readouterr().err
 
 
 def test_publish_requires_an_existing_nonfuture_context_when_one_is_named(

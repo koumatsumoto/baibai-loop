@@ -63,7 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-engine market-context indicators")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    list_parser = subparsers.add_parser("list", help="list registered macro indicator series")
+    list_parser = subparsers.add_parser("list", help="list registered economic indicator series")
     list_parser.add_argument("--category")
     list_parser.add_argument("--format", choices=("table", "json"), default="table")
 
@@ -148,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
     except (sqlite3.Error, OSError) as exc:
-        print(f"error: macro {args.command}: {exc}", file=sys.stderr)
+        print(f"error: indicators {args.command}: {exc}", file=sys.stderr)
         return 1
     except (ValueError, IndicatorsProviderError) as exc:
         print(f"error: {exc}", file=sys.stderr)

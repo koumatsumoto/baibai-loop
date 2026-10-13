@@ -17,7 +17,7 @@ import pytest
 
 import baibai_engine.read_api as read_api
 from baibai_engine.market_context.indicators.db import (
-    initialize_database as initialize_macro_database,
+    initialize_database as initialize_indicator_database,
 )
 from baibai_engine.read_api.sqlite import read_rows
 from baibai_engine.screening.run_store import initialize_run_store
@@ -274,13 +274,13 @@ def test_every_table_read_api_reads_exists_in_a_migrated_store(tmp_path: Path) -
     market = tmp_path / "market.sqlite"
     with closing(sqlite3.connect(market)) as connection:
         connection.executescript(MARKET_SCHEMA_SQL)
-    macro = tmp_path / "indicators.sqlite"
-    initialize_macro_database(macro).close()
+    market_context = tmp_path / "indicators.sqlite"
+    initialize_indicator_database(market_context).close()
 
     # Every schema is built here rather than listed, so renaming a table on either
     # side of the read is what the assertion sees.
     known = {"sqlite_schema"}
-    for store in (application, runs, market, macro):
+    for store in (application, runs, market, market_context):
         known |= table_names(store)
 
     unknown = sorted(_tables_named_in_read_api_sql() - known)
@@ -593,12 +593,12 @@ def test_assessment_reader_rejects_an_unknown_version(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("mutation", ["missing-table", "missing-column"])
-def test_macro_partial_store_is_not_unpublished(tmp_path: Path, mutation: str) -> None:
+def test_indicator_partial_store_is_not_unpublished(tmp_path: Path, mutation: str) -> None:
     from baibai_engine.market_context.indicators.db import seed_definitions
     from baibai_engine.market_context.indicators.definitions import load_definitions
 
     path = tmp_path / "indicators.sqlite"
-    with closing(initialize_macro_database(path)) as connection:
+    with closing(initialize_indicator_database(path)) as connection:
         seed_definitions(connection, load_definitions())
         connection.commit()
     readers = [

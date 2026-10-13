@@ -57,7 +57,7 @@ afterEach(() => {
   hooks.values.clear()
 })
 
-describe('Macro series history lifecycle', () => {
+describe('Market Context series history lifecycle', () => {
   it.each(['success', '404', 'error', 'abort'])('keeps B after old A %s, including close/open', async outcome => {
     const a = deferred(), b = deferred()
     vi.mocked(fetchJson).mockReturnValueOnce(a.promise).mockReturnValueOnce(b.promise)

@@ -58,7 +58,7 @@ class Sources:
 
 
 def load_indicator_groups(root: Path) -> tuple[IndicatorGroupConfig, ...]:
-    """Load the macro panel config from its canonical repository location."""
+    """Load the indicator panel config from its canonical repository location."""
 
     return load_indicator_panel_config(root / INDICATOR_PANEL_CONFIG_PATH)
 

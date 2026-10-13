@@ -284,7 +284,7 @@ def test_main_reports_both_stores_and_fails_on_an_unreadable_revision(
     captured = capsys.readouterr()
     assert exit_code == 1
     assert "ok: schema v" in captured.out
-    assert "published macro context revisions cannot be read" in captured.err
+    assert "published market context assessment revisions cannot be read" in captured.err
 
 
 def test_main_skips_the_report_check_without_an_application_store(

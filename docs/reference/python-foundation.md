@@ -214,7 +214,7 @@ Web UI と Worker:
 )
 ```
 
-macroの計算・取得・registry・reading methodを変更した場合は、localの対象storeも検証する。
+指標の計算・取得・registry・reading methodを変更した場合は、localの対象storeも検証する。
 
 ```bash
 uv run baibai-batch validate-market-context-stores

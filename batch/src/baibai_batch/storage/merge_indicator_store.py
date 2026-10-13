@@ -1,7 +1,8 @@
 """Merge one indicator store into another, keeping every observation both sides hold.
 
 The indicator store has two writers: the daily batch refreshes a rolling window in the
-cloud, and an operator deepens history locally with ``macro refresh --all-history``. Each
+cloud, and an operator deepens history locally with
+``market-context indicators refresh --all-history``. Each
 therefore holds observations the other has never seen, so publishing the local store means
 merging the cloud copy into it first and proving that nothing cloud-side is left behind.
 
@@ -46,7 +47,7 @@ from baibai_batch.storage.store_merge import (
     schema_name as _schema_name,
 )
 from baibai_engine.batch_api import (
-    MACRO_SCHEMA_VERSION as SQLITE_SCHEMA_VERSION,
+    INDICATOR_SCHEMA_VERSION as SQLITE_SCHEMA_VERSION,
 )
 from baibai_engine.batch_api import (
     IndicatorsSchemaError,

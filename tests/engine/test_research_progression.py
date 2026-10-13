@@ -305,7 +305,7 @@ def test_immutable_selection_and_missing_outcomes_prevent_silent_subject_drop(ho
     assert service.get(operation.operation_id) == operation
 
 
-def test_domain_inputs_are_read_only_and_do_not_require_independent_macro_report(
+def test_domain_inputs_are_read_only_and_do_not_require_independent_historical_report(
     holding_case, tmp_path, monkeypatch
 ):
     db, market, _ = holding_case
@@ -327,7 +327,7 @@ def test_domain_inputs_are_read_only_and_do_not_require_independent_macro_report
     )
     assert set(snapshot["securities"]) == {"1234", "2331"}
     assert snapshot["market_context"]["saved_market_context_assessment"] is None
-    assert snapshot["market_context"]["macro_reading"] is None
+    assert snapshot["market_context"]["reading"] is None
     assert (db.read_bytes(), market.read_bytes()) == before
     assert not (tmp_path / "absent-runs.sqlite").exists()
     assert not (tmp_path / "absent-indicators.sqlite").exists()

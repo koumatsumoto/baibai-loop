@@ -89,12 +89,12 @@ credentialを含むsource URL・provider errorは既存のredactionを通して�
 例の日付は実際の評価日に置き換えてください。readingは現在のstore履歴と既存rulesから再計算したL2です。
 過去L3を自動で混ぜません。保存された市場環境判断は`market_context.assessment`から別に取得します。
 
-利用可能なresource・selector・filter・sort・time basisは`data_catalog`の実応答を参照する。macro Readingの再計算と保存Contextの取得、ledgerの保存価格と現在quoteは別のresourceである。
+利用可能なresource・selector・filter・sort・time basisは`data_catalog`の実応答を参照する。Readingの再計算と保存Contextの取得、ledgerの保存価格と現在quoteは別のresourceである。
 
 一覧はkeyset pageで返す。`next_cursor`の継続条件は元の呼出しと一致させる。itemを途中で切らず、完全なitemまたはget結果を上限内で返せない場合は`RESULT_TOO_LARGE`になる。limitの範囲は入力schema、wire上限は実装contractを参照する。
 
 日付範囲は両端inclusiveです。timestampの期間条件はJST日、date列はその日付です。
-macro observationのeffectiveは`as_of >= to`、省略時は`to`をcutoffとします。
+indicator observationのeffectiveは`as_of >= to`、省略時は`to`をcutoffとします。
 publication-quality vintageだけをcutoffへclampします。vintagesは退役系列を含むraw保存行で、`as_of`は不可です。
 calibrationでは最初の`meta.snapshot_token`を後続のfilters/selectorへ渡すとcohort→panel→forwardを固定できます。
 `market_context.reading`は各pageの`meta.rules_revision`に、そのcallで再計算したrulesの版を返します。

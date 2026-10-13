@@ -9,11 +9,11 @@ import { ScenarioDistribution } from './ScenarioDistribution'
 export function HistoricalReportOverview({ data, regime, risk }: { data: AssessmentPublicationView; regime: HistoricalCoreSectionView | null; risk: HistoricalCoreSectionView | null }) {
   const riskEnvironment = risk?.risk_environment
   return (
-    <section aria-labelledby="macro-overview-title" className="grid gap-4">
+    <section aria-labelledby="historical-overview-title" className="grid gap-4">
       <Card className="shadow-sm">
         <CardHeader>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <CardTitle aria-level={2} id="macro-overview-title" role="heading">現局面</CardTitle>
+            <CardTitle aria-level={2} id="historical-overview-title" role="heading">現局面</CardTitle>
           </div>
           <CardDescription className="break-all">
             公開 {formatJstDateTime(data.published_at)} · {data.context_id}

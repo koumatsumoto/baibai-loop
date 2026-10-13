@@ -46,7 +46,7 @@ _RATE_LIMIT_BACKOFF_SECONDS = (30, 60, 120, 300, 600)
 _RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
 # 1 process が待避に費やせる総時間。日次 batch の 1 pass は 3 系列 x service の 2 回
 # 再試行 = 6 fetch を回すので、fetch ごとの予算では上限が 6 倍になり、拒否が続けば
-# 111 分眠って job timeout を超える——cancel は macro の失敗でなく、その日の
+# 111 分眠って job timeout を超える——cancel は 指標取得の失敗でなく、その日の
 # screening publish ごと失われることを意味する。予算は provider が持ち、pass 全体で
 # 1 つとする。使い切ったあとは待たずに落ちる: 数時間待っても拒否は明けない。
 _BACKOFF_BUDGET_SECONDS = 20 * 60

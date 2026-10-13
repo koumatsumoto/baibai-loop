@@ -168,7 +168,7 @@ def create_app(
         return view
 
     @app.get("/api/market-context", response_model=MarketContextView)
-    def macro(
+    def market_context_overview(
         sources: _SourceDependency,
         as_of: date | None = None,
         known_at: datetime | None = None,
@@ -179,7 +179,7 @@ def create_app(
         )
 
     @app.get("/api/market-context/indicators/{series_id}", response_model=IndicatorSeriesView)
-    def macro_series(
+    def indicator_series_view(
         series_id: str,
         sources: _SourceDependency,
         as_of: date | None = None,

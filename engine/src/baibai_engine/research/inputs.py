@@ -66,7 +66,7 @@ def research_inputs(
         "known_at": known_at.isoformat(),
         "market_context": {
             "market": build_market_snapshot(sqlite_path=market_path, asof_date=as_of),
-            "macro_reading": reading_snapshot(indicators_path, asof=as_of),
+            "reading": reading_snapshot(indicators_path, asof=as_of),
             "saved_market_context_assessment": None
             if context is None
             else assessment_projection(context, as_of=as_of),

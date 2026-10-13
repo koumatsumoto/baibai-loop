@@ -44,7 +44,7 @@ def test_panel_groups_are_non_empty() -> None:
     groups = load_indicator_panel_config(_PANEL_PATH)
     assert groups
     for group in groups:
-        assert group.series, f"empty macro panel group: {group.title}"
+        assert group.series, f"empty indicator panel group: {group.title}"
 
 
 def _panel_source(

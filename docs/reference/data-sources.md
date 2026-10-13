@@ -16,7 +16,7 @@ related_docs:
 
 | 用途 | 採用する情報源 |
 | --- | --- |
-| Macroの数値・経済統計 | 原公表機関の一次情報、または出所を確認できる公式集約先 |
+| 指標の数値・経済統計 | 原公表機関の一次情報、または出所を確認できる公式集約先 |
 | 地政学・速報の事実 | Tier 2の事実報道。意見記事・論説は判断根拠にしない |
 | 企業・市場の機械入力 | 現行providerとregistryの取得契約 |
 | 企業の個別調査 | 会社の一次開示、EDINET、TDnet、JPX等の対象資料 |
@@ -24,7 +24,7 @@ related_docs:
 
 Tierは用途の分類であり、正確さや利用許諾の点数ではない。原公表機関と集約先、公的予測と実績、市場の織り込みと観測値を区別する。
 
-機械取得の仕様・column・単位変換はproviderとregistryを正本とする。指標の意味は[valuation metrics](./valuation-metrics.md)、macro観測・vintage・retractionは[macro](./market-context.md)に従う。
+機械取得の仕様・column・単位変換はproviderとregistryを正本とする。指標の意味は[valuation metrics](./valuation-metrics.md)、指標観測・vintage・retractionは[Market Context](./market-context.md)に従う。
 
 <a id="スコアリング軸"></a>
 
@@ -92,7 +92,7 @@ Tier 2に届かない地政学・速報の事実は、CNBC・NPR・CSIS等の事
 2. 公式取得経路を確認しても、個別releaseの解決等の継続的なsource側の問題で取得できない。tool側の一時障害だけを理由にしない。
 3. 同じ一次統計の同じ期間・定義・数値に一致する報道・配信を複数確認できる。
 
-Macro Contextでは、取得できなかったTier 1 URLを`status: failed`として残し、実際に読んだ二次sourceを別の`input_id`・`status: ok`で登録する。`used_for`と本文に「Tier 2二次配信・Tier 1未確認」を示し、判断の`source_ids`は実際に採用したok inputへ結ぶ。
+Market Context Assessmentでは、取得できなかったTier 1 URLを`status: failed`として残し、実際に読んだ二次sourceを別の`input_id`・`status: ok`で登録する。`used_for`と本文に「Tier 2二次配信・Tier 1未確認」を示し、判断の`source_ids`は実際に採用したok inputへ結ぶ。
 
 単一の二次値しかない場合、または数値・期間・定義が一致しない場合は、この例外を適用しない。機械観測storeへAIが二次値を転記することも認めない。個別の取得障害や例外適用は当該調査へ記録し、回数を数えてactive文書へ追記する運用は行わない。
 
@@ -126,6 +126,8 @@ portfolioの年次・3年・5年outcomeのprimary benchmarkはJPXのTOPIX gross 
 
 固定releaseからの選択と欠測時の扱いは[Research query](./market-lake.md#edinet-research-query)、初期化・運用は[batch運用](../../batch/OPERATIONS.md#edinet-research-facts)に従う。
 
+<!-- 保存された2026-10-12 studyの原引用先。現行名の主anchorはexternal-assessment。 -->
+<a id="retail-dynamics"></a>
 <a id="external-assessment"></a>
 
 ## 外部参考評価の観測と解釈
@@ -135,7 +137,6 @@ External Assessmentは媒体が提示した値・出所・尺度・時点を参�
 同じ配信元の受領間を、確認できた同じorigin・単位・株式基準・対象期間または尺度で比較する。欠測の回復・人数変更・同値の再観測は数値改善の主張と区別する。既存の企業固有評価は[Thesis](./thesis.md)が所有する。型と比較規則は`external_assessment/models.py`・`analysis.py`、cutoffと選択・保存契約は[market lake](./market-lake.md#external-assessment-query)を参照する。
 
 <!-- 歴史reportからの引用anchorを保持する。runtimeの旧名aliasではない。 -->
-<a id="retail-dynamics"></a>
 <a id="external-assessment-acquisition"></a>
 
 ## 公開brokerページの観測

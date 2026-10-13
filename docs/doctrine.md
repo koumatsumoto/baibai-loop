@@ -46,13 +46,13 @@ AIはユーザーの明示開始で有限対象を調査・提案し、提案完
 
 ### 柱 1: 事実と分析の分離
 
-- **(a)** Security Analysis内のobserved / derived / estimateと、人間/AIによるjudgment（macro context・thesis）は責務を分ける。禁止表現と運用ルールは§5[事実と分析の分離](#fact-analysis-separation)を正本とする。
+- **(a)** Security Analysis内のobserved / derived / estimateと、人間/AIによるjudgment（Market Context Assessment・thesis）は責務を分ける。禁止表現と運用ルールは§5[事実と分析の分離](#fact-analysis-separation)を正本とする。
 - **(b)** 事実と意見が混ざると、AI が過去の解釈を「事実」として再生産してしまう。store・table単位で分けておけば「judgmentを AI に見せない」という選択ができ、後知恵バイアスと責任の所在の混乱を防げる。
 - **(c)** 同一tableに`type`列やflagでjudgmentを混在させる案は、混入したときに見落としやすく機械チェックも利きにくい。store・table単位の物理的な分離が最も安全。
 
 ### 柱 2: マクロは機械読み値 + material delta、構造変化は企業価値への影響として扱う
 
-- **(a)** Market Contextは保存済みの環境観測、機械Reading、市場・業種・個別の相対状態を材料とし、AIは重要な変化と伝達経路だけを企業評価・リスクの取り方・提案へ接続する。毎回独立した全depth Macro Contextや主観確率を必須にしない。既存Macro Contextの意味と明示作成は[macro reference](./reference/market-context.md)が所有する。環境上の含意は企業価値や機械rankingと別結果であり、乖離や攻め/守りの方向だけで自動数量・合成score・注文を決めない。対象時点・鮮度・不足を示し、環境の欠測だけで正常な他領域を止めず、重要な不足は提案の留保理由にする。
+- **(a)** Market Contextは保存済みの環境観測、機械Reading、市場・業種・個別の相対状態を材料とし、AIは重要な変化と伝達経路だけを企業評価・リスクの取り方・提案へ接続する。毎回独立した旧章立てreportや主観確率を必須にしない。Market Context Assessmentの意味と明示作成は[Market Context reference](./reference/market-context.md)が所有する。環境上の含意は企業価値や機械rankingと別結果であり、乖離や攻め/守りの方向だけで自動数量・合成score・注文を決めない。対象時点・鮮度・不足を示し、環境の欠測だけで正常な他領域を止めず、重要な不足は提案の留保理由にする。
 - **(b)** AIを含む技術・産業構造変化は、その仮説を外すとBase/Downside projection、FVとrequired return、永久損失、最強反対仮説、またはCapital Allocation Assessmentが変わる場合だけmaterialとする。正の影響は一次情報と必要な独立裏取りからscenario assumption、FV、比較理由へ、負の影響は`structural_decline`、最強反対仮説、必要ならscenarioとFVへ接続する。「AIを使っている」「市場が成長する」という事実だけでbase scenarioや倍率を上げない。
 - **(c)** materialでない構造変化には言及・専用source・専用reviewを要求しない。AI theme、role、専用scoreでscreening、順位、sizingを変えず、企業ごとのE[r]と永久損失リスクを同じ土俵で比較する。
 
@@ -64,7 +64,7 @@ AIはユーザーの明示開始で有限対象を調査・提案し、提案完
 
 ### 柱 4: application DB 正本、Git は method / config
 
-- **(a)** task、macro context、research_triage、research、Capital Allocation Assessment、portfolio ledger / outcome、operation session という application data は application DB を正本とする。再生成可能な screening run は専用 run store、market / macro series は各 L1 store に分離する。method、設定、playbook、コード、docs は Git に置く。機械契約は DB constraint、engine 内の model、application service の write-time validation が担う。
+- **(a)** task、Market Context Assessment、research_triage、research、Capital Allocation Assessment、portfolio ledger / outcome、operation session という application data は application DB を正本とする。再生成可能な screening run は専用 run store、market / indicator series は各 L1 store に分離する。method、設定、playbook、コード、docs は Git に置く。機械契約は DB constraint、engine 内の model、application service の write-time validation が担う。
 - **(b)** 書き込みは AI との会話を入口に `baibai-engine` CLI が行う。`baibai-web` は application DB と各 read store を読むだけの UI で、閲覧専用 read model への publish も同じ読み取り側にあり、正本を書き換えない。この分業により、同じ判断や運用状態の第二の正本を作らず、CLI と UI の意味を揃えられる。
 - **(c)** GitHub Issue や Markdown / YAML を application data の正本にはしない。GitHub は開発作業に使い、運用 workspace は `operation_session`、確定した entity は各 DB table に置く。データ状態の保存場所と更新元の分担は[architecture](./architecture.md#store-authority)に従う。PC上の作業コピーを使うことと、クラウドを正本とすることを区別する。
 
@@ -80,19 +80,19 @@ AIはユーザーの明示開始で有限対象を調査・提案し、提案完
 
 ### Evidence Taxonomy
 
-企業評価のevidenceは、事業・valuation・市場から導出した観測・positioning/liquidity・catalystを区別する。これは見積り根拠を検証する観点であり、統計的なrisk factor体系ではない。macro・policy/geopoliticalはMacro Contextの領域として扱う。厳密な保存enumはmodelを参照する。
+企業評価のevidenceは、事業・valuation・市場から導出した観測・positioning/liquidity・catalystを区別する。これは見積り根拠を検証する観点であり、統計的なrisk factor体系ではない。マクロ経済・政策/地政学はMarket Context Assessmentの領域として扱う。厳密な保存enumはmodelを参照する。
 
 <a id="fact-analysis-separation"></a>
 
 ## 5. 事実と分析の分離
 
-sourceの観測、規則による導出、機械見積り、AIの判断を区別する。機械storeに因果解釈・主観的な重要度・投資判断を書き込まず、見積りを観測済み事実として扱わない。解釈・因果・予測はMacro ContextやThesisの判断として根拠とともに示す。
+sourceの観測、規則による導出、機械見積り、AIの判断を区別する。機械storeに因果解釈・主観的な重要度・投資判断を書き込まず、見積りを観測済み事実として扱わない。解釈・因果・予測はMarket Context AssessmentやThesisの判断として根拠とともに示す。
 
 言葉の有無だけで分類しない。値の由来と主張の意味を基準にし、既知の事実を記述する中立的な語まで禁止語として増やさない。
 
 ## 6. 分析階層：世界情勢 → 地域経済 → 個別資産
 
-Macro Contextは世界情勢、日本経済、個別資産への含意の順で整理する。これは分析の構成であり、因果が常に一方向へ流れるという仮定ではない。伝達経路と反証は[macro reference](./reference/market-context.md)に従って検討する。
+Market Context Assessmentは世界情勢、日本経済、個別資産への含意の順で整理する。これは分析の構成であり、因果が常に一方向へ流れるという仮定ではない。伝達経路と反証は[Market Context reference](./reference/market-context.md)に従って検討する。
 
 ## 7. 非目標
 

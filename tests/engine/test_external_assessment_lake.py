@@ -161,7 +161,7 @@ def test_read_facade_keeps_latest_null_and_rejects_obsolete_schema(tmp_path: Pat
         external_assessment(path, ticker="7203", cutoff=cutoff, evaluated_at=cutoff)
 
 
-def test_retail_release_policy_is_optional_history_with_unproven_coverage() -> None:
+def test_external_assessment_release_policy_is_optional_history_with_unproven_coverage() -> None:
     for name in (VALUATION, RATING):
         policy = next(item for item in PRODUCTION_RELEASE_POLICY.datasets if item.dataset == name)
         assert policy.required is False

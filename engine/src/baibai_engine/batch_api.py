@@ -135,7 +135,7 @@ from baibai_engine.market_context.indicators.db import (
     DEFAULT_DB_PATH as DEFAULT_INDICATORS_DB_PATH,
 )
 from baibai_engine.market_context.indicators.db import (
-    SQLITE_SCHEMA_VERSION as MACRO_SCHEMA_VERSION,
+    SQLITE_SCHEMA_VERSION as INDICATOR_SCHEMA_VERSION,
 )
 from baibai_engine.market_context.indicators.db import (
     IndicatorsSchemaError,
@@ -303,9 +303,11 @@ def _analysis_context(
         existing_triage = StoredResearchTriage.from_payload(exact_triages[0])
         if existing_triage.run_revision_id != review_set.run_revision_id:
             raise ValueError("canonical Research Triage run binding differs from the Review Set")
-    macro_payload = latest_assessment_payload(app_path, as_of=review_set.as_of, known_at=known_at)
+    assessment_payload = latest_assessment_payload(
+        app_path, as_of=review_set.as_of, known_at=known_at
+    )
     market_context_assessment = (
-        None if macro_payload is None else StoredAssessment.from_payload(macro_payload)
+        None if assessment_payload is None else StoredAssessment.from_payload(assessment_payload)
     )
     return DailyAnalysisContext(
         review_set=review_set,
@@ -462,9 +464,9 @@ __all__ = [
     "EXTERNAL_ASSESSMENT_MODEL_VALUATION_DATASET",
     "EXTERNAL_ASSESSMENT_QUANTS_SCORE_DATASET",
     "INDICATORS_DB_PATH",
+    "INDICATOR_SCHEMA_VERSION",
     "LAKE_DATASETS",
     "LATEST_FETCH_LOOKBACK_DAYS",
-    "MACRO_SCHEMA_VERSION",
     "MARKET_DB_PATH",
     "MARKET_SCHEMA_VERSION",
     "RUNS_DB_PATH",

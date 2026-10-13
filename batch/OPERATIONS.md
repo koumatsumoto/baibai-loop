@@ -9,7 +9,7 @@
 | 分析前に保存情報を揃える | [クラウド正本の取得](#クラウド正本をローカルへ取得する) |
 | localで更新したmachine情報を反映する | [クラウド更新](#ローカルからクラウドを更新する) |
 | 判断・確認済み事実を表示へ反映する | [application反映](#application-db-を反映する) |
-| Macro観測・registryを直す | [撤回と退役](#macro観測とregistryの修正) |
+| 指標観測・registryを直す | [撤回と退役](#指標観測とregistryの修正) |
 | EDINET metricsの抽出意味を変更する | [意味revision更新](#edinet-metrics-revision) |
 | EDINET原典のResearch factsを揃える | [EDINET Research facts](#edinet-research-facts) |
 | 初回の構成を確認する | [Cloudflare / GitHub Actions構成](#cloudflare--github-actions-構成) |
@@ -97,7 +97,7 @@ machine stores / serving uploadを停止する。
 
 ### クラウド正本をローカルへ取得する
 
-**前提**: research-triage / research / macro-contextの分析前に、`cloud-daily-batch`の実run状態を確認する。queued / in_progressなら通常の分析用pullを開始せず、完了後に実行する。固定時刻で安全性を判断しない。
+**前提**: research-triage / research / market-context assessmentの分析前に、`cloud-daily-batch`の実run状態を確認する。queued / in_progressなら通常の分析用pullを開始せず、完了後に実行する。固定時刻で安全性を判断しない。
 
 ```bash
 gh run list --workflow cloud-daily-batch.yml --limit 5
@@ -111,11 +111,11 @@ TradingViewはL1だけを独立更新するため、完了済みreleaseをcurren
 batch/scripts/pull.sh
 ```
 
-**成功確認**: `pull-machine`はreceipt / ETagでmarket / runs / macroを同じ確認済みbundleとして取得し、`hydrate-market`は開始時のcurrent L1 releaseを固定する。途中でpointerが動けばvisible storeを置換せず停止する。ただしmachine bundleとL1 pointerを同一transactionでは固定しない。receipt / generation / pointerの競合や検査失敗後のlocal stateは分析に使わず、原因を確認してfreshにpullし直す。`baibai.sqlite`はbulk pullしない。applicationの取得は[application反映](#application-db-を反映する)の`pull-app`前提に従う。
+**成功確認**: `pull-machine`はreceipt / ETagでmarket / runs / indicatorsを同じ確認済みbundleとして取得し、`hydrate-market`は開始時のcurrent L1 releaseを固定する。途中でpointerが動けばvisible storeを置換せず停止する。ただしmachine bundleとL1 pointerを同一transactionでは固定しない。receipt / generation / pointerの競合や検査失敗後のlocal stateは分析に使わず、原因を確認してfreshにpullし直す。`baibai.sqlite`はbulk pullしない。applicationの取得は[application反映](#application-db-を反映する)の`pull-app`前提に従う。
 
 ### Screening入力を検証・補修する
 
-**前提**: screening入力を実際に検証・補修する場合だけ実行する。Macro Contextの作成や、
+**前提**: screening入力を実際に検証・補修する場合だけ実行する。Market Context Assessmentの作成や、
 既存Review Setを読むResearch Triageの前提にはしない。対象日を指定し、個別銘柄の確認が必要なら対象tickerを指定する。
 
 **実行**:
@@ -167,7 +167,7 @@ marketのstore-local tableだけの変更:
 with_publication_lease batch/scripts/r2_transfer.sh push-market
 ```
 
-macroだけの変更:
+指標だけの変更:
 
 ```bash
 with_publication_lease batch/scripts/r2_transfer.sh push-indicators
@@ -324,7 +324,7 @@ ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。�
 
 ### 履歴を深くする
 
-#### Macro履歴
+#### 指標履歴
 
 系列追加後やrolling窓を超える取得断を補う場合に使う。対象期間の全履歴を取得し、Readingを確認する。
 
@@ -339,13 +339,13 @@ ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。�
 )
 ```
 
-数値・履歴不足を確認し、系列追加を含むcodeはmainへ反映してから、[macroのcloud更新](#ローカルからクラウドを更新する)へ進む。失敗時は保存済み範囲と未完範囲を確認し、日次batchに全履歴取得を代行させない。
+数値・履歴不足を確認し、系列追加を含むcodeはmainへ反映してから、[指標のcloud更新](#ローカルからクラウドを更新する)へ進む。失敗時は保存済み範囲と未完範囲を確認し、日次batchに全履歴取得を代行させない。
 
-#### Macro観測とregistryの修正
+#### 指標観測とregistryの修正
 
-vintage・retraction・generation・no-lossの意味は[Macro reference](../docs/reference/market-context.md#①-データindicator-series-を引く)を参照する。
+vintage・retraction・generation・no-lossの意味は[Market Context reference](../docs/reference/market-context.md#①-データindicator-series-を引く)を参照する。
 
-**観測の撤回**: `macro retract <series_id> --observed-at <date> --expected-vintage <ts>`で確認した最新vintageを名指す。derived入力ではcommandが示す依存系列の同日を先に撤回する。CAS拒否なら現在vintageを読み直す。成功後は正しい下位観測、または当日の非表示を確認する。localの直接DELETEや同じCASの反復で復旧しない。
+**観測の撤回**: `market-context indicators retract <series_id> --observed-at <date> --expected-vintage <ts>`で確認した最新vintageを名指す。derived入力ではcommandが示す依存系列の同日を先に撤回する。CAS拒否なら現在vintageを読み直す。成功後は正しい下位観測、または当日の非表示を確認する。localの直接DELETEや同じCASの反復で復旧しない。
 
 **系列の追加・退役・改名**:
 
@@ -542,7 +542,7 @@ machine `.bak`を手動復元する場合は、対応する発行を停止して
 **実行**: application / market / run storeはruntime migrationを持たない。schema変更PRが保持しているtemporary
 one-shot toolを修正し、cutover前のlocal copyへ再実行してcurrent schemaの別fileを作る。toolがcleanup済みなら、
 過去commandを推測せず、修正issueでexact source version・変換・検証を固定したtemporary toolを再構築する。
-macro storeだけは実在する直前schemaからの一段migrationをstaging copyへ適用する。
+indicator storeだけは実在する直前schemaからの一段migrationをstaging copyへ適用する。
 
 **成功確認と復旧**: sourceと出力のintegrity・foreign key・必須table・保持対象row/headを照合してからmainへ入れ、
 同じ作業でstoreを反映する。直前のpush自体が壊れた場合だけ、上の「R2 transferの安全境界」に従って`<key>.bak`の1世代を使う。
@@ -687,7 +687,6 @@ storeのmergeでは同日でも別docIDの成否を混同しない。共有docID
 **失敗時**: failedのdocIDを原典と照合し、認証・rate limit・破損cacheを原因別に解消して再実行する。factが残っていても、最新訂正の失敗を旧版で埋めない。利用側は[書類選択と欠測時の手順](../docs/reference/market-lake.md#edinet-research-query)に従う。
 
 <!-- 歴史reportからの引用anchorを保持する。runtimeの旧名aliasではない。 -->
-<a id="retail-dynamics"></a>
 <a id="external-assessment-acquisition"></a>
 
 ## 公開broker観測の限定取得
@@ -754,7 +753,7 @@ code/store切替、レビュー・CI・private handoff・費用/所要時間の�
 
 ```bash
 gh workflow run cloud-external-assessment.yml --ref main \
-  -f batch_id="$retail_batch_id" -f master_asof="$retail_master_asof"
+  -f batch_id="$external_assessment_batch_id" -f master_asof="$external_assessment_master_asof"
 ```
 
 **成功確認**: 固定cohort・pairのaccountingと未記録0を確認し、success・normalnull・parse/HTTP失敗を区別する。全pairの試行完了は全指標の値ありを意味しない。通常公開は全cohort・pairの確定が必要で、403/429を含むbatchは明示的な部分公開を使う。publisherだけ既存`cloud-publish` concurrencyとpublication leaseへ入り、最新cloudをfresh pull/hydrateしてから元受領時刻のstageを適用する。欠落cohort、期限切れ・置換lease、古いhydrate originは公開前に拒否し、pointer切替直前にもleaseを確認する。leaseとpointerの二つのkeyを原子的なfencingとはみなさない。workflowの公開job上限110分は既存lease TTL120分より短い。
@@ -786,12 +785,12 @@ sourceはread-only、既存outputは拒否する。SQLite backup→table/head/in
 
 1. **切替前の停止確認:** 旧/新外部評価plan、daily、TradingView、materialize、local application発行の実run/processを終端確認する。休日でも#1439は指標/machine/全viewsを公開するため、休日を空き窓としない。新しいwriterの起動とWeb workflowの自動deployを切替中だけ止め、既存deployの終端も確認する。停止/再開は親の運用操作とし、新しい常設workflow/redirect機構を作らない。
 2. **最新正本と準備:** 既存publication lease内で最新L1 pointerとmarket/runs/旧指標key・machine receiptを固定し、旧runtimeでfresh pull/hydrateする。applicationもfresh pullし、取得元ETagを保持してコピーを20→21へ変換する。applicationのlocal/PC writerはlease外なので、書込直前のIf-Matchで競合を拒否する。変更/lease失効では再試行を決め打ちせず停止する。
-3. **code・store切替:** レビュー済みmainへコードを反映し、#1438の既存publisher/CAS手順で新L1 releaseとschema31 marketを反映する。新`indicators.sqlite`は存在しない場合の条件付き作成で元bytesを配置し、既存なら期待した世代/bytes以外を拒否する。application21の最初の反映は取得した旧application世代への条件付きPUTと全行一致の切替であり、旧20と新21を通常`push-app`でmergeさせない。同様にmarket30/31を通常mergeしない。初回切替も既存の条件付きPUT/lease primitiveを使い、無条件overwriteしない。
-4. **通常入口で結合確認:** cloud/localのschema/pathが揃った後に通常`push-machine`でmarket/runs/indicatorsのreceiptを実際のETagから更新し、cleanな新runtimeの`pull-machine`で3 key/receipt/前後世代を突合する。applicationは新runtimeの`pull-app`で全行・head・旧直接ID/Triage/CAA参照を確認する。以後の通常application更新は`push-app`の既存If-Matchを使う。
-5. **servingとWeb:** 新runtimeの既存materializeで全viewsを生成し、既存`upload-serving-views`→成功したstore反映の確認→`publish-serving-tail`を使う。`sync --delete`は旧`views/macro.json`、`macro-series--*`、`macro-context--*`と、新exportに存在しない他の派生viewを削除する。部分exportは禁止、`meta.json`はtailまで更新せず、historyは既存の保持契約に従う。旧canonical DB/keyとdated methodはこの削除対象ではない。新servingの読戻し後、停止していた既存Web workflowを再開し、現在mainの既存deploy入口でWorker/UIを反映・終端確認する。
-6. **受入・再開:** 保存全列・時刻・hash、5/6のコンパクト意味、旧ID/参照・workspace再開、Readingのbulk改定と公表vintageの説明がResearch/MCP/Webで一致することを確認する。受入後にleaseを解放して通常writer/cronを再開し、役割が終わった一回限りmigration toolと専用testを整理する。
+3. **code・store切替:** レビュー済みmainへコードを反映し、#1438手順1〜3の既存publisher/CASで新L1 releaseとschema31 marketを反映する。この時点では同手順4のreceipt更新へ進まない。続けて新`indicators.sqlite`を不存在時の条件付き作成で元bytesのまま配置し、既存なら期待した世代/bytes以外を拒否する。application21を取得した旧application世代への条件付きPUTで反映する。旧20と新21を通常`push-app`でmergeせず、market30/31も通常mergeしない。全新keyとappの配置・世代・bytesを確認するまで通常公開へ進まず、初回切替も既存の条件付きPUT/lease primitiveを使う。
+4. **一回のreceipt更新とfresh読戻し:** 全keyとappの配置後、lease保持を確認して既存`r2_transfer.sh push-market`を一回実行する。これはlocalの旧pulled-version記録を使わず、現在のcloud schema31 marketを新しくGET/mergeし、その取得ETagへsnapshot/CAS PUTする。直後の`write_machine_manifest`がmarket/runs/indicatorsの現行3keyをHEADしてreceiptを作る。旧pullの`macro.sqlite`記録には新indicatorsの記録がなく、market記録も直接CAS後には古いため、最初のreceipt作成に`push-machine`を使わない。旧key集合のreceiptが残る間は新`pull-machine`も拒否する。receipt更新後にcleanな新runtimeでfresh `pull-machine`し、3key/receipt/取得前後世代を突合してlocal記録を更新する。続けて`pull-app`でschema21・全行・head・旧直接ID/Triage/CAA参照とapp世代を確認する。以後の通常machine更新は新しいpull記録を使う`push-machine`、application更新は`push-app`のIf-Matchへ戻る。
+5. **既存Actionsへのlease引渡し:** canonical＋receiptのfresh読戻しを完了した後、他writer/通常cronとWeb自動deployの停止を維持したままoperator leaseを解放する。指定したレビュー済みmainの`cloud-materialize.yml`を既存dispatch入口から一度起動し、そのrunのcheckout SHAを確認する。workflow自身が同じpublication leaseをacquireし、fresh pull-machine/pull-app→hydrate→完全materialize→`upload-serving-views`→`publish-serving-tail`→lease解放を順に行う。operatorはleaseを保持して並走せず、`GITHUB_ACTIONS`偽装や転送境界の解除をしない。取得失敗/LeaseBusyなら別writerの終端・lease状態を確認して停止し、独自publishへ迂回しない。
+6. **serving・Web受入と通常再開:** cloud-materializeの成功・lease解放・終端とservingの読戻しを確認した後、停止していた既存Web workflowを再開して同じレビュー済みmainの既存deploy入口を使う。Worker/UIのSHA・終端、旧ID/参照・5/6の意味、Readingの説明が調査入力/MCP/画面へ届くことを確認して、他writer/cronを再開する。`sync --delete`は旧`views/macro.json`、`macro-series--*`、`macro-context--*`と新完全exportにない派生viewを削除する。`meta.json`はworkflowのtailまで更新せず、historyは既存の保持契約に従う。旧canonical DB/keyとdated methodは削除対象ではない。全受入後に一回限りmigration toolと専用testを整理する。
 
-**混在する時間窓:** main pushでWeb自動deployが先に完了すると、新APIがまだ存在しない新viewを読む。逆に旧Workerのまま`upload-serving-views`が始まると、`sync --delete`で旧viewが消えて旧APIが404となる。したがって手順5のserving upload開始から新Worker/UI deploy完了までを公開画面の切替窓として扱い、無停止・複数keyの原子的切替とは称さない。通常cronがこの間に旧keyを書いたり新schemaを読んだりしないよう手順1の終端確認を先に行う。Web停止だけでcanonical writerが止まるとは扱わない。
+**混在する時間窓:** main pushでWeb自動deployが先に完了すると、新APIがまだ存在しない新viewを読む。逆に旧Workerのまま`upload-serving-views`が始まると、`sync --delete`で旧viewが消えて旧APIが404となる。したがって手順5のcloud-materializeによるserving upload開始から新Worker/UI deploy完了までを公開画面の切替窓として扱い、無停止・複数keyの原子的切替とは称さない。通常cronがこの間に旧keyを書いたり新schemaを読んだりしないよう手順1の終端確認を先に行う。Web停止だけでcanonical writerが止まるとは扱わない。operator lease解放〜Actions acquireの間も他writer停止を維持し、空きleaseを別writerの再開許可とは扱わない。
 
 **失敗時:** store/pointer/receipt/serving/codeの実世代を確認して停止する。新writer開始前・同lease・対象世代一致でのみ対応する旧code/DB/graphへ条件付き復帰を判断し、新観測後は事実を保持した前進修復とする。旧keyは残っていても通常入口で自動fallbackしない。本節は手順であり、本番移行・deploy・dispatchの実施記録ではない。
 
@@ -820,7 +819,7 @@ production policyは全datasetに同じsealed SQLite世代を要求するため�
 1. [既存publication lease](#ローカルからクラウドを更新する)を取得し、同じlease内で最新pointer bytes/ETag、旧release/hash、`market.sqlite`世代とmachine receiptを固定する。旧runtimeで最新固定releaseへhydrateし、この最新コピーから変換・準備をやり直す。途中の世代変化・lease期限切れでは停止する。
 2. 検証済み切替commitを使い、prepared releaseを`baibai_batch.storage.lake_publish.publish_l1_release`へ渡す。取得した旧pointer ETagを`PointerPrecondition`に指定し、`before_pointer_switch`で`publication_lease.verify_held`を呼ぶ。既存publisherがimmutable graphをupload/検証した後、currentをCASで切り替える。低レベルpublication CLIは異なるcurrentへの置換を拒否するので、この単発operator手順で既存functionを使う。
 3. `advance_lake_store_origin`で作業DBを新releaseへ結び付け、upload用snapshotを新releaseに対してdehydrateする。書込直前に`publication_lease.verify_held`を再確認し、取得した旧market世代への条件付きPUTでschema31を反映する。旧cloud30とlocal31は通常mergeが拒否するので、この最初のPUTを`push-market`や無条件overwriteで代行しない。
-4. cloud/localがともに31となった後、lease保持を再確認して同じlease内で既存`r2_transfer.sh push-market`を実行する。通常のmerge・snapshot/CAS pushと`write_machine_manifest`によって3 keyの実際の現行ETagをreceiptへ記録する。追加DB pushとbackup更新を伴うため、最初の旧sourceは受入まで一時保全する。receipt更新直前にもleaseの有効性を確認し、長いexport/読戻しで期限を超えたら継続しない。runs/market-contextへ値の更新を加えない。
+4. 単独のExternal Assessment切替では、cloud/localがともに31となった後、lease保持を再確認して同じlease内で既存`r2_transfer.sh push-market`を実行する。Market Contextとの結合切替ではこの段階で実行せず、[結合手順3](#market-context-identity-cutover)で新indicators keyとapplication21を配置してから同手順4で一回だけ実行する。通常のmerge・snapshot/CAS pushと`write_machine_manifest`によって3 keyの実際の現行ETagをreceiptへ記録する。追加DB pushとbackup更新を伴うため、最初の旧sourceは受入まで一時保全する。receipt更新直前にもleaseの有効性を確認し、長いexport/読戻しで期限を超えたら継続しない。runs/indicatorsへ値の更新を加えない。
 5. cleanな切替commitからfresh `pull-machine`→hydrateし、receiptの全世代一致、新名の全履歴digest、元時刻・store-local data・query/API/Researchの欠測区別を確認する。serving生成は既存materialize経路を使う。旧graph＋元commitの一時コピーでも履歴読戻しを確認する。受入完了後にleaseを解放し、新writerは新planだけを作る。
 
 **失敗時**: pointer切替前なら旧正本を維持して停止する。PUT応答が曖昧なら現在のETag/bytesを読み、旧・新・第三者のどれかを確定してから判断する。新writer開始前の同lease内で復帰する場合に限り、lease保持と新pointerのbytes/ETag一致を検査して旧pointer bytesを新ETagへの条件付きPUTで戻す。DB反映済みなら直前旧DB・対応codeもCASで戻し、復帰後の実世代でreceiptを更新する。pointerだけ戻してschema31 runtimeを残さない。第三者の更新・lease失効では上書きせず停止する。新観測が入った後は古いDBへ戻さず、全新規事実を保持した前進修復として扱う。復帰専用runtime分岐や永続rollback rootは追加しない。

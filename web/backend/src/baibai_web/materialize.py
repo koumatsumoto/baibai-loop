@@ -149,8 +149,8 @@ def export_read_models(
 
     known_at = datetime.now(_JST)
     as_of = known_at.date()
-    macro = build_market_context(stores.market_context, as_of=as_of, known_at=known_at)
-    written.append(_write_model(views_dir / "market-context.json", macro))
+    market_context = build_market_context(stores.market_context, as_of=as_of, known_at=known_at)
+    written.append(_write_model(views_dir / "market-context.json", market_context))
     for group in stores.market_context.groups:
         for configured in group.series:
             series_id = configured.series_id

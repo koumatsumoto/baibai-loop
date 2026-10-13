@@ -155,7 +155,7 @@ class Reader:
             or run.payload.get("screening_rules_hash") != triage.screening_rules_hash
         ):
             raise OwnerError("CONTRACT_MISMATCH")
-        macro = None
+        assessment = None
         if triage.market_context_assessment_id is not None:
             try:
                 payload = assessment_payload(
@@ -163,14 +163,14 @@ class Reader:
                 )
             except ValueError as exc:
                 raise OwnerError("SOURCE_UNAVAILABLE") from exc
-            macro = StoredAssessment.from_payload(payload)
+            assessment = StoredAssessment.from_payload(payload)
             if (
-                macro.context_id != triage.market_context_assessment_id
-                or macro.as_of > triage.as_of
+                assessment.context_id != triage.market_context_assessment_id
+                or assessment.as_of > triage.as_of
             ):
                 raise OwnerError("CONTRACT_MISMATCH")
         model_input = extract_publication_input(
-            review_set, macro, legacy_triage=triage.schema_version == 3
+            review_set, assessment, legacy_triage=triage.schema_version == 3
         )
         snapshots = {entry.ticker: entry.snapshot for entry in review_set_candidates(review_set)}
         if {entry.ticker: entry.candidate_snapshot for entry in triage.entries} != snapshots:

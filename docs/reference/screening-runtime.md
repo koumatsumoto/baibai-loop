@@ -11,7 +11,7 @@ status: active
 
 screeningはValuationの財務/倍率計算・機械推計とMarket Contextの価格/需給結果を組み込み、全対象銘柄のobserved / derived / estimateをSecurity Analysisへ固定し、configured Valuation Approachesが生成したNominationのexact unionをReview Setにする。Review Setは機械成果物であり、投資判断ではない。Research Triageだけが各entryへ`research / skip`とresearch priorityを発行する。
 
-機械E[r]/FV anchor、macro context、portfolio stateは参考文脈である。Review Setのnomination、membership、orderには使わない。ER/FVの推計・保存済み照会は[Valuation metrics](./valuation-metrics.md#machine-valuation)、企業固有の条件付き評価は[Thesis](./thesis.md#scenario-arithmetic)が所有する。
+機械E[r]/FV anchor、Market Context Assessment、portfolio stateは参考文脈である。Review Setのnomination、membership、orderには使わない。ER/FVの推計・保存済み照会は[Valuation metrics](./valuation-metrics.md#machine-valuation)、企業固有の条件付き評価は[Thesis](./thesis.md#scenario-arithmetic)が所有する。
 
 ## Public CLI
 
@@ -75,7 +75,7 @@ screening run (run + Review Set atomic commit) + independent indicators
 
 Screeningの必要入力不足・実行失敗から指標refreshを独立させ、日本休日はScreeningだけをskipする。検証してcommitしたL1 chunkは後続失敗でも保持する。公開可能なstoreから全viewsを一度生成し、Screening未更新時はhistoryの生成/uploadとrun pruneを省く。現在画面とmetaは同じoperative runを参照し、過去の単独run・直接ID照会・cutoff付きValuationは引き続き読める。物理store/schemaやcron頻度を変えない。
 
-cloudからL3 Research Triageを発行しない。local `baibai-batch analysis run`はpull済みruns storeから対象`as_of`のlatest published Review Setを読み、必要な場合だけReview Set全体を原則1 requestで分類してResearch Triageを発行する。対象日にReview Setが無ければ前営業日へfallbackしない。有限選択とResearchは明示ユーザー開始で進め、提案完成と最終採否は分ける。full-depth Macro Context、migration、全期間再取得はどちらの日次経路にも載せない。
+cloudからL3 Research Triageを発行しない。local `baibai-batch analysis run`はpull済みruns storeから対象`as_of`のlatest published Review Setを読み、必要な場合だけReview Set全体を原則1 requestで分類してResearch Triageを発行する。対象日にReview Setが無ければ前営業日へfallbackしない。有限選択とResearchは明示ユーザー開始で進め、提案完成と最終採否は分ける。旧章立てreport、migration、全期間再取得はどちらの日次経路にも載せない。
 
 ## Pruneと履歴
 

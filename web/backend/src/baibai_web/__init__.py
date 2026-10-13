@@ -3,7 +3,7 @@
 Read-only app invariants:
 
 `baibai-web` は `127.0.0.1` にだけbindし、write endpoint、migration、external network clientを持
-たない。application DB / run store / macro storeをSQLite read-only modeで開く。
+たない。application DB / run store / indicator storeをSQLite read-only modeで開く。
 UIの面は8つで、4タブ (`/` Dashboard、`/market-context` Market Context、
 `/stocks` Stocks、`/tasks` Tasks) と
 タブなし詳細 (`/market-context/assessments/:contextId` Assessment、
@@ -23,6 +23,7 @@ research_triageと機械screeningのCandidatesを表示する。ResearchTriage �
 `reports/published/er-level-calibration-latest.yaml` が有効な間だけ、候補 E[r] の historical
 quintile と独立した要求利回りhurdle以上帯について、実現 total-return の中央値・下方分位・trap率
 を文脈表示する。Candidatesはrun storeまたはクラウドの31日履歴から日付を選べる。
-`/api/meta`はscreening / macro / application DBのas-of鮮度と最新データ時刻をstore内timestampから
+`/api/meta`はscreening / indicators / application DBのas-of鮮度と最新データ時刻を
+store内timestampから
 返し (file mtimeに依存しない)、共通ヘッダーはUI build時刻と最新データ時刻だけを表示する。
 """

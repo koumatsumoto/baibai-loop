@@ -176,7 +176,7 @@ def historical_context_payload(
         },
     }
     if strategy_layer:
-        payload["synthesis"] = macro_synthesis_payload([*source_ids, _FX_INPUT_ID])
+        payload["synthesis"] = historical_synthesis_payload([*source_ids, _FX_INPUT_ID])
         payload["connection"]["bargain_topography"] = {
             "summary": "割安は全面安ではなく金利敏感セクターの取り残しに出やすい。",
             "source_ids": [_SNAPSHOT_INPUT_ID],
@@ -193,7 +193,7 @@ def historical_context_payload(
     return payload
 
 
-def macro_synthesis_payload(source_ids: list[str] | None = None) -> dict[str, Any]:
+def historical_synthesis_payload(source_ids: list[str] | None = None) -> dict[str, Any]:
     # Each force assigns a distinct series to each named section (rates_policy /
     # valuation lend us.10y, japan / fx lend usd_jpy), which the document validator
     # requires of a cross-channel claim.

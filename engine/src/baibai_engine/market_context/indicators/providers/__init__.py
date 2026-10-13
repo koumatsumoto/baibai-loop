@@ -4,8 +4,8 @@ from ..read_contracts import point_in_time_providers
 from .base import (
     FetchContext,
     HttpSession,
+    IndicatorDataProvider,
     IndicatorsProviderError,
-    MacroDataProvider,
     ProviderSpec,
     RangeReplacementPolicy,
 )
@@ -30,8 +30,8 @@ from .yahoo import parse_yahoo_chart
 __all__ = [
     "FetchContext",
     "HttpSession",
+    "IndicatorDataProvider",
     "IndicatorsProviderError",
-    "MacroDataProvider",
     "ProviderSpec",
     "RangeReplacementPolicy",
     "fetch_observations",

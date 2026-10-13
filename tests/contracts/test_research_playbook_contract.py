@@ -65,7 +65,10 @@ def test_manual_and_scheduled_research_triage_share_the_short_policy() -> None:
 
     assert "batch/src/baibai_batch/analysis/policy.py" in skill
     assert "from baibai_batch.analysis.model_input import build_model_input" in cli
-    assert "from baibai_batch.analysis.policy import TRIAGE_POLICY" in builder
+    assert (
+        "from baibai_batch.analysis.policy import HISTORICAL_TRIAGE_POLICY, TRIAGE_POLICY"
+        in builder
+    )
     assert "policy=TRIAGE_POLICY" in builder
     assert "具体的な未解決問い" in policy
     assert "machine factsがApproach仮説を明確に崩す" in policy

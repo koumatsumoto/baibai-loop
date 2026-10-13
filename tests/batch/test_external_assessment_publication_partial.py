@@ -7,7 +7,7 @@ import pytest
 from tests.batch.test_external_assessment_publication import RECEIVED
 from tests.batch.test_external_assessment_publication import publication as publication
 
-from baibai_batch.jobs import external_assessment_publication as retail
+from baibai_batch.jobs import external_assessment_publication as external_assessment
 from baibai_batch.jobs.external_assessment_cohorts import (
     make_plan,
     new_result,
@@ -98,7 +98,7 @@ def checkpoint_payloads(store):
 
 def publish_partial(batch, *, confirmed_partial=True, directory_name="partial-readback"):
     store, plan, handle, database, mirror, directory, _ = batch
-    return retail.publish_and_verify(
+    return external_assessment.publish_and_verify(
         store,
         plan,
         handle=handle,
@@ -269,7 +269,7 @@ def test_published_receipt_short_circuits_without_checkpoints_lease_db_or_curren
         store, plan, handle, _, _, root, _ = partial_batch
     else:
         store, plan, handle, database, mirror, root = publication
-        first = retail.publish_and_verify(
+        first = external_assessment.publish_and_verify(
             store,
             plan,
             handle=handle,
@@ -296,11 +296,11 @@ def test_published_receipt_short_circuits_without_checkpoints_lease_db_or_curren
         "publish_market_lake",
         "lake_session",
     ):
-        monkeypatch.setattr(retail, name, forbidden)
+        monkeypatch.setattr(external_assessment, name, forbidden)
     store.get_keys.clear()
     store.head_keys.clear()
     store.put_keys.clear()
-    repeat = retail.publish_and_verify(
+    repeat = external_assessment.publish_and_verify(
         store,
         plan,
         handle=handle,
