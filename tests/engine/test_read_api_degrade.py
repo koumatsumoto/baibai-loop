@@ -55,6 +55,9 @@ _DECLARED_OUTSIDE_THE_SWEEP = frozenset(
         "read_rows",  # takes the SQL to run, which this file would have to invent
         "machine_valuation_from_analysis",  # pure saved-value projection; owned by valuation tests
         "anchor_gap_pct",  # pure machine-anchor presentation; owned by valuation tests
+        "candidate_er_bands",  # pure band selection over a validated calibration horizon
+        "load_er_calibration_context",  # reads Git-managed calibration YAML, not SQLite
+        "stored_er_calibration_context",  # reads Git-managed calibration YAML, not SQLite
         "replay_events_through",  # pure event replay; owned by ledger tests
         "summarize_portfolio",  # pure capital projection; owned by ledger tests
         "current_portfolio",  # composes an explicit ledger with market input; covered by current-capital tests

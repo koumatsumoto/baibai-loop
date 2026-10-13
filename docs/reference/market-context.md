@@ -23,7 +23,7 @@ Readingは`READING_RULES_PATH`が選ぶ一つのdated fileを使う。13の保�
 
 <a id="market-context-reads"></a>
 
-価格騰落・標本volatility・流動性・安値乖離・信用需給の純粋算術は`market_context/{history,margin}`が所有する。価格読取も計算も共有L1 split算術を使い、倍率の価格感応履歴/自己レンジ・母分散sigma gapはValuationに従う。観測窓と比較母集団の意味は変えない。
+価格騰落・標本volatility・流動性・安値乖離・信用需給の純粋算術は`market_context/{history,margin}`が所有する。保存価格の指定日からの騰落・期間内下落は`market_context/prices`が所有し、外向け`read_api/market`は同じ処理を公開する。価格読取も計算も共有L1 split算術を使い、倍率の価格感応履歴/自己レンジ・母分散sigma gapはValuationに従う。観測窓と比較母集団の意味は変えない。
 
 通常Researchでは保存済みReading・市場/業種/個別状態を[調査入力](./analysis-operations.md#明示開始と固定対象)へ接続し、materialな含意をThesis/提案へ記録する。判断の新規作成は明示開始に限り、通常Researchは必要な環境上の含意を保存情報から接続する。
 
