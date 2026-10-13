@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .research import reviewed_thesis_projection
+from .research import list_thesis_review_publications, reviewed_thesis_projection
 from .sqlite import read_application_rows as read_rows
 
 
@@ -65,10 +65,19 @@ def _payload(path: Path, raw: object) -> dict[str, object]:
             raise ValueError(f"allocation thesis is unavailable: {thesis_id}")
         if str(rows[0]["core_sha256"]) != thesis_hash:
             raise ValueError(f"allocation thesis binding has moved: {thesis_id}")
+        review = next(
+            (
+                item["payload"]
+                for item in list_thesis_review_publications(path, thesis_id=str(thesis_id))
+                if item["review_id"] == raw_alternative.get("thesis_review_id")
+            ),
+            None,
+        )
         projected.append(
             {
                 **raw_alternative,
                 "thesis_projection": reviewed_thesis_projection(path, thesis_id=str(thesis_id)),
+                "thesis_review": review,
             }
         )
     return {**payload, "alternatives": projected}

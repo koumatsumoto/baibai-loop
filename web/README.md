@@ -47,6 +47,7 @@ fixed-release読取と完全性確認は[market lake](../docs/reference/market-l
 secret設定・rotation・撤回・利用側受入は[運用手順](../batch/OPERATIONS.md#shared-read-setup)を参照してください。
 
 調査と提案の進行は保存済みOperationから表示する。新規・保有の固定対象、完了/調査未完了を区別し、CAA詳細は完了した新規の比較範囲と未完了理由・参照を表示する。提案工程完了を人間採否・注文・約定の成立として表示しない。
+CAAの銘柄リンクは、そのCAAが参照したThesis/Review本文と原評価へ進みます。改訂後の評価を読む「最新の銘柄情報」は別リンクとし、当時の根拠を最新評価で置き換えません。
 
 指標/Readingの組立は`readmodel/market_context.py`、現行判断の内容とpublication metadataは`readmodel/assessment.py`、過去本文の章・主張・引用は`readmodel/assessment_history.py`が所有する。外部routeとserving keyは次の物理切替まで既存契約を維持する。
 

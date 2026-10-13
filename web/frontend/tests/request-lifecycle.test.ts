@@ -63,7 +63,7 @@ for (const page of pages) {
       hooks.params = { [page.param]: id }
       hooks.setters = []
       page.render()
-      const effect = hooks.effects.at(-1)!
+      const effect = hooks.effects.findLast(({ dependencies }) => dependencies.length === 1 && dependencies[0] === id)!
       expect(effect.dependencies).toEqual([id])
       const cleanup = effect.setup()
       const setters = hooks.setters

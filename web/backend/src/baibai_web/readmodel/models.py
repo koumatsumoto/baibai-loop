@@ -797,6 +797,8 @@ class AllocationAlternativeView(BaseModel):
     base_annualized_return_pct: float | None
     pmax_raw_yen: float | None
     valuation_as_of: str | None
+    thesis_projection: dict[str, Any] = Field(default_factory=dict)
+    thesis_review: dict[str, Any] | None = None
 
 
 class AssessmentReviewView(BaseModel):

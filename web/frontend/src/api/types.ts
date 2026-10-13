@@ -12,6 +12,8 @@ export interface AllocationAlternativeView {
   base_annualized_return_pct: number | null
   pmax_raw_yen: number | null
   valuation_as_of: string | null
+  thesis_projection: Record<string, unknown>
+  thesis_review: Record<string, unknown> | null
 }
 
 export interface AnalystRatingAssessment {
