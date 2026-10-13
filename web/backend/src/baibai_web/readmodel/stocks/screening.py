@@ -15,6 +15,7 @@ from baibai_web.readmodel.models import (
     ErLevelCalibrationContextView,
     ErLevelCalibrationHorizonView,
     ErLevelCalibrationStatsView,
+    ExternalAssessmentSecurityView,
     ResearchTriageEntryView,
     ResearchTriageView,
     ReviewSetAnalysisView,
@@ -36,7 +37,9 @@ from baibai_web.readmodel.stocks.presentation import (
 from baibai_web.readmodel.stocks.research import _assessment_summary_view
 from baibai_web.sources.db_sources import DbScreeningSource
 from baibai_web.sources.protocols import (
+    ExternalAssessmentSource,
     LedgerSource,
+    MarketPriceSource,
     ResearchSource,
     ScreeningSource,
 )
@@ -92,10 +95,43 @@ def build_screening(
     ledger: LedgerSource,
     research: ResearchSource,
     er_level_calibration: ErLevelCalibrationContext | None = None,
+    *,
+    external_assessment: ExternalAssessmentSource | None = None,
+    market: MarketPriceSource | None = None,
+    external_cutoff: datetime | None = None,
 ) -> ScreeningView:
     """Build the latest Security Analysis view with portfolio/research annotations."""
 
     run, review_sets = _operative_run(screening)
+    cutoff = external_cutoff or datetime.now(_JST)
+    held, reserved = _held_and_reserved_tickers(ledger)
+    revisions = research.revisions()
+    researched = {item.ticker for item in revisions}
+    latest_revisions = {item.ticker: item for item in reversed(revisions)}
+    analyzed = set() if run is None else {str(row["ticker"]) for row in run.rows}
+    external_tickers = (
+        [] if external_assessment is None else external_assessment.observed_tickers(cutoff=cutoff)
+    )
+    identities = (
+        {}
+        if market is None or not external_tickers
+        else market.security_identities(as_of=cutoff.date())
+    )
+    external_securities = [
+        ExternalAssessmentSecurityView(
+            ticker=ticker,
+            name=latest_revisions[ticker].company_name
+            if ticker in latest_revisions
+            else text(identities.get(ticker, {}).get("name")),
+            sector_33=latest_revisions[ticker].sector
+            if ticker in latest_revisions
+            else text(identities.get(ticker, {}).get("sector_33")),
+            portfolio_state=_portfolio_state(ticker, held=held, reserved=reserved),
+            has_research=ticker in researched,
+        )
+        for ticker in external_tickers
+        if ticker not in analyzed
+    ]
     applicable_calibration = _calibration_for_run(run, er_level_calibration)
     research_triages: list[ResearchTriageView] = []
     assessments: list[CapitalAllocationAssessmentSummaryView] = []
@@ -111,9 +147,9 @@ def build_screening(
             research_triages=research_triages,
             capital_allocation_assessments=assessments,
             er_level_calibration=None,
+            external_assessment_securities=external_securities,
+            external_assessment_cutoff=cutoff if external_securities else None,
         )
-    held, reserved = _held_and_reserved_tickers(ledger)
-    researched = {item.ticker for item in research.revisions()}
     today = datetime.now(_JST).date()
     return ScreeningView(
         run=_screening_run_view(run, today=today),
@@ -131,6 +167,8 @@ def build_screening(
         research_triages=research_triages,
         capital_allocation_assessments=assessments,
         er_level_calibration=_er_level_calibration_view(applicable_calibration),
+        external_assessment_securities=external_securities,
+        external_assessment_cutoff=cutoff if external_securities else None,
     )
 
 

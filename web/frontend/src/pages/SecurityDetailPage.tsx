@@ -107,7 +107,7 @@ export function SecurityDetailPage() {
       )}
       // The heading is the ticker, so the name is what a reader actually recognises the
       // page by and keeps its weight; the sector trails it as context.
-      lead={<><span className="font-medium text-foreground">{data.company_name ?? '名称なし'}</span> · {data.sector ?? 'sector —'}</>}
+      lead={<><span className="font-medium text-foreground">{data.company_name ?? '名称未確認'}</span> · {data.sector ?? 'sector —'}</>}
       meta={(
         <div className="flex flex-wrap items-center gap-2">
           {data.holding && <Badge variant="secondary">保有</Badge>}

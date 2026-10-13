@@ -194,3 +194,69 @@ def test_known_security_keeps_unknown_rating_without_any_external_observation(
     export_read_models(app_method_root, out)
     saved = json.loads((out / "views/security--2331.json").read_text())
     assert saved["external_assessment"]["analyst_ratings"] == [rating]
+
+
+@pytest.mark.parametrize("without_run", [False, True])
+def test_all_external_sources_are_searchable_without_machine_analysis(
+    app_method_root, tmp_path, without_run
+):
+    from datetime import date
+
+    from tests.engine.test_external_assessment import quants, tv_row
+    from tests.engine.test_external_assessment_core import rating
+
+    from baibai_engine.storage.observations.schema import open_connection
+
+    market = app_method_root / MARKET_DB_PATH
+    received = datetime(2026, 10, 10, 7, tzinfo=UTC)
+    save_observations(
+        market,
+        [
+            valuation(received, ticker="9999"),
+            rating(received, ticker="9999"),  # 同一tickerを別媒体で重複表示しない。
+            rating(received, ticker="1111", rating=None),
+            quants(received, date(2026, 10, 9), growth_score=0).model_copy(
+                update={"ticker": "2222"}
+            ),
+            valuation(received, ticker="2331"),  # 既存Security Analysisに重複追加しない。
+            valuation(datetime(2099, 1, 1, tzinfo=UTC), ticker="4444"),
+        ],
+    )
+    tv_row(market, received, ticker="3333", status="unresolved")
+    with open_connection(market) as conn:
+        conn.executemany(
+            "INSERT INTO jquants_master_snapshots(snapshot_date,ticker,name,sector_33) "
+            "VALUES (?,?,?,?)",
+            [
+                ("2026-10-09", "9999", "合成検索企業", "サービス業"),
+                ("2026-10-09", "2222", "合成零点企業", "情報・通信業"),
+                ("2099-01-01", "9999", "未来の名称", "小売業"),
+            ],
+        )
+        conn.commit()
+    if without_run:
+        (app_method_root / RUNS_DB_PATH).unlink()
+    before = market.read_bytes()
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
+        response = client.get("/api/screening/latest")
+        assert response.status_code == 200
+        view = response.json()
+        index = {row["ticker"]: row for row in view["external_assessment_securities"]}
+        assert set(index) == {"1111", "2222", "3333", "9999"} | ({"2331"} if without_run else set())
+        assert index["9999"]["name"] == "合成検索企業"
+        assert index["1111"]["name"] is None
+        assert "er_annual" not in index["9999"]
+        for ticker, identity in index.items():
+            detail = client.get(f"/api/securities/{ticker}")
+            assert detail.status_code == 200
+            assert detail.json()["company_name"] == identity["name"]
+            assert detail.json()["security_analysis"] is None
+    out = tmp_path / "export"
+    export_read_models(app_method_root, out)
+    saved = json.loads((out / "views/screening_latest.json").read_text())
+    assert saved["external_assessment_securities"] == view["external_assessment_securities"]
+    for ticker, identity in index.items():
+        detail = json.loads((out / f"views/security--{ticker}.json").read_text())
+        assert detail["company_name"] == identity["name"]
+    assert not (out / "views/security--4444.json").exists()
+    assert market.read_bytes() == before

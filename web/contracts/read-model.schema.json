@@ -1483,6 +1483,52 @@
       "title": "ExternalAssessment",
       "type": "object"
     },
+    "ExternalAssessmentSecurityView": {
+      "properties": {
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Name"
+        },
+        "sector_33": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sector 33"
+        },
+        "portfolio_state": {
+          "$ref": "#/$defs/PortfolioState"
+        },
+        "has_research": {
+          "title": "Has Research",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ticker",
+        "name",
+        "sector_33",
+        "portfolio_state",
+        "has_research"
+      ],
+      "title": "ExternalAssessmentSecurityView",
+      "type": "object"
+    },
     "HistoricalConnectionSectionView": {
       "properties": {
         "section_id": {
@@ -5422,6 +5468,26 @@
           "title": "Security Analyses",
           "type": "array"
         },
+        "external_assessment_securities": {
+          "items": {
+            "$ref": "#/$defs/ExternalAssessmentSecurityView"
+          },
+          "title": "External Assessment Securities",
+          "type": "array"
+        },
+        "external_assessment_cutoff": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "External Assessment Cutoff"
+        },
         "review_sets": {
           "items": {
             "$ref": "#/$defs/ReviewSetView"
@@ -5458,6 +5524,8 @@
       "required": [
         "run",
         "security_analyses",
+        "external_assessment_securities",
+        "external_assessment_cutoff",
         "review_sets",
         "research_triages",
         "capital_allocation_assessments",

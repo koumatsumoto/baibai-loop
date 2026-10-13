@@ -263,9 +263,21 @@ class ErLevelCalibrationContextView(BaseModel):
     horizons: list[ErLevelCalibrationHorizonView]
 
 
+class ExternalAssessmentSecurityView(BaseModel):
+    ticker: str
+    name: str | None
+    sector_33: str | None
+    portfolio_state: PortfolioState
+    has_research: bool
+
+
 class ScreeningView(BaseModel):
     run: ScreeningRunView | None
     security_analyses: list[SecurityAnalysisRowView]
+    external_assessment_securities: list[ExternalAssessmentSecurityView] = Field(
+        default_factory=list
+    )
+    external_assessment_cutoff: datetime | None = None
     review_sets: list[ReviewSetView]
     research_triages: list[ResearchTriageView]
     capital_allocation_assessments: list[CapitalAllocationAssessmentSummaryView]

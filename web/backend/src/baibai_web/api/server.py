@@ -132,6 +132,8 @@ def create_app(
             sources.ledger,
             sources.research,
             sources.er_level_calibration,
+            external_assessment=sources.external_assessment,
+            market=sources.market,
         )
 
     @app.get("/api/screening/history", response_model=ScreeningHistoryView)

@@ -1,4 +1,6 @@
-import type { SecurityAnalysisRowView } from '../api/types'
+import type { ExternalAssessmentSecurityView, SecurityAnalysisRowView } from '../api/types'
+
+export type SecuritySearchRow = SecurityAnalysisRowView | ExternalAssessmentSecurityView
 
 export const SECURITY_PAGE_SIZE = 100
 
@@ -36,7 +38,7 @@ export interface SecuritySort {
 }
 
 export interface SecurityProjection {
-  rows: SecurityAnalysisRowView[]
+  rows: SecuritySearchRow[]
   filteredTotal: number
   page: number
   pageCount: number
@@ -53,12 +55,13 @@ function normalized(value: string): string {
   return value.trim().normalize('NFKC').toLocaleLowerCase('ja-JP')
 }
 
-export function filterSecurityRows(
-  rows: readonly SecurityAnalysisRowView[],
+export function filterSecurityRows<T extends SecuritySearchRow>(
+  rows: readonly T[],
   filters: SecurityFilters,
-): SecurityAnalysisRowView[] {
+): T[] {
   const query = normalized(filters.query)
   return rows.filter((row) => {
+    const analysis = row as Partial<SecurityAnalysisRowView>
     const matchesQuery =
       query === '' ||
       normalized(row.ticker).startsWith(query) ||
@@ -66,24 +69,24 @@ export function filterSecurityRows(
     return (
       matchesQuery &&
       (filters.sector === 'all' || row.sector_33 === filters.sector) &&
-      (filters.perMax === null || (row.per_trailing !== null && row.per_trailing <= filters.perMax)) &&
-      (filters.pbrMax === null || (row.pbr !== null && row.pbr <= filters.pbrMax)) &&
-      (filters.dividendMinPct === null || (row.dividend_yield !== null && row.dividend_yield * 100 >= filters.dividendMinPct)) &&
+      (filters.perMax === null || (analysis.per_trailing != null && analysis.per_trailing <= filters.perMax)) &&
+      (filters.pbrMax === null || (analysis.pbr != null && analysis.pbr <= filters.pbrMax)) &&
+      (filters.dividendMinPct === null || (analysis.dividend_yield != null && analysis.dividend_yield * 100 >= filters.dividendMinPct)) &&
       (!filters.heldOnly || row.portfolio_state === 'held' || row.portfolio_state === 'held_and_reserved') &&
       (!filters.researchOnly || row.has_research)
     )
   })
 }
 
-function sortValue(row: SecurityAnalysisRowView, key: SecuritySortKey): string | number | null {
-  const value = row[key]
+function sortValue(row: SecuritySearchRow, key: SecuritySortKey): string | number | null {
+  const value = (row as Partial<SecurityAnalysisRowView>)[key]
   return typeof value === 'string' || typeof value === 'number' ? value : null
 }
 
-export function sortSecurityRows(
-  rows: readonly SecurityAnalysisRowView[],
+export function sortSecurityRows<T extends SecuritySearchRow>(
+  rows: readonly T[],
   sort: SecuritySort,
-): SecurityAnalysisRowView[] {
+): T[] {
   return [...rows].sort((left, right) => {
     const leftValue = sortValue(left, sort.key)
     const rightValue = sortValue(right, sort.key)
@@ -98,7 +101,7 @@ export function sortSecurityRows(
 }
 
 export function projectSecurityRows(
-  rows: readonly SecurityAnalysisRowView[],
+  rows: readonly SecuritySearchRow[],
   filters: SecurityFilters,
   sort: SecuritySort,
   requestedPage: number,
