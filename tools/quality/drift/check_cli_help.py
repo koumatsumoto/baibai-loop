@@ -28,6 +28,7 @@ DELEGATED_GROUPS: Mapping[str, str] = {
     "baibai-engine market-context reading": "baibai_engine.market_context.reading.cli",
     "baibai-engine market-context assessment": "baibai_engine.market_context.assessment.cli",
     "baibai-engine research evaluate": "baibai_engine.research.thesis_evaluation_cli",
+    "baibai-engine research calculate": "baibai_engine.research.calculation_cli",
 }
 
 

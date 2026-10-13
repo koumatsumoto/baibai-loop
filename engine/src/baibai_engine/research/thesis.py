@@ -698,47 +698,66 @@ def evaluate_thesis(
     )
 
 
+def ratio_value_from_facts(
+    *,
+    metric_id: str,
+    input_fact_ids: tuple[str, str],
+    unit: str,
+    facts: Mapping[str, ObservedFact],
+) -> tuple[Decimal | None, list[str]]:
+    """One ratio-v1 calculation, shared by generation and the unchanged checks."""
+    errors: list[str] = []
+    inputs = [facts.get(fact_id) for fact_id in input_fact_ids]
+    if any(item is None for item in inputs):
+        errors.append(f"metric {metric_id} references unknown input fact")
+        return None, errors
+    values: list[Decimal] = []
+    units: list[str] = []
+    for item in inputs:
+        assert item is not None
+        if isinstance(item.value, bool | str):
+            errors.append(f"metric {metric_id} input facts must be numeric")
+            break
+        value = Decimal(str(item.value))
+        if abs(value) > Decimal("1e30"):
+            errors.append(f"metric {metric_id} input fact magnitude is too large")
+            break
+        values.append(value)
+        units.append(item.unit)
+    if len(values) != 2:
+        return None, errors
+    if values[1] == 0:
+        errors.append(f"metric {metric_id} ratio denominator cannot be zero")
+        return None, errors
+    expected = values[0] / values[1]
+    if abs(expected) > Decimal("1e300"):
+        errors.append(f"metric {metric_id} ratio result magnitude is too large")
+        return None, errors
+    expected_unit = {
+        ("JPY", "shares"): "JPY_per_share",
+        ("JPY", "JPY"): "ratio",
+        ("shares", "shares"): "ratio",
+    }.get((units[0], units[1]))
+    if expected_unit is None or unit != expected_unit:
+        errors.append(f"metric {metric_id} unit mismatch for ratio inputs {tuple(units)}")
+    return expected, errors
+
+
 def _check_derived_metrics(document: ThesisDocument, errors: list[str]) -> None:
     facts = {fact.fact_id: fact for fact in document.input_snapshot.facts}
     metric_ids = {metric.metric_id for metric in document.derived.metrics}
     if len(metric_ids) != len(document.derived.metrics):
         errors.append("derived metric_id must be unique")
     for metric in document.derived.metrics:
-        inputs = [facts.get(fact_id) for fact_id in metric.input_fact_ids]
-        if any(item is None for item in inputs):
-            errors.append(f"metric {metric.metric_id} references unknown input fact")
+        expected, ratio_errors = ratio_value_from_facts(
+            metric_id=metric.metric_id,
+            input_fact_ids=metric.input_fact_ids,
+            unit=metric.unit,
+            facts=facts,
+        )
+        errors.extend(ratio_errors)
+        if expected is None:
             continue
-        values: list[Decimal] = []
-        units: list[str] = []
-        for item in inputs:
-            assert item is not None
-            if isinstance(item.value, bool | str):
-                errors.append(f"metric {metric.metric_id} input facts must be numeric")
-                break
-            value = Decimal(str(item.value))
-            if abs(value) > Decimal("1e30"):
-                errors.append(f"metric {metric.metric_id} input fact magnitude is too large")
-                break
-            values.append(value)
-            units.append(item.unit)
-        if len(values) != 2:
-            continue
-        if values[1] == 0:
-            errors.append(f"metric {metric.metric_id} ratio denominator cannot be zero")
-            continue
-        expected = values[0] / values[1]
-        if abs(expected) > Decimal("1e300"):
-            errors.append(f"metric {metric.metric_id} ratio result magnitude is too large")
-            continue
-        expected_unit = {
-            ("JPY", "shares"): "JPY_per_share",
-            ("JPY", "JPY"): "ratio",
-            ("shares", "shares"): "ratio",
-        }.get((units[0], units[1]))
-        if expected_unit is None or metric.unit != expected_unit:
-            errors.append(
-                f"metric {metric.metric_id} unit mismatch for ratio inputs {tuple(units)}"
-            )
         if not math.isclose(metric.value, float(expected), rel_tol=1e-12, abs_tol=1e-12):
             errors.append(
                 f"metric {metric.metric_id} value mismatch: expected {expected}, got {metric.value}"
