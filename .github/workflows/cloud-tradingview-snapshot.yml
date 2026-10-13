@@ -347,14 +347,6 @@ jobs:
             status=$parser_status
           fi
           exit "$status"
-      - name: Persist provider cooldown
-        id: cooldown-save
-        if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' && steps.tradingview.outcome != 'skipped' }}
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_batch.storage.tradingview_cooldown record --directory "$RUNNER_TEMP"
       - name: Publish the L1 release
         id: publish-lake
         if: (steps.tradingview.outputs.status == 'saved' || steps.tradingview.outputs.status == 'partial') && fromJSON(steps.tradingview.outputs.rows_added || '0') > 0
@@ -365,6 +357,14 @@ jobs:
         run: |
           set -o pipefail
           batch/scripts/r2_transfer.sh publish-lake | tee "$RUNNER_TEMP/tradingview-lake-publish.log"
+      - name: Persist provider cooldown
+        id: cooldown-save
+        if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' && steps.tradingview.outcome != 'skipped' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_batch.storage.tradingview_cooldown record --directory "$RUNNER_TEMP"
       - name: Release publication lease
         id: lease-release
         if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' }}

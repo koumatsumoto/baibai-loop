@@ -95,6 +95,36 @@ def test_cancelled_is_cancelled(monkeypatch):
     assert calls[0][1]["content"].startswith("[CANCELLED]")
 
 
+@pytest.mark.parametrize("status", ["saved", "partial"])
+def test_cooldown_failure_reports_both_failure_and_persisted_snapshot(monkeypatch, status):
+    expected, remaining = (51, 1) if status == "partial" else (50, 0)
+    message = invoke(
+        monkeypatch,
+        "--eligible",
+        "true",
+        "--snapshot-status",
+        status,
+        "--tradingview-outcome",
+        "success",
+        "--publish-lake-outcome",
+        "success",
+        "--cooldown-save-outcome",
+        "failure",
+        "--rows-added",
+        "50",
+        "--rows",
+        "50",
+        "--expected-universe",
+        str(expected),
+        "--remaining",
+        str(remaining),
+    )[0][1]["content"]
+    assert "[FAILED]" in message
+    assert "failed step: cooldown-save" in message
+    assert f"snapshot published; status={status}" in message
+    assert f"added=50; stored=50/{expected}; remaining={remaining}" in message
+
+
 @pytest.mark.parametrize(
     "args",
     [

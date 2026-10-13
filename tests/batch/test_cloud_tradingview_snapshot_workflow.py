@@ -1,6 +1,8 @@
+import asyncio
 import datetime as datetime_module
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -56,8 +58,8 @@ def test_metadata_order_and_exclusive_writer():
         "cooldown-check",
         "master",
         "tradingview",
-        "cooldown-save",
         "publish-lake",
+        "cooldown-save",
         "lease-release",
         "cancellation",
         "summary",
@@ -79,6 +81,77 @@ def test_metadata_order_and_exclusive_writer():
         "actual_start_jst",
     ):
         assert f'"{field}"' in target["run"]
+
+
+def test_committed_partial_rows_publish_before_failed_cooldown_and_survive_next_pull(tmp_path):
+    from tests.engine.test_tradingview_collector import DAY, NOW, payload, store, stored
+
+    from baibai_engine.external_assessment.tradingview.collector import collect
+    from baibai_engine.external_assessment.tradingview.observations import FetchError
+
+    local = store(tmp_path / "local.sqlite", 51)
+    published = tmp_path / "published.sqlite"
+    requests = []
+
+    async def fetch(symbols):
+        requests.append(symbols)
+        if len(requests) == 2:
+            raise FetchError("fixture provider failure after one valid chunk")
+        return payload(symbols)
+
+    async def sleep(_interval):
+        pass
+
+    report = asyncio.run(collect(local, DAY, fetch, clock=lambda: NOW, sleep=sleep))
+    assert report["status"] == "partial"
+    assert report["rows_added"] == 50
+    expected = stored(local)
+    transfer = tmp_path / "batch/scripts/r2_transfer.sh"
+    transfer.parent.mkdir(parents=True)
+    transfer.write_text(
+        '#!/usr/bin/env bash\nprintf "publish-lake\\n" >> "$CALLS"\ncp "$LOCAL" "$PUBLISHED"\nprintf "{}\\n"\n'
+    )
+    transfer.chmod(0o755)
+    uv = tmp_path / "uv"
+    uv.write_text(
+        '#!/usr/bin/env bash\nif [[ "$*" == *tradingview_cooldown* ]]; then\n  printf "cooldown-save\\n" >> "$CALLS"\n  echo "TradingView cooldown failed; type=CooldownError" >&2\n  exit 1\nfi\nprintf "lease-release\\n" >> "$CALLS"\n'
+    )
+    uv.chmod(0o755)
+    calls = tmp_path / "calls"
+    env = {
+        **os.environ,
+        "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
+        "RUNNER_TEMP": str(tmp_path),
+        "LOCAL": str(local),
+        "PUBLISHED": str(published),
+        "CALLS": str(calls),
+    }
+    outcomes = {}
+    failed = False
+    # Execute the workflow's own scripts and order, with only remote writes stubbed.
+    # A condition without a status function has GitHub's implicit success() gate.
+    for step in workflow()["jobs"]["snapshot"]["steps"]:
+        if step.get("id") not in {"publish-lake", "cooldown-save", "lease-release"}:
+            continue
+        if failed and "always()" not in step["if"]:
+            outcomes[step["id"]] = "skipped"
+            continue
+        result = subprocess.run(
+            ["bash", "-e", "-c", step["run"]], cwd=tmp_path, env=env, capture_output=True, text=True
+        )
+        outcomes[step["id"]] = "failure" if result.returncode else "success"
+        failed = failed or result.returncode != 0
+        if step["id"] == "cooldown-save":
+            assert "CooldownError" in result.stderr
+    assert outcomes == {
+        "publish-lake": "success",
+        "cooldown-save": "failure",
+        "lease-release": "success",
+    }
+    assert calls.read_text().splitlines() == ["publish-lake", "cooldown-save", "lease-release"]
+    # The next fresh canonical pull retains every originally committed column/time.
+    shutil.copyfile(published, local)
+    assert stored(local) == expected
 
 
 def test_gates_secret_scopes_and_durability():

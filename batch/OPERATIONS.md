@@ -806,7 +806,7 @@ Universeは営業日なら当日master、休場日ならcalendar上の直近営�
 
 取得は50銘柄ずつ、応答完了後15秒以上の間隔とする。正常batchは検証後に確定し、新規rowがあれば`partial`でもL1へ公開する。後続slotはL1からhydrateした同日rowのticker集合をexact-date masterのUniverseと照合し、未保存銘柄だけを取得する。全銘柄account済みならMCP接続前に終了する。hydrate後にmasterのraw rowsがあれば、`source_coverage`がなくても再取得せずに使う。TV workflowはremote `market.sqlite`や`machine-manifest.json`を更新せず、L1 releaseだけを永続化する。dailyは独立して実行する。
 
-summaryは営業日判定・master基準日・保存済み/追加/残件・unresolved・指標ごとの正常null・first/last受領時刻・provider障害・公開結果を分けて示す。partialをcooldownで取得skipした場合も保存済みrowの品質を示す。全件account済みでも全指標が利用可能とは限らない。成功・no-opはDiscord通知せず、partial・障害は既存通知に残す。
+summaryは営業日判定・master基準日・保存済み/追加/残件・unresolved・指標ごとの正常null・first/last受領時刻・provider障害・公開結果を分けて示す。partialをcooldownで取得skipした場合も保存済みrowの品質を示す。全件account済みでも全指標が利用可能とは限らない。検証・commit済みの追加rowはcooldown記録より先にL1公開し、補助記録の失敗で正常観測の公開を止めない。公開後の補助記録・lease解放の失敗は、公開済み件数と失敗stepを併記して通知する。成功・no-opはDiscord通知せず、partial・障害は既存通知に残す。
 
 休日の同値観測も履歴として保持するが、独立した情報sampleとして数えない。分析時は各行の`fetched_at_utc`が評価のas-of cutoff以下であることを確認し、未来値や無条件のlatest-nonnullで欠測を埋めない。土日3 slotは候補頻度であり、実網羅率・欠測・受領時刻で受け入れを判断する。provider通信が0のno-opでもlease・pull・hydrateのR2 I/Oは発生する。R2 Standardの無料枠は[公式料金](https://developers.cloudflare.com/r2/pricing/)に従い、全bucketの月間保管量・Class A/B消費を確認する。使用量が不明なら無料とは保証せず、追加課金を前提に頻度を増やさない。
 
