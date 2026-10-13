@@ -174,7 +174,7 @@ def plan_limit(
             )
             total += sum(
                 (
-                    Decimal(item.remaining_quantity) * item.price_guard_yen
+                    Decimal(item.reserved_yen)
                     for item in portfolio.active_reservations
                     if matches(item.ticker, item.sector, item.common_factors)
                 ),

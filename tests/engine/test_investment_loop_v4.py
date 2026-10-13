@@ -242,6 +242,7 @@ def test_sequential_allocation_uses_updated_cash_and_one_research_set(
         assert plan["available_cash_yen"] == (500000 if ticker == "1234" else 200000)
         if ticker == "5678" and fill_first:
             assert plan["portfolio_exposure"]["total_capital_yen"] == 500000
+            assert plan["portfolio_exposure"]["sector"]["prospective_pct"] == 100
             assert "prospective_ticker_concentration_exceeds_warning:5678" in plan["warnings"]
             assert "concentration_and_dry_powder_unassessed" not in plan["warnings"]
             assert LedgerStoreService(db).load().market_prices == ()
@@ -304,6 +305,24 @@ def test_sequential_allocation_uses_updated_cash_and_one_research_set(
                 now=NOW,
             )
             apply_draft(LedgerStoreService(db), fill, human_confirmed=True)
+            sell_open, _ = build_broker_fact_draft(
+                LedgerStoreService(db),
+                partial(historical_allocated_ticker, db_path=db),
+                decision_reference="human-reported-sell-1234",
+                status="open",
+                side="sell",
+                occurred_at=NOW,
+                ticker=ticker,
+                quantity=100,
+                order_id="sell-order-1234",
+                sector="機械",
+                price_guard_yen=Decimal(1140),
+                expires_at=NOW + timedelta(days=3),
+                ordered_at=NOW,
+                now=NOW,
+            )
+            assert sell_open is not None
+            apply_draft(LedgerStoreService(db), sell_open, human_confirmed=True)
     OperationService(db).complete(
         operation.operation_id,
         OperationPayload(
@@ -332,6 +351,24 @@ def test_sequential_allocation_uses_updated_cash_and_one_research_set(
         for event in ledger_service.load().events
         if event.type == "reservation" and event.ticker == "1234"
     )
+    if fill_first:
+        sell_reservation_id = next(
+            event.reservation_id
+            for event in ledger_service.load().events
+            if event.type == "reservation" and event.ticker == "1234" and event.side == "sell"
+        )
+        sell_cancel, _ = build_broker_fact_draft(
+            ledger_service,
+            partial(historical_allocated_ticker, db_path=db),
+            decision_reference="human-reported-sell-1234",
+            status="cancelled",
+            side="sell",
+            occurred_at=NOW,
+            reservation_id=sell_reservation_id,
+            now=NOW,
+        )
+        assert sell_cancel is not None
+        apply_draft(ledger_service, sell_cancel, human_confirmed=True)
     if not fill_first:
         fill, _ = build_broker_fact_draft(
             ledger_service,
