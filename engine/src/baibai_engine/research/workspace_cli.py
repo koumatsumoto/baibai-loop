@@ -6,7 +6,8 @@ This is also the `baibai-engine research` help surface, so the read-only `evalua
 command is declared here and forwarded to :mod:`thesis_evaluation_cli`, which keeps its own
 arguments and its own exit codes.
 
-Machine output is YAML on stdout only; human explanation and errors go to stderr.
+Machine output is YAML on stdout, except calculate emits JSON; human explanation
+and errors go to stderr. Calculate retains its own arguments and exit codes.
 Exit codes:
 
 - 0 success (``defer`` and ``no_allocation`` are normal judgments)
@@ -161,6 +162,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="evaluate a thesis draft against the decision gate (read-only)",
         add_help=False,
     )
+    subparsers.add_parser(
+        "calculate",
+        help="calculate draft numbers from typed inputs (JSON, no writes)",
+        add_help=False,
+    )
 
     promote_parser = subparsers.add_parser(
         "promote", help="publish the canonical thesis/review to the application DB"
@@ -223,6 +229,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     arguments = sys.argv[1:] if argv is None else list(argv)
+    if arguments and arguments[0] == "calculate":
+        from .calculation_cli import main as calculate_main
+
+        return calculate_main(arguments[1:])
     if arguments and arguments[0] == "triage":
         from .triage.cli import main as triage_main
 

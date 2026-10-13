@@ -26,7 +26,7 @@ uv run baibai-engine research prepare \
 
 対象purposeごとに必要なflagだけを使う。新規は`--ticker`、保有は`--holding-ticker`を同じ呼出しで指定し、合算上限を守る。新規のない開始はTriage IDを省略して`--asof`を指定できる。0件も開始要求と提案なしの終了を残す。
 
-新規workspaceと`holdings/<ticker>`は同じOperationを参照する。三領域の保存済み`domain-inputs.yaml`を読み、観測・機械anchor・AI前提を分ける。保存された旧章立てreportの全文作成を前提にせず、materialな環境変化だけ企業評価と提案へ接続する。既存Thesisがあれば`--from-thesis-id`で引き継ぐ。再開で別Triage・対象集合へ差し替えず、執筆済みworkspaceを保持する。
+新規workspaceと`holdings/<ticker>`は同じOperationを参照する。AIの読取入口は親の`domain-inputs.yaml`一本とし、選択済み新規の機械snapshot・保存Triageの調査理由/質問/リスクと、選択済み新規/保有の三領域入力を読む。観測・機械anchor・保存判断・今回置く仮定を分ける。`research-workspace.yaml`の全候補snapshotは内部のcanonical照合用であり、AIへ再度全文を渡さない。保有子workspaceのmanifestにある`domain_inputs_ref`は子workspaceを基準に親入力を指す。同じ作業では共通入力を重ねて読まず、保有単独の開始は自身の`domain-inputs.yaml`を読む。保存された旧章立てreportの全文作成を前提にせず、materialな環境変化だけ企業評価と提案へ接続する。既存Thesisがあれば`--from-thesis-id`で引き継ぐ。再開で別Triage・対象集合へ差し替えず、執筆済みworkspaceを保持する。
 
 <a id="company-research"></a>
 
@@ -43,8 +43,10 @@ uv run baibai-engine research prepare \
 1. `research thesis-scaffold`でdraftを作り、明示mappingされたplaybookの問いを一次資料で検討する。[事業モデル別調査](../../../docs/reference/business-model-research.md)は指定された試行の補助として使い、全社共通の追加gateにしない。
 2. [Thesis reference](../../../docs/reference/thesis.md)に従って企業評価とBase/Downsideを構成する。束縛された市場環境判断の含意・留意点は、materialなものだけを仮定・source・反対仮説へ接続する。機械推計の照会・意味は[Valuation metrics](../../../docs/reference/valuation-metrics.md#machine-valuation)を参照し、企業固有評価との区別はThesis referenceに従う。
    利益の1株換算には直近の自己株控除株数を起点とし、その資料の重要後発事象と評価日までの一次開示で増資・自己株処分・消却を照合する。株式分割の確認だけで株数の更新を済ませず、実行済みと予定を分けて計算basisに残す。
+   ratio-v1とProjectionの数値は、[draft算術](../../../docs/reference/thesis.md#draft-calculation)の`research calculate <INPUTS>`で生成し、必要な既存欄へ渡す。terminal/cashの元となる企業見積りと算式は一次資料から別途確認する。
 3. `research evaluate`で計算資料とerrorsを確認する。必要価値・時間感度の解釈は[valuation context](../../../docs/reference/thesis.md#valuation-context)に従う。Review未添付だけの`review_required`は計算資料があってもexit 2であり、他のerrorを無視する許可ではない。
 4. `research review-scaffold`を用い、作者と別の作業者がsource・算術・経済的反証を確認する。`evaluate --review`で一組を検証し、coreを変えたらReviewを取り直す。
+   Review側も資料・単位・期間・重要仮定を独立に確認した入力で`research calculate <REVIEW_INPUTS>`を呼び、`recalculated_projections`を既存Review欄へ渡す。作者の出力や入力をそのままコピーして独立検算としない。計算成功は公開可否や事業前提の確認を意味しない。
 5. `candidate / defer / reject`を確定し、`research promote`でThesisとReviewを公開する。経済的に判断できたdefer/rejectは完成できる。調査自体が終わらない根拠不足は未完了として記録し、経済的見送りに偽装しない。将来見積りに幅があることだけを不合格にせず、資料で確認すべき事実の欠落とは区別する。
 
 ## 3. 配分を比較して公開する

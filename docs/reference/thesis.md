@@ -60,6 +60,24 @@ terminalは分配後に残る価値、cashは当該期間の累積分配であ�
 
 倍率上昇には一次資料で確認した利益品質・事業構造等の根拠を記す。機械anchorや相対的割安さだけを根拠にせず、倍率が回復しない反対仮説も検算する。利益と倍率、業績と借換えが連動して悪化する場合は、一変数だけ動かして反証を済ませない。株数は会社EPSとの整合を確認し、自己株式込みのグロス株数を無条件に使わない。金融的妥当性は作者と独立Reviewの責務であり、productionで任意formulaを実行しない。
 
+<a id="draft-calculation"></a>
+
+### Draftの数値生成
+
+`research calculate <INPUTS>`はYAML/JSONのtyped入力を一度読み、JSONをstdoutへ返す。ファイル・DBを書かず、ネット取得やAI実行も行わない。作者と独立Reviewがそれぞれ確認した入力で使い、保存・公開の前に従来の`evaluate`へ渡す。
+
+入力は既存Thesisの`input_snapshot`、任意の`derived.metrics`と`valuation`に限定する。ratioの定義は既存DerivedMetricから`value`だけを除いた形で、`formula=ratio / formula_version=ratio-v1`は省略できる。factを参照して既存の単位対応で割算し、`derived.metrics`へ既存検証と同じ精度の値を生成する。例えば1/3は0.3333333333333333となり、表示用の0.3333を保存値に使わない。任意formulaや追加の事業モデルは実行しない。
+
+`valuation`は既存のresolved/unresolved型で渡す。resolvedでは未調整価格fact、terminal/cash、期間、要求年率から既存Projection算術で総価値、総return、年率、`pmax_raw_yen`を計算し、価格・評価日・basisとともに`projection_numbers`へ返す。この出力は計算資料であり、`evaluate`の公開内容検証や`valuation_context`を代行しない。価格・単位が不適切、参照factがない場合はexit 2でstdoutを出さず、入力エラーをstderrへ返す。`valuation`省略/nullまたはunresolvedなら`projection_numbers=null / recalculated_projections=[]`で、欠測を0へ補わない。成功はexit 0である。
+
+出力`derived`と`valuation`は既存Thesis欄へ、`recalculated_projections`は既存Review欄へ渡せる。terminal/cash自体は入力した値の再掲であり、売上・利益率・税・株数・倍率などから再構成しない。文章の`calculation`も解釈しないため、作者とReviewが同じ誤ったterminalを入力すれば一致する。一次資料・算式・数値代入の独立確認は必要なままであり、作者の入力をReviewへコピーして済ませない。保存済みJSON/core hash、Review許容差、Planning判断・数量式は変えない。
+
+機械anchorとのgapは[Valuation metricsの保存済み照会](./valuation-metrics.md#machine-valuation)で原run・時点とともに参照する。企業評価の数値生成へ機械anchorを混ぜない。上流の事業算式を型として追加する必要性は実運用で確認してから検討する。
+
+```bash
+uv run baibai-engine research calculate /tmp/research-calculation-inputs.json
+```
+
 <a id="valuation-context"></a>
 
 ### 原価格の成立条件と時間感度
