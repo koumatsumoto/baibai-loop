@@ -62,6 +62,19 @@ def _verify_external_inputs(
     inputs = manifest.get("inputs")
     if not isinstance(inputs, Mapping):
         raise ResearchWorkspaceDataError("manifest is missing external input hashes")
+    if selection is not None and selection.explicit_run is not None:
+        # Triage所属の代わりにcanonical Operationのrun・対象・要求を照合する。
+        # workspace編集で別銘柄を調査/発行できる入口にはしない。
+        # docs/reference/analysis-operations.md#explicit-research-source
+        if inputs.get("explicit_run") != selection.explicit_run.binding():
+            raise ResearchWorkspaceConflictError(
+                "workspace explicit run differs from fixed selection"
+            )
+        if manifest.get("research_set") != [
+            target.ticker for target in selection.targets if target.purpose == "new"
+        ]:
+            raise ResearchWorkspaceConflictError("workspace targets differ from fixed selection")
+        return None
     if (
         selection is not None
         and not any(item.purpose == "new" for item in selection.targets)
@@ -129,7 +142,7 @@ def _validate_editable_drafts(
         raise ResearchWorkspaceDataError("workspace research_set must be an array of tickers")
     research_set_tickers = [str(ticker) for ticker in research_set]
     if len(research_set_tickers) != len(set(research_set_tickers)) or any(
-        ticker not in review_set_tickers for ticker in research_set_tickers
+        gate is not None and ticker not in review_set_tickers for ticker in research_set_tickers
     ):
         raise ResearchWorkspaceDataError("workspace research_set is invalid")
     manifest_research_set = manifest.get("research_set")
@@ -138,11 +151,11 @@ def _validate_editable_drafts(
             "workspace Research Set differs from the fixed selection; "
             "rebuild the workspace with `research prepare --force`"
         )
-    # Narrowing guard, not a reachable state: `_verify_external_inputs` reads purpose
-    # from this same manifest and returns None only for Position Review, which left
-    # above. A missing binding is refused there, with the command that rebuilds it.
+    # An explicit source was checked against the canonical Operation above.
     if gate is None:
-        if research_set_tickers:
+        inputs = manifest.get("inputs")
+        explicit_binding = inputs.get("explicit_run") if isinstance(inputs, Mapping) else None
+        if research_set_tickers and not isinstance(explicit_binding, Mapping):
             raise ResearchWorkspaceDataError(
                 "Fundamental Research workspace has no ResearchTriage binding"
             )

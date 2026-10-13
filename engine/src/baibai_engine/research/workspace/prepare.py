@@ -16,6 +16,7 @@ from baibai_engine.foundation.repository_layout import (
 from baibai_engine.foundation.time import JST
 from baibai_engine.position.ledger import replay_events_through
 from baibai_engine.position.store import LedgerStoreService
+from baibai_engine.research.explicit_selection import load_explicit_research_run
 from baibai_engine.research.inputs import research_inputs
 from baibai_engine.research.operation.models import OperationPayload
 from baibai_engine.research.operation.progress import (
@@ -58,9 +59,36 @@ def prepare_workspace(
     runs_path: Path = RUNS_DB_PATH,
     indicators_path: Path = INDICATORS_DB_PATH,
     force: bool = False,
+    run_revision_id: str | None = None,
 ) -> ResearchPreparation:
     """Explicitly start/reuse one fixed combined selection, including a normal empty set."""
     now = started_at or datetime.now(JST)
+    if research_triage_id is not None and run_revision_id is not None:
+        raise ResearchWorkspaceDataError("Research Triage and explicit run are mutually exclusive")
+    service = OperationService(db_path, sqlite_path=sqlite_path, runs_path=runs_path)
+    active = service.active()
+    recorded = None if active is None else selection_binding(active.payload)
+    explicit_run = None
+    if run_revision_id is not None:
+        if recorded is not None and recorded.explicit_run is not None:
+            explicit_run = recorded.explicit_run
+            if (
+                explicit_run.run_revision_id != run_revision_id
+                or recorded.request != request
+                or (asof is not None and asof != explicit_run.as_of)
+            ):
+                raise ResearchWorkspaceConflictError("active explicit run/request/as-of is fixed")
+        else:
+            try:
+                explicit_run = load_explicit_research_run(
+                    runs_path,
+                    run_revision_id=run_revision_id,
+                    tickers=tuple(research_set) + tuple(holding_tickers),
+                    known_at=now,
+                    as_of=asof,
+                )
+            except ValueError as error:
+                raise ResearchWorkspaceDataError(str(error)) from error
     gate = (
         None
         if research_triage_id is None
@@ -70,22 +98,25 @@ def prepare_workspace(
     )
     if gate is not None and asof is not None and asof != gate.asof:
         raise ResearchWorkspaceDataError("--asof differs from the bound Research Triage")
-    resolved_asof = gate.asof if gate is not None else asof
+    resolved_asof = gate.asof if gate is not None else explicit_run.as_of if explicit_run else asof
     if resolved_asof is None:
         raise ResearchWorkspaceDataError("--asof is required without Research Triage")
     selected = tuple(research_set)
-    if selected and (gate is None or not set(selected) <= set(gate.admissible_tickers)):
+    if (
+        selected
+        and explicit_run is None
+        and (gate is None or not set(selected) <= set(gate.admissible_tickers))
+    ):
         raise ResearchWorkspaceDataError(
             "Research Triage did not mark research for one of the new targets"
         )
     selection = ResearchSelection(
         request=request,
         research_triage_id=research_triage_id,
+        explicit_run=explicit_run,
         targets=tuple(ResearchTarget(ticker=ticker, purpose="new") for ticker in selected)
         + tuple(ResearchTarget(ticker=ticker, purpose="holding") for ticker in holding_tickers),
     )
-    service = OperationService(db_path, sqlite_path=sqlite_path)
-    active = service.active()
     if active is not None:
         if active.as_of != resolved_asof:
             raise ResearchWorkspaceConflictError(
@@ -95,6 +126,7 @@ def prepare_workspace(
         if (
             recorded is None
             or recorded.research_triage_id != selection.research_triage_id
+            or recorded.explicit_run != selection.explicit_run
             or set(recorded.targets) != set(selection.targets)
         ):
             raise ResearchWorkspaceConflictError(
@@ -144,8 +176,15 @@ def prepare_workspace(
         indicators_path=indicators_path,
         app_path=database_path(db_path),
         run_revision_id=None if gate is None else gate.run_revision_id,
+        explicit_run=selection.explicit_run,
     )
     domain_inputs["research_targets"] = [item.model_dump(mode="json") for item in selection.targets]
+    if selection.explicit_run is not None:
+        domain_inputs["explicit_research_request"] = {
+            "request": selection.request,
+            "analysis_as_of": selection.explicit_run.as_of.isoformat(),
+            **selection.explicit_run.binding(),
+        }
     if gate is not None:
         domain_inputs["research_triage"] = {
             "research_triage_id": gate.research_triage_id,
@@ -172,7 +211,11 @@ def prepare_workspace(
         payload=OperationPayload(
             checkpoint="Explicit research started; fixed AI selection recorded",
             artifacts=(selection.model_dump(mode="json"),),
-            canonical_refs=() if research_triage_id is None else (research_triage_id,),
+            canonical_refs=(run_revision_id,)
+            if run_revision_id is not None
+            else ()
+            if research_triage_id is None
+            else (research_triage_id,),
             next="research only the fixed targets; record completed or unfinished outcomes",
         ),
     )
@@ -188,6 +231,8 @@ def prepare_workspace(
             }
         }
     )
+    if selection.explicit_run is not None:
+        inputs["explicit_run"] = selection.explicit_run.binding()
     _write_workspace_file(
         manifest_path,
         {
@@ -216,10 +261,18 @@ def prepare_workspace(
     return ResearchPreparation(
         workspace=workspace,
         actionable=bool(selection.targets),
-        admissible_count=0 if gate is None else len(gate.admissible_tickers),
+        admissible_count=len(selected)
+        if explicit_run is not None
+        else 0
+        if gate is None
+        else len(gate.admissible_tickers),
         review_set_size=len(annotated),
         research_triage_id=research_triage_id,
-        admissible_research_tickers=() if gate is None else gate.admissible_tickers,
+        admissible_research_tickers=selected
+        if explicit_run is not None
+        else ()
+        if gate is None
+        else gate.admissible_tickers,
         operation_id=operation.operation_id,
     )
 

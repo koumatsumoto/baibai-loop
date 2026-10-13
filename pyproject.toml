@@ -349,6 +349,8 @@ forbidden_modules = [
 allow_indirect_imports = true
 ignore_imports = [
   "baibai_engine.research.inputs -> baibai_engine.screening.run_store",
+  # User-selected admission pins canonical saved-run evidence; contracts stay pure.
+  "baibai_engine.research.explicit_selection -> baibai_engine.screening.run_store",
   "baibai_engine.research.triage.contracts -> baibai_engine.screening.discovery.contracts",
   "baibai_engine.research.triage.service -> baibai_engine.screening.discovery.contracts",
   "baibai_engine.research.triage.cli -> baibai_engine.screening.discovery.contracts",

@@ -84,7 +84,7 @@ class _CapitalAllocationFields(BaseModel):
     published_at: datetime
     result: AllocationDecision
     headline: str = Field(min_length=1)
-    research_triage_id: str = Field(min_length=1)
+    research_triage_id: str | None = Field(min_length=1)
     market_context_assessment_id: str | None = None
     research_scope: ResearchComparisonScope | None = None
     comparison: str = Field(min_length=1)
@@ -109,6 +109,8 @@ class _CapitalAllocationFields(BaseModel):
 
     @model_validator(mode="after")
     def _publication_shape(self) -> Self:
+        if self.research_triage_id is None and self.research_scope is None:
+            raise ValueError("user-selected CAA requires its fixed Operation research scope")
         if self.published_at.tzinfo is None:
             raise ValueError("published_at must include a timezone")
         if not re.fullmatch(

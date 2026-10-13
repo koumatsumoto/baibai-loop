@@ -81,9 +81,13 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_parser = subparsers.add_parser(
         "prepare", help="build a research workspace from a self-contained ResearchTriage"
     )
-    prepare_parser.add_argument(
+    source_parser = prepare_parser.add_mutually_exclusive_group()
+    source_parser.add_argument(
         "--research-triage-id",
         help="canonical ResearchTriage admitting the fixed new targets",
+    )
+    source_parser.add_argument(
+        "--run-revision-id", help="saved analysis run for user-selected targets"
     )
     prepare_parser.add_argument("--db", type=Path)
     prepare_parser.add_argument(
@@ -200,7 +204,7 @@ def build_parser() -> argparse.ArgumentParser:
     assessment_scaffold_parser.add_argument("--db", type=Path)
     assessment_scaffold_parser.add_argument("--capital-allocation-assessment-id", required=True)
     assessment_scaffold_parser.add_argument("--asof", required=True)
-    assessment_scaffold_parser.add_argument("--research-triage-id", required=True)
+    assessment_scaffold_parser.add_argument("--research-triage-id")
     assessment_scaffold_parser.add_argument(
         "--thesis-id",
         action="append",
@@ -252,6 +256,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             case "prepare":
                 prepared = prepare_workspace(
                     research_triage_id=args.research_triage_id,
+                    run_revision_id=args.run_revision_id,
                     db_path=args.db,
                     workspace=args.workspace,
                     research_set=args.ticker,

@@ -72,7 +72,7 @@ def _assessment_summary_view(raw: Mapping[str, object]) -> CapitalAllocationAsse
         published_at=datetime.fromisoformat(str(raw["published_at"])),
         decision=str(raw["result"]),
         headline=str(raw["headline"]),
-        research_triage_id=str(raw["research_triage_id"]),
+        research_triage_id=text(raw.get("research_triage_id")),
         alternative_count=len(alternatives),
         allocated_ticker=allocated,
     )
@@ -108,7 +108,7 @@ def _assessment_view(
         published_at=datetime.fromisoformat(str(raw["published_at"])),
         decision=str(raw["result"]),
         headline=str(raw["headline"]),
-        research_triage_id=str(raw["research_triage_id"]),
+        research_triage_id=text(raw.get("research_triage_id")),
         market_context_assessment_id=text(
             raw.get("macro_context_id")
             if raw.get("schema_version") == 1

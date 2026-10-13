@@ -21,6 +21,14 @@ Assessmentは比較理由と判断bindingを保存する。Thesis由来の機械
 
 同じID・内容・Reviewの再送は既存publicationを返し、異なる内容で同じIDを上書きしない。開始したOperationの対象集合と無関係なAssessmentで完了させない。現行writerの`research_scope`はOperation IDと新規の完了/未完了被覆へ束縛され、alternativesは完了Reviewed ThesisのID/core hash/Review参照と一致する。未完了の理由・参照も同じCAAに固定する。全未完了ならCAAを作らない。L3完了にはいずれの配分結果でも人間の採否を要求しない。旧payloadのscope欠如は履歴として読み、新しい発行に補完しない。作成・check・content review・公開・完了の順序は[Research skill](../../.agents/skills/research/SKILL.md)に従う。
 
+<a id="research-source"></a>
+
+## Researchの開始根拠
+
+Triage経由は保存Triageのadmissionへ、[ユーザー指定の明示source](./analysis-operations.md#explicit-research-source)はcanonical Operationの固定選択へ束縛する。後者の`research_triage_id`はNULLとし、架空のTriage IDを作らない。現行CAA2の`research_scope`は必須であり、同じOperationの完成Thesis/core hash/Reviewと未完了被覆へ一致させる。独立したcontent reviewと購入条件を省略する意味ではない。保存済みCAA1/2のpayload・Review digestを再生成しない。
+
+PlanningのADVは開始時の根拠を使う。Triage経由はその流動性snapshot、明示sourceはOperationに保存したSecurity Analysisとrun/as-ofを参照する。最新候補へ付け替えず、現在価格・cash・注文sessionは既存の当日検証で確認する。API/Webは両経路を区別し、保存済み提案の一覧は最新Screeningへの所属を問わず読む。
+
 ## Planningと資本情報
 
 Planningは公開済みallocateから当日の価格・数量・期限を計算する一時的な助言であり、Assessment自体の変更ではない。broker操作と確認済み事実の保存は別工程である。

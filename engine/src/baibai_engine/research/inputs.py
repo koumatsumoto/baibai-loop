@@ -13,6 +13,7 @@ from baibai_engine.market_context.assessment.query import latest_assessment
 from baibai_engine.market_context.reading.query import reading_snapshot
 from baibai_engine.market_context.security import build_security_market_context
 from baibai_engine.market_context.snapshot import build_market_snapshot
+from baibai_engine.research.operation.progress import ExplicitResearchRun
 from baibai_engine.screening.run_store import ScreeningRunReader
 from baibai_engine.valuation.query import (
     cash_flow_from_analysis,
@@ -31,29 +32,45 @@ def research_inputs(
     indicators_path: Path,
     app_path: Path,
     run_revision_id: str | None = None,
+    explicit_run: ExplicitResearchRun | None = None,
 ) -> dict[str, object]:
-    run = read_store_if_written(
-        runs_path,
-        lambda: ScreeningRunReader(runs_path).valuation_run(
-            as_of=as_of, run_revision_id=run_revision_id
-        ),
+    run = (
+        None
+        if explicit_run is not None
+        else read_store_if_written(
+            runs_path,
+            lambda: ScreeningRunReader(runs_path).valuation_run(
+                as_of=as_of, run_revision_id=run_revision_id
+            ),
+        )
     )
     context = latest_assessment(app_path, as_of=as_of, known_at=known_at)
+    analysis_rows = (
+        tuple(explicit_run.analyses.values())
+        if explicit_run is not None
+        else ()
+        if run is None
+        else run.security_analyses
+    )
+    analysis_run_id = (
+        explicit_run.run_revision_id
+        if explicit_run is not None
+        else (None if run is None else run.run_revision_id)
+    )
+    analysis_as_of = (
+        explicit_run.as_of.isoformat()
+        if explicit_run is not None
+        else (None if run is None else run.as_of_date)
+    )
     securities: dict[str, object] = {}
     for ticker in tickers:
-        analysis = (
-            None
-            if run is None
-            else next(
-                (item for item in run.security_analyses if item.get("ticker") == ticker), None
-            )
-        )
+        analysis = next((item for item in analysis_rows if item.get("ticker") == ticker), None)
         securities[ticker] = {
             "machine_valuation": None
             if analysis is None
             else {
-                "run_revision_id": run.run_revision_id if run is not None else None,
-                "as_of": run.as_of_date if run is not None else None,
+                "run_revision_id": analysis_run_id,
+                "as_of": analysis_as_of,
                 "estimate": asdict(machine_valuation_from_analysis(analysis)),
             },
             "cash_flow": None if analysis is None else cash_flow_from_analysis(analysis),

@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
 
 import type { AllocationAlternativeView } from '../src/api/types'
-import { AllocationThesisDetails } from '../src/pages/CapitalAllocationAssessmentPage'
+import { AllocationThesisDetails, AssessmentResearchSource } from '../src/pages/CapitalAllocationAssessmentPage'
 
 const item: AllocationAlternativeView = {
   ticker: '1234', disposition: 'decline', rationale: '当時の比較',
@@ -23,6 +23,17 @@ function render(value = item) {
 }
 
 describe('CAAが参照した企業評価', () => {
+  it('ユーザー指定の開始根拠を示し、偽のTriageリンクを作らない', () => {
+    const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(AssessmentResearchSource, { researchTriageId: null })))
+    expect(html).toContain('ユーザー指定の対象')
+    expect(html).toContain('開始要求と固定対象')
+    expect(html).not.toContain('/research-triage')
+  })
+  it('Triage経由では当時の保存IDへリンクする', () => {
+    const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(AssessmentResearchSource, { researchTriageId: 'synthetic-original-triage' })))
+    expect(html).toContain('/research-triage?research_triage_id=synthetic-original-triage')
+    expect(html).not.toContain('ユーザー指定')
+  })
   it('固定Thesis/Reviewと根拠・出典・原評価を表示し、最新情報を別リンクにする', () => {
     const html = render()
     for (const text of ['caa-thesis-thesis-1234-original', 'CAA参照の企業評価', 'thesis-1234-original', 'review-original', '当時の企業価値の根拠', '当時の独立reviewer', '当時の反対仮説', 'original-source', '1,101.79円', '最新の銘柄情報・企業評価を見る']) expect(html).toContain(text)

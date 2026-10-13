@@ -206,13 +206,13 @@ def _require_primary_research_ticker(
             "current Operation ID is required for mutation; explicitly prepare the fixed selection"
         )
     selection = workspace_selection(manifest, db_path=db_path, active=True)
-    purpose = "holding" if gate is None else "new"
+    purpose = "holding" if manifest.get("purpose") == "position_review" else "new"
     if ResearchTarget(ticker=ticker, purpose=purpose) not in selection.targets:
         raise ResearchWorkspaceConflictError(
             "ticker/purpose is outside the fixed Operation selection"
         )
-    if gate is not None and (
-        selection.research_triage_id != gate.research_triage_id
+    if purpose == "new" and (
+        (gate is not None and selection.research_triage_id != gate.research_triage_id)
         or set(research_set) != {item.ticker for item in selection.targets if item.purpose == "new"}
     ):
         raise ResearchWorkspaceConflictError(

@@ -174,13 +174,13 @@ primary_source_check=verifiedは重要な判断根拠を確認した意味で、
 
 PlanningはCAAのallocate候補だけに現在の価格、確認済みcash、保有・予約・同CAA約定履歴を確認する。既保有や同ticker予約、同CAA買約定済みはdefer。全売却後も旧CAAを再利用しない。数量はcashと20〜30万円guideの単元床を使い、cashで1単元を買えなければ0。1単元がguideを超える場合はcash内に限り1単元とwarningを出す。NAV自動sizingは行わない。
 
-ADV参加率はTriageの観測日付き流動性contextを参照し、欠損は未評価とする。5%超をwarningとして伝える。
+ADV参加率は[開始sourceに固定した流動性context](./capital-allocation-assessment.md#research-source)を参照し、欠損は未評価とする。5%超をwarningとして伝える。
 
 他保有quoteの欠損はNAV・集中・dry powderをunknownとして示し、架空のcash-only NAVを作らない。現在quoteと原評価の権利単位が確認できなければ購入提案をしない。詳細な資本規律は[portfolio management](../portfolio-management.md)。
 
 ## Workspaceとコマンド
 
-新規admissionはexact Triageと明示開始後のAI選択をOperationへ固定し、保有は同じ有限対象の別purposeとする。Workspaceはdraft作成・再利用・promoteを所有し、注文式やchecklist全行completeという第二gateを持たない。公開状態はexact Thesis/Reviewとの一致で決まる。保有Workspaceは対象holdingを確認し、無関係なledger更新で調査をやり直さない。
+新規admissionは[Researchの開始sourceと固定選択](./analysis-operations.md#explicit-research-source)をOperationへ保存し、保有は同じ有限対象の別purposeとする。Workspaceはdraft作成・再利用・promoteを所有し、注文式やchecklist全行completeという第二gateを持たない。公開状態はexact Thesis/Reviewとの一致で決まる。保有Workspaceは対象holdingを確認し、無関係なledger更新で調査をやり直さない。
 
 ```bash
 uv run baibai-engine research evaluate /tmp/thesis-draft.yaml --review /tmp/thesis-review.yaml

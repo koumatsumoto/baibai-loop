@@ -24,7 +24,7 @@ def scaffold_capital_allocation(
     db_path: Path | None,
     capital_allocation_assessment_id: str,
     as_of: date,
-    research_triage_id: str,
+    research_triage_id: str | None,
     thesis_ids: list[str],
     published_at: datetime,
 ) -> dict[str, object]:
@@ -34,12 +34,16 @@ def scaffold_capital_allocation(
     if not path.is_file():
         raise CapitalAllocationConflictError(f"application database is unavailable: {path}")
     with closing(connect_read_only(path)) as connection:
-        triage = _payload(
-            connection,
-            "SELECT payload FROM research_triage WHERE research_triage_id = ?",
-            research_triage_id,
+        triage = (
+            {}
+            if research_triage_id is None
+            else _payload(
+                connection,
+                "SELECT payload FROM research_triage WHERE research_triage_id = ?",
+                research_triage_id,
+            )
         )
-        raw_entries = triage.get("entries")
+        raw_entries = triage.get("entries", [])
         if not isinstance(raw_entries, list):
             raise CapitalAllocationConflictError("research triage entries are invalid")
         researchable = {
@@ -48,7 +52,10 @@ def scaffold_capital_allocation(
             if isinstance(entry, dict) and entry.get("decision") == "research"
         }
         alternatives = [
-            _alternative(connection, thesis_id, researchable) for thesis_id in thesis_ids
+            _alternative(
+                connection, thesis_id, None if research_triage_id is None else researchable
+            )
+            for thesis_id in thesis_ids
         ]
         try:
             scope = require_active_research_set(
@@ -98,11 +105,11 @@ def scaffold_capital_allocation(
 def _alternative(
     connection: sqlite3.Connection,
     thesis_id: str,
-    researchable: set[str],
+    researchable: set[str] | None,
 ) -> dict[str, object]:
     pair = load_reviewed_thesis(connection, thesis_id)
     ticker = pair.document.input_snapshot.ticker
-    if ticker not in researchable:
+    if researchable is not None and ticker not in researchable:
         raise CapitalAllocationConflictError(
             f"thesis ticker is not researchable in the ResearchTriage: {ticker}"
         )

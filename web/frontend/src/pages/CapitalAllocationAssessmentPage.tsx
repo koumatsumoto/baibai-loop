@@ -18,6 +18,10 @@ function thesisAnchor(item: AllocationAlternativeView): string {
   return `caa-thesis-${item.thesis_id}`
 }
 
+export function AssessmentResearchSource({ researchTriageId }: { researchTriageId: string | null }) {
+  return researchTriageId ? <Link className="text-sm underline" to={`/research-triage?research_triage_id=${encodeURIComponent(researchTriageId)}`}>この配分判断が参照した対象選定・調査優先度を見る →</Link> : <p className="text-sm">ユーザー指定の対象を調査した配分判断です。開始要求と固定対象は調査の記録で確認できます。</p>
+}
+
 export function AllocationThesisDetails({ item }: { item: AllocationAlternativeView }) {
   return <details className="scroll-mt-24 rounded-lg border bg-card" id={thesisAnchor(item)}>
     <summary className="cursor-pointer px-4 py-3 font-medium">{item.ticker} · 当時の企業評価とReview · {item.valuation_as_of ?? '基準日未記録'}</summary>
@@ -84,9 +88,9 @@ export function CapitalAllocationAssessmentPage() {
       </SectionCard>}
       <SectionCard padded title="他の選択肢を見送った理由"><p className="whitespace-pre-line text-sm">{data.foregone_alternatives}</p></SectionCard>
       {data.alternatives.map(item => <AllocationThesisDetails item={item} key={item.thesis_id} />)}
-      <Link className="text-sm underline" to={`/research-triage?research_triage_id=${encodeURIComponent(data.research_triage_id)}`}>この配分判断が参照した対象選定・調査優先度を見る →</Link>
+      <AssessmentResearchSource researchTriageId={data.research_triage_id} />
       {data.market_context_assessment_id && <Link className="text-sm underline" to={`/market-context/assessments/${data.market_context_assessment_id}`}>この配分判断が参照した市場環境判断を見る →</Link>}
-      <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">判断の参照記録</summary><p className="mt-2 break-all">Research Triage: {data.research_triage_id} · 配分比較のReview: {data.content_review.conclusion}</p></details>
+      <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">判断の参照記録</summary><p className="mt-2 break-all">{data.research_triage_id ? `Research Triage: ${data.research_triage_id}` : `ユーザー指定 · Operation: ${data.research_operation_id}`} · 配分比較のReview: {data.content_review.conclusion}</p></details>
       <Link className="text-sm underline" to="/stocks">提案一覧に戻る</Link>
     </PageShell>
   )

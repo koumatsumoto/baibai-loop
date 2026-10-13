@@ -10,6 +10,7 @@ from datetime import datetime
 from baibai_engine.research.operation.models import OperationSession
 from baibai_engine.research.operation.progress import (
     ResearchComparisonScope,
+    ResearchSelection,
     ReviewedTarget,
     comparison_scope,
     selection_binding,
@@ -19,7 +20,7 @@ from baibai_engine.research.operation.progress import (
 def require_matching_research_set(
     operation: OperationSession,
     *,
-    research_triage_id: str,
+    research_triage_id: str | None,
     tickers: Iterable[str],
     published_at: datetime,
     scope: ResearchComparisonScope | None = None,
@@ -32,6 +33,8 @@ def require_matching_research_set(
         assert selection is not None
         if selection.research_triage_id != research_triage_id:
             raise ValueError("assessment Research Triage differs from the active Operation")
+        if research_triage_id is None and selection.explicit_run is None:
+            raise ValueError("assessment requires the canonical explicit selection source")
         completed = [item.ticker for item in expected.outcomes if isinstance(item, ReviewedTarget)]
         alternatives = tuple(tickers)
         if (
@@ -51,7 +54,7 @@ def require_matching_research_set(
 def require_active_research_set(
     connection: sqlite3.Connection,
     *,
-    research_triage_id: str,
+    research_triage_id: str | None,
     tickers: Iterable[str],
     published_at: datetime,
     scope: ResearchComparisonScope | None = None,
@@ -69,3 +72,18 @@ def require_active_research_set(
         published_at=published_at,
         scope=scope,
     )
+
+
+def load_research_selection(connection: sqlite3.Connection, operation_id: str) -> ResearchSelection:
+    row = connection.execute(
+        "SELECT * FROM operation_session WHERE operation_id=?", (operation_id,)
+    ).fetchone()
+    if row is None:
+        raise ValueError("research Operation is unavailable")
+    operation = OperationSession.model_validate(
+        {**dict(row), "payload": json.loads(row["payload"])}
+    )
+    selection = selection_binding(operation.payload)
+    if selection is None:
+        raise ValueError("fixed research_selection is required")
+    return selection
