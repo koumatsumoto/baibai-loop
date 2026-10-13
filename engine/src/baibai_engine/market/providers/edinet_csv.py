@@ -139,6 +139,7 @@ _TAGS: dict[str, tuple[str, ...]] = {
         "currentportionofbonds",
         "currentportionofbondspayable",
         "bondspayable",
+        "convertiblebondtypebondswithsubscriptionrightstoshares",
         "longtermborrowings",
         "longtermloanspayable",
         "leaseobligations",

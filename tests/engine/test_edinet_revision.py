@@ -7,6 +7,7 @@ from io import BytesIO, StringIO
 
 import pytest
 
+from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.providers.edinet_csv import parse_csv_zip_metric_record
 
@@ -79,7 +80,8 @@ def test_metric_values_and_quality_reasons_remain_stable() -> None:
 @pytest.mark.parametrize(
     ("change", "expected_exit", "downloads"),
     [
-        ("legacy", 0, 0),
+        ("current_revision", 0, 0),
+        ("legacy", 0, 1),
         ("other_revision", 0, 1),
         ("null_revision", 0, 1),
         ("failed_coverage", 0, 1),
@@ -114,9 +116,14 @@ def test_existing_baseline_reuse_and_failure_contract(tmp_path, change, expected
     with sqlite3.connect(db) as connection:
         original = connection.execute("SELECT * FROM edinet_metrics ORDER BY ticker").fetchall()
         assert connection.execute("SELECT extractor_revision FROM edinet_metrics").fetchone() == (
-            "9b82e8d0d13ac87aaf325561de0d93fb54466178254f49856beff1b433e07187",
+            EDINET_METRIC_REVISION,
         )
-        if change in {"other_revision", "null_revision"}:
+        if change == "legacy":
+            connection.execute(
+                "UPDATE edinet_metrics SET extractor_revision=?",
+                ("9b82e8d0d13ac87aaf325561de0d93fb54466178254f49856beff1b433e07187",),
+            )
+        elif change in {"other_revision", "null_revision"}:
             connection.execute(
                 "UPDATE edinet_metrics SET extractor_revision=?",
                 ("different-meaning" if change == "other_revision" else None,),
@@ -133,7 +140,7 @@ def test_existing_baseline_reuse_and_failure_contract(tmp_path, change, expected
             connection.execute(
                 "UPDATE source_coverage SET record_count=999 WHERE source='edinet_metrics'"
             )
-    # A missing ZIP in the legacy case turns any accidental download into a failure.
+    # A missing ZIP for the current revision makes accidental re-extraction fail.
     retry = FakeEDINETProvider(
         documents=[document], zip_by_doc_id={"S100BASELINE": csv_zip()} if downloads else {}
     )
@@ -154,6 +161,6 @@ def test_existing_baseline_reuse_and_failure_contract(tmp_path, change, expected
         ).fetchall()
     if expected_exit:
         assert latest == []
-    elif change == "legacy":
+    elif change == "current_revision":
         # All extracted columns, including provenance and quality, are reused unchanged.
         assert [row[1:] for row in latest] == [row[1:] for row in original]
