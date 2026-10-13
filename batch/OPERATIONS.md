@@ -737,7 +737,7 @@ planは既存stageを一度走査し、未記録pairを持つcohortだけをmatr
 
 keyは既存rootの`external-assessment/raw/utc-date/<bundle作成UTC日>/bundles/<batch_id>/cohort-NNNN-<attempt_id>.tar.gz`とする。manifestの各本文の実受領時刻はbundle作成日へ付け替えない。本文共有用のhash-indexや独自containerは持たず、3媒体と429 retryのsynthetic fixtureで全bytes復元と容量を検証する。200のparse失敗本文も診断対象だが、typed failureをnormalnullへ変えない。非200・未受領本文を成功原応答として保存しない。限定`collect` CLIの正規化stage出力は維持する。
 
-新raw rootは単一の`external-assessment/raw/`とし、R2標準lifecycleの期限方針は変更しない。ユーザーがこの単一prefixへ`Expiration: {Days: 3}`を設定する。実保持は通常概ね3〜4日で、厳密な72時間TTLではない（[R2公式仕様](https://developers.cloudflare.com/r2/buckets/object-lifecycles/)）。旧root `retail-dynamics/raw/`に対する設定が新rootへ自動で引き継がれるとは扱わない。本番切替前にユーザーによる新rootの設定を確認する。DB/L1・typed stage・別用途rawは対象外とする。旧rootの移動・削除やlifecycle操作を日次取得へ加えない。
+新raw rootは単一の`external-assessment/raw/`とし、R2標準lifecycleの期限方針は変更しない。ユーザーがこの単一prefixへ`Expiration: {Days: 3}`を設定する。実保持は通常概ね3〜4日で、厳密な72時間TTLではない（[R2公式仕様](https://developers.cloudflare.com/r2/buckets/object-lifecycles/)）。設定はこの単一prefixに限定し、DB/L1・typed stage・別用途rawは対象外とする。prefixを変更する場合は対応する設定を確認し、旧rootの移動・削除やlifecycle操作を日次取得へ加えない。
 
 次のinventoryは単一rootをread-only LISTし、UTC当日と前2日の3日付を調査対象、古い日を整理候補としてobject数/bytesを示す。旧形式の同root内本文・receiptと新bundleを日付別に集計し、形式を認識できないkeyは`unclassified`へ分ける。GET・PUT・DELETEやlifecycle設定は行わず、実削除済みを保証しない。
 
@@ -770,65 +770,23 @@ gh workflow run cloud-external-assessment.yml --ref main \
 
 R2費用確認ではprivate stage/raw、lease、pull/hydrate、L1 export/upload/readbackを分けて実測する。既存TransferReportはpublish層の範囲であり、private handoffやSDK retry、wire bytesを含むrun総計ではない。抽出済みDB/L1履歴はraw expirationによって削除しない。公開/readback後も固定planと小さなterminalを保持し、同batchを再取得へ戻さない。今回の最適化だけで全runの料金・所要時間を確定したとは扱わない。
 
-<a id="market-context-identity-cutover"></a>
+<a id="store-identity-recovery"></a>
 
-### Market Contextの保存名・新writer契約を切り替える
+### 保存名切替後の運用と復旧
 
-指標schema7は全行・vintage・registry・provider runを変えず、`stores/market_context/indicators.sqlite` / R2 `indicators.sqlite`へ配置する。application20→21は判断table/head/indexだけの改名で、保存済みpayload・ID・supersedes・hash・引用・原時刻を再発行しない。新規assessment6/Triage4/CAA2と、保存コンパクト5・Triage3/CAA1の読取を区別する。旧canonical DB/keyは無断削除せず読戻し用に保持し、恒久alias/dual writerを作らない。指標の未配置は暗黙の空DB作成で埋めず、明示provisioningまたは検証済みコピーを配置する。
+External Assessmentのtable/dataset、Market Contextの指標keyとapplication判断tableの切替は[PR #1442](https://github.com/koumatsumoto/baibai-loop/pull/1442)で完了した。変換・公開・読戻しの完了証拠は[Issue #1414](https://github.com/koumatsumoto/baibai-loop/issues/1414)に集約し、一回限りのtoolと初回切替手順は通常運用から除去した。
 
-```bash
-uv run python -m tools.ops.migrate_application_20_to_21 \
-  --source <fresh-application-schema20-copy> --output <isolated-application-schema21-copy>
-```
+通常の取得・反映は[クラウド正本の取得](#クラウド正本をローカルへ取得する)、[machine公開](#ローカルからクラウドを更新する)、[application反映](#application-db-を反映する)を使う。取得世代、publication lease、machine receiptと、対象codeのschemaが一致することを確認する。Readingの再計算・vintage選択・known_atの制約は[Market Context reference](../docs/reference/market-context.md#reading)を正本とする。
 
-sourceはread-only、既存outputは拒否する。SQLite backup→table/head/index改名→integrity/FK→全table全列digest/件数一致を確認する。指標コピーはbyte hash一致を確認する。#1438の[market30→31手順](#external-assessment-identity-cutover)と同じ切替窓を使い、両実装・全local gate/CI・新release空cache読戻し・保存判断/Research参照の隔離検証を親がレビューしてから本番へ進む。raw prefix `external-assessment/raw/`の3日削除設定は親が有効化を確認済みであり、旧rawの移動/削除を行う条件ではない。
+旧正本keyと固定releaseは歴史的読戻し用に保持する。旧releaseは元commitのruntimeと組み合わせ、現行runtimeへ透過的に読み替えない。旧DB/keyの存在を根拠に現行keyへ上書きせず、[application復元](#application-db-を復元する)または[R2 transferの復旧](#r2-transferの安全境界)で対応するcode・store・世代を確認する。schema不一致の修正は[明示schema切替の修正](#schema-cutoverを修正するとき)に従う。
 
-1. **切替前の停止確認:** 旧/新外部評価plan、daily、TradingView、materialize、local application発行の実run/processを終端確認する。休日でも#1439は指標/machine/全viewsを公開するため、休日を空き窓としない。新しいwriterの起動とWeb workflowの自動deployを切替中だけ止め、既存deployの終端も確認する。停止/再開は親の運用操作とし、新しい常設workflow/redirect機構を作らない。
-2. **最新正本と準備:** 既存publication lease内で最新L1 pointerとmarket/runs/旧指標key・machine receiptを固定し、旧runtimeでfresh pull/hydrateする。applicationもfresh pullし、取得元ETagを保持してコピーを20→21へ変換する。applicationのlocal/PC writerはlease外なので、書込直前のIf-Matchで競合を拒否する。変更/lease失効では再試行を決め打ちせず停止する。
-3. **code・store切替:** レビュー済みmainへコードを反映し、#1438手順1〜3の既存publisher/CASで新L1 releaseとschema31 marketを反映する。この時点では同手順4のreceipt更新へ進まない。続けて新`indicators.sqlite`を不存在時の条件付き作成で元bytesのまま配置し、既存なら期待した世代/bytes以外を拒否する。application21を取得した旧application世代への条件付きPUTで反映する。旧20と新21を通常`push-app`でmergeせず、market30/31も通常mergeしない。全新keyとappの配置・世代・bytesを確認するまで通常公開へ進まず、初回切替も既存の条件付きPUT/lease primitiveを使う。
-4. **一回のreceipt更新とfresh読戻し:** 全keyとappの配置後、lease保持を確認して既存`r2_transfer.sh push-market`を一回実行する。これはlocalの旧pulled-version記録を使わず、現在のcloud schema31 marketを新しくGET/mergeし、その取得ETagへsnapshot/CAS PUTする。直後の`write_machine_manifest`がmarket/runs/indicatorsの現行3keyをHEADしてreceiptを作る。旧pullの`macro.sqlite`記録には新indicatorsの記録がなく、market記録も直接CAS後には古いため、最初のreceipt作成に`push-machine`を使わない。旧key集合のreceiptが残る間は新`pull-machine`も拒否する。receipt更新後にcleanな新runtimeでfresh `pull-machine`し、3key/receipt/取得前後世代を突合してlocal記録を更新する。続けて`pull-app`でschema21・全行・head・旧直接ID/Triage/CAA参照とapp世代を確認する。以後の通常machine更新は新しいpull記録を使う`push-machine`、application更新は`push-app`のIf-Matchへ戻る。
-5. **既存Actionsへのlease引渡し:** canonical＋receiptのfresh読戻しを完了した後、他writer/通常cronとWeb自動deployの停止を維持したままoperator leaseを解放する。指定したレビュー済みmainの`cloud-materialize.yml`を既存dispatch入口から一度起動し、そのrunのcheckout SHAを確認する。workflow自身が同じpublication leaseをacquireし、fresh pull-machine/pull-app→hydrate→完全materialize→`upload-serving-views`→`publish-serving-tail`→lease解放を順に行う。operatorはleaseを保持して並走せず、`GITHUB_ACTIONS`偽装や転送境界の解除をしない。取得失敗/LeaseBusyなら別writerの終端・lease状態を確認して停止し、独自publishへ迂回しない。
-6. **serving・Web受入と通常再開:** cloud-materializeの成功・lease解放・終端とservingの読戻しを確認した後、停止していた既存Web workflowを再開して同じレビュー済みmainの既存deploy入口を使う。Worker/UIのSHA・終端、旧ID/参照・5/6の意味、Readingの説明が調査入力/MCP/画面へ届くことを確認して、他writer/cronを再開する。`sync --delete`は旧`views/macro.json`、`macro-series--*`、`macro-context--*`と新完全exportにない派生viewを削除する。`meta.json`はworkflowのtailまで更新せず、historyは既存の保持契約に従う。旧canonical DB/keyとdated methodは削除対象ではない。全受入後に一回限りmigration toolと専用testを整理する。
-
-**混在する時間窓:** main pushでWeb自動deployが先に完了すると、新APIがまだ存在しない新viewを読む。逆に旧Workerのまま`upload-serving-views`が始まると、`sync --delete`で旧viewが消えて旧APIが404となる。したがって手順5のcloud-materializeによるserving upload開始から新Worker/UI deploy完了までを公開画面の切替窓として扱い、無停止・複数keyの原子的切替とは称さない。通常cronがこの間に旧keyを書いたり新schemaを読んだりしないよう手順1の終端確認を先に行う。Web停止だけでcanonical writerが止まるとは扱わない。operator lease解放〜Actions acquireの間も他writer停止を維持し、空きleaseを別writerの再開許可とは扱わない。
-
-**失敗時:** store/pointer/receipt/serving/codeの実世代を確認して停止する。新writer開始前・同lease・対象世代一致でのみ対応する旧code/DB/graphへ条件付き復帰を判断し、新観測後は事実を保持した前進修復とする。旧keyは残っていても通常入口で自動fallbackしない。本節は手順であり、本番移行・deploy・dispatchの実施記録ではない。
+raw保持方針は[一時診断rawの保持方針](#一時診断rawのcohort-bundle)に従う。通常の公開では`meta.json`をtailで発行し、servingの複数keyを原子的に切り替えたとは扱わない。
 
 <a id="external-assessment-identity-cutover"></a>
 
-### External Assessmentの永続名を切り替える
-
-**前提**: schema31のtable/index/datasetは`external_assessment`へ統一する。値・元受領UTC・JST基準日・出所・parser履歴・NULLの意味と、他領域のdataset contractは変更しない。旧schema30を新runtimeで透過的に読むaliasや、旧planの再bindingは作らない。単独の#1438ではMarket ContextのDB/table/判断payloadは対象外。結合deliveryでは[Market Context切替](#market-context-identity-cutover)と同じ停止/lease窓で反映する。旧29→30の株マップ追加toolは切替受入済みのため除去した。
-
-取得中の旧plan/writerを切り替えない。8301補完とcohort簡素化の受入後、旧batchが終端で新writerも開始しない運用窓を確保する。#1439の日次工程は日本休日やScreening失敗でも指標更新・全views/machine store公開へ進むため、休日をwriter不在の根拠にしない。daily・TradingView・外部評価・materializeとlocal発行の実run/processを確認する。rawの新単一prefixの削除設定は上記のとおりユーザー担当であり、codeだけで完了にしない。旧raw・plan・terminalは移動/削除/書換えせず歴史として残す。
-
-**事前検証**: 旧release ID・manifest hash・producer commitと、旧runtimeで固定releaseへhydrateしたschema30コピーを揃える。切替前後の比較・受入中の旧組合せ読戻し・通常復旧に必要なgraphとDBだけを、通常mirrorのGC外へ一時保全する。永久archive/pinは追加しない。業務観測の全rowは新正本へ移す。
-
-```bash
-uv run python -m tools.ops.migrate_market_30_to_31 \
-  --source <hydrated-schema30-copy> --output <schema31-copy> \
-  --mirror <isolated-mirror-containing-old-graph> --release-ref <old-L1ReleaseSourceRef.json>
-```
-
-sourceはreadonly、outputは既存fileなら拒否する。toolはSQLite backup後に3 tableとsnapshot indexだけを改名し、schema31・integrity/FK・全tableの全列digest/件数一致を確認する。旧release bindingは維持する。`--mirror`と`--release-ref`を省略すればDB変換だけを行う。両方指定すると旧固定graphを参照し、旧新dataset対応でcoverage floorを維持して新releaseをoffline生成する。R2やcurrent pointerへ書かない。生成失敗時は新DBを調べ、旧sourceから修正してやり直す。日次batchへこのtoolを組み込まない。
-
-production policyは全datasetに同じsealed SQLite世代を要求するため、既存`export_lake_legacy`で全datasetをexportする。byte不変の他dataset objectはcontent-address keyで再利用し、新しいrelease/manifestだけを作る。旧manifest/objectは書換えない。空cacheから新名3 datasetの全履歴を読み、全列digest・件数・PK・日時が移行元と一致すること、他tableと保存済み判断参照が不変であることを照合する。
-
-**本番切替（別途承認後）**:
-
-1. [既存publication lease](#ローカルからクラウドを更新する)を取得し、同じlease内で最新pointer bytes/ETag、旧release/hash、`market.sqlite`世代とmachine receiptを固定する。旧runtimeで最新固定releaseへhydrateし、この最新コピーから変換・準備をやり直す。途中の世代変化・lease期限切れでは停止する。
-2. 検証済み切替commitを使い、prepared releaseを`baibai_batch.storage.lake_publish.publish_l1_release`へ渡す。取得した旧pointer ETagを`PointerPrecondition`に指定し、`before_pointer_switch`で`publication_lease.verify_held`を呼ぶ。既存publisherがimmutable graphをupload/検証した後、currentをCASで切り替える。低レベルpublication CLIは異なるcurrentへの置換を拒否するので、この単発operator手順で既存functionを使う。
-3. `advance_lake_store_origin`で作業DBを新releaseへ結び付け、upload用snapshotを新releaseに対してdehydrateする。書込直前に`publication_lease.verify_held`を再確認し、取得した旧market世代への条件付きPUTでschema31を反映する。旧cloud30とlocal31は通常mergeが拒否するので、この最初のPUTを`push-market`や無条件overwriteで代行しない。
-4. 単独のExternal Assessment切替では、cloud/localがともに31となった後、lease保持を再確認して同じlease内で既存`r2_transfer.sh push-market`を実行する。Market Contextとの結合切替ではこの段階で実行せず、[結合手順3](#market-context-identity-cutover)で新indicators keyとapplication21を配置してから同手順4で一回だけ実行する。通常のmerge・snapshot/CAS pushと`write_machine_manifest`によって3 keyの実際の現行ETagをreceiptへ記録する。追加DB pushとbackup更新を伴うため、最初の旧sourceは受入まで一時保全する。receipt更新直前にもleaseの有効性を確認し、長いexport/読戻しで期限を超えたら継続しない。runs/indicatorsへ値の更新を加えない。
-5. cleanな切替commitからfresh `pull-machine`→hydrateし、receiptの全世代一致、新名の全履歴digest、元時刻・store-local data・query/API/Researchの欠測区別を確認する。serving生成は既存materialize経路を使う。旧graph＋元commitの一時コピーでも履歴読戻しを確認する。受入完了後にleaseを解放し、新writerは新planだけを作る。
-
-**失敗時**: pointer切替前なら旧正本を維持して停止する。PUT応答が曖昧なら現在のETag/bytesを読み、旧・新・第三者のどれかを確定してから判断する。新writer開始前の同lease内で復帰する場合に限り、lease保持と新pointerのbytes/ETag一致を検査して旧pointer bytesを新ETagへの条件付きPUTで戻す。DB反映済みなら直前旧DB・対応codeもCASで戻し、復帰後の実世代でreceiptを更新する。pointerだけ戻してschema31 runtimeを残さない。第三者の更新・lease失効では上書きせず停止する。新観測が入った後は古いDBへ戻さず、全新規事実を保持した前進修復として扱う。復帰専用runtime分岐や永続rollback rootは追加しない。
-
-通常dailyの`market_updated=false`によるL1公開省略は、変更のない業務観測の扱いである。table/dataset名とschemaの切替には適用せず、この明示手順で新releaseを必ず生成・検証する。正常に読めるnoticeの明示falseだけで省略し、notice不明時に公開する#1439の通常契約は変更しない。
-
-本番反映・lifecycle設定・新取得はこの手順の記述だけでは実施済みにならない。切替受入後、一回限りtoolと専用testは除去する。
-
 ### 過去のschema切替
+
+market30→31・application20→21と指標の保存名切替は[PR #1442](https://github.com/koumatsumoto/baibai-loop/pull/1442)で完了した。歴史資料が引用する切替手順は[当時のcommitの記録](https://github.com/koumatsumoto/baibai-loop/blob/0762f1ca2746384e5d6656a7277c960ba8161063/batch/OPERATIONS.md#external-assessment-identity-cutover)を参照し、現行runtimeで再実行する通常手順とはしない。
 
 28→29の切替時点のschemaは29である。既存履歴とstore-local dataを保持したクラウド反映・fresh readbackは確認済みであり、役目を終えた一時移行toolと専用テストは除去した。切替の検証記録は[Issue #1407](https://github.com/koumatsumoto/baibai-loop/issues/1407)、対応codeは[PR #1408](https://github.com/koumatsumoto/baibai-loop/pull/1408)・[PR #1410](https://github.com/koumatsumoto/baibai-loop/pull/1410)を参照する。
 

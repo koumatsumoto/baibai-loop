@@ -10,6 +10,7 @@ from hashlib import sha256
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 from tests.helpers.research_triage import published_review_set, research_triage_payload
 
 from baibai_engine.research.triage import query
@@ -108,3 +109,22 @@ def test_owner_queries_are_read_only_and_absent_store_stays_absent(tmp_path, mon
     assert path.read_bytes() == before
     assert statements
     assert all(sql.lstrip().upper().startswith("SELECT") for sql in statements)
+
+
+def test_saved_triage_is_readable_with_original_reference_but_cannot_be_republished(tmp_path):
+    raw = research_triage_payload(schema_version=3, triage_contract_id="research-triage-v3")
+    raw["macro_context_id"] = "macro-context-2026-07-17-saved"
+    raw.pop("market_context_assessment_id")
+    saved = StoredResearchTriage.from_payload(raw)
+    assert saved.schema_version == 3
+    assert saved.market_context_assessment_id == raw["macro_context_id"]
+    assert saved.publication_payload() == raw
+    assert saved.admissible_research_tickers() == ("2331",)
+    with pytest.raises(ValidationError):
+        ResearchTriage.model_validate(raw)
+    database = tmp_path / "not-created.sqlite"
+    with pytest.raises(ValueError, match="read-only"):
+        ResearchTriageService(database).publish(
+            saved, review_set=PublishedReviewSet.model_validate(published_review_set())
+        )
+    assert not database.exists()
