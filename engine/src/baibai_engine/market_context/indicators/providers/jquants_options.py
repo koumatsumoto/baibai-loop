@@ -9,7 +9,8 @@ from typing import Any, Self, cast
 
 from requests import PreparedRequest, Response
 from requests.adapters import HTTPAdapter
-from urllib3.exceptions import InvalidHeader
+from urllib3.connectionpool import HTTPSConnectionPool
+from urllib3.exceptions import HTTPError, InvalidHeader
 from urllib3.response import BaseHTTPResponse
 from urllib3.util import Retry
 
@@ -99,6 +100,34 @@ class _OptionsReadRetry(Retry):
         self.deadline.wait(waiting)
 
 
+class _OptionsReadPool(HTTPSConnectionPool):
+    """Read the SDK's JSON body while urllib3 still owns this GET's retry state."""
+
+    def urlopen(self, *args: Any, **kwargs: Any) -> BaseHTTPResponse:
+        # urllib3 owns/reclaims the connection until _make_request reads the body.
+        kwargs["preload_content"] = True
+        kwargs["decode_content"] = True
+        return super().urlopen(*args, **kwargs)
+
+    def _make_request(self, conn: Any, *args: Any, **kwargs: Any) -> BaseHTTPResponse:
+        # Inspect the status before reading: a body timeout must not retry auth,
+        # and a 429 must keep its Retry-After even if its error body is incomplete.
+        kwargs["preload_content"] = False
+        response = super()._make_request(conn, *args, **kwargs)
+        try:
+            response.read(decode_content=True, cache_content=True)
+        except HTTPError as exc:
+            if response.status in _RETRYABLE_STATUSES:
+                conn.close()
+            elif response.status >= 400:
+                raise ProviderFetchStoppedError(
+                    f"jquants_options HTTP {response.status} body failed: {type(exc).__name__}"
+                ) from None
+            else:
+                raise
+        return response
+
+
 class _OptionsReadAdapter(HTTPAdapter):
     def __init__(self, original: HTTPAdapter, deadline: _FetchDeadline) -> None:
         self.deadline = deadline
@@ -113,6 +142,26 @@ class _OptionsReadAdapter(HTTPAdapter):
                 status_forcelist=_RETRYABLE_STATUSES,
             ),
         )
+        # Copy the mapping so no SDK/global pool is changed, including proxy pools.
+        self.poolmanager.pool_classes_by_scheme = {
+            **self.poolmanager.pool_classes_by_scheme,
+            "https": _OptionsReadPool,
+        }
+
+    def proxy_manager_for(self, proxy: str, **proxy_kwargs: Any) -> Any:
+        manager = super().proxy_manager_for(proxy, **proxy_kwargs)
+        manager.pool_classes_by_scheme = {
+            **manager.pool_classes_by_scheme,
+            "https": _OptionsReadPool,
+        }
+        return manager
+
+    def build_response(self, req: PreparedRequest, resp: Any) -> Response:
+        response = super().build_response(req, resp)
+        # requests would otherwise read an already-consumed stream outside retry.
+        response._content = resp.data
+        response._content_consumed = True
+        return response
 
     def send(self, request: PreparedRequest, *args: Any, **kwargs: Any) -> Response:
         self.deadline.check()

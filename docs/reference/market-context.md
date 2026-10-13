@@ -126,7 +126,7 @@ registryのband変更時は、Git管理外のstoreをread-only validatorで全�
 
 `jquants_options`は1営業日につき1回呼び出すため、10年の`--all-history`は約2,600回の逐次取得になる。1日最大約1万行のchainは保存せず、取得時に3系列へ集計する。
 
-再試行はこのproviderが生成するClientV2のHTTPS transportが所有し、個々のGETは初回＋最大5回とする。有効な`Retry-After`の秒数／HTTP-dateを優先し、不在・不正なら30・60・120・300・600秒で待つ。認証・403・解析失敗、再試行の終了をserviceで再開しない。ページと営業日のGETはそれぞれ独立した回数予算を持ち、後続ページの失敗で成功済みページを再取得しない。同じ営業日の失敗も3系列で共有し、失敗を正常nullへ変えない。
+再試行はこのproviderが生成するClientV2のHTTPS transportが所有し、個々のGETは本文読了まで初回＋最大5回とする。HTTP200本文の一時的な受信失敗もstatus retryと同じ回数・deadlineで扱う。有効な`Retry-After`の秒数／HTTP-dateを優先し、不在・不正なら30・60・120・300・600秒で待つ。認証・403・解析失敗、再試行の終了をserviceで再開しない。ページと営業日のGETはそれぞれ独立した回数予算を持ち、後続ページの失敗で成功済みページを再取得しない。同じ営業日の失敗も3系列で共有し、失敗を正常nullへ変えない。
 
 最初の取得から20分のprocess内deadlineを全営業日・3系列で共有する。通信時間とSDK内部の待機も経過時間に数え、新しいGETやdeadlineに収まらない待機を開始しない。待機を短縮して再送せず、失敗として独立工程へ戻す。通常のSDK通信timeoutは30秒のままで、進行中の通信をdeadlineで強制取消するものではない。job残時間は現行callerから渡されておらず、この20分予算とは別の未実装範囲である。deadlineや失敗memoを次processへ永続化しない。
 

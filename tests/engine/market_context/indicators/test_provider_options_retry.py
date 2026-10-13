@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import io
 import json
 from collections import Counter
@@ -35,6 +36,11 @@ BASE = datetime(2026, 10, 13, tzinfo=UTC).timestamp()
 READINGS = ("jp.n225_iv_30d", "jp.n225_iv_skew", "jp.n225_iv_term")
 
 
+class BodyTimeout(io.BytesIO):
+    def read(self, *args, **kwargs):
+        raise ReadTimeoutError(None, None, "synthetic body timeout")
+
+
 @pytest.fixture
 def wire(monkeypatch):
     class Wire:
@@ -54,9 +60,15 @@ def wire(monkeypatch):
             self.calls.append(url)
             self.timeouts.append(kwargs["timeout"])
             status, headers, payload = self.reply(url)
-            body = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
+            body = (
+                payload
+                if hasattr(payload, "read")
+                else io.BytesIO(
+                    payload if isinstance(payload, bytes) else json.dumps(payload).encode()
+                )
+            )
             return HTTPResponse(
-                body=io.BytesIO(body),
+                body=body,
                 status=status,
                 headers={"Content-Type": "application/json", **headers},
                 preload_content=False,
@@ -146,6 +158,114 @@ def test_read_timeouts_do_not_reset_the_transport_budget_at_service(wire):
         wire.fetch()
     assert len(wire.calls) == 6
     assert wire.waits == [30, 60, 120, 300, 600]
+
+
+def test_http200_body_timeout_then_success_keeps_all_three_readings(wire):
+    wire.reply = lambda url: (
+        (200, {}, BodyTimeout(b"partial JSON")) if len(wire.calls) == 1 else success()
+    )
+    for series_id in READINGS:
+        assert len(wire.fetch(series_id)) == 1
+    assert len(wire.calls) == 2
+    assert wire.waits == [30]
+
+
+def test_status_and_body_timeout_use_one_initial_plus_five_budget(wire):
+    def reply(url):
+        if len(wire.calls) <= 3:
+            return 429, {}, {}
+        return 200, {}, BodyTimeout(b"partial JSON")
+
+    wire.reply = reply
+    for series_id in READINGS:
+        with pytest.raises(ProviderFetchStoppedError):
+            wire.fetch(series_id)
+    assert len(wire.calls) == 6
+    assert wire.waits == [30, 60, 120, 300, 600]
+
+
+def test_body_timeout_consumes_the_same_elapsed_deadline(wire):
+    def reply(url):
+        wire.elapsed += 1190
+        return 200, {}, BodyTimeout(b"partial JSON")
+
+    wire.reply = reply
+    with pytest.raises(ProviderFetchStoppedError, match="deadline exhausted"):
+        wire.fetch()
+    assert len(wire.calls) == 1
+    assert wire.waits == []
+
+
+def test_body_timeout_on_later_page_does_not_replay_successful_page(wire):
+    counts = Counter()
+
+    def reply(url):
+        page = "second" if "pagination_key" in parse_qs(urlsplit(url).query) else "first"
+        counts[page] += 1
+        if page == "first":
+            return success(rows=chain()[:1], next_page="second")
+        if counts[page] == 1:
+            return 200, {}, BodyTimeout(b"partial JSON")
+        return success(rows=chain()[1:])
+
+    wire.reply = reply
+    assert len(wire.fetch()) == 1
+    assert counts == {"first": 1, "second": 2}
+    assert wire.waits == [30]
+
+
+@pytest.mark.parametrize("status", [401, 403, 404])
+def test_body_timeout_cannot_turn_a_permanent_status_into_a_retry(wire, status):
+    wire.reply = lambda url: (status, {}, BodyTimeout(b"partial error body"))
+    with pytest.raises(ProviderFetchStoppedError, match=f"HTTP {status} body failed"):
+        wire.fetch()
+    assert len(wire.calls) == 1
+    assert wire.waits == []
+
+
+def test_rate_limit_with_incomplete_error_body_still_respects_retry_after(wire):
+    wire.reply = lambda url: (
+        (429, {"Retry-After": "17"}, BodyTimeout(b"partial error body"))
+        if len(wire.calls) == 1
+        else success()
+    )
+    assert len(wire.fetch()) == 1
+    assert len(wire.calls) == 2
+    assert wire.waits == [17]
+
+
+def test_preloaded_gzip_json_keeps_the_sdk_payload(wire):
+    wire.reply = lambda url: (
+        200,
+        {"Content-Encoding": "gzip"},
+        gzip.compress(json.dumps(success()[2]).encode()),
+    )
+    assert len(wire.fetch()) == 1
+    assert len(wire.calls) == 1
+    assert wire.waits == []
+
+
+def test_proxied_body_read_has_the_same_retry_and_no_global_pool_patch(wire, monkeypatch):
+    monkeypatch.setenv("NO_PROXY", "")
+    monkeypatch.setenv("no_proxy", "")
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.invalid:8080")
+    monkeypatch.setenv("https_proxy", "http://proxy.invalid:8080")
+    # The proxy tunnel is outside the synthetic response; no socket may be opened.
+    monkeypatch.setattr(HTTPSConnectionPool, "_prepare_proxy", lambda self, conn: None)
+    wire.reply = lambda url: (
+        (200, {}, BodyTimeout(b"partial JSON")) if len(wire.calls) == 1 else success()
+    )
+    assert len(wire.fetch()) == 1
+    assert len(wire.calls) == 2
+    assert wire.waits == [30]
+    other = (
+        jquantsapi.ClientV2(api_key="other-synthetic-key")._request_session().adapters["https://"]
+    )
+    assert other.poolmanager.pool_classes_by_scheme["https"] is HTTPSConnectionPool
+    assert (
+        other.proxy_manager_for("http://proxy.invalid:8080").pool_classes_by_scheme["https"]
+        is HTTPSConnectionPool
+    )
 
 
 @pytest.mark.parametrize(
