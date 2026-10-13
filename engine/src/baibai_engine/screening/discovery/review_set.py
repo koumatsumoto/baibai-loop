@@ -26,6 +26,8 @@ from baibai_engine.valuation.metrics.relative import (
 )
 from baibai_engine.valuation.query import machine_valuation_from_analysis
 
+# 金融の資産・調達を非金融の残余資産proxyへ投入しない (#1153)。
+# docs/reference/screening-runtime.md#approach-applicability
 _ASSET_VALUE_EXCLUDED_SECTORS = frozenset(
     {
         "銀行業",
@@ -232,6 +234,8 @@ def _nomination_ranks(
     nominations_by_ticker: dict[str, list[Nomination]] = defaultdict(list)
     for approach in APPROACH_IDS:
         method_id = rules.approaches[approach].method_id
+        # 有限の調査入力枠であり、枠外を経済的rejectへ変換しない (#1481)。
+        # docs/reference/screening-runtime.md#nomination-capacity
         for rank, row in enumerate(ordered[approach][: rules.nomination_depth], start=1):
             nominations_by_ticker[_ticker(row)].append(
                 Nomination(
@@ -386,7 +390,11 @@ def _normalized_earnings_inputs(
 def _reinvestment_quality_floors(
     rows: Sequence[Mapping[str, object]],
 ) -> dict[str, _QualityFloors]:
-    """Return inclusive quality floors from the existing reinvestment cross-section."""
+    """低収益性の成長を再投資価値と誤認しない相対quality境界 (#1153)。
+
+    安いP/Sの順位だけではこの問いを守れない。収益優位を実証したfloorではない。
+    docs/reference/screening-runtime.md#approach-applicability
+    """
     observed: list[tuple[Mapping[str, object], _ReinvestmentValues]] = []
     by_sector: dict[str, list[_ReinvestmentValues]] = defaultdict(list)
     for row in rows:

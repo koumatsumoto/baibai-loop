@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import yaml
@@ -48,8 +49,19 @@ def check() -> tuple[str, ...]:
         known = set()
         for path in (_ROOT / DEFAULT_RULES_PATH).parent.glob("*.yaml"):
             try:
+                payload = load_screening_rules(path).model_dump(mode="json")
+                frozen = safe_load(path.read_text(encoding="utf-8"))
+                quality = frozen.get("quality", {}) if isinstance(frozen, dict) else {}
+                # The retired knob was serialized in the original publication's hash.
+                # Preserve that provenance here; current writers no longer consume it.
+                if "yoy_deterioration_threshold" in quality:
+                    payload["quality"]["yoy_deterioration_threshold"] = quality[
+                        "yoy_deterioration_threshold"
+                    ]
                 known.add(
-                    production_rules_contract_hash(load_screening_rules(path).model_dump_json())
+                    production_rules_contract_hash(
+                        json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+                    )
                 )
             except ValidationError:
                 # Older frozen schemas cannot be interpreted by the current writer.

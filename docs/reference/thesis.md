@@ -128,8 +128,8 @@ Base/Downsideの必要terminalは、その累積分配で要求年率以上に�
 
 | 例 | 算術と既存文章欄で扱う判断 |
 | --- | --- |
-| P=1000円、h=12、r=8.5%、D=30円 | H=1085円、必要terminal=1055円。EPS×PERモデルでPER10を固定するなら必要EPS=105.5円。数量・利益率・税・株数から独立に見積もったEPSの範囲と比較し、`valuation.base.calculation`へ前提と代入を書く。市場のEPS予想とは呼ばず、資産・EV評価へPER式を強制しない |
-| 同じP/h/r、D=0円。AはEPS100×PER13、BはEPS130×PER10でBase1300円 | 両方の総returnは30%だが、PER10のままならAは0%、Bは30%。AがPER10でH=1085円に届くにはEPS108.5円が必要。Aは利益品質・事業構造による倍率上昇の根拠、Bは受注・利益率等によるEPS回復の根拠を吟味する。どちらの根拠が弱いかをCAAの`comparison / forgone / alternatives[].rationale`で説明し、倍率上昇なしだけでBを自動採用しない |
+| P=1000円、h=12、r=6%、D=30円 | H=1060円、必要terminal=1030円。EPS×PERモデルでPER10を固定するなら必要EPS=103円。数量・利益率・税・株数から独立に見積もったEPSの範囲と比較し、`valuation.base.calculation`へ前提と代入を書く。市場のEPS予想とは呼ばず、資産・EV評価へPER式を強制しない |
+| 同じP/h/r、D=0円。AはEPS100×PER13、BはEPS130×PER10でBase1300円 | 両方の総returnは30%だが、PER10のままならAは0%、Bは30%。AがPER10でH=1060円に届くにはEPS106円が必要。Aは利益品質・事業構造による倍率上昇の根拠、Bは受注・利益率等によるEPS回復の根拠を吟味する。どちらの根拠が弱いかをCAAの`comparison / forgone / alternatives[].rationale`で説明し、倍率上昇なしだけでBを自動採用しない |
 | Base V=1270円/D=30円、Downside V=680円/D=20円 | 総価値1300円/700円、12か月年率30%/-30%。固定価値で24か月なら14.0175%/-16.3340%となるが、総returnは30%/-30%のまま。返済期限が追加資金を要求するなら、その条件を再構成してcountercaseに記す |
 | 返済条件不明と、将来EPSの幅 | materialな返済条件を確認できなければdefer等を維持し、`nonmaterial_unknown_reason`で通さない。一方、一次根拠から将来EPSを幅で置くこと自体は自動排除の理由にしない。根拠のない回復予測や合理的に評価できないcaseはdefer等とする |
 | 企業はcandidateだが当日価格がPmax超過 | CAAで配分を見送り、または既存allocateに対するPlanningをdeferとする。価格だけを理由に企業rejectや保有exitへ変換しない |

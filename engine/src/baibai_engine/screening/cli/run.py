@@ -348,6 +348,8 @@ def run_command(
         or (population_yoy_missing / population_size)
         >= rules.quality.partial_warning_yoy_missing_ratio
     )
+    # 欠測を隠さず利用判断へ渡す。YoY悪化による企業除外gateではない (#1481)。
+    # docs/reference/screening-runtime.md#data-quality-context
     fallback_lines: list[str] = []
     if approx_total:
         fallback_lines.append(f"ttm_quality 非 exact 件数: {approx_total}")
@@ -358,7 +360,7 @@ def run_command(
         )
     if population_yoy_missing:
         fallback_lines.append(
-            f"業績悪化フィルタ入力欠損(common eligible母集団): {population_yoy_missing} 銘柄"
+            f"業績YoY入力欠損(common eligible母集団): {population_yoy_missing} 銘柄"
         )
     if edinet_load_error is not None:
         fallback_lines.append(f"EDINET 読み込み失敗: {edinet_load_error}")

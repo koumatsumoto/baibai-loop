@@ -44,6 +44,8 @@ from baibai_engine.screening.schema import UniverseSnapshot
 
 from .rule_config import ScreeningRules
 
+# 直近20barの入力を揃える計算scope。IPOの経済的資格や上場日数の代用にしない。
+# docs/reference/screening-runtime.md#input-scope (#12, #1481)
 MIN_BAR_HISTORY = 20
 
 

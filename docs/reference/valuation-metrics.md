@@ -239,13 +239,17 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 
 - 各業種内の銘柄の valuation 指標から中央値を算出
 - 集計タイミング: screening 実行時（日次）
-- 集計対象（比較母集団）: `candidate_discovery.common_eligibility` を満たす母集団（時価総額・上場期間・JPX規制の条件を満たす銘柄）。screenは全普通株を評価し、ADVは比較母集団のmembershipを変えない。業種relative strengthの母集団は[Market Context読取](./market-context.md#market-context-reads)に従い、市場全体fallbackもこの比較母集団で算出する
+- 集計対象（比較母集団）: `candidate_discovery.common_eligibility` の必須fact・JPX規制条件を満たす母集団。[規模と短い履歴の扱い](./screening-runtime.md#history-context)に従い、ADVはmembershipを変えない。業種relative strengthの母集団は[Market Context読取](./market-context.md#market-context-reads)に従い、市場全体fallbackもこの比較母集団で算出する
+
+<a id="median-population-rationale"></a>
 
 ### 8.3 サンプル数下限
 
-- **n < 10 の業種**: 市場全体中央値に fallback（`metrics.MIN_SECTOR_MEDIAN_POPULATION`）
+- **n < 10 の業種**: 市場全体中央値に fallback（[`MIN_SECTOR_MEDIAN_POPULATION`](../../engine/src/baibai_engine/valuation/metrics/relative.py)）
 - 中小規模業種で n が不安定な場合の判定歪みを防止
 - 下限は軸ごとに判定する。母集団は同じでも欠損の入り方が軸で違うので、同じ業種でも `pbr` は自業種、`ev_ebitda` は市場、という状態になりうる
+
+10件は少数の業種中央値へ依存しすぎないための計算上の慣例で、経済的最適値を実証した下限ではない（導入[#12](https://github.com/koumatsumoto/baibai-loop/issues/12)）。NormalizedのgapとReinvestmentのquality比較も同じ下限を使い、fallbackでは比較基準の業種構成が変わる。Approachへの適用理由は[#1153](https://github.com/koumatsumoto/baibai-loop/issues/1153)、現在の役割は[ルールの目的](./screening-runtime.md#rule-purpose)に従う。
 
 ### 8.4 fallback の素性
 

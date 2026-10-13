@@ -174,6 +174,23 @@ def test_drift_checker_refuses_untraceable_evidence(tmp_path: Path, monkeypatch)
     )
 
 
+def test_retired_quality_knob_keeps_the_original_frozen_rules_provenance(tmp_path, monkeypatch):
+    from baibai_engine.screening.rule_config import load_screening_rules
+
+    frozen = _ROOT / "method/screening/rules/2026-09-23T103000+0900.yaml"
+    original = frozen.read_bytes()
+    assert "yoy_deterioration_threshold" not in load_screening_rules(frozen).quality.model_dump()
+    # Original production fingerprint, captured before the unused field was removed.
+    payload = context_artifact(rules_hash="7f934c6cdf199a33")
+    context = tmp_path / "retained-context.yaml"
+    _write(context, payload)
+    monkeypatch.setattr(check_er_calibration_context, "_CONTEXT", context)
+
+    assert not check_er_calibration_context.check()
+    assert frozen.read_bytes() == original
+    assert _load(context, payload).artifact is not None
+
+
 @pytest.mark.parametrize("valid", [True, False], ids=["valid", "invalid"])
 def test_drift_checker_and_reader_have_validity_parity(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, valid: bool
