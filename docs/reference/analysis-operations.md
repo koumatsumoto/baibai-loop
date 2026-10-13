@@ -15,8 +15,8 @@ status: active
 
 `research/triage`が型・query・service・CLIを所有する。manual入口は`research triage scaffold / publish`であり、ScreeningにL3 writerを置かない。
 
-application DBのcurrent `research_triage`はReview Set全entryをexactly onceで保持する。
-current writerとactive read pathはcurrent schemaだけを扱い、retired shapeを補完・別名投影しない。
+application DBの`research_triage`はReview Set全entryをexactly onceで保持する。
+新規writerはschema4のみを発行する。保存済みschema3/4は`StoredResearchTriage`が原payloadを保持して読み、schema3の`macro_context_id`を`market_context_assessment_id`へ投影する。保存payload・ID・hashは変更せず、旧判断を新規draftとして再発行しない。
 
 - `research`: contiguousな`priority`、`rationale`、`research_question`、`key_risk`が必須
 - `skip`: `rationale`が必須で、`priority`、`research_question`、`key_risk`は禁止

@@ -107,12 +107,11 @@ EDINET metricの`extractor_revision`は明示的な抽出意味revisionであり
 
 Readingの現行選択先は`READING_RULES_PATH`が指す`method/macro/reading/2026-08-01T100000+0900.yaml`である。保存判断が引用する元bytes/pathを保持し、名前切替のための移設・複製・revision変更を行わない。
 
-実装の統合と本番・運用の受入は区別する。残る未完了範囲は次のとおりである。
+External AssessmentとMarket Contextの永続identityの本番移行は完了し、main `7336def3`でのmaterialize・Web確認、停止していた六workflowの再開・読戻しも確認済みである。実装・移行と通常運用の受入は区別し、残る未完了範囲を次に示す。
 
 | 未完了項目 | 受入で確認すること |
 | --- | --- |
-| 永続identityの本番受入 | External AssessmentとMarket Contextの新永続名・writer契約はmain上に実装済み。本番切替とreceipt/世代・保存JSON/参照の読戻しは未確認。通常batchへ移行を代行させず、[External Assessment切替](../batch/OPERATIONS.md#external-assessment-identity-cutover)と[Market Context切替](../batch/OPERATIONS.md#market-context-identity-cutover)に従う |
-| daily本番受入 | run/Review Setの単一transaction、Screening失敗/日本休日時の独立指標更新・単一公開は実装済み。既存予定runの実取得・store/serving読戻しは未確認 |
+| daily本番受入 | run/Review Setの単一transaction、Screening失敗/日本休日時の独立指標更新・単一公開は実装済み。再開後の予定runで、営業日の実取得・store/serving読戻しを確認する |
 | 最終運用受入 | 配置・保存・公開・画面・CLI・docsの結合、四媒体の取得/読戻し、AI運用の有用性/根拠/時間を実運用で確認する。Readingのas_ofとResearchのknown_at/received_cutoff、公表vintageと後日取得/改定履歴の違いが各読取面へ同じ説明で伝わることを確認する |
 
 後続の取り込み時は該当行を更新する。判断経緯と移行証拠は#1414、現行仕様は本書とreferenceに集約する。
