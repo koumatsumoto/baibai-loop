@@ -1,4 +1,4 @@
-"""Fail CI when the published E[r] context no longer matches production rules."""
+"""Validate retained E[r] evidence without relabeling an older rules population."""
 
 from __future__ import annotations
 
@@ -43,11 +43,22 @@ def check() -> tuple[str, ...]:
             f"{raw.get('schema_version')!r} != {ER_CALIBRATION_CONTEXT_SCHEMA_VERSION}"
         )
     if raw.get("screening_rules_hash") != expected_rules_hash:
-        failures.append(
-            "published E[r] context screening_rules_hash is stale; regenerate it with "
-            "`baibai-engine screening calibration-evaluate --context-out "
-            "reports/published/er-level-calibration-latest.yaml` in the same PR"
-        )
+        # A rules change may precede a new long-horizon context. Retain the original
+        # evidence for its saved runs; runtime readers still demand exact run identity.
+        known = set()
+        for path in (_ROOT / DEFAULT_RULES_PATH).parent.glob("*.yaml"):
+            try:
+                known.add(
+                    production_rules_contract_hash(load_screening_rules(path).model_dump_json())
+                )
+            except ValidationError:
+                # Older frozen schemas cannot be interpreted by the current writer.
+                continue
+        rules_hash = raw.get("screening_rules_hash")
+        if not isinstance(rules_hash, str) or rules_hash not in known:
+            failures.append(
+                "published E[r] context screening_rules_hash has no known rules revision"
+            )
     if raw.get("er_model_version") != EXPECTED_RETURN_MODEL_VERSION:
         failures.append(
             "published E[r] context er_model_version is stale; regenerate it in the same PR"
@@ -61,7 +72,9 @@ def main() -> int:
         for failure in failures:
             print(f"error: {failure}")
         return 1
-    print("ok: published E[r] calibration context matches the production method identity")
+    print(
+        "ok: retained E[r] context has a known rules identity; readers require exact run identity"
+    )
     return 0
 
 

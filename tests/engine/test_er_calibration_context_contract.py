@@ -113,6 +113,37 @@ def test_reader_preserves_method_identity_reasons(tmp_path: Path) -> None:
     assert model.unavailable_reason == "er_model_identity_mismatch"
 
 
+def test_retained_context_is_withheld_from_new_population_without_relabeling() -> None:
+    from baibai_engine.screening.rule_config import load_screening_rules
+    from baibai_engine.screening.rules_identity import production_rules_contract_hash
+
+    payload = _artifact()
+    original = _PUBLISHED.read_bytes()
+    current_hash = production_rules_contract_hash(load_screening_rules().model_dump_json())
+    assert current_hash != payload["screening_rules_hash"]
+    assert not check_er_calibration_context.check()
+    result = load_er_calibration_context(
+        _PUBLISHED,
+        expected_rules_hash=current_hash,
+        expected_er_model_version=str(payload["er_model_version"]),
+        as_of=date.fromisoformat(str(payload["generated_at"])[:10]),
+    )
+    assert result.artifact is None
+    assert result.unavailable_reason == "rules_identity_mismatch"
+    assert _PUBLISHED.read_bytes() == original
+
+
+def test_drift_checker_refuses_untraceable_evidence(tmp_path: Path, monkeypatch) -> None:
+    payload = _artifact()
+    payload["screening_rules_hash"] = "untraceable"
+    path = tmp_path / "context.yaml"
+    _write(path, payload)
+    monkeypatch.setattr(check_er_calibration_context, "_CONTEXT", path)
+    assert check_er_calibration_context.check() == (
+        "published E[r] context screening_rules_hash has no known rules revision",
+    )
+
+
 @pytest.mark.parametrize("valid", [True, False], ids=["valid", "invalid"])
 def test_drift_checker_and_reader_have_validity_parity(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, valid: bool

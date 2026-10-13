@@ -77,16 +77,15 @@ def candidate_discovery_method_hash(
                 "positive_inputs": [
                     "p_s",
                     "sales_yoy",
-                    "fcf_yield",
                     "operating_profit_ttm",
                     "sales_ttm",
                     "same_state_equity_yen",
                 ],
-                "finite_inputs": ["p_s_sector_gap", "debt", "cash"],
+                "finite_inputs": ["p_s_sector_gap", "fcf_yield", "debt", "cash"],
                 "p_s_sector_gap": "negative_required",
                 "operating_margin": "sector_median_or_market_fallback_inclusive",
                 "operating_return_on_capital_proxy": ("sector_median_or_market_fallback_inclusive"),
-                "median_population": "common_eligible_with_positive_reinvestment_inputs",
+                "median_population": "common_eligible_with_resolved_reinvestment_inputs",
                 "sector_median_min_population": MIN_SECTOR_MEDIAN_POPULATION,
             },
         },
@@ -538,7 +537,7 @@ def _reinvestment_values(
     p_s = _positive(row.get("p_s"))
     p_s_gap = _finite(metrics.get("p_s_sector_gap"))
     sales_yoy = _positive(metrics.get("sales_yoy"))
-    fcf_yield = _positive(metrics.get("fcf_yield"))
+    fcf_yield = _finite(metrics.get("fcf_yield"))
     operating_profit_ttm = _positive(metrics.get("operating_profit_ttm"))
     sales_ttm = _positive(metrics.get("sales_ttm"))
     same_state_equity_yen = _positive(metrics.get("same_state_equity_yen"))

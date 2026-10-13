@@ -13,7 +13,7 @@ EXPECTED_ACTIVE_MAPPINGS = {
     "current-earnings-power": "current-earnings-power-research-v1",
     "normalized-earnings-power": "normalized-earnings-power-research-v1",
     "asset-value": "asset-value-research-v1",
-    "reinvestment-value": "reinvestment-value-research-v1",
+    "reinvestment-value": "reinvestment-value-research-v2",
 }
 
 

@@ -353,22 +353,34 @@ def test_reinvestment_sector_floor_uses_inclusive_shared_population_boundary() -
     )
 
 
-def test_current_rules_name_only_the_two_revised_approaches() -> None:
+def test_current_discovery_contract_names_its_methods() -> None:
     method_ids = {key: value.method_id for key, value in RULES.approaches.items()}
 
-    assert RULES.method_id == "multi-valuation-v4"
+    assert RULES.method_id == "multi-valuation-v5"
     assert method_ids == {
         "current-earnings-power": "current-earnings-power-v1",
         "normalized-earnings-power": "normalized-earnings-power-v1",
         "asset-value": "asset-value-v2",
-        "reinvestment-value": "reinvestment-value-v4",
+        "reinvestment-value": "reinvestment-value-v5",
     }
     assert RULES.nomination_depth == 20
     assert "min_avg_turnover_oku" not in RULES.common_eligibility.model_dump()
 
 
-@pytest.mark.parametrize(("market_cap_oku", "expected"), [(99.999, False), (100.0, True)])
-def test_common_eligibility_owns_the_100_oku_market_cap_boundary(
+@pytest.mark.parametrize(
+    ("market_cap_oku", "expected"),
+    [
+        (0.001, True),
+        (99.999, True),
+        (100.0, True),
+        (None, False),
+        (0, False),
+        (-1, False),
+        (float("nan"), False),
+        (float("inf"), False),
+    ],
+)
+def test_common_eligibility_keeps_valid_size_facts_without_a_100_oku_floor(
     market_cap_oku: float, expected: bool
 ) -> None:
     assert (
@@ -381,6 +393,67 @@ def test_common_eligibility_owns_the_100_oku_market_cap_boundary(
         )
         is expected
     )
+
+
+@pytest.mark.parametrize("fcf_yield", [-1e30, -0.01, 0.0, 0.08, 1e30])
+def test_reinvestment_signed_fcf_is_known_context_and_a_late_ordering_key(fcf_yield):
+    cheaper = _analysis("1111")
+    expensive = _analysis("2222")
+    for row in (cheaper, expensive):
+        row["market_cap_oku"] = 50
+        row["per_forward"] = row["per_trailing"] = None
+        row["metrics"].update(normalized_per_3fy=None, asset_backed_ratio=None)
+    cheaper["metrics"].update(fcf_yield=fcf_yield, p_s_sector_gap=-0.5)
+    expensive["metrics"].update(fcf_yield=1e30, p_s_sector_gap=-0.4)
+
+    entries = _build_review_set([expensive, cheaper])["entries"]
+
+    assert [(row["ticker"], row["nominations"][0]["rank"]) for row in entries] == [
+        ("1111", 1),
+        ("2222", 2),
+    ]
+    assert entries[0]["analysis"]["reinvestment"]["fcf_yield"] == fcf_yield
+    assert entries[0]["analysis"]["identity_liquidity"]["market_cap_oku"] == 50
+
+
+@pytest.mark.parametrize("fcf_yield", [None, float("nan"), float("inf"), -float("inf")])
+def test_reinvestment_still_requires_a_finite_fcf_fact(fcf_yield):
+    row = _analysis("1111")
+    row["per_forward"] = row["per_trailing"] = None
+    row["metrics"].update(normalized_per_3fy=None, asset_backed_ratio=None, fcf_yield=fcf_yield)
+
+    assert _build_review_set([row])["entries"] == []
+
+
+@pytest.mark.parametrize(
+    ("span", "flags", "expected"),
+    [(181, [], False), (182, [], True), (182, ["取引停止"], False), (182, None, False)],
+)
+def test_discovery_scope_keeps_seasoning_and_jpx_evidence(span, flags, expected):
+    row = _analysis("1111")
+    row.update(market_cap_oku=50, listing_span_days=span, jpx_flags=flags)
+    assert bool(_build_review_set([row])["entries"]) is expected
+
+
+def test_shared_production_and_calibration_population_includes_small_caps():
+    from baibai_engine.screening.schema import UniverseSnapshot
+    from baibai_engine.screening.universe import candidate_comparison_population
+
+    rows = [_analysis(str(1000 + index)) for index in range(4)]
+    for row, cap in zip(rows, (50, 100, None, 0), strict=True):
+        row["market_cap_oku"] = cap
+    snapshots = {
+        row["ticker"]: UniverseSnapshot(
+            market_cap_oku=row["market_cap_oku"],
+            avg_turnover_oku=row["avg_turnover_oku"],
+            listing_span_days=row["listing_span_days"],
+            jpx_flags=row["jpx_flags"],
+        )
+        for row in rows
+    }
+    population = candidate_comparison_population(snapshots, SCREENING_RULES)
+    assert population == {"1000", "1001"}
+    assert _build_review_set(rows)["diagnostics"]["common_eligible_count"] == len(population)
 
 
 def test_normalized_gap_uses_the_shared_sector_population_boundary() -> None:

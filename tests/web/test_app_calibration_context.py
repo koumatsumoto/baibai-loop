@@ -16,11 +16,10 @@ _ROOT = Path(__file__).resolve().parents[2]
 _PUBLISHED = _ROOT / "reports/published/er-level-calibration-latest.yaml"
 
 
-def test_valid_artifact_reaches_web_without_regeneration() -> None:
-    identity = screening_calibration_method_identity(_ROOT)
-    assert identity is not None
+def test_retained_artifact_reaches_web_for_its_matching_historical_identity() -> None:
     raw = safe_load(_PUBLISHED.read_text(encoding="utf-8"))
     assert isinstance(raw, dict)
+    identity = (str(raw["screening_rules_hash"]), str(raw["er_model_version"]))
 
     context = load_er_level_calibration_context(
         _PUBLISHED,
@@ -31,6 +30,22 @@ def test_valid_artifact_reaches_web_without_regeneration() -> None:
     assert context is not None
     assert context.reference_horizon == "3y"
     assert [horizon.horizon for horizon in context.horizons] == ["3y", "5y"]
+
+
+def test_new_comparison_population_does_not_reuse_retained_context() -> None:
+    raw = safe_load(_PUBLISHED.read_text(encoding="utf-8"))
+    assert isinstance(raw, dict)
+    identity = screening_calibration_method_identity(_ROOT)
+    assert identity is not None
+    assert identity[0] != raw["screening_rules_hash"]
+    assert (
+        load_er_level_calibration_context(
+            _PUBLISHED,
+            expected_method_identity=identity,
+            today=date.fromisoformat(str(raw["generated_at"])[:10]),
+        )
+        is None
+    )
 
 
 def test_invalid_artifact_maps_to_null(tmp_path: Path) -> None:
