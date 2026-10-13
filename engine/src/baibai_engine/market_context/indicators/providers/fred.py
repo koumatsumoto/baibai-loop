@@ -3,6 +3,9 @@ from __future__ import annotations
 import csv
 import io
 from datetime import date
+from urllib.parse import urlsplit
+
+from requests import RequestException, Session
 
 from ..definitions import SeriesDefinition
 from ..observations import ObservationRecord
@@ -11,11 +14,13 @@ from .base import (
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
+    ProviderFetchStoppedError,
     ProviderSpec,
     fetch_text,
     parse_float,
     record_observation,
 )
+from .read_retry import mount_read_retry, read_deadline
 
 
 class FredProvider:
@@ -37,14 +42,25 @@ class FredProvider:
         session: HttpSession,
         context: FetchContext | None = None,
     ) -> list[ObservationRecord]:
-        text = fetch_text(
-            session,
-            series.source_url,
-            params=None,
-            max_bytes=MAX_CSV_RESPONSE_BYTES,
-            context=context,
-        )
-        return parse_fred_csv(series, text, start=start, end=end)
+        try:
+            if isinstance(session, Session):
+                url = urlsplit(series.source_url)
+                mount_read_retry(
+                    session,
+                    f"{url.scheme}://{url.netloc}/",
+                    deadline=read_deadline(self.name, context),
+                    max_bytes=MAX_CSV_RESPONSE_BYTES,
+                )
+            text = fetch_text(
+                session,
+                series.source_url,
+                params=None,
+                max_bytes=MAX_CSV_RESPONSE_BYTES,
+                context=context,
+            )
+            return parse_fred_csv(series, text, start=start, end=end)
+        except (IndicatorsProviderError, RequestException, ValueError) as exc:
+            raise ProviderFetchStoppedError(str(exc)) from None
 
 
 def parse_fred_csv(

@@ -24,6 +24,7 @@ from baibai_engine.market_context.indicators.providers.option_iv import (
     fear_readings,
     quotes_from_records,
 )
+from baibai_engine.market_context.indicators.providers.read_retry import ReadDeadline
 
 ASOF = date(2026, 7, 29)
 NEAR = date(2026, 8, 14)  # 16 days out
@@ -764,7 +765,7 @@ class OptionProviderTest(unittest.TestCase):
         provider = jquants_options.JQuantsOptionsProvider()
         client = SimpleNamespace(get_drv_bars_daily_opt_225=one_chain)
         with (
-            mock.patch.object(jquants_options, "_client", return_value=client),
+            mock.patch.object(jquants_options, "jquants_read_client", return_value=client),
             mock.patch.object(jquants_options, "_read_api_key", return_value="k"),
         ):
             for provider_series_id in ("n225_iv_30d", "n225_iv_skew", "n225_iv_term"):
@@ -833,7 +834,9 @@ class OptionProviderTest(unittest.TestCase):
             get_drv_bars_daily_opt_225=lambda **_: _FakeFrame([*settled, *intervention])
         )
 
-        both = provider._day_reading(client, ASOF, api_key="k")
+        both = provider._day_reading(
+            client, ASOF, api_key="k", deadline=ReadDeadline("jquants_options")
+        )
 
         self.assertEqual(both, fear_readings(quotes_from_records(settled, ASOF), ASOF))
         self.assertIsNotNone(both.iv_30d)
@@ -846,7 +849,7 @@ class OptionProviderTest(unittest.TestCase):
             get_drv_bars_daily_opt_225=lambda **_: _FakeFrame(_chain_records(ASOF - timedelta(1)))
         )
         with (
-            mock.patch.object(jquants_options, "_client", return_value=stale),
+            mock.patch.object(jquants_options, "jquants_read_client", return_value=stale),
             mock.patch.object(jquants_options, "_read_api_key", return_value="k"),
             self.assertRaises(IndicatorsProviderError) as caught,
         ):
@@ -901,7 +904,7 @@ class OptionProviderTest(unittest.TestCase):
         provider = jquants_options.JQuantsOptionsProvider()
         client = SimpleNamespace(get_drv_bars_daily_opt_225=chain)
         with (
-            mock.patch.object(jquants_options, "_client", return_value=client),
+            mock.patch.object(jquants_options, "jquants_read_client", return_value=client),
             mock.patch.object(jquants_options, "_read_api_key", return_value="k"),
         ):
             observed = {
