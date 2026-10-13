@@ -86,11 +86,12 @@ Research Setはpipeline stateである。storeごとのauthorityは
 ## Decision flow
 
 ```text
-三領域の保存済み観測・L2結果 -> Screening Run -> Security Analysis[]
+保存済み市場・財務観測 -> Valuation / Market ContextのL2結果
+             -> Screening Run -> Security Analysis[]
              -> Valuation Approach[] -> Nomination[] -> Review Set
 Review Set -> Research Triage
            -> 明示開始・新規/保有合算最大三対象の固定選択
-           -> 有限Research -> Thesis + Thesis Review
+           -> 三領域の保存済み入力による有限Research -> Thesis + Thesis Review
 reviewed Thesis群 -> Capital Allocation Assessment -> Planning Limit
                   -> 一銘柄ずつの新規買付/見送り提案
                   -> 人間の採用・broker操作・報告 -> Portfolio Ledger -> Holding
