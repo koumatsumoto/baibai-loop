@@ -31,7 +31,6 @@ from baibai_engine.research.operation.progress import (
 )
 from baibai_engine.research.operation.research_binding import (
     require_matching_research_set,
-    research_binding,
 )
 from baibai_engine.research.operation.validation import validate_progress, validate_selection
 from baibai_engine.research.position_review import PositionReviewDocument
@@ -309,33 +308,8 @@ class OperationService:
                 selected_before = selection_binding(before.payload)
                 incoming = selection_binding(payload)
                 if selected_before is None:
-                    if incoming is None:
-                        raise OperationConflictError(
-                            "historical Operation is read-only; "
-                            "explicitly bind the same selection before research"
-                        )
-                    if before.session_kind == "capital-allocation":
-                        old_triage, old_tickers = research_binding(before.payload)
-                        if (
-                            incoming.research_triage_id != old_triage
-                            or {item.ticker for item in incoming.targets} != old_tickers
-                        ):
-                            raise OperationConflictError(
-                                "legacy handoff must preserve the exact existing Research Set"
-                            )
-                    elif (
-                        before.ticker is None
-                        or {item.ticker for item in incoming.targets} != {before.ticker}
-                        or any(item.purpose != "holding" for item in incoming.targets)
-                    ):
-                        raise OperationConflictError(
-                            "legacy holding handoff must preserve its exact ticker"
-                        )
-                    validate_selection(
-                        connection, incoming, now=completed_at or checked_at or datetime.now(JST)
-                    )
-                    selected_before = incoming
-                elif incoming != selected_before:
+                    raise OperationConflictError("historical Operation is read-only")
+                if incoming != selected_before:
                     raise OperationConflictError(
                         "Research selection is immutable; no replacement targets"
                     )

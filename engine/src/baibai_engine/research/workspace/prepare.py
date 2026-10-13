@@ -24,7 +24,6 @@ from baibai_engine.research.operation.progress import (
     selection_binding,
     selection_sha256,
 )
-from baibai_engine.research.operation.research_binding import research_binding
 from baibai_engine.research.operation.service import OperationService
 from baibai_engine.research.workspace.admission import (
     ResearchPreparation,
@@ -91,43 +90,15 @@ def prepare_workspace(
                 "active operation already exists with a different as_of"
             )
         recorded = selection_binding(active.payload)
-        if recorded is None:
-            old_triage, old_tickers = research_binding(active.payload)
-            if old_triage != selection.research_triage_id or old_tickers != {
-                item.ticker for item in selection.targets
-            }:
-                raise ResearchWorkspaceConflictError(
-                    f"active Operation has a different fixed selection: {active.operation_id}"
-                )
-            legacy_confirmation = (
-                ()
-                if active.payload.human_confirmation is None
-                else (
-                    {
-                        "kind": "legacy_human_confirmation",
-                        "record": active.payload.human_confirmation.model_dump(mode="json"),
-                    },
-                )
-            )
-            payload = active.payload.model_copy(
-                update={
-                    "artifacts": (
-                        *active.payload.artifacts,
-                        *legacy_confirmation,
-                        selection.model_dump(mode="json"),
-                    ),
-                    "human_confirmation": None,
-                }
-            )
-            active = service.checkpoint(active.operation_id, payload, now=now)
-        elif recorded.research_triage_id != selection.research_triage_id or set(
-            recorded.targets
-        ) != set(selection.targets):
+        if (
+            recorded is None
+            or recorded.research_triage_id != selection.research_triage_id
+            or set(recorded.targets) != set(selection.targets)
+        ):
             raise ResearchWorkspaceConflictError(
                 f"active operation already exists: {active.operation_id}"
             )
-        else:
-            selection = recorded
+        selection = recorded
     manifest_path = workspace / "manifest.yaml"
     if manifest_path.exists() and not force:
         raise ResearchWorkspaceConflictError(
@@ -263,27 +234,6 @@ def prepare_holding_workspace(
         if operation.as_of != asof:
             raise ResearchWorkspaceConflictError(
                 "active Operation as_of differs from the holding workspace"
-            )
-        if (
-            selection is None
-            and operation.session_kind == "position-review"
-            and operation.ticker == ticker
-            and request is not None
-        ):
-            selection = ResearchSelection(
-                request=request, targets=(ResearchTarget(ticker=ticker, purpose="holding"),)
-            )
-            operation = service.checkpoint(
-                operation.operation_id,
-                operation.payload.model_copy(
-                    update={
-                        "artifacts": (
-                            *operation.payload.artifacts,
-                            selection.model_dump(mode="json"),
-                        )
-                    }
-                ),
-                now=now,
             )
         if (
             selection is None
