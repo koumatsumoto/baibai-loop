@@ -21,6 +21,7 @@ def test_week_end_exclusive_order_expiry_is_shown_on_last_valid_day() -> None:
             reserved_yen=0,
             expires_at=datetime.fromisoformat("2026-10-17T00:00:00+09:00"),
             expiry_label="今週中",
+            route_label="取引所（自動振分）",
         )
     ]
     events = upcoming_events(today=date(2026, 10, 14), holdings=[], reservations=orders)

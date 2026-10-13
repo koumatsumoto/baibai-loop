@@ -51,6 +51,7 @@ class ReservationView(BaseModel):
     reserved_yen: int
     expires_at: datetime
     expiry_label: str | None
+    route_label: str | None
 
 
 class WarningView(BaseModel):

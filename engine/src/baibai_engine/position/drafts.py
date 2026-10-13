@@ -71,6 +71,7 @@ def build_broker_fact_draft(
     price_guard_yen: Decimal | None = None,
     expires_at: datetime | None = None,
     expiry_label: str | None = None,
+    route_label: str | None = None,
     ordered_at: datetime | None = None,
     now: datetime | None = None,
 ) -> tuple[LedgerDraft | None, tuple[str, ...]]:
@@ -151,6 +152,7 @@ def build_broker_fact_draft(
             price_guard_yen=price_guard_yen,
             expires_at=expires_at,
             expiry_label=expiry_label,
+            route_label=route_label,
             ordered_at=ordered_at,
             now=now,
         )

@@ -49,6 +49,7 @@ def record_broker_fact(
     price_guard_yen: Decimal | None = None,
     expires_at: datetime | None = None,
     expiry_label: str | None = None,
+    route_label: str | None = None,
     ordered_at: datetime | None = None,
     now: datetime | None = None,
 ) -> BrokerFactRecordingResult:
@@ -149,6 +150,7 @@ def record_broker_fact(
                 "price_guard_yen": str(price_guard_yen),
                 "expires_at": expires_at.isoformat(),
                 "expiry_label": expiry_label,
+                "route_label": route_label,
             }
         )
     elif status == "filled":

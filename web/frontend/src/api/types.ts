@@ -802,6 +802,7 @@ export interface ReservationView {
   reserved_yen: number
   expires_at: string
   expiry_label: string | null
+  route_label: string | null
 }
 
 export interface ReviewSetAnalysisView {

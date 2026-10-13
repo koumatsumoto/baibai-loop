@@ -4913,6 +4913,17 @@
             }
           ],
           "title": "Expiry Label"
+        },
+        "route_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Route Label"
         }
       },
       "required": [
@@ -4924,7 +4935,8 @@
         "price_guard_yen",
         "reserved_yen",
         "expires_at",
-        "expiry_label"
+        "expiry_label",
+        "route_label"
       ],
       "title": "ReservationView",
       "type": "object"

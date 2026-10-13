@@ -85,6 +85,7 @@ def build_tasks(
             reserved_yen=item.reserved_yen,
             expires_at=item.expires_at,
             expiry_label=item.expiry_label,
+            route_label=item.route_label,
         )
         for item in snapshot.active_reservations
     ]

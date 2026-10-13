@@ -41,8 +41,8 @@ function render(data: DashboardView): string {
 describe('Dashboard valuation display', () => {
   it('shows pending buy and sell orders without treating sell proceeds as reserved cash', () => {
     const reservations: ReservationView[] = [
-      { reservation_id: 'buy', side: 'buy', ticker: '1111', sector: '情報・通信業', remaining_quantity: 200, price_guard_yen: '1000', reserved_yen: 200000, expires_at: '2026-10-16T15:30:00+09:00', expiry_label: '今週中' },
-      { reservation_id: 'sell', side: 'sell', ticker: '2222', sector: '情報・通信業', remaining_quantity: 100, price_guard_yen: '900', reserved_yen: 0, expires_at: '2026-10-16T15:30:00+09:00', expiry_label: '今週中' },
+      { reservation_id: 'buy', side: 'buy', ticker: '1111', sector: '情報・通信業', remaining_quantity: 200, price_guard_yen: '1000', reserved_yen: 200000, expires_at: '2026-10-16T15:30:00+09:00', expiry_label: '今週中', route_label: '取引所（自動振分）' },
+      { reservation_id: 'sell', side: 'sell', ticker: '2222', sector: '情報・通信業', remaining_quantity: 100, price_guard_yen: '900', reserved_yen: 0, expires_at: '2026-10-16T15:30:00+09:00', expiry_label: '今週中', route_label: '取引所（自動振分）' },
     ]
     const html = renderToStaticMarkup(createElement(TooltipProvider, null,
       createElement(MemoryRouter, null, createElement(PendingOrdersCard, { reservations })),
@@ -53,6 +53,7 @@ describe('Dashboard valuation display', () => {
     expect(html).toContain('￥200,000')
     expect(html).not.toContain('￥90,000')
     expect(html.match(/今週中/g)).toHaveLength(2)
+    expect(html.match(/取引所（自動振分）/g)).toHaveLength(2)
   })
 
   it('shows complete assets, unrealized P&L, allocation, and the market basis date', () => {

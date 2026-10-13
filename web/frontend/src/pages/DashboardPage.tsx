@@ -503,6 +503,7 @@ export function PendingOrdersCard({ reservations }: { reservations: ReservationV
         <TableCell className="pl-5 sm:pl-6">
           <span className="mr-2">{reservation.side === 'sell' ? '売' : '買'}</span>
           <Link className="font-mono font-semibold text-foreground underline-offset-4 hover:underline" to={`/securities/${reservation.ticker}`}>{reservation.ticker}</Link>
+          {reservation.route_label && <span className="ml-2 text-xs text-muted-foreground">{reservation.route_label}</span>}
         </TableCell>
         <TableCell className="text-right font-mono tabular-nums">
           {reservation.remaining_quantity.toLocaleString('ja-JP')} 株

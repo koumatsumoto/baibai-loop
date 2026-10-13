@@ -192,6 +192,7 @@ def build_parser() -> argparse.ArgumentParser:
     broker_fact_parser.add_argument("--price-guard-yen", type=_decimal_argument)
     broker_fact_parser.add_argument("--expires-at", type=_datetime_argument)
     broker_fact_parser.add_argument("--expiry-label")
+    broker_fact_parser.add_argument("--route-label")
     broker_fact_parser.add_argument("--ordered-at", type=_datetime_argument)
     broker_fact_parser.add_argument("--out", type=Path, required=True)
     sell_parser = subparsers.add_parser(
@@ -675,6 +676,7 @@ def _run_record_broker_fact(args: argparse.Namespace, *, now: datetime | None) -
             price_guard_yen=args.price_guard_yen,
             expires_at=args.expires_at,
             expiry_label=args.expiry_label,
+            route_label=args.route_label,
             ordered_at=args.ordered_at,
             now=now,
         )

@@ -113,6 +113,7 @@ class ReservationEvent(_EventBase):
     price_guard_yen: Annotated[Decimal, Field(gt=0, decimal_places=4)]
     expires_at: datetime
     expiry_label: str | None = None
+    route_label: str | None = None
 
     @field_validator("common_factors", mode="before")
     @classmethod
@@ -365,6 +366,7 @@ class ReservationSnapshot:
     reserved_yen: int
     expires_at: datetime
     expiry_label: str | None
+    route_label: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -416,6 +418,7 @@ class _Reservation:
     price_guard_yen: Decimal
     expires_at: datetime
     expiry_label: str | None
+    route_label: str | None
 
 
 @dataclass(slots=True)
@@ -562,6 +565,7 @@ def replay_events_through(
                     price_guard_yen=event.price_guard_yen,
                     expires_at=event.expires_at,
                     expiry_label=event.expiry_label,
+                    route_label=event.route_label,
                 )
                 if event.side == "buy":
                     available_cash -= notional
@@ -777,6 +781,7 @@ def _reservation_snapshots(
             ),
             expires_at=item.expires_at,
             expiry_label=item.expiry_label,
+            route_label=item.route_label,
         )
         for item in sorted(active.values(), key=lambda item: item.reservation_id)
     )
@@ -896,6 +901,7 @@ def snapshot_to_payload(snapshot: PortfolioSnapshot) -> dict[str, object]:
                 "reserved_yen": reservation.reserved_yen,
                 "expires_at": reservation.expires_at.isoformat(),
                 "expiry_label": reservation.expiry_label,
+                "route_label": reservation.route_label,
             }
             for reservation in snapshot.active_reservations
         ],

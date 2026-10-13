@@ -94,7 +94,7 @@ applyは1 transactionでsource head、event replay / payload、price/meta expect
 `broker-fact-draft`は人間の`open / filled / cancelled / expired`報告だけを入力にする。active reservationをIDなしで推定しない。partial fillはremainingがある間だけ後続broker factを受理する。full fill / cancel / expire後の完全一致broker fact reportはno-change、矛盾broker fact reportはhard errorとする。`expired`は人間が未約定を確認し、`occurred_at >= expires_at`の場合だけreleaseを作る。同時刻に複数reservationがterminalになる場合は`--reservation-id`の反復指定を1 transactionで検証・適用する。対象の一部が不正なら全件を拒否する。active reservationの後続broker factは同じ`decision_reference`、reservation ID、order IDへ束縛する。
 
 売付の`open`は`broker-fact-draft --side sell`で記録し、保有株数を超える重複注文を拒否する。売付の見込代金を現金へ加えず、対応する約定報告までlotを減らさない。
-`open`の`occurred_at`は未約定注文を人間が確認した時点を表し、brokerの発注時刻を推定しない。期限が「今週中」などの表現なら`expiry_label`に原文を保存し、`expires_at`は台帳で使う排他的な期間終端として扱う。broker固有の正確な失効時刻を意味しない。
+`open`の`occurred_at`は未約定注文を人間が確認した時点を表し、brokerの発注時刻を推定しない。期限が「今週中」などの表現なら`expiry_label`に原文を保存し、`expires_at`は台帳で使う排他的な期間終端として扱う。注文画面の市場・SOR等は`route_label`に原文を残し、約定した実市場とみなさない。broker固有の正確な失効時刻を意味しない。
 
 <a id="historical-outcome"></a>
 
