@@ -84,6 +84,7 @@ export function CapitalAllocationAssessmentPage() {
       </SectionCard>}
       <SectionCard padded title="他の選択肢を見送った理由"><p className="whitespace-pre-line text-sm">{data.foregone_alternatives}</p></SectionCard>
       {data.alternatives.map(item => <AllocationThesisDetails item={item} key={item.thesis_id} />)}
+      <Link className="text-sm underline" to={`/research-triage?research_triage_id=${encodeURIComponent(data.research_triage_id)}`}>この配分判断が参照した対象選定・調査優先度を見る →</Link>
       {data.market_context_assessment_id && <Link className="text-sm underline" to={`/market-context/assessments/${data.market_context_assessment_id}`}>この配分判断が参照した市場環境判断を見る →</Link>}
       <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">判断の参照記録</summary><p className="mt-2 break-all">Research Triage: {data.research_triage_id} · 配分比較のReview: {data.content_review.conclusion}</p></details>
       <Link className="text-sm underline" to="/stocks">提案一覧に戻る</Link>

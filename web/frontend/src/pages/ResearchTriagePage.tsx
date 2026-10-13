@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useLocation } from 'react-router'
 import { fetchJson } from '../api/client'
-import type { ResearchTriageView, ScreeningView } from '../api/types'
+import type { ResearchTriageDetailView, ResearchTriageView, ScreeningView } from '../api/types'
 import { AsOfBadge } from '../components/AsOfBadge'
 import { UpdatedAtBadge } from '../components/UpdatedAtBadge'
 import { LoadingPage } from '../components/LoadingIndicator'
@@ -20,19 +20,37 @@ export function ResearchTriageEntries({ triage, names }: { triage: ResearchTriag
   </article>)}</div>
 }
 export function ResearchTriagePage() {
-  const [data, setData] = useState<ScreeningView | null>(null)
+  const requestedId = new URLSearchParams(useLocation().search).get('research_triage_id')
+  const [triage, setTriage] = useState<ResearchTriageView | null>(null)
+  const [names, setNames] = useState<ReadonlyMap<string, string | null>>(new Map())
+  const [payload, setPayload] = useState<Record<string, unknown> | null>(null)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
-    fetchJson<ScreeningView>('/api/screening/latest').then(setData).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : '調査判断を読み込めませんでした'))
-  }, [])
-  if (error) return <PageState message={error} title="調査判断" />
-  if (!data) return <LoadingPage label="調査判断を読み込んでいます" />
-  const triage = data.research_triages[0]
-  if (!triage) return <PageState message="表示できる調査判断はまだありません" title="調査優先度・見送りの根拠" />
-  const reviewSet = data.review_sets.find(item => item.review_set_id === triage.review_set_id)
-  const names = new Map(reviewSet?.entries.map(item => [item.ticker, item.name]) ?? [])
+    const controller = new AbortController()
+    setLoading(true)
+    setError(null)
+    setTriage(null)
+    setPayload(null)
+    setNames(new Map())
+    const request = requestedId
+      ? fetchJson<ResearchTriageDetailView>(`/api/research-triages/${encodeURIComponent(requestedId)}`, { signal: controller.signal }).then(data => { if (!controller.signal.aborted) { setTriage(data); setPayload(data.payload) } })
+      : fetchJson<ScreeningView>('/api/screening/latest', { signal: controller.signal }).then(data => {
+          if (controller.signal.aborted) return
+          const latest = data.research_triages[0] ?? null
+          setTriage(latest)
+          const reviewSet = data.review_sets.find(item => item.review_set_id === latest?.review_set_id)
+          setNames(new Map(reviewSet?.entries.map(item => [item.ticker, item.name]) ?? []))
+        })
+    request.catch((reason: unknown) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '調査判断を読み込めませんでした') })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
+    return () => controller.abort()
+  }, [requestedId])
+  if (error) return <PageState message={error} title="指定した調査判断を読み込めませんでした" />
+  if (loading) return <LoadingPage label="調査判断を読み込んでいます" />
+  if (!triage) return <PageShell above={<ResearchNav />} title="調査優先度・見送りの根拠"><p className="text-sm text-muted-foreground">表示できる調査判断はまだありません。</p></PageShell>
   return <PageShell above={<ResearchNav />} title="調査優先度・見送りの根拠" lead="AIが候補を比較した記録です。調査の優先度は、購入・配分の提案とは別です。" meta={<div className="flex flex-wrap gap-3"><UpdatedAtBadge value={triage.published_at} /><AsOfBadge value={triage.as_of} /></div>}>
     <ResearchTriageEntries triage={triage} names={names} />
-    <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">判断の参照記録</summary><p className="mt-2 break-all">Research Triage: {triage.research_triage_id} · Review Set: {triage.review_set_id} · Run: {triage.run_revision_id}</p></details>
+    <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">判断の参照記録</summary><p className="mt-2 break-all">Research Triage: {triage.research_triage_id} · Review Set: {triage.review_set_id} · Run: {triage.run_revision_id}</p>{payload && <pre className="mt-3 overflow-auto whitespace-pre-wrap">{JSON.stringify(payload, null, 2)}</pre>}</details>
   </PageShell>
 }
