@@ -43,8 +43,10 @@ uv run baibai-engine research prepare \
 1. `research thesis-scaffold`でdraftを作り、明示mappingされたplaybookの問いを一次資料で検討する。[事業モデル別調査](../../../docs/reference/business-model-research.md)は指定された試行の補助として使い、全社共通の追加gateにしない。
 2. [Thesis reference](../../../docs/reference/thesis.md)に従って企業評価とBase/Downsideを構成する。束縛された市場環境判断の含意・留意点は、materialなものだけを仮定・source・反対仮説へ接続する。機械推計の照会・意味は[Valuation metrics](../../../docs/reference/valuation-metrics.md#machine-valuation)を参照し、企業固有評価との区別はThesis referenceに従う。
    利益の1株換算には直近の自己株控除株数を起点とし、その資料の重要後発事象と評価日までの一次開示で増資・自己株処分・消却を照合する。株式分割の確認だけで株数の更新を済ませず、実行済みと予定を分けて計算basisに残す。
+   ratio-v1とProjectionの数値は、[draft算術](../../../docs/reference/thesis.md#draft-calculation)の`research calculate <INPUTS>`で生成し、必要な既存欄へ渡す。terminal/cashの元となる企業見積りと算式は一次資料から別途確認する。
 3. `research evaluate`で計算資料とerrorsを確認する。必要価値・時間感度の解釈は[valuation context](../../../docs/reference/thesis.md#valuation-context)に従う。Review未添付だけの`review_required`は計算資料があってもexit 2であり、他のerrorを無視する許可ではない。
 4. `research review-scaffold`を用い、作者と別の作業者がsource・算術・経済的反証を確認する。`evaluate --review`で一組を検証し、coreを変えたらReviewを取り直す。
+   Review側も資料・単位・期間・重要仮定を独立に確認した入力で`research calculate <REVIEW_INPUTS>`を呼び、`recalculated_projections`を既存Review欄へ渡す。作者の出力や入力をそのままコピーして独立検算としない。計算成功は公開可否や事業前提の確認を意味しない。
 5. `candidate / defer / reject`を確定し、`research promote`でThesisとReviewを公開する。経済的に判断できたdefer/rejectは完成できる。調査自体が終わらない根拠不足は未完了として記録し、経済的見送りに偽装しない。将来見積りに幅があることだけを不合格にせず、資料で確認すべき事実の欠落とは区別する。
 
 ## 3. 配分を比較して公開する
