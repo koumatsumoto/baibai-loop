@@ -853,11 +853,11 @@ export interface ReviewSetNormalizedEarningsView {
 }
 
 export interface ReviewSetReinvestmentView {
-  p_s_sector_gap: number
-  operating_return_on_capital_proxy: number
-  sales_yoy: number
-  operating_margin: number
-  fcf_yield: number
+  p_s_sector_gap: number | null
+  operating_return_on_capital_proxy: number | null
+  sales_yoy: number | null
+  operating_margin: number | null
+  fcf_yield: number | null
 }
 
 export interface ReviewSetValuationView {
