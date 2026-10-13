@@ -123,11 +123,15 @@ def export_read_models(
         )
     )
 
+    prepared_security = prepare_security_inputs(stores.ledger, stores.research, stores.screening)
     screening = build_screening(
         stores.screening,
         stores.ledger,
         stores.research,
         stores.er_level_calibration,
+        external_assessment=stores.external_assessment,
+        market=stores.market,
+        external_cutoff=prepared_security.external_cutoff,
     )
     written.append(_write_model(views_dir / "screening_latest.json", screening))
 
@@ -209,10 +213,9 @@ def export_read_models(
             )
         )
 
-    prepared_security = prepare_security_inputs(stores.ledger, stores.research, stores.screening)
     tickers = sorted(
         set(_security_tickers(dashboard, screening))
-        | set(stores.external_assessment.observed_tickers(cutoff=prepared_security.external_cutoff))
+        | {item.ticker for item in screening.external_assessment_securities}
     )
     for ticker in tickers:
         if _TICKER_FORMAT.fullmatch(ticker) is None:

@@ -254,6 +254,14 @@ export interface ExternalAssessment {
   origin_groups: OriginGroup[]
 }
 
+export interface ExternalAssessmentSecurityView {
+  ticker: string
+  name: string | null
+  sector_33: string | null
+  portfolio_state: PortfolioState
+  has_research: boolean
+}
+
 export interface HistoricalConnectionSectionView {
   section_id: string
   series: HistoricalSeriesReferenceView[]
@@ -891,6 +899,8 @@ export interface ScreeningRunView {
 export interface ScreeningView {
   run: ScreeningRunView | null
   security_analyses: SecurityAnalysisRowView[]
+  external_assessment_securities: ExternalAssessmentSecurityView[]
+  external_assessment_cutoff: string | null
   review_sets: ReviewSetView[]
   research_triages: ResearchTriageView[]
   capital_allocation_assessments: CapitalAllocationAssessmentSummaryView[]

@@ -18,6 +18,7 @@ from baibai_engine.foundation.repository_layout import (
     repository_root_error,
 )
 from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.market_context.master import read_master_snapshot as market_master_snapshot
 from baibai_engine.position.ledger import (
     HoldingSnapshot,
     PortfolioLedgerError,
@@ -130,6 +131,7 @@ __all__ = [
     "list_thesis_review_publications",
     "machine_valuation_from_analysis",
     "market_calendar_business_day",
+    "market_master_snapshot",
     "next_earnings_dates",
     "portfolio_ledger_document",
     "previous_business_day",

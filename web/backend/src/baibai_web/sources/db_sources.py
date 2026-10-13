@@ -29,6 +29,7 @@ from baibai_engine.read_api import (
     list_task_payloads,
     list_thesis_publications,
     list_thesis_review_publications,
+    market_master_snapshot,
     next_earnings_dates,
     portfolio_ledger_document,
     previous_business_day,
@@ -86,9 +87,19 @@ class DbMarketPriceSource:
 
     def __init__(self, market_db_path: Path) -> None:
         self._path = market_db_path.resolve()
+        self._master_date: date | None = None
+        self._master_identities: Mapping[str, Mapping[str, object]] = {}
 
     def exists(self) -> bool:
         return self._path.is_file()
+
+    def security_identities(self, *, as_of: date) -> Mapping[str, Mapping[str, object]]:
+        # One shared snapshot per request/export, rather than a master query per ticker.
+        if self._master_date != as_of:
+            snapshot = market_master_snapshot(self._path, as_of=as_of)
+            self._master_identities = {} if snapshot is None else snapshot.securities
+            self._master_date = as_of
+        return self._master_identities
 
     def previous_business_day(self, day: date) -> date | None:
         return previous_business_day(self._path, day)

@@ -2,14 +2,13 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ArrowDown, ArrowUp, Search } from 'lucide-react'
 import { Link } from 'react-router'
 
-import type { SecurityAnalysisRowView } from '../../api/types'
 import { SectionCard } from '../../components/SectionCard'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table'
-import { EMPTY, formatNumber } from '../../lib/format'
-import { parseOptionalNumber, projectSecurityRows, SECURITY_PAGE_SIZE, type SecurityFilters, type SecuritySort, type SecuritySortKey } from '../../lib/stocks'
+import { EMPTY, formatJstDateTime, formatNumber } from '../../lib/format'
+import { parseOptionalNumber, projectSecurityRows, SECURITY_PAGE_SIZE, type SecurityFilters, type SecuritySearchRow, type SecuritySort, type SecuritySortKey } from '../../lib/stocks'
 
 function number(value: number | null, digits = 2): string {
   return value === null ? EMPTY : formatNumber(value, digits)
@@ -34,7 +33,7 @@ function FilterLabel({ title, children }: { title: string; children: ReactNode }
   return <label className="grid gap-1"><span className="text-xs font-medium text-muted-foreground">{title}</span>{children}</label>
 }
 
-export function SecurityAnalysisSection({ rows, runAsOf }: { rows: SecurityAnalysisRowView[]; runAsOf: string }) {
+export function SecurityAnalysisSection({ rows, runAsOf, externalCutoff }: { rows: SecuritySearchRow[]; runAsOf: string | null; externalCutoff?: string | null }) {
   const sectors = useMemo(() => [...new Set(rows.map((row) => row.sector_33).filter((item): item is string => item !== null))].sort((a, b) => a.localeCompare(b, 'ja-JP')), [rows])
   const [query, setQuery] = useState('')
   const [sector, setSector] = useState('all')
@@ -67,7 +66,7 @@ export function SecurityAnalysisSection({ rows, runAsOf }: { rows: SecurityAnaly
   const end = Math.min(projection.page * SECURITY_PAGE_SIZE, projection.filteredTotal)
 
   return (
-    <SectionCard description={`全分析母集団を探索。基準 ${runAsOf}。Review Set の選定順とは独立。`} title="Security Analysis">
+    <SectionCard description={`Security Analysis 基準 ${runAsOf ?? '未発行'}。保存済み外部観測も検索できます。Review Set の選定順とは独立。`} title="銘柄検索">
       <div className="grid gap-4 border-b px-5 py-4 sm:px-6">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
           <FilterLabel title="検索">
@@ -84,6 +83,7 @@ export function SecurityAnalysisSection({ rows, runAsOf }: { rows: SecurityAnaly
           <label className="inline-flex items-center gap-2"><input checked={detail} onChange={(event) => setDetail(event.target.checked)} type="checkbox" />詳細列を表示</label>
           <span className="ml-auto text-xs text-muted-foreground">{start}–{end} / {projection.filteredTotal} 件</span>
         </div>
+        {externalCutoff && <p className="text-xs text-muted-foreground">外部観測の読取時点 {formatJstDateTime(externalCutoff)} JST。機械分析のない銘柄はPER・PBR・配当の条件では抽出しません。</p>}
       </div>
       <Table className={detail ? 'min-w-[2600px]' : 'min-w-[1900px]'}>
         <TableHeader><TableRow>
@@ -97,7 +97,11 @@ export function SecurityAnalysisSection({ rows, runAsOf }: { rows: SecurityAnaly
           <SortHead column="next_earnings_date" label="next earnings" onSort={onSort} sort={sort} /><TableHead>data quality</TableHead><TableHead>portfolio / research</TableHead>
           {detail && <><TableHead className="text-right">EV/EBITDA</TableHead><TableHead className="text-right">P/S</TableHead><TableHead className="text-right">PCFR</TableHead><TableHead className="text-right">OCF yield</TableHead><TableHead className="text-right">equity ratio</TableHead><TableHead className="text-right">avg turnover</TableHead><TableHead className="text-right">margin short / ADV</TableHead><TableHead className="text-right">20d</TableHead><TableHead className="text-right">52w low</TableHead><TableHead className="text-right">sector RS%</TableHead></>}
         </TableRow></TableHeader>
-        <TableBody>{projection.rows.map((row) => <TableRow key={row.ticker}>
+        <TableBody>{projection.rows.map((row) => !('er_annual' in row) ? <TableRow key={row.ticker}>
+          <TableCell><Link className="font-mono font-semibold hover:underline" to={`/securities/${row.ticker}`}>{row.ticker}</Link><span className="ml-2 text-muted-foreground">{row.name ?? '名称未確認'}</span></TableCell>
+          <TableCell>{row.sector_33 ?? EMPTY}</TableCell>
+          <TableCell colSpan={detail ? 25 : 15}><Badge variant="outline">保存済み外部参考評価</Badge><span className="ml-2 text-muted-foreground">機械分析なし</span>{row.portfolio_state !== 'unheld' && <Badge className="ml-2" variant="secondary">{row.portfolio_state}</Badge>}{row.has_research && <Badge className="ml-2" variant="outline">research</Badge>}</TableCell>
+        </TableRow> : <TableRow key={row.ticker}>
           <TableCell><Link className="font-mono font-semibold hover:underline" to={`/securities/${row.ticker}`}>{row.ticker}</Link><span className="ml-2 text-muted-foreground">{row.name ?? EMPTY}</span></TableCell>
           <TableCell>{row.sector_33 ?? EMPTY}</TableCell><TableCell className="text-right font-mono">{row.market_cap_oku === null ? EMPTY : `${number(row.market_cap_oku, 0)} 億`}</TableCell>
           <TableCell className="text-right font-mono">{number(row.per_forward)}</TableCell><TableCell className="text-right font-mono">{number(row.per_trailing)}</TableCell><TableCell className="text-right font-mono">{number(row.normalized_per_3fy)}</TableCell><TableCell className="text-right font-mono">{number(row.pbr)}</TableCell>
