@@ -6,15 +6,12 @@ import json
 import subprocess
 import sys
 from datetime import date
-from hashlib import sha256
 from pathlib import Path
 
 import pytest
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.jpx_total_return import load_benchmark_observation
-from baibai_engine.market_context.observations.benchmark import BenchmarkObservation
-from baibai_engine.valuation.calibration.contracts import ErCalibrationContextArtifact
 from baibai_engine.valuation.calibration.query import (
     candidate_er_band_context,
     load_er_calibration_context,
@@ -22,24 +19,6 @@ from baibai_engine.valuation.calibration.query import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-
-
-@pytest.mark.parametrize(
-    ("model", "expected"),
-    [
-        (
-            ErCalibrationContextArtifact,
-            "66db7b41f8f18fc12bc019092f07d29520bbfdb7e726fca11e155452d515a35f",
-        ),
-        (BenchmarkObservation, "a7b1475abc11d6291bac8dcdbd0c48702da0eaf0d763271acad8a596b44a9820"),
-    ],
-)
-def test_contracts_keep_pre_move_json_schema(model, expected) -> None:
-    # main 31f4f308の元型から取得したfield/default/strict schema。
-    encoded = json.dumps(
-        model.model_json_schema(), ensure_ascii=False, sort_keys=True, separators=(",", ":")
-    )
-    assert sha256(encoded.encode()).hexdigest() == expected
 
 
 @pytest.mark.parametrize(

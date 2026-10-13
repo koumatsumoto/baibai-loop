@@ -37,9 +37,11 @@ E[r] calibration contextは共有read contractがartifact schema、generated/exp
 
 ユーザーの開始要求を記録し、AIが新規・保有を合わせて最大3銘柄、0件も含む固定集合を選ぶ。Operationの`research_selection` artifactがticker・purpose・開始要求・新規Triage参照を所有する。再開・workspaceの`--force`で対象を追加・補充せず、同じ集合・Triage・分析対象日なら元のOperationを継続する。workspaceのas-ofはOperation.as_ofへ一致させ、再開で時点をずらさない。正式なThesis評価日や引用資料の日付はこの分析対象日と区別する。新規はTriage admission、保有は現在ledgerを検証し、保有をCAAの新規集合へ混ぜない。0件はOperationに提案なしの終了を残し、架空のCAAを作らない。
 
-`research prepare`は新規workspaceと、選んだ保有の`holdings/<ticker>` workspaceを同じOperationへ束縛する。`position-prepare`単独も明示開始要求から保有Operationを作る。manifestのOperation IDとselection hashは対象の付け替えを検出し、completed Operationへ新しい調査を足さない。旧manifestのOperation ID欠如は履歴statusで読めるが、scaffold/review/promoteのmutation入口としては認めず、明示prepareによる束縛が必要である。
+`research prepare`は新規workspaceと、選んだ保有の`holdings/<ticker>` workspaceを同じOperationへ束縛する。`position-prepare`単独も明示開始要求から保有Operationを作る。manifestのOperation IDとselection hashは対象の付け替えを検出し、completed Operationへ新しい調査を足さない。旧manifestのOperation ID欠如は履歴statusで読めるが、scaffold/review/promoteのmutation入口としては認めない。
 
 保存済み三領域を`research/inputs.py`で合成した`domain-inputs.yaml`は調査の入力である。機械anchor、個別/市場/業種、Reading、外部提示値を意味ごとに保持し、欠測を新規取得やAI起動で埋めない。既存Market Context Assessmentは任意の参照であり、毎回独立した全depth reportや主観確率を作る前提にしない。重要な環境上の含意だけを企業評価・提案のsource、仮定、反対仮説へ接続する。
+
+通常の`research prepare`・`position-prepare`は、保存候補の`as_of`を保ちながら、調査開始時の入力確定時刻`now`を`known_at`と`received_cutoff`に使う。External Assessmentの`evaluated_at`も同じ時刻であり、開始後の受領値は含めない。金曜候補を日曜に調査する場合、日曜の開始までに受領した外部評価を利用できる。`as_of`末へ受領cutoffを切り戻さず、過去時点のバックテストとは扱わない。`research_inputs`へ直接渡す明示cutoffは保持し、保存済み判断を再計算しない。Readingの対象日と保存履歴の扱いは[Readingの読取契約](./market-context.md#reading)に従う。
 
 ## 成果の被覆とL3完了
 
@@ -51,9 +53,9 @@ L3の提案完成はOperation `completed`であり、人間採否・注文・約
 
 厳密なfieldと検証は`research/operation/{progress,validation,service}`が所有し、操作列は[Research](../../.agents/skills/research/SKILL.md)・[Position Review](../../.agents/skills/position-review/SKILL.md)が所有する。
 
-## 既存履歴とactiveの継続
+## 保存履歴と現行Operationの再開
 
-完了済みOperation、Thesis/Review、確認済みPosition Review、旧CAAを再生成しない。既存activeの新契約への束縛は、明示開始要求があり、元のticker集合と新規Triage参照を保ち上限3以内の場合だけ。旧人間選択の記録は履歴artifactとして保持し、今回の最終採否とはしない。対象不明・上限超過・集合変更は停止し、自動closeや対象切捨てを行わない。これは既存activeの限定した継続であり、旧仕様の並行writerは持たない。
+完了済みOperation、Thesis/Review、確認済みPosition Review、旧CAAを再生成しない。旧Operationと人間選択の記録は元のpayloadのまま履歴として読み、`research_selection`を後付けして旧実行仕様を継続しない。現行selectionを持つactive Operationは、同じ固定対象・新規Triage参照・分析対象日で再開する。
 
 ## 入力と判断の境界
 

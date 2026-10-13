@@ -18,6 +18,7 @@ import baibai_batch.analysis.cli as analysis_cli
 from baibai_batch.analysis.cli import PipelineLock, RunLog
 from baibai_batch.analysis.io import ensure_private_dir, read_json
 from baibai_batch.analysis.models import ModelOutput, ModelUsage
+from baibai_batch.analysis.policy import TRIAGE_POLICY
 from baibai_engine.batch_api import DailyAnalysisContext
 from baibai_engine.market_context.assessment.models import StoredAssessment
 from baibai_engine.read_api import research_triage_payloads_for_review_set
@@ -375,6 +376,7 @@ def test_one_model_request_publishes_without_starting_an_operation(
     assert summary["ai_file_reads"] == summary["ai_tool_calls"] == 0
     assert summary["machine_commands"] == 0
     assert len(calls) == len(published) == 1
+    assert calls[0].policy == TRIAGE_POLICY
     assert loaded == [
         {
             "app_db_path": tmp_path / "stores/application/baibai.sqlite",
