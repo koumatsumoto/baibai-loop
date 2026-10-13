@@ -95,6 +95,8 @@ describe('view routing', () => {
     ['/api/screening/latest', 'views/screening_latest.json'],
     ['/api/screening/history/2026-07-23', 'history/candidate-views/2026-07-23.json'],
     ['/api/operations', 'views/operations.json'],
+    ['/api/capital-allocation-assessments', 'views/capital-allocation-assessments.json'],
+    ['/api/research-triages/research-triage-saved', 'views/research-triage--research-triage-saved.json'],
     ['/api/meta', 'views/meta.json'],
     ['/api/market-context', 'views/market-context.json'],
     ['/api/market-context/indicators/us.10y', 'views/indicator-series--us.10y.json'],
@@ -130,6 +132,8 @@ describe('view routing', () => {
     '/api/market-context/indicators/nested/id',
     '/api/capital-allocation-assessments/bad!id',
     '/api/capital-allocation-assessments/nested/id',
+    '/api/research-triages/bad!id',
+    '/api/research-triages/nested/id',
     '/api/unknown',
     '/api',
   ])('does not let request input escape the view-key whitelist: %s', async (path) => {
