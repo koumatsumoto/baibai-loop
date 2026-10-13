@@ -21,6 +21,7 @@ from baibai_engine.read_api import (
     validate_application_store_schema,
     validate_market_store_schema,
 )
+from baibai_engine.read_api.er_calibration_context import ErCalibrationContextArtifact
 from baibai_web.repository_layout import INDICATOR_PANEL_CONFIG_PATH
 from baibai_web.sources.calibration_context import load_er_level_calibration_context
 from baibai_web.sources.db_sources import (
@@ -35,7 +36,7 @@ from baibai_web.sources.db_sources import (
     DbTaskSource,
     load_indicator_panel_config,
 )
-from baibai_web.sources.types import ErLevelCalibrationContext, IndicatorGroupConfig
+from baibai_web.sources.types import IndicatorGroupConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,7 +52,7 @@ class Sources:
     operations: DbOperationsSource
     market: DbMarketPriceSource
     meta: DbMetaSource
-    er_level_calibration: ErLevelCalibrationContext | None
+    er_level_calibration: ErCalibrationContextArtifact | None
     app_db_path: Path
     runs_db_path: Path
     market_db_path: Path

@@ -7,6 +7,10 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from baibai_engine.read_api import anchor_gap_pct, machine_valuation_from_analysis
+from baibai_engine.read_api.er_calibration_context import (
+    ErCalibrationContextArtifact,
+    candidate_er_bands,
+)
 from baibai_web.readmodel.builders.presentation import number, text
 from baibai_web.readmodel.models import (
     CapitalAllocationAssessmentSummaryView,
@@ -44,10 +48,7 @@ from baibai_web.sources.protocols import (
     ScreeningSource,
 )
 from baibai_web.sources.screening_selection import operative_screening_run
-from baibai_web.sources.types import (
-    ErLevelCalibrationContext,
-    ScreeningRunRecord,
-)
+from baibai_web.sources.types import ScreeningRunRecord
 
 _JST = ZoneInfo("Asia/Tokyo")
 
@@ -94,7 +95,7 @@ def build_screening(
     screening: ScreeningSource,
     ledger: LedgerSource,
     research: ResearchSource,
-    er_level_calibration: ErLevelCalibrationContext | None = None,
+    er_level_calibration: ErCalibrationContextArtifact | None = None,
     *,
     external_assessment: ExternalAssessmentSource | None = None,
     market: MarketPriceSource | None = None,
@@ -204,8 +205,8 @@ def _current_screening_judgments(
 
 def _calibration_for_run(
     run: ScreeningRunRecord | None,
-    context: ErLevelCalibrationContext | None,
-) -> ErLevelCalibrationContext | None:
+    context: ErCalibrationContextArtifact | None,
+) -> ErCalibrationContextArtifact | None:
     """Bind historical E[r] bands to the exact method of the displayed run."""
 
     if run is None or context is None:
@@ -370,7 +371,7 @@ def _security_analysis_row_view(
     held: set[str],
     reserved: set[str],
     researched: set[str],
-    er_level_calibration: ErLevelCalibrationContext | None = None,
+    er_level_calibration: ErCalibrationContextArtifact | None = None,
 ) -> SecurityAnalysisRowView:
     ticker = str(row.get("ticker", ""))
     metrics_raw = row.get("metrics")
@@ -383,6 +384,18 @@ def _security_analysis_row_view(
     text_values = {name: text(metrics.get(name)) for name in _METRIC_TEXT_FIELDS}
     flags = _data_quality_flags(row, metrics)
     valuation = machine_valuation_from_analysis(row)
+    quintile: int | None = None
+    meets_hurdle = False
+    er_annual = values.get("er_annual")
+    if er_annual is not None and er_level_calibration is not None:
+        horizon = next(
+            item
+            for item in er_level_calibration.horizons
+            if item.horizon == er_level_calibration.reference_horizon
+        )
+        bands = candidate_er_bands(horizon, er_annual)
+        quintile = bands[0].quintile
+        meets_hurdle = len(bands) > 1
     return SecurityAnalysisRowView(
         ticker=ticker,
         name=text(row.get("name")),
@@ -400,49 +413,15 @@ def _security_analysis_row_view(
         er_unit=valuation.unit,
         er_anchor_metrics=valuation.anchor_metrics,
         er_assumptions=valuation.assumptions,
-        er_level_quintile=_er_level_quintile(values.get("er_annual"), er_level_calibration),
-        er_meets_8_5pct_band=_er_meets_hurdle(values.get("er_annual"), er_level_calibration),
+        er_level_quintile=quintile,
+        er_meets_8_5pct_band=meets_hurdle,
         **values,
         **text_values,
     )
 
 
-def _er_level_quintile(
-    er_annual: float | None, context: ErLevelCalibrationContext | None
-) -> int | None:
-    if er_annual is None or context is None:
-        return None
-    horizon = next(
-        (item for item in context.horizons if item.horizon == context.reference_horizon), None
-    )
-    if horizon is None:
-        return None
-    for band in horizon.bands:
-        if band.quintile is not None and (
-            band.upper_er_annual is None or er_annual <= band.upper_er_annual
-        ):
-            return band.quintile
-    return None
-
-
-def _er_meets_hurdle(er_annual: float | None, context: ErLevelCalibrationContext | None) -> bool:
-    if er_annual is None or context is None:
-        return False
-    horizon = next(
-        (item for item in context.horizons if item.horizon == context.reference_horizon), None
-    )
-    if horizon is None:
-        return False
-    hurdle = next((item for item in horizon.bands if item.band_id == "er_gte_8_5pct"), None)
-    return bool(
-        hurdle is not None
-        and hurdle.lower_er_annual is not None
-        and er_annual >= hurdle.lower_er_annual
-    )
-
-
 def _er_level_calibration_view(
-    context: ErLevelCalibrationContext | None,
+    context: ErCalibrationContextArtifact | None,
 ) -> ErLevelCalibrationContextView | None:
     if context is None:
         return None
@@ -458,8 +437,8 @@ def _er_level_calibration_view(
         horizons=[
             ErLevelCalibrationHorizonView(
                 horizon=item.horizon,
-                as_of_start=item.as_of_start,
-                as_of_end=item.as_of_end,
+                as_of_start=item.asof_start,
+                as_of_end=item.asof_end,
                 cohort_count=item.cohort_count,
                 bands=[
                     ErLevelCalibrationBandView(

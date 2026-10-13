@@ -16,7 +16,7 @@ _ROOT = Path(__file__).resolve().parents[2]
 _PUBLISHED = _ROOT / "reports/published/er-level-calibration-latest.yaml"
 
 
-def test_valid_artifact_maps_to_web_dto() -> None:
+def test_valid_artifact_reaches_web_without_regeneration() -> None:
     identity = screening_calibration_method_identity(_ROOT)
     assert identity is not None
     raw = safe_load(_PUBLISHED.read_text(encoding="utf-8"))

@@ -74,56 +74,6 @@ class ScreeningRunRecord:
 
 
 @dataclass(frozen=True, slots=True)
-class ErLevelCalibrationStats:
-    median: float
-    q25: float
-    q10: float
-    trap_rate: float
-    n: int
-
-
-@dataclass(frozen=True, slots=True)
-class ErLevelCalibrationBasis:
-    basis: str
-    ticker_equal: ErLevelCalibrationStats
-    cohort_equal: ErLevelCalibrationStats
-
-
-@dataclass(frozen=True, slots=True)
-class ErLevelCalibrationBand:
-    band_id: str
-    quintile: int | None
-    lower_er_annual: float | None
-    upper_er_annual: float | None
-    median_predicted_er_annual: float
-    cohort_count: int
-    median_n: int
-    bases: tuple[ErLevelCalibrationBasis, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class ErLevelCalibrationHorizon:
-    horizon: str
-    as_of_start: date
-    as_of_end: date
-    cohort_count: int
-    bands: tuple[ErLevelCalibrationBand, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class ErLevelCalibrationContext:
-    generated_at: datetime
-    valid_through: date
-    reference_horizon: str
-    screening_rules_hash: str
-    er_model_version: str
-    primary_realized_basis: str
-    secondary_realized_basis: str
-    trap_basis: str
-    horizons: tuple[ErLevelCalibrationHorizon, ...]
-
-
-@dataclass(frozen=True, slots=True)
 class IndicatorSeriesConfig:
     series_id: str
     # None means "use the series registry name" (single source of truth for labels).

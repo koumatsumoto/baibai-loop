@@ -17,6 +17,7 @@ from baibai_engine.valuation.calibration.contracts import (
     HURDLE_ER_ANNUAL,
     ErCalibrationBand,
     ErCalibrationContextArtifact,
+    ErCalibrationHorizon,
 )
 
 ErCalibrationUnavailableReason = Literal[
@@ -77,29 +78,34 @@ def er_calibration_unavailable_reason(
     return None
 
 
+def candidate_er_bands(
+    horizon: ErCalibrationHorizon, er_annual: float
+) -> tuple[ErCalibrationBand, ...]:
+    """Select the quintile and optional hurdle from one validated horizon."""
+
+    if not isfinite(er_annual):
+        raise ValueError("candidate E[r] must be finite")
+    quintile = next(
+        band
+        for band in horizon.bands[:5]
+        if band.upper_er_annual is None or er_annual <= band.upper_er_annual
+    )
+    return (quintile, horizon.bands[-1]) if er_annual >= HURDLE_ER_ANNUAL else (quintile,)
+
+
 def candidate_er_band_context(
     artifact: ErCalibrationContextArtifact, er_annual: float
 ) -> tuple[dict[str, object], ...]:
     """Allocate one ratio-valued candidate E[r] to the artifact's validated bands."""
 
-    if not isfinite(er_annual):
-        raise ValueError("candidate E[r] must be finite")
-    horizons: list[dict[str, object]] = []
-    for horizon in artifact.horizons:
-        quintile = next(
-            band
-            for band in horizon.bands[:5]
-            if band.upper_er_annual is None or er_annual <= band.upper_er_annual
-        )
-        hurdle = horizon.bands[-1] if er_annual >= HURDLE_ER_ANNUAL else None
-        horizons.append(
-            {
-                "horizon": horizon.horizon,
-                "cohort_count": horizon.cohort_count,
-                "bands": [_band_summary(band) for band in (quintile, hurdle) if band is not None],
-            }
-        )
-    return tuple(horizons)
+    return tuple(
+        {
+            "horizon": horizon.horizon,
+            "cohort_count": horizon.cohort_count,
+            "bands": [_band_summary(band) for band in candidate_er_bands(horizon, er_annual)],
+        }
+        for horizon in artifact.horizons
+    )
 
 
 def _band_summary(band: ErCalibrationBand) -> dict[str, object]:

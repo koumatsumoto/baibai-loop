@@ -47,8 +47,8 @@ AIはユーザーの明示開始で有限対象を調査・提案し、提案完
 ### 柱 1: 事実と分析の分離
 
 - **(a)** Security Analysis内のobserved / derived / estimateと、人間/AIによるjudgment（Market Context Assessment・thesis）は責務を分ける。禁止表現と運用ルールは§5[事実と分析の分離](#fact-analysis-separation)を正本とする。
-- **(b)** 事実と意見が混ざると、AI が過去の解釈を「事実」として再生産してしまう。store・table単位で分けておけば「judgmentを AI に見せない」という選択ができ、後知恵バイアスと責任の所在の混乱を防げる。
-- **(c)** 同一tableに`type`列やflagでjudgmentを混在させる案は、混入したときに見落としやすく機械チェックも利きにくい。store・table単位の物理的な分離が最も安全。
+- **(b)** 事実と意見が混ざると、AIが過去の解釈を「事実」として再生産してしまう。観測と判断の責務・読取契約を分け、判断を参照する範囲を選べるようにして、後知恵バイアスと責任の所在の混乱を防ぐ。
+- **(c)** 観測の読取へ判断を混入させず、値の由来と役割を識別する。物理配置と保存責務は[architecture](./architecture.md#store-authority)に従う。
 
 ### 柱 2: マクロは機械読み値 + material delta、構造変化は企業価値への影響として扱う
 
@@ -90,9 +90,9 @@ sourceの観測、規則による導出、機械見積り、AIの判断を区別
 
 言葉の有無だけで分類しない。値の由来と主張の意味を基準にし、既知の事実を記述する中立的な語まで禁止語として増やさない。
 
-## 6. 分析階層：世界情勢 → 地域経済 → 個別資産
+## 6. 重要な環境変化の接続
 
-Market Context Assessmentは世界情勢、日本経済、個別資産への含意の順で整理する。これは分析の構成であり、因果が常に一方向へ流れるという仮定ではない。伝達経路と反証は[Market Context reference](./reference/market-context.md)に従って検討する。
+柱2のmaterialityに従い、重要な環境変化の伝達経路と反証を検討して企業評価・リスク・提案へ接続する。判断の内容は[Market Context reference](./reference/market-context.md)、明示作成は[assessment skill](../.agents/skills/market-context-assessment/SKILL.md)に従う。
 
 ## 7. 非目標
 
