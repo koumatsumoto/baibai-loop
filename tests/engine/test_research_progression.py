@@ -333,62 +333,6 @@ def test_domain_inputs_are_read_only_and_do_not_require_independent_historical_r
     assert not (tmp_path / "absent-indicators.sqlite").exists()
 
 
-def test_legacy_active_handoff_preserves_exact_subjects_and_recorded_confirmation(
-    holding_case, tmp_path
-):
-    db, market, _ = holding_case
-    triage = seed_research(db)
-    identifier = "op-20260907-capital-allocation-1"
-    legacy = OperationPayload(
-        checkpoint="legacy active",
-        artifacts=(
-            {"kind": "research_triage", "ref": triage.research_triage_id, "research_set": ["1234"]},
-        ),
-        human_confirmation={"request": "confirm original set", "result": "1234"},
-    )
-    with connect_rw(db) as connection:
-        connection.execute(
-            "INSERT INTO operation_session VALUES (?,?,?,?,?,?,?,?)",
-            (
-                identifier,
-                "capital-allocation",
-                "active",
-                NOW.date().isoformat(),
-                None,
-                (NOW - timedelta(hours=1)).isoformat(),
-                None,
-                legacy.model_dump_json(),
-            ),
-        )
-    prepared = prepare_workspace(
-        research_triage_id=triage.research_triage_id,
-        db_path=db,
-        workspace=tmp_path / "workspace",
-        request="synthetic explicit bounded continuation",
-        research_set=("1234",),
-        started_at=NOW,
-        sqlite_path=market,
-        runs_path=tmp_path / "absent-runs",
-        indicators_path=tmp_path / "absent-macro",
-    )
-    assert prepared.operation_id == identifier
-    operation = OperationService(db).get(identifier)
-    assert operation.payload.human_confirmation is None
-    assert any(
-        item.get("kind") == "legacy_human_confirmation" for item in operation.payload.artifacts
-    )
-    assert [item.ticker for item in selection_binding(operation.payload).targets] == ["1234"]
-    with pytest.raises(ResearchWorkspaceConflictError, match=r"different|exists"):
-        prepare_workspace(
-            research_triage_id=triage.research_triage_id,
-            db_path=db,
-            workspace=tmp_path / "other",
-            request="synthetic continuation",
-            research_set=("1234", "5678"),
-            started_at=NOW,
-        )
-
-
 def test_analysis_asof_cannot_drift_on_combined_or_holding_workspace_reuse(holding_case, tmp_path):
     from baibai_engine.research.workspace import prepare_holding_workspace
 

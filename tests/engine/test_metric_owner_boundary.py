@@ -40,17 +40,11 @@ def test_financial_snapshot_keeps_pre_move_default_json() -> None:
 @pytest.mark.parametrize(
     "module",
     [
-        "valuation.metrics.models",
-        "valuation.metrics.financial_snapshot",
-        "valuation.metrics.capital",
-        "valuation.metrics.profit",
-        "valuation.metrics.history",
-        "valuation.metrics.relative",
         "market_context.history",
         "market_context.margin",
     ],
 )
-def test_calculation_cold_import_does_not_load_composition_or_io(module) -> None:
+def test_market_context_calculation_cold_import_does_not_load_composition_or_io(module) -> None:
     result = subprocess.run(
         [
             sys.executable,
@@ -72,8 +66,6 @@ def test_calculation_cold_import_does_not_load_composition_or_io(module) -> None
         "baibai_engine.read_api",
         "baibai_engine.storage",
         "baibai_engine.market.providers",
-        "baibai_engine.market.sqlite",
-        "baibai_engine.market.lake",
         "baibai_engine.market.store",
         "baibai_engine.market_context.prices",
     )

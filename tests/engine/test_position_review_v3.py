@@ -15,7 +15,7 @@ from baibai_engine.position.ledger import ContributionEvent, replay_events_throu
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.read_api import list_position_review_publications
 from baibai_engine.research.operation.models import OperationPayload
-from baibai_engine.research.operation.service import OperationService
+from baibai_engine.research.operation.service import OperationCompletionError, OperationService
 from baibai_engine.research.position_review import RemainingReward
 from baibai_engine.research.position_review_service import PositionReviewService
 from baibai_engine.research.thesis import ThesisDocument, thesis_core_hash
@@ -180,6 +180,7 @@ def test_split_or_missing_target_bar_cannot_produce_quantity_bearing_exit(holdin
     service = PositionReviewService(db, sqlite_path=market, clock=lambda: NOW)
     draft = service.build(thesis_id="current", position_id="2331")
     assert not draft.holding.quantity_basis_confirmed
+    draft = draft.model_copy(update={"unresolved_reason": "権利変化後の保有数量basisが未確認"})
     assert service.check(draft).sell_quantity is None
     assert service.publish(draft, confirmed=True).action is None
 
@@ -413,49 +414,53 @@ def test_legacy_holding_first_review_follows_public_workspace_commands(
     )
     draft = yaml.safe_load(draft_path.read_text())
     assert draft["action"] is None
+    assert draft["unresolved_reason"] is None
     assert "current_price_projection" not in draft
     assert "current_price_projection:" in capsys.readouterr().out
-    draft["remaining_reward"] = {"status": reward, "reason": "現在の証拠から残存見返りを確認"}
-    draft_path.write_text(yaml.safe_dump(draft))
-    assert (
-        position_cli.main(
-            [
-                "position-review",
-                "--input",
-                str(draft_path),
-                "--db",
-                str(db),
-                "--sqlite",
-                str(market),
-            ],
-            now=NOW,
-        )
-        == 0
-    )
-    checked = yaml.safe_load(capsys.readouterr().out)
-    assert checked["action"] == action
-    assert checked["current_price_projection"]["base"]["total_return_pct"] == 23.4
-    # AI proposal completion records the checked draft without publishing a human judgment.
+    check_args = [
+        "position-review",
+        "--input",
+        str(draft_path),
+        "--db",
+        str(db),
+        "--sqlite",
+        str(market),
+    ]
+    assert position_cli.main(check_args, now=NOW) == 2
+    assert "null judgment requires an economic reason" in capsys.readouterr().err
     from baibai_engine.research.operation.cli import main as operation_main
 
     operation = OperationService(db).active()
     assert operation is not None
-    assert (
-        operation_main(
-            [
-                "--db",
-                str(db),
-                "record-position-proposal",
-                operation.operation_id,
-                "--draft",
-                str(draft_path),
-                "--sqlite-path",
-                str(market),
-            ],
-            now=NOW,
+    record_args = [
+        "--db",
+        str(db),
+        "record-position-proposal",
+        operation.operation_id,
+        "--draft",
+        str(draft_path),
+        "--sqlite-path",
+        str(market),
+    ]
+    assert operation_main(record_args, now=NOW) == 1
+    assert "null judgment requires an economic reason" in capsys.readouterr().err
+    assert OperationService(db).active() == operation
+    with pytest.raises(OperationCompletionError, match="covered"):
+        OperationService(db, sqlite_path=market).complete(
+            operation.operation_id,
+            operation.payload.model_copy(
+                update={"result": "proposal ready", "next": "human decision"}
+            ),
+            completed_at=NOW,
         )
-        == 0
-    )
+    draft["remaining_reward"] = {"status": reward, "reason": "現在の証拠から残存見返りを確認"}
+    draft_path.write_text(yaml.safe_dump(draft))
+    assert position_cli.main(check_args, now=NOW) == 0
+    checked = yaml.safe_load(capsys.readouterr().out)
+    assert checked["action"] == action
+    assert checked["current_price_projection"]["base"]["total_return_pct"] == 23.4
+    # AI proposal completion records the checked draft without publishing a human judgment.
+    assert operation_main(record_args, now=NOW) == 0
     capsys.readouterr()
     operation = OperationService(db).get(operation.operation_id)
     completed = OperationService(db, sqlite_path=market).complete(

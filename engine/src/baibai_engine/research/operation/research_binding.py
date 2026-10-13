@@ -7,41 +7,13 @@ import sqlite3
 from collections.abc import Iterable
 from datetime import datetime
 
-from baibai_engine.research.operation.models import OperationPayload, OperationSession
+from baibai_engine.research.operation.models import OperationSession
 from baibai_engine.research.operation.progress import (
     ResearchComparisonScope,
     ReviewedTarget,
     comparison_scope,
     selection_binding,
 )
-
-
-def research_binding(payload: OperationPayload) -> tuple[str, frozenset[str]]:
-    selection = selection_binding(payload)
-    if selection is not None:
-        if selection.research_triage_id is None:
-            raise ValueError("this Operation has no new Research Triage subjects")
-        return selection.research_triage_id, frozenset(
-            item.ticker for item in selection.targets if item.purpose == "new"
-        )
-    # Historical payloads retain their original exact set.
-    artifacts = [item for item in payload.artifacts if item.get("kind") == "research_triage"]
-    if len(artifacts) != 1:
-        raise ValueError("capital-allocation requires one research_triage Research Set binding")
-    artifact = artifacts[0]
-    reference, tickers = artifact.get("ref"), artifact.get("research_set")
-    if (
-        not isinstance(reference, str)
-        or not reference
-        or not isinstance(tickers, list)
-        or not tickers
-        or not all(isinstance(ticker, str) and ticker for ticker in tickers)
-    ):
-        raise ValueError("capital-allocation requires a non-empty Research Set binding")
-    selected = frozenset(str(ticker) for ticker in tickers)
-    if len(selected) != len(tickers):
-        raise ValueError("Research Set binding has duplicate tickers")
-    return reference, selected
 
 
 def require_matching_research_set(

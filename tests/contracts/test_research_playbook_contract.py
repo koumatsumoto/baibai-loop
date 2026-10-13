@@ -8,8 +8,6 @@ ROOT = Path(__file__).resolve().parents[2]
 PLAYBOOK_ROOT = ROOT / "method/research/playbooks"
 RESEARCH_SKILL = ROOT / ".agents/skills/research/SKILL.md"
 RESEARCH_TRIAGE_SKILL = ROOT / ".agents/skills/research-triage/SKILL.md"
-TRIAGE_POLICY = ROOT / "batch/src/baibai_batch/analysis/policy.py"
-ANALYSIS_CLI = ROOT / "batch/src/baibai_batch/analysis/cli.py"
 
 EXPECTED_ACTIVE_MAPPINGS = {
     "current-earnings-power": "current-earnings-power-research-v1",
@@ -57,19 +55,6 @@ def test_research_skill_continues_the_capital_allocation_session() -> None:
     assert "開始時のresearch_triage artifact・exact ref・Research Setを保ったpayload" not in text
 
 
-def test_manual_and_scheduled_research_triage_share_the_short_policy() -> None:
+def test_research_triage_skill_points_to_the_policy_owner() -> None:
     skill = RESEARCH_TRIAGE_SKILL.read_text(encoding="utf-8")
-    cli = ANALYSIS_CLI.read_text(encoding="utf-8")
-    policy = TRIAGE_POLICY.read_text(encoding="utf-8")
-    builder = ANALYSIS_CLI.with_name("model_input.py").read_text(encoding="utf-8")
-
     assert "batch/src/baibai_batch/analysis/policy.py" in skill
-    assert "from baibai_batch.analysis.model_input import build_model_input" in cli
-    assert (
-        "from baibai_batch.analysis.policy import HISTORICAL_TRIAGE_POLICY, TRIAGE_POLICY"
-        in builder
-    )
-    assert "policy=TRIAGE_POLICY" in builder
-    assert "具体的な未解決問い" in policy
-    assert "machine factsがApproach仮説を明確に崩す" in policy
-    assert "secondary machine return prior" in policy

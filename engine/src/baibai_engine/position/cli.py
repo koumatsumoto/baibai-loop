@@ -639,7 +639,7 @@ def _run_position_review_build_db(
             db_path, sqlite_path=sqlite_path, clock=lambda: now or datetime.now(JST)
         )
         document = service.build(thesis_id=thesis_id, position_id=position_id)
-        evaluation = service.check(document)
+        evaluation = service.preview(document)
         payload = document.model_dump(mode="json")
         _write_yaml_exclusive(path, payload)
         yaml.safe_dump(
