@@ -25,7 +25,7 @@ from .providers import (
     fetch_observations,
     provider_spec,
 )
-from .providers.base import StoreReader
+from .providers.base import ProviderFetchStoppedError, StoreReader
 from .providers.formulas import FORMULAS
 
 DEFAULT_LATEST_LOOKBACK_DAYS = 370
@@ -715,14 +715,14 @@ def _fetch_observations_with_retry(
     for attempt in range(1, PROVIDER_FETCH_ATTEMPTS + 1):
         try:
             return fetch_observations(series, start=start, end=end, context=context)
-        except IndicatorsProviderError:
+        except IndicatorsProviderError as exc:
             # The response that produced this failure may be cached (a block page
             # arrives as HTTP 200), so drop the cache before retrying. Otherwise the
             # retry re-reads the same bytes and every later series sharing the URL
             # inherits the failure.
             if context is not None:
                 context.discard_cached_bytes()
-            if attempt == PROVIDER_FETCH_ATTEMPTS:
+            if isinstance(exc, ProviderFetchStoppedError) or attempt == PROVIDER_FETCH_ATTEMPTS:
                 raise
             time.sleep(PROVIDER_FETCH_RETRY_BACKOFF_SECONDS)
     raise AssertionError("unreachable provider retry loop")

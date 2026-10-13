@@ -37,6 +37,14 @@ class IndicatorsProviderError(RuntimeError):
     """Raised when an indicator provider cannot return requested observations."""
 
 
+class ProviderFetchStoppedError(IndicatorsProviderError):
+    """The provider has exhausted retries or determined that this fetch must stop.
+
+    The service must not restart an exhausted transport, an expired fetch deadline,
+    or a permanent response/schema failure reported under this type.
+    """
+
+
 class SourceWithheldError(IndicatorsProviderError):
     """A source declined to serve this client rather than failing to serve at all.
 

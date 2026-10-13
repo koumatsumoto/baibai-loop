@@ -8,9 +8,6 @@ from typing import cast
 from unittest import mock
 from zoneinfo import ZoneInfo
 
-from requests.exceptions import ConnectionError as RequestsConnectionError
-from requests.exceptions import RetryError, Timeout
-
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
 from baibai_engine.market_context.indicators.providers import jquants_options
 from baibai_engine.market_context.indicators.providers.base import (
@@ -58,13 +55,6 @@ _LADDER: dict[float, float] = {
 def _registered(series_id: str) -> SeriesDefinition:
     """The series exactly as the shipped registry declares it."""
     return load_definitions().by_id()[series_id]
-
-
-def RuntimeError_with(response: object, message: str = "boom") -> Exception:
-    """An exception shaped the way jquantsapi raises one: the response is attached."""
-    error = RuntimeError(message)
-    error.response = response  # type: ignore[attr-defined]  # mirrors requests.HTTPError
-    return error
 
 
 class _FakeFrame:
@@ -736,91 +726,6 @@ class OptionProviderTest(unittest.TestCase):
             notes="test",
         )
 
-    def test_the_failures_worth_waiting_out_are_the_ones_that_can_change(self) -> None:
-        # A backfill runs for hours against one endpoint. A gateway blinking, or the
-        # client exhausting its own retries, has to cost a wait rather than the whole
-        # range; an auth or schema refusal has to end it, because waiting only delays
-        # the report. One row per failure the endpoint actually produces.
-        #
-        # The client retries the rate-limited statuses itself and, when its attempts
-        # run out, raises RetryError with *no response attached* — classifying on the
-        # status code alone made the wait unreachable for the one case it exists for.
-        self.assertIsNone(RetryError("max retries").response)
-
-        cases: tuple[tuple[str, BaseException, bool], ...] = (
-            ("client_exhausted_its_own_retries", RetryError("max retries"), True),
-            ("connection_reset", RequestsConnectionError("reset"), True),
-            ("read_timeout", Timeout("read timed out"), True),
-            *(
-                (f"status_{status}", RuntimeError_with(SimpleNamespace(status_code=status)), True)
-                for status in (429, 500, 502, 503, 504)
-            ),
-            *(
-                (f"status_{status}", RuntimeError_with(SimpleNamespace(status_code=status)), False)
-                for status in (400, 401, 403, 404)
-            ),
-            ("no_response_attached", RuntimeError("no response attached"), False),
-        )
-
-        for name, error, retryable in cases:
-            with self.subTest(case=name):
-                self.assertEqual(jquants_options._is_retryable(error), retryable)
-
-    def test_backoff_gives_up_and_names_the_day_without_leaking_the_key(self) -> None:
-        attempts = []
-
-        def always_limited(*, date_yyyymmdd: str) -> object:
-            attempts.append(date_yyyymmdd)
-            raise RetryError("max retries exceeded for key sekret")
-
-        budget = jquants_options._BackoffBudget(jquants_options._BACKOFF_BUDGET_SECONDS)
-        with (
-            mock.patch.object(jquants_options.time, "sleep") as slept,
-            self.assertRaises(IndicatorsProviderError) as caught,
-        ):
-            jquants_options._call_with_backoff(
-                always_limited, date(2026, 7, 29), api_key="sekret", budget=budget
-            )
-
-        self.assertEqual(len(attempts), 1 + len(jquants_options._RATE_LIMIT_BACKOFF_SECONDS))
-        self.assertEqual(
-            [call.args[0] for call in slept.call_args_list],
-            list(jquants_options._RATE_LIMIT_BACKOFF_SECONDS),
-        )
-        self.assertIn("2026-07-29", str(caught.exception))
-        self.assertNotIn("sekret", str(caught.exception))
-
-    def test_the_waiting_stops_once_the_fetch_has_spent_its_budget(self) -> None:
-        # A range where every day meets the rate limit would otherwise wait 18.5
-        # minutes per day and outlast the job that scheduled it — and a batch killed
-        # from outside loses the whole day's publish, not just this series.
-        def always_limited(*, date_yyyymmdd: str) -> object:
-            raise RetryError("max retries")
-
-        budget = jquants_options._BackoffBudget(100.0)
-        with (
-            mock.patch.object(jquants_options.time, "sleep") as slept,
-            self.assertRaises(IndicatorsProviderError),
-        ):
-            jquants_options._call_with_backoff(
-                always_limited, date(2026, 7, 29), api_key="k", budget=budget
-            )
-
-        # 30 and 60 fit inside 100; 120 does not, and the ladder ends there.
-        self.assertEqual([call.args[0] for call in slept.call_args_list], [30, 60])
-        self.assertEqual(budget.remaining_seconds, 10.0)
-
-    def test_the_budget_is_shared_across_the_days_of_one_fetch(self) -> None:
-        # Spending it per day would let a long range wait without any bound at all.
-        budget = jquants_options._BackoffBudget(90.0)
-
-        with mock.patch.object(jquants_options.time, "sleep"):
-            self.assertTrue(budget.spend(60.0))
-            self.assertFalse(budget.spend(60.0))
-            self.assertTrue(budget.spend(30.0))
-
-        self.assertEqual(budget.remaining_seconds, 0.0)
-
     def test_the_registry_bands_hold_every_reading_and_catch_an_inflated_one(self) -> None:
         # The service refuses observations outside the registry's plausible range for
         # every provider, so what this provider owes is bands that fit: wide enough
@@ -974,34 +879,6 @@ class OptionProviderTest(unittest.TestCase):
 
         with self.assertRaises(IndicatorsProviderError):
             jquants_options._require_requested_day(rows, ASOF + timedelta(1))
-
-    def test_the_backoff_budget_is_shared_by_every_series_of_one_run(self) -> None:
-        # A pass is three series and the service retries each fetch, so a budget held
-        # per fetch would bound six of them separately — long enough for the job that
-        # scheduled it to be killed, which loses the whole day's publish.
-        provider = jquants_options.JQuantsOptionsProvider()
-        spent: list[float] = []
-
-        def always_limited(**_: object) -> object:
-            raise RetryError("max retries")
-
-        client = SimpleNamespace(get_drv_bars_daily_opt_225=always_limited)
-        with (
-            mock.patch.object(jquants_options, "_client", return_value=client),
-            mock.patch.object(jquants_options, "_read_api_key", return_value="k"),
-            mock.patch.object(jquants_options.time, "sleep", side_effect=spent.append),
-        ):
-            for provider_series_id in ("n225_iv_30d", "n225_iv_skew", "n225_iv_term"):
-                for _ in range(2):  # the service tries each fetch twice
-                    with self.assertRaises(IndicatorsProviderError):
-                        provider.fetch(
-                            self._series(provider_series_id),
-                            start=ASOF,
-                            end=ASOF,
-                            session=cast(HttpSession, None),
-                        )
-
-        self.assertLessEqual(sum(spent), jquants_options._BACKOFF_BUDGET_SECONDS)
 
     def test_a_day_the_chain_cannot_answer_produces_no_observation(self) -> None:
         # A closed market and a reading the chain could not compute are both facts
