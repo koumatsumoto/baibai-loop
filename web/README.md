@@ -23,7 +23,7 @@ materialized JSONとfrontend assetは生成しますが、application DBやdomai
 
 環境の準備と起動は[Python foundationのbootstrap](../docs/reference/python-foundation.md#development-bootstrap)に従う。
 起動後に`http://127.0.0.1:8712/api/health`と画面を確認する。local UIはstoreを更新しない。
-cloudへの反映は[batch運用](../batch/OPERATIONS.md#actions-write-boundary)に従う。
+PR/pushで品質検査を自動実行し、本番のWorker/UI配信はmainの明示起動で行う。read model変更時の生成・公開・読戻しを含む順序と、純粋なUI反映の手順は[Web配信の運用](../batch/OPERATIONS.md#workerをdeployする)に従う。
 
 ## 共有read
 

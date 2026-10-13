@@ -967,7 +967,9 @@ batch/scripts/seed.sh
 
 ### Workerをdeployする
 
-Actions variable `R2_ACCOUNT_ID`と、対象accountの`Workers Scripts Write`に絞ったsecret `CLOUDFLARE_API_TOKEN`を設定する。production deployは`web.yml`が所有する。
+Actions variable `R2_ACCOUNT_ID`と、対象accountの`Workers Scripts Write`に絞ったsecret `CLOUDFLARE_API_TOKEN`を設定する。`web.yml`のPR/pushは品質検査を自動実行し、本番deployはmainの`workflow_dispatch`だけが行う。
+
+Web変更の通常反映はレビュー・merge→必要なread modelの生成・公開・読戻し→Web明示配信の順で行う。read model変更を伴う場合は、旧版のdaily/materializeがqueued・実行中なら完了を待ち、対象版mainで`gh workflow run cloud-materialize.yml --ref main`を実行する。runのhead、全views/history/metaの公開成功と対象JSONの変更fieldを確認してから下のWeb配信へ進む。daily cronは止めず、純粋なUI変更ではmaterializeを必須にしない。field削除・renameでは旧UIと新JSONの一時不整合があり得るため、この順序だけで無停止を保証しない。
 
 ```bash
 (
@@ -977,7 +979,9 @@ Actions variable `R2_ACCOUNT_ID`と、対象accountの`Workers Scripts Write`に
 )
 ```
 
-対象runを特定し、[監視手順](#長時間処理の監視)で成功を確認する。初回はsecret未設定のAPIが401となる。password managerで生成した32文字のCSPRNG値を、次のpromptへ入力する。
+対象runを特定し、[監視手順](#長時間処理の監視)でdeploy stepの成功と対象画面を確認する。古いWeb treeなら配信をskipするため、run全体のgreenだけを配信成功と数えない。materializeや読戻しが失敗した場合はWebを配信せず、原因を直してから同じ順序で進める。
+
+初回構成だけは先にWorkerを作り、secret設定後に表示を初回生成する。secret未設定のAPIは401となる。password managerで生成した32文字のCSPRNG値を、次のpromptへ入力する。
 
 ```bash
 (cd web/edge && npx wrangler secret put VIEW_PASSWORD)
