@@ -188,9 +188,12 @@ def _sector_block(
             series = prepared.series_by_ticker.get(peer)
             if series is None:
                 continue
-            first, last = series.price_on(endpoints[0]), series.price_on(endpoints[1])
-            if first is not None and first != 0 and last is not None:
-                returns.append(last / first - 1)
+            peer_return = _endpoint_return(
+                {day: value for day in endpoints if (value := series.price_on(day)) is not None},
+                endpoints,
+            )
+            if peer_return is not None:
+                returns.append(peer_return)
     else:
         bars_by_ticker = read_price_bars(
             sqlite_path, tickers=tuple(peers), start=endpoints[0], end=asof_date
