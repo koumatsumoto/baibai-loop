@@ -118,6 +118,12 @@ registryのband変更時は、Git管理外のstoreをread-only validatorで全�
 | `yahoo` | 金属先物・MOVE・Russell2000・SOX等 | providerが要求するbrowser UAを使う |
 | `multpl` | 米株バリュエーション | current levelと確定済み月次標本を区別する。未公表月を合成せず、readingの統計標本だけ月次化する。HTML変更時は短期窓と全履歴の取得を確認する |
 
+### GETの再試行
+
+`jquants_flows`・`jquants_indices`・`jquants_options`・`fred_csv`は[GET transport](../../engine/src/baibai_engine/market_context/indicators/providers/read_retry.py)で本文読了までの再試行を所有する。個々のGETは初回＋最大5回で、status retryと本文の一時受信失敗を通算する。有効な`Retry-After`の秒数／HTTP-dateを優先し、不在・不正なら30・60・120・300・600秒で待つ。認証・403・解析失敗やproviderが終了と決めた取得をserviceで再開せず、後続ページの失敗で成功済みページへ戻らない。FREDの8MB上限とsession内のbytes cacheを維持する。他providerの取得方式はこの契約へ一律変更しない。
+
+各providerの最初のGETから20分のdeadlineを同じ`FetchContext`の取得passで共有する。通信時間・本文受信・SDK内待機を数え、新しいGETや収まらない待機を開始しない。待機を短縮して再送せず、次passは新しい予算で始める。SDK/HTTPの通信timeoutは30秒のままで、進行中の通信を強制取消するものではない。日次job全体は90分上限だが、job残時間はcallerから渡されておらず、複数providerと他工程の総時間をこの局所予算だけで保証しない。job残時間の伝達は別の残件とし、永続cooldownや次passへの期限引継ぎは持たない。
+
 <a id="jquants-options-provider"></a>
 
 ### `jquants_options`の取得と復旧
@@ -126,9 +132,7 @@ registryのband変更時は、Git管理外のstoreをread-only validatorで全�
 
 `jquants_options`は1営業日につき1回呼び出すため、10年の`--all-history`は約2,600回の逐次取得になる。1日最大約1万行のchainは保存せず、取得時に3系列へ集計する。
 
-再試行はこのproviderが生成するClientV2のHTTPS transportが所有し、個々のGETは本文読了まで初回＋最大5回とする。HTTP200本文の一時的な受信失敗もstatus retryと同じ回数・deadlineで扱う。有効な`Retry-After`の秒数／HTTP-dateを優先し、不在・不正なら30・60・120・300・600秒で待つ。認証・403・解析失敗、再試行の終了をserviceで再開しない。ページと営業日のGETはそれぞれ独立した回数予算を持ち、後続ページの失敗で成功済みページを再取得しない。同じ営業日の失敗も3系列で共有し、失敗を正常nullへ変えない。
-
-最初の取得から20分のprocess内deadlineを全営業日・3系列で共有する。通信時間とSDK内部の待機も経過時間に数え、新しいGETやdeadlineに収まらない待機を開始しない。待機を短縮して再送せず、失敗として独立工程へ戻す。通常のSDK通信timeoutは30秒のままで、進行中の通信をdeadlineで強制取消するものではない。job残時間は現行callerから渡されておらず、この20分予算とは別の未実装範囲である。deadlineや失敗memoを次processへ永続化しない。
+GETの回数・待機は上の共通契約に従う。全営業日・3系列で同じpassの予算を共有し、同じ営業日の失敗も3系列で共有する。失敗を正常nullへ変えず、次passには失敗memoを引き継がない。取得済み日の読みは従来どおり再利用する。
 
 全営業日の取得後に1回だけstoreへ書く。途中で再試行しない失敗が起きた場合は、そのpassの取得結果をすべて破棄する。長い窓は年単位に分けて取得する。
 

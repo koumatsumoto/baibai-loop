@@ -20,11 +20,15 @@ from urllib3.response import HTTPResponse
 
 from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
 from baibai_engine.market_context.indicators.providers import jquants_options, registry
-from baibai_engine.market_context.indicators.providers.base import ProviderFetchStoppedError
+from baibai_engine.market_context.indicators.providers.base import (
+    FetchContext,
+    ProviderFetchStoppedError,
+)
 from baibai_engine.market_context.indicators.providers.option_iv import (
     fear_readings,
     quotes_from_records,
 )
+from baibai_engine.market_context.indicators.providers.read_retry import read_deadline
 from baibai_engine.market_context.indicators.service import (
     IndicatorsService,
     RefreshFailure,
@@ -76,10 +80,11 @@ def wire(monkeypatch):
 
         def fetch(self, series_id=READINGS[0], *, start=ASOF, end=ASOF):
             return _fetch_observations_with_retry(
-                _registered(series_id), start=start, end=end, context=None
+                _registered(series_id), start=start, end=end, context=self.context
             )
 
     wire = Wire()
+    wire.context = FetchContext()
     monkeypatch.setenv("NO_PROXY", "*")
     monkeypatch.setenv("no_proxy", "*")
     monkeypatch.setattr(jquantsapi.ClientV2, "_load_config", lambda self: {})
@@ -101,7 +106,8 @@ def wire(monkeypatch):
     monkeypatch.setattr("socket.socket.connect", no_socket)
     wire.provider = jquants_options.JQuantsOptionsProvider()
     monkeypatch.setitem(registry._PROVIDERS, "jquants_options", wire.provider)
-    return wire
+    yield wire
+    wire.context.close()
 
 
 def chain(day=ASOF):
@@ -348,6 +354,19 @@ def test_terminal_day_failure_is_not_carried_into_a_new_provider_process(wire, m
     assert wire.waits == []
 
 
+def test_a_new_pass_can_recover_a_day_that_failed_in_the_same_provider(wire):
+    wire.reply = lambda url: (403, {}, {})
+    with pytest.raises(ProviderFetchStoppedError):
+        wire.fetch()
+    wire.elapsed += 3600
+    wire.context.close()
+    wire.context = FetchContext()
+    wire.reply = lambda url: success()
+    assert len(wire.fetch()) == 1
+    assert len(wire.calls) == 2
+    assert wire.waits == []
+
+
 @pytest.mark.parametrize("status", [401, 403, 404])
 def test_permanent_http_failure_is_one_request_even_with_rate_limit_text(wire, status):
     wire.reply = lambda url: (
@@ -446,7 +465,9 @@ def test_separate_days_have_separate_get_budgets_and_reuse_all_three_readings(wi
 
 
 def test_normal_tls_proxy_pool_timeout_and_other_sdk_clients_are_unchanged(wire):
-    client = jquants_options._client("synthetic-key", deadline=wire.provider._deadline)
+    client = jquants_options.jquants_read_client(
+        "synthetic-key", deadline=read_deadline("jquants_options", wire.context)
+    )
     session = client._request_session()
     assert session.verify is True
     assert session.trust_env
