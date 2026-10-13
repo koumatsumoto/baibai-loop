@@ -76,12 +76,14 @@ def build_dashboard(
     reservations = [
         ReservationView(
             reservation_id=item.reservation_id,
+            side=item.side,
             ticker=item.ticker,
             sector=item.sector,
             remaining_quantity=item.remaining_quantity,
             price_guard_yen=str(item.price_guard_yen),
             reserved_yen=item.reserved_yen,
             expires_at=item.expires_at,
+            expiry_label=item.expiry_label,
         )
         for item in snapshot.active_reservations
     ]

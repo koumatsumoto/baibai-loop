@@ -102,6 +102,7 @@ class WithdrawalEvent(_EventBase):
 
 class ReservationEvent(_EventBase):
     type: Literal["reservation"]
+    side: Literal["buy", "sell"] = "buy"
     reservation_id: Annotated[str, Field(min_length=1)]
     order_id: Annotated[str, Field(min_length=1)]
     ticker: Annotated[str, Field(pattern=_TICKER_PATTERN)]
@@ -111,6 +112,7 @@ class ReservationEvent(_EventBase):
     quantity: Annotated[int, Field(gt=0)]
     price_guard_yen: Annotated[Decimal, Field(gt=0, decimal_places=4)]
     expires_at: datetime
+    expiry_label: str | None = None
 
     @field_validator("common_factors", mode="before")
     @classmethod
@@ -353,6 +355,7 @@ class HoldingSnapshot:
 class ReservationSnapshot:
     reservation_id: str
     order_id: str
+    side: Literal["buy", "sell"]
     ticker: str
     sector: str
     common_factors: tuple[str, ...]
@@ -361,6 +364,7 @@ class ReservationSnapshot:
     price_guard_yen: Decimal
     reserved_yen: int
     expires_at: datetime
+    expiry_label: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -403,6 +407,7 @@ class PortfolioSnapshot:
 class _Reservation:
     reservation_id: str
     order_id: str
+    side: Literal["buy", "sell"]
     ticker: str
     sector: str
     common_factors: tuple[str, ...]
@@ -410,6 +415,7 @@ class _Reservation:
     remaining_quantity: int
     price_guard_yen: Decimal
     expires_at: datetime
+    expiry_label: str | None
 
 
 @dataclass(slots=True)
@@ -525,7 +531,17 @@ def replay_events_through(
                 notional = _yen_notional(
                     event.quantity, event.price_guard_yen, field="reservation notional"
                 )
-                _require_cash(available_cash, notional, event.event_id)
+                if event.side == "buy":
+                    _require_cash(available_cash, notional, event.event_id)
+                else:
+                    held = sum(lot.quantity for lot in lots[event.ticker])
+                    pending = sum(
+                        item.remaining_quantity
+                        for item in active.values()
+                        if item.side == "sell" and item.ticker == event.ticker
+                    )
+                    if event.quantity > held - pending:
+                        raise PortfolioLedgerError("sell order exceeds uncommitted holding")
                 has_exposure = any(lot.quantity > 0 for lot in lots[event.ticker]) or any(
                     item.ticker == event.ticker for item in active.values()
                 )
@@ -537,6 +553,7 @@ def replay_events_through(
                 active[event.reservation_id] = _Reservation(
                     reservation_id=event.reservation_id,
                     order_id=event.order_id,
+                    side=event.side,
                     ticker=event.ticker,
                     sector=event.sector,
                     common_factors=event.common_factors,
@@ -544,9 +561,11 @@ def replay_events_through(
                     remaining_quantity=event.quantity,
                     price_guard_yen=event.price_guard_yen,
                     expires_at=event.expires_at,
+                    expiry_label=event.expiry_label,
                 )
-                available_cash -= notional
-                reserved_cash += notional
+                if event.side == "buy":
+                    available_cash -= notional
+                    reserved_cash += notional
             case ReleaseEvent():
                 reservation = active.get(event.reservation_id)
                 if reservation is None:
@@ -567,8 +586,9 @@ def replay_events_through(
                     reservation.price_guard_yen,
                     field="released reservation notional",
                 )
-                available_cash += released
-                reserved_cash -= released
+                if reservation.side == "buy":
+                    available_cash += released
+                    reserved_cash -= released
                 del active[event.reservation_id]
             case ExecutionEvent(side="buy"):
                 if event.execution_id in seen_executions:
@@ -584,6 +604,8 @@ def replay_events_through(
                     raise PortfolioLedgerError(
                         f"buy references no active reservation: {event.reservation_id}"
                     )
+                if reservation.side != "buy":
+                    raise PortfolioLedgerError("buy execution requires a buy reservation")
                 if event.ticker != reservation.ticker:
                     raise PortfolioLedgerError("execution ticker must match reservation ticker")
                 if event.occurred_at >= reservation.expires_at:
@@ -609,12 +631,37 @@ def replay_events_through(
                 if event.execution_id in seen_executions:
                     raise PortfolioLedgerError(f"execution_id already used: {event.execution_id}")
                 if event.reservation_id is not None:
-                    raise PortfolioLedgerError("sell execution cannot consume a cash reservation")
+                    reservation = active.get(event.reservation_id)
+                    if reservation is None or reservation.side != "sell":
+                        raise PortfolioLedgerError("sell execution requires an active sell order")
+                    if event.ticker != reservation.ticker:
+                        raise PortfolioLedgerError("sell execution ticker must match order")
+                    if event.decision_reference != reservation.decision_reference:
+                        raise PortfolioLedgerError(
+                            "sell execution decision reference must match order"
+                        )
+                    if event.quantity > reservation.remaining_quantity:
+                        raise PortfolioLedgerError("sell execution exceeds ordered quantity")
+                    if event.occurred_at >= reservation.expires_at:
+                        raise PortfolioLedgerError(
+                            "sell execution cannot occur at or after expires_at"
+                        )
+                    if event.price_yen < reservation.price_guard_yen:
+                        raise PortfolioLedgerError("sell execution below limit price")
                 if event.quantity % board_lot:
                     raise PortfolioLedgerError(
                         f"execution quantity must be a multiple of board_lot {board_lot}"
                     )
                 consumed_cost = _consume_fifo(lots[event.ticker], event.quantity, event.ticker)
+                if event.reservation_id is not None:
+                    assert reservation is not None
+                    reservation.remaining_quantity -= event.quantity
+                    if reservation.remaining_quantity == 0:
+                        del active[event.reservation_id]
+                elif any(
+                    item.side == "sell" and item.ticker == event.ticker for item in active.values()
+                ):
+                    raise PortfolioLedgerError("sell execution must identify its active order")
                 seen_executions.add(event.execution_id)
                 proceeds = _yen_notional(
                     event.quantity, event.price_yen, field="sell execution notional"
@@ -638,6 +685,7 @@ def replay_events_through(
             item.remaining_quantity, item.price_guard_yen, field="active reservation notional"
         )
         for item in active.values()
+        if item.side == "buy"
     ):
         raise PortfolioLedgerError("reserved cash does not reconcile to active reservations")
     return ReplayedPortfolioState(
@@ -711,18 +759,24 @@ def _reservation_snapshots(
         ReservationSnapshot(
             reservation_id=item.reservation_id,
             order_id=item.order_id,
+            side=item.side,
             ticker=item.ticker,
             sector=item.sector,
             common_factors=item.common_factors,
             decision_reference=item.decision_reference,
             remaining_quantity=item.remaining_quantity,
             price_guard_yen=item.price_guard_yen,
-            reserved_yen=_yen_notional(
-                item.remaining_quantity,
-                item.price_guard_yen,
-                field="reservation snapshot notional",
+            reserved_yen=(
+                _yen_notional(
+                    item.remaining_quantity,
+                    item.price_guard_yen,
+                    field="reservation snapshot notional",
+                )
+                if item.side == "buy"
+                else 0
             ),
             expires_at=item.expires_at,
+            expiry_label=item.expiry_label,
         )
         for item in sorted(active.values(), key=lambda item: item.reservation_id)
     )
@@ -833,6 +887,7 @@ def snapshot_to_payload(snapshot: PortfolioSnapshot) -> dict[str, object]:
             {
                 "reservation_id": reservation.reservation_id,
                 "order_id": reservation.order_id,
+                "side": reservation.side,
                 "ticker": reservation.ticker,
                 "sector": reservation.sector,
                 "common_factors": list(reservation.common_factors),
@@ -840,6 +895,7 @@ def snapshot_to_payload(snapshot: PortfolioSnapshot) -> dict[str, object]:
                 "price_guard_yen": _price_payload(reservation.price_guard_yen),
                 "reserved_yen": reservation.reserved_yen,
                 "expires_at": reservation.expires_at.isoformat(),
+                "expiry_label": reservation.expiry_label,
             }
             for reservation in snapshot.active_reservations
         ],

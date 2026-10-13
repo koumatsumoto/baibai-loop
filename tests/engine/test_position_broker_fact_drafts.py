@@ -14,7 +14,12 @@ from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
 
 from baibai_engine.position.cli import main
-from baibai_engine.position.drafts import apply_draft, build_broker_fact_draft, load_draft
+from baibai_engine.position.drafts import (
+    apply_draft,
+    build_broker_fact_draft,
+    build_sell_execution_draft,
+    load_draft,
+)
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research.capital_allocation_query import historical_allocated_ticker
 from baibai_engine.storage.application.write import initialize_database
@@ -131,6 +136,61 @@ def test_allocated_assessment_builds_and_persists_bound_open_result(tmp_path: Pa
             "SELECT decision_reference FROM ledger_event WHERE event_id = ?", event_ids
         ).fetchone()
     assert row == (ASSESSMENT_ID,)
+
+
+def test_human_sell_order_persists_without_allocation_or_cash_change(tmp_path: Path) -> None:
+    ledger, _ = _services(tmp_path)
+    before, _ = ledger.load_with_head()
+
+    def no_allocation_lookup(_reference: str) -> str:
+        raise AssertionError("sell order must not become a buy allocation")
+
+    draft, event_ids = build_broker_fact_draft(
+        ledger,
+        no_allocation_lookup,
+        decision_reference="human-reported-sell-2331",
+        status="open",
+        side="sell",
+        occurred_at=ORDERED_AT,
+        ticker="2331",
+        quantity=100,
+        sector="サービス業",
+        price_guard_yen=Decimal("1100"),
+        expires_at=EXPIRES_AT,
+        now=ORDERED_AT + timedelta(minutes=1),
+    )
+    assert draft is not None
+    assert draft.replacement.events[-1].side == "sell"
+    assert len(event_ids) == 1
+    apply_draft(ledger, draft, human_confirmed=True)
+    stored, _ = ledger.load_with_head()
+    assert stored.events[-1].event_id == event_ids[0]
+    assert stored.events[-1].side == "sell"
+    assert stored.events[-1].order_id.startswith("repository-order-")
+    from baibai_engine.position.ledger import replay_events_through
+
+    original_cash = replay_events_through(before.events, before.as_of)
+    updated_cash = replay_events_through(stored.events, stored.as_of)
+    assert updated_cash.available_cash_yen == original_cash.available_cash_yen
+    assert updated_cash.reserved_cash_yen == original_cash.reserved_cash_yen
+
+    reservation_id = stored.events[-1].reservation_id
+    fill = build_sell_execution_draft(
+        ledger,
+        occurred_on=EXPIRES_AT.date(),
+        ticker="2331",
+        quantity=100,
+        price_yen=Decimal("1110"),
+        reservation_id=reservation_id,
+    )
+    assert fill.replacement.events[-1].reservation_id == reservation_id
+    assert fill.replacement.events[-1].decision_reference == "human-reported-sell-2331"
+    apply_draft(ledger, fill, human_confirmed=True)
+    filled, _ = ledger.load_with_head()
+    filled_state = replay_events_through(filled.events, filled.as_of)
+    assert reservation_id not in filled_state.active_reservations
+    assert sum(lot.quantity for lot in filled_state.lots["2331"]) == 100
+    assert filled_state.available_cash_yen == original_cash.available_cash_yen + 111_000
 
 
 def test_non_allocation_assessment_and_ticker_mismatch_are_rejected(tmp_path: Path) -> None:

@@ -3,10 +3,10 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
 
-import type { DashboardView, HoldingView, MetaView } from '../src/api/types'
+import type { DashboardView, HoldingView, MetaView, ReservationView } from '../src/api/types'
 import { FreshnessMeta } from '../src/components/FreshnessMeta'
 import { TooltipProvider } from '../src/components/ui/tooltip'
-import { HoldingsTable, PortfolioAllocationCard } from '../src/pages/DashboardPage'
+import { HoldingsTable, PendingOrdersCard, PortfolioAllocationCard } from '../src/pages/DashboardPage'
 
 function holding(ticker: string): HoldingView {
   return {
@@ -39,6 +39,22 @@ function render(data: DashboardView): string {
 }
 
 describe('Dashboard valuation display', () => {
+  it('shows pending buy and sell orders without treating sell proceeds as reserved cash', () => {
+    const reservations: ReservationView[] = [
+      { reservation_id: 'buy', side: 'buy', ticker: '1111', sector: '情報・通信業', remaining_quantity: 200, price_guard_yen: '1000', reserved_yen: 200000, expires_at: '2026-10-16T15:30:00+09:00', expiry_label: '今週中' },
+      { reservation_id: 'sell', side: 'sell', ticker: '2222', sector: '情報・通信業', remaining_quantity: 100, price_guard_yen: '900', reserved_yen: 0, expires_at: '2026-10-16T15:30:00+09:00', expiry_label: '今週中' },
+    ]
+    const html = renderToStaticMarkup(createElement(TooltipProvider, null,
+      createElement(MemoryRouter, null, createElement(PendingOrdersCard, { reservations })),
+    ))
+    expect(html).toContain('未約定注文')
+    expect(html).toMatch(/買[\s\S]*1111/)
+    expect(html).toMatch(/売[\s\S]*2222/)
+    expect(html).toContain('￥200,000')
+    expect(html).not.toContain('￥90,000')
+    expect(html.match(/今週中/g)).toHaveLength(2)
+  })
+
   it('shows complete assets, unrealized P&L, allocation, and the market basis date', () => {
     const html = render(dashboard())
     expect(html).toContain('株価基準 2026-09-24')

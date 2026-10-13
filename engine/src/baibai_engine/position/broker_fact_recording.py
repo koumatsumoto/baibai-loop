@@ -37,6 +37,7 @@ def record_broker_fact(
     *,
     decision_reference: str,
     status: BrokerFactStatus,
+    side: Literal["buy", "sell"] = "buy",
     occurred_at: datetime,
     ticker: str | None = None,
     quantity: int | None = None,
@@ -47,6 +48,7 @@ def record_broker_fact(
     common_factors: tuple[str, ...] = (),
     price_guard_yen: Decimal | None = None,
     expires_at: datetime | None = None,
+    expiry_label: str | None = None,
     ordered_at: datetime | None = None,
     now: datetime | None = None,
 ) -> BrokerFactRecordingResult:
@@ -70,7 +72,9 @@ def record_broker_fact(
 
     existing_by_id = {event.event_id: event for event in document.events}
     if ticker is not None and status in {"open", "filled"}:
-        suffix = _event_suffix(decision_reference, status, ticker, occurred_at)
+        suffix = _event_suffix(
+            decision_reference, f"sell-{status}" if side == "sell" else status, ticker, occurred_at
+        )
         prefix = "human-open" if status == "open" else "human-fill"
         existing = existing_by_id.get(f"{prefix}-{suffix}")
         if existing is not None and status == "filled":
@@ -114,6 +118,7 @@ def record_broker_fact(
             reservation_id=reservation_id,
             ticker=ticker,
             required=status in {"cancelled", "expired"},
+            side=side if status in {"filled"} else None,
         )
     )
     additions: list[dict[str, object]] = []
@@ -125,11 +130,14 @@ def record_broker_fact(
             raise BrokerFactRecordingError("open requires price_guard_yen and expires_at")
         if expires_at <= occurred_at:
             raise BrokerFactRecordingError("open expires_at must be after occurred_at")
-        suffix = _event_suffix(decision_reference, status, ticker, occurred_at)
+        suffix = _event_suffix(
+            decision_reference, f"sell-{status}" if side == "sell" else status, ticker, occurred_at
+        )
         additions.append(
             {
                 "event_id": f"human-open-{suffix}",
                 "type": "reservation",
+                "side": side,
                 "occurred_at": occurred_at.isoformat(),
                 "reservation_id": reservation_id or f"reservation-{suffix}",
                 "order_id": order_id or f"repository-order-{suffix}",
@@ -140,6 +148,7 @@ def record_broker_fact(
                 "quantity": quantity,
                 "price_guard_yen": str(price_guard_yen),
                 "expires_at": expires_at.isoformat(),
+                "expiry_label": expiry_label,
             }
         )
     elif status == "filled":
@@ -147,6 +156,8 @@ def record_broker_fact(
         assert ticker is not None
         if price_yen is None:
             raise BrokerFactRecordingError("filled requires price_yen")
+        if side == "sell" and reservation is None:
+            raise BrokerFactRecordingError("sell fill requires an active sell order")
         if reservation is None:
             if (
                 ordered_at is None
@@ -191,7 +202,9 @@ def record_broker_fact(
                     "filled decision_reference does not match the active reservation"
                 )
             resolved_reservation_id = reservation.reservation_id
-        suffix = _event_suffix(decision_reference, status, ticker, occurred_at)
+        suffix = _event_suffix(
+            decision_reference, f"sell-{status}" if side == "sell" else status, ticker, occurred_at
+        )
         additions.append(
             {
                 "event_id": f"human-fill-{suffix}",
@@ -200,7 +213,7 @@ def record_broker_fact(
                 "execution_id": f"execution-{suffix}",
                 "reservation_id": resolved_reservation_id,
                 "ticker": ticker,
-                "side": "buy",
+                "side": side,
                 "quantity": quantity,
                 "price_yen": str(price_yen),
                 "decision_reference": decision_reference,
@@ -384,12 +397,14 @@ def _select_reservation(
     reservation_id: str | None,
     ticker: str | None,
     required: bool,
+    side: Literal["buy", "sell"] | None = None,
 ) -> ReservationSnapshot | None:
     matches = [
         item
         for item in reservations
         if (reservation_id is None or item.reservation_id == reservation_id)
         and (ticker is None or item.ticker == ticker)
+        and (side is None or item.side == side)
     ]
     if len(matches) > 1:
         raise BrokerFactRecordingError("multiple active reservations match; provide reservation_id")

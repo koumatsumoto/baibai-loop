@@ -24,8 +24,9 @@ DB constraint、`baibai_engine.position`のmodel、application serviceのwrite-t
 | `opening_balance` | 初期cashを設定する。migration専用で1件だけ |
 | `contribution` | available cashを増やす |
 | `withdrawal` | available cashを減らす |
-| `reservation` | guarded notionalをavailableからreservedへ移す |
-| `release` | remaining guarded notionalをavailableへ戻す |
+| `reservation` buy | guarded notionalをavailableからreservedへ移す |
+| `reservation` sell | 保有株数の範囲で未約定売付を記録する。cash・lotは動かさない |
+| `release` | 未約定分の注文を明示的に解放する。buyだけ現金をavailableへ戻す |
 | `execution` buy | filled分をreservedから取得原価へ移し、価格改善分をavailableへ戻す |
 | `execution` sell | FIFO lotを減らし、売却代金をavailableへ加える |
 | `income` | 確認済み配当等をavailableとconfirmed incomeへ加える |
@@ -91,6 +92,9 @@ applyは1 transactionでsource head、event replay / payload、price/meta expect
 `position/drafts`がdraft組立と予約束縛を所有し、active予約・既知terminalに束縛されない報告ではCLIから渡された過去CAA銘柄の読取を呼ぶ。allocate以外の判断や銘柄不一致はdraft作成時に拒否する。active予約と既知terminal（cancel / expire）の再試行は予約の束縛を使い、過去CAAが読めなくても完全一致の報告を再試行できる。
 
 `broker-fact-draft`は人間の`open / filled / cancelled / expired`報告だけを入力にする。active reservationをIDなしで推定しない。partial fillはremainingがある間だけ後続broker factを受理する。full fill / cancel / expire後の完全一致broker fact reportはno-change、矛盾broker fact reportはhard errorとする。`expired`は人間が未約定を確認し、`occurred_at >= expires_at`の場合だけreleaseを作る。同時刻に複数reservationがterminalになる場合は`--reservation-id`の反復指定を1 transactionで検証・適用する。対象の一部が不正なら全件を拒否する。active reservationの後続broker factは同じ`decision_reference`、reservation ID、order IDへ束縛する。
+
+売付の`open`は`broker-fact-draft --side sell`で記録し、保有株数を超える重複注文を拒否する。売付の見込代金を現金へ加えず、対応する約定報告までlotを減らさない。
+`open`の`occurred_at`は未約定注文を人間が確認した時点を表し、brokerの発注時刻を推定しない。期限が「今週中」などの表現なら`expiry_label`に原文を保存し、`expires_at`は台帳で使う排他的な期間終端として扱う。broker固有の正確な失効時刻を意味しない。
 
 <a id="historical-outcome"></a>
 

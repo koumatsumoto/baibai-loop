@@ -4870,6 +4870,14 @@
           "title": "Reservation Id",
           "type": "string"
         },
+        "side": {
+          "enum": [
+            "buy",
+            "sell"
+          ],
+          "title": "Side",
+          "type": "string"
+        },
         "ticker": {
           "title": "Ticker",
           "type": "string"
@@ -4894,16 +4902,29 @@
           "format": "date-time",
           "title": "Expires At",
           "type": "string"
+        },
+        "expiry_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expiry Label"
         }
       },
       "required": [
         "reservation_id",
+        "side",
         "ticker",
         "sector",
         "remaining_quantity",
         "price_guard_yen",
         "reserved_yen",
-        "expires_at"
+        "expires_at",
+        "expiry_label"
       ],
       "title": "ReservationView",
       "type": "object"
