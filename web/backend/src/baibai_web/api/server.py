@@ -177,7 +177,10 @@ def create_app(
     ) -> MarketContextView:
         cutoff = known_at or datetime.now(_JST)
         return build_market_context(
-            sources.market_context, as_of=as_of or cutoff.date(), known_at=cutoff
+            sources.market_context,
+            as_of=as_of or cutoff.date(),
+            known_at=cutoff,
+            market=sources.market,
         )
 
     @app.get("/api/market-context/indicators/{series_id}", response_model=IndicatorSeriesView)

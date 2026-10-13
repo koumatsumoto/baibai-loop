@@ -99,6 +99,15 @@ def compute_benchmark_trend(
         asof_date,
         ticker=benchmark_ticker,
     )
+    return benchmark_trend_from_series(
+        benchmark_series, asof_date=asof_date, benchmark_ticker=benchmark_ticker
+    )
+
+
+def benchmark_trend_from_series(
+    benchmark_series: list[tuple[date, float]], *, asof_date: date, benchmark_ticker: str
+) -> BenchmarkTrendSnapshot | None:
+    """既存400日窓を読んだ生成内入力から、同じbenchmark状態を計算する。"""
     if not benchmark_series:
         return None
     observation_date = benchmark_series[-1][0]

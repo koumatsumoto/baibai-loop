@@ -16,6 +16,7 @@ from baibai_engine.market_context.assessment.query import (
     list_assessment_payloads,
 )
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
+from baibai_engine.market_context.master import MasterSnapshot
 from baibai_engine.market_context.reading.query import (
     READING_RULES_PATH,
     read_store_snapshot,
@@ -24,7 +25,11 @@ from baibai_engine.market_context.reading.query import (
 )
 from baibai_engine.market_context.reading.reader import build_store_observation_reader
 from baibai_engine.market_context.security import build_security_market_context
-from baibai_engine.market_context.snapshot import build_market_snapshot
+from baibai_engine.market_context.snapshot import (
+    PreparedMarketContext,
+    build_market_snapshot,
+    prepare_market_context_inputs,
+)
 
 from .sqlite import (
     connect_read_only,
@@ -201,6 +206,8 @@ __all__ = [
     "ASSESSMENT_STALE_DAYS",
     "READING_RULES_PATH",
     "IndicatorGranularity",
+    "MasterSnapshot",
+    "PreparedMarketContext",
     "assessment_payload",
     "build_market_snapshot",
     "build_security_market_context",
@@ -209,6 +216,7 @@ __all__ = [
     "indicator_series_names",
     "latest_assessment_payload",
     "list_assessment_payloads",
+    "prepare_market_context_inputs",
     "reading_snapshot",
     "registered_indicator",
     "stored_indicator_rows",

@@ -124,6 +124,7 @@ def export_read_models(
     )
 
     prepared_security = prepare_security_inputs(stores.ledger, stores.research, stores.screening)
+    stores.market.prepare_market_context(as_of=prepared_security.today)
     screening = build_screening(
         stores.screening,
         stores.ledger,
@@ -152,8 +153,10 @@ def export_read_models(
     )
 
     known_at = datetime.now(_JST)
-    as_of = known_at.date()
-    market_context = build_market_context(stores.market_context, as_of=as_of, known_at=known_at)
+    as_of = prepared_security.today
+    market_context = build_market_context(
+        stores.market_context, as_of=as_of, known_at=known_at, market=stores.market
+    )
     written.append(_write_model(views_dir / "market-context.json", market_context))
     for group in stores.market_context.groups:
         for configured in group.series:

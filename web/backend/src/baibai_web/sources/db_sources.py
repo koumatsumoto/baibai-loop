@@ -48,11 +48,17 @@ from baibai_engine.read_api.external_assessment import (
     observed_tickers,
 )
 from baibai_engine.read_api.market_context import (
+    MasterSnapshot,
+    PreparedMarketContext,
     assessment_payload,
+    build_market_snapshot,
+    build_security_market_context,
     latest_assessment_payload,
     list_assessment_payloads,
+    prepare_market_context_inputs,
     reading_snapshot,
 )
+from baibai_engine.read_api.valuation import VALUATION_HISTORY_SESSIONS
 from baibai_web.sources.screening_selection import operative_screening_run
 from baibai_web.sources.types import (
     IndicatorGroupConfig,
@@ -89,6 +95,8 @@ class DbMarketPriceSource:
         self._path = market_db_path.resolve()
         self._master_date: date | None = None
         self._master_identities: Mapping[str, Mapping[str, object]] = {}
+        self._master_snapshot: MasterSnapshot | None = None
+        self._context_inputs: PreparedMarketContext | None = None
 
     def exists(self) -> bool:
         return self._path.is_file()
@@ -97,9 +105,45 @@ class DbMarketPriceSource:
         # One shared snapshot per request/export, rather than a master query per ticker.
         if self._master_date != as_of:
             snapshot = market_master_snapshot(self._path, as_of=as_of)
+            self._master_snapshot = snapshot
             self._master_identities = {} if snapshot is None else snapshot.securities
             self._master_date = as_of
         return self._master_identities
+
+    def prepare_market_context(self, *, as_of: date) -> None:
+        """このexportだけで市場短期系列/master/benchmarkを共有する。"""
+        self.security_identities(as_of=as_of)
+        self._context_inputs = prepare_market_context_inputs(
+            sqlite_path=self._path, asof_date=as_of, master=self._master_snapshot
+        )
+
+    def market_snapshot(self, *, as_of: date) -> dict[str, object] | None:
+        if not self.exists():
+            return None
+        return build_market_snapshot(
+            sqlite_path=self._path, asof_date=as_of, prepared=self._prepared_context(as_of)
+        )
+
+    def security_market_context(self, ticker: str, *, as_of: date) -> dict[str, object] | None:
+        if not self.exists():
+            return None
+        return {
+            "as_of": as_of.isoformat(),
+            **build_security_market_context(
+                sqlite_path=self._path,
+                ticker=ticker,
+                asof_date=as_of,
+                self_range_window_bars=VALUATION_HISTORY_SESSIONS,
+                prepared=self._prepared_context(as_of),
+            ),
+        }
+
+    def _prepared_context(self, as_of: date) -> PreparedMarketContext | None:
+        return (
+            self._context_inputs
+            if self._context_inputs is not None and self._context_inputs.asof_date == as_of
+            else None
+        )
 
     def previous_business_day(self, day: date) -> date | None:
         return previous_business_day(self._path, day)
