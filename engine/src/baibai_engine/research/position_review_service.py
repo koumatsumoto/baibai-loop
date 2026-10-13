@@ -123,10 +123,9 @@ class PositionReviewService:
             quote=quote,
             remaining_reward=None,
             action=None,
-            unresolved_reason="残存見返りの経済的な評価を記入してください",
         )
 
-    def check_in_transaction(
+    def _evaluate_in_transaction(
         self, connection: sqlite3.Connection, document: PositionReviewDocument, now: datetime
     ) -> PositionReviewEvaluation:
         if document.as_of != now.date():
@@ -142,12 +141,23 @@ class PositionReviewService:
         )
         if not broken and document.quote != quote:
             raise ResearchConflictError("quote changed; refresh and reconfirm")
-        result = evaluate_position_review(
+        return evaluate_position_review(
             document,
             pair.document,
             primary_verified=pair.review.primary_source_check == "verified",
             max_quote_age_days=PORTFOLIO_POLICY["valuation"]["market_price_max_age_days"],
         )
+
+    def preview(self, document: PositionReviewDocument) -> PositionReviewEvaluation:
+        """Show current inputs and projection before the author supplies a judgment."""
+        with closing(connect_read_only(database_path(self._db_path))) as connection:
+            connection.execute("BEGIN")
+            return self._evaluate_in_transaction(connection, document, self._clock())
+
+    def check_in_transaction(
+        self, connection: sqlite3.Connection, document: PositionReviewDocument, now: datetime
+    ) -> PositionReviewEvaluation:
+        result = self._evaluate_in_transaction(connection, document, now)
         if (
             result.action is None
             and not (
