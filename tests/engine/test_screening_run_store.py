@@ -129,6 +129,80 @@ def test_run_and_review_set_round_trip(tmp_path: Path) -> None:
         reader.get_review_set("review-set-a")
 
 
+def test_old_rules_rerun_has_a_new_method_hash_while_saved_publication_stays_original(tmp_path):
+    import json
+    from copy import deepcopy
+
+    from baibai_engine.screening.discovery.review_set import validate_review_set_payload
+    from baibai_engine.screening.rules_identity import production_rules_contract_hash
+
+    # Fingerprint of the pre-#1483 calculation at main 92c9fcb3, using this frozen rules file.
+    legacy_hash = "eb22ae9970e2d8b89801ac987e3d6bc20a2e034581e4333e8d589f5500d80e76"
+    rules = load_screening_rules(Path("method/screening/rules/2026-09-23T103000+0900.yaml"))
+    row = _analysis()
+    row["per_forward"] = row["per_trailing"] = None
+    row["metrics"].update(
+        normalized_per_3fy=None,
+        asset_backed_ratio=None,
+        operating_profit_ttm=12.0,
+        same_state_equity_yen=120.0,
+        fcf_yield=-0.01,
+    )
+    rerun = build_review_set(
+        [row], rules=rules.candidate_discovery, required_jpx_flags=rules.universe.required_jpx_flags
+    )
+    assert rerun["method"]["method_id"] == "multi-valuation-v4"
+    assert rerun["method"]["method_hash"] != legacy_hash
+    assert rerun["entries"][0]["nominations"][0]["valuation_approach_id"] == "reinvestment-value"
+
+    # Seed the old immutable publication; the current writer must not synthesize its history.
+    legacy = deepcopy(rerun)
+    legacy["method"]["method_hash"] = legacy_hash
+    legacy["entries"] = []  # The old positive-FCF gate did not nominate this row.
+    legacy["diagnostics"].update(
+        nomination_counts=dict.fromkeys(legacy["diagnostics"]["nomination_counts"], 0),
+        unique_candidate_count=0,
+        review_set_count=0,
+    )
+    rules_hash = production_rules_contract_hash(rules.model_dump_json())
+    legacy.update(
+        review_set_id="saved-v4",
+        run_revision_id="run-v4",
+        as_of="2026-10-12",
+        created_at="2026-10-12T18:00:00+09:00",
+        screening_rules_hash=rules_hash,
+    )
+    database = tmp_path / "runs.sqlite"
+    run = {
+        **_run(),
+        "run_id": "screening-20261012",
+        "run_date": "2026-10-12",
+        "asof_date": "2026-10-12",
+        "run_at": "2026-10-12T18:00:00+09:00",
+        "screening_rules_hash": rules_hash,
+        "security_analyses": [row],
+    }
+    ScreeningRunStore(database).publish_run(run, run_revision_id="run-v4")
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO review_set VALUES (?,?,?,?)",
+            ("saved-v4", "run-v4", legacy["created_at"], json.dumps(legacy)),
+        )
+    original = database.read_bytes()
+    reader = ScreeningRunReader(database)
+    saved = reader.get_review_set("saved-v4")
+    assert saved.payload == legacy
+    assert reader.get_run("run-v4").security_analyses == (row,)
+    assert database.read_bytes() == original
+    with pytest.raises(ReviewSetContractError, match="does not match"):
+        validate_review_set_payload(
+            legacy,
+            security_analyses=[row],
+            rules=rules.candidate_discovery,
+            required_jpx_flags=rules.universe.required_jpx_flags,
+        )
+
+
 def test_latest_review_set_resolves_exact_asof_by_publication_time(tmp_path: Path) -> None:
     database = tmp_path / "runs.sqlite"
     screening_rules = load_screening_rules()

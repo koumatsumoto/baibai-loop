@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 import yaml
 from pydantic import ValidationError
+from tests.helpers.er_calibration_context import context_artifact
 from tools.quality.drift import check_er_calibration_context
 
 from baibai_engine.foundation.yaml_io import safe_load
@@ -113,24 +114,53 @@ def test_reader_preserves_method_identity_reasons(tmp_path: Path) -> None:
     assert model.unavailable_reason == "er_model_identity_mismatch"
 
 
-def test_retained_context_is_withheld_from_new_population_without_relabeling() -> None:
+def test_retained_context_is_withheld_from_new_population_without_relabeling(
+    tmp_path, monkeypatch
+) -> None:
+    import json
+
     from baibai_engine.screening.rule_config import load_screening_rules
     from baibai_engine.screening.rules_identity import production_rules_contract_hash
 
-    payload = _artifact()
-    original = _PUBLISHED.read_bytes()
-    current_hash = production_rules_contract_hash(load_screening_rules().model_dump_json())
-    assert current_hash != payload["screening_rules_hash"]
+    old = load_screening_rules(_ROOT / "method/screening/rules/2026-09-23T103000+0900.yaml")
+    new = old.model_copy(
+        update={
+            "candidate_discovery": old.candidate_discovery.model_copy(
+                update={
+                    "common_eligibility": old.candidate_discovery.common_eligibility.model_copy(
+                        update={"min_market_cap_oku": 0.0}
+                    )
+                }
+            )
+        }
+    )
+    rules_dir = tmp_path / "method/screening/rules"
+    rules_dir.mkdir(parents=True)
+    for name, rules in (("old", old), ("new", new)):
+        (rules_dir / f"{name}.yaml").write_text(
+            yaml.safe_dump(json.loads(rules.model_dump_json()), sort_keys=False)
+        )
+    payload = context_artifact(rules_hash=production_rules_contract_hash(old.model_dump_json()))
+    path = tmp_path / "context.yaml"
+    _write(path, payload)
+    original = path.read_bytes()
+    current_hash = production_rules_contract_hash(new.model_dump_json())
+    monkeypatch.setattr(check_er_calibration_context, "_ROOT", tmp_path)
+    monkeypatch.setattr(check_er_calibration_context, "_CONTEXT", path)
+    monkeypatch.setattr(
+        check_er_calibration_context, "DEFAULT_RULES_PATH", Path("method/screening/rules/new.yaml")
+    )
     assert not check_er_calibration_context.check()
     result = load_er_calibration_context(
-        _PUBLISHED,
+        path,
         expected_rules_hash=current_hash,
         expected_er_model_version=str(payload["er_model_version"]),
         as_of=date.fromisoformat(str(payload["generated_at"])[:10]),
     )
     assert result.artifact is None
     assert result.unavailable_reason == "rules_identity_mismatch"
-    assert _PUBLISHED.read_bytes() == original
+    assert _load(path, payload).artifact is not None
+    assert path.read_bytes() == original
 
 
 def test_drift_checker_refuses_untraceable_evidence(tmp_path: Path, monkeypatch) -> None:
