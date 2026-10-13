@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import date, datetime, time
+from datetime import date, datetime
 from math import isfinite
 from pathlib import Path
 
@@ -193,13 +193,12 @@ def prepare_workspace(
             "selection_sha256": selection_sha256(selection),
         },
     )
-    cutoff = min(now, datetime.combine(resolved_asof, time.max, JST))
     _write_workspace_file(
         workspace / "domain-inputs.yaml",
         research_inputs(
             tickers=tuple(item.ticker for item in selection.targets),
             as_of=resolved_asof,
-            cutoff=cutoff,
+            cutoff=now,
             known_at=now,
             market_path=sqlite_path,
             runs_path=runs_path,
@@ -343,7 +342,7 @@ def prepare_holding_workspace(
         research_inputs(
             tickers=(ticker,),
             as_of=asof,
-            cutoff=min(now, datetime.combine(asof, time.max, JST)),
+            cutoff=now,
             known_at=now,
             market_path=sqlite_path,
             runs_path=runs_path,

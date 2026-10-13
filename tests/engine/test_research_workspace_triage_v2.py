@@ -302,12 +302,14 @@ def _publish_triage(
 
 
 @pytest.mark.parametrize("purpose", ["new", "holding"])
-def test_weekend_research_uses_fixed_known_at_and_preserves_external_cutoff(
-    tmp_path, monkeypatch, purpose
-):
-    from datetime import time
+def test_weekend_research_includes_received_observations_only_through_start(tmp_path, purpose):
+    from datetime import timedelta
 
-    from baibai_engine.research import inputs
+    from baibai_engine.external_assessment.observations.models import (
+        ModelValuationObservation,
+        QuantsScoreObservation,
+    )
+    from baibai_engine.external_assessment.store import save_observations
 
     db = tmp_path / "app.sqlite"
     friday = date(2026, 7, 17)
@@ -325,21 +327,40 @@ def test_weekend_research_uses_fixed_known_at_and_preserves_external_cutoff(
             }
         ).payload()
         seed_history(db, body)
-    original = inputs.external_assessment
-    external_times = []
-
-    def read_external(path, *, ticker, cutoff, evaluated_at):
-        external_times.append((cutoff, evaluated_at))
-        return original(path, ticker=ticker, cutoff=cutoff, evaluated_at=evaluated_at)
-
-    monkeypatch.setattr(inputs, "external_assessment", read_external)
+    market = tmp_path / "market.sqlite"
+    for received, target, growth in (
+        (now - timedelta(hours=1), 1200, 6),
+        (now + timedelta(hours=1), 1800, 9),
+    ):
+        save_observations(
+            market,
+            [
+                ModelValuationObservation(
+                    ticker="2331",
+                    fetched_at_utc=received,
+                    distributor="monex",
+                    source_url="https://example.invalid/monex/2331",
+                    parser_version="synthetic-1",
+                    consensus_target=target,
+                ),
+                QuantsScoreObservation(
+                    ticker="2331",
+                    fetched_at_utc=received,
+                    score_as_of_date=received.date(),
+                    source_url="https://example.invalid/kabumap/2331",
+                    parser_version="synthetic-1",
+                    growth_score=growth,
+                ),
+            ],
+        )
+    before = market.read_bytes()
     workspace = tmp_path / "workspace"
     kwargs = {
         "db_path": db,
         "workspace": workspace,
         "request": "日曜に金曜対象の調査を開始",
         "started_at": now,
-        "sqlite_path": tmp_path / "absent-market.sqlite",
+        "sqlite_path": market,
         "runs_path": tmp_path / "absent-runs.sqlite",
         "indicators_path": tmp_path / "absent-indicators.sqlite",
     }
@@ -351,9 +372,19 @@ def test_weekend_research_uses_fixed_known_at_and_preserves_external_cutoff(
         prepare_holding_workspace(asof=friday, ticker="2331", **kwargs)
     result = yaml.safe_load((workspace / "domain-inputs.yaml").read_text())
     assert result["known_at"] == now.isoformat()
-    cutoff = datetime.combine(friday, time.max, now.tzinfo)
-    assert result["received_cutoff"] == cutoff.isoformat()
-    assert external_times == [(cutoff, cutoff)]
+    assert result["as_of"] == friday.isoformat()
+    assert result["received_cutoff"] == now.isoformat()
+    external = result["securities"]["2331"]["external_assessment"]
+    assert datetime.fromisoformat(external["cutoff"]) == now
+    assert datetime.fromisoformat(external["evaluated_at"]) == now
+    latest = external["model_valuations"][0]["inputs"]["latest"]
+    assert latest["consensus_target"] == 1200
+    assert datetime.fromisoformat(latest["fetched_at_utc"]) == now - timedelta(hours=1)
+    quants = external["quants_scores"][0]["inputs"]["latest"]
+    assert quants["growth_score"] == 6
+    assert quants["score_as_of_date"] == now.date().isoformat()
+    assert datetime.fromisoformat(quants["fetched_at_utc"]) == now - timedelta(hours=1)
+    assert market.read_bytes() == before
     context = result["market_context"]["saved_market_context_assessment"]
     assert context["context_id"] == "market-context-assessment-2026-07-17-available"
     assert context["summary"] == "available"
