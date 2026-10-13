@@ -33,10 +33,10 @@ STEPS = (
     "hydrate",
     "preflight",
     "cooldown-check",
-    "cooldown-save",
     "master",
     "tradingview",
     "publish-lake",
+    "cooldown-save",
     "lease-release",
 )
 FAILED_STEPS = tuple(step for step in STEPS if step != "tradingview")
@@ -113,6 +113,12 @@ def main(
         return 0
     else:
         label, detail = OUTCOME_FAILED, " — failed step: workflow"
+    if outcomes["publish-lake"] == "success" and label in {OUTCOME_FAILED, OUTCOME_CANCELLED}:
+        detail += (
+            f" — TradingView snapshot published; status={args.snapshot_status}; "
+            f"added={args.rows_added}; stored={args.rows}/{args.expected_universe}; "
+            f"remaining={args.remaining}"
+        )
     message = (
         f"{OUTCOME_LABELS[label]} as-of {sanitize_one_line(args.asof)}{detail}"
         f"\nexecutor: {executor_label(os.environ)}"

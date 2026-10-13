@@ -22,9 +22,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess  # nosec B404 - fixed read-only gh API command
 import sys
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 
@@ -57,33 +58,22 @@ SCHEDULED_FIRE_TIME = time(12, 0, tzinfo=UTC)
 #     more than eight hours of delay.
 DEFAULT_WINDOW_HOURS = 20
 
-# The `run-name` the batch declares. A scheduled run leaves the date empty; a recovery
-# dispatch carries the `--asof` it was given, which is the only place the target day of
-# a past-dated recovery is visible in the run listing at all.
+# Only explicit recovery inputs can identify the intended day before completion.
+# Success is bound to the notice as-of carried by the actual terminal step result.
 RUN_NAME_PREFIX = "daily"
+RESULT_STEP_PREFIX = "Notify Discord #batch-runs for "
 
 
 class WatchdogInputError(ValueError):
     """The run listing does not satisfy the shape this adapter reads."""
 
 
-def run_target_date(*, event: str, created_at: datetime, display_title: str) -> date | None:
-    """Which day a run answers for, or ``None`` when the listing cannot say.
+def run_target_date(*, event: str, display_title: str) -> date | None:
+    """Read an explicitly requested day for an in-flight recovery only."""
 
-    A scheduled run always answers for its own day: the schedule event supplies no
-    `asof`, so the batch reads today. A dispatch names its day in the run name, and one
-    whose run name this cannot read is not evidence about any particular day — runs
-    created before the workflow carried a run name are exactly that, and reading them
-    as "today" is what let a past-dated recovery stand in for a missing batch.
-    """
-
-    if event == "schedule":
-        return batch_target_date(created_at)
     if event != "workflow_dispatch":
         return None
     title = display_title.strip()
-    if title == RUN_NAME_PREFIX:
-        return batch_target_date(created_at)
     prefix = f"{RUN_NAME_PREFIX} "
     if not title.startswith(prefix):
         return None
@@ -102,7 +92,10 @@ class WorkflowRun:
     status: str
     conclusion: str
     created_at: datetime
+    updated_at: datetime
     target_date: date | None
+    run_id: int
+    run_attempt: int
 
     @property
     def succeeded(self) -> bool:
@@ -117,7 +110,7 @@ class WorkflowRun:
         target = self.target_date.isoformat() if self.target_date is not None else "unnamed day"
         return (
             f"#{self.run_number} {sanitize_one_line(self.event)} "
-            f"{sanitize_one_line(state)} {self.created_at.isoformat()} for {target}"
+            f"{sanitize_one_line(state)} {self.updated_at.isoformat()} for {target}"
         )
 
 
@@ -179,21 +172,105 @@ def parse_runs(payload: object) -> tuple[WorkflowRun, ...]:
             raise WatchdogInputError("run run_number must be an integer")
         event = str(entry.get("event", "unknown"))
         created_at = _parse_instant(entry.get("created_at"), field="created_at")
+        updated_at = _parse_instant(entry.get("updated_at"), field="updated_at")
+        status = str(entry.get("status", "unknown"))
+        target = None
+        actual = entry.get("batch_asof")
+        if actual is not None:
+            if not isinstance(actual, str):
+                raise WatchdogInputError("batch as-of must be a YYYY-MM-DD string")
+            try:
+                target = date.fromisoformat(actual)
+                if target.isoformat() != actual:
+                    raise ValueError
+            except ValueError as exc:
+                raise WatchdogInputError("batch as-of must be a YYYY-MM-DD string") from exc
+        elif status != "completed":
+            target = run_target_date(
+                event=event, display_title=str(entry.get("display_title") or "")
+            )
+        run_id, attempt = entry.get("id"), entry.get("run_attempt")
+        if type(run_id) is not int or run_id <= 0 or type(attempt) is not int or attempt <= 0:
+            raise WatchdogInputError("run id and attempt must be positive integers")
         runs.append(
             WorkflowRun(
                 run_number=run_number,
                 event=event,
-                status=str(entry.get("status", "unknown")),
+                status=status,
                 conclusion=str(entry.get("conclusion") or ""),
                 created_at=created_at,
-                target_date=run_target_date(
-                    event=event,
-                    created_at=created_at,
-                    display_title=str(entry.get("display_title") or ""),
-                ),
+                updated_at=updated_at,
+                target_date=target,
+                run_id=run_id,
+                run_attempt=attempt,
             )
         )
     return tuple(runs)
+
+
+JobsReader = Callable[[str, int, int], object]
+
+
+def _read_attempt_jobs(repository: str, run_id: int, attempt: int) -> object:
+    """Read step results from the listed attempt, never from another rerun."""
+    try:
+        result = subprocess.run(  # nosec B603 B607 - fixed gh read with validated integer ids
+            [
+                "gh",
+                "api",
+                f"repos/{repository}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        )
+        return json.loads(result.stdout)
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
+        raise WatchdogInputError("cannot read daily attempt results") from exc
+
+
+def resolve_run_results(
+    runs: Sequence[WorkflowRun],
+    *,
+    repository: str,
+    window_end: datetime,
+    window_hours: int,
+    read_jobs: JobsReader,
+) -> tuple[WorkflowRun, ...]:
+    """Use the batch's reported target from recent successful attempt results."""
+    resolved: list[WorkflowRun] = []
+    for run in runs:
+        if (
+            not run.succeeded
+            or not window_end - timedelta(hours=window_hours) <= run.updated_at <= window_end
+        ):
+            resolved.append(run)
+            continue
+        payload = read_jobs(repository, run.run_id, run.run_attempt)
+        if not isinstance(payload, Mapping) or not isinstance(payload.get("jobs"), list):
+            raise WatchdogInputError("attempt results must carry a jobs array")
+        targets: list[date] = []
+        for job in payload["jobs"]:
+            if not isinstance(job, Mapping) or not isinstance(job.get("steps"), list):
+                raise WatchdogInputError("attempt job must carry a steps array")
+            for step in job["steps"]:
+                if not isinstance(step, Mapping):
+                    raise WatchdogInputError("attempt step must be an object")
+                name = str(step.get("name") or "")
+                if name.startswith(RESULT_STEP_PREFIX) and step.get("status") == "completed":
+                    value = name[len(RESULT_STEP_PREFIX) :]
+                    try:
+                        target = date.fromisoformat(value)
+                        if target.isoformat() != value:
+                            raise ValueError
+                        targets.append(target)
+                    except ValueError:
+                        pass
+        if len(targets) != 1:
+            raise WatchdogInputError("successful daily attempt has no unique reported as-of")
+        resolved.append(replace(run, target_date=targets[0]))
+    return tuple(resolved)
 
 
 def evaluate(runs: Sequence[WorkflowRun], *, window_end: datetime, window_hours: int) -> Verdict:
@@ -203,8 +280,8 @@ def evaluate(runs: Sequence[WorkflowRun], *, window_end: datetime, window_hours:
     window_start = window_end - timedelta(hours=window_hours)
     in_window = tuple(
         sorted(
-            (run for run in runs if window_start <= run.created_at <= window_end),
-            key=lambda run: run.created_at,
+            (run for run in runs if window_start <= run.updated_at <= window_end),
+            key=lambda run: run.updated_at,
         )
     )
     check_date = batch_target_date(window_end)
@@ -216,7 +293,7 @@ def evaluate(runs: Sequence[WorkflowRun], *, window_end: datetime, window_hours:
     answering = tuple(run for run in in_window if run.target_date == check_date)
     if any(run.succeeded for run in answering):
         state = STATE_HEALTHY
-    elif any(run.in_flight for run in answering):
+    elif any(run.in_flight and run.target_date in {None, check_date} for run in in_window):
         state = STATE_IN_FLIGHT
     else:
         state = STATE_MISSING
@@ -295,16 +372,30 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--check-date", type=str, default="")
     parser.add_argument("--window-hours", type=int, default=DEFAULT_WINDOW_HOURS)
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SECONDS)
+    parser.add_argument("--read-run-results", action="store_true")
     return parser
 
 
-def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transport) -> int:
+def main(
+    argv: list[str] | None = None,
+    *,
+    transport: Transport = _urllib_transport,
+    read_jobs: JobsReader = _read_attempt_jobs,
+) -> int:
     args = build_parser().parse_args(argv)
     env = os.environ
     try:
         payload = json.loads(args.runs_json.read_text(encoding="utf-8"))
         runs = parse_runs(payload)
         window_end = resolve_window_end(args.check_date, now=datetime.now(UTC))
+        if args.read_run_results:
+            runs = resolve_run_results(
+                runs,
+                repository=env["GITHUB_REPOSITORY"],
+                window_end=window_end,
+                window_hours=args.window_hours,
+                read_jobs=read_jobs,
+            )
         verdict = evaluate(runs, window_end=window_end, window_hours=args.window_hours)
     except (OSError, json.JSONDecodeError, WatchdogInputError) as exc:
         print(f"error: cannot evaluate the batch window: {exc}", file=sys.stderr)
