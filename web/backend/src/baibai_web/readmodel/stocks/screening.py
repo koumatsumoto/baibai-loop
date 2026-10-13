@@ -122,7 +122,7 @@ def build_screening(
             ticker=ticker,
             name=latest_revisions[ticker].company_name
             if ticker in latest_revisions
-            else text(identities.get(ticker, {}).get("name")),
+            else text(identities.get(ticker, {}).get("name")) or None,
             sector_33=latest_revisions[ticker].sector
             if ticker in latest_revisions
             else text(identities.get(ticker, {}).get("sector_33")),

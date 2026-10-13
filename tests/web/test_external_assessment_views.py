@@ -230,6 +230,8 @@ def test_all_external_sources_are_searchable_without_machine_analysis(
             [
                 ("2026-10-09", "9999", "合成検索企業", "サービス業"),
                 ("2026-10-09", "2222", "合成零点企業", "情報・通信業"),
+                ("2026-10-09", "1111", None, None),
+                ("2026-10-09", "3333", "", None),
                 ("2099-01-01", "9999", "未来の名称", "小売業"),
             ],
         )
@@ -245,6 +247,7 @@ def test_all_external_sources_are_searchable_without_machine_analysis(
         assert set(index) == {"1111", "2222", "3333", "9999"} | ({"2331"} if without_run else set())
         assert index["9999"]["name"] == "合成検索企業"
         assert index["1111"]["name"] is None
+        assert index["3333"]["name"] is None
         assert "er_annual" not in index["9999"]
         for ticker, identity in index.items():
             detail = client.get(f"/api/securities/{ticker}")

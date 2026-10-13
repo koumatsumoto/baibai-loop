@@ -126,7 +126,7 @@ def build_security_detail(
     )
     if raw_security_analysis is None and has_external:
         identity = market.security_identities(as_of=today).get(ticker, {})
-        security_name = text(identity.get("name"))
+        security_name = text(identity.get("name")) or None
         security_sector = text(identity.get("sector_33"))
     holding = (
         holding_view(
