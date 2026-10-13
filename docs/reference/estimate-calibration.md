@@ -139,6 +139,8 @@ Research Triage の判断面が読む最新文脈の正本は `reports/published
 
 UI と research workspace は、artifact の `screening_rules_hash` と `er_model_version` が実際に表示・調査する operative run / Review Set の identity と一致するときだけ、候補 E[r] を該当 quintileへ対応づける。E[r]、順位、Research Triage、FV は変更しない。値は個別銘柄の予測ではなく historical distribution であり、重複する月次窓を独立標本と呼ばない。
 
+`er_gte_8_5pct`は機械E[r]が8.5%以上の固定較正帯で、thresholdは`HURDLE_ER_ANNUAL=0.085`。これは[通常購入の要求年率](../portfolio-management.md#required-return-policy)へ連動する帯ではなく、policy変更時もband identityと過去分布を維持する。
+
 artifact は生成日から45日だけ有効とし、月次の calibration 更新後に同じ production scope の評価から再生成する。欠損、schema / basis / quintile 境界不正、現在 method または operative run との identity 不一致、run identity 不明、未来日、45日を超える期限、期限切れでは read model が文脈全体を非表示にする。YAML を手編集して更新しない。
 
 `calibration-evaluate` の artifact は、operative runと照合する`screening_rules_hash`と、panelのCandidate Discovery replay contractまで含む`calibration_method_hash`を分ける。各 `(asof, horizon)` の `integrity_status`、required metric別 status、blocking reasonを `cohort_integrity` に持つ。Candidate Discovery については、approachごとの nomination / resolved nomination、同日JPX規制入力の状態、Review Setとexact Nomination unionの一致を `candidate_discovery_fidelity` に持つ。各 horizon は満期済みcohort数だけでなく、entry year別件数と重複しないforward window数を `observation_dependence` に開示する。月次cohort数を独立標本数とは読まない。study はこの評価結果を読み、独自の辞書リテラルで eligibility を作らない。

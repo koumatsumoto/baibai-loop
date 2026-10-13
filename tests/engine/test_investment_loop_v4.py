@@ -40,8 +40,9 @@ from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION
     ("NOW", "fill_first"), [(EVENING, False), (EVENING.replace(hour=10), True)]
 )
 @pytest.mark.parametrize("candidate_factors", [[], ["cycle"]])
+@pytest.mark.parametrize("required_return_pct", [6, 8.5])
 def test_sequential_allocation_uses_updated_cash_and_one_research_set(
-    tmp_path, NOW, fill_first, candidate_factors
+    tmp_path, NOW, fill_first, candidate_factors, required_return_pct
 ):
     target = (NOW + timedelta(days=1)).date() if NOW.hour >= 15 else NOW.date()
     db, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
@@ -82,6 +83,7 @@ def test_sequential_allocation_uses_updated_cash_and_one_research_set(
     pairs = {}
     for ticker in ("1234", "5678"):
         thesis, review = pair_payload()
+        thesis["valuation"]["required_annual_return_pct"] = required_return_pct
         thesis["input_snapshot"]["ticker"] = ticker
         thesis["input_snapshot"]["common_factors"] = candidate_factors
         thesis["input_snapshot"]["sources"][0]["ticker"] = ticker

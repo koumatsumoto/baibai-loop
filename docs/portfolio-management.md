@@ -14,6 +14,15 @@ related_docs:
 
 [投資目的とリスク許容](./doctrine.md#investment-strategy)に従い、資本判断はresearch、確認済みcash・数量・注文・約定はpositionが所有する。企業評価は[Reviewed Thesis](./reference/thesis.md)、候補比較は[CAA](./reference/capital-allocation-assessment.md)、保有継続・回収は[Position Review](./reference/position-review.md)を参照する。
 
+<a id="required-return-policy"></a>
+## 要求年率
+
+通常購入の最低要求年率と、新しい通常評価の出発点は暫定6%とする。数値の正本は[`PORTFOLIO_POLICY.valuation.minimum_required_annual_return_pct`](../engine/src/baibai_engine/position/policy.py)。既存8.5%の根拠と機会損失を見直した政策上の調整であり、最適値、株主資本コスト、確率加重期待収益の推定ではない。採用理由と検証は[#1464](https://github.com/koumatsumoto/baibai-loop/issues/1464)に記録する。
+
+作者は新評価の要求率をThesisへ明記する。個別に高くする場合は独立した経済的理由を既存のcalculationへ記し、利益・倍率・要求率へ同じリスクを説明なく重複上乗せしない。数値条件を満たしても、重大な事実不足や永久的な企業価値毀損を免除しない。
+
+CAAとPlanningは現在のfloorと、記録済み要求率によるPmaxを確認する。policy変更だけで既存Thesis・Review・Pmax・CAA・ledgerを書き換えない。機械E[r]の固定較正帯と保有exit判断は、この新規購入floorから分離する。
+
 <a id="capital-guidance"></a>
 ## 資金目安
 

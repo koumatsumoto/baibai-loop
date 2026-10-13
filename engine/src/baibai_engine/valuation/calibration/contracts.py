@@ -21,6 +21,7 @@ ER_CALIBRATION_SECONDARY_WEIGHTING = "cohort_equal"
 ER_CALIBRATION_REFERENCE_HORIZON = "3y"
 ER_CALIBRATION_HORIZONS = ("3y", "5y")
 ER_CALIBRATION_BAND_IDS = ("q1", "q2", "q3", "q4", "q5", "er_gte_8_5pct")
+# 機械E[r]の固定較正帯。通常購入のpolicy floorへ連動させない。
 HURDLE_ER_ANNUAL = 0.085
 
 
