@@ -29,7 +29,7 @@ Thesisの通常算術例はr=6%へ更新した。これは#1464の暫定政策�
 
 ## 固定入力と正式Screening再現
 
-観測比較の基準mainは`bb65679d7021c225b6773cb3591f546d81a04d96`。実装は`ec93462a3b20cc022d1fd46fd5e7d9f8a055649f`へrebaseし、#1485/#1486の台帳・未約定の意味はPortfolio Ledgerの正本へ参照で繋げた。観測日は2026-10-13、作業日は2026-10-14 JST。①ResearchSelection/CAA、②CB算術、#1480全面モデル再設計は実装していない。
+観測比較の基準mainは`bb65679d7021c225b6773cb3591f546d81a04d96`。実装は`86c7c2dff36fba34369218601d90ba37196fe901`へrebaseし、#1485/#1486の台帳・未約定の意味はPortfolio Ledgerの正本へ参照で繋げた。観測日は2026-10-13、作業日は2026-10-14 JST。①ResearchSelection/CAA、②CB算術、#1480全面モデル再設計は実装していない。
 
 既存read-only経路でmachine bundleをpullし、固定L1 release `20261013T121019Z-2ae2e9de-1c54ef604f62`（manifest SHA-256 `c1fe3581e55bfdc4ee5c396996829abf701f60111d16090f3d0ba57416f5d32c`）を正式hydrateした。全512 objectのdigestとrow countを検証し、providerの新規取得・AI呼出・application DB読取/書換・本番writeは0。原runs storeの5runは不変。
 
@@ -67,11 +67,11 @@ E[r]水準は`estimator_policy`のmandatory `er_calibration`に`er_level_calibra
 
 価格・財務履歴は2016-08以降を持つが、EDINET metrics・JPX規制sourceは2026-05-08以降である。最古完全cohortが2026-05なら、3yは2029-05以降、5yは2031-05以降の満期を要し、source completenessも別に必要である。E[r]の分布が成立しても、新4 Approachの長期優越性や個別企業の採否は実証されない。満期未到来を実装未完とは呼ばず、現在可能な生成・不足検証を区別する。
 
-生成・評価の最終結果は継続中。完了後、同じscopeでこの記録を更新する。
+83cohortのpanel生成は完了し、forward計算を継続中。生成・評価の最終結果は同じscopeでこの記録へ追記する。
 
 ## 検証と反映境界
 
-関連回帰は短履歴のNomination/context保持、欠測/非有限/JPX除外、production/calibration共通母集団、旧artifactの原identityを含む。完全local gateはPython 4,192 passed / 8 skipped、coverage 87%、frontend 292 passed、Worker 93 passed、Ruff/mypy/import-linter/drift/Bandit/runtime・build依存監査/Node監査/Wrangler dry-runが成功した。
+関連回帰は短履歴のNomination/context保持、欠測/非有限/JPX除外、production/calibration共通母集団、旧artifactの原identityを含む。完全local gateはPython 4,207 passed / 8 skipped、coverage 87%、frontend 295 passed、Worker 93 passed、Ruff/mypy/import-linter/drift/Bandit/runtime・build依存監査/Node監査/Wrangler dry-runが成功した。
 
 実データコピーがあると既存Researchテストの一部が既定pathを読んだため、fixture gateでは取得コピーを一時的に隔離し、後で同じbytesを復元した。環境に残る退場packageのbytecodeだけも除去した。テスト条件やruntimeのvalidationを緩めず、fixture gateと固定L1の実データ検証を分けた。指標storeのschema v7・122系列・459,859観測の検証も成功。application storeは取得しておらず、同storeの検証は未実行。
 
