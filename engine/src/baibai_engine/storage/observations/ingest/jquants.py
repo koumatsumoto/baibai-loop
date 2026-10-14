@@ -54,11 +54,19 @@ def store_jquants_fin_summaries(
     requested_end: date,
     requested_ticker: str | None = None,
 ) -> int:
+    if requested_start > requested_end:
+        raise ValueError("financial request start must not follow end")
+    normalized = _fin_summary_rows_with_quality(records)
+    rows = normalized.rows
+    if any(
+        not requested_start.isoformat() <= str(row[1]) <= requested_end.isoformat()
+        for row in rows
+    ):
+        raise ValueError("financial payload contains a disclosure date outside the request")
+    if requested_ticker is not None and any(row[0] != requested_ticker for row in rows):
+        raise ValueError("financial payload contains a different requested ticker")
     conn = open_connection(db_path)
     try:
-        records_list = list(records)
-        normalized = _fin_summary_rows_with_quality(records_list)
-        rows = normalized.rows
         if requested_ticker is None:
             replace_date_range(
                 conn,
@@ -69,8 +77,6 @@ def store_jquants_fin_summaries(
                 replacement_row_count=len(rows),
             )
         else:
-            if any(row[0] != requested_ticker for row in rows):
-                raise ValueError("financial payload contains a different requested ticker")
             held = conn.execute(
                 "SELECT COUNT(*) FROM jquants_fin_summaries WHERE ticker = ? "
                 "AND disclosed_at BETWEEN ? AND ?",
