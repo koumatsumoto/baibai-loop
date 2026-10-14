@@ -61,8 +61,18 @@ def connect_rw(path: Path | None = None) -> sqlite3.Connection:
     resolved.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(resolved, isolation_level=None)
     connection.row_factory = sqlite3.Row
+    register_run_clock(connection)
     connection.execute("PRAGMA foreign_keys = ON")
     return connection
+
+
+def run_clock(value: str) -> str:
+    """Compare saved aware clocks as fixed-width UTC text at full microsecond precision."""
+    return datetime.fromisoformat(value).astimezone(UTC).isoformat(timespec="microseconds")
+
+
+def register_run_clock(connection: sqlite3.Connection) -> None:
+    connection.create_function("run_clock", 1, run_clock, deterministic=True)
 
 
 def initialize_run_store(path: Path | None = None) -> int:
@@ -129,7 +139,7 @@ class ScreeningRunStore:
                 ordered = connection.execute(
                     """
                     SELECT run_revision_id FROM screening_run
-                    ORDER BY asof_date DESC, julianday(run_at) DESC, run_revision_id DESC
+                    ORDER BY asof_date DESC, run_clock(run_at) DESC, run_revision_id DESC
                     """
                 ).fetchall()
                 deleted_ids = [str(row[0]) for row in ordered[keep:]]

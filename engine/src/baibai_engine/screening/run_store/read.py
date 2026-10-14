@@ -16,7 +16,13 @@ from baibai_engine.screening.discovery.contracts import (
 )
 
 from .schema import RUN_STORE_SCHEMA_VERSION
-from .store import RunStoreAmbiguousError, decode_payload, run_store_path
+from .store import (
+    RunStoreAmbiguousError,
+    decode_payload,
+    register_run_clock,
+    run_clock,
+    run_store_path,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +44,7 @@ def connect_read_only(path: Path | None = None) -> sqlite3.Connection:
     resolved = run_store_path(path).resolve()
     connection = sqlite3.connect(f"{resolved.as_uri()}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
+    register_run_clock(connection)
     connection.execute("PRAGMA query_only = ON")
     connection.execute("PRAGMA foreign_keys = ON")
     try:
@@ -80,7 +87,7 @@ class ScreeningRunReader:
             rows = connection.execute(
                 """
                 SELECT * FROM screening_run
-                ORDER BY asof_date DESC, julianday(run_at) DESC, run_revision_id DESC
+                ORDER BY asof_date DESC, run_clock(run_at) DESC, run_revision_id DESC
                 """
             ).fetchall()
             return [_run_from_row(connection, row) for row in rows]
@@ -91,7 +98,7 @@ class ScreeningRunReader:
             row = connection.execute(
                 """
                 SELECT * FROM screening_run
-                ORDER BY asof_date DESC, julianday(run_at) DESC, run_revision_id DESC
+                ORDER BY asof_date DESC, run_clock(run_at) DESC, run_revision_id DESC
                 LIMIT 1
                 """
             ).fetchone()
@@ -102,7 +109,7 @@ class ScreeningRunReader:
             connection.execute("BEGIN")
             row = connection.execute(
                 "SELECT * FROM screening_run WHERE asof_date = ? "
-                "ORDER BY julianday(run_at) DESC, run_revision_id DESC LIMIT 1",
+                "ORDER BY run_clock(run_at) DESC, run_revision_id DESC LIMIT 1",
                 (as_of.isoformat(),),
             ).fetchone()
             return None if row is None else _run_from_row(connection, row)
@@ -127,22 +134,12 @@ class ScreeningRunReader:
                 ):
                     raise ValueError("explicit analysis run is after the Research cutoff")
             else:
-                headers = connection.execute(
-                    "SELECT * FROM screening_run WHERE asof_date <= ?",
-                    (as_of.isoformat(),),
-                ).fetchall()
-                # SQLite julianday rounds to milliseconds. Research's cutoff and
-                # latest-run selection preserve the saved clock's full precision.
-                timed_headers = [
-                    (header, datetime.fromisoformat(header["run_at"])) for header in headers
-                ]
-                eligible = [item for item in timed_headers if item[1] <= known_at]
-                selected = max(
-                    eligible,
-                    key=lambda item: (item[0]["asof_date"], item[1], item[0]["run_revision_id"]),
-                    default=None,
-                )
-                row = None if selected is None else selected[0]
+                row = connection.execute(
+                    "SELECT * FROM screening_run WHERE asof_date <= ? "
+                    "AND run_clock(run_at) <= ? "
+                    "ORDER BY asof_date DESC, run_clock(run_at) DESC, run_revision_id DESC LIMIT 1",
+                    (as_of.isoformat(), run_clock(known_at.isoformat())),
+                ).fetchone()
             return None if row is None else _run_from_row(connection, row)
 
     def valuation_run(
@@ -160,7 +157,7 @@ class ScreeningRunReader:
             connection.execute("BEGIN")
             row = connection.execute(
                 "SELECT * FROM screening_run WHERE asof_date <= ? "
-                "ORDER BY asof_date DESC, julianday(run_at) DESC, run_revision_id DESC LIMIT 1",
+                "ORDER BY asof_date DESC, run_clock(run_at) DESC, run_revision_id DESC LIMIT 1",
                 (as_of.isoformat(),),
             ).fetchone()
             return None if row is None else _run_from_row(connection, row)
@@ -187,7 +184,7 @@ class ScreeningRunReader:
             connection.execute("BEGIN")
             rows = connection.execute(
                 "SELECT * FROM screening_run WHERE asof_date = ? "
-                "ORDER BY julianday(run_at), run_revision_id",
+                "ORDER BY run_clock(run_at), run_revision_id",
                 (as_of_date,),
             ).fetchall()
             if len(rows) > 1:
@@ -207,7 +204,7 @@ class ScreeningRunReader:
                 return None
             rows = connection.execute(
                 "SELECT * FROM screening_run WHERE asof_date = ? "
-                "ORDER BY julianday(run_at), run_revision_id",
+                "ORDER BY run_clock(run_at), run_revision_id",
                 (latest,),
             ).fetchall()
             if len(rows) > 1:
@@ -286,6 +283,7 @@ def stored_run_page(
             limit=limit,
         )
     elif kind == "screening_run":
+        register_run_clock(connection)
         equal = {key: filters[key] for key in ("run_revision_id",) if key in filters}
         if "as_of_date" in filters:
             equal["asof_date"] = filters["as_of_date"]
@@ -297,11 +295,11 @@ def stored_run_page(
         rows = select_page(
             connection,
             table=kind,
-            columns="*, julianday(run_at) AS page_time"
+            columns="*, run_clock(run_at) AS page_time"
             if full
             else "run_revision_id, public_run_id, run_date, asof_date, "
-            "run_at, universe_size, rules_ref, created_at, julianday(run_at) AS page_time",
-            order=("asof_date", "julianday(run_at)", "run_revision_id"),
+            "run_at, universe_size, rules_ref, created_at, run_clock(run_at) AS page_time",
+            order=("asof_date", "run_clock(run_at)", "run_revision_id"),
             equal=equal,
             ranges=ranges,
             after=after,
