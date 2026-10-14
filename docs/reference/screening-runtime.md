@@ -1,6 +1,6 @@
 ---
 title: "Screening runtime reference"
-summary: "Security Analysis、current Candidate Discovery Method、Review Setの実行境界の正本。"
+summary: "Stock Analysis、candidate context、単一runの保存・読取境界の正本。"
 doc_type: reference
 status: active
 ---
@@ -9,49 +9,50 @@ status: active
 
 ## 役割
 
-screeningはValuationの財務/倍率計算・機械推計とMarket Contextの価格/需給結果を組み込み、全対象銘柄のobserved / derived / estimateをSecurity Analysisへ固定し、configured Valuation Approachesが生成したNominationのexact unionをReview Setにする。Review Setは機械成果物であり、投資判断ではない。Research Triageだけが各entryへ`research / skip`とresearch priorityを発行する。
+screeningはValuationの財務/倍率計算・機械推計とMarket Contextの価格/需給結果を全対象のStock Analysisへ固定する。同じrunで候補文脈を確定し、`candidate.reasons`が空でない行を候補として表示する。独立したReview SetのID・table・発行時刻・後付け再発行は持たない。候補外も分析済みであり、Researchの企業評価を禁止する資格ではない。
 
-機械E[r]/FV anchor、Market Context Assessment、portfolio stateは参考文脈である。Review Setのnomination、membership、orderには使わない。ER/FVの推計・保存済み照会は[Valuation metrics](./valuation-metrics.md#machine-valuation)、企業固有の条件付き評価は[Thesis](./thesis.md#scenario-arithmetic)が所有する。
+候補は4つのValuation Approachそれぞれのtop20のunionである。機械E[r]/FV anchor、Market Context Assessment、portfolio stateは候補membership・順位に使わない。機械的な候補理由はApproach/Method/rankを示し、AIがResearch対象を選ぶ理由とは分ける。ER/FVは[Valuation metrics](./valuation-metrics.md#machine-valuation)、Researchの対象選定は[Research](../../.agents/skills/research/SKILL.md)を参照する。
 
 <a id="rule-purpose"></a>
 
 ## ルールの目的と根拠
 
-Screeningは[入力scope](#input-scope)でSecurity Analysisの計算対象を定め、その計算結果に[共通factの資格](#history-context)を適用してCandidate Discovery・比較中央値の対象を選び、[4 Approach](#approach-applicability)それぞれの条件と指標から候補を推薦する。[品質context](#data-quality-context)はrunの利用判断、[Nomination容量](#nomination-capacity)は有限の探索・Triage入力枠であり、企業の経済的rejectや購入条件ではない。観測・取得の失敗は[情報源の状態](./data-sources.md)で扱い、未観測を0や対象なしへ変えない。
+Screeningは[入力scope](#input-scope)でStock Analysisの計算対象を定め、その計算結果に[共通factの資格](#history-context)を適用してCandidate Discovery・比較中央値の対象を選び、[4 Approach](#approach-applicability)それぞれの条件と指標から候補を推薦する。[品質context](#data-quality-context)はrunの利用判断、[候補容量](#nomination-capacity)は有限の探索枠であり、企業の経済的rejectや購入条件ではない。観測・取得の失敗は[情報源の状態](./data-sources.md)で扱い、未観測を0や対象なしへ変えない。
 
-数値と判定式は[現行rules](../../method/screening/rules/)、[`CommonEligibilityRules.matches`](../../engine/src/baibai_engine/screening/rule_config.py)、[Review Set生成](../../engine/src/baibai_engine/screening/discovery/review_set.py)、[業種中央値の実装](../../engine/src/baibai_engine/valuation/metrics/relative.py)が所有する。業種母数の理由は[valuation metrics](./valuation-metrics.md#median-population-rationale)、推薦集合と資格の回帰は[Review Set tests](../../tests/engine/test_review_set.py)を参照する。算術・保存契約の再現は閾値の収益上の最適性を示さない。
+数値と判定式は[現行rules](../../method/screening/rules/)、[`CommonEligibilityRules.matches`](../../engine/src/baibai_engine/screening/rule_config.py)、[候補文脈生成](../../engine/src/baibai_engine/screening/discovery/candidates.py)、[業種中央値の実装](../../engine/src/baibai_engine/valuation/metrics/relative.py)が所有する。業種母数の理由は[valuation metrics](./valuation-metrics.md#median-population-rationale)、推薦集合と資格の回帰は[候補回帰](../../tests/engine/test_candidate_discovery.py)を参照する。算術・保存契約の再現は閾値の収益上の最適性を示さない。
 
 Researchの対象選択、企業評価、資本配分、保有判断へ進む関係は[判断条件の見取り図](../README.md#判断条件の見取り図)から各責務の正本へ辿る。2026-10-13の固定断面・部分感度など当時の測定は[#1481の点検記録](https://github.com/koumatsumoto/baibai-loop/issues/1481#issuecomment-6160691018)と[#1517](https://github.com/koumatsumoto/baibai-loop/pull/1517)に残し、DPS欄追加前のentry payload一致という時点の限定は[#1527](https://github.com/koumatsumoto/baibai-loop/pull/1527)を参照する。現行判断と未測定の進捗は[#1481](https://github.com/koumatsumoto/baibai-loop/issues/1481)が管理する。
 
-## Public CLI
+## Public CLIと単一保存
 
-screening runtimeの公開commandは`baibai-engine screening --help`から辿る。本書で扱う
-`run`、`review-set publish / show`、`prune`のoptionのrequired / default / choiceと出力形式は各commandのpublic
-`--help`を正本とする。日常運用の実行順と停止条件は
-[`research-triage` skill](../../.agents/skills/research-triage/SKILL.md)と
-[`batch/OPERATIONS.md`](../../batch/OPERATIONS.md)が所有する。
+公開optionは`baibai-engine screening --help`と各commandの`--help`を正本とする。`run`は丸め済みの全分析から候補文脈を一回計算し、run headerと全Stock Analysisを一つのSQLite transactionで保存する。呼出側は明示rulesを渡し、そのrules hashと入力headerの一致をwriterが確認する。caller作成の候補や保存済み候補の再発行は受け付けない。
 
-通常の`run`はSecurity AnalysisとReview Setを先に計算・検証し、同じSQLite connectionの一つのtransactionでrun・全子データ・Review Setを保存する。出力には両IDを含む。Review Setの挿入失敗は新runを含めてrollbackする。paired Review SetのIDとcreated_atはimmutable runのIDとrun_atに固定し、同じrunの再試行で新しい集合を作らない。
+`run`のexit 2は保存済みrunのpartial warningである。出力のrun revisionと候補件数を確認する。`--output-path`へはDBから読戻した確定revisionをexportし、値を再丸め・再計算しない。DB成功後にfile exportが失敗した場合は診断中のrevisionを使って回収する。
 
-`run`のexit 2は両publication済みのpartial warningである。warningを確認してから出力の両IDで後続へ進む。明示的`review-set publish`は保存済みrunを対象にする入口として残すが、通常dailyは再発行しない。Review Setの再表示に再発行を使わない。`--run-revision-id` + `--run-at`と`--review-set-id` + `--created-at`はcallerがidentityを固定する場合のsame-ID idempotencyを提供する。daily runnerは実行場所にかかわらずserver-generated identityを使い、AI outputからIDやclockを受け取らない。
+```bash
+uv run baibai-engine screening run-show --run-revision-id run-revision-0123456789abcdef0123456789abcdef --format yaml
+uv run baibai-engine screening candidates show --run-revision-id run-revision-0123456789abcdef0123456789abcdef --format json
+```
 
-## Security Analysis
+どちらも保存済みrevisionのread-only出力で、`--output-path`・`--force`は出力fileだけに作用する。未知revision・破損storeは失敗、候補0件は正常結果である。旧`review-set publish/show`は廃止する。
 
-run storeはrun identityと全銘柄のSecurity Analysis、source runに束縛した
-再現可能なReview Setを保持する。field、table、schema versionはengine modelとDB
-schemaを正本とする。
+## Stock Analysis
 
-Security Analysisは`observed / derived / estimate`を混同しない。欠損を0へ補完せず、解釈・因果・売買判断を書かない。
+個別分析のbuild直後だけ`candidate=None`を許す。writerは全行に確定contextを付け、headerにmethod/diagnosticsを一度だけ保存する。通常readerは候補欠損を非候補へ補完しない。候補のみ・ticker filter・paginationの前に、対象run全体のcandidate shapeを確認する。
+
+`candidate.common_eligible`は比較母集団への資格、`reasons`はApproach順の候補理由、`normalized_per_3fy_sector_gap`はcommoneligible母集団で計算した値である。候補容量外でもcommoneligibleになり得る。gapのnullは計算不能であり、既知の0とは異なる。一般市場metricsの同名値へ差替えない。
+
+Stock Analysisは`observed / derived / estimate`を混同しない。欠損を0へ補完せず、解釈・因果・売買判断を書かない。field・table・schema versionはengine modelとDB schemaが所有する。
 
 ## Candidate Discovery
 
 <a id="input-scope"></a>
 
-Security Analysisは普通株・対象市場・as-of以前の有効価格barが1本以上ある銘柄を評価対象とする。価格barが0本、最新終値またはas-of基準の最新価格が非正・非有限な入力は評価対象にしない。sourceの分割factor `0` はイベントなしを示し、終値以前・当日・以後のどの位置でも銘柄除外の理由にしない。factorを適用するのは価格日より後・as-of以前のイベントだけである。平均売買代金は20barすべての売買代金が揃う場合だけ計算し、足りなければnullにする。株数・現在価格・分割basisの欠測を補完して候補にしない。`listing_span_days`は最初の利用可能barからの期間proxyであり正式な上場日ではない。`price_history_sessions_750d`と`price_history_coverage_750d`は短い履歴・疎な履歴の品質contextとして残す。cache coverageのrequired-field 75%とbar・財務密度は、as-of masterの対象市場かつ東証33業種の普通株を母集団とし、価格・財務が欠けた普通株も分母に残す。対象市場の未知業種は分類を更新するまで停止する。各指標の入力期間・TTM・株式basisは[Valuation metrics](./valuation-metrics.md)に従い、productionと較正replayで共有する。入力不足はnullや品質contextとして残し、実績・予測・観測期間を混ぜて穴埋めしない。
+Stock Analysisは普通株・対象市場・as-of以前の有効価格barが1本以上ある銘柄を評価対象とする。価格barが0本、最新終値またはas-of基準の最新価格が非正・非有限な入力は評価対象にしない。sourceの分割factor `0` はイベントなしを示し、終値以前・当日・以後のどの位置でも銘柄除外の理由にしない。factorを適用するのは価格日より後・as-of以前のイベントだけである。平均売買代金は20barすべての売買代金が揃う場合だけ計算し、足りなければnullにする。株数・現在価格・分割basisの欠測を補完して候補にしない。`listing_span_days`は最初の利用可能barからの期間proxyであり正式な上場日ではない。`price_history_sessions_750d`と`price_history_coverage_750d`は短い履歴・疎な履歴の品質contextとして残す。cache coverageのrequired-field 75%とbar・財務密度は、as-of masterの対象市場かつ東証33業種の普通株を母集団とし、価格・財務が欠けた普通株も分母に残す。対象市場の未知業種は分類を更新するまで停止する。各指標の入力期間・TTM・株式basisは[Valuation metrics](./valuation-metrics.md)に従い、productionと較正replayで共有する。入力不足はnullや品質contextとして残し、実績・予測・観測期間を混ぜて穴埋めしない。
 
 <a id="history-context"></a>
 
-共通eligibilityは正の有限な時価総額fact、非負で有限な価格barの期間、JPX flag、これら必須factの有無を扱う。現行rulesの時価総額・bar期間floorは0で、100億円未満や182日未満も候補発見と業種・市場の比較母集団に含める。bar期間は最古の利用可能な価格barからの日数proxyで、実上場日や財務履歴ではない。短い履歴、サイズ、ADVはcontextとしてSecurity Analysis、Review Set、Research Triage、Research入力へ残し、各指標に必要な履歴・財務入力とJPX制約は保つ。ADVは値が低い場合も欠損時も除外に使わない。その後、各approachが独立にnominateする。採用理由は[#1481](https://github.com/koumatsumoto/baibai-loop/issues/1481)、現行値は[screening rules](../../method/screening/rules/)、完全なeligibility・並び順・method hashは[Review Set実装](../../engine/src/baibai_engine/screening/discovery/review_set.py)を正本とする。
+共通eligibilityは正の有限な時価総額fact、非負で有限な価格barの期間、JPX flag、これら必須factの有無を扱う。現行rulesの時価総額・bar期間floorは0で、100億円未満や182日未満も候補発見と業種・市場の比較母集団に含める。bar期間は最古の利用可能な価格barからの日数proxyで、実上場日や財務履歴ではない。短い履歴、サイズ、ADVはcontextとしてStock AnalysisとResearch入力へ残し、各指標に必要な履歴・財務入力とJPX制約は保つ。ADVは値が低い場合も欠損時も除外に使わない。その後、各approachが独立にnominateする。採用理由は[#1481](https://github.com/koumatsumoto/baibai-loop/issues/1481)、現行値は[screening rules](../../method/screening/rules/)、完全なeligibility・並び順・method hashは[候補実装](../../engine/src/baibai_engine/screening/discovery/candidates.py)を正本とする。
 
 <a id="approach-applicability"></a>
 
@@ -68,55 +69,41 @@ Reinvestment Valueはsector-relative P/Sの割安さと、利益率・capital re
 
 FCF yieldは有限な既知値を必須とし、0・負値も推薦対象にする。既存の利益率・capital-return floorは維持し、FCFは順位の末尾の従キーで高い順に比較する。負FCFを成長投資と認定せず、欠測を0へ補完しない。ResearchはCFのsource・品質・期間、維持投資/成長投資・運転資金・回収・資金余力を確認する。半期の`approximated`値や書類metadataの年度末を、通年実績CFや測定期間へ読み替えない。
 
-ReinvestmentのNomination条件と、Review SetからTriageへ渡す観測は分ける。他Approachで推薦された銘柄も、既知のP/S gap・売上YoY・FCF yield・利益率・capital-return proxyを項目ごとに保持し、負値や0を欠測へ変えない。比率は必要入力が揃い分母が正の場合だけ計算し、計算不能な項目はnullとする。過去の保存snapshotがグループ全体をnullとしていた場合、その欠落を現在値で補わない。
+Reinvestmentの選抜条件と、Stock Analysisの表示観測は分ける。他Approachで推薦された銘柄も、既知のP/S gap・売上YoY・FCF yield・利益率・capital-return proxyを項目ごとに保持し、負値や0を欠測へ変えない。比率は必要入力が揃い分母が正の場合だけ計算し、計算不能な項目はnullとする。過去の保存snapshotがグループ全体をnullとしていた場合、その欠落を現在値で補わない。
 
-primary coordinateがnull、非有限、またはapproachの要件を満たさない銘柄は、そのapproachでnominateしない。金融sector除外、quality threshold、median population / fallback、従キー、tickerまでmethod hashに含め、同じSecurity Analysisとrulesから同じ結果を再構成する。
+primary coordinateがnull、非有限、またはapproachの要件を満たさない銘柄は、そのapproachでnominateしない。金融sector除外、quality threshold、median population / fallback、従キー、tickerまでmethod hashに含め、同じStock Analysisとrulesから同じ結果を再構成する。
 
-## Review Set
+## 候補の投影とidentity
 
 <a id="nomination-capacity"></a>
 
-各Approach top20は有限の発見・Triage入力枠で、rank21以下を経済的rejectにしない。容量の変更は調査負荷と失う機会を比較し、推薦件数や取引件数の増加自体を成果にしない。企業評価の適用範囲や正式Researchの開始とは別の契約である。
+各Approach top20は有限の発見枠で、rank21以下を経済的rejectにしない。全Approachで重複するtickerもStock Analysisは一行だけで、全候補理由を同じ行に保持する。候補投影は元のraw rowの値を変更せず、ticker昇順を非経済的なcanonical順として使う。総合rank・Research priorityは作らない。
 
-各Valuation ApproachのNominationをtickerで統合し、重複tickerは1entryへまとめ、全Nominationを保持する。各Approachのconfigured nomination depthに従う集合のunionであり、採用Approachとdepthは[現行rules](../../method/screening/rules/)を参照する。ticker昇順はbyte-equivalentなserializationのためだけに使い、global rankやresearch priorityを意味しない。
+候補純関数は丸め済み行をproductionと較正で共有する。normalized gapの母集団、reinvestment qualityのresolved母集団・sector minimum・market fallback、tie-breakはmethod契約で固定する。既存method hashのpreimageに残る`review_set_membership`等と`nomination_depth`はアルゴリズムidentityの凍結wireであり、旧publicationの存続ではない。Bでproduction rules hash、ER model version、Valuation calculation revisionを変更しない。
 
-publisherはsource run、as-of、rules hash、method hash、全Security Analysisからpayloadを再計算し、不一致を拒否する。published rootは`screening_rules_hash`をprovenanceとして持つ。Review Setはapplication DBやResearch Triageを読まず、同じrun・rules・implementationから同じNomination unionを再構築するL2である。各entryはidentity、`nominations`、grouped `analysis`だけを持つ。`analysis.expected_return`はsecondary machine priorのsnapshotであり、membershipを持たない。
+exact読取は保存された値・methodを返し、現在rulesを読み直さない。旧rules fileを指定した新しい計算を、過去の算式・当時値の再現とは扱わない。旧schemaのrun cacheは復元可能に退避し、新pathでObservationから新時刻・新UUIDのrunを作る。一回の最終code/store切替へまとめ、中間schemaの通常互換readerは作らない。現在必要な評価・提案・draftの旧根拠を保全する前に旧cacheを退避しない。
 
-旧rulesの指定は設定値の指定であり、過去の算式を凍結しない。再実行は現行算式を含むmethod hashを持つため、method IDだけで旧methodの再現と扱わない。保存済みrun・Review Setのexact読取は原hashとNominationを保持し、現行算式で再計算しない。
-[#1518](https://github.com/koumatsumoto/baibai-loop/issues/1518)の1bar scopeは`UNIVERSE_SCOPE_REVISION`でproductionの`screening_rules_hash`、Review Setの`method_hash`、calibration panelの`rules_hash`に区別して含める。`multi-valuation-v6`という表示名や既存rules fileだけでは旧20bar母集団との一致を認めない。旧E[r]較正contextは新runのrules hashと一致せず非表示になり、旧Triageは元のReview Set/run/hashへの束縛を保つ。新定義で旧artifactのhashだけを差し替えない。
-
-Normalized Earnings Powerのnative eligibility/orderは`normalized_per_3fy`と同sector gapを使う。FV/E[r] estimatorは`normalized_per_3fy`を入力にしない。
-
-MCPは保存済みcanonical Review Setをread-onlyで参照できる。これはscreening結果の検証用read boundaryであり、Review Set membership、Nomination、Research Triage、Research Setを変更するauthorityを持たない。tool契約は[Owner MCP](../../tools/owner_mcp/README.md#triage前のreview-set)を参照する。
+較正cohort/forward rows/ER artifactはrun cacheと別の測定正本であり、Bのcache切替で再生成・削除しない。`PanelRow.in_review_set`、`valuation_approaches`、`valuation_approach_ranks`等は既存測定wireとして保持する。その値は同じ純関数の候補理由から導出する。[較正](./estimate-calibration.md)のidentity一致条件を保つ。
 
 <a id="data-quality-context"></a>
 
 ## 品質context
 
-TTM非exactと業績YoY欠測の件数・比率はrunのpartial warningを決める。書込済み成果物の品質を説明するもので、会社を一律除外するgateではない。指標をNominationへ使えるかは各Approachの必要入力で決める。旧`yoy_deterioration_threshold`は現行rulesから除き、較正の業績変化による[診断群](./estimate-calibration.md#diagnostic-thresholds)とは分ける。
+TTM非exactと業績YoY欠測の件数・比率はrunのpartial warningを決める。書込済み成果物の品質を説明するもので、会社を一律除外するgateではない。指標を候補選抜へ使えるかは各Approachの必要入力で決める。旧`yoy_deterioration_threshold`は現行rulesから除き、較正の業績変化による[診断群](./estimate-calibration.md#diagnostic-thresholds)とは分ける。
 
-## Research Triage
+## Daily batchと読取
 
-ScreeningはL2のReview Setを発行し、Researchが全entryを判断する。Triageの保存契約・CAS・入力参照は[Research Triageの契約](./analysis-operations.md#research-triage-contract)、操作は[Research Triage skill](../../.agents/skills/research-triage/SKILL.md)が所有する。純粋なCandidate型と`PublishedReviewSet`は`screening/discovery/contracts`、Nominationとunionの生成は`screening/discovery/review_set`に分ける。package initから計算をeager importしない。
+日次はL1取得・L2の全分析と候補文脈を進め、同じrevisionから一世代のWeb viewsを生成する。Screening不足・失敗から独立したindicator refresh、日本休日のScreening skip、commit済みL1 chunkの保持は既存運用を維持する。[batch運用](../../batch/OPERATIONS.md)を参照する。
 
-## Daily batchとlocal analysis
+最新runに候補が0件でも古い候補runへfallbackしない。前runが無い最初の新cacheでは日次差分を未測定とし、次の自然なrunから比較する。候補entry/exitはmethod hashとscreening rules hashが一致する場合に比較し、E[r]差分だけはER model versionの一致も要求する。候補が空のrun同士も正常に比較できる。
 
-daily runnerはcloud scheduleまたは明示的なlocal実行でL1 / L2 machine処理だけを行い、同じcanonical runs storeを進める。
-
-```text
-screening run (run + Review Set atomic commit) + independent indicators
-    -> web materialize once -> existing publish path
-```
-
-Screeningの必要入力不足・実行失敗から指標refreshを独立させ、日本休日はScreeningだけをskipする。検証してcommitしたL1 chunkは後続失敗でも保持する。公開可能なstoreから全viewsを一度生成し、Screening未更新時はhistoryの生成/uploadとrun pruneを省く。現在画面とmetaは同じoperative runを参照し、過去の単独run・直接ID照会・cutoff付きValuationは引き続き読める。物理store/schemaやcron頻度を変えない。
-
-cloudからL3 Research Triageを発行しない。local `baibai-batch analysis run`はpull済みruns storeから対象`as_of`のlatest published Review Setを読み、必要な場合だけReview Set全体を原則1 requestで分類してResearch Triageを発行する。対象日にReview Setが無ければ前営業日へfallbackしない。有限選択とResearchは明示ユーザー開始で進め、提案完成と最終採否は分ける。旧章立てreport、migration、全期間再取得はどちらの日次経路にも載せない。
+read ownerの`analysis_run`はResearch日以下のanalysisと`known_at`以下のrun_atを同じread transactionで選ぶ。explicitの未知/未来revisionを最新runへ差替えない。日付labelはrevision identityではなく、同日再計算は新run_atと新UUIDを持つ。保存されたResearch入力からの再開はrun pruneに依存しない。
 
 ## Pruneと履歴
 
-`prune --keep N`は新しいrunをN世代残し、子のSecurity AnalysisとReview Setを同一transactionで削除して`VACUUM`する。Research Triage、thesis、Capital Allocation Assessment、Position Reviewはapplication DBのcanonical judgmentなのでrun pruneから独立する。
+`prune --keep N`は新しいrunをN世代残し、子のStock Analysisを同一transactionで削除して`VACUUM`する。候補tableは無い。評価・提案・保存Research入力はapplicationの正本であり、run pruneと分ける。Bで既存retentionを変更しない。
 
-市場・業種・個別相対の算術とcutoffは[Market Context読取](./market-context.md#market-context-reads)が所有する。Screeningは業種平均対市場平均に既存の比較母集団を渡し、ValuationのER/FVや4 Approachの推薦式へ環境scoreを追加しない。
+市場・業種・個別相対の算術とcutoffは[Market Context読取](./market-context.md#market-context-reads)が所有する。Screeningは既存の比較母集団を渡し、ValuationのER/FVや4 Approachの候補式へ環境scoreを追加しない。
 
 ## Market store inputs
 
@@ -130,12 +117,6 @@ J-Quantsのread取得は[provider](../../engine/src/baibai_engine/market/provide
 
 ## 検証
 
-- rules/method hash一致
-- 同一入力でReview Setがbyte-equivalent
-- E[r]だけを変更してもmembership/order不変
-- Research Triageの全entry一致、priority、rules/method identity、expected prior ID
-- 対象日のReview Setなし、空Review Set、exact既存Triageでmodel process 0。active Operationはdaily Triageを止めない
-- 通常Review Setは共有Market Context Assessment projectionを1回だけ含む1 AI request、invalid resultはcanonical write 0
-- Triage publishではOperation 0。ユーザーの明示開始と固定した新規/保有集合（0件も含む）でOperation 1
-- run storeとapplication DBがcurrent schemaに一致
-- Web/APIがReview Set、Research Triage、Capital Allocation Assessmentを同じbindingで表示
+候補集合・rank・母集団・丸め・method/rules/model identityと、同じ入力のPanelRow全値を旧commitの合成goldenへ照合する。保存では全行context、空分析/空候補、rollback、完全冪等、rules mismatch、日時の内容Conflictを確認する。readはexact revision・同日複数・Research cutoffと、破損をfilterで隠さない経路を検証する。
+
+最終consumer treeでCLI、Research、Web/MCP/batch、生成contracts、materialize、frontendと完全local gateを実行する。fixture成功を実store検証・provider読取・本番切替成功と読み替えない。
