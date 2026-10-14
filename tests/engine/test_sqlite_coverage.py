@@ -294,13 +294,16 @@ def tearDownModule() -> None:
 
 class SQLiteCoverageTests(unittest.TestCase):
     def test_complete_coverage_clones_are_isolated(self) -> None:
-        with _complete_coverage_database() as first_path:
-            with closing(sqlite3.connect(first_path)) as first, first:
-                first.execute("DELETE FROM jquants_master_snapshots")
-                first.commit()
-                first_count = int(
-                    first.execute("SELECT COUNT(*) FROM jquants_master_snapshots").fetchone()[0]
-                )
+        with (
+            _complete_coverage_database() as first_path,
+            closing(sqlite3.connect(first_path)) as first,
+            first,
+        ):
+            first.execute("DELETE FROM jquants_master_snapshots")
+            first.commit()
+            first_count = int(
+                first.execute("SELECT COUNT(*) FROM jquants_master_snapshots").fetchone()[0]
+            )
 
         with _complete_coverage_database() as second_path:
             with closing(sqlite3.connect(second_path)) as second, second:
