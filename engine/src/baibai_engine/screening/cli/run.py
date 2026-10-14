@@ -12,7 +12,6 @@ from typing import TextIO
 from baibai_engine.foundation.date_utils import weekday_distance
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
-from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.jpx_models import JPXEarningsCalendarEntry, JPXProviderError
 from baibai_engine.market.jquants_decode import JQuantsProviderError
@@ -43,10 +42,13 @@ from baibai_engine.screening.metrics.snapshot import (
 )
 from baibai_engine.screening.rule_config import ScreeningRules, load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
-from baibai_engine.screening.run_store import ScreeningRunStore
-from baibai_engine.screening.schema import ScreeningRunDocument, SecurityAnalysis
-from baibai_engine.screening.screening_run_serializer import serialize_screening_run_yaml
-from baibai_engine.screening.security_analysis_builder import build_security_analysis
+from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
+from baibai_engine.screening.schema import ScreeningRunDocument, StockAnalysis
+from baibai_engine.screening.screening_run_serializer import (
+    screening_run_payload,
+    serialize_published_run_yaml,
+)
+from baibai_engine.screening.stock_analysis_builder import build_stock_analysis
 from baibai_engine.screening.universe import (
     MIN_BAR_HISTORY,
     build_universe,
@@ -275,7 +277,7 @@ def run_command(
         asof_date=asof_date,
     )
 
-    security_analyses: list[SecurityAnalysis] = []
+    stock_analyses: list[StockAnalysis] = []
     for ticker in sorted(universe_result.snapshots):
         financial = metric_result.financials[ticker]
         derived = metric_result.derived[ticker]
@@ -293,8 +295,8 @@ def run_command(
             asof_date,
             close=financial.market_price_yen,
         )
-        security_analyses.append(
-            build_security_analysis(
+        stock_analyses.append(
+            build_stock_analysis(
                 ticker=ticker,
                 security=security,
                 financial=financial,
@@ -428,7 +430,7 @@ def run_command(
             "markets": "prime/standard/growth",
             "min_bar_history": MIN_BAR_HISTORY,
         },
-        security_analyses=tuple(security_analyses),
+        stock_analyses=tuple(stock_analyses),
         run_at=run_now,
         run_id=run_id,
         screening_rules_hash=production_rules_contract_hash(rules.model_dump_json()),
@@ -441,34 +443,39 @@ def run_command(
         ttm_quality_counts=metric_result.ttm_quality_counts,
         fallback_lines=tuple(fallback_lines),
     )
-    publication_yaml = serialize_screening_run_yaml(document)
-    raw_payload = safe_load(publication_yaml)
-    if not isinstance(raw_payload, Mapping):  # pragma: no cover - renderer invariant
-        raise AssertionError("screening renderer must produce a mapping")
     try:
         publication = ScreeningRunStore(run_store_path).publish_run(
-            raw_payload,
+            screening_run_payload(document),
+            rules=rules,
             run_revision_id=run_revision_id,
-            review_set_rules=rules.candidate_discovery,
-            required_jpx_flags=rules.universe.required_jpx_flags,
         )
     except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
         print(f"screening run publication failed: {exc}", file=sys.stderr)
         return 1
-    yaml_text = serialize_screening_run_yaml(
-        document,
-        run_revision_id=publication.publication_id,
-        review_set_id=publication.review_set_id,
-    )
-    if output_path is not None:
-        write_text_atomic(output_path, yaml_text)
+    try:
+        saved = ScreeningRunReader(run_store_path).get_run(publication.publication_id)
+        if saved is None:
+            raise ValueError("committed run revision was not found")
+        yaml_text = serialize_published_run_yaml(saved)
+        if output_path is not None:
+            write_text_atomic(output_path, yaml_text)
+    except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
+        print(
+            f"screening run committed: run_revision_id={publication.publication_id}; "
+            f"export failed: {exc}; recover with screening run-show --run-revision-id "
+            f"{publication.publication_id}",
+            file=sys.stderr,
+        )
+        return 1
+    discovery = saved.payload["candidate_discovery"]
+    candidate_count = discovery["diagnostics"]["candidate_count"]
     status = "partial warning" if partial_warning else "ok"
     print(
         "screening run done: "
         f"status={status}; run_revision_id={publication.publication_id}; "
-        f"review_set_id={publication.review_set_id}; "
+        f"candidate_count={candidate_count}; "
         f"output={output_path}; "
-        f"universe={universe_size}; analyzed_securities={len(security_analyses)}",
+        f"universe={universe_size}; analyzed_stocks={len(stock_analyses)}",
         file=out,
         flush=True,
     )

@@ -1,7 +1,7 @@
-"""Point-in-time panel for Security Analysis and Review Set replay.
+"""Point-in-time panel for Stock Analysis and candidate replay.
 
-本番 run と同じ部品 (`build_metrics` / `security_analysis_payload` /
-`build_nomination_ranks` / `build_review_set`) をそのまま呼ぶことで、リプレイと本番のロジック一致を
+本番 run と同じ部品 (`build_metrics` / `stock_analysis_payload` /
+`build_candidate_contexts`) をそのまま呼ぶことで、リプレイと本番のロジック一致を
 実装の単一性で担保する。相違点は入力の中立化だけ:
 
 - market_context_assessment=None (市場環境判断はannotation であり順位に使わない)
@@ -50,15 +50,11 @@ from baibai_engine.valuation.metrics.profit import (
 )
 from baibai_engine.valuation.metrics.relative import SECTOR_MEDIAN_BASIS_MARKET, VALUATION_METRICS
 
-from ..discovery.review_set import (
-    build_nomination_ranks,
-    build_review_set,
-    candidate_discovery_method_hash,
-)
+from ..discovery.candidates import build_candidate_contexts, candidate_discovery_method_hash
 from ..rule_config import ScreeningRules
-from ..schema import SecurityAnalysis
-from ..screening_run_serializer import security_analysis_payload
-from ..security_analysis_builder import build_security_analysis, expected_return_inputs
+from ..schema import StockAnalysis
+from ..screening_run_serializer import stock_analysis_payload
+from ..stock_analysis_builder import build_stock_analysis, expected_return_inputs
 from ..universe import (
     POLICY_EXCLUSION_REASONS,
     UNIVERSE_SCOPE_REVISION,
@@ -410,10 +406,10 @@ def build_panel(
         )
         for ticker in universe_result.snapshots
     }
-    candidates: list[SecurityAnalysis] = []
+    candidates: list[StockAnalysis] = []
     for ticker in sorted(universe_result.snapshots):
         candidates.append(
-            build_security_analysis(
+            build_stock_analysis(
                 ticker=ticker,
                 security=securities_by_ticker[ticker],
                 financial=metric_result.financials[ticker],
@@ -423,20 +419,12 @@ def build_panel(
             )
         )
 
-    analysis_payloads = [security_analysis_payload(candidate) for candidate in candidates]
-    nomination_ranks = build_nomination_ranks(
+    analysis_payloads = [stock_analysis_payload(candidate) for candidate in candidates]
+    discovery = build_candidate_contexts(
         analysis_payloads,
         rules=rules.candidate_discovery,
         required_jpx_flags=rules.universe.required_jpx_flags,
     )
-    review_set = build_review_set(
-        analysis_payloads,
-        rules=rules.candidate_discovery,
-        required_jpx_flags=rules.universe.required_jpx_flags,
-    )
-    entries = review_set["entries"]
-    assert isinstance(entries, list)
-    review_set_tickers = {str(entry["ticker"]) for entry in entries if isinstance(entry, dict)}
 
     latest_close_by_ticker = {
         ticker: financial.market_price_yen
@@ -555,13 +543,13 @@ def build_panel(
                 operating_profit_to_assets=profitability.operating_profit_to_assets,
                 operating_margin=profitability.operating_margin,
                 asset_turnover=profitability.asset_turnover,
-                in_review_set=ticker in review_set_tickers,
+                in_review_set=bool(discovery.contexts[ticker].reasons),
                 valuation_approaches="|".join(
-                    item.valuation_approach_id for item in nomination_ranks.get(ticker, ())
+                    item.valuation_approach_id for item in discovery.contexts[ticker].reasons
                 ),
                 valuation_approach_ranks="|".join(
                     f"{item.valuation_approach_id}:{item.rank}"
-                    for item in nomination_ranks.get(ticker, ())
+                    for item in discovery.contexts[ticker].reasons
                 ),
                 smg_market_fallback="|".join(
                     metric
@@ -624,7 +612,7 @@ def build_panel(
         universe_size=len(universe_result.snapshots),
         population_size=len(median_population),
         security_analyses=len(candidates),
-        nominated_candidates=len(nomination_ranks),
+        nominated_candidates=discovery.candidate_count,
         bars_tickers_not_in_master=sum(
             1 for ticker in bars_by_ticker if ticker not in securities_by_ticker
         ),

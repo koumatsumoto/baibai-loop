@@ -11,6 +11,8 @@ from pydantic.dataclasses import dataclass
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.ticker import normalize_ticker as normalize_ticker
 
+from .discovery.contracts import StockCandidateContext
+
 _MODEL_CONFIG = ConfigDict(
     strict=True,
     arbitrary_types_allowed=False,
@@ -134,7 +136,7 @@ class FreshnessWarning:
 
 
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
-class SecurityAnalysis:
+class StockAnalysis:
     ticker: Ticker
     name: NonEmptyString
     per_forward: float | None
@@ -162,6 +164,7 @@ class SecurityAnalysis:
     next_earnings_date: date | None = None
     split_adjustment_flag: bool = False
     freshness_warnings: tuple[FreshnessWarning, ...] = ()
+    candidate: StockCandidateContext | None = None
 
     @field_validator("freshness_warnings", "jpx_flags", mode="before")
     @classmethod
@@ -201,7 +204,7 @@ class ScreeningRunDocument:
     asof_date: date
     universe_size: NonNegativeInt
     filters: Mapping[str, Any]
-    security_analyses: tuple[SecurityAnalysis, ...]
+    stock_analyses: tuple[StockAnalysis, ...]
     run_at: datetime
     run_id: NonEmptyString
     screening_rules_hash: NonEmptyString
@@ -218,7 +221,7 @@ class ScreeningRunDocument:
     fallback_lines: tuple[str, ...] = ()
 
     @field_validator(
-        "security_analyses",
+        "stock_analyses",
         "data_sources",
         "provider_status_lines",
         "universe_exclusion_lines",

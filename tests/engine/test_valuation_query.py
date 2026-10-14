@@ -22,8 +22,8 @@ from baibai_engine.screening.discovery.review_set import build_review_set
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.run_store import ScreeningRunStore
 from baibai_engine.screening.schema import DerivedMetrics
-from baibai_engine.screening.security_analysis_builder import (
-    build_security_analysis_metrics,
+from baibai_engine.screening.stock_analysis_builder import (
+    build_stock_analysis_metrics,
     expected_return_inputs,
 )
 from baibai_engine.storage.application.json import canonical_json
@@ -194,7 +194,7 @@ def test_saved_carry_inputs_reach_valuation_triage_and_research_without_changing
         "1234",
         per_forward=financial.per_forward,
         pbr=financial.pbr,
-        metrics=build_security_analysis_metrics(
+        metrics=build_stock_analysis_metrics(
             financial, derived=derived, freshness_warning_count=0, estimate=estimate
         ),
     )

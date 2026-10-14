@@ -15,7 +15,7 @@ from baibai_engine.market_context.margin import (
 from baibai_engine.screening.calibration import store as calibration_store
 from baibai_engine.screening.calibration.store import CalibrationCacheError, read_panel
 from baibai_engine.screening.schema import DerivedMetrics
-from baibai_engine.screening.security_analysis_builder import build_security_analysis_metrics
+from baibai_engine.screening.stock_analysis_builder import build_stock_analysis_metrics
 from baibai_engine.valuation.metrics.models import FinancialSnapshot
 
 WEEK = date(2026, 7, 24)
@@ -123,7 +123,7 @@ class DerivedMetricsCarriesEveryAxisTest(unittest.TestCase):
         self.assertEqual(derived.margin_week_end, WEEK)
 
     def test_security_analysis_output_carries_short_to_adv_and_observation_week(self) -> None:
-        metrics = build_security_analysis_metrics(
+        metrics = build_stock_analysis_metrics(
             FinancialSnapshot(
                 latest_financial_disclosure_date=None,
                 per_forward=None,
