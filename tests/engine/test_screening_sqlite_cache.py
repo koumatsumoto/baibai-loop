@@ -199,8 +199,18 @@ class SQLiteCacheTest(unittest.TestCase):
             rows = store_jquants_fin_summaries(
                 db,
                 [
-                    {"Code": "72030", "DisclosedDate": "2026-05-08", "NetSales": 100},
-                    {"Code": "72030", "DisclosedDate": "2026-05-08", "NetSales": 101},
+                    {
+                        "Code": "72030",
+                        "DisclosedDate": "2026-05-08",
+                        "NetSales": 100,
+                        "DiscNo": "synthetic-document",
+                    },
+                    {
+                        "Code": "72030",
+                        "DisclosedDate": "2026-05-08",
+                        "NetSales": 101,
+                        "DiscNo": "synthetic-document",
+                    },
                 ],
                 requested_start=date(2026, 5, 8),
                 requested_end=date(2026, 5, 8),

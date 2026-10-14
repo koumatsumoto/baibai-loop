@@ -13,9 +13,11 @@ from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.valuation.metrics.periods import (
     _accounting_observation_key,
+    _accounting_period_identity,
     _AccountingObservationKey,
     _actual_rows,
     _latest_non_null_row,
+    resolve_actual_conflicts,
 )
 
 
@@ -151,15 +153,15 @@ def _interim_split_basis(
 
     def classify(field_name: str) -> _ShareBasis:
         current = getattr(summary, field_name)
-        previous_row = next(
-            (
+        previous_row = _latest_non_null_row(
+            [
                 row
-                for row in reversed(summaries[:index])
-                if (value := getattr(row, field_name)) is not None
-                and value > 0
-                and row.disclosed_at < first_ex
-            ),
-            None,
+                for row in summaries
+                if row.disclosed_at < first_ex
+                and getattr(row, field_name) is not None
+                and getattr(row, field_name) > 0
+            ],
+            field_name,
         )
         if current is None or current <= 0 or previous_row is None:
             return _ShareBasis.INDETERMINATE
@@ -239,6 +241,7 @@ def _normalize_summaries_with_status(
 ) -> _NormalizedSummaryResult:
     """Normalize rows while preserving an explicit fail-close capital carry barrier."""
 
+    summaries = resolve_actual_conflicts(summaries)
     has_adjustment = any(
         bar.adjustment_factor not in (None, 0.0, 1.0)
         for bar in ticker_bars
@@ -383,8 +386,42 @@ def _resolve_capital_basis(
         )
 
     if issued_row is not None and treasury_row is not None:
+        same_period_day = (
+            _accounting_period_identity(issued_row) == _accounting_period_identity(treasury_row)
+            and issued_row.disclosed_at == treasury_row.disclosed_at
+        )
+        incomparable_time = same_period_day and (
+            not issued_row.disclosed_time
+            or not treasury_row.disclosed_time
+            or issued_row.disclosed_time == treasury_row.disclosed_time
+        )
+        if incomparable_time:
+            # Keep a fully observed pair when all candidates agree; never manufacture
+            # the pair from two partial documents with unresolved chronology.
+            complete = [
+                row
+                for row in capital_rows
+                if _accounting_period_identity(row) == _accounting_period_identity(issued_row)
+                and row.disclosed_at == issued_row.disclosed_at
+                and row.shares_outstanding == issued
+                and row.treasury_shares == treasury
+            ]
+            if complete:
+                issued_row = treasury_row = complete[0]
         issued_source_key = _accounting_observation_key(issued_row)
         treasury_source_key = _accounting_observation_key(treasury_row)
+        if (
+            incomparable_time
+            and issued_row.record_key is not None
+            and treasury_row.record_key is not None
+            and issued_row.record_key != treasury_row.record_key
+        ):
+            return _CapitalBasisResolution(
+                issued=issued,
+                treasury=treasury,
+                shares_ex_treasury=None,
+                failure_reason="conflicting_capital_document_sources",
+            )
         if issued_source_key != treasury_source_key and treasury > 0:
             issued_at_treasury = treasury_row.shares_outstanding
             if issued_at_treasury is None:

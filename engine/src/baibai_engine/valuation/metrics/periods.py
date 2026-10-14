@@ -3,21 +3,28 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import date
+from typing import Any
 
 from baibai_engine.foundation.date_utils import add_months_clamped
+from baibai_engine.market.financial_documents import (
+    disclosure_revision,
+    latest_disclosure_candidates,
+)
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.valuation.metrics.models import TTMRules
 
-_AccountingObservationKey = tuple[date, int, date, date, int, date]
+_AccountingPeriodKey = tuple[date, int, date, date, int]
+_AccountingObservationKey = tuple[_AccountingPeriodKey, tuple[date, str]]
 
 _FISCAL_PERIOD_ORDER = {"1Q": 1, "2Q": 2, "3Q": 3, "FY": 4}
 
 
-def _accounting_observation_key(
+def _accounting_period_identity(
     summary: JQuantsFinancialSummary,
-) -> _AccountingObservationKey:
+) -> _AccountingPeriodKey:
     """Period-first order for actual facts and capital state.
 
     A delayed correction may be disclosed after the current quarter while describing
@@ -51,7 +58,35 @@ def _accounting_observation_key(
         summary.fiscal_year_end or date.min,
         summary.period_start or date.min,
         period_order,
-        summary.disclosed_at,
+    )
+
+
+def _accounting_observation_key(summary: JQuantsFinancialSummary) -> _AccountingObservationKey:
+    return _accounting_period_identity(summary), disclosure_revision(summary)
+
+
+def _latest_consistent_actual(
+    candidates: Sequence[JQuantsFinancialSummary], fields: Sequence[str]
+) -> JQuantsFinancialSummary | None:
+    if not candidates:
+        return None
+    period = max(map(_accounting_period_identity, candidates))
+    latest = latest_disclosure_candidates(
+        [row for row in candidates if _accounting_period_identity(row) == period]
+    )
+    for field in fields:
+        if any(field in row.unresolved_actual_fields for row in latest):
+            return None
+        values = {getattr(row, field) for row in latest if getattr(row, field) is not None}
+        if len(values) > 1:
+            return None
+    # Availability chooses a representative only after numeric agreement. It does
+    # not establish a publication order, and never fills a capital pair across rows.
+    return max(
+        latest,
+        key=lambda row: sum(
+            getattr(row, field) is not None for field in (fields or _ACTUAL_ANCHOR_FIELDS)
+        ),
     )
 
 
@@ -74,13 +109,44 @@ _ACTUAL_ANCHOR_FIELDS = (
 )
 
 
+def resolve_actual_conflicts(
+    summaries: Sequence[JQuantsFinancialSummary],
+) -> list[JQuantsFinancialSummary]:
+    """Mask only contradictory fields in a period/revision cohort; keep source rows."""
+    groups: dict[_AccountingPeriodKey, list[JQuantsFinancialSummary]] = {}
+    for row in summaries:
+        groups.setdefault(_accounting_period_identity(row), []).append(row)
+    changes: dict[int, JQuantsFinancialSummary] = {}
+    for group in groups.values():
+        for field in _ACTUAL_ANCHOR_FIELDS:
+            observed = [
+                row
+                for row in group
+                if getattr(row, field) is not None or field in row.unresolved_actual_fields
+            ]
+            latest = latest_disclosure_candidates(observed)
+            if len({getattr(row, field) for row in latest if getattr(row, field) is not None}) <= 1:
+                continue
+            for row in latest:
+                current = changes.get(id(row), row)
+                values: dict[str, Any] = {
+                    field: None,
+                    "unresolved_actual_fields": tuple(
+                        sorted(set(current.unresolved_actual_fields) | {field})
+                    ),
+                }
+                changes[id(row)] = replace(current, **values)
+    return [changes.get(id(row), row) for row in summaries]
+
+
 def _actual_rows(
     summaries: Sequence[JQuantsFinancialSummary],
 ) -> list[JQuantsFinancialSummary]:
     return [
         summary
         for summary in summaries
-        if any(getattr(summary, field_name) is not None for field_name in _ACTUAL_ANCHOR_FIELDS)
+        if summary.unresolved_actual_fields
+        or any(getattr(summary, field_name) is not None for field_name in _ACTUAL_ANCHOR_FIELDS)
     ]
 
 
@@ -94,12 +160,17 @@ def _latest_actual_row(
         summary
         for summary in summaries
         if (
-            all(getattr(summary, field_name) is not None for field_name in required)
+            all(
+                getattr(summary, field_name) is not None
+                or field_name in summary.unresolved_actual_fields
+                for field_name in required
+            )
             if field_names
-            else any(getattr(summary, field_name) is not None for field_name in required)
+            else bool(summary.unresolved_actual_fields)
+            or any(getattr(summary, field_name) is not None for field_name in required)
         )
     ]
-    return max(candidates, key=_accounting_observation_key, default=None)
+    return _latest_consistent_actual(candidates, required if field_names else ())
 
 
 def _latest_actual_row_with_any(
@@ -109,9 +180,13 @@ def _latest_actual_row_with_any(
     candidates = [
         summary
         for summary in summaries
-        if any(getattr(summary, field_name) is not None for field_name in field_names)
+        if any(
+            getattr(summary, field_name) is not None
+            or field_name in summary.unresolved_actual_fields
+            for field_name in field_names
+        )
     ]
-    return max(candidates, key=_accounting_observation_key, default=None)
+    return _latest_consistent_actual(candidates, ())
 
 
 def _latest_actual_row_by_field_priority(
@@ -129,16 +204,19 @@ def _latest_actual_row_by_field_priority(
     latest = _latest_actual_row_with_any(summaries, field_names)
     if latest is None:
         return None
-    period_key = _accounting_observation_key(latest)[:-1]
+    period_key = _accounting_period_identity(latest)
     for field_name in field_names:
         candidates = [
             summary
             for summary in summaries
-            if _accounting_observation_key(summary)[:-1] == period_key
-            and getattr(summary, field_name) is not None
+            if _accounting_period_identity(summary) == period_key
+            and (
+                getattr(summary, field_name) is not None
+                or field_name in summary.unresolved_actual_fields
+            )
         ]
         if candidates:
-            return max(candidates, key=_accounting_observation_key)
+            return _latest_consistent_actual(candidates, (field_name,))
     return None
 
 
@@ -236,7 +314,9 @@ def _prior_year_summary(
         if summary.fiscal_period == latest.fiscal_period
         and summary.fiscal_year_end == target_fiscal_year_end
     ]
-    return max(candidates, key=lambda item: item.disclosed_at, default=None)
+    return _latest_consistent_actual(
+        candidates, (field_name,) if field_name else _ACTUAL_ANCHOR_FIELDS
+    )
 
 
 def _ttm_value(
@@ -254,7 +334,19 @@ def _ttm_value(
         raise ValueError(f"{field} is per share; compose the yen line and convert once at the end")
     # 非実績開示は過去の実績を取り消さない。必要fieldの欠損は選択後に判定する。
     actuals = _actual_rows(summaries)
-    latest = _latest_actual_row(actuals)
+    anchor = _latest_actual_row(actuals)
+    cohort = (
+        latest_disclosure_candidates(
+            [
+                row
+                for row in actuals
+                if _accounting_period_identity(row) == _accounting_period_identity(anchor)
+            ]
+        )
+        if anchor is not None
+        else []
+    )
+    latest = _latest_actual_row(cohort, field_names=(field,))
     if (
         latest is None
         or getattr(latest, field) is None
@@ -273,11 +365,12 @@ def _ttm_value(
     if latest.fiscal_year_end is None:
         return None, TTMQuality.UNAVAILABLE
     prior_fy_end = add_months_clamped(latest.fiscal_year_end, -12)
-    prior_fy = _latest_full_year_summary(actuals, prior_fy_end, ttm_rules)
+    prior_fy = _latest_full_year_summary(actuals, prior_fy_end, ttm_rules, field_name=field)
     prior_same = _matched_prior_period_summary(
         actuals,
         latest,
         ttm_rules,
+        value_field=field,
     )
     if prior_fy is None or prior_same is None:
         return None, TTMQuality.UNAVAILABLE
@@ -292,6 +385,8 @@ def _latest_full_year_summary(
     summaries: Sequence[JQuantsFinancialSummary],
     fiscal_year_end: date,
     ttm_rules: TTMRules,
+    *,
+    field_name: str | None = None,
 ) -> JQuantsFinancialSummary | None:
     candidates = [
         summary
@@ -300,7 +395,7 @@ def _latest_full_year_summary(
         and (days := _period_days(summary)) is not None
         and ttm_rules.full_year_min_days <= days <= ttm_rules.full_year_max_days
     ]
-    return max(candidates, key=lambda item: item.disclosed_at, default=None)
+    return _latest_consistent_actual(candidates, (field_name,) if field_name else ())
 
 
 def _matched_prior_period_summary(
@@ -309,6 +404,7 @@ def _matched_prior_period_summary(
     ttm_rules: TTMRules,
     *,
     field_name: str | None = None,
+    value_field: str | None = None,
 ) -> JQuantsFinancialSummary | None:
     if latest.period_start is None or latest.period_end is None:
         return None
@@ -332,7 +428,10 @@ def _matched_prior_period_summary(
         if abs((summary.period_start - prior_start).days) > ttm_rules.period_end_tolerance_days:
             continue
         candidates.append(summary)
-    return max(candidates, key=lambda item: item.disclosed_at, default=None)
+    comparison_field = value_field or field_name
+    return _latest_consistent_actual(
+        candidates, (comparison_field,) if comparison_field is not None else ()
+    )
 
 
 def _period_days(summary: JQuantsFinancialSummary) -> int | None:

@@ -413,7 +413,7 @@ def test_exact_saved_universe_uses_market_and_all_33_sectors_keeps_alpha_and_fix
     assert hashlib.sha256(database.read_bytes()).hexdigest() == before
     with sqlite3.connect(database) as connection:
         assert (
-            connection.execute("PRAGMA user_version").fetchone()[0] == SQLITE_SCHEMA_VERSION == 31
+            connection.execute("PRAGMA user_version").fetchone()[0] == SQLITE_SCHEMA_VERSION == 32
         )
 
 

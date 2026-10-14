@@ -6,6 +6,7 @@ measure a different Candidate Discovery input from the production Screening Run.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from datetime import date
 
@@ -22,7 +23,11 @@ from baibai_engine.valuation.estimates import (
     ExpectedReturnInputs,
     estimate_expected_return,
 )
-from baibai_engine.valuation.metrics.models import UNRESOLVED_DIVIDEND_BASIS, FinancialSnapshot
+from baibai_engine.valuation.metrics.models import (
+    UNRESOLVED_ACTUAL_DIVIDEND_BASIS,
+    UNRESOLVED_DIVIDEND_BASIS,
+    FinancialSnapshot,
+)
 
 from .earnings_lag import EarningsLag
 
@@ -156,6 +161,16 @@ def build_security_analysis_metrics(
         "forecast_full_year_loss_flag": financial.forecast_full_year_loss_flag,
         "dps_actual_annual": financial.dps_actual_annual,
         "dps_forecast_annual": financial.dps_forecast_annual,
+        "earnings_forecast_source": json.dumps(
+            financial.earnings_forecast_source, ensure_ascii=False
+        )
+        if financial.earnings_forecast_source
+        else None,
+        "dividend_forecast_source": json.dumps(
+            financial.dividend_forecast_source, ensure_ascii=False
+        )
+        if financial.dividend_forecast_source
+        else None,
         "dividend_yield": financial.dividend_yield,
         "dividend_basis": financial.dividend_basis,
         "dividend_split_factor": financial.dividend_split_factor,
@@ -254,6 +269,7 @@ def expected_return_inputs(
         self_range_median=derived.self_range_median,
         dividend_yield=financial.dividend_yield,
         net_share_change_yoy=financial.net_share_change_yoy,
-        dividend_basis_resolved=financial.dividend_basis != UNRESOLVED_DIVIDEND_BASIS,
+        dividend_basis_resolved=financial.dividend_basis
+        not in {UNRESOLVED_DIVIDEND_BASIS, UNRESOLVED_ACTUAL_DIVIDEND_BASIS},
         close=close,
     )
