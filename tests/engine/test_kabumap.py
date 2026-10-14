@@ -1,6 +1,7 @@
 """Small synthetic structural fixtures; no provider page is committed."""
 
 import sqlite3
+from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -186,7 +187,7 @@ def test_new_daily_plan_has_three_sources_and_old_two_source_plan_stays_valid():
 def test_bank_is_in_saved_ordinary_universe_without_financial_eligibility_filter(tmp_path):
     path = tmp_path / "market.sqlite"
     seed_database(path)
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute(
             "INSERT INTO jquants_master_snapshots VALUES (?,?,?,?,?,?)",
             (ASOF.isoformat(), "8306", "合成銀行", "PRIME", "銀行業", 0),

@@ -44,7 +44,7 @@ from .profit import (
 )
 from .ratios import _safe_positive_ratio, _safe_ratio, _yoy_ratio
 
-VALUATION_CALCULATION_REVISION = "document-period-forecasts-v27"
+VALUATION_CALCULATION_REVISION = "offsetting-dividend-actions-v28"
 
 
 def build_financial_snapshot(

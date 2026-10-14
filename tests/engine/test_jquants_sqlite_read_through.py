@@ -4,6 +4,7 @@ import datetime as dt
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from datetime import date, timedelta
 from itertools import pairwise
 from pathlib import Path
@@ -11,8 +12,6 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-
-ROOT = Path(__file__).resolve().parents[2]
 
 from tests.helpers.screening_sqlite import add_source_coverage, make_master_records
 
@@ -41,7 +40,7 @@ def test_adjusted_only_ingest_preserves_observation_and_event_without_a_raw_pric
         )
         == 1
     )
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection:
         row = connection.execute(
             "SELECT close,adjustment_close,adjustment_factor FROM jquants_daily_bars"
         ).fetchone()
@@ -72,7 +71,7 @@ class _RecordingClient:
     def get_eq_bars_daily_range(self, start_dt: str, end_dt: str) -> list[dict[str, Any]]:
         self.bars_calls.append((start_dt, end_dt))
         # Return a dense bar per day so a fetched chunk satisfies the data-derived
-        # coverage check (every trading day present).
+        # coverage check. These are synthetic calendar-day bars, not an exchange calendar.
         current = date.fromisoformat(start_dt)
         end = date.fromisoformat(end_dt)
         bars: list[dict[str, Any]] = []
@@ -370,10 +369,11 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             self.assertEqual(latest, "2024-04-18")
 
     def test_a_window_ending_behind_the_store_does_not_refetch_its_tail(self) -> None:
-        """A historical window whose end falls on a closed market looks covered with
-        an edge gap, but nothing inside it can have been published since the last
-        fetch. Reading it live would delete and rewrite that cross-section on every
-        pass, and a provider that answered with nothing would erase it."""
+        """A covered historical window is reused instead of implicitly re-fetched.
+
+        Later stored bars do not prove the edge gap is a holiday or rule out a
+        provider correction. This test verifies reuse, not historical completeness.
+        """
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             conn = open_connection(sqlite_path)
@@ -692,7 +692,7 @@ class FinSummaryFetchWindowTests(unittest.TestCase):
             return client.fin_calls
 
     def test_a_refresh_rereads_the_trailing_window_even_when_covered(self) -> None:
-        """The overlap is the only path by which a late-published filing lands."""
+        """The refresh overlap re-requests already covered disclosure dates."""
         self.assertEqual(
             self._refreshed([(self._START, self._END, True)], overlap=7),
             [("2026-04-24", "2026-05-01")],
@@ -968,8 +968,6 @@ if __name__ == "__main__":  # pragma: no cover
 
 
 def test_later_financial_http_failure_retains_validated_earlier_chunk(tmp_path: Path) -> None:
-    import sqlite3
-
     class FailingSecondChunkClient:
         def __init__(self) -> None:
             self.calls = []
@@ -988,7 +986,7 @@ def test_later_financial_http_failure_retains_validated_earlier_chunk(tmp_path: 
         provider.refresh_fin_summary_range(
             date(2026, 7, 1), date(2026, 8, 31), revision_overlap_days=7
         )
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection:
         assert connection.execute(
             "SELECT ticker, disclosed_at, forecast_eps FROM jquants_fin_summaries"
         ).fetchall() == [("2331", "2026-07-01", 10.0)]

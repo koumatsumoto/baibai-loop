@@ -48,7 +48,9 @@ def document():
 
 
 def input_file(tmp_path, value=None):
-    raw = json.dumps(document() if value is None else value, sort_keys=True, separators=(",", ":")).encode()
+    raw = json.dumps(
+        document() if value is None else value, sort_keys=True, separators=(",", ":")
+    ).encode()
     path = tmp_path / "input.json"
     path.write_bytes(raw)
     return path, hashlib.sha256(raw).hexdigest()

@@ -6,8 +6,6 @@ import unittest
 from datetime import date
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-
 from tests.helpers.screening_sqlite import add_source_coverage
 
 from baibai_engine.market.edinet_metrics.store import read_edinet_documents, read_edinet_metrics

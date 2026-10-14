@@ -235,3 +235,21 @@ def test_reinvestment_accepts_zero_debt_and_cash_but_not_nonpositive_capital():
     assert discovery._reinvestment_values(row) is not None
     row["metrics"]["cash"] = 120.0
     assert discovery._reinvestment_values(row) is None
+
+
+def test_offsetting_dividend_actions_have_distinct_calculation_identity(monkeypatch):
+    from baibai_engine.screening.calibration import forward, panel
+    from baibai_engine.valuation.metrics import financial_snapshot
+
+    rules = load_screening_rules()
+    production = production_rules_contract_hash(rules.model_dump_json())
+    calibration = rules_content_hash(rules)
+    forward_identity = forward.DEFAULT_FORWARD_OBSERVATION_POLICY.digest
+    monkeypatch.setattr(
+        financial_snapshot, "VALUATION_CALCULATION_REVISION", "document-period-forecasts-v27"
+    )
+    monkeypatch.setattr(panel, "VALUATION_CALCULATION_REVISION", "document-period-forecasts-v27")
+    monkeypatch.setattr(forward, "FORWARD_CALCULATION_REVISION", "fy-dividend-document-revisions-v1")
+    assert production_rules_contract_hash(rules.model_dump_json()) != production
+    assert rules_content_hash(rules) != calibration
+    assert forward.DEFAULT_FORWARD_OBSERVATION_POLICY.digest != forward_identity

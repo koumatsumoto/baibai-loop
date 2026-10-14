@@ -132,9 +132,9 @@ class _JQuantsTransport:
                 return
             stored_latest = latest_stored_daily_bar_date(self._sqlite_path)
             if stored_latest is not None and end < stored_latest:
-                # The window ends before days the store already holds, so the
-                # edge gap is a closed market rather than a tail the provider
-                # has since published. Reading it live would delete and rewrite
+                # Reuse a historical window accepted by the coverage policy.
+                # Later stored dates do not prove that its edge gap is a holiday.
+                # Implicit re-fetching would delete and rewrite
                 # a historical cross-section on every pass over a past window.
                 return
             # The coverage check tolerates a holiday-sized edge gap, so an
