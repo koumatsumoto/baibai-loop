@@ -7,6 +7,8 @@ status: historical
 
 # 実現 FY 配当を使った E[r] 絶対水準較正
 
+これは旧 schema v5・固定 commit による測定履歴である。以下の「最新 non-null」選択や年間 DPS の一括換算を現行仕様として使わない。現行の訂正時刻・欠測・会計期間内の株式基準処理とは異なり、元の計測値・artifact を新 revision へ付け替えない。近似 FY 配当は実際の権利・支払日を再現する cash-flow 記録ではない。
+
 価値tier: T1 — E[r] の絶対年率を実現 total return と同じ座標で検証し、research・保有見直し・cash 判断に使う期待利回りの系統誤差を減らす。
 
 ## 1. 測定契約
@@ -41,7 +43,7 @@ schema v5 は forward row に `realized_dividend_sum`、`realized_dividend_fy_co
 
 ## 3. quintile 水準表
 
-各値は required 11 cohort における cohort-level median の中央値。単位は年率、`n` だけ銘柄数である。
+各値は required 11 cohort における cohort-level median の中央値。単位は年率、`n` だけ銘柄数である。error や配当差もそれぞれの差を集約した値なので、別々に集約した表の中央値同士の単純な差とは一致しない。
 
 ### 1y diagnostic
 

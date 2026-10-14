@@ -1,12 +1,14 @@
 ---
 title: "利益正規化anchorとself-range長期化の計測結果"
-summary: "3 FY正規化PERは独立したtrap識別候補、cycle peak flagと1250/2500 self-rangeは不採用と判定した。"
+summary: "3 FY正規化PERは層別比較でも方向が残ったtrap識別候補、cycle peak flagと1250/2500 self-rangeは不採用と判定した。"
 doc_type: report
 status: historical
 date: 2026-08-02
 ---
 
 # 利益正規化anchorとself-range長期化の計測結果
+
+本書は当時の固定実装・採否条件の履歴であり、現行の FY 訂正選択・会計期間・株数基準やドメイン構成を定義しない。計測値は再生成しておらず、旧 variant・CLI・採用計画は現行運用へ転用しない。control ごとの層別比較は複数属性の同時調整や独立性の証明ではない。
 
 価値tier: T1 — ピーク利益を正常利益として外挿するE[r]上位候補を識別し、一次リサーチ前の候補品質とFV/E[r] anchorの較正を改善する。
 

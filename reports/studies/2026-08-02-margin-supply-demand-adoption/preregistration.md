@@ -8,13 +8,15 @@ date: 2026-08-02
 
 # 信用需給 gate・空売り残・規模内混雑の事前登録
 
+本書は旧 selection / shortlist と当時の週次信用残による検証履歴である。以下の UI 完了・列存続・CLI は当時の状態で、現行画面や日次取得仕様の説明ではない。short は対象データの信用売残であり、市場全体の空売り残や機関投資家の報告残高とは同一でない。「制度期日偏重」は制度信用比率の旧表示名で、個別建玉の返済期限集中を測ってはいない。
+
 価値tier: T1 — 建玉 overhang と informed short の候補を selection 前に識別し、一次リサーチ枠へ入るバリュートラップを減らす。
 
 本書は #720 の forward outcome を新たに計測する前に、H-1〜H-3 の列、方向、母集団、時間窓、交絡確認、採否条件を固定する。数値を見た後に閾値、方向、窓、統計量を変更しない。方向または効果量の未達は `negative`、標本または authority の未達は `insufficient` とする。
 
 ## 1. 既知情報と独立性
 
-`reports/2026-07-31-margin-supply-demand-preregistration.md` で次を観測済みである。
+[信用需給軸の事前登録](../2026-07-31-margin-supply-demand/preregistration.md) で次を観測済みである。
 
 - `margin_std_long_share` は 1y / 3y と時間分割で仮説方向に出た。判断面の既存 flag は、当時の候補・流動性母集団の第9 decile 境界に対応する固定値 `0.75` を使う。
 - `margin_long_share` は事前登録方向と逆に強く出た。したがって同列の方向だけを反転して再評価しない。

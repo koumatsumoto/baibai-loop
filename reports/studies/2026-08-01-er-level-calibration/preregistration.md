@@ -7,6 +7,8 @@ status: historical
 
 # E[r] 絶対水準と実現 FY 配当の較正 — 事前登録
 
+これは旧 schema v5・固定 commit による測定履歴である。以下の「最新 non-null」選択や年間 DPS の一括換算を現行仕様として使わない。現行の訂正時刻・欠測・会計期間内の株式基準処理とは異なり、元の計測値・artifact を新 revision へ付け替えない。近似 FY 配当は実際の権利・支払日を再現する cash-flow 記録ではない。
+
 価値tier: T1 — E[r] の予測絶対値を実現 total return と同じ年率座標で検証し、research・保有見直し・cash 判断に使う期待利回りの系統誤差を減らす。
 
 ## 0. 既知の観察と計測境界

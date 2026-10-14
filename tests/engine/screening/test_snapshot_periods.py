@@ -675,7 +675,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
         self.assertIsNone(snapshot.sales_yoy)
         self.assertIsNone(snapshot.operating_profit_yoy)
 
-    def test_build_metrics_ignores_qoq_seasonality_for_yoy_deterioration(self) -> None:
+    def test_build_metrics_compares_same_fiscal_period_instead_of_previous_quarter(self) -> None:
         asof = date(2026, 4, 24)
         summaries = [
             _summary(
