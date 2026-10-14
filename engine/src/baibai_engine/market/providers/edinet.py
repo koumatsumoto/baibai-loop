@@ -377,10 +377,10 @@ def normalize_metric_record(record: Mapping[str, Any]) -> EdinetMetricRecord:
 
 
 def parse_doc_id(value: object) -> str:
-    raw = str(value or "").strip().upper()
-    if not _DOC_ID_RE.fullmatch(raw):
+    raw = str(value or "").strip()
+    if not raw.isascii() or not _DOC_ID_RE.fullmatch(raw.upper()):
         raise EDINETProviderError(f"invalid EDINET docID: {_safe_error_value(value)}")
-    return raw
+    return raw.upper()
 
 
 def select_document_candidates(
@@ -790,16 +790,17 @@ def _parse_slash_date(value: str) -> date | None:
 
 
 def parse_sec_code(sec_code: Any) -> str:
-    raw = str(sec_code or "").strip().upper()
-    if len(raw) == 4:
+    raw = str(sec_code or "").strip()
+    if len(raw) == 5:
+        if raw[-1] != "0":
+            raise EDINETProviderError(
+                f"unsupported EDINET secCode suffix: {_safe_error_value(sec_code)}"
+            )
+        raw = raw[:4]
+    try:
         return normalize_ticker(raw)
-    if len(raw) != 5:
-        raise EDINETProviderError(f"invalid EDINET secCode: {_safe_error_value(sec_code)}")
-    if raw[-1] != "0":
-        raise EDINETProviderError(
-            f"unsupported EDINET secCode suffix: {_safe_error_value(sec_code)}"
-        )
-    return normalize_ticker(raw[:4])
+    except ValueError as exc:
+        raise EDINETProviderError(f"invalid EDINET secCode: {_safe_error_value(sec_code)}") from exc
 
 
 def _safe_error_value(value: object, *, max_length: int = 80) -> str:

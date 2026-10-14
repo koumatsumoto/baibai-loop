@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[2]
 
 from baibai_engine.screening.config import DEFAULT_CACHE_DIR, ConfigError, ScreeningConfig
 

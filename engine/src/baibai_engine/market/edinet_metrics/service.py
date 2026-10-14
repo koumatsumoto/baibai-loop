@@ -408,10 +408,9 @@ def _record_edinet_extraction_failure(
 
     Recording the failure deletes the day's rows, so the check for an existing
     snapshot is what stands between a failed attempt and the loss of a good one.
-    A store that exists but the readers cannot open answers "no snapshot" to that
-    check while the write path below would migrate it and delete anyway, so there
-    the question went unanswered and nothing is written. A store that does not
-    exist yet holds nothing to lose, and the failure is recorded as usual.
+    If an existing store is unreadable or its baseline is inconsistent, the check
+    cannot establish that replacement is safe, so nothing is written. This path
+    does not migrate a store. An absent store has no snapshot to preserve.
     """
     if sqlite_path.exists() and unreadable_store_reason(sqlite_path) is not None:
         return

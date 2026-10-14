@@ -11,12 +11,12 @@ from baibai_engine.foundation.env import load_project_env
 @pytest.fixture
 def isolated_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for key in ("FOO", "BAR"):
-        monkeypatch.delenv(key, raising=False)
+        # Register the original absence too: dotenv writes directly to os.environ.
+        monkeypatch.setenv(key, "")
+        monkeypatch.delenv(key)
 
 
-def test_load_project_env_reads_dotenv_at_start(
-    tmp_path: Path, isolated_env: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_load_project_env_reads_dotenv_at_start(tmp_path: Path, isolated_env: None) -> None:
     (tmp_path / ".env").write_text("FOO=from_dotenv\n", encoding="utf-8")
 
     found = load_project_env(tmp_path)

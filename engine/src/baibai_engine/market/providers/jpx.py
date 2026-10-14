@@ -580,7 +580,7 @@ class JPXProvider:
         if suffix == ".csv":
             return self._parse_csv_rows(response.content, url)
         if suffix in {".xls", ".xlsx"}:
-            return self._parse_excel_rows(source_name, response.content, url)
+            return self._parse_excel_rows(response.content, url)
         if suffix == ".html" or content_type == "text/html":
             return self._parse_html_rows(source_name, response.content, url, content_type_header)
         raise JPXProviderError(f"unsupported JPX regulation source format: {url}")
@@ -601,7 +601,7 @@ class JPXProvider:
         reader = csv.DictReader(text.splitlines())
         return [dict(row) for row in reader]
 
-    def _parse_excel_rows(self, source_name: str, content: bytes, url: str) -> list[dict[str, str]]:
+    def _parse_excel_rows(self, content: bytes, url: str) -> list[dict[str, str]]:
         try:
             import pandas as pd
         except ModuleNotFoundError as exc:
@@ -865,12 +865,13 @@ class JPXProvider:
 
 
 def parse_jpx_code(code: object) -> str:
-    raw = str(code or "").strip().upper()
-    if len(raw) == 4:
+    raw = str(code or "").strip()
+    if len(raw) == 5 and raw.endswith("0"):
+        raw = raw[:4]
+    try:
         return normalize_ticker(raw)
-    if len(raw) == 5 and raw[:4].isalnum() and raw.endswith("0"):
-        return normalize_ticker(raw[:4])
-    raise JPXProviderError(f"invalid JPX code: {code!r}")
+    except ValueError as exc:
+        raise JPXProviderError(f"invalid JPX code: {code!r}") from exc
 
 
 def _parse_jpx_publication_date(cells: Sequence[str]) -> date | None:
