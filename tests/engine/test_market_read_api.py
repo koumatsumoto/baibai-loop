@@ -291,6 +291,7 @@ def test_readonly_market_readers_escape_uri_filename(tmp_path: Path, name: str) 
 
 def test_order_session_rejects_naive_instant_before_store_read(tmp_path: Path) -> None:
     path = tmp_path / "missing.sqlite"
+    naive = datetime(2026, 10, 14, 16)  # noqa: DTZ001 - deliberately invalid input
     with pytest.raises(ValueError, match="timezone"):
-        next_order_session(sqlite_path=path, now=datetime(2026, 10, 14, 16))
+        next_order_session(sqlite_path=path, now=naive)
     assert not path.exists()
