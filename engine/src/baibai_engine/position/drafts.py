@@ -15,7 +15,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.broker_fact_recording import (
+    BrokerFactRecordingResult,
     BrokerFactStatus,
+    _provided_execution_suffix,
+    _validate_execution_id,
     record_broker_fact,
     record_terminal_broker_facts,
 )
@@ -23,6 +26,7 @@ from baibai_engine.position.ledger import (
     ConfirmedTaxEvent,
     ContributionEvent,
     CostEvent,
+    ExecutionEvent,
     HumanOverride,
     IncomeEvent,
     PortfolioLedgerDocument,
@@ -68,6 +72,7 @@ def build_broker_fact_draft(
     reservation_id: str | None = None,
     reservation_ids: tuple[str, ...] = (),
     order_id: str | None = None,
+    execution_id: str | None = None,
     sector: str | None = None,
     common_factors: tuple[str, ...] = (),
     price_guard_yen: Decimal | None = None,
@@ -86,6 +91,10 @@ def build_broker_fact_draft(
     """
     if reservation_id is not None and reservation_ids:
         raise ValueError("provide reservation_id or reservation_ids, not both")
+    if execution_id is not None:
+        if status != "filled":
+            raise ValueError("execution_id is only valid for a fill")
+        _validate_execution_id(execution_id)
     requested_ids = reservation_ids or (() if reservation_id is None else (reservation_id,))
     if len(requested_ids) > 1 and status not in {"cancelled", "expired"}:
         raise ValueError("multiple reservation_ids require a terminal broker fact")
@@ -98,6 +107,44 @@ def build_broker_fact_draft(
             raise ValueError("date-only broker fact requires one reserved fill")
         occurred_at = _date_only_execution_key(source, occurred_on, requested_ids[0])
     assert occurred_at is not None
+
+    def record_single_fact() -> BrokerFactRecordingResult:
+        return record_broker_fact(
+            source,
+            decision_reference=decision_reference,
+            status=status,
+            side=side,
+            occurred_at=occurred_at,
+            occurred_on=occurred_on,
+            ticker=ticker,
+            quantity=quantity,
+            price_yen=price_yen,
+            reservation_id=requested_ids[0] if requested_ids else None,
+            order_id=order_id,
+            execution_id=execution_id,
+            sector=sector,
+            common_factors=common_factors,
+            price_guard_yen=price_guard_yen,
+            expires_at=expires_at,
+            expiry_label=expiry_label,
+            route_label=route_label,
+            ordered_at=ordered_at,
+            now=now,
+        )
+
+    # A fully filled order is no longer active. Check a saved execution before
+    # consulting the historical assessment or looking for an active reservation.
+    if (
+        status == "filled"
+        and execution_id is not None
+        and any(
+            isinstance(event, ExecutionEvent) and event.execution_id == execution_id
+            for event in source.events
+        )
+    ):
+        result = record_single_fact()
+        assert not result.changed
+        return None, ()
     reservations = reservation_snapshots(replay_events_through(source.events, source.as_of))
     reservations_by_id = {item.reservation_id: item for item in reservations}
     released_ids = {
@@ -145,27 +192,7 @@ def build_broker_fact_draft(
             now=now,
         )
     else:
-        result = record_broker_fact(
-            source,
-            decision_reference=decision_reference,
-            status=status,
-            side=side,
-            occurred_at=occurred_at,
-            occurred_on=occurred_on,
-            ticker=ticker,
-            quantity=quantity,
-            price_yen=price_yen,
-            reservation_id=requested_ids[0] if requested_ids else None,
-            order_id=order_id,
-            sector=sector,
-            common_factors=common_factors,
-            price_guard_yen=price_guard_yen,
-            expires_at=expires_at,
-            expiry_label=expiry_label,
-            route_label=route_label,
-            ordered_at=ordered_at,
-            now=now,
-        )
+        result = record_single_fact()
     if not result.changed:
         return None, ()
     return (
@@ -265,7 +292,8 @@ def build_sell_execution_draft(
     fees_yen: int | None = None,
     tax_yen: int | None = None,
     decision_reference: str | None = None,
-) -> LedgerDraft:
+    execution_id: str | None = None,
+) -> LedgerDraft | None:
     """Record a human-reported sell fill as a source-bound execution draft.
 
     The sell consumes FIFO cost from current holdings; event replay
@@ -273,7 +301,8 @@ def build_sell_execution_draft(
     and any confirmed fee or tax that overdraws available cash. Broker fees and
     the confirmed capital-gain tax are recorded as their own cost / tax events so
     realized proceeds and cost stay separable in replay. ``decision_reference``
-    binds the sell to the Position Review that judged the exit.
+    binds the sell to the Position Review that judged the exit. A matching
+    ``execution_id`` and complete report returns None without a draft.
     """
 
     if (occurred_at is None) == (occurred_on is None):
@@ -282,6 +311,69 @@ def build_sell_execution_draft(
     if occurred_on is not None:
         occurred_at = _date_only_execution_key(source, occurred_on, reservation_id)
     assert occurred_at is not None
+    if execution_id is not None:
+        _validate_execution_id(execution_id)
+    if reservation_id is not None and decision_reference is None:
+        saved_order = next(
+            (
+                event
+                for event in source.events
+                if isinstance(event, ReservationEvent) and event.reservation_id == reservation_id
+            ),
+            None,
+        )
+        if saved_order is not None:
+            decision_reference = saved_order.decision_reference
+    if execution_id is not None:
+        existing = next(
+            (
+                event
+                for event in source.events
+                if isinstance(event, ExecutionEvent) and event.execution_id == execution_id
+            ),
+            None,
+        )
+        if existing is not None:
+            existing_suffix = existing.event_id.removeprefix("human-sell-")
+            fee = next(
+                (
+                    event
+                    for event in source.events
+                    if event.event_id == f"human-sell-fee-{existing_suffix}"
+                ),
+                None,
+            )
+            tax = next(
+                (
+                    event
+                    for event in source.events
+                    if event.event_id == f"human-sell-tax-{existing_suffix}"
+                ),
+                None,
+            )
+            if not (
+                existing.side == "sell"
+                and existing.occurred_at == occurred_at
+                and existing.occurred_on == occurred_on
+                and existing.ticker == ticker
+                and existing.quantity == quantity
+                and existing.price_yen == price_yen
+                and existing.reservation_id == reservation_id
+                and existing.decision_reference == decision_reference
+                and (fee.amount_yen if isinstance(fee, CostEvent) else None) == fees_yen
+                and (tax.amount_yen if isinstance(tax, ConfirmedTaxEvent) else None) == tax_yen
+            ):
+                raise ValueError("conflicting human report for existing execution_id")
+            return None
+    elif occurred_on is not None and any(
+        isinstance(event, ExecutionEvent)
+        and event.side == "sell"
+        and event.ticker == ticker
+        and event.reservation_id == reservation_id
+        and event.occurred_on == occurred_on
+        for event in source.events
+    ):
+        raise ValueError("another date-only sell fill needs an execution_id to distinguish it")
     if reservation_id is not None:
         active = {
             item.reservation_id: item
@@ -300,6 +392,7 @@ def build_sell_execution_draft(
         decision_reference=decision_reference,
         reservation_id=reservation_id,
         occurred_on=occurred_on,
+        execution_id=execution_id,
     )
     occurred_at_text = occurred_at.isoformat()
     additions: list[dict[str, object]] = [
@@ -307,7 +400,7 @@ def build_sell_execution_draft(
             "event_id": f"human-sell-{suffix}",
             "type": "execution",
             "occurred_at": occurred_at_text,
-            "execution_id": f"sell-execution-{suffix}",
+            "execution_id": execution_id or f"sell-execution-{suffix}",
             "reservation_id": reservation_id,
             "ticker": ticker,
             "side": "sell",
@@ -389,7 +482,10 @@ def _sell_event_suffix(
     decision_reference: str | None,
     reservation_id: str | None = None,
     occurred_on: date | None = None,
+    execution_id: str | None = None,
 ) -> str:
+    if execution_id is not None:
+        return _provided_execution_suffix(execution_id)
     raw = "|".join(
         (
             decision_reference or "",

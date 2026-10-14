@@ -37,6 +37,7 @@ event ID、reservation ID、order identity、execution IDは再利用しない�
 
 event rowはappend-onlyで、late reportも新規rowとして保存する。replay順は`(occurred_at, same_instant_order)`である。同時刻の既存eventの順序とIDを変更しない。
 約定日だけが報告された場合は買付・売付とも`occurred_on`に日付を保存する。`occurred_at`はreplay順・日付検索のための内部キーであり、実際の約定時刻を表さない。同日に記録済みの注文へ束縛する場合は、注文の記録時点をreplayキーにして注文より前に約定を再生しない。注文に束縛されない売付は日本時間00:00をキーにする。
+IDなしで記録した日付だけの買付報告を同じ内容で再送するとno-changeになる。同じ日・注文の別約定は、brokerが示した実約定を区別できる`execution_id`を指定する。brokerの約定IDが注文内だけで一意なら、実注文IDと実約定IDの組を渡す。同じID・同じ内容は予約消滅後もno-change、同じID・内容違いは拒否する。注文ID単独や推定時刻では区別しない。売付もIDなしの同日別約定を内容の違いだけで新規扱いしない。
 
 <a id="snapshot-equations"></a>
 
