@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
 
@@ -225,7 +226,7 @@ class TestDbMarketPriceSource:
         assert source.latest_closes(["2331"]) == {"2331": (110.0, date(2026, 7, 29))}
 
 
-def test_current_enterprise_projection_retains_original_basis_and_independent_review(
+def test_assessment_snapshot_projection_retains_original_basis_and_review(
     app_method_root,
 ):
     pair = seed_web_assessment(app_method_root, ticker="2331")
@@ -309,7 +310,7 @@ def test_holding_pmax_gap_checks_the_assessment_window_even_when_acquired_after_
         ],
     )
     if factor == "missing_original":
-        with open_connection(market) as connection:
+        with closing(open_connection(market)) as connection, connection:
             connection.execute(
                 "DELETE FROM jquants_daily_bars WHERE ticker='1234' AND traded_at='2026-10-12'"
             )

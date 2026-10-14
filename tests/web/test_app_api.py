@@ -4,6 +4,7 @@ import json
 import re
 import shutil
 import sqlite3
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -165,18 +166,13 @@ def test_market_context_overview_reports_every_registered_series_without_history
     )
 
 
-def test_reading_api_surfaces_a_failed_acquisition_before_it_turns_stale(
+def test_reading_api_distinguishes_failed_acquisition_from_missing_observations(
     app_method_root: Path,
 ) -> None:
-    """A silent provider must be visible immediately, not after the staleness threshold.
-
-    The store keeps the previous observations, so the reading of a monthly series looks
-    healthy for weeks after its source stops answering; the last run status is the only
-    signal that arrives on the day it breaks.
-    """
+    """Fetch failure and missing series history are separate facts in the response."""
 
     store = app_method_root / "stores/market_context/indicators.sqlite"
-    with sqlite3.connect(store) as connection:
+    with closing(sqlite3.connect(store)) as connection, connection:
         connection.execute(
             """
             INSERT INTO provider_runs(
@@ -196,9 +192,10 @@ def test_reading_api_surfaces_a_failed_acquisition_before_it_turns_stale(
     failed = [item for item in body["fetch_health"] if item["status"] != "ok"]
     assert [item["series_id"] for item in failed] == ["us.10y"]
     assert failed[0]["error_message"] == "provider returned 503"
-    # The same series is not stale-flagged by the reading: it has no observations at all
-    # in the fixture, which is a different fact than "the last fetch failed".
-    assert body["series"]
+    # Missing observations are stale independently of the recorded acquisition failure.
+    series = next(item for item in body["series"] if item["series_id"] == "us.10y")
+    assert series["stale"] is True
+    assert series["latest_value"] is None
 
 
 def test_market_context_overview_survives_without_an_indicator_store(
@@ -315,7 +312,7 @@ def test_market_context_assessment_detail_serves_a_revision_without_the_strategy
     db_path = app_method_root / "stores/application/baibai.sqlite"
     initialize_database(db_path)
     legacy = historical_context_payload(strategy_layer=False)
-    with sqlite3.connect(db_path) as connection:
+    with closing(sqlite3.connect(db_path)) as connection, connection:
         connection.execute(
             """
             INSERT INTO market_context_assessment (
@@ -374,7 +371,7 @@ def test_assessment_history_keeps_an_earlier_contract_visible(
         "published_at": "2026-07-19T12:00:00+09:00",
         "summary": "旧契約のrevision",
     }
-    with sqlite3.connect(db_path) as connection:
+    with closing(sqlite3.connect(db_path)) as connection, connection:
         connection.execute(
             """
             INSERT INTO market_context_assessment(
@@ -453,7 +450,7 @@ def test_api_startup_rejects_an_obsolete_application_store(
 ) -> None:
     obsolete = tmp_path / "application-obsolete.sqlite"
     initialize_database(obsolete)
-    with sqlite3.connect(obsolete) as connection:
+    with closing(sqlite3.connect(obsolete)) as connection, connection:
         connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION - 1}")
 
     with pytest.raises(MaterializationPreconditionError, match="obsolete application"):
@@ -463,7 +460,7 @@ def test_api_startup_rejects_an_obsolete_application_store(
 def test_api_startup_rejects_an_obsolete_market_store(app_method_root: Path) -> None:
     obsolete = app_method_root / "stores/market/market.sqlite"
     open_connection(obsolete).close()
-    with sqlite3.connect(obsolete) as connection:
+    with closing(sqlite3.connect(obsolete)) as connection, connection:
         connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
 
     with pytest.raises(MaterializationPreconditionError, match="obsolete market"):

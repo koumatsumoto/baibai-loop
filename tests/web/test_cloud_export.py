@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from contextlib import closing
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -172,7 +173,8 @@ def test_build_meta_reflects_a_newly_written_operation_session(
 ) -> None:
     # A judgment write in a table beyond ledger/research/market-context must move freshness.
     started_at = datetime(2026, 8, 1, 9, 30, tzinfo=JST)
-    with sqlite3.connect(app_method_root / "stores/application/baibai.sqlite") as connection:
+    database = app_method_root / "stores/application/baibai.sqlite"
+    with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute(
             """
             INSERT INTO operation_session(
@@ -207,7 +209,7 @@ def test_application_freshness_compares_instants_within_the_same_table_without_w
     app_method_root: Path, older: str, newer: str
 ) -> None:
     database = app_method_root / "stores/application/baibai.sqlite"
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         connection.executemany(
             "INSERT INTO stock_assessment("
             "assessment_id, ticker, as_of, stance, published_at, payload, core_sha256"
@@ -372,11 +374,11 @@ def test_export_keeps_saved_proposal_detail_independent_of_current_screening(
     )
     assert screening.investment_proposals[0].proposal_id == proposal_id
     detail_path = output_dir / "views" / f"investment-proposal--{proposal_id}.json"
-    detail = InvestmentProposalView.model_validate_json(detail_path.read_text())
+    detail = InvestmentProposalView.model_validate_json(detail_path.read_text(encoding="utf-8"))
     assert detail.proposal_id == proposal_id
     assert detail.research_scope == proposal.research_scope.model_dump(mode="json")
     index_path = output_dir / "views/investment-proposals.json"
-    index = InvestmentProposalsView.model_validate_json(index_path.read_text())
+    index = InvestmentProposalsView.model_validate_json(index_path.read_text(encoding="utf-8"))
     assert [item.proposal_id for item in index.proposals] == [proposal_id]
     assert (output_dir / f"views/investment-proposal-preview--{proposal_id}.json").is_file()
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
@@ -384,8 +386,8 @@ def test_export_keeps_saved_proposal_detail_independent_of_current_screening(
         api_index = client.get("/api/investment-proposals")
         assert client.get("/api/capital-allocation-assessments").status_code == 404
     assert api_detail.status_code == 200
-    assert json.loads(detail_path.read_text()) == api_detail.json()
-    assert json.loads(index_path.read_text()) == api_index.json()
+    assert json.loads(detail_path.read_text(encoding="utf-8")) == api_detail.json()
+    assert json.loads(index_path.read_text(encoding="utf-8")) == api_index.json()
 
 
 def test_export_fails_before_writing_when_reading_rules_are_absent(
@@ -545,7 +547,8 @@ def test_export_refuses_an_app_store_on_a_different_schema(
     app_method_root: Path, tmp_path: Path, capsys
 ) -> None:
     (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
-    with sqlite3.connect(app_method_root / "stores/application/baibai.sqlite") as connection:
+    database = app_method_root / "stores/application/baibai.sqlite"
+    with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute(f"PRAGMA user_version = {LATEST_VERSION - 1}")
     output_dir = tmp_path / "export"
 
@@ -597,8 +600,8 @@ def _exported_views() -> set[str]:
 def test_every_worker_view_route_is_produced_by_the_exporter() -> None:
     """A route whose view the export never writes is a permanent 404 in production.
 
-    Workerが直接参照するviewとresearch indexをexportが実際に生成することを確認する。
-    公開route/schemaの契約検証に加えて、R2 object keyの生成漏れを検出する。
+    Workerが直接参照するviewとresearch indexのkeyがexporterの生成宣言に存在することを確認する。
+    静的なkeyの対応検証であり、全分岐の実行やR2への公開成功を証明するものではない。
     """
 
     source = WORKER_SOURCE.read_text(encoding="utf-8")
@@ -645,7 +648,7 @@ def test_export_reuses_research_history_and_ledger_per_export(
     assert convert.call_count == 2 * conversions
     first = tmp_path / "first/views/security--2331.json"
     second = tmp_path / "second/views/security--2331.json"
-    assert json.loads(first.read_text()) == json.loads(second.read_text())
+    assert json.loads(first.read_text(encoding="utf-8")) == json.loads(second.read_text(encoding="utf-8"))
 
 
 def test_indicator_only_export_keeps_retained_history_bytes_and_screening_clock(
@@ -658,7 +661,7 @@ def test_indicator_only_export_keeps_retained_history_bytes_and_screening_clock(
         p.relative_to(output): p.read_bytes() for p in (output / "history").rglob("*.json")
     }
     assert history_before
-    screening_before = json.loads((output / "views/screening_latest.json").read_text())
+    screening_before = json.loads((output / "views/screening_latest.json").read_text(encoding="utf-8"))
     _seed_indicator_observations(app_method_root)
     assert (
         main(["--output-dir", str(output), "--repo-root", str(app_method_root), "--skip-history"])
@@ -667,7 +670,7 @@ def test_indicator_only_export_keeps_retained_history_bytes_and_screening_clock(
     assert {
         p.relative_to(output): p.read_bytes() for p in (output / "history").rglob("*.json")
     } == history_before
-    screening_after = json.loads((output / "views/screening_latest.json").read_text())
+    screening_after = json.loads((output / "views/screening_latest.json").read_text(encoding="utf-8"))
     assert screening_after["run"] == screening_before["run"]
     fresh_output = tmp_path / "indicator-only"
     assert (
