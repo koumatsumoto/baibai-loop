@@ -190,7 +190,7 @@ def scaffold_review(
     _require_primary_research_ticker(
         workspace, ticker, action="scaffold review", gate=gate, db_path=db_path
     )
-    asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
+    asof = _parse_date(str(manifest.get("research_as_of")), label="manifest as_of")
     ticker_dir = _research_ticker_dir(workspace, ticker)
     thesis_path = ticker_dir / "thesis-draft.yaml"
     if not thesis_path.exists():

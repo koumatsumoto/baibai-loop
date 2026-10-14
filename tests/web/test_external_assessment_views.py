@@ -11,6 +11,7 @@ from tests.engine.test_external_assessment_sources import (
     rakuten_no_estimates_html,
     rakuten_peer_only_html,
 )
+from tests.helpers.research_selection import selection
 
 from baibai_batch.jobs.external_assessment_cohorts import (
     load_result,
@@ -33,7 +34,7 @@ from baibai_engine.read_api import (
     MARKET_DB_PATH,
     RUNS_DB_PATH,
 )
-from baibai_engine.research.inputs import research_inputs
+from baibai_engine.research.inputs import collect_research_inputs, project_research_inputs
 from baibai_web.api.server import create_app
 from baibai_web.materialize import export_read_models
 from baibai_web.sources.db_sources import DbExternalAssessmentSource
@@ -166,16 +167,20 @@ def test_rakuten_missingness_survives_checkpoint_store_api_export_and_research(
     out = tmp_path / "export"
     export_read_models(app_method_root, out)
     saved = json.loads((out / "views/security--9999.json").read_text())["external_assessment"]
-    inputs = research_inputs(
+    selected = selection(now=received, tickers=("9999",))
+    snapshot = collect_research_inputs(
+        snapshot=selected.inputs.analysis,
+        input_gaps=selected.inputs.input_gaps,
         tickers=("9999",),
-        as_of=received.date(),
-        cutoff=received,
-        known_at=received,
+        research_as_of=received.date(),
+        input_known_at=received,
         market_path=market,
-        runs_path=app_method_root / RUNS_DB_PATH,
         indicators_path=app_method_root / INDICATORS_DB_PATH,
         app_path=app_method_root / APPLICATION_DB_PATH,
-    )["securities"]["9999"]["external_assessment"]
+    )
+    inputs = project_research_inputs(selected.model_copy(update={"inputs": snapshot}))[
+        "securities"
+    ]["9999"]["external_assessment"]
     for result in (detail, saved, inputs):
         assert result["analyst_ratings"] == expected.model_dump(mode="json")["analyst_ratings"]
     assert market.read_bytes() == before

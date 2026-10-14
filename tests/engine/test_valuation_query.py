@@ -9,15 +9,17 @@ import sys
 from datetime import date, datetime
 
 import pytest
-from tests.helpers.research_triage import published_review_set, research_triage_payload
+from tests.helpers.candidates import published_review_set
+from tests.helpers.research_selection import selection
 from tests.helpers.screening_run import screening_run_payload, security_analysis
 
-from baibai_batch.analysis.model_input import build_model_input
 from baibai_engine.read_api import stored_machine_valuation
 from baibai_engine.read_api.ticker_profile import _load_security_analysis_context
-from baibai_engine.research.inputs import research_inputs
-from baibai_engine.research.triage.contracts import StoredResearchTriage
+from baibai_engine.research.inputs import collect_research_inputs, project_research_inputs
+from baibai_engine.research.selection import InputGap
+from baibai_engine.research.selection_query import load_analysis_snapshot
 from baibai_engine.screening.discovery.contracts import PublishedReviewSet
+from baibai_engine.screening.discovery.projection import review_set_candidates
 from baibai_engine.screening.discovery.review_set import build_review_set
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.run_store import ScreeningRunStore
@@ -92,7 +94,7 @@ def test_saved_cf_sources_reach_research_without_recomputing_or_changing_selecti
     )
     before = path.read_bytes()
     now = datetime.fromisoformat("2026-09-19T18:00:00+09:00")
-    inputs = research_inputs(
+    inputs = _project_inputs(
         tickers=("1234", "9999"),
         as_of=CUTOFF,
         cutoff=now,
@@ -162,7 +164,7 @@ def test_absent_cf_and_document_metadata_stay_missing():
         (None, 0.03, "unavailable", -0.03),
     ],
 )
-def test_saved_carry_inputs_reach_valuation_triage_and_research_without_changing_er(
+def test_saved_carry_inputs_reach_valuation_candidates_and_research_without_changing_er(
     tmp_path, dividend, share_change, basis, carry
 ):
     financial = FinancialSnapshot(
@@ -211,7 +213,7 @@ def test_saved_carry_inputs_reach_valuation_triage_and_research_without_changing
     assert "not observed zero" in valuation.carry_missing_assumption
     assert valuation.assumptions == estimate.assumptions
     now = datetime.fromisoformat("2026-09-19T18:00:00+09:00")
-    research = research_inputs(
+    research = _project_inputs(
         tickers=("1234",),
         as_of=CUTOFF,
         cutoff=now,
@@ -234,10 +236,9 @@ def test_saved_carry_inputs_reach_valuation_triage_and_research_without_changing
         "created_at": now,
         "screening_rules_hash": "synthetic",
     }
-    model_input = build_model_input(PublishedReviewSet.model_validate(raw_set), None, known_at=now)
-    expected = model_input.model_dump(mode="json")["candidates"][0]["snapshot"]["analysis"][
-        "expected_return"
-    ]
+    expected = review_set_candidates(PublishedReviewSet.model_validate(raw_set))[0]["snapshot"][
+        "analysis"
+    ]["expected_return"]
     for key in (
         "dividend_yield",
         "net_share_change_yoy",
@@ -248,21 +249,15 @@ def test_saved_carry_inputs_reach_valuation_triage_and_research_without_changing
     assert (
         expected["er_carry_annual"] == valuation.carry_annual == research["carry_annual"] == carry
     )
-    assert "missing or absent" in model_input.instruction
     assert path.read_bytes() == before
 
 
-def test_frozen_review_set_and_triage_keep_absent_carry_fields_and_original_payload():
+def test_frozen_review_set_keeps_absent_carry_fields_and_original_payload():
     raw_set = published_review_set()
     original = canonical_json(raw_set)
     typed_set = PublishedReviewSet.model_validate(raw_set)
     assert canonical_json(typed_set.model_dump(mode="json")) == original
-    raw_triage = research_triage_payload()
-    original_triage = canonical_json(raw_triage)
-    saved = StoredResearchTriage.from_payload(raw_triage)
-    expected = saved.entries[0].candidate_snapshot.analysis.expected_return.model_dump(mode="json")
-    assert expected == raw_triage["entries"][0]["candidate_snapshot"]["analysis"]["expected_return"]
-    assert canonical_json(saved.publication_payload()) == original_triage
+    expected = typed_set.entries[0].analysis.expected_return.model_dump(mode="json")
     assert "dps_actual_annual" not in expected
     assert "dps_forecast_annual" not in expected
 
@@ -276,7 +271,7 @@ def test_frozen_review_set_and_triage_keep_absent_carry_fields_and_original_payl
         (12.0, 0.0, "forecast_annual"),
     ],
 )
-def test_saved_normalized_dps_reaches_review_set_and_triage_input_without_selection_change(
+def test_saved_normalized_dps_reaches_review_set_and_candidate_input_without_selection_change(
     actual, forecast, basis
 ):
     row = security_analysis(
@@ -324,10 +319,7 @@ def test_saved_normalized_dps_reaches_review_set_and_triage_input_without_select
             "screening_rules_hash": "synthetic",
         }
     )
-    model_input = build_model_input(published, None, known_at=published.created_at)
-    projected = model_input.model_dump(mode="json")["candidates"][0]["snapshot"]["analysis"][
-        "expected_return"
-    ]
+    projected = review_set_candidates(published)[0]["snapshot"]["analysis"]["expected_return"]
     assert projected == expected
 
 
@@ -468,3 +460,45 @@ assert not any(name.startswith(("baibai_engine.research", "baibai_engine.read_ap
         ],
         check=True,
     )
+
+
+def _project_inputs(
+    *,
+    tickers,
+    as_of,
+    cutoff,
+    known_at,
+    market_path,
+    runs_path,
+    indicators_path,
+    app_path,
+    run_revision_id=None,
+):
+    revision = run_revision_id or "carry-inputs"
+    gaps = tuple(
+        InputGap(
+            ticker=t, reason="synthetic analysis unavailable", attempted_sources=("saved source",)
+        )
+        for t in tickers
+        if t == "9999"
+    )
+    snapshot = load_analysis_snapshot(
+        run_revision_id=revision,
+        research_as_of=as_of,
+        tickers=tickers,
+        gaps=gaps,
+        known_at=known_at,
+        runs_path=runs_path,
+    )
+    inputs = collect_research_inputs(
+        snapshot=snapshot,
+        input_gaps=gaps,
+        tickers=tickers,
+        research_as_of=as_of,
+        input_known_at=cutoff,
+        market_path=market_path,
+        indicators_path=indicators_path,
+        app_path=app_path,
+    )
+    value = selection(now=known_at, tickers=tickers)
+    return project_research_inputs(value.model_copy(update={"inputs": inputs}))

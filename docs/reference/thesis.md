@@ -200,7 +200,7 @@ ADV参加率は[開始sourceに固定した流動性context](./capital-allocatio
 
 ## Workspaceとコマンド
 
-新規admissionは[Researchの開始sourceと固定選択](./analysis-operations.md#explicit-research-source)をOperationへ保存し、保有は同じ有限対象の別purposeとする。Workspaceはdraft作成・再利用・promoteを所有し、注文式やchecklist全行completeという第二gateを持たない。公開状態はexact Thesis/Reviewとの一致で決まる。保有Workspaceは対象holdingを確認し、無関係なledger更新で調査をやり直さない。
+新規admissionは[Researchの開始sourceと固定選択](./analysis-operations.md#明示開始と固定対象)をOperationへ保存し、保有は同じ有限対象の別purposeとする。Workspaceはdraft作成・再利用・promoteを所有し、注文式やchecklist全行completeという第二gateを持たない。公開状態はexact Thesis/Reviewとの一致で決まる。保有Workspaceは対象holdingを確認し、無関係なledger更新で調査をやり直さない。
 
 ```bash
 uv run baibai-engine research evaluate /tmp/thesis-draft.yaml --review /tmp/thesis-review.yaml

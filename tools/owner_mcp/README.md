@@ -164,16 +164,14 @@ warm時にimmutable objectのGETが増えないことを確認します。
 接続・料金・実データの確認結果はIssue / PRへ記録します。
 
 
-## Canonical Triageと時点除外
+## 保存済み候補と時点除外
 
-L1実装は内部subsystemの`tools/l1_mcp`を再利用します。Triageはrepository rootの
-`stores/application/baibai.sqlite`、sourceは`stores/screening/runs.sqlite`を既存owner経由で
-read-onlyに読みます。保存場所の正本は[architecture](../../docs/architecture.md#store-authority)に従います。
+L1は`tools/l1_mcp`、L2候補はrun store、ResearchはOperationの固定selectionを既存owner経由でread-onlyに読みます。保存場所の正本は[architecture](../../docs/architecture.md#store-authority)に従います。
 このadapterは取得済み作業コピーを読み、自動同期もクラウド最新性の確認も行いません。取得世代・時点を確認し、serving JSONをapplicationの完全な記録として代用しません。
 store同期は[ops-maintenance](../../.agents/skills/ops-maintenance/SKILL.md)の別操作です。
 MCPからのauto-pull、provider fetch、書込、任意SQL、filesystem読取はありません。
 
-### Triage前のReview Set
+### Review Set
 
 `screening_get_review_set`は保存済みcanonical Review Setを1回で固定して返します。
 `review_set_id` / `public_run_id` / `as_of` / `not_before`は最大1つです。
@@ -184,37 +182,9 @@ IDはexact、`as_of`はその日の最新publication（dailyと同じ）、`not_
 
 `review_set_ref`、`as_of`、`run_at`、`created_at`、rules / method identityとともに
 `input_basis=frozen_review_set`、`candidate_count`、全`candidates`を返します。
-候補はproduction ModelInputと同じprojection・順序で、保存済みanalysisとnominationsだけを読みます。
-current L1やSecurity Analysisから再計算せず、Triageの有無や判断に依存しません。
+候補は共通L2 projection・順序で、保存済みanalysisとnominationsだけを読みます。
+current L1やSecurity Analysisから再計算せず、Researchの選定や判断に依存しません。
 返却された`review_set_id`で再取得し、新旧候補の比較は呼出し側で行います。
-`triage_resolve`はcomplete Triageだけを返す契約を維持します。
-
-### 固定して別Chatへ渡す
-
-1. `triage_resolve(not_before="2026-09-14")`を呼びます。指定日以降の`as_of`、`published_at`、
-   `research_triage_id`昇順で最初の完全なTriageを返します。
-2. responseの`triage_ref`全体を保存し、`as_of`、`run_at`、Review Set、run、assessment、
-   rules / Candidate Discovery method identityを確認します。
-3. `triage_get_input(triage_ref=...)`で全候補を含む`model_input`を取得します。
-   別Chatでも同じrefを渡します。再resolveは新しい比較の開始として扱います。
-4. 元判断を読む段階で`triage_get_judgment(triage_ref=...)`を呼びます。
-   full canonical `ResearchTriage`を`research_triage`に返し、candidate snapshotも保持します。
-
-selectorは0〜1個です。`research_triage_id`はexact ID、`as_of`はexact日付
-（完全なTriageが複数なら失敗）、無指定はlatestの完全なTriageです。
-欠損sourceを別runやrevisionで補いません。
-
-`triage_ref`は`research_triage_id`、`research_triage_sha256`、`model_input_sha256`の3 fieldです。
-inputは保存済みexact Review Setとcanonical Triageがbindするexact判断本文から抽出します。保存Triage3については旧3/4 Contextの6項目・schema1/2、コンパクト5のschema3を維持し、元payload/hashと別の読取抽出として扱います。新Triage4の抽出はschema4で領域名のfieldを使います。assessment5/6はいずれも重要変化・反証・不確実性・含意・出典を持つコンパクト判断です。判断参照がnullなら後発判断があっても`missing`のままです。
-
-`input_basis`は`stored_publication_extract`で、`model_input_sha256`はこの抽出結果のhashです。過去runnerの全入力やexact promptを証明しません。保存済みprivate `input.json`は上書き再生成せず、残っている場合だけ別の受入作業で当時payloadとの一致を確認できます。元fileやmatching Run / Review Setが無い場合、当時の全入力を復元できたとは扱いません。
-
-この抽出には元runnerの入力確定時刻`known_at`を補いません。assessment自身の入力時刻やTriage発行時刻を代用せず、productionの完全な`ModelInput`とは区別します。
-
-resolve後にpolicyやsourceが変わりhashが一致しなくなった場合、input取得は失敗します。
-judgment取得はcanonical judgment hashだけを検証し、input policyの変更では拒否しません。
-inputにはcanonical判断のdecision、priority、rationale、research_question、key_riskを混ぜません。
-
 ### 時点保有・予約除外
 
 `portfolio_get_exclusions(at="2026-09-14T23:59:59.999999+09:00")`のようにtimezone付き時刻を渡します。
@@ -233,8 +203,8 @@ Owner toolsも完全な結果を返し、wire上限を超える場合は`RESULT_
 | code | 意味 |
 | --- | --- |
 | `INVALID_ARGUMENT` | selector・reference・日付・時刻が不正 |
-| `SOURCE_UNAVAILABLE` | canonical Triage、source run / Review Set、bound assessmentが利用不能 |
-| `AMBIGUOUS_SELECTION` | exact日に複数の完全なTriage、またはpublic run IDに複数revisionが存在 |
+| `SOURCE_UNAVAILABLE` | source run / Review Setが利用不能 |
+| `AMBIGUOUS_SELECTION` | public run IDに複数revisionが存在 |
 | `REFERENCE_MISMATCH` | 固定referenceと再読payloadのhashが不一致 |
 | `CONTRACT_MISMATCH` | schema・domain・source bindingが不整合、またはledgerが破損 |
 | `PORTFOLIO_UNAVAILABLE` | canonical ledgerが未登録 |

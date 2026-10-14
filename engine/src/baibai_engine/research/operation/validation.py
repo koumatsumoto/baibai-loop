@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -12,31 +11,23 @@ from baibai_engine.position.ledger_read import load_ledger_document
 from baibai_engine.research.operation.progress import (
     HoldingProposal,
     ResearchProgress,
-    ResearchSelection,
     ReviewedTarget,
     require_coverage,
 )
 from baibai_engine.research.position_review_service import PositionReviewService
+from baibai_engine.research.selection import ResearchSelection, ResearchTarget, selection_targets
 from baibai_engine.research.thesis_store import load_reviewed_thesis
-from baibai_engine.research.triage.contracts import StoredResearchTriage
 
 
 def validate_selection(
     connection: sqlite3.Connection, selection: ResearchSelection, *, now: datetime
 ) -> None:
-    new = {item.ticker for item in selection.targets if item.purpose == "new"}
-    if new and selection.explicit_run is None:
-        row = connection.execute(
-            "SELECT payload FROM research_triage WHERE research_triage_id=?",
-            (selection.research_triage_id,),
-        ).fetchone()
-        if row is None:
-            raise ValueError("selected Research Triage is unavailable")
-        triage = StoredResearchTriage.from_payload(json.loads(row[0]))
-        if triage.published_at > now:
-            raise ValueError("Research selection precedes Triage publication")
-        if not new <= set(triage.admissible_research_tickers()):
-            raise ValueError("new targets must be admitted by the bound Research Triage")
+    validate_target_purposes(connection, selection_targets(selection), now=now)
+
+
+def validate_target_purposes(
+    connection: sqlite3.Connection, targets: tuple[ResearchTarget, ...], *, now: datetime
+) -> None:
     ledger = load_ledger_document(connection)
     held: set[str] = set()
     if ledger is not None:
@@ -48,9 +39,9 @@ def validate_selection(
             for ticker, lots in snapshot.lots.items()
             if any(lot.quantity > 0 for lot in lots)
         }
-    for target in selection.targets:
+    for target in targets:
         if (target.ticker in held) != (target.purpose == "holding"):
-            raise ValueError("target purpose must agree with the current holding")
+            raise ValueError("purpose_conflict: target purpose must agree with the current holding")
 
 
 def validate_progress(
@@ -63,7 +54,7 @@ def validate_progress(
     complete: bool,
     previous: ResearchProgress | None = None,
 ) -> ResearchProgress:
-    require_coverage(selection.targets, progress.outcomes, complete=complete)
+    require_coverage(selection_targets(selection), progress.outcomes, complete=complete)
     verified = []
     retained = {} if previous is None else {item.ticker: item for item in previous.outcomes}
     for outcome in progress.outcomes:

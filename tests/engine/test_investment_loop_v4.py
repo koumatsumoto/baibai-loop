@@ -1,6 +1,5 @@
 """F09/F10/F17/F23: fixture DB exercises the composed investment loop."""
 
-import json
 import sqlite3
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -9,8 +8,9 @@ from functools import partial
 import pytest
 from tests.engine.test_reviewed_thesis_v4 import NOW as EVENING
 from tests.helpers.db_seed import seed_ledger
-from tests.helpers.research_triage import research_entry, research_triage_payload
+from tests.helpers.research_selection import selection
 from tests.helpers.research_v4 import pair_payload
+from tests.helpers.screening_run import security_analysis
 
 from baibai_engine.position.drafts import (
     apply_draft,
@@ -97,44 +97,19 @@ def test_sequential_allocation_uses_updated_cash_and_one_research_set(
         pairs[ticker] = ThesisStoreService(db, clock=lambda: NOW).publish_reviewed_thesis(
             "thesis-" + ticker, thesis, review
         )
-    entries = [research_entry(ticker, rank=index) for index, ticker in enumerate(pairs, 1)]
-    for entry in entries:
-        entry["candidate_snapshot"]["analysis"]["identity_liquidity"]["avg_turnover_oku"] = 0.01
-    with connect_rw(db) as connection:
-        connection.execute(
-            "INSERT INTO research_triage VALUES (?,?,?,?,?,?)",
-            (
-                "triage",
-                "set",
-                "run",
-                "2026-09-07",
-                NOW.isoformat(),
-                json.dumps(
-                    research_triage_payload(
-                        research_triage_id="triage",
-                        review_set_id="set",
-                        run_revision_id="run",
-                        as_of=NOW.date().isoformat(),
-                        published_at=NOW.isoformat(),
-                        entries=entries,
-                    )
-                ),
-            ),
-        )
-    operation = OperationService(db).start(
+    runs = tmp_path / "runs.sqlite"
+    selected = selection(
+        now=NOW,
+        tickers=tuple(pairs),
+        runs=runs,
+        rows=[security_analysis(ticker, avg_turnover_oku=0.01) for ticker in pairs],
+    )
+    operation = OperationService(db, runs_path=runs).start(
         session_kind="capital-allocation",
         as_of=NOW.date(),
         started_at=NOW,
         payload=OperationPayload(
-            checkpoint="human selected",
-            artifacts=(
-                {
-                    "kind": "research_selection",
-                    "request": "synthetic explicit selection",
-                    "research_triage_id": "triage",
-                    "targets": [{"ticker": ticker, "purpose": "new"} for ticker in pairs],
-                },
-            ),
+            checkpoint="selected", artifacts=(selected.model_dump(mode="json"),)
         ),
     )
     for ticker in pairs:
@@ -152,8 +127,7 @@ def test_sequential_allocation_uses_updated_cash_and_one_research_set(
             db_path=db,
             capital_allocation_assessment_id=assessment_id,
             as_of=NOW.date(),
-            research_triage_id="triage",
-            thesis_ids=[pair.thesis_id for pair in pairs.values()],
+            operation_id=operation.operation_id,
             published_at=NOW,
         )
         raw.update(

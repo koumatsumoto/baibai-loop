@@ -7,40 +7,41 @@ description: ユーザーの明示開始で有限対象を調査し、独立Revi
 
 ## 開始条件
 
-ユーザーが明示的に調査・評価・提案を開始したときだけ実行する。保存済み三領域、保有、既存調査を読み、新規・保有を合わせて最大3銘柄、0件も正常として選び、選定理由を示す。新規はexact Triageのresearch admission内、またはユーザー指定の[明示source](../../../docs/reference/analysis-operations.md#explicit-research-source)から始める。保有は現在ledgerの対象から選ぶ。上限を埋めるための弱い対象追加、脱落ごとの補充、日次自動起動は行わない。
+通常の「投資提案して」は `discover_new` とし、AIが保存分析・候補を比較して対象を選び、同じ依頼で深掘り、独立Review、CAAと具体提案まで進める。全候補Triage発行やユーザーによる銘柄選択を要求しない。銘柄指定は候補外も含む `specified_stocks`、保有見直し・売却提案は売却を前提にしない `review_positions` という同じResearchの別入口とする。保有の深掘りを通常探索へ混ぜない。
 
-有限集合と開始要求はOperationが所有する。厳密な被覆・完了・再開・既存activeの扱いは[Research進行](../../../docs/reference/analysis-operations.md#明示開始と固定対象)が正本である。選定理由や開始記録を人間の最終採否と表現しない。
+既保有への新規追加は現在方針で禁止されている。意図が保有見直しと明確ならそのscopeで開始し、明示的な追加購入依頼には方針を説明する。不明な場合だけ質問する。
 
-## 1. Workspaceを準備する
+有限集合と開始要求はOperationが所有する。[Research進行](../../../docs/reference/analysis-operations.md#明示開始と固定対象)の被覆・完了・再開に従う。深掘り上限は実行policyでありノルマではなく、0件も選定理由を残す。残りの依頼範囲をsummaryで説明し、追加調査は現在の成果を確定して次Operationへ進める。新しい費用・範囲の承認が必要な場合だけ確認する。日次AI自動起動は行わない。
+
+## 1. 選定してWorkspaceを準備する
+
+```bash
+uv run baibai-engine research selection-context \
+  --request '<USER_START_REQUEST>' --scope discover_new \
+  --db stores/application/baibai.sqlite --runs-path stores/machine/runs.sqlite
+```
+
+指定銘柄は `--scope specified_stocks --ticker <TICKER>`、保有は `--scope review_positions` とし、必要なら指定tickerを付ける。contextのrun参照、research_as_of、input_known_atとrequestをdraftへコピーし、比較した選定理由・調査の問い・主要リスク・今回の範囲をAIが記す。構造はCLIのhelpとselection modelが正本である。現在の三領域・保有・既存調査を読み、弱い対象で上限を埋めず、脱落を自動補充しない。
+
+inputs_requiredは経済的見送りではない。既存 `screening ticker-profile`、`verify-cache-coverage`、必要な `bootstrap-cache` / `screening run` / `extract-edinet-facts` と一次資料確認で補完し、同じ依頼でcontextを取り直す。通常の認可済みread取得に再許可を要求しない。新課金・権限変更・本番反映は[Ops Maintenance](../ops-maintenance/SKILL.md)の別境界であり、単一銘柄の不足を無断の全期間backfillで埋めない。標準補完後も機械分析を得られなければInputGapに試したsourceと不足理由を残し、一次資料で企業評価を進める。重要fact自体を得られない対象は未完了として扱う。
 
 ```bash
 uv run baibai-engine research prepare \
-  --request '<USER_START_REQUEST>' \
-  --research-triage-id <RESEARCH_TRIAGE_ID> \
-  --db stores/application/baibai.sqlite \
-  --workspace .cache/research/<ASOF> \
-  --ticker <NEW_TICKER> \
-  --holding-ticker <HELD_TICKER> \
-  --sqlite-path stores/market/market.sqlite
+  --selection-file <SELECTION_JSON> --db stores/application/baibai.sqlite \
+  --workspace .cache/research/<ASOF> --sqlite-path stores/market/market.sqlite
 ```
 
-対象purposeごとに必要なflagだけを使う。新規は`--ticker`、保有は`--holding-ticker`を同じ呼出しで指定し、合算上限を守る。新規のない開始はTriage IDを省略して`--asof`を指定できる。0件も開始要求と提案なしの終了を残す。
-
-ユーザーが候補所属に関係なく銘柄を指定した場合は、Triage IDの代わりに保存runを指定する。両sourceを同時に指定しない。
+Operation内の一つのsnapshotが固定入力の正本であり、`domain-inputs.yaml`は削除・再生成可能なAI読取投影である。選択済み対象だけの機械値・市場・外部評価と、scope/summary/選定理由/問い/リスクを読む。保有子は `domain_inputs_ref` で親入力を共有する。観測・機械anchor・保存判断・今回の仮定を分け、materialな環境変化だけ企業評価と提案へ接続する。
 
 ```bash
 uv run baibai-engine research prepare \
-  --request '<USER_START_REQUEST>' \
-  --run-revision-id <RUN_REVISION_ID> \
-  --db stores/application/baibai.sqlite \
-  --workspace .cache/research/<ASOF> \
-  --ticker <NEW_TICKER> \
-  --sqlite-path stores/market/market.sqlite
+  --operation-id <OPERATION_ID> --db stores/application/baibai.sqlite \
+  --workspace .cache/research/<ASOF> --force
 ```
 
-AIは同じ`domain-inputs.yaml`の選択済み三領域と`explicit_research_request`を読む。runの選び直し、Triageや保存候補の作成、原典不足の機械値による補完はしない。厳密なsourceと再開の契約は上のreferenceを参照する。
+再開はOperationの保存入力から復元し、元runやmutable storeを再読しない。scope/対象/理由/source/cutoffは固定。`--force`は生成投影を修復し、執筆済みdraftを保持する。DB commit後のfile失敗も返されたOperation IDで再開できる。completedの再送はalready_completedで成果を追記しない。本当に再依頼された同じ文は、新workspaceで別Operationとして開始できる。
 
-新規workspaceと`holdings/<ticker>`は同じOperationを参照する。AIの読取入口は親の`domain-inputs.yaml`一本とし、選択済み新規の機械snapshot・保存Triageの調査理由/質問/リスクと、選択済み新規/保有の三領域入力を読む。観測・機械anchor・保存判断・今回置く仮定を分ける。`research-workspace.yaml`の全候補snapshotは内部のcanonical照合用であり、AIへ再度全文を渡さない。保有子workspaceのmanifestにある`domain_inputs_ref`は子workspaceを基準に親入力を指す。同じ作業では共通入力を重ねて読まず、保有単独の開始は自身の`domain-inputs.yaml`を読む。保存された旧章立てreportの全文作成を前提にせず、materialな環境変化だけ企業評価と提案へ接続する。既存Thesisがあれば`--from-thesis-id`で引き継ぐ。再開で別Triage・対象集合へ差し替えず、執筆済みworkspaceを保持する。
+分析日が前日でもResearch日は当日。開始入力を当日の分析へ付け替えず、Thesis/Review/CAAは実際の正式評価日で作る。翌日再開でも開始snapshotは不変であり、当日の価格・cash・保有・注文・正式評価条件は再確認する。
 
 <a id="company-research"></a>
 
@@ -90,13 +91,10 @@ uv run baibai-engine research capital-allocation-scaffold \
   --db stores/application/baibai.sqlite \
   --capital-allocation-assessment-id <ASSESSMENT_ID> \
   --asof YYYY-MM-DD \
-  --research-triage-id <RESEARCH_TRIAGE_ID> \
-  --thesis-id <THESIS_ID> --out <DRAFT>
+  --operation-id <OPERATION_ID> --out <DRAFT>
 ```
 
-`--thesis-id`はOperationに記録した完了新規の全件だけを指定する。CAA scopeには未完了の理由・参照も固定される。保有は[Position Review](../position-review/SKILL.md)の検証済みdraftを別成果として残す。比較の内容は[CAA reference](../../../docs/reference/capital-allocation-assessment.md)に従い、重要仮定・反証と採用/見送り理由をAssessmentだけに書く。
-
-明示sourceのCAA scaffoldでは`--research-triage-id`を省略する。同じOperationの完了新規を指定し、check・独立content review・publish・完了は同じ手順で行う。
+完成新規の全Thesis参照はOperation progressから生成する。CAA scopeには未完了の理由・参照も固定される。保有は[Position Review](../position-review/SKILL.md)の検証済みdraftを別成果として残す。比較の内容は[CAA reference](../../../docs/reference/capital-allocation-assessment.md)に従い、重要仮定・反証と採用/見送り理由をAssessmentだけに書く。
 
 ```bash
 uv run baibai-engine research capital-allocation-publish \

@@ -147,17 +147,12 @@ class CapitalAllocationAssessment(_CapitalAllocationFields):
 class StoredCapitalAllocationAssessment(_CapitalAllocationFields):
     """Read a committed judgment without changing its publication or review hash."""
 
-    schema_version: Literal[1, 2]
+    schema_version: Literal[2]
     _source_payload: dict[str, object] = PrivateAttr()
 
     @classmethod
     def from_payload(cls, payload: dict[str, object]) -> StoredCapitalAllocationAssessment:
-        projection = dict(payload)
-        if projection.get("schema_version") == 1:
-            if "market_context_assessment_id" in projection:
-                raise ValueError("stored CAA1 has a current reference field")
-            projection["market_context_assessment_id"] = projection.pop("macro_context_id", None)
-        result = cls.model_validate(projection)
+        result = cls.model_validate(payload)
         result._source_payload = dict(payload)
         return result
 

@@ -10,20 +10,12 @@ from typing import Any
 
 from pydantic import Field, field_validator
 
-from baibai_batch.analysis.io import canonical_json
-from baibai_batch.analysis.model_input import extract_publication_input, review_set_candidates
+from baibai_batch.storage.canonical_json import canonical_json
 from baibai_engine.batch_api import validated_review_set
 from baibai_engine.foundation.repository_layout import APPLICATION_DB_PATH, RUNS_DB_PATH
-from baibai_engine.market_context.assessment.models import StoredAssessment
 from baibai_engine.position.ledger import replay_events_through, require_resolved_expiries
 from baibai_engine.position.ledger_read import load_ledger_document
-from baibai_engine.read_api.market_context import assessment_payload
-from baibai_engine.read_api.research_triage import (
-    current_research_triage,
-    list_research_triage_payloads,
-    research_triage_payload_hash,
-)
-from baibai_engine.research.triage.contracts import StoredResearchTriage
+from baibai_engine.screening.discovery.projection import review_set_candidates
 from baibai_engine.screening.run_store import RunStoreAmbiguousError, ScreeningRunReader
 from baibai_engine.storage.application.read import connect_read_only
 from tools.l1_mcp.contract import InputModel
@@ -36,25 +28,6 @@ class OwnerError(Exception):
         super().__init__(code)
 
 
-class TriageRef(InputModel):
-    research_triage_id: str = Field(min_length=1)
-    research_triage_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    model_input_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-
-
-class Selector(InputModel):
-    research_triage_id: str | None = Field(default=None, min_length=1)
-    as_of: str | None = None
-    not_before: str | None = None
-
-    @field_validator("as_of", "not_before")
-    @classmethod
-    def iso_date(cls, value: str | None) -> str | None:
-        if value is not None and date.fromisoformat(value).isoformat() != value:
-            raise ValueError("ISO date required")
-        return value
-
-
 class ReviewSetSelector(InputModel):
     review_set_id: str | None = Field(default=None, min_length=1)
     public_run_id: str | None = Field(default=None, min_length=1)
@@ -64,7 +37,9 @@ class ReviewSetSelector(InputModel):
     @field_validator("as_of", "not_before")
     @classmethod
     def iso_date(cls, value: str | None) -> str | None:
-        return Selector.iso_date(value)
+        if value is not None and date.fromisoformat(value).isoformat() != value:
+            raise ValueError("ISO date required")
+        return value
 
 
 def digest(payload: object) -> str:
@@ -104,7 +79,7 @@ class Reader:
             or run.payload.get("screening_rules_hash") != review_set.screening_rules_hash
         ):
             raise OwnerError("CONTRACT_MISMATCH")
-        candidates = [item.model_dump(mode="json") for item in review_set_candidates(review_set)]
+        candidates = list(review_set_candidates(review_set))
         return {
             "review_set_ref": {
                 "review_set_id": review_set.review_set_id,
@@ -119,143 +94,6 @@ class Reader:
             "input_basis": "frozen_review_set",
             "candidate_count": len(candidates),
             "candidates": candidates,
-        }
-
-    def judgment(self, identifier: str) -> StoredResearchTriage:
-        triage = current_research_triage(self.app_path, identifier)
-        if triage is None:
-            raise OwnerError("SOURCE_UNAVAILABLE")
-        if triage.research_triage_id != identifier:
-            raise OwnerError("CONTRACT_MISMATCH")
-        return triage
-
-    def reconstruct(self, triage: StoredResearchTriage) -> tuple[dict[str, Any], dict[str, Any]]:
-        try:
-            return self._reconstruct(triage)
-        except ValueError as exc:
-            raise OwnerError("CONTRACT_MISMATCH") from exc
-
-    def _reconstruct(self, triage: StoredResearchTriage) -> tuple[dict[str, Any], dict[str, Any]]:
-        if not self.runs_path.is_file():
-            raise OwnerError("SOURCE_UNAVAILABLE")
-        reader = ScreeningRunReader(self.runs_path)
-        publication = reader.get_review_set(triage.review_set_id)
-        run = reader.get_run(triage.run_revision_id)
-        if publication is None or run is None:
-            raise OwnerError("SOURCE_UNAVAILABLE")
-        review_set = validated_review_set(publication)
-        if (
-            triage.review_set_id != review_set.review_set_id
-            or triage.run_revision_id != review_set.run_revision_id
-            or triage.as_of != review_set.as_of
-            or triage.screening_rules_hash != review_set.screening_rules_hash
-            or triage.candidate_discovery_method != review_set.method
-            or run.run_revision_id != triage.run_revision_id
-            or run.as_of_date != triage.as_of.isoformat()
-            or run.payload.get("screening_rules_hash") != triage.screening_rules_hash
-        ):
-            raise OwnerError("CONTRACT_MISMATCH")
-        assessment = None
-        if triage.market_context_assessment_id is not None:
-            try:
-                payload = assessment_payload(
-                    self.app_path, context_id=triage.market_context_assessment_id
-                )
-            except ValueError as exc:
-                raise OwnerError("SOURCE_UNAVAILABLE") from exc
-            assessment = StoredAssessment.from_payload(payload)
-            if (
-                assessment.context_id != triage.market_context_assessment_id
-                or assessment.as_of > triage.as_of
-            ):
-                raise OwnerError("CONTRACT_MISMATCH")
-        model_input = extract_publication_input(
-            review_set, assessment, legacy_triage=triage.schema_version == 3
-        )
-        snapshots = {entry.ticker: entry.snapshot for entry in review_set_candidates(review_set)}
-        if {entry.ticker: entry.candidate_snapshot for entry in triage.entries} != snapshots:
-            raise OwnerError("CONTRACT_MISMATCH")
-        run_at = datetime.fromisoformat(run.run_at)
-        if run_at.tzinfo is None or run_at.utcoffset() is None:
-            raise OwnerError("CONTRACT_MISMATCH")
-        return model_input, {
-            "as_of": triage.as_of.isoformat(),
-            "published_at": triage.published_at.isoformat(),
-            "review_set_id": triage.review_set_id,
-            "run_revision_id": triage.run_revision_id,
-            "public_run_id": run.public_run_id,
-            "run_at": run.run_at,
-            "market_context_assessment_id": triage.market_context_assessment_id,
-            "screening_rules_hash": triage.screening_rules_hash,
-            "candidate_discovery_method": triage.candidate_discovery_method.model_dump(mode="json"),
-        }
-
-    def resolved(self, triage: StoredResearchTriage) -> dict[str, Any]:
-        payload, metadata = self.reconstruct(triage)
-        return {
-            "triage_ref": TriageRef(
-                research_triage_id=triage.research_triage_id,
-                research_triage_sha256=research_triage_payload_hash(triage),
-                model_input_sha256=digest(payload),
-            ).model_dump(),
-            **metadata,
-            "input_basis": "stored_publication_extract",
-        }
-
-    def resolve(self, selector: Selector) -> dict[str, Any]:
-        if sum(value is not None for value in selector.model_dump().values()) > 1:
-            raise OwnerError("INVALID_ARGUMENT")
-        if selector.research_triage_id is not None:
-            return self.resolved(self.judgment(selector.research_triage_id))
-        triages = [
-            StoredResearchTriage.from_payload(payload)
-            for payload in list_research_triage_payloads(self.app_path)
-        ]
-        triages.sort(
-            key=lambda item: (item.as_of, item.published_at, item.research_triage_id),
-            reverse=selector.not_before is None,
-        )
-        matches = []
-        for triage in triages:
-            if selector.as_of is not None and triage.as_of.isoformat() != selector.as_of:
-                continue
-            if selector.not_before is not None and triage.as_of.isoformat() < selector.not_before:
-                continue
-            try:
-                result = self.resolved(triage)
-            except OwnerError as exc:
-                if exc.code not in {"SOURCE_UNAVAILABLE", "CONTRACT_MISMATCH"}:
-                    raise
-                continue
-            if selector.as_of is None:
-                return result
-            matches.append(result)
-            if len(matches) > 1:
-                raise OwnerError("AMBIGUOUS_SELECTION")
-        if not matches:
-            raise OwnerError("SOURCE_UNAVAILABLE")
-        return matches[0]
-
-    def verified_judgment(self, reference: TriageRef) -> StoredResearchTriage:
-        triage = self.judgment(reference.research_triage_id)
-        if research_triage_payload_hash(triage) != reference.research_triage_sha256:
-            raise OwnerError("REFERENCE_MISMATCH")
-        return triage
-
-    def get_input(self, reference: TriageRef) -> dict[str, Any]:
-        payload, _ = self.reconstruct(self.verified_judgment(reference))
-        if digest(payload) != reference.model_input_sha256:
-            raise OwnerError("REFERENCE_MISMATCH")
-        return {
-            "triage_ref": reference.model_dump(),
-            "input_basis": "stored_publication_extract",
-            "model_input": payload,
-        }
-
-    def get_judgment(self, reference: TriageRef) -> dict[str, Any]:
-        return {
-            "triage_ref": reference.model_dump(),
-            "research_triage": self.verified_judgment(reference).model_dump(mode="json"),
         }
 
     def exclusions(self, at: str) -> dict[str, Any]:
