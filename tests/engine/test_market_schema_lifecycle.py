@@ -24,7 +24,9 @@ def test_failed_market_initialization_rolls_back_and_can_retry(tmp_path, monkeyp
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 0
     with closing(schema.open_connection(path)) as connection:
         schema.validate_current_schema(connection)
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == schema.SQLITE_SCHEMA_VERSION
+        assert (
+            connection.execute("PRAGMA user_version").fetchone()[0] == schema.SQLITE_SCHEMA_VERSION
+        )
 
 
 def test_connect_current_accepts_uri_sensitive_path_characters(tmp_path):

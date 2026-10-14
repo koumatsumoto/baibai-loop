@@ -794,9 +794,9 @@ class JQuantsProvider(_JQuantsTransport):
 
         Two things are fetched: what the coverage says is missing, and the trailing
         ``revision_overlap_days`` regardless of coverage. The overlap is the only
-        way a filing the provider published late — for a date already fetched — ever
-        lands, and today that protection exists only as an accident of the sliding
-        chunk grid, which re-reads between 1 and 31 days depending on the as-of.
+        way this refresh discovers a late publication for an already covered date
+        within that trailing window. Older corrections require explicit repair ranges;
+        acquisition coverage alone does not prove that no later revision exists.
 
         The two are merged before anything is requested, so a stop longer than the
         overlap costs the outage and not the outage plus a week. Asking once, here,
