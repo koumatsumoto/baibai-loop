@@ -1388,6 +1388,20 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(bar.close, 100.0)
         self.assertIsNone(bar.adjustment_close)
 
+    def test_adjusted_only_record_does_not_invent_raw_close_or_lose_split_event(self) -> None:
+        record = {
+            "Code": "67310",
+            "Date": "2023-12-27",
+            "C": None,
+            "AdjC": 500.0,
+            "AdjFactor": 100.0,
+        }
+        self.assertIsNone(normalize_daily_bar(record))
+        event = normalize_adjustment_factor_event(record)
+        self.assertIsNotNone(event)
+        assert event is not None
+        self.assertEqual(event.adjustment_factor, 100.0)
+
     def test_normalize_adjustment_event_does_not_require_close(self) -> None:
         event = normalize_adjustment_factor_event(
             {

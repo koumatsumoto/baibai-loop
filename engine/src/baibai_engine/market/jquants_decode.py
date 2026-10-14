@@ -37,9 +37,10 @@ def normalize_daily_bar(record: Mapping[str, Any]) -> JQuantsDailyBar | None:
         return None
     # `or` チェーンは 0.0 を falsy 扱いして次キーに進むため、0 close/turnover の銘柄を
     # 欠損と誤判定する。キー存在と非 None を基準に最初の値を取る。
-    close = to_float(coalesce_field(record, "Close", "close", "C", "c", "AdjC", "adj_close"))
+    close = to_float(coalesce_field(record, "Close", "close", "C", "c"))
     if close is None:
-        # Non-trading day or missing close; treat as absent bar so history stays clean.
+        # An adjusted-only observation cannot supply a raw price bar. Its source
+        # fields and independent factor event remain available through the store.
         return None
     # 配信元の調整済みcloseも観測値として分けて保持する。取得時期の異なる
     # adjustment_closeは株式基準が混在するため、履歴比較では使用せず

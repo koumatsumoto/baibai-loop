@@ -18,6 +18,7 @@ from tests.helpers.screening_sqlite import add_source_coverage, make_master_reco
 
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.providers.jquants import JQuantsProvider
+from baibai_engine.market.store import read_adjustment_factor_bars, read_daily_bars_for_tickers
 from baibai_engine.screening.sqlite_coverage import plan_required_field_repair
 from baibai_engine.storage.observations.coverage import range_covered
 from baibai_engine.storage.observations.ingest.jquants import (
@@ -26,6 +27,30 @@ from baibai_engine.storage.observations.ingest.jquants import (
 )
 from baibai_engine.storage.observations.jquants import store_jquants_daily_bars
 from baibai_engine.storage.observations.schema import open_connection
+
+
+def test_adjusted_only_ingest_preserves_observation_and_event_without_a_raw_price(tmp_path):
+    path = tmp_path / "market.sqlite"
+    day = date(2023, 12, 27)
+    assert (
+        store_jquants_daily_bars(
+            path,
+            [{"Code": "67310", "Date": day.isoformat(), "C": None, "AdjC": 500, "AdjFactor": 100}],
+            requested_start=day,
+            requested_end=day,
+        )
+        == 1
+    )
+    with sqlite3.connect(path) as connection:
+        row = connection.execute(
+            "SELECT close,adjustment_close,adjustment_factor FROM jquants_daily_bars"
+        ).fetchone()
+    assert row == (None, 500, 100)
+    assert read_daily_bars_for_tickers(path, ("6731",), day, day) == []
+    events = read_adjustment_factor_bars(path, day, day)
+    assert events is not None
+    assert len(events) == 1
+    assert events[0].adjustment_factor == 100
 
 
 class _RecordingClient:
