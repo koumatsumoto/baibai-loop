@@ -4,6 +4,7 @@ import unittest
 from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import MagicMock, patch
 
 from baibai_engine.market.delistings import (
     DelistingRecord,
@@ -134,3 +135,33 @@ class JPXDelistingTest(unittest.TestCase):
 
         self.assertEqual(rows[0].name, "（株）テスト")
         self.assertEqual(rows[0].reason, "ＭＢＯ（公開買付け、株式併合）")
+
+
+class DelistingSessionOwnershipTests(unittest.TestCase):
+    def test_owned_session_is_released_on_success_and_failure(self) -> None:
+        for status in (200, 503):
+            with self.subTest(status=status):
+                session = MagicMock()
+                session.__enter__.return_value = session
+                session.get.return_value.status_code = status
+                session.get.return_value.content = (
+                    "<table><tr><td>2026/05/01</td><td>Test</td><td>2000</td>"
+                    "<td>Prime</td><td>Merger</td></tr></table>"
+                ).encode()
+                with patch(
+                    "baibai_engine.market.delistings.requests.Session", return_value=session
+                ):
+                    if status == 200:
+                        self.assertEqual(download_jpx_delistings()[0].ticker, "2000")
+                    else:
+                        with self.assertRaises(DelistingSourceError):
+                            download_jpx_delistings()
+                session.__exit__.assert_called_once()
+
+    def test_borrowed_session_is_not_closed_on_failure(self) -> None:
+        session = MagicMock()
+        session.get.return_value.status_code = 503
+        with self.assertRaises(DelistingSourceError):
+            download_jpx_delistings(session)
+        session.close.assert_not_called()
+        session.__exit__.assert_not_called()
