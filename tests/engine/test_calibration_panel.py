@@ -290,6 +290,27 @@ class CalibrationPanelTest(unittest.TestCase):
 
         self.assertNotEqual(rules_content_hash(rules), previous_identity)
 
+    def test_dividend_revision_separates_production_and_panel_identity(self) -> None:
+        rules = load_screening_rules()
+        with (
+            patch(
+                "baibai_engine.valuation.metrics.financial_snapshot.VALUATION_CALCULATION_REVISION",
+                "same-profit-basis-yoy-v25",
+            ),
+            patch(
+                "baibai_engine.screening.calibration.panel.VALUATION_CALCULATION_REVISION",
+                "same-profit-basis-yoy-v25",
+            ),
+        ):
+            previous_production = production_rules_contract_hash(rules.model_dump_json())
+            previous_panel = rules_content_hash(rules)
+
+        # 同じrules・one-bar scopeでも、配当の意味変更を両方のidentityが識別する。
+        self.assertNotEqual(
+            production_rules_contract_hash(rules.model_dump_json()), previous_production
+        )
+        self.assertNotEqual(rules_content_hash(rules), previous_panel)
+
     def test_candidate_discovery_method_hash_is_part_of_panel_identity(self) -> None:
         rules = load_screening_rules()
 
