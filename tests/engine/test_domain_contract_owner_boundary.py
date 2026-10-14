@@ -17,7 +17,6 @@ from baibai_engine.market.jpx_total_return import load_benchmark_observation
 from baibai_engine.valuation.calibration.query import (
     candidate_er_band_context,
     load_er_calibration_context,
-    stored_er_calibration_context,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -83,9 +82,6 @@ def test_saved_readers_do_not_write_or_acquire(tmp_path: Path, monkeypatch) -> N
     loaded = load_er_calibration_context(path, **common)
     assert loaded.artifact is not None
     assert loaded.unavailable_reason is None
-    stored, reason = stored_er_calibration_context(path, **common)
-    assert reason is None
-    assert stored == raw
     # 評価帯境界は上限を含み、観測を更新せず保存済み帯へ対応づける。
     upper = loaded.artifact.horizons[0].bands[0].upper_er_annual
     assert upper is not None
@@ -104,7 +100,7 @@ def test_saved_readers_do_not_write_or_acquire(tmp_path: Path, monkeypatch) -> N
     }
 
 
-def test_unwritten_er_reader_remains_non_creating_and_stored_reader_raises(tmp_path: Path) -> None:
+def test_unwritten_er_reader_remains_non_creating(tmp_path: Path) -> None:
     path = tmp_path / "missing.yaml"
     args = {
         "expected_rules_hash": "unused",
@@ -112,6 +108,4 @@ def test_unwritten_er_reader_remains_non_creating_and_stored_reader_raises(tmp_p
         "as_of": date(2026, 10, 12),
     }
     assert load_er_calibration_context(path, **args).unavailable_reason == "missing_artifact"
-    with pytest.raises(FileNotFoundError):
-        stored_er_calibration_context(path, **args)
     assert not path.exists()

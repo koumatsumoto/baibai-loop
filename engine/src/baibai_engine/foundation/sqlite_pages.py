@@ -1,18 +1,10 @@
-"""調査工程へ保存済みapplication行を、再評価せず有限pageとして見せる。"""
+"""保存済み行を再評価せず有限pageとして見せる。"""
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from collections.abc import Mapping, Sequence
 from typing import Any
-
-
-def object_payload(raw: object) -> dict[str, Any]:
-    value = json.loads(str(raw))
-    if not isinstance(value, dict):
-        raise ValueError("stored payload must be an object")
-    return value
 
 
 def select_page(
@@ -49,21 +41,3 @@ def select_page(
             parameters,
         )
     ]
-
-
-def jst_day_ranges(column: str, filters: Mapping[str, object]) -> list[tuple[str, str, object]]:
-    """Bind inclusive JST calendar days as an offset-aware half-open interval."""
-    from datetime import date, datetime, time, timedelta
-    from zoneinfo import ZoneInfo
-
-    ranges: list[tuple[str, str, object]] = []
-    for name, op in (("from", ">="), ("to", "<")):
-        if name not in filters:
-            continue
-        day = date.fromisoformat(str(filters[name]))
-        if name == "to":
-            day += timedelta(days=1)
-        instant = datetime.combine(day, time(), ZoneInfo("Asia/Tokyo"))
-        # Julian days match SQLite's timezone-aware timestamp ordering.
-        ranges.append((f"julianday({column})", op, instant.timestamp() / 86400 + 2440587.5))
-    return ranges

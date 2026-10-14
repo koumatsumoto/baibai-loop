@@ -214,7 +214,7 @@ Screeningの候補は表示中のrun/候補に束縛され、保存済みCAAは�
 **停止と復旧**: 世代競合では未公開変更を退避し、最新正本を取得して必要な変更をapplication serviceで再適用する。自動mergeや無条件再uploadはしない。PUT成功後の世代記録・backup整理・dispatchの失敗は部分成功として確認し、未反映と決めつけて旧DBを再送しない。ledger preflightが失敗した場合はstoreをuploadせず停止する。exportはstoreのschemaがcodeと一致しない間、viewを1件も書かずexit 1で停止する。
 schemaを一致させてから再実行する。application更新の表示には、そのsnapshot uploadとmaterializeの成功が必要である。cloud dailyによる独立した機械view更新とは区別する。
 
-application DBはcurrent schemaだけを開き、materializeとOwner MCPは取得済みコピーをread-onlyで読む。schemaを上げるPRは、
+application DBはcurrent schemaだけを開き、materializeは取得済みコピーをread-onlyで読む。schemaを上げるPRは、
 source versionを限定したtemporary one-shot toolとexact commandを用意し、main merge後のattended cutover・検証・
 cloud反映が終わるまで保持する。完了証拠を残してから同じdeliveryのcleanupで削除する。現在のtreeに汎用cutover
 commandはないため、version不一致を見つけたoperatorは手書きSQLで進めず、schema変更issueへtoolを再構築する。

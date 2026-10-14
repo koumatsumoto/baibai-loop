@@ -28,9 +28,6 @@ from baibai_engine.storage.application.write import initialize_database
 from baibai_engine.storage.observations.schema import _SCHEMA_SQL as MARKET_SCHEMA_SQL
 from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION
 
-# Strict Owner MCP reads report unavailable canonical stores rather than UI no-data.
-_STRICT_STORED_READERS = frozenset({"stored_indicator_rows", "stored_reading"})
-
 # These parse Git-managed YAML paths, not runtime stores.
 _NOT_STORE_READERS = frozenset(
     {
@@ -49,7 +46,6 @@ _WRITE_GATES = frozenset({"market_calendar_business_day", "previous_run_revision
 _DECLARED_OUTSIDE_THE_SWEEP = frozenset(
     {
         *_NOT_STORE_READERS,
-        *_STRICT_STORED_READERS,
         "is_unwritten_store",  # requires a query exception as well as a store
         "registered_indicator",  # reads the bundled definitions, not a store
         "indicator_series_names",  # reads the bundled definitions, not a store
@@ -61,7 +57,6 @@ _DECLARED_OUTSIDE_THE_SWEEP = frozenset(
         "candidate_rows",  # pure same-run filter; owned by candidate discovery tests
         "reinvestment_coordinates",  # pure saved-metric projection; owned by valuation tests
         "load_er_calibration_context",  # reads Git-managed calibration YAML, not SQLite
-        "stored_er_calibration_context",  # reads Git-managed calibration YAML, not SQLite
         "replay_events_through",  # pure event replay; owned by ledger tests
         "summarize_portfolio",  # pure capital projection; owned by ledger tests
         "current_portfolio",  # composes an explicit ledger with market input; covered by current-capital tests
@@ -135,7 +130,7 @@ def _classify_readers() -> tuple[list[tuple[str, object, dict[str, object]]], se
     for name, function in sorted(_published_callables().items()):
         if not callable(function) or inspect.isclass(function):
             continue
-        if name in _NOT_STORE_READERS | _STRICT_STORED_READERS:
+        if name in _NOT_STORE_READERS:
             uncovered.add(name)
             continue
         try:
