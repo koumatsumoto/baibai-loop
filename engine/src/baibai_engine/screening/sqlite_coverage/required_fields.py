@@ -14,39 +14,39 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
+from .common_stock import COMMON_STOCK_SNAPSHOT_SQL, scope_parameters
 from .shared import CacheCoverageIssue
 
 REQUIRED_FIELD_MIN_POPULATION_RATIO = 0.75
 
 _REQUIRED_FIELD_VALUES_CTE = (
-    "WITH p AS (SELECT ticker FROM jquants_master_snapshots "
-    "WHERE snapshot_date = ?1 AND is_common_stock = 1), x AS ("
+    f"WITH p AS ({COMMON_STOCK_SNAPSHOT_SQL}), x AS ("  # nosec B608
     "SELECT p.ticker, "
     "EXISTS (SELECT 1 FROM jquants_fin_summaries s WHERE s.ticker = p.ticker "
-    "AND s.disclosed_at BETWEEN ?2 AND ?3) AS has_summary, "
+    "AND s.disclosed_at BETWEEN :start AND :end) AS has_summary, "
     "(SELECT s.shares_outstanding FROM jquants_fin_summaries s "
-    "WHERE s.ticker = p.ticker AND s.disclosed_at BETWEEN ?2 AND ?3 "
+    "WHERE s.ticker = p.ticker AND s.disclosed_at BETWEEN :start AND :end "
     "AND s.shares_outstanding IS NOT NULL ORDER BY s.disclosed_at DESC LIMIT 1) AS shares, "
     "(SELECT s.disclosed_at FROM jquants_fin_summaries s "
-    "WHERE s.ticker = p.ticker AND s.disclosed_at BETWEEN ?2 AND ?3 "
+    "WHERE s.ticker = p.ticker AND s.disclosed_at BETWEEN :start AND :end "
     "AND s.shares_outstanding IS NOT NULL ORDER BY s.disclosed_at DESC LIMIT 1) AS shares_date, "
     "(SELECT s.treasury_shares FROM jquants_fin_summaries s "
-    "WHERE s.ticker = p.ticker AND s.disclosed_at BETWEEN ?2 AND ?3 "
+    "WHERE s.ticker = p.ticker AND s.disclosed_at BETWEEN :start AND :end "
     "AND s.treasury_shares IS NOT NULL ORDER BY s.disclosed_at DESC LIMIT 1) AS treasury, "
     "(SELECT s.disclosed_at FROM jquants_fin_summaries s "
-    "WHERE s.ticker = p.ticker AND s.disclosed_at BETWEEN ?2 AND ?3 "
+    "WHERE s.ticker = p.ticker AND s.disclosed_at BETWEEN :start AND :end "
     "AND s.treasury_shares IS NOT NULL ORDER BY s.disclosed_at DESC LIMIT 1) AS treasury_date, "
     "(SELECT s.equity_to_asset_ratio FROM jquants_fin_summaries s "
-    "WHERE s.ticker = p.ticker AND s.disclosed_at BETWEEN ?2 AND ?3 "
+    "WHERE s.ticker = p.ticker AND s.disclosed_at BETWEEN :start AND :end "
     "AND s.equity_to_asset_ratio IS NOT NULL ORDER BY s.disclosed_at DESC LIMIT 1) "
     "AS equity_ratio FROM p), y AS (SELECT x.*, "
     "shares / COALESCE((SELECT EXP(SUM(LN(b.adjustment_factor))) "
     "FROM jquants_daily_bars b WHERE b.ticker = x.ticker "
-    "AND b.traded_at > x.shares_date AND b.traded_at <= ?1 "
+    "AND b.traded_at > x.shares_date AND b.traded_at <= :asof "
     "AND b.adjustment_factor NOT IN (0.0, 1.0)), 1.0) AS shares_asof, "
     "treasury / COALESCE((SELECT EXP(SUM(LN(b.adjustment_factor))) "
     "FROM jquants_daily_bars b WHERE b.ticker = x.ticker "
-    "AND b.traded_at > x.treasury_date AND b.traded_at <= ?1 "
+    "AND b.traded_at > x.treasury_date AND b.traded_at <= :asof "
     "AND b.adjustment_factor NOT IN (0.0, 1.0)), 1.0) AS treasury_asof FROM x) "
 )
 
@@ -174,14 +174,15 @@ def plan_required_field_repair(
             f"SELECT ticker FROM y WHERE {predicate}) "  # nosec B608
             "SELECT DISTINCT s.disclosed_at FROM jquants_fin_summaries s "
             "JOIN missing m ON m.ticker = s.ticker "
-            "WHERE s.disclosed_at BETWEEN ?4 AND ?5 ORDER BY s.disclosed_at",
-            (
-                asof.isoformat(),
-                start.isoformat(),
-                asof.isoformat(),
-                start.isoformat(),
-                asof.isoformat(),
-            ),
+            "WHERE s.disclosed_at BETWEEN :repair_start AND :repair_end "
+            "ORDER BY s.disclosed_at",
+            {
+                **scope_parameters(asof),
+                "start": start.isoformat(),
+                "end": asof.isoformat(),
+                "repair_start": start.isoformat(),
+                "repair_end": asof.isoformat(),
+            },
         ).fetchall()
         dates = tuple(date.fromisoformat(str(row[0])) for row in rows)
         ranges = _consecutive_date_ranges(dates) or ((start, asof),)
@@ -195,7 +196,11 @@ def plan_required_field_repair(
 def required_field_coverage(
     conn: sqlite3.Connection, *, start: date, asof: date
 ) -> RequiredFieldCoverage:
-    params = (asof.isoformat(), start.isoformat(), asof.isoformat())
+    params = {
+        **scope_parameters(asof),
+        "start": start.isoformat(),
+        "end": asof.isoformat(),
+    }
     # Every SQL fragment is module-owned; dates remain bound parameters.
     row = conn.execute(
         _REQUIRED_FIELD_VALUES_CTE + "SELECT COUNT(*), COALESCE(SUM(has_summary), 0), "  # nosec B608

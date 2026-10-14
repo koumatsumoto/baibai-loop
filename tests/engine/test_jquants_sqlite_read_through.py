@@ -770,8 +770,9 @@ class FinSummaryFetchWindowTests(unittest.TestCase):
             conn = open_connection(sqlite_path)
             conn.executemany(
                 "INSERT INTO jquants_master_snapshots("
-                "snapshot_date, ticker, is_common_stock) VALUES (?, ?, 1)",
-                [(self._END.isoformat(), ticker) for ticker in tickers],
+                "snapshot_date, ticker, name, market, sector_33, is_common_stock) "
+                "VALUES (?, ?, ?, 'Prime', '水産・農林業', 1)",
+                [(self._END.isoformat(), ticker, f"Name {ticker}") for ticker in tickers],
             )
             conn.executemany(
                 "INSERT INTO jquants_fin_summaries("
