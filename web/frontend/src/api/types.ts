@@ -834,7 +834,7 @@ export interface ReviewSetAssetValueView {
 }
 
 export interface ReviewSetContextView {
-  next_earnings_status: string | null
+  next_earnings_status: 'scheduled' | 'scheduled_date_reached' | 'estimated' | 'unknown' | null
   next_earnings_estimated_date: string | null
   margin_short_to_adv: number | null
   tse_capital_policy_status: string | null

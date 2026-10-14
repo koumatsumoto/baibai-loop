@@ -401,7 +401,9 @@ class ReviewSetDataQualityView(BaseModel):
 
 
 class ReviewSetContextView(BaseModel):
-    next_earnings_status: str | None
+    next_earnings_status: (
+        Literal["scheduled", "scheduled_date_reached", "estimated", "unknown"] | None
+    )
     next_earnings_estimated_date: str | None
     margin_short_to_adv: float | None
     tse_capital_policy_status: str | None

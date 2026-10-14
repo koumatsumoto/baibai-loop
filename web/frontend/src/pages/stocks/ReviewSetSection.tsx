@@ -18,14 +18,26 @@ function percent(value: number | null): string {
   return value === null ? EMPTY : `${formatNumber(value * 100, 1)}%`
 }
 
+function earningsStatusLabel(status: string | null): string | null {
+  switch (status) {
+    case 'scheduled': return '決算予定'
+    case 'scheduled_date_reached':
+    case 'announced': return '予定日到来・経過（発表未確認）'
+    case 'estimated': return '次回予定推定'
+    case 'unknown': return '予定未確認'
+    case null: return null
+    default: return '予定状態未確認'
+  }
+}
+
 function entryNotes(entry: ReviewSetEntryView) {
   const quality = entry.analysis.data_quality
   const context = entry.analysis.context
   const flags = [
-    quality.stale_fin_flag === true ? 'stale_fin' : null,
+    quality.stale_fin_flag === true ? '予定日到来・財務未照合' : null,
     quality.bs_carry_forward_fields,
     quality.edinet_failure_reasons,
-    context.next_earnings_status,
+    earningsStatusLabel(context.next_earnings_status),
     context.tse_capital_policy_status,
     context.large_holding_filing_within_lookback === true ? 'large_holding_filing' : null,
     context.tender_offer_filing_within_lookback === true ? 'tender_offer_filing' : null,
@@ -94,12 +106,12 @@ function FrozenAnalysis({ analysis }: { analysis: ReviewSetAnalysisView }) {
       ]} title="Machine return prior (secondary context)" />
       <FrozenGroup fields={[
         ['BS carry fields', quality.bs_carry_forward_fields ?? EMPTY], ['BS carry lag', `${number(quality.bs_carry_forward_lag_days, 0)} 日`],
-        ['EDINET failures', quality.edinet_failure_reasons ?? EMPTY], ['stale financials', String(quality.stale_fin_flag ?? EMPTY)],
+        ['EDINET failures', quality.edinet_failure_reasons ?? EMPTY], ['予定日到来・財務未照合', String(quality.stale_fin_flag ?? EMPTY)],
         ...(quality.ttm_quality_ev_ebitda && quality.ttm_quality_ev_ebitda !== 'exact' ? [['EV/EBITDA TTM', quality.ttm_quality_ev_ebitda] as const] : []),
         ...(quality.ttm_quality_fcf && quality.ttm_quality_fcf !== 'exact' ? [['FCF TTM', quality.ttm_quality_fcf] as const] : []),
       ]} title="Data quality" />
       <FrozenGroup fields={[
-        ['next earnings status', context.next_earnings_status ?? EMPTY], ['next earnings', context.next_earnings_estimated_date ?? EMPTY],
+        ['決算予定の状態', earningsStatusLabel(context.next_earnings_status) ?? EMPTY], ['次回予定推定日', context.next_earnings_estimated_date ?? EMPTY],
         ['margin short / ADV', number(context.margin_short_to_adv)], ['TSE capital policy', context.tse_capital_policy_status ?? EMPTY],
         ['large holding filing', String(context.large_holding_filing_within_lookback ?? EMPTY)],
         ['tender offer filing', String(context.tender_offer_filing_within_lookback ?? EMPTY)],

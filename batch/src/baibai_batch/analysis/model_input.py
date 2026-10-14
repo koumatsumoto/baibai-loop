@@ -12,25 +12,35 @@ from baibai_engine.batch_api import (
     ReviewSetEntrySnapshot,
     StoredAssessment,
     assessment_projection,
+    interpreted_next_earnings_status,
     legacy_context_projection,
     require_aware,
 )
 
 
 def review_set_candidates(review_set: PublishedReviewSet) -> tuple[TriageCandidate, ...]:
-    """Project frozen entries in canonical order without current machine or judgment inputs."""
-    return tuple(
-        TriageCandidate(
-            ticker=entry.ticker,
-            snapshot=ReviewSetEntrySnapshot(
-                name=entry.name,
-                sector_33=entry.sector_33,
-                nominations=entry.nominations,
-                analysis=entry.analysis,
-            ),
+    """Project frozen entries without turning legacy date-only status into disclosure fact."""
+    candidates: list[TriageCandidate] = []
+    for entry in review_set.entries:
+        context = entry.analysis.context.model_copy(
+            update={
+                "next_earnings_status": interpreted_next_earnings_status(
+                    entry.analysis.context.next_earnings_status
+                )
+            }
         )
-        for entry in review_set.entries
-    )
+        candidates.append(
+            TriageCandidate(
+                ticker=entry.ticker,
+                snapshot=ReviewSetEntrySnapshot(
+                    name=entry.name,
+                    sector_33=entry.sector_33,
+                    nominations=entry.nominations,
+                    analysis=entry.analysis.model_copy(update={"context": context}),
+                ),
+            )
+        )
+    return tuple(candidates)
 
 
 def build_model_input(
@@ -47,7 +57,8 @@ def build_model_input(
             "Use only this JSON. Do not call tools or read files. "
             "Compare every candidate and return exactly one strict decision for each ticker. "
             "Missing carry inputs contribute zero in machine E[r]; missing or absent "
-            "component metadata is not evidence of zero dividends or unchanged shares."
+            "component metadata is not evidence of zero dividends or unchanged shares. "
+            "A reached earnings schedule and stale_fin_flag do not confirm a disclosure."
         ),
         policy=TRIAGE_POLICY,
         as_of=review_set.as_of.isoformat(),

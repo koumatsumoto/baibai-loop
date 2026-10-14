@@ -54,6 +54,7 @@ _DECLARED_OUTSIDE_THE_SWEEP = frozenset(
         "indicator_series_names",  # reads the bundled definitions, not a store
         "read_rows",  # takes the SQL to run, which this file would have to invent
         "machine_valuation_from_analysis",  # pure saved-value projection; owned by valuation tests
+        "interpreted_next_earnings_status",  # pure legacy-status projection; owned by earnings tests
         "anchor_gap_pct",  # pure machine-anchor presentation; owned by valuation tests
         "candidate_er_bands",  # pure band selection over a validated calibration horizon
         "load_er_calibration_context",  # reads Git-managed calibration YAML, not SQLite

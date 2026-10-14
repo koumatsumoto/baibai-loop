@@ -61,6 +61,22 @@ def test_model_input_keeps_partial_reinvestment_observations(sales_yoy) -> None:
     assert candidate["snapshot"]["nominations"] == payload["entries"][0]["nominations"]
 
 
+def test_triage_model_input_interprets_legacy_announced_without_changing_review_set() -> None:
+    payload = published_review_set(as_of=_ASOF.isoformat(), tickers=("1111",))
+    payload["entries"][0]["analysis"]["context"]["next_earnings_status"] = "announced"
+    review_set = PublishedReviewSet.model_validate(payload)
+
+    model_input = build_model_input(
+        review_set, None, known_at=datetime(2026, 9, 1, 18, tzinfo=_JST)
+    )
+
+    assert model_input.candidates[0].snapshot.analysis.context.next_earnings_status == (
+        "scheduled_date_reached"
+    )
+    assert "do not confirm a disclosure" in model_input.instruction
+    assert review_set.entries[0].analysis.context.next_earnings_status == "announced"
+
+
 def _review_set(*, tickers: tuple[str, ...] = ("2331", "0001")) -> PublishedReviewSet:
     return PublishedReviewSet.model_validate(
         published_review_set(

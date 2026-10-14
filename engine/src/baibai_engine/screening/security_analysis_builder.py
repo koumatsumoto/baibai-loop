@@ -175,7 +175,7 @@ def build_security_analysis_metrics(
         "normalized_per_3fy": normalized_per_3fy,
         # 決算開示と as-of 財務のラグ (earnings_lag.py)。annotation であり ranking・
         # gate・E[r] へ入らない。fin_latest_disclosed_date は本行の財務が含む最後の
-        # 開示、stale_fin_flag は「発表済みだが取込前」の窓に居ることを示す。
+        # 開示。stale_fin_flag は予定日から離れた古い財務行を示し、発表確認ではない。
         "fin_latest_disclosed_date": _date_iso(financial.latest_financial_disclosure_date),
         "next_earnings_estimated_date": (
             None if earnings_lag is None else _date_iso(earnings_lag.next_earnings_estimated_date)
