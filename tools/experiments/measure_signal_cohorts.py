@@ -281,9 +281,7 @@ def _anchor_comparison(rows: Sequence[PanelRow], horizon: str) -> Mapping[str, o
     equity_only_uncapped = [
         row
         for row in rows
-        if not row.earnings_anchor_available
-        and row.upside_capped is not None
-        and not capped(row)
+        if not row.earnings_anchor_available and row.upside_capped is not None and not capped(row)
     ]
     earnings_capped = [row for row in rows if row.earnings_anchor_available and capped(row)]
     return {
