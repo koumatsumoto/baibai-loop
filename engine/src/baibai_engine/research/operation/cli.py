@@ -21,7 +21,6 @@ from baibai_engine.research.operation.service import (
     OperationNotFoundError,
     OperationService,
 )
-from baibai_engine.research.position_review import PositionReviewDocument
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -69,17 +68,16 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="path to an OperationPayload YAML or JSON file",
     )
-    thesis = commands.add_parser(
-        "record-thesis", help="bind a completed Reviewed Thesis to its fixed new target"
+    assessment = commands.add_parser(
+        "record-assessment", help="bind a completed Reviewed Assessment to its fixed target"
     )
-    thesis.add_argument("operation_id")
-    thesis.add_argument("--thesis-id", required=True)
+    assessment.add_argument("operation_id")
+    assessment.add_argument("--assessment-id", required=True)
     proposal = commands.add_parser(
-        "record-position-proposal", help="retain a checked draft without confirmed publication"
+        "record-proposal", help="bind an immutable published Investment Proposal"
     )
     proposal.add_argument("operation_id")
-    proposal.add_argument("--draft", type=Path, required=True)
-    proposal.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
+    proposal.add_argument("--proposal-id", required=True)
     unfinished = commands.add_parser(
         "record-unfinished", help="record unfinished research separately from economic rejection"
     )
@@ -125,18 +123,17 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 ).public(),
                 output_format=args.format,
             )
-        elif args.command == "record-thesis":
+        elif args.command == "record-assessment":
             _emit(
-                service.record_thesis(args.operation_id, args.thesis_id, now=current_time).public(),
+                service.record_assessment(
+                    args.operation_id, args.assessment_id, now=current_time
+                ).public(),
                 output_format=args.format,
             )
-        elif args.command == "record-position-proposal":
-            draft = PositionReviewDocument.model_validate(
-                safe_load(args.draft.read_text(encoding="utf-8"))
-            )
+        elif args.command == "record-proposal":
             _emit(
-                service.record_position_proposal(
-                    args.operation_id, draft, now=current_time
+                service.record_proposal(
+                    args.operation_id, args.proposal_id, now=current_time
                 ).public(),
                 output_format=args.format,
             )

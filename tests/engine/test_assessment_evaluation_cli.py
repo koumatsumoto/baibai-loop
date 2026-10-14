@@ -1,4 +1,4 @@
-"""原Thesisの診断が公開可否・原本・現在価格の判断を変えないことを確認する。"""
+"""原Assessmentの診断が公開可否・原本・現在価格の判断を変えないことを確認する。"""
 
 import socket
 import sqlite3
@@ -8,18 +8,18 @@ from decimal import Decimal, InvalidOperation, localcontext
 
 import pytest
 import yaml
-from tests.helpers.research_v4 import pair_payload
+from tests.helpers.assessment_v1 import pair_payload
 
-from baibai_engine.research import thesis as thesis_module
-from baibai_engine.research import thesis_evaluation_cli as cli
-from baibai_engine.research.thesis import (
-    ThesisDocument,
-    ThesisReview,
-    UnpublishedThesis,
-    evaluate_thesis,
+from baibai_engine.research import assessment as assessment_module
+from baibai_engine.research import assessment_evaluation_cli as cli
+from baibai_engine.research.assessment import (
+    AssessmentReview,
+    StockAssessmentDocument,
+    UnpublishedAssessment,
+    assessment_core_hash,
+    assessment_valuation_context,
+    evaluate_assessment,
     evaluation_to_payload,
-    thesis_core_hash,
-    thesis_valuation_context,
 )
 
 NOW = datetime.fromisoformat("2026-09-07T18:00:00+09:00")
@@ -35,23 +35,26 @@ def forbid_database_and_network(monkeypatch):
 
 
 def diagnostic_pair():
-    thesis, review = pair_payload()
-    thesis["valuation"]["required_annual_return_pct"] = 8.5
+    assessment, review = pair_payload(as_of="2026-09-07", quote_as_of="2026-09-04")
+    assessment["input_snapshot"]["facts"][0]["value"] = 1000
+    assessment["valuation"]["required_annual_return_pct"] = 8.5
     for name, terminal, cash in (("base", 1270, 30), ("downside", 680, 20)):
-        thesis["valuation"][name].update(
+        assessment["valuation"][name].update(
             terminal_value_per_share_yen=terminal, cash_distribution_per_share_yen=cash
         )
         next(item for item in review["recalculated_projections"] if item["name"] == name).update(
             terminal_value_per_share_yen=terminal, cash_distribution_per_share_yen=cash
         )
-    review["reviewed_thesis_sha256"] = thesis_core_hash(ThesisDocument.model_validate(thesis))
-    return thesis, review
+    review["reviewed_assessment_sha256"] = assessment_core_hash(
+        StockAssessmentDocument.model_validate(assessment)
+    )
+    return assessment, review
 
 
-def run_cli(tmp_path, capsys, thesis, review, *, now=NOW):
-    draft = tmp_path / "thesis.yaml"
+def run_cli(tmp_path, capsys, assessment, review, *, now=NOW):
+    draft = tmp_path / "assessment.yaml"
     review_path = tmp_path / "review.yaml"
-    draft.write_text(yaml.safe_dump(thesis))
+    draft.write_text(yaml.safe_dump(assessment))
     if review is not None:
         review_path.write_text(yaml.safe_dump(review))
     paths = list(tmp_path.rglob("*"))
@@ -60,17 +63,17 @@ def run_cli(tmp_path, capsys, thesis, review, *, now=NOW):
     output = capsys.readouterr()
     assert {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()} == before
     payload = yaml.safe_load(output.out)
-    document = ThesisDocument.model_validate(thesis)
+    document = StockAssessmentDocument.model_validate(assessment)
     expected = evaluation_to_payload(
-        evaluate_thesis(
+        evaluate_assessment(
             document,
-            review=ThesisReview.model_validate(review) if review is not None else None,
-            identity=UnpublishedThesis.DRAFT,
+            review=AssessmentReview.model_validate(review) if review is not None else None,
+            identity=UnpublishedAssessment.DRAFT,
             now=now,
         )
     )
     assert {key: value for key, value in payload.items() if key != "valuation_context"} == expected
-    assert exit_code == (0 if expected["decision_readiness"] == "ready" else 2)
+    assert exit_code == (0 if expected["assessment_readiness"] == "ready" else 2)
     return payload, output.err, exit_code
 
 
@@ -79,7 +82,7 @@ def test_ready_context_matches_recorded_price_and_issue_example(tmp_path, capsys
     assert code == 0
     assert stderr == ""
     assert payload["valuation_context"] == {
-        "price_context": "thesis_snapshot",
+        "price_context": "assessment_snapshot",
         "valuation_as_of": "2026-09-07",
         "price_as_of": "2026-09-04",
         "price_basis": "last_close_unadjusted",
@@ -117,14 +120,14 @@ def test_ready_context_matches_recorded_price_and_issue_example(tmp_path, capsys
 
 
 def test_review_missing_still_not_ready_even_with_context(tmp_path, capsys):
-    thesis, _ = diagnostic_pair()
-    payload, stderr, code = run_cli(tmp_path, capsys, thesis, None)
+    assessment, _ = diagnostic_pair()
+    payload, stderr, code = run_cli(tmp_path, capsys, assessment, None)
     assert code == 2
     assert stderr == ""
-    assert payload["thesis_status"] == "review_required"
+    assert payload["assessment_status"] == "review_required"
     assert payload["valuation_context"] is not None
     # An omitted --review and the scaffold's not-yet-created review path are equivalent.
-    assert cli.main([str(tmp_path / "thesis.yaml")], now=NOW) == 2
+    assert cli.main([str(tmp_path / "assessment.yaml")], now=NOW) == 2
     assert yaml.safe_load(capsys.readouterr().out) == payload
 
 
@@ -134,30 +137,32 @@ def test_review_missing_still_not_ready_even_with_context(tmp_path, capsys):
     + [("hash", True)],
 )
 def test_invalid_content_has_no_diagnostic(tmp_path, capsys, fault, with_review):
-    thesis, review = diagnostic_pair()
+    assessment, review = diagnostic_pair()
     if fault == "source":
-        thesis["valuation"]["base"]["source_ids"] = ["missing"]
+        assessment["valuation"]["base"]["source_ids"] = ["missing"]
     elif fault == "price":
-        thesis["valuation"]["market_price_fact_id"] = "missing"
+        assessment["valuation"]["market_price_fact_id"] = "missing"
     elif fault == "unit":
-        thesis["input_snapshot"]["facts"][0]["unit"] = "JPY"
+        assessment["input_snapshot"]["facts"][0]["unit"] = "JPY"
     if fault != "hash":
-        review["reviewed_thesis_sha256"] = thesis_core_hash(ThesisDocument.model_validate(thesis))
+        review["reviewed_assessment_sha256"] = assessment_core_hash(
+            StockAssessmentDocument.model_validate(assessment)
+        )
     else:
-        review["reviewed_thesis_sha256"] = "0" * 64
-    payload, stderr, code = run_cli(tmp_path, capsys, thesis, review if with_review else None)
+        review["reviewed_assessment_sha256"] = "0" * 64
+    payload, stderr, code = run_cli(tmp_path, capsys, assessment, review if with_review else None)
     assert code == 2
     assert stderr == ""
-    assert payload["thesis_status"] == "incomplete"
+    assert payload["assessment_status"] == "incomplete"
     assert payload["valuation_context"] is None
 
 
-@pytest.mark.parametrize("disposition", ["defer", "reject"])
-def test_unresolved_needs_no_invented_price_or_projections(tmp_path, capsys, disposition):
-    thesis, review = diagnostic_pair()
-    thesis["input_snapshot"]["facts"] = []
-    thesis["judgment"]["disposition"] = disposition
-    thesis["valuation"] = dict(
+@pytest.mark.parametrize("stance", ["uncertain", "unsupported"])
+def test_unresolved_needs_no_invented_price_or_projections(tmp_path, capsys, stance):
+    assessment, review = diagnostic_pair()
+    assessment["input_snapshot"]["facts"] = []
+    assessment["conclusion"]["stance"] = stance
+    assessment["valuation"] = dict(
         status="unresolved",
         market_price_fact_id=None,
         horizon_months=None,
@@ -167,34 +172,41 @@ def test_unresolved_needs_no_invented_price_or_projections(tmp_path, capsys, dis
         unresolved_reason="返済条件未確認",
     )
     review["recalculated_projections"] = []
-    review["reviewed_thesis_sha256"] = thesis_core_hash(ThesisDocument.model_validate(thesis))
-    payload, stderr, code = run_cli(tmp_path, capsys, thesis, review)
+    review["reviewed_assessment_sha256"] = assessment_core_hash(
+        StockAssessmentDocument.model_validate(assessment)
+    )
+    payload, stderr, code = run_cli(tmp_path, capsys, assessment, review)
     assert code == 0
     assert stderr == ""
     assert payload["valuation_context"] is None
 
 
 def test_warnings_do_not_remove_resolved_context(tmp_path, capsys):
-    thesis, review = diagnostic_pair()
-    thesis["permanent_loss_risks"][0]["assessment"] = "unknown"
+    assessment, review = diagnostic_pair()
+    assessment["permanent_loss_risks"][0]["assessment"] = "unknown"
     review["nonmaterial_unknown_reason"] = "架空例: 開示済み資金と全返済予定から当該細目は非重要"
-    review["reviewed_thesis_sha256"] = thesis_core_hash(ThesisDocument.model_validate(thesis))
-    payload, _, code = run_cli(tmp_path, capsys, thesis, review)
+    review["reviewed_assessment_sha256"] = assessment_core_hash(
+        StockAssessmentDocument.model_validate(assessment)
+    )
+    payload, _, code = run_cli(tmp_path, capsys, assessment, review)
     assert code == 0
-    assert payload["thesis_status"] == "ready_with_warnings"
+    assert payload["assessment_status"] == "ready_with_warnings"
     assert payload["valuation_context"] is not None
 
 
-def test_old_thesis_keeps_origin_period_and_referenced_fact(tmp_path, capsys):
-    thesis, review = pair_payload(as_of="2025-09-07", quote_as_of="2025-09-04")
-    thesis["valuation"]["horizon_months"] = 6
-    thesis["valuation"]["required_annual_return_pct"] = 21
-    other = deepcopy(thesis["input_snapshot"]["facts"][0])
+def test_old_assessment_keeps_origin_period_and_referenced_fact(tmp_path, capsys):
+    assessment, review = pair_payload(as_of="2025-09-07", quote_as_of="2025-09-04")
+    assessment["input_snapshot"]["facts"][0]["value"] = 1000
+    assessment["valuation"]["horizon_months"] = 6
+    assessment["valuation"]["required_annual_return_pct"] = 21
+    other = deepcopy(assessment["input_snapshot"]["facts"][0])
     other.update(fact_id="other-price", value=2000)
-    thesis["input_snapshot"]["facts"].insert(0, other)
-    thesis["input_snapshot"]["facts"][1]["price_basis"] = "realtime"
-    review["reviewed_thesis_sha256"] = thesis_core_hash(ThesisDocument.model_validate(thesis))
-    payload, _, _ = run_cli(tmp_path, capsys, thesis, review)
+    assessment["input_snapshot"]["facts"].insert(0, other)
+    assessment["input_snapshot"]["facts"][1]["price_basis"] = "realtime"
+    review["reviewed_assessment_sha256"] = assessment_core_hash(
+        StockAssessmentDocument.model_validate(assessment)
+    )
+    payload, _, _ = run_cli(tmp_path, capsys, assessment, review)
     context = payload["valuation_context"]
     assert context["valuation_as_of"] == "2025-09-07"
     assert context["price_as_of"] == "2025-09-04"
@@ -206,20 +218,22 @@ def test_old_thesis_keeps_origin_period_and_referenced_fact(tmp_path, capsys):
 
 
 def test_context_does_not_mutate_document_hash_or_review_binding():
-    thesis, review = diagnostic_pair()
+    assessment, review = diagnostic_pair()
     document, review_document = (
-        ThesisDocument.model_validate(thesis),
-        ThesisReview.model_validate(review),
+        StockAssessmentDocument.model_validate(assessment),
+        AssessmentReview.model_validate(review),
     )
     before = document.model_dump(mode="json"), review_document.model_dump(mode="json")
-    evaluation = evaluate_thesis(
-        document, review=review_document, identity=UnpublishedThesis.DRAFT, now=NOW
+    evaluation = evaluate_assessment(
+        document, review=review_document, identity=UnpublishedAssessment.DRAFT, now=NOW
     )
-    assert thesis_valuation_context(document, evaluation) is not None
+    assert assessment_valuation_context(document, evaluation) is not None
     assert (document.model_dump(mode="json"), review_document.model_dump(mode="json")) == before
-    assert thesis_core_hash(document) == review_document.reviewed_thesis_sha256
+    assert assessment_core_hash(document) == review_document.reviewed_assessment_sha256
     assert (
-        evaluate_thesis(document, review=review_document, identity=UnpublishedThesis.DRAFT, now=NOW)
+        evaluate_assessment(
+            document, review=review_document, identity=UnpublishedAssessment.DRAFT, now=NOW
+        )
         == evaluation
     )
 
@@ -229,22 +243,22 @@ def test_context_does_not_mutate_document_hash_or_review_binding():
 def test_diagnostic_numeric_failure_preserves_evaluation(
     tmp_path, capsys, monkeypatch, failure, with_review
 ):
-    thesis, review = diagnostic_pair()
+    assessment, review = diagnostic_pair()
     if failure == "decimal":
 
         def fail(*args, **kwargs):
             raise InvalidOperation("diagnostic arithmetic")
 
-        monkeypatch.setattr(thesis_module, "valuation_conditions", fail)
+        monkeypatch.setattr(assessment_module, "valuation_conditions", fail)
     elif failure == "float_conversion":
         # The existing converter can overflow to inf for a finite fractional Decimal.
         with localcontext() as context:
             context.prec = 400
             huge = Decimal("1e310") + Decimal("0.5")
-        monkeypatch.setattr(thesis_module, "decimal_to_number", lambda value: float(huge))
+        monkeypatch.setattr(assessment_module, "decimal_to_number", lambda value: float(huge))
     else:
-        monkeypatch.setattr(thesis_module, "decimal_to_number", lambda value: float("nan"))
-    payload, stderr, code = run_cli(tmp_path, capsys, thesis, review if with_review else None)
+        monkeypatch.setattr(assessment_module, "decimal_to_number", lambda value: float("nan"))
+    payload, stderr, code = run_cli(tmp_path, capsys, assessment, review if with_review else None)
     assert payload["valuation_context"] is None
     assert "valuation_context unavailable:" in stderr
     assert code == (0 if with_review else 2)
@@ -252,31 +266,33 @@ def test_diagnostic_numeric_failure_preserves_evaluation(
 
 @pytest.mark.parametrize("months", [1_000_000_000, 2_000_000])
 def test_real_diagnostic_overflow_does_not_make_new_gate(tmp_path, capsys, months):
-    thesis, review = diagnostic_pair()
-    thesis["valuation"]["horizon_months"] = months
-    review["reviewed_thesis_sha256"] = thesis_core_hash(ThesisDocument.model_validate(thesis))
-    payload, stderr, code = run_cli(tmp_path, capsys, thesis, review)
+    assessment, review = diagnostic_pair()
+    assessment["valuation"]["horizon_months"] = months
+    review["reviewed_assessment_sha256"] = assessment_core_hash(
+        StockAssessmentDocument.model_validate(assessment)
+    )
+    payload, stderr, code = run_cli(tmp_path, capsys, assessment, review)
     assert code == 0
     assert payload["valuation_context"] is None
     assert "valuation_context unavailable:" in stderr
 
 
 def test_programming_errors_are_not_hidden(tmp_path, monkeypatch):
-    thesis, _ = diagnostic_pair()
-    draft = tmp_path / "thesis.yaml"
-    draft.write_text(yaml.safe_dump(thesis))
+    assessment, _ = diagnostic_pair()
+    draft = tmp_path / "assessment.yaml"
+    draft.write_text(yaml.safe_dump(assessment))
 
     def bug(*args):
         raise TypeError("programming error")
 
-    monkeypatch.setattr(cli, "thesis_valuation_context", bug)
+    monkeypatch.setattr(cli, "assessment_valuation_context", bug)
     with pytest.raises(TypeError, match="programming error"):
         cli.main([str(draft)], now=NOW)
 
 
 @pytest.mark.parametrize("content", ["[", "[]", "schema_version: 99"])
 def test_parse_failure_keeps_existing_error(tmp_path, capsys, content):
-    draft = tmp_path / "thesis.yaml"
+    draft = tmp_path / "assessment.yaml"
     draft.write_text(content)
     assert cli.main([str(draft)], now=NOW) == 2
     output = capsys.readouterr()

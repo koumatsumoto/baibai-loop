@@ -35,15 +35,35 @@ def test_review_set_capacity_is_not_a_public_cli_override() -> None:
         )
 
 
-def test_research_cli_exposes_research_set_and_capital_allocation() -> None:
+def test_research_cli_exposes_selection_assessment_and_proposal() -> None:
     choices = _choices(build_research_parser())
     assert {
         "selection-context",
         "prepare",
-        "capital-allocation-scaffold",
-        "capital-allocation-publish",
+        "assessment-scaffold",
+        "assessment-review-scaffold",
+        "assessment-evaluate",
+        "assessment-promote",
+        "proposal-context",
+        "proposal-scaffold",
+        "proposal-check",
+        "proposal-publish",
+        "proposal-preview",
     } <= choices
-    assert not {"assessment-scaffold", "triage", "position-prepare"} & choices
+    assert (
+        not {
+            "thesis-scaffold",
+            "review-scaffold",
+            "evaluate",
+            "promote",
+            "plan-limit",
+            "capital-allocation-scaffold",
+            "capital-allocation-publish",
+            "triage",
+            "position-prepare",
+        }
+        & choices
+    )
 
 
 @pytest.mark.parametrize(

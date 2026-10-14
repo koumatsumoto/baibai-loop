@@ -1,19 +1,8 @@
-"""CLI for selected Research authoring:
-selection-context / prepare / status / thesis-scaffold /
-review-scaffold / promote / plan-limit / capital-allocation-scaffold / capital-allocation-publish.
+"""Researchの選定・Stock Assessment・Investment Proposalの公開CLI。
 
-This is also the `baibai-engine research` help surface, so the read-only `evaluate`
-command is declared here and forwarded to :mod:`thesis_evaluation_cli`, which keeps its own
-arguments and its own exit codes.
-
-Machine output is YAML on stdout, except calculate emits JSON; human explanation
-and errors go to stderr. Calculate retains its own arguments and exit codes.
-Exit codes:
-
-- 0 success (``defer`` and ``no_allocation`` are normal judgments)
-- 2 argparse / CLI usage error
-- 3 missing source / schema / hash makes the request unprocessable
-- 4 output collision, input hash drift, or path-confinement violation
+JSON is used for selection, context and current previews; authoring diagnostics
+use YAML. Data failures exit 3, workspace drift/output collisions exit 4. The
+read-only assessment-evaluate and calculate commands retain their own exit codes.
 """
 
 from __future__ import annotations
@@ -38,34 +27,21 @@ from baibai_engine.foundation.repository_layout import (
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 
-from .capital_allocation import (
-    CapitalAllocationAssessment,
-    CapitalAllocationError,
-    capital_allocation_draft_sha256,
-)
-from .capital_allocation_scaffold import scaffold_capital_allocation
-from .capital_allocation_service import CapitalAllocationAssessmentService
+from .assessment import AssessmentError
 from .operation.service import OperationConflictError
-from .planning import plan_limit
+from .proposal import ProposalConflictError
 from .selection import ResearchRequest, ResearchSelectionDraft
 from .selection_query import ResearchInputsRequiredError, load_selection_context
-from .thesis import ThesisError
 from .workspace import (
+    ResearchWorkspaceConflictError,
     ResearchWorkspaceError,
     compute_status,
     prepare_selected_workspace,
     promote,
     resume_selected_workspace,
+    scaffold_assessment,
     scaffold_review,
-    scaffold_thesis,
 )
-
-
-def _parse_date(raw: str) -> date:
-    try:
-        return date.fromisoformat(raw)
-    except ValueError as error:
-        raise SystemExit(f"invalid ISO date: {raw}") from error
 
 
 def _emit(payload: object, out: TextIO) -> None:
@@ -109,93 +85,63 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser.add_argument("--workspace", required=True, type=Path)
     status_parser.add_argument("--db", type=Path)
 
-    thesis_parser = subparsers.add_parser(
-        "thesis-scaffold", help="scaffold a thesis draft with the previous-day raw close"
+    assessment_parser = subparsers.add_parser(
+        "assessment-scaffold", help="scaffold a Stock Assessment draft; preserve source dates"
     )
-    thesis_parser.add_argument("--workspace", required=True, type=Path)
-    thesis_parser.add_argument("--db", type=Path)
-    thesis_parser.add_argument("--ticker", required=True)
-    thesis_parser.add_argument("--sqlite-path", required=True, type=Path)
-    thesis_parser.add_argument(
-        "--target-session",
-        required=True,
-        help="formal enterprise valuation date (YYYY-MM-DD); preserve source and quote dates",
-    )
-    thesis_parser.add_argument("--force", action="store_true")
-    thesis_parser.add_argument("--from-thesis-id")
+    assessment_parser.add_argument("--workspace", required=True, type=Path)
+    assessment_parser.add_argument("--db", type=Path)
+    assessment_parser.add_argument("--ticker", required=True)
+    assessment_parser.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
+    assessment_parser.add_argument("--asof", required=True, type=date.fromisoformat)
+    assessment_parser.add_argument("--out", type=Path)
+    assessment_parser.add_argument("--force", action="store_true")
+    assessment_parser.add_argument("--from-assessment-id")
 
     review_parser = subparsers.add_parser(
-        "review-scaffold",
-        help="bind a Thesis Review draft after the thesis content is stable",
-        description="Bind a Thesis Review draft after the thesis content is stable.",
+        "assessment-review-scaffold", help="bind an independent Review to a stable Assessment"
     )
     review_parser.add_argument("--workspace", required=True, type=Path)
     review_parser.add_argument("--db", type=Path)
     review_parser.add_argument("--ticker", required=True)
     review_parser.add_argument("--force", action="store_true")
 
-    # Listed for discovery; `main` hands this off before parsing so the evaluation
-    # command keeps its own arguments, its own `--help`, and its own exit codes.
     subparsers.add_parser(
-        "evaluate",
-        help="evaluate a thesis draft against the decision gate (read-only)",
-        add_help=False,
+        "assessment-evaluate", help="evaluate a Stock Assessment draft (read-only)", add_help=False
     )
     subparsers.add_parser(
         "calculate",
         help="calculate draft numbers from typed inputs (JSON, no writes)",
         add_help=False,
     )
-
     promote_parser = subparsers.add_parser(
-        "promote", help="publish the canonical thesis/review to the application DB"
+        "assessment-promote", help="publish the immutable Stock Assessment/Review pair"
     )
     promote_parser.add_argument("--workspace", required=True, type=Path)
     promote_parser.add_argument("--ticker", required=True)
     promote_parser.add_argument("--db", type=Path)
-    promote_parser.add_argument("--thesis-id")
-    promote_parser.add_argument("--supersedes-id")
 
-    plan_parser = subparsers.add_parser(
-        "plan-limit",
-        help="derive a planning-only limit/defer from current capital and raw close",
+    for command, help_text in (
+        ("proposal-context", "read fixed Research scope and current proposal inputs"),
+        ("proposal-scaffold", "scaffold an Investment Proposal with a fixed input snapshot"),
+    ):
+        child = subparsers.add_parser(command, help=help_text)
+        child.add_argument("--operation-id", required=True)
+        child.add_argument("--db", type=Path)
+        child.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
+        if command == "proposal-scaffold":
+            child.add_argument("--proposal-id", required=True)
+            child.add_argument("--out", required=True, type=Path)
+    for command in ("proposal-check", "proposal-publish"):
+        child = subparsers.add_parser(command, help="check/publish an Investment Proposal")
+        child.add_argument("draft", type=Path)
+        child.add_argument("--db", type=Path)
+        child.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
+    preview_parser = subparsers.add_parser(
+        "proposal-preview", help="read current conditions separately from saved proposal terms"
     )
-    plan_parser.add_argument("--capital-allocation-assessment-id", required=True)
-    plan_parser.add_argument("--db", type=Path)
-    plan_parser.add_argument("--sqlite-path", required=True, type=Path)
-    plan_parser.add_argument(
-        "--target-session",
-        required=True,
-        help="next unexpired trading session in the market calendar (YYYY-MM-DD)",
-    )
-    plan_parser.add_argument("--budget-min-yen", type=int, default=200000)
-    plan_parser.add_argument("--budget-max-yen", type=int, default=300000)
-    plan_parser.add_argument("--output", type=Path)
-
-    assessment_scaffold_parser = subparsers.add_parser(
-        "capital-allocation-scaffold",
-        help="scaffold a capital-allocation-assessment draft from promoted theses",
-    )
-    assessment_scaffold_parser.add_argument("--db", type=Path)
-    assessment_scaffold_parser.add_argument("--capital-allocation-assessment-id", required=True)
-    assessment_scaffold_parser.add_argument("--asof", required=True)
-    assessment_scaffold_parser.add_argument("--operation-id", required=True)
-    assessment_scaffold_parser.add_argument("--out", type=Path)
-
-    assessment_publish_parser = subparsers.add_parser(
-        "capital-allocation-publish",
-        help="publish the capital-allocation assessment to the application DB",
-    )
-    assessment_publish_parser.add_argument("draft", type=Path)
-    assessment_publish_parser.add_argument("--db", type=Path)
-    assessment_publish_parser.add_argument(
-        "--check",
-        action="store_true",
-        help=(
-            "verify contract/machine bindings and print the content-review digest; "
-            "review_binding=stale is expected before review"
-        ),
-    )
+    preview_parser.add_argument("--proposal-id", required=True)
+    preview_parser.add_argument("--db", type=Path)
+    preview_parser.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
 
     return parser
 
@@ -206,10 +152,10 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         from .calculation_cli import main as calculate_main
 
         return calculate_main(arguments[1:])
-    if arguments and arguments[0] == "evaluate":
-        # Returned unwrapped: evaluation reports "not decision-ready" as exit 2,
+    if arguments and arguments[0] == "assessment-evaluate":
+        # Returned unwrapped: evaluation reports "not assessment-ready" as exit 2,
         # which is not this CLI's usage/data/conflict code set.
-        from .thesis_evaluation_cli import main as evaluate_main
+        from .assessment_evaluation_cli import main as evaluate_main
 
         return evaluate_main(arguments[1:], now=now)
     parser = build_parser()
@@ -267,21 +213,22 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 out.write(json.dumps(result, ensure_ascii=False) + "\n")
             case "status":
                 _emit(compute_status(args.workspace, db_path=args.db, now=resolved_now), out)
-            case "thesis-scaffold":
+            case "assessment-scaffold":
                 _emit(
-                    scaffold_thesis(
+                    scaffold_assessment(
                         workspace=args.workspace,
                         ticker=args.ticker,
                         sqlite_path=args.sqlite_path,
-                        target_session=_parse_date(args.target_session),
+                        as_of=args.asof,
                         retrieved_at=resolved_now,
                         db_path=args.db,
                         force=args.force,
-                        from_thesis_id=args.from_thesis_id,
+                        from_assessment_id=args.from_assessment_id,
+                        out=args.out,
                     ),
                     out,
                 )
-            case "review-scaffold":
+            case "assessment-review-scaffold":
                 _emit(
                     scaffold_review(
                         workspace=args.workspace,
@@ -291,84 +238,90 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     ),
                     out,
                 )
-            case "promote":
-                promoted = promote(
-                    workspace=args.workspace,
-                    ticker=args.ticker,
-                    db_path=args.db,
-                    thesis_id=args.thesis_id,
-                    supersedes_id=args.supersedes_id,
-                    now=resolved_now,
-                )
+            case "assessment-promote":
                 _emit(
-                    {
-                        "thesis_id": promoted.thesis_id,
-                        "review_id": promoted.review_id,
-                        "thesis_sha256": promoted.thesis_sha256,
-                    },
+                    asdict(
+                        promote(
+                            workspace=args.workspace,
+                            ticker=args.ticker,
+                            db_path=args.db,
+                            now=resolved_now,
+                        )
+                    ),
                     out,
                 )
-            case "plan-limit":
-                payload = plan_limit(
-                    capital_allocation_assessment_id=args.capital_allocation_assessment_id,
+            case "proposal-context":
+                from .proposal_inputs import build_proposal_context
+
+                context = build_proposal_context(
+                    operation_id=args.operation_id,
                     db_path=args.db,
                     sqlite_path=args.sqlite_path,
-                    target_session=_parse_date(args.target_session),
-                    budget_min_yen=args.budget_min_yen,
-                    budget_max_yen=args.budget_max_yen,
                     now=resolved_now,
                 )
-                if args.output is not None:
-                    from baibai_engine.foundation.filesystem import write_text_atomic
+                out.write(json.dumps(context.payload(), ensure_ascii=False) + "\n")
+            case "proposal-scaffold":
+                from baibai_engine.foundation.filesystem import write_text_atomic
 
-                    write_text_atomic(
-                        args.output,
-                        yaml.safe_dump(
-                            payload, sort_keys=False, allow_unicode=True, default_flow_style=False
-                        ),
-                    )
-                _emit(payload, out)
-            case "capital-allocation-scaffold":
-                draft = scaffold_capital_allocation(
-                    db_path=args.db,
-                    capital_allocation_assessment_id=args.capital_allocation_assessment_id,
-                    as_of=_parse_date(args.asof),
+                from .proposal_scaffold import scaffold_proposal
+
+                if args.out.exists():
+                    raise ResearchWorkspaceConflictError("proposal output already exists")
+                draft = scaffold_proposal(
                     operation_id=args.operation_id,
-                    published_at=resolved_now,
+                    proposal_id=args.proposal_id,
+                    db_path=args.db,
+                    sqlite_path=args.sqlite_path,
+                    now=resolved_now,
                 )
-                if args.out is not None:
-                    from baibai_engine.foundation.filesystem import write_text_atomic
+                write_text_atomic(
+                    args.out,
+                    yaml.safe_dump(
+                        draft,
+                        sort_keys=False,
+                        allow_unicode=True,
+                        default_flow_style=False,
+                    ),
+                )
+                _emit({"proposal_draft": str(args.out), "proposal_id": args.proposal_id}, out)
+            case "proposal-check" | "proposal-publish":
+                from .proposal import InvestmentProposal, proposal_draft_sha256
+                from .proposal_service import InvestmentProposalService
 
-                    write_text_atomic(
-                        args.out,
-                        yaml.safe_dump(
-                            draft, sort_keys=False, allow_unicode=True, default_flow_style=False
-                        ),
-                    )
-                _emit(draft, out)
-            case "capital-allocation-publish":
-                assessment = CapitalAllocationAssessment.model_validate(
+                proposal = InvestmentProposal.model_validate(
                     safe_load(args.draft.read_text(encoding="utf-8"))
                 )
-                service = CapitalAllocationAssessmentService(args.db, clock=lambda: resolved_now)
-                if args.check:
-                    service.check(assessment)
-                    expected = capital_allocation_draft_sha256(assessment)
+                service = InvestmentProposalService(
+                    args.db,
+                    sqlite_path=args.sqlite_path,
+                    clock=lambda: resolved_now,
+                )
+                if args.command == "proposal-check":
+                    validation = service.check(proposal, require_review=False)
+                    expected = proposal_draft_sha256(proposal)
                     _emit(
                         {
-                            "capital_allocation_assessment_id": (
-                                assessment.capital_allocation_assessment_id
-                            ),
-                            "check": "pass",
+                            **validation.payload(),
+                            "proposal_id": proposal.proposal_id,
                             "draft_sha256": expected,
-                            "review_binding": (
-                                "match" if assessment.review.draft_sha256 == expected else "stale"
-                            ),
+                            "review_binding": "match"
+                            if proposal.review.draft_sha256 == expected
+                            else "stale",
                         },
                         out,
                     )
-                else:
-                    _emit(service.publish(assessment).payload(), out)
+                    return 0 if validation.valid else 3
+                _emit(service.publish(proposal).model_dump(mode="json"), out)
+            case "proposal-preview":
+                from .proposal_query import preview_current_terms
+
+                preview = preview_current_terms(
+                    proposal_id=args.proposal_id,
+                    db_path=args.db,
+                    sqlite_path=args.sqlite_path,
+                    now=resolved_now,
+                )
+                out.write(json.dumps(preview.payload(), ensure_ascii=False) + "\n")
             case _:  # pragma: no cover - argparse enforces the command set
                 raise AssertionError(f"unreachable command: {args.command!r}")
     except ResearchInputsRequiredError as error:
@@ -384,15 +337,12 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             + "\n"
         )
         return 3
-    except OperationConflictError as error:
+    except (OperationConflictError, ProposalConflictError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 4
     except ValidationError as error:
         print(f"error: {error}", file=sys.stderr)
         return 4 if args.command == "prepare" else 3
-    except CapitalAllocationError as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 3
     except ResearchWorkspaceError as error:
         print(f"error: {error}", file=sys.stderr)
         return error.exit_code
@@ -405,7 +355,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             + "\n"
         )
         return 3
-    except ThesisError as error:
+    except AssessmentError as error:
         print(f"error: {error}", file=sys.stderr)
         return 3
     return 0
