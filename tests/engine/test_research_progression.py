@@ -3,6 +3,7 @@
 import json
 import socket
 import sqlite3
+from contextlib import closing
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -51,13 +52,13 @@ def case(tmp_path):
 
 
 def ledger_rows(db):
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection, connection:
         return connection.execute("SELECT payload FROM ledger_event ORDER BY append_seq").fetchall()
 
 
 def seed_assessment(db, ticker="1234", *, number=1, now=NOW):
     document, review = pair_payload(ticker=ticker, review_number=number + 100)
-    with connect_rw(db) as connection:
+    with closing(connect_rw(db)) as connection, connection:
         connection.execute("BEGIN IMMEDIATE")
         publish_reviewed_assessment(
             connection, assessment_id(number), document, review, published_at=now
@@ -183,7 +184,7 @@ def proposal_for(operation, *, actions=None, number=1):
 
 
 def seed_proposal(db, proposal):
-    with connect_rw(db) as connection:
+    with closing(connect_rw(db)) as connection, connection:
         connection.execute(
             "INSERT INTO investment_proposal VALUES (?,?,?,?,?,?,?)",
             (
@@ -238,7 +239,7 @@ def test_empty_selection_ends_with_reason_without_fabricating_proposal_or_confir
     assert completed.status == "completed"
     assert completed.payload.human_confirmation is None
     assert ledger_rows(db) == before
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection, connection:
         assert connection.execute("SELECT count(*) FROM investment_proposal").fetchone()[0] == 0
 
 
@@ -410,7 +411,7 @@ def test_late_outcome_preserves_saved_proposal_but_completion_requires_current_s
     seed_proposal(db, proposal)
     service.record_proposal(operation.operation_id, proposal.proposal_id, now=PUBLISHED)
     operation = service.record_assessment(operation.operation_id, later, now=PUBLISHED)
-    with connect_read_only(db) as reader:
+    with closing(connect_read_only(db)) as reader:
         assert load_investment_proposal(reader, proposal.proposal_id) == proposal
         with pytest.raises(ValueError, match="scope differs"):
             require_proposal_research_scope(
@@ -424,7 +425,7 @@ def test_late_outcome_preserves_saved_proposal_but_completion_requires_current_s
     replacement = proposal_for(operation, number=2)
     seed_proposal(db, replacement)
     assert record_and_finish(service, operation, replacement).status == "completed"
-    with connect_read_only(db) as reader:
+    with closing(connect_read_only(db)) as reader:
         assert load_investment_proposal(reader, proposal.proposal_id) == proposal
 
 
@@ -439,7 +440,7 @@ def test_publication_requires_exact_current_selection_and_outcomes(case, mutatio
     )
     scope = proposal_scope(operation.operation_id, operation.payload)
     request_scope = "discover_new"
-    with connect_read_only(db) as reader:
+    with closing(connect_read_only(db)) as reader:
         assert require_proposal_research_scope(
             reader, scope=scope, request_scope=request_scope, published_at=PUBLISHED
         ) == selection_binding(operation.payload)
@@ -488,7 +489,7 @@ def test_only_concrete_buy_terms_complete_purchase_proposal(case, action):
             completed_at=PUBLISHED + timedelta(days=1),
         )
         assert completed.status == "completed"
-        with connect_read_only(db) as reader:
+        with closing(connect_read_only(db)) as reader:
             assert load_investment_proposal(reader, proposal.proposal_id) == proposal
 
 
@@ -517,7 +518,7 @@ def test_proposal_hash_future_publication_and_completed_publish_are_checked(case
         )
     record_and_finish(service, operation, proposal)
     with (
-        connect_read_only(db) as reader,
+        closing(connect_read_only(db)) as reader,
         pytest.raises(ValueError, match="active Research Operation"),
     ):
         require_proposal_research_scope(

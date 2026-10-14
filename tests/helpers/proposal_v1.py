@@ -1,6 +1,7 @@
 """正式writerと現行schemaで作る投資提案の合成fixture。"""
 
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -111,7 +112,7 @@ def backend_case(
     )
     seed_ledger(app, ledger)
     seed_daily_bars(market, [(ticker, "2026-10-14", 1100.0, 1.0) for ticker in tickers])
-    with sqlite3.connect(market) as connection:
+    with closing(sqlite3.connect(market)) as connection, connection:
         connection.executemany(
             "INSERT INTO jquants_master_snapshots(snapshot_date,ticker,name,market,sector_33,is_common_stock) VALUES (?,?,?,?,?,?)",
             [("2026-10-14", ticker, "合成企業", "Prime", "情報・通信業", 1) for ticker in tickers],
