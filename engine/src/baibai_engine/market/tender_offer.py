@@ -2,7 +2,8 @@
 
 A delisted name has no market close to end a forward window with, so the calibration
 authority brackets it between a total loss and what the rest of its cohort returned. A
-takeover can settle above the neutral case, so that bracket is not an upper bound. When the offer actually completed in cash, the price it paid is the observed exit
+takeover can settle above the neutral case, so that bracket is not an upper bound.
+When the offer actually completed in cash, the price it paid is the observed exit
 and no imputation is needed.
 
 Everything here is fail-closed. A case is realized only when the registration statement,
