@@ -6,7 +6,7 @@ import sqlite3
 import tempfile
 import unittest
 from collections.abc import Callable
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, closing
 from dataclasses import asdict, replace
 from datetime import date, timedelta
 from hashlib import sha256
@@ -867,7 +867,7 @@ class CalibrationPanelTest(unittest.TestCase):
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             store_dir = Path(tmp) / "calibration"
             write_panel(store_dir, ASOF, result.rows, result.diagnostics)
-            with sqlite3.connect(store_dir / "current.sqlite") as connection:
+            with closing(sqlite3.connect(store_dir / "current.sqlite")) as connection, connection:
                 connection.execute("UPDATE snapshot_meta SET contract_version = ?", ("tampered",))
 
             with self.assertRaisesRegex(CalibrationCacheError, "contract changed"):
@@ -880,7 +880,7 @@ class CalibrationPanelTest(unittest.TestCase):
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             store_dir = Path(tmp) / "calibration"
             write_panel(store_dir, ASOF, result.rows, result.diagnostics)
-            with sqlite3.connect(store_dir / "current.sqlite") as connection:
+            with closing(sqlite3.connect(store_dir / "current.sqlite")) as connection, connection:
                 connection.execute("UPDATE snapshot_meta SET contract_version = ?", ("obsolete",))
 
             with patch(
@@ -1133,9 +1133,8 @@ class CalibrationPanelTest(unittest.TestCase):
     def test_missing_master_snapshot_becomes_unresolved_panel(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            conn.commit()
-            conn.close()
+            with closing(open_connection(sqlite_path)):
+                pass
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             self.assertEqual(result.rows, ())
             self.assertEqual(result.diagnostics.master_snapshot_status, "unavailable")
@@ -1188,7 +1187,7 @@ class CalibrationPanelTest(unittest.TestCase):
 
 
 class DerivedCacheIdentityTests(unittest.TestCase):
-    """互換性を決める入力が動けば版も動く。手で進める判断を残さないための検査。"""
+    """列や宣言済み計算 revision の変更がキャッシュ版へ反映されることを確認する。"""
 
     def test_the_identity_follows_every_input_that_decides_compatibility(self) -> None:
         from baibai_engine.screening.calibration import evaluation
@@ -1257,7 +1256,7 @@ def test_complete_panel_values_match_committed_baseline(tmp_path: Path) -> None:
     build_calibration_fixture_sqlite(sqlite_path)
     result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
     golden = ROOT / "tests/fixtures/screening/calibration-panel-golden.json"
-    assert canonical_json(asdict(result)) + "\n" == golden.read_text()
+    assert canonical_json(asdict(result)) + "\n" == golden.read_text(encoding="utf-8")
 
 
 if __name__ == "__main__":

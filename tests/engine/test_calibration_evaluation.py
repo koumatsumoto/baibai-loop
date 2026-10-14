@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import unittest
-from contextlib import redirect_stderr
+from contextlib import closing, redirect_stderr
 from dataclasses import replace
 from datetime import date, datetime
 from io import StringIO
@@ -53,6 +53,7 @@ from baibai_engine.screening.calibration.evidence import (
     candidate_discovery_approach_fidelity_metric,
 )
 from baibai_engine.screening.calibration.forward import ForwardReturnRow
+from baibai_engine.screening.calibration.horizons import require_horizon
 from baibai_engine.screening.calibration.panel import (
     PRODUCTION_PANEL_POLICY,
     PanelDiagnostics,
@@ -118,16 +119,17 @@ def _forward_row(
     total_return: float | None = None,
     horizon: str = "6m",
 ) -> ForwardReturnRow:
-    """One resolved forward observation for this file's cohort."""
+    """One resolved forward observation for this file's cohort and requested horizon."""
 
+    target = require_horizon(horizon).target_date(date.fromisoformat(_ASOF)).isoformat()
     return forward_row(
         _ASOF,
         ticker,
         horizon,
-        target_date="2025-12-29",
+        target_date=target,
         price_return=price_return,
         entry_date=_ASOF,
-        exit_date="2025-12-29",
+        exit_date=target,
         total_return=total_return,
         total_return_status=(
             "resolved" if total_return is not None else "unresolved_missing_dividend"
@@ -305,9 +307,9 @@ class SectorMedianBasisThinSideTest(unittest.TestCase):
         """A level the group carries is not an effect the axis produced.
 
         Falling back is decided per sector, so the market side is whole sectors and its
-        level is that mix. Splitting the same group on the axis puts the same sectors on
-        both sides, so a group the axis does not order has to come back at zero however
-        far the group sits from the population.
+        level may reflect that mix. This fixture gives every fallback row the same
+        return, so its within-group split is zero however far the group sits from the
+        population. The split does not control sector composition or identify causality.
         """
         panel = []
         forwards = []
@@ -652,7 +654,7 @@ class EvaluateCohortsTest(unittest.TestCase):
             root = Path(temp_dir)
             write_panel(root, date(2025, 6, 30), [_panel_row("1111")], _panel_diagnostics())
             write_forward(root, date(2025, 6, 30), [_forward_row("1111", 0.1)])
-            with sqlite3.connect(root / "current.sqlite") as connection:
+            with closing(sqlite3.connect(root / "current.sqlite")) as connection, connection:
                 raw = connection.execute("SELECT diagnostics FROM cohort").fetchone()[0]
                 diagnostics = json.loads(raw)
                 diagnostics["candidate_discovery_jpx_input_status"] = "claimed"
@@ -684,7 +686,7 @@ class EvaluateCohortsTest(unittest.TestCase):
                 replace(_panel_diagnostics(), asof=later.isoformat()),
             )
             write_forward(root, later, [])
-            with sqlite3.connect(root / "current.sqlite") as connection:
+            with closing(sqlite3.connect(root / "current.sqlite")) as connection, connection:
                 raw_diagnostics = connection.execute(
                     "SELECT diagnostics FROM cohort WHERE asof = ?", (later.isoformat(),)
                 ).fetchone()[0]
@@ -1843,7 +1845,7 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         cohort = result["6m"]["cohorts"][0]  # type: ignore[index]
         return cohort["coverage"]["delisting_exclusion"]  # type: ignore[index]
 
-    def test_a_conclusion_that_survives_both_ends_is_not_produced_by_the_exclusion(self) -> None:
+    def test_a_conclusion_stays_stable_under_both_specified_imputations(self) -> None:
         # The delisted name is not in the selected rank window, so that
         # group stays ahead whichever value the delisting is given.
         panel, forwards = self._cohort(delisted_ranks=())
@@ -2033,8 +2035,8 @@ class PricedMasterWithoutUniverseSensitivityTests(unittest.TestCase):
 def test_a_stratum_needs_five_names_on_each_side_before_it_is_matched() -> None:
     """A stratum with fewer names on one side is skipped, not matched at whatever it has.
 
-    Stratifying is what keeps the comparison about the axis rather than about how the
-    two groups differ in quality. A stratum matched on two names against two carries
+    Stratifying compares rows within coarse bands of the named quality variable;
+    it does not isolate a causal axis effect. A stratum matched on two names against two carries
     the noise of four rows into a figure the reader treats as a controlled difference,
     so the stratum is dropped and its weight leaves the answer. The counts are literal:
     derived from the constant they would move with it and pin nothing.
@@ -2080,8 +2082,8 @@ def test_a_stratum_needs_five_names_on_each_side_before_it_is_matched() -> None:
 def test_the_half_split_needs_thirty_pairs_before_it_reports_a_difference() -> None:
     """Below the floor the split is not measured, and says so rather than answering.
 
-    Splitting a group by its own axis value is what separates the axis's effect from
-    how the group was formed, but a split of a dozen rows reports the noise of six
+    Splitting a group by its own axis value measures a within-group association,
+    not an effect isolated from group composition. A split of a dozen rows compares six
     against six. The market-fallback groups run 50-80 rows per cohort, which is why the
     floor sits where it does. The counts are literal: derived from the constant they
     would move with it and pin nothing.

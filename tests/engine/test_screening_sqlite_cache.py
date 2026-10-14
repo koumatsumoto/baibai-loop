@@ -941,10 +941,6 @@ class SQLiteCacheTest(unittest.TestCase):
                 conn.close()
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class DailyBarsCoverageTest(unittest.TestCase):
     def test_the_ten_day_imperial_transition_closure_is_not_a_missing_window(self) -> None:
         # The market was shut for the ten consecutive days of the 2019 imperial
@@ -1038,7 +1034,7 @@ class EmptyPayloadReplacementTest(unittest.TestCase):
             conn = open_connection(db)
             try:
                 remaining = conn.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0]
-                # The refusal must leave no coverage row claiming the range is fine.
+                # The refused replacement must preserve the previous coverage count.
                 coverage = conn.execute(
                     "SELECT record_count FROM source_coverage WHERE source = ?",
                     ("jquants_daily_bars",),
@@ -1592,3 +1588,7 @@ class MarginPublicationLagTest(unittest.TestCase):
             # at the close, so the publication day itself is still too early.
             self.assertEqual(published_margin_week_ends(db, date(2026, 7, 28)), [])
             self.assertEqual(published_margin_week_ends(db, date(2026, 7, 29)), [week_end])
+
+
+if __name__ == "__main__":
+    unittest.main()
