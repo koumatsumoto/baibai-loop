@@ -145,9 +145,9 @@ class DelistingSessionOwnershipTests(unittest.TestCase):
                 session.__enter__.return_value = session
                 session.get.return_value.status_code = status
                 session.get.return_value.content = (
-                    "<table><tr><td>2026/05/01</td><td>Test</td><td>2000</td>"
-                    "<td>Prime</td><td>Merger</td></tr></table>"
-                ).encode()
+                    b"<table><tr><td>2026/05/01</td><td>Test</td><td>2000</td>"
+                    b"<td>Prime</td><td>Merger</td></tr></table>"
+                )
                 with patch(
                     "baibai_engine.market.delistings.requests.Session", return_value=session
                 ):

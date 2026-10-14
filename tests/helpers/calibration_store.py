@@ -185,7 +185,8 @@ def forward_row(asof: str, ticker: str, horizon: str, **overrides: Any) -> Forwa
     }
     if total_status == "resolved":
         price = float(payload["price_return"] or 0.0)
-        total = float(overrides.get("total_return") or price)
+        raw_total = overrides.get("total_return")
+        total = price if raw_total is None else float(raw_total)
         payload["realized_dividend_sum"] = max(0.0, total - price)
         payload["realized_dividend_fy_count"] = 1
         payload["total_return"] = total
