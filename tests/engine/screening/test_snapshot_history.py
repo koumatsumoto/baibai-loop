@@ -95,12 +95,12 @@ class ScreeningMetricsTests(SnapshotFixtures):
         financial = result.financials["130A"]
         self_median = result.derived["130A"].self_range_median
 
-        self.assertAlmostEqual(self_median["p_s"] or 0.0, financial.p_s or 0.0, places=6)
-        self.assertAlmostEqual(
-            self_median["ev_ebitda"] or 0.0,
-            financial.ev_ebitda or 0.0,
-            places=6,
-        )
+        assert self_median["p_s"] is not None
+        assert financial.p_s is not None
+        assert self_median["ev_ebitda"] is not None
+        assert financial.ev_ebitda is not None
+        self.assertAlmostEqual(self_median["p_s"], financial.p_s, places=6)
+        self.assertAlmostEqual(self_median["ev_ebitda"], financial.ev_ebitda, places=6)
 
     def test_build_metrics_uses_bars_span_for_short_history_when_established(self) -> None:
         """An established listing (800 days of bars) must not be flagged as short_history."""
