@@ -8,6 +8,8 @@ date: 2026-08-13
 
 # screening基盤の反証監査
 
+この監査は 2026-08-12〜13 の旧 schema 23・旧 playbook / ranking・旧較正 authority の履歴である。「現行」、採用・不採用、保存できない provenance、残課題は当時の状態を指す。後続の財務 document / revision 保存・期間解決や Candidate Discovery の仕様を否定する根拠にはしない。30/30 eligible も当時固定した入力・metric・as-of に限る結果であり、現在の変更や本番切替の承認ではない。下記の cloud push 等は当時の計画で、現行の運用指示ではない。
+
 価値tier: T2 — 資本状態、corporate action、会計期間のbasis不整合が時価総額・倍率・E[r]・順位へ入る経路を止め、一次researchへ渡す候補の正確性を守る。
 
 ## 1. 結論
@@ -205,4 +207,4 @@ PBRは24銘柄、E[r]は60銘柄、evidence membershipは19銘柄で変わり、
 - period-wide snapshot / TTM / forecast recoveryは固定3y / 5y authorityを通らず不採用である。
 - S8は全fieldのsemantic mutation対応表まで証明していない。
 
-この監査は、観測可能なsourceとproduction functionに対するbasis整合を証明する。欠けたraw provenanceを推測で復元せず、値を安全に決められない場合はreason付きでavailabilityを閉じる。current top 5不変は修正不要の根拠ではなく、履歴return改善も採用理由にしていない。
+この監査は、列挙した source・ケース・production function の範囲で basis 整合を確認した。全入力や全 field の整合を証明したものではない。欠けたraw provenanceを推測で復元せず、値を安全に決められない場合はreason付きでavailabilityを閉じる。current top 5不変は修正不要の根拠ではなく、履歴return改善も採用理由にしていない。

@@ -24,6 +24,7 @@ from baibai_engine.screening.sqlite_coverage import (
 )
 from baibai_engine.storage.observations.schema import open_connection
 
+
 def _verify_screening_sqlite_coverage(*args, **kwargs):
     with patch("baibai_engine.market.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100):
         return verify_screening_sqlite_coverage(*args, **kwargs)
@@ -483,7 +484,6 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_complete_required_windows_has_no_issues(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
             self.assertEqual(issues, ())
@@ -1382,7 +1382,9 @@ class SQLiteCoverageTests(unittest.TestCase):
                         (asof.isoformat(), f"{1301 + index:04d}", "Stock", "機械")
                         for index in range(100)
                     ]
-                    + [(asof.isoformat(), f"9{index:03d}", "Fund", "その他") for index in range(60)],
+                    + [
+                        (asof.isoformat(), f"9{index:03d}", "Fund", "その他") for index in range(60)
+                    ],
                 )
                 tickers = [f"{1301 + index:04d}" for index in range(40)] + [
                     f"9{index:03d}" for index in range(60)
@@ -1650,7 +1652,6 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_required_jpx_sources_must_be_present_in_snapshot(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-
             issues = _verify_screening_sqlite_coverage(
                 sqlite_path,
                 asof,
