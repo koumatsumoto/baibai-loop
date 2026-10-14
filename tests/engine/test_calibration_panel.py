@@ -1249,7 +1249,7 @@ class DerivedCacheIdentityTests(unittest.TestCase):
         )
 
 
-def test_complete_panel_values_match_pre_refactor_commit(tmp_path: Path) -> None:
+def test_complete_panel_values_match_committed_baseline(tmp_path: Path) -> None:
     from baibai_engine.storage.application.json import canonical_json
 
     sqlite_path = tmp_path / "market.sqlite"

@@ -18,12 +18,11 @@ from .sqlite import read_application_rows as read_rows
 def list_stock_assessment_publications(
     path: Path, *, ticker: str | None = None
 ) -> list[dict[str, object]]:
-    clause, parameters = ("", ()) if ticker is None else (" WHERE ticker = ?", (ticker,))
     rows = read_rows(
         path,
         "SELECT assessment_id,ticker,as_of,stance,published_at,supersedes_id,payload,core_sha256 "
-        f"FROM stock_assessment{clause}",  # nosec B608 - fixed clause; values are bound.
-        parameters,
+        "FROM stock_assessment WHERE (? IS NULL OR ticker=?)",
+        (ticker, ticker),
     )
     if not rows:
         return []
@@ -61,13 +60,11 @@ def stock_assessment_publication(path: Path, *, assessment_id: str) -> dict[str,
 def list_assessment_review_publications(
     path: Path, *, assessment_id: str | None = None
 ) -> list[dict[str, object]]:
-    clause, parameters = (
-        ("", ()) if assessment_id is None else (" WHERE assessment_id=?", (assessment_id,))
-    )
     rows = read_rows(
         path,
-        f"SELECT review_id,assessment_id,reviewed_at,payload FROM stock_assessment_review{clause}",
-        parameters,
+        "SELECT review_id,assessment_id,reviewed_at,payload FROM stock_assessment_review "
+        "WHERE (? IS NULL OR assessment_id=?)",
+        (assessment_id, assessment_id),
     )
     if not rows:
         return []
