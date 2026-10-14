@@ -1,5 +1,7 @@
 # 長期見積り較正 — baseline 計測（2022-09〜2026-03 / 43 cohort）
 
+これは 2026-07-03 の旧計算・旧選定方式に対する初回の較正リプレイ計測記録である。本文の「現行」「本番」・廃止済み CLI / 関数名・次工程は当時を指し、現在の仕様や操作指示ではない。元の測定値と仮説を保持し、以下の限界を伴う記述比較として読む。
+
 初回の較正リプレイ計測記録。現行スクリーニングの軸・ランキングの長期予測力（3m/6m/12m）を、改訂前の比較基準（baseline）として固定する。実装仕様は [`../../../docs/reference/estimate-calibration.md`](../../../docs/reference/estimate-calibration.md)、計画は issue #291 / #292。
 
 **再現手順**:
@@ -13,16 +15,16 @@ uv run baibai-loop-screening calibration-evaluate --out .cache/calibration-eval-
 
 - **cohort**: 月末営業日 43 個（2022-09-30〜2026-03-31）。J-Quants 履歴 backfill 済み cache（bars/fin とも 2021-08-02〜2026-07-01。プラン 5 年窓は 2026-07-03 の実取得テストで確認: 2021-09 取得成功・2020-09 は subscription 拒否）。
 - **リプレイ**: 本番と同一実装（build_metrics / evaluate_screening / candidate_entry / build_selection_payload）。入力中立化 = macro_context なし・prior_research なし・previous_candidates なし・JPX flag なし。
-- **forward return**: asof-basis close（adjustment_factor 累積）の price-only リターン。配当は未計上（WU2 #293 で total return 化）。**超過リターン = 銘柄リターン − 流動性母集団中央値**（同一 cohort の横断比較なので、配当の欠落と市場全体の方向は概ね相殺される）。
+- **forward return**: asof-basis close（adjustment_factor 累積）の price-only リターン。配当は未計上（WU2 #293 で total return 化）。**超過リターン = 銘柄リターン − 流動性母集団中央値**（同一 cohort の price-only 横断比較であり、銘柄間の配当差は相殺されない。市場中央値との差を取っても beta・業種・因子構成の違いは除去されない）。
 - **判定の規律**: 有意性は主張しない（6m 窓は月次 cohort 間で 5/6 重複）。効果量（median excess）と cohort 勝率で報告する。**本レポートは観察の記録であり、ランキング・閾値の変更はここから直接行わない**。変更は #291 §5 で本計測前に事前登録済みの仮説 H1–H8 を、WU4（#295）で design/confirm 時間分割により検証してからに限る。
 
 ## 2. Coverage と開示（結論より先に読む）
 
 - 母集団（流動性通過 × forward 解決）: cohort あたり 1,077〜1,570（中央値 1,325）。
 - **PBR 軸は母集団の 29%（中央値 378 銘柄）でしか測れていない**。bps が最新開示行のみから取られ、四半期行（bps 非掲載 約 8 割）が最新になる断面で大量欠損するため（FY 開示直後の cohort だけ n≈1,000）。PBR の数値は「bps を開示した直近 FY 型銘柄」に偏った部分標本での計測であり、carry-forward 補完（WU3）後に再計測する。per_trailing は中央値 1,111 で概ね全域。
-- **survivorship**: universe は現在の master 断面のため、期間中に上場廃止した銘柄が母集団から漏れる（bars に存在し master に無い ticker は全 cohort で約 380）。廃止は TOB プレミアム付きが多く、割安側の計測にはおおむね保守的方向。
-- **レジーム文脈**: 計測期間は日本株の強いバリュー期（6m 母集団中央値リターンは中央値 +4.7%・40 cohort 中 31 で正、12m は中央値 +10.4%）。「絶対的な安さが効く」という結果はこのレジームのベータを含み得る。横断（対中央値）比較で市場方向は中和しているが、バリューファクター自体の追い風は中和されない。
-- 初期 cohort（2022-09〜2023-04 頃）は TTM coverage が薄い（per_trailing 670〜/母集団）。軸別 n を各 cohort に記録済み。stale price（廃止・長期停止で exit 価格が 15 日超古い）は cohort 中央値 0・最大 18 で無視できる規模。
+- **survivorship**: universe は現在の master 断面のため、期間中に上場廃止した銘柄が母集団から漏れる（bars に存在し master に無い ticker は全 cohort で約 380）。TOB 対価・破綻・その他の退場が混在し得るため、欠落の影響方向を保守的と断定できない。
+- **レジーム文脈**: 計測期間は日本株の強いバリュー期（6m 母集団中央値リターンは中央値 +4.7%・40 cohort 中 31 で正、12m は中央値 +10.4%）。「絶対的な安さが効く」という結果はこのレジームのベータを含み得る。横断（対中央値）比較でも市場 beta や業種構成の違いは除去されず、バリューファクター自体の追い風も残る。
+- 初期 cohort（2022-09〜2023-04 頃）は TTM coverage が薄い（per_trailing 670〜/母集団）。軸別 n を各 cohort に記録済み。stale price（廃止・長期停止で exit 価格が 15 日超古い）は cohort 中央値 0・最大 18。少数でも順位・超過の方向を変え得るため、件数だけでは無視できると判断しない。
 
 ## 3. 軸別の長期予測力（主要結果）
 
@@ -35,7 +37,7 @@ mean rank IC（cohort 平均）/ IC 正の cohort 率 / best decile（最割安 
 | per_trailing | 0.183 | 88% | +3.2% | 0.254 | 100% | +7.9% | 16.0% |
 | p_s | 0.163 | 90% | +2.7% | 0.226 | 100% | +5.9% | 12.6% |
 | pcfr | 0.157 | 88% | +2.7% | 0.204 | 97% | +6.5% | 15.2% |
-| net_share_change_yoy（自社株買い） | 0.136 | 88% | +2.9% | 0.177 | 100% | +4.9% | **10.8%** |
+| net_share_change_yoy（純株式数変化） | 0.136 | 88% | +2.9% | 0.177 | 100% | +4.9% | **10.8%** |
 | cash_to_market_cap | 0.118 | 93% | +4.1% | 0.174 | 100% | +10.9% | 16.5% |
 | ocf_yield | 0.117 | 85% | +2.9% | 0.148 | 94% | +6.4% | 14.9% |
 | smg_pbr（sector 相対） | 0.164 | 97% | +1.8% | 0.209 | 100% | +4.8% | 14.8% |
@@ -51,9 +53,9 @@ mean rank IC（cohort 平均）/ IC 正の cohort 率 / best decile（最割安 
 
 1. **絶対倍率の安さ（PBR > forward PER > trailing PER > P/S）が最も強く、horizon が長いほど強い**（12m で PBR IC 0.296・IC 正 34/34 cohort）。ただし PBR は §2 の部分標本注意。
 2. **sector 相対 gap（smg_\*）は絶対倍率より一貫して弱い**。相対で安い銘柄より、絶対に安い銘柄が回復している。
-3. **自己レンジ percentile（srp_\*）は負の予測力**。「自分の 3 年レンジの底にいる」はトラップ率が約 3 倍（33% vs PBR D10 の 8%）。現行 valuation-reversion の condition A の主材料と、60 日下落条件（condition B、price_change_60d 行）がともに逆効果方向 — 事前登録 H7 と整合する観察。
-4. **自社株買い（net_share_change_yoy 縮小）は正の予測力 × 最低クラスのトラップ率** — H5 と整合。
-5. equity_ratio 単独は負（資本効率の低さを拾う）。durability は「ランキング軸」ではなく「ゲート」に留めるべきという裏付け。accruals は負〜無で、単独軸としては使えない。
+3. **自己レンジ percentile（srp_\*）は負の予測力**。「自分の 3 年レンジの底にいる」はトラップ率が約 4 倍（33% vs PBR D10 の 8%）。現行 valuation-reversion の condition A の主材料と、60 日下落条件（condition B、price_change_60d 行）がともに逆効果方向 — 事前登録 H7 と整合する観察。
+4. **純株式数の縮小（自社株買い以外の要因も含み得る）は、この標本で正の関連と低いトラップ率を示した** — H5 と整合。
+5. equity_ratio 単独は負（資本効率の低さを拾う）。この単変量比較だけでは durability の gate 採用や不採用を決められない。accruals も本標本では正の関連を確認できず、単独軸の一般的な有効性は未確定である。
 
 ## 4. 現行 select 順の実力（headline baseline）
 
@@ -65,7 +67,7 @@ mean rank IC（cohort 平均）/ IC 正の cohort 率 / best decile（最割安 
 | 素の割安順 top-10 | 10.0 | +2.3% | 65% | 11.3% | +2.3% | 21.8% |
 | 素の割安順 top-20 | 20.0 | +2.8% | 57% | 9.0% | **+6.4%** | 15.7% |
 
-- **現行の本番推奨 top-5 は母集団中央値を大きく下回る**（6m median −6.8%・勝率 25%・トラップ率 26%）。一方、同じ screen 通過銘柄でも **順位を深く取るほど成績が改善し top-20 は正**になる。つまり通過集合には価値があるが、**先頭に並べる順序（playbook 固定順 = cash-rich 最優先、および強度キー）が有害**という観察 — H3 と整合する。
+- **現行の本番推奨 top-5 は母集団中央値を大きく下回る**（6m median −6.8%・勝率 25%・トラップ率 26%）。一方、同じ screen 通過銘柄でも **順位を深く取るほど成績が改善し top-20 は正**になる。つまり通過集合には価値があるが、**当時の先頭順（playbook 固定順 = cash-rich 最優先、および強度キー）で選ばれた群が劣後した**という観察 — H3 と整合する。
 - 本番推奨は diversity cap（playbook あたり 2 × 4 playbook）で **8 銘柄で飽和**する（top-10 と top-20 が同値なのはこのため）。
 - 例（2024-06-28 cohort の本番推奨 top-5）: cash-rich 先頭 2 銘柄が −12.1% / −37.6%、3–4 位の valuation-reversion が +5.0% / +11.8%、5 位 cashflow-yield −15.0%。
 - PBR 最安 decile（+6.7%/6m・トラップ 4.5%）との差は 6m で約 13pt。**「割安ゾーンの検出」はできているのに「どれが一番お買い得か」の並べ替えで価値を失っている**のが現行基盤の最大の欠陥、という baseline になる。

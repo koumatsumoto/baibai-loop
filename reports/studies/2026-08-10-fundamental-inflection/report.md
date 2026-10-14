@@ -8,6 +8,8 @@ date: 2026-08-10
 
 # 会社予想改定・複数期加速レーンの長期較正
 
+この記録の PIT 導出・予想期の対応・schema・core ranking は 2026-08-10 時点の旧実装である。廃止済み lane の仕様を現行の財務取得や Candidate Discovery へ移植しない。以下の固定ケース感度は未知 exit の全範囲を保証せず、同業種・近似規模の match も未観測要因を除く因果比較ではない。
+
 価値tier: T1 — core E[r] と異なる fundamental inflection が、core top-20 外から trap 非劣後かつ正の増分価値を持つ候補を安定供給できるかを、production 配線前に判定する。
 
 ## 結論
@@ -47,7 +49,7 @@ inflection artifact は全 membership、match identity、選択対象の return 
 | `3y_all` | 33 | 33 | 7 / 33 (21.2%) | 27 / 31 (87.1%) | 14.46% | 70 / 26 | 4.2% | `insufficient`: match coverage、pair < 32 |
 | `3y_postcovid` | 19 | 19 | 6 / 19 (31.6%) | 23 / 27 (85.2%) | 15.51% | 46 / 22 | 5.3% | `insufficient`: match coverage、pair < 32 |
 
-候補coverage、上方改定gate比率、unique ticker / pair、集中上限は通る。比較対象だけが不足しており、同sector・rank 11〜30・未使用という境界を緩めず停止する。
+候補coverageと上方改定gate比率は表の条件を満たす。ただし unique inflection の件数（例: 81）は reported pair 数（35）より大きく、効果推定へ寄与した銘柄数と同じ集合ではない。元 artifact の集計対象を再確認せず、この欄を独立な効果標本数やその sufficiency 通過の証拠とは扱わない。比較対象だけが不足しており、同sector・rank 11〜30・未使用という境界を緩めず停止する。
 
 ## Effect 診断
 

@@ -8,6 +8,8 @@ date: 2026-08-10
 
 # 会社予想改定・複数期加速レーンの事前登録
 
+この記録の PIT 導出・予想期の対応・schema・core ranking は 2026-08-10 時点の旧実装である。廃止済み lane の仕様を現行の財務取得や Candidate Discovery へ移植しない。以下の固定ケース感度は未知 exit の全範囲を保証せず、同業種・近似規模の match も未観測要因を除く因果比較ではない。
+
 価値tier: T1 — 「良くなりつつあるのに価格が追いついていない」という経済仮説が、core E[r] と異なる候補を長期 horizon で安定供給できるかを production 配線前に判定する。
 
 本書は forward outcome を読む前に、PIT 導出、軸、比較、窓、重み、sufficiency、effect、verdict、cleanup を固定する。QARP study #878 から引き継ぐのは事前登録、fail-closed integrity、独立検算の手続きだけで、同 study の結果に合わせて条件を変更しない。結果後に閾値、窓、重み、fallback、variant を変更しない。
@@ -67,7 +69,7 @@ schema 13の既存 panel identityとmarket summaryだけをread-onlyで結合し
 
 母集団は `in_population: true`、`population_coverage_status: evaluated` の行である。4 signalがすべて測定済みで、`forecast_revision_pct_latest > 0` かつ `forecast_revision_streak >= 1` の行だけをeligibleとする。会社予想が上向いていない行を、actual accelerationだけでlaneへ入れない。
 
-eligible集合内で4 signalをそれぞれ高い順にmidrank percentile `[0, 1]` へ変換する。同値群には占有順位の平均を与え、ticker順でsignal percentileを分けない。4 percentileの算術平均を `inflection_score` とし、`(inflection_score asc, ticker asc)` の先頭20件を inflection top-20とする。eligibleが20件未満なら `candidate_unavailable`。別score、winsorize、weight、missing平均は試さない。
+eligible集合内で4 signalをそれぞれ高い順にmidrank percentile `[0, 1]` へ変換する。同値群には占有順位の平均を与え、ticker順でsignal percentileを分けない。この順位表現では小さい値ほど上位である。4 percentileの算術平均を `inflection_score` とし、`(inflection_score asc, ticker asc)` の先頭20件を inflection top-20とする。eligibleが20件未満なら `candidate_unavailable`。別score、winsorize、weight、missing平均は試さない。
 
 core top-20は同じpanelの `selection_rank <= 20`。inflection top-20からcore top-20を除いた先頭5件を `inflection_outside_top5` とする。5件未満なら `candidate_unavailable`。
 
@@ -139,3 +141,7 @@ reportの「誠実性の限定」には、重なり窓、price-only、entry regi
 - `insufficient`: 未満期cohortだけなら最小evaluatorを残す。coverage、candidate、match、unique、concentration等の構造不足なら `negative` と同じcleanupを行う。
 
 application DB、market store、runs storeへwriteせず、calibration storeだけをschema bump後に再構築する。R2へpushしない。
+
+## 実施後の cleanup の変更
+
+当初 §9 は raw panel 列を残す予定だったが、最終結果では現行 consumer がないため 4 派生列と導出・schema 契約も削除した。これは計測後の保守範囲の変更であり、当初計画どおりに列を保持したとは扱わない。元の定義・結果・hash は本書と report に残し、測定値や判定基準は変更しない。

@@ -5,6 +5,7 @@ import tempfile
 import unittest
 import zipfile
 from contextlib import closing
+from dataclasses import replace
 from datetime import date, timedelta
 from io import BytesIO
 from itertools import permutations
@@ -1835,8 +1836,13 @@ class ScreeningProviderTests(unittest.TestCase):
                 ),
             ):
                 snapshots.append(provider.get_earnings_calendar_snapshot(asof_date))
+        # Source URLs preserve the observed index order; only their membership,
+        # resolved entries and counters must be invariant under that ordering.
+        canonical = replace(snapshots[0], source_urls=tuple(sorted(snapshots[0].source_urls)))
         for snapshot in snapshots[1:]:
-            self.assertEqual(snapshots[0], snapshot)
+            self.assertEqual(
+                canonical, replace(snapshot, source_urls=tuple(sorted(snapshot.source_urls)))
+            )
         return snapshots[0]
 
     def test_jpx_earnings_snapshot_keeps_the_freshest_publication_on_conflict(self) -> None:
