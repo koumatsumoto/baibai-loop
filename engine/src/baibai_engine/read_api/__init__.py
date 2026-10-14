@@ -25,10 +25,6 @@ from baibai_engine.position.ledger import (
     PortfolioSnapshot,
 )
 
-from .capital_allocation import (
-    capital_allocation_assessment_payload,
-    list_capital_allocation_assessment_payloads,
-)
 from .freshness import (
     application_db_updated_at,
     indicator_latest_observed_at,
@@ -66,12 +62,15 @@ from .materialization import (
 )
 from .operations import list_operation_sessions
 from .position import list_portfolio_outcome_payloads, portfolio_ledger_document
+from .proposals import (
+    investment_proposal_payload,
+    list_investment_proposal_payloads,
+    preview_current_proposal_terms,
+)
 from .research import (
-    list_position_review_publications,
-    list_thesis_publications,
-    list_thesis_review_publications,
-    position_review_null_reason,
-    thesis_publication,
+    list_assessment_review_publications,
+    list_stock_assessment_publications,
+    stock_assessment_publication,
 )
 from .screening import (
     candidate_rows,
@@ -103,7 +102,6 @@ __all__ = [
     "application_db_updated_at",
     "assessment_payload",
     "candidate_rows",
-    "capital_allocation_assessment_payload",
     "close_change_since",
     "current_portfolio",
     "indicator_fetch_health",
@@ -111,24 +109,24 @@ __all__ = [
     "indicator_series",
     "indicator_series_names",
     "interpreted_next_earnings_status",
+    "investment_proposal_payload",
     "latest_assessment_payload",
     "latest_disclosure_dates_after",
     "latest_market_bar_date",
     "latest_unadjusted_closes",
     "list_assessment_payloads",
-    "list_capital_allocation_assessment_payloads",
+    "list_assessment_review_publications",
+    "list_investment_proposal_payloads",
     "list_operation_sessions",
     "list_portfolio_outcome_payloads",
-    "list_position_review_publications",
+    "list_stock_assessment_publications",
     "list_task_payloads",
-    "list_thesis_publications",
-    "list_thesis_review_publications",
     "machine_valuation_from_analysis",
     "market_calendar_business_day",
     "market_master_snapshot",
     "next_earnings_dates",
     "portfolio_ledger_document",
-    "position_review_null_reason",
+    "preview_current_proposal_terms",
     "previous_business_day",
     "previous_run_revision_id",
     "reading_snapshot",
@@ -136,15 +134,15 @@ __all__ = [
     "reinvestment_coordinates",
     "reject_noncanonical_store_paths",
     "repository_root_error",
-    "reviewed_thesis_projection",
+    "reviewed_assessment_projection",
     "safe_load",
     "screening_calibration_method_identity",
     "screening_latest_asof",
     "screening_run_asof_dates",
     "screening_run_payload",
+    "stock_assessment_publication",
     "stored_machine_valuation",
     "task_store_exists",
-    "thesis_publication",
     "validate_application_store_schema",
     "validate_market_store_hydration",
     "validate_market_store_schema",
@@ -154,7 +152,7 @@ __all__ = [
 
 from baibai_engine.read_api.position import current_portfolio
 
-from .research import reviewed_thesis_projection
+from .research import reviewed_assessment_projection
 from .valuation import (
     StoredMachineValuation,
     anchor_gap_pct,

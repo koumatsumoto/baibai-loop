@@ -92,9 +92,9 @@ def application_db_updated_at(path: Path) -> datetime | None:
 # are read through max(), which ignores NULL, so they contribute only once set.
 _WRITE_INSTANT_COLUMNS: tuple[tuple[str, str], ...] = (
     ("ledger_event", "occurred_at"),
-    ("thesis", "published_at"),
-    ("thesis_review", "reviewed_at"),
-    ("position_review", "as_of"),
+    ("stock_assessment", "published_at"),
+    ("stock_assessment_review", "reviewed_at"),
+    ("investment_proposal", "published_at"),
     ("market_context_assessment", "published_at"),
     ("task", "created_at"),
     ("task", "closed_at"),

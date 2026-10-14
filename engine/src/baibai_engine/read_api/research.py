@@ -1,248 +1,131 @@
-"""Query-only research revision views."""
+"""保存された銘柄評価と独立 Review を原評価の条件付き算術と共に読む。"""
 
 from __future__ import annotations
 
-import json
-from collections.abc import Mapping
+from contextlib import closing
+from datetime import datetime
 from pathlib import Path
+
+from baibai_engine.research.assessment import AssessmentRef
+from baibai_engine.research.assessment_store import load_reviewed_assessment, require_assessment_ref
+from baibai_engine.research.decimal_number import decimal_to_number
+from baibai_engine.storage.application.read import connect_read_only
+from baibai_engine.valuation.scenario import finite_decimal, maximum_entry_price, project_return
 
 from .sqlite import read_application_rows as read_rows
 
 
-def list_thesis_payloads(
-    path: Path,
-    *,
-    ticker: str | None = None,
+def list_stock_assessment_publications(
+    path: Path, *, ticker: str | None = None
 ) -> list[dict[str, object]]:
-    return _many(
-        path,
-        "thesis",
-        where=None if ticker is None else ("ticker = ?", (ticker,)),
-        order="as_of DESC, published_at DESC, thesis_id DESC",
-    )
-
-
-def list_position_review_payloads(
-    path: Path,
-    *,
-    ticker: str | None = None,
-) -> list[dict[str, object]]:
-    return _many(
-        path,
-        "position_review",
-        where=None if ticker is None else ("ticker = ?", (ticker,)),
-        order="as_of DESC, position_review_id DESC",
-    )
-
-
-def thesis_publication(
-    path: Path,
-    *,
-    thesis_id: str,
-) -> dict[str, object] | None:
-    rows = _publications(
-        path,
-        "thesis",
-        (
-            "thesis_id",
-            "ticker",
-            "as_of",
-            "recommendation",
-            "published_at",
-            "supersedes_id",
-            "core_sha256",
-        ),
-        where=("thesis_id = ?", (thesis_id,)),
-        order="thesis_id",
-    )
-    return None if not rows else rows[0]
-
-
-def list_thesis_publications(
-    path: Path,
-    *,
-    ticker: str | None = None,
-) -> list[dict[str, object]]:
-    return _publications(
-        path,
-        "thesis",
-        (
-            "thesis_id",
-            "ticker",
-            "as_of",
-            "recommendation",
-            "published_at",
-            "supersedes_id",
-            "core_sha256",
-        ),
-        where=None if ticker is None else ("ticker = ?", (ticker,)),
-        order="as_of DESC, published_at DESC, thesis_id DESC",
-    )
-
-
-def list_thesis_review_publications(
-    path: Path,
-    *,
-    thesis_id: str | None = None,
-) -> list[dict[str, object]]:
-    return _publications(
-        path,
-        "thesis_review",
-        ("review_id", "thesis_id", "reviewed_at"),
-        where=None if thesis_id is None else ("thesis_id = ?", (thesis_id,)),
-        order="reviewed_at DESC, review_id DESC",
-    )
-
-
-def list_position_review_publications(
-    path: Path,
-    *,
-    ticker: str | None = None,
-) -> list[dict[str, object]]:
-    return _publications(
-        path,
-        "position_review",
-        ("position_review_id", "ticker", "as_of", "thesis_id", "candidate_thesis_id"),
-        where=None if ticker is None else ("ticker = ?", (ticker,)),
-        order="as_of DESC, position_review_id DESC",
-    )
-
-
-def _many(
-    path: Path,
-    table: str,
-    *,
-    where: tuple[str, tuple[object, ...]] | None,
-    order: str,
-) -> list[dict[str, object]]:
-    clause, parameters = ("", ()) if where is None else (f" WHERE {where[0]}", where[1])
+    clause, parameters = ("", ()) if ticker is None else (" WHERE ticker = ?", (ticker,))
     rows = read_rows(
         path,
-        # Private callers provide fixed schema fragments; all values stay bound.
-        f"SELECT payload FROM {table}{clause} ORDER BY {order}",  # nosec B608
+        "SELECT assessment_id,ticker,as_of,stance,published_at,supersedes_id,payload,core_sha256 "
+        f"FROM stock_assessment{clause}",  # nosec B608 - fixed clause; values are bound.
         parameters,
     )
-    return [_object(str(row[0])) for row in rows]
+    if not rows:
+        return []
+    with closing(connect_read_only(path)) as connection:
+        connection.execute("BEGIN")
+        publications = []
+        for row in rows:
+            pair = load_reviewed_assessment(connection, str(row["assessment_id"]))
+            publications.append({**dict(row), "payload": pair.document.model_dump(mode="json")})
+    return sorted(
+        publications,
+        key=lambda row: (
+            str(row["as_of"]),
+            datetime.fromisoformat(str(row["published_at"])),
+            str(row["assessment_id"]),
+        ),
+        reverse=True,
+    )
 
 
-def _object(payload: str) -> dict[str, object]:
-    parsed = json.loads(payload)
-    if not isinstance(parsed, dict):
-        raise ValueError("research payload must be an object")
-    return parsed
-
-
-def _publications(
-    path: Path,
-    table: str,
-    columns: tuple[str, ...],
-    *,
-    where: tuple[str, tuple[object, ...]] | None,
-    order: str,
-) -> list[dict[str, object]]:
-    clause, parameters = ("", ()) if where is None else (f" WHERE {where[0]}", where[1])
-    selected = ", ".join((*columns, "payload"))
+def stock_assessment_publication(path: Path, *, assessment_id: str) -> dict[str, object] | None:
     rows = read_rows(
         path,
-        # Private callers provide fixed schema fragments; all values stay bound.
-        f"SELECT {selected} FROM {table}{clause} ORDER BY {order}",  # nosec B608
+        "SELECT assessment_id,ticker,as_of,stance,published_at,supersedes_id,payload,core_sha256 "
+        "FROM stock_assessment WHERE assessment_id=?",
+        (assessment_id,),
+    )
+    if not rows:
+        return None
+    with closing(connect_read_only(path)) as connection:
+        pair = load_reviewed_assessment(connection, assessment_id)
+    return {**dict(rows[0]), "payload": pair.document.model_dump(mode="json")}
+
+
+def list_assessment_review_publications(
+    path: Path, *, assessment_id: str | None = None
+) -> list[dict[str, object]]:
+    clause, parameters = (
+        ("", ()) if assessment_id is None else (" WHERE assessment_id=?", (assessment_id,))
+    )
+    rows = read_rows(
+        path,
+        f"SELECT review_id,assessment_id,reviewed_at,payload FROM stock_assessment_review{clause}",
         parameters,
     )
-    return [
-        {**{column: row[column] for column in columns}, "payload": _object(str(row["payload"]))}
-        for row in rows
-    ]
-
-
-__all__ = [
-    "list_position_review_payloads",
-    "list_position_review_publications",
-    "list_thesis_payloads",
-    "list_thesis_publications",
-    "list_thesis_review_publications",
-    "position_review_null_reason",
-    "thesis_publication",
-]
-
-
-def position_review_null_reason(path: Path, payload: Mapping[str, object]) -> str | None:
-    """Explain a saved null from its exact Thesis and recorded inputs, without market reads."""
-    from contextlib import closing
-
-    from baibai_engine.position.policy import PORTFOLIO_POLICY
-    from baibai_engine.research.position_review import (
-        PositionReviewDocument,
-        evaluate_position_review,
+    if not rows:
+        return []
+    with closing(connect_read_only(path)) as connection:
+        connection.execute("BEGIN")
+        publications = []
+        for row in rows:
+            pair = load_reviewed_assessment(connection, str(row["assessment_id"]))
+            publications.append({**dict(row), "payload": pair.review.model_dump(mode="json")})
+    return sorted(
+        publications,
+        key=lambda row: (datetime.fromisoformat(str(row["reviewed_at"])), str(row["review_id"])),
+        reverse=True,
     )
-    from baibai_engine.research.thesis_store import load_reviewed_thesis
-    from baibai_engine.storage.application.read import connect_read_only
-
-    if payload.get("action") is not None:
-        return None
-    try:
-        document = PositionReviewDocument.model_validate(payload)
-        with closing(connect_read_only(path)) as connection:
-            pair = load_reviewed_thesis(connection, document.thesis_id)
-        evaluation = evaluate_position_review(
-            document,
-            pair.document,
-            primary_verified=pair.review.primary_source_check == "verified",
-            max_quote_age_days=PORTFOLIO_POLICY["valuation"]["market_price_max_age_days"],
-        )
-    except ValueError:
-        # Legacy partial payloads retain the author's saved note.
-        return None
-    return evaluation.reason if evaluation.action is None else None
 
 
-def reviewed_thesis_projection(path: Path, *, thesis_id: str) -> dict[str, object]:
-    """Expose the exact pair and conditional values, or a historical-only raw record."""
-    from contextlib import closing
-    from decimal import Decimal
-
-    from baibai_engine.research.thesis_store import ResearchValidationError, load_reviewed_thesis
-    from baibai_engine.storage.application.read import connect_read_only
-    from baibai_engine.valuation.scenario import maximum_entry_price, project_return
-
-    publication = thesis_publication(path, thesis_id=thesis_id)
-    if publication is None:
+def reviewed_assessment_projection(
+    path: Path, *, assessment_id: str, assessment_ref: AssessmentRef | None = None
+) -> dict[str, object]:
+    """正確な保存pairの原価格算術だけを表示し、現在の資格・価格を混ぜない。"""
+    publication = stock_assessment_publication(path, assessment_id=assessment_id)
+    if publication is None and assessment_ref is None:
         return {}
-    try:
-        with closing(connect_read_only(path)) as connection:
-            pair = load_reviewed_thesis(connection, thesis_id)
-    except ResearchValidationError:
-        return {
-            "status": "requires_reassessment",
-            "thesis_id": thesis_id,
-            "as_of": publication["as_of"],
-            "raw": publication["payload"],
-        }
-    thesis = pair.document
-    valuation = thesis.valuation
+    with closing(connect_read_only(path)) as connection:
+        connection.execute("BEGIN")
+        pair = (
+            load_reviewed_assessment(connection, assessment_id)
+            if assessment_ref is None
+            else require_assessment_ref(connection, assessment_ref)
+        )
+        if pair.assessment_id != assessment_id:
+            raise ValueError("assessment reference identity differs")
+    document = pair.document
+    valuation = document.valuation
     price_fact = next(
         (
             fact
-            for fact in thesis.input_snapshot.facts
+            for fact in document.input_snapshot.facts
             if fact.fact_id == valuation.market_price_fact_id
         ),
         None,
     )
-    projected: dict[str, object] = {}
-    maximum: float | None = None
+    projections: dict[str, object] = {}
+    maximum: float | int | None = None
     if valuation.horizon_months is not None and price_fact is not None:
-        price = Decimal(str(price_fact.value))
+        price = finite_decimal(price_fact.value)
         for name, scenario in (("base", valuation.base), ("downside", valuation.downside)):
             if scenario is not None:
                 result = project_return(
                     scenario, price_yen=price, horizon_months=valuation.horizon_months
                 )
-                projected[name] = {
+                projections[name] = {
                     **scenario.model_dump(mode="json"),
-                    "total_return_pct": round(float(result.total_return_pct), 4),
-                    "annualized_return_pct": round(float(result.annualized_return_pct), 4),
+                    "total_return_pct": decimal_to_number(result.total_return_pct),
+                    "annualized_return_pct": decimal_to_number(result.annualized_return_pct),
                 }
         if valuation.base is not None and valuation.required_annual_return_pct is not None:
-            maximum = float(
+            maximum = decimal_to_number(
                 maximum_entry_price(
                     valuation.base,
                     horizon_months=valuation.horizon_months,
@@ -251,24 +134,28 @@ def reviewed_thesis_projection(path: Path, *, thesis_id: str) -> dict[str, objec
             )
     return {
         "status": valuation.status,
-        "thesis_id": thesis_id,
+        "assessment_id": assessment_id,
         "review_id": pair.review.review_id,
-        "as_of": thesis.input_snapshot.as_of.isoformat(),
-        "disposition": thesis.judgment.disposition,
-        "investment_case": thesis.investment_case.model_dump(mode="json"),
+        "core_sha256": pair.core_sha256,
+        "as_of": document.input_snapshot.as_of.isoformat(),
+        "stance": document.conclusion.stance,
+        "conclusion": document.conclusion.model_dump(mode="json"),
+        "investment_case": document.investment_case.model_dump(mode="json"),
         "horizon_months": valuation.horizon_months,
         "unresolved_reason": valuation.unresolved_reason,
-        "strongest_countercase": thesis.judgment.strongest_countercase,
+        "strongest_countercase": document.conclusion.strongest_countercase,
         "original_price_basis": None if price_fact is None else price_fact.price_basis,
         "required_annual_return_pct": None
         if valuation.required_annual_return_pct is None
-        else float(valuation.required_annual_return_pct),
-        "pmax_raw_yen": maximum,
-        "projections": projected,
-        "original_price_yen": None if price_fact is None else price_fact.value,
+        else decimal_to_number(valuation.required_annual_return_pct),
+        "pmax_original_yen": maximum,
+        "projections": projections,
+        "original_price_yen": None
+        if price_fact is None
+        else decimal_to_number(finite_decimal(price_fact.value)),
         "original_quote_at": None
         if price_fact is None or price_fact.observed_at is None
         else price_fact.observed_at.isoformat(),
         "return_basis": "条件付き・原評価起点・税費用控除前・分配再投資なし",
-        "raw": thesis.model_dump(mode="json"),
+        "raw": document.model_dump(mode="json"),
     }
