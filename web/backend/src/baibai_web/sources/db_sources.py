@@ -32,6 +32,7 @@ from baibai_engine.read_api import (
     portfolio_ledger_document,
     preview_current_proposal_terms,
     previous_business_day,
+    price_comparison_basis_is_confirmed,
     reviewed_assessment_projection,
     safe_load,
     screening_run_asof_dates,
@@ -147,6 +148,13 @@ class DbMarketPriceSource:
     def latest_closes(self, tickers: Sequence[str]) -> Mapping[str, tuple[float, date]]:
         return latest_unadjusted_closes(self._path, tickers)
 
+    def price_comparison_basis_is_confirmed(
+        self, ticker: str, *, from_date: date, through_date: date
+    ) -> bool:
+        return price_comparison_basis_is_confirmed(
+            self._path, ticker, from_date=from_date, through_date=through_date
+        )
+
     def close_changes_since(self, tickers: Sequence[str], *, since: date) -> Mapping[str, float]:
         return close_change_since(self._path, tickers, since=since)
 
@@ -237,6 +245,11 @@ class DbResearchSource:
             pmax_original_yen=_optional_float(current.get("pmax_original_yen")),
             review_id=str(current["review_id"]),
             status=str(current["status"]),
+            original_price_as_of=(
+                None
+                if current["original_price_as_of"] is None
+                else date.fromisoformat(str(current["original_price_as_of"]))
+            ),
         )
 
 

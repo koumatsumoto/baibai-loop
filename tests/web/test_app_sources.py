@@ -1,18 +1,24 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
+from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
+from tests.helpers.db_seed import seed_ledger
 from tests.helpers.screening_run import RULES_HASH, screening_run_payload, stock_analysis
 from tests.helpers.screening_sqlite import seed_daily_bars
 from tests.web.test_research_assessment_views import seed_web_assessment, seed_web_proposal
 
+from baibai_engine.position.ledger import PortfolioLedgerDocument
+from baibai_engine.position.valuation import current_portfolio
+from baibai_engine.research.assessment_store import AssessmentStoreService
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import ScreeningRunStore
 from baibai_engine.storage.application.write import connect_rw
 from baibai_engine.storage.observations.schema import open_connection
+from baibai_web.readmodel.builders import build_dashboard
 from baibai_web.readmodel.stocks.detail import build_security_detail
 from baibai_web.sources.db_sources import (
     DbLedgerSource,
@@ -233,3 +239,99 @@ def test_current_enterprise_projection_retains_original_basis_and_independent_re
     assert detail.projection["horizon_months"] == 12
     assert detail.projection["raw"] == pair.document.model_dump(mode="json")
     assert detail.review["review_id"] == pair.review.review_id
+
+
+@pytest.mark.parametrize("factor", [0.5, None, 1.0, "missing_original"])
+def test_holding_pmax_gap_checks_the_assessment_window_even_when_acquired_after_split(
+    tmp_path: Path, mocker, factor
+) -> None:
+    db, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
+    now = datetime.fromisoformat("2026-10-14T17:00:00+09:00")
+    document, review = pair_payload(ticker="1234", quote_as_of="2026-10-12")
+    document["valuation"]["required_annual_return_pct"] = "6"
+    document["valuation"]["base"].update(
+        terminal_value_per_share_yen="2120", cash_distribution_per_share_yen="0"
+    )
+    review["recalculated_projections"][0].update(
+        terminal_value_per_share_yen="2120", cash_distribution_per_share_yen="0"
+    )
+    update_review_hash(document, review)
+    AssessmentStoreService(db, clock=lambda: now).publish_reviewed_assessment(
+        assessment_id(), document, review
+    )
+    ledger = PortfolioLedgerDocument.model_validate(
+        {
+            "schema_version": 2,
+            "portfolio_scope": "repository_only",
+            "as_of": now.isoformat(),
+            "events": [
+                {
+                    "type": "opening_balance",
+                    "event_id": "opening",
+                    "occurred_at": "2026-10-14T08:00:00+09:00",
+                    "amount_yen": 1000000,
+                },
+                {
+                    "type": "reservation",
+                    "event_id": "reserve-after-split",
+                    "occurred_at": "2026-10-14T08:30:00+09:00",
+                    "reservation_id": "after-split",
+                    "order_id": "order-after-split",
+                    "ticker": "1234",
+                    "sector": "未分類",
+                    "common_factors": [],
+                    "quantity": 100,
+                    "price_guard_yen": 1000,
+                    "expires_at": "2026-10-14T15:30:00+09:00",
+                },
+                {
+                    "type": "execution",
+                    "event_id": "buy-after-split",
+                    "execution_id": "buy",
+                    "reservation_id": "after-split",
+                    "occurred_at": "2026-10-14T09:00:00+09:00",
+                    "ticker": "1234",
+                    "side": "buy",
+                    "quantity": 100,
+                    "price_yen": 1000,
+                },
+            ],
+            "market_prices": [],
+        }
+    )
+    seed_ledger(db, ledger)
+    seed_daily_bars(
+        market,
+        [
+            ("1234", "2026-10-12", 2000.0, 1.0),
+            ("1234", "2026-10-13", 1000.0, 1.0 if factor == "missing_original" else factor),
+            ("1234", "2026-10-14", 1000.0, 1.0),
+        ],
+    )
+    if factor == "missing_original":
+        with open_connection(market) as connection:
+            connection.execute(
+                "DELETE FROM jquants_daily_bars WHERE ticker='1234' AND traded_at='2026-10-12'"
+            )
+    snapshot = current_portfolio(ledger, sqlite_path=market, now=now)
+    assert snapshot.holdings[0].market_price_yen == 1000
+    ledger_source = mocker.Mock(spec=LedgerSource)
+    ledger_source.exists.return_value = True
+    ledger_source.snapshot.return_value = snapshot
+    screening = mocker.Mock(spec=ScreeningSource)
+    screening.latest_run.return_value = None
+    before = {path: path.read_bytes() for path in (db, market)}
+
+    view = build_dashboard(
+        ledger_source, DbResearchSource(db), screening, DbMarketPriceSource(market)
+    )
+
+    holding = view.holdings[0]
+    assert holding.pmax_raw_yen == 2000
+    if factor == 1.0:
+        assert holding.pmax_gap_pct == 100
+        assert holding.pmax_gap_unavailable_reason is None
+    else:
+        assert holding.pmax_gap_pct is None
+        assert holding.pmax_gap_unavailable_reason
+    assert {path: path.read_bytes() for path in (db, market)} == before

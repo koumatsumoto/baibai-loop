@@ -61,7 +61,11 @@ from .materialization import (
     validate_reading_rules,
 )
 from .operations import list_operation_sessions
-from .position import list_portfolio_outcome_payloads, portfolio_ledger_document
+from .position import (
+    list_portfolio_outcome_payloads,
+    portfolio_ledger_document,
+    price_comparison_basis_is_confirmed,
+)
 from .proposals import (
     investment_proposal_payload,
     list_investment_proposal_payloads,
@@ -129,6 +133,7 @@ __all__ = [
     "preview_current_proposal_terms",
     "previous_business_day",
     "previous_run_revision_id",
+    "price_comparison_basis_is_confirmed",
     "reading_snapshot",
     "registered_indicator",
     "reinvestment_coordinates",

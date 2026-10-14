@@ -21,6 +21,7 @@ class ResearchRevision:
     pmax_original_yen: float | None
     review_id: str
     status: str
+    original_price_as_of: date | None = None
 
 
 @dataclass(frozen=True, slots=True)

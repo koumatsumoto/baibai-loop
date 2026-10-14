@@ -123,3 +123,20 @@ def test_future_latest_assessment_is_not_used_or_hidden_by_an_old_revision(case)
     db, market = case
     with pytest.raises(ResearchPriceWatchError, match="future assessment"):
         build_watch(app_db_path=db, sqlite_path=market, asof=date(2026, 9, 4))
+
+
+@pytest.mark.parametrize("factor", [0.5, None])
+def test_watch_keeps_original_pmax_but_no_gap_with_unconfirmed_comparison_basis(case, factor):
+    db, market = case
+    with sqlite3.connect(market) as connection:
+        connection.execute(
+            "UPDATE jquants_daily_bars SET adjustment_factor=? "
+            "WHERE ticker='2331' AND traded_at='2026-09-07'",
+            (factor,),
+        )
+    row = build_watch(app_db_path=db, sqlite_path=market, asof=date(2026, 9, 8))["rows"][0]
+    assert row["status"] == "unresolved"
+    assert row["current_close_yen"] == 1050
+    assert 1101 < row["pmax_raw_yen"] < 1102
+    assert row["pmax_gap_pct"] is None
+    assert row["unresolved_reason"]

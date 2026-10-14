@@ -151,6 +151,7 @@ def build_security_detail(
     holding = (
         holding_view(
             holding_snapshot,
+            market=market,
             revision=latest_revision,
             security_name=security_name,
             next_earnings_date=market.next_earnings_dates([ticker], as_of=today).get(ticker),

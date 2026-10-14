@@ -41,6 +41,10 @@ class MarketPriceSource(Protocol):
 
     def latest_closes(self, tickers: Sequence[str]) -> Mapping[str, tuple[float, date]]: ...
 
+    def price_comparison_basis_is_confirmed(
+        self, ticker: str, *, from_date: date, through_date: date
+    ) -> bool: ...
+
     def close_changes_since(
         self, tickers: Sequence[str], *, since: date
     ) -> Mapping[str, float]: ...

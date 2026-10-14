@@ -281,6 +281,7 @@ export function HoldingsTable({ holdings, warnings, ledgerAsOf = null }: { holdi
                 <TableCell className="text-right">
                   <YenAmount value={holding.pmax_raw_yen} />
                   <PctBadge className="mt-1 block text-xs" value={holding.pmax_gap_pct} />
+                  {holding.pmax_gap_unavailable_reason && <p className="mt-1 text-xs text-muted-foreground">{holding.pmax_gap_unavailable_reason}</p>}
                 </TableCell>
                 <TableCell><Badge className="font-mono text-[10px] uppercase" variant="outline">{holding.stance ?? '—'}</Badge></TableCell>
                 <TableCell className="pr-5 text-right sm:pr-6"><TradingViewButton ticker={holding.ticker} /></TableCell>

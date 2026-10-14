@@ -429,7 +429,7 @@ def _watch_row(
     )
     gap = (
         None
-        if maximum is None or observation.current_close_yen is None
+        if unresolved is not None or maximum is None or observation.current_close_yen is None
         else _calculate_gap(maximum, observation.current_close_yen)
     )
     return {

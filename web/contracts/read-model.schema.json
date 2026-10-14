@@ -2511,6 +2511,18 @@
           ],
           "title": "Pmax Gap Pct"
         },
+        "pmax_gap_unavailable_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pmax Gap Unavailable Reason"
+        },
         "latest_assessment_id": {
           "anyOf": [
             {
@@ -2559,6 +2571,7 @@
         "unrealized_pnl_pct",
         "pmax_raw_yen",
         "pmax_gap_pct",
+        "pmax_gap_unavailable_reason",
         "latest_assessment_id",
         "stance",
         "next_earnings_date"

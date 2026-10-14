@@ -142,6 +142,7 @@ def reviewed_assessment_projection(
         "unresolved_reason": valuation.unresolved_reason,
         "strongest_countercase": document.conclusion.strongest_countercase,
         "original_price_basis": None if price_fact is None else price_fact.price_basis,
+        "original_price_as_of": None if price_fact is None else price_fact.as_of.isoformat(),
         "required_annual_return_pct": None
         if valuation.required_annual_return_pct is None
         else decimal_to_number(valuation.required_annual_return_pct),

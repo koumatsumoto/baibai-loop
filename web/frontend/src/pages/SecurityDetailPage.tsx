@@ -165,7 +165,7 @@ export function SecurityDetailPage() {
                 </span>
               </Field>
               <Field label="原評価のPmax（新規買付上限）"><YenAmount value={data.holding.pmax_raw_yen} /></Field>
-              <Field label="Pmaxとの差"><PctBadge value={data.holding.pmax_gap_pct} /></Field>
+              <Field label="Pmaxとの差"><span><PctBadge value={data.holding.pmax_gap_pct} />{data.holding.pmax_gap_unavailable_reason && <span className="block text-xs text-muted-foreground">{data.holding.pmax_gap_unavailable_reason}</span>}</span></Field>
               <Field label="企業評価"><Badge variant="outline">{data.holding.stance ? STANCE_LABELS[data.holding.stance] ?? data.holding.stance : '—'}</Badge></Field>
               <Field label="次決算"><span className="font-mono tabular-nums">{data.holding.next_earnings_date ?? LABEL.earningsTbd}</span></Field>
             </dl>

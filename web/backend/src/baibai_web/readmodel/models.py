@@ -36,6 +36,7 @@ class HoldingView(BaseModel):
     unrealized_pnl_pct: float | None
     pmax_raw_yen: float | None
     pmax_gap_pct: float | None
+    pmax_gap_unavailable_reason: str | None = None
     latest_assessment_id: str | None
     stance: str | None
     next_earnings_date: str | None = None

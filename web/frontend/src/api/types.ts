@@ -463,6 +463,7 @@ export interface HoldingView {
   unrealized_pnl_pct: number | null
   pmax_raw_yen: number | null
   pmax_gap_pct: number | null
+  pmax_gap_unavailable_reason: string | null
   latest_assessment_id: string | null
   stance: string | null
   next_earnings_date: string | null

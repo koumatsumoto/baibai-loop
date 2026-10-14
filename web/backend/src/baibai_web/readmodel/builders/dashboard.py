@@ -60,6 +60,7 @@ def build_dashboard(
     holdings = [
         holding_view(
             holding,
+            market=market,
             revision=latest_research.get(holding.ticker),
             security_name=security_names.get(holding.ticker),
             next_earnings_date=earnings_dates.get(holding.ticker),
