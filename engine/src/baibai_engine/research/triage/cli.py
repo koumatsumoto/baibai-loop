@@ -90,6 +90,13 @@ def scaffold_research_triage(
         for source in review_set.entries:
             nominations = source.nominations
             approaches = ",".join(item.valuation_approach_id for item in nominations)
+            analysis = source.analysis.model_dump(mode="json")
+            status = source.analysis.context.next_earnings_status
+            # The draft is a human input. Publication still binds the original
+            # frozen Review Set; a legacy date-only status must not claim disclosure.
+            analysis["context"]["next_earnings_status"] = (
+                "scheduled_date_reached" if status == "announced" else status
+            )
             draft_entries.append(
                 {
                     "ticker": source.ticker,
@@ -102,7 +109,7 @@ def scaffold_research_triage(
                         "name": source.name,
                         "sector_33": source.sector_33,
                         "nominations": [item.model_dump(mode="json") for item in nominations],
-                        "analysis": source.analysis.model_dump(mode="json"),
+                        "analysis": analysis,
                     },
                 }
             )

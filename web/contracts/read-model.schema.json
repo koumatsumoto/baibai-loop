@@ -5109,6 +5109,12 @@
         "next_earnings_status": {
           "anyOf": [
             {
+              "enum": [
+                "scheduled",
+                "scheduled_date_reached",
+                "estimated",
+                "unknown"
+              ],
               "type": "string"
             },
             {

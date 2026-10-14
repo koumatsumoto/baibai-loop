@@ -214,6 +214,25 @@ def test_review_set_projects_the_frozen_typed_analysis_without_current_row_join(
     assert entry.analysis.context.next_earnings_status == "estimated"
 
 
+def test_review_set_api_interprets_legacy_announced_without_changing_saved_snapshot(
+    tmp_path, mocker
+) -> None:
+    source = _source(tmp_path, mocker)
+    frozen = _review_set()
+    frozen["payload"] = {"entries": [_frozen_entry()]}
+    context = frozen["payload"]["entries"][0]["analysis"]["context"]
+    context["next_earnings_status"] = "announced"
+    mocker.patch.object(source, "review_sets", return_value=[frozen])
+    ledger, research = _dependencies(mocker)
+
+    view = build_screening(source, ledger, research)
+
+    assert view.review_sets[0].entries[0].analysis.context.next_earnings_status == (
+        "scheduled_date_reached"
+    )
+    assert context["next_earnings_status"] == "announced"
+
+
 def test_security_row_projects_saved_machine_anchor_and_quality_statuses() -> None:
     row = {
         "ticker": "2331",
@@ -235,7 +254,7 @@ def test_security_row_projects_saved_machine_anchor_and_quality_statuses() -> No
 
     assert view.fair_value_anchor_yen == 1500.0
     assert view.fair_value_gap_pct == 50.0
-    assert view.data_quality_flags == ["stale_fin", "unresolved_split_basis"]
+    assert view.data_quality_flags == ["予定日到来・財務未照合", "unresolved_split_basis"]
 
     without_price = _security_analysis_row_view(
         {"ticker": "2331", "metrics": {"dividend_basis": "forecast_annual"}},

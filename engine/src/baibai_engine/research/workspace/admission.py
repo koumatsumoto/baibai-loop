@@ -82,6 +82,13 @@ def _review_set_entries_from_triage(triage: StoredResearchTriage) -> tuple[dict[
     rows: list[dict[str, object]] = []
     for entry in sorted(triage.entries, key=lambda item: item.ticker):
         snapshot = entry.candidate_snapshot
+        analysis = snapshot.analysis.model_dump(mode="json")
+        status = snapshot.analysis.context.next_earnings_status
+        # The canonical Triage keeps its original bytes; Research sees the old
+        # date-only claim under the same neutral name as current runs.
+        analysis["context"]["next_earnings_status"] = (
+            "scheduled_date_reached" if status == "announced" else status
+        )
         rows.append(
             {
                 "ticker": entry.ticker,
@@ -89,7 +96,7 @@ def _review_set_entries_from_triage(triage: StoredResearchTriage) -> tuple[dict[
                 "sector_33": snapshot.sector_33,
                 "nominations": [item.model_dump(mode="json") for item in snapshot.nominations],
                 "research_priority": entry.priority,
-                "analysis": snapshot.analysis.model_dump(mode="json"),
+                "analysis": analysis,
             }
         )
     return tuple(rows)

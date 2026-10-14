@@ -6,7 +6,11 @@ from collections.abc import Mapping
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from baibai_engine.read_api import anchor_gap_pct, machine_valuation_from_analysis
+from baibai_engine.read_api import (
+    anchor_gap_pct,
+    interpreted_next_earnings_status,
+    machine_valuation_from_analysis,
+)
 from baibai_engine.read_api.er_calibration_context import (
     ErCalibrationContextArtifact,
     candidate_er_bands,
@@ -276,6 +280,9 @@ def _review_set_entries_entry_view(raw: Mapping[str, object]) -> ReviewSetEntryV
         raise ValueError("Review Set entry context must be an object")
     normalized_context = {
         **context,
+        "next_earnings_status": interpreted_next_earnings_status(
+            text(context.get("next_earnings_status"))
+        ),
         "large_holding_filing_within_lookback": context.get("large_holding_event_recent"),
         "tender_offer_filing_within_lookback": context.get("tender_offer_event_recent"),
     }
@@ -308,7 +315,7 @@ def _data_quality_flags(row: Mapping[str, object], metrics: Mapping[str, object]
     if metrics.get("forecast_special_gain_flag") is True:
         flags.append("一時益予想")
     if metrics.get("stale_fin_flag") is True:
-        flags.append("stale_fin")
+        flags.append("予定日到来・財務未照合")
     dividend_basis = metrics.get("dividend_basis")
     if isinstance(dividend_basis, str) and (
         dividend_basis.startswith("unresolved_") or dividend_basis == "unavailable"

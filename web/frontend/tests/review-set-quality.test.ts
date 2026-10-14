@@ -12,12 +12,14 @@ function renderQuality(
   carry: Partial<ReviewSetExpectedReturnView> = {},
   reinvestment: ReviewSetReinvestmentView | null = null,
   averagePer: number | null = null,
+  earningsStatus: string | null = null,
+  staleFinFlag: boolean | null = null,
 ): string {
   const dataQuality = {
     bs_carry_forward_fields: null,
     bs_carry_forward_lag_days: null,
     edinet_failure_reasons: null,
-    stale_fin_flag: null,
+    stale_fin_flag: staleFinFlag,
     ...(ev === undefined ? {} : { ttm_quality_ev_ebitda: ev }),
     ...(fcf === undefined ? {} : { ttm_quality_fcf: fcf }),
   }
@@ -45,7 +47,7 @@ function renderQuality(
         },
         data_quality: dataQuality,
         context: {
-          next_earnings_status: null, next_earnings_estimated_date: null,
+          next_earnings_status: earningsStatus, next_earnings_estimated_date: null,
           margin_short_to_adv: null, tse_capital_policy_status: null,
           large_holding_filing_within_lookback: null, tender_offer_filing_within_lookback: null,
         },
@@ -120,4 +122,15 @@ describe('machine carry inputs', () => {
   it('shows that an old frozen snapshot has no carry metadata', () => {
     expect(renderQuality(null, null)).toContain('この保存snapshotには仮定の記録がありません。')
   })
+})
+
+describe('earnings calendar annotation', () => {
+  it.each(['scheduled_date_reached', 'announced'])(
+    'renders %s as a passed scheduled date without claiming disclosure', (status) => {
+      const html = renderQuality(null, null, {}, null, null, status, true)
+      expect(html).toContain('予定日到来・経過（発表未確認）')
+      expect(html).toContain('予定日到来・財務未照合')
+      expect(html).not.toContain('>announced<')
+    },
+  )
 })
