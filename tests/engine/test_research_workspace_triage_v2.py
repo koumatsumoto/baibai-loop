@@ -405,6 +405,7 @@ def test_research_writes_recheck_operation_binding(
         request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
         db_path=db,
+        sqlite_path=tmp_path / "market.sqlite",
         workspace=workspace,
         research_set=("2331",) if mutation == "extend" else ("2331", "0001"),
     )
