@@ -14,6 +14,43 @@ from baibai_engine.valuation.metrics.dividends import build_shareholder_return_c
 
 
 class ScreeningMetricsTests(SnapshotFixtures):
+    def test_guidance_signal_keeps_current_forecast_after_old_period_correction(self) -> None:
+        rows = [
+            _summary(
+                "9257",
+                date(2026, 2, 13),
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 12, 31),
+                dps_actual_annual=14.09,
+            ),
+            _summary(
+                "9257",
+                date(2026, 5, 15),
+                fiscal_period="1Q",
+                fiscal_year_end=date(2026, 12, 31),
+                dps_forecast_annual=19.19,
+            ),
+            _summary(
+                "9257",
+                date(2026, 6, 24),
+                fiscal_period="FY",
+                fiscal_year_end=date(2024, 12, 31),
+                dps_actual_annual=0.0,
+            ),
+            _summary(
+                "9257",
+                date(2026, 8, 14),
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 12, 31),
+                dps_actual_annual=0.0,
+            ),
+        ]
+        result = build_shareholder_return_change_signals(rows, (), date(2026, 6, 24))
+        self.assertIs(result.dps_guidance_up, True)
+        # as-of後の同年度訂正は6月のsignalへ混ぜず、公表後は鮮度下限を更新する。
+        revised = build_shareholder_return_change_signals(rows, (), date(2026, 8, 14))
+        self.assertIsNone(revised.dps_guidance_up)
+
     def test_shareholder_return_change_builds_preregistered_components(self) -> None:
         asof = date(2026, 6, 30)
         summaries = [

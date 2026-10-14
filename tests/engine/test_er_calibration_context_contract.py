@@ -210,6 +210,62 @@ def test_pre_one_bar_scope_context_keeps_provenance_but_is_not_current(
     )
 
 
+@pytest.mark.parametrize("scope_revision", ["", "valid-price-one-bar-v2"])
+@pytest.mark.parametrize("partial", [False, True], ids=["complete", "partial"])
+def test_pre_dividend_revision_context_is_retained_but_refused_for_current_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scope_revision: str, partial: bool
+) -> None:
+    from baibai_engine.screening.rule_config import load_screening_rules
+    from baibai_engine.screening.rules_identity import production_rules_contract_hash
+    from baibai_engine.valuation.metrics import financial_snapshot
+
+    rules_json = load_screening_rules().model_dump_json()
+    with monkeypatch.context() as previous:
+        previous.setattr(
+            financial_snapshot, "VALUATION_CALCULATION_REVISION", "same-profit-basis-yoy-v25"
+        )
+        old_hash = production_rules_contract_hash(
+            rules_json, universe_scope_revision=scope_revision
+        )
+    current_hash = production_rules_contract_hash(rules_json)
+    assert old_hash != current_hash
+    payload = context_artifact(rules_hash=old_hash)
+    if partial:
+        # Schema 4 may expose price while total return is unobserved. That does
+        # not make evidence from the old dividend calculation current.
+        payload["evidence_complete"] = False
+        payload["evidence_blocking_reasons"] = ["er_level_calibration"]
+        for horizon in payload["horizons"]:
+            total = horizon["bands"][0]["bases"][0]
+            total["coverage"].update(
+                observed_n=0,
+                missing_n=100,
+                missing_reason_counts={"unresolved_missing_dividend": 100},
+            )
+            total.update(observed_cohort_count=0, median_n=0, ticker_equal=None, cohort_equal=None)
+        payload["common_window"]["horizons"] = deepcopy(payload["horizons"])
+    path = tmp_path / "old-dividend-context.yaml"
+    _write(path, payload)
+    original = path.read_bytes()
+    monkeypatch.setattr(check_er_calibration_context, "_CONTEXT", path)
+
+    assert not check_er_calibration_context.check()
+    result = load_er_calibration_context(
+        path,
+        expected_rules_hash=current_hash,
+        expected_er_model_version="expected-return-v1",
+        as_of=date(2026, 10, 13),
+    )
+    assert result.artifact is None
+    assert result.unavailable_reason == "rules_identity_mismatch"
+    retained = _load(path, payload).artifact
+    assert retained is not None
+    assert retained.schema_version == 4
+    assert retained.evidence_complete is (not partial)
+    assert retained.horizons[0].bands[0].bases[1].coverage.observed_n == 100
+    assert path.read_bytes() == original
+
+
 def test_retained_context_is_withheld_from_new_population_without_relabeling(
     tmp_path, monkeypatch
 ) -> None:

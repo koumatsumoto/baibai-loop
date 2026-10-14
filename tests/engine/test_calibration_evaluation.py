@@ -9,6 +9,7 @@ from datetime import date, datetime
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import yaml
@@ -595,6 +596,39 @@ class EvaluateCohortsTest(unittest.TestCase):
                     self.assertEqual(exit_code, 1)
                     self.assertFalse(output_path.exists())
                 self.assertIn("rules_hash does not match --rules-path", errors.getvalue())
+
+    def test_calibration_evaluate_refuses_pre_dividend_revision_panel_without_relabeling(
+        self,
+    ) -> None:
+        with patch(
+            "baibai_engine.screening.calibration.panel.VALUATION_CALCULATION_REVISION",
+            "same-profit-basis-yoy-v25",
+        ):
+            old_hash = rules_content_hash(_RULES, PRODUCTION_PANEL_POLICY)
+        self.assertNotEqual(old_hash, _RULES_HASH)
+        errors = StringIO()
+        with TemporaryDirectory() as temp_dir, redirect_stderr(errors):
+            root = Path(temp_dir)
+            store_panel(
+                root,
+                date(2025, 6, 30),
+                [_panel_row("1111")],
+                replace(_panel_diagnostics(), rules_hash=old_hash),
+            )
+            store_forward(root, date(2025, 6, 30), [_forward_row("1111", 0.1)])
+            original = (root / "current.sqlite").read_bytes()
+            output = root / "evaluation.yaml"
+            code = calibration_evaluate_command(
+                calibration_dir=root,
+                horizons=["6m"],
+                output_path=output,
+                stdout=StringIO(),
+            )
+
+            self.assertEqual(code, 1)
+            self.assertFalse(output.exists())
+            self.assertEqual((root / "current.sqlite").read_bytes(), original)
+        self.assertIn("rules_hash does not match --rules-path", errors.getvalue())
 
     def test_calibration_evaluate_rejects_unknown_panel_variant(self) -> None:
         errors = StringIO()
