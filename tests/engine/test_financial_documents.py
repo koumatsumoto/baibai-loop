@@ -746,7 +746,5 @@ def test_outside_financial_payload_preserves_rows_and_coverage(
 def test_reversed_financial_range_does_not_create_store(tmp_path: Path) -> None:
     db = tmp_path / "absent.sqlite"
     with pytest.raises(ValueError, match="start must not follow end"):
-        store_jquants_fin_summaries(
-            db, [], requested_start=ASOF, requested_end=date(2026, 8, 10)
-        )
+        store_jquants_fin_summaries(db, [], requested_start=ASOF, requested_end=date(2026, 8, 10))
     assert not db.exists()

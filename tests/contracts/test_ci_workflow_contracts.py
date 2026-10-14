@@ -45,11 +45,10 @@ def _by_name(name: str, job: str) -> dict[str, dict[str, object]]:
 
 
 def test_ci_answers_pull_requests_and_manual_dispatch_only() -> None:
-    """No gate re-run is billed for a tree that already passed.
+    """Use PR and manual runs; do not duplicate the same tree on every push.
 
-    Actions bills each job by the minute, and while the base holds still the merge
-    ref a pull request checks is the tree that lands on main — so a second run over
-    identical bytes is paid for and proves nothing new.
+    A changed base or merge strategy can change the tree, so a previous PR result
+    is not an unconditional guarantee about a later main commit.
     """
     triggers = _workflow("ci.yml")["on"]
     assert isinstance(triggers, dict)
@@ -62,7 +61,7 @@ def test_ci_answers_pull_requests_and_manual_dispatch_only() -> None:
     assert "paths-ignore" not in pull_request
 
 
-def test_every_python_gate_shares_the_one_billed_runner() -> None:
+def test_python_quality_gates_share_one_runner() -> None:
     jobs = _workflow("ci.yml")["jobs"]
     assert isinstance(jobs, dict)
     names = set(_by_name("ci.yml", "quality"))
@@ -81,13 +80,10 @@ def test_every_python_gate_shares_the_one_billed_runner() -> None:
     assert not names.intersection(_by_name("ci.yml", "tradingview_oauth_smoke"))
 
 
-def test_ci_pins_the_worker_count_its_runner_measured_fastest() -> None:
-    """`auto` resolves to the runner's 2 cores; the suite waits on sqlite, not the CPU.
+def test_ci_pins_an_explicit_worker_count() -> None:
+    """Keep the selected four-worker budget explicit, not host-dependent.
 
-    Measured on the runner, oversubscribing stops paying well before it stops being
-    tried: 8 workers take 92s and 16 take 130s, while 2 and 4 both fall inside the
-    74-95s the runner varies across. Developer machines keep `auto` from `addopts`,
-    where the box is wider.
+    Historical timings do not prove it remains fastest on every runner or suite.
     """
     run = str(_by_name("ci.yml", "quality")["Tests with coverage"]["run"])
 
@@ -115,7 +111,7 @@ def test_the_python_dependency_audit_suppresses_nothing() -> None:
 
 
 def test_scanners_are_asked_even_after_an_earlier_gate_fails() -> None:
-    """They share ci's runner to avoid a second billed job, not to share its fate."""
+    """Sharing the runner does not skip scanners after another gate fails."""
     by_name = _by_name("ci.yml", "quality")
 
     for scanner in ("Bandit", "Dependency audit"):
@@ -123,7 +119,7 @@ def test_scanners_are_asked_even_after_an_earlier_gate_fails() -> None:
 
 
 @pytest.mark.parametrize("workflow_name", ["ci.yml", "web.yml", "security.yml", "node-audit.yml"])
-def test_a_hung_job_cannot_bill_an_open_ended_amount(workflow_name: str) -> None:
+def test_jobs_have_bounded_timeouts(workflow_name: str) -> None:
     jobs = _workflow(workflow_name)["jobs"]
     assert isinstance(jobs, dict)
 
@@ -163,12 +159,10 @@ def test_node_audit_is_triggered_by_the_lockfiles_it_reads() -> None:
 
 
 def test_weekly_sweep_asks_only_what_a_pull_request_cannot() -> None:
-    """A scheduled runner earns its minute only where the answer moves on its own.
+    """Recheck external advisories and the current main workflow trust boundary.
 
-    Advisories are published against a lockfile nobody touched. `check_workflow_trust`
-    is asked again because main can advance past the merge ref a pull request checked,
-    and main is the tree that runs with credentials. Bandit reads source at a pinned
-    version, so between pull requests its answer cannot change at all.
+    Pinned source scanning remains in PR CI; this does not assert that every
+    runtime, environment, or remote dependency is immutable.
     """
     workflow = _workflow("security.yml")
     triggers = workflow["on"]

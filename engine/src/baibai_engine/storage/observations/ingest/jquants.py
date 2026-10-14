@@ -59,8 +59,7 @@ def store_jquants_fin_summaries(
     normalized = _fin_summary_rows_with_quality(records)
     rows = normalized.rows
     if any(
-        not requested_start.isoformat() <= str(row[1]) <= requested_end.isoformat()
-        for row in rows
+        not requested_start.isoformat() <= str(row[1]) <= requested_end.isoformat() for row in rows
     ):
         raise ValueError("financial payload contains a disclosure date outside the request")
     if requested_ticker is not None and any(row[0] != requested_ticker for row in rows):
