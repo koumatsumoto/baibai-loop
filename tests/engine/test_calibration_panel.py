@@ -914,7 +914,7 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertEqual(diagnostics.priced_master_without_universe_count, 0)
             self.assertEqual(diagnostics.entry_resolution_lag_days, STALE_PRICE_MAX_LAG_DAYS)
 
-    def test_panel_marks_priced_master_member_that_cannot_enter_the_universe(self) -> None:
+    def test_panel_evaluates_priced_short_history_without_filling_capital(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             build_calibration_fixture_sqlite(sqlite_path)
@@ -940,8 +940,13 @@ class CalibrationPanelTest(unittest.TestCase):
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             row = next(row for row in result.rows if row.ticker == "9003")
 
-            self.assertEqual(row.population_coverage_status, "priced_master_without_universe")
-            self.assertEqual(result.diagnostics.priced_master_without_universe_count, 1)
+            self.assertEqual(row.population_coverage_status, "evaluated")
+            self.assertEqual(row.close, 100.0)
+            self.assertIsNone(row.market_cap_oku)
+            self.assertIsNone(row.avg_turnover_oku)
+            self.assertIsNotNone(row.price_history_coverage_750d)
+            self.assertFalse(row.in_population)
+            self.assertEqual(result.diagnostics.priced_master_without_universe_count, 0)
 
     def test_pre2019_variant_is_degraded_and_has_distinct_provenance(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

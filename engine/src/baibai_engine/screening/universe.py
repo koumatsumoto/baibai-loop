@@ -1,12 +1,12 @@
-"""Screening scope: every common stock with enough bar history to evaluate.
+"""Screening scope: every common stock with a usable price observation.
 
 The data platform keeps facts for the whole market, so the screen evaluates
 all common stocks in the eligible market segments. Size and liquidity are not
 scope conditions: market cap, average turnover, listing span, and JPX
 regulation flags are recorded as facts on each snapshot and applied as
 analysis-layer context or parameters by Candidate Discovery. The only structural exclusions are
-instrument type, market segment, and a minimal bar-history requirement that the
-metric pipeline needs to compute short-horizon fields.
+instrument type, market segment, and a usable price observation. Each metric
+handles its own history requirement.
 
 Instrument type is decided by the sector classification rather than by the
 master's own flag. The exchange assigns a 33-sector code to common stock only,
@@ -20,6 +20,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
+from math import isfinite
 from statistics import mean
 
 from baibai_engine.market.bars import (
@@ -44,9 +45,10 @@ from baibai_engine.screening.schema import UniverseSnapshot
 
 from .rule_config import ScreeningRules
 
-# 直近20barの入力を揃える計算scope。IPOの経済的資格や上場日数の代用にしない。
-# docs/reference/screening-runtime.md#input-scope (#12, #1481)
-MIN_BAR_HISTORY = 20
+# 財務評価には有効な価格1本が必要。平均売買代金は別の20本窓 (#1518)。
+# docs/reference/screening-runtime.md#input-scope
+MIN_BAR_HISTORY = 1
+AVG_TURNOVER_WINDOW_BARS = 20
 
 
 @dataclass(frozen=True)
@@ -134,10 +136,10 @@ def build_universe(
         # names show ~1200d and recent IPOs show days-since-listing accurately.
         listing_span_days = (asof_date - history[0].traded_at).days
         latest = history[-1]
-        trailing_20 = history[-MIN_BAR_HISTORY:]
+        trailing_20 = history[-AVG_TURNOVER_WINDOW_BARS:]
         turnovers = [bar.turnover_value for bar in trailing_20 if bar.turnover_value is not None]
         avg_turnover_oku = (
-            mean(turnovers) / 100_000_000 if len(turnovers) == MIN_BAR_HISTORY else None
+            mean(turnovers) / 100_000_000 if len(turnovers) == AVG_TURNOVER_WINDOW_BARS else None
         )
         shares = shares_outstanding_by_ticker.get(security.ticker)
         adjustment_events = (
@@ -145,7 +147,26 @@ def build_universe(
             if adjustment_events_by_ticker is not None
             else history
         )
-        latest_price = asof_basis_closes([latest], adjustment_events, asof_date=asof_date)[0]
+        # A bar's presence does not make a zero/negative close or broken split
+        # basis a usable price. Do not silently ignore an invalid factor as if
+        # no corporate action had occurred.
+        invalid_basis = any(
+            event.adjustment_factor is not None
+            and event.adjustment_factor <= 0
+            and history[0].traded_at <= event.traded_at <= asof_date
+            for event in adjustment_events
+        )
+        latest_price = (
+            asof_basis_closes([latest], adjustment_events, asof_date=asof_date)[0]
+            if not invalid_basis and latest.close > 0
+            else None
+        )
+        if latest_price is None or not isfinite(latest_price) or latest_price <= 0:
+            exclusion_flags[security.ticker] = ("invalid_price_basis",)
+            exclusion_counts["invalid_price_basis"] = (
+                exclusion_counts.get("invalid_price_basis", 0) + 1
+            )
+            continue
         market_cap_oku = (latest_price * shares / 100_000_000) if shares else None
 
         snapshots[security.ticker] = UniverseSnapshot(

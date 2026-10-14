@@ -23,7 +23,7 @@ screeningはValuationの財務/倍率計算・機械推計とMarket Contextの�
 
 | 種類・適用範囲 | 守る理由と限界 | 根拠の区分・正本 |
 | --- | --- | --- |
-| 入力scope・妥当性（L1→Security Analysis） | 普通株の指標を他のinstrumentへ適用せず、必要な価格・財務・権利単位を揃える。対象市場・最小20barは計算対象の契約で、投資適格性や最適上場期間ではない | 定義・算術のcorrectness。[入力scope](#input-scope)、[指標・期間・欠測](./valuation-metrics.md)、導入[#12](https://github.com/koumatsumoto/baibai-loop/issues/12)、分析層との分離[#222](https://github.com/koumatsumoto/baibai-loop/issues/222) |
+| 入力scope・妥当性（L1→Security Analysis） | 普通株の指標を他のinstrumentへ適用せず、有効な価格と必要な財務・権利単位を揃える。20barは平均売買代金の入力窓であり、企業全体の投資適格性ではない | 定義・算術のcorrectness。[入力scope](#input-scope)、[指標・期間・欠測](./valuation-metrics.md)、導入[#12](https://github.com/koumatsumoto/baibai-loop/issues/12)、分離[#1518](https://github.com/koumatsumoto/baibai-loop/issues/1518) |
 | 共通factと短い履歴（Candidate Discovery・比較母集団） | 必須factを共有し、未観測を0や無規制へ変えない。規模・IPO価格履歴だけで企業価値の問いを消さない | fact妥当性と規制方針。[履歴context](#history-context)。規模・182日・正FCFの一律除外は[#1481](https://github.com/koumatsumoto/baibai-loop/issues/1481)で見直した。解除は発見目的との整合であり収益優位の実証ではない |
 | Approachの資格・順位（独立Nomination） | 利益、資産、再投資という異なる価値仮説に、意味の合うnative座標を使う。資格外を企業の経済的rejectへ読み替えない | [適用境界](#approach-applicability)。Asset/Reinvestmentの境界は[#1153](https://github.com/koumatsumoto/baibai-loop/issues/1153)のsemantic correction。各順位の長期優越性は別の検証課題 |
 | 品質warning（runの利用判断） | 不完全なTTM・YoYを表示し、欠測を確認済み事実にしない。warning件数・比率を投資不適格判定へ転用しない | 運用上の診断。[品質context](#data-quality-context)、[#12](https://github.com/koumatsumoto/baibai-loop/issues/12)。廃止した一律YoY悪化gateの設定は[#1481](https://github.com/koumatsumoto/baibai-loop/issues/1481)で整理 |
@@ -38,7 +38,7 @@ screeningはValuationの財務/倍率計算・機械推計とMarket Contextの�
 
 | 条件・消費先 | 区分と根拠 | 同一断面の影響・限界 | 判断・担当 |
 | --- | --- | --- | --- |
-| 対象市場・普通株・20価格bar → Security Analysis | データ完全性。市場/銘柄種と短期指標の最低入力。[母集団](#input-scope)、[`build_universe`](../../engine/src/baibai_engine/screening/universe.py) | 3,680行を保存。20bar不足の理由は203件（他の除外理由と重複あり）。bar日数は投資適格性ではない | 維持。20barで計算する指標と、短期上場銘柄の機会損失を別に検証する [#1481](https://github.com/koumatsumoto/baibai-loop/issues/1481) |
+| 対象市場・普通株・20価格bar → Security Analysis | 2026-10-13保存run当時の条件。市場/銘柄種と20bar計算都合を一律scopeにしていた。[母集団](#input-scope)、[`build_universe`](../../engine/src/baibai_engine/screening/universe.py) | 保存runは3,680行。20bar不足理由203件は他の除外理由と重複する歴史値。2026-10-09の保存済みmarket断面では対象普通株3,692件中12件が1〜19barで、株数fact不足により条件だけ外しても新しい共通適格候補は0件 | [#1518](https://github.com/koumatsumoto/baibai-loop/issues/1518) で有効価格1本と指標別の必要本数へ分離。機会損失の改善実証とは扱わない |
 | 正の時価総額fact・価格履歴proxy・JPX flag → Candidate Discoveryと比較中央値 | データ完全性と規制方針。規模・182日・ADVの旧一律除外は解除済み。[共通条件](#history-context)、[`matches`](../../engine/src/baibai_engine/screening/rule_config.py) | 共通適格3,496件。時価総額欠測167件、規制flag該当18件、丸め後0億円0件。時価総額は整数億円に丸めてから正値判定するため、極小値の潜在的な境界は残る | 欠測を0として通さず現行維持。丸め境界は実例が出た時に再評価する [#1481](https://github.com/koumatsumoto/baibai-loop/issues/1481) |
 | TTM期間330〜370日・3FY連続性 → 各指標/Normalized Approach | 数学的一貫性。異なる長さ・株式basisの利益を混ぜない。[期間仕様](./valuation-metrics.md)、[現行rules](../../method/screening/rules/) | 3FYはNormalizedの資格であり全Approach共通の最低履歴ではない。期間境界の緩和による有効候補増・誤計算はこの断面では未比較 | 算術条件を維持。履歴不足の機会損失は個別に測る [#1481](https://github.com/koumatsumoto/baibai-loop/issues/1481) |
 | 4 Approachのnative資格/順位 → Nomination | 投資仮説と入力妥当性。利益・3FY・非金融資産・再投資を同一指標で代用しない。[適用境界](#approach-applicability)、[実装](../../engine/src/baibai_engine/screening/discovery/review_set.py) | 各20件、重複tickerは3件で、和集合77件。機械E[r]は推薦に使わない。順位の経済的優位は未実証 | 意味上の除外は維持。アプローチ別の発見・見送り理由を検証する [#1481](https://github.com/koumatsumoto/baibai-loop/issues/1481) |
@@ -75,7 +75,7 @@ Security Analysisは`observed / derived / estimate`を混同しない。欠損�
 
 <a id="input-scope"></a>
 
-Security Analysisは普通株・対象市場・20bar以上を評価対象とする。cache coverageのrequired-field 75%とbar・財務密度は、as-of masterの対象市場かつ東証33業種の普通株を母集団とし、価格・財務が欠けた普通株も分母に残す。対象市場の未知業種は分類を更新するまで停止する。各指標の入力期間・TTM・株式basisは[Valuation metrics](./valuation-metrics.md)に従い、productionと較正replayで共有する。入力不足はnullや品質contextとして残し、実績・予測・観測期間を混ぜて穴埋めしない。
+Security Analysisは普通株・対象市場・as-of以前の有効価格barが1本以上ある銘柄を評価対象とする。価格barが0本、終値が非正値、分割factorが非正値など価格basisが壊れた入力は評価対象にしない。平均売買代金は20barすべての売買代金が揃う場合だけ計算し、足りなければnullにする。株数・現在価格・分割basisの欠測を補完して候補にしない。`listing_span_days`は最初の利用可能barからの期間proxyであり正式な上場日ではない。`price_history_sessions_750d`と`price_history_coverage_750d`は短い履歴・疎な履歴の品質contextとして残す。cache coverageのrequired-field 75%とbar・財務密度は、as-of masterの対象市場かつ東証33業種の普通株を母集団とし、価格・財務が欠けた普通株も分母に残す。対象市場の未知業種は分類を更新するまで停止する。各指標の入力期間・TTM・株式basisは[Valuation metrics](./valuation-metrics.md)に従い、productionと較正replayで共有する。入力不足はnullや品質contextとして残し、実績・予測・観測期間を混ぜて穴埋めしない。
 
 <a id="history-context"></a>
 

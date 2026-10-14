@@ -7,11 +7,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.models import SecurityMaster
+from baibai_engine.screening.discovery.review_set import build_review_set
+from baibai_engine.screening.metrics.snapshot import build_metrics
+from baibai_engine.screening.rule_config import load_screening_rules
+from baibai_engine.screening.screening_run_serializer import security_analysis_payload
+from baibai_engine.screening.security_analysis_builder import build_security_analysis
 from baibai_engine.screening.universe import (
     TSE_33_SECTORS,
     UniverseSourceDriftError,
     build_universe,
+    candidate_comparison_population,
 )
 
 
@@ -68,6 +75,32 @@ class ScreeningUniverseTests(unittest.TestCase):
 
         self.assertEqual(fixed.snapshots["130A"].market_cap_oku, 1)
         self.assertEqual(mutation.snapshots["130A"].market_cap_oku, 0)
+
+    def test_short_history_uses_asof_split_basis(self) -> None:
+        security = SecurityMaster(
+            ticker="130A",
+            name="Newcomer",
+            market_segment="Prime",
+            sector_33="情報・通信業",
+            is_common_stock=True,
+        )
+        asof = date(2026, 4, 24)
+        bar = JQuantsDailyBar(
+            ticker="130A",
+            traded_at=asof - timedelta(days=1),
+            close=100.0,
+            turnover_value=100_000_000.0,
+        )
+        result = build_universe(
+            asof_date=asof,
+            securities=[security],
+            bars_by_ticker={"130A": [bar]},
+            shares_outstanding_by_ticker={"130A": 200_000_000.0},
+            jpx_flags_by_ticker={},
+            adjustment_events_by_ticker={"130A": [JQuantsAdjustmentFactorEvent("130A", asof, 0.5)]},
+        )
+        self.assertEqual(result.snapshots["130A"].market_cap_oku, 100)
+        self.assertIsNone(result.snapshots["130A"].avg_turnover_oku)
 
     def test_build_universe_keeps_eligible_security(self) -> None:
         security = SecurityMaster(
@@ -213,7 +246,7 @@ class ScreeningUniverseTests(unittest.TestCase):
         self.assertIn("300A", result.snapshots)
         self.assertEqual(result.snapshots["300A"].listing_span_days, 90)
 
-    def test_build_universe_excludes_insufficient_bar_history(self) -> None:
+    def test_build_universe_keeps_short_history_with_null_20bar_turnover(self) -> None:
         security = SecurityMaster(
             ticker="400A",
             name="Few Bars",
@@ -238,8 +271,152 @@ class ScreeningUniverseTests(unittest.TestCase):
             shares_outstanding_by_ticker={"400A": 400_000_000.0},
             jpx_flags_by_ticker={},
         )
-        self.assertNotIn("400A", result.snapshots)
-        self.assertEqual(result.exclusion_counts.get("insufficient_bar_history"), 1)
+        self.assertIn("400A", result.snapshots)
+        self.assertIsNone(result.snapshots["400A"].avg_turnover_oku)
+        self.assertEqual(result.snapshots["400A"].market_cap_oku, 400)
+        self.assertNotIn("insufficient_bar_history", result.exclusion_counts)
+
+    def test_price_scope_boundaries_do_not_fill_missing_capital_or_price(self) -> None:
+        security = SecurityMaster(
+            ticker="400A",
+            name="Short History",
+            market_segment="Growth",
+            sector_33="情報・通信業",
+            is_common_stock=True,
+        )
+        end = date(2026, 4, 24)
+        for count in (0, 1, 5, 19, 20):
+            with self.subTest(count=count):
+                bars = [
+                    JQuantsDailyBar(
+                        ticker="400A",
+                        traded_at=end - timedelta(days=count - index - 1),
+                        close=100.0,
+                        turnover_value=300_000_000.0,
+                    )
+                    for index in range(count)
+                ]
+                result = build_universe(
+                    asof_date=end,
+                    securities=[security],
+                    bars_by_ticker={"400A": bars},
+                    shares_outstanding_by_ticker={},
+                    jpx_flags_by_ticker={},
+                )
+                if count == 0:
+                    self.assertEqual(result.exclusion_flags["400A"], ("insufficient_bar_history",))
+                    continue
+                snapshot = result.snapshots["400A"]
+                self.assertIsNone(snapshot.market_cap_oku)
+                self.assertEqual(snapshot.listing_span_days, count - 1)
+                self.assertEqual(snapshot.avg_turnover_oku, 3.0 if count == 20 else None)
+
+        for close in (0.0, -1.0):
+            with self.subTest(close=close):
+                result = build_universe(
+                    asof_date=end,
+                    securities=[security],
+                    bars_by_ticker={
+                        "400A": [
+                            JQuantsDailyBar(
+                                ticker="400A",
+                                traded_at=end,
+                                close=close,
+                                turnover_value=300_000_000.0,
+                            )
+                        ]
+                    },
+                    shares_outstanding_by_ticker={"400A": 400_000_000.0},
+                    jpx_flags_by_ticker={},
+                )
+                self.assertNotIn("400A", result.snapshots)
+                self.assertEqual(result.exclusion_flags["400A"], ("invalid_price_basis",))
+
+        unresolved_split = build_universe(
+            asof_date=end,
+            securities=[security],
+            bars_by_ticker={
+                "400A": [
+                    JQuantsDailyBar(
+                        ticker="400A",
+                        traded_at=end,
+                        close=100.0,
+                        turnover_value=300_000_000.0,
+                        adjustment_factor=0.0,
+                    )
+                ]
+            },
+            shares_outstanding_by_ticker={"400A": 400_000_000.0},
+            jpx_flags_by_ticker={},
+        )
+        self.assertEqual(unresolved_split.exclusion_flags["400A"], ("invalid_price_basis",))
+
+    def test_short_history_keeps_financial_analysis_and_approach(self) -> None:
+        security = SecurityMaster(
+            ticker="400A",
+            name="Priced Newcomer",
+            market_segment="Growth",
+            sector_33="情報・通信業",
+            is_common_stock=True,
+        )
+        asof = date(2026, 4, 24)
+        summary = JQuantsFinancialSummary(
+            ticker="400A",
+            disclosed_at=asof,
+            forecast_eps=10.0,
+            bps=50.0,
+            shares_outstanding=1_000_000.0,
+            treasury_shares=0.0,
+            fiscal_period="FY",
+            fiscal_year_end=asof,
+            period_end=asof,
+        )
+        rules = load_screening_rules()
+        for count in (1, 5, 19, 20):
+            with self.subTest(count=count):
+                bars = [
+                    JQuantsDailyBar(
+                        ticker="400A",
+                        traded_at=asof - timedelta(days=count - index - 1),
+                        close=100.0 + index,
+                        turnover_value=300_000_000.0,
+                    )
+                    for index in range(count)
+                ]
+                universe = build_universe(
+                    asof, [security], {"400A": bars}, {"400A": 1_000_000.0}, {}
+                )
+                self.assertEqual(
+                    candidate_comparison_population(universe.snapshots, rules),
+                    frozenset({"400A"}),
+                )
+                metrics = build_metrics(
+                    asof,
+                    {"400A": security},
+                    {"400A": bars},
+                    {"400A": [summary]},
+                    {},
+                    rules,
+                    frozenset({"400A"}),
+                )
+                analysis = build_security_analysis(
+                    ticker="400A",
+                    security=security,
+                    financial=metrics.financials["400A"],
+                    derived=metrics.derived["400A"],
+                    universe_snapshot=universe.snapshots["400A"],
+                )
+                self.assertIsNotNone(analysis.per_forward)
+                self.assertIsNotNone(analysis.pbr)
+                self.assertIsNone(analysis.price_change_20d)
+                self.assertIsNone(analysis.metrics["fv_self_range_yen"])
+                self.assertEqual(analysis.avg_turnover_oku, 3.0 if count == 20 else None)
+                review_set = build_review_set(
+                    [security_analysis_payload(analysis)],
+                    rules=rules.candidate_discovery,
+                    required_jpx_flags=rules.universe.required_jpx_flags,
+                )
+                self.assertEqual([entry["ticker"] for entry in review_set["entries"]], ["400A"])
 
 
 class HistoricalMarketSegmentTests(unittest.TestCase):
