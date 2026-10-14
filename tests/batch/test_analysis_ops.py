@@ -770,6 +770,8 @@ def test_published_stdout_id_prepares_the_exact_research_set(
                 "2331",
                 "--db",
                 str(app_db),
+                "--sqlite-path",
+                str(tmp_path / "market.sqlite"),
                 "--workspace",
                 str(tmp_path / "workspace"),
             ]

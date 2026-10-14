@@ -30,6 +30,9 @@ def test_financial_snapshot_keeps_pre_move_default_json() -> None:
         ocf_ttm=None,
     )
     payload = TypeAdapter(FinancialSnapshot).dump_python(snapshot, mode="json")
+    # v27 adds optional source traces; the previous fields/defaults stay identical.
+    assert payload.pop("earnings_forecast_source") is None
+    assert payload.pop("dividend_forecast_source") is None
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     # 同じ入力からmain 537477c2の元schemaで取得した全field/defaultのJSON。
     assert sha256(encoded.encode()).hexdigest() == (
