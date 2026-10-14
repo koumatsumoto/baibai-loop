@@ -72,8 +72,8 @@ def test_read_adjustment_factor_bars_keeps_event_without_close(tmp_path: Path) -
     ]
 
 
-def test_read_daily_bars_none_when_internal_gap_exceeds_holiday(tmp_path: Path) -> None:
-    # 20-day hole in the middle is larger than any market holiday run.
+def test_read_daily_bars_none_when_internal_gap_exceeds_tolerance(tmp_path: Path) -> None:
+    # The constructed 20-day hole exceeds the reader's allowed date gap.
     sqlite_path = _seed(
         tmp_path,
         [(date(2024, 1, 1), date(2024, 1, 20)), (date(2024, 2, 10), date(2024, 3, 31))],
@@ -92,9 +92,9 @@ def test_read_daily_bars_none_when_history_missing_at_end(tmp_path: Path) -> Non
     assert read_daily_bars(sqlite_path, date(2024, 1, 1), date(2024, 3, 31)) is None
 
 
-def test_read_daily_bars_covered_with_holiday_length_gap(tmp_path: Path) -> None:
-    # A Golden Week style closure (2024-05-02 -> 2024-05-08, a 6-day gap) must
-    # still count as covered.
+def test_read_daily_bars_accepts_short_gap_without_proving_calendar_coverage(tmp_path: Path) -> None:
+    # The heuristic accepts this constructed six-day gap. It does not establish
+    # that every missing date was a market holiday or that every ticker is complete.
     sqlite_path = _seed(
         tmp_path,
         [(date(2024, 1, 1), date(2024, 5, 2)), (date(2024, 5, 8), date(2024, 6, 30))],

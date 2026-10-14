@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 import zipfile
+from contextlib import closing
 from datetime import date
 from io import BytesIO, StringIO
 
@@ -113,7 +114,7 @@ def test_existing_baseline_reuse_and_failure_contract(tmp_path, change, expected
         )
         == 0
     )
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection, connection:
         original = connection.execute("SELECT * FROM edinet_metrics ORDER BY ticker").fetchall()
         assert connection.execute("SELECT extractor_revision FROM edinet_metrics").fetchone() == (
             EDINET_METRIC_REVISION,
@@ -155,7 +156,7 @@ def test_existing_baseline_reuse_and_failure_contract(tmp_path, change, expected
         == expected_exit
     )
     assert len(retry.download_calls) == downloads
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection, connection:
         latest = connection.execute(
             "SELECT * FROM edinet_metrics WHERE asof_date='2026-04-25'"
         ).fetchall()

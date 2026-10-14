@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -81,7 +82,7 @@ def _draft(service: LedgerStoreService) -> LedgerDraft:
 
 
 def _binding_count(path: Path) -> int:
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         return connection.execute("SELECT count(*) FROM position_decision_reference").fetchone()[0]
 
 
@@ -119,7 +120,7 @@ def test_exception_after_ledger_append_rolls_back_binding_and_events(
 def test_conflicting_binding_does_not_append_ledger(tmp_path: Path) -> None:
     service, path = _service(tmp_path)
     draft = _draft(service)
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute(
             "INSERT INTO position_decision_reference VALUES (?, ?, ?, ?, ?, ?, ?)",
             (REFERENCE, "9999", "buy", "retained_reference", None, "old-source", "a" * 64),

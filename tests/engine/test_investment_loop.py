@@ -1,6 +1,7 @@
 """保存評価・提案・人間の注文報告を介した資金再読と保存条件の独立性。"""
 
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timedelta
 from decimal import Decimal
 from functools import partial
@@ -34,7 +35,7 @@ def test_sequential_proposals_recollect_cash_without_changing_saved_scope_or_ter
     case.operations.record_assessment(
         case.operation.operation_id, pair.assessment_id, now=PUBLISHED
     )
-    with sqlite3.connect(case.market) as connection:
+    with closing(sqlite3.connect(case.market)) as connection, connection:
         connection.execute("UPDATE jquants_daily_bars SET close=1000")
     store = LedgerStoreService(case.app)
     resolve = partial(resolve_buy_reference, db_path=case.app)
@@ -144,7 +145,7 @@ def test_sequential_proposals_recollect_cash_without_changing_saved_scope_or_ter
     assert first_proposal is not None
     state = replay_events_through(store.load().events, store.load().as_of)
     assert state.available_cash_yen == 0
-    with sqlite3.connect(case.market) as connection:
+    with closing(sqlite3.connect(case.market)) as connection, connection:
         connection.execute("UPDATE jquants_daily_bars SET close=1250")
     preview = preview_current_terms(
         proposal_id=first_proposal.proposal_id,

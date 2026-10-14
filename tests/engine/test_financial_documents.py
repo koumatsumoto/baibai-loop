@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
@@ -123,7 +124,7 @@ def test_document_streams_keep_zero_and_income_source(tmp_path: Path) -> None:
     assert result.dividend_forecast_source["disclosure_number"] == "dividend"
     assert stored[0].eps_ttm == 33.3
     assert db.read_bytes() == before
-    with sqlite3.connect(db) as conn:
+    with closing(sqlite3.connect(db)) as conn, conn:
         values = conn.execute(
             "SELECT forecast_eps, forecast_profit, forecast_ordinary_profit, dps_forecast_annual FROM jquants_fin_summaries"
         ).fetchall()
