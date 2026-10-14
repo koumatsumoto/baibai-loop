@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sqlite3
+from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
 import httpx2
@@ -24,7 +25,7 @@ NOW = datetime(2026, 10, 11, 1, tzinfo=UTC)
 
 def manual_store(tmp_path, count=153):
     path = store(tmp_path / "market.sqlite", count)
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute("UPDATE jquants_master_snapshots SET snapshot_date=?", (MASTER.isoformat(),))
         conn.execute("INSERT INTO jquants_market_calendar VALUES (?,0)", (DAY.isoformat(),))
         conn.execute("INSERT INTO jquants_market_calendar VALUES ('2026-10-10',0)")
@@ -82,7 +83,7 @@ def test_weekend_observation_resumes_only_missing_and_preserves_nulls_times_and_
     assert result["snapshot_date"] == DAY.isoformat()
     assert stored(path)[:100] == prior
     assert result["normal_nulls"]["analyst_rating"] == 153
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         assert conn.execute(
             "SELECT DISTINCT snapshot_date FROM jquants_master_snapshots"
         ).fetchall() == [(MASTER.isoformat(),)]
@@ -256,7 +257,7 @@ def test_rest_day_automatically_uses_calendar_business_day_and_observation_hours
     tmp_path, observation_day
 ):
     path = manual_store(tmp_path, 101)
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         if observation_day != DAY:
             conn.execute(
                 "INSERT INTO jquants_market_calendar VALUES (?,0)", (observation_day.isoformat(),)
@@ -292,7 +293,7 @@ def test_rest_day_automatically_uses_calendar_business_day_and_observation_hours
 
 def test_calendar_required_master_missing_does_not_use_older_saved_master(tmp_path):
     path = manual_store(tmp_path, 101)
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute("UPDATE jquants_master_snapshots SET snapshot_date='2026-09-18'")
     before = path.read_bytes()
     with pytest.raises(SourceDataError, match="calendar-required exact-date master"):
@@ -305,7 +306,7 @@ def test_calendar_required_master_missing_does_not_use_older_saved_master(tmp_pa
 @pytest.mark.parametrize("missing_day", ["2026-10-09", "2026-10-10"])
 def test_calendar_gap_cannot_select_an_older_master_or_collect(tmp_path, missing_day):
     path = manual_store(tmp_path, 101)
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute("INSERT INTO jquants_market_calendar VALUES ('2026-10-08',1)")
         conn.execute("UPDATE jquants_master_snapshots SET snapshot_date='2026-10-08'")
         conn.execute("DELETE FROM jquants_market_calendar WHERE day=?", (missing_day,))
@@ -324,7 +325,7 @@ def test_calendar_gap_cannot_select_an_older_master_or_collect(tmp_path, missing
 def test_partial_preflight_keeps_quality_when_cooldown_prevents_fetch(tmp_path):
     path = manual_store(tmp_path, 101)
     last_received = (NOW + timedelta(seconds=1)).isoformat()
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute(
             "UPDATE tradingview_forecast_snapshots SET fetch_status='unresolved' WHERE ticker='1000'"
         )

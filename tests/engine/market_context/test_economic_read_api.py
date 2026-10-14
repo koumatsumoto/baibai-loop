@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -256,7 +257,7 @@ def test_reading_snapshot_clamps_only_provider_declared_point_in_time_vintages(
     web = ReadingView.model_validate({**payload, "as_of": payload["asof"], "fetch_health": []})
     assert web.read_semantics.limitation == semantics["limitation"]
     assert web.series[0].read_semantics.limitation == semantics["limitation"]
-    with sqlite3.connect(database) as con:
+    with closing(sqlite3.connect(database)) as con:
         con.row_factory = sqlite3.Row
         pure = snapshot_payload(
             read_store_snapshot(con, asof=date(2024, 8, 31), rules_path=DEFAULT_RULES_PATH)
@@ -324,7 +325,7 @@ def test_indicator_series_hides_retained_unregistered_metadata(tmp_path: Path) -
         connection.close()
 
     assert indicator_series(database, series_id="retired.series") is None
-    with sqlite3.connect(database) as check:
+    with closing(sqlite3.connect(database)) as check:
         assert (
             check.execute(
                 "SELECT COUNT(*) FROM series WHERE series_id = 'retired.series'"
