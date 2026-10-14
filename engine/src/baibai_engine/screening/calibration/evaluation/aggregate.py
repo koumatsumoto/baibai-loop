@@ -19,6 +19,7 @@ from baibai_engine.screening.calibration.evaluation.policy import (
     SECTOR_MEDIAN_AXES,
 )
 
+
 @dataclass(slots=True)
 class _QualityControlAccumulator:
     median_deltas: list[float]

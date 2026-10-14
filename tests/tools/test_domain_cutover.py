@@ -1226,9 +1226,7 @@ def test_published_thesis3_keeps_saved_identity_and_filename_with_review_after_p
     assert source.read_bytes() == before
 
 
-@pytest.mark.parametrize(
-    "fault", ["saved_hash", "review_id", "review_time", "source_reference"]
-)
+@pytest.mark.parametrize("fault", ["saved_hash", "review_id", "review_time", "source_reference"])
 def test_published_thesis3_still_rejects_saved_binding_and_source_contradictions(tmp_path, fault):
     source = source22(tmp_path)
     raw, _review, _digest = install_historical_v3_pair(source)
@@ -1458,3 +1456,28 @@ def test_cli_synthetic_check_and_copy_rehearsal_are_same_plan_and_keep_sources(t
     assert check_report["output_version"] == 24
     assert check_report["output_run_version"] == 6
     assert check_report["blocked"] == []
+
+
+@pytest.mark.parametrize("version", [1, 2])
+def test_historical_caa_material_preserves_review_after_authored_publication(tmp_path, version):
+    source = source22(tmp_path)
+    _, review = old_pair()
+    raw = caa_payload(version=version)
+    raw["alternatives"][0]["thesis_core_sha256"] = review["reviewed_thesis_sha256"]
+    raw["alternatives"][0]["thesis_review_id"] = review["review_id"]
+    raw["review"]["reviewed_at"] = "2026-10-14T16:22:16.617072+09:00"
+    refresh_caa_hash(raw)
+    insert_caa(source, raw)
+    before = source.read_bytes()
+    report = execute(tmp_path, source, manifest=KeepManifest(keep_proposal_sources=(CAA_ID,)))
+    assert report.blocked == ()
+    assert source.read_bytes() == before
+    material = next(
+        item for item in material_files(tmp_path) if item["kind"] == "proposal_source_draft"
+    )
+    assert material["source_document"] == raw
+    assert material["saved_proposal_terms"] is None
+    assert material["new_proposal_required"] is True
+    with connect_read_only(tmp_path / "final.sqlite") as final:
+        assert final.execute("SELECT count(*) FROM investment_proposal").fetchone()[0] == 0
+        assert final.execute("SELECT count(*) FROM position_decision_reference").fetchone()[0] == 0

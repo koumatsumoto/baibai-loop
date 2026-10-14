@@ -692,8 +692,10 @@ def assessment_source_draft(
     }
 
 
-def legacy_caa(row: Mapping[str, Any], *, require_allocate: bool = False) -> dict[str, Any]:
-    """Only the original CAA proves its allocated ticker; a Fill never does."""
+def legacy_caa(
+    row: Mapping[str, Any], *, require_allocate: bool = False, retained_reference: bool = False
+) -> dict[str, Any]:
+    """Validate saved material without inventing a current publication approval."""
     raw = _object(json.loads(row["payload"]), "old CAA")
     version = raw.get("schema_version")
     if type(version) is not int or version not in {1, 2}:
@@ -755,7 +757,10 @@ def legacy_caa(row: Mapping[str, Any], *, require_allocate: bool = False) -> dic
         raise ValueError("old CAA Review attempt must be positive")
     _text(review.get("reviewer_identity"), "old CAA reviewer")
     reviewed_at = datetime.fromisoformat(_text(review.get("reviewed_at"), "old CAA review time"))
-    if reviewed_at.utcoffset() is None or reviewed_at > published:
+    # The August 2026 writer preserved authored published_at, rather than receipt time.
+    # Historical material can therefore have a later Review. A new retained binding
+    # without ledger evidence keeps the stricter eligibility check.
+    if reviewed_at.utcoffset() is None or (retained_reference and reviewed_at > published):
         raise ValueError("old CAA review time is invalid")
     if review.get("conclusion") != "pass" or review.get("open_findings", []) != []:
         raise ValueError("old CAA source requires a passing Review")
@@ -766,7 +771,7 @@ def legacy_caa(row: Mapping[str, Any], *, require_allocate: bool = False) -> dic
 
 
 def retained_buy_binding(row: Mapping[str, Any]) -> dict[str, Any]:
-    raw = legacy_caa(row, require_allocate=True)
+    raw = legacy_caa(row, require_allocate=True, retained_reference=True)
     allocated = next(item for item in raw["alternatives"] if item["disposition"] == "allocate")
     identifier = row["capital_allocation_assessment_id"]
     return {
