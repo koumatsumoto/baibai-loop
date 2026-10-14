@@ -29,7 +29,7 @@ import { Badge } from '../components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '../components/ui/chart'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
-import { EMPTY, formatJstDateShort, formatPct, formatYen } from '../lib/format'
+import { EMPTY, formatJstDateShort, formatNumber, formatPct, formatYen } from '../lib/format'
 import { totalUnrealizedPnl } from '../lib/portfolio'
 import { cn } from '../lib/utils'
 
@@ -362,7 +362,7 @@ export function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null
     >
       {delta === null ? (
         <p className="py-8 text-center text-sm text-muted-foreground">
-          {failed ? '変化を読み込めませんでした。変化がないことを意味しません。' : '変化の観測がまだありません。'}
+          {failed ? '変化を読み込めませんでした。変化がないことを意味しません。' : '変化を読み込んでいます。'}
         </p>
       ) : (
         <div className="divide-y">
@@ -408,7 +408,7 @@ export function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null
                 {' → '}
                 {item.er_annual_pct === null ? EMPTY : formatPct(item.er_annual_pct)}
               </span>
-              <PctBadge value={item.change_pp} />
+              <span className="font-mono text-sm tabular-nums">{item.change_pp > 0 ? '+' : ''}{formatNumber(item.change_pp, 1)}pt</span>
             </DeltaRow>
           ))}
           {delta.er_moves_total > delta.er_moves.length && (
