@@ -179,7 +179,11 @@ def build_parser() -> argparse.ArgumentParser:
     broker_fact_parser.add_argument("--side", choices=("buy", "sell"), default="buy")
     broker_occurrence = broker_fact_parser.add_mutually_exclusive_group(required=True)
     broker_occurrence.add_argument("--occurred-at", type=_datetime_argument)
-    broker_occurrence.add_argument("--occurred-on", type=_date_argument)
+    broker_occurrence.add_argument(
+        "--occurred-on",
+        type=_date_argument,
+        help="fill date only; an identical unkeyed same-day report is a retry",
+    )
     broker_fact_parser.add_argument("--ticker")
     broker_fact_parser.add_argument("--quantity", type=int)
     broker_fact_parser.add_argument("--price-yen", type=_decimal_argument)
@@ -189,6 +193,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="reservation ID; repeat for simultaneous terminal broker facts",
     )
     broker_fact_parser.add_argument("--order-id")
+    broker_fact_parser.add_argument(
+        "--execution-id",
+        help="stable broker fill ID for a filled report; required to distinguish same-day fills",
+    )
     broker_fact_parser.add_argument("--sector")
     broker_fact_parser.add_argument("--common-factor", action="append", default=[])
     broker_fact_parser.add_argument("--price-guard-yen", type=_decimal_argument)
@@ -207,9 +215,17 @@ def build_parser() -> argparse.ArgumentParser:
     sell_parser.add_argument("--quantity", type=int, required=True)
     sell_parser.add_argument("--price-yen", type=_decimal_argument, required=True)
     sell_parser.add_argument("--reservation-id")
+    sell_parser.add_argument(
+        "--execution-id",
+        help="stable broker fill ID; required to distinguish same-day fills",
+    )
     sell_occurrence = sell_parser.add_mutually_exclusive_group(required=True)
     sell_occurrence.add_argument("--occurred-at", type=_datetime_argument)
-    sell_occurrence.add_argument("--occurred-on", type=_date_argument)
+    sell_occurrence.add_argument(
+        "--occurred-on",
+        type=_date_argument,
+        help="fill date only; another same-day fill needs execution-id",
+    )
     sell_parser.add_argument("--fees-yen", type=int)
     sell_parser.add_argument("--tax-yen", type=int)
     sell_parser.add_argument("--decision-reference")
@@ -680,6 +696,7 @@ def _run_record_broker_fact(args: argparse.Namespace, *, now: datetime | None) -
             price_yen=args.price_yen,
             reservation_ids=tuple(args.reservation_id or ()),
             order_id=args.order_id,
+            execution_id=args.execution_id,
             sector=args.sector,
             common_factors=tuple(sorted(set(args.common_factor))),
             price_guard_yen=args.price_guard_yen,
@@ -714,7 +731,6 @@ def _run_record_broker_fact(args: argparse.Namespace, *, now: datetime | None) -
 def _run_sell_execution_draft(args: argparse.Namespace) -> int:
     source_event_ids: set[str] = set()
     try:
-        output_path = _draft_output_path(args.root, args.out, label="sell execution ledger draft")
         draft = build_sell_execution_draft(
             LedgerStoreService(args.db),
             occurred_at=args.occurred_at,
@@ -726,21 +742,32 @@ def _run_sell_execution_draft(args: argparse.Namespace) -> int:
             fees_yen=args.fees_yen,
             tax_yen=args.tax_yen,
             decision_reference=args.decision_reference,
+            execution_id=args.execution_id,
         )
-        source_event_ids = {event.event_id for event in draft.source.events}
-        write_draft(output_path, draft)
+        if draft is not None:
+            output_path = _draft_output_path(
+                args.root, args.out, label="sell execution ledger draft"
+            )
+            source_event_ids = {event.event_id for event in draft.source.events}
+            write_draft(output_path, draft)
+        else:
+            output_path = None
     except (OSError, LedgerConflictError, PortfolioLedgerError, ValueError) as error:
         print(f"error: failed to build sell execution draft: {error}", file=sys.stderr)
         return 2
-    event_ids = [
-        event.event_id
-        for event in draft.replacement.events
-        if event.event_id not in source_event_ids
-    ]
+    event_ids = (
+        [
+            event.event_id
+            for event in draft.replacement.events
+            if event.event_id not in source_event_ids
+        ]
+        if draft is not None
+        else []
+    )
     yaml.safe_dump(
         {
-            "status": "draft_created",
-            "output": str(output_path),
+            "status": "draft_created" if draft is not None else "no_change",
+            "output": None if output_path is None else str(output_path),
             "ticker": args.ticker,
             "event_ids": event_ids,
         },

@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 import yaml
 from tests.helpers.db_seed import seed_ledger
-from tests.helpers.ledger import load_portfolio_ledger
+from tests.helpers.ledger import load_portfolio_ledger, portfolio_snapshot
 
 from baibai_engine.position.broker_fact_recording import BrokerFactRecordingError
 from baibai_engine.position.cli import main
@@ -291,6 +291,211 @@ def test_same_day_reserved_sell_date_only_replays_after_order(tmp_path: Path) ->
     assert fill.occurred_on == ORDERED_AT.date()
     assert fill.occurred_at == ORDERED_AT
     apply_draft(ledger, draft, human_confirmed=True)
+
+
+def test_distinct_date_only_buy_execution_ids_consume_one_order_and_retry_after_full(
+    tmp_path: Path,
+) -> None:
+    ledger, assessments = _services(tmp_path)
+    opened, _ = _open_draft(ledger, assessments)
+    assert opened is not None
+    apply_draft(ledger, opened, human_confirmed=True)
+    reservation_id = opened.replacement.events[-1].reservation_id
+    reported = dict(
+        decision_reference=ASSESSMENT_ID,
+        status="filled",
+        occurred_on=ORDERED_AT.date(),
+        ticker="2331",
+        quantity=100,
+        price_yen=Decimal("1000"),
+        reservation_id=reservation_id,
+        now=ORDERED_AT + timedelta(minutes=1),
+    )
+
+    first, _ = build_broker_fact_draft(
+        ledger, assessments, **reported, execution_id="broker-order-a/fill-1"
+    )
+    assert first is not None
+    assert first.replacement.events[-1].execution_id == "broker-order-a/fill-1"
+    apply_draft(ledger, first, human_confirmed=True)
+    assert (
+        next(
+            item.remaining_quantity
+            for item in portfolio_snapshot(ledger.load()).active_reservations
+            if item.reservation_id == reservation_id
+        )
+        == 100
+    )
+
+    second, _ = build_broker_fact_draft(
+        ledger, assessments, **reported, execution_id="broker-order-a/fill-2"
+    )
+    assert second is not None
+    apply_draft(ledger, second, human_confirmed=True)
+    snapshot = portfolio_snapshot(ledger.load())
+    assert all(item.reservation_id != reservation_id for item in snapshot.active_reservations)
+    assert next(item.quantity for item in snapshot.holdings if item.ticker == "2331") == 400
+    db_before_retry = (tmp_path / "app.sqlite").read_bytes()
+
+    def unavailable_history(_reference: str) -> str:
+        pytest.fail("known execution retry must not need the historical assessment")
+
+    assert build_broker_fact_draft(
+        ledger, unavailable_history, **reported, execution_id="broker-order-a/fill-2"
+    ) == (None, ())
+    assert (tmp_path / "app.sqlite").read_bytes() == db_before_retry
+    with pytest.raises(BrokerFactRecordingError, match="conflicting human report"):
+        build_broker_fact_draft(
+            ledger,
+            unavailable_history,
+            **{**reported, "price_yen": Decimal("990")},
+            execution_id="broker-order-a/fill-2",
+        )
+    with pytest.raises(BrokerFactRecordingError, match="execution_id"):
+        build_broker_fact_draft(ledger, assessments, **reported)
+
+
+def test_distinct_date_only_sell_execution_ids_and_costs_retry_after_full(tmp_path: Path) -> None:
+    ledger, _ = _services(tmp_path)
+    opened, _ = build_broker_fact_draft(
+        ledger,
+        lambda _: "2331",
+        decision_reference="human-reported-sell-2331",
+        status="open",
+        side="sell",
+        occurred_at=ORDERED_AT,
+        ticker="2331",
+        quantity=200,
+        sector="サービス業",
+        price_guard_yen=Decimal("1100"),
+        expires_at=EXPIRES_AT,
+        now=ORDERED_AT + timedelta(minutes=1),
+    )
+    assert opened is not None
+    apply_draft(ledger, opened, human_confirmed=True)
+    reservation_id = opened.replacement.events[-1].reservation_id
+    reported = dict(
+        occurred_on=ORDERED_AT.date(),
+        ticker="2331",
+        quantity=100,
+        price_yen=Decimal("1110"),
+        reservation_id=reservation_id,
+        fees_yen=100,
+        tax_yen=200,
+    )
+
+    first = build_sell_execution_draft(ledger, **reported, execution_id="broker-order-s/fill-1")
+    assert first is not None
+    apply_draft(ledger, first, human_confirmed=True)
+    assert (
+        next(
+            item.remaining_quantity
+            for item in portfolio_snapshot(ledger.load()).active_reservations
+            if item.reservation_id == reservation_id
+        )
+        == 100
+    )
+    with pytest.raises(ValueError, match="execution_id"):
+        build_sell_execution_draft(ledger, **{**reported, "price_yen": Decimal("1120")})
+
+    second = build_sell_execution_draft(ledger, **reported, execution_id="broker-order-s/fill-2")
+    assert second is not None
+    apply_draft(ledger, second, human_confirmed=True)
+    snapshot = portfolio_snapshot(ledger.load())
+    assert all(item.reservation_id != reservation_id for item in snapshot.active_reservations)
+    assert all(item.ticker != "2331" for item in snapshot.holdings)
+    db_before_retry = (tmp_path / "app.sqlite").read_bytes()
+    assert (
+        build_sell_execution_draft(ledger, **reported, execution_id="broker-order-s/fill-2") is None
+    )
+    assert (tmp_path / "app.sqlite").read_bytes() == db_before_retry
+    with pytest.raises(ValueError, match="conflicting human report"):
+        build_sell_execution_draft(
+            ledger,
+            **{**reported, "tax_yen": 300},
+            execution_id="broker-order-s/fill-2",
+        )
+
+
+def test_date_only_sell_without_id_rejects_changed_second_fill(tmp_path: Path) -> None:
+    ledger, _ = _services(tmp_path)
+    opened, _ = build_broker_fact_draft(
+        ledger,
+        lambda _: "2331",
+        decision_reference="human-reported-sell-2331",
+        status="open",
+        side="sell",
+        occurred_at=ORDERED_AT,
+        ticker="2331",
+        quantity=200,
+        sector="サービス業",
+        price_guard_yen=Decimal("1100"),
+        expires_at=EXPIRES_AT,
+        now=ORDERED_AT + timedelta(minutes=1),
+    )
+    assert opened is not None
+    apply_draft(ledger, opened, human_confirmed=True)
+    reservation_id = opened.replacement.events[-1].reservation_id
+    first = build_sell_execution_draft(
+        ledger,
+        occurred_on=ORDERED_AT.date(),
+        ticker="2331",
+        quantity=100,
+        price_yen=Decimal("1110"),
+        reservation_id=reservation_id,
+    )
+    assert first is not None
+    apply_draft(ledger, first, human_confirmed=True)
+    with pytest.raises(ValueError, match="execution_id"):
+        build_sell_execution_draft(
+            ledger,
+            occurred_on=ORDERED_AT.date(),
+            ticker="2331",
+            quantity=100,
+            price_yen=Decimal("1120"),
+            reservation_id=reservation_id,
+        )
+
+
+def test_broker_fact_cli_passes_execution_id_and_reports_retry_as_no_change(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ledger, assessments = _services(tmp_path)
+    opened, _ = _open_draft(ledger, assessments)
+    assert opened is not None
+    apply_draft(ledger, opened, human_confirmed=True)
+    reservation_id = opened.replacement.events[-1].reservation_id
+    args = [
+        "broker-fact-draft",
+        "--root",
+        str(tmp_path),
+        "--db",
+        str(tmp_path / "app.sqlite"),
+        "--decision-reference",
+        ASSESSMENT_ID,
+        "--status",
+        "filled",
+        "--occurred-on",
+        ORDERED_AT.date().isoformat(),
+        "--reservation-id",
+        reservation_id,
+        "--ticker",
+        "2331",
+        "--quantity",
+        "200",
+        "--price-yen",
+        "1000",
+        "--execution-id",
+        "broker-order-a/fill-1",
+    ]
+    assert main([*args, "--out", "fill.yaml"], now=ORDERED_AT + timedelta(minutes=1)) == 0
+    assert yaml.safe_load(capsys.readouterr().out)["status"] == "draft_created"
+    fill = load_draft(tmp_path / "fill.yaml")
+    assert fill.replacement.events[-1].execution_id == "broker-order-a/fill-1"
+    apply_draft(ledger, fill, human_confirmed=True)
+    assert main([*args, "--out", "retry.yaml"], now=ORDERED_AT + timedelta(minutes=1)) == 0
+    assert yaml.safe_load(capsys.readouterr().out)["status"] == "no_change"
+    assert not (tmp_path / "retry.yaml").exists()
 
 
 def test_non_allocation_assessment_and_ticker_mismatch_are_rejected(tmp_path: Path) -> None:

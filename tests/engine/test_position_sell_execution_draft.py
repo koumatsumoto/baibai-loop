@@ -196,6 +196,45 @@ def test_date_only_sell_keeps_reported_date_without_claiming_fill_time(tmp_path:
     assert portfolio_snapshot(service.load()).realized_gross_pnl_yen == 6_000
 
 
+def test_sell_cli_passes_execution_id_and_reports_retry_as_no_change(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    db = tmp_path / "app.sqlite"
+    service = _seed(db)
+    args = [
+        "sell-execution-draft",
+        "--root",
+        str(tmp_path),
+        "--db",
+        str(db),
+        "--ticker",
+        "2331",
+        "--quantity",
+        "100",
+        "--price-yen",
+        "1100",
+        "--occurred-on",
+        "2026-07-12",
+        "--execution-id",
+        "broker-order-s/fill-1",
+    ]
+    assert main([*args, "--out", "sell.yaml"]) == 0
+    assert yaml.safe_load(capsys.readouterr().out)["status"] == "draft_created"
+    draft = load_draft(tmp_path / "sell.yaml")
+    assert (
+        next(
+            item.execution_id
+            for item in draft.replacement.events
+            if item.event_id not in {event.event_id for event in draft.source.events}
+        )
+        == "broker-order-s/fill-1"
+    )
+    apply_draft(service, draft, human_confirmed=True)
+    assert main([*args, "--out", "retry.yaml"]) == 0
+    assert yaml.safe_load(capsys.readouterr().out)["status"] == "no_change"
+    assert not (tmp_path / "retry.yaml").exists()
+
+
 def test_sell_fees_and_tax_over_proceeds_and_cash_are_rejected(tmp_path: Path) -> None:
     service = _seed(tmp_path / "app.sqlite")
     with pytest.raises(PortfolioLedgerError, match="insufficient available cash"):
