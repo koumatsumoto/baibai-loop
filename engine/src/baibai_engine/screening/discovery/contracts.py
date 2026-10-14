@@ -104,6 +104,8 @@ class ExpectedReturnAnalysis(_StrictAnalysisGroup):
     er_assumptions: str | None
     dividend_yield: float | int | None = None
     dividend_basis: str | None = None
+    dps_actual_annual: float | int | None = None
+    dps_forecast_annual: float | int | None = None
     net_share_change_yoy: float | int | None = None
     carry_missing_assumption: str | None = None
 
@@ -117,6 +119,8 @@ class ExpectedReturnAnalysis(_StrictAnalysisGroup):
         for key in (
             "dividend_yield",
             "dividend_basis",
+            "dps_actual_annual",
+            "dps_forecast_annual",
             "net_share_change_yoy",
             "carry_missing_assumption",
         ):

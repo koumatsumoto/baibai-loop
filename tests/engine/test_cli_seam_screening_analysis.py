@@ -22,8 +22,9 @@ def _analysis(
     *,
     er_annual: float | None = 0.13,
     stale_fin_flag: bool | None = None,
+    normalized_dps: tuple[float | None, float | None, str] | None = None,
 ) -> dict[str, object]:
-    return {
+    result = {
         "ticker": ticker,
         "name": ticker,
         "sector_33": "機械",
@@ -61,6 +62,13 @@ def _analysis(
             "stale_fin_flag": stale_fin_flag,
         },
     }
+    if normalized_dps is not None:
+        metrics = result["metrics"]
+        assert isinstance(metrics, dict)
+        metrics["dps_actual_annual"] = normalized_dps[0]
+        metrics["dps_forecast_annual"] = normalized_dps[1]
+        metrics["dividend_basis"] = normalized_dps[2]
+    return result
 
 
 def _publish_run(path: Path, *, include_unknown_triage_input: bool = False) -> None:
@@ -80,6 +88,9 @@ def _publish_run(path: Path, *, include_unknown_triage_input: bool = False) -> N
                     "1111",
                     er_annual=None if include_unknown_triage_input else 0.13,
                     stale_fin_flag=True if include_unknown_triage_input else None,
+                    normalized_dps=(40.0, 170.0, "actual_reported")
+                    if include_unknown_triage_input
+                    else None,
                 ),
                 _analysis("2222"),
             ],
@@ -278,6 +289,14 @@ def test_research_triage_publish_cli_binds_every_review_set_entry(tmp_path: Path
         == 0
     )
     draft = yaml.safe_load(draft_path.read_text(encoding="utf-8"))
+    draft_expected = next(entry for entry in draft["entries"] if entry["ticker"] == "1111")[
+        "candidate_snapshot"
+    ]["analysis"]["expected_return"]
+    assert (draft_expected["dps_actual_annual"], draft_expected["dps_forecast_annual"]) == (
+        40.0,
+        170.0,
+    )
+    assert draft_expected["dividend_basis"] == "actual_reported"
     draft["research_triage_id"] = "research-triage-20260708-cli-seam"
     draft["published_at"] = "2026-07-08T19:00:00+09:00"
     for priority, entry in enumerate(draft["entries"], start=1):
@@ -311,6 +330,8 @@ def test_research_triage_publish_cli_binds_every_review_set_entry(tmp_path: Path
     assert unknown_entry["decision"] == "research"
     snapshot = unknown_entry["candidate_snapshot"]
     assert snapshot["analysis"]["expected_return"]["er_annual"] is None
+    assert snapshot["analysis"]["expected_return"]["dps_actual_annual"] == 40.0
+    assert snapshot["analysis"]["expected_return"]["dps_forecast_annual"] == 170.0
     assert snapshot["analysis"]["data_quality"]["stale_fin_flag"] is True
 
 

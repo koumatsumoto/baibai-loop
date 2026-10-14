@@ -34,6 +34,7 @@ self_range_anchor = price * mean(available_self_anchor / current_multiple)
 ```
 
 carryの`dividend_yield / net_share_change_yoy`が欠測なら、その成分の計算上の寄与は0である。これは無配・株数不変を観測した意味ではない。Valuationの公開読取、Researchの機械anchor、新しいReview Set/Triage入力は、この二つのnullable入力と`dividend_basis`、`carry_missing_assumption`を併記する。株数変化はclip前のグロス発行済株式数YoY（増加が正、減少が負）であり、将来の自社株買いcashではない。ER値・算式・既存の`er_assumptions`は変更しない。
+新しいReview Set/Triage入力は、同じSecurity Analysisの`dps_actual_annual / dps_forecast_annual`も欠測を保持して投影する。両値は配当計算の株式basisへ正規化した入力であり、原典の未加工値や予想配当の持続性の認定ではない。保存済みの旧publicationには後付けしない。
 
 保存済みReview Set/Triageに成分fieldが無い場合は「そのsnapshotに記録なし」であり、nullや0を補完して保存・再発行しない。新しいTriage runnerも欠測・field不在をゼロ観測の根拠にしない。直接のValuation/Research読取は元Security Analysisに残る成分を引用できるが、凍結した判断入力へ後から混ぜない。
 
