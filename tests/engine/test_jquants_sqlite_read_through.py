@@ -12,7 +12,6 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-
 from tests.helpers.screening_sqlite import add_source_coverage, make_master_records
 
 from baibai_engine.market.jquants_decode import JQuantsProviderError
