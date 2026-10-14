@@ -49,6 +49,8 @@ from .rule_config import ScreeningRules
 # docs/reference/screening-runtime.md#input-scope
 MIN_BAR_HISTORY = 1
 AVG_TURNOVER_WINDOW_BARS = 20
+# Scope changes must give saved runs, Review Sets and calibration a new identity.
+UNIVERSE_SCOPE_REVISION = "valid-price-one-bar-v2"
 
 
 @dataclass(frozen=True)
@@ -147,18 +149,11 @@ def build_universe(
             if adjustment_events_by_ticker is not None
             else history
         )
-        # A bar's presence does not make a zero/negative close or broken split
-        # basis a usable price. Do not silently ignore an invalid factor as if
-        # no corporate action had occurred.
-        invalid_basis = any(
-            event.adjustment_factor is not None
-            and event.adjustment_factor <= 0
-            and history[0].traded_at <= event.traded_at <= asof_date
-            for event in adjustment_events
-        )
+        # Only events after the latest close change its as-of share basis.
+        # Source factor 0 is the no-event sentinel and must not reject a stock.
         latest_price = (
             asof_basis_closes([latest], adjustment_events, asof_date=asof_date)[0]
-            if not invalid_basis and latest.close > 0
+            if latest.close > 0
             else None
         )
         if latest_price is None or not isfinite(latest_price) or latest_price <= 0:

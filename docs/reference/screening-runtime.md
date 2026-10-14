@@ -75,7 +75,7 @@ Security Analysisは`observed / derived / estimate`を混同しない。欠損�
 
 <a id="input-scope"></a>
 
-Security Analysisは普通株・対象市場・as-of以前の有効価格barが1本以上ある銘柄を評価対象とする。価格barが0本、終値が非正値、分割factorが非正値など価格basisが壊れた入力は評価対象にしない。平均売買代金は20barすべての売買代金が揃う場合だけ計算し、足りなければnullにする。株数・現在価格・分割basisの欠測を補完して候補にしない。`listing_span_days`は最初の利用可能barからの期間proxyであり正式な上場日ではない。`price_history_sessions_750d`と`price_history_coverage_750d`は短い履歴・疎な履歴の品質contextとして残す。cache coverageのrequired-field 75%とbar・財務密度は、as-of masterの対象市場かつ東証33業種の普通株を母集団とし、価格・財務が欠けた普通株も分母に残す。対象市場の未知業種は分類を更新するまで停止する。各指標の入力期間・TTM・株式basisは[Valuation metrics](./valuation-metrics.md)に従い、productionと較正replayで共有する。入力不足はnullや品質contextとして残し、実績・予測・観測期間を混ぜて穴埋めしない。
+Security Analysisは普通株・対象市場・as-of以前の有効価格barが1本以上ある銘柄を評価対象とする。価格barが0本、最新終値またはas-of基準の最新価格が非正・非有限な入力は評価対象にしない。sourceの分割factor `0` はイベントなしを示し、終値以前・当日・以後のどの位置でも銘柄除外の理由にしない。factorを適用するのは価格日より後・as-of以前のイベントだけである。平均売買代金は20barすべての売買代金が揃う場合だけ計算し、足りなければnullにする。株数・現在価格・分割basisの欠測を補完して候補にしない。`listing_span_days`は最初の利用可能barからの期間proxyであり正式な上場日ではない。`price_history_sessions_750d`と`price_history_coverage_750d`は短い履歴・疎な履歴の品質contextとして残す。cache coverageのrequired-field 75%とbar・財務密度は、as-of masterの対象市場かつ東証33業種の普通株を母集団とし、価格・財務が欠けた普通株も分母に残す。対象市場の未知業種は分類を更新するまで停止する。各指標の入力期間・TTM・株式basisは[Valuation metrics](./valuation-metrics.md)に従い、productionと較正replayで共有する。入力不足はnullや品質contextとして残し、実績・予測・観測期間を混ぜて穴埋めしない。
 
 <a id="history-context"></a>
 
@@ -111,6 +111,7 @@ primary coordinateがnull、非有限、またはapproachの要件を満たさ�
 publisherはsource run、as-of、rules hash、method hash、全Security Analysisからpayloadを再計算し、不一致を拒否する。published rootは`screening_rules_hash`をprovenanceとして持つ。Review Setはapplication DBやResearch Triageを読まず、同じrun・rules・implementationから同じNomination unionを再構築するL2である。各entryはidentity、`nominations`、grouped `analysis`だけを持つ。`analysis.expected_return`はsecondary machine priorのsnapshotであり、membershipを持たない。
 
 旧rulesの指定は設定値の指定であり、過去の算式を凍結しない。再実行は現行算式を含むmethod hashを持つため、method IDだけで旧methodの再現と扱わない。保存済みrun・Review Setのexact読取は原hashとNominationを保持し、現行算式で再計算しない。
+[#1518](https://github.com/koumatsumoto/baibai-loop/issues/1518)の1bar scopeは`UNIVERSE_SCOPE_REVISION`でproductionの`screening_rules_hash`、Review Setの`method_hash`、calibration panelの`rules_hash`に区別して含める。`multi-valuation-v6`という表示名や既存rules fileだけでは旧20bar母集団との一致を認めない。旧E[r]較正contextは新runのrules hashと一致せず非表示になり、旧Triageは元のReview Set/run/hashへの束縛を保つ。新定義で旧artifactのhashだけを差し替えない。
 
 Normalized Earnings Powerのnative eligibility/orderは`normalized_per_3fy`と同sector gapを使う。FV/E[r] estimatorは`normalized_per_3fy`を入力にしない。
 

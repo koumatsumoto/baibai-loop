@@ -285,6 +285,7 @@ Security Analysisへの入力は有効価格1本から許すが、履歴を要�
 ### 9.1 `adjustment_close` の中身（dividend / 配当の扱い）
 
 Screeningの自己レンジと騰落率は、[`asof_basis_closes()`](../../engine/src/baibai_engine/market/bars.py)でraw `close`と`adjustment_factor`からas-of基準へ揃えた価格系列を使う。保存済み`adjustment_close`をこの計算経路には使わない。factorは価格日より後・as-of以前のものを適用し、権利落ち日当日のfactorを当日価格へ重ねて掛けない。
+source factor `0` と `1` は分割イベントとして採らず、`0`を分割basis未確定の証拠と読み替えない。
 
 この系列は現金配当を加算しないprice-onlyであり、配当込みのtotal returnとは別である。配当を含む評価との区別は[見積り較正](./estimate-calibration.md)に従う。
 

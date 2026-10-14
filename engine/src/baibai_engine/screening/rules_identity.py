@@ -8,9 +8,12 @@ panel rows and therefore must not force a full calibration rebuild.
 from __future__ import annotations
 
 from .calibration.identity import rules_contract_hash
+from .universe import UNIVERSE_SCOPE_REVISION
 
 
-def production_rules_contract_hash(rules_json: str) -> str:
+def production_rules_contract_hash(
+    rules_json: str, *, universe_scope_revision: str = UNIVERSE_SCOPE_REVISION
+) -> str:
     """Return the exact screening identity used by production runs and Review Sets."""
 
     from baibai_engine.screening.metrics.snapshot import BARS_INPUT_WINDOW_DAYS
@@ -19,6 +22,7 @@ def production_rules_contract_hash(rules_json: str) -> str:
 
     return rules_contract_hash(
         rules_json,
+        universe_scope_revision=universe_scope_revision,
         valuation_calculation_revision=VALUATION_CALCULATION_REVISION,
         variant="production",
         valuation_history_sessions=VALUATION_HISTORY_SESSIONS,

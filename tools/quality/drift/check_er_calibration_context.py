@@ -68,11 +68,11 @@ def check() -> tuple[str, ...]:
                     payload["quality"]["yoy_deterioration_threshold"] = quality[
                         "yoy_deterioration_threshold"
                     ]
-                known.add(
-                    production_rules_contract_hash(
-                        json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-                    )
-                )
+                rules_json = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+                known.add(production_rules_contract_hash(rules_json))
+                # Retained evidence predates the one-bar scope. Recognize its
+                # original hash for provenance without making it current at runtime.
+                known.add(production_rules_contract_hash(rules_json, universe_scope_revision=""))
             except ValidationError:
                 # Older frozen schemas cannot be interpreted by the current writer.
                 continue

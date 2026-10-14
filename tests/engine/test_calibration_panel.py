@@ -47,8 +47,11 @@ from baibai_engine.screening.calibration.store import (
     read_forward,
     read_panel,
 )
+from baibai_engine.screening.discovery.review_set import candidate_discovery_method_hash
 from baibai_engine.screening.metrics.snapshot import BARS_INPUT_WINDOW_DAYS
 from baibai_engine.screening.rule_config import load_screening_rules
+from baibai_engine.screening.rules_identity import production_rules_contract_hash
+from baibai_engine.screening.universe import UNIVERSE_SCOPE_REVISION
 from baibai_engine.storage.observations.reader import ReportedShortMetric
 from baibai_engine.storage.observations.readiness import unreadable_store_reason
 from baibai_engine.storage.observations.schema import open_connection
@@ -321,6 +324,33 @@ class CalibrationPanelTest(unittest.TestCase):
         )
 
         self.assertEqual(actual, sha256(expected_contract.encode("utf-8")).hexdigest()[:16])
+
+    def test_price_scope_revision_separates_saved_run_and_panel_identity(self) -> None:
+        rules = load_screening_rules()
+        rules_json = rules.model_dump_json()
+        old_run_hash = rules_contract_hash(
+            rules_json,
+            valuation_calculation_revision=VALUATION_CALCULATION_REVISION,
+            variant="production",
+            valuation_history_sessions=VALUATION_HISTORY_SESSIONS,
+            bars_input_window_days=BARS_INPUT_WINDOW_DAYS,
+            production_authority=True,
+        )
+        unrevisioned_panel_hash = rules_contract_hash(
+            rules_json,
+            candidate_discovery_method_hash=candidate_discovery_method_hash(
+                rules.candidate_discovery,
+                required_jpx_flags=rules.universe.required_jpx_flags,
+            ),
+            valuation_calculation_revision=VALUATION_CALCULATION_REVISION,
+            variant="production",
+            valuation_history_sessions=VALUATION_HISTORY_SESSIONS,
+            bars_input_window_days=BARS_INPUT_WINDOW_DAYS,
+            production_authority=True,
+        )
+        self.assertTrue(UNIVERSE_SCOPE_REVISION)
+        self.assertNotEqual(production_rules_contract_hash(rules_json), old_run_hash)
+        self.assertNotEqual(rules_content_hash(rules), unrevisioned_panel_hash)
 
     def test_panel_records_complete_and_incomplete_jpx_method_inputs(self) -> None:
         rules = load_screening_rules()
