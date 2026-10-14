@@ -48,7 +48,7 @@ def context_artifact(*, rules_hash: str = "old-rules") -> dict[str, Any]:
     ]
     return {
         "kind": "er-level-calibration-context",
-        "schema_version": 2,
+        "schema_version": 3,
         "generated_at": "2026-10-01T18:00:00+09:00",
         "valid_through": "2026-11-15",
         "reference_horizon": "3y",

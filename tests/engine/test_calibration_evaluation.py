@@ -1208,7 +1208,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
 
         self.assertEqual(context["reference_horizon"], "3y")
         self.assertEqual(context["valid_through"], "2026-09-16")
-        self.assertEqual(context["schema_version"], 2)
+        self.assertEqual(context["schema_version"], 3)
         common = context["common_window"]
         assert isinstance(common, dict)
         self.assertEqual(common["cohort_count"], 1)

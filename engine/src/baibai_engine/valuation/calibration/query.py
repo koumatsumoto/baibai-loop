@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from bisect import bisect_left
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from math import isfinite
@@ -78,18 +80,25 @@ def er_calibration_unavailable_reason(
     return None
 
 
+def er_quintile_for_bounds(er_annual: float, upper_bounds: Sequence[float]) -> int:
+    """Assign E[r] using four validated, inclusive upper bounds (#1493)."""
+
+    if not isfinite(er_annual):
+        raise ValueError("candidate E[r] must be finite")
+    return bisect_left(upper_bounds, er_annual) + 1
+
+
 def candidate_er_bands(
     horizon: ErCalibrationHorizon, er_annual: float
 ) -> tuple[ErCalibrationBand, ...]:
     """Select the quintile and optional hurdle from one validated horizon."""
 
-    if not isfinite(er_annual):
-        raise ValueError("candidate E[r] must be finite")
-    quintile = next(
-        band
-        for band in horizon.bands[:5]
-        if band.upper_er_annual is None or er_annual <= band.upper_er_annual
-    )
+    upper_bounds = [
+        float(band.upper_er_annual)
+        for band in horizon.bands[:4]
+        if band.upper_er_annual is not None
+    ]
+    quintile = horizon.bands[er_quintile_for_bounds(er_annual, upper_bounds) - 1]
     return (quintile, horizon.bands[-1]) if er_annual >= HURDLE_ER_ANNUAL else (quintile,)
 
 

@@ -20,9 +20,7 @@ _PUBLISHED = _ROOT / "reports/published/er-level-calibration-latest.yaml"
 
 
 def _artifact() -> dict[str, Any]:
-    raw = safe_load(_PUBLISHED.read_text(encoding="utf-8"))
-    assert isinstance(raw, dict)
-    return raw
+    return context_artifact(rules_hash="7f934c6cdf199a33")
 
 
 def _write(path: Path, payload: dict[str, Any]) -> None:
@@ -38,11 +36,34 @@ def _load(path: Path, payload: dict[str, Any], *, as_of: date | None = None):
     )
 
 
-def test_current_published_artifact_is_accepted_without_regeneration() -> None:
-    artifact = ErCalibrationContextArtifact.model_validate(_artifact())
+def test_retained_schema_2_is_not_reinterpreted_even_for_its_original_method() -> None:
+    raw = safe_load(_PUBLISHED.read_text(encoding="utf-8"))
+    assert isinstance(raw, dict)
+    assert raw["schema_version"] == 2
+    original = _PUBLISHED.read_bytes()
+    assert _load(_PUBLISHED, raw).unavailable_reason == "invalid_artifact"
+    assert not check_er_calibration_context.check()
+    assert _PUBLISHED.read_bytes() == original
 
-    assert artifact.schema_version == 2
+
+def test_schema_3_fixed_band_contract_is_accepted() -> None:
+    artifact = ErCalibrationContextArtifact.model_validate(_artifact())
+    assert artifact.schema_version == 3
     assert [horizon.horizon for horizon in artifact.horizons] == ["3y", "5y"]
+
+
+def test_retained_schema_2_bytes_cannot_be_relabelled_or_modified(tmp_path, monkeypatch) -> None:
+    raw = safe_load(_PUBLISHED.read_text(encoding="utf-8"))
+    assert isinstance(raw, dict)
+    raw["horizons"][0]["bands"][0]["median_n"] += 1
+    path = tmp_path / "changed-schema-2.yaml"
+    _write(path, raw)
+    monkeypatch.setattr(check_er_calibration_context, "_CONTEXT", path)
+    assert (
+        "retained schema 2 E[r] context bytes differ from the original"
+        in check_er_calibration_context.check()
+    )
+    assert _load(path, raw).artifact is None
 
 
 @pytest.mark.parametrize("location", ["root", "band", "stats"])

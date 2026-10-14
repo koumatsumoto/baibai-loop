@@ -1,0 +1,17 @@
+{
+  "formal_context_generated": false,
+  "schema_version": 3,
+  "horizons": {
+    "3y": {
+      "n": 56959,
+      "membership_range_mismatches": 0,
+      "all_fixed_band_statistics_match_independent_reaggregation": true
+    },
+    "5y": {
+      "n": 49869,
+      "membership_range_mismatches": 0,
+      "all_fixed_band_statistics_match_independent_reaggregation": true
+    }
+  },
+  "formal_refusal": "evidence is not complete"
+}

@@ -17,7 +17,7 @@ _ROOT = Path(__file__).resolve().parents[2]
 _PUBLISHED = _ROOT / "reports/published/er-level-calibration-latest.yaml"
 
 
-def test_retained_artifact_reaches_web_for_its_matching_historical_identity() -> None:
+def test_retained_schema_2_is_withheld_even_for_matching_historical_identity() -> None:
     raw = safe_load(_PUBLISHED.read_text(encoding="utf-8"))
     assert isinstance(raw, dict)
     identity = (str(raw["screening_rules_hash"]), str(raw["er_model_version"]))
@@ -28,8 +28,20 @@ def test_retained_artifact_reaches_web_for_its_matching_historical_identity() ->
         today=date.fromisoformat(str(raw["generated_at"])[:10]),
     )
 
+    assert context is None
+
+
+def test_schema_3_context_reaches_web_for_matching_identity(tmp_path) -> None:
+    raw = context_artifact()
+    path = tmp_path / "fixed-context.yaml"
+    path.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+    context = load_er_level_calibration_context(
+        path,
+        expected_method_identity=(raw["screening_rules_hash"], raw["er_model_version"]),
+        today=date.fromisoformat(raw["generated_at"][:10]),
+    )
     assert context is not None
-    assert context.reference_horizon == "3y"
+    assert context.schema_version == 3
     assert [horizon.horizon for horizon in context.horizons] == ["3y", "5y"]
 
 
