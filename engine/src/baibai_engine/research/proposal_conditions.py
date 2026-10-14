@@ -14,13 +14,19 @@ from baibai_engine.position.policy import PORTFOLIO_POLICY
 from baibai_engine.position.price_grid import PRICE_GRID_CONFIRMED_AT, PRICE_GRID_VALID_UNTIL
 from baibai_engine.research.assessment import StockAssessmentDocument
 from baibai_engine.research.entry_policy import BuyTermsEvaluation, evaluate_buy_terms
-from baibai_engine.research.proposal import BuyItem, GateReason, ProposalInputs, QuoteInput, SellItem
+from baibai_engine.research.proposal import (
+    BuyItem,
+    GateReason,
+    ProposalInputs,
+    QuoteInput,
+    SellItem,
+)
 
 if TYPE_CHECKING:
     from baibai_engine.research.assessment_store import ReviewedAssessment
 
 
-def _quote(inputs: ProposalInputs, ticker: str) -> QuoteInput | None:
+def proposal_quote(inputs: ProposalInputs, ticker: str) -> QuoteInput | None:
     return next((quote for quote in inputs.quotes if quote.ticker == ticker), None)
 
 
@@ -57,7 +63,7 @@ def buy_evaluation(
     sqlite_path: Path,
     now: datetime,
 ) -> BuyTermsEvaluation:
-    quote = _quote(inputs, pair.document.input_snapshot.ticker)
+    quote = proposal_quote(inputs, pair.document.input_snapshot.ticker)
     ticker = pair.document.input_snapshot.ticker
     return evaluate_buy_terms(
         pair.document,
@@ -102,7 +108,7 @@ def terms_unavailable_reasons(
 ) -> tuple[GateReason, ...]:
     """経済判断と独立した、具体注文条件の不足を現在入力から列挙する。"""
     reasons: list[GateReason] = []
-    quote = _quote(inputs, item.ticker)
+    quote = proposal_quote(inputs, item.ticker)
     if (
         quote is None
         or not 0

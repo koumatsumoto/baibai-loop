@@ -34,6 +34,7 @@ from baibai_engine.research.proposal import (
 from baibai_engine.research.proposal_conditions import (
     assessment_quote_basis,
     buy_evaluation,
+    proposal_quote,
     terms_unavailable_reasons,
 )
 from baibai_engine.research.proposal_fingerprint import proposal_inputs_fingerprint
@@ -92,7 +93,7 @@ def _validate_action(
                 )
             )
     else:
-        quote = _quote(inputs, item.ticker)
+        quote = proposal_quote(inputs, item.ticker)
         quote = (
             None
             if quote is None
