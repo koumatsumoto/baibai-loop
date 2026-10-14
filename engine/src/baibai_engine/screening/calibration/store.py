@@ -349,6 +349,8 @@ def forward_row_from_mapping(raw: Mapping[str, object]) -> ForwardReturnRow:
 
 
 def _validate_total_return_contract(row: ForwardReturnRow) -> None:
+    if row.price_return is not None and not isfinite(row.price_return):
+        raise ValueError("price return must be finite when present")
     if row.resolved is not (row.status in RESOLVED_STATUSES):
         raise ValueError(f"resolved flag disagrees with status: {row.status!r}")
     if row.total_return_basis != TOTAL_RETURN_BASIS:

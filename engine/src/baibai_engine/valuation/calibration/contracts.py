@@ -259,6 +259,21 @@ class ErCalibrationContextArtifact(BaseModel):
             for item in self.horizons
         ):
             raise ValueError("every horizon must retain the declared dates")
+        for reference, other in zip(self.horizons[0].bands, self.horizons[1].bands, strict=True):
+            if (
+                reference.lower_er_annual,
+                reference.upper_er_annual,
+                reference.median_predicted_er_annual,
+                reference.median_n,
+                reference.bases[0].coverage.declared_n,
+            ) != (
+                other.lower_er_annual,
+                other.upper_er_annual,
+                other.median_predicted_er_annual,
+                other.median_n,
+                other.bases[0].coverage.declared_n,
+            ):
+                raise ValueError("horizons must share the same declared prediction bands")
         if (
             self.common_window.cohort_count != len(required_dates)
             or self.common_window.asof_start != required_dates[0]

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -223,6 +223,23 @@ def test_corrupt_coverage_cannot_relabel_missing_as_observed():
     raw["horizons"][0]["bands"][0]["bases"][0]["coverage"]["observed_n"] -= 1
     with pytest.raises(ValidationError):
         ErCalibrationContextArtifact.model_validate(raw)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [float("nan"), float("inf"), float("-inf")],
+    ids=["nan", "positive-infinity", "negative-infinity"],
+)
+def test_unresolved_nonfinite_price_is_corrupt_not_normal_missing(value):
+    from baibai_engine.screening.calibration.store import forward_row_from_mapping
+
+    evaluation, panels, forwards = inputs(complete=False)
+    row = replace(missing_price(forwards["2020-01-31"][0]), price_return=value)
+    with pytest.raises(ValueError, match="price return must be finite"):
+        forward_row_from_mapping(asdict(row))
+    forwards["2020-01-31"][0] = row
+    with pytest.raises(CalibrationContextError, match="forward observation is corrupt"):
+        build(evaluation, panels, forwards)
 
 
 def test_research_receives_both_basis_coverage_and_the_limit(tmp_path, monkeypatch):

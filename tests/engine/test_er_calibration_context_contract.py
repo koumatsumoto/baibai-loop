@@ -52,6 +52,55 @@ def test_schema_4_fixed_band_contract_is_accepted() -> None:
     assert [horizon.horizon for horizon in artifact.horizons] == ["3y", "5y"]
 
 
+@pytest.mark.parametrize("field", ["cutoff", "declared_n", "median_predicted", "median_n"])
+def test_reader_rejects_different_horizon_prediction_bands(tmp_path: Path, field: str) -> None:
+    payload = _artifact()
+    bands = payload["horizons"][1]["bands"]
+    if field == "cutoff":
+        bands[0]["upper_er_annual"] = -0.01
+        bands[1]["lower_er_annual"] = -0.01
+    elif field == "declared_n":
+        for basis in bands[0]["bases"]:
+            basis["coverage"].update(
+                declared_n=101,
+                missing_n=1,
+                missing_reason_counts={"unresolved_missing_entry": 1},
+            )
+    elif field == "median_predicted":
+        bands[0]["median_predicted_er_annual"] += 0.001
+    else:
+        bands[0]["median_n"] += 1
+    # Keep the duplicate common window consistent: the horizon contract itself
+    # must reject the split coordinate, rather than only this duplicate changing.
+    payload["common_window"]["horizons"] = deepcopy(payload["horizons"])
+    with pytest.raises(ValidationError, match="same declared prediction bands"):
+        ErCalibrationContextArtifact.model_validate(payload)
+    path = tmp_path / "split-horizons.yaml"
+    _write(path, payload)
+    loaded = _load(path, payload)
+    assert loaded.artifact is None
+    assert loaded.unavailable_reason == "invalid_artifact"
+
+
+def test_shared_prediction_bands_allow_different_horizon_outcome_coverage(tmp_path: Path) -> None:
+    payload = _artifact()
+    total = payload["horizons"][1]["bands"][0]["bases"][0]
+    total["coverage"].update(
+        observed_n=99,
+        missing_n=1,
+        missing_reason_counts={"unresolved_missing_dividend": 1},
+    )
+    total["median_n"] = 99
+    total["ticker_equal"]["n"] = 99
+    total["cohort_equal"]["n"] = 99
+    payload["common_window"]["horizons"] = deepcopy(payload["horizons"])
+    path = tmp_path / "different-outcomes.yaml"
+    _write(path, payload)
+    loaded = _load(path, payload)
+    assert loaded.artifact is not None
+    assert loaded.artifact.horizons[1].bands[0].bases[0].coverage.missing_n == 1
+
+
 def test_retained_schema_2_bytes_cannot_be_relabelled_or_modified(tmp_path, monkeypatch) -> None:
     raw = safe_load(_PUBLISHED.read_text(encoding="utf-8"))
     assert isinstance(raw, dict)
