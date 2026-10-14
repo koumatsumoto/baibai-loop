@@ -355,8 +355,7 @@ def run_command(
         fallback_lines.append(f"ttm_quality 非 exact 件数: {approx_total}")
     if required_ttm_non_exact:
         fallback_lines.append(
-            "OCF・売上TTM metric非exact件数(common eligible母集団): "
-            f"{required_ttm_non_exact}"
+            f"OCF・売上TTM metric非exact件数(common eligible母集団): {required_ttm_non_exact}"
         )
     if population_yoy_missing:
         fallback_lines.append(
