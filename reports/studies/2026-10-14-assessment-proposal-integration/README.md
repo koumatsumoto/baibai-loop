@@ -93,3 +93,16 @@ valuation revisionの4 metadataだけを更新した。候補・較正の対象�
 `stores/market_context/indicators.sqlite`が無く開始できなかった。
 実データ移行・本番store検証・ドメイン本番切替・実broker操作・ブラウザ実機確認は未実施。
 main直接push/mergeやintegrationの独断mergeは行っていない。既存の財務ルール本番切替は再実行していない。
+
+## 親の追加移行レビュー：mixed Triage
+
+source22のTriageはnew対象だけをadmitし、holdingは台帳から選ばれる。
+`897af0c8`でTriage枝の被覆確認・素材抽出をnew対象だけに限定した。
+new=1234、holding=2331、Triage entryにholdingが無い正当な混在入力のcheck/copyが成功し、
+holdingのworkspace draftと元payloadを保持する。new entry欠落は引き続き拒否する。
+explicit_runは退役前の全targets被覆契約を確認し、holding分析欠落の拒否を維持した。
+
+合成Triage4 fixtureは退役前ed7b2bb7の実契約でparse/admissionを独立確認した。
+移行対象試験54件成功。追加修正後の完全local gateはPython4622 passed / 8 skipped、
+coverage87.37%、frontend311件、Edge106件と全静的・生成・依存監査・buildが成功した。
+merge・本番切替は実施せず、全追跡ファイルの別担当点検と親レビューを待つ。
