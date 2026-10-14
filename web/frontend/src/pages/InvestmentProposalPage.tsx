@@ -112,12 +112,12 @@ function CurrentProposalPreviewPanel({ proposalId }: { proposalId: string }) {
       .then(result => { if (!request.signal.aborted) setPreview(result) })
       .catch((reason: unknown) => {
         if (request.signal.aborted || (reason instanceof Error && reason.name === 'AbortError')) return
-        setError(reason instanceof Error ? reason.message : '現在条件を再確認できませんでした')
+        setError(reason instanceof Error ? reason.message : '公開済みの再確認結果を読み込めませんでした')
       })
       .finally(() => { if (!request.signal.aborted) setLoading(false) })
   }
-  return <SectionCard padded title="現在の条件を別に確認" description="保存した提案の変更ではなく、現在入力による読み取り専用の再試算です。">
-    <Button disabled={loading} onClick={refresh} variant="outline">{loading ? '再確認中' : '現在の条件を再確認'}</Button>
+  return <SectionCard padded title="現在の条件を別に確認" description="公開サイトでは、最終データ生成時点の再試算結果を再読込します。クリック時には再計算しません。保存条件は変更しません。">
+    <Button disabled={loading} onClick={refresh} variant="outline">{loading ? '再確認中' : '公開済みの再確認結果を読み込む'}</Button>
     {error && <p className="mt-3 text-sm text-destructive" role="alert">{error}</p>}
     {preview && <div className="mt-4"><CurrentPreviewContent preview={preview} /></div>}
   </SectionCard>
