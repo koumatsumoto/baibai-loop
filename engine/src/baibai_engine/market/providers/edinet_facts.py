@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from urllib.parse import urlencode
 
+from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.providers.edinet import (
     EDINET_API_BASE,
     EDINETProvider,
-    EDINETProviderError,
     _is_zip_bytes,
     parse_doc_id,
 )

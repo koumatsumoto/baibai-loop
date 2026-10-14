@@ -9,6 +9,15 @@ from pydantic.dataclasses import dataclass
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.ticker import normalize_ticker
 
+
+class EDINETProviderError(RuntimeError):
+    """Raised when EDINET access or normalization fails."""
+
+
+class EDINETRateLimitError(EDINETProviderError):
+    """Raised when EDINET asks the whole extraction run to back off."""
+
+
 _MODEL_CONFIG = ConfigDict(strict=True, arbitrary_types_allowed=False)
 
 

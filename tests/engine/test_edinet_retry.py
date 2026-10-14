@@ -9,8 +9,9 @@ import pytest
 import requests
 from tests.helpers.http_doubles import FakeSession, json_response, response
 
+from baibai_engine.market.edinet_models import EDINETProviderError, EDINETRateLimitError
 from baibai_engine.market.providers import edinet
-from baibai_engine.market.providers.edinet import EDINETProvider, EDINETProviderError
+from baibai_engine.market.providers.edinet import EDINETProvider
 from baibai_engine.market.providers.edinet_facts import EDINETFactsProvider
 
 
@@ -64,7 +65,7 @@ def rate_limit(body=False, retry_after=None):
 @pytest.mark.parametrize("kind", ["csv", "xbrl", "list"])
 def test_mixed_http_and_body_rate_limits_share_one_budget(kind, tmp_path, clock):
     session = FakeSession(*(rate_limit(body=bool(i % 2)) for i in range(6)))
-    with pytest.raises(edinet.EDINETRateLimitError):
+    with pytest.raises(EDINETRateLimitError):
         request(kind, tmp_path, session)
     assert len(session.calls) == 6
     assert clock == [3, 6, 12, 24, 48]
@@ -81,7 +82,7 @@ def test_transient_failures_do_not_reset_the_rate_limit_budget(kind, tmp_path, c
         rate_limit(body=True),
         rate_limit(),
     )
-    with pytest.raises(edinet.EDINETRateLimitError):
+    with pytest.raises(EDINETRateLimitError):
         request(kind, tmp_path, session)
     assert len(session.calls) == 6
     assert clock == [3, 6, 12, 24, 48]
@@ -128,7 +129,7 @@ def test_auth_or_refusal_is_not_reclassified_by_a_body_429(kind, status, tmp_pat
     session = FakeSession(response(b'{"StatusCode":429}', status_code=status))
     with pytest.raises(EDINETProviderError) as caught:
         request(kind, tmp_path, session)
-    assert not isinstance(caught.value, edinet.EDINETRateLimitError)
+    assert not isinstance(caught.value, EDINETRateLimitError)
     assert len(session.calls) == 1
     assert clock == []
 

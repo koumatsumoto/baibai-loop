@@ -12,9 +12,9 @@ import zipfile
 from collections.abc import Mapping, Sequence
 from datetime import date
 
-from baibai_engine.market.edinet_models import EdinetMetricRecord
+from baibai_engine.market.edinet_decode import coalesce_field, to_float
+from baibai_engine.market.edinet_models import EDINETProviderError, EdinetMetricRecord
 from baibai_engine.market.metric_quality import TTMQuality
-from baibai_engine.market.providers.edinet import EDINETProviderError, _coalesce, _to_float
 
 
 def parse_csv_zip_metric_record(
@@ -289,7 +289,7 @@ def _unique_jpy_metric(
         if _row_unit(row).upper() != "JPY":
             continue
         raw_value = _row_value(row)
-        value = 0.0 if _is_zero_like(raw_value) else _to_float(raw_value)
+        value = 0.0 if _is_zero_like(raw_value) else to_float(raw_value)
         if value is not None:
             values.add(value)
     return next(iter(values)) if len(values) == 1 else None
@@ -353,7 +353,7 @@ def _ranked_metric_values(
             continue
         if basis == "non_consolidated" and _is_consolidated_row(row):
             continue
-        value = _to_float(_row_value(row))
+        value = to_float(_row_value(row))
         if value is None:
             continue
         key = (element, context, _row_basis(row))
@@ -386,11 +386,11 @@ def _has_zero_like_metric(
 
 
 def _row_element(row: Mapping[str, str]) -> str:
-    return str(_coalesce(row, "要素ID", "element_id", "ElementID", "elementId") or "")
+    return str(coalesce_field(row, "要素ID", "element_id", "ElementID", "elementId") or "")
 
 
 def _row_context(row: Mapping[str, str]) -> str:
-    return str(_coalesce(row, "コンテキストID", "context_id", "ContextID", "contextId") or "")
+    return str(coalesce_field(row, "コンテキストID", "context_id", "ContextID", "contextId") or "")
 
 
 def _is_consolidated_row(row: Mapping[str, str]) -> bool:
@@ -403,16 +403,16 @@ def _is_consolidated_context(context: str) -> bool:
 
 
 def _row_basis(row: Mapping[str, str]) -> str:
-    return str(_coalesce(row, "連結・個別", "consolidation_basis", "ConsolidationBasis") or "")
+    return str(coalesce_field(row, "連結・個別", "consolidation_basis", "ConsolidationBasis") or "")
 
 
 def _row_value(row: Mapping[str, str]) -> str | None:
-    value = _coalesce(row, "値", "value", "Value", "金額")
+    value = coalesce_field(row, "値", "value", "Value", "金額")
     return str(value) if value is not None else None
 
 
 def _row_unit(row: Mapping[str, str]) -> str:
-    return str(_coalesce(row, "ユニットID", "unit_id", "UnitID", "unitId") or "")
+    return str(coalesce_field(row, "ユニットID", "unit_id", "UnitID", "unitId") or "")
 
 
 def _normalize_element(value: str) -> str:

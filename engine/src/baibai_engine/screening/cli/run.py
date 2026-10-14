@@ -12,11 +12,10 @@ from typing import TextIO
 from baibai_engine.foundation.date_utils import weekday_distance
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
-from baibai_engine.market.edinet_models import EdinetMetricRecord
+from baibai_engine.market.edinet_models import EDINETProviderError, EdinetMetricRecord
 from baibai_engine.market.jpx_models import JPXEarningsCalendarEntry, JPXProviderError
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.metric_quality import TTMQuality
-from baibai_engine.market.providers.edinet import EDINETProviderError
 from baibai_engine.market.valuation_catalysts import read_valuation_catalyst_contexts
 from baibai_engine.screening.config import (
     ScreeningConfig,

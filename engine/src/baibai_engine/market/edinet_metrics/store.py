@@ -10,9 +10,9 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from baibai_engine.market.edinet_decode import normalize_metric_record
 from baibai_engine.market.edinet_metrics.revision import has_hard_metric_failure
 from baibai_engine.market.edinet_models import EdinetMetricRecord
-from baibai_engine.market.providers.edinet import normalize_metric_record
 from baibai_engine.storage.observations.schema import connect_current
 from baibai_engine.storage.observations.snapshot_coverage import date_covered
 
@@ -35,7 +35,7 @@ class EDINETMetricBaseline:
 
 
 def _normalize_edinet_metric_sql_row(row: Sequence[Any]) -> EdinetMetricRecord:
-    """Reuse the provider's normalize step so SQLite rows get the same coercion.
+    """Reuse the shared pure decoder so SQLite rows get the same coercion.
 
     The typed columns already match the normalizer's key set, so the payload it
     receives is the one it expects from the JSON path.
@@ -304,7 +304,7 @@ def read_edinet_metrics(
     finally:
         conn.close()
 
-    # Reuse the provider's normalize step so SQLite-backed records pick up
+    # Reuse the shared pure decoder so SQLite-backed records pick up
     # the same TTMQuality coercion / shape as the JSON path. Pass an
     # already-normalized payload that the function expects (typed columns
     # already match its key set).

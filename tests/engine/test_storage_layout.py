@@ -56,3 +56,20 @@ assert reader.JPXEarningsCalendarEntry is jpx_models.JPXEarningsCalendarEntry
 assert reader.JQuantsProviderError is jquants_decode.JQuantsProviderError
 """
     subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_edinet_decoding_and_sqlite_reads_do_not_load_http_client():
+    code = """
+import sys
+from baibai_engine.market import edinet_decode
+from baibai_engine.market.edinet_metrics import store
+from baibai_engine.market.providers import edinet_csv
+for prefix in (
+    'baibai_engine.market.providers.edinet',
+    'requests',
+):
+    assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix
+assert edinet_decode.normalize_metric_record({'ticker': '72030', 'cash': 0}).cash == 0
+assert store.normalize_metric_record is edinet_decode.normalize_metric_record
+"""
+    subprocess.run([sys.executable, "-c", code], check=True)

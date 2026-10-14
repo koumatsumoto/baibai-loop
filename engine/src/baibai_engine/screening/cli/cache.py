@@ -9,6 +9,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import TextIO
 
+from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.jpx_models import JPXProviderError
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.margin_publication import (
@@ -16,7 +17,6 @@ from baibai_engine.market.margin_publication import (
     LEGACY_WEEKLY_LAST_BALANCE_DATE,
     LEGACY_WEEKLY_LAST_PUBLICATION_DATE,
 )
-from baibai_engine.market.providers.edinet import EDINETProviderError
 from baibai_engine.screening.metrics.snapshot import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,
