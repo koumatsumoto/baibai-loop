@@ -81,7 +81,7 @@ def test_publication_originals_preserve_unknown_fields_without_related_eligibili
         con.execute(
             "INSERT INTO operation_session VALUES(?,?,?,?,?,?,?,?)",
             (
-                "op-20260907-capital-allocation-1",
+                "research-op-11111111111111111111111111111111",
                 "capital-allocation",
                 "active",
                 "2026-09-07",
@@ -103,7 +103,11 @@ def test_publication_originals_preserve_unknown_fields_without_related_eligibili
             json.loads(canonical_json(assessment)),
         ),
         ("position.review", {"position_review_id": "pr-a"}, position),
-        ("operation.session", {"operation_id": "op-20260907-capital-allocation-1"}, operation),
+        (
+            "operation.session",
+            {"operation_id": "research-op-11111111111111111111111111111111"},
+            operation,
+        ),
         ("portfolio.outcome", {"outcome_id": outcome.outcome_id}, outcome.payload),
     ]
     with sqlite3.connect(data.paths.application) as con:

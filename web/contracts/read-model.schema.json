@@ -14,7 +14,6 @@
     "views/market-context.json": "#/$defs/MarketContextView",
     "views/meta.json": "#/$defs/MetaView",
     "views/operations.json": "#/$defs/OperationsView",
-    "views/research-triage--{research_triage_id}.json": "#/$defs/ResearchTriageDetailView",
     "views/screening_latest.json": "#/$defs/ScreeningView",
     "views/security--{ticker}.json": "#/$defs/SecurityDetailView",
     "views/tasks.json": "#/$defs/TasksView"
@@ -3749,6 +3748,42 @@
     },
     "OperationResearchTargetView": {
       "properties": {
+        "selection_rationale": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selection Rationale"
+        },
+        "research_question": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Research Question"
+        },
+        "key_risk": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Key Risk"
+        },
         "ticker": {
           "title": "Ticker",
           "type": "string"
@@ -3855,6 +3890,9 @@
         }
       },
       "required": [
+        "selection_rationale",
+        "research_question",
+        "key_risk",
         "ticker",
         "purpose",
         "outcome_status",
@@ -3871,11 +3909,7 @@
     },
     "OperationResearchView": {
       "properties": {
-        "request": {
-          "title": "Request",
-          "type": "string"
-        },
-        "research_triage_id": {
+        "request_scope": {
           "anyOf": [
             {
               "type": "string"
@@ -3884,7 +3918,36 @@
               "type": "null"
             }
           ],
-          "title": "Research Triage Id"
+          "default": null,
+          "title": "Request Scope"
+        },
+        "selection_summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selection Summary"
+        },
+        "max_deep_research_targets": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Deep Research Targets"
+        },
+        "request": {
+          "title": "Request",
+          "type": "string"
         },
         "targets": {
           "items": {
@@ -3931,8 +3994,10 @@
         }
       },
       "required": [
+        "request_scope",
+        "selection_summary",
+        "max_deep_research_targets",
         "request",
-        "research_triage_id",
         "targets",
         "capital_allocation_assessment_id",
         "source_run_revision_id",
@@ -4846,172 +4911,6 @@
       "title": "ResearchRevisionView",
       "type": "object"
     },
-    "ResearchTriageDetailView": {
-      "properties": {
-        "research_triage_id": {
-          "title": "Research Triage Id",
-          "type": "string"
-        },
-        "review_set_id": {
-          "title": "Review Set Id",
-          "type": "string"
-        },
-        "run_revision_id": {
-          "title": "Run Revision Id",
-          "type": "string"
-        },
-        "as_of": {
-          "format": "date",
-          "title": "As Of",
-          "type": "string"
-        },
-        "published_at": {
-          "format": "date-time",
-          "title": "Published At",
-          "type": "string"
-        },
-        "entries": {
-          "items": {
-            "$ref": "#/$defs/ResearchTriageEntryView"
-          },
-          "title": "Entries",
-          "type": "array"
-        },
-        "payload": {
-          "additionalProperties": true,
-          "title": "Payload",
-          "type": "object"
-        }
-      },
-      "required": [
-        "research_triage_id",
-        "review_set_id",
-        "run_revision_id",
-        "as_of",
-        "published_at",
-        "entries",
-        "payload"
-      ],
-      "title": "ResearchTriageDetailView",
-      "type": "object"
-    },
-    "ResearchTriageEntryView": {
-      "properties": {
-        "ticker": {
-          "title": "Ticker",
-          "type": "string"
-        },
-        "decision": {
-          "title": "Decision",
-          "type": "string"
-        },
-        "priority": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Priority"
-        },
-        "rationale": {
-          "title": "Rationale",
-          "type": "string"
-        },
-        "research_question": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Research Question"
-        },
-        "key_risk": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Key Risk"
-        },
-        "review_set_entry_snapshot": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ReviewSetEntrySnapshotView"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        }
-      },
-      "required": [
-        "ticker",
-        "decision",
-        "priority",
-        "rationale",
-        "research_question",
-        "key_risk",
-        "review_set_entry_snapshot"
-      ],
-      "title": "ResearchTriageEntryView",
-      "type": "object"
-    },
-    "ResearchTriageView": {
-      "properties": {
-        "research_triage_id": {
-          "title": "Research Triage Id",
-          "type": "string"
-        },
-        "review_set_id": {
-          "title": "Review Set Id",
-          "type": "string"
-        },
-        "run_revision_id": {
-          "title": "Run Revision Id",
-          "type": "string"
-        },
-        "as_of": {
-          "format": "date",
-          "title": "As Of",
-          "type": "string"
-        },
-        "published_at": {
-          "format": "date-time",
-          "title": "Published At",
-          "type": "string"
-        },
-        "entries": {
-          "items": {
-            "$ref": "#/$defs/ResearchTriageEntryView"
-          },
-          "title": "Entries",
-          "type": "array"
-        }
-      },
-      "required": [
-        "research_triage_id",
-        "review_set_id",
-        "run_revision_id",
-        "as_of",
-        "published_at",
-        "entries"
-      ],
-      "title": "ResearchTriageView",
-      "type": "object"
-    },
     "ReservationView": {
       "properties": {
         "reservation_id": {
@@ -5478,83 +5377,6 @@
         "disclosed_since_previous"
       ],
       "title": "ReviewSetEntryDeltaView",
-      "type": "object"
-    },
-    "ReviewSetEntrySnapshotView": {
-      "description": "Machine coordinates frozen into one Research Triage judgment entry.",
-      "properties": {
-        "name": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Name"
-        },
-        "sector_33": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Sector 33"
-        },
-        "nominations": {
-          "anyOf": [
-            {
-              "items": {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Nominations"
-        },
-        "expected_return": {
-          "anyOf": [
-            {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Expected Return"
-        },
-        "data_quality": {
-          "anyOf": [
-            {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Data Quality"
-        }
-      },
-      "required": [
-        "name",
-        "sector_33",
-        "nominations",
-        "expected_return",
-        "data_quality"
-      ],
-      "title": "ReviewSetEntrySnapshotView",
       "type": "object"
     },
     "ReviewSetEntryView": {
@@ -6253,13 +6075,6 @@
           "title": "Review Sets",
           "type": "array"
         },
-        "research_triages": {
-          "items": {
-            "$ref": "#/$defs/ResearchTriageView"
-          },
-          "title": "Research Triages",
-          "type": "array"
-        },
         "capital_allocation_assessments": {
           "items": {
             "$ref": "#/$defs/CapitalAllocationAssessmentSummaryView"
@@ -6285,7 +6100,6 @@
         "external_assessment_securities",
         "external_assessment_cutoff",
         "review_sets",
-        "research_triages",
         "capital_allocation_assessments",
         "er_level_calibration"
       ],

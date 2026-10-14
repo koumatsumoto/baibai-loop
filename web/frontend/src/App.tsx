@@ -10,7 +10,6 @@ import './styles.css'
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })))
 const ResearchPage = lazy(() => import('./pages/ResearchPage').then((module) => ({ default: module.ResearchPage })))
 const CandidateExplorationPage = lazy(() => import('./pages/CandidateExplorationPage').then((module) => ({ default: module.CandidateExplorationPage })))
-const ResearchTriagePage = lazy(() => import('./pages/ResearchTriagePage').then((module) => ({ default: module.ResearchTriagePage })))
 const CapitalAllocationAssessmentPage = lazy(() => import('./pages/CapitalAllocationAssessmentPage').then((module) => ({ default: module.CapitalAllocationAssessmentPage })))
 const MarketContextPage = lazy(() => import('./pages/MarketContextPage').then((module) => ({ default: module.MarketContextPage })))
 const AssessmentPage = lazy(() => import('./pages/AssessmentPage').then((module) => ({ default: module.AssessmentPage })))
@@ -31,7 +30,6 @@ function App() {
                 <Route path="/stocks" element={<ResearchPage />} />
                 <Route path="/stocks/explore" element={<CandidateExplorationPage />} />
                 <Route path="/tasks" element={<TasksPage />} />
-                <Route path="/research-triage" element={<ResearchTriagePage />} />
                 <Route path="/stocks/capital-allocation-assessments/:capitalAllocationAssessmentId" element={<CapitalAllocationAssessmentPage />} />
                 <Route path="/securities/:ticker" element={<SecurityDetailPage />} />
               </Route>

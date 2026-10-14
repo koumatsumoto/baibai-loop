@@ -25,13 +25,14 @@ function render(value = item) {
 describe('CAAが参照した企業評価', () => {
   it('ユーザー指定の開始根拠を示し、偽のTriageリンクを作らない', () => {
     const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(AssessmentResearchSource, { researchTriageId: null })))
-    expect(html).toContain('ユーザー指定の対象')
+    expect(html).toContain('Researchで選定した対象')
     expect(html).toContain('開始要求と固定対象')
     expect(html).not.toContain('/research-triage')
   })
   it('Triage経由では当時の保存IDへリンクする', () => {
     const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(AssessmentResearchSource, { researchTriageId: 'synthetic-original-triage' })))
-    expect(html).toContain('/research-triage?research_triage_id=synthetic-original-triage')
+    expect(html).not.toContain('/research-triage')
+    expect(html).toContain('過去の選定参照')
     expect(html).not.toContain('ユーザー指定')
   })
   it('固定Thesis/Reviewと根拠・出典・原評価を表示し、最新情報を別リンクにする', () => {

@@ -40,7 +40,7 @@ class OperationPayload(BaseModel):
 class OperationSession(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    operation_id: str = Field(pattern=r"^op-[0-9]{8}-[a-z]+(?:-[a-z]+)*-[0-9]+$")
+    operation_id: str = Field(pattern=r"^research-op-[0-9a-f]{32}$")
     session_kind: SessionKind
     status: OperationStatus
     as_of: date

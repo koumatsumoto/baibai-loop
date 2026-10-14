@@ -9,7 +9,7 @@ status: active
 
 ## 役割
 
-screeningはValuationの財務/倍率計算・機械推計とMarket Contextの価格/需給結果を組み込み、全対象銘柄のobserved / derived / estimateをSecurity Analysisへ固定し、configured Valuation Approachesが生成したNominationのexact unionをReview Setにする。Review Setは機械成果物であり、投資判断ではない。Research Triageだけが各entryへ`research / skip`とresearch priorityを発行する。
+screeningはValuationの財務/倍率計算・機械推計とMarket Contextの価格/需給結果を組み込み、全対象銘柄のobserved / derived / estimateをSecurity Analysisへ固定し、configured Valuation Approachesが生成したNominationのexact unionをReview Setにする。Review Setは機械成果物であり、投資判断ではない。Researchがこの分析・候補を材料に有限の深掘り対象を選定する。
 
 機械E[r]/FV anchor、Market Context Assessment、portfolio stateは参考文脈である。Review Setのnomination、membership、orderには使わない。ER/FVの推計・保存済み照会は[Valuation metrics](./valuation-metrics.md#machine-valuation)、企業固有の条件付き評価は[Thesis](./thesis.md#scenario-arithmetic)が所有する。
 
@@ -17,7 +17,7 @@ screeningはValuationの財務/倍率計算・機械推計とMarket Contextの�
 
 ## ルールの目的と根拠
 
-Screeningは[入力scope](#input-scope)でSecurity Analysisの計算対象を定め、その計算結果に[共通factの資格](#history-context)を適用してCandidate Discovery・比較中央値の対象を選び、[4 Approach](#approach-applicability)それぞれの条件と指標から候補を推薦する。[品質context](#data-quality-context)はrunの利用判断、[Nomination容量](#nomination-capacity)は有限の探索・Triage入力枠であり、企業の経済的rejectや購入条件ではない。観測・取得の失敗は[情報源の状態](./data-sources.md)で扱い、未観測を0や対象なしへ変えない。
+Screeningは[入力scope](#input-scope)でSecurity Analysisの計算対象を定め、その計算結果に[共通factの資格](#history-context)を適用してCandidate Discovery・比較中央値の対象を選び、[4 Approach](#approach-applicability)それぞれの条件と指標から候補を推薦する。[品質context](#data-quality-context)はrunの利用判断、[Nomination容量](#nomination-capacity)は有限の候補探索枠であり、企業の経済的rejectや購入条件ではない。観測・取得の失敗は[情報源の状態](./data-sources.md)で扱い、未観測を0や対象なしへ変えない。
 
 数値と判定式は[現行rules](../../method/screening/rules/)、[`CommonEligibilityRules.matches`](../../engine/src/baibai_engine/screening/rule_config.py)、[Review Set生成](../../engine/src/baibai_engine/screening/discovery/review_set.py)、[業種中央値の実装](../../engine/src/baibai_engine/valuation/metrics/relative.py)が所有する。業種母数の理由は[valuation metrics](./valuation-metrics.md#median-population-rationale)、推薦集合と資格の回帰は[Review Set tests](../../tests/engine/test_review_set.py)を参照する。算術・保存契約の再現は閾値の収益上の最適性を示さない。
 
@@ -28,7 +28,6 @@ Researchの対象選択、企業評価、資本配分、保有判断へ進む関
 screening runtimeの公開commandは`baibai-engine screening --help`から辿る。本書で扱う
 `run`、`review-set publish / show`、`prune`のoptionのrequired / default / choiceと出力形式は各commandのpublic
 `--help`を正本とする。日常運用の実行順と停止条件は
-[`research-triage` skill](../../.agents/skills/research-triage/SKILL.md)と
 [`batch/OPERATIONS.md`](../../batch/OPERATIONS.md)が所有する。
 
 通常の`run`はSecurity AnalysisとReview Setを先に計算・検証し、同じSQLite connectionの一つのtransactionでrun・全子データ・Review Setを保存する。出力には両IDを含む。Review Setの挿入失敗は新runを含めてrollbackする。paired Review SetのIDとcreated_atはimmutable runのIDとrun_atに固定し、同じrunの再試行で新しい集合を作らない。
@@ -51,7 +50,7 @@ Security Analysisは普通株・対象市場・as-of以前の有効価格barが1
 
 <a id="history-context"></a>
 
-共通eligibilityは正の有限な時価総額fact、非負で有限な価格barの期間、JPX flag、これら必須factの有無を扱う。現行rulesの時価総額・bar期間floorは0で、100億円未満や182日未満も候補発見と業種・市場の比較母集団に含める。bar期間は最古の利用可能な価格barからの日数proxyで、実上場日や財務履歴ではない。短い履歴、サイズ、ADVはcontextとしてSecurity Analysis、Review Set、Research Triage、Research入力へ残し、各指標に必要な履歴・財務入力とJPX制約は保つ。ADVは値が低い場合も欠損時も除外に使わない。その後、各approachが独立にnominateする。採用理由は[#1481](https://github.com/koumatsumoto/baibai-loop/issues/1481)、現行値は[screening rules](../../method/screening/rules/)、完全なeligibility・並び順・method hashは[Review Set実装](../../engine/src/baibai_engine/screening/discovery/review_set.py)を正本とする。
+共通eligibilityは正の有限な時価総額fact、非負で有限な価格barの期間、JPX flag、これら必須factの有無を扱う。現行rulesの時価総額・bar期間floorは0で、100億円未満や182日未満も候補発見と業種・市場の比較母集団に含める。bar期間は最古の利用可能な価格barからの日数proxyで、実上場日や財務履歴ではない。短い履歴、サイズ、ADVはcontextとしてSecurity Analysis、Review Set、Research入力へ残し、各指標に必要な履歴・財務入力とJPX制約は保つ。ADVは値が低い場合も欠損時も除外に使わない。その後、各approachが独立にnominateする。採用理由は[#1481](https://github.com/koumatsumoto/baibai-loop/issues/1481)、現行値は[screening rules](../../method/screening/rules/)、完全なeligibility・並び順・method hashは[Review Set実装](../../engine/src/baibai_engine/screening/discovery/review_set.py)を正本とする。
 
 <a id="approach-applicability"></a>
 
@@ -87,7 +86,7 @@ publisherはsource run、as-of、rules hash、method hash、全Security Analysis
 
 Normalized Earnings Powerのnative eligibility/orderは`normalized_per_3fy`と同sector gapを使う。FV/E[r] estimatorは`normalized_per_3fy`を入力にしない。
 
-MCPは保存済みcanonical Review Setをread-onlyで参照できる。これはscreening結果の検証用read boundaryであり、Review Set membership、Nomination、Research Triage、Research Setを変更するauthorityを持たない。tool契約は[Owner MCP](../../tools/owner_mcp/README.md#triage前のreview-set)を参照する。
+MCPは保存済みcanonical Review Setをread-onlyで参照できる。これはscreening結果の検証用read boundaryであり、Review Set membership、Nomination、Research selectionを変更するauthorityを持たない。tool契約は[Owner MCP](../../tools/owner_mcp/README.md#review-set)を参照する。
 
 <a id="data-quality-context"></a>
 
@@ -97,7 +96,6 @@ TTM非exactと業績YoY欠測の件数・比率はrunのpartial warningを決め
 
 ## Research Triage
 
-ScreeningはL2のReview Setを発行し、Researchが全entryを判断する。Triageの保存契約・CAS・入力参照は[Research Triageの契約](./analysis-operations.md#research-triage-contract)、操作は[Research Triage skill](../../.agents/skills/research-triage/SKILL.md)が所有する。純粋なCandidate型と`PublishedReviewSet`は`screening/discovery/contracts`、Nominationとunionの生成は`screening/discovery/review_set`に分ける。package initから計算をeager importしない。
 
 ## Daily batchとlocal analysis
 

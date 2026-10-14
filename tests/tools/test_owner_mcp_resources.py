@@ -77,7 +77,6 @@ def test_catalog_is_complete_without_stores_and_schemas_are_live(data):
         "screening.calibration.panel_row",
         "screening.calibration.forward_row",
         "screening.er_calibration_context",
-        "research.triage",
         "research.thesis",
         "research.thesis_review",
         "research.capital_allocation_assessment",
@@ -190,8 +189,8 @@ def test_missing_unwritten_empty_and_corrupt_are_distinct(data):
     error(lambda: data.get("task", {"task_id": "missing"}), "SOURCE_UNAVAILABLE")
 
 
-def test_run_header_analysis_paging_full_review_and_pruned_triage(data, reader, monkeypatch):
-    triage, review = seed(reader)
+def test_run_header_analysis_paging_full_review_and_pruned_run(data, reader, monkeypatch):
+    _, review = seed(reader)
     with sqlite3.connect(reader.runs_path) as con:
         for ordinal, ticker in enumerate(["1301", "1302", "1303", "1304"]):
             payload = {"ticker": ticker, "precise_saved": 0.123456789, "unknown_saved": None}
@@ -220,9 +219,6 @@ def test_run_header_analysis_paging_full_review_and_pruned_triage(data, reader, 
         "SOURCE_UNAVAILABLE",
     )
     reader.runs_path.unlink()
-    assert data.get("research.triage", {"research_triage_id": triage.research_triage_id})[
-        "payload"
-    ]["payload"] == triage.model_dump(mode="json")
 
 
 def test_bytes_pagination_never_skips_unreturned_items(data, reader, monkeypatch):

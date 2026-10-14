@@ -17,7 +17,6 @@ from baibai_engine.read_api.er_calibration_context import (
 )
 from baibai_web.readmodel.builders.presentation import number, text
 from baibai_web.readmodel.models import (
-    CapitalAllocationAssessmentSummaryView,
     ErLevelCalibrationBandView,
     ErLevelCalibrationBasisView,
     ErLevelCalibrationContextView,
@@ -25,7 +24,6 @@ from baibai_web.readmodel.models import (
     ErLevelCalibrationHorizonView,
     ErLevelCalibrationStatsView,
     ExternalAssessmentSecurityView,
-    ResearchTriageView,
     ReviewSetAnalysisView,
     ReviewSetEntryView,
     ReviewSetNominationView,
@@ -40,7 +38,7 @@ from baibai_web.readmodel.stocks.presentation import (
     _mapping_items_optional,
     _portfolio_state,
 )
-from baibai_web.readmodel.stocks.research import _assessment_summary_view, _research_triage_view
+from baibai_web.readmodel.stocks.research import _assessment_summary_view
 from baibai_web.sources.db_sources import DbScreeningSource
 from baibai_web.sources.protocols import (
     ExternalAssessmentSource,
@@ -136,18 +134,12 @@ def build_screening(
         if ticker not in analyzed
     ]
     applicable_calibration = _calibration_for_run(run, er_level_calibration)
-    research_triages: list[ResearchTriageView] = []
-    assessments: list[CapitalAllocationAssessmentSummaryView] = []
-    research_triages, assessments = _current_screening_judgments(
-        research,
-        review_sets=review_sets,
-    )
+    assessments = [_assessment_summary_view(item) for item in research.assessments()]
     if run is None:
         return ScreeningView(
             run=None,
             security_analyses=[],
             review_sets=review_sets,
-            research_triages=research_triages,
             capital_allocation_assessments=assessments,
             er_level_calibration=None,
             external_assessment_securities=external_securities,
@@ -167,41 +159,10 @@ def build_screening(
             for row in run.rows
         ],
         review_sets=review_sets,
-        research_triages=research_triages,
         capital_allocation_assessments=assessments,
         er_level_calibration=_er_level_calibration_view(applicable_calibration),
         external_assessment_securities=external_securities,
         external_assessment_cutoff=cutoff if external_securities else None,
-    )
-
-
-def _current_screening_judgments(
-    research: ResearchSource,
-    *,
-    review_sets: list[ReviewSetView],
-) -> tuple[list[ResearchTriageView], list[CapitalAllocationAssessmentSummaryView]]:
-    """Show only the Research Triage -> allocation judgments for the displayed Review Set."""
-
-    review_set_sources = {
-        (review_set.review_set_id, review_set.run_revision_id) for review_set in review_sets
-    }
-    current_triages = [
-        item
-        for item in research.research_triages(
-            review_set_ids=[review_set.review_set_id for review_set in review_sets]
-        )
-        if (str(item.get("review_set_id")), str(item.get("run_revision_id"))) in review_set_sources
-    ]
-    triage_ids = {str(item["research_triage_id"]) for item in current_triages}
-    triage_views = [_research_triage_view(item) for item in current_triages]
-    if not triage_ids:
-        return triage_views, []
-    current_assessments = [
-        item for item in research.assessments() if str(item.get("research_triage_id")) in triage_ids
-    ]
-    return (
-        triage_views,
-        [_assessment_summary_view(item) for item in current_assessments],
     )
 
 

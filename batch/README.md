@@ -1,10 +1,10 @@
 # Batch
 
-定期machine処理と、明示依頼で動くResearch Triage runnerのorchestrationを所有します。
+定期machine処理のorchestrationを所有します。Researchの明示開始はengineとResearch skillが扱います。
 
 | 項目 | 内容 |
 | --- | --- |
-| 所有 | job順序、Triage runner、store転送・merge、workflow input validation、watchdog、summary、notification |
+| 所有 | job順序、store転送・merge、workflow input validation、watchdog、summary、notification |
 | 所有しない | 投資domain logic、Web projection logic |
 | 入口 | GitHub Actionsとskillから使う`baibai-batch`、operator用`scripts/` |
 | 依存境界 | batchはengineの`batch_api` / `read_api`だけを使う。web、tools、engine internalへ直接依存しない |

@@ -35,7 +35,7 @@ status: active
 
 | 調べたいこと | 正本 |
 | --- | --- |
-| Research Triageの契約・発行・進行・runner | [analysis-operations](./analysis-operations.md) |
+| Researchの選定・固定入力・提案進行・再開 | [analysis-operations](./analysis-operations.md) |
 | PC・Actions・クラウドの分担、環境準備と品質gate | [python-foundation](./python-foundation.md) |
 
 用語と関係図は[domain-language](../domain-language.md)、操作の入口は[docs portal](../README.md#目的別の入口)を参照する。

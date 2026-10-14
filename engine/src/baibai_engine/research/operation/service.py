@@ -8,11 +8,11 @@ import sqlite3
 from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
+from uuid import uuid4
 
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH, RUNS_DB_PATH
 from baibai_engine.foundation.time import JST
 from baibai_engine.research.capital_allocation import StoredCapitalAllocationAssessment
-from baibai_engine.research.explicit_selection import verify_explicit_research_run
 from baibai_engine.research.operation.models import (
     OperationPayload,
     OperationSession,
@@ -36,6 +36,8 @@ from baibai_engine.research.operation.research_binding import (
 from baibai_engine.research.operation.validation import validate_progress, validate_selection
 from baibai_engine.research.position_review import PositionReviewDocument
 from baibai_engine.research.position_review_service import PositionReviewService
+from baibai_engine.research.selection_policy import CURRENT_RESEARCH_CAPACITY
+from baibai_engine.research.selection_query import verify_analysis_snapshot
 from baibai_engine.research.thesis_store import load_reviewed_thesis
 from baibai_engine.storage.application.json import canonical_json
 from baibai_engine.storage.application.paths import database_path
@@ -84,10 +86,28 @@ class OperationService:
             raise OperationConflictError(
                 "start Research with `research prepare`; one research_selection is required"
             )
-        if selection.explicit_run is not None:
-            verify_explicit_research_run(
-                selection.explicit_run, path=self._runs_path, as_of=as_of, known_at=started_at
-            )
+        if selection.capacity != CURRENT_RESEARCH_CAPACITY:
+            raise OperationConflictError("new Research requires the current capacity policy")
+        if selection.input_known_at > started_at or selection.research_as_of != as_of:
+            raise OperationConflictError("Research date/cutoff differs from Operation start")
+        expected_kind = (
+            "position-review"
+            if selection.request.scope == "review_positions"
+            else "capital-allocation"
+        )
+        expected_ticker = (
+            selection.targets[0].ticker
+            if expected_kind == "position-review" and len(selection.targets) == 1
+            else None
+        )
+        if session_kind != expected_kind or ticker != expected_ticker:
+            raise OperationConflictError("Operation kind/ticker differs from Research scope")
+        verify_analysis_snapshot(
+            selection.inputs.analysis,
+            tickers=tuple(t.ticker for t in selection.targets),
+            known_at=selection.input_known_at,
+            runs_path=self._runs_path,
+        )
         if ticker is not None and re.fullmatch(r"[0-9A-Z]{4}", ticker) is None:
             raise OperationConflictError(
                 "current ticker must be a four-character alphanumeric code"
@@ -107,7 +127,10 @@ class OperationService:
                     raise OperationConflictError(
                         f"active operation already exists: {active['operation_id']}"
                     )
-                validate_selection(connection, selection, now=started_at)
+                try:
+                    validate_selection(connection, selection, now=started_at)
+                except ValueError as error:
+                    raise OperationConflictError(str(error)) from error
                 progress = validate_progress(
                     connection,
                     selection,
@@ -118,7 +141,7 @@ class OperationService:
                 )
                 if progress.outcomes:
                     payload = with_progress(payload, progress)
-                operation_id = _next_id(connection, as_of=as_of, session_kind=session_kind)
+                operation_id = f"research-op-{uuid4().hex}"
                 operation = OperationSession(
                     operation_id=operation_id,
                     session_kind=session_kind,
@@ -266,10 +289,11 @@ class OperationService:
         )
 
     def get(self, operation_id: str) -> OperationSession:
-        initialize_database(self._db_path)
-        with closing(connect_rw(self._db_path)) as connection:
+        if not database_path(self._db_path).is_file():
+            raise OperationNotFoundError(f"unknown operation_id: {operation_id}")
+        with closing(connect_read_only(self._db_path)) as connection:
             row = connection.execute(
-                "SELECT * FROM operation_session WHERE operation_id = ?", (operation_id,)
+                "SELECT * FROM operation_session WHERE operation_id=?", (operation_id,)
             ).fetchone()
         if row is None:
             raise OperationNotFoundError(f"unknown operation_id: {operation_id}")
@@ -326,7 +350,10 @@ class OperationService:
                         f"completed operation session is immutable: {operation_id}"
                     )
                 selected_before = selection_binding(before.payload)
-                incoming = selection_binding(payload)
+                try:
+                    incoming = selection_binding(payload)
+                except ValueError as error:
+                    raise OperationConflictError(str(error)) from error
                 if selected_before is None:
                     raise OperationConflictError("historical Operation is read-only")
                 if incoming != selected_before:
@@ -453,29 +480,6 @@ def _require_current_payload(payload: OperationPayload) -> None:
             "no-research is read-only history; "
             "current empty selections use explicit research_selection"
         )
-
-
-def _next_id(
-    connection: sqlite3.Connection,
-    *,
-    as_of: date,
-    session_kind: SessionKind,
-) -> str:
-    slug = re.sub(r"[^a-z]+", "-", session_kind).strip("-")
-    prefix = f"op-{as_of:%Y%m%d}-{slug}"
-    sequence = (
-        int(
-            connection.execute(
-                "SELECT count(*) FROM operation_session WHERE operation_id LIKE ?", (f"{prefix}-%",)
-            ).fetchone()[0]
-        )
-        + 1
-    )
-    while connection.execute(
-        "SELECT 1 FROM operation_session WHERE operation_id = ?", (f"{prefix}-{sequence}",)
-    ).fetchone():
-        sequence += 1
-    return f"{prefix}-{sequence}"
 
 
 def _insert(connection: sqlite3.Connection, operation: OperationSession) -> None:

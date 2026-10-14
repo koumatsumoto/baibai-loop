@@ -68,7 +68,7 @@ def promote(
         workspace, ticker, action="promote", gate=gate, db_path=db_path
     )
 
-    manifest_asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
+    manifest_asof = _parse_date(str(manifest.get("research_as_of")), label="manifest as_of")
     case = _read_case(workspace, ticker, manifest_asof)
     thesis_errors, review_errors = _case_eligibility(case, now=now)
     if thesis_errors or review_errors:

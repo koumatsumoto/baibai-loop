@@ -17,7 +17,6 @@ Valuation・Market Context・External Assessmentの意味は[domain-language](./
 
 | 目的 | 入口 |
 | --- | --- |
-| 保存済みReview SetをResearch Triageで判断する | [Research Triage](../.agents/skills/research-triage/SKILL.md) |
 | 明示開始から有限調査・新規/保有提案を進める | [Research](../.agents/skills/research/SKILL.md) |
 | 注文結果・入出金を記録する | [Ledger Record](../.agents/skills/ledger-record/SKILL.md) |
 | 保有銘柄を見直す | [Position Review](../.agents/skills/position-review/SKILL.md) |

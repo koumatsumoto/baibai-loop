@@ -8,7 +8,9 @@ from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
 
-from baibai_engine.research.operation.research_binding import require_active_research_set
+from baibai_engine.research.operation.models import OperationSession
+from baibai_engine.research.operation.progress import progress_binding, selection_binding
+from baibai_engine.research.operation.research_binding import require_matching_research_set
 from baibai_engine.storage.application.paths import database_path
 from baibai_engine.storage.application.read import connect_read_only
 
@@ -24,57 +26,40 @@ def scaffold_capital_allocation(
     db_path: Path | None,
     capital_allocation_assessment_id: str,
     as_of: date,
-    research_triage_id: str | None,
-    thesis_ids: list[str],
+    operation_id: str,
     published_at: datetime,
 ) -> dict[str, object]:
-    if not thesis_ids:
-        raise CapitalAllocationConflictError("at least one promoted thesis is required")
     path = database_path(db_path)
-    if not path.is_file():
-        raise CapitalAllocationConflictError(f"application database is unavailable: {path}")
     with closing(connect_read_only(path)) as connection:
-        triage = (
-            {}
-            if research_triage_id is None
-            else _payload(
-                connection,
-                "SELECT payload FROM research_triage WHERE research_triage_id = ?",
-                research_triage_id,
-            )
+        connection.execute("BEGIN")
+        row = connection.execute(
+            "SELECT * FROM operation_session WHERE operation_id=?", (operation_id,)
+        ).fetchone()
+        if row is None:
+            raise CapitalAllocationConflictError("Research Operation is unavailable")
+        operation = OperationSession.model_validate(
+            {**dict(row), "payload": json.loads(row["payload"])}
         )
-        raw_entries = triage.get("entries", [])
-        if not isinstance(raw_entries, list):
-            raise CapitalAllocationConflictError("research triage entries are invalid")
-        researchable = {
-            str(entry["ticker"])
-            for entry in raw_entries
-            if isinstance(entry, dict) and entry.get("decision") == "research"
-        }
-        alternatives = [
-            _alternative(
-                connection, thesis_id, None if research_triage_id is None else researchable
-            )
-            for thesis_id in thesis_ids
+        selection = selection_binding(operation.payload)
+        if selection is None:
+            raise CapitalAllocationConflictError("fixed Research selection is required")
+        completed = [
+            item
+            for item in progress_binding(operation.payload).outcomes
+            if item.status == "reviewed"
         ]
+        alternatives = [_alternative(connection, item.thesis_id) for item in completed]
         try:
-            scope = require_active_research_set(
-                connection,
-                research_triage_id=research_triage_id,
+            scope = require_matching_research_set(
+                operation,
+                research_triage_id=None,
                 tickers=(str(item["ticker"]) for item in alternatives),
                 published_at=published_at,
             )
         except ValueError as error:
             raise CapitalAllocationConflictError(str(error)) from error
-        if scope is not None and set(thesis_ids) != {
-            item.thesis_id for item in scope.outcomes if item.status == "reviewed"
-        }:
-            raise CapitalAllocationConflictError("Thesis IDs differ from completed new research")
-    market_context_assessment_id = (
-        triage.get("macro_context_id")
-        if triage.get("schema_version") == 3
-        else triage.get("market_context_assessment_id")
-    )
+    context = selection.inputs.market_context.get("saved_market_context_assessment")
+    market_context_assessment_id = context.get("context_id") if isinstance(context, dict) else None
     return {
         **({"research_scope": scope.model_dump(mode="json")} if scope is not None else {}),
         "schema_version": 2,
@@ -84,7 +69,7 @@ def scaffold_capital_allocation(
         "published_at": published_at.isoformat(),
         "result": "no_allocation",
         "headline": _TODO,
-        "research_triage_id": research_triage_id,
+        "research_triage_id": None,
         "market_context_assessment_id": market_context_assessment_id
         if isinstance(market_context_assessment_id, str)
         else None,
@@ -105,14 +90,9 @@ def scaffold_capital_allocation(
 def _alternative(
     connection: sqlite3.Connection,
     thesis_id: str,
-    researchable: set[str] | None,
 ) -> dict[str, object]:
     pair = load_reviewed_thesis(connection, thesis_id)
     ticker = pair.document.input_snapshot.ticker
-    if researchable is not None and ticker not in researchable:
-        raise CapitalAllocationConflictError(
-            f"thesis ticker is not researchable in the ResearchTriage: {ticker}"
-        )
     return {
         "ticker": ticker,
         "thesis_id": thesis_id,
@@ -121,16 +101,6 @@ def _alternative(
         "disposition": "decline",
         "rationale": _TODO,
     }
-
-
-def _payload(connection: sqlite3.Connection, sql: str, identifier: str) -> dict[str, object]:
-    row = connection.execute(sql, (identifier,)).fetchone()
-    if row is None:
-        raise CapitalAllocationConflictError(f"source is unavailable: {identifier}")
-    payload = json.loads(str(row[0]))
-    if not isinstance(payload, dict):
-        raise CapitalAllocationConflictError(f"source payload is invalid: {identifier}")
-    return payload
 
 
 __all__ = ["UNREVIEWED_DRAFT_SHA256", "scaffold_capital_allocation"]

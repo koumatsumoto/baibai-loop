@@ -118,7 +118,7 @@ def test_atomic_pair_retry_and_latest_unresolved(tmp_path):
         latest = load_latest_reviewed_thesis(connection, "1234")
         assert latest.thesis_id == "thesis-2"
         assert latest.document.valuation.status == "unresolved"
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 22
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 23
     changed = deepcopy(review)
     changed["strongest_countercase"] = "異なる内容"
     with pytest.raises(ResearchConflictError):
