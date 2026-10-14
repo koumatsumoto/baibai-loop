@@ -584,3 +584,13 @@ def test_service_owns_and_commits_short_transaction_with_fixture_schema(tmp_path
     with connect_read_only(db) as db_connection:
         assert load_reviewed_assessment(db_connection, pair.assessment_id) == pair
     assert service.publish_reviewed_assessment(assessment_id(), document, review) == pair
+
+
+@pytest.mark.parametrize("field", ["schema_version", "snapshot_version"])
+@pytest.mark.parametrize("bad", [True, 1.0, "1"])
+def test_version_headers_require_integers_even_when_equal_to_literal_one(field, bad):
+    document, _ = pair_payload()
+    target = document if field == "schema_version" else document["input_snapshot"]
+    target[field] = bad
+    with pytest.raises(ValueError, match=f"{field} must be an integer"):
+        StockAssessmentDocument.model_validate(document)

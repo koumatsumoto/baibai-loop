@@ -215,6 +215,13 @@ class InputSnapshot(BaseModel):
     sources: tuple[Source, ...]
     facts: tuple[ObservedFact, ...]
 
+    @field_validator("snapshot_version", mode="before")
+    @classmethod
+    def _strict_version(cls, value: object) -> object:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("snapshot_version must be an integer")
+        return value
+
     @field_validator("as_of", mode="before")
     @classmethod
     def _parse_date(cls, value: object) -> date:
@@ -447,6 +454,13 @@ class StockAssessmentDocument(BaseModel):
     findings: ResearchFindings
     conclusion: AssessmentConclusion
     refresh: AssessmentRefresh | None = None
+
+    @field_validator("schema_version", mode="before")
+    @classmethod
+    def _strict_version(cls, value: object) -> object:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("schema_version must be an integer")
+        return value
 
     @field_validator("permanent_loss_risks", mode="before")
     @classmethod
