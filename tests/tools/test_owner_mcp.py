@@ -8,64 +8,39 @@ from pathlib import Path
 
 import pytest
 from mcp import Client
-from tests.helpers.candidates import published_review_set
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
 from tools.l1_mcp.contract import LIMITS
 from tools.l1_mcp.server import Adapter
 from tools.owner_mcp.reader import (
+    CandidateSelector,
     OwnerError,
     Reader,
-    ReviewSetSelector,
     digest,
 )
 from tools.owner_mcp.server import call, create_server
 
-from baibai_engine.screening.discovery.contracts import PublishedReviewSet
-from baibai_engine.screening.discovery.projection import review_set_candidates
+from baibai_engine.screening.discovery.projection import candidate_rows
 from baibai_engine.screening.run_store.schema import RUN_STORE_SCHEMA_VERSION, SCHEMA_SQL
 from baibai_engine.storage.application.write import initialize_database
 
 
-def seed(
-    reader,
-    *,
-    identifier="triage-a",
-    day="2026-07-19",
-    published_at=None,
-    assessment_id=None,
-    triaged=True,
-):
-    review = PublishedReviewSet.model_validate(
-        published_review_set(
-            as_of=day, review_set_id=f"review-{identifier}", run_revision_id=f"run-{identifier}"
-        )
+def seed(reader, *, identifier="run-a", day="2026-07-19", published_at=None, rows=None):
+    from tests.engine.test_candidate_discovery import _analysis
+    from tests.engine.test_screening_run_store import _publish, _run
+
+    from baibai_engine.screening.run_store import ScreeningRunReader
+
+    _publish(
+        reader.runs_path,
+        _run(
+            rows=[_analysis("2331")] if rows is None else rows,
+            asof=day,
+            at=published_at or f"{day}T13:00:00+09:00",
+        ),
+        revision=identifier,
     )
-    with sqlite3.connect(reader.runs_path) as con:
-        con.execute(
-            "INSERT INTO screening_run VALUES (?,?,?,?,?,?,?,?,?)",
-            (
-                review.run_revision_id,
-                identifier,
-                day,
-                day,
-                review.created_at.isoformat(),
-                1,
-                "rules.yaml",
-                review.created_at.isoformat(),
-                json.dumps({"screening_rules_hash": review.screening_rules_hash}),
-            ),
-        )
-        con.execute(
-            "INSERT INTO review_set VALUES (?,?,?,?)",
-            (
-                review.review_set_id,
-                review.run_revision_id,
-                review.created_at.isoformat(),
-                review.model_dump_json(),
-            ),
-        )
-    return None, review
+    return None, ScreeningRunReader(reader.runs_path).get_run(identifier)
 
 
 @pytest.fixture
@@ -155,7 +130,7 @@ def test_public_surface_sanitized_errors_and_result_limit(reader):
                 "l1_describe_dataset",
                 "l1_query",
                 "portfolio_get_exclusions",
-                "screening_get_review_set",
+                "screening_get_candidates",
                 "data_catalog",
                 "data_list",
                 "data_get",
@@ -164,10 +139,10 @@ def test_public_surface_sanitized_errors_and_result_limit(reader):
                 assert tool.annotations.read_only_hint is True
                 assert tool.annotations.destructive_hint is False
                 assert tool.annotations.open_world_hint is False
-            got = await client.call_tool("screening_get_review_set", {})
+            got = await client.call_tool("screening_get_candidates", {})
             assert not got.is_error
         async with Client(create_server(adapter, reader)) as client:
-            repeated = await client.call_tool("screening_get_review_set", {})
+            repeated = await client.call_tool("screening_get_candidates", {})
             assert repeated.structured_content == got.structured_content
 
     try:
@@ -190,130 +165,68 @@ def test_public_surface_sanitized_errors_and_result_limit(reader):
     )
 
 
-def test_review_set_selectors_parity_and_untriaged(reader):
+def test_candidates_latest_daily_exact_parity_and_app_independence(reader):
     _, old = seed(reader)
-    _, new = seed(reader, identifier="new", day="2026-07-20", triaged=False)
+    _, new = seed(reader, identifier="new", day="2026-07-20")
     before = [p.read_bytes() for p in (reader.app_path, reader.runs_path)]
-    old_result = reader.get_review_set(ReviewSetSelector(review_set_id=old.review_set_id))
-    assert old_result["candidates"] == list(review_set_candidates(old))
-    for selector in (
-        {},
-        {"public_run_id": "new"},
-        {"as_of": "2026-07-20"},
-        {"not_before": "2026-07-20"},
-    ):
-        result = reader.get_review_set(ReviewSetSelector(**selector))
-        assert result["review_set_ref"] == {
-            "review_set_id": new.review_set_id,
-            "run_revision_id": new.run_revision_id,
-            "public_run_id": "new",
-        }
-        assert result["candidate_count"] == len(new.entries)
-        assert result["input_basis"] == "frozen_review_set"
-        assert reader.get_review_set(ReviewSetSelector(review_set_id=new.review_set_id)) == result
-    assert reader.get_review_set(ReviewSetSelector(not_before="2026-07-18")) == old_result
+    old_result = reader.get_candidates(CandidateSelector(run_revision_id=old.run_revision_id))
+    assert old_result["candidates"] == list(candidate_rows(old.stock_analyses))
+    for selector in ({}, {"as_of": "2026-07-20"}, {"run_revision_id": "new"}):
+        result = reader.get_candidates(CandidateSelector(**selector))
+        assert result["run_revision_id"] == new.run_revision_id
+        assert result["count"] == 1
+        assert result["input_basis"] == "saved_stock_analyses"
+        assert "review_set_ref" not in result
+        assert "created_at" not in result
     assert before == [p.read_bytes() for p in (reader.app_path, reader.runs_path)]
-
-
-def test_review_set_frozen_despite_changed_run_analysis_and_missing_app(reader):
-    _, review = seed(reader)
-    selector = ReviewSetSelector(review_set_id=review.review_set_id)
-    original = reader.get_review_set(selector)
-    with sqlite3.connect(reader.runs_path) as con:
-        # Current Security Analysis is deliberately unusable as a candidate projection.
-        con.execute(
-            "INSERT INTO security_analysis (run_revision_id,ticker,ordinal,sector_33,payload) VALUES (?,?,?,?,?)",
-            (
-                review.run_revision_id,
-                "2331",
-                0,
-                "Company",
-                '{"fcf_ttm":999999}',
-            ),
-        )
     reader.app_path.unlink()
-    assert reader.get_review_set(selector) == original
     assert (
-        "ttm_quality_fcf" not in original["candidates"][0]["snapshot"]["analysis"]["data_quality"]
+        reader.get_candidates(CandidateSelector(run_revision_id=old.run_revision_id)) == old_result
     )
 
 
-@pytest.mark.parametrize(
-    "selector",
-    [
-        {"review_set_id": "missing"},
-        {"public_run_id": "missing"},
-        {"as_of": "2026-07-18"},
-        {"not_before": "2026-07-21"},
-    ],
-)
-def test_review_set_not_found_never_falls_back(reader, selector):
+@pytest.mark.parametrize("selector", [{"run_revision_id": "missing"}, {"as_of": "2026-07-18"}])
+def test_candidates_not_found_never_falls_back(reader, selector):
     seed(reader)
-    with pytest.raises(OwnerError, match="SOURCE_UNAVAILABLE"):
-        reader.get_review_set(ReviewSetSelector(**selector))
+    with pytest.raises(OwnerError, match="not_found"):
+        reader.get_candidates(CandidateSelector(**selector))
 
 
-def test_review_set_daily_latest_and_ambiguous_public_run(reader):
-    from baibai_engine.screening.run_store import ScreeningRunReader
+def test_candidates_zero_is_success_and_daily_multiple_revisions_use_latest(reader):
+    from tests.engine.test_screening_run_store import _publish, _run
 
-    _, first = seed(reader)
-    _, second = seed(reader, identifier="triage-b", triaged=False)
-    # UTC serialization sorts lexically before +09:00 but is a later instant.
-    payload = second.model_dump(mode="json")
-    payload["created_at"] = "2026-07-19T05:00:00+00:00"
-    with sqlite3.connect(reader.runs_path) as con:
-        con.execute(
-            "UPDATE review_set SET created_at=?, payload=? WHERE review_set_id=?",
-            (
-                payload["created_at"],
-                json.dumps(payload),
-                second.review_set_id,
-            ),
-        )
-        con.execute(
-            "UPDATE screening_run SET public_run_id='triage-a', run_at=? WHERE run_revision_id=?",
-            (
-                payload["created_at"],
-                second.run_revision_id,
-            ),
-        )
-    for selector in ({}, {"as_of": "2026-07-19"}, {"not_before": "2026-07-19"}):
-        assert (
-            reader.get_review_set(ReviewSetSelector(**selector))["review_set_ref"]["review_set_id"]
-            == second.review_set_id
-        )
-    assert (
-        ScreeningRunReader(reader.runs_path)
-        .latest_review_set(as_of_date="2026-07-19")
-        .review_set_id
-        == second.review_set_id
+    seed(reader)
+    _publish(
+        reader.runs_path,
+        _run(rows=[], asof="2026-07-19", at="2026-07-19T05:00:00+00:00"),
+        revision="latest-empty",
     )
-    with pytest.raises(OwnerError, match="AMBIGUOUS_SELECTION"):
-        reader.get_review_set(ReviewSetSelector(public_run_id="triage-a"))
-    assert reader.get_review_set(ReviewSetSelector(review_set_id=first.review_set_id))
+    result = reader.get_candidates(CandidateSelector(as_of="2026-07-19"))
+    assert result["run_revision_id"] == "latest-empty"
+    assert result["candidates"] == []
+    assert result["count"] == 0
+    assert reader.get_candidates(CandidateSelector()) == result
+    assert reader.get_candidates(CandidateSelector(run_revision_id="run-a"))["count"] == 1
 
 
-def test_review_set_mcp_validation_and_parity(reader):
+def test_candidates_mcp_validation_and_parity(reader):
     seed(reader)
     adapter = Adapter()
 
     async def check():
         async with Client(create_server(adapter, reader)) as client:
             for args in (
-                {"review_set_id": "review-triage-a", "not_before": "2026-07-19"},
+                {"run_revision_id": "run-a", "as_of": "2026-07-19"},
                 {"as_of": "2026-02-30"},
-                {"not_before": "20260719"},
-                {"review_set_id": ""},
+                {"as_of": "20260719"},
+                {"run_revision_id": ""},
             ):
-                result = await client.call_tool("screening_get_review_set", args)
+                result = await client.call_tool("screening_get_candidates", args)
                 assert result.is_error
                 assert result.structured_content["error"]["code"] == "INVALID_ARGUMENT"
-            result = await client.call_tool("screening_get_review_set", {})
+            result = await client.call_tool("screening_get_candidates", {})
             assert not result.is_error
-            assert (
-                result.structured_content["candidates"]
-                == reader.get_review_set(ReviewSetSelector())["candidates"]
-            )
+            assert result.structured_content == reader.get_candidates(CandidateSelector())
 
     try:
         asyncio.run(check())

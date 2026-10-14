@@ -179,6 +179,6 @@ PRのfixture/local store検証だけでは、この受入を完了したと扱�
 
 catalog → market_context.reading → 複数系列の履歴 → provider_run → exact Market Context AssessmentをTriageなしで辿り、
 reading refの再取得を確認します。L1 resolve/describe/queryは従来のfixed releaseで確認します。
-保存runの全Security Analysisはcursorで最後まで取得し、ordinal・件数を照合します。
+保存runの全Stock Analysisはcursorで最後まで取得し、ordinal・件数を照合します。
 calibrationは同じsnapshot_tokenでcohort/panel/forwardを確認し、不在なら生成せず不在と記録します。
 L3は実在するrecordだけを読み、未登録のpublicationを受入のために作りません。

@@ -27,6 +27,7 @@ from baibai_engine.market_context.indicators.db import (
 from baibai_engine.market_context.indicators.db import insert_observations
 from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.read_api.market_context import reading_snapshot
+from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.storage.lake.datasets import LAKE_DATASETS
 from baibai_engine.tasks.models import Task
 
@@ -71,8 +72,7 @@ def test_catalog_is_complete_without_stores_and_schemas_are_live(data):
         "market.source_coverage",
         "market.capital_policy_snapshot",
         "screening.run",
-        "screening.security_analysis",
-        "screening.review_set",
+        "screening.stock_analysis",
         "screening.calibration.cohort",
         "screening.calibration.panel_row",
         "screening.calibration.forward_row",
@@ -190,55 +190,46 @@ def test_missing_unwritten_empty_and_corrupt_are_distinct(data):
 
 
 def test_run_header_analysis_paging_full_review_and_pruned_run(data, reader, monkeypatch):
-    _, review = seed(reader)
-    with sqlite3.connect(reader.runs_path) as con:
-        for ordinal, ticker in enumerate(["1301", "1302", "1303", "1304"]):
-            payload = {"ticker": ticker, "precise_saved": 0.123456789, "unknown_saved": None}
-            con.execute(
-                "INSERT INTO security_analysis(run_revision_id,ordinal,ticker,payload) VALUES(?,?,?,?)",
-                (review.run_revision_id, ordinal, ticker, json.dumps(payload)),
-            )
+    _, review = seed(
+        reader,
+        rows=[
+            {"ticker": ticker, "name": ticker, "precise_saved": 0.123456789, "unknown_saved": None}
+            for ticker in ["1301", "1302", "1303", "1304"]
+        ],
+    )
     from baibai_engine.screening.run_store.read import ScreeningRunReader
 
     monkeypatch.setattr(ScreeningRunReader, "get_run", lambda *_: pytest.fail("full run loaded"))
     header = data.get("screening.run", {"run_revision_id": review.run_revision_id})
     assert header["meta"]["payload_scope"] == "run_header"
-    items = pages(data, "screening.security_analysis", {"run_revision_id": review.run_revision_id})
+    items = pages(data, "screening.stock_analysis", {"run_revision_id": review.run_revision_id})
     assert [item["payload"]["ordinal"] for item in items] == [0, 1, 2, 3]
     assert items[-1]["payload"]["payload"]["precise_saved"] == 0.123456789
-    exact = data.get("screening.security_analysis", items[-1]["selector"])
+    exact = data.get("screening.stock_analysis", items[-1]["selector"])
     assert (
-        data.get("screening.security_analysis", resource_ref=exact["resource_ref"])["payload"]
+        data.get("screening.stock_analysis", resource_ref=exact["resource_ref"])["payload"]
         == exact["payload"]
     )
-    assert data.get("screening.review_set", {"as_of": review.as_of.isoformat()})["payload"][
-        "payload"
-    ] == review.model_dump(mode="json")
     error(
-        lambda: data.list("screening.security_analysis", {"run_revision_id": "missing"}),
+        lambda: data.list("screening.stock_analysis", {"run_revision_id": "missing"}),
         "SOURCE_UNAVAILABLE",
     )
     reader.runs_path.unlink()
 
 
 def test_bytes_pagination_never_skips_unreturned_items(data, reader, monkeypatch):
-    _, review = seed(reader)
-    with sqlite3.connect(reader.runs_path) as con:
-        for index in range(6):
-            con.execute(
-                "INSERT INTO security_analysis(run_revision_id,ordinal,ticker,payload) VALUES(?,?,?,?)",
-                (
-                    review.run_revision_id,
-                    index,
-                    str(1300 + index),
-                    json.dumps({"text": "あ" * 200}),
-                ),
-            )
+    _, review = seed(
+        reader,
+        rows=[
+            {"ticker": str(1300 + index), "name": "合成会社", "text": "あ" * 200}
+            for index in range(6)
+        ],
+    )
     import tools.owner_mcp.resources as module
 
     monkeypatch.setattr(module, "LIMITS", replace(LIMITS, result_bytes=2200))
     result = data.list(
-        "screening.security_analysis", {"run_revision_id": review.run_revision_id}, limit=6
+        "screening.stock_analysis", {"run_revision_id": review.run_revision_id}, limit=6
     )
     assert 0 < result["returned_count"] < 6
     assert result_size(result) <= 2200
@@ -247,7 +238,7 @@ def test_bytes_pagination_never_skips_unreturned_items(data, reader, monkeypatch
         len(
             pages(
                 data,
-                "screening.security_analysis",
+                "screening.stock_analysis",
                 {"run_revision_id": review.run_revision_id},
                 limit=6,
             )
@@ -256,9 +247,7 @@ def test_bytes_pagination_never_skips_unreturned_items(data, reader, monkeypatch
     )
     monkeypatch.setattr(module, "LIMITS", replace(LIMITS, result_bytes=100))
     error(
-        lambda: data.list(
-            "screening.security_analysis", {"run_revision_id": review.run_revision_id}
-        ),
+        lambda: data.list("screening.stock_analysis", {"run_revision_id": review.run_revision_id}),
         "RESULT_TOO_LARGE",
     )
 
@@ -498,18 +487,9 @@ def test_reading_list_carries_rules_revision_on_every_page(data):
         assert "rules_revision" not in result["items"][0]["selector"]
 
 
-@pytest.mark.parametrize("selector", [{"latest": True}, {"review_set_id": "missing"}])
-def test_review_set_unwritten_store_is_unavailable_but_partial_schema_is_corrupt(data, selector):
-    data.paths.runs.unlink()
-    with sqlite3.connect(data.paths.runs):
-        pass
-    error(lambda: data.get("screening.review_set", selector), "SOURCE_UNAVAILABLE")
-    from baibai_engine.screening.run_store.schema import RUN_STORE_SCHEMA_VERSION
-
-    with sqlite3.connect(data.paths.runs) as con:
-        con.execute(f"PRAGMA user_version={RUN_STORE_SCHEMA_VERSION}")
-        con.execute("CREATE TABLE screening_run(run_revision_id TEXT, asof_date TEXT)")
-    error(lambda: data.get("screening.review_set", selector), "CONTRACT_MISMATCH")
+def test_removed_review_resource_is_not_in_catalog(data):
+    assert "screening.review_set" not in data.specs
+    error(lambda: data.get("screening.review_set", {"latest": True}), "INVALID_ARGUMENT")
 
 
 @pytest.mark.parametrize(
@@ -549,6 +529,7 @@ def test_run_pagination_uses_chronological_cursor_for_mixed_offsets(data):
         store.publish_run(
             screening_run_payload(as_of="2026-07-08", run_at=instant),
             run_revision_id=identity,
+            rules=load_screening_rules(),
         )
     result = pages(data, "screening.run", {"from": "2026-07-08", "to": "2026-07-08"}, limit=1)
     assert [item["payload"]["run_revision_id"] for item in result] == [
