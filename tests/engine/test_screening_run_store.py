@@ -397,3 +397,51 @@ def test_stock_analysis_schema_and_serializer_keep_original_numeric_rounding() -
         match="finite",
     ):
         StockAnalysis(**{**asdict(analysis), "per_forward": float("inf")})
+
+
+@pytest.mark.parametrize(
+    ("cutoff", "expected"),
+    [("000100", "zz-early"), ("000500", "aa-late"), ("000800", "00-latest")],
+)
+def test_research_cutoff_and_latest_selection_preserve_sub_millisecond_clock(
+    tmp_path: Path, cutoff: str, expected: str
+) -> None:
+    path = tmp_path / "runs.sqlite"
+    for fraction, revision in (
+        ("000000", "zz-early"),
+        ("000400", "aa-late"),
+        ("000700", "00-latest"),
+    ):
+        _publish(path, _run(at=f"2026-10-14T12:00:00.{fraction}+09:00"), revision=revision)
+    reader = ScreeningRunReader(path)
+    known_at = datetime.fromisoformat(f"2026-10-14T12:00:00.{cutoff}+09:00")
+    run = reader.analysis_run(as_of=date(2026, 10, 14), known_at=known_at)
+    assert run is not None
+    assert run.run_revision_id == expected
+    for fraction, revision in (
+        ("000000", "zz-early"),
+        ("000400", "aa-late"),
+        ("000700", "00-latest"),
+    ):
+        if fraction > cutoff:
+            with pytest.raises(ValueError, match="after the Research cutoff"):
+                reader.analysis_run(
+                    as_of=date(2026, 10, 14), known_at=known_at, run_revision_id=revision
+                )
+        else:
+            exact = reader.analysis_run(
+                as_of=date(2026, 10, 14), known_at=known_at, run_revision_id=revision
+            )
+            assert exact is not None
+            assert exact.run_revision_id == revision
+
+
+def test_research_cutoff_compares_offset_equivalent_timestamps(tmp_path: Path) -> None:
+    path = tmp_path / "runs.sqlite"
+    _publish(path, _run(at="2026-10-14T12:00:00.000400+09:00"), revision="aa-jst")
+    _publish(path, _run(at="2026-10-14T03:00:00.000400+00:00"), revision="zz-utc")
+    reader = ScreeningRunReader(path)
+    known_at = datetime.fromisoformat("2026-10-14T03:00:00.000400+00:00")
+    run = reader.analysis_run(as_of=date(2026, 10, 14), known_at=known_at)
+    assert run is not None
+    assert run.run_revision_id == "zz-utc"

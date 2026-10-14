@@ -127,12 +127,22 @@ class ScreeningRunReader:
                 ):
                     raise ValueError("explicit analysis run is after the Research cutoff")
             else:
-                row = connection.execute(
-                    "SELECT * FROM screening_run WHERE asof_date <= ? "
-                    "AND julianday(run_at) <= julianday(?) "
-                    "ORDER BY asof_date DESC, julianday(run_at) DESC, run_revision_id DESC LIMIT 1",
-                    (as_of.isoformat(), known_at.isoformat()),
-                ).fetchone()
+                headers = connection.execute(
+                    "SELECT * FROM screening_run WHERE asof_date <= ?",
+                    (as_of.isoformat(),),
+                ).fetchall()
+                # SQLite julianday rounds to milliseconds. Research's cutoff and
+                # latest-run selection preserve the saved clock's full precision.
+                timed_headers = [
+                    (header, datetime.fromisoformat(header["run_at"])) for header in headers
+                ]
+                eligible = [item for item in timed_headers if item[1] <= known_at]
+                selected = max(
+                    eligible,
+                    key=lambda item: (item[0]["asof_date"], item[1], item[0]["run_revision_id"]),
+                    default=None,
+                )
+                row = None if selected is None else selected[0]
             return None if row is None else _run_from_row(connection, row)
 
     def valuation_run(
