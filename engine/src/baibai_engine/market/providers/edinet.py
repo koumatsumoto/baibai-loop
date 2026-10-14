@@ -725,5 +725,3 @@ def _parse_slash_date(value: str) -> date | None:
         return date.fromisoformat(value.replace("/", "-"))
     except ValueError:
         return None
-
-
