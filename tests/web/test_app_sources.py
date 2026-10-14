@@ -1,20 +1,26 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
+from tests.engine.test_position_review_v3 import NOW
+from tests.engine.test_position_review_v3 import holding_case as holding_case
 from tests.helpers.screening_run import screening_run_payload, security_analysis
 from tests.helpers.screening_sqlite import seed_daily_bars
 
+from baibai_engine.research.position_review import RemainingReward
+from baibai_engine.research.position_review_service import PositionReviewService
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import ScreeningRunStore
 from baibai_engine.storage.application.write import connect_rw
 from baibai_engine.storage.observations.schema import open_connection
+from baibai_web.readmodel.stocks.detail import build_security_detail
 from baibai_web.sources.db_sources import (
     DbLedgerSource,
     DbMarketPriceSource,
+    DbOperationsSource,
     DbResearchSource,
     DbScreeningSource,
     DbTaskSource,
@@ -65,6 +71,41 @@ class TestDbResearchSource:
         assert len(detail.projection["raw"]["permanent_loss_risks"]) == 7
         assert detail.projection["raw"]["schema_version"] == 3
         assert source.position_reviews(ticker="2331") == []
+
+    def test_published_null_shows_input_freshness_separately_from_reward(
+        self, holding_case, tmp_path: Path
+    ) -> None:
+        db, market, _ = holding_case
+        tomorrow = NOW + timedelta(days=1)
+        service = PositionReviewService(db, sqlite_path=market, clock=lambda: tomorrow)
+        draft = service.build(thesis_id="current", position_id="2331")
+        draft = draft.model_copy(
+            update={
+                "remaining_reward": RemainingReward(
+                    status="sufficient", reason="保有継続の将来価値を確認"
+                )
+            }
+        )
+        assert (
+            DbOperationsSource(db).position_review_null_reason(draft.model_dump(mode="json"))
+            == "valuation_basis_requires_refresh"
+        )
+        assert service.publish(draft, confirmed=True).action is None
+        research = DbResearchSource(db)
+        summary = research.position_reviews(ticker="2331")[0]
+        assert summary.null_reason == "valuation_basis_requires_refresh"
+        assert summary.note == "保有継続の将来価値を確認"
+        detail = build_security_detail(
+            "2331",
+            DbLedgerSource(db, market),
+            research,
+            DbScreeningSource(tmp_path / "missing-runs.sqlite"),
+            DbMarketPriceSource(market),
+        )
+        assert detail is not None
+        assert detail.position_reviews[0].note == (
+            "企業評価の基準日が判断日と異なります。保有継続の将来価値を確認"
+        )
 
     @pytest.mark.parametrize("reviews", [[], ["newer"], ["tie-a", "tie-z"]])
     def test_latest_review_matches_detail(

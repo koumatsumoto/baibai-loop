@@ -33,6 +33,7 @@ from baibai_engine.read_api import (
     market_master_snapshot,
     next_earnings_dates,
     portfolio_ledger_document,
+    position_review_null_reason,
     previous_business_day,
     research_triage_payload,
     research_triage_payloads_for_review_set,
@@ -172,6 +173,9 @@ class DbOperationsSource:
     def operations(self) -> list[dict[str, object]]:
         return list_operation_sessions(self._path)
 
+    def position_review_null_reason(self, payload: Mapping[str, object]) -> str | None:
+        return position_review_null_reason(self._path, payload)
+
     def outcomes(self) -> list[dict[str, object]]:
         return list_portfolio_outcome_payloads(self._path)
 
@@ -210,20 +214,27 @@ class DbResearchSource:
 
     def position_reviews(self, *, ticker: str | None = None) -> list[PositionReviewSummary]:
         result: list[PositionReviewSummary] = []
-        for publication in list_position_review_publications(self._path, ticker=ticker):
+        publications = list_position_review_publications(self._path, ticker=ticker)
+        if not publications:
+            return result
+        for publication in publications:
             payload = _mapping(publication["payload"], label="Position Review")
             reward = payload.get("remaining_reward")
             reward_reason = reward.get("reason") if isinstance(reward, Mapping) else None
+            action = _optional_text(payload.get("action"))
             result.append(
                 PositionReviewSummary(
                     position_review_id=str(publication["position_review_id"]),
                     ticker=str(publication["ticker"]),
                     as_of=date.fromisoformat(str(publication["as_of"])),
                     thesis_id=str(publication["thesis_id"]),
-                    action=_optional_text(payload.get("action")),
+                    action=action,
                     note=_optional_text(
                         reward_reason or payload.get("unresolved_reason") or payload.get("note")
                     ),
+                    null_reason=position_review_null_reason(self._path, payload)
+                    if action is None
+                    else None,
                 )
             )
         return result

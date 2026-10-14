@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
 
 from .sqlite import read_application_rows as read_rows
@@ -159,8 +160,39 @@ __all__ = [
     "list_thesis_payloads",
     "list_thesis_publications",
     "list_thesis_review_publications",
+    "position_review_null_reason",
     "thesis_publication",
 ]
+
+
+def position_review_null_reason(path: Path, payload: Mapping[str, object]) -> str | None:
+    """Explain a saved null from its exact Thesis and recorded inputs, without market reads."""
+    from contextlib import closing
+
+    from baibai_engine.position.policy import PORTFOLIO_POLICY
+    from baibai_engine.research.position_review import (
+        PositionReviewDocument,
+        evaluate_position_review,
+    )
+    from baibai_engine.research.thesis_store import load_reviewed_thesis
+    from baibai_engine.storage.application.read import connect_read_only
+
+    if payload.get("action") is not None:
+        return None
+    try:
+        document = PositionReviewDocument.model_validate(payload)
+        with closing(connect_read_only(path)) as connection:
+            pair = load_reviewed_thesis(connection, document.thesis_id)
+        evaluation = evaluate_position_review(
+            document,
+            pair.document,
+            primary_verified=pair.review.primary_source_check == "verified",
+            max_quote_age_days=PORTFOLIO_POLICY["valuation"]["market_price_max_age_days"],
+        )
+    except ValueError:
+        # Legacy partial payloads retain the author's saved note.
+        return None
+    return evaluation.reason if evaluation.action is None else None
 
 
 def reviewed_thesis_projection(path: Path, *, thesis_id: str) -> dict[str, object]:

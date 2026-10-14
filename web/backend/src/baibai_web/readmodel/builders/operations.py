@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from baibai_web.readmodel.builders.presentation import text
+from baibai_web.readmodel.builders.presentation import position_review_reason_text, text
 from baibai_web.readmodel.models import (
     OperationResearchTargetView,
     OperationResearchView,
@@ -18,12 +18,12 @@ from baibai_web.sources.db_sources import DbOperationsSource
 
 def build_operations_view(source: DbOperationsSource) -> OperationsView:
     return OperationsView(
-        operations=[_operation_view(item) for item in source.operations()],
+        operations=[_operation_view(item, source) for item in source.operations()],
         outcomes=[PortfolioOutcomeView.model_validate(item) for item in source.outcomes()],
     )
 
 
-def _operation_view(raw: Mapping[str, object]) -> OperationSessionView:
+def _operation_view(raw: Mapping[str, object], source: DbOperationsSource) -> OperationSessionView:
     view = OperationSessionView.model_validate(raw)
     artifacts = _mapping_items_optional(view.payload.get("artifacts"))
     selection = next((item for item in artifacts if item.get("kind") == "research_selection"), None)
@@ -55,6 +55,11 @@ def _operation_view(raw: Mapping[str, object]) -> OperationSessionView:
                     else [],
                     "checked_at": outcome.get("checked_at"),
                     "holding_proposal": proposal,
+                    "holding_proposal_null_reason": position_review_reason_text(
+                        source.position_review_null_reason(proposal)
+                    )
+                    if proposal is not None and proposal.get("action") is None
+                    else None,
                 }
             )
         )

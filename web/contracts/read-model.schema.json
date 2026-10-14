@@ -3747,6 +3747,18 @@
             }
           ],
           "title": "Holding Proposal"
+        },
+        "holding_proposal_null_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Holding Proposal Null Reason"
         }
       },
       "required": [
@@ -3758,7 +3770,8 @@
         "unfinished_reason",
         "references",
         "checked_at",
-        "holding_proposal"
+        "holding_proposal",
+        "holding_proposal_null_reason"
       ],
       "title": "OperationResearchTargetView",
       "type": "object"

@@ -67,6 +67,7 @@ _DECLARED_OUTSIDE_THE_SWEEP = frozenset(
         "safe_load",  # a YAML helper re-exported for callers
         "screening_calibration_method_identity",  # reads Git-managed method config
         "prepare_market_context_inputs",  # requires an explicit shared master; covered by prepared-context tests
+        "position_review_null_reason",  # requires an exact saved review; covered by web read-model tests
     }
 )
 

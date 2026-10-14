@@ -606,6 +606,7 @@ export interface OperationResearchTargetView {
   references: string[]
   checked_at: string | null
   holding_proposal: Record<string, unknown> | null
+  holding_proposal_null_reason: string | null
 }
 
 export interface OperationResearchView {
