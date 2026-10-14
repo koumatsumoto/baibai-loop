@@ -31,7 +31,7 @@ from baibai_engine.external_assessment.tradingview.contract import COLUMNS as TV
 from baibai_engine.external_assessment.tradingview.contract import DDL as TV_DDL
 from baibai_engine.external_assessment.tradingview.contract import TABLE as TV_TABLE
 
-SQLITE_SCHEMA_VERSION = 31
+SQLITE_SCHEMA_VERSION = 32
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
 # EDINET serves a filing's descriptive columns only while its public-inspection period
@@ -160,6 +160,11 @@ _REQUIRED_COLUMNS: Mapping[str, tuple[str, ...]] = {
         "dividend_year_end",
         "dividend_total_annual",
         "average_shares",
+        "record_key",
+        "disclosure_number",
+        "disclosed_time",
+        "document_type",
+        "document_payload",
     ),
     "jquants_master_snapshots": (
         "snapshot_date",
@@ -456,7 +461,12 @@ CREATE TABLE IF NOT EXISTS jquants_fin_summaries(
   -- 引いた株数が壊れていないかを同じ行の中で照合できる。`shares_outstanding` は期末の
   -- 発行済総数で、両者は別の量なので独立した列で持つ。
   average_shares REAL,
-  PRIMARY KEY (ticker, disclosed_at)
+  record_key TEXT NOT NULL DEFAULT 'legacy',
+  disclosure_number TEXT,
+  disclosed_time TEXT,
+  document_type TEXT,
+  document_payload TEXT,
+  PRIMARY KEY (ticker, disclosed_at, record_key)
 );
 
 CREATE TABLE IF NOT EXISTS jquants_master_snapshots(

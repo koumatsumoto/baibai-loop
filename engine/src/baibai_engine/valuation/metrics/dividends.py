@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from itertools import pairwise
+from typing import Any
 
 from baibai_engine.foundation.date_utils import add_months_clamped
 from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.market.financial_documents import (
+    latest_disclosure_candidates,
+    latest_forecast_source,
+    project_financial_documents,
+    statement_basis,
+)
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.valuation.metrics.capital import (
     SHARE_COUNT_ANCHOR_TOLERANCE,
@@ -17,8 +24,15 @@ from baibai_engine.valuation.metrics.capital import (
     _normalize_summaries_to_asof_basis,
     _shares_excluding_treasury,
 )
-from baibai_engine.valuation.metrics.models import UNRESOLVED_DIVIDEND_BASIS
-from baibai_engine.valuation.metrics.periods import _accounting_observation_key
+from baibai_engine.valuation.metrics.models import (
+    UNRESOLVED_ACTUAL_DIVIDEND_BASIS,
+    UNRESOLVED_DIVIDEND_BASIS,
+)
+from baibai_engine.valuation.metrics.periods import (
+    _accounting_observation_key,
+    _accounting_period_identity,
+    resolve_actual_conflicts,
+)
 
 # 通期実績 DPS の accrual 期間を bound する暦日窓。前期の通期実績開示行が窓内に
 # 無い (実績が 1 期分しか無い) ときのフォールバックで、開示日から約 1 年遡って
@@ -73,6 +87,15 @@ def _resolve_dividend_forecast(
     treatment.
     """
 
+    if any(row.dividend_forecast_status != "legacy_unknown" for row in summaries):
+        source = latest_forecast_source(summaries, dividend=True)
+        return (
+            _DividendForecast(
+                source.forecast_period_end or date.max, source, source.dps_forecast_annual
+            )
+            if source is not None
+            else None
+        )
     actual_rows = _actual_dps_rows(summaries)
     threshold = actual_rows[0].disclosed_at if actual_rows else None
     for source in sorted(summaries, key=lambda item: item.disclosed_at, reverse=True):
@@ -88,14 +111,56 @@ def _resolve_dividend_forecast(
     return None
 
 
+_DIVIDEND_DETAIL_FIELDS = (
+    "dividend_q1",
+    "dividend_interim",
+    "dividend_q3",
+    "dividend_year_end",
+    "dividend_total_annual",
+)
+
+
+def _agreed_dividend_details(
+    rows: Sequence[JQuantsFinancialSummary],
+) -> tuple[dict[str, Any], bool]:
+    """Keep complementary payment facts; the annual-sum check validates allocation."""
+    details: dict[str, Any] = {}
+    conflict = False
+    for field in _DIVIDEND_DETAIL_FIELDS:
+        values = {getattr(row, field) for row in rows if getattr(row, field) is not None}
+        details[field] = next(iter(values)) if len(values) == 1 else None
+        conflict |= len(values) > 1
+    return details, conflict
+
+
 def _actual_dps_rows(
     summaries: Sequence[JQuantsFinancialSummary],
 ) -> list[JQuantsFinancialSummary]:
-    return [
-        summary
-        for summary in sorted(summaries, key=_accounting_observation_key, reverse=True)
-        if summary.dps_actual_annual is not None
+    rows = [
+        row
+        for row in resolve_actual_conflicts(summaries)
+        if row.dps_actual_annual is not None or "dps_actual_annual" in row.unresolved_actual_fields
     ]
+    resolved: dict[int, JQuantsFinancialSummary] = {}
+    groups: dict[object, list[JQuantsFinancialSummary]] = {}
+    for row in rows:
+        groups.setdefault(_accounting_period_identity(row), []).append(row)
+    for group in groups.values():
+        latest = latest_disclosure_candidates(group)
+        amounts = {row.dps_actual_annual for row in latest}
+        if len(amounts) != 1 or None in amounts:
+            continue
+        details, conflict = _agreed_dividend_details(latest)
+        for row in latest:
+            flags = set(row.unresolved_actual_fields)
+            if conflict:
+                flags.add("dividend_payment_details")
+            resolved[id(row)] = replace(
+                row, **details, unresolved_actual_fields=tuple(sorted(flags))
+            )
+    return sorted(
+        [resolved.get(id(row), row) for row in rows], key=_accounting_observation_key, reverse=True
+    )
 
 
 # 配当の基準日と corporate action がこの日数以内に並ぶ年度は換算しない。日本の分割は
@@ -189,6 +254,8 @@ def _asof_basis_dividend(
     # 利回りだけでなく E[r] ごと判断面から消える。
     if reported == 0:
         return 0.0
+    if "dividend_payment_details" in row.unresolved_actual_fields:
+        return None
     payments = _dividend_record_dates(row)
     if not payments or all(value is None for value, _ in payments):
         return None
@@ -262,7 +329,10 @@ def _resolve_dividend_carry(
     forecast = forecast_state.annual_dps if forecast_state is not None else None
     basis_factor = 1.0
     actual_annual: float | None = None
-    if actual_rows:
+    actual_unresolved = bool(
+        actual_rows and "dps_actual_annual" in actual_rows[0].unresolved_actual_fields
+    )
+    if actual_rows and not actual_unresolved:
         latest_actual = actual_rows[0]
         assert latest_actual.dps_actual_annual is not None
         basis_factor = _dividend_basis_factor(
@@ -309,6 +379,8 @@ def _resolve_dividend_carry(
             ),
             split_factor=recorded_factor,
         )
+    elif actual_unresolved:
+        basis = UNRESOLVED_ACTUAL_DIVIDEND_BASIS
     elif recorded_factor is not None and actual_annual is None:
         # 正の実績が解決できなかった年度は無配と区別する。
         basis = UNRESOLVED_DIVIDEND_BASIS
@@ -337,10 +409,7 @@ def build_shareholder_return_change_signals(
     deliberately described as share-count reduction rather than proof of a
     buyback because the source includes treasury stock.
     """
-    available = sorted(
-        (summary for summary in summaries if summary.disclosed_at <= asof_date),
-        key=lambda item: item.disclosed_at,
-    )
+    available = project_financial_documents(summaries, asof_date)
     normalized = _normalize_summaries_to_asof_basis(available, ticker_bars, asof_date)
     fy_rows = _latest_fy_revisions(normalized)
 
@@ -424,14 +493,68 @@ def build_shareholder_return_change_signals(
 def _latest_fy_revisions(
     summaries: Sequence[JQuantsFinancialSummary],
 ) -> list[JQuantsFinancialSummary]:
-    latest: dict[date, JQuantsFinancialSummary] = {}
-    for summary in summaries:
+    grouped: dict[date, list[JQuantsFinancialSummary]] = {}
+    for summary in resolve_actual_conflicts(summaries):
         if summary.fiscal_period != "FY" or summary.fiscal_year_end is None:
             continue
-        previous = latest.get(summary.fiscal_year_end)
-        if previous is None or summary.disclosed_at > previous.disclosed_at:
-            latest[summary.fiscal_year_end] = summary
-    return [latest[fiscal_year_end] for fiscal_year_end in sorted(latest)]
+        if summary.document_type in {"EarnForecastRevision", "DividendForecastRevision"}:
+            continue
+        grouped.setdefault(summary.fiscal_year_end, []).append(summary)
+    result = []
+    for year_end in sorted(grouped):
+        rows = grouped[year_end]
+        tied = latest_disclosure_candidates(rows)
+        # Preserve unresolved years in the consecutive-FY series rather than
+        # silently skipping a contradictory EPS/DPS observation.
+        representative = max(
+            tied,
+            key=lambda row: (
+                sum(
+                    getattr(row, field) is not None
+                    for field in ("shares_outstanding", "treasury_shares")
+                ),
+                row.eps_ttm is not None,
+                row.dps_actual_annual is not None,
+            ),
+        )
+        if (
+            len(tied) == 1
+            or len({statement_basis(row) for row in tied}) != 1
+            or len({_accounting_period_identity(row) for row in tied}) != 1
+        ):
+            result.append(representative)
+            continue
+
+        def agreed(candidates: Sequence[JQuantsFinancialSummary], field: str) -> float | None:
+            values = {getattr(row, field) for row in candidates if getattr(row, field) is not None}
+            return (
+                next(iter(values))
+                if len(values) == 1
+                and not any(field in row.unresolved_actual_fields for row in candidates)
+                else None
+            )
+
+        eps, dps = agreed(tied, "eps_ttm"), agreed(tied, "dps_actual_annual")
+        dps_sources = [row for row in tied if dps is not None and row.dps_actual_annual == dps]
+        details, detail_conflict = _agreed_dividend_details(dps_sources)
+        flags = set(representative.unresolved_actual_fields)
+        if detail_conflict:
+            flags.add("dividend_payment_details")
+        # EPS and payout are independent facts. The capital pair remains exactly
+        # the representative source's pair; never fill its missing half from another.
+        result.append(
+            replace(
+                representative,
+                eps_ttm=eps,
+                dps_actual_annual=dps,
+                **details,
+                unresolved_actual_fields=tuple(sorted(flags)),
+                disclosure_number=None,
+                record_key=None,
+                document_payload=None,
+            )
+        )
+    return result
 
 
 def _asof_basis_fy_dps(

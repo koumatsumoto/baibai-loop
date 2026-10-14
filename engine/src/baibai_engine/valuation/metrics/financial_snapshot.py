@@ -7,6 +7,11 @@ from datetime import date
 
 from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.market.edinet_models import EdinetMetricRecord
+from baibai_engine.market.financial_documents import (
+    forecast_source_trace,
+    latest_forecast_source,
+    project_financial_documents,
+)
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.metric_quality import OperatingProfitSource, TTMQuality
 
@@ -39,7 +44,7 @@ from .profit import (
 )
 from .ratios import _safe_positive_ratio, _safe_ratio, _yoy_ratio
 
-VALUATION_CALCULATION_REVISION = "dividend-period-freshness-v26"
+VALUATION_CALCULATION_REVISION = "document-period-forecasts-v27"
 
 
 def build_financial_snapshot(
@@ -52,7 +57,7 @@ def build_financial_snapshot(
     asof_date: date,
 ) -> FinancialSnapshot:
     normalization = _normalize_summaries_with_status(
-        [summary for summary in summaries if summary.disclosed_at <= asof_date],
+        project_financial_documents(summaries, asof_date),
         adjustment_events,
         asof_date,
     )
@@ -62,7 +67,7 @@ def build_financial_snapshot(
     forecast = _resolve_earnings_forecast(summaries, latest)
     forecast_eps = forecast.eps if forecast is not None else None
     # 同じ予想期の純利益>経常利益はdata-quality注記。原因・持続性は一次開示で確認する。
-    # 純利益/経常は forecast_eps と同一予想期のペアで ingest 済み・分割不変の絶対額なので、
+    # 純利益/経常は同じ予想期・basis・開示候補から投影する分割不変の絶対額なので、
     # 両方揃うときだけ比較する。flag は warning で per_forward / E[r] / rank を変えない。
     forecast_profit = forecast.profit if forecast is not None else None
     forecast_ordinary_profit = forecast.ordinary_profit if forecast is not None else None
@@ -269,6 +274,10 @@ def build_financial_snapshot(
     return FinancialSnapshot(
         latest_financial_disclosure_date=latest.disclosed_at if latest else None,
         per_forward=per_forward,
+        earnings_forecast_source=forecast_source_trace(forecast.source if forecast else None),
+        dividend_forecast_source=forecast_source_trace(
+            latest_forecast_source(summaries, dividend=True), dividend=True
+        ),
         per_trailing=per_trailing,
         pbr=pbr,
         ev_ebitda=ev_ebitda,

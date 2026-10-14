@@ -49,6 +49,10 @@ dataset追加時は次を同じ変更で揃える。
 4. export・resolve・hydrateのpositive/negative test
 5. `data-sources.md`のsource意味
 
+`jquants.fin_summaries`はcontract version 2、market SQLiteはschema 32で、主キーは`ticker / disclosed_at / record_key`である。同日文書を保持し、DocNo・開示時刻・DocType・全文document payloadを保存する。DocNo未取得のsourceはpayload digestで識別し、date-only既存行は`legacy`とする。digestやDocNoをrevision順序に使わない。既存actual列とlegacyのcollapsed forecast列は維持し、新文書の予想はpayloadから共通純粋投影で解決する。予想の意味は[Valuation metrics](./valuation-metrics.md#21-採用ソース)に従う。
+
+旧contract 1 releaseは元codeと組み合わせて保持する。runtimeの旧schema読替え・自動移行は行わない。#1520のcode変更と本番store/release切替は別工程であり、隔離copy検証から本番切替済みとは扱わない。保存済みactual/TTM/FY値を変えずに運ぶdelivery手順と原典再取得の範囲は別途レビューする。
+
 個別dataset専用の移行runnerは作らない。現行storeからreleaseを再構築し、hydrateで現行schemaへ満たす。
 
 ## 発行

@@ -546,6 +546,56 @@ indicator storeだけは実在する直前schemaからの一段migrationをstagi
 **成功確認と復旧**: sourceと出力のintegrity・foreign key・必須table・保持対象row/headを照合してからmainへ入れ、
 同じ作業でstoreを反映する。直前のpush自体が壊れた場合だけ、上の「R2 transferの安全境界」に従って`<key>.bak`の1世代を使う。
 
+### #1520 schema31 / financial-v1 の一回限り切替
+
+この節は未実施の切替手順である。親レビュー・実行承認前にmerge、workflow停止、本番PUTを行わない。
+[temporary tool](../tools/cutover/financial_documents.py)はsource31→32とfinancial-v1→v2だけを扱い、切替完了後にcleanupする。通常readerの旧schema fallback、通常publisherの旧契約対応は追加しない。
+
+**固定するもの**: 全writer（daily、TradingView、外部評価からの後続publish、operator）とmaterializeを停止し、queued old-refを残さない。merge自体はproduction publisherを起動しない。旧codeでfreshな`pull-machine`→固定R1のhydrateを完了し、3 keyの取得世代、R1 ID/hash、pointer ETag、旧31のhydrated sourceをprivate stageへ保持する。183,642は隔離検証の件数であり本番の固定floorではない。以後の照合はこのfresh sourceから計算する。applicationはbulk取得・push対象へ入れない。
+
+`cutover_stage`、各path、R1 ETag、全体公開の実測必要秒数を実行レビューで確定する。generations JSONは取得済み`stores/.r2-generations/{market.sqlite,runs.sqlite,indicators.sqlite}.etag`のbare値を3 keyで保持し、ETagだけを別のstore copyへ付け替えない。
+
+```bash
+uv run python -m tools.cutover.financial_documents prepare \
+  --source "$cutover_source31" --store "$cutover_stage/market32.sqlite" \
+  --mirror "$cutover_mirror" --receipt "$cutover_stage/receipt.json" \
+  --generations "$cutover_stage/generations.json" --pointer-etag "$cutover_r1_etag" \
+  --bundle-root "$cutover_bundle" --producer "$cutover_reviewed_commit" \
+  --raw-page "$cutover_raw_20260810" --raw-page "$cutover_raw_20260914"
+```
+
+prepareはlocalだけを読み書きする。export用mirrorのfilesystemには変換済み32 fileの2倍の空きを確保する（既存sealed snapshotのguard）。source、変換copy、保持するruns baseline、fresh hydrate用copyとcacheの領域も別に見積もり、空き容量checkを緩めない。旧v1 closureとの全列照合→全table/coverageを保持した32の別file作成→`246A`の8/10と9/14の各1日を既存4文書で補修→既存clean coverageのcount照合→全dataset export→保持範囲を縮めないv2 release構築・照合を行う。provider取得はない。新しいprivate stageを使い、既存成果を上書きしない。
+
+**公開順**: 準備・検証後、停止窓内でcodeをmainへ反映する。新runtimeへ旧bundleを渡さず、通常dailyを移行runnerにしない。既存operator leaseを取得し、全体公開に足りる残時間を実測から指定する。temporary bridgeは既存publisher/CASを使い、pointer切替の直前にも`verify_held`と3 keyの取得世代を確認する。
+
+```bash
+uv run python -m tools.cutover.financial_documents publish \
+  --store "$cutover_stage/market32.sqlite" --mirror "$cutover_mirror" \
+  --receipt "$cutover_stage/receipt.json" --lease-handle "$cutover_lease_handle" \
+  --minimum-remaining-seconds "$cutover_publication_budget_seconds"
+```
+
+R2へのpointer切替とlocal origin更新が確認できたら、この32を同じ取得世代のbundle内marketへ置く。現as-ofのcache-only再計算が必要なら承認済みstageで行い、旧Run/Thesis/core hash/較正証拠をretagしない。indicatorsは取得時の内容を保持し、runsは取得時の行を一つも失わないことをtoolで確認する。
+
+```bash
+uv run python -m tools.cutover.financial_documents verify-machine \
+  --store "$cutover_bundle/market/market.sqlite" --bundle-root "$cutover_bundle" \
+  --receipt "$cutover_stage/receipt.json" --lease-handle "$cutover_lease_handle" \
+  --minimum-remaining-seconds "$cutover_publication_budget_seconds"
+batch/scripts/r2_transfer.sh push-machine
+```
+
+push-machineの対象は`market.sqlite / runs.sqlite / indicators.sqlite`の3 DBだけで、applicationは送らない。commandはこのbundleと取得世代directoryを持つ作業treeから実行する。tool検証後に同bundleを他処理で編集しない。PUTは逐次CASなのでatomicな3-DB更新ではない。
+
+**停止点と復旧**:
+
+- pointer切替後・origin更新前: R2 ID/hashと保存したstageのfact digestを照合し、`reconcile-origin`（publishと同じ引数）でlocal originだけを前進させる。再publishしない。
+- pointerがR2、market PUT前でremoteが31: 通常のv2 hydrateへremote31を渡さない。取得済みsource31、変換32、raw4文書、元の3 ETag、R1/R2 identityを保持する。`inspect-machine --receipt ... --store <新private directory>`で到達点を保存・照合する。全3 keyが元世代である場合だけ、新しい有効leaseで`reconcile-origin`→`verify-machine`を再確認し、未着手のmachine公開へ進む。旧copyへの交換・通常daily復旧はしない。
+- market PUT後の別key停止、または全PUT後・receipt前: 保存した元世代と各現在ETag、downloadした各世代のtable digest、machine receiptのnamed generationsを照合する。`inspect-machine`は読取のみで、取得済み世代をprivate directoryに保持する。receipt不一致のまま分析・materializeしない。push-machine丸ごとのretryは行わず、[部分push復旧](#部分-push-からの復旧)の(ii)へ進む。remote marketが32/R2でlocal32の保持対象と一致することを確認したうえで、既存`push-market`のmerge/CASによってreceiptを再確定する。その後fresh pullし、未反映runs成果がある場合は元の保存行とremote到達内容をno-loss照合して、必要な反映だけを別途レビューする。未反映runs成果が残る間は再開条件未達であり、通常writer・materializeを再開しない。未知の内容・新しいindicator変更・ETag競合があれば古いstageで上書きしない。
+- lease期限切れ・残時間不足: 次の公開へ進まない。writer停止を維持し、到達点を照合して新leaseで復旧する。120分を超えて続行しない。
+
+**再開**: freshなschema32 bundleのpull→固定R2のhydrateで全列・count・coverage・origin・保持対象digestを確認する。その後operator leaseを解放する。他writerの停止を維持したまま現mainのmaterializeをdispatchし、materialize自身のleaseでserving/freshnessを公開する。成功確認後に通常writerを再開する。旧ref runのrerunはしない。停止窓はfresh source固定からこのreadback/serving確認までで、所要時間は実測前に分数を断定しない。
+
 ## Read modelの生成 — baibai_web.materialize
 
 materializeはapplication / machine storeをread-onlyで読み、servingの完全像を作る。schema / storeがcodeと整合しなければpublishせず停止する。`views/`はcurrent image、`history/candidate-views/`は保持期限付き履歴、`views/meta.json`はfreshnessで最後に発行する。routeとJSON名の対応は[Web](../web/README.md)と`web/contracts/routes.json`、Web testsを正本とする。

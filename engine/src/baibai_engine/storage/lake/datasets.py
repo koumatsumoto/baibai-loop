@@ -63,6 +63,7 @@ class LakeColumn:
     arrow_type: object
     nullable: bool
     primary_key_ordinal: int = 0
+    sqlite_default: str | None = None
 
 
 @dataclass(frozen=True)
@@ -239,6 +240,7 @@ JQUANTS_FIN_SUMMARIES = LakeDataset(
     sqlite_table="jquants_fin_summaries",
     date_column="disclosed_at",
     partition_grain="year",
+    contract_version=2,
     columns=(
         LakeColumn("ticker", "TEXT", _TEXT, False, 1),
         LakeColumn("disclosed_at", "TEXT", _TEXT, False, 2),
@@ -270,6 +272,11 @@ JQUANTS_FIN_SUMMARIES = LakeDataset(
         LakeColumn("dividend_year_end", "REAL", _REAL, True),
         LakeColumn("dividend_total_annual", "REAL", _REAL, True),
         LakeColumn("average_shares", "REAL", _REAL, True),
+        LakeColumn("record_key", "TEXT", _TEXT, False, 3, sqlite_default="'legacy'"),
+        LakeColumn("disclosure_number", "TEXT", _TEXT, True),
+        LakeColumn("disclosed_time", "TEXT", _TEXT, True),
+        LakeColumn("document_type", "TEXT", _TEXT, True),
+        LakeColumn("document_payload", "TEXT", _TEXT, True),
     ),
 )
 

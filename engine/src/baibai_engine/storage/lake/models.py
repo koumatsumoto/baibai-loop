@@ -528,7 +528,7 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset="jquants.fin_summaries",
             required=True,
-            accepted_contract_versions=(1,),
+            accepted_contract_versions=(2,),
             carries_history=True,
             minimum_rows=173_198,
             minimum_population_count=4_425,
