@@ -82,9 +82,10 @@ def fear_readings(quotes: Sequence[OptionQuote], asof: date) -> FearReadings:
     """Summarise one day's chain.
 
     Returning None says the chain could not answer, which a zero would hide. `iv_30d`
-    and `iv_skew` both need two expiries that bracket 30 days, so they appear and
-    disappear together; `iv_term` needs only two expiries and is there on almost every
-    session.
+    and `iv_skew` both need two expiries that bracket 30 days. Skew additionally
+    requires usable put legs and a passing basis check, so it can be absent while
+    the level is available. `iv_term` needs two priced expiries and a passing basis
+    check, but does not require them to bracket 30 days.
 
     `iv_30d` averages the put and the call at one strike, and at the money the two
     carry the same sensitivity to the price the source priced against, so an error in
@@ -153,8 +154,8 @@ def _constant_maturity_skew(
     cycle, and a reader comparing it to a pooled quantile would find fear on the
     calendar rather than in the market. Quoting it at one maturity takes nearly all of
     that out, at the cost of the days where the two expiries do not straddle 30 — the
-    same days the level cannot be quoted, so the two readings appear and disappear
-    together.
+    days the level also cannot be quoted. The basis check and missing put legs
+    can additionally withhold skew while leaving the level available.
 
     The skew falls away roughly as the inverse root of maturity, so the two readings
     are placed on that axis and the target read off the line between them. Walking the
@@ -216,7 +217,8 @@ def _underlying(quotes: Sequence[OptionQuote]) -> float:
     for it — and a row carrying a slipped decimal would then relocate the
     at-the-money strike, the basis band and both skew legs at once, while every
     resulting reading stayed inside its plausible bound. The median is what the rows
-    agree on, and one wrong row cannot move it.
+    agree on, limiting the effect of an isolated outlier rather than guaranteeing
+    immunity to every incorrect row.
     """
     return _median([quote.underlying for quote in quotes])
 
@@ -319,11 +321,13 @@ def _constant_maturity(
     far_days: int | None,
     far_volatility: float | None,
 ) -> float | None:
-    """Interpolate to a 30-day maturity in variance, not in volatility.
+    """Interpolate annualized variance levels to a 30-day maturity.
 
-    Variance is what adds over time; interpolating the volatility directly would
-    understate the reading whenever the two expiries disagree, and the disagreement
-    is largest exactly when the market is frightened.
+    This indicator weights the two squared volatility levels by calendar distance,
+    then takes the square root. It does not interpolate total variance (variance
+    multiplied by time to expiry), so time-additivity is not its justification.
+    The result is at least the same-weight linear volatility average, but that
+    algebraic difference alone does not establish forecast accuracy.
 
     Two expiries that bracket the target are required. A single expiry sitting past
     30 days would have to be reported as if it were a 30-day contract, which is a

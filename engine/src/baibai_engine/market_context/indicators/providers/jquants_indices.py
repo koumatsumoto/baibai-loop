@@ -30,7 +30,7 @@ _INDEX_METHODS: Mapping[str, str] = {
     "topix": "get_idx_bars_daily_topix",
 }
 
-# index レベルの妥当域。列取り違え・単位崩れは必ずこの外に落ちる。
+# index レベルの妥当域。大きな列・単位の誤りを検出するが、範囲内の誤値は判別できない。
 _PLAUSIBLE_MIN = 100.0
 _PLAUSIBLE_MAX = 20000.0
 
