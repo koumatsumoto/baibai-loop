@@ -7,7 +7,7 @@ import shutil
 import sqlite3
 import threading
 from collections.abc import Callable, Iterator
-from contextlib import AbstractContextManager, contextmanager, nullcontext
+from contextlib import AbstractContextManager, closing, contextmanager, nullcontext
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -554,7 +554,7 @@ class TestFixedRelease:
         release = resolve_current_release(source)
         build_id = release.dataset_manifest("jquants.daily_bars").build_id
         key = f"lake/manifests/datasets/jquants.daily_bars/{build_id}.json"
-        with sqlite3.connect(lake.sqlite_path) as connection:
+        with closing(sqlite3.connect(lake.sqlite_path)) as connection, connection:
             connection.execute("UPDATE jquants_daily_bars SET close = 999.0")
         with sealed_sqlite_snapshot(
             sqlite_path=lake.sqlite_path, mirror_root=tmp_path / "second-mirror"
@@ -1134,7 +1134,7 @@ class TestHydrate:
     ) -> None:
         store = tmp_path / "stale.sqlite"
         shutil.copyfile(lake.sqlite_path, store)
-        with sqlite3.connect(lake.sqlite_path) as connection:
+        with closing(sqlite3.connect(lake.sqlite_path)) as connection, connection:
             connection.execute(
                 "UPDATE jquants_daily_bars SET close = 999.0 "
                 "WHERE ticker = '1301' AND traded_at = '2026-01-05'"
@@ -1164,7 +1164,7 @@ class TestHydrate:
     ) -> None:
         store = tmp_path / "repair.sqlite"
         shutil.copyfile(lake.sqlite_path, store)
-        with sqlite3.connect(store) as connection:
+        with closing(sqlite3.connect(store)) as connection, connection:
             connection.execute(
                 "UPDATE jquants_daily_bars SET close = 999.0 "
                 "WHERE ticker = '1301' AND traded_at = '2026-01-05'"
@@ -1184,7 +1184,9 @@ class TestHydrate:
             release_id=release.release_id,
             release_manifest_sha256=release.manifest_sha256,
         )
-        with sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True) as connection:
+        with closing(
+            sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True)
+        ) as connection:
             assert connection.execute(
                 "SELECT close FROM jquants_daily_bars "
                 "WHERE ticker = '1301' AND traded_at = '2026-01-05'"
@@ -1198,7 +1200,7 @@ class TestHydrate:
     ) -> None:
         store = tmp_path / "generation-a.sqlite"
         shutil.copyfile(lake.sqlite_path, store)
-        with sqlite3.connect(lake.sqlite_path) as connection:
+        with closing(sqlite3.connect(lake.sqlite_path)) as connection, connection:
             connection.execute(
                 "UPDATE jquants_daily_bars SET close = 999.0 "
                 "WHERE ticker = '1301' AND traded_at = '2026-01-05'"
@@ -1219,7 +1221,9 @@ class TestHydrate:
             release_id=release.release_id,
             release_manifest_sha256=release.manifest_sha256,
         )
-        with sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True) as connection:
+        with closing(
+            sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True)
+        ) as connection:
             assert connection.execute(
                 "SELECT close FROM jquants_daily_bars "
                 "WHERE ticker = '1301' AND traded_at = '2026-01-05'"
@@ -1258,7 +1262,9 @@ class TestHydrate:
             release_id=original.release_id,
             release_manifest_sha256=original.manifest_sha256,
         )
-        with sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True) as connection:
+        with closing(
+            sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True)
+        ) as connection:
             assert connection.execute(
                 "SELECT COUNT(*) FROM jquants_short_sale_reports"
             ).fetchone() == (2,)
@@ -1505,8 +1511,8 @@ class TestHydrate:
 
         `research.sqlite` and the application store open cleanly and pass every integrity
         check, so what refuses them is the contract comparison: the release's tables are
-        not there. The copy is made first, so the proof that matters is that the named
-        file still holds its own bytes afterwards.
+        not there. Preflight refuses before copying; the named file must still hold
+        its own bytes afterwards.
         """
 
         store = tmp_path / "research.sqlite"
@@ -1632,7 +1638,7 @@ def test_obsolete_market_store_is_rejected_before_lake_work(tmp_path: Path) -> N
     store = tmp_path / "obsolete.sqlite"
     connection = open_connection(store)
     connection.close()
-    with sqlite3.connect(store) as connection:
+    with closing(sqlite3.connect(store)) as connection, connection:
         connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
 
     with pytest.raises(SQLiteSchemaError, match="replace it with a current local build"):
