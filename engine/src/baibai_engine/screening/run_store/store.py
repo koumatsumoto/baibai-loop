@@ -88,8 +88,13 @@ def initialize_run_store(path: Path | None = None) -> int:
                 "screening run cache uses an obsolete schema; rebuild it "
                 f"(found user_version={current}, expected={RUN_STORE_SCHEMA_VERSION})"
             )
-        connection.executescript(SCHEMA_SQL)
-        connection.execute(f"PRAGMA user_version = {RUN_STORE_SCHEMA_VERSION}")
+        try:
+            connection.executescript("BEGIN IMMEDIATE;\n" + SCHEMA_SQL)
+            connection.execute(f"PRAGMA user_version = {RUN_STORE_SCHEMA_VERSION}")
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
         return RUN_STORE_SCHEMA_VERSION
 
 
