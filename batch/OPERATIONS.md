@@ -565,7 +565,7 @@ uv run python -m tools.cutover.financial_documents prepare \
   --raw-page "$cutover_raw_20260810" --raw-page "$cutover_raw_20260914"
 ```
 
-prepareはlocalだけを読み書きする。旧v1 closureとの全列照合→全table/coverageを保持した32の別file作成→`246A`の8/10と9/14の各1日を既存4文書で補修→既存clean coverageのcount照合→全dataset export→保持範囲を縮めないv2 release構築・照合を行う。provider取得はない。新しいprivate stageを使い、既存成果を上書きしない。
+prepareはlocalだけを読み書きする。export用mirrorのfilesystemには変換済み32 fileの2倍の空きを確保する（既存sealed snapshotのguard）。source、変換copy、保持するruns baseline、fresh hydrate用copyとcacheの領域も別に見積もり、空き容量checkを緩めない。旧v1 closureとの全列照合→全table/coverageを保持した32の別file作成→`246A`の8/10と9/14の各1日を既存4文書で補修→既存clean coverageのcount照合→全dataset export→保持範囲を縮めないv2 release構築・照合を行う。provider取得はない。新しいprivate stageを使い、既存成果を上書きしない。
 
 **公開順**: 準備・検証後、停止窓内でcodeをmainへ反映する。新runtimeへ旧bundleを渡さず、通常dailyを移行runnerにしない。既存operator leaseを取得し、全体公開に足りる残時間を実測から指定する。temporary bridgeは既存publisher/CASを使い、pointer切替の直前にも`verify_held`と3 keyの取得世代を確認する。
 
