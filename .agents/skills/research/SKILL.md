@@ -119,7 +119,7 @@ uv run baibai-engine research capital-allocation-publish \
 
 no_allocation/deferでは発注へ進まない。allocateでも人間のapproveとbroker操作を待ち、実際に報告された事実だけを[Ledger Record](../ledger-record/SKILL.md)へ渡す。既保有・予約等の追加購入条件、cash不足とwarningの違いは[資本方針](../../../docs/portfolio-management.md)とCLI結果に従う。
 
-後続配分は先行注文の人間報告をledgerへ反映し、新しい明示開始で最新cashを再確認する。適用可能な既存Reviewed Thesisを再利用でき、無条件に企業調査を繰り返さない。
+後続配分は先行注文の人間報告をledgerへ反映し、新しい明示開始で最新cashを再確認する。比較対象が変わるmethod改訂後も新しい集合を選んでCAAを作り、適用可能な既存Reviewed Thesisは引き継ぐ。[資本方針](../../../docs/portfolio-management.md#reservation-and-warnings)に従い、無条件に企業調査を繰り返さない。
 
 ## 5. Operationを完了する
 
