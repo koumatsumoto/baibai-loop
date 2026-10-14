@@ -333,6 +333,32 @@ def test_export_writes_market_context_assessment_detail_views(
     assert overview.reports == []
 
 
+@pytest.mark.parametrize("failure", ["detail", "identity"])
+def test_export_fails_when_an_indexed_market_context_history_detail_is_unavailable(
+    app_method_root: Path, tmp_path: Path, mocker, failure
+) -> None:
+    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    document = StoredAssessment.from_payload(historical_context_payload())
+    seed_history(app_method_root / "stores/application/baibai.sqlite", document.document)
+    if failure == "detail":
+        mocker.patch.object(
+            export_module,
+            "build_market_context_assessment_detail",
+            side_effect=ValueError("synthetic indexed history is corrupt"),
+        )
+    else:
+        mocker.patch(
+            "baibai_web.sources.db_sources.DbMarketContextSource.assessment_history",
+            return_value=[{**document.document, "context_id": "../invalid"}],
+        )
+    output = tmp_path / "export"
+
+    with pytest.raises(ValueError, match=r"indexed.*(corrupt|unexpected format)"):
+        main(["--output-dir", str(output), "--repo-root", str(app_method_root)])
+
+    assert not (output / "views/meta.json").exists()
+
+
 def test_export_keeps_saved_proposal_detail_independent_of_current_screening(
     app_method_root: Path, tmp_path: Path
 ) -> None:

@@ -293,8 +293,8 @@ def create_app(
                 as_of=as_of or datetime.now(_JST).date(),
             )
         except ValueError as error:
-            # Unknown id and not-yet-eligible (future as_of) contexts are both "not found"
-            # from the reader's perspective; the message distinguishes them for logs.
+            # An arbitrary ID may have no readable history. The analytical as_of
+            # only supplies age metadata; it does not exclude a saved exact ID.
             raise HTTPException(status_code=404, detail=str(error)) from error
 
     @app.get("/api/operations", response_model=OperationsView)

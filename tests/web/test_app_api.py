@@ -356,6 +356,8 @@ def test_history_id_is_available_independently_of_analysis_date(
             f"/api/market-context/assessments/{document.context_id}?as_of=2026-07-01"
         )
         assert future.status_code == 200
+        assert future.json()["context_id"] == document.context_id
+        assert future.json()["age_days"] < 0
 
 
 def test_assessment_history_keeps_an_earlier_contract_visible(

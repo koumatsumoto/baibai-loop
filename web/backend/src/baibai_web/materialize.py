@@ -188,17 +188,14 @@ def export_read_models(
     for context in stores.market_context.assessment_history():
         context_id = str(context["context_id"])
         if _MARKET_CONTEXT_ASSESSMENT_ID_FORMAT.fullmatch(context_id) is None:
-            _warn(f"assessment context_id has an unexpected format: {context_id!r}; view skipped")
-            continue
-        try:
-            detail = build_market_context_assessment_detail(
-                stores.market_context, context_id=context_id, as_of=as_of
+            raise ValueError(
+                f"indexed assessment context_id has an unexpected format: {context_id!r}"
             )
-        except ValueError as error:
-            # A not-yet-eligible (future as_of) revision is 404 on the API too; skip it
-            # rather than fail the whole batch.
-            _warn(f"assessment view skipped for {context_id!r}: {error}")
-            continue
+        # Exact-ID history is independent of the current analytical cutoff. Every
+        # indexed publication must remain readable for this export to be complete.
+        detail = build_market_context_assessment_detail(
+            stores.market_context, context_id=context_id, as_of=as_of
+        )
         written.append(
             _write_model(views_dir / f"market-context-assessment--{context_id}.json", detail)
         )
