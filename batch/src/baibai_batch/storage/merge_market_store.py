@@ -47,14 +47,8 @@ FACT_KEYS: Mapping[str, tuple[str, ...]] = {
     "source_coverage": ("source", "coverage_key"),
 }
 
-# Tables that are a function of other tables rather than an accumulation of fetched
-# records. Only the operator derives them, so the store that ran the derivation last
-# holds the answer and the target is kept whole. Merging them by key would do two wrong
-# things: a row a later derivation retracted — an offer that turned out to have a second
-# bidder, a company the exchange removed from its list — would be reinserted from the
-# older copy, and a corrected value would read as two stores disagreeing and refuse the
-# whole publish. Both are silent, and the first one puts a price into the calibration
-# forward that the current rules say cannot be established.
+# Derived snapshots belong to the target generation. Unioning them could restore
+# source rows that a later derivation removed or reject an intentional correction.
 DERIVED_KEYS: Mapping[str, tuple[str, ...]] = {
     "tse_capital_policy_snapshots": ("snapshot_month_end", "ticker"),
 }
@@ -120,7 +114,7 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
             raise MergeError(f"market store does not exist: {path}")
     _require_schema(source)
     _require_schema(target)
-    uri = f"{target.resolve().as_uri()}"
+    uri = target.resolve().as_uri()
     with closing(sqlite3.connect(uri, uri=True, isolation_level=None)) as connection:
         connection.execute("ATTACH DATABASE ? AS source", (f"{source.resolve().as_uri()}?mode=ro",))
         try:

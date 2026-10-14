@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 from collections.abc import Callable
+from contextlib import closing
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -199,7 +200,7 @@ def _runner(
     run_revision_id: str | None = "rev-1",
 ) -> ScriptedRunner:
     return ScriptedRunner(
-        results or _success_script(),
+        _success_script() if results is None else results,
         writers={"screening run": _run_yaml_writer(run_revision_id)},
     )
 
@@ -566,7 +567,7 @@ def test_daily_batch_skips_only_screening_on_non_business_day(tmp_path: Path, ca
 
 def test_analysis_structured_path_gates_an_explicit_non_business_day(tmp_path: Path) -> None:
     _seed_calendar(tmp_path, {ASOF: "0"})
-    runner = _runner({})
+    runner = _runner()
 
     result = run_daily_batch_structured(
         root=tmp_path,
@@ -704,7 +705,7 @@ def _notice_runner(
     results: dict[str, list[CommandResult]] | None = None,
 ) -> ScriptedRunner:
     return ScriptedRunner(
-        results or _success_script(),
+        _success_script() if results is None else results,
         writers={"screening run": _run_yaml_writer("rev-1"), "export": _export_meta_writer},
     )
 
@@ -886,7 +887,7 @@ def test_daily_batch_reports_screening_skip_without_skipping_indicators(tmp_path
         root=tmp_path,
         output_dir=tmp_path / "serving",
         asof=None,
-        runner=_notice_runner({}),
+        runner=_notice_runner(),
         notice_output=notice_path,
     )
 
@@ -1044,11 +1045,9 @@ def test_indicator_refresh_groups_orders_derived_after_base() -> None:
 def test_a_reconcile_failure_degrades_the_batch_without_losing_the_publish(
     tmp_path: Path,
 ) -> None:
-    """Task reconciliation follows publication, so its failure must not undo the day's publish.
+    """A reconciliation failure is deferred after a successful local export.
 
-    Pins the deferral itself: replacing the try/except with a bare `_run_step`
-    puts the step back on the critical path, and nothing else in the suite would
-    notice.
+    The scripted runner tests orchestration and notice state, not remote publication.
     """
     script = _success_script()
     script["task reconcile-earnings"] = [CommandResult(returncode=1, stdout="", stderr="boom")]
@@ -1075,9 +1074,9 @@ def test_a_reconcile_failure_degrades_the_batch_without_losing_the_publish(
 @pytest.mark.parametrize("section", ["screening_run", "previous_screening_run", "candidates"])
 def test_daily_delta_does_not_report_missing_comparison_as_empty(tmp_path, section):
     view = _delta_view(tmp_path / "delta.json", [])
-    payload = json.loads(view.read_text())
+    payload = json.loads(view.read_text(encoding="utf-8"))
     payload["unavailable"] = [section]
-    view.write_text(json.dumps(payload))
+    view.write_text(json.dumps(payload), encoding="utf-8")
     notice = _Notice()
     _read_daily_delta(view, notice)
     assert not notice.delta_measured
@@ -1086,9 +1085,9 @@ def test_daily_delta_does_not_report_missing_comparison_as_empty(tmp_path, secti
 
 def test_daily_delta_distinguishes_method_change(tmp_path):
     view = _delta_view(tmp_path / "delta.json", [])
-    payload = json.loads(view.read_text())
+    payload = json.loads(view.read_text(encoding="utf-8"))
     payload["method_changed"] = True
-    view.write_text(json.dumps(payload))
+    view.write_text(json.dumps(payload), encoding="utf-8")
     notice = _Notice()
     _read_daily_delta(view, notice)
     assert not notice.delta_measured
@@ -1137,7 +1136,7 @@ def test_committed_market_chunk_survives_bootstrap_failure_and_requests_lake_pub
     assert result.market_updated is True
     assert result.screening_status == "failed"
     assert _load_notice(notice_path)["market_updated"] is True
-    with sqlite3.connect(market) as connection:
+    with closing(sqlite3.connect(market)) as connection:
         assert connection.execute(
             "SELECT is_business_day FROM jquants_market_calendar WHERE day = ?",
             (next_day.isoformat(),),
@@ -1179,13 +1178,13 @@ def test_daily_output_uses_single_run_export_and_zero_candidates_is_published(
     def empty_candidates(argv: list[str]) -> None:
         original_writer(argv)
         output = Path(argv[argv.index("--output-path") + 1])
-        payload = yaml.safe_load(output.read_text())
+        payload = yaml.safe_load(output.read_text(encoding="utf-8"))
         payload["stock_analyses"][0]["candidate"]["reasons"] = []
         payload["candidate_discovery"]["diagnostics"]["candidate_count"] = 0
         payload["candidate_discovery"]["diagnostics"]["candidate_counts_by_approach"][
             "current-earnings-power"
         ] = 0
-        output.write_text(yaml.safe_dump(payload))
+        output.write_text(yaml.safe_dump(payload), encoding="utf-8")
 
     runner._writers["screening run"] = empty_candidates
     result = run_daily_batch_structured(
@@ -1209,7 +1208,7 @@ def test_daily_rejects_invalid_committed_run_export_and_keeps_indicators_indepen
     def broken_export(argv: list[str]) -> None:
         original_writer(argv)
         output = Path(argv[argv.index("--output-path") + 1])
-        payload = yaml.safe_load(output.read_text())
+        payload = yaml.safe_load(output.read_text(encoding="utf-8"))
         if mutation == "header":
             payload.pop("candidate_discovery")
         elif mutation == "rows":
@@ -1222,7 +1221,7 @@ def test_daily_rejects_invalid_committed_run_export_and_keeps_indicators_indepen
             payload["candidate_discovery"]["method"]["method_hash"] = "invalid"
         else:
             payload["universe_size"] = True
-        output.write_text(yaml.safe_dump(payload))
+        output.write_text(yaml.safe_dump(payload), encoding="utf-8")
 
     runner._writers["screening run"] = broken_export
     result = run_daily_batch_structured(

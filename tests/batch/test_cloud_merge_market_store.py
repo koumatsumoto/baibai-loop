@@ -1,8 +1,9 @@
-"""The market-store merge owns every table the lake does not, and loses no row."""
+"""Coverage reconciliation retains target-owned tables without copying lake facts."""
 
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import date
 from pathlib import Path
 
@@ -141,7 +142,7 @@ def _store_short_snapshot(
 
 
 def _coverage(path: Path, source: str) -> list[tuple[object, ...]]:
-    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         return [
             tuple(row)
@@ -156,7 +157,7 @@ def _coverage(path: Path, source: str) -> list[tuple[object, ...]]:
 
 
 def _tables(path: Path) -> set[str]:
-    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         return {
             str(row[0])
@@ -187,7 +188,7 @@ def test_each_declared_key_is_the_tables_primary_key(tmp_path: Path) -> None:
     """A key that is not the one SQLite enforces would let the merge duplicate rows."""
 
     path = _store(tmp_path / "market.sqlite")
-    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         for table, keys in ALL_TABLES.items():
             primary = tuple(
@@ -203,7 +204,7 @@ def test_the_exempt_columns_belong_to_a_table_the_merge_unions(tmp_path: Path) -
 
     assert set(UNCOMPARED) <= set(FACT_KEYS)
     path = _store(tmp_path / "market.sqlite")
-    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         for table, columns in UNCOMPARED.items():
             present = {str(row[1]) for row in conn.execute(f'PRAGMA table_info("{table}")')}
@@ -222,7 +223,7 @@ class TestLakeOwnedTables:
 
         report = merge_stores(source, target)
 
-        conn = sqlite3.connect(f"file:{target}?mode=ro", uri=True)
+        conn = sqlite3.connect(f"{target.resolve().as_uri()}?mode=ro", uri=True)
         try:
             assert conn.execute("SELECT count(*) FROM jquants_daily_bars").fetchone()[0] == 0
         finally:
@@ -241,10 +242,8 @@ class TestLakeOwnedTables:
             release_manifest_sha256="b" * 64,
         )
         for path, origin in ((source, source_origin), (target, target_origin)):
-            connection = open_connection(path)
-            write_lake_store_origin(connection, origin)
-            connection.commit()
-            connection.close()
+            with closing(open_connection(path)) as connection, connection:
+                write_lake_store_origin(connection, origin)
 
         merge_stores(source, target)
 
@@ -430,8 +429,9 @@ class TestFinancialSummaryCoverage:
         """A store filled from a release newer than its ledger holds more than it claims.
 
         The rows arrive by hydration and the ledger arrives by this merge, so the two are
-        one step apart in ordinary operation. Understating coverage only costs a
-        re-fetch, so it is corrected upward instead of refusing the publish.
+        one step apart in ordinary operation. Raising the count to the hydrated rows
+        restores agreement; leaving a positive undercount can still pass range planning
+        while failing the downstream coverage check.
         """
 
         source = _store(tmp_path / "source.sqlite")
@@ -854,7 +854,7 @@ def test_edinet_document_coverage_partial_retry_and_revision_merge(tmp_path):
     assert json.loads(statuses["initialized"][1]) == {"since": "2026-09-18"}
     # Different extractor revisions retain the target claim attached to its facts.
     store_facts(source, doc_id="S100YR5P", disclosed_on="2026-07-22", facts=facts())
-    with sqlite3.connect(target) as conn:
+    with closing(sqlite3.connect(target)) as conn, conn:
         conn.execute(
             "UPDATE source_coverage SET error=? WHERE source='edinet_research_facts' AND coverage_key='S100YR5P'",
             (json.dumps({"revision": "target-next-revision"}),),
@@ -863,5 +863,5 @@ def test_edinet_document_coverage_partial_retry_and_revision_merge(tmp_path):
     assert (
         json.loads(extraction_status(target)["S100YR5P"][1])["revision"] == "target-next-revision"
     )
-    with sqlite3.connect(target) as conn:
+    with closing(sqlite3.connect(target)) as conn, conn:
         assert conn.execute("select count(*) from edinet_segment_facts").fetchone()[0] == 40
