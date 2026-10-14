@@ -18,11 +18,9 @@ from baibai_engine.research.thesis_store import (
     load_reviewed_thesis,
 )
 from baibai_engine.research.workspace.admission import (
-    ResearchSetAdmissionBinding,
     workspace_selection,
 )
 from baibai_engine.research.workspace.files import (
-    ResearchWorkspaceDataError,
     _dump_yaml,
     _load_mapping,
     _parse_date,
@@ -59,51 +57,28 @@ def compute_status(
     gate = _verify_external_inputs(manifest, db_path=db_path)
     _validate_editable_drafts(workspace, manifest, gate=gate)
     status = _draft_status(workspace, manifest, db_path=db_path, now=now or datetime.now(JST))
-    status["research_triage"] = _research_triage_view(
-        gate, purpose=str(manifest.get("purpose") or "fundamental_research")
-    )
-    inputs = manifest.get("inputs")
-    if isinstance(inputs, Mapping) and inputs.get("explicit_run") is not None:
-        selection = workspace_selection(manifest, db_path=db_path)
-        assert selection.explicit_run is not None
-        status["explicit_research_request"] = {
-            "request": selection.request,
-            "analysis_as_of": selection.explicit_run.as_of.isoformat(),
-            **selection.explicit_run.binding(),
-        }
+    selection = gate
+    status["request_scope"] = selection.request.scope
+    status["selection_summary"] = selection.selection_summary
     return status
-
-
-def _research_triage_view(
-    gate: ResearchSetAdmissionBinding | None, *, purpose: str
-) -> dict[str, object]:
-    """Name the judgment bounding this workspace and what it lets a human admit."""
-
-    if gate is None:
-        return {
-            "purpose": purpose,
-            "research_triage_id": None,
-            "admissible_research_tickers": [],
-        }
-    return {
-        "purpose": "fundamental_research",
-        "research_triage_id": gate.research_triage_id,
-        "admissible_research_tickers": list(gate.admissible_tickers),
-    }
 
 
 def _draft_status(
     workspace: Path, manifest: Mapping[str, object], *, db_path: Path | None, now: datetime
 ) -> dict[str, object]:
-    asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
-    document = _load_mapping(workspace / "research-workspace.yaml", label="research workspace")
-    research_set = document.get("research_set")
-    if not isinstance(research_set, list):
-        raise ResearchWorkspaceDataError("workspace research_set must be an array of tickers")
-    cases = [
-        _case_status(workspace, str(ticker), asof, db_path=db_path, now=now)
-        for ticker in research_set
-    ]
+    asof = _parse_date(str(manifest.get("research_as_of")), label="manifest research_as_of")
+    selection = workspace_selection(manifest, db_path=db_path)
+    holding = manifest.get("holding_ticker")
+    cases = []
+    for target in selection.targets:
+        if holding is not None and holding != target.ticker:
+            continue
+        case_workspace = (
+            workspace / "holdings" / target.ticker
+            if target.purpose == "holding" and holding is None
+            else workspace
+        )
+        cases.append(_case_status(case_workspace, target.ticker, asof, db_path=db_path, now=now))
     outstanding = [case for case in cases if case["status"] != "published"]
     return {
         "workspace_status": (
