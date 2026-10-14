@@ -354,7 +354,10 @@ def bind_ledger_reference(source, reference, *, ticker="2331"):
 
 
 @pytest.mark.parametrize("caa_present", [False, True])
-def test_explicit_buy_ledger_identity_survives_missing_caa_or_late_review(tmp_path, caa_present):
+@pytest.mark.parametrize("missing_index_reference", [False, True])
+def test_explicit_buy_ledger_identity_survives_missing_caa_or_late_review(
+    tmp_path, caa_present, missing_index_reference
+):
     source = source22(tmp_path)
     reference = CAA_ID if caa_present else "https://example.invalid/issues/413#comment-synthetic"
     if caa_present:
@@ -362,6 +365,12 @@ def test_explicit_buy_ledger_identity_survives_missing_caa_or_late_review(tmp_pa
         raw["review"]["reviewed_at"] = "2026-10-14T16:22:16.617072+09:00"
         insert_caa(source, raw)
     bind_ledger_reference(source, reference)
+    if missing_index_reference:
+        with sqlite3.connect(source) as connection:
+            connection.execute(
+                "UPDATE ledger_event SET decision_reference=NULL WHERE decision_reference=?",
+                (reference,),
+            )
     before_bytes = source.read_bytes()
     with sqlite3.connect(source) as original:
         original.row_factory = sqlite3.Row
@@ -381,7 +390,11 @@ def test_explicit_buy_ledger_identity_survives_missing_caa_or_late_review(tmp_pa
         ]
         assert copied_rows == original_rows
         binding = dict(final.execute("SELECT * FROM position_decision_reference").fetchone())
-        evidence = [row for row in original_rows if row["decision_reference"] == reference]
+        evidence = [
+            row
+            for row in original_rows
+            if json.loads(row["payload"]).get("decision_reference") == reference
+        ]
         assert binding == dict(
             reference=reference,
             ticker="2331",
@@ -401,7 +414,9 @@ def test_explicit_buy_ledger_identity_survives_missing_caa_or_late_review(tmp_pa
     assert material_files(tmp_path) == []
 
 
-@pytest.mark.parametrize("fault", ["multiple_tickers", "caa_ticker", "ledger_header"])
+@pytest.mark.parametrize(
+    "fault", ["multiple_tickers", "caa_ticker", "ledger_header", "reference_header"]
+)
 def test_explicit_buy_ledger_identity_rejects_conflicting_saved_facts(tmp_path, fault):
     source = source22(tmp_path)
     bind_ledger_reference(source, CAA_ID)
@@ -409,6 +424,13 @@ def test_explicit_buy_ledger_identity_rejects_conflicting_saved_facts(tmp_path, 
         bind_ledger_reference(source, CAA_ID, ticker="8929")
     elif fault == "caa_ticker":
         insert_caa(source, caa_payload(ticker="1234"))
+    elif fault == "reference_header":
+        with sqlite3.connect(source) as connection:
+            connection.execute(
+                "UPDATE ledger_event SET decision_reference='other-reference' "
+                "WHERE decision_reference=?",
+                (CAA_ID,),
+            )
     else:
         with sqlite3.connect(source) as connection:
             connection.execute(

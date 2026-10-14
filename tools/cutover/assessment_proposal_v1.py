@@ -795,6 +795,9 @@ def retained_ledger_buy_binding(
     The digest covers the original SQL rows (including their exact payload text),
     ordered by append_seq. source_id identifies the first row in that group.
     """
+    # The replay document is read from payloads. An unpopulated historical lookup
+    # column is not a contrary identity; a populated, different reference still is.
+    # Preserve both original columns and payload in the copy and its evidence digest.
     ordered = sorted(events, key=lambda row: row["append_seq"])
     tickers = set()
     for row in ordered:
@@ -805,8 +808,9 @@ def retained_ledger_buy_binding(
             or raw.get("type") not in {"execution", "reservation"}
             or raw.get("side", "buy") != "buy"
             or raw.get("decision_reference") != reference
-            or (row["event_id"], row["event_type"], row["ticker"], row["decision_reference"])
-            != (raw.get("event_id"), raw.get("type"), ticker, reference)
+            or (row["event_id"], row["event_type"], row["ticker"])
+            != (raw.get("event_id"), raw.get("type"), ticker)
+            or row["decision_reference"] not in (None, reference)
         ):
             raise ValueError(f"old buy reference ledger identity differs: {reference}")
         tickers.add(ticker)
