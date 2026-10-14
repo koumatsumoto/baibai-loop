@@ -109,16 +109,17 @@ class PositionReviewService:
 
     def build(self, *, thesis_id: str, position_id: str) -> PositionReviewDocument:
         now = self._clock()
+        local_now = now.astimezone(JST)
         with closing(connect_read_only(database_path(self._db_path))) as connection:
             connection.execute("BEGIN")
             pair, holding, quote = self._inputs(connection, thesis_id, now)
         return PositionReviewDocument(
             schema_version=3,
-            position_review_id=f"position-review-{now:%Y%m%d}-{pair.document.input_snapshot.ticker}-{position_id}",
+            position_review_id=f"position-review-{local_now:%Y%m%d}-{pair.document.input_snapshot.ticker}-{position_id}",
             thesis_id=thesis_id,
             position_id=position_id,
             ticker=pair.document.input_snapshot.ticker,
-            as_of=now.date(),
+            as_of=local_now.date(),
             holding=holding,
             quote=quote,
             remaining_reward=None,
@@ -128,7 +129,7 @@ class PositionReviewService:
     def _evaluate_in_transaction(
         self, connection: sqlite3.Connection, document: PositionReviewDocument, now: datetime
     ) -> PositionReviewEvaluation:
-        if document.as_of != now.date():
+        if document.as_of != now.astimezone(JST).date():
             raise ResearchConflictError("refresh formal judgment basis")
         pair, holding, quote = self._inputs(connection, document.thesis_id, now)
         if document.holding != holding:

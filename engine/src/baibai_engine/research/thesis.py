@@ -13,11 +13,11 @@ from decimal import Decimal
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, Literal
-from zoneinfo import ZoneInfo
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.research.decimal_number import decimal_to_number
 from baibai_engine.valuation.models import Valuation
@@ -554,14 +554,18 @@ def evaluate_thesis(
     Source/number checks do not prove financial plausibility or truthful authoring.
     Independent Review owns that assessment, including materiality of unknowns.
     """
-    instant = now or datetime.now(ZoneInfo("Asia/Tokyo"))
+    instant = now or datetime.now(JST)
     if instant.tzinfo is None or instant.utcoffset() is None:
         raise ThesisError("evaluation instant must include a timezone")
     errors: list[str] = []
     warnings: list[str] = []
     snapshot = document.input_snapshot
     proposed = document.judgment.proposed_at
-    if snapshot.as_of > instant.date() or proposed > instant or proposed.date() < snapshot.as_of:
+    if (
+        snapshot.as_of > instant.astimezone(JST).date()
+        or proposed > instant
+        or proposed.astimezone(JST).date() < snapshot.as_of
+    ):
         errors.append("invalid proposal/as_of time")
     sources = {source.source_id: source for source in snapshot.sources}
     if not sources or len(sources) != len(snapshot.sources):
@@ -572,7 +576,7 @@ def evaluate_thesis(
         if (
             source.as_of > snapshot.as_of
             or source.retrieved_at > proposed
-            or source.retrieved_at.date() < source.as_of
+            or source.retrieved_at.astimezone(JST).date() < source.as_of
         ):
             errors.append(f"source {source.source_id} has invalid time")
     facts = {fact.fact_id: fact for fact in snapshot.facts}
@@ -605,7 +609,7 @@ def evaluate_thesis(
                 errors.append("market_price must be a positive number")
             if (
                 fact.observed_at is None
-                or fact.observed_at.date() != fact.as_of
+                or fact.observed_at.astimezone(JST).date() != fact.as_of
                 or fact.observed_at > proposed
             ):
                 errors.append("market_price observation time mismatch")
