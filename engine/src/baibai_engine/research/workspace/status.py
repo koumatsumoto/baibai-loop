@@ -27,7 +27,6 @@ from baibai_engine.research.workspace.validation import (
     _case_eligibility,
     _read_case,
     _validate_editable_drafts,
-    _verify_external_inputs,
 )
 from baibai_engine.storage.application.paths import database_path
 from baibai_engine.storage.application.read import connect_read_only
@@ -42,11 +41,11 @@ def compute_status(
 ) -> dict[str, object]:
     """Read per-case publication and current remaining work without canonical writes.
 
-    The Operation's fixed selection binds the subject. Holding workspaces recheck
-    the current ledger subject without replacing the saved Research inputs.
+    The Operation's fixed selection and inputs bind the subject. Current holdings
+    gate new authored work; they do not change an exact saved publication's status.
     """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
-    gate = _verify_external_inputs(manifest, db_path=db_path)
+    gate = workspace_selection(manifest, db_path=db_path)
     _validate_editable_drafts(workspace, manifest, gate=gate)
     status = _draft_status(workspace, manifest, db_path=db_path, now=now or datetime.now(JST))
     selection = gate

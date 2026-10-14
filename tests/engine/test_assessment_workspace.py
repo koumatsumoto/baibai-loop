@@ -2,6 +2,7 @@
 
 import sqlite3
 from datetime import datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -356,7 +357,8 @@ def test_refresh_file_failure_retry_preserves_scaffolded_identity(case, monkeypa
     assert identity["supersedes_id"] == latest.assessment_id
 
 
-def test_holding_workspace_promote_records_the_same_assessment_contract(tmp_path):
+@pytest.mark.parametrize("completed", [False, True])
+def test_published_holding_workspace_status_remains_readable_after_sale(tmp_path, completed):
     db = tmp_path / "app"
     ledger = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
     seed_ledger(db, ledger.model_copy(update={"market_prices": ()}))
@@ -374,7 +376,9 @@ def test_holding_workspace_promote_records_the_same_assessment_contract(tmp_path
     author((db, child, prepared.operation_id), ticker="2331")
     before = ledger.model_dump(mode="json")
     published = promote(workspace=child, ticker="2331", db_path=db, now=NOW)
-    progress = progress_binding(OperationService(db).get(prepared.operation_id).payload)
+    service = OperationService(db)
+    operation = service.get(prepared.operation_id)
+    progress = progress_binding(operation.payload)
     assert progress.outcomes[0].purpose == "holding"
     assert progress.outcomes[0].assessment_ref.assessment_id == published.assessment_id
     assert (
@@ -383,6 +387,67 @@ def test_holding_workspace_promote_records_the_same_assessment_contract(tmp_path
     from baibai_engine.position.store import LedgerStoreService
 
     assert LedgerStoreService(db).load().model_dump(mode="json") == {**before, "market_prices": []}
+    if completed:
+        from tests.engine.test_research_progression import (
+            final_payload,
+            proposal_for,
+            seed_proposal,
+        )
+
+        proposal = proposal_for(operation, actions={"2331": "hold"}).model_copy(
+            update={"published_at": NOW + timedelta(seconds=1)}
+        )
+        seed_proposal(db, proposal)
+        operation = service.record_proposal(
+            prepared.operation_id, proposal.proposal_id, now=NOW + timedelta(seconds=1)
+        )
+        service.complete(
+            prepared.operation_id,
+            final_payload(operation),
+            completed_at=NOW + timedelta(seconds=2),
+        )
+
+    from baibai_engine.position.drafts import apply_draft, build_sell_execution_draft
+
+    sold_at = NOW + timedelta(days=1)
+    ledger_service = LedgerStoreService(db)
+    sale = build_sell_execution_draft(
+        ledger_service,
+        occurred_at=sold_at,
+        ticker="2331",
+        quantity=200,
+        price_yen=Decimal("1100"),
+    )
+    assert sale is not None
+    apply_draft(ledger_service, sale, human_confirmed=True)
+    saved_files = {path: path.read_bytes() for path in prepared.workspace.rglob("*.yaml")}
+    saved_database = db.read_bytes()
+
+    parent = compute_status(prepared.workspace, db_path=db, now=sold_at)
+    child_status = compute_status(child, db_path=db, now=sold_at)
+
+    assert parent == child_status
+    assert parent["workspace_status"] == "published"
+    assert parent["cases"][0]["assessment_id"] == published.assessment_id
+    assert db.read_bytes() == saved_database
+    assert {path: path.read_bytes() for path in saved_files} == saved_files
+    for write in (
+        lambda: scaffold_assessment(
+            workspace=child,
+            ticker="2331",
+            sqlite_path=tmp_path / "absent",
+            as_of=sold_at.date(),
+            retrieved_at=sold_at,
+            db_path=db,
+            force=True,
+        ),
+        lambda: scaffold_review(workspace=child, ticker="2331", db_path=db, force=True),
+        lambda: promote(workspace=child, ticker="2331", db_path=db, now=sold_at),
+    ):
+        with pytest.raises(ResearchWorkspaceConflictError, match="current holding"):
+            write()
+    assert db.read_bytes() == saved_database
+    assert {path: path.read_bytes() for path in saved_files} == saved_files
 
 
 def test_new_public_cli_uses_scaffolded_identity_and_rejects_retired_commands(case, capsys):
