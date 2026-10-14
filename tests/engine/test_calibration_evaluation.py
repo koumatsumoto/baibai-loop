@@ -1159,11 +1159,23 @@ class MarginSizeNormalizationTest(unittest.TestCase):
             for horizon in ("3y", "5y")
             for index, row in enumerate(panel)
         ]
+        panel = [replace(row, asof=asof) for row in panel]
+        forwards = [
+            replace(
+                row,
+                asof=asof,
+                entry_date=asof,
+                target_date="2023-01-31" if row.horizon == "3y" else "2025-01-31",
+                exit_date="2023-01-31" if row.horizon == "3y" else "2025-01-31",
+            )
+            for row in forwards
+        ]
         evaluation: dict[str, object] = {
             "screening_rules_hash": "rules-hash-v1",
             "er_model_version": "expected-return-v1",
             "scope": {
                 "run_purpose": "empirical_change_evidence",
+                "required_asofs": [asof],
                 "decision_subject": "estimator_policy",
                 "required_metrics": [
                     "er_level_calibration",
@@ -1191,6 +1203,13 @@ class MarginSizeNormalizationTest(unittest.TestCase):
                         {
                             "asof": asof,
                             "metric_statuses": {"er_level_calibration": "eligible"},
+                            "coverage": {
+                                "master_snapshot_status": "exact_date",
+                                "survivorship_coverage_status": "complete",
+                                "adjustment_factor_coverage": "complete",
+                                "input_range_clamped": False,
+                                "candidate_partition_complete": True,
+                            },
                         }
                     ]
                 }
@@ -1208,7 +1227,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
 
         self.assertEqual(context["reference_horizon"], "3y")
         self.assertEqual(context["valid_through"], "2026-09-16")
-        self.assertEqual(context["schema_version"], 3)
+        self.assertEqual(context["schema_version"], 4)
         common = context["common_window"]
         assert isinstance(common, dict)
         self.assertEqual(common["cohort_count"], 1)
@@ -1262,8 +1281,9 @@ class MarginSizeNormalizationTest(unittest.TestCase):
             "evidence_status": "unresolved",
             "evidence_complete": False,
         }
-        with self.assertRaises(CalibrationContextError):
-            build_er_distribution_context(evaluation, {asof: panel}, {asof: forwards})
+        partial = build_er_distribution_context(evaluation, {asof: panel}, {asof: forwards})
+        self.assertFalse(partial["evidence_complete"])
+        self.assertEqual(partial["required_asofs"], [asof])
 
     def test_er_level_calibration_does_not_treat_missing_total_return_as_zero(self) -> None:
         panel = [

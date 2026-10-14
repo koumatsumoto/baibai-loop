@@ -9,6 +9,7 @@ from baibai_engine.screening.calibration.context import (
     CalibrationContextError,
     _cohort_entries,
     _horizon_context,
+    _prediction_boundaries,
 )
 from baibai_engine.valuation.calibration.contracts import ErCalibrationHorizon
 from baibai_engine.valuation.calibration.query import candidate_er_bands
@@ -49,7 +50,13 @@ def test_all_fixed_band_members_match_lookup_ranges_and_distribution():
     )
     asofs = list(panels)
     horizon = ErCalibrationHorizon.model_validate(
-        _horizon_context("3y", asofs, panels=panels, forwards=forwards)
+        _horizon_context(
+            "3y",
+            asofs,
+            panels=panels,
+            forwards=forwards,
+            fixed_boundaries=_prediction_boundaries(panels, asofs),
+        )
     )
     assert horizon.bands[0].upper_er_annual == 0.019
     assert candidate_er_bands(horizon, 0.019)[0].quintile == 1
@@ -108,8 +115,23 @@ def test_separated_cohorts_do_not_fabricate_statistics_for_empty_fixed_bands():
             "2020-02-28": [(100 + i // 10) / 100 for i in range(100)],
         }
     )
-    with pytest.raises(CalibrationContextError, match="does not cover every eligible cohort"):
-        _horizon_context("3y", list(panels), panels=panels, forwards=forwards)
+    horizon = ErCalibrationHorizon.model_validate(
+        _horizon_context(
+            "3y",
+            list(panels),
+            panels=panels,
+            forwards=forwards,
+            fixed_boundaries=_prediction_boundaries(panels, list(panels)),
+        )
+    )
+    assert horizon.cohort_count == 2
+    for band in horizon.bands[:4]:
+        assert band.median_n == 0
+        for basis in band.bases:
+            assert basis.observed_cohort_count == 1
+            assert basis.coverage.missing_n == 0
+            assert basis.ticker_equal is not None
+            assert basis.ticker_equal.n == basis.coverage.declared_n
 
 
 @pytest.mark.parametrize(
@@ -118,6 +140,6 @@ def test_separated_cohorts_do_not_fabricate_statistics_for_empty_fixed_bands():
     ids=["identical-values", "rounding-collapses-boundaries"],
 )
 def test_duplicate_serialized_boundaries_are_rejected(values):
-    panels, forwards = _cohorts({"2020-01-31": values})
+    panels, _forwards = _cohorts({"2020-01-31": values})
     with pytest.raises(CalibrationContextError, match="boundaries are not increasing"):
-        _horizon_context("3y", list(panels), panels=panels, forwards=forwards)
+        _prediction_boundaries(panels, list(panels))

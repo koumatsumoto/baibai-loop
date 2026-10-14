@@ -46,9 +46,9 @@ def test_retained_schema_2_is_not_reinterpreted_even_for_its_original_method() -
     assert _PUBLISHED.read_bytes() == original
 
 
-def test_schema_3_fixed_band_contract_is_accepted() -> None:
+def test_schema_4_fixed_band_contract_is_accepted() -> None:
     artifact = ErCalibrationContextArtifact.model_validate(_artifact())
-    assert artifact.schema_version == 3
+    assert artifact.schema_version == 4
     assert [horizon.horizon for horizon in artifact.horizons] == ["3y", "5y"]
 
 

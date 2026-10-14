@@ -7,7 +7,19 @@ from typing import Any
 def context_artifact(*, rules_hash: str = "old-rules") -> dict[str, Any]:
     stats = {"median": 0.1, "q25": 0.0, "q10": -0.1, "trap_rate": 0.2, "n": 100}
     bases = [
-        {"basis": basis, "ticker_equal": deepcopy(stats), "cohort_equal": deepcopy(stats)}
+        {
+            "basis": basis,
+            "coverage": {
+                "declared_n": 100,
+                "observed_n": 100,
+                "missing_n": 0,
+                "missing_reason_counts": {},
+            },
+            "observed_cohort_count": 1,
+            "median_n": 100,
+            "ticker_equal": deepcopy(stats),
+            "cohort_equal": deepcopy(stats),
+        }
         for basis in ("fy_actual_dividend_total_return", "price_return_only")
     ]
     bounds = (None, -0.02, 0.0, 0.02, 0.04, None)
@@ -48,7 +60,11 @@ def context_artifact(*, rules_hash: str = "old-rules") -> dict[str, Any]:
     ]
     return {
         "kind": "er-level-calibration-context",
-        "schema_version": 3,
+        "schema_version": 4,
+        "interpretation": "observed_distribution_only",
+        "required_asofs": ["2020-01-31"],
+        "evidence_complete": True,
+        "evidence_blocking_reasons": [],
         "generated_at": "2026-10-01T18:00:00+09:00",
         "valid_through": "2026-11-15",
         "reference_horizon": "3y",

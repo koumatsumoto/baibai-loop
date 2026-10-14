@@ -222,7 +222,7 @@ export interface ErLevelCalibrationBandView {
   quintile: number | null
   lower_er_annual: number | null
   upper_er_annual: number | null
-  median_predicted_er_annual: number
+  median_predicted_er_annual: number | null
   cohort_count: number
   median_n: number
   bases: ErLevelCalibrationBasisView[]
@@ -230,11 +230,18 @@ export interface ErLevelCalibrationBandView {
 
 export interface ErLevelCalibrationBasisView {
   basis: string
-  ticker_equal: ErLevelCalibrationStatsView
-  cohort_equal: ErLevelCalibrationStatsView
+  coverage: ErLevelCalibrationCoverageView
+  observed_cohort_count: number
+  median_n: number
+  ticker_equal: ErLevelCalibrationStatsView | null
+  cohort_equal: ErLevelCalibrationStatsView | null
 }
 
 export interface ErLevelCalibrationContextView {
+  interpretation: string
+  required_asofs: string[]
+  evidence_complete: boolean
+  evidence_blocking_reasons: string[]
   generated_at: string
   valid_through: string
   reference_horizon: string
@@ -244,6 +251,13 @@ export interface ErLevelCalibrationContextView {
   secondary_realized_basis: string
   trap_basis: string
   horizons: ErLevelCalibrationHorizonView[]
+}
+
+export interface ErLevelCalibrationCoverageView {
+  declared_n: number
+  observed_n: number
+  missing_n: number
+  missing_reason_counts: Record<string, number>
 }
 
 export interface ErLevelCalibrationHorizonView {
