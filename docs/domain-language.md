@@ -56,7 +56,7 @@ Valuationの機械ER/FV anchorは倍率・自己価格レンジとcarryの推計
 | Limit Terms | proposal value | 提案に保存するprice / quantity / expiry / session / conditions |
 | broker fact | human-confirmed fact | 人間がbroker画面等から確認して報告したorder / fill fact |
 | Portfolio Ledger | artifact | human-confirmed event ledger |
-| Reservation | ledger state / event | 買付余力を拘束する状態またはevent |
+| Reservation | ledger state / event | 買付資金または売付可能な保有数量を拘束する注文状態・event |
 | Execution | business fact | 約定事実 |
 | Holding | derived state | Ledger replayから得る保有状態 |
 | Position Review | activity | Researchの保有scopeでhold / sell / deferの提案を作る見直し |

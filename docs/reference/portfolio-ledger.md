@@ -50,7 +50,7 @@ cash_before_reservations =
     + sell_proceeds - buy_payments
     + confirmed_income - confirmed_costs - confirmed_tax
 
-reserved_cash = sum(active remaining_quantity * price_guard_yen)
+reserved_cash = sum(active buy remaining_quantity * price_guard_yen)
 available_cash = cash_before_reservations - reserved_cash
 deployed_cost = sum(open FIFO lot quantity * execution price)
 realized_gross_pnl = sum(sell proceeds - consumed FIFO cost)

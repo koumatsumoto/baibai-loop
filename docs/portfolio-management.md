@@ -35,7 +35,7 @@ buy提案は現在のfloorと、記録済み要求率によるPmaxを確認す�
 <a id="reservation-and-warnings"></a>
 ## 予約とwarning
 
-reservationは数量×price guardをcashから拘束し、partial fill後は残数量だけを残す。cancel/expireは人間の報告によるreleaseで示す。未報告の注文状態は推定しない。
+buy reservationは数量×price guardをcashから拘束し、sell reservationは未約定数量を保有株数の範囲で拘束する。sellの見込代金をcashへ加えず、約定までは保有lotを減らさない。partial fill後は残数量だけを予約に残し、cancel/expireは人間の報告によるreleaseで示す。未報告の注文状態は推定しない。
 
 ticker10%、sector40%、common-factor35%、ADV5%などの集中・執行warningは人間へ示す。数量・資金はevent replay、時価はmarket quoteと現在保有episodeの権利basisから読む。台帳への価格転記は不要である。全保有のquote・権利basisを確認できなければNAVと比率は未評価とし、架空の分母を作らない。cash20%はwarningであり投資率ノルマや自動数量縮小の理由ではない。warning受容にはledgerの既存人間overrideを使い、企業根拠の不足を小口購入のoverrideで通さない。
 
