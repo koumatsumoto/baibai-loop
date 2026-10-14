@@ -105,8 +105,8 @@ def upcoming_events(
     within the next ``_EVENT_WINDOW_DAYS`` days.
 
     The window is inclusive on both ends: an event dated today (days_until 0) through
-    ``today + _EVENT_WINDOW_DAYS`` is surfaced; anything past or beyond is dropped so the
-    The app only shows what needs attention now.
+    ``today + _EVENT_WINDOW_DAYS`` is surfaced; anything past or beyond is dropped.
+    Reservation deadlines are exclusive instants, displayed on their last valid JST day.
     """
 
     window_end = today + timedelta(days=_EVENT_WINDOW_DAYS)
@@ -126,7 +126,7 @@ def upcoming_events(
                 )
             )
     for reservation in reservations:
-        event_date = (reservation.expires_at - timedelta(microseconds=1)).date()
+        event_date = (reservation.expires_at.astimezone(_JST) - timedelta(microseconds=1)).date()
         if today <= event_date <= window_end:
             events.append(
                 UpcomingEventView(

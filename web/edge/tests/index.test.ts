@@ -156,6 +156,8 @@ describe('view routing', () => {
       objects: [
         { key: 'history/candidate-views/2026-07-22.json' },
         { key: 'history/candidate-views/not-a-date.json' },
+        { key: 'history/candidate-views/2026-07-24.yaml' },
+        { key: 'history/candidate-views/2026-07-25.json.bak' },
         { key: 'history/candidate-views/2026-07-23.json' },
       ],
       delimitedPrefixes: [],

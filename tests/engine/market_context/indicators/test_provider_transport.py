@@ -224,6 +224,8 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
 
         launch = playwright.chromium.launch_persistent_context
         assert launch.call_count == 1
+        context.close.assert_called_once_with()
+        playwright.stop.assert_called_once_with()
         assert launch.call_args.kwargs["env"] == {
             "HOME": "/home/runner",
             "PATH": "/usr/bin",

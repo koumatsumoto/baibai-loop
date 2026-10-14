@@ -168,6 +168,7 @@ async function screeningHistoryIndex(env: Env): Promise<Response> {
   }
 
   const dates = objects
+    .filter((object) => object.key.endsWith('.json'))
     .map((object) => object.key.slice(prefix.length, -'.json'.length))
     .filter((value) => SCREENING_DATE_PATTERN.test(value))
     .sort((left, right) => right.localeCompare(left))

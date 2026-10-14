@@ -8,20 +8,16 @@ from contextlib import suppress
 from pathlib import Path
 from types import TracebackType
 
-from playwright.sync_api import Browser, BrowserContext, Playwright, sync_playwright
+from playwright.sync_api import BrowserContext, Playwright, sync_playwright
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from .base import BrowserUnavailableError, IndicatorsProviderError
 
-# A real Chromium navigation is required where an edge WAF answers a plain HTTP
-# client with a 2xx carrying a challenge page or nothing at all: the S&P Global PMI
-# release PDFs, the press-release index the manifest append reads, and the FRB H.15
-# CSV when its edge blocks the datacenter IPs a hosted run comes from. Header
-# spoofing cannot substitute — these edges also read the TLS handshake, which only a
-# real browser produces. A source that merely checks the User-Agent does not need
-# this and sends that header from the plain client instead.
-# One launch is shared across every browser-backed fetch in a run via FetchContext.
+# Browser-backed fallback for public sources when the plain client yields no
+# usable body. A failed plain request does not identify the server's policy or
+# guarantee that browser navigation will work.
+# One launch is shared across browser-backed fetches in a run via FetchContext.
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -92,7 +88,6 @@ class BrowserFetcher:
 
     def __init__(self) -> None:
         self._playwright: Playwright | None = None
-        self._browser: Browser | None = None
         self._context: BrowserContext | None = None
         self._profile: tempfile.TemporaryDirectory[str] | None = None
 
@@ -269,10 +264,6 @@ class BrowserFetcher:
             with suppress(PlaywrightError):
                 self._context.close()
             self._context = None
-        if self._browser is not None:
-            with suppress(PlaywrightError):
-                self._browser.close()
-            self._browser = None
         if self._playwright is not None:
             with suppress(PlaywrightError):
                 self._playwright.stop()

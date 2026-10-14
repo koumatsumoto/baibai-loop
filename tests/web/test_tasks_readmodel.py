@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
+import pytest
+
 from baibai_engine.read_api import PortfolioLedgerError
 from baibai_web.readmodel.builders import build_tasks
 from baibai_web.readmodel.builders.presentation import upcoming_events
@@ -9,7 +11,17 @@ from baibai_web.readmodel.models import ReservationView
 from baibai_web.sources.types import TaskRecord
 
 
-def test_week_end_exclusive_order_expiry_is_shown_on_last_valid_day() -> None:
+@pytest.mark.parametrize(
+    ("expires_at", "last_valid_day"),
+    [
+        ("2026-10-17T00:00:00+09:00", date(2026, 10, 16)),
+        ("2026-10-16T15:00:00+00:00", date(2026, 10, 16)),
+        ("2026-10-16T16:00:00+00:00", date(2026, 10, 17)),
+    ],
+)
+def test_exclusive_order_expiry_is_shown_on_last_valid_jst_day(
+    expires_at: str, last_valid_day: date
+) -> None:
     orders = [
         ReservationView(
             reservation_id="sell-2222",
@@ -19,13 +31,13 @@ def test_week_end_exclusive_order_expiry_is_shown_on_last_valid_day() -> None:
             remaining_quantity=100,
             price_guard_yen="1140",
             reserved_yen=0,
-            expires_at=datetime.fromisoformat("2026-10-17T00:00:00+09:00"),
+            expires_at=datetime.fromisoformat(expires_at),
             expiry_label="今週中",
             route_label="取引所（自動振分）",
         )
     ]
     events = upcoming_events(today=date(2026, 10, 14), holdings=[], reservations=orders)
-    assert [event.event_date for event in events] == [date(2026, 10, 16)]
+    assert [event.event_date for event in events] == [last_valid_day]
 
 
 def test_tasks_remain_visible_when_ledger_cannot_build_upcoming_events(mocker) -> None:
