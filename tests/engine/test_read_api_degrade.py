@@ -40,8 +40,8 @@ _NOT_STORE_READERS = frozenset(
 # A caller asking for one identity that is absent is told so; that is not a degrade.
 _RAISES_FOR_UNKNOWN_ID = frozenset({"assessment_payload"})
 # The rule is "readers that answer what has been published degrade; readers that gate a
-# write raise". These two gate the daily batch, which must stop and name the fault
-# rather than skip a run that looked like a holiday.
+# write raise". These two supply required Screening/prior-run inputs; their faults
+# must be diagnosed rather than mistaken for a confirmed non-business day.
 _WRITE_GATES = frozenset({"market_calendar_business_day", "previous_run_revision_id"})
 # Public callables the sweep cannot drive: they read no store, or they take a value this
 # file would have to invent. Anything not listed here must be reachable by the sweep.
@@ -75,6 +75,8 @@ _ARGUMENTS: dict[str, object] = {
     "cutoff": datetime(2026, 7, 29, tzinfo=UTC),
     "evaluated_at": datetime(2026, 7, 29, tzinfo=UTC),
     "after": date(2026, 7, 28),
+    "from_date": date(2026, 7, 28),
+    "through_date": date(2026, 7, 29),
     "as_of": date(2026, 7, 29),
     "asof": date(2026, 7, 29),
     "asof_date": date(2026, 7, 29),
