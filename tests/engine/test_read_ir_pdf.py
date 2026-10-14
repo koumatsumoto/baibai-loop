@@ -4,6 +4,7 @@ import pytest
 
 from baibai_engine.research.pdf_reader import (
     find_keyword_contexts,
+    main,
     missing_keywords,
     parse_page_selection,
 )
@@ -81,3 +82,21 @@ def test_only_the_keywords_that_matched_nothing_are_named() -> None:
     hits = find_keyword_contexts(pages, keywords)
 
     assert missing_keywords(keywords, hits) == ("のれん", "減損損失")
+
+
+def test_keyword_generator_is_searched_on_every_page() -> None:
+    hits = find_keyword_contexts(("営業利益1", "営業利益2"), iter(["営業利益"]))
+    assert [hit.page_number for hit in hits] == [1, 2]
+
+
+@pytest.mark.parametrize("pages", [(), ("営業利益",)])
+def test_empty_keyword_is_rejected_before_searching(pages) -> None:
+    with pytest.raises(ValueError, match="search keyword must not be empty"):
+        find_keyword_contexts(pages, [""])
+
+
+def test_cli_rejects_empty_search_before_reading_pdf(tmp_path, capsys) -> None:
+    with pytest.raises(SystemExit) as error:
+        main([str(tmp_path / "not-read.pdf"), "--search", ""])
+    assert error.value.code == 2
+    assert "search keyword must not be empty" in capsys.readouterr().err

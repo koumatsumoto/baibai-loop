@@ -72,6 +72,9 @@ def find_keyword_contexts(
     statements are two different readings and which one an assessment cites matters.
     """
 
+    keywords = tuple(keywords)
+    if "" in keywords:
+        raise ValueError("search keyword must not be empty")
     hits: list[KeywordHit] = []
     for index, text in enumerate(pages, start=1):
         for keyword in keywords:
@@ -132,7 +135,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.search is not None and "" in args.search:
+        parser.error("search keyword must not be empty")
 
     if not args.pdf.is_file():
         print(f"no such PDF: {args.pdf}", file=sys.stderr)
