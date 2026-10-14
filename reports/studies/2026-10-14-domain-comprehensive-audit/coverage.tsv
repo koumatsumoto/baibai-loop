@@ -202,7 +202,7 @@ engine/src/baibai_engine/market_context/indicators/providers/derived.py	確認�
 engine/src/baibai_engine/market_context/indicators/providers/ecb_fx.py	確認済	確認済み: 全文確認: EUR基準FX cross換算とZIP制限、JPY pair単位
 engine/src/baibai_engine/market_context/indicators/providers/estat.py	確認済	確認済み: 全文確認: 統計table selector/dimension/paging/date codeとregistry値
 engine/src/baibai_engine/market_context/indicators/providers/estat_dashboard.py	確認済	確認済み: 全文確認: 周期/季調/地域selector検査とsource identityによるrefresh
-engine/src/baibai_engine/market_context/indicators/providers/formulas.py	確認済	確認済み: 全文確認: 全derived入力と算術・単位を照合。net_liquidityのRRP単位不整合を親へ報告、指標意味は未変更。consensusについて誤説明修正
+engine/src/baibai_engine/market_context/indicators/providers/formulas.py	確認済	確認済み: 全文確認: 全derived入力と算術・単位を照合。net_liquidityのRRP単位不整合を修正: assets/tga millionをbillionへ換算後RRP billionを減算、regression追加。consensusについて誤説明修正
 engine/src/baibai_engine/market_context/indicators/providers/frb_h15.py	確認済	確認済み: 全文確認: Treasury定数満期列とspread bp換算、browser/plain同一resource
 engine/src/baibai_engine/market_context/indicators/providers/fred.py	確認済	確認済み: 全文確認: CSV日付/欠測とseries column選択、read retry/size上限
 engine/src/baibai_engine/market_context/indicators/providers/jquants_flows.py	確認済	確認済み: 全文確認: 東証Prime週次net、集計末observed/publication vintage、API列aliasはsource互換
@@ -221,10 +221,10 @@ engine/src/baibai_engine/market_context/indicators/providers/tsr_bankruptcies.py
 engine/src/baibai_engine/market_context/indicators/providers/umich_sca.py	確認済	確認済み: 全文確認: 消費者調査CSVの確報月/数値と現行provider
 engine/src/baibai_engine/market_context/indicators/providers/yahoo.py	確認済	確認済み: 全文確認: chart日次closeと日付、source symbol/終値単位
 engine/src/baibai_engine/market_context/indicators/read_contracts.py	確認済	確認済み: 全文確認: 現行のdomain責務・参照先と一致、旧Research/Proposal契約を定義しない
-engine/src/baibai_engine/market_context/indicators/registry/derived.yaml	確認済	確認済み: 全文確認: 全series provider/source/input/単位/頻度/notesを実parserと照合。derived/usのnet_liquidity RRP単位不整合は親へ報告、計算意味・保存履歴未変更
-engine/src/baibai_engine/market_context/indicators/registry/global.yaml	確認済	確認済み: 全文確認: 全series provider/source/input/単位/頻度/notesを実parserと照合。derived/usのnet_liquidity RRP単位不整合は親へ報告、計算意味・保存履歴未変更
-engine/src/baibai_engine/market_context/indicators/registry/japan.yaml	確認済	確認済み: 全文確認: 全series provider/source/input/単位/頻度/notesを実parserと照合。derived/usのnet_liquidity RRP単位不整合は親へ報告、計算意味・保存履歴未変更
-engine/src/baibai_engine/market_context/indicators/registry/us.yaml	確認済	確認済み: 全文確認: 全series provider/source/input/単位/頻度/notesを実parserと照合。derived/usのnet_liquidity RRP単位不整合は親へ報告、計算意味・保存履歴未変更
+engine/src/baibai_engine/market_context/indicators/registry/derived.yaml	確認済	確認済み: 全文確認: 全series provider/source/input/単位/頻度/notesを実parserと照合。net_liquidity RRP単位不整合はformula/derived注記を修正、保存履歴は未変更・別途全履歴recompute必要
+engine/src/baibai_engine/market_context/indicators/registry/global.yaml	確認済	確認済み: 全文確認: 全series provider/source/input/単位/頻度/notesを実parserと照合。net_liquidity RRP単位不整合はformula/derived注記を修正、保存履歴は未変更・別途全履歴recompute必要
+engine/src/baibai_engine/market_context/indicators/registry/japan.yaml	確認済	確認済み: 全文確認: 全series provider/source/input/単位/頻度/notesを実parserと照合。net_liquidity RRP単位不整合はformula/derived注記を修正、保存履歴は未変更・別途全履歴recompute必要
+engine/src/baibai_engine/market_context/indicators/registry/us.yaml	確認済	確認済み: 全文確認: 全series provider/source/input/単位/頻度/notesを実parserと照合。net_liquidity RRP単位不整合はformula/derived注記を修正、保存履歴は未変更・別途全履歴recompute必要
 engine/src/baibai_engine/market_context/indicators/schema.sql	確認済	確認済み: 全文確認: 現行のdomain責務・参照先と一致、旧Research/Proposal契約を定義しない
 engine/src/baibai_engine/market_context/indicators/service.py	確認済	確認済み: 全文確認: get/readとrefresh/rebuild分離、provider全履歴完全性とderived順序、判断を生成しない
 engine/src/baibai_engine/market_context/margin.py	確認済	確認済み: 信用残高のshare basis、split窓と欠測/ゼロの違い、順位や提案に未接続
@@ -586,8 +586,10 @@ reports/studies/2026-10-14-assessment-proposal-integration/README.md	確認済	�
 reports/studies/2026-10-14-calibration-fixed-bands/boundary-comparison.json	確認済	確認済: 全JSON field構造を確認、全cohort n/mismatchと5x5行列合計・率一致、両horizonの5帯と固定/相対定義比較を照合。formal_context_generated=false保全
 reports/studies/2026-10-14-calibration-fixed-bands/fixed-membership-validation.json	確認済	確認済: 全文と対応measurement reportを照合。固定cohort/method/入力ID・未成立理由・本番非更新証跡を当時の記録として保全。元storeでの再測定は未実施
 reports/studies/2026-10-14-calibration-fixed-bands/report.md	確認済	確認済: 全文の当時入力・判断・旧ID・採否と再現限界を確認。dated evidenceのため本文を保持。10月4文書のactiveメタデータのみhistoricalへ整理。
-reports/studies/2026-10-14-domain-comprehensive-audit/README.md	確認済	今回作成した範囲・結果台帳。元一覧/各担当記録/実行結果との照合対象
-reports/studies/2026-10-14-domain-comprehensive-audit/tracked-files.txt	確認済	今回作成した範囲・結果台帳。元一覧/各担当記録/実行結果との照合対象
+reports/studies/2026-10-14-domain-comprehensive-audit/README.md	確認済	今回の監査記録。起点git treeと一覧を完全一致照合し、担当別全文確認記録を全追跡pathへ統合。実施済/未実施の検証境界を確認。
+reports/studies/2026-10-14-domain-comprehensive-audit/coverage.tsv	確認済	今回の監査記録。起点git treeと一覧を完全一致照合し、担当別全文確認記録を全追跡pathへ統合。実施済/未実施の検証境界を確認。
+reports/studies/2026-10-14-domain-comprehensive-audit/tracked-files.txt	確認済	今回の監査記録。起点git treeと一覧を完全一致照合し、担当別全文確認記録を全追跡pathへ統合。実施済/未実施の検証境界を確認。
+reports/studies/2026-10-14-domain-comprehensive-audit/unconfirmed-files.txt	確認済	今回の監査記録。起点git treeと一覧を完全一致照合し、担当別全文確認記録を全追跡pathへ統合。実施済/未実施の検証境界を確認。
 reports/studies/2026-10-14-er-context-v26/acceptance.json	確認済	確認済: 全文metadata/集計・cohort診断/operation記録を確認、published/retained両SHAとquintile/basis集計照合。外部元snapshot再構築は未実施
 reports/studies/2026-10-14-er-context-v26/report.md	確認済	確認済: 全文の当時入力・判断・旧ID・採否と再現限界を確認。dated evidenceのため本文を保持。10月4文書のactiveメタデータのみhistoricalへ整理。
 reports/studies/2026-10-14-er-context-v26/retained-schema2-context.yaml	確認済	確認済: 全YAML構造・旧schema2とformal evidence/分布契約を確認、acceptance記載SHA一致。現行readerが拒否するtest照合。旧データに現行schemaを付替えない
@@ -675,21 +677,21 @@ tests/engine/market_context/test_prepared_context.py	確認済	確認済み: 共
 tests/engine/market_context/test_queries.py	確認済	確認済み: historical master/peer中央値と業種平均の別責務、null-close split/読取無mutation無networkを全文確認
 tests/engine/market_context/test_reading.py	確認済	確認済み: 全series statistic/freshness/lags・歴史rules v1/v2・percentile sample/YoY/trend境界を全文確認、廃止scorecard説明を現行Reading鮮度へ修正
 tests/engine/screening/__init__.py	確認済	全文: 空package marker。旧設計/参照なし
-tests/engine/screening/metric_fixtures.py	未確認	全文意味監査または分担結果の照合待ち
-tests/engine/screening/metric_snapshot_fixtures.py	未確認	全文意味監査または分担結果の照合待ち
+tests/engine/screening/metric_fixtures.py	確認済	移管先全文確認済み(docs_skills): 全文確認; summary profit=EPS×自己株控除株数、bar/split/EDINET fixtureを現行snapshot入力契約と照合;維持; 詳細台帳 /tmp/coverage-screening-metrics-tests.tsv
+tests/engine/screening/metric_snapshot_fixtures.py	確認済	移管先全文確認済み(docs_skills): 全文確認; forecast/capital/TTM/entity fixtureを各snapshot testと照合;維持; 詳細台帳 /tmp/coverage-screening-metrics-tests.tsv
 tests/engine/screening/test_earnings_lag_status.py	確認済	全文: 予定日到達と開示確認区別、旧保存announcedを日付claimとしてのみ読取
-tests/engine/screening/test_metrics_capital.py	未確認	全文意味監査または分担結果の照合待ち
-tests/engine/screening/test_metrics_dividends.py	未確認	全文意味監査または分担結果の照合待ち
+tests/engine/screening/test_metrics_capital.py	確認済	移管先全文確認済み(docs_skills): 全文確認;開示日分割・中間split・average株数anchor・曖昧basis・未来cutoff・5%/20%境界をvaluation.metrics.capitalと照合;維持; 詳細台帳 /tmp/coverage-screening-metrics-tests.tsv
+tests/engine/screening/test_metrics_dividends.py	確認済	移管先全文確認済み(docs_skills): 全文確認;0予想/旧期訂正/同期期訂正/withdrawal/配当基準日/5%照合/較正経路同値/株数2軸をdividendsおよびestimatesのissued carryと照合;維持; 詳細台帳 /tmp/coverage-screening-metrics-tests.tsv
 tests/engine/screening/test_metrics_history.py	確認済	全文: 20session/15有効値volume窓と短履歴不足を区別
-tests/engine/screening/test_metrics_periods.py	未確認	全文意味監査または分担結果の照合待ち
-tests/engine/screening/test_metrics_population.py	未確認	全文意味監査または分担結果の照合待ち
-tests/engine/screening/test_snapshot_assembly.py	未確認	全文意味監査または分担結果の照合待ち
-tests/engine/screening/test_snapshot_capital.py	未確認	全文意味監査または分担結果の照合待ち
-tests/engine/screening/test_snapshot_dividends.py	未確認	全文意味監査または分担結果の照合待ち
-tests/engine/screening/test_snapshot_history.py	未確認	全文意味監査または分担結果の照合待ち
-tests/engine/screening/test_snapshot_periods.py	未確認	全文意味監査または分担結果の照合待ち
+tests/engine/screening/test_metrics_periods.py	確認済	移管先全文確認済み(docs_skills): 全文確認;短期FY優先/部分訂正/未来期実績/forecast withdrawalをactual resolver契約と照合;維持; 詳細台帳 /tmp/coverage-screening-metrics-tests.tsv
+tests/engine/screening/test_metrics_population.py	確認済	移管先全文確認済み(docs_skills): 全文確認;sector/market fallbackと母集団制限をsnapshot._in_populationと照合;除外testの全PER10 fixtureは誤包含でも中央値不変、修正待ち(親snapshot中); 詳細台帳 /tmp/coverage-screening-metrics-tests.tsv
+tests/engine/screening/test_snapshot_assembly.py	確認済	移管先全文確認済み(docs_skills): 全文確認;BS carry/stale/asof/価格dislocation/EV履歴/asset-backed/正時価総額制約をsnapshot組立と照合;維持; 詳細台帳 /tmp/coverage-screening-metrics-tests.tsv
+tests/engine/screening/test_snapshot_capital.py	確認済	移管先全文確認済み(docs_skills): 全文確認;自己株/alias/fail-closed/zero reset/共通資本時点/TTM円合成/EDINET実体/報告利益/履歴factorをcapital・financial_snapshotと照合;維持; 詳細台帳 /tmp/coverage-screening-metrics-tests.tsv
+tests/engine/screening/test_snapshot_dividends.py	確認済	移管先全文確認済み(docs_skills): 全文確認;FY修正/増配/無配/欠測/split accrual/予想carryをdividendsと照合;維持; 詳細台帳 /tmp/coverage-screening-metrics-tests.tsv
+tests/engine/screening/test_snapshot_history.py	確認済	移管先全文確認済み(docs_skills): 全文確認;未来bar排除/資本基準/750日coverage/60session調整をsnapshotと照合;維持; 詳細台帳 /tmp/coverage-screening-metrics-tests.tsv
+tests/engine/screening/test_snapshot_periods.py	確認済	移管先全文確認済み(docs_skills): 全文確認;利益同field YoY/閏年/予想flags/TTM欠測・訂正/PER等式/会計period matchingをperiodsと照合;維持; 詳細台帳 /tmp/coverage-screening-metrics-tests.tsv
 tests/engine/test_appdb.py	確認済	全文: 現行schemaのみ初期化/旧schema明示cutover/backup保持
-tests/engine/test_append_pmi_manifest_tool.py	確認済	確認済: 合成release HTMLとmanifest: stream/月/embargo/title確証、missing月/future拒否、atomic書換・permissions保持、重複YAML拒否を確認。
+tests/engine/test_append_pmi_manifest_tool.py	確認済	web: 確認済: 合成release HTMLとmanifest: stream/月/embargo/title確証、missing月/future拒否、atomic書換・permissions保持、重複YAML拒否を確認。
 tests/engine/test_assessment_evaluation_cli.py	確認済	全文確認: pure evaluation/no DB、original snapshot診断とpublication readiness分離、overflowとprogramming error伝播を照合。
 tests/engine/test_assessment_refresh.py	確認済	全文: 旧根拠保持/当日確認/期間・分配再基準化/独立再計算。正式SCHEMA_SQLへ統合、96件関連回帰pass
 tests/engine/test_assessment_workspace.py	確認済	全文確認: scaffold stable ID/collision無変更、promotion exact review/hash、refresh supersedes/retry、holding contract、retired CLI拒否。
@@ -699,13 +701,13 @@ tests/engine/test_calibration_fixed_bands.py	確認済	全文確認: candidate n
 tests/engine/test_calibration_grid_forward.py	確認済	全文確認: month-end完整性、forward return価格/FY配当/split basis、未解決分類、TOB/failure exit分類と実装責務整合。
 tests/engine/test_calibration_panel.py	確認済	全文確認: PIT/coverage/source gap、corporate action basis、cache identity、degraded historical variant isolationとgolden実測の現行契約。無処理wrapper削除。
 tests/engine/test_candidate_discovery.py	確認済	全文確認: candidate nomination unionとResearch選定を区別。固定wire metric保持、partial observed/missingとeligibility分離、frozen rank/hashの検証。calibration fixtureの無処理重複wrapperを削除。
-tests/engine/test_cash_share_cb.py	確認済	確認済: 現金元本/超過株式CB、契約丸め/通知group/端株現金/VWAPと参照日分離/CLI read-onlyを全文確認。独立synthetic将来仮定は明記済。
+tests/engine/test_cash_share_cb.py	確認済	web: 確認済: 現金元本/超過株式CB、契約丸め/通知group/端株現金/VWAPと参照日分離/CLI read-onlyを全文確認。独立synthetic将来仮定は明記済。
 tests/engine/test_cli_seam_position_ops.py	確認済	全文: CLI型変換/台帳草稿/Operation/task/DB init backup。未使用_mapping helper削除、歴史decision ID保全
 tests/engine/test_cli_seam_screening_cache.py	確認済	確認済み: 現行CLI parser/dispatchからfake provider境界までcache/bootstrap/backfill/revision overlap/coverage invalidationを全文確認
 tests/engine/test_coerce.py	確認済	全文: 技術的coercionの数値bool/日付/sequence/mapping境界、domain判断なし
 tests/engine/test_conditional_buy_terms.py	確認済	全文: pmax/指値の上限境界/現金/board lot/最新reviewed評価/株式basis/実quoteの現行購入条件
 tests/engine/test_date_utils.py	確認済	全文: month末日/閏年/前後月/weekday距離の純粋算術
-tests/engine/test_delistings.py	確認済	確認済: JPX累積保持/空拒否/header除外/UTF8/allowlisted archive traversalのsyntheticテスト確認。
+tests/engine/test_delistings.py	確認済	web: 確認済: JPX累積保持/空拒否/header除外/UTF8/allowlisted archive traversalのsyntheticテスト確認。
 tests/engine/test_domain_application_schema.py	確認済	全文: schema24のexact table集合/immutable/FK/buy reference起源、旧v22非対象DDL保全
 tests/engine/test_domain_contract_owner_boundary.py	確認済	全文: cold import/保存済みcalibration/benchmark reader純粋性・no network/no write
 tests/engine/test_edinet_convertible_debt.py	確認済	全文: 転換社債残高とflow/連結/期間区別、重複控除、未観測と0区別
@@ -736,12 +738,12 @@ tests/engine/test_investment_policy.py	確認済	全文: 現行6%floor境界/旧
 tests/engine/test_investment_proposal.py	確認済	全文: typed contract/hash/scopeとaction完全対応・価格grid・注文条件・hold/sell/deferとcash分離
 tests/engine/test_jquants_http_retry.py	確認済	確認済み: installed SDK/urllib3 GET境界・429/Retry-After/認証/ページ分離とsecret redactionを全文確認、不要cache引数削除
 tests/engine/test_jquants_sqlite_read_through.py	確認済	確認済み: master/価格/FY/split/daily-weekly信用境界、incremental/revision repair/失敗chunk保持を全文確認、不要cache引数削除
-tests/engine/test_kabumap.py	確認済	確認済: 独立Quants観測identity/scale/date/immutable receipt、raw再parse/checkpoint、rate limit停止、旧2-source plan保持を確認。旧ドメイン互換なし。
-tests/engine/test_margin_metrics.py	確認済	確認済: 信用需給zero/missing/貸借適格/split basis、DerivedMetrics接続、cache契約、weekly→daily公開lag/26週遡及を確認。
+tests/engine/test_kabumap.py	確認済	web: 確認済: 独立Quants観測identity/scale/date/immutable receipt、raw再parse/checkpoint、rate limit停止、旧2-source plan保持を確認。旧ドメイン互換なし。
+tests/engine/test_margin_metrics.py	確認済	web: 確認済: 信用需給zero/missing/貸借適格/split basis、DerivedMetrics接続、cache契約、weekly→daily公開lag/26週遡及を確認。
 tests/engine/test_market_lake.py	確認済	確認済み: manifest strict identity/digest、policy coverage・population・歴史床とsnapshot例外、GC inventoryを全文確認
 tests/engine/test_market_lake_read.py	確認済	確認済み: fixed release/digest/契約・credential境界・hydrate rollback/current CAS/dehydrate保全/prefetch同値を全文確認、旧runs説明更新
 tests/engine/test_market_lake_writer.py	確認済	確認済み: sealed世代・deterministic Parquet/export parity・GC closure・atomic失敗時既存release保全を全文確認
-tests/engine/test_market_read_api.py	未確認	全文意味監査または分担結果の照合待ち
+tests/engine/test_market_read_api.py	確認済	全文確認: unadjusted close/read missing、split factor close-null day保持、開示inclusive/exclusiveと営業日unknown境界をread API実装と照合。変更不要。
 tests/engine/test_master_snapshot.py	確認済	docs_skills: 全文意味確認済み: 全文620行。日別原子置換/別日保存/invalid population/date/code拒否/rollback/共通sector正規化/coverage count corruption/read-only missとfetch boundaryをingest/readerへ照合。変更不要
 tests/engine/test_metric_owner_boundary.py	確認済	全文: 保存型hash/純粋財務依存/non-traded corporate action価格非捏造
 tests/engine/test_operation_session.py	確認済	全文: 現行session kinds/固定selection/完了条件と歴史no-research読取専用境界。旧triageは拒否/歴史fixtureのみ
@@ -769,7 +771,7 @@ tests/engine/test_read_api_materialization.py	確認済	全文: schema版/不足
 tests/engine/test_read_api_research.py	確認済	全文確認: exact ID/hash/review closure、破損はfallbackしない、holding first-buy以前のassessment、saved対preview境界。
 tests/engine/test_read_ir_pdf.py	確認済	全文: PDF page範囲/順序・keyword文脈/未一致の読取境界
 tests/engine/test_redaction.py	確認済	全文: credential query maskingと一般URL保全、外部送信なし
-tests/engine/test_reinvestment_ttm.py	未確認	全文意味監査または分担結果の照合待ち
+tests/engine/test_reinvestment_ttm.py	確認済	確認済:237行全文。source→TTM→analysis→candidate discoveryの同期間利益/売上、欠損fail closed、同一時点equity、calculation identityと品質順位を実owner呼出で確認。旧domain導線なし。
 tests/engine/test_research_calculation.py	確認済	全文確認: 現行計算/台帳factとread-only diagnostic責務、calendar/time cutoff、未評価と不明状態、immutable stored run/publication境界を実装と照合。重複assertion/旧担当名説明修正。
 tests/engine/test_research_jst_dates.py	確認済	全文確認: Tokyo業務日、future/wrong day拒否、holding quote ageを現行実装と照合。
 tests/engine/test_research_market_close_source.py	確認済	全文: raw close/schema/WAL snapshot/株数basis/営業日読取。古いthesis説明修正
@@ -779,19 +781,19 @@ tests/engine/test_research_selection.py	確認済	全文: selection.py/selection
 tests/engine/test_research_selection_query.py	確認済	全文確認: current selected snapshot/contextの境界、zero candidates、input gap、broken schema、JST/cutoffを実装と照合。
 tests/engine/test_research_watch.py	確認済	全文確認: 現行計算/台帳factとread-only diagnostic責務、calendar/time cutoff、未評価と不明状態、immutable stored run/publication境界を実装と照合。重複assertion/旧担当名説明修正。
 tests/engine/test_reviewed_assessment.py	確認済	全文: 独立算術golden/atomic pair/identity/hash/time/required return境界
-tests/engine/test_screening_cli.py	未確認	全文意味監査または分担結果の照合待ち
+tests/engine/test_screening_cli.py	確認済	確認済:2363行全文。runのSQLite source coverage/partial exit/revision再実行、bootstrap source窓/週次日次boundary、master限定backfill、EDINET差分reuse/withdrawal quarantine/旧snapshot保全とproduction ownerを照合。未使用ROOT削除・scratch出力test名を実際の検証内容へ修正済。
 tests/engine/test_screening_config.py	確認済	全文: canonical cache固定/廃止env override無効/token必須
 tests/engine/test_screening_daily_bars_coverage.py	確認済	確認済み: 価格窓の実row coverage、休日長gap/空history、close欠測split event保全を全文確認
 tests/engine/test_screening_estimates.py	確認済	確認済み: Stock Analysis expected return推定、asset/earnings/carry/希薄化と未解決配当基準を全文確認、投資提案判断との混同なし
 tests/engine/test_screening_freshness.py	確認済	確認済み: TDNET material event title分類/asofとEDINET以後同日警告・欠測を全文確認
 tests/engine/test_screening_market_snapshot.py	確認済	確認済み: trend/breadth/業種の現行masterと観測端点、split event、CLI yaml/jsonを全文確認
-tests/engine/test_screening_providers.py	未確認	全文意味監査または分担結果の照合待ち
-tests/engine/test_screening_run_store.py	未確認	全文意味監査または分担結果の照合待ち
-tests/engine/test_screening_sqlite_cache.py	未確認	全文意味監査または分担結果の照合待ち
-tests/engine/test_screening_sqlite_reader.py	未確認	全文意味監査または分担結果の照合待ち
-tests/engine/test_screening_ticker_profile.py	未確認	全文意味監査または分担結果の照合待ち
-tests/engine/test_screening_universe.py	未確認	全文意味監査または分担結果の照合待ち
-tests/engine/test_short_sale_reports.py	確認済	確認済: 時点cutoff/最新reporter取消/同時点衝突tickerのみ拒否、連続coverage/空再取得保護/NaN正規化確認。
+tests/engine/test_screening_providers.py	確認済	確認済:2559行全文。HTTP doubles、EDINET doc lineage/correction/withdrawal、source CSV確定tag/consolidation/period、JQuants v2短keyとzero欠損区別、JPX現行table/header/rolling優先・cached snapshot境界、実fixture ID用途を確認。decode失敗コメントを実0x81,0x00入力へ修正済。旧external layout受容は履歴source読込に必要。
+tests/engine/test_screening_run_store.py	確認済	確認済み: schema6 Stock Analysis保存/候補context所有・immutable idempotency・atomic rollback・cutoffとmicrosecond/offset同値を全文確認、旧Review Set拒否assertは必要な境界
+tests/engine/test_screening_sqlite_cache.py	確認済	確認済み: 1590行全文: source unique count/partial範囲維持・空置換拒否・現行forecast期/非finite/zero・EDINET seq/revision・週次日次margin境界とpublication lagを実storeに照合
+tests/engine/test_screening_sqlite_reader.py	確認済	追加修正確認:market担当全文coverageを継承、未使用ROOT削除。Pathはfixture database用途で保持。ruff check/format検証済。
+tests/engine/test_screening_ticker_profile.py	確認済	確認済み: 600行全文: raw close独立factor・close欠損action保持、最新run保存値、sector exact endpoint、Ledger valuation欠損時もbroker fact保持/独立asofを確認
+tests/engine/test_screening_universe.py	確認済	追加修正確認:market担当全文coverageを継承、未使用ROOT/Path削除。規制flagはuniverse事実・除外はcandidate discovery責務とproduction _common_eligible照合しコメント修正。ruff check/format検証済。
+tests/engine/test_short_sale_reports.py	確認済	web: 確認済: 時点cutoff/最新reporter取消/同時点衝突tickerのみ拒否、連続coverage/空再取得保護/NaN正規化確認。
 tests/engine/test_sqlite_coverage.py	確認済	docs_skills: 全文意味確認済み: 全文1873行のfixture/破損DB/quick_check/schema/density/required field75%交差/同株式基準/JPX・EDINET欠測をstorageとscreening.sqlite_coverageへ照合。旧coverage keyはopaque読取fixtureでファイル参照なし、変更不要
 tests/engine/test_sqlite_integration.py	確認済	docs_skills: 全文意味確認済み: 全文確認。現行はScreeningRunReaderへのSQL-only publish一件で旧decision syncは存在せず、死んだ実時計forward窓・旧Rawパスfixture・誤った800日説明を整理
 tests/engine/test_stock_analysis_cli.py	確認済	全文確認: 現行計算/台帳factとread-only diagnostic責務、calendar/time cutoff、未評価と不明状態、immutable stored run/publication境界を実装と照合。重複assertion/旧担当名説明修正。
@@ -800,7 +802,7 @@ tests/engine/test_stock_assessment.py	確認済	全文: 現行Assessment/Review�
 tests/engine/test_storage_layout.py	確認済	全文: 純粋contract import/旧package不在/readerのprovider/writer非依存
 tests/engine/test_task_earnings_reconcile.py	確認済	全文確認: 現行計算/台帳factとread-only diagnostic責務、calendar/time cutoff、未評価と不明状態、immutable stored run/publication境界を実装と照合。重複assertion/旧担当名説明修正。
 tests/engine/test_tasks.py	確認済	全文: CLI/modelの4英数字ticker回帰追加、既存CRUD/正規SQL payload整合を確認。9 passed
-tests/engine/test_tender_offer.py	確認済	確認済: 価格/現金対価/成否抽出、旧round・訂正parent分離、未完競合/複数tier拒否/空導出保護を確認。Lake公開にexit tableが含まれるため復元不能との古いdocstring修正。
+tests/engine/test_tender_offer.py	確認済	web: 確認済: 価格/現金対価/成否抽出、旧round・訂正parent分離、未完競合/複数tier拒否/空導出保護を確認。Lake公開にexit tableが含まれるため復元不能との古いdocstring修正。
 tests/engine/test_tradingview_accepted.py	確認済	確認済: 全文、fixture入力/期待値/実装照合。受領identity・PIT/null・保存原本・部分成功/再開・外部副作用遮断の境界を保持。er contextは現行と保持schemaのidentity拒否を照合。
 tests/engine/test_tradingview_auth.py	確認済	確認済: 全文、fixture入力/期待値/実装照合。受領identity・PIT/null・保存原本・部分成功/再開・外部副作用遮断の境界を保持。er contextは現行と保持schemaのidentity拒否を照合。
 tests/engine/test_tradingview_client.py	確認済	確認済: 全文、fixture入力/期待値/実装照合。受領identity・PIT/null・保存原本・部分成功/再開・外部副作用遮断の境界を保持。er contextは現行と保持schemaのidentity拒否を照合。
@@ -808,41 +810,41 @@ tests/engine/test_tradingview_collector.py	確認済	確認済: 全文、fixture
 tests/engine/test_tradingview_errors.py	確認済	確認済: 全文、fixture入力/期待値/実装照合。受領identity・PIT/null・保存原本・部分成功/再開・外部副作用遮断の境界を保持。er contextは現行と保持schemaのidentity拒否を照合。
 tests/engine/test_tradingview_lake.py	確認済	確認済: 全文、fixture入力/期待値/実装照合。受領identity・PIT/null・保存原本・部分成功/再開・外部副作用遮断の境界を保持。er contextは現行と保持schemaのidentity拒否を照合。
 tests/engine/test_tradingview_manual_observation.py	確認済	確認済: 全文、fixture入力/期待値/実装照合。受領identity・PIT/null・保存原本・部分成功/再開・外部副作用遮断の境界を保持。er contextは現行と保持schemaのidentity拒否を照合。
-tests/engine/test_valuation_catalysts.py	未確認	全文意味監査または分担結果の照合待ち
-tests/engine/test_valuation_query.py	未確認	全文意味監査または分担結果の照合待ち
+tests/engine/test_valuation_catalysts.py	確認済	確認済:513行全文。2025/26 workbook配置差、EDINET対象企業identity/withdrawn/観測欠損、as-of政策snapshot境界。旧形式は実公開workbook証拠で必要。
+tests/engine/test_valuation_query.py	確認済	確認済:452行全文。保存CF/carry→Research inputs、snapshot/cutoff/run identity、read-only/no-network/import依存境界を確認。旧Review Setコメントを現行candidate membership境界へ修正済。
 tests/fixtures/application/research-selection-v1-schema.sql	確認済	全文: isolated cutover専用application22旧table/immutable。現行非対象DDL保全比較testと整合、旧語を保持
 tests/fixtures/application/run-v5-schema.sql	確認済	全文: isolated cutover専用旧schema5、security_analysis/review_set復元。現行run schemaと別責務として保全
-tests/fixtures/application/triage-v4-synthetic.json	未確認	全文意味監査または分担結果の照合待ち
+tests/fixtures/application/triage-v4-synthetic.json	確認済	確認済:全文。schema4 research_triage旧ID/rules hash/candidate snapshot付き1234research・0001skipの合成source証拠。mixed2331holdingがTriageにない条件をtestが検証。現行selection仕様ではないため旧payload保持。
 tests/fixtures/benchmark-observation/topix-1y.yaml	確認済	全文: gross total return/期間/公開・取得日/表示精度を持つ保存観測fixture。schema reader回帰で使用
 tests/fixtures/domain-assessment-proposal-synthetic.json	確認済	全文: 現行Assessment/Review/Proposal/Selectionの合成fixture。cashと価値判断分離、scope/hash・未取得ADVの意味を対応testsへ照合
 tests/fixtures/edinet/README.md	確認済	全文: 2026-09-17取得TSV抜粋の出所/period/原本hash説明。歴史根拠を保全
-tests/fixtures/edinet/S100XXXU.tsv	未確認	全文意味監査または分担結果の照合待ち
-tests/fixtures/edinet/S100YI50.tsv	未確認	全文意味監査または分担結果の照合待ち
-tests/fixtures/edinet/S100YIDK.tsv	未確認	全文意味監査または分担結果の照合待ち
-tests/fixtures/edinet/S100YK21.tsv	未確認	全文意味監査または分担結果の照合待ち
-tests/fixtures/edinet/S100YK4M.tsv	未確認	全文意味監査または分担結果の照合待ち
-tests/fixtures/edinet/S100YPE4.tsv	未確認	全文意味監査または分担結果の照合待ち
-tests/fixtures/edinet/S100YU8C.tsv	未確認	全文意味監査または分担結果の照合待ち
+tests/fixtures/edinet/S100XXXU.tsv	確認済	確認済み: TSV全行とprovider consumer照合。連結/非連結/segment・年度/中間・負値/CF/capex合算の原典証拠として保持
+tests/fixtures/edinet/S100YI50.tsv	確認済	確認済み: TSV全行とprovider consumer照合。連結/非連結/segment・年度/中間・負値/CF/capex合算の原典証拠として保持
+tests/fixtures/edinet/S100YIDK.tsv	確認済	確認済み: TSV全行とprovider consumer照合。連結/非連結/segment・年度/中間・負値/CF/capex合算の原典証拠として保持
+tests/fixtures/edinet/S100YK21.tsv	確認済	確認済み: TSV全行とprovider consumer照合。連結/非連結/segment・年度/中間・負値/CF/capex合算の原典証拠として保持
+tests/fixtures/edinet/S100YK4M.tsv	確認済	確認済み: TSV全行とprovider consumer照合。連結/非連結/segment・年度/中間・負値/CF/capex合算の原典証拠として保持
+tests/fixtures/edinet/S100YPE4.tsv	確認済	確認済み: TSV全行とprovider consumer照合。連結/非連結/segment・年度/中間・負値/CF/capex合算の原典証拠として保持
+tests/fixtures/edinet/S100YU8C.tsv	確認済	確認済み: TSV全行とprovider consumer照合。連結/非連結/segment・年度/中間・負値/CF/capex合算の原典証拠として保持
 tests/fixtures/edinet/research/README.md	確認済	全文: 2026-09-19取得XML/XSD/label抜粋の範囲と出所。Research判断の現行手順ではなくprovider原本fixture説明
-tests/fixtures/edinet/research/S100XTM0.xbrl	未確認	全文意味監査または分担結果の照合待ち
-tests/fixtures/edinet/research/S100XTM0.xsd	未確認	全文意味監査または分担結果の照合待ち
-tests/fixtures/edinet/research/S100XTM0_lab.xml	未確認	全文意味監査または分担結果の照合待ち
-tests/fixtures/edinet/research/S100YCUF.xbrl	未確認	全文意味監査または分担結果の照合待ち
-tests/fixtures/edinet/research/S100YCUF.xsd	未確認	全文意味監査または分担結果の照合待ち
-tests/fixtures/edinet/research/S100YCUF_lab.xml	未確認	全文意味監査または分担結果の照合待ち
-tests/fixtures/edinet/research/S100YJ24.xbrl	未確認	全文意味監査または分担結果の照合待ち
-tests/fixtures/edinet/research/S100YJ24.xsd	未確認	全文意味監査または分担結果の照合待ち
-tests/fixtures/edinet/research/S100YJ24_lab.xml	未確認	全文意味監査または分担結果の照合待ち
-tests/fixtures/edinet/research/S100YR5P.xbrl	未確認	全文意味監査または分担結果の照合待ち
-tests/fixtures/edinet/research/S100YR5P.xsd	未確認	全文意味監査または分担結果の照合待ち
-tests/fixtures/edinet/research/S100YR5P_lab.xml	未確認	全文意味監査または分担結果の照合待ち
-tests/fixtures/jpx/delisting_warning.html	未確認	全文意味監査または分担結果の照合待ち
-tests/fixtures/jpx/reorganization.html	未確認	全文意味監査または分担結果の照合待ち
-tests/fixtures/jpx/reorganization_nested.html	未確認	全文意味監査または分担結果の照合待ち
-tests/fixtures/jpx/special_caution.html	未確認	全文意味監査または分担結果の照合待ち
-tests/fixtures/jpx/trading_halt.html	未確認	全文意味監査または分担結果の照合待ち
-tests/fixtures/jpx/trading_halt_empty.html	未確認	全文意味監査または分担結果の照合待ち
-tests/fixtures/jpx/trading_halt_flat_header.html	未確認	全文意味監査または分担結果の照合待ち
+tests/fixtures/edinet/research/S100XTM0.xbrl	確認済	確認済み: XML全要素parseし全context/entity/期間/軸/単位/nil/全数値とTextBlock全文章・表セルを展開確認、segment/総計/消去区別・借入社債満期の原典保持（装飾属性は内容から省略）
+tests/fixtures/edinet/research/S100XTM0.xsd	確認済	確認済み: schema全文、issuer namespace/member abstract/domain定義と対応instance/label参照を確認。原典保持
+tests/fixtures/edinet/research/S100XTM0_lab.xml	確認済	確認済み: XML全要素parse、全loc→arc→label結合/roleRef/日本語標準・verbose labelを内容確認。source taxonomy参照保持
+tests/fixtures/edinet/research/S100YCUF.xbrl	確認済	確認済み: XML全要素parseし全context/entity/期間/軸/単位/nil/全数値とTextBlock全文章・表セルを展開確認、segment/総計/消去区別・借入社債満期の原典保持（装飾属性は内容から省略）
+tests/fixtures/edinet/research/S100YCUF.xsd	確認済	確認済み: schema全文、issuer namespace/member abstract/domain定義と対応instance/label参照を確認。原典保持
+tests/fixtures/edinet/research/S100YCUF_lab.xml	確認済	確認済み: XML全要素parse、全loc→arc→label結合/roleRef/日本語標準・verbose labelを内容確認。source taxonomy参照保持
+tests/fixtures/edinet/research/S100YJ24.xbrl	確認済	確認済み: XML全要素parseし全context/entity/期間/軸/単位/nil/全数値とTextBlock全文章・表セルを展開確認、segment/総計/消去区別・借入社債満期の原典保持（装飾属性は内容から省略）
+tests/fixtures/edinet/research/S100YJ24.xsd	確認済	確認済み: schema全文、issuer namespace/member abstract/domain定義と対応instance/label参照を確認。原典保持
+tests/fixtures/edinet/research/S100YJ24_lab.xml	確認済	確認済み: XML全要素parse、全loc→arc→label結合/roleRef/日本語標準・verbose labelを内容確認。source taxonomy参照保持
+tests/fixtures/edinet/research/S100YR5P.xbrl	確認済	確認済み: XML全要素parseし全context/entity/期間/軸/単位/nil/全数値とTextBlock全文章・表セルを展開確認、segment/総計/消去区別・借入社債満期の原典保持（装飾属性は内容から省略）
+tests/fixtures/edinet/research/S100YR5P.xsd	確認済	確認済み: schema全文、issuer namespace/member abstract/domain定義と対応instance/label参照を確認。原典保持
+tests/fixtures/edinet/research/S100YR5P_lab.xml	確認済	確認済み: XML全要素parse、全loc→arc→label結合/roleRef/日本語標準・verbose labelを内容確認。source taxonomy参照保持
+tests/fixtures/jpx/delisting_warning.html	確認済	確認済み: HTML全文とprovider consumer照合。表header/rowspan/nested/空/英数字tickerの現行抽出境界fixture、source証拠として保持
+tests/fixtures/jpx/reorganization.html	確認済	確認済み: HTML全文とprovider consumer照合。表header/rowspan/nested/空/英数字tickerの現行抽出境界fixture、source証拠として保持
+tests/fixtures/jpx/reorganization_nested.html	確認済	確認済み: HTML全文とprovider consumer照合。表header/rowspan/nested/空/英数字tickerの現行抽出境界fixture、source証拠として保持
+tests/fixtures/jpx/special_caution.html	確認済	確認済み: HTML全文とprovider consumer照合。表header/rowspan/nested/空/英数字tickerの現行抽出境界fixture、source証拠として保持
+tests/fixtures/jpx/trading_halt.html	確認済	確認済み: HTML全文とprovider consumer照合。表header/rowspan/nested/空/英数字tickerの現行抽出境界fixture、source証拠として保持
+tests/fixtures/jpx/trading_halt_empty.html	確認済	確認済み: HTML全文とprovider consumer照合。表header/rowspan/nested/空/英数字tickerの現行抽出境界fixture、source証拠として保持
+tests/fixtures/jpx/trading_halt_flat_header.html	確認済	確認済み: HTML全文とprovider consumer照合。表header/rowspan/nested/空/英数字tickerの現行抽出境界fixture、source証拠として保持
 tests/fixtures/portfolio-ledger/representative.yaml	確認済	全文: opening/contribution/reservation/partial fill/expiry/reinvestment/income/cost/taxの保存事実とtest_fixture価格。改変不要
 tests/fixtures/screening/calibration-panel-golden.json	確認済	全文確認: 全2row/diagnostics固定値、panel current canonical_json一致テスト成功。historical wire in_review_set保持。
 tests/fixtures/screening/candidate-discovery-golden.json	確認済	全データ確認: JSON全keyと87rowをtemplate+全差分で読解、rank/gap/method/hashを消費testと照合。fixture保全。
@@ -868,25 +870,25 @@ tests/helpers/screening_run.py	確認済	全文: 正式run payload構築、metri
 tests/helpers/screening_sqlite.py	確認済	確認済: 全文のfixture生成と実schema/呼出用途を照合。historical payload/旧schema拒否用fixtureを保全、source/cutoff/unit/CASの契約を確認。R2 integrationは専用bucket書込試験のため実行せず通常skip維持。
 tests/integration/test_lake_r2_acceptance.py	確認済	確認済: 全文のfixture生成と実schema/呼出用途を照合。historical payload/旧schema拒否用fixtureを保全、source/cutoff/unit/CASの契約を確認。R2 integrationは専用bucket書込試験のため実行せず通常skip維持。
 tests/tools/test_anti_pattern_index.py	確認済	全文: 既存索引gateのgap/範囲表記/未知ID拒否
-tests/tools/test_domain_cutover.py	確認済	確認済: source22/run5/schema3/CAA raw payload/hash/drafts保持、未確定推測拒否、DB/run同時変更検知、境界外workspace拒否を全文確認。統合300824dc追加mixed Triage新規のみ+holding draft保持/新規不足拒否とexplicit全targets不足拒否も確認。編集なし。
+tests/tools/test_domain_cutover.py	確認済	web: 確認済: source22/run5/schema3/CAA raw payload/hash/drafts保持、未確定推測拒否、DB/run同時変更検知、境界外workspace拒否を全文確認。統合300824dc追加mixed Triage新規のみ+holding draft保持/新規不足拒否とexplicit全targets不足拒否も確認。編集なし。
 tests/tools/test_measure_limit_outcomes.py	確認済	batch_tools: 確認済: 全文とledger v2予約/約定/解放fixture、cutoff・未完窓・指値到達/forgone・注文分類を実ledger replayに照合。
 tests/tools/test_measure_signal_cohorts.py	確認済	batch_tools: 確認済: 全文とcurrent calibration snapshot fixture、population flag・resolved母数・price/total基準・世代一貫性を実measurementに照合。旧未使用FORWARD_COLUMNS定数を除去。
 tests/tools/test_provision_duckdb_httpfs.py	確認済	全文: HTTPFS install後download disabled別connectionでLOAD smoke、close保証
 tests/tools/test_reference_index.py	確認済	全文: 正本索引双方向検証。合成reference名を現行Stock Assessmentへ更新
-tests/web/test_app_api.py	確認済	確認済: API 旧macro契約の履歴取得/現行store拒否を照合。履歴をUIに渡さないとの矛盾docstringと固定旧schema番号filenameを修正。
+tests/web/test_app_api.py	確認済	web: 確認済: API 旧macro契約の履歴取得/現行store拒否を照合。履歴をUIに渡さないとの矛盾docstringと固定旧schema番号filenameを修正。
 tests/web/test_app_calibration_context.py	確認済	確認済: 全文、fixture入力/期待値/実装照合。受領identity・PIT/null・保存原本・部分成功/再開・外部副作用遮断の境界を保持。er contextは現行と保持schemaのidentity拒否を照合。
-tests/web/test_app_sources.py	確認済	確認済: exact assessment-review pair、最新run identity、holding action理由/remaining rewardの欠損検出と市場委譲を全文確認。
+tests/web/test_app_sources.py	確認済	web: 確認済: exact assessment-review pair、最新run identity、holding action理由/remaining rewardの欠損検出と市場委譲を全文確認。
 tests/web/test_candidate_order.py	確認済	全文: 最新runの0候補を古い候補へfallbackしない、全rowをticker順で選択
-tests/web/test_cloud_export.py	確認済	確認済: API-export一致、原proposal固定、hydration/schema failclosed、meta最後/cache境界確認。合成売却参照から旧Position Review名除去、route契約重複説明修正。
-tests/web/test_current_capital.py	確認済	確認済: 人間Ledgerのqty/cost/P&Lと欠損market、read-only snapshotの現行capital導出を確認。
+tests/web/test_cloud_export.py	確認済	web: 確認済: API-export一致、原proposal固定、hydration/schema failclosed、meta最後/cache境界確認。合成売却参照から旧Position Review名除去、route契約重複説明修正。
+tests/web/test_current_capital.py	確認済	web: 確認済: 人間Ledgerのqty/cost/P&Lと欠損market、read-only snapshotの現行capital導出を確認。
 tests/web/test_daily_delta.py	確認済	全文: method identity/候補差分/欠測区別。削除load_errors stub/到達不能typo branch除去
-tests/web/test_external_assessment_views.py	確認済	確認済: 独立観測のzero/null/unobserved、cutoff、API/export/staging一致を確認。Stock Assessmentとの混同なし。
+tests/web/test_external_assessment_views.py	確認済	web: 確認済: 独立観測のzero/null/unobserved、cutoff、API/export/staging一致を確認。Stock Assessmentとの混同なし。
 tests/web/test_machine_valuation_views.py	確認済	全文: 候補外機械推計/欠測と0/metadataをlist detail exportへ保全
 tests/web/test_market_context_panel.py	確認済	確認済み: 全registry 1回表示、未取得series gap/月末sparkline13月制限とfull historyの別責務を全文確認、旧Macro説明修正
 tests/web/test_market_context_stock_views.py	確認済	全文: domain出力/時点/nullをAPI/exportに保全しstore不変
 tests/web/test_operation_research_views.py	確認済	全文: Research scope/固定capacity/評価ref/未完了/提案ref表示、人間事実と分離
-tests/web/test_readmodel_contract.py	確認済	確認済: route/schema生成物一致、export required項目、unsupported renderer拒否、delta全件保持を確認。
-tests/web/test_research_assessment_views.py	確認済	確認済: exact pair/原proposal immutable/current preview分離、旧CAA404、filter/pagination、構造化失敗を確認。
+tests/web/test_readmodel_contract.py	確認済	web: 確認済: route/schema生成物一致、export required項目、unsupported renderer拒否、delta全件保持を確認。
+tests/web/test_research_assessment_views.py	確認済	web: 確認済: exact pair/原proposal immutable/current preview分離、旧CAA404、filter/pagination、構造化失敗を確認。
 tests/web/test_screening_judgment_binding.py	確認済	確認済み: 保存Stock Analysis表示値とcandidate/quality/fair-value binding・raw保存不変を全文確認、旧store名をresearchへ修正
 tests/web/test_tasks_readmodel.py	確認済	全文: 台帳不正でもtask表示、旧非正準kindの合成fixtureを現行enumへ修正
 tools/README.md	確認済	確認済: 現行toolディレクトリと責務に照合。廃止read-only adapter記述を削除、限定cutoverを明記。

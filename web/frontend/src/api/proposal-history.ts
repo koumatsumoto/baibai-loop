@@ -5,8 +5,8 @@ export async function fetchProposalHistory(signal: AbortSignal): Promise<Investm
   const proposals: InvestmentProposalSummaryView[] = []
   let cursor: string | null = null
   do {
-    const query = cursor === null ? '' : `?cursor=${encodeURIComponent(cursor)}`
-    const page = await fetchJson<InvestmentProposalsView>(`/api/investment-proposals${query}`, { signal })
+    const cursorQuery = cursor === null ? '' : `?cursor=${encodeURIComponent(cursor)}`
+    const page: InvestmentProposalsView = await fetchJson<InvestmentProposalsView>(`/api/investment-proposals${cursorQuery}`, { signal })
     proposals.push(...page.proposals)
     cursor = page.next_cursor
   } while (cursor !== null && !signal.aborted)

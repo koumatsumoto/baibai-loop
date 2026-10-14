@@ -202,7 +202,8 @@ def test_every_frontend_api_route_is_in_the_contract_inventory() -> None:
         .replace("${encodeURIComponent(ticker)}", "{ticker}")
         .replace("${encodeURIComponent(openSeriesId)}", "{series_id}")
         .replace("${encodeURIComponent(seriesId)}", "{series_id}")
-        .replace("${query}", "period={period}&granularity={granularity}")
+        # cursorは同じ一覧routeの任意queryであり、別の公開pathではない。
+        .replace("${cursorQuery}", "")
         for route in frontend_routes
     }
     assert normalized <= inventory, (

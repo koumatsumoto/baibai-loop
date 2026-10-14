@@ -6,8 +6,6 @@ import unittest
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-
 from baibai_engine.market.edinet_metrics.store import (
     EDINETMetricBaselineError,
     read_edinet_metric_baseline,

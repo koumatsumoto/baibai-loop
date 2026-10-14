@@ -148,8 +148,8 @@ class ScreeningMetricsTests(SnapshotFixtures):
 
     def test_build_metrics_price_change_uses_adjusted_close_across_splits(self) -> None:
         # 2-for-1 split between the 60d-prior date and today:
-        # raw close drops 100 -> 50, but adjustment_close stays 50 on both
-        # ends, so price_change_60d should not register a synthetic decline.
+        # raw close drops 100 -> 50, but the split factor normalizes both
+        # ends to 50, so price_change_60d should not register a synthetic decline.
         asof = date(2026, 4, 24)
         bars = []
         # 分割前 70 sessions は raw=100。adjustment_close はわざと stale

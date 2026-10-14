@@ -7,8 +7,8 @@
 
 起点の `git ls-files` 全1087件を [tracked-files.txt](./tracked-files.txt) に固定した。
 コード・テスト・設定/CI・active文書/skills・運用工具・生成物・dated method・履歴資料を含む。
-別担当のmixed Triage修正を含むbase `300824dcaf18f097fdb89c2f91607e0b72af020e` を統合済み。追加fixtureを含む追跡1088件のうち、最初のレビュー用snapshotでは1039件を確認、49件は未確認として残す。
-[file別coverage](./coverage.tsv) と [未確認一覧](./unconfirmed-files.txt) を参照。追加した監査記録とWeb pagination helper/testも台帳に含める。現在は点検中であり、全件確認済みとは扱わない。
+別担当のmixed Triage修正を含むbase `300824dcaf18f097fdb89c2f91607e0b72af020e` を統合済み。最初のレビュー用snapshotでは追跡1088件中1039件を確認し、49件を未確認として記録した。その後残る全件と追加ファイルを確認し、現在の追跡1094件すべてを台帳と照合した。
+[file別coverage](./coverage.tsv) と [未確認一覧](./unconfirmed-files.txt) を参照。追加した監査記録とWeb pagination helper/testも台帳に含める。未確認は0件。起点1087件の一覧は起点git treeとの完全一致を確認し、変更後の全追跡pathをcoverageに含めた。
 
 ## 早期所見と整理方針
 
@@ -22,7 +22,7 @@
 `tools/cutover/domain_v1.py` は別担当のmixed Triage修正対象のため編集しない。
 mainへの直接push、merge、本番切替、認証/権限変更は実施しない。
 
-## 中間snapshotの変更と検証境界
+## 変更と検証境界
 
 現行docs/skillsをResearch selection → Stock Assessment/Assessment Review → Investment Proposal → human broker fact → Ledgerへ統合。候補scopeとcapacity、直接事実、未評価/未完了/deferの区別を実CLIへ合わせた。
 

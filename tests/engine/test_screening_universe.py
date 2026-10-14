@@ -2,9 +2,6 @@ from __future__ import annotations
 
 import unittest
 from datetime import date, timedelta
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[2]
 
 from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
@@ -211,8 +208,8 @@ class ScreeningUniverseTests(unittest.TestCase):
             shares_outstanding_by_ticker={"7203": 400_000_000.0},
             jpx_flags_by_ticker={"7203": ("整理銘柄",)},
         )
-        # Regulation flags are recorded as facts; the exclusion decision moves
-        # to the selection liquidity rules.
+        # Regulation flags remain facts in the universe snapshot.
+        # Candidate discovery applies the required JPX regulation exclusions.
         self.assertIn("7203", result.snapshots)
         self.assertEqual(result.snapshots["7203"].jpx_flags, ("整理銘柄",))
         self.assertEqual(result.exclusion_counts, {})

@@ -2328,8 +2328,8 @@ class ScreeningProviderTests(unittest.TestCase):
 
     def test_jpx_decode_html_text_raises_when_all_encodings_fail(self) -> None:
         provider = JPXProvider()
-        # 0xFF は cp932 / utf-8 / utf-8-sig いずれでも lead byte として無効なので、
-        # フォールバック 3 段すべて UnicodeDecodeError で落ちる。LookupError 経路の
+        # 0x81 に続く 0x00 は cp932 の有効なバイト列ではなく、utf-8 / utf-8-sig
+        # でも decode できない。LookupError 経路の
         # 確認も兼ねて、Content-Type には未知の encoding 名を載せる。
         with self.assertRaises(JPXProviderError):
             provider._decode_html_text(

@@ -302,7 +302,7 @@ def test_saved_non_candidate_and_profile_use_latest_run_before_cutoff(tmp_path):
     publish(path, "2026-09-19", "early", anchor=1400, run_at="2026-09-19T09:00:00+09:00")
     publish(path, "2026-09-19", "last", anchor=1600)
     publish(path, "2026-09-20", "future", anchor=2000)
-    # No Review Set exists; membership cannot authorize or suppress this read.
+    # Candidate membership cannot authorize or suppress this saved-analysis read.
     result = stored_machine_valuation(path, ticker="1234", as_of=CUTOFF)
     assert result.run_revision_id == "last"
     assert result.as_of == CUTOFF

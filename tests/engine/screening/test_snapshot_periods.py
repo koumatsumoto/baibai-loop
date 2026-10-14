@@ -301,10 +301,11 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 self.assertEqual(snapshot.forecast_full_year_loss_flag, full_year_loss)
 
     def test_per_trailing_rolls_quarterly_cumulative_eps_into_ttm(self) -> None:
-        """J-Quants の EPS は期中累計なので、四半期開示直後は rolling 合成で TTM に直す。
+        """四半期開示直後は純利益の円額を TTM 合成し、現在の株数で EPS へ換算する。
 
-        直近が Q1 累計 (24.0) のとき、TTM = Q1 累計 + 前期通期 (114.0) - 前年 Q1 累計 (26.0)
-        = 112.0。単一四半期 EPS (24.0) で割った偽の割高 PER を作らない。
+        この fixture は各期の株数が同じなので、合成後 EPS は Q1 累計 24.0 + 前期通期
+        114.0 - 前年 Q1 累計 26.0 = 112.0 と一致する。単一四半期 EPS (24.0) で割った
+        偽の割高 PER を作らない。
         """
         asof = date(2026, 7, 1)
         security = _security()

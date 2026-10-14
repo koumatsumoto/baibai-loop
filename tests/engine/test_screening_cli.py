@@ -15,13 +15,10 @@ from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
-from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.market.edinet_metrics import service as edinet_extraction
-
-ROOT = Path(__file__).resolve().parents[2]
-
 from baibai_engine.foundation.time import JST
+from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.bars import JQuantsDailyBar, JQuantsMarketCalendarDay
+from baibai_engine.market.edinet_metrics import service as edinet_extraction
 from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
 from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
 from baibai_engine.market.edinet_models import EdinetMetricRecord
@@ -515,7 +512,7 @@ class ScreeningCliTests(unittest.TestCase):
             finally:
                 os.chdir(cwd)
 
-    def test_run_command_does_not_write_universe_snapshot_for_scratch_output(self) -> None:
+    def test_run_command_writes_to_absolute_scratch_output_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             cwd = Path.cwd()
             try:
