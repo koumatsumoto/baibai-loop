@@ -224,3 +224,19 @@ def test_unknown_reference_is_read_only_and_never_resolves_a_ticker(tmp_path: Pa
     with pytest.raises(ValueError, match="unavailable"):
         resolve_buy_reference(REFERENCE, db_path=missing)
     assert not missing.exists()
+
+
+@pytest.mark.parametrize("version", [True, 2.0, "2"])
+def test_draft_version_is_an_exact_integer(tmp_path: Path, version) -> None:
+    service, _ = _service(tmp_path)
+    raw = _draft(service).model_dump(mode="json")
+    raw["schema_version"] = version
+    with pytest.raises(ValidationError, match="integer"):
+        LedgerDraft.model_validate(raw)
+
+
+def test_old_saved_draft_requests_reprepare(tmp_path: Path) -> None:
+    path = tmp_path / "old.yaml"
+    path.write_text("schema_version: 1\n")
+    with pytest.raises(ValueError, match="prepare a new draft"):
+        load_draft(path)

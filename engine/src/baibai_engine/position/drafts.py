@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
@@ -48,7 +48,7 @@ HumanEvent = ContributionEvent | WithdrawalEvent | IncomeEvent | CostEvent | Con
 class LedgerDraft(BaseModel):
     """A reviewable replacement bound to the exact DB state it was built from."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True, allow_inf_nan=False)
 
     schema_version: Literal[2] = 2
     kind: DraftKind
@@ -57,6 +57,13 @@ class LedgerDraft(BaseModel):
     replacement: PortfolioLedgerDocument
     confirmation_required: bool = True
     binding_addition: DecisionReferenceBinding | None = None
+
+    @field_validator("schema_version", mode="before")
+    @classmethod
+    def _version(cls, value: object) -> object:
+        if type(value) is not int:
+            raise ValueError("ledger draft schema_version requires an integer; prepare a new draft")
+        return value
 
     @model_validator(mode="after")
     def _binding_kind(self) -> LedgerDraft:
@@ -520,6 +527,8 @@ def write_draft(path: Path, draft: LedgerDraft) -> None:
 
 def load_draft(path: Path) -> LedgerDraft:
     raw = safe_load(path.read_text(encoding="utf-8"))
+    if isinstance(raw, dict) and raw.get("schema_version") != 2:
+        raise ValueError("ledger draft schema_version=2 required; prepare a new draft")
     return LedgerDraft.model_validate(raw)
 
 
