@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import type { DashboardView, HoldingView, MetaView, ReservationView } from '../src/api/types'
 import { FreshnessMeta } from '../src/components/FreshnessMeta'
 import { TooltipProvider } from '../src/components/ui/tooltip'
-import { HoldingsTable, PendingOrdersCard, PortfolioAllocationCard } from '../src/pages/DashboardPage'
+import { HoldingsTable, OutcomeCard, PendingOrdersCard, PortfolioAllocationCard } from '../src/pages/DashboardPage'
 
 function holding(ticker: string): HoldingView {
   return {
@@ -39,6 +39,16 @@ function render(data: DashboardView): string {
 }
 
 describe('Dashboard valuation display', () => {
+  it('labels ledger cash and returns without claiming settlement or unreported costs', () => {
+    const allocation = render(dashboard())
+    const outcomes = renderToStaticMarkup(createElement(OutcomeCard, { outcomes: [] }))
+    expect(allocation).toContain('台帳の未予約現金')
+    expect(allocation).toContain('受渡未照合')
+    expect(allocation).not.toContain('購入余力')
+    expect(outcomes).toContain('記録済みの税・費用を反映')
+    expect(outcomes).toContain('未報告分は含みません')
+  })
+
   it('shows pending buy and sell orders without treating sell proceeds as reserved cash', () => {
     const reservations: ReservationView[] = [
       { reservation_id: 'buy', side: 'buy', ticker: '1111', sector: '情報・通信業', remaining_quantity: 200, price_guard_yen: '1000', reserved_yen: 200000, expires_at: '2026-10-16T15:30:00+09:00', expiry_label: '今週中', route_label: '取引所（自動振分）' },

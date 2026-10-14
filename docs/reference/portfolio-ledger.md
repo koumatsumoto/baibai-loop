@@ -57,7 +57,7 @@ book_capital = available_cash + reserved_cash + deployed_cost
 total_capital = available_cash + reserved_cash + holdings_market_value
 ```
 
-各項は対象時点までの確認済み額で、売買代金はgross、費用・税は別eventである。`realized_gross_pnl`は保存台帳開始以来、対象時点までの全売却の損益を符号付きで通算した税・手数料控除前の額で、全株売却や買い直しでもリセットしない。株価から独立しており、売却代金は既にcashに含まれるため、総資産や購入余力へ再加算しない。予約と解放を入出金へ二重計上しない。時価未評価の場合、total capitalをcash-onlyの値で代用しない。
+各項は対象時点までの確認済み額で、売買代金はgross、費用・税は別eventである。`realized_gross_pnl`は保存台帳開始以来、対象時点までの全売却の損益を符号付きで通算した税・手数料控除前の額で、全株売却や買い直しでもリセットしない。株価から独立しており、売却代金は既にcashに含まれるため、総資産や未予約現金へ再加算しない。予約と解放を入出金へ二重計上しない。`available_cash`は売却代金を約定時に計上した台帳上の未予約現金であり、受渡済み資金や証券会社の発注可能額との照合結果ではない。時価未評価の場合、total capitalをcash-onlyの値で代用しない。
 
 partial fill後は未約定残数だけをreservedに残す。hard errorはcash超過、重複ID、未知reservation、overfill / oversell、guard超過、expiry後buy、future row、metadata不整合。concentrationとdry powderはwarningであり、判断を禁止しない。
 
@@ -67,7 +67,7 @@ partial fill後は未約定残数だけをreservedに残す。hard errorはcash�
 
 現在の時価は`position/valuation.py`がJ-Quants raw/unadjusted closeと現在の保有episodeの権利basisを読み、台帳への価格転記なしで評価する。quoteの欠損・古さや権利basis不明は対象holdingの時価を未評価にし、cash・予約・数量・原価を保持する。全保有を評価できなければNAVと集中比率も未評価とする。adjusted closeや保存済みの台帳価格で補完しない。
 
-`income`とsell proceedsはgross、feeは`cost`、確認済み税は`tax_confirmed`に分離する。estimated exit taxは`ledger_meta`のrateと`ledger_fifo_gross_unrealized_gain` basisから表示だけを計算し、cashやconfirmed taxに混ぜない。
+`income`とsell proceedsはgross、feeは`cost`、確認済み税は`tax_confirmed`に分離する。費用・税のeventがないことは実費・実税がゼロと確定した意味ではない。estimated exit taxは`ledger_meta`のrateと`ledger_fifo_gross_unrealized_gain` basisから表示だけを計算し、cashやconfirmed taxに混ぜない。
 
 <a id="draft--apply-contract"></a>
 
@@ -102,7 +102,7 @@ applyは1 transactionでsource head、event replay / payload、price/meta expect
 
 公式TOPIX gross-total-returnの観測・期間・出所検証は`market_context/observations/benchmark`が所有し、保存済みJPXファイル読取は`market/jpx_total_return`へ委譲する。Nikkei ETF price-onlyの市場方向評価をtotal-return benchmarkへ転用しない。
 
-portfolio outcomeは各JPX営業日closeまでeventをreplayし、日次NAVを`available_cash + reserved_cash + open holdings market value`として算出する。`contribution`を正、`withdrawal`を負のexternal flowとし、buy/sell、reservation、income、cost、taxはNAV内部eventである。
+portfolio outcomeは各JPX営業日closeまでeventをreplayし、日次NAVを`available_cash + reserved_cash + open holdings market value`として算出する。`contribution`を正、`withdrawal`を負のexternal flowとし、buy/sell、reservation、income、cost、taxはNAV内部eventである。returnに反映する費用・税は記録済みeventに限り、`resolved`は未報告分の不存在や税・費用の完全反映を保証しない。
 
 ```text
 r_d = V_d / (V_(d-1) + CF_d) - 1

@@ -1186,6 +1186,7 @@
               "type": "null"
             }
           ],
+          "description": "台帳上の未予約現金。売却代金は約定時にgrossで計上し、受渡済み資金や証券会社の発注可能額は表さない。",
           "title": "Available Cash Yen"
         },
         "reserved_cash_yen": {
@@ -4053,6 +4054,7 @@
             }
           ],
           "default": null,
+          "description": "記録済みの税・費用を反映した期間return。未報告の税・費用をゼロ確定とみなさない。",
           "title": "Portfolio Twr Pct"
         },
         "benchmark_cumulative_return_pct": {

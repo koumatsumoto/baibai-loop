@@ -97,7 +97,9 @@ class DashboardView(BaseModel):
     valuation_as_of: datetime | None
     valuation_stale: bool
     total_capital_yen: int | None
-    available_cash_yen: int | None
+    available_cash_yen: int | None = Field(
+        description="台帳上の未予約現金。売却代金は約定時にgrossで計上し、受渡済み資金や証券会社の発注可能額は表さない。"
+    )
     reserved_cash_yen: int | None
     holdings_market_value_yen: int | None
     deployed_cost_yen: int | None
@@ -163,7 +165,10 @@ class PortfolioOutcomeView(BaseModel):
     period_end_date: date
     status: str
     reason: str | None = None
-    portfolio_twr_pct: float | None = None
+    portfolio_twr_pct: float | None = Field(
+        default=None,
+        description="記録済みの税・費用を反映した期間return。未報告の税・費用をゼロ確定とみなさない。",
+    )
     benchmark_cumulative_return_pct: float | None = None
 
 
