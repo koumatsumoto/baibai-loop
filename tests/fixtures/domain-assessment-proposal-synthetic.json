@@ -1,0 +1,375 @@
+{
+  "fixture_notice": "全て架空。#1533付録由来の完全field合成例。Operationとrun IDは正式namespaceへ修正。selection_sha256は説明値であり実Operation bindingの検証成功を主張しない。source URLは実資料ではない。",
+  "assessment_publication": {
+    "assessment_id": "stock-assessment-00000000-0000-4000-8000-000000000001",
+    "published_at": "2026-10-14T16:06:00+09:00",
+    "supersedes_id": null,
+    "document": {
+      "kind": "stock_assessment",
+      "schema_version": 1,
+      "input_snapshot": {
+        "snapshot_version": 1,
+        "producer_model_version": "synthetic-fixture-v1",
+        "ticker": "1234",
+        "company_name": "合成企業",
+        "sector": "情報・通信業",
+        "common_factors": [
+          "domestic-demand"
+        ],
+        "as_of": "2026-10-14",
+        "sources": [
+          {
+            "source_id": "annual",
+            "ticker": "1234",
+            "source_tier": "primary",
+            "ref": "https://example.invalid/synthetic-annual-report",
+            "provider": null,
+            "dataset": null,
+            "retrieved_at": "2026-10-14T16:00:00+09:00",
+            "as_of": "2026-10-14",
+            "used_for": "合成企業の価値とリスク"
+          },
+          {
+            "source_id": "price",
+            "ticker": "1234",
+            "source_tier": "local_data",
+            "ref": null,
+            "provider": "fixture",
+            "dataset": "daily_bars",
+            "retrieved_at": "2026-10-14T16:00:00+09:00",
+            "as_of": "2026-10-14",
+            "used_for": "合成終値"
+          }
+        ],
+        "facts": [
+          {
+            "fact_id": "close",
+            "fact_kind": "market_price",
+            "value": 1100,
+            "unit": "JPY_per_share",
+            "as_of": "2026-10-14",
+            "source_ids": [
+              "price"
+            ],
+            "observed_at": "2026-10-14T15:30:00+09:00",
+            "price_basis": "last_close_unadjusted"
+          }
+        ]
+      },
+      "derived": {
+        "metrics": []
+      },
+      "valuation": {
+        "status": "resolved",
+        "market_price_fact_id": "close",
+        "horizon_months": 12,
+        "required_annual_return_pct": "10",
+        "base": {
+          "terminal_value_per_share_yen": "1100",
+          "cash_distribution_per_share_yen": "0",
+          "calculation": "合成ケース。12ヶ月後残余価値1100、分配0。",
+          "source_ids": [
+            "annual"
+          ]
+        },
+        "downside": {
+          "terminal_value_per_share_yen": "700",
+          "cash_distribution_per_share_yen": "0",
+          "calculation": "合成下振れケース。残余価値700、分配0。",
+          "source_ids": [
+            "annual"
+          ]
+        },
+        "unresolved_reason": null
+      },
+      "investment_case": {
+        "explanation": "合成ケースの収益源が維持されると仮定。",
+        "invalidation_conditions": [
+          "継続収益源が構造的に失われる"
+        ],
+        "status": "intact",
+        "status_reason": "合成資料に反証なし。",
+        "source_ids": [
+          "annual"
+        ]
+      },
+      "permanent_loss_risks": [
+        {
+          "axis": "funding_liquidity",
+          "assessment": "acceptable",
+          "evidence_status": "verified",
+          "summary": "合成資料で当該リスクを確認。",
+          "as_of": "2026-10-14",
+          "source_ids": [
+            "annual"
+          ]
+        },
+        {
+          "axis": "debt_repayment",
+          "assessment": "acceptable",
+          "evidence_status": "verified",
+          "summary": "合成資料で当該リスクを確認。",
+          "as_of": "2026-10-14",
+          "source_ids": [
+            "annual"
+          ]
+        },
+        {
+          "axis": "cash_flow",
+          "assessment": "acceptable",
+          "evidence_status": "verified",
+          "summary": "合成資料で当該リスクを確認。",
+          "as_of": "2026-10-14",
+          "source_ids": [
+            "annual"
+          ]
+        },
+        {
+          "axis": "dilution",
+          "assessment": "acceptable",
+          "evidence_status": "verified",
+          "summary": "合成資料で当該リスクを確認。",
+          "as_of": "2026-10-14",
+          "source_ids": [
+            "annual"
+          ]
+        },
+        {
+          "axis": "customer_concentration",
+          "assessment": "acceptable",
+          "evidence_status": "verified",
+          "summary": "合成資料で当該リスクを確認。",
+          "as_of": "2026-10-14",
+          "source_ids": [
+            "annual"
+          ]
+        },
+        {
+          "axis": "structural_decline",
+          "assessment": "acceptable",
+          "evidence_status": "verified",
+          "summary": "合成資料で当該リスクを確認。",
+          "as_of": "2026-10-14",
+          "source_ids": [
+            "annual"
+          ]
+        },
+        {
+          "axis": "governance_accounting",
+          "assessment": "acceptable",
+          "evidence_status": "verified",
+          "summary": "合成資料で当該リスクを確認。",
+          "as_of": "2026-10-14",
+          "source_ids": [
+            "annual"
+          ]
+        }
+      ],
+      "findings": {
+        "business_understanding": "合成企業は国内の継続課金事業。",
+        "value_gap_explanation": "1100円では要求率未達、1000円以下が条件。",
+        "realization": {
+          "mechanism": "利益維持の市場確認",
+          "timing": "uncertain",
+          "timing_reason": "12ヶ月を標準想定とするが確約なし。",
+          "delay_risk": "評価までの長期化。"
+        },
+        "hypotheses": [
+          {
+            "statement": "継続収益は維持できるか",
+            "origin": "research",
+            "result": "supported",
+            "reason": "合成資料の収益構造を確認。",
+            "source_ids": [
+              "annual"
+            ]
+          }
+        ],
+        "unresolved_questions": [],
+        "source_ids": [
+          "annual"
+        ]
+      },
+      "conclusion": {
+        "stance": "supported",
+        "assessed_at": "2026-10-14T16:00:00+09:00",
+        "strongest_countercase": "需要縮小で恒常利益が失われる。"
+      },
+      "refresh": null
+    },
+    "review": {
+      "review_id": "assessment-review-00000000-0000-4000-8000-000000000002",
+      "reviewer_role": "independent_second_pass",
+      "reviewer_identity": "synthetic-independent-reviewer",
+      "reviewed_at": "2026-10-14T16:05:00+09:00",
+      "reviewed_assessment_sha256": "ce2ec16dda47852c005a079d970cc8e6bcf8c55d05057e1cdd1453b17825502b",
+      "primary_source_check": "verified",
+      "checked_source_ids": [
+        "annual",
+        "price"
+      ],
+      "recalculated_projections": [
+        {
+          "name": "base",
+          "terminal_value_per_share_yen": "1100",
+          "cash_distribution_per_share_yen": "0"
+        },
+        {
+          "name": "downside",
+          "terminal_value_per_share_yen": "700",
+          "cash_distribution_per_share_yen": "0"
+        }
+      ],
+      "strongest_countercase": "需要縮小で恒常利益が失われる。",
+      "nonmaterial_unknown_reason": null,
+      "review_scope": "全て合成fixture。保存資料と計算を独立検証した想定。"
+    }
+  },
+  "investment_proposal": {
+    "kind": "investment_proposal",
+    "schema_version": 1,
+    "proposal_id": "investment-proposal-00000000-0000-4000-8000-000000000003",
+    "as_of": "2026-10-14",
+    "prepared_at": "2026-10-14T16:10:00+09:00",
+    "published_at": "2026-10-14T16:20:00+09:00",
+    "request_scope": "specified_stocks",
+    "research_scope": {
+      "operation_id": "research-op-00000000000040008000000000000004",
+      "selection_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "targets": [
+        {
+          "ticker": "1234",
+          "purpose": "new"
+        }
+      ],
+      "outcomes": [
+        {
+          "ticker": "1234",
+          "purpose": "new",
+          "status": "reviewed",
+          "assessment_ref": {
+            "assessment_id": "stock-assessment-00000000-0000-4000-8000-000000000001",
+            "core_sha256": "ce2ec16dda47852c005a079d970cc8e6bcf8c55d05057e1cdd1453b17825502b",
+            "review_id": "assessment-review-00000000-0000-4000-8000-000000000002"
+          }
+        }
+      ]
+    },
+    "headline": "合成企業を1000円指値で待つ",
+    "comparison": "指定1銘柄を調べ、現金維持と比較。",
+    "forgone": "1100円での買付は見送る。",
+    "market_context_assessment_id": null,
+    "inputs": {
+      "checked_at": "2026-10-14T16:10:00+09:00",
+      "ledger_head": 1,
+      "ledger_as_of": "2026-10-14T15:00:00+09:00",
+      "available_cash_yen": "300000",
+      "positions": [],
+      "active_reservations": [],
+      "prior_buy_execution_references": [],
+      "quotes": [
+        {
+          "ticker": "1234",
+          "price_yen": "1100",
+          "observed_at": "2026-10-14T15:30:00+09:00",
+          "price_as_of": "2026-10-14",
+          "price_basis": "last_close_unadjusted",
+          "source_ref": "fixture:daily_bars",
+          "basis_confirmed": true
+        }
+      ],
+      "policy_id": "synthetic-existing-policy",
+      "budget_min_yen": 100000,
+      "budget_max_yen": 300000,
+      "board_lot": 100,
+      "security_classification": [
+        {
+          "ticker": "1234",
+          "market_segment": "Prime",
+          "sector_33": "情報・通信業",
+          "snapshot_date": "2026-10-14"
+        }
+      ],
+      "total_capital_yen": "300000"
+    },
+    "liquidity_context": [
+      {
+        "ticker": "1234",
+        "run_revision_id": "run-revision-00000000000040008000000000000006",
+        "analysis_as_of": "2026-10-14",
+        "rules_hash": null,
+        "adv_yen": null,
+        "unavailable_reason": "合成fixtureのADV未入力"
+      }
+    ],
+    "items": [
+      {
+        "ticker": "1234",
+        "action": "buy",
+        "assessment_ref": {
+          "assessment_id": "stock-assessment-00000000-0000-4000-8000-000000000001",
+          "core_sha256": "ce2ec16dda47852c005a079d970cc8e6bcf8c55d05057e1cdd1453b17825502b",
+          "review_id": "assessment-review-00000000-0000-4000-8000-000000000002"
+        },
+        "timing": "wait_limit",
+        "rationale": "要求率10%を満たす上限1000円で待つ。",
+        "terms": {
+          "side": "buy",
+          "limit_price_yen": "1000",
+          "quantity": 300,
+          "notional_yen": "300000",
+          "target_session": "2026-10-15",
+          "expires_at": "2026-10-15T15:30:00+09:00",
+          "valuation_as_of": "2026-10-14",
+          "maximum_entry_price_yen": "1000",
+          "price_grid_rule_id": "tse-common-conservative-20261014",
+          "conditions": [
+            "仮説・株式単位・資金・注文状態に重要変化がないこと"
+          ],
+          "warnings": [
+            "adv_participation_unassessed",
+            "prospective_ticker_concentration_exceeds_warning:1234",
+            "prospective_sector_concentration_exceeds_warning:情報・通信業",
+            "prospective_common_factor_concentration_exceeds_warning:domestic-demand",
+            "dry_powder_below_floor"
+          ]
+        },
+        "terms_unavailable_reasons": [],
+        "review_conditions": [
+          "投資仮説の反証時は再調査"
+        ]
+      }
+    ],
+    "review": {
+      "review_id": "proposal-review-00000000-0000-4000-8000-000000000005",
+      "attempt": 1,
+      "reviewer_identity": "synthetic-independent-reviewer",
+      "reviewed_at": "2026-10-14T16:15:00+09:00",
+      "conclusion": "pass",
+      "draft_sha256": "8724436992c7965c6baff444a814027dfd5d63e8fd664ffdc6507a0c99a3e9c3",
+      "open_findings": []
+    },
+    "warnings": [],
+    "portfolio_exposure": {
+      "total_capital_yen": "300000",
+      "ticker": {
+        "key": "1234",
+        "prospective_pct": "100",
+        "warning_pct": "10"
+      },
+      "sector": {
+        "key": "情報・通信業",
+        "prospective_pct": "100",
+        "warning_pct": "40"
+      },
+      "common_factors": [
+        {
+          "key": "domestic-demand",
+          "prospective_pct": "100",
+          "warning_pct": "35"
+        }
+      ],
+      "common_factor_unclassified_tickers": []
+    }
+  }
+}
