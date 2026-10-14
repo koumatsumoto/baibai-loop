@@ -10,7 +10,8 @@ SQL instead of importing the market package. Schema version mismatches and SQL
 errors degrade to ``None``; a coupling test detects version drift in CI.
 
 For target-session planning, the resolved price is the raw/unadjusted ``close`` on the full-universe
-daily bars' latest complete market-wide session (today after 15:30 JST, otherwise prior). A
+daily bars' latest observed market-wide date eligible at that instant (today after
+15:30 JST, otherwise prior). This reader does not certify full-market coverage. A
 missing ticker row or NULL ``close`` on that exact date returns no price; an older
 ticker row is never used as a substitute. An absent ``adjustment_factor`` or a
 value other than 1 marks an unresolved corporate action so the caller defers
@@ -52,7 +53,7 @@ def read_unadjusted_close(
     at: datetime,
     connection: sqlite3.Connection | None = None,
 ) -> UnadjustedCloseObservation | None:
-    """Return the latest complete market-wide session available at the given instant.
+    """Return the ticker's raw close on the latest eligible observed market date.
 
     ``None`` means no raw close is available (missing store, missing coverage, or an
     adjusted-only row); the caller must not substitute an adjusted series.
@@ -67,7 +68,7 @@ def read_unadjusted_close(
         if not sqlite_path.exists():
             return None
         try:
-            conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+            conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
         except sqlite3.Error:
             return None
     try:
@@ -138,7 +139,7 @@ def quantity_basis_is_confirmed(
         if not sqlite_path.exists():
             return False
         try:
-            conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+            conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
         except sqlite3.Error:
             return False
     try:
@@ -177,10 +178,14 @@ def quantity_basis_is_confirmed(
 
 def next_order_session(*, sqlite_path: Path, now: datetime) -> date | None:
     """Resolve the first unexpired session from the existing calendar, including holidays."""
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("order planning instant requires a timezone")
     local = now.astimezone(JST)
     start = local.date() + timedelta(days=local.time() >= time(15, 30))
     try:
-        with closing(sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)) as connection:
+        with closing(
+            sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
+        ) as connection:
             rows = connection.execute(
                 "SELECT day,is_business_day FROM jquants_market_calendar "
                 "WHERE day>=? ORDER BY day LIMIT 14",

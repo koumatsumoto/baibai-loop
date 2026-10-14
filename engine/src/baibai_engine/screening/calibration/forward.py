@@ -226,7 +226,7 @@ def read_control_event_exits(sqlite_path: Path) -> dict[str, tuple[ControlEventE
     # that is byte-identical to the baseline while presenting itself as the actual-exit
     # contract, and the before/after comparison would then read "nothing was replaced"
     # as a result rather than as a missing input.
-    conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+    conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         rows = conn.execute(
             "SELECT ticker, delisted_on, offer_price_yen FROM tender_offer_exit_values"
@@ -252,7 +252,7 @@ def read_failure_exits(sqlite_path: Path) -> dict[str, tuple[FailureExit, ...]]:
     # No fallback to an empty mapping, for the same reason `read_control_event_exits`
     # has none: a store that cannot answer would build a byte-identical baseline while
     # presenting itself as the realized-exit contract.
-    conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+    conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         rows = conn.execute("SELECT ticker, delisted_on, reason FROM jpx_delistings").fetchall()
     finally:
@@ -288,7 +288,7 @@ def compute_forward_returns(
     latest_target = max(spec.target_date(asof) for asof in asofs for spec in specs)
     eval_cap = latest_market_data_date(sqlite_path)
     rows: list[ForwardReturnRow] = []
-    conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+    conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         for ticker in unique_tickers:
             bars = _load_ticker_bars(conn, ticker, start=min_asof)
@@ -889,7 +889,7 @@ def _per_share_denominator(observation: _FYDividendObservation) -> float | None:
 def latest_market_data_date(sqlite_path: Path) -> date | None:
     """Return the observation cutoff used by forward-return computation."""
 
-    conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+    conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         row = conn.execute("SELECT MAX(traded_at) FROM jquants_daily_bars").fetchone()
     finally:

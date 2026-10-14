@@ -16,7 +16,7 @@ date: 2026-08-02
 
 主検定の1yでは、急落×quality passのA群が非急落×quality passのB群に対し、designで median excess −1.45pt・trap +4.22pt、confirmで−2.95pt・+7.55ptだった。両窓とも事前登録した median +3pt と trap改善を逆方向に外した。volatility、規模、業種、PERの全controlでも、両窓のtrap deltaがすべて正だった。
 
-quality failのC群もA群より一貫して悪くならなかった。1y designのC−A trap deltaは−7.08ptで仮説と逆、confirmは+1.42ptだが片窓だけである。3y designのauthority eligible 4 cohortではA−Bが良い方向だったが、1yの独立2窓で再現せず、3y confirmはauthority eligible 0/2かつCが3件だった。良い3y designだけを採らない。
+quality failのC群もA群より一貫して悪くならなかった。1y designのC−A trap deltaは−7.08ptで仮説と逆、confirmは+1.42ptだが片窓だけである。3y designのauthority eligible 4 cohortではA−Bが良い方向だったが、1yの時間的に分離した2窓で再現せず、3y confirmはauthority eligible 0/2かつCが3件だった。良い3y designだけを採らない。
 
 ## 1. 事前登録と実行契約
 
@@ -64,7 +64,7 @@ quality failのC群もA群より一貫して悪くならなかった。1y design
 | `sector_33` | +6.75pt / **+5.60pt** | +14.05pt / **+9.28pt** |
 | `per_trailing` | **−3.10pt** / **+7.99pt** | +1.97pt / **+3.82pt** |
 
-medianだけは一部controlで正になったが、trapは8組すべて悪化した。必須のvolatility controlでもtrap悪化が両窓に残り、単なる高volatility反発を除いたあとに安定した下値保護は得られない。
+medianだけは一部controlで正になったが、trapは8組すべて悪化した。必須のvolatility controlでもtrap悪化が両窓に残り、volatility 五分位内の比較でも trap の悪化が残った。ただし他の属性との同時調整ではなく、反発要因を因果的に除去したとはいえない。
 
 ## 4. 検算
 

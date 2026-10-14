@@ -10,6 +10,8 @@ date: 2026-10-14
 
 refs [#1481](https://github.com/koumatsumoto/baibai-loop/issues/1481) / [#1516](https://github.com/koumatsumoto/baibai-loop/issues/1516)。意味の正本は[Estimate calibration](../../../docs/reference/estimate-calibration.md#er-level-distribution-context)。[最新artifact](../../published/er-level-calibration-latest.yaml)には生成済みschema4 previewの全field・元bytesを反映した。生成日は2026-10-14 JST、有効期限は2026-11-28。PR段階であり、本番公開・serving反映はしていない。
 
+この受入完了は下記の固定 commit と v26 の生成物に限る。後続の計算 revision を採用した run に対する一致・受理を保証せず、元 artifact の hash を新 revision へ付け替えない。後続コードでの全ファイルレビューや本番切替の完了記録でもない。
+
 ## 生成とidentity
 
 生成codeはmain `674ef876fdf0dce44431c642e8804c4c6a2db36f`、受入codeはDPS情報を追加したmain `a3ef90029a2c620603ff15d88044890621c79c89`。両方でcalculation revision `dividend-period-freshness-v26`、production hash `aa922907ebc421a0`、panel hash `52f76944347543e8`、cache contract `b8c4df47e8842793`、ER model `expected-return-v1`が一致する。

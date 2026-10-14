@@ -47,7 +47,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         self.assertAlmostEqual(value, 1.835, places=3)
 
     def test_derived_policy_path_gap_formulas(self) -> None:
-        """A 2Y yield above the policy rate is tightening priced; below it, easing."""
+        """Compute the yield-policy spread, without identifying pure policy expectations."""
 
         tightening = FORMULAS["us.policy_path_gap"].evaluate(
             {"us.2y": 4.37, "us.fed_funds.upper": 3.75, "us.fed_funds.lower": 3.5}
@@ -66,7 +66,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         self.assertAlmostEqual(easing, -0.495, places=3)
         self.assertAlmostEqual(normalization, 0.472, places=3)
 
-    def test_derived_policy_path_gap_rejects_an_impossible_spread(self) -> None:
+    def test_derived_policy_path_gap_rejects_a_spread_outside_configured_bounds(self) -> None:
         with self.assertRaisesRegex(DerivedComputationError, "outside plausible range"):
             FORMULAS["jp.policy_path_gap"].evaluate({"jp.2y": 12.0, "jp.policy_rate": 0.0})
 
@@ -75,7 +75,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
             {"jp.export_price_index": 162.6, "jp.import_price_index": 196.6}
         )
 
-        # 162.6 / 196.6 = 0.8271: export prices below import prices (yen-weak cost)
+        # 162.6 / 196.6 = 0.8271: ratio of indices relative to their base, not absolute prices.
         assert value is not None
         self.assertAlmostEqual(value, 0.8271, places=4)
 
@@ -198,7 +198,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
                 observation("jp.10y", date(2026, 5, 29), 1.58),
                 observation("jp.10y", date(2026, 6, 30), 1.62),  # June has a yield ...
             ),
-            # ... but June core CPI is not released yet, so June must not emit a
+            # ... but the fixture has no June CPI observation, so June must not emit a
             # half-computed proxy.
             "jp.cpi.core_yoy": (observation("jp.cpi.core_yoy", date(2026, 5, 1), 1.5),),
         }

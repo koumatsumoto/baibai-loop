@@ -344,7 +344,7 @@ def verify_screening_sqlite_coverage(
 
 
 def _connect_readonly(sqlite_path: Path) -> sqlite3.Connection:
-    uri = f"file:{sqlite_path.as_posix()}?mode=ro"
+    uri = f"{sqlite_path.resolve().as_uri()}?mode=ro"
     return sqlite3.connect(uri, uri=True)
 
 

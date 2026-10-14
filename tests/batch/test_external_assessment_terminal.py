@@ -154,7 +154,7 @@ def test_partial_terminal_rejects_invalid_state_or_received_date_coverage(fault)
     elif fault == "typed_total":
         value["observations"] = 3
     elif fault == "zero_typed":
-        states.update(success=0, normal_null=0, unattempted=3)
+        states.update(success=0, normal_null=0, unattempted=4)
         value["observations"] = 0
         value["receipt_date_coverage"] = {}
     elif fault == "coverage_total":
@@ -178,7 +178,7 @@ def test_partial_terminal_rejects_invalid_state_or_received_date_coverage(fault)
     elif fault == "state_shape":
         value["state_counts"] = []
     else:
-        states.update(success=2, normal_null=1, unattempted=0)
+        states.update(success=2, normal_null=1, unattempted=1)
         value["observations"] = 3
         counts.update(monex=3, rakuten=0)
     with pytest.raises(ValueError, match="invalid external assessment published batch"):
