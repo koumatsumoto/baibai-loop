@@ -212,11 +212,10 @@ def calibration_root(tmp_path: Path) -> Path:
 
 
 def liquid_panel_row(ticker: str, asof: str, **overrides: Any) -> dict[str, Any]:
-    """A panel row that clears every liquidity floor a measurement applies.
+    """A fixture dictionary with typical liquid-security metrics.
 
-    Measurement tools drop illiquid names before they group anything, so a fixture row
-    that means "included" has to state all four of those fields. What a test varies is
-    what it passes.
+    Publication fills in_population=True unless overridden. Measurement readers use
+    that stored membership rather than applying liquidity thresholds again.
     """
 
     row: dict[str, Any] = {

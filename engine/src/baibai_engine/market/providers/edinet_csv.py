@@ -178,15 +178,16 @@ def _read_csv_zip_rows(content: bytes) -> list[dict[str, str]]:
         archive = zipfile.ZipFile(io.BytesIO(content))
     except zipfile.BadZipFile as exc:
         raise EDINETProviderError("zip_invalid") from exc
-    rows: list[dict[str, str]] = []
-    for name in archive.namelist():
-        if not name.lower().endswith(".csv"):
-            continue
-        with archive.open(name) as handle:
-            raw = handle.read()
-        text = _decode_csv(raw)
-        reader = csv.DictReader(io.StringIO(text), delimiter="\t")
-        rows.extend(dict(row) for row in reader if row)
+    with archive:
+        rows: list[dict[str, str]] = []
+        for name in archive.namelist():
+            if not name.lower().endswith(".csv"):
+                continue
+            with archive.open(name) as handle:
+                raw = handle.read()
+            text = _decode_csv(raw)
+            reader = csv.DictReader(io.StringIO(text), delimiter="\t")
+            rows.extend(dict(row) for row in reader if row)
     return rows
 
 
@@ -394,7 +395,10 @@ def _row_context(row: Mapping[str, str]) -> str:
 
 
 def _is_consolidated_row(row: Mapping[str, str]) -> bool:
-    return "連結" in _row_basis(row) or _is_consolidated_context(_row_context(row))
+    basis = _row_basis(row).strip()
+    if basis in {"個別", "非連結", "non_consolidated"}:
+        return False
+    return basis in {"連結", "consolidated"} or _is_consolidated_context(_row_context(row))
 
 
 def _is_consolidated_context(context: str) -> bool:
