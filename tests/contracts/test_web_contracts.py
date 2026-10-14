@@ -57,7 +57,7 @@ def test_web_route_inventory_is_present_at_both_serving_boundaries() -> None:
     assert edge_cases == expected_edge_cases
 
 
-def test_every_contract_object_key_has_one_production_writer() -> None:
+def test_every_contract_object_key_has_a_materializer_marker() -> None:
     contract = _contract()
     routes = contract["routes"]
     edge_routes = contract["edge_routes"]

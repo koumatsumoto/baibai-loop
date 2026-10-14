@@ -201,10 +201,6 @@ class MarketSnapshotCliTests(unittest.TestCase):
         self.assertEqual(exit_code, 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class SectorObservationDateTests(unittest.TestCase):
     def test_only_current_members_enter_returns_and_breadth_with_or_without_benchmark(self):
         for benchmark in (True, False):
@@ -249,3 +245,7 @@ class SectorObservationDateTests(unittest.TestCase):
             )
             self.assertEqual(payload["sectors"][0]["ticker_count"], 1)
             self.assertEqual(payload["sectors"][0]["median_return_20d"], 0.0)
+
+
+if __name__ == "__main__":
+    unittest.main()

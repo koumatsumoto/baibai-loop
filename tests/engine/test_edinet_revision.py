@@ -167,9 +167,10 @@ def test_existing_baseline_reuse_and_failure_contract(tmp_path, change, expected
     if expected_exit:
         assert latest == []
         with closing(sqlite3.connect(db)) as connection:
-            assert connection.execute(
-                "SELECT * FROM edinet_metrics ORDER BY ticker"
-            ).fetchall() == retained
+            assert (
+                connection.execute("SELECT * FROM edinet_metrics ORDER BY ticker").fetchall()
+                == retained
+            )
     elif change == "current_revision":
         # All extracted columns, including provenance and quality, are reused unchanged.
         assert [row[1:] for row in latest] == [row[1:] for row in original]
