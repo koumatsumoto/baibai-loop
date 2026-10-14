@@ -900,7 +900,7 @@ def _mirror_path(mirror_root: Path, key: str) -> Path:
 def _sealed_upload(path: Path) -> Iterator[tuple[Path, str, str, int]]:
     """Capture one stable local byte sequence for hash, upload, and verification."""
     digest = hashlib.sha256()
-    transport_digest = hashlib.md5(usedforsecurity=False)  # nosec B324
+    transport_digest = hashlib.md5(usedforsecurity=False)
     size = 0
     temporary_path: Path | None = None
     try:
@@ -945,7 +945,8 @@ def _sha256(path: Path) -> str:
 
 def _content_md5(path: Path) -> str:
     """Return base64 Content-MD5 for R2 transport validation, not logical identity."""
-    digest = hashlib.md5(usedforsecurity=False)  # nosec B324 - transport checksum only.
+    # transport checksum only.
+    digest = hashlib.md5(usedforsecurity=False)
     with path.open("rb") as source:
         for chunk in iter(lambda: source.read(8 * 1024 * 1024), b""):
             digest.update(chunk)

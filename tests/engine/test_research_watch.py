@@ -147,8 +147,7 @@ def test_watch_marks_unrepresentable_price_gap_unresolved(case):
     db, market = case
     with closing(sqlite3.connect(market)) as connection, connection:
         connection.execute(
-            "UPDATE jquants_daily_bars SET close=? "
-            "WHERE ticker='2331' AND traded_at='2026-09-08'",
+            "UPDATE jquants_daily_bars SET close=? WHERE ticker='2331' AND traded_at='2026-09-08'",
             (1e-300,),
         )
     payload = build_watch(app_db_path=db, sqlite_path=market, asof=date(2026, 9, 8))

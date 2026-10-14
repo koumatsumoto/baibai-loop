@@ -71,7 +71,7 @@ class OfferPriceTest(unittest.TestCase):
         blocks = {_PRICE: "株券普通株式　１株につき、金2,950円新株予約権証券―算定の基礎…"}
         self.assertEqual(parse_ordinary_share_offer_price(blocks), 2950.0)
 
-    def test_reads_the_price_when_the_yen_marker_is_dropped(self) -> None:
+    def test_reads_the_price_without_the_optional_kin_prefix(self) -> None:
         blocks = {_PRICE: "株券普通株式１株につき、9,850円新株予約権証券―算定の基礎…"}
         self.assertEqual(parse_ordinary_share_offer_price(blocks), 9850.0)
 
@@ -633,6 +633,51 @@ class ControlEventExitBuildTest(unittest.TestCase):
 
             self.assertEqual(values, ())
             self.assertEqual(summary.rejection_reason_counts, {"price_or_outcome_unreadable": 1})
+
+    def test_unreadable_correction_does_not_restore_an_old_value(self) -> None:
+        cases = (
+            ("250", "REG", {_PRICE: "株券１株につき金1,000円、１株につき金2,000円"}),
+            ("250", "REG", {_PRICE: ""}),
+            ("250", "REG", {_FUNDING: "買付代金のみ。対価の種類不明"}),
+            ("280", "RES", {_OUTCOME: _SUCCESS + _FAILURE}),
+            ("280", "RES", {_OUTCOME: ""}),
+        )
+        for doc_type, parent, blocks in cases:
+            with self.subTest(blocks=blocks), TemporaryDirectory() as tmp:
+                sqlite_path = self._store(
+                    tmp,
+                    [
+                        *self._registration_and_result(),
+                        (
+                            "2026-04-01",
+                            1,
+                            "COR",
+                            None,
+                            doc_type,
+                            "2026-04-01T09:00",
+                            "BIDDER",
+                            "TARGET",
+                            parent,
+                        ),
+                    ],
+                    reason="公開買付け",
+                )
+                provider = _Provider(
+                    {
+                        "REG": _archive(
+                            {_PRICE: "株券１株につき金1,060円", _FUNDING: _CASH_ONLY}
+                        ),
+                        "RES": _archive({_OUTCOME: _SUCCESS}),
+                        "COR": _archive(blocks),
+                    }
+                )
+                values, summary = build_tender_offer_exit_values(
+                    sqlite_path, provider=provider, asof=self.ASOF
+                )
+                self.assertEqual(values, ())
+                self.assertEqual(
+                    summary.rejection_reason_counts, {"price_or_outcome_unreadable": 1}
+                )
 
     def test_a_correction_supersedes_the_price_it_revises(self) -> None:
         with TemporaryDirectory() as tmp:
