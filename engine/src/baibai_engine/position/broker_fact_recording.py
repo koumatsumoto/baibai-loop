@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
@@ -39,6 +39,7 @@ def record_broker_fact(
     status: BrokerFactStatus,
     side: Literal["buy", "sell"] = "buy",
     occurred_at: datetime,
+    occurred_on: date | None = None,
     ticker: str | None = None,
     quantity: int | None = None,
     price_yen: Decimal | None = None,
@@ -62,6 +63,8 @@ def record_broker_fact(
     """
 
     _validate_decision_reference(decision_reference)
+    if occurred_on is not None and status != "filled":
+        raise BrokerFactRecordingError("occurred_on is only valid for a fill")
     effective_now = _validate_report_time(occurred_at, now=now)
     if ordered_at is not None:
         if ordered_at.tzinfo is None:
@@ -73,8 +76,22 @@ def record_broker_fact(
 
     existing_by_id = {event.event_id: event for event in document.events}
     if ticker is not None and status in {"open", "filled"}:
-        suffix = _event_suffix(
-            decision_reference, f"sell-{status}" if side == "sell" else status, ticker, occurred_at
+        suffix = (
+            _fill_suffix(
+                decision_reference,
+                side,
+                ticker,
+                occurred_at,
+                occurred_on,
+                reservation_id,
+            )
+            if status == "filled"
+            else _event_suffix(
+                decision_reference,
+                f"sell-{status}" if side == "sell" else status,
+                ticker,
+                occurred_at,
+            )
         )
         prefix = "human-open" if status == "open" else "human-fill"
         existing = existing_by_id.get(f"{prefix}-{suffix}")
@@ -83,6 +100,7 @@ def record_broker_fact(
                 existing,
                 decision_reference=decision_reference,
                 occurred_at=occurred_at,
+                occurred_on=occurred_on,
                 ticker=ticker,
                 quantity=quantity,
                 price_yen=price_yen,
@@ -204,8 +222,13 @@ def record_broker_fact(
                     "filled decision_reference does not match the active reservation"
                 )
             resolved_reservation_id = reservation.reservation_id
-        suffix = _event_suffix(
-            decision_reference, f"sell-{status}" if side == "sell" else status, ticker, occurred_at
+        suffix = _fill_suffix(
+            decision_reference,
+            side,
+            ticker,
+            occurred_at,
+            occurred_on,
+            resolved_reservation_id,
         )
         additions.append(
             {
@@ -219,6 +242,7 @@ def record_broker_fact(
                 "quantity": quantity,
                 "price_yen": str(price_yen),
                 "decision_reference": decision_reference,
+                **({"occurred_on": occurred_on.isoformat()} if occurred_on is not None else {}),
             }
         )
     else:
@@ -430,6 +454,22 @@ def _event_suffix(decision_reference: str, status: str, ticker: str, occurred_at
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
+def _fill_suffix(
+    decision_reference: str,
+    side: Literal["buy", "sell"],
+    ticker: str,
+    occurred_at: datetime,
+    occurred_on: date | None,
+    reservation_id: str | None,
+) -> str:
+    if occurred_on is None:
+        return _event_suffix(
+            decision_reference, "sell-filled" if side == "sell" else "filled", ticker, occurred_at
+        )
+    raw = f"{decision_reference}|{side}|{ticker}|date:{occurred_on.isoformat()}|{reservation_id}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
 def _validate_decision_reference(value: str) -> None:
     if not value.strip():
         raise BrokerFactRecordingError("decision_reference must be non-empty")
@@ -440,6 +480,7 @@ def _same_fill_report(
     *,
     decision_reference: str,
     occurred_at: datetime,
+    occurred_on: date | None,
     ticker: str,
     quantity: int | None,
     price_yen: Decimal | None,
@@ -448,6 +489,7 @@ def _same_fill_report(
     return (
         event.decision_reference == decision_reference
         and event.occurred_at == occurred_at
+        and event.occurred_on == occurred_on
         and event.ticker == ticker
         and event.quantity == quantity
         and event.price_yen == price_yen
