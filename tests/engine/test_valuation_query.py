@@ -263,6 +263,72 @@ def test_frozen_review_set_and_triage_keep_absent_carry_fields_and_original_payl
     expected = saved.entries[0].candidate_snapshot.analysis.expected_return.model_dump(mode="json")
     assert expected == raw_triage["entries"][0]["candidate_snapshot"]["analysis"]["expected_return"]
     assert canonical_json(saved.publication_payload()) == original_triage
+    assert "dps_actual_annual" not in expected
+    assert "dps_forecast_annual" not in expected
+
+
+@pytest.mark.parametrize(
+    ("actual", "forecast", "basis"),
+    [
+        (40.0, 170.0, "actual_reported"),
+        (0.0, 12.0, "forecast_annual"),
+        (None, 12.0, "forecast_annual"),
+        (12.0, 0.0, "forecast_annual"),
+    ],
+)
+def test_saved_normalized_dps_reaches_review_set_and_triage_input_without_selection_change(
+    actual, forecast, basis
+):
+    row = security_analysis(
+        "1234",
+        per_forward=10.0,
+        metrics={
+            "per_forward_sector_gap": -0.2,
+            "dps_actual_annual": actual,
+            "dps_forecast_annual": forecast,
+            "dividend_basis": basis,
+            "dividend_yield": 0.01,
+            "er_annual": 0.05,
+            "er_carry_annual": 0.01,
+        },
+    )
+    rules = load_screening_rules()
+    kwargs = {
+        "rules": rules.candidate_discovery,
+        "required_jpx_flags": rules.universe.required_jpx_flags,
+    }
+    before = build_review_set([row], **kwargs)
+    row_without_dps = copy.deepcopy(row)
+    del row_without_dps["metrics"]["dps_actual_annual"]
+    del row_without_dps["metrics"]["dps_forecast_annual"]
+    selection = build_review_set([row_without_dps], **kwargs)
+    assert before["method"] == selection["method"]
+    assert before["diagnostics"] == selection["diagnostics"]
+    assert [entry["nominations"] for entry in before["entries"]] == [
+        entry["nominations"] for entry in selection["entries"]
+    ]
+    expected = before["entries"][0]["analysis"]["expected_return"]
+    assert expected["dps_actual_annual"] == actual
+    assert expected["dps_forecast_annual"] == forecast
+    assert expected["dividend_basis"] == basis
+    assert expected["er_annual"] == 0.05
+    assert "dps_actual_annual" in expected
+    assert "dps_forecast_annual" in expected
+    published = PublishedReviewSet.model_validate(
+        {
+            **before,
+            "review_set_id": "review-set-dps",
+            "run_revision_id": "run-dps",
+            "as_of": CUTOFF,
+            "created_at": datetime.fromisoformat("2026-09-19T18:00:00+09:00"),
+            "screening_rules_hash": "synthetic",
+        }
+    )
+    model_input = build_model_input(published, None, known_at=published.created_at)
+    projected = model_input.model_dump(mode="json")["candidates"][0]["snapshot"]["analysis"][
+        "expected_return"
+    ]
+    assert projected == expected
 
 
 def publish(path, day, revision, *, price=1000, anchor=1500, run_at=None):

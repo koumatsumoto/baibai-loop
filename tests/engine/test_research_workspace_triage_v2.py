@@ -605,6 +605,7 @@ def _publish_triage(
     second_research: bool = False,
     with_holdings: bool = False,
     legacy_announced: bool = False,
+    normalized_dps: tuple[float | None, float | None, str] | None = None,
     as_of: str = "2026-07-19",
 ) -> ResearchTriage:
     ledger = load_portfolio_ledger(
@@ -652,8 +653,54 @@ def _publish_triage(
     if legacy_announced:
         entry = next(item for item in review_set_payload["entries"] if item["ticker"] == "2331")
         entry["analysis"]["context"]["next_earnings_status"] = "announced"
+    if normalized_dps is not None:
+        entry = next(item for item in review_set_payload["entries"] if item["ticker"] == "2331")
+        expected = entry["analysis"]["expected_return"]
+        (
+            expected["dps_actual_annual"],
+            expected["dps_forecast_annual"],
+            expected["dividend_basis"],
+        ) = normalized_dps
     review_set = PublishedReviewSet.model_validate(review_set_payload)
     return ResearchTriageService(db_path).publish(triage, review_set=review_set)
+
+
+@pytest.mark.parametrize(
+    "normalized_dps",
+    [
+        (40.0, 170.0, "actual_reported"),
+        (0.0, 12.0, "forecast_annual"),
+        (None, 12.0, "forecast_annual"),
+    ],
+)
+def test_published_triage_normalized_dps_reaches_selected_research_workspace(
+    tmp_path, normalized_dps
+):
+    db = tmp_path / "app.sqlite"
+    triage = _publish_triage(db, normalized_dps=normalized_dps)
+    expected = triage.entries[0].candidate_snapshot.analysis.expected_return
+    assert expected.dps_actual_annual == normalized_dps[0]
+    assert expected.dps_forecast_annual == normalized_dps[1]
+    assert expected.dividend_basis == normalized_dps[2]
+    workspace = tmp_path / "workspace"
+    prepare_workspace(
+        research_triage_id=triage.research_triage_id,
+        asof=CASE_NOW.date(),
+        db_path=db,
+        workspace=workspace,
+        request="inspect saved normalized dividend observations",
+        research_set=("2331",),
+        started_at=CASE_NOW,
+        sqlite_path=tmp_path / "absent-market",
+        runs_path=tmp_path / "absent-runs",
+        indicators_path=tmp_path / "absent-indicators",
+    )
+    inputs = yaml.safe_load((workspace / "domain-inputs.yaml").read_text())
+    projected = inputs["research_triage"]["entries"][0]["analysis"]["expected_return"]
+    assert projected["dps_actual_annual"] == normalized_dps[0]
+    assert projected["dps_forecast_annual"] == normalized_dps[1]
+    assert projected["dividend_basis"] == normalized_dps[2]
+    assert projected["er_annual"] == expected.er_annual
 
 
 @pytest.mark.parametrize("purpose", ["new", "holding", "combined"])

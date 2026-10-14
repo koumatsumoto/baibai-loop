@@ -482,6 +482,8 @@ def _analysis(row: Mapping[str, object], *, normalized_gap: float | None) -> dic
             },
             "dividend_yield": machine_valuation.dividend_yield,
             "dividend_basis": machine_valuation.dividend_basis,
+            "dps_actual_annual": metrics.get("dps_actual_annual"),
+            "dps_forecast_annual": metrics.get("dps_forecast_annual"),
             "net_share_change_yoy": machine_valuation.net_share_change_yoy,
             "carry_missing_assumption": machine_valuation.carry_missing_assumption,
         },
