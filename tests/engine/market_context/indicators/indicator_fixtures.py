@@ -461,6 +461,9 @@ class _ForbiddenResponse:
     def raise_for_status(self) -> None:
         raise requests.HTTPError("403 Client Error: Forbidden")
 
+    def close(self) -> None:
+        return None
+
     def iter_content(self, *, chunk_size: int) -> list[bytes]:
         return [b"<!DOCTYPE html><html><title>Just a moment...</title></html>"]
 
@@ -563,9 +566,13 @@ class _FakeResponse:
         self.content = content
         self.headers = headers or {}
         self.status_code = status_code
+        self.closed = False
 
     def raise_for_status(self) -> None:
         return None
+
+    def close(self) -> None:
+        self.closed = True
 
     def iter_content(self, *, chunk_size: int) -> list[bytes]:
         return [self.content]

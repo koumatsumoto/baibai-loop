@@ -4,6 +4,7 @@ from datetime import date
 from typing import cast
 from unittest.mock import MagicMock, patch
 
+import requests
 from tests.engine.market_context.indicators.indicator_fixtures import (
     _FakeResponse,
     _RaisingSession,
@@ -29,6 +30,49 @@ from baibai_engine.market_context.indicators.providers.base import (
 
 
 class IndicatorsProviderParserTests(SnapshotFixtures):
+    def test_fetch_bytes_closes_successful_response_before_returning(self) -> None:
+        response = _FakeResponse(b"ok")
+        result = fetch_bytes(
+            cast(HttpSession, _StaticSession(response)),
+            "https://example.test/data",
+            params=None,
+            max_bytes=1000,
+        )
+        self.assertEqual(result, b"ok")
+        self.assertTrue(response.closed)
+
+    def test_fetch_bytes_closes_response_when_rejecting_body(self) -> None:
+        for response in (
+            _FakeResponse(b""),
+            _FakeResponse(b"x", headers={"Content-Length": "1001"}),
+            _FakeResponse(b"x" * 1001),
+        ):
+            with self.subTest(headers=response.headers, size=len(response.content)):
+                with self.assertRaises(IndicatorsProviderError):
+                    fetch_bytes(
+                        cast(HttpSession, _StaticSession(response)),
+                        "https://example.test/data",
+                        params=None,
+                        max_bytes=1000,
+                    )
+                self.assertTrue(response.closed)
+
+    def test_fetch_bytes_closes_response_on_http_or_stream_failure(self) -> None:
+        for method in ("raise_for_status", "iter_content"):
+            response = _FakeResponse(b"ok")
+            with self.subTest(method=method):
+                with (
+                    patch.object(response, method, side_effect=requests.ConnectionError("lost")),
+                    self.assertRaisesRegex(IndicatorsProviderError, "failed to fetch"),
+                ):
+                    fetch_bytes(
+                        cast(HttpSession, _StaticSession(response)),
+                        "https://example.test/data",
+                        params=None,
+                        max_bytes=1000,
+                    )
+                self.assertTrue(response.closed)
+
     def test_fetch_bytes_rejects_an_empty_body_naming_status_and_content_type(self) -> None:
         session = _StaticSession(
             _FakeResponse(b"", headers={"Content-Type": "text/html"}, status_code=200)
