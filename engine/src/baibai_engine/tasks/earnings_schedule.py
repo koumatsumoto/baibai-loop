@@ -37,6 +37,6 @@ def read_published_earnings_dates(sqlite_path: Path, today: date) -> dict[str, d
     for ticker, announcement_date in rows:
         try:
             published[str(ticker)] = date.fromisoformat(str(announcement_date))
-        except ValueError:
-            continue
+        except ValueError as error:
+            raise ValueError(f"invalid earnings date for {ticker}: {announcement_date}") from error
     return published

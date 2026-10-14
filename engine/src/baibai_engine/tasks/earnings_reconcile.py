@@ -1,12 +1,9 @@
 """Say where a task's event date stands against the exchange's published schedule.
 
-A follow-up task is created the day a candidate is rejected, months before the
-next announcement. When the schedule already reaches that far the task takes the
-published date; when it does not, a human picks the trigger date. So a task whose
-date came from the schedule keeps agreeing with it, and the ones that would move
-are the ones a human chose — which is why this reports and never writes. The task
-規約 (ops-maintenance skill) keeps that write boundary with the human; `task edit`
-applies what this names.
+An earnings follow-up may be scheduled months before the next announcement. Its date may come from the published schedule or an estimate;
+either can diverge when the exchange revises the schedule. This comparison reports
+that difference without deciding whether the task still targets the same event.
+The task 規約 (ops-maintenance skill) requires an explicit `task edit` for changes.
 """
 
 from __future__ import annotations
