@@ -9,6 +9,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from baibai_engine.foundation.time import JST
 from baibai_engine.research.thesis import ThesisDocument, current_price_projection
 from baibai_engine.valuation.scenario import finite_decimal
 
@@ -101,6 +102,8 @@ def evaluate_position_review(
             document.holding.quantity if document.holding.quantity_basis_confirmed else None,
         )
     quote = document.quote
+    quote_as_of = None if quote is None else quote.observed_at.astimezone(JST).date()
+    quote_age_days = None if quote_as_of is None else (document.as_of - quote_as_of).days
     unavailable_reason: str | None = None
     if case.status != "intact":
         unavailable_reason = "investment_case_uncertain"
@@ -114,15 +117,15 @@ def evaluate_position_review(
         unavailable_reason = "quote_missing"
     elif not document.holding.quantity_basis_confirmed or not quote.basis_confirmed:
         unavailable_reason = "quantity_basis_unconfirmed"
-    elif (document.as_of - quote.observed_at.date()).days < 0:
+    elif quote_age_days is not None and quote_age_days < 0:
         unavailable_reason = "quote_after_judgment"
-    elif (document.as_of - quote.observed_at.date()).days > max_quote_age_days:
+    elif quote_age_days is not None and quote_age_days > max_quote_age_days:
         unavailable_reason = "quote_stale"
     available = unavailable_reason is None
     projection = current_price_projection(
         thesis,
         price_yen=None if quote is None else quote.price_yen,
-        price_as_of=None if quote is None else quote.observed_at.date(),
+        price_as_of=quote_as_of,
         as_of=document.as_of,
         basis_confirmed=available,
         max_quote_age_days=max_quote_age_days,

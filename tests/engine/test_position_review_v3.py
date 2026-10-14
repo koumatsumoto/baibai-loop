@@ -726,3 +726,26 @@ def test_next_day_build_explains_unavailable_current_projection(holding_case, tm
     assert "current_price_projection_unavailable_reason" not in yaml.safe_load(
         draft_path.read_text()
     )
+
+
+def test_position_review_service_build_and_check_use_same_jst_day_for_utc_clock(holding_case):
+    db, market, _ = holding_case
+    jst = datetime.fromisoformat("2026-09-08T08:30:00+09:00")
+    utc = datetime.fromisoformat("2026-09-07T23:30:00Z")
+    jst_service = PositionReviewService(db, sqlite_path=market, clock=lambda: jst)
+    utc_service = PositionReviewService(db, sqlite_path=market, clock=lambda: utc)
+
+    jst_draft = jst_service.build(thesis_id="current", position_id="2331")
+    utc_draft = utc_service.build(thesis_id="current", position_id="2331")
+    assert utc_draft == jst_draft
+    assert utc_draft.as_of == date(2026, 9, 8)
+    assert utc_draft.position_review_id == "position-review-20260908-2331-2331"
+    assert utc_service.preview(jst_draft) == jst_service.preview(jst_draft)
+
+    later = PositionReviewService(
+        db,
+        sqlite_path=market,
+        clock=lambda: datetime.fromisoformat("2026-09-09T08:30:00+09:00"),
+    )
+    with pytest.raises(ResearchConflictError, match="refresh formal judgment basis"):
+        later.preview(jst_draft)
