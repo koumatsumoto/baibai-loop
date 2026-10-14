@@ -100,3 +100,20 @@ def test_cli_rejects_empty_search_before_reading_pdf(tmp_path, capsys) -> None:
         main([str(tmp_path / "not-read.pdf"), "--search", ""])
     assert error.value.code == 2
     assert "search keyword must not be empty" in capsys.readouterr().err
+
+
+def test_negative_context_is_rejected_instead_of_reporting_an_empty_hit() -> None:
+    with pytest.raises(ValueError, match="context_chars must be non-negative"):
+        find_keyword_contexts(("営業利益",), ["営業利益"], context_chars=-1)
+
+
+def test_zero_context_returns_the_matched_keyword() -> None:
+    hits = find_keyword_contexts(("前文営業利益後文",), ["営業利益"], context_chars=0)
+    assert hits[0].context == "営業利益"
+
+
+def test_cli_rejects_negative_context_before_reading_pdf(tmp_path, capsys) -> None:
+    with pytest.raises(SystemExit) as error:
+        main([str(tmp_path / "not-read.pdf"), "--search", "営業利益", "--context", "-1"])
+    assert error.value.code == 2
+    assert "--context must be non-negative" in capsys.readouterr().err
