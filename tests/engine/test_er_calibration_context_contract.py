@@ -46,10 +46,59 @@ def test_retained_schema_2_is_not_reinterpreted_even_for_its_original_method() -
     assert _PUBLISHED.read_bytes() == original
 
 
-def test_schema_3_fixed_band_contract_is_accepted() -> None:
+def test_schema_4_fixed_band_contract_is_accepted() -> None:
     artifact = ErCalibrationContextArtifact.model_validate(_artifact())
-    assert artifact.schema_version == 3
+    assert artifact.schema_version == 4
     assert [horizon.horizon for horizon in artifact.horizons] == ["3y", "5y"]
+
+
+@pytest.mark.parametrize("field", ["cutoff", "declared_n", "median_predicted", "median_n"])
+def test_reader_rejects_different_horizon_prediction_bands(tmp_path: Path, field: str) -> None:
+    payload = _artifact()
+    bands = payload["horizons"][1]["bands"]
+    if field == "cutoff":
+        bands[0]["upper_er_annual"] = -0.01
+        bands[1]["lower_er_annual"] = -0.01
+    elif field == "declared_n":
+        for basis in bands[0]["bases"]:
+            basis["coverage"].update(
+                declared_n=101,
+                missing_n=1,
+                missing_reason_counts={"unresolved_missing_entry": 1},
+            )
+    elif field == "median_predicted":
+        bands[0]["median_predicted_er_annual"] += 0.001
+    else:
+        bands[0]["median_n"] += 1
+    # Keep the duplicate common window consistent: the horizon contract itself
+    # must reject the split coordinate, rather than only this duplicate changing.
+    payload["common_window"]["horizons"] = deepcopy(payload["horizons"])
+    with pytest.raises(ValidationError, match="same declared prediction bands"):
+        ErCalibrationContextArtifact.model_validate(payload)
+    path = tmp_path / "split-horizons.yaml"
+    _write(path, payload)
+    loaded = _load(path, payload)
+    assert loaded.artifact is None
+    assert loaded.unavailable_reason == "invalid_artifact"
+
+
+def test_shared_prediction_bands_allow_different_horizon_outcome_coverage(tmp_path: Path) -> None:
+    payload = _artifact()
+    total = payload["horizons"][1]["bands"][0]["bases"][0]
+    total["coverage"].update(
+        observed_n=99,
+        missing_n=1,
+        missing_reason_counts={"unresolved_missing_dividend": 1},
+    )
+    total["median_n"] = 99
+    total["ticker_equal"]["n"] = 99
+    total["cohort_equal"]["n"] = 99
+    payload["common_window"]["horizons"] = deepcopy(payload["horizons"])
+    path = tmp_path / "different-outcomes.yaml"
+    _write(path, payload)
+    loaded = _load(path, payload)
+    assert loaded.artifact is not None
+    assert loaded.artifact.horizons[1].bands[0].bases[0].coverage.missing_n == 1
 
 
 def test_retained_schema_2_bytes_cannot_be_relabelled_or_modified(tmp_path, monkeypatch) -> None:
@@ -162,8 +211,9 @@ def test_pre_one_bar_scope_context_keeps_provenance_but_is_not_current(
 
 
 @pytest.mark.parametrize("scope_revision", ["", "valid-price-one-bar-v2"])
+@pytest.mark.parametrize("partial", [False, True], ids=["complete", "partial"])
 def test_pre_dividend_revision_context_is_retained_but_refused_for_current_run(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scope_revision: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scope_revision: str, partial: bool
 ) -> None:
     from baibai_engine.screening.rule_config import load_screening_rules
     from baibai_engine.screening.rules_identity import production_rules_contract_hash
@@ -180,6 +230,20 @@ def test_pre_dividend_revision_context_is_retained_but_refused_for_current_run(
     current_hash = production_rules_contract_hash(rules_json)
     assert old_hash != current_hash
     payload = context_artifact(rules_hash=old_hash)
+    if partial:
+        # Schema 4 may expose price while total return is unobserved. That does
+        # not make evidence from the old dividend calculation current.
+        payload["evidence_complete"] = False
+        payload["evidence_blocking_reasons"] = ["er_level_calibration"]
+        for horizon in payload["horizons"]:
+            total = horizon["bands"][0]["bases"][0]
+            total["coverage"].update(
+                observed_n=0,
+                missing_n=100,
+                missing_reason_counts={"unresolved_missing_dividend": 100},
+            )
+            total.update(observed_cohort_count=0, median_n=0, ticker_equal=None, cohort_equal=None)
+        payload["common_window"]["horizons"] = deepcopy(payload["horizons"])
     path = tmp_path / "old-dividend-context.yaml"
     _write(path, payload)
     original = path.read_bytes()
@@ -194,7 +258,11 @@ def test_pre_dividend_revision_context_is_retained_but_refused_for_current_run(
     )
     assert result.artifact is None
     assert result.unavailable_reason == "rules_identity_mismatch"
-    assert _load(path, payload).artifact is not None
+    retained = _load(path, payload).artifact
+    assert retained is not None
+    assert retained.schema_version == 4
+    assert retained.evidence_complete is (not partial)
+    assert retained.horizons[0].bands[0].bases[1].coverage.observed_n == 100
     assert path.read_bytes() == original
 
 

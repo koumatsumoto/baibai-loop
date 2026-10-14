@@ -21,6 +21,7 @@ from baibai_web.readmodel.models import (
     ErLevelCalibrationBandView,
     ErLevelCalibrationBasisView,
     ErLevelCalibrationContextView,
+    ErLevelCalibrationCoverageView,
     ErLevelCalibrationHorizonView,
     ErLevelCalibrationStatsView,
     ExternalAssessmentSecurityView,
@@ -397,6 +398,10 @@ def _er_level_calibration_view(
     if context is None:
         return None
     return ErLevelCalibrationContextView(
+        interpretation=context.interpretation,
+        required_asofs=context.required_asofs,
+        evidence_complete=context.evidence_complete,
+        evidence_blocking_reasons=context.evidence_blocking_reasons,
         generated_at=context.generated_at,
         valid_through=context.valid_through,
         reference_horizon=context.reference_horizon,
@@ -423,20 +428,29 @@ def _er_level_calibration_view(
                         bases=[
                             ErLevelCalibrationBasisView(
                                 basis=basis.basis,
+                                coverage=ErLevelCalibrationCoverageView(
+                                    **basis.coverage.model_dump()
+                                ),
+                                observed_cohort_count=basis.observed_cohort_count,
+                                median_n=basis.median_n,
                                 ticker_equal=ErLevelCalibrationStatsView(
                                     median=basis.ticker_equal.median,
                                     q25=basis.ticker_equal.q25,
                                     q10=basis.ticker_equal.q10,
                                     trap_rate=basis.ticker_equal.trap_rate,
                                     n=basis.ticker_equal.n,
-                                ),
+                                )
+                                if basis.ticker_equal is not None
+                                else None,
                                 cohort_equal=ErLevelCalibrationStatsView(
                                     median=basis.cohort_equal.median,
                                     q25=basis.cohort_equal.q25,
                                     q10=basis.cohort_equal.q10,
                                     trap_rate=basis.cohort_equal.trap_rate,
                                     n=basis.cohort_equal.n,
-                                ),
+                                )
+                                if basis.cohort_equal is not None
+                                else None,
                             )
                             for basis in band.bases
                         ],

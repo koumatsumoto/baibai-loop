@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Mapping, Sequence
+from dataclasses import asdict
 from datetime import datetime, timedelta
 from itertools import pairwise
 from math import ceil, isfinite
@@ -26,16 +28,18 @@ from baibai_engine.valuation.calibration.contracts import (
     ErCalibrationContextArtifact,
 )
 from baibai_engine.valuation.calibration.query import er_quintile_for_bounds
+from baibai_engine.valuation.estimates import EXPECTED_RETURN_MODEL_VERSION
 
-from .evaluation import MIN_AXIS_SAMPLE, TRAP_EXCESS_THRESHOLD
+from .evaluation import TRAP_EXCESS_THRESHOLD
 from .evidence import ESTIMATOR_POLICY_MANDATORY_METRICS, ESTIMATOR_POLICY_SUBJECT
-from .forward import TOTAL_RETURN_BASIS, ForwardReturnRow
+from .forward import RESOLVED_STATUSES, TOTAL_RETURN_BASIS, TOTAL_RETURN_STATUSES, ForwardReturnRow
 from .horizons import require_horizon
 from .panel import PanelRow
+from .store import forward_row_from_mapping
 
 
 class CalibrationContextError(ValueError):
-    """Raised when eligible evidence cannot materialize a safe context artifact."""
+    """Raised when declared inputs cannot support a descriptive context artifact."""
 
 
 def build_er_distribution_context(
@@ -45,7 +49,7 @@ def build_er_distribution_context(
     *,
     generated_at: datetime | None = None,
 ) -> dict[str, object]:
-    """Build schema v3 with fixed-band observations from every eligible cohort.
+    """Keep the declared prediction bands while reporting observed outcomes.
 
     機械priorの誤差を示す分布で、購入floorや4 Approachの優越性を代行しない。
     docs/reference/estimate-calibration.md#estimator-vs-decision
@@ -53,12 +57,10 @@ def build_er_distribution_context(
 
     readiness = evaluation.get("evidence_readiness")
     scope = evaluation.get("scope")
-    if (
-        not isinstance(readiness, Mapping)
-        or readiness.get("evidence_status") != "eligible"
-        or readiness.get("evidence_complete") is not True
+    if not isinstance(readiness, Mapping) or not isinstance(
+        readiness.get("evidence_complete"), bool
     ):
-        raise CalibrationContextError("evidence is not complete")
+        raise CalibrationContextError("evidence readiness is missing")
     if not isinstance(scope, Mapping) or scope.get("run_purpose") != "empirical_change_evidence":
         raise CalibrationContextError("context requires an empirical_change_evidence evaluation")
     if scope.get("decision_subject") != ESTIMATOR_POLICY_SUBJECT:
@@ -77,45 +79,33 @@ def build_er_distribution_context(
         raise CalibrationContextError("screening rules provenance is missing")
     if not isinstance(er_model_version, str) or not er_model_version:
         raise CalibrationContextError("E[r] model provenance is missing")
-    eligible = _eligible_asofs(evaluation)
+    if er_model_version != EXPECTED_RETURN_MODEL_VERSION:
+        raise CalibrationContextError("E[r] model identity does not match the producer")
+    asofs = _declared_asofs(evaluation, panels, forwards)
+    fixed_boundaries = _prediction_boundaries(panels, asofs)
 
     horizons: list[dict[str, object]] = []
     for horizon in ("3y", "5y"):
-        asofs = eligible[horizon]
-        if not asofs:
-            raise CalibrationContextError(f"{horizon} has no eligible E[r] level cohorts")
-        missing = [asof for asof in asofs if asof not in panels or asof not in forwards]
-        if missing:
-            raise CalibrationContextError(f"{horizon} evidence is missing for {missing[0]}")
         horizons.append(
             _horizon_context(
                 horizon,
                 asofs,
                 panels=panels,
                 forwards=forwards,
+                fixed_boundaries=fixed_boundaries,
             )
         )
 
     now = generated_at or datetime.now(ZoneInfo("Asia/Tokyo"))
     if now.tzinfo is None or now.utcoffset() is None:
         raise CalibrationContextError("generated_at must include a timezone")
-    common_asofs = sorted(set(eligible["3y"]).intersection(eligible["5y"]))
-    common_horizons = (
-        [
-            _horizon_context(
-                horizon,
-                common_asofs,
-                panels=panels,
-                forwards=forwards,
-            )
-            for horizon in ("3y", "5y")
-        ]
-        if common_asofs
-        else []
-    )
     payload: dict[str, object] = {
         "kind": ER_CALIBRATION_CONTEXT_KIND,
         "schema_version": ER_CALIBRATION_CONTEXT_SCHEMA_VERSION,
+        "interpretation": "observed_distribution_only",
+        "required_asofs": asofs,
+        "evidence_complete": readiness["evidence_complete"],
+        "evidence_blocking_reasons": list(readiness.get("blocking_reasons", [])),
         "generated_at": now.isoformat(timespec="seconds"),
         "valid_through": (
             now.astimezone(ZoneInfo("Asia/Tokyo")).date()
@@ -132,10 +122,10 @@ def build_er_distribution_context(
             "secondary": ER_CALIBRATION_SECONDARY_WEIGHTING,
         },
         "common_window": {
-            "asof_start": common_asofs[0] if common_asofs else None,
-            "asof_end": common_asofs[-1] if common_asofs else None,
-            "cohort_count": len(common_asofs),
-            "horizons": common_horizons,
+            "asof_start": asofs[0],
+            "asof_end": asofs[-1],
+            "cohort_count": len(asofs),
+            "horizons": horizons,
         },
         "horizons": horizons,
     }
@@ -148,54 +138,120 @@ def build_er_distribution_context(
     return payload
 
 
-def _eligible_asofs(evaluation: Mapping[str, object]) -> dict[str, list[str]]:
-    result: dict[str, list[str]] = {"3y": [], "5y": []}
-    level_eligible = _level_eligible_pairs(evaluation.get("results"))
-    required_metrics = {*ESTIMATOR_POLICY_MANDATORY_METRICS, "er_level_calibration"}
-    raw = evaluation.get("cohort_integrity")
-    if not isinstance(raw, list):
-        raise CalibrationContextError("cohort integrity is missing")
-    for item in raw:
-        if not isinstance(item, dict):
-            continue
-        horizon = item.get("horizon")
-        asof = item.get("asof")
-        metric_statuses = item.get("metric_statuses")
-        if (
-            horizon in result
-            and isinstance(asof, str)
-            and item.get("integrity_status") == "eligible"
-            and isinstance(metric_statuses, Mapping)
-            and all(metric_statuses.get(metric) == "eligible" for metric in required_metrics)
-            and (asof, horizon) in level_eligible
-        ):
-            result[cast(str, horizon)].append(asof)
-    for values in result.values():
-        values.sort()
-    return result
-
-
-def _level_eligible_pairs(raw: object) -> set[tuple[str, str]]:
-    pairs: set[tuple[str, str]] = set()
-    if not isinstance(raw, dict):
-        raise CalibrationContextError("evaluation results are missing")
+def _declared_asofs(
+    evaluation: Mapping[str, object],
+    panels: Mapping[str, Sequence[PanelRow]],
+    forwards: Mapping[str, Sequence[ForwardReturnRow]],
+) -> list[str]:
+    scope = cast(Mapping[str, object], evaluation["scope"])
+    raw = scope.get("required_asofs")
+    if not isinstance(raw, list) or not raw or any(not isinstance(value, str) for value in raw):
+        raise CalibrationContextError("context requires explicit declared dates")
+    asofs = sorted(set(cast(list[str], raw)))
+    integrity = evaluation.get("cohort_integrity")
+    results = evaluation.get("results")
+    if not isinstance(integrity, list) or not isinstance(results, Mapping):
+        raise CalibrationContextError("cohort evidence is missing")
+    complete = cast(Mapping[str, object], evaluation["evidence_readiness"])["evidence_complete"]
     for horizon in ("3y", "5y"):
-        result = raw.get(horizon)
-        cohorts = result.get("cohorts") if isinstance(result, dict) else None
+        result = results.get(horizon)
+        cohorts = result.get("cohorts") if isinstance(result, Mapping) else None
         if not isinstance(cohorts, list):
-            raise CalibrationContextError(f"{horizon} evaluation cohorts are missing")
-        for cohort in cohorts:
-            if not isinstance(cohort, dict):
-                continue
-            asof = cohort.get("asof")
-            statuses = cohort.get("metric_statuses")
-            if (
-                isinstance(asof, str)
-                and isinstance(statuses, dict)
-                and statuses.get("er_level_calibration") == "eligible"
+            raise CalibrationContextError(f"{horizon} cohort evidence is missing")
+        for asof in asofs:
+            if asof not in panels or not panels[asof] or asof not in forwards:
+                raise CalibrationContextError(f"declared panel or forward rows missing: {asof}")
+            items = [
+                item
+                for item in integrity
+                if isinstance(item, Mapping)
+                and item.get("asof") == asof
+                and item.get("horizon") == horizon
+            ]
+            matches = [
+                item for item in cohorts if isinstance(item, Mapping) and item.get("asof") == asof
+            ]
+            if len(items) != 1 or len(matches) != 1:
+                raise CalibrationContextError(
+                    f"declared cohort evidence is missing or duplicated: {asof} {horizon}"
+                )
+            item = items[0]
+            statuses = item.get("metric_statuses")
+            if complete and (
+                item.get("integrity_status") != "eligible"
+                or not isinstance(statuses, Mapping)
+                or any(
+                    statuses.get(metric) != "eligible"
+                    for metric in (*ESTIMATOR_POLICY_MANDATORY_METRICS, "er_level_calibration")
+                )
             ):
-                pairs.add((asof, horizon))
-    return pairs
+                raise CalibrationContextError("complete evidence contradicts cohort integrity")
+            coverage = matches[0].get("coverage")
+            if not isinstance(coverage, Mapping) or any(
+                coverage.get(key) != expected
+                for key, expected in {
+                    "master_snapshot_status": "exact_date",
+                    "survivorship_coverage_status": "complete",
+                    "adjustment_factor_coverage": "complete",
+                    "input_range_clamped": False,
+                    "candidate_partition_complete": True,
+                }.items()
+            ):
+                raise CalibrationContextError(f"cohort input is incomplete: {asof} {horizon}")
+            if coverage.get("unclassified_unresolved_count", 0):
+                raise CalibrationContextError("unknown unresolved outcomes cannot be partial")
+            tickers = [row.ticker for row in panels[asof]]
+            rows = [row for row in forwards[asof] if row.horizon == horizon]
+            observed = [row.ticker for row in rows]
+            if (
+                len(tickers) != len(set(tickers))
+                or len(observed) != len(set(observed))
+                or not set(tickers).issubset(observed)
+            ):
+                raise CalibrationContextError(
+                    f"declared forward partition is incomplete: {asof} {horizon}"
+                )
+            if any(row.asof != asof for row in panels[asof]) or any(
+                row.asof != asof for row in rows
+            ):
+                raise CalibrationContextError("cohort row date contradicts its declared date")
+            for row in rows:
+                try:
+                    forward_row_from_mapping(asdict(row))
+                except ValueError as exc:
+                    raise CalibrationContextError("forward observation is corrupt") from exc
+    return asofs
+
+
+def _prediction_boundaries(
+    panels: Mapping[str, Sequence[PanelRow]], asofs: Sequence[str]
+) -> list[float]:
+    signals = {
+        asof: [
+            row
+            for row in panels[asof]
+            if row.in_population and row.er_annual is not None and isfinite(row.er_annual)
+        ]
+        for asof in asofs
+    }
+    if any(len(rows) < 5 for rows in signals.values()):
+        raise CalibrationContextError("declared cohort has insufficient finite E[r] predictions")
+    boundaries = [
+        [
+            max(row.er_annual for row in chunk if row.er_annual is not None)
+            for chunk in _quintile_chunks(
+                sorted(rows, key=lambda row: (float(row.er_annual or 0.0), row.ticker))
+            )[:4]
+        ]
+        for rows in signals.values()
+    ]
+    fixed_boundaries = [
+        round(_nearest_rank([cuts[index] for cuts in boundaries], 0.5), 6) for index in range(4)
+    ]
+    if any(right <= left for left, right in pairwise(fixed_boundaries)):
+        raise CalibrationContextError("fixed prediction boundaries are not increasing")
+
+    return fixed_boundaries
 
 
 def _horizon_context(
@@ -204,56 +260,33 @@ def _horizon_context(
     *,
     panels: Mapping[str, Sequence[PanelRow]],
     forwards: Mapping[str, Sequence[ForwardReturnRow]],
+    fixed_boundaries: Sequence[float],
 ) -> dict[str, object]:
     years = require_horizon(horizon).months / 12
     cohort_bands: dict[str, dict[str, list[_BandObservation]]] = {}
-    boundaries: list[list[float]] = [[] for _ in range(4)]
-    entries_by_asof: dict[str, list[_BandObservation]] = {}
-
-    for asof in asofs:
-        entries = _cohort_entries(panels[asof], forwards[asof], horizon=horizon, years=years)
-        if len(entries) < MIN_AXIS_SAMPLE:
-            raise CalibrationContextError(f"{horizon} {asof} has insufficient level observations")
-        entries.sort(key=lambda item: (item.er_annual, item.ticker))
-        chunks = _quintile_chunks(entries)
-        entries_by_asof[asof] = entries
-        for index, chunk in enumerate(chunks, start=1):
-            if index < 5:
-                boundaries[index - 1].append(max(item.er_annual for item in chunk))
-
-    # Freeze the serialized precision before assigning historical members. Query
-    # must classify the same values against the same boundaries (#1493).
-    fixed_boundaries = [round(_nearest_rank(values, 0.5), 6) for values in boundaries]
-    if any(right <= left for left, right in pairwise(fixed_boundaries)):
-        raise CalibrationContextError(f"{horizon} fixed quintile boundaries are not increasing")
-
     predicted: dict[str, list[float]] = {f"q{index}": [] for index in range(1, 6)}
     predicted["er_gte_8_5pct"] = []
-    for asof, entries in entries_by_asof.items():
-        band_rows: dict[str, list[_BandObservation]] = {f"q{index}": [] for index in range(1, 6)}
-        band_rows["er_gte_8_5pct"] = []
-        for item in entries:
-            band_id = f"q{er_quintile_for_bounds(item.er_annual, fixed_boundaries)}"
-            band_rows[band_id].append(item)
-            predicted[band_id].append(item.er_annual)
+    for asof in asofs:
+        rows: dict[str, list[_BandObservation]] = {key: [] for key in predicted}
+        for item in _cohort_entries(panels[asof], forwards[asof], horizon=horizon, years=years):
+            ids = [f"q{er_quintile_for_bounds(item.er_annual, fixed_boundaries)}"]
             if item.er_annual >= HURDLE_ER_ANNUAL:
-                band_rows["er_gte_8_5pct"].append(item)
-                predicted["er_gte_8_5pct"].append(item.er_annual)
-        cohort_bands[asof] = band_rows
-
-    bands: list[dict[str, object]] = []
-    for index in range(1, 6):
-        band_id = f"q{index}"
-        bands.append(
-            _band_context(
-                band_id,
-                cohort_bands,
-                predicted=predicted[band_id],
-                quintile=index,
-                lower_er_annual=None if index == 1 else fixed_boundaries[index - 2],
-                upper_er_annual=None if index == 5 else fixed_boundaries[index - 1],
-            )
+                ids.append("er_gte_8_5pct")
+            for band_id in ids:
+                rows[band_id].append(item)
+                predicted[band_id].append(item.er_annual)
+        cohort_bands[asof] = rows
+    bands = [
+        _band_context(
+            f"q{index}",
+            cohort_bands,
+            predicted=predicted[f"q{index}"],
+            quintile=index,
+            lower_er_annual=None if index == 1 else fixed_boundaries[index - 2],
+            upper_er_annual=None if index == 5 else fixed_boundaries[index - 1],
         )
+        for index in range(1, 6)
+    ]
     bands.append(
         _band_context(
             "er_gte_8_5pct",
@@ -274,24 +307,24 @@ def _horizon_context(
 
 
 class _BandObservation:
-    __slots__ = ("er_annual", "price_annual", "price_trap", "ticker", "total_annual", "total_trap")
-
     def __init__(
         self,
         *,
         ticker: str,
         er_annual: float,
-        total_annual: float,
-        price_annual: float,
-        total_trap: bool,
-        price_trap: bool,
+        total_annual: float | None,
+        price_annual: float | None,
+        total_reason: str | None,
+        price_reason: str | None,
     ) -> None:
         self.ticker = ticker
         self.er_annual = er_annual
         self.total_annual = total_annual
         self.price_annual = price_annual
-        self.total_trap = total_trap
-        self.price_trap = price_trap
+        self.total_reason = total_reason
+        self.price_reason = price_reason
+        self.total_trap = False
+        self.price_trap = False
 
 
 def _cohort_entries(
@@ -301,50 +334,71 @@ def _cohort_entries(
     horizon: str,
     years: float,
 ) -> list[_BandObservation]:
-    by_ticker = {
-        row.ticker: row
-        for row in forward_rows
-        if row.horizon == horizon
-        and row.resolved
-        and row.total_return_status == "resolved"
-        and row.total_return_basis == TOTAL_RETURN_BASIS
-        and row.realized_dividend_sum is not None
-        and row.realized_dividend_fy_count > 0
-        and row.price_return is not None
-        and row.total_return is not None
-    }
-    raw: list[tuple[PanelRow, ForwardReturnRow, float, float]] = []
+    by_ticker = {row.ticker: row for row in forward_rows if row.horizon == horizon}
+    entries: list[_BandObservation] = []
+    cumulative: dict[str, dict[str, float]] = {"price": {}, "total": {}}
     for row in panel:
-        forward = by_ticker.get(row.ticker)
-        if not row.in_population or forward is None or row.er_annual is None:
+        if not row.in_population or row.er_annual is None or not isfinite(row.er_annual):
             continue
-        assert forward.price_return is not None
-        assert forward.total_return is not None
-        price_annual = _annualize(forward.price_return, years=years)
-        total_annual = _annualize(forward.total_return, years=years)
-        if price_annual is None or total_annual is None or not isfinite(row.er_annual):
-            continue
-        raw.append((row, forward, total_annual, price_annual))
-    if not raw:
-        return []
-    total_population_median = median(float(item[1].total_return or 0.0) for item in raw)
-    price_population_median = median(float(item[1].price_return or 0.0) for item in raw)
-    return [
-        _BandObservation(
+        forward = by_ticker[row.ticker]
+        if (
+            forward.resolved != (forward.status in RESOLVED_STATUSES)
+            or forward.total_return_status not in TOTAL_RETURN_STATUSES
+        ):
+            raise CalibrationContextError("forward status is inconsistent")
+        price_annual = (
+            _annualize(forward.price_return, years=years)
+            if forward.resolved and forward.price_return is not None
+            else None
+        )
+        if forward.resolved and price_annual is None:
+            raise CalibrationContextError("resolved price outcome is invalid")
+        total_annual = None
+        total_reason: str | None = (
+            forward.status if not forward.resolved else forward.total_return_status
+        )
+        if forward.total_return_status == "resolved":
+            if (
+                not forward.resolved
+                or forward.total_return_basis != TOTAL_RETURN_BASIS
+                or forward.realized_dividend_sum is None
+                or forward.realized_dividend_fy_count <= 0
+                or forward.total_return is None
+            ):
+                raise CalibrationContextError("resolved dividend outcome is invalid")
+            total_annual = _annualize(forward.total_return, years=years)
+            if total_annual is None:
+                raise CalibrationContextError("resolved total outcome is invalid")
+            total_reason = None
+        entry = _BandObservation(
             ticker=row.ticker,
-            er_annual=float(row.er_annual or 0.0),
+            er_annual=float(row.er_annual),
             total_annual=total_annual,
             price_annual=price_annual,
-            total_trap=(float(forward.total_return or 0.0) - total_population_median)
-            <= TRAP_EXCESS_THRESHOLD,
-            price_trap=(float(forward.price_return or 0.0) - price_population_median)
-            <= TRAP_EXCESS_THRESHOLD,
+            total_reason=total_reason,
+            price_reason=None if price_annual is not None else forward.status,
         )
-        for row, forward, total_annual, price_annual in raw
-    ]
+        entries.append(entry)
+        if price_annual is not None:
+            assert forward.price_return is not None
+            cumulative["price"][row.ticker] = forward.price_return
+        if total_annual is not None:
+            assert forward.total_return is not None
+            cumulative["total"][row.ticker] = forward.total_return
+    for basis, values in cumulative.items():
+        if values:
+            population_median = median(values.values())
+            for entry in entries:
+                if entry.ticker in values:
+                    setattr(
+                        entry,
+                        f"{basis}_trap",
+                        values[entry.ticker] - population_median <= TRAP_EXCESS_THRESHOLD,
+                    )
+    return entries
 
 
-def _quintile_chunks(entries: Sequence[_BandObservation]) -> list[list[_BandObservation]]:
+def _quintile_chunks(entries: Sequence[PanelRow]) -> list[list[PanelRow]]:
     step = len(entries) / 5
     return [list(entries[int(index * step) : int((index + 1) * step)]) for index in range(5)]
 
@@ -358,33 +412,42 @@ def _band_context(
     lower_er_annual: float | None,
     upper_er_annual: float | None,
 ) -> dict[str, object]:
-    if not predicted:
-        raise CalibrationContextError(f"{band_id} has no observations")
     return {
         "band_id": band_id,
         "quintile": quintile,
         "lower_er_annual": _rounded(lower_er_annual),
         "upper_er_annual": _rounded(upper_er_annual),
-        "median_predicted_er_annual": round(_nearest_rank(predicted, 0.5), 6),
+        "median_predicted_er_annual": round(_nearest_rank(predicted, 0.5), 6)
+        if predicted
+        else None,
         "cohort_count": len(cohort_bands),
+        # Prediction counts include the declared months with no observed outcomes.
         "median_n": int(
             _nearest_rank([float(len(bands[band_id])) for bands in cohort_bands.values()], 0.5)
         ),
         "bases": [
             _basis_context(
-                ER_CALIBRATION_PRIMARY_REALIZED_BASIS,
+                basis,
                 cohort_bands,
                 band_id=band_id,
-                value_field="total_annual",
-                trap_field="total_trap",
-            ),
-            _basis_context(
-                ER_CALIBRATION_SECONDARY_REALIZED_BASIS,
-                cohort_bands,
-                band_id=band_id,
-                value_field="price_annual",
-                trap_field="price_trap",
-            ),
+                value_field=value,
+                trap_field=trap,
+                reason_field=reason,
+            )
+            for basis, value, trap, reason in (
+                (
+                    ER_CALIBRATION_PRIMARY_REALIZED_BASIS,
+                    "total_annual",
+                    "total_trap",
+                    "total_reason",
+                ),
+                (
+                    ER_CALIBRATION_SECONDARY_REALIZED_BASIS,
+                    "price_annual",
+                    "price_trap",
+                    "price_reason",
+                ),
+            )
         ],
     }
 
@@ -396,23 +459,41 @@ def _basis_context(
     band_id: str,
     value_field: str,
     trap_field: str,
+    reason_field: str,
 ) -> dict[str, object]:
     pooled: list[float] = []
     pooled_traps: list[bool] = []
     cohort_stats: list[dict[str, float | int]] = []
+    observed_counts: list[float] = []
+    missing_reasons: Counter[str] = Counter()
+    declared_n = 0
     for bands in cohort_bands.values():
         rows = bands[band_id]
-        values = [float(getattr(row, value_field)) for row in rows]
-        traps = [bool(getattr(row, trap_field)) for row in rows]
+        declared_n += len(rows)
+        observed = [row for row in rows if getattr(row, value_field) is not None]
+        values = [float(getattr(row, value_field)) for row in observed]
+        traps = [bool(getattr(row, trap_field)) for row in observed]
+        observed_counts.append(float(len(values)))
         pooled.extend(values)
         pooled_traps.extend(traps)
+        for row in rows:
+            if getattr(row, value_field) is None:
+                reason = getattr(row, reason_field)
+                assert isinstance(reason, str)
+                missing_reasons[reason] += 1
         if values:
             cohort_stats.append(_stats(values, traps))
-    if not pooled or len(cohort_stats) != len(cohort_bands):
-        raise CalibrationContextError(f"{band_id} {basis} does not cover every eligible cohort")
     return {
         "basis": basis,
-        "ticker_equal": _stats(pooled, pooled_traps),
+        "coverage": {
+            "declared_n": declared_n,
+            "observed_n": len(pooled),
+            "missing_n": declared_n - len(pooled),
+            "missing_reason_counts": dict(sorted(missing_reasons.items())),
+        },
+        "observed_cohort_count": len(cohort_stats),
+        "median_n": int(_nearest_rank(observed_counts, 0.5)),
+        "ticker_equal": _stats(pooled, pooled_traps) if pooled else None,
         "cohort_equal": {
             field: (
                 int(_nearest_rank([float(item[field]) for item in cohort_stats], 0.5))
@@ -420,7 +501,9 @@ def _basis_context(
                 else round(_nearest_rank([float(item[field]) for item in cohort_stats], 0.5), 6)
             )
             for field in ("median", "q25", "q10", "trap_rate", "n")
-        },
+        }
+        if cohort_stats
+        else None,
     }
 
 

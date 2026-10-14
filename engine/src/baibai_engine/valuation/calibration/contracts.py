@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 ER_CALIBRATION_CONTEXT_KIND = "er-level-calibration-context"
-ER_CALIBRATION_CONTEXT_SCHEMA_VERSION = 3
+ER_CALIBRATION_CONTEXT_SCHEMA_VERSION = 4
 ER_CALIBRATION_CONTEXT_VALID_DAYS = 45
 ER_CALIBRATION_PRIMARY_REALIZED_BASIS = "fy_actual_dividend_total_return"
 ER_CALIBRATION_SECONDARY_REALIZED_BASIS = "price_return_only"
@@ -43,12 +43,52 @@ class ErCalibrationStats(BaseModel):
         return self
 
 
+class ErCalibrationCoverage(BaseModel):
+    """Observed outcomes within the declared finite-E[r] population."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    declared_n: int = Field(ge=0)
+    observed_n: int = Field(ge=0)
+    missing_n: int = Field(ge=0)
+    missing_reason_counts: dict[str, int]
+
+    @model_validator(mode="after")
+    def validate_partition(self) -> Self:
+        if self.declared_n != self.observed_n + self.missing_n:
+            raise ValueError("declared population must equal observed plus missing")
+        if any(not key or value <= 0 for key, value in self.missing_reason_counts.items()):
+            raise ValueError("missing reasons must have positive counts")
+        if sum(self.missing_reason_counts.values()) != self.missing_n:
+            raise ValueError("missing reasons must account for every missing observation")
+        return self
+
+
 class ErCalibrationBasis(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     basis: Literal["fy_actual_dividend_total_return", "price_return_only"]
-    ticker_equal: ErCalibrationStats
-    cohort_equal: ErCalibrationStats
+    coverage: ErCalibrationCoverage
+    observed_cohort_count: int = Field(ge=0)
+    median_n: int = Field(ge=0)
+    ticker_equal: ErCalibrationStats | None
+    cohort_equal: ErCalibrationStats | None
+
+    @model_validator(mode="after")
+    def validate_observations(self) -> Self:
+        if self.coverage.observed_n == 0:
+            if self.ticker_equal is not None or self.cohort_equal is not None:
+                raise ValueError("an unobserved basis must have null distributions")
+            if self.observed_cohort_count or self.median_n:
+                raise ValueError("an unobserved basis cannot claim observed cohorts")
+        elif (
+            self.ticker_equal is None
+            or self.cohort_equal is None
+            or self.ticker_equal.n != self.coverage.observed_n
+            or self.observed_cohort_count == 0
+        ):
+            raise ValueError("basis distributions must match observed coverage")
+        return self
 
 
 class ErCalibrationBand(BaseModel):
@@ -58,9 +98,9 @@ class ErCalibrationBand(BaseModel):
     quintile: int | None = Field(ge=1, le=5)
     lower_er_annual: float | None
     upper_er_annual: float | None
-    median_predicted_er_annual: float
+    median_predicted_er_annual: float | None
     cohort_count: int = Field(gt=0)
-    median_n: int = Field(gt=0)
+    median_n: int = Field(ge=0)
     bases: list[ErCalibrationBasis]
 
     @model_validator(mode="after")
@@ -75,6 +115,13 @@ class ErCalibrationBand(BaseModel):
             ER_CALIBRATION_SECONDARY_REALIZED_BASIS,
         ]:
             raise ValueError("realized-return bases are missing, duplicated, or reordered")
+        declared = {item.coverage.declared_n for item in self.bases}
+        if len(declared) != 1:
+            raise ValueError("both bases must retain the same declared prediction band")
+        if (next(iter(declared)) == 0) != (self.median_predicted_er_annual is None):
+            raise ValueError("prediction median must match the declared band")
+        if any(item.observed_cohort_count > self.cohort_count for item in self.bases):
+            raise ValueError("observed cohorts cannot exceed declared cohorts")
         return self
 
 
@@ -162,7 +209,11 @@ class ErCalibrationContextArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     kind: Literal["er-level-calibration-context"]
-    schema_version: Literal[3]
+    schema_version: Literal[4]
+    interpretation: Literal["observed_distribution_only"]
+    required_asofs: list[str]
+    evidence_complete: bool
+    evidence_blocking_reasons: list[str]
     generated_at: datetime
     valid_through: date
     reference_horizon: Literal["3y"]
@@ -196,6 +247,40 @@ class ErCalibrationContextArtifact(BaseModel):
             raise ValueError("valid_through must equal the fixed 45-day expiry")
         if [item.horizon for item in self.horizons] != list(ER_CALIBRATION_HORIZONS):
             raise ValueError("E[r] context must contain 3y and 5y horizons in order")
+        if not self.required_asofs or self.required_asofs != sorted(set(self.required_asofs)):
+            raise ValueError("required dates must be explicit, unique and ordered")
+        required_dates = [date.fromisoformat(value) for value in self.required_asofs]
+        if self.evidence_complete and self.evidence_blocking_reasons:
+            raise ValueError("complete evidence cannot have blocking reasons")
+        if any(
+            item.cohort_count != len(required_dates)
+            or item.asof_start != required_dates[0]
+            or item.asof_end != required_dates[-1]
+            for item in self.horizons
+        ):
+            raise ValueError("every horizon must retain the declared dates")
+        for reference, other in zip(self.horizons[0].bands, self.horizons[1].bands, strict=True):
+            if (
+                reference.lower_er_annual,
+                reference.upper_er_annual,
+                reference.median_predicted_er_annual,
+                reference.median_n,
+                reference.bases[0].coverage.declared_n,
+            ) != (
+                other.lower_er_annual,
+                other.upper_er_annual,
+                other.median_predicted_er_annual,
+                other.median_n,
+                other.bases[0].coverage.declared_n,
+            ):
+                raise ValueError("horizons must share the same declared prediction bands")
+        if (
+            self.common_window.cohort_count != len(required_dates)
+            or self.common_window.asof_start != required_dates[0]
+            or self.common_window.asof_end != required_dates[-1]
+            or self.common_window.horizons != self.horizons
+        ):
+            raise ValueError("common window must retain the same declared distributions")
         return self
 
 
@@ -216,6 +301,7 @@ __all__ = [
     "ErCalibrationBasis",
     "ErCalibrationCommonWindow",
     "ErCalibrationContextArtifact",
+    "ErCalibrationCoverage",
     "ErCalibrationHorizon",
     "ErCalibrationStats",
     "ErCalibrationWeighting",

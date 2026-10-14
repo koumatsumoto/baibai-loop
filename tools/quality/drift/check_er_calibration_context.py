@@ -48,7 +48,7 @@ def check() -> tuple[str, ...]:
         try:
             ErCalibrationContextArtifact.model_validate(raw)
         except ValidationError:
-            failures.append("published E[r] context does not satisfy the schema 3 contract")
+            failures.append("published E[r] context does not satisfy the current context contract")
         if raw.get("schema_version") != ER_CALIBRATION_CONTEXT_SCHEMA_VERSION:
             failures.append(
                 "published E[r] context schema does not match the current reader: "

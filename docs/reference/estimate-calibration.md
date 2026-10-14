@@ -145,15 +145,19 @@ cohort比較は`--basis price|total`を取り、母集団は保存された`Pane
 
 意味契約は`valuation/calibration/contracts`、保存済み文脈の期限・method identity判定と評価帯解釈は`valuation/calibration/query`が所有する。較正実行・evidence生成・候補比較はScreeningに残す。配置と依存は[architecture](../architecture.md#repository-map)を参照する。
 
-Research Triage の判断面が読む最新文脈の正本は `reports/published/er-level-calibration-latest.yaml` である。`calibration-evaluate --context-out` が、evidence completeness の成立した明示的な required scope だけから、3y / 5y の固定 E[r] quintileを生成する。各帯は実績 FY 配当込み total return を主 basis、price-only を副 basis とし、ticker-as-of 等重みの絶対年率 median / q25 / q10 / trap rate / n、cohort 等重みの同じ統計、median n、cohort 数を持つ。
+Research Triage の判断面が読む最新文脈の正本は `reports/published/er-level-calibration-latest.yaml` である。`calibration-evaluate --context-out` は、明示した全required月の有限E[r]母集団を保持して、3y / 5yの観測対象の歴史分布を生成する。formal evidence completenessは別に記録し、正常なentry/exit・配当の観測不能だけで全分布を隠さない。panel欠落、入力・forward partitionの不整合、未知の未解決状態、method不一致はpartialとして扱わず拒否する。
 
-schema 3では各cohortの相対五分位上限から四つの固定境界を求め、保存精度の小数6桁へ先に丸める。その境界で過去の全観測を再分類してから統計を集計する。履歴と候補lookupは同じ分類関数を使い、Q1は上限以下、Q2〜Q4は下限より大きく上限以下、Q5は下限より大きい。同じE[r]は同じ帯へ入り、tickerで分割しない。8.5%の独立帯は下限以上を集計する。丸め後の境界重複、空帯、いずれかのeligible cohortで観測のない帯は生成拒否とし、欠測を0へ補わない。各cohortの相対Qで集計したschema 2の統計を固定帯の統計として使わない。再現・固定scopeの差は[測定記録](../../reports/studies/2026-10-14-calibration-fixed-bands/report.md)に残す。
+schema 4では、結果の観測可否で予測帯を選ばない。宣言母集団の有限E[r]全対象から各cohortの五分位上限を求め、そのcohort中央値を小数6桁で固定する。同じrequired月では両horizon・両basisで境界を共有し、履歴と候補を同じ境界へ分類する。Q1は上限以下、Q2〜Q4は下限より大きく上限以下、Q5は下限より大きい。同じE[r]をtickerで分割せず、8.5%の独立帯は下限以上を集計する。丸め後の境界重複は拒否する。旧schemaの統計を新しい母数の統計へ付け替えない。
+
+各basisは宣言数・観測数・未評価数と既存statusの理由内訳を保持する。配当欠測でも観測済みpriceを残し、totalへpriceや配当0を代用しない。ticker-as-of等重みの年率median / q25 / q10 / trap rateは観測済み対象の統計で、cohort等重みも観測のある月から計算する。宣言月数と観測月数、月次観測数の中央値を併記し、観測が全くないbasisの分布はnullにする。bandのmedian nは結果を問わない宣言予測数、basisのmedian nは宣言全月（観測0の月を含む）の観測数である。
+
+これは未評価を含む全母集団の実証済期待収益・個別予測・購入条件ではない。未評価は損益0として集計しない。basisごとに観測対象と累積returnの比較中央値が異なり、price-total差を配当効果として解釈しない。Research入力と既存Security Analysis表示は分母・不足理由・formal completenessとこの限界を一緒に渡す。購入条件やselection/orderは変更しない。
 
 UI と research workspace は、artifact の `screening_rules_hash` と `er_model_version` が実際に表示・調査する operative run / Review Set の identity と一致するときだけ、候補 E[r] を該当 quintileへ対応づける。E[r]、順位、Research Triage、FV は変更しない。値は個別銘柄の予測ではなく historical distribution であり、重複する月次窓を独立標本と呼ばない。
 
 配当予想の鮮度など計算入力の意味を変える場合は、既存の`VALUATION_CALCULATION_REVISION`を更新する。productionのrules hash、panelのrules hash、派生cache contractへ同じrevisionを伝え、旧panelの再利用と旧contextの新runへの適用を拒否する。ER算式が同じなら`expected-return-v1`は維持する。保持artifactの旧計算revision・scope・入力窓はprovenance検証だけで認識し、元bytes/hashを変更しない。複数の変更を統合する場合、panel・contextの再生成は承認済みの最終methodでまとめて行う。
 
-rules変更後に対応する長期較正文脈がまだない場合、旧artifactは元のhash・統計・生成日で保持する。現行schemaのrules不一致は`rules_identity_mismatch`、旧schema 2はidentityが一致しても`invalid_artifact`として非表示にする。CIは現在保持しているschema 2の原bytesと凍結rulesへのprovenanceだけを検証し、runtimeへ互換読取を加えない。現行schemaの構造とrunへの適用可能性はreaderが検証する。旧統計のhash/schemaだけを新定義へ差し替えず、required scopeのevidenceが揃ってから`calibration-evaluate --context-out`で再生成する。規模・bar期間・FCFの条件を変えれば比較母集団も変わるため、旧較正を新methodの証拠としない。
+rules変更後に対応する長期較正文脈がまだない場合、旧artifactは元のhash・統計・生成日で保持する。現行schemaのrules不一致は`rules_identity_mismatch`、旧schemaはidentityが一致しても`invalid_artifact`として非表示にする。CIは現在保持しているschema 2の原bytesと凍結rulesへのprovenanceだけを検証し、runtimeへ互換読取を加えない。現行schemaの構造とrunへの適用可能性はreaderが検証する。旧統計のhash/schemaだけを新定義へ差し替えず、保存済みの整合したpanel/forwardと明示required scopeから`calibration-evaluate --context-out`で再生成する。規模・bar期間・FCFの条件を変えれば比較母集団も変わるため、旧較正を新methodの証拠としない。
 
 `er_gte_8_5pct`は機械E[r]が8.5%以上の固定較正帯で、thresholdは`HURDLE_ER_ANNUAL=0.085`。これは[通常購入の要求年率](../portfolio-management.md#required-return-policy)へ連動する帯ではなく、policy変更時もband identityと過去分布を維持する。
 
@@ -257,7 +261,7 @@ uv run baibai-engine screening calibration-evaluate \
   --decision-subject candidate_discovery_nomination_union --required-asof 2021-06-30
 ```
 
-E[r]水準parameterを判断する事前登録済みrunだけ`--required-metric er_level_calibration`を加える。判断面の月次文脈も更新する場合は、同じ評価へ`--context-out reports/published/er-level-calibration-latest.yaml`を加える。required scope・evidence・level metricが不完全ならcontextを書かずexit 1となる。
+E[r]水準parameterを判断する事前登録済みrunだけ`--required-metric er_level_calibration`を加える。判断面の月次文脈も更新する場合は、同じ評価へ`--context-out reports/published/er-level-calibration-latest.yaml`を加える。required panelや観測構造が不整合ならcontextを書かずexit 1となる。正常な観測不能では記述contextを書き、formal evidenceの不成立と未評価を残す。context書込成功を方法変更の証拠成立へ読み替えない。
 
 ## 改善サイクルの運用契約
 

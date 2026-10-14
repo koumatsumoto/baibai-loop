@@ -118,7 +118,6 @@ def candidate_er_band_context(
 
 
 def _band_summary(band: ErCalibrationBand) -> dict[str, object]:
-    primary = band.bases[0].ticker_equal
     return {
         "band_id": band.band_id,
         "lower_er_annual": band.lower_er_annual,
@@ -126,7 +125,7 @@ def _band_summary(band: ErCalibrationBand) -> dict[str, object]:
         "median_predicted_er_annual": band.median_predicted_er_annual,
         "cohort_count": band.cohort_count,
         "median_n": band.median_n,
-        "realized_total_return_ticker_equal": primary.model_dump(mode="json"),
+        "bases": [basis.model_dump(mode="json") for basis in band.bases],
     }
 
 
