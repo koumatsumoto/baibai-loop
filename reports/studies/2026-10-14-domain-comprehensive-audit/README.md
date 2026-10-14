@@ -32,4 +32,16 @@ runtimeでは未使用status writer、旧cache引数、無効metadata吸収、�
 
 履歴reportは本文・数値・hash・旧payloadを保全し、完了済みの状態表示と移動で壊れた相対リンクのみ修正。published calibration/保持schema2のSHAはacceptanceと一致し、現行型検証と全quintile/basis coverage集計も照合した。外部原本や非公開storeを再取得・再測定したものではない。
 
-領域別fixture testsは成功。push前の完全local gateを次に実行し、結果は追記する。外部R2 acceptance、provider取得、OAuth smoke、本番公開は実行しない。
+## 最終検証
+
+実装head `33bbdd1473d6f5c30b9d9d7a5b01a02b51ec00c4` に対して実施。
+
+- frozen sync、Ruff format/check、mypy（440 files）、import-linter（34 contracts）、全drift gate: 成功。
+- Python全体: 4610 passed、8 skipped、coverage 87.44%。skipは専用資格情報を構成していないR2 acceptanceのみ。
+- Frontend: npm ci / lint / build、313 tests成功。既存lint警告8件あり。
+- Worker: npm ci / generated types check / typecheck、106 tests、deploy dry-run成功。
+- Bandit成功。pip-auditはruntime/all-groupsとbuild-systemの両方で既知脆弱性なし。npm auditは両packageとも脆弱性0件。
+
+初回gateで見つかったpagination型推論と旧query正規化を修正。削除済package directoryに残る追跡外bytecodeは確認して除去した。PythonにはSQLite connectionのResourceWarning等1171件、Banditには既存nosec注釈の警告が残る。gate失敗を成功として扱ってはいない。
+
+実store検証はDB不在のため未実施。外部R2 acceptance、provider取得、OAuth smoke、本番公開は実行していない。
