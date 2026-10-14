@@ -184,11 +184,11 @@ def test_candidate_delta_retains_every_entry_in_ticker_order(count, er):
     from baibai_web.readmodel.builders.daily_delta import _candidate_deltas
 
     current = {
-        str(1000 + i): {"ticker": str(1000 + i), "analysis": {"expected_return": {"er_annual": er}}}
+        str(1000 + i): {"ticker": str(1000 + i), "metrics": {"er_annual": er}}
         for i in reversed(range(count))
     }
     earlier = {
-        str(4000 + i): {"ticker": str(4000 + i), "analysis": {"expected_return": {"er_annual": er}}}
+        str(4000 + i): {"ticker": str(4000 + i), "metrics": {"er_annual": er}}
         for i in reversed(range(count))
     }
     entered, exited, moves, total = _candidate_deltas(
@@ -196,6 +196,8 @@ def test_candidate_delta_retains_every_entry_in_ticker_order(count, er):
     )
     assert [entry.ticker for entry in entered] == sorted(current)
     assert [entry.ticker for entry in exited] == sorted(earlier)
+    expected_er_pct = None if er is None else er * 100
+    assert all(entry.er_annual_pct == expected_er_pct for entry in [*entered, *exited])
     assert moves == []
     assert total == 0
     notice = _Notice(
@@ -204,6 +206,10 @@ def test_candidate_delta_retains_every_entry_in_ticker_order(count, er):
         exited=_delta_ticker_labels([entry.model_dump() for entry in exited]),
     )
     lines = render_delta(notice.to_json())
+    if er is None or count == 0:
+        assert all("E[r]" not in line for line in lines)
+    else:
+        assert all(line.count(f"E[r]{expected_er_pct:+.1f}%") == min(count, 5) for line in lines)
     if count > 5:
         assert all(f"全{count}件" in line and f"他{count - 5}件" in line for line in lines)
         assert "1004" in lines[0]
