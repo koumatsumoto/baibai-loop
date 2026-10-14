@@ -552,7 +552,7 @@ indicator storeだけは実在する直前schemaからの一段migrationをstagi
 この節は未実施の切替手順である。親レビュー・実行承認前にmerge、workflow停止、本番PUTを行わない。
 [temporary tool](../tools/cutover/financial_documents.py)はsource31→32とfinancial-v1→v2だけを扱い、切替完了後にcleanupする。通常readerの旧schema fallback、通常publisherの旧契約対応は追加しない。
 
-**固定するもの**: 全writer（daily、TradingView、外部評価からの後続publish、operator）を停止し、queued old-refを残さない。merge自体はproduction publisherを起動しない。旧codeでfreshな`pull-machine`→固定R1のhydrateを完了し、3 keyの取得世代、R1 ID/hash、pointer ETag、旧31のhydrated sourceをprivate stageへ保持する。183,642は隔離検証の件数であり本番の固定floorではない。以後の照合はこのfresh sourceから計算する。applicationはbulk取得・push対象へ入れない。
+**固定するもの**: 全writer（daily、TradingView、外部評価からの後続publish、operator）とmaterializeを停止し、queued old-refを残さない。merge自体はproduction publisherを起動しない。旧codeでfreshな`pull-machine`→固定R1のhydrateを完了し、3 keyの取得世代、R1 ID/hash、pointer ETag、旧31のhydrated sourceをprivate stageへ保持する。183,642は隔離検証の件数であり本番の固定floorではない。以後の照合はこのfresh sourceから計算する。applicationはbulk取得・push対象へ入れない。
 
 `cutover_stage`、各path、R1 ETag、全体公開の実測必要秒数を実行レビューで確定する。generations JSONは取得済み`stores/.r2-generations/{market.sqlite,runs.sqlite,indicators.sqlite}.etag`のbare値を3 keyで保持し、ETagだけを別のstore copyへ付け替えない。
 
@@ -592,7 +592,7 @@ push-machineの対象は`market.sqlite / runs.sqlite / indicators.sqlite`の3 DB
 
 - pointer切替後・origin更新前: R2 ID/hashと保存したstageのfact digestを照合し、`reconcile-origin`（publishと同じ引数）でlocal originだけを前進させる。再publishしない。
 - pointerがR2、market PUT前でremoteが31: 通常のv2 hydrateへremote31を渡さない。取得済みsource31、変換32、raw4文書、元の3 ETag、R1/R2 identityを保持する。`inspect-machine --receipt ... --store <新private directory>`で到達点を保存・照合する。全3 keyが元世代である場合だけ、新しい有効leaseで`reconcile-origin`→`verify-machine`を再確認し、未着手のmachine公開へ進む。旧copyへの交換・通常daily復旧はしない。
-- market PUT後の別key停止、または全PUT後・receipt前: 保存した元世代と各現在ETag、downloadした各世代のtable digest、machine receiptのnamed generationsを照合する。`inspect-machine`は読取のみで、取得済み世代をprivate directoryに保持する。receipt不一致のまま分析・materializeしない。push-machine丸ごとのretryは行わず、[部分push復旧](#部分-push-からの復旧)の(ii)へ進む。remote marketが32/R2でlocal32の保持対象と一致することを確認したうえで、既存`push-market`のmerge/CASによってreceiptを再確定する。その後fresh pullし、未反映runs成果がある場合は元の保存行とremote到達内容をno-loss照合して、必要な反映だけを別途レビューする。未知の内容・新しいindicator変更・ETag競合があれば古いstageで上書きしない。
+- market PUT後の別key停止、または全PUT後・receipt前: 保存した元世代と各現在ETag、downloadした各世代のtable digest、machine receiptのnamed generationsを照合する。`inspect-machine`は読取のみで、取得済み世代をprivate directoryに保持する。receipt不一致のまま分析・materializeしない。push-machine丸ごとのretryは行わず、[部分push復旧](#部分-push-からの復旧)の(ii)へ進む。remote marketが32/R2でlocal32の保持対象と一致することを確認したうえで、既存`push-market`のmerge/CASによってreceiptを再確定する。その後fresh pullし、未反映runs成果がある場合は元の保存行とremote到達内容をno-loss照合して、必要な反映だけを別途レビューする。未反映runs成果が残る間は再開条件未達であり、通常writer・materializeを再開しない。未知の内容・新しいindicator変更・ETag競合があれば古いstageで上書きしない。
 - lease期限切れ・残時間不足: 次の公開へ進まない。writer停止を維持し、到達点を照合して新leaseで復旧する。120分を超えて続行しない。
 
 **再開**: freshなschema32 bundleのpull→固定R2のhydrateで全列・count・coverage・origin・保持対象digestを確認する。その後operator leaseを解放する。他writerの停止を維持したまま現mainのmaterializeをdispatchし、materialize自身のleaseでserving/freshnessを公開する。成功確認後に通常writerを再開する。旧ref runのrerunはしない。停止窓はfresh source固定からこのreadback/serving確認までで、所要時間は実測前に分数を断定しない。

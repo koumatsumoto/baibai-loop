@@ -391,6 +391,11 @@ def verify_machine_inputs(bundle: Path, receipt: Mapping[str, Any]) -> None:
     """Check the exact three-key handoff; application is outside this tool."""
     if receipt.get("original_machine_inputs") is None:
         raise ValueError("missing captured original bundle; do not publish machine stores")
+    if (
+        fingerprints(Path(receipt["original_runs"]))
+        != receipt["original_machine_inputs"]["runs.sqlite"]
+    ):
+        raise ValueError("original runs preservation file changed")
     current = machine_input_hashes(bundle)
     if current["indicators.sqlite"] != receipt["original_machine_inputs"]["indicators.sqlite"]:
         raise ValueError(
