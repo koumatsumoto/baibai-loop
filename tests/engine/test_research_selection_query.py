@@ -1,6 +1,7 @@
 """contextは候補を読み、保存snapshotはselected行だけを保持する。"""
 
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timedelta
 
 import pytest
@@ -22,8 +23,11 @@ NOW = datetime.fromisoformat("2026-10-14T18:00:00+09:00")
 def publish(path, *, rows=None):
     raw = screening_run_payload(
         as_of="2026-10-13",
-        stock_analyses=rows
-        or [stock_analysis("1234", name="合成会社"), stock_analysis("5678", name="合成会社")],
+        stock_analyses=(
+            [stock_analysis("1234", name="合成会社"), stock_analysis("5678", name="合成会社")]
+            if rows is None
+            else rows
+        ),
         filters={"diagnostic": True},
     )
     ScreeningRunStore(path).publish_run(
@@ -122,12 +126,12 @@ def test_specified_candidate_outside_and_input_gap(tmp_path):
 def test_future_run_and_missing_candidate_header_are_invalid(tmp_path):
     path = tmp_path / "runs"
     publish(path)
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         original = db.execute("SELECT payload FROM screening_run").fetchone()[0]
         db.execute("UPDATE screening_run SET payload=json_remove(payload,'$.candidate_discovery')")
     with pytest.raises(ValueError, match="CandidateDiscoverySummary"):
         context(path)
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("UPDATE screening_run SET payload=?", (original,))
         db.execute("UPDATE screening_run SET run_at=?", ((NOW + timedelta(seconds=1)).isoformat(),))
     with pytest.raises(ValueError, match="cutoff"):
@@ -137,7 +141,7 @@ def test_future_run_and_missing_candidate_header_are_invalid(tmp_path):
 def test_gap_does_not_bypass_broken_source(tmp_path):
     path = tmp_path / "runs"
     publish(path)
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("PRAGMA user_version=999")
     with pytest.raises(RuntimeError, match="schema"):
         load_analysis_snapshot(
@@ -170,7 +174,7 @@ def test_candidate_run_revision_mismatch_and_header_null_are_not_filled(tmp_path
     publish(path)
     import json
 
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         raw = json.loads(db.execute("SELECT payload FROM screening_run").fetchone()[0])
         raw.pop("er_model_version")
         raw["screening_rules_hash"] = None
@@ -186,9 +190,17 @@ def test_candidate_run_revision_mismatch_and_header_null_are_not_filled(tmp_path
     assert snap.er_model_version is None
     assert snap.screening_rules_hash is None
     assert context(path)["status"] == "ready"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute(
             "UPDATE screening_run SET payload=json_set(payload,'$.candidate_discovery.diagnostics.candidate_count',999)"
         )
     with pytest.raises(ValueError, match="diagnostics"):
         context(path)
+
+
+def test_empty_published_analysis_is_not_replaced_by_fixture_defaults(tmp_path):
+    path = tmp_path / "runs"
+    raw = publish(path, rows=[])
+    assert raw["stock_analyses"] == []
+    assert context(path)["status"] == "ready"
+    assert context(path)["candidates"] == []
