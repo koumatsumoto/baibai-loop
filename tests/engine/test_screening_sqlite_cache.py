@@ -81,9 +81,11 @@ class SQLiteCacheTest(unittest.TestCase):
         self.assertEqual(parse_jquants_code_parts("72031"), ("7203", False))
         # Every malformed source code uses the provider error boundary.
         for raw in ("123", "12-3", "１２３４"):
-            with self.subTest(raw=raw):
-                with self.assertRaisesRegex(JQuantsProviderError, "invalid J-Quants code"):
-                    parse_jquants_code_parts(raw)
+            with (
+                self.subTest(raw=raw),
+                self.assertRaisesRegex(JQuantsProviderError, "invalid J-Quants code"),
+            ):
+                parse_jquants_code_parts(raw)
 
     def test_sqlite_scalar_missing_markers_preserve_zero(self) -> None:
         for value in (None, "", " NaT ", "nan", "null", "<NA>", float("nan"), pd.NA, pd.NaT):
