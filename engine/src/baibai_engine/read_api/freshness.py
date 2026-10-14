@@ -67,8 +67,9 @@ def application_db_updated_at(path: Path) -> datetime | None:
     ledger events, Stock Assessments, Assessment Reviews, Investment Proposals,
     Market Context Assessments, tasks (created and closed), and
     operation sessions (started and completed). Nullable decision timestamps are
-    excluded until set. Values are normalized to timezone-aware JST before the max
-    so timezone-aware timestamps and date-only columns compare in one pass.
+    excluded until set. Saved offsets are retained; naive timestamps and date-only
+    columns are read at JST. All values compare as aware instants without dropping
+    microseconds or choosing a textual maximum first.
     """
 
     # One query per source, not one UNION: an unwritten store can be missing a table.
@@ -79,17 +80,16 @@ def application_db_updated_at(path: Path) -> datetime | None:
         rows = read_application_rows(
             path,
             # Fixed pairs from the tuple below; no caller input reaches this string.
-            f"SELECT max({column}) FROM {table}",  # nosec B608
+            f"SELECT {column} FROM {table} WHERE {column} IS NOT NULL",  # nosec B608
         )
-        if not rows or rows[0][0] is None:
-            continue
-        instant = _as_jst_instant(str(rows[0][0]))
-        latest = instant if latest is None else max(latest, instant)
+        for row in rows:
+            instant = _as_jst_instant(str(row[0]))
+            latest = instant if latest is None else max(latest, instant)
     return latest
 
 
 # Every judgment-layer write instant, as (table, column). Nullable decision timestamps
-# are read through max(), which ignores NULL, so they contribute only once set.
+# are excluded while NULL, so they contribute only once set.
 _WRITE_INSTANT_COLUMNS: tuple[tuple[str, str], ...] = (
     ("ledger_event", "occurred_at"),
     ("stock_assessment", "published_at"),

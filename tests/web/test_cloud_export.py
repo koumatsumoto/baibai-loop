@@ -194,6 +194,38 @@ def test_build_meta_reflects_a_newly_written_operation_session(
     assert view.data_updated_at == started_at
 
 
+@pytest.mark.parametrize(
+    ("older", "newer"),
+    [
+        ("2026-10-14T18:00:00+09:00", "2026-10-14T10:00:00+00:00"),
+        ("2026-10-14T19:00:00.123000+09:00", "2026-10-14T10:00:00.123001+00:00"),
+        ("2026-10-14T10:00:00Z", "2026-10-14T10:00:00.000001+00:00"),
+        ("2026-10-14", "2026-10-14T00:00:00.000001"),
+    ],
+)
+def test_application_freshness_compares_instants_within_the_same_table_without_writes(
+    app_method_root: Path, older: str, newer: str
+) -> None:
+    database = app_method_root / "stores/application/baibai.sqlite"
+    with sqlite3.connect(database) as connection:
+        connection.executemany(
+            "INSERT INTO stock_assessment("
+            "assessment_id, ticker, as_of, stance, published_at, payload, core_sha256"
+            ") VALUES (?, '1234', '2026-10-14', 'uncertain', ?, '{}', 'synthetic')",
+            [("older-assessment", older), ("newer-assessment", newer)],
+        )
+    before = database.read_bytes()
+
+    view = build_meta(_meta_source(app_method_root))
+
+    expected = datetime.fromisoformat(newer)
+    if expected.tzinfo is None:
+        expected = expected.replace(tzinfo=JST)
+    assert view.app_db_updated_at == expected
+    assert view.data_updated_at == expected
+    assert database.read_bytes() == before
+
+
 def test_build_meta_returns_none_for_missing_stores(tmp_path: Path) -> None:
     view = build_meta(_meta_source(tmp_path))
 
