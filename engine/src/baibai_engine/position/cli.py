@@ -12,7 +12,6 @@ import hashlib
 import json
 import sqlite3
 import sys
-from dataclasses import asdict
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from functools import partial
@@ -22,7 +21,6 @@ import yaml
 
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 from baibai_engine.foundation.time import JST
-from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.bars import JQuantsDailyBar
 from baibai_engine.market.config import DEFAULT_SQLITE_CACHE_DIR
 from baibai_engine.market.jpx_total_return import (
@@ -68,8 +66,6 @@ from baibai_engine.position.outcome_store import (
 )
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.position.valuation import current_portfolio
-from baibai_engine.research.position_review import PositionReviewDocument
-from baibai_engine.research.position_review_service import PositionReviewService
 
 
 def _datetime_argument(value: str) -> datetime:
@@ -129,44 +125,6 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="write an optional outcome YAML export; existing paths are never overwritten",
     )
-    position_review_parser = subparsers.add_parser(
-        "position-review",
-        description=(
-            "Recompute a Position Review draft's hold/exit from thesis "
-            "and the remaining economic reward, and emit a YAML "
-            "summary. A broken thesis is the priority sell candidate; fair value is "
-            "a review trigger; price decline alone is never an exit reason."
-        ),
-        help="recompute hold/exit from a Position Review draft YAML",
-    )
-    position_review_parser.add_argument(
-        "--input",
-        type=Path,
-        help="Position Review draft YAML path",
-    )
-    position_review_parser.add_argument(
-        "operation",
-        nargs="?",
-        choices=("publish",),
-        help="publish a human-confirmed draft to the application DB",
-    )
-    position_review_parser.add_argument("draft", nargs="?", type=Path)
-    position_review_parser.add_argument("--root", type=Path, default=Path.cwd())
-    position_review_parser.add_argument("--db", type=Path)
-    position_review_parser.add_argument("--position-review-id")
-    position_review_parser.add_argument("--thesis-id")
-    position_review_parser.add_argument("--confirmed", action="store_true")
-    position_review_parser.add_argument("--sqlite", type=Path, default=MARKET_DB_PATH)
-    holding_build_parser = subparsers.add_parser(
-        "position-review-build",
-        help="build a Position Review draft from a ready thesis, its review, and the ledger",
-    )
-    holding_build_parser.add_argument("--root", type=Path, default=Path.cwd())
-    holding_build_parser.add_argument("--db", type=Path)
-    holding_build_parser.add_argument("--thesis-id", required=True)
-    holding_build_parser.add_argument("--position-id", required=True)
-    holding_build_parser.add_argument("--sqlite", type=Path, default=MARKET_DB_PATH)
-    holding_build_parser.add_argument("--out", type=Path, required=True)
     broker_fact_parser = subparsers.add_parser(
         "broker-fact-draft",
         help="turn a human-reported open/filled/cancelled/expired broker fact into a ledger draft",
@@ -293,30 +251,6 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         except (LedgerConflictError, PortfolioLedgerError) as error:
             print(f"error: {error}", file=sys.stderr)
             return 2
-    if args.command == "position-review":
-        if args.operation == "publish":
-            if args.draft is None or args.thesis_id is None:
-                print(
-                    "error: position-review publish requires <draft> and --thesis-id",
-                    file=sys.stderr,
-                )
-                return 2
-            return _run_position_review_publish(args, now=now)
-        if args.input is None:
-            print("error: position-review validation requires --input", file=sys.stderr)
-            return 2
-        input_path = args.input if args.input.is_absolute() else args.root / args.input
-        return _run_position_review(input_path, db_path=args.db, sqlite_path=args.sqlite, now=now)
-    if args.command == "position-review-build":
-        return _run_position_review_build_db(
-            db_path=args.db,
-            thesis_id=args.thesis_id,
-            sqlite_path=args.sqlite,
-            position_id=args.position_id,
-            root=args.root,
-            out=args.out,
-            now=now,
-        )
     if args.command == "broker-fact-draft":
         return _run_record_broker_fact(args, now=now)
     if args.command == "sell-execution-draft":
@@ -611,78 +545,6 @@ def _market_data_fingerprint(bars: list[JQuantsDailyBar]) -> str:
     ]
     encoded = json.dumps(rows, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(encoded.encode()).hexdigest()
-
-
-def _run_position_review(
-    path: Path, *, db_path: Path | None, sqlite_path: Path, now: datetime | None
-) -> int:
-    try:
-        document = PositionReviewDocument.model_validate(safe_load(path.read_text()))
-        result = PositionReviewService(
-            db_path, sqlite_path=sqlite_path, clock=lambda: now or datetime.now(JST)
-        ).check(document)
-        yaml.safe_dump(asdict(result), sys.stdout, allow_unicode=True)
-        return 0
-    except (OSError, ValueError) as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 2
-
-
-def _run_position_review_publish(args: argparse.Namespace, *, now: datetime | None) -> int:
-    try:
-        path = args.draft if args.draft.is_absolute() else args.root / args.draft
-        document = PositionReviewDocument.model_validate(safe_load(path.read_text()))
-        if document.thesis_id != args.thesis_id or (
-            args.position_review_id and document.position_review_id != args.position_review_id
-        ):
-            raise ValueError("CLI identity differs from submitted draft")
-        document = PositionReviewService(
-            args.db, sqlite_path=args.sqlite, clock=lambda: now or datetime.now(JST)
-        ).publish(document, confirmed=args.confirmed)
-        yaml.safe_dump(
-            {"position_review_id": document.position_review_id, "action": document.action},
-            sys.stdout,
-        )
-        return 0
-    except (OSError, ValueError) as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 2
-
-
-def _run_position_review_build_db(
-    *,
-    db_path: Path | None,
-    thesis_id: str,
-    sqlite_path: Path,
-    position_id: str,
-    root: Path,
-    out: Path,
-    now: datetime | None,
-) -> int:
-    try:
-        path = _draft_output_path(root, out, label="Position Review")
-        service = PositionReviewService(
-            db_path, sqlite_path=sqlite_path, clock=lambda: now or datetime.now(JST)
-        )
-        document = service.build(thesis_id=thesis_id, position_id=position_id)
-        evaluation = service.preview(document)
-        payload = document.model_dump(mode="json")
-        _write_yaml_exclusive(path, payload)
-        yaml.safe_dump(
-            {
-                **payload,
-                "current_price_projection": evaluation.current_price_projection,
-                "current_price_projection_unavailable_reason": (
-                    evaluation.reason if evaluation.current_price_projection is None else None
-                ),
-            },
-            sys.stdout,
-            allow_unicode=True,
-        )
-        return 0
-    except (OSError, ValueError) as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 2
 
 
 def _run_record_broker_fact(args: argparse.Namespace, *, now: datetime | None) -> int:

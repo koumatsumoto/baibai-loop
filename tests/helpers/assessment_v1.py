@@ -55,26 +55,26 @@ def update_review_hash(document, review):
 
 
 def create_assessment_tables(connection: sqlite3.Connection):
-    """Fixture-only DDL while the root coordinates the final application schema."""
+    """Create a minimal isolated pair store, or reuse the formal application schema."""
     connection.executescript(
         """
-        CREATE TABLE stock_assessment(
+        CREATE TABLE IF NOT EXISTS stock_assessment(
             assessment_id TEXT PRIMARY KEY, ticker TEXT NOT NULL, as_of TEXT NOT NULL,
             stance TEXT NOT NULL CHECK (stance IN ('supported','uncertain','unsupported')),
             published_at TEXT NOT NULL,
             supersedes_id TEXT REFERENCES stock_assessment(assessment_id),
             payload TEXT NOT NULL CHECK (json_valid(payload)), core_sha256 TEXT NOT NULL
         );
-        CREATE TABLE stock_assessment_review(
+        CREATE TABLE IF NOT EXISTS stock_assessment_review(
             review_id TEXT PRIMARY KEY,
             assessment_id TEXT UNIQUE NOT NULL REFERENCES stock_assessment(assessment_id),
             reviewed_at TEXT NOT NULL, payload TEXT NOT NULL CHECK (json_valid(payload))
         );
-        CREATE INDEX latest_stock_assessment
+        CREATE INDEX IF NOT EXISTS latest_stock_assessment
             ON stock_assessment(ticker,as_of,published_at,assessment_id);
-        CREATE TRIGGER stock_assessment_immutable BEFORE UPDATE ON stock_assessment
+        CREATE TRIGGER IF NOT EXISTS stock_assessment_immutable BEFORE UPDATE ON stock_assessment
             BEGIN SELECT RAISE(ABORT,'immutable Stock Assessment'); END;
-        CREATE TRIGGER stock_assessment_review_immutable BEFORE UPDATE ON stock_assessment_review
+        CREATE TRIGGER IF NOT EXISTS stock_assessment_review_immutable BEFORE UPDATE ON stock_assessment_review
             BEGIN SELECT RAISE(ABORT,'immutable Assessment Review'); END;
         """
     )
