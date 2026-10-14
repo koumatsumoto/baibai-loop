@@ -79,7 +79,6 @@ from .screening import (
     previous_run_revision_id,
     reinvestment_coordinates,
     screening_calibration_method_identity,
-    screening_candidates_payload,
     screening_run_asof_dates,
     screening_run_payload,
 )
@@ -140,7 +139,6 @@ __all__ = [
     "reviewed_thesis_projection",
     "safe_load",
     "screening_calibration_method_identity",
-    "screening_candidates_payload",
     "screening_latest_asof",
     "screening_run_asof_dates",
     "screening_run_payload",

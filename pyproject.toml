@@ -71,9 +71,6 @@ security = [
   "bandit[toml]>=1.9.4",
   "pip-audit>=2.10.1",
 ]
-mcp = [
-    "mcp>=2.2,<3",
-]
 
 [tool.hatch.build.targets.wheel]
 packages = [

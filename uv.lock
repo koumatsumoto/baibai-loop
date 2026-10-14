@@ -154,9 +154,6 @@ dev = [
     { name = "ruff" },
     { name = "types-pyyaml" },
 ]
-mcp = [
-    { name = "mcp" },
-]
 quality = [
     { name = "import-linter" },
     { name = "pre-commit" },
@@ -223,7 +220,6 @@ dev = [
     { name = "ruff", specifier = ">=0.16.3" },
     { name = "types-pyyaml", specifier = ">=6.0.12.20260724" },
 ]
-mcp = [{ name = "mcp", specifier = ">=2.2,<3" }]
 quality = [
     { name = "import-linter", specifier = ">=2.13" },
     { name = "pre-commit", specifier = ">=4.6.2" },

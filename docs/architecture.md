@@ -103,7 +103,7 @@ EDINET metricのrevisionは抽出意味の変更時だけ明示更新し、配�
 
 ## 5. 現行writerと保存履歴
 
-現行配置は[所有表](#repository-map)に集約する。Market ContextのCLIは`market-context indicators / reading / assessment`で各ownerへ直接渡し、Web・Owner MCPも同じ読取ownerを使う。新規writerと保存済み判断の読取は区別し、旧payloadを新規判断として再発行しない。schema・参照field・履歴読取の詳細は[Market Context reference](./reference/market-context.md#現行配置と保全するidentity)、外部評価の永続名は[保存済み照会](./reference/market-lake.md#external-assessment-query)が所有する。
+現行配置は[所有表](#repository-map)に集約する。Market ContextのCLIは`market-context indicators / reading / assessment`で各ownerへ直接渡し、Webも同じ読取ownerを使う。新規writerと保存済み判断の読取は区別し、旧payloadを新規判断として再発行しない。schema・参照field・履歴読取の詳細は[Market Context reference](./reference/market-context.md#現行配置と保全するidentity)、外部評価の永続名は[保存済み照会](./reference/market-lake.md#external-assessment-query)が所有する。
 
 Readingの現行選択先は`READING_RULES_PATH`が指す`method/macro/reading/2026-08-01T100000+0900.yaml`である。保存判断が引用する元bytes/pathを保持し、名前切替のための移設・複製・revision変更を行わない。
 
@@ -122,7 +122,7 @@ GitHub Actions ──定期処理・転送─────────┤
        └──read model生成──> R2 serving ──> Worker ──> browser
 ```
 
-`baibai-engine`はdomain操作、`baibai-web`は表示/read model、`baibai-batch`は運用の入口である。optionの正本はpublic `--help`。Owner MCPは保存済み情報を読むlocal adapterで、store更新や定期batchを起動しない。[Owner MCP](../tools/owner_mcp/README.md)と[docs portal](./README.md#目的別の入口)から実操作へ進む。
+`baibai-engine`はdomain操作、`baibai-web`は表示/read model、`baibai-batch`は運用の入口である。optionの正本はpublic `--help`。[docs portal](./README.md#目的別の入口)から実操作へ進む。
 
 <a id="failure-policy"></a>
 
