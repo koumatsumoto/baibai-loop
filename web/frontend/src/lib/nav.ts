@@ -18,7 +18,6 @@ export const NAV_TABS: readonly NavTab[] = [
     match: (pathname) =>
       pathname === '/market-context' || pathname.startsWith('/market-context/') ||
       pathname === '/stocks' ||
-      pathname === '/research-triage' ||
       pathname.startsWith('/stocks/') ||
       pathname.startsWith('/securities/'),
   },

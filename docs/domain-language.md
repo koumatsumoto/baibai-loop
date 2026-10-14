@@ -49,8 +49,7 @@ Valuationの機械ER/FV anchorは倍率・自己価格レンジとcarryの推計
 | Nomination | selection record | Valuation ApproachがReview Set入りを推薦した事実 |
 | Review Set | artifact | configured Valuation Approachesが生成したNominationのexact union |
 | Review Set Entry | artifact entry | Review Set内の一銘柄と判断時機械座標 |
-| Research Triage | artifact / judgment | ResearchがReview Set全件を`research / skip`に分類するcanonical L3 judgment |
-| Research Set | pipeline state | 明示開始時に固定する新規調査集合。Triage経由または[ユーザー指定source](./reference/analysis-operations.md#explicit-research-source)から選び、保有調査と合算最大三対象、0件も扱う |
+| Research Set | pipeline state | 明示開始時に固定する新規調査集合。[三入口のResearch選定](./reference/analysis-operations.md#明示開始と固定対象)で選び、保存capacityに従い0件も扱う |
 | Thesis | artifact / judgment | 一銘柄の投資仮説、valuation、risk、evidence |
 | Thesis Review | artifact / judgment | Thesisへの独立second pass |
 | Capital Allocation Assessment | artifact / judgment | reviewed Thesis群をportfolio全体に照らした配分判断 |
@@ -66,7 +65,7 @@ Valuationの機械ER/FV anchorは倍率・自己価格レンジとcarryの推計
 | Security Market Context | rebuildable state | 指定銘柄の価格状態と同一端点での対benchmark/同業相対値 |
 | Reading | rebuildable state | Market Contextの登録指標系列から得る決定的な記述統計・鮮度・変化。独立DB/判断成果物ではない |
 | Market Context Assessment | artifact / judgment | Market Contextが所有し、明示開始で作る重要変化・根拠・反証・不確実性・調査/リスクへの含意 |
-| E[r] Calibration Context | rebuildable context | Screeningが生成し、Valuationの契約・解釈でResearch Triage等が読む過去較正のL2 current context |
+| E[r] Calibration Context | rebuildable context | Screeningが生成し、Valuationの契約・解釈でResearch等が読む過去較正のL2 current context |
 | Official Benchmark Observation | observation | Market Contextが意味契約を所有する公式TOPIX gross-total-return観測。price-only市場方向評価とは別 |
 | Operation Session | application state | 明示開始に束縛した有限調査と成果の状態。L3完了と人間採否・取引事実を区別 |
 
@@ -89,7 +88,8 @@ Research Setはpipeline stateである。storeごとのauthorityは
 保存済み市場・財務観測 -> Valuation / Market ContextのL2結果
              -> Screening Run -> Security Analysis[]
              -> Valuation Approach[] -> Nomination[] -> Review Set
-Review Set -> Research Triage -> 新規admission
+Security Analysis / Review Set -> Research selection (新規探索)
+指定銘柄 -> Research selection (候補外も可)
 保存済みSecurity Analysis + ユーザー明示指定 -> 新規admission
 新規admission / Holding -> 明示開始・新規/保有合算最大三対象の固定選択
            -> 三領域の保存済み入力による有限Research -> Thesis + Thesis Review
@@ -106,10 +106,10 @@ Portfolio Ledger -> Portfolio Outcome
 登録指標の保存観測 -> Reading（機械的な統計・鮮度・変化）
 保存済み観測・Reading・市場/個別状態・一次資料
        -> 明示作成するMarket Context Assessment
-Market Context Assessment -> Triage・Research・資本判断の補助入力
+Market Context Assessment -> Research・資本判断の補助入力
 ```
 
-新規はTriage admission、保有は現在ledgerから選び、保有ResearchにScreening候補のmembershipは要求しない。新規提案はCAA/Planning、保有提案はPosition Reviewの成果に含む。共通の新しいTrade Proposal永続artifactを追加したという意味ではない。
+新規探索・指定銘柄・保有見直しの三入口を同じResearchで選定し、scopeごとに有限対象を固定する。保有は現在ledgerと照合し、候補所属を要求しない。新規提案はCAA/Planning、保有提案はPosition Reviewの成果に含む。共通の新しいTrade Proposal永続artifactを追加したという意味ではない。
 
 これは成果物の関係であり、毎回すべてを実行する手順ではない。0件・部分完了・未完了は調査進行の結果として残し、AI完了を人間の採用や取引事実と混同しない。操作ごとの開始条件と人間確認は[各skill](../.agents/skills/)を参照する。
 
@@ -123,8 +123,7 @@ Market Context Assessmentの実モデルは`market_context/assessment/models.py`
   replacement Thesisを指すsurfaceでは具体名を使う。
 - `candidate_discovery_method`と`CandidateDiscoveryRules`はcanonical namingである。
   identity objectは`CandidateDiscoveryMethodIdentity`、persisted fieldは
-  `candidate_discovery_method_id`、identity digestは`method_hash`、Triage契約は
-  `triage_contract_id`とする。
+  `candidate_discovery_method_id`、identity digestは`method_hash`とする。
 - 人間報告のorder / fill factは`broker fact`と呼び、新しいBroker Report artifactは作らない。
 - `result`、`context`、`row`、`item`、`payload`、`path`は一律renameしない。domain-facing
   surfaceで誤読する場合だけ具体化する。

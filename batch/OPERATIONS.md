@@ -97,7 +97,7 @@ machine stores / serving uploadを停止する。
 
 ### クラウド正本をローカルへ取得する
 
-**前提**: research-triage / research / market-context assessmentの分析前に、`cloud-daily-batch`の実run状態を確認する。queued / in_progressなら通常の分析用pullを開始せず、完了後に実行する。固定時刻で安全性を判断しない。
+**前提**: research / market-context assessmentの分析前に、`cloud-daily-batch`の実run状態を確認する。queued / in_progressなら通常の分析用pullを開始せず、完了後に実行する。固定時刻で安全性を判断しない。
 
 ```bash
 gh run list --workflow cloud-daily-batch.yml --limit 5
@@ -116,7 +116,7 @@ batch/scripts/pull.sh
 ### Screening入力を検証・補修する
 
 **前提**: screening入力を実際に検証・補修する場合だけ実行する。Market Context Assessmentの作成や、
-既存Review Setを読むResearch Triageの前提にはしない。対象日を指定し、個別銘柄の確認が必要なら対象tickerを指定する。
+保存済み入力を読むResearchの前提にはしない。対象日を指定し、個別銘柄の確認が必要なら対象tickerを指定する。
 
 **実行**:
 
@@ -206,11 +206,10 @@ batch/scripts/publish.sh
 このscriptは取得ETagの一致を確認し、backupのsource条件とPUTの`If-Match`で競合を止めて`baibai.sqlite`のconsistent snapshotだけをstoresへ送り、`cloud-materialize`をdispatchする。servingへの直接writeは行わない。PUT応答のETagを次の更新基準へ保存する。未知世代ではuploadせず停止し、現在のHEADだけで取得世代を補わない。
 
 **成功確認**: `publish.sh`とdispatchされた`cloud-materialize`が成功し、表示のas-ofと対象judgmentのIDを確認する。
-Screeningの最新表示は、表示中の`review_set_id / run_revision_id`に束縛されたResearch TriageとCAAだけを載せる。
-同日でも後発のScreening Runが公開されると、先行runの判断は最新一覧の対象から外れる。
+Screeningの候補は表示中のrun/Review Setに束縛され、保存済みCAAは別の提案記録として読む。
 公開済みCAAの反映は、そのimmutable IDのAssessment詳細と参照先Thesisで確認する。
-最新一覧への非掲載だけを理由に、既存ResearchのTriage bindingを付け替えない。
-後発Review SetのTriageを進める場合は、完了済みmachine bundleを取得して`research-triage`の通常手順で扱う。
+後発runによる最新候補の変化だけで既存Operationの選定・固定入力を付け替えない。
+後発分析からResearchを進める場合は、完了済みmachine bundleを取得してResearchの通常手順で扱う。
 
 **停止と復旧**: 世代競合では未公開変更を退避し、最新正本を取得して必要な変更をapplication serviceで再適用する。自動mergeや無条件再uploadはしない。PUT成功後の世代記録・backup整理・dispatchの失敗は部分成功として確認し、未反映と決めつけて旧DBを再送しない。ledger preflightが失敗した場合はstoreをuploadせず停止する。exportはstoreのschemaがcodeと一致しない間、viewを1件も書かずexit 1で停止する。
 schemaを一致させてから再実行する。application更新の表示には、そのsnapshot uploadとmaterializeの成功が必要である。cloud dailyによる独立した機械view更新とは区別する。
@@ -597,10 +596,6 @@ read -r -p '対象日 YYYY-MM-DD: ' asof &&
 クラウド公開はこの後に既存L1 release、machine store、serving views、history/freshnessの順で一度進む。読み取り専用connectionの`PRAGMA data_version`でmarket storeのcommit変化を確認し、正常に読めるnoticeの明示的`market_updated=false`の時だけ既存L1 releaseを保持する。noticeの欠落・読取不能・不正JSON・field不正は詳細を含まないwarningで示し、既存L1公開経路へ進む。これは値のbyte比較ではなく、commit済みstore変更の検出である。Screening未更新なら`--skip-history`でhistoryを生成せず、workflowの新しい出力先にはhistoryを含めないため再uploadしない。run pruneも省き、旧値・ID・実計算時刻を保持する。local exportの有無を示す既存output名`published`を、R2公開成功と読み替えない。workflowが失敗しても一部反映が済んでいる場合がある。
 
 機械結果の`screening_status`は`published / failed / skipped_non_business_day`を区別する。Screeningが未更新でも指標・全viewsを更新し、画面生成時刻を旧Screeningの実計算時刻へ上書きしない。store schema/hydration検査と全views exportの失敗はfatalである。詳細なstepとoptionはpublic `--help`と実run logを確認する。
-
-## local daily analysis — canonical Review SetのResearch Triage
-
-local analysisの操作は[Research Triage skill](../.agents/skills/research-triage/SKILL.md)、statusの意味と入力境界は[runner reference](../docs/reference/analysis-operations.md)が所有する。ここでは同じcommand列と再実行手順を再掲しない。
 
 ## 日次結果のDiscord通知
 

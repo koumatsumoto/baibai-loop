@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import date, datetime
 
 import pytest
-from tests.helpers.research_triage import research_triage_payload, skip_entry
 
 from baibai_web.readmodel.stocks import build_screening
 from baibai_web.readmodel.stocks.screening import (
@@ -115,18 +114,6 @@ def _frozen_entry() -> dict[str, object]:
     }
 
 
-def _assessment(assessment_id: str, research_triage_id: str) -> dict[str, object]:
-    return {
-        "capital_allocation_assessment_id": assessment_id,
-        "as_of": "2026-08-28",
-        "published_at": "2026-08-28T18:03:00+09:00",
-        "result": "no_allocation",
-        "headline": "要求利回り未達のため配分しない",
-        "research_triage_id": research_triage_id,
-        "alternatives": [],
-    }
-
-
 def _source(tmp_path, mocker) -> DbScreeningSource:
     source = DbScreeningSource(tmp_path / "runs.sqlite")
     mocker.patch.object(source, "latest_run", return_value=_run())
@@ -142,50 +129,6 @@ def _dependencies(mocker):
     research.research_triages.return_value = []
     research.assessments.return_value = []
     return ledger, research
-
-
-def test_screening_omits_judgments_from_another_review_set_cycle(tmp_path, mocker) -> None:
-    source = _source(tmp_path, mocker)
-    old_triage = research_triage_payload(
-        research_triage_id="triage-old",
-        review_set_id="review-set-old",
-        run_revision_id="run-old",
-        entries=[skip_entry("3836")],
-    )
-    ledger, research = _dependencies(mocker)
-    research.research_triages.return_value = [old_triage]
-    research.assessments.return_value = [_assessment("assessment-old", "triage-old")]
-
-    view = build_screening(source, ledger, research)
-
-    assert [item.review_set_id for item in view.review_sets] == ["review-set-current"]
-    assert view.research_triages == []
-    assert view.capital_allocation_assessments == []
-
-
-def test_screening_projects_only_the_assessment_bound_to_the_current_triage(
-    tmp_path, mocker
-) -> None:
-    source = _source(tmp_path, mocker)
-    current_triage = research_triage_payload(
-        research_triage_id="triage-current",
-        review_set_id="review-set-current",
-        run_revision_id="run-current",
-        entries=[skip_entry("6419")],
-    )
-    ledger, research = _dependencies(mocker)
-    research.research_triages.return_value = [current_triage]
-    research.assessments.return_value = [
-        _assessment("assessment-old", "triage-old"),
-        _assessment("assessment-current", "triage-current"),
-    ]
-
-    view = build_screening(source, ledger, research)
-
-    assert [item.research_triage_id for item in view.research_triages] == ["triage-current"]
-    assert [
-        item.capital_allocation_assessment_id for item in view.capital_allocation_assessments
-    ] == ["assessment-current"]
 
 
 @pytest.mark.parametrize("sales_yoy", [0.12, -0.01, None])

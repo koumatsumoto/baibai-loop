@@ -48,13 +48,10 @@ def test_research_skill_continues_the_capital_allocation_session() -> None:
     text = RESEARCH_SKILL.read_text(encoding="utf-8")
     assert "analysis-operations.md#明示開始と固定対象" in text
     assert "--request" in text
-    assert "--holding-ticker" in text
+    assert "review_positions" in text
+    assert "--selection-file" in text
+    assert "--operation-id" in text
     assert "record-unfinished" in text
     assert "operation complete --payload" in text
     assert "人間の採否を完了条件にしない" in text
     assert "開始時のresearch_triage artifact・exact ref・Research Setを保ったpayload" not in text
-
-
-def test_research_triage_skill_points_to_the_policy_owner() -> None:
-    skill = RESEARCH_TRIAGE_SKILL.read_text(encoding="utf-8")
-    assert "batch/src/baibai_batch/analysis/policy.py" in skill

@@ -564,8 +564,8 @@ def test_leaf_options_keep_parent_alias_repeatable_negative_and_placeholder_valu
 @pytest.mark.parametrize(
     ("command", "valid"),
     [
-        ("analysis run --latest", True),
-        ("analysis run --asof <ASOF>", True),
+        ("analysis run --latest", False),
+        ("analysis run --asof <ASOF>", False),
         ("analysis run --typo", False),
         ("analysis missing", False),
         ("missing", False),

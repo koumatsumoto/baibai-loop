@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-from collections.abc import Mapping
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -12,7 +11,6 @@ from zoneinfo import ZoneInfo
 import pytest
 from fastapi.testclient import TestClient
 from tests.helpers.assessment_history import historical_context_payload, seed_history
-from tests.helpers.research_triage import research_entry, research_triage_payload, skip_entry
 from tests.helpers.screening_sqlite import market_store_with_fetch_claim
 
 from baibai_engine.market_context.assessment.models import StoredAssessment
@@ -39,7 +37,6 @@ from baibai_web.readmodel.models import (
     MarketContextView,
     MetaView,
     OperationsView,
-    ResearchTriageDetailView,
     ScreeningView,
     SecurityDetailView,
     TasksView,
@@ -57,25 +54,6 @@ def _meta_source(root: Path) -> DbMetaSource:
     )
 
 
-def _insert_research_triage(root: Path, payload: Mapping[str, object]) -> None:
-    with sqlite3.connect(root / "stores/application/baibai.sqlite") as connection:
-        connection.execute(
-            """
-            INSERT INTO research_triage(
-                research_triage_id, review_set_id, run_revision_id, as_of, published_at, payload
-            ) VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                payload["research_triage_id"],
-                payload["review_set_id"],
-                payload["run_revision_id"],
-                payload["as_of"],
-                payload["published_at"],
-                canonical_json(dict(payload)),
-            ),
-        )
-
-
 def _publish_assessment(root: Path, *, assessment_id: str, research_triage_id: str) -> None:
     """Seed historical CAA bytes; current services do not execute old Thesis models."""
     with sqlite3.connect(root / "stores/application/baibai.sqlite") as connection:
@@ -86,7 +64,7 @@ def _publish_assessment(root: Path, *, assessment_id: str, research_triage_id: s
             "SELECT review_id FROM thesis_review WHERE thesis_id=?", (thesis_id,)
         ).fetchone()[0]
         payload = {
-            "schema_version": 1,
+            "schema_version": 2,
             "kind": "capital_allocation_assessment",
             "capital_allocation_assessment_id": assessment_id,
             "as_of": "2026-07-09",
@@ -94,7 +72,7 @@ def _publish_assessment(root: Path, *, assessment_id: str, research_triage_id: s
             "result": "no_allocation",
             "headline": "現金維持",
             "research_triage_id": research_triage_id,
-            "macro_context_id": None,
+            "market_context_assessment_id": None,
             "comparison": "当時の比較",
             "forgone": "見送り",
             "alternatives": [
@@ -411,23 +389,7 @@ def test_export_keeps_historical_assessment_detail_outside_current_screening_ind
     app_method_root: Path, tmp_path: Path
 ) -> None:
     (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
-    current_revision_id = _insert_review_set(app_method_root, review_set_id="review-set-current")
-    current_triage = research_triage_payload(
-        research_triage_id="research-triage-current",
-        review_set_id="review-set-current",
-        run_revision_id=current_revision_id,
-        as_of="2026-07-08",
-        entries=[skip_entry("2331")],
-    )
-    historical_triage = research_triage_payload(
-        research_triage_id="research-triage-historical",
-        review_set_id="review-set-historical",
-        run_revision_id="run-revision-historical",
-        as_of="2026-07-01",
-        entries=[research_entry("2331")],
-    )
-    _insert_research_triage(app_method_root, historical_triage)
-    _insert_research_triage(app_method_root, current_triage)
+    _insert_review_set(app_method_root, review_set_id="review-set-current")
     assessment_id = "capital-allocation-assessment-20260709-historical"
     _publish_assessment(
         app_method_root,
@@ -441,7 +403,10 @@ def test_export_keeps_historical_assessment_detail_outside_current_screening_ind
     screening = ScreeningView.model_validate_json(
         (output_dir / "views/screening_latest.json").read_text(encoding="utf-8")
     )
-    assert screening.capital_allocation_assessments == []
+    assert (
+        screening.capital_allocation_assessments[0].capital_allocation_assessment_id
+        == assessment_id
+    )
     detail_path = output_dir / "views" / f"capital-allocation-assessment--{assessment_id}.json"
     detail = CapitalAllocationAssessmentView.model_validate_json(
         detail_path.read_text(encoding="utf-8")
@@ -450,21 +415,13 @@ def test_export_keeps_historical_assessment_detail_outside_current_screening_ind
     index_path = output_dir / "views/capital-allocation-assessments.json"
     index = CapitalAllocationAssessmentsView.model_validate_json(index_path.read_text())
     assert [item.capital_allocation_assessment_id for item in index.assessments] == [assessment_id]
-    triage_path = output_dir / "views/research-triage--research-triage-historical.json"
-    saved = ResearchTriageDetailView.model_validate_json(triage_path.read_text())
-    assert saved.payload == historical_triage
-    assert saved.run_revision_id == "run-revision-historical"
-    assert saved.review_set_id == "review-set-historical"
-    assert (output_dir / "views/research-triage--research-triage-current.json").is_file()
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         api_detail = client.get(f"/api/capital-allocation-assessments/{assessment_id}")
         api_index = client.get("/api/capital-allocation-assessments")
-        api_triage = client.get("/api/research-triages/research-triage-historical")
         assert client.get("/api/research-triages/missing").status_code == 404
     assert api_detail.status_code == 200
     assert json.loads(detail_path.read_text(encoding="utf-8")) == api_detail.json()
     assert json.loads(index_path.read_text()) == api_index.json()
-    assert json.loads(triage_path.read_text()) == api_triage.json()
 
 
 def test_export_fails_before_writing_when_reading_rules_are_absent(
@@ -564,56 +521,6 @@ def test_exported_views_match_api_responses(app_method_root: Path, tmp_path: Pat
     exported_tasks = json.loads((output_dir / "views/tasks.json").read_text(encoding="utf-8"))
     del exported_tasks["generated_at"], api_tasks["generated_at"]
     assert exported_tasks == api_tasks
-
-
-def test_export_skips_security_view_for_ticker_no_source_knows(
-    app_method_root: Path, tmp_path: Path, capsys
-) -> None:
-    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
-    run_revision_id = _insert_review_set(
-        app_method_root,
-        review_set_id="review-set-current",
-    )
-    payload = research_triage_payload(
-        research_triage_id="research_triage-20260708-value",
-        review_set_id="review-set-current",
-        run_revision_id=run_revision_id,
-        as_of="2026-07-08",
-        published_at="2026-07-08T13:00:00+09:00",
-        entries=[skip_entry("9999", reason="決算後に再評価")],
-    )
-    _insert_research_triage(app_method_root, payload)
-    output_dir = tmp_path / "export"
-
-    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 0
-
-    assert not (output_dir / "views/security--9999.json").exists()
-    assert (output_dir / "views/security--2331.json").exists()
-    assert "9999" in capsys.readouterr().err
-
-
-def test_export_excludes_retired_research_triage_shape(
-    app_method_root: Path, tmp_path: Path
-) -> None:
-    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
-    run_revision_id = _insert_review_set(app_method_root, review_set_id="review_set-test")
-    entry = skip_entry("2331", machine_snapshot={"review_position": 4})
-    entry.pop("candidate_snapshot")
-    payload = research_triage_payload(
-        run_revision_id=run_revision_id,
-        schema_version=1,
-        triage_contract_id="research-triage-v1",
-        entries=[entry],
-    )
-    _insert_research_triage(app_method_root, payload)
-    output_dir = tmp_path / "export"
-
-    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 0
-
-    screening = ScreeningView.model_validate_json(
-        (output_dir / "views/screening_latest.json").read_text(encoding="utf-8")
-    )
-    assert screening.research_triages == []
 
 
 def test_export_replaces_views_but_keeps_history(app_method_root: Path, tmp_path: Path) -> None:

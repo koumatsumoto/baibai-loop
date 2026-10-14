@@ -38,7 +38,7 @@ def _services(
     db = tmp_path / "app.sqlite"
     initialize_database(db)
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "capital_allocation_assessment",
         "capital_allocation_assessment_id": ASSESSMENT_ID,
         "as_of": "2026-07-30",
@@ -46,7 +46,7 @@ def _services(
         "result": result,
         "headline": "2331 へ配分" if result == "allocate" else "配分しない",
         "research_triage_id": "research_triage-20260730-test",
-        "macro_context_id": None,
+        "market_context_assessment_id": None,
         "comparison": "要求利回りと永久損失を比較した",
         "forgone": "次回決算で再評価する",
         "alternatives": [
@@ -69,17 +69,6 @@ def _services(
         },
     }
     with sqlite3.connect(db) as connection:
-        connection.execute(
-            "INSERT INTO research_triage VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                "research_triage-20260730-test",
-                "review-set-test",
-                "run-test",
-                "2026-07-30",
-                "2026-07-30T08:00:00+09:00",
-                "{}",
-            ),
-        )
         connection.execute(
             "INSERT INTO capital_allocation_assessment VALUES (?, ?, ?, ?, ?, ?)",
             (

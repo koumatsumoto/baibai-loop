@@ -125,6 +125,9 @@ class TasksView(BaseModel):
 
 
 class OperationResearchTargetView(BaseModel):
+    selection_rationale: str | None = None
+    research_question: str | None = None
+    key_risk: str | None = None
     ticker: str
     purpose: Literal["new", "holding"]
     outcome_status: Literal["reviewed", "proposal", "unfinished"] | None
@@ -138,8 +141,10 @@ class OperationResearchTargetView(BaseModel):
 
 
 class OperationResearchView(BaseModel):
+    request_scope: str | None = None
+    selection_summary: str | None = None
+    max_deep_research_targets: int | None = None
     request: str
-    research_triage_id: str | None
     targets: list[OperationResearchTargetView]
     capital_allocation_assessment_id: str | None
     source_run_revision_id: str | None = None
@@ -324,7 +329,6 @@ class ScreeningView(BaseModel):
     )
     external_assessment_cutoff: datetime | None = None
     review_sets: list[ReviewSetView]
-    research_triages: list[ResearchTriageView]
     capital_allocation_assessments: list[CapitalAllocationAssessmentSummaryView]
     er_level_calibration: ErLevelCalibrationContextView | None = None
 
@@ -452,41 +456,6 @@ class ReviewSetView(BaseModel):
     run_revision_id: str
     created_at: datetime
     entries: list[ReviewSetEntryView]
-
-
-class ReviewSetEntrySnapshotView(BaseModel):
-    """Machine coordinates frozen into one Research Triage judgment entry."""
-
-    name: str | None = None
-    sector_33: str | None = None
-    nominations: list[dict[str, object]] | None
-    expected_return: dict[str, object] | None
-    data_quality: dict[str, object] | None
-
-
-class ResearchTriageEntryView(BaseModel):
-    ticker: str
-    decision: str
-    priority: int | None = None
-    rationale: str
-    research_question: str | None = None
-    key_risk: str | None = None
-    # 判断時の機械座標。source run が prune された後もレビュー面が読めるよう、
-    # publish 時に judgment へ焼き込まれた値をそのまま返す。
-    review_set_entry_snapshot: ReviewSetEntrySnapshotView | None = None
-
-
-class ResearchTriageView(BaseModel):
-    research_triage_id: str
-    review_set_id: str
-    run_revision_id: str
-    as_of: date
-    published_at: datetime
-    entries: list[ResearchTriageEntryView]
-
-
-class ResearchTriageDetailView(ResearchTriageView):
-    payload: dict[str, object]
 
 
 class ResearchRevisionView(BaseModel):

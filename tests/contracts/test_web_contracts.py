@@ -124,11 +124,6 @@ def test_dynamic_routes_map_to_exact_edge_keys_and_materializer_outputs() -> Non
             "`capital-allocation-assessment--${assessmentId}.json`",
             'f"capital-allocation-assessment--{assessment_id}.json"',
         ),
-        "/api/research-triages/{research_triage_id}": (
-            "resolveResearchTriage",
-            "`research-triage--${triageId}.json`",
-            'f"research-triage--{research_triage_id}.json"',
-        ),
         "/api/securities/{ticker}": (
             "resolveSecurity",
             "`security--${ticker}.json`",
@@ -141,7 +136,6 @@ def test_dynamic_routes_map_to_exact_edge_keys_and_materializer_outputs() -> Non
         "/api/market-context/assessments/{context_id}": "views/market-context-assessment--{context_id}.json",
         "/api/market-context/indicators/{series_id}": "views/indicator-series--{series_id}.json",
         "/api/capital-allocation-assessments/{capital_allocation_assessment_id}": "views/capital-allocation-assessment--{capital_allocation_assessment_id}.json",
-        "/api/research-triages/{research_triage_id}": "views/research-triage--{research_triage_id}.json",
         "/api/securities/{ticker}": "views/security--{ticker}.json",
     }
     assert patterns == expected_contract_keys

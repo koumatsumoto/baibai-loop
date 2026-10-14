@@ -145,7 +145,7 @@ cohort比較は`--basis price|total`を取り、母集団は保存された`Pane
 
 意味契約は`valuation/calibration/contracts`、保存済み文脈の期限・method identity判定と評価帯解釈は`valuation/calibration/query`が所有する。較正実行・evidence生成・候補比較はScreeningに残す。配置と依存は[architecture](../architecture.md#repository-map)を参照する。
 
-Research Triage の判断面が読む最新文脈の正本は `reports/published/er-level-calibration-latest.yaml` である。`calibration-evaluate --context-out` は、明示した全required月の有限E[r]母集団を保持して、3y / 5yの観測対象の歴史分布を生成する。formal evidence completenessは別に記録し、正常なentry/exit・配当の観測不能だけで全分布を隠さない。panel欠落、入力・forward partitionの不整合、未知の未解決状態、method不一致はpartialとして扱わず拒否する。
+UIと必要なResearchが参照する最新文脈の正本は `reports/published/er-level-calibration-latest.yaml` である。`calibration-evaluate --context-out` は、明示した全required月の有限E[r]母集団を保持して、3y / 5yの観測対象の歴史分布を生成する。formal evidence completenessは別に記録し、正常なentry/exit・配当の観測不能だけで全分布を隠さない。panel欠落、入力・forward partitionの不整合、未知の未解決状態、method不一致はpartialとして扱わず拒否する。
 
 schema 4では、結果の観測可否で予測帯を選ばない。宣言母集団の有限E[r]全対象から各cohortの五分位上限を求め、そのcohort中央値を小数6桁で固定する。同じrequired月では両horizon・両basisで境界を共有し、履歴と候補を同じ境界へ分類する。Q1は上限以下、Q2〜Q4は下限より大きく上限以下、Q5は下限より大きい。同じE[r]をtickerで分割せず、8.5%の独立帯は下限以上を集計する。丸め後の境界重複は拒否する。旧schemaの統計を新しい母数の統計へ付け替えない。
 
@@ -153,7 +153,7 @@ schema 4では、結果の観測可否で予測帯を選ばない。宣言母集
 
 これは未評価を含む全母集団の実証済期待収益・個別予測・購入条件ではない。未評価は損益0として集計しない。basisごとに観測対象と累積returnの比較中央値が異なり、price-total差を配当効果として解釈しない。Research入力と既存Security Analysis表示は分母・不足理由・formal completenessとこの限界を一緒に渡す。購入条件やselection/orderは変更しない。
 
-UI と research workspace は、artifact の `screening_rules_hash` と `er_model_version` が実際に表示・調査する operative run / Review Set の identity と一致するときだけ、候補 E[r] を該当 quintileへ対応づける。E[r]、順位、Research Triage、FV は変更しない。値は個別銘柄の予測ではなく historical distribution であり、重複する月次窓を独立標本と呼ばない。
+UIとResearchの明示照会は、artifact の `screening_rules_hash` と `er_model_version` が実際に表示・調査する operative run / Review Set の identity と一致するときだけ、候補 E[r] を該当 quintileへ対応づける。identity不明・不一致は較正文脈を利用不能として扱い、Research全体の新hard gateにしない。E[r]、順位、選定、FVは変更しない。値は個別銘柄の予測ではなく historical distribution であり、重複する月次窓を独立標本と呼ばない。
 
 配当予想の鮮度など計算入力の意味を変える場合は、既存の`VALUATION_CALCULATION_REVISION`を更新する。productionのrules hash、panelのrules hash、派生cache contractへ同じrevisionを伝え、旧panelの再利用と旧contextの新runへの適用を拒否する。ER算式が同じなら`expected-return-v1`は維持する。保持artifactの旧計算revision・scope・入力窓はprovenance検証だけで認識し、元bytes/hashを変更しない。複数の変更を統合する場合、panel・contextの再生成は承認済みの最終methodでまとめて行う。
 
@@ -278,7 +278,7 @@ E[r]水準parameterを判断する事前登録済みrunだけ`--required-metric 
 | マクロ判断の手順・レンズ | [Market Context](./market-context.md)・skill `market-context-assessment` | 保存した判断と後続の観測の照合 |
 | research の見積り手順 | [`thesis.md`](./thesis.md) + skill `research` | portfolio outcome と長期 horizon calibration |
 | 資本・cap・sizing | [`portfolio-management.md`](../portfolio-management.md) + `position/policy.py` | 保有 outcome |
-| research triageの判断 | `batch/src/baibai_batch/analysis/policy.py` | Review SetからResearch Setまでの実運用の検証 |
+| Researchの選定 | `research/selection_policy.py` | 保存分析・候補から深掘り対象までの実運用の検証 |
 
 Valuation Approachを追加・変更・削除するときは、screening rules・対応Research Playbook checklist・Review Setの構成・testを同じ変更で整合させ、根拠を較正結果に置く。
 
@@ -299,7 +299,7 @@ matched 比較の被覆率・membership 数・集中度など、forward outcome 
 
 ### 採用後
 
-以下は実証的な機械method変更を採用した場合の手順である。文書だけの変更でrun、Review Set、Triage、較正artifactを再発行しない。
+以下は実証的な機械method変更を採用した場合の手順である。文書だけの変更でrun、Review Set、Research selection、較正artifactを再発行しない。
 
 - 通過した変更だけを本番へ反映し、計測した構成と本番構成を一致させる。rules 改訂後は panel を `--force` 再構築する。
 - 現 asof で `screening run` → `review-set publish` を回し、dated method revisionのApproach別Nominationとexact unionを実銘柄で確認する（運用テスト）。

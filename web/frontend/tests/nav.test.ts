@@ -8,7 +8,7 @@ function activeLabels(pathname: string): string[] {
 
 describe('NAV_TABS active matching', () => {
   it('activates exactly one tab per route', () => {
-    for (const pathname of ['/', '/market-context', '/market-context/assessments/x', '/stocks', '/stocks/explore', '/research-triage', '/stocks/capital-allocation-assessments/x', '/securities/2331', '/tasks']) {
+    for (const pathname of ['/', '/market-context', '/market-context/assessments/x', '/stocks', '/stocks/explore', '/stocks/capital-allocation-assessments/x', '/securities/2331', '/tasks']) {
       expect(activeLabels(pathname)).toHaveLength(1)
     }
   })
@@ -23,7 +23,6 @@ describe('NAV_TABS active matching', () => {
   })
 
   it('keeps Stocks active on triage, allocation assessment and security detail routes', () => {
-    expect(activeLabels('/research-triage')).toEqual(['調査・提案'])
     expect(activeLabels('/stocks/capital-allocation-assessments/capital-allocation-assessment-20260728-cycle')).toEqual(['調査・提案'])
     expect(activeLabels('/securities/2331')).toEqual(['調査・提案'])
   })

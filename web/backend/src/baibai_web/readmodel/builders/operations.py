@@ -45,6 +45,9 @@ def _operation_view(raw: Mapping[str, object], source: DbOperationsSource) -> Op
                 {
                     "ticker": target["ticker"],
                     "purpose": target["purpose"],
+                    "selection_rationale": target.get("rationale"),
+                    "research_question": target.get("research_question"),
+                    "key_risk": target.get("key_risk"),
                     "outcome_status": outcome.get("status"),
                     "thesis_id": text(outcome.get("thesis_id"))
                     or (text(proposal.get("thesis_id")) if proposal is not None else None),
@@ -66,17 +69,25 @@ def _operation_view(raw: Mapping[str, object], source: DbOperationsSource) -> Op
     assessment = next(
         (item for item in artifacts if item.get("kind") == "capital_allocation_assessment"), {}
     )
-    explicit = selection.get("explicit_run")
-    explicit = explicit if isinstance(explicit, Mapping) else {}
+    request = selection["request"]
+    if not isinstance(request, Mapping) or selection.get("schema_version") != 2:
+        raise ValueError("Operation requires an explicit selection V2 cutover")
+    inputs = selection.get("inputs")
+    analysis = inputs.get("analysis") if isinstance(inputs, Mapping) else {}
+    analysis = analysis if isinstance(analysis, Mapping) else {}
+    capacity = selection.get("capacity")
+    capacity = capacity if isinstance(capacity, Mapping) else {}
     return view.model_copy(
         update={
             "research": OperationResearchView(
-                request=str(selection["request"]),
-                research_triage_id=text(selection.get("research_triage_id")),
+                request=str(request["text"]),
+                request_scope=text(request.get("scope")),
+                selection_summary=text(selection.get("selection_summary")),
+                max_deep_research_targets=capacity.get("max_deep_research_targets"),
                 targets=targets,
                 capital_allocation_assessment_id=text(assessment.get("ref")),
-                source_run_revision_id=text(explicit.get("run_revision_id")),
-                source_analysis_as_of=explicit.get("as_of"),
+                source_run_revision_id=text(analysis.get("run_revision_id")),
+                source_analysis_as_of=analysis.get("analysis_as_of"),
             )
         }
     )

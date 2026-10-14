@@ -225,14 +225,6 @@ class ContextSelector(OneSelector):
         return self
 
 
-class TriageFilters(DateRange):
-    review_set_id: Identifier | None = None
-
-
-class TriageKey(InputModel):
-    research_triage_id: Identifier
-
-
 class TickerFilters(InputModel):
     ticker: Ticker | None = None
 

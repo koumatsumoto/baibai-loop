@@ -19,11 +19,6 @@ TABLES = {
         ("as_of", "published_at", "context_id"),
         "context_id, schema_version, as_of, published_at, supersedes_id",
     ),
-    "research_triage": (
-        "research_triage_id",
-        ("as_of", "published_at", "research_triage_id"),
-        "research_triage_id, review_set_id, run_revision_id, as_of, published_at",
-    ),
     "thesis": (
         "thesis_id",
         ("as_of", "published_at", "thesis_id"),
@@ -69,12 +64,10 @@ def validate_publication(table: str, row: dict[str, Any]) -> str:
     from baibai_engine.research.operation.models import OperationSession
     from baibai_engine.research.position_review import PositionReviewDocument
     from baibai_engine.research.thesis import ThesisDocument, ThesisReview
-    from baibai_engine.research.triage.contracts import ResearchTriage
     from baibai_engine.tasks.models import Task
 
     models: dict[str, type[BaseModel]] = {
         "market_context_assessment": MarketContextAssessment,
-        "research_triage": ResearchTriage,
         "thesis": ThesisDocument,
         "thesis_review": ThesisReview,
         "capital_allocation_assessment": CapitalAllocationAssessment,
