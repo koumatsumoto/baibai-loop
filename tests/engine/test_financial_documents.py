@@ -208,6 +208,7 @@ def test_legacy_stays_unconfirmed_and_cannot_override_confirmed_period() -> None
         "period_start": None,
         "period_end": None,
         "basis": None,
+        "target_basis": None,
     }
     assert snapshot([*decode(documents()), legacy]).per_forward == 1074 / 31.9
 
@@ -363,3 +364,195 @@ def test_financial_lake_contract_roundtrip_preserves_documents(
     assert arrived is not None
     assert len(arrived) == 4
     assert snapshot(arrived).dps_forecast_annual == 0
+
+
+@pytest.mark.parametrize(
+    ("old_basis", "new_basis"),
+    [("NonConsolidated", "Consolidated"), ("Consolidated", "NonConsolidated")],
+)
+def test_basis_transition_does_not_relabel_old_primary_guidance(
+    old_basis: str, new_basis: str
+) -> None:
+    old = document(
+        "old-basis-fy",
+        day="2026-08-10",
+        DocType=f"FYFinancialStatements_{old_basis}_JP",
+        CurFYSt="2025-07-01",
+        CurFYEn="2026-06-30",
+        CurPerSt="2025-07-01",
+        CurPerEn="2026-06-30",
+        NxtFYSt="2026-07-01",
+        NxtFYEn="2027-06-30",
+        NxFEPS="20",
+        NxFNp="100",
+        NxFOdP="90",
+        NxFDivAnn="7",
+    )
+    new = document(
+        "new-basis-q1",
+        DocType=f"1QFinancialStatements_{new_basis}_JP",
+        CurPerType="1Q",
+        CurPerEn="2026-09-30",
+        FEPS="",
+        FNP="",
+        FOdP="",
+    )
+    result = snapshot(decode([old, new]))
+    assert result.per_forward is None
+    assert not result.forecast_special_gain_flag
+    # Issuer DPS does not acquire a consolidated/nonconsolidated accounting basis.
+    assert result.dps_forecast_annual == 7
+    projected = project_financial_documents(decode([old, new]), ASOF)
+    old_source = next(row for row in projected if row.disclosure_number == "old-basis-fy")
+    expected_old = "nonconsolidated" if old_basis == "NonConsolidated" else "consolidated"
+    expected_new = "nonconsolidated" if new_basis == "NonConsolidated" else "consolidated"
+    assert old_source.forecast_basis == expected_old
+    assert old_source.forecast_target_basis == expected_new
+    assert old_source.forecast_status == "basis_mismatch"
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_simultaneous_statement_basis_conflict_does_not_select_by_order(reverse: bool) -> None:
+    records = [
+        document("nc", DocType="1QFinancialStatements_NonConsolidated_JP", FEPS="20", FNCEPS="30"),
+        document(
+            "consolidated", DocType="1QFinancialStatements_Consolidated_JP", FEPS="20", FNCEPS="30"
+        ),
+    ]
+    if reverse:
+        records.reverse()
+    assert snapshot(decode(records)).per_forward is None
+    projected = project_financial_documents(decode(records), ASOF)
+    assert {row.forecast_target_basis for row in projected} == {"basis_unresolved"}
+    assert {row.forecast_basis for row in projected} == {"consolidated", "nonconsolidated"}
+
+
+def actual_document(number: str, **fields: Any) -> dict[str, Any]:
+    return document(
+        number,
+        day="2026-08-10",
+        DocType="FYFinancialStatements_NonConsolidated_JP",
+        CurFYSt="2025-07-01",
+        CurFYEn="2026-06-30",
+        CurPerSt="2025-07-01",
+        CurPerEn="2026-06-30",
+        EPS="20",
+        NP="100",
+        Sales="1000",
+        **fields,
+    )
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_conflicting_actual_dps_does_not_hide_agreed_profit_and_sales(reverse: bool) -> None:
+    from baibai_engine.valuation.metrics.dividends import _resolve_dividend_carry
+    from baibai_engine.valuation.metrics.periods import _ttm_value
+
+    rows = decode([actual_document("paid", DivAnn="7"), actual_document("zero", DivAnn="0")])
+    if reverse:
+        rows.reverse()
+    carry = _resolve_dividend_carry(rows, (), 100, ASOF)
+    assert carry.dividend_yield is None
+    assert carry.dps_actual_annual is None
+    assert carry.basis == "unresolved_actual_dividend"
+    rules = load_screening_rules().ttm
+    assert _ttm_value(rows, "profit", rules)[0] == 100
+    assert _ttm_value(rows, "sales", rules)[0] == 1000
+    assert snapshot(rows).sales_ttm == 1000
+    assert snapshot(rows).dps_actual_annual is None
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_unknown_time_actual_agreement_is_kept_and_conflict_is_unresolved(reverse: bool) -> None:
+    records = [
+        actual_document("legacy-origin", ShOutFY="1000", TrShFY="0"),
+        actual_document("known-time", ShOutFY="1000", TrShFY="0"),
+    ]
+    known = decode(records)[1]
+    unknown = replace(
+        decode(records)[0],
+        record_key="legacy",
+        disclosure_number=None,
+        disclosed_time=None,
+        document_type=None,
+        document_payload=None,
+    )
+    rows = [unknown, known]
+    if reverse:
+        rows.reverse()
+    selected = _latest_actual_row(rows, field_names=("eps_ttm",))
+    assert selected is not None
+    assert selected.eps_ttm == 20
+    assert _resolve_capital_basis(rows).shares_ex_treasury == 1000
+    unknown = replace(unknown, eps_ttm=30, shares_outstanding=2000)
+    contradictory = [unknown, known] if not reverse else [known, unknown]
+    assert _latest_actual_row(contradictory, field_names=("eps_ttm",)) is None
+    assert _resolve_capital_basis(contradictory).shares_ex_treasury is None
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_new_raw_unknown_time_forecasts_compare_each_field(reverse: bool) -> None:
+    records = [
+        document("unknown", time="", FEPS="20", FNP="100", FOdP="90", FDivAnn="7"),
+        document("known", time="16:00:00", FEPS="20", FNP="110", FOdP="90", FDivAnn="0"),
+    ]
+    if reverse:
+        records.reverse()
+    result = snapshot(decode(records))
+    assert result.per_forward == 1074 / 20
+    assert result.dps_forecast_annual is None
+    assert result.earnings_forecast_source
+    assert result.earnings_forecast_source["status"] == "partially_unresolved"
+    assert result.earnings_forecast_source["disclosed_time"] is None
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_conflicting_pre_split_reference_cannot_choose_share_basis(reverse: bool) -> None:
+    from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent
+    from baibai_engine.valuation.metrics.capital import _normalize_summaries_with_status
+
+    rows = decode(
+        [actual_document("before-a", ShOutFY="1000"), actual_document("before-b", ShOutFY="500")]
+    )
+    rows = [replace(row, disclosed_at=date(2026, 7, 10)) for row in rows]
+    if reverse:
+        rows.reverse()
+    rows.extend(decode([actual_document("correction", ShOutFY="1000", TrShFY="0")]))
+    events = [
+        JQuantsAdjustmentFactorEvent(
+            ticker="9999", traded_at=date(2026, 8, 1), adjustment_factor=0.5
+        )
+    ]
+    result = _normalize_summaries_with_status(rows, events, ASOF)
+    correction = result.summaries[-1]
+    assert correction.shares_outstanding is None
+    assert correction.eps_ttm is None
+    capital = _resolve_capital_basis(
+        result.summaries, capital_basis_barrier=result.capital_basis_barrier
+    )
+    assert capital.shares_ex_treasury is None
+    assert capital.failure_reason == "indeterminate_share_basis"
+
+
+def test_unknown_time_agreed_raw_guidance_is_order_invariant() -> None:
+    records = [
+        document("unknown", time="", FEPS="20", FNP="100", FOdP="90", FDivAnn="7"),
+        document("known", FEPS="20", FNP="100", FOdP="90", FDivAnn="7"),
+    ]
+    result = snapshot(decode(records))
+    assert result == snapshot(decode(list(reversed(records))))
+    assert result.per_forward == 1074 / 20
+    assert result.dps_forecast_annual == 7
+    assert result.earnings_forecast_source
+    assert result.earnings_forecast_source["status"] == "confirmed"
+    assert result.earnings_forecast_source["disclosed_time"] is None
+
+
+def test_later_partial_actual_does_not_revive_conflicting_old_dps() -> None:
+    from baibai_engine.valuation.metrics.dividends import _resolve_dividend_carry
+
+    rows = decode([actual_document("paid", DivAnn="7"), actual_document("zero", DivAnn="0")])
+    rows = [replace(row, disclosed_at=date(2026, 7, 10)) for row in rows]
+    rows.extend(decode([actual_document("later-earnings-only")]))
+    assert _resolve_dividend_carry(rows, (), 100, ASOF).dps_actual_annual is None
+    assert snapshot(rows).sales_ttm == 1000

@@ -10,7 +10,7 @@ from itertools import pairwise
 from baibai_engine.foundation.date_utils import add_months_clamped
 from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.market.financial_documents import (
-    disclosure_revision,
+    latest_disclosure_candidates,
     latest_forecast_source,
     project_financial_documents,
 )
@@ -22,8 +22,14 @@ from baibai_engine.valuation.metrics.capital import (
     _normalize_summaries_to_asof_basis,
     _shares_excluding_treasury,
 )
-from baibai_engine.valuation.metrics.models import UNRESOLVED_DIVIDEND_BASIS
-from baibai_engine.valuation.metrics.periods import _accounting_observation_key
+from baibai_engine.valuation.metrics.models import (
+    UNRESOLVED_ACTUAL_DIVIDEND_BASIS,
+    UNRESOLVED_DIVIDEND_BASIS,
+)
+from baibai_engine.valuation.metrics.periods import (
+    _accounting_observation_key,
+    resolve_actual_conflicts,
+)
 
 # 通期実績 DPS の accrual 期間を bound する暦日窓。前期の通期実績開示行が窓内に
 # 無い (実績が 1 期分しか無い) ときのフォールバックで、開示日から約 1 年遡って
@@ -107,8 +113,11 @@ def _actual_dps_rows(
 ) -> list[JQuantsFinancialSummary]:
     return [
         summary
-        for summary in sorted(summaries, key=_accounting_observation_key, reverse=True)
+        for summary in sorted(
+            resolve_actual_conflicts(summaries), key=_accounting_observation_key, reverse=True
+        )
         if summary.dps_actual_annual is not None
+        or "dps_actual_annual" in summary.unresolved_actual_fields
     ]
 
 
@@ -276,7 +285,10 @@ def _resolve_dividend_carry(
     forecast = forecast_state.annual_dps if forecast_state is not None else None
     basis_factor = 1.0
     actual_annual: float | None = None
-    if actual_rows:
+    actual_unresolved = bool(
+        actual_rows and "dps_actual_annual" in actual_rows[0].unresolved_actual_fields
+    )
+    if actual_rows and not actual_unresolved:
         latest_actual = actual_rows[0]
         assert latest_actual.dps_actual_annual is not None
         basis_factor = _dividend_basis_factor(
@@ -323,6 +335,8 @@ def _resolve_dividend_carry(
             ),
             split_factor=recorded_factor,
         )
+    elif actual_unresolved:
+        basis = UNRESOLVED_ACTUAL_DIVIDEND_BASIS
     elif recorded_factor is not None and actual_annual is None:
         # 正の実績が解決できなかった年度は無配と区別する。
         basis = UNRESOLVED_DIVIDEND_BASIS
@@ -436,7 +450,7 @@ def _latest_fy_revisions(
     summaries: Sequence[JQuantsFinancialSummary],
 ) -> list[JQuantsFinancialSummary]:
     grouped: dict[date, list[JQuantsFinancialSummary]] = {}
-    for summary in summaries:
+    for summary in resolve_actual_conflicts(summaries):
         if summary.fiscal_period != "FY" or summary.fiscal_year_end is None:
             continue
         if summary.document_type in {"EarnForecastRevision", "DividendForecastRevision"}:
@@ -445,22 +459,37 @@ def _latest_fy_revisions(
     result = []
     for year_end in sorted(grouped):
         rows = grouped[year_end]
-        revision = max(map(disclosure_revision, rows))
-        tied = [row for row in rows if disclosure_revision(row) == revision]
+        tied = latest_disclosure_candidates(rows)
         # Preserve unresolved years in the consecutive-FY series rather than
         # silently skipping a contradictory EPS/DPS observation.
         changes: dict[str, float | None] = {}
         for field in ("eps_ttm", "dps_actual_annual", "shares_outstanding", "treasury_shares"):
-            values = {getattr(row, field) for row in tied}
-            if len(values) != 1:
+            values = {getattr(row, field) for row in tied if getattr(row, field) is not None}
+            if len(values) > 1 or any(field in row.unresolved_actual_fields for row in tied):
                 changes[field] = None
+        representative = max(
+            tied,
+            key=lambda row: tuple(
+                getattr(row, field) is not None
+                for field in (
+                    "eps_ttm",
+                    "dps_actual_annual",
+                    "shares_outstanding",
+                    "treasury_shares",
+                )
+            ),
+        )
         result.append(
             replace(
-                tied[0],
-                eps_ttm=changes.get("eps_ttm", tied[0].eps_ttm),
-                dps_actual_annual=changes.get("dps_actual_annual", tied[0].dps_actual_annual),
-                shares_outstanding=changes.get("shares_outstanding", tied[0].shares_outstanding),
-                treasury_shares=changes.get("treasury_shares", tied[0].treasury_shares),
+                representative,
+                eps_ttm=changes.get("eps_ttm", representative.eps_ttm),
+                dps_actual_annual=changes.get(
+                    "dps_actual_annual", representative.dps_actual_annual
+                ),
+                shares_outstanding=changes.get(
+                    "shares_outstanding", representative.shares_outstanding
+                ),
+                treasury_shares=changes.get("treasury_shares", representative.treasury_shares),
             )
         )
     return result

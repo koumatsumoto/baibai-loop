@@ -76,7 +76,9 @@ Researchの選択済み銘柄入力の`cash_flow`は、機械anchorと同じrun�
 
 数値の有無より先に、as-ofに適用する最新の決算期状態を決める。当期・翌期とprimary・nonconsolidatedの全欄は保存し、異なる期間やbasisを混ぜない。単体会社のprimary欄に入った翌期予想も使うが、連結会社の単体補足予想で連結予想を上書きしない。利益3項目は同一文書の同一slotから任意に読む。年間DPSは独立した文書streamから明示0を保持して解決する。空欄はその文書の非掲載であり、撤回の確認に読み替えない。新しい決算期の空欄を古い対象期の数値で埋めない。
 
-開示日・時刻が同じ文書の矛盾は`unresolved`とし、DocNoの大小や投入順で採否を決めない。Security Analysisの`earnings_forecast_source` / `dividend_forecast_source`はJSON文字列で、status・文書番号・開示日/時刻・DocType・対象期間・basisを残す。旧date-only保存値は`legacy_unknown`の機械入力として維持し、確認済み会社予想へ格上げせず、確認済み新期間や修正へ優先しない。取得窓の延長や全legacy値の一括無効化は行わない。
+source文書のbasisと採用対象のbasisを別に保持する。単体→連結・連結→単体の移行後に、旧primary予想を新basisへラベル替えしない。同時刻のstatementがbasisについて矛盾すれば、basis自体を未解決にする。
+
+開示時刻不明は同日の既知時刻より古いとは決めず、候補として残す。開示日・時刻が同じ文書、または時刻不明で順序を確定できない文書の矛盾は対象fieldを`unresolved`とし、DocNoの大小や投入順で採否を決めない。一致しているEPS・NP・Sales等まで落とさず、利益予想の一部だけが矛盾した場合は`partially_unresolved`を記録する。Security Analysisの`earnings_forecast_source` / `dividend_forecast_source`はJSON文字列で、status・文書番号・開示日/時刻・DocType・対象期間・sourceのbasis・採用対象basisを残す。旧date-only保存値は`legacy_unknown`の機械入力として維持し、確認済み会社予想へ格上げせず、確認済み新期間や修正へ優先しない。取得窓の延長や全legacy値の一括無効化は行わない。
 
 ### 2.2 却下したソース
 
@@ -334,7 +336,7 @@ J-Quants の財務サマリーは四半期 disclosure の時系列として扱�
 
 YoYは`当期 / 前年 - 1`で、前年0なら`null`。赤字縮小は`前年 < 当期 < 0`のときだけ`true`、両値が観測済みでそれ以外なら`false`、欠測なら`null`とする。負の前年値に対するYoYの符号だけで改善・悪化を読み取らない。
 
-実績の会計期間identityと文書revision（開示日・時刻）は別に扱う。同時刻のEPS・資本状態の矛盾を任意の一行へ潰さず、比較・分母を未解決にする。利益・配当の予想専用文書はactual FY系列へ入れない。予想の対象期・source解決は§2.1に従う。
+実績の会計期間identityと文書revision（開示日・時刻）は別に扱う。同時刻のEPS・資本状態の矛盾を任意の一行へ潰さず、比較・分母を未解決にする。利益・配当の予想専用文書はactual FY系列へ入れない。実績DPSの矛盾はcarryにも適用し、使える予想DPSが無ければ`unresolved_actual_dividend`として利回りとERを未解決にする。NP/Salesが一致していればTTMは保持する。分割前の株数参照も同じfield単位の矛盾解決を使い、参照株数が未解決なら訂正文書の株式basisを確定しない。予想の対象期・source解決は§2.1に従う。
 
 ## 14. 算出エラー・欠損の扱い
 

@@ -23,7 +23,11 @@ from baibai_engine.valuation.estimates import (
     ExpectedReturnInputs,
     estimate_expected_return,
 )
-from baibai_engine.valuation.metrics.models import UNRESOLVED_DIVIDEND_BASIS, FinancialSnapshot
+from baibai_engine.valuation.metrics.models import (
+    UNRESOLVED_ACTUAL_DIVIDEND_BASIS,
+    UNRESOLVED_DIVIDEND_BASIS,
+    FinancialSnapshot,
+)
 
 from .earnings_lag import EarningsLag
 
@@ -265,6 +269,7 @@ def expected_return_inputs(
         self_range_median=derived.self_range_median,
         dividend_yield=financial.dividend_yield,
         net_share_change_yoy=financial.net_share_change_yoy,
-        dividend_basis_resolved=financial.dividend_basis != UNRESOLVED_DIVIDEND_BASIS,
+        dividend_basis_resolved=financial.dividend_basis
+        not in {UNRESOLVED_DIVIDEND_BASIS, UNRESOLVED_ACTUAL_DIVIDEND_BASIS},
         close=close,
     )

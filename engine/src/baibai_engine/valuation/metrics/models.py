@@ -12,6 +12,7 @@ from baibai_engine.market.metric_quality import OperatingProfitSource, TTMQualit
 
 _MODEL_CONFIG = ConfigDict(strict=True, arbitrary_types_allowed=False, validate_assignment=False)
 UNRESOLVED_DIVIDEND_BASIS = "unresolved_split_basis"
+UNRESOLVED_ACTUAL_DIVIDEND_BASIS = "unresolved_actual_dividend"
 
 
 class TTMRules(BaseModel):

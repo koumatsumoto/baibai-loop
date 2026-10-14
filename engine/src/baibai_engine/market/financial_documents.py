@@ -198,8 +198,59 @@ def financial_document_key(record: Mapping[str, Any]) -> str:
 
 
 def disclosure_revision(row: JQuantsFinancialSummary) -> tuple[date, str]:
-    """Document numbers identify documents; they do not establish chronology."""
+    """Presentation key only. Unknown times never establish revision precedence."""
     return row.disclosed_at, row.disclosed_time or ""
+
+
+def latest_disclosure_candidates(
+    rows: Sequence[JQuantsFinancialSummary],
+) -> list[JQuantsFinancialSummary]:
+    """Keep same-day unknown times alongside the latest known-time candidates."""
+    if not rows:
+        return []
+    day = max(row.disclosed_at for row in rows)
+    same_day = [row for row in rows if row.disclosed_at == day]
+    known_time = max((row.disclosed_time for row in same_day if row.disclosed_time), default=None)
+    return [row for row in same_day if not row.disclosed_time or row.disclosed_time == known_time]
+
+
+def _statement_basis(row: JQuantsFinancialSummary) -> str:
+    kind = row.document_type or ""
+    if "NonConsolidated" in kind:
+        return "nonconsolidated"
+    if "_Consolidated_" in kind:
+        return "consolidated"
+    return "primary_unknown"
+
+
+def _statement_basis_state(rows: Sequence[JQuantsFinancialSummary]) -> str:
+    if not rows:
+        return "primary_unknown"
+    end = max(row.fiscal_year_end or date.min for row in rows)
+    candidates = latest_disclosure_candidates(
+        [row for row in rows if (row.fiscal_year_end or date.min) == end]
+    )
+    bases = {_statement_basis(row) for row in candidates}
+    return next(iter(bases)) if len(bases) == 1 else "basis_unresolved"
+
+
+def _primary_source_basis(
+    row: JQuantsFinancialSummary,
+    statements: Sequence[JQuantsFinancialSummary],
+) -> str:
+    if "FinancialStatements" in (row.document_type or ""):
+        return _statement_basis(row)
+    previous = [s for s in statements if s.disclosed_at < row.disclosed_at]
+    same_day = [s for s in statements if s.disclosed_at == row.disclosed_at]
+    certain = [
+        s
+        for s in same_day
+        if s.disclosed_time and row.disclosed_time and s.disclosed_time <= row.disclosed_time
+    ]
+    uncertain = [s for s in same_day if not s.disclosed_time or not row.disclosed_time]
+    basis = _statement_basis_state([*previous, *certain])
+    alternatives = {basis, *(_statement_basis(s) for s in uncertain)}
+    return basis if len(alternatives) == 1 else "primary_unknown"
 
 
 def _payload(row: JQuantsFinancialSummary) -> dict[str, Any]:
@@ -236,30 +287,24 @@ def project_financial_documents(
             projected.extend(rows)
             continue
         # A later revision of an old accounting period is not a new fiscal state.
-        states: list[tuple[date, tuple[date, str], tuple[date, date]]] = []
+        states: list[tuple[int, tuple[date, date]]] = []
         for i in known:
             for slot in ("current", "next"):
                 period = _period(records[i], slot)
                 if period is not None and period[0] <= asof_date:
-                    states.append((period[0], disclosure_revision(rows[i]), period))
-        state_key = max(((s[0], s[1]) for s in states), default=None)
-        targets = {s[2] for s in states if (s[0], s[1]) == state_key}
+                    states.append((i, period))
+        latest_start = max((period[0] for _, period in states), default=None)
+        state_rows = latest_disclosure_candidates(
+            [rows[i] for i, period in states if period[0] == latest_start]
+        )
+        targets = {
+            period for i, period in states if period[0] == latest_start and rows[i] in state_rows
+        }
         target = next(iter(targets)) if len(targets) == 1 else None
         if target is not None and target[1] < asof_date:
             target = None
         statements = [row for row in rows if "FinancialStatements" in (row.document_type or "")]
-        statement = max(
-            statements,
-            key=lambda r: (r.fiscal_year_end or date.min, disclosure_revision(r)),
-            default=None,
-        )
-        basis = (
-            "nonconsolidated"
-            if statement is not None and "NonConsolidated" in (statement.document_type or "")
-            else "consolidated"
-            if statement is not None
-            else "primary_unknown"
-        )
+        target_basis = _statement_basis_state(statements)
         for i, row in enumerate(rows):
             record = records[i]
             selected_slot = next(
@@ -270,6 +315,7 @@ def project_financial_documents(
                 ),
                 None,
             )
+            source_basis = _primary_source_basis(row, statements)
             eps = profit = ordinary = dps = None
             earnings_status = dividend_status = "not_applicable"
             if selected_slot is not None:
@@ -280,16 +326,20 @@ def project_financial_documents(
                     f"{prefix}OdP",
                 )
                 nc_keys = (f"{prefix}NCEPS", f"{prefix}NCNP", f"{prefix}NCOdP")
-                keys = (
-                    nc_keys
-                    if basis == "nonconsolidated"
-                    and any(has_period_slot(record, key) for key in nc_keys)
-                    else primary_keys
-                )
-                earnings_status = (
-                    "confirmed" if any(has_period_slot(record, key) for key in keys) else "missing"
-                )
-                eps, profit, ordinary = (to_float(record.get(key)) for key in keys)
+                has_primary = any(has_period_slot(record, key) for key in primary_keys)
+                has_nc = any(has_period_slot(record, key) for key in nc_keys)
+                use_nc = has_nc and (target_basis == "nonconsolidated" or not has_primary)
+                keys = nc_keys if use_nc else primary_keys
+                source_basis = "nonconsolidated" if use_nc else source_basis
+                if source_basis != target_basis or target_basis == "basis_unresolved":
+                    earnings_status = "basis_mismatch"
+                else:
+                    earnings_status = (
+                        "confirmed"
+                        if any(has_period_slot(record, key) for key in keys)
+                        else "missing"
+                    )
+                    eps, profit, ordinary = (to_float(record.get(key)) for key in keys)
                 dps_key = f"{prefix}DivAnn"
                 dividend_status = "confirmed" if has_period_slot(record, dps_key) else "missing"
                 dps = to_float(record.get(dps_key))
@@ -302,7 +352,8 @@ def project_financial_documents(
                     dps_forecast_annual=dps,
                     forecast_period_start=target[0] if target else None,
                     forecast_period_end=target[1] if target else None,
-                    forecast_basis=basis,
+                    forecast_basis=source_basis,
+                    forecast_target_basis=target_basis,
                     forecast_status=earnings_status,
                     dividend_forecast_status=dividend_status,
                 )
@@ -323,34 +374,53 @@ def latest_forecast_source(
         candidates = [row for row in rows if getattr(row, status_field) == "missing"]
     if not candidates:
         return None
-    revision = max(map(disclosure_revision, candidates))
-    latest = [row for row in candidates if disclosure_revision(row) == revision]
+    latest = latest_disclosure_candidates(candidates)
     fields = (
         ("dps_forecast_annual",)
         if dividend
         else ("forecast_eps", "forecast_profit", "forecast_ordinary_profit")
     )
-    values = {tuple(getattr(row, field) for field in fields) for row in latest}
-    source = latest[0]
+    source = max(
+        latest,
+        key=lambda row: (
+            sum(getattr(row, field) is not None for field in fields),
+            tuple(getattr(row, field) is not None for field in fields),
+        ),
+    )
     if len(latest) > 1:
+        kinds = {row.document_type for row in latest}
         source = replace(
             source,
             disclosure_number=None,
+            document_type=next(iter(kinds)) if len(kinds) == 1 else None,
+            disclosed_time=source.disclosed_time
+            if all(row.disclosed_time == source.disclosed_time for row in latest)
+            else None,
             forecast_source_documents=tuple(
                 sorted({row.disclosure_number for row in latest if row.disclosure_number})
             ),
         )
-    if len(values) != 1:
-        return (
-            replace(source, dps_forecast_annual=None, dividend_forecast_status="unresolved")
-            if dividend
-            else replace(
-                source,
-                forecast_eps=None,
-                forecast_profit=None,
-                forecast_ordinary_profit=None,
-                forecast_status="unresolved",
-            )
+    conflicts = {
+        field
+        for field in fields
+        if len({getattr(row, field) for row in latest if getattr(row, field) is not None}) > 1
+    }
+    if conflicts:
+        if dividend:
+            return replace(source, dps_forecast_annual=None, dividend_forecast_status="unresolved")
+        eps = None if "forecast_eps" in conflicts else source.forecast_eps
+        profit = None if "forecast_profit" in conflicts else source.forecast_profit
+        ordinary = (
+            None if "forecast_ordinary_profit" in conflicts else source.forecast_ordinary_profit
+        )
+        return replace(
+            source,
+            forecast_eps=eps,
+            forecast_profit=profit,
+            forecast_ordinary_profit=ordinary,
+            forecast_status="partially_unresolved"
+            if any(value is not None for value in (eps, profit, ordinary))
+            else "unresolved",
         )
     if getattr(source, status_field) == "confirmed" and all(
         getattr(source, field) is None for field in fields
@@ -379,6 +449,7 @@ def forecast_source_trace(
         else None,
         "period_end": row.forecast_period_end.isoformat() if row.forecast_period_end else None,
         "basis": "issuer_dividend" if dividend else row.forecast_basis,
+        "target_basis": "issuer_dividend" if dividend else row.forecast_target_basis,
     }
     if row.forecast_source_documents:
         trace["candidate_disclosure_numbers"] = ",".join(row.forecast_source_documents)
