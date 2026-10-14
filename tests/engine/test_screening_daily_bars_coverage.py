@@ -92,7 +92,7 @@ def test_read_daily_bars_none_when_history_missing_at_end(tmp_path: Path) -> Non
     assert read_daily_bars(sqlite_path, date(2024, 1, 1), date(2024, 3, 31)) is None
 
 
-def test_read_daily_bars_accepts_short_gap_without_proving_calendar_coverage(tmp_path: Path) -> None:
+def test_daily_bars_short_gap_is_only_a_coverage_heuristic(tmp_path: Path) -> None:
     # The heuristic accepts this constructed six-day gap. It does not establish
     # that every missing date was a market holiday or that every ticker is complete.
     sqlite_path = _seed(
