@@ -355,3 +355,167 @@ def test_refresh_reader_rechecks_prior_review_arithmetic_without_inherited_revie
     )
     with pytest.raises(ResearchValidationError, match="cash_distribution_per_share_yen mismatch"):
         load_reviewed_assessment(connection, refreshed.assessment_id)
+
+
+def same_day_prior(connection):
+    document, review = pair_payload()
+    document["valuation"]["base"]["terminal_value_per_share_yen"] = "1200"
+    document["valuation"]["base"]["cash_distribution_per_share_yen"] = "60"
+    review["recalculated_projections"][0]["terminal_value_per_share_yen"] = "1200"
+    review["recalculated_projections"][0]["cash_distribution_per_share_yen"] = "60"
+    for source in document["input_snapshot"]["sources"]:
+        source["retrieved_at"] = "2026-10-14T15:40:00+09:00"
+    update_review_hash(document, review)
+    connection.execute("BEGIN IMMEDIATE")
+    return publish_reviewed_assessment(
+        connection, assessment_id(), document, review, published_at=NOW
+    )
+
+
+def same_day_refresh(prior, *, assessed_at, checked_at, reviewed_at):
+    draft, review = authored_refresh(prior)
+    draft["conclusion"]["assessed_at"] = assessed_at
+    draft["refresh"]["checked_at"] = checked_at
+    review["reviewed_at"] = reviewed_at
+    update_review_hash(draft, review)
+    return draft, review
+
+
+@pytest.mark.parametrize(
+    ("assessed_at", "checked_at", "reviewed_at", "message"),
+    [
+        (
+            "2026-10-14T15:50:00+09:00",
+            "2026-10-14T15:45:00+09:00",
+            "2026-10-14T15:55:00+09:00",
+            "prior assessment",
+        ),
+        (
+            "2026-10-14T16:06:30+09:00",
+            "2026-10-14T16:05:59+09:00",
+            "2026-10-14T16:06:40+09:00",
+            "prior publication",
+        ),
+    ],
+)
+def test_same_day_refresh_publish_rejects_checks_before_the_prior_pair(
+    connection, assessed_at, checked_at, reviewed_at, message
+):
+    prior = same_day_prior(connection)
+    draft, review = same_day_refresh(
+        prior, assessed_at=assessed_at, checked_at=checked_at, reviewed_at=reviewed_at
+    )
+    assert (
+        evaluate_assessment(
+            StockAssessmentDocument.model_validate(draft),
+            review=AssessmentReview.model_validate(review),
+            identity=UnpublishedAssessment.DRAFT,
+            now=datetime.fromisoformat("2026-10-14T16:07:00+09:00"),
+        ).errors
+        == ()
+    )
+    with pytest.raises(ResearchValidationError, match=message):
+        publish_reviewed_assessment(
+            connection,
+            assessment_id(3),
+            draft,
+            review,
+            published_at=datetime.fromisoformat("2026-10-14T16:07:00+09:00"),
+            supersedes_id=prior.assessment_id,
+        )
+    assert connection.execute("SELECT count(*) FROM stock_assessment").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize("fault", ["assessed_at", "checked_at"])
+def test_same_day_refresh_read_rechecks_authoritative_prior_time(connection, fault):
+    from baibai_engine.research.assessment import assessment_core_hash
+    from baibai_engine.storage.application.json import canonical_json
+
+    prior = same_day_prior(connection)
+    draft, review = same_day_refresh(
+        prior,
+        assessed_at="2026-10-14T16:06:30+09:00",
+        checked_at="2026-10-14T16:06:00+09:00",
+        reviewed_at="2026-10-14T16:06:40+09:00",
+    )
+    pair = publish_reviewed_assessment(
+        connection,
+        assessment_id(3),
+        draft,
+        review,
+        published_at=datetime.fromisoformat("2026-10-14T16:07:00+09:00"),
+        supersedes_id=prior.assessment_id,
+    )
+    if fault == "assessed_at":
+        draft["conclusion"]["assessed_at"] = "2026-10-14T15:50:00+09:00"
+        draft["refresh"]["checked_at"] = "2026-10-14T15:45:00+09:00"
+        review["reviewed_at"] = "2026-10-14T15:55:00+09:00"
+    else:
+        draft["refresh"]["checked_at"] = "2026-10-14T16:05:59+09:00"
+    update_review_hash(draft, review)
+    document = StockAssessmentDocument.model_validate(draft)
+    assert (
+        evaluate_assessment(
+            document,
+            review=AssessmentReview.model_validate(review),
+            identity=UnpublishedAssessment.DRAFT,
+            now=datetime.fromisoformat("2026-10-14T16:07:00+09:00"),
+        ).errors
+        == ()
+    )
+    connection.execute("DROP TRIGGER stock_assessment_immutable")
+    connection.execute("DROP TRIGGER stock_assessment_review_immutable")
+    connection.execute(
+        "UPDATE stock_assessment SET payload = ?, core_sha256 = ? WHERE assessment_id = ?",
+        (
+            canonical_json(document.model_dump(mode="json")),
+            assessment_core_hash(document),
+            pair.assessment_id,
+        ),
+    )
+    connection.execute(
+        "UPDATE stock_assessment_review SET payload = ?, reviewed_at = ? WHERE review_id = ?",
+        (
+            canonical_json(AssessmentReview.model_validate(review).model_dump(mode="json")),
+            review["reviewed_at"],
+            pair.review.review_id,
+        ),
+    )
+    with pytest.raises(ResearchValidationError, match=r"prior assessment|prior publication"):
+        load_reviewed_assessment(connection, pair.assessment_id)
+
+
+def test_same_day_refresh_accepts_exact_publication_instant_with_utc_offset(connection):
+    prior = same_day_prior(connection)
+    draft, review = same_day_refresh(
+        prior,
+        assessed_at="2026-10-14T07:06:00Z",
+        checked_at="2026-10-14T07:06:00Z",
+        reviewed_at="2026-10-14T07:06:00Z",
+    )
+    pair = publish_reviewed_assessment(
+        connection,
+        assessment_id(3),
+        draft,
+        review,
+        published_at=datetime.fromisoformat("2026-10-14T16:07:00+09:00"),
+        supersedes_id=prior.assessment_id,
+    )
+    assert pair.document.refresh.checked_at == NOW
+    assert pair.document.refresh.checked_at.isoformat() == "2026-10-14T07:06:00+00:00"
+    assert load_reviewed_assessment(connection, pair.assessment_id) == pair
+
+
+def test_same_day_scaffold_keeps_assessment_time_guard_and_check_unfilled(connection):
+    prior = same_day_prior(connection)
+    with pytest.raises(ValueError, match="prior assessment"):
+        scaffold_assessment_refresh(
+            prior,
+            as_of=date(2026, 10, 14),
+            assessed_at=datetime.fromisoformat("2026-10-14T15:50:00+09:00"),
+        )
+    draft = scaffold_assessment_refresh(
+        prior, as_of=date(2026, 10, 14), assessed_at=datetime.fromisoformat("2026-10-14T07:00:00Z")
+    )
+    assert draft["conclusion"]["assessed_at"] == "2026-10-14T07:00:00+00:00"
+    assert draft["refresh"]["checked_at"] is None

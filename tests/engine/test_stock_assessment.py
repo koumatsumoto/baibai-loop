@@ -594,3 +594,66 @@ def test_version_headers_require_integers_even_when_equal_to_literal_one(field, 
     target[field] = bad
     with pytest.raises(ValueError, match=f"{field} must be an integer"):
         StockAssessmentDocument.model_validate(document)
+
+
+def test_microsecond_publication_order_precedes_assessment_id_order(connection):
+    first_time = datetime.fromisoformat("2026-10-14T16:06:00.000100+09:00")
+    second_time = datetime.fromisoformat("2026-10-14T16:06:00.000400+09:00")
+    first = publish(connection, number=8, now=first_time)
+    second = publish(connection, number=1, now=second_time, supersedes=first.assessment_id)
+    assert first.assessment_id > second.assessment_id
+    assert latest_assessment_id(connection, "1234") == second.assessment_id
+    assert load_latest_reviewed_assessment(connection, "1234") == second
+    stored_times = dict(
+        connection.execute("SELECT assessment_id,published_at FROM stock_assessment")
+    )
+    assert stored_times == {
+        first.assessment_id: first_time.isoformat(),
+        second.assessment_id: second_time.isoformat(),
+    }
+    third = publish(
+        connection,
+        number=3,
+        now=datetime.fromisoformat("2026-10-14T07:06:00.000500Z"),
+        supersedes=second.assessment_id,
+    )
+    assert latest_assessment_id(connection, "1234") == third.assessment_id
+
+
+def test_equal_microsecond_instant_with_different_offsets_uses_id_tiebreak(connection):
+    jst = datetime.fromisoformat("2026-10-14T16:06:00.123456+09:00")
+    utc = datetime.fromisoformat("2026-10-14T07:06:00.123456Z")
+    assert jst == utc
+    first = publish(connection, number=1, now=jst)
+    second = publish(connection, number=3, now=utc, supersedes=first.assessment_id)
+    assert latest_assessment_id(connection, "1234") == second.assessment_id
+    assert load_latest_reviewed_assessment(connection, "1234") == second
+    document, review = pair_payload(review_number=5)
+    with pytest.raises(ResearchConflictError, match="advance the latest revision order"):
+        publish(connection, document, review, number=2, now=jst, supersedes=second.assessment_id)
+    stored_times = dict(
+        connection.execute("SELECT assessment_id,published_at FROM stock_assessment")
+    )
+    assert stored_times == {
+        first.assessment_id: jst.isoformat(),
+        second.assessment_id: utc.isoformat(),
+    }
+
+
+def test_invalid_same_day_publication_header_does_not_hide_behind_valid_revision(connection):
+    publish(connection)
+    connection.execute(
+        "INSERT INTO stock_assessment VALUES(?,?,?,?,?,?,?,?)",
+        (
+            assessment_id(99),
+            "1234",
+            "2026-10-14",
+            "uncertain",
+            "2026-10-14T16:07:00",
+            None,
+            "{}",
+            "0" * 64,
+        ),
+    )
+    with pytest.raises(ResearchValidationError, match="invalid Assessment revision header"):
+        latest_assessment_id(connection, "1234")

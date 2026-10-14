@@ -46,12 +46,25 @@ class ReviewedAssessment:
 
 def latest_assessment_id(connection: sqlite3.Connection, ticker: str) -> str | None:
     """Select the head before inspecting its schema, stance or resolution."""
-    row = connection.execute(
-        "SELECT assessment_id FROM stock_assessment WHERE ticker = ? "
-        "ORDER BY as_of DESC, julianday(published_at) DESC, assessment_id DESC LIMIT 1",
-        (ticker,),
-    ).fetchone()
-    return None if row is None else str(row[0])
+    rows = connection.execute(
+        "SELECT assessment_id, published_at FROM stock_assessment WHERE ticker = ? "
+        "AND as_of = (SELECT MAX(as_of) FROM stock_assessment WHERE ticker = ?)",
+        (ticker, ticker),
+    ).fetchall()
+    headers: list[tuple[datetime, str]] = []
+    for row in rows:
+        try:
+            instant = datetime.fromisoformat(str(row[1]))
+            if instant.tzinfo is None or instant.utcoffset() is None:
+                raise ValueError("stored publication time must include a timezone")
+        except ValueError as error:
+            raise ResearchValidationError(
+                f"invalid Assessment revision header: {row[0]}"
+            ) from error
+        headers.append((instant, str(row[0])))
+    # SQLite julianday loses sub-millisecond ordering; use the writer's exact
+    # aware-datetime comparison without changing any recorded timestamps.
+    return max(headers)[1] if headers else None
 
 
 def load_reviewed_assessment(
@@ -165,6 +178,12 @@ def _verify_prior_ref(
     )
     if prior_evaluation.errors:
         raise ResearchValidationError("; ".join(prior_evaluation.errors))
+    refresh = document.refresh
+    assert refresh is not None
+    if document.conclusion.assessed_at < prior_document.conclusion.assessed_at:
+        raise ResearchValidationError("refresh assessment time cannot precede the prior assessment")
+    if refresh.checked_at < datetime.fromisoformat(str(row[6])):
+        raise ResearchValidationError("refresh check cannot precede the prior publication")
 
 
 def publish_reviewed_assessment(
@@ -226,9 +245,7 @@ def publish_reviewed_assessment(
         ):
             raise ResearchConflictError("new assessment must advance the latest revision order")
     if assessment.refresh is not None:
-        prior_pair = require_assessment_ref(connection, assessment.refresh.prior_assessment_ref)
-        if prior_pair.document.input_snapshot.ticker != assessment.input_snapshot.ticker:
-            raise ResearchValidationError("refresh prior Assessment ticker mismatch")
+        _verify_prior_ref(connection, assessment.refresh.prior_assessment_ref, assessment)
     connection.execute("SAVEPOINT reviewed_assessment_publication")
     try:
         connection.execute(
