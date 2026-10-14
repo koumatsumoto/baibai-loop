@@ -556,3 +556,26 @@ def test_later_partial_actual_does_not_revive_conflicting_old_dps() -> None:
     rows.extend(decode([actual_document("later-earnings-only")]))
     assert _resolve_dividend_carry(rows, (), 100, ASOF).dps_actual_annual is None
     assert snapshot(rows).sales_ttm == 1000
+
+
+def test_latest_legacy_actual_missing_ttm_field_keeps_existing_availability() -> None:
+    from baibai_engine.valuation.metrics.periods import _ttm_value
+
+    old = actual_document("old-full")
+    old["DiscDate"] = "2026-07-10"
+    latest = actual_document("latest-partial", ShOutFY="1000")
+    latest["NP"] = latest["Sales"] = ""
+    rows = [
+        replace(
+            row,
+            record_key="legacy",
+            disclosure_number=None,
+            disclosed_time=None,
+            document_type=None,
+            document_payload=None,
+        )
+        for row in decode([old, latest])
+    ]
+    rules = load_screening_rules().ttm
+    assert _ttm_value(rows, "profit", rules)[0] is None
+    assert _ttm_value(rows, "sales", rules)[0] is None

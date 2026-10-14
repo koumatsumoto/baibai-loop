@@ -327,18 +327,18 @@ def _ttm_value(
     # 非実績開示は過去の実績を取り消さない。必要fieldの欠損は選択後に判定する。
     actuals = _actual_rows(summaries)
     anchor = _latest_actual_row(actuals)
-    latest = (
-        _latest_actual_row(
+    cohort = (
+        latest_disclosure_candidates(
             [
                 row
                 for row in actuals
                 if _accounting_period_identity(row) == _accounting_period_identity(anchor)
-            ],
-            field_names=(field,),
+            ]
         )
         if anchor is not None
-        else None
+        else []
     )
+    latest = _latest_actual_row(cohort, field_names=(field,))
     if (
         latest is None
         or getattr(latest, field) is None
@@ -362,7 +362,7 @@ def _ttm_value(
         actuals,
         latest,
         ttm_rules,
-        field_name=field,
+        value_field=field,
     )
     if prior_fy is None or prior_same is None:
         return None, TTMQuality.UNAVAILABLE
@@ -396,6 +396,7 @@ def _matched_prior_period_summary(
     ttm_rules: TTMRules,
     *,
     field_name: str | None = None,
+    value_field: str | None = None,
 ) -> JQuantsFinancialSummary | None:
     if latest.period_start is None or latest.period_end is None:
         return None
@@ -419,8 +420,9 @@ def _matched_prior_period_summary(
         if abs((summary.period_start - prior_start).days) > ttm_rules.period_end_tolerance_days:
             continue
         candidates.append(summary)
+    comparison_field = value_field or field_name
     return _latest_consistent_actual(
-        candidates, (field_name,) if field_name else _ACTUAL_ANCHOR_FIELDS
+        candidates, (comparison_field,) if comparison_field is not None else ()
     )
 
 
