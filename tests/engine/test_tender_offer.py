@@ -148,11 +148,22 @@ class ControlEventExitBuildTest(unittest.TestCase):
             "INSERT INTO edinet_documents("
             "doc_date, sequence_number, doc_id, sec_code, doc_type_code, submit_datetime, "
             "legal_status, disclosure_status, withdrawal_status, edinet_code, "
-            "subject_edinet_code) VALUES (?, ?, ?, ?, ?, ?, '1', '0', '0', ?, ?)",
+            "subject_edinet_code, parent_doc_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, '1', '0', '0', ?, ?, ?)",
             [
                 # The target identifies itself through its own annual report.
-                ("2026-01-05", 1, "SELF", "20000", "120", "2026-01-05T09:00", "TARGET", None),
-                *documents,
+                (
+                    "2026-01-05",
+                    1,
+                    "SELF",
+                    "20000",
+                    "120",
+                    "2026-01-05T09:00",
+                    "TARGET",
+                    None,
+                    None,
+                ),
+                *(row if len(row) == 9 else (*row, None) for row in documents),
             ],
         )
         connection.commit()
@@ -213,6 +224,231 @@ class ControlEventExitBuildTest(unittest.TestCase):
             self.assertEqual(summary.candidate_delisting_count, 0)
             self.assertEqual(values, ())
             self.assertEqual(provider.requested, [])
+
+    def test_completed_and_withdrawn_old_rounds_do_not_contaminate_a_later_offer(self) -> None:
+        for offeror in ("BIDDER", "OLD_BIDDER"):
+            for terminal in ("270", "260"):
+                with self.subTest(offeror=offeror, terminal=terminal), TemporaryDirectory() as tmp:
+                    sqlite_path = self._store(
+                        tmp,
+                        [
+                            (
+                                "2025-09-01",
+                                1,
+                                "OLD_REG",
+                                None,
+                                "240",
+                                "2025-09-01T09:00",
+                                offeror,
+                                "TARGET",
+                                None,
+                            ),
+                            (
+                                "2025-10-01",
+                                1,
+                                "OLD_END",
+                                None,
+                                terminal,
+                                "2025-10-01T09:00",
+                                offeror,
+                                "TARGET",
+                                "OLD_REG",
+                            ),
+                            *self._registration_and_result(),
+                            # Late revisions belong to the old registration/result.
+                            (
+                                "2026-04-01",
+                                1,
+                                "OLD_COR",
+                                None,
+                                "250",
+                                "2026-04-01T09:00",
+                                offeror,
+                                "TARGET",
+                                "OLD_REG",
+                            ),
+                            (
+                                "2026-04-02",
+                                1,
+                                "OLD_RES_COR",
+                                None,
+                                "280",
+                                "2026-04-02T09:00",
+                                offeror,
+                                "TARGET",
+                                "OLD_END",
+                            ),
+                        ],
+                        reason="公開買付け、株式併合",
+                    )
+                    provider = _Provider(
+                        {
+                            "REG": _archive(
+                                {_PRICE: "株券１株につき金1,060円", _FUNDING: _CASH_ONLY}
+                            ),
+                            "RES": _archive({_OUTCOME: _SUCCESS}),
+                        }
+                    )
+                    values, summary = build_tender_offer_exit_values(
+                        sqlite_path, provider=provider, asof=self.ASOF
+                    )
+                    self.assertEqual(summary.resolved_count, 1)
+                    self.assertEqual(values[0].offer_price_yen, 1060)
+                    self.assertEqual(values[0].offer_doc_id, "REG")
+                    self.assertEqual(values[0].result_doc_id, "RES")
+                    self.assertEqual(provider.requested, ["RES", "REG"])
+
+    def test_a_new_incomplete_round_does_not_fall_back_to_an_old_completed_round(self) -> None:
+        with TemporaryDirectory() as tmp:
+            sqlite_path = self._store(
+                tmp,
+                [
+                    *self._registration_and_result(),
+                    (
+                        "2026-04-01",
+                        1,
+                        "NEW",
+                        None,
+                        "240",
+                        "2026-04-01T09:00",
+                        "BIDDER",
+                        "TARGET",
+                        None,
+                    ),
+                ],
+                reason="公開買付け",
+            )
+            values, summary = build_tender_offer_exit_values(
+                sqlite_path, provider=_Provider({}), asof=self.ASOF
+            )
+            self.assertEqual(values, ())
+            self.assertEqual(summary.rejection_reason_counts, {"incomplete_case": 1})
+
+    def test_an_unfinished_overlapping_bid_does_not_disappear(self) -> None:
+        with TemporaryDirectory() as tmp:
+            sqlite_path = self._store(
+                tmp,
+                [
+                    *self._registration_and_result(),
+                    (
+                        "2026-02-10",
+                        1,
+                        "RIVAL_REG",
+                        None,
+                        "240",
+                        "2026-02-10T09:00",
+                        "RIVAL",
+                        "TARGET",
+                        None,
+                    ),
+                ],
+                reason="公開買付け",
+            )
+            values, summary = build_tender_offer_exit_values(
+                sqlite_path, provider=_Provider({}), asof=self.ASOF
+            )
+            self.assertEqual(values, ())
+            self.assertEqual(summary.rejection_reason_counts, {"incomplete_case": 1})
+
+    def test_same_day_close_and_new_registration_do_not_prove_separate_rounds(self) -> None:
+        with TemporaryDirectory() as tmp:
+            sqlite_path = self._store(
+                tmp,
+                [
+                    *self._registration_and_result(),
+                    (
+                        "2026-03-20",
+                        2,
+                        "RIVAL_REG",
+                        None,
+                        "240",
+                        "2026-03-20T10:00",
+                        "RIVAL",
+                        "TARGET",
+                    ),
+                    (
+                        "2026-04-01",
+                        1,
+                        "RIVAL_RES",
+                        None,
+                        "270",
+                        "2026-04-01T09:00",
+                        "RIVAL",
+                        "TARGET",
+                    ),
+                ],
+                reason="公開買付け",
+            )
+            values, summary = build_tender_offer_exit_values(
+                sqlite_path, provider=_Provider({}), asof=self.ASOF
+            )
+            self.assertEqual(values, ())
+            self.assertEqual(summary.rejection_reason_counts, {"multiple_offerors": 1})
+
+    def test_parent_id_keeps_a_late_first_tier_correction_in_its_own_chain(self) -> None:
+        with TemporaryDirectory() as tmp:
+            sqlite_path = self._store(
+                tmp,
+                [
+                    *self._registration_and_result(),
+                    ("2026-02-05", 1, "REG2", None, "240", "2026-02-05T09:00", "BIDDER", "TARGET"),
+                    (
+                        "2026-02-10",
+                        1,
+                        "COR",
+                        None,
+                        "250",
+                        "2026-02-10T09:00",
+                        "BIDDER",
+                        "TARGET",
+                        "REG",
+                    ),
+                ],
+                reason="公開買付け",
+            )
+            provider = _Provider(
+                {
+                    "REG": _archive({_PRICE: "株券１株につき金2,000円", _FUNDING: _CASH_ONLY}),
+                    "REG2": _archive({_PRICE: "株券１株につき金1,000円", _FUNDING: _CASH_ONLY}),
+                    "COR": _archive({_PRICE: "株券１株につき金1,000円", _FUNDING: _CASH_ONLY}),
+                    "RES": _archive({_OUTCOME: _SUCCESS}),
+                }
+            )
+            values, summary = build_tender_offer_exit_values(
+                sqlite_path, provider=provider, asof=self.ASOF
+            )
+            self.assertEqual(summary.resolved_count, 1)
+            self.assertEqual(values[0].offer_price_yen, 1000)
+            self.assertNotIn("REG", provider.requested)
+
+    def test_an_unknown_or_different_offeror_parent_is_not_assigned_to_the_latest_offer(
+        self,
+    ) -> None:
+        for parent, offeror in (("MISSING", "BIDDER"), ("REG", "RIVAL")):
+            with self.subTest(parent=parent), TemporaryDirectory() as tmp:
+                sqlite_path = self._store(
+                    tmp,
+                    [
+                        *self._registration_and_result(),
+                        (
+                            "2026-04-01",
+                            1,
+                            "COR",
+                            None,
+                            "250",
+                            "2026-04-01T09:00",
+                            offeror,
+                            "TARGET",
+                            parent,
+                        ),
+                    ],
+                    reason="公開買付け",
+                )
+                values, summary = build_tender_offer_exit_values(
+                    sqlite_path, provider=_Provider({}), asof=self.ASOF
+                )
+                self.assertEqual(values, ())
+                self.assertEqual(summary.rejection_reason_counts, {"incomplete_case": 1})
 
     def test_squeeze_out_mechanisms_require_the_same_cash_offer_evidence(self) -> None:
         for reason in ("株式の併合", "株式併合", "株式等売渡請求による取得"):
