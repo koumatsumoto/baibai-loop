@@ -343,7 +343,7 @@ def _context_calculations(
 ) -> dict[str, dict[str, object]]:
     from baibai_engine.position.price_grid import floor_common_stock_limit
     from baibai_engine.research.assessment import current_price_projection
-    from baibai_engine.research.proposal_service import (
+    from baibai_engine.research.proposal_conditions import (
         assessment_quote_basis,
         buy_evaluation,
         buy_evaluation_payload,

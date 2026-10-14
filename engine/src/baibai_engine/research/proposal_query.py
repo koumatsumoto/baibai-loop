@@ -130,7 +130,7 @@ def _preview_buy(
 ) -> tuple[dict[str, object], list[GateReason]]:
     from baibai_engine.position.market_source import next_order_session
     from baibai_engine.position.price_grid import floor_common_stock_limit
-    from baibai_engine.research.proposal_service import buy_evaluation, buy_evaluation_payload
+    from baibai_engine.research.proposal_conditions import buy_evaluation, buy_evaluation_payload
 
     ceiling = item.terms.limit_price_yen if item.terms is not None else item.proposed_limit_yen
     assert ceiling is not None
@@ -198,7 +198,7 @@ def _preview_holding(
     from baibai_engine.foundation.time import JST
     from baibai_engine.position.policy import PORTFOLIO_POLICY
     from baibai_engine.research.holding_policy import evaluate_holding_proposal
-    from baibai_engine.research.proposal_service import assessment_quote_basis
+    from baibai_engine.research.proposal_conditions import assessment_quote_basis
 
     position = next(
         (position for position in inputs.positions if position.ticker == item.ticker), None
@@ -276,7 +276,7 @@ def preview_current_terms(
         DEFAULT_BUDGET_MIN_YEN,
         collect_proposal_inputs,
     )
-    from baibai_engine.research.proposal_service import (
+    from baibai_engine.research.proposal_conditions import (
         assessment_quote_basis,
         terms_unavailable_reasons,
     )

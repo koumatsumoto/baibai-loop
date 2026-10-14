@@ -344,7 +344,7 @@ ignore_imports = [
   "baibai_engine.research.selection -> baibai_engine.market.ticker",
   "baibai_engine.research.assessment -> baibai_engine.market.ticker",
   "baibai_engine.research.proposal -> baibai_engine.market.ticker",
-  "baibai_engine.research.proposal_service -> baibai_engine.market.universe",
+  "baibai_engine.research.proposal_conditions -> baibai_engine.market.universe",
 ]
 
 [[tool.importlinter.contracts]]
@@ -422,15 +422,14 @@ allow_indirect_imports = true
 [[tool.importlinter.contracts]]
 name = "read_api cannot reach writer or CLI modules"
 type = "forbidden"
-# Exact pair readers receive query-only connections. Preview imports only the
-# service's read-only basis/terms helpers, without opening its write service.
+# Exact pair readers receive query-only connections. Preview uses read-only
+# condition evaluation, not the publication service; its pair type is annotation-only.
 ignore_imports = [
   "baibai_engine.read_api.research -> baibai_engine.research.assessment_store",
   "baibai_engine.read_api.proposals -> baibai_engine.research.assessment_store",
   "baibai_engine.research.proposal_query -> baibai_engine.research.assessment_store",
   "baibai_engine.research.proposal_inputs -> baibai_engine.research.assessment_store",
-  "baibai_engine.research.proposal_query -> baibai_engine.research.proposal_service",
-  "baibai_engine.research.proposal_inputs -> baibai_engine.research.proposal_service",
+  "baibai_engine.research.proposal_conditions -> baibai_engine.research.assessment_store",
 ]
 source_modules = ["baibai_engine.read_api"]
 forbidden_modules = [
@@ -438,6 +437,7 @@ forbidden_modules = [
   "baibai_engine.cli",
   "baibai_engine.market_context.indicators.providers",
   "baibai_engine.position.cli",
+  "baibai_engine.research.proposal_service",
   "baibai_engine.research.assessment_evaluation_cli",
   "baibai_engine.research.workspace_cli",
   "baibai_engine.screening.cli",
