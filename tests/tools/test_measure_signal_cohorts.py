@@ -9,6 +9,7 @@ import yaml
 from tests.helpers.calibration_store import (
     calibration_root,
     liquid_panel_row,
+    panel_row,
     publish_forward,
     publish_panel,
 )
@@ -51,6 +52,7 @@ def test_stored_population_flag_is_the_only_population_authority(tmp_path: Path)
     payload = build_measurement(calibration_dir=directory, horizons=("1y",), er_threshold=0.085)
 
     assert payload["panel_rows"] == 1
+    assert payload["basis_coverage"]["1y"]["price_resolved_rows"] == 1
 
 
 def test_unresolved_forward_rows_do_not_enter_the_median(tmp_path: Path) -> None:
@@ -253,7 +255,7 @@ def test_basis_coverage_reports_both_denominators(tmp_path: Path) -> None:
     assert coverage["price_resolved_rows"] == 3
     assert coverage["total_resolved_rows"] == 2
     assert coverage["total_to_price_ratio"] == 0.667
-    # 2/3 は 0.75 を割るので、両 basis を並べて読める horizon ではない。
+    # 異なる行集合の中央値差を配当寄与として扱わない。
     assert coverage["bases_comparable"] is False
 
 
@@ -307,3 +309,66 @@ def test_measurement_reads_the_atomic_current_snapshot(
     assert payload["panel_asof_start"] == "2024-01-31"
     assert payload["panel_asof_end"] == "2024-01-31"
     assert payload["calibration_snapshot"] == "current"
+
+
+@pytest.mark.parametrize("shared_count", [3, 4])
+def test_basis_comparability_requires_identical_rows(shared_count: int) -> None:
+    price = {("2024-01-31", str(index)) for index in range(4)}
+    total = set(sorted(price)[:shared_count])
+    if shared_count == 3:
+        total.add(("2024-01-31", "other"))
+    coverage = measure_signal_cohorts._basis_coverage(
+        {"1y": {"price": price, "total": total}}, ("1y",), price | total
+    )["1y"]
+    assert coverage["total_to_price_ratio"] == 1.0
+    assert coverage["bases_comparable"] is (shared_count == 4)
+
+
+def test_coverage_is_limited_to_requested_panel_window(tmp_path: Path) -> None:
+    directory = _both_basescalibration_root(tmp_path)
+    asof = "2021-01-31"
+    publish_panel(directory, asof, [liquid_panel_row("2000", asof)])
+    publish_forward(
+        directory,
+        asof,
+        [
+            {
+                "asof": asof,
+                "ticker": "2000",
+                "horizon": "1y",
+                "price_return": "0.1",
+                "status": "resolved",
+                "total_return": "0.12",
+                "total_return_status": "resolved",
+            }
+        ],
+    )
+    payload = build_measurement(
+        calibration_dir=directory,
+        horizons=("1y",),
+        er_threshold=0.085,
+        asof_from=asof,
+        asof_to=asof,
+    )
+    assert payload["basis_coverage"]["1y"] == {
+        "price_resolved_rows": 1,
+        "total_resolved_rows": 1,
+        "total_to_price_ratio": 1.0,
+        "bases_comparable": True,
+    }
+
+
+def test_missing_upside_does_not_enter_below_cap_group() -> None:
+    stored = panel_row(
+        "2024-01-31",
+        "1111",
+        er_annual=0.05,
+        per_forward=None,
+        per_trailing=None,
+        er_upside_capped=None,
+    )
+    row = measure_signal_cohorts._panel_row(stored, {(stored.asof, stored.ticker): {"1y": 0.1}})
+    assert row is not None
+    groups = measure_signal_cohorts._anchor_comparison([row], "1y")["groups"]
+    below = next(group for group in groups if group["group"] == "equity_anchor_only_below_cap")
+    assert below["resolved_rows"] == 0

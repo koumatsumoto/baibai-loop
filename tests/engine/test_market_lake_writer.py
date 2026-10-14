@@ -570,7 +570,8 @@ def test_l1_export_benchmark_records_full_export_and_correction_transfer(tmp_pat
         producer_commit=_COMMIT,
     )
 
-    assert report["status"] == "passed"
+    assert report["status"] == "measured"
+    assert report["kind"] == "l1_full_history_export_benchmark"
     assert report["full"]["datasets"]["jquants.daily_bars"]["rows"] == 4  # type: ignore[index]
     assert report["correction"]["new_object_count"] == 1  # type: ignore[index]
     assert report_path.is_file()
