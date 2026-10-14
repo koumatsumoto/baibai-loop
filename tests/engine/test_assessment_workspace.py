@@ -9,7 +9,6 @@ import pytest
 import yaml
 from tests.helpers.assessment_v1 import (
     assessment_id,
-    create_assessment_tables,
     pair_payload,
     update_review_hash,
 )
@@ -48,8 +47,6 @@ def case(tmp_path):
         indicators_path=tmp_path / "absent-indicators",
         now=NOW,
     )
-    with sqlite3.connect(db) as connection:
-        create_assessment_tables(connection)
     return db, workspace, result.operation_id
 
 
@@ -99,12 +96,34 @@ def test_initial_scaffold_has_new_contract_and_stable_writer_identity(case):
     assert scaffold(case, force=True)["assessment_id"] == first["assessment_id"]
 
 
-def test_scaffold_out_requires_the_canonical_workspace_file(case):
+def test_scaffold_out_exports_same_payload_and_preserves_canonical_writer_source(case):
+    db, workspace, _ = case
+    exported = workspace.parent / "custom-draft.yaml"
+    result = scaffold(case, out=exported)
+    canonical = workspace / "1234/assessment-draft.yaml"
+    assert exported.read_bytes() == canonical.read_bytes()
+    assert result["exported_draft"] == str(exported)
+    exported.write_text("independently edited export")
+    assert yaml.safe_load(canonical.read_text())["kind"] == "stock_assessment"
+    assert (
+        yaml.safe_load((canonical.parent / "assessment-publication.yaml").read_text())[
+            "assessment_id"
+        ]
+        == result["assessment_id"]
+    )
+    author(case)
+    promoted = promote(workspace=workspace, ticker="1234", db_path=db, now=NOW)
+    assert promoted.assessment_id == result["assessment_id"]
+
+
+def test_scaffold_export_collision_has_no_workspace_write(case):
     _db, workspace, _ = case
-    with pytest.raises(ResearchWorkspaceConflictError, match="--out"):
-        scaffold(case, out=workspace / "different.yaml")
+    exported = workspace.parent / "custom-draft.yaml"
+    exported.write_text("existing authored file")
+    with pytest.raises(ResearchWorkspaceConflictError, match="export exists"):
+        scaffold(case, out=exported)
     assert not (workspace / "1234").exists()
-    assert scaffold(case, out=workspace / "1234/assessment-draft.yaml")["assessment_id"]
+    assert exported.read_text() == "existing authored file"
 
 
 @pytest.mark.parametrize("invalid", [float("nan"), float("inf"), True])
@@ -222,8 +241,6 @@ def test_holding_workspace_promote_records_the_same_assessment_contract(tmp_path
         indicators_path=tmp_path / "absent-indicators",
         now=NOW,
     )
-    with sqlite3.connect(db) as connection:
-        create_assessment_tables(connection)
     child = prepared.workspace / "holdings/2331"
     author((db, child, prepared.operation_id), ticker="2331")
     before = ledger.model_dump(mode="json")

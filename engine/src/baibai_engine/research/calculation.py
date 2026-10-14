@@ -10,8 +10,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from baibai_engine.valuation.models import Valuation
 from baibai_engine.valuation.scenario import finite_decimal, maximum_entry_price, project_return
 
+from .assessment import DerivedMetric, InputSnapshot, _date, _tuple, ratio_value_from_facts
 from .decimal_number import decimal_to_number
-from .thesis import DerivedMetric, InputSnapshot, _date, _tuple, ratio_value_from_facts
 
 _CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid", allow_inf_nan=False)
 
@@ -104,7 +104,7 @@ def calculate(inputs: CalculationInput) -> dict[str, object]:
     assert valuation.horizon_months is not None
     assert valuation.required_annual_return_pct is not None
     context: dict[str, object] = {
-        "price_context": "thesis_snapshot",
+        "price_context": "assessment_snapshot",
         "valuation_as_of": snapshot.as_of.isoformat(),
         "price_yen": decimal_to_number(price),
         "price_as_of": price_fact.as_of.isoformat(),

@@ -46,11 +46,11 @@ def _require_holding_subject(manifest: Mapping[str, object], *, db_path: Path | 
 
     ticker = _string_or_none(manifest.get("holding_ticker"))
     if ticker is None:
-        raise ResearchWorkspaceDataError("position-review manifest is missing holding_ticker")
+        raise ResearchWorkspaceDataError("holding manifest is missing holding_ticker")
     ledger, _ = LedgerStoreService(db_path).load_with_head()
     state = replay_events_through(ledger.events, ledger.as_of)
     if sum(lot.quantity for lot in state.lots.get(ticker, [])) <= 0:
-        raise ResearchWorkspaceConflictError("position workspace requires a current holding")
+        raise ResearchWorkspaceConflictError("holding workspace requires a current holding")
 
 
 def _validate_editable_drafts(

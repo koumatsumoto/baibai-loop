@@ -2,14 +2,12 @@
 
 import json
 import socket
-import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
 import yaml
-from tests.helpers.assessment_v1 import assessment_id, create_assessment_tables, pair_payload
-from tests.helpers.proposal_v1 import create_proposal_tables
+from tests.helpers.assessment_v1 import assessment_id, pair_payload
 from tests.helpers.research_selection import draft_for, selected_target, selection
 
 from baibai_engine.research.operation.progress import selection_binding
@@ -210,9 +208,6 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
     assessment, review = pair_payload(ticker="1234", as_of="2026-09-07")
     (directory / "assessment-draft.yaml").write_text(yaml.safe_dump(assessment))
     (directory / "assessment-review.yaml").write_text(yaml.safe_dump(review))
-    with sqlite3.connect(tmp_path / "app") as connection:
-        create_assessment_tables(connection)
-        create_proposal_tables(connection)
     (directory / "assessment-publication.yaml").write_text(
         yaml.safe_dump(
             {
@@ -373,10 +368,10 @@ def test_previous_analysis_day_current_research_and_formal_assessment_are_separa
     )
     payload.pop("er_model_version")
     ScreeningRunStore(runs).publish_run(
-        payload, run_revision_id="previous-analysis", rules=load_screening_rules()
+        payload, run_revision_id="run-revision-" + "a" * 32, rules=load_screening_rules()
     )
     analysis = load_analysis_snapshot(
-        run_revision_id="previous-analysis",
+        run_revision_id="run-revision-" + "a" * 32,
         research_as_of=NOW.date(),
         tickers=("1234",),
         gaps=(),
@@ -403,8 +398,6 @@ def test_previous_analysis_day_current_research_and_formal_assessment_are_separa
     assessment, review = pair_payload(ticker="1234", as_of="2026-09-07")
     (directory / "assessment-draft.yaml").write_text(yaml.safe_dump(assessment))
     (directory / "assessment-review.yaml").write_text(yaml.safe_dump(review))
-    with sqlite3.connect(tmp_path / "app") as connection:
-        create_assessment_tables(connection)
     (directory / "assessment-publication.yaml").write_text(
         yaml.safe_dump(
             {

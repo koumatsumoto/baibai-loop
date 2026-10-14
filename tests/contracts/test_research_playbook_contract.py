@@ -44,7 +44,7 @@ def test_research_skill_consumes_only_explicit_approach_applicability() -> None:
     assert "明示mappingされたplaybook" in text
 
 
-def test_research_skill_continues_the_capital_allocation_session() -> None:
+def test_research_skill_completes_the_investment_proposal_session() -> None:
     text = RESEARCH_SKILL.read_text(encoding="utf-8")
     assert "analysis-operations.md#明示開始と固定対象" in text
     assert "--request" in text
@@ -53,5 +53,5 @@ def test_research_skill_continues_the_capital_allocation_session() -> None:
     assert "--operation-id" in text
     assert "record-unfinished" in text
     assert "operation complete --payload" in text
-    assert "人間の採否を完了条件にしない" in text
+    assert "人間の採否・broker操作・実約定を完了条件へ補完しない" in text
     assert "開始時のresearch_triage artifact・exact ref・Research Setを保ったpayload" not in text

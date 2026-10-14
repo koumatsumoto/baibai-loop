@@ -189,11 +189,7 @@ def _materialize(
 ) -> SelectedResearchPreparation:
     digest = selection_sha256(selection)
     projection = project_research_inputs(selection)
-    purpose = (
-        "position_review"
-        if selection.request.scope == "review_positions"
-        else "fundamental_research"
-    )
+    purpose = "holding" if selection.request.scope == "review_positions" else "fundamental_research"
     manifest = {
         "schema_version": 2,
         "operation_id": operation.operation_id,

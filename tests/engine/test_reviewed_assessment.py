@@ -1,18 +1,22 @@
-"""F01/F02/F03/F06/F08: valuation and atomic Reviewed Thesis publication owners."""
+"""F01/F02/F03/F06/F08: valuation and atomic Reviewed Assessment publication owners."""
 
 from copy import deepcopy
 from datetime import datetime
 from decimal import Decimal
 
 import pytest
-from tests.helpers.research_v4 import pair_payload
+from tests.helpers.assessment_v1 import (
+    assessment_id,
+    pair_payload,
+    review_id,
+)
 
-from baibai_engine.research.thesis import ThesisDocument, thesis_core_hash
-from baibai_engine.research.thesis_store import (
+from baibai_engine.research.assessment import StockAssessmentDocument, assessment_core_hash
+from baibai_engine.research.assessment_store import (
+    AssessmentStoreService,
     ResearchConflictError,
     ResearchValidationError,
-    ThesisStoreService,
-    load_latest_reviewed_thesis,
+    load_latest_reviewed_assessment,
 )
 from baibai_engine.storage.application.read import connect_read_only
 from baibai_engine.valuation.scenario import (
@@ -23,7 +27,7 @@ from baibai_engine.valuation.scenario import (
     valuation_conditions,
 )
 
-NOW = datetime.fromisoformat("2026-09-07T18:00:00+09:00")
+NOW = datetime.fromisoformat("2026-10-14T18:00:00+09:00")
 
 
 def projection(terminal=1204, cash=30):
@@ -92,12 +96,12 @@ def test_horizon_rejects_invalid_numbers(bad):
 
 def test_atomic_pair_retry_and_latest_unresolved(tmp_path):
     db = tmp_path / "app.sqlite"
-    service = ThesisStoreService(db, clock=lambda: NOW)
-    thesis, review = pair_payload()
-    service.publish_reviewed_thesis("thesis-1", thesis, review)
-    unresolved, second_review = deepcopy(thesis), deepcopy(review)
+    service = AssessmentStoreService(db, clock=lambda: NOW)
+    assessment, review = pair_payload()
+    service.publish_reviewed_assessment(assessment_id(), assessment, review)
+    unresolved, second_review = deepcopy(assessment), deepcopy(review)
     unresolved["input_snapshot"]["facts"] = []
-    unresolved["judgment"]["disposition"] = "defer"
+    unresolved["conclusion"]["stance"] = "uncertain"
     unresolved["valuation"] = dict(
         status="unresolved",
         market_price_fact_id=None,
@@ -107,69 +111,75 @@ def test_atomic_pair_retry_and_latest_unresolved(tmp_path):
         downside=None,
         unresolved_reason="価格不明",
     )
-    second_review["review_id"] = "review-2"
+    second_review["review_id"] = review_id(4)
     second_review["recalculated_projections"] = []
-    second_review["reviewed_thesis_sha256"] = thesis_core_hash(
-        ThesisDocument.model_validate(unresolved)
+    second_review["reviewed_assessment_sha256"] = assessment_core_hash(
+        StockAssessmentDocument.model_validate(unresolved)
     )
-    service.publish_reviewed_thesis("thesis-2", unresolved, second_review, supersedes_id="thesis-1")
-    service.publish_reviewed_thesis("thesis-1", thesis, review)
+    service.publish_reviewed_assessment(
+        assessment_id(3), unresolved, second_review, supersedes_id=assessment_id()
+    )
+    service.publish_reviewed_assessment(assessment_id(), assessment, review)
     with connect_read_only(db) as connection:
-        latest = load_latest_reviewed_thesis(connection, "1234")
-        assert latest.thesis_id == "thesis-2"
+        latest = load_latest_reviewed_assessment(connection, "1234")
+        assert latest.assessment_id == assessment_id(3)
         assert latest.document.valuation.status == "unresolved"
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 23
+        assert latest.core_sha256 == second_review["reviewed_assessment_sha256"]
     changed = deepcopy(review)
     changed["strongest_countercase"] = "異なる内容"
     with pytest.raises(ResearchConflictError):
-        service.publish_reviewed_thesis("thesis-1", thesis, changed)
+        service.publish_reviewed_assessment(assessment_id(), assessment, changed)
 
 
 @pytest.mark.parametrize("fault", ["hash", "terminal", "cash", "source", "unit"])
 def test_invalid_pair_never_publishes(tmp_path, fault):
-    thesis, review = pair_payload()
+    assessment, review = pair_payload()
     if fault == "hash":
-        review["reviewed_thesis_sha256"] = "0" * 64
+        review["reviewed_assessment_sha256"] = "0" * 64
     elif fault in {"terminal", "cash"}:
         key = (
             "terminal_value_per_share_yen"
             if fault == "terminal"
             else "cash_distribution_per_share_yen"
         )
-        review["recalculated_projections"][0][key] += 1
+        review["recalculated_projections"][0][key] = str(
+            Decimal(review["recalculated_projections"][0][key]) + 1
+        )
     elif fault == "source":
-        thesis["valuation"]["base"]["source_ids"] = ["missing"]
+        assessment["valuation"]["base"]["source_ids"] = ["missing"]
     else:
-        thesis["input_snapshot"]["facts"][0]["unit"] = "JPY"
+        assessment["input_snapshot"]["facts"][0]["unit"] = "JPY"
     db = tmp_path / "app.sqlite"
     with pytest.raises(ResearchValidationError):
-        ThesisStoreService(db, clock=lambda: NOW).publish_reviewed_thesis(
-            "thesis-1", thesis, review
+        AssessmentStoreService(db, clock=lambda: NOW).publish_reviewed_assessment(
+            assessment_id(), assessment, review
         )
     with connect_read_only(db) as connection:
-        assert connection.execute("SELECT count(*) FROM thesis").fetchone()[0] == 0
-        assert connection.execute("SELECT count(*) FROM thesis_review").fetchone()[0] == 0
+        assert connection.execute("SELECT count(*) FROM stock_assessment").fetchone()[0] == 0
+        assert connection.execute("SELECT count(*) FROM stock_assessment_review").fetchone()[0] == 0
 
 
-def test_review_insert_failure_rolls_back_thesis_in_caller_transaction(tmp_path):
+def test_review_insert_failure_rolls_back_assessment_in_caller_transaction(tmp_path):
     import sqlite3
 
-    from baibai_engine.research.thesis_store import publish_reviewed_thesis
+    from baibai_engine.research.assessment_store import publish_reviewed_assessment
     from baibai_engine.storage.application.write import connect_rw, initialize_database
 
     db = tmp_path / "app.sqlite"
     initialize_database(db)
-    thesis, review = pair_payload()
+    assessment, review = pair_payload()
     with connect_rw(db) as connection:
         connection.execute(
-            "CREATE TRIGGER fail_review BEFORE INSERT ON thesis_review BEGIN SELECT RAISE(ABORT, 'review insert failed'); END"
+            "CREATE TRIGGER fail_review BEFORE INSERT ON stock_assessment_review BEGIN SELECT RAISE(ABORT, 'review insert failed'); END"
         )
         connection.execute("BEGIN IMMEDIATE")
         with pytest.raises(sqlite3.IntegrityError, match="review insert failed"):
-            publish_reviewed_thesis(connection, "new", thesis, review, published_at=NOW)
+            publish_reviewed_assessment(
+                connection, assessment_id(), assessment, review, published_at=NOW
+            )
         assert connection.in_transaction
-        assert connection.execute("SELECT count(*) FROM thesis").fetchone()[0] == 0
-        assert connection.execute("SELECT count(*) FROM thesis_review").fetchone()[0] == 0
+        assert connection.execute("SELECT count(*) FROM stock_assessment").fetchone()[0] == 0
+        assert connection.execute("SELECT count(*) FROM stock_assessment_review").fetchone()[0] == 0
         connection.commit()
 
 
@@ -190,8 +200,8 @@ def test_review_insert_failure_rolls_back_thesis_in_caller_transaction(tmp_path)
     ],
 )
 def test_independently_checked_financial_golden_cases(tmp_path, terminal, cash, calculation, wrong):
-    thesis, review = pair_payload()
-    thesis["valuation"]["base"].update(
+    assessment, review = pair_payload()
+    assessment["valuation"]["base"].update(
         terminal_value_per_share_yen=terminal,
         cash_distribution_per_share_yen=cash,
         calculation=calculation,
@@ -199,15 +209,21 @@ def test_independently_checked_financial_golden_cases(tmp_path, terminal, cash, 
     review["recalculated_projections"][0].update(
         terminal_value_per_share_yen=terminal, cash_distribution_per_share_yen=cash
     )
-    review["reviewed_thesis_sha256"] = thesis_core_hash(ThesisDocument.model_validate(thesis))
-    service = ThesisStoreService(tmp_path / "app.sqlite", clock=lambda: NOW)
-    service.publish_reviewed_thesis("correct", thesis, review)
-    thesis["valuation"]["base"]["terminal_value_per_share_yen"] = wrong
-    review["review_id"] = "review-wrong"
-    review["reviewed_thesis_sha256"] = thesis_core_hash(ThesisDocument.model_validate(thesis))
+    review["reviewed_assessment_sha256"] = assessment_core_hash(
+        StockAssessmentDocument.model_validate(assessment)
+    )
+    service = AssessmentStoreService(tmp_path / "app.sqlite", clock=lambda: NOW)
+    service.publish_reviewed_assessment(assessment_id(), assessment, review)
+    assessment["valuation"]["base"]["terminal_value_per_share_yen"] = wrong
+    review["review_id"] = review_id(4)
+    review["reviewed_assessment_sha256"] = assessment_core_hash(
+        StockAssessmentDocument.model_validate(assessment)
+    )
     # A hash match cannot replace independently checked financial arithmetic.
     with pytest.raises(ResearchValidationError, match="terminal"):
-        service.publish_reviewed_thesis("wrong", thesis, review, supersedes_id="correct")
+        service.publish_reviewed_assessment(
+            assessment_id(3), assessment, review, supersedes_id=assessment_id()
+        )
 
 
 @pytest.mark.parametrize(
@@ -265,22 +281,18 @@ def test_conditions_keep_valuation_precision_for_small_surplus():
     assert result.total_value_surplus_yen == Decimal("1e-38")
 
 
-def test_valuation_type_move_preserves_saved_thesis_json_and_core_identity():
-    """The pre-extraction v4 fixture identity remains valid without reissuing Review."""
+def test_valuation_owner_has_typed_canonical_assessment_identity():
     import json
 
     from baibai_engine.valuation.models import Valuation
 
-    thesis, review = pair_payload()
-    document = ThesisDocument.model_validate(thesis)
+    assessment, review = pair_payload()
+    document = StockAssessmentDocument.model_validate(assessment)
     assert isinstance(document.valuation, Valuation)
-    assert (
-        thesis_core_hash(document)
-        == "76f780e59aeda17251c8db1c8fed1ba05bbc92254de22c4d66212437343d232a"
-    )
-    assert thesis_core_hash(document) == review["reviewed_thesis_sha256"]
+    assert assessment_core_hash(document) == review["reviewed_assessment_sha256"]
     encoded = document.model_dump(mode="json")
-    assert encoded["valuation"]["base"]["terminal_value_per_share_yen"] == "1204"
+    assert encoded["valuation"]["base"]["terminal_value_per_share_yen"] == "1100"
     assert (
-        ThesisDocument.model_validate_json(json.dumps(encoded)).model_dump(mode="json") == encoded
+        StockAssessmentDocument.model_validate_json(json.dumps(encoded)).model_dump(mode="json")
+        == encoded
     )

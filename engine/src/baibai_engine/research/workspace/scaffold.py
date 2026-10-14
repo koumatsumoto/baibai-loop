@@ -70,12 +70,10 @@ def scaffold_assessment(
     )
     directory = _research_ticker_dir(workspace, ticker)
     path = directory / "assessment-draft.yaml"
-    if out is not None and out.resolve() != path:
-        raise ResearchWorkspaceConflictError(
-            "--out must name the case's assessment-draft.yaml inside this workspace"
-        )
     if path.exists() and not force:
         raise ResearchWorkspaceConflictError("assessment draft exists; use --force")
+    if out is not None and out.exists() and out.resolve() != path and not force:
+        raise ResearchWorkspaceConflictError("assessment export exists; use --force")
     if retrieved_at.utcoffset() is None or as_of > retrieved_at.astimezone(JST).date():
         raise ResearchWorkspaceDataError(
             "assessment date must not follow its aware assessment time"
@@ -191,13 +189,17 @@ def scaffold_assessment(
             "supersedes_id": from_assessment_id,
         }
     write_text_atomic(identity_path, _dump_yaml(identity))
-    write_text_atomic(path, _ASSESSMENT_DRAFT_HEADER + _dump_yaml(payload))
+    content = _ASSESSMENT_DRAFT_HEADER + _dump_yaml(payload)
+    write_text_atomic(path, content)
+    if out is not None and out.resolve() != path:
+        write_text_atomic(out, content)
     return {
         "assessment_draft": str(path),
         "price_as_of": None if quote is None else quote.price_as_of.isoformat(),
         "close_yen": None if quote is None else quote.close_yen,
         "from_assessment_id": from_assessment_id,
         "assessment_id": identity["assessment_id"],
+        "exported_draft": None if out is None else str(out),
     }
 
 
