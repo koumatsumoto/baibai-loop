@@ -14,7 +14,7 @@ from baibai_engine.storage.lake.hydrate import (
     dehydrate_market_store,
     hydrate_market_store,
 )
-from baibai_engine.storage.lake.identity import source_repo_root, verified_git_commit
+from baibai_engine.storage.lake.identity import verified_git_commit
 from baibai_engine.storage.lake.models import L1ReleaseSourceRef, load_lake_model_json
 from baibai_engine.storage.lake.objects import LakeObjectError, LakeObjectSource, open_lake
 from baibai_engine.storage.lake.prefetch import prefetching_hydration_cache
@@ -94,7 +94,7 @@ def main(argv: list[str]) -> int:
         export_report = export_lake_legacy(
             sqlite_path=args.sqlite,
             mirror_root=args.mirror,
-            producer_git_commit=_git_commit(),
+            producer_git_commit=verified_git_commit(),
             expected_store_origin=read_lake_store_origin(args.sqlite),
         )
         print(
@@ -274,10 +274,3 @@ commands:
 """
     )
 
-
-def _git_commit() -> str:
-    return verified_git_commit()
-
-
-def _source_repo_root() -> Path:
-    return source_repo_root()

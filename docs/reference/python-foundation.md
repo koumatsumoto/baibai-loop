@@ -38,8 +38,9 @@ source_paths:
 クラウド内の書込であり、本番storeや外部serviceへの書込とは区別する。
 本番操作の入口とcredential配置は[batch運用](../../batch/OPERATIONS.md#actions-write-boundary)に従う。
 
-開発は、実際のcheckoutとAGENTS.md・対象skillを確認 → 保存済み環境で依存を準備 → branchで修正 →
-[完全gate](#9-ci-and-local-parity)と必要な認可済み読取検証 → draft PR → 対象headのCI確認の順で行う。
+開発は、対象revisionとAGENTS.md・対象skillを確認 → branchで修正 → draft PR →
+[対象headのCI](#9-ci-and-local-parity)確認の順で行う。ローカル検証が必要な場合だけcheckoutと依存を準備する。
+実データ依存の検証は認可された環境で別途行う。
 実行済み・失敗・未実行をPRへ記し、fixture成功を実データや本番反映の成功に読み替えない。
 
 公開repositoryのstandard GitHub-hosted runnerの実行時間は無料である。
@@ -165,7 +166,9 @@ CodeQLは現行構成では採用しない。scanner追加は既存検査との�
 
 ## 9. CI and local parity
 
-各blockはrepository rootから独立して実行し、非zeroなら原因を直してから次へ進む。実際のtrigger/stepは`.github/workflows/`を参照する。
+通常の整形・lint・型・契約・テスト・依存検査は、対象HEADのCI結果で確認する。完全local gateをpush前に重複実行することは必須としない。失敗時は原因を修正して新しいHEADのCIを再確認し、前のcommitの成功を流用しない。
+
+以下は原因調査や必要な事前確認で使うローカル相当commandである。各blockはrepository rootから独立して実行し、非zeroなら原因を直す。実際のtrigger/stepは`.github/workflows/`を参照する。
 
 ```bash
 (

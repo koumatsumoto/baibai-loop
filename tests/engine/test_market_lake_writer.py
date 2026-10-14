@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import sqlite3
 import subprocess
+from collections.abc import Iterator
+from contextlib import closing, contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -11,7 +13,6 @@ from tests.helpers.lake_policy import narrow_release_policy
 from tools.diagnostics.benchmark_l1_export import benchmark
 
 from baibai_engine.storage.lake import identity as identity_module
-from baibai_engine.storage.lake import write_cli as write_cli_module
 from baibai_engine.storage.lake import writer as writer_module
 from baibai_engine.storage.lake.datasets import require_lake_dataset
 from baibai_engine.storage.lake.immutable import install_immutable_bytes
@@ -94,7 +95,7 @@ def test_every_run_derives_every_partition_and_only_moved_bytes_make_new_objects
         producer_git_commit=_COMMIT,
         build_id="base-build",
     )
-    with sqlite3.connect(sqlite_path) as connection:
+    with closing(sqlite3.connect(sqlite_path)) as connection, connection:
         connection.execute(
             "UPDATE jquants_daily_bars SET close = 111.0 WHERE traded_at = '2026-02-02'"
         )
@@ -130,7 +131,7 @@ def test_case_sensitive_like_keeps_partition_rows_order_and_identity(tmp_path: P
     dataset = require_lake_dataset("jquants.daily_bars")
     uri = f"{sqlite_path.resolve().as_uri()}?mode=ro&immutable=1"
     with (
-        sqlite3.connect(uri, uri=True) as legacy,
+        closing(sqlite3.connect(uri, uri=True)) as legacy,
         writer_module._open_immutable(sqlite_path) as indexed,
     ):
         legacy.execute("PRAGMA case_sensitive_like=OFF")
@@ -147,10 +148,13 @@ def test_indexed_like_keeps_partition_object_key(
     mirror = tmp_path / "mirror"
     indexed_open = writer_module._open_immutable
 
-    def legacy_open(path: Path) -> sqlite3.Connection:
-        connection = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro&immutable=1", uri=True)
-        connection.execute("PRAGMA case_sensitive_like=OFF")
-        return connection
+    @contextmanager
+    def legacy_open(path: Path) -> Iterator[sqlite3.Connection]:
+        with closing(
+            sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro&immutable=1", uri=True)
+        ) as connection:
+            connection.execute("PRAGMA case_sensitive_like=OFF")
+            yield connection
 
     monkeypatch.setattr(writer_module, "_open_immutable", legacy_open)
     legacy = _export(
@@ -176,7 +180,7 @@ def test_indexed_like_keeps_partition_object_key(
 
 def test_blob_date_still_fails_closed_with_indexed_like(tmp_path: Path) -> None:
     sqlite_path = market_store(tmp_path / "market.sqlite")
-    with sqlite3.connect(sqlite_path) as connection:
+    with closing(sqlite3.connect(sqlite_path)) as connection, connection:
         connection.execute(
             "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
             ("9999", sqlite3.Binary(b"2026-01-31"), 1.0),
@@ -260,7 +264,7 @@ def test_release_rejects_mixed_sqlite_snapshot_generations(
         build_id="mixed-1",
         created_at=created_at,
     ).manifest_path
-    with sqlite3.connect(sqlite_path) as connection:
+    with closing(sqlite3.connect(sqlite_path)) as connection, connection:
         connection.execute(
             "INSERT INTO jquants_daily_bars(ticker, traded_at, close) "
             "VALUES ('9984', '2026-02-03', 333.0)"
@@ -285,7 +289,7 @@ def test_release_rejects_mixed_sqlite_snapshot_generations(
 
 def test_short_sale_unknown_coverage_is_not_publishable(tmp_path: Path) -> None:
     sqlite_path = market_store(tmp_path / "market.sqlite")
-    with sqlite3.connect(sqlite_path) as connection:
+    with closing(sqlite3.connect(sqlite_path)) as connection, connection:
         connection.execute(
             "DELETE FROM source_coverage WHERE source = ?", ("jquants_short_sale_reports",)
         )
@@ -377,7 +381,7 @@ def test_commit_after_snapshot_does_not_change_export_generation(tmp_path: Path)
     with sealed_sqlite_snapshot(
         sqlite_path=sqlite_path, mirror_root=mirror, snapshot_id="before-later-commit"
     ) as snapshot:
-        with sqlite3.connect(sqlite_path) as connection:
+        with closing(sqlite3.connect(sqlite_path)) as connection, connection:
             connection.execute(
                 "INSERT INTO jquants_daily_bars(ticker, traded_at, close) "
                 "VALUES ('9984', '2026-02-03', 333.0)"
@@ -468,7 +472,7 @@ def test_git_identity_rejects_dirty_or_unknown_source(
     top_level = subprocess.CompletedProcess(
         args=("git", "rev-parse"),
         returncode=0,
-        stdout=f"{write_cli_module._source_repo_root()}\n",
+        stdout=f"{identity_module.source_repo_root()}\n",
         stderr="",
     )
     dirty_responses = iter((top_level, dirty))
@@ -478,7 +482,7 @@ def test_git_identity_rejects_dirty_or_unknown_source(
         lambda *args, **kwargs: next(dirty_responses),
     )
     with pytest.raises(RuntimeError, match="clean tracked worktree"):
-        write_cli_module._git_commit()
+        identity_module.verified_git_commit()
 
     responses = iter(
         (
@@ -495,7 +499,7 @@ def test_git_identity_rejects_dirty_or_unknown_source(
         lambda *args, **kwargs: next(responses),
     )
     with pytest.raises(RuntimeError, match="verifiable git commit"):
-        write_cli_module._git_commit()
+        identity_module.verified_git_commit()
 
     other_repo = subprocess.CompletedProcess(
         args=("git", "rev-parse"),
@@ -509,7 +513,7 @@ def test_git_identity_rejects_dirty_or_unknown_source(
         lambda *args, **kwargs: other_repo,
     )
     with pytest.raises(RuntimeError, match="source repository identity is ambiguous"):
-        write_cli_module._git_commit()
+        identity_module.verified_git_commit()
 
 
 def test_l1_manifest_digest_is_part_of_the_gc_root(
@@ -627,8 +631,8 @@ def test_a_seal_a_killed_operation_left_behind_is_collected(tmp_path: Path) -> N
 def test_gc_tracks_current_release_content_without_sealed_inputs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str | None
 ) -> None:
-    narrow_release_policy(monkeypatch)
     """The sealed generation is named, not kept, so nothing reports it as a lost root."""
+    narrow_release_policy(monkeypatch)
 
     sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
@@ -686,7 +690,7 @@ def test_sealed_snapshot_rejects_invalid_store(tmp_path, failure):
     if failure == "corrupt":
         source.write_bytes(b"not SQLite")
     else:
-        with sqlite3.connect(source) as connection:
+        with closing(sqlite3.connect(source)) as connection, connection:
             connection.execute("PRAGMA user_version=1")
     with (
         pytest.raises(LakeBuildError),
@@ -721,7 +725,7 @@ def test_final_parity_failure_keeps_previous_release(tmp_path, monkeypatch, fail
         for part in baseline.manifest.partitions
         for obj in part.objects
     }
-    with sqlite3.connect(source) as connection:
+    with closing(sqlite3.connect(source)) as connection, connection:
         connection.execute("UPDATE jquants_daily_bars SET close=close+1")
     promote = writer_module._promote_partitions
 
