@@ -95,7 +95,7 @@ cache が対象 row を同定できない、diagnostics 件数と row 数が一�
 | 代入 | 値 |
 | --- | --- |
 | 全損 | `price_return = -1.0` |
-| 中立 | 同 cohort の resolved 銘柄の中央値 |
+| 中立 | 同 cohort の resolved common eligible母集団の中央値。benchmarkや母集団外の銘柄は含めない |
 
 報告値を比較に含めるのは、それが evidence readiness の読む値そのものだからである。両方の代入で向きが揃っても報告値だけが逆を向くなら、その結論は除外が作ったものになる。向きは`review_set_all`がNomination union全体の`median_excess`の符号、`er_calibration`が最上位 quintile の`median_realized_price_excess` − 最下位 quintile の同値の符号で定める。いずれかの場合で値が算出できず他の場合で算出できるときも、除外が「cohort が何か言えるかどうか」を決めているので不安定として扱う。
 

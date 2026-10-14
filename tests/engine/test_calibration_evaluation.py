@@ -91,7 +91,7 @@ def calibration_evaluate_command(*, rules: ScreeningRules = _RULES, **kwargs: ob
 
 
 def _panel_row(ticker: str, *, rank: int | None = None, **overrides: object) -> PanelRow:
-    """A row for this file's one cohort: liquid enough to be eligible, dated `_ASOF`.
+    """A row for this file's one cohort: eligible under common criteria, dated `_ASOF`.
 
     Everything else comes from `tests.helpers.calibration_store.panel_row`, so a new
     panel field lands there once instead of in a second copy of the row shape.
@@ -101,14 +101,14 @@ def _panel_row(ticker: str, *, rank: int | None = None, **overrides: object) -> 
         # This file's cohort is one where every ranked name also passed, which is what
         # its evaluation cases are about; the panel does not require that in general.
         overrides.setdefault("in_review_set", True)
-    liquid: dict[str, object] = {
+    context: dict[str, object] = {
         "market_cap_oku": 500.0,
         "avg_turnover_oku": 5.0,
         "listing_span_days": 1200,
         "close": 1000.0,
         "price_history_coverage_750d": 1.0,
     }
-    return panel_row(_ASOF, ticker, **(liquid | overrides))
+    return panel_row(_ASOF, ticker, **(context | overrides))
 
 
 def _forward_row(
@@ -1925,6 +1925,21 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         self.assertLess(imputations["total_loss"]["review_set_all"], 0)
         self.assertEqual(imputations["neutral"]["review_set_all"], 0.0)
         self.assertFalse(sensitivity["direction_stable"])
+
+    def test_delisting_neutral_uses_only_the_reported_eligible_population(self) -> None:
+        panel, forwards = self._cohort(delisted_ranks=(3,))
+        for index in range(MIN_AXIS_SAMPLE * 2):
+            ticker = f"7{index:03d}"
+            panel.append(_panel_row(ticker, in_population=False))
+            forwards.append(_forward_row(ticker, 100.0))
+        # A benchmark or other forward-only ticker is not an eligible company either.
+        forwards.append(_forward_row("1306", 100.0))
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
+        sensitivity = result["6m"]["cohorts"][0]["coverage"][  # type: ignore[index]
+            "delisting_exclusion"
+        ]
+        self.assertEqual(sensitivity["excluded_count"], 1)
+        self.assertEqual(sensitivity["neutral_return"], 0.0)
 
     def test_a_cohort_without_delistings_needs_no_imputation(self) -> None:
         sensitivity = self._sensitivity(delisted_ranks=())

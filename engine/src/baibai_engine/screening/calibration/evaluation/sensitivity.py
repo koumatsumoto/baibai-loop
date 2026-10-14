@@ -174,7 +174,10 @@ def delisting_exclusion_sensitivity(
             "imputations": {},
         }
 
-    neutral = median(price_returns.values()) if price_returns else 0.0
+    population_returns = [
+        value for ticker, value in price_returns.items() if ticker in in_population
+    ]
+    neutral = median(population_returns) if population_returns else 0.0
     as_reported = _signs_for_returns(
         panel,
         price_returns,
