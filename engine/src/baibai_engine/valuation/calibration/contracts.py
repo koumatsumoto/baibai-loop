@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 ER_CALIBRATION_CONTEXT_KIND = "er-level-calibration-context"
-ER_CALIBRATION_CONTEXT_SCHEMA_VERSION = 2
+ER_CALIBRATION_CONTEXT_SCHEMA_VERSION = 3
 ER_CALIBRATION_CONTEXT_VALID_DAYS = 45
 ER_CALIBRATION_PRIMARY_REALIZED_BASIS = "fy_actual_dividend_total_return"
 ER_CALIBRATION_SECONDARY_REALIZED_BASIS = "price_return_only"
@@ -162,7 +162,7 @@ class ErCalibrationContextArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     kind: Literal["er-level-calibration-context"]
-    schema_version: Literal[2]
+    schema_version: Literal[3]
     generated_at: datetime
     valid_through: date
     reference_horizon: Literal["3y"]

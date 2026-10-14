@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -19,13 +20,15 @@ from baibai_engine.valuation.estimates import EXPECTED_RETURN_MODEL_VERSION
 
 _ROOT = Path(__file__).resolve().parents[3]
 _CONTEXT = _ROOT / "reports/published/er-level-calibration-latest.yaml"
+_RETAINED_SCHEMA_2_SHA256 = "28ac630de29b0011df1505b081e7428b63f11da0a53fd8d9f460b1c3d3dce670"
 
 
 def check() -> tuple[str, ...]:
     """Return every identity mismatch; artifact freshness stays an operations concern."""
 
     try:
-        raw = safe_load(_CONTEXT.read_text(encoding="utf-8"))
+        original_bytes = _CONTEXT.read_bytes()
+        raw = safe_load(original_bytes.decode("utf-8"))
     except (OSError, UnicodeError, yaml.YAMLError) as exc:
         return (f"unable to read {_CONTEXT.relative_to(_ROOT)}: {exc}",)
     if not isinstance(raw, dict):
@@ -34,15 +37,22 @@ def check() -> tuple[str, ...]:
         load_screening_rules(_ROOT / DEFAULT_RULES_PATH).model_dump_json()
     )
     failures: list[str] = []
-    try:
-        ErCalibrationContextArtifact.model_validate(raw)
-    except ValidationError:
-        failures.append("published E[r] context does not satisfy the schema v2 contract")
-    if raw.get("schema_version") != ER_CALIBRATION_CONTEXT_SCHEMA_VERSION:
-        failures.append(
-            "published E[r] context schema does not match the current reader: "
-            f"{raw.get('schema_version')!r} != {ER_CALIBRATION_CONTEXT_SCHEMA_VERSION}"
-        )
+    if raw.get("schema_version") == 2:
+        # Retention only: pin the original evidence bytes, without interpreting
+        # cohort-relative statistics as schema 3 fixed-band statistics (#1493).
+        # Runtime readers reject schema 2, even for a matching historical method.
+        if hashlib.sha256(original_bytes).hexdigest() != _RETAINED_SCHEMA_2_SHA256:
+            failures.append("retained schema 2 E[r] context bytes differ from the original")
+    else:
+        try:
+            ErCalibrationContextArtifact.model_validate(raw)
+        except ValidationError:
+            failures.append("published E[r] context does not satisfy the schema 3 contract")
+        if raw.get("schema_version") != ER_CALIBRATION_CONTEXT_SCHEMA_VERSION:
+            failures.append(
+                "published E[r] context schema does not match the current reader: "
+                f"{raw.get('schema_version')!r} != {ER_CALIBRATION_CONTEXT_SCHEMA_VERSION}"
+            )
     if raw.get("screening_rules_hash") != expected_rules_hash:
         # A rules change may precede a new long-horizon context. Retain the original
         # evidence for its saved runs; runtime readers still demand exact run identity.

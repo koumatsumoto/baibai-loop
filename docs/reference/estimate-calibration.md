@@ -141,13 +141,17 @@ cohort比較は`--basis price|total`を取り、母集団は保存された`Pane
 
 機械E[r]の収束係数・clip・固定8.5%帯は近似推計と歴史分布の座標であり、企業判断の[通常購入6%](../portfolio-management.md#required-return-policy)とは別の仮定である。6%は暫定政策で、最適値や確率加重期待収益を実証した値ではない。E[r]較正の成立は4 Approachのfidelity、個別企業の利益・倍率・分配の見積り、購入採否を代行しない。係数の優劣を主張する変更は事前登録と3y/5y evidenceで検証し、診断帯を購入floorに追随させて統計を付け替えない。
 
+<a id="er-level-distribution-context"></a>
+
 意味契約は`valuation/calibration/contracts`、保存済み文脈の期限・method identity判定と評価帯解釈は`valuation/calibration/query`が所有する。較正実行・evidence生成・候補比較はScreeningに残す。配置と依存は[architecture](../architecture.md#repository-map)を参照する。
 
 Research Triage の判断面が読む最新文脈の正本は `reports/published/er-level-calibration-latest.yaml` である。`calibration-evaluate --context-out` が、evidence completeness の成立した明示的な required scope だけから、3y / 5y の固定 E[r] quintileを生成する。各帯は実績 FY 配当込み total return を主 basis、price-only を副 basis とし、ticker-as-of 等重みの絶対年率 median / q25 / q10 / trap rate / n、cohort 等重みの同じ統計、median n、cohort 数を持つ。
 
+schema 3では各cohortの相対五分位上限から四つの固定境界を求め、保存精度の小数6桁へ先に丸める。その境界で過去の全観測を再分類してから統計を集計する。履歴と候補lookupは同じ分類関数を使い、Q1は上限以下、Q2〜Q4は下限より大きく上限以下、Q5は下限より大きい。同じE[r]は同じ帯へ入り、tickerで分割しない。8.5%の独立帯は下限以上を集計する。丸め後の境界重複、空帯、いずれかのeligible cohortで観測のない帯は生成拒否とし、欠測を0へ補わない。各cohortの相対Qで集計したschema 2の統計を固定帯の統計として使わない。再現・固定scopeの差は[測定記録](../../reports/studies/2026-10-14-calibration-fixed-bands/report.md)に残す。
+
 UI と research workspace は、artifact の `screening_rules_hash` と `er_model_version` が実際に表示・調査する operative run / Review Set の identity と一致するときだけ、候補 E[r] を該当 quintileへ対応づける。E[r]、順位、Research Triage、FV は変更しない。値は個別銘柄の予測ではなく historical distribution であり、重複する月次窓を独立標本と呼ばない。
 
-rules変更後に対応する長期較正文脈がまだない場合、旧artifactは元のhash・統計・生成日で保持し、新methodのrunには`rules_identity_mismatch`として非表示にする。CIは既知の凍結rulesへのprovenanceとschemaを検証し、現在runへの適用可能性はreaderが検証する。旧統計のhashだけを新rulesへ差し替えず、新しいpanel・forwardのevidenceが揃ってから`calibration-evaluate --context-out`で更新する。規模・bar期間・FCFの条件を変えれば比較母集団も変わるため、旧較正を新methodの証拠としない。
+rules変更後に対応する長期較正文脈がまだない場合、旧artifactは元のhash・統計・生成日で保持する。現行schemaのrules不一致は`rules_identity_mismatch`、旧schema 2はidentityが一致しても`invalid_artifact`として非表示にする。CIは現在保持しているschema 2の原bytesと凍結rulesへのprovenanceだけを検証し、runtimeへ互換読取を加えない。現行schemaの構造とrunへの適用可能性はreaderが検証する。旧統計のhash/schemaだけを新定義へ差し替えず、required scopeのevidenceが揃ってから`calibration-evaluate --context-out`で再生成する。規模・bar期間・FCFの条件を変えれば比較母集団も変わるため、旧較正を新methodの証拠としない。
 
 `er_gte_8_5pct`は機械E[r]が8.5%以上の固定較正帯で、thresholdは`HURDLE_ER_ANNUAL=0.085`。これは[通常購入の要求年率](../portfolio-management.md#required-return-policy)へ連動する帯ではなく、policy変更時もband identityと過去分布を維持する。
 

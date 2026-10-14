@@ -9,6 +9,8 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+import yaml
+from tests.helpers.er_calibration_context import context_artifact
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.jpx_total_return import load_benchmark_observation
@@ -69,7 +71,7 @@ def test_saved_readers_do_not_write_or_acquire(tmp_path: Path, monkeypatch) -> N
     monkeypatch.setattr(socket.socket, "connect", reject_network)
     initial_entries = {p.relative_to(tmp_path) for p in tmp_path.rglob("*")}
     path = tmp_path / "er.yaml"
-    path.write_bytes((ROOT / "reports/published/er-level-calibration-latest.yaml").read_bytes())
+    path.write_text(yaml.safe_dump(context_artifact(), sort_keys=False), encoding="utf-8")
     before = path.read_bytes()
     raw = safe_load(before)
     assert isinstance(raw, dict)

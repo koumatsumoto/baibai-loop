@@ -25,6 +25,7 @@ from baibai_engine.valuation.calibration.contracts import (
     HURDLE_ER_ANNUAL,
     ErCalibrationContextArtifact,
 )
+from baibai_engine.valuation.calibration.query import er_quintile_for_bounds
 
 from .evaluation import MIN_AXIS_SAMPLE, TRAP_EXCESS_THRESHOLD
 from .evidence import ESTIMATOR_POLICY_MANDATORY_METRICS, ESTIMATOR_POLICY_SUBJECT
@@ -44,7 +45,7 @@ def build_er_distribution_context(
     *,
     generated_at: datetime | None = None,
 ) -> dict[str, object]:
-    """Build schema v2 from every horizon-specific eligible cohort.
+    """Build schema v3 with fixed-band observations from every eligible cohort.
 
     機械priorの誤差を示す分布で、購入floorや4 Approachの優越性を代行しない。
     docs/reference/estimate-calibration.md#estimator-vs-decision
@@ -207,8 +208,7 @@ def _horizon_context(
     years = require_horizon(horizon).months / 12
     cohort_bands: dict[str, dict[str, list[_BandObservation]]] = {}
     boundaries: list[list[float]] = [[] for _ in range(4)]
-    predicted: dict[str, list[float]] = {f"q{index}": [] for index in range(1, 6)}
-    predicted["er_gte_8_5pct"] = []
+    entries_by_asof: dict[str, list[_BandObservation]] = {}
 
     for asof in asofs:
         entries = _cohort_entries(panels[asof], forwards[asof], horizon=horizon, years=years)
@@ -216,21 +216,30 @@ def _horizon_context(
             raise CalibrationContextError(f"{horizon} {asof} has insufficient level observations")
         entries.sort(key=lambda item: (item.er_annual, item.ticker))
         chunks = _quintile_chunks(entries)
-        band_rows: dict[str, list[_BandObservation]] = {}
+        entries_by_asof[asof] = entries
         for index, chunk in enumerate(chunks, start=1):
-            band_id = f"q{index}"
-            band_rows[band_id] = chunk
-            predicted[band_id].extend(item.er_annual for item in chunk)
             if index < 5:
                 boundaries[index - 1].append(max(item.er_annual for item in chunk))
-        hurdle = [item for item in entries if item.er_annual >= HURDLE_ER_ANNUAL]
-        band_rows["er_gte_8_5pct"] = hurdle
-        predicted["er_gte_8_5pct"].extend(item.er_annual for item in hurdle)
-        cohort_bands[asof] = band_rows
 
-    fixed_boundaries = [_nearest_rank(values, 0.5) for values in boundaries]
+    # Freeze the serialized precision before assigning historical members. Query
+    # must classify the same values against the same boundaries (#1493).
+    fixed_boundaries = [round(_nearest_rank(values, 0.5), 6) for values in boundaries]
     if any(right <= left for left, right in pairwise(fixed_boundaries)):
         raise CalibrationContextError(f"{horizon} fixed quintile boundaries are not increasing")
+
+    predicted: dict[str, list[float]] = {f"q{index}": [] for index in range(1, 6)}
+    predicted["er_gte_8_5pct"] = []
+    for asof, entries in entries_by_asof.items():
+        band_rows: dict[str, list[_BandObservation]] = {f"q{index}": [] for index in range(1, 6)}
+        band_rows["er_gte_8_5pct"] = []
+        for item in entries:
+            band_id = f"q{er_quintile_for_bounds(item.er_annual, fixed_boundaries)}"
+            band_rows[band_id].append(item)
+            predicted[band_id].append(item.er_annual)
+            if item.er_annual >= HURDLE_ER_ANNUAL:
+                band_rows["er_gte_8_5pct"].append(item)
+                predicted["er_gte_8_5pct"].append(item.er_annual)
+        cohort_bands[asof] = band_rows
 
     bands: list[dict[str, object]] = []
     for index in range(1, 6):

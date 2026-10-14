@@ -5,19 +5,18 @@ import sqlite3
 from dataclasses import replace
 from datetime import date
 from decimal import Decimal
-from pathlib import Path
 
 import pytest
 import yaml
 from tests.engine.test_capital_allocation import _payload as assessment_payload
 from tests.engine.test_position_outcome_store import _publication as outcome_publication
 from tests.helpers.assessment_history import historical_context_payload, seed_history
+from tests.helpers.er_calibration_context import context_artifact
 from tests.helpers.research_v4 import pair_payload
 from tests.tools.test_owner_mcp import reader as reader
 from tests.tools.test_owner_mcp_resources import data as data
 from tests.tools.test_owner_mcp_resources import error, pages
 
-from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market_context.assessment.models import (
     ASSESSMENT_SCHEMA_VERSION,
     StoredAssessment,
@@ -164,7 +163,7 @@ def test_old_publication_is_stored_only_but_current_corruption_is_error(data):
 def test_er_saved_payload_survives_expiry_and_meta_does_not_change_ref(data, monkeypatch):
     import baibai_engine.valuation.calibration.query as module
 
-    raw = safe_load(Path("reports/published/er-level-calibration-latest.yaml").read_text())
+    raw = context_artifact()
     data.paths.er.write_text(yaml.safe_dump(raw))
     monkeypatch.setattr(
         module, "er_calibration_unavailable_reason", lambda *_args, **_kwargs: "expired"
