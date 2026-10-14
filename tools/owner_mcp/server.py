@@ -12,10 +12,11 @@ from pydantic import JsonValue, StrictInt, ValidationError
 from tools.l1_mcp.contract import LIMITS, wire
 from tools.l1_mcp.server import Adapter, register_tools
 
-from .reader import OwnerError, Reader, ReviewSetSelector
+from .reader import CandidateSelector, OwnerError, Reader
 
 MESSAGES = {
     "INVALID_ARGUMENT": "selector・固定reference・timezone付き時刻を確認してください。",
+    "not_found": "指定した保存runはありません。別runへ補完しません。",
     "SOURCE_UNAVAILABLE": "指定sourceまたはbound judgmentを利用できません。補完はしません。",
     "REFERENCE_MISMATCH": "固定referenceと現在のpayloadが一致しません。比較を停止してください。",
     "CONTRACT_MISMATCH": "canonical sourceのdomain契約が整合しません。",
@@ -71,25 +72,17 @@ def create_server(adapter: Adapter, reader: Reader | None = None) -> MCPServer[A
         return call(lambda: reader.exclusions(at))
 
     @server.tool(annotations=annotations)
-    def screening_get_review_set(
-        review_set_id: str | None = None,
-        public_run_id: str | None = None,
-        as_of: str | None = None,
-        not_before: str | None = None,
+    def screening_get_candidates(
+        run_revision_id: str | None = None, as_of: str | None = None
     ) -> CallToolResult:
-        """Triage不要の凍結Review Set。最大1 selector、無指定latest、not_beforeは最初の対象日。"""
+        """保存Stock Analysisの候補投影。最大1 selector、無指定latest、日付は当日最新run。"""
 
         def get() -> dict[str, Any]:
             try:
-                selector = ReviewSetSelector(
-                    review_set_id=review_set_id,
-                    public_run_id=public_run_id,
-                    as_of=as_of,
-                    not_before=not_before,
-                )
+                selector = CandidateSelector(run_revision_id=run_revision_id, as_of=as_of)
             except ValidationError as exc:
                 raise OwnerError("INVALID_ARGUMENT") from exc
-            return reader.get_review_set(selector)
+            return reader.get_candidates(selector)
 
         return call(get)
 

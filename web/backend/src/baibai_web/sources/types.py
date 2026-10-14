@@ -62,7 +62,7 @@ class ScreeningRunRecord:
     as_of: date
     generated_at: datetime
     universe_size: int
-    # The revision the machine Review Set and L3 Research Triage bind to;
+    # The revision all Stock Analyses and their candidate contexts belong to;
     # ``run_id`` is the public identifier shown to a reader.
     run_revision_id: str
     # Human-readable rules reference; the path is not a method identity.
@@ -71,6 +71,7 @@ class ScreeningRunRecord:
     # context is displayable only when both values match its generated artifact.
     screening_rules_hash: str | None
     er_model_version: str | None
+    candidate_discovery: dict[str, object]
     rows: tuple[dict[str, object], ...]
 
 

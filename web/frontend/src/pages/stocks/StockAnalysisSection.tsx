@@ -1,7 +1,7 @@
 import { useMemo, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { Search } from 'lucide-react'
-import type { ErLevelCalibrationContextView, ReviewSetEntryView, ReviewSetView } from '../../api/types'
+import type { ErLevelCalibrationContextView } from '../../api/types'
 import { SectionCard } from '../../components/SectionCard'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
@@ -43,7 +43,7 @@ const SORT_LABELS: Record<SecuritySortKey, string> = {
   fair_value_gap_pct: '機械anchor乖離', next_earnings_date: '次の決算',
 }
 
-export function SecuritySearchItem({ row, candidate }: { row: SecuritySearchRow; candidate?: ReviewSetEntryView }) {
+export function SecuritySearchItem({ row }: { row: SecuritySearchRow }) {
   const { pathname, search } = useLocation()
   const origin = { exploration: pathname + search }
   const analysis = 'er_annual' in row ? row : null
@@ -51,7 +51,7 @@ export function SecuritySearchItem({ row, candidate }: { row: SecuritySearchRow;
     <div className="grid min-w-0 gap-1.5">
       <Link className="font-medium underline-offset-4 hover:underline" state={origin} to={`/securities/${row.ticker}`}>{row.name ?? '名称未確認'} <span className="font-mono text-xs text-muted-foreground">{row.ticker}</span></Link>
       <p className="text-xs text-muted-foreground">{row.sector_33 ?? '業種未確認'}{analysis?.market_cap_oku != null && ` · 時価総額 ${formatNumber(analysis.market_cap_oku, 0)}億円`}</p>
-      <div className="flex flex-wrap gap-1">{candidate?.nominations.map(n => <Badge key={n.valuation_approach_id} variant="outline">{valuationApproachLabel(n.valuation_approach_id, n.rank)}</Badge>)}{row.portfolio_state !== 'unheld' && <Badge variant="secondary">{row.portfolio_state === 'held' || row.portfolio_state === 'held_and_reserved' ? '保有' : '予約'}</Badge>}{row.has_research && <Badge variant="secondary">企業調査あり</Badge>}</div>
+      <div className="flex flex-wrap gap-1">{analysis?.candidate.reasons.map(n => <Badge key={n.valuation_approach_id} variant="outline">{valuationApproachLabel(n.valuation_approach_id, n.rank)}</Badge>)}{row.portfolio_state !== 'unheld' && <Badge variant="secondary">{row.portfolio_state === 'held' || row.portfolio_state === 'held_and_reserved' ? '保有' : '予約'}</Badge>}{row.has_research && <Badge variant="secondary">企業調査あり</Badge>}</div>
     </div>
     {analysis ? <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs sm:grid-cols-3">
       {[
@@ -68,9 +68,8 @@ export function SecuritySearchItem({ row, candidate }: { row: SecuritySearchRow;
   </li>
 }
 
-export function SecurityAnalysisSection({ rows, runAsOf, externalCutoff, reviewSet, calibration }: { rows: SecuritySearchRow[]; runAsOf: string | null; externalCutoff?: string | null; reviewSet?: ReviewSetView | null; calibration?: ErLevelCalibrationContextView | null }) {
+export function StockAnalysisSection({ rows, runAsOf, externalCutoff, calibration }: { rows: SecuritySearchRow[]; runAsOf: string | null; externalCutoff?: string | null; calibration?: ErLevelCalibrationContextView | null }) {
   const sectors = useMemo(() => [...new Set(rows.flatMap(row => row.sector_33 === null ? [] : [row.sector_33]))].sort((a, b) => a.localeCompare(b, 'ja-JP')), [rows])
-  const candidates = useMemo(() => new Map(reviewSet?.entries.map(entry => [entry.ticker, entry]) ?? []), [reviewSet])
   const { pathname, search } = useLocation()
   const navigate = useNavigate()
   const params = useMemo(() => new URLSearchParams(search), [search])
@@ -85,7 +84,7 @@ export function SecurityAnalysisSection({ rows, runAsOf, externalCutoff, reviewS
   const sort: SecuritySort = { key: (params.get('sort') ?? 'ticker') as SecuritySortKey, direction: params.get('direction') === 'desc' ? 'desc' : 'asc' }
   const page = Math.floor(parseOptionalNumber(params.get('page') ?? '1') ?? 1)
   const filters: SecurityFilters = { query, sector, perMax: parseOptionalNumber(perMax), pbrMax: parseOptionalNumber(pbrMax), dividendMinPct: parseOptionalNumber(dividendMin), heldOnly, researchOnly }
-  const projection = projectSecurityRows(candidatesOnly ? rows.filter(row => candidates.has(row.ticker)) : rows, filters, sort, page)
+  const projection = projectSecurityRows(candidatesOnly ? rows.filter(row => 'candidate' in row && row.candidate.reasons.length > 0) : rows, filters, sort, page)
   function updateParam(name: string, value: string) {
     const next = new URLSearchParams(params)
     if (value) next.set(name, value)
@@ -113,7 +112,7 @@ export function SecurityAnalysisSection({ rows, runAsOf, externalCutoff, reviewS
       {calibration && <CalibrationDistribution context={calibration} />}
       {externalCutoff && <p className="text-xs text-muted-foreground">外部観測の読取時点 {formatJstDateTime(externalCutoff)} JST。機械分析なしの銘柄は数値条件では抽出しません。</p>}
     </div>
-    {projection.filteredTotal === 0 ? <p className="px-5 py-8 text-sm text-muted-foreground">条件に合う銘柄はありません。</p> : <ul className="divide-y">{projection.rows.map(row => <SecuritySearchItem candidate={candidates.get(row.ticker)} key={row.ticker} row={row} />)}</ul>}
+    {projection.filteredTotal === 0 ? <p className="px-5 py-8 text-sm text-muted-foreground">条件に合う銘柄はありません。</p> : <ul className="divide-y">{projection.rows.map(row => <SecuritySearchItem key={row.ticker} row={row} />)}</ul>}
     <div className="flex items-center justify-between gap-2 border-t px-5 py-3 sm:px-6"><Button disabled={projection.page <= 1} onClick={() => updateParam('page', String(projection.page - 1))} size="sm" variant="outline">前</Button><span aria-live="polite" className="text-xs text-muted-foreground">{start}–{end} / {projection.filteredTotal}件 · {projection.page}/{projection.pageCount}</span><Button disabled={projection.page >= projection.pageCount} onClick={() => updateParam('page', String(projection.page + 1))} size="sm" variant="outline">次</Button></div>
   </SectionCard>
 }

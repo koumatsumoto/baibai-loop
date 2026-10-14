@@ -148,26 +148,11 @@ class RunSelector(OneSelector):
 
 class AnalysisFilters(RunKey):
     ticker: Ticker | None = None
+    candidates_only: bool = False
 
 
 class AnalysisKey(RunKey):
     ticker: Ticker
-
-
-class ReviewFilters(DateRange):
-    run_revision_id: Identifier | None = None
-
-
-class ReviewKey(InputModel):
-    review_set_id: Identifier
-
-
-class ReviewSelector(OneSelector):
-    review_set_id: Identifier | None = None
-    public_run_id: Identifier | None = None
-    as_of: Day | None = None
-    not_before: Day | None = None
-    latest: Literal[True] | None = None
 
 
 class CohortFilters(DateRange):

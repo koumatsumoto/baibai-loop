@@ -161,7 +161,6 @@ def publication_rows(
                 in {
                     identifier,
                     "ticker",
-                    "review_set_id",
                     "thesis_id",
                     "horizon",
                     "status",

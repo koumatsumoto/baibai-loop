@@ -50,7 +50,7 @@ Baibai Loopは、健全な企業の割安な機会を継続的に探し、日本
 
 ### 柱 1: 事実と分析の分離
 
-- **(a)** Security Analysis内のobserved / derived / estimateと、人間/AIによるjudgment（Market Context Assessment・thesis）は責務を分ける。禁止表現と運用ルールは§5[事実と分析の分離](#fact-analysis-separation)を正本とする。
+- **(a)** Stock Analysis内のobserved / derived / estimateと、人間/AIによるjudgment（Market Context Assessment・thesis）は責務を分ける。禁止表現と運用ルールは§5[事実と分析の分離](#fact-analysis-separation)を正本とする。
 - **(b)** 事実と意見が混ざると、AIが過去の解釈を「事実」として再生産してしまう。観測と判断の責務・読取契約を分け、判断を参照する範囲を選べるようにして、後知恵バイアスと責任の所在の混乱を防ぐ。
 - **(c)** 観測の読取へ判断を混入させず、値の由来と役割を識別する。物理配置と保存責務は[architecture](./architecture.md#store-authority)に従う。
 

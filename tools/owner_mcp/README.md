@@ -171,20 +171,14 @@ L1は`tools/l1_mcp`、L2候補はrun store、ResearchはOperationの固定select
 store同期は[ops-maintenance](../../.agents/skills/ops-maintenance/SKILL.md)の別操作です。
 MCPからのauto-pull、provider fetch、書込、任意SQL、filesystem読取はありません。
 
-### Review Set
+### 同じrunの候補
 
-`screening_get_review_set`は保存済みcanonical Review Setを1回で固定して返します。
-`review_set_id` / `public_run_id` / `as_of` / `not_before`は最大1つです。
-IDはexact、`as_of`はその日の最新publication（dailyと同じ）、`not_before`は指定日以降の
-最初の対象日の最新publication、無指定は最新対象日の最新publicationです。
-同じpublic run IDに複数revisionがあれば`AMBIGUOUS_SELECTION`となり、Review Set IDが必要です。
-不在は`SOURCE_UNAVAILABLE`で、別runへ補完しません。
+`screening_get_candidates`は保存Stock Analysisの候補を同じrunから返す。`run_revision_id` / `as_of`は最大1つで、無指定は最新run、日付はその日の最新run、revisionはexactを読む。未知revision/該当runなしは`not_found`、候補0件は正常payloadである。壊れたcandidate header/rowを空候補へ変換しない。
 
-`review_set_ref`、`as_of`、`run_at`、`created_at`、rules / method identityとともに
-`input_basis=frozen_review_set`、`candidate_count`、全`candidates`を返します。
-候補は共通L2 projection・順序で、保存済みanalysisとnominationsだけを読みます。
-current L1やSecurity Analysisから再計算せず、Researchの選定や判断に依存しません。
-返却された`review_set_id`で再取得し、新旧候補の比較は呼出し側で行います。
+run identity/as-of/run_at、rules hash、`candidate_discovery_method`、全raw `candidates`、`count`、`input_basis=saved_stock_analyses`を返す。別candidate ID/created_atや保存tableは無く、再計算・再発行を行わない。再照会と比較には返却されたrun revisionを固定する。
+
+全分析は`screening.stock_analysis`で候補外も読める。`candidates_only=true`は同じrowをfilterし、paginationはrun revisionとordinalに束縛する。候補全件のcanonical順はticker昇順であり、経済的順位を意味しない。旧Review Set selector/resource/toolは撤去する。
+
 ### 時点保有・予約除外
 
 `portfolio_get_exclusions(at="2026-09-14T23:59:59.999999+09:00")`のようにtimezone付き時刻を渡します。
@@ -203,7 +197,8 @@ Owner toolsも完全な結果を返し、wire上限を超える場合は`RESULT_
 | code | 意味 |
 | --- | --- |
 | `INVALID_ARGUMENT` | selector・reference・日付・時刻が不正 |
-| `SOURCE_UNAVAILABLE` | source run / Review Setが利用不能 |
+| `not_found` | convenience候補toolの指定runなし |
+| `SOURCE_UNAVAILABLE` | source runが利用不能 |
 | `AMBIGUOUS_SELECTION` | public run IDに複数revisionが存在 |
 | `REFERENCE_MISMATCH` | 固定referenceと再読payloadのhashが不一致 |
 | `CONTRACT_MISMATCH` | schema・domain・source bindingが不整合、またはledgerが破損 |

@@ -295,7 +295,7 @@ def _security_tickers(dashboard: DashboardView, screening: ScreeningView) -> lis
     """Enumerate holdings, latest-run analyses, and Research Triage tickers."""
 
     tickers = {holding.ticker for holding in dashboard.holdings}
-    tickers.update(row.ticker for row in screening.security_analyses)
+    tickers.update(row.ticker for row in screening.stock_analyses)
     return sorted(tickers)
 
 

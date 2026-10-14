@@ -47,7 +47,7 @@ def stored_machine_valuation(
     )
     if run is None:
         return None
-    analysis = next((row for row in run.security_analyses if row.get("ticker") == ticker), None)
+    analysis = next((row for row in run.stock_analyses if row.get("ticker") == ticker), None)
     return StoredMachineValuation(
         run.run_revision_id,
         date.fromisoformat(run.as_of_date),

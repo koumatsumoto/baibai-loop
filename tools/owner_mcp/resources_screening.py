@@ -11,7 +11,6 @@ from baibai_engine.read_api.calibration import read_rows
 from baibai_engine.read_api.er_calibration_context import stored_er_calibration_context
 from baibai_engine.read_api.screening import (
     screening_calibration_method_identity,
-    stored_review_set,
     stored_screening_rows,
     stored_screening_run,
 )
@@ -27,11 +26,17 @@ def run_page(
     *,
     kind: str,
 ) -> Page:
-    rows = stored_screening_rows(paths.runs, kind=kind, filters=filters, after=after, limit=limit)
+    rows = stored_screening_rows(
+        paths.runs,
+        kind=kind,
+        filters=filters,
+        after=after,
+        limit=limit,
+        full=kind == "stock_analysis",
+    )
     identity, sort = {
         "screening_run": (("run_revision_id",), ("asof_date", "page_time", "run_revision_id")),
-        "security_analysis": (("run_revision_id", "ticker"), ("ordinal",)),
-        "review_set": (("review_set_id",), ("asof_date", "page_time", "review_set_id")),
+        "stock_analysis": (("run_revision_id", "ticker"), ("ordinal",)),
     }[kind]
     return Page([record(row, identity, sort) for row in rows])
 
@@ -44,7 +49,7 @@ def run_get(paths: Paths, selector: dict[str, Any]) -> Page:
             "payload_scope": "run_header",
             "children": [
                 {
-                    "resource_id": "screening.security_analysis",
+                    "resource_id": "screening.stock_analysis",
                     "filters": {"run_revision_id": row["run_revision_id"]},
                 }
             ],
@@ -53,32 +58,7 @@ def run_get(paths: Paths, selector: dict[str, Any]) -> Page:
 
 
 def analysis_get(paths: Paths, selector: dict[str, Any]) -> Page:
-    return run_page(paths, selector, None, 1, kind="security_analysis")
-
-
-def review_get(paths: Paths, selector: dict[str, Any]) -> Page:
-    args = {
-        ("as_of_date" if key == "as_of" else key): value
-        for key, value in selector.items()
-        if key != "latest"
-    }
-    publication = stored_review_set(paths.runs, **args)
-    if publication is None:
-        raise FileNotFoundError("review set unavailable")
-    return Page(
-        [
-            Record(
-                {
-                    "review_set_id": publication.review_set_id,
-                    "run_revision_id": publication.run_revision_id,
-                    "as_of": publication.as_of,
-                    "created_at": publication.created_at,
-                    "payload": publication.payload,
-                },
-                {"review_set_id": publication.review_set_id},
-            )
-        ]
-    )
+    return run_page(paths, selector, None, 1, kind="stock_analysis")
 
 
 def calibration_page(

@@ -35,7 +35,7 @@ describe('Daily Delta display', () => {
   })
 
   it('does not describe an unmeasured estimate section as no changes', () => {
-    const html = render({ ...delta(0), unavailable: ['review_set_estimate'] })
+    const html = render({ ...delta(0), unavailable: ['candidate_estimate'] })
     expect(html).toContain('見積り欠損またはモデルを比較できない')
     expect(html).not.toContain('閾値に触れる変化はありません')
   })

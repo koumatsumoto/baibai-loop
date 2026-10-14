@@ -16,7 +16,7 @@ from baibai_engine.external_assessment.reader import read_observations
 from baibai_engine.external_assessment.store import save_observations
 from baibai_engine.screening.calibration.panel import build_panel
 from baibai_engine.screening.rule_config import load_screening_rules
-from baibai_engine.screening.security_analysis_builder import build_security_analysis
+from baibai_engine.screening.stock_analysis_builder import build_stock_analysis
 
 
 def test_external_observations_leave_existing_screening_and_fv_identical(tmp_path):
@@ -27,12 +27,12 @@ def test_external_observations_leave_existing_screening_and_fv_identical(tmp_pat
     analyses = []
 
     def capture_analysis(**inputs):
-        analysis = build_security_analysis(**inputs)
+        analysis = build_stock_analysis(**inputs)
         analyses.append(analysis)
         return analysis
 
     with patch(
-        "baibai_engine.screening.calibration.panel.build_security_analysis",
+        "baibai_engine.screening.calibration.panel.build_stock_analysis",
         side_effect=capture_analysis,
     ):
         before = build_panel(CALIBRATION_FIXTURE_ASOF, sqlite_path=database, rules=rules)

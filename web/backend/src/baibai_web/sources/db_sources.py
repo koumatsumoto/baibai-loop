@@ -35,7 +35,6 @@ from baibai_engine.read_api import (
     previous_business_day,
     reviewed_thesis_projection,
     safe_load,
-    screening_review_set_payloads,
     screening_run_asof_dates,
     screening_run_payload,
     task_store_exists,
@@ -410,7 +409,7 @@ class DbMetaSource:
         self._indicators_db_path = indicators_db_path.resolve()
 
     def screening_as_of(self) -> date | None:
-        run, _ = operative_screening_run(DbScreeningSource(self._runs_db_path))
+        run = operative_screening_run(DbScreeningSource(self._runs_db_path))
         return None if run is None else run.as_of
 
     def indicator_as_of(self) -> date | None:
@@ -422,7 +421,7 @@ class DbMetaSource:
     def data_updated_at(self) -> datetime | None:
         """Return the newest timestamp recorded by any UI data store."""
 
-        screening_run, _ = operative_screening_run(DbScreeningSource(self._runs_db_path))
+        screening_run = operative_screening_run(DbScreeningSource(self._runs_db_path))
         screening_updated_at = None if screening_run is None else screening_run.generated_at
         indicator_observed_at = indicator_latest_observed_at(self._indicators_db_path)
         indicator_updated_at = (
@@ -474,17 +473,13 @@ class DbScreeningSource:
         raw = screening_run_payload(self._runs_path, as_of_date=as_of)
         return None if raw is None else self._parse_run(raw)
 
-    def review_sets(self, *, run_revision_id: str | None = None) -> list[dict[str, object]]:
-        return screening_review_set_payloads(
-            self._runs_path,
-            run_revision_id=run_revision_id,
-        )
-
     @staticmethod
     def _parse_run(raw: dict[str, object]) -> ScreeningRunRecord:
-        analyses = raw["security_analyses"]
+        analyses = raw["stock_analyses"]
         if not isinstance(analyses, list) or not all(isinstance(item, dict) for item in analyses):
-            raise ValueError("screening security analyses must be an array of objects")
+            raise ValueError("screening stock analyses must be an array of objects")
+        header = _mapping(raw["payload"], label="run header")
+        summary = _mapping(header["candidate_discovery"], label="candidate discovery")
         return ScreeningRunRecord(
             run_id=str(raw["public_run_id"]),
             as_of=date.fromisoformat(str(raw["as_of_date"])),
@@ -500,6 +495,7 @@ class DbScreeningSource:
             er_model_version=(
                 None if raw.get("er_model_version") is None else str(raw["er_model_version"])
             ),
+            candidate_discovery=dict(summary),
             rows=tuple(analyses),
         )
 

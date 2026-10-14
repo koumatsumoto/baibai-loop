@@ -4,7 +4,7 @@ import sqlite3
 from datetime import datetime, timedelta
 
 import pytest
-from tests.helpers.screening_run import screening_run_payload, security_analysis
+from tests.helpers.screening_run import screening_run_payload, stock_analysis
 
 from baibai_engine.research.selection import InputGap, ResearchRequest
 from baibai_engine.research.selection_query import (
@@ -19,21 +19,22 @@ from baibai_engine.screening.run_store import ScreeningRunStore
 NOW = datetime.fromisoformat("2026-10-14T18:00:00+09:00")
 
 
-def publish(path, *, candidates=True, rows=None):
-    rules = load_screening_rules()
+def publish(path, *, rows=None):
     raw = screening_run_payload(
         as_of="2026-10-13",
-        security_analyses=rows
-        or [security_analysis("1234", name="合成会社"), security_analysis("5678", name="合成会社")],
+        stock_analyses=rows
+        or [stock_analysis("1234", name="合成会社"), stock_analysis("5678", name="合成会社")],
         filters={"diagnostic": True},
     )
     ScreeningRunStore(path).publish_run(
         raw,
         run_revision_id="fixed",
-        review_set_rules=rules.candidate_discovery if candidates else None,
-        required_jpx_flags=rules.universe.required_jpx_flags if candidates else (),
+        rules=load_screening_rules(),
     )
-    return raw
+    from baibai_engine.screening.run_store import ScreeningRunReader
+
+    saved = ScreeningRunReader(path).get_run("fixed")
+    return {**raw, "stock_analyses": list(saved.stock_analyses)}
 
 
 def context(path, scope="discover_new", tickers=(), revision=None):
@@ -52,8 +53,8 @@ def test_context_and_selected_snapshot_preserve_original_missing_and_nulls(tmp_p
     raw = publish(
         path,
         rows=[
-            security_analysis("1234", metrics=None),
-            security_analysis("5678", avg_turnover_oku=None),
+            stock_analysis("1234", metrics=None),
+            stock_analysis("5678", avg_turnover_oku=None),
         ],
     )
     before = path.read_bytes()
@@ -67,7 +68,7 @@ def test_context_and_selected_snapshot_preserve_original_missing_and_nulls(tmp_p
         runs_path=path,
     )
     assert snap.analysis_as_of.isoformat() == "2026-10-13"
-    assert snap.analyses == {"1234": raw["security_analyses"][0]}
+    assert snap.analyses == {"1234": raw["stock_analyses"][0]}
     assert "metrics" not in snap.analyses["1234"]
     assert "filters" not in snap.model_dump()
     verify_analysis_snapshot(snap, tickers=("1234",), known_at=NOW, runs_path=path)
@@ -77,7 +78,7 @@ def test_context_and_selected_snapshot_preserve_original_missing_and_nulls(tmp_p
 def test_missing_context_input_is_structured_candidate_zero_is_ready(tmp_path):
     path = tmp_path / "runs"
     assert context(path)["missing_inputs"][0]["code"] == "no_screening_run"
-    publish(path, rows=[security_analysis("1234", market_cap_oku=0)])
+    publish(path, rows=[stock_analysis("1234", market_cap_oku=0)])
     result = context(path)
     assert result["status"] == "ready"
     assert result["candidates"] == []
@@ -86,9 +87,9 @@ def test_missing_context_input_is_structured_candidate_zero_is_ready(tmp_path):
 
 def test_specified_candidate_outside_and_input_gap(tmp_path):
     path = tmp_path / "runs"
-    publish(path, candidates=False)
+    publish(path)
     assert context(path, "specified_stocks", ("1234",))["status"] == "ready"
-    assert context(path)["status"] == "inputs_required"
+    assert context(path)["status"] == "ready"
     with pytest.raises(ResearchInputsRequiredError) as error:
         load_analysis_snapshot(
             run_revision_id="fixed",
@@ -118,25 +119,19 @@ def test_specified_candidate_outside_and_input_gap(tmp_path):
         context(path, "specified_stocks", ("1234",), "missing")
 
 
-def test_future_run_and_candidate_and_canonical_mismatch_are_invalid(tmp_path):
+def test_future_run_and_missing_candidate_header_are_invalid(tmp_path):
     path = tmp_path / "runs"
     publish(path)
     with sqlite3.connect(path) as db:
-        raw = db.execute("SELECT payload FROM review_set").fetchone()[0]
-        import json
-
-        candidate = json.loads(raw)
-        candidate["created_at"] = (NOW + timedelta(seconds=1)).isoformat()
-        db.execute(
-            "UPDATE review_set SET payload=?,created_at=?",
-            (json.dumps(candidate), candidate["created_at"]),
-        )
-    with pytest.raises(ValueError, match="candidate projection"):
+        original = db.execute("SELECT payload FROM screening_run").fetchone()[0]
+        db.execute("UPDATE screening_run SET payload=json_remove(payload,'$.candidate_discovery')")
+    with pytest.raises(ValueError, match="CandidateDiscoverySummary"):
         context(path)
     with sqlite3.connect(path) as db:
+        db.execute("UPDATE screening_run SET payload=?", (original,))
         db.execute("UPDATE screening_run SET run_at=?", ((NOW + timedelta(seconds=1)).isoformat(),))
     with pytest.raises(ValueError, match="cutoff"):
-        context(path, "specified_stocks", ("1234",))
+        context(path, "specified_stocks", ("1234",), "fixed")
 
 
 def test_gap_does_not_bypass_broken_source(tmp_path):
@@ -192,8 +187,8 @@ def test_candidate_run_revision_mismatch_and_header_null_are_not_filled(tmp_path
     assert snap.screening_rules_hash is None
     assert context(path)["status"] == "ready"
     with sqlite3.connect(path) as db:
-        raw = json.loads(db.execute("SELECT payload FROM review_set").fetchone()[0])
-        raw["run_revision_id"] = "different-revision"
-        db.execute("UPDATE review_set SET payload=?", (json.dumps(raw),))
-    with pytest.raises(ValueError, match="candidate projection"):
+        db.execute(
+            "UPDATE screening_run SET payload=json_set(payload,'$.candidate_discovery.diagnostics.candidate_count',999)"
+        )
+    with pytest.raises(ValueError, match="diagnostics"):
         context(path)

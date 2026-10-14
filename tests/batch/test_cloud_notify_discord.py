@@ -212,8 +212,8 @@ def test_render_message_is_one_headline_the_delta_and_the_run(tmp_path: Path) ->
     assert message.splitlines() == [
         "[OK] as-of 2026-08-26",
         "executor: Local",
-        "🆕 新規 Review Set 入り: 1001 Alpha E[r]+8.0%",
-        "👋 Review Set 退出: 9001 Zulu E[r]+6.0%",
+        "🆕 新規 候補入り: 1001 Alpha E[r]+8.0%",
+        "👋 候補退出: 9001 Zulu E[r]+6.0%",
         f"run: {RUN_URL}",
     ]
 
@@ -255,10 +255,10 @@ def test_render_message_separates_an_unmeasured_delta_from_an_empty_one(tmp_path
         )
     )
 
-    assert "🆕 新規 Review Set 入り: なし" in render_message(
+    assert "🆕 新規 候補入り: なし" in render_message(
         outcome="ok", asof="2026-08-26", failed_step="", notice=empty, url=RUN_URL
     )
-    assert "🆕 新規 Review Set 入り: 計測なし（view_unreadable）" in render_message(
+    assert "🆕 新規 候補入り: 計測なし（view_unreadable）" in render_message(
         outcome="ok", asof="2026-08-26", failed_step="", notice=unmeasured, url=RUN_URL
     )
 
@@ -371,7 +371,7 @@ def test_main_delivers_the_ok_message_with_the_delta(
     assert exit_code == 0
     message = _sent(transport)
     assert message.startswith(
-        "[OK] as-of 2026-08-26\nexecutor: Local\n🆕 新規 Review Set 入り: 1001 Alpha"
+        "[OK] as-of 2026-08-26\nexecutor: Local\n🆕 新規 候補入り: 1001 Alpha"
     )
     assert message.endswith(f"run: {RUN_URL}")
     # The message is also printed so the run log carries it.

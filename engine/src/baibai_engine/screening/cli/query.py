@@ -1,15 +1,13 @@
-"""Read-only CLI commands over cached data: profiles, snapshots, and Review Sets."""
+"""Read-only CLI commands over cached data, saved runs and candidates."""
 
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 import sys
-from datetime import UTC, date, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TextIO
-from uuid import uuid4
 
 import yaml
 
@@ -19,17 +17,11 @@ from baibai_engine.market.store import latest_daily_bar_date
 from baibai_engine.market.ticker import normalize_ticker
 from baibai_engine.market_context.snapshot import build_market_snapshot
 from baibai_engine.read_api.ticker_profile import build_ticker_profile
-from baibai_engine.screening.discovery.contracts import PublishedReviewSet
-from baibai_engine.screening.discovery.review_set import build_review_set
-from baibai_engine.screening.rule_config import (
-    DEFAULT_RULES_PATH,
-    ScreeningRules,
-    load_screening_rules,
-)
-from baibai_engine.screening.rules_identity import production_rules_contract_hash
-from baibai_engine.screening.run_store import (
-    ScreeningRunReader,
-    ScreeningRunStore,
+from baibai_engine.screening.discovery.projection import candidate_rows
+from baibai_engine.screening.run_store import ScreeningRunReader
+from baibai_engine.screening.screening_run_serializer import (
+    published_run_payload,
+    serialize_published_run_yaml,
 )
 from baibai_engine.storage.application.paths import database_path
 
@@ -116,117 +108,72 @@ def market_snapshot_command(
     return 0
 
 
-def review_set_publish_command(
+def run_show_command(
     *,
-    asof_date: date,
-    rules: ScreeningRules | None = None,
+    run_revision_id: str,
+    runs_db_path: Path | None = None,
     output_path: Path | None = None,
     force: bool = False,
     stdout: TextIO | None = None,
-    run_revision_id: str | None = None,
-    runs_db_path: Path | None = None,
     output_format: str = "yaml",
-    review_set_id: str | None = None,
-    created_at: datetime | None = None,
+    candidates_only: bool = False,
 ) -> int:
+    """Read one fixed revision; never publish or recalculate an analysis."""
     if output_path is not None and output_path.exists() and not force:
         print(f"output already exists: {output_path}", file=sys.stderr)
         return 1
-
     out = stdout if stdout is not None else sys.stdout
-    rules = rules or load_screening_rules(_rules_path_from_env())
-    if run_revision_id is None:
-        print("run_revision_id is required", file=sys.stderr)
-        return 1
     try:
         run = ScreeningRunReader(runs_db_path).get_run(run_revision_id)
         if run is None:
             raise ValueError(f"unknown run_revision_id: {run_revision_id}")
-        if run.as_of_date != asof_date.isoformat():
-            raise ValueError("run revision as-of does not match --asof")
-        current_rules_hash = production_rules_contract_hash(rules.model_dump_json())
-        if run.payload.get("screening_rules_hash") != current_rules_hash:
-            raise ValueError("source run rules do not match current candidate discovery rules")
-        review_set_id = review_set_id or f"review-set-{asof_date:%Y%m%d}-{uuid4().hex[:12]}"
-        created_at = created_at or datetime.now(UTC)
-        if created_at.tzinfo is None or created_at.utcoffset() is None:
-            raise ValueError("created_at must include a UTC offset")
-        payload = PublishedReviewSet.model_validate(
-            {
-                "review_set_id": review_set_id,
-                "run_revision_id": run_revision_id,
-                "as_of": asof_date,
-                "created_at": created_at,
-                "screening_rules_hash": current_rules_hash,
-                **build_review_set(
-                    run.security_analyses,
-                    rules=rules.candidate_discovery,
-                    required_jpx_flags=rules.universe.required_jpx_flags,
-                ),
+        payload = published_run_payload(run)
+        if candidates_only:
+            rows = candidate_rows(run.stock_analyses)
+            payload = {
+                "run_revision_id": run.run_revision_id,
+                "public_run_id": run.public_run_id,
+                "as_of": run.as_of_date,
+                "run_at": run.run_at,
+                "screening_rules_hash": run.payload.get("screening_rules_hash"),
+                "candidate_discovery_method": run.payload["candidate_discovery"]["method"],
+                "candidates": list(rows),
+                "count": len(rows),
+                "input_basis": "saved_stock_analyses",
             }
-        ).model_dump(mode="json")
-        publication = ScreeningRunStore(runs_db_path).publish_review_set(
-            run_revision_id=run_revision_id,
-            payload=payload,
-            rules=rules.candidate_discovery,
-            required_jpx_flags=rules.universe.required_jpx_flags,
-            review_set_id=review_set_id,
+        rendered = (
+            json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
+            if output_format == "json"
+            else (
+                yaml.dump(payload, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
+                if candidates_only
+                else serialize_published_run_yaml(run)
+            )
         )
-    except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
-        print(f"screening review-set publication failed: {exc}", file=sys.stderr)
+        if output_path is not None:
+            write_text_atomic(output_path, rendered)
+    except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
+        print(f"screening run read/export failed: {error}", file=sys.stderr)
         return 1
-    if publication.publication_id != payload["review_set_id"]:  # pragma: no cover
-        raise AssertionError("review set publication identity drift")
-    rendered = (
-        json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
-        if output_format == "json"
-        else yaml.dump(payload, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
-    )
-    # --output-path 指定時は同じ内容を file と stdout の両方へ出す。file は
-    # local/rebuildable な保存先で、canonical 判断は thesis だけが担う。
-    if output_path is not None:
-        write_text_atomic(output_path, rendered)
     out.write(rendered)
     return 0
 
 
-def review_set_show_command(
+def candidates_show_command(
     *,
-    review_set_id: str,
+    run_revision_id: str,
     runs_db_path: Path | None = None,
     output_path: Path | None = None,
     force: bool = False,
     stdout: TextIO | None = None,
     output_format: str = "yaml",
 ) -> int:
-    """Re-emit one immutable Review Set without publishing a replacement."""
-    if output_path is not None and output_path.exists() and not force:
-        print(f"output already exists: {output_path}", file=sys.stderr)
-        return 1
-
-    out = stdout if stdout is not None else sys.stdout
-    try:
-        publication = ScreeningRunReader(runs_db_path).get_review_set(review_set_id)
-    except (OSError, sqlite3.Error) as exc:
-        print(f"screening run store is unreadable: {exc}", file=sys.stderr)
-        return 1
-    if publication is None:
-        # No reconstruction from candidates: a Review Set that is not stored was
-        # never published, and guessing one would fabricate a decision input.
-        print(f"review set not found: {review_set_id}", file=sys.stderr)
-        return 1
-
-    payload = publication.payload
-    rendered = (
-        json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
-        if output_format == "json"
-        else yaml.dump(payload, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
+    return run_show_command(
+        run_revision_id=run_revision_id,
+        runs_db_path=runs_db_path,
+        output_path=output_path,
+        force=force,
+        stdout=stdout,
+        output_format=output_format,
+        candidates_only=True,
     )
-    if output_path is not None:
-        write_text_atomic(output_path, rendered)
-    out.write(rendered)
-    return 0
-
-
-def _rules_path_from_env() -> Path:
-    return Path(os.environ.get("SCREENING_RULES_PATH") or DEFAULT_RULES_PATH)

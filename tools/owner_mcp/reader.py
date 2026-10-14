@@ -1,4 +1,4 @@
-"""候補比較へ凍結Review Set・exact Triage入力・判断とledger時点除外をread-onlyで見せる。"""
+"""同じrunの保存候補とledger時点除外をread-onlyで見せる。"""
 
 from __future__ import annotations
 
@@ -11,12 +11,10 @@ from typing import Any
 from pydantic import Field, field_validator
 
 from baibai_batch.storage.canonical_json import canonical_json
-from baibai_engine.batch_api import validated_review_set
 from baibai_engine.foundation.repository_layout import APPLICATION_DB_PATH, RUNS_DB_PATH
 from baibai_engine.position.ledger import replay_events_through, require_resolved_expiries
 from baibai_engine.position.ledger_read import load_ledger_document
-from baibai_engine.screening.discovery.projection import review_set_candidates
-from baibai_engine.screening.run_store import RunStoreAmbiguousError, ScreeningRunReader
+from baibai_engine.read_api.screening import screening_candidates_payload
 from baibai_engine.storage.application.read import connect_read_only
 from tools.l1_mcp.contract import InputModel
 
@@ -28,13 +26,11 @@ class OwnerError(Exception):
         super().__init__(code)
 
 
-class ReviewSetSelector(InputModel):
-    review_set_id: str | None = Field(default=None, min_length=1)
-    public_run_id: str | None = Field(default=None, min_length=1)
+class CandidateSelector(InputModel):
+    run_revision_id: str | None = Field(default=None, min_length=1)
     as_of: str | None = None
-    not_before: str | None = None
 
-    @field_validator("as_of", "not_before")
+    @field_validator("as_of")
     @classmethod
     def iso_date(cls, value: str | None) -> str | None:
         if value is not None and date.fromisoformat(value).isoformat() != value:
@@ -53,48 +49,17 @@ class Reader:
         self.app_path = app_path
         self.runs_path = runs_path
 
-    def get_review_set(self, selector: ReviewSetSelector) -> dict[str, Any]:
-        if sum(value is not None for value in selector.model_dump().values()) > 1:
+    def get_candidates(self, selector: CandidateSelector) -> dict[str, Any]:
+        if selector.run_revision_id is not None and selector.as_of is not None:
             raise OwnerError("INVALID_ARGUMENT")
-        if not self.runs_path.is_file():
-            raise OwnerError("SOURCE_UNAVAILABLE")
-        reader = ScreeningRunReader(self.runs_path)
-        try:
-            publication = reader.resolve_review_set(
-                review_set_id=selector.review_set_id,
-                public_run_id=selector.public_run_id,
-                as_of_date=selector.as_of,
-                not_before=selector.not_before,
-            )
-        except RunStoreAmbiguousError as exc:
-            raise OwnerError("AMBIGUOUS_SELECTION") from exc
-        if publication is None:
-            raise OwnerError("SOURCE_UNAVAILABLE")
-        review_set = validated_review_set(publication)
-        run = reader.get_run(review_set.run_revision_id)
-        if run is None:
-            raise OwnerError("SOURCE_UNAVAILABLE")
-        if (
-            run.as_of_date != review_set.as_of.isoformat()
-            or run.payload.get("screening_rules_hash") != review_set.screening_rules_hash
-        ):
-            raise OwnerError("CONTRACT_MISMATCH")
-        candidates = list(review_set_candidates(review_set))
-        return {
-            "review_set_ref": {
-                "review_set_id": review_set.review_set_id,
-                "run_revision_id": review_set.run_revision_id,
-                "public_run_id": run.public_run_id,
-            },
-            "as_of": review_set.as_of.isoformat(),
-            "run_at": run.run_at,
-            "created_at": publication.created_at,
-            "screening_rules_hash": review_set.screening_rules_hash,
-            "candidate_discovery_method": review_set.method.model_dump(mode="json"),
-            "input_basis": "frozen_review_set",
-            "candidate_count": len(candidates),
-            "candidates": candidates,
-        }
+        payload = screening_candidates_payload(
+            self.runs_path,
+            run_revision_id=selector.run_revision_id,
+            as_of_date=None if selector.as_of is None else date.fromisoformat(selector.as_of),
+        )
+        if payload is None:
+            raise OwnerError("not_found")
+        return payload
 
     def exclusions(self, at: str) -> dict[str, Any]:
         try:

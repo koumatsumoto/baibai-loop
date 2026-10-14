@@ -426,10 +426,10 @@ class ScreeningCliTests(unittest.TestCase):
                 )
                 self.assertEqual(payload["run_id"], "screening-20260424")
                 self.assertEqual(payload["filters"]["scope"], "all-common-stocks")
-                self.assertEqual(len(payload["security_analyses"]), 1)
-                self.assertEqual(payload["security_analyses"][0]["ticker"], "130A")
+                self.assertEqual(len(payload["stock_analyses"]), 1)
+                self.assertEqual(payload["stock_analyses"][0]["ticker"], "130A")
                 self.assertAlmostEqual(
-                    payload["security_analyses"][0]["metrics"]["normalized_per_3fy"],
+                    payload["stock_analyses"][0]["metrics"]["normalized_per_3fy"],
                     44.95,
                 )
                 manifest_path = Path(".cache/screening/manifests") / f"{payload['run_id']}.json"
@@ -507,10 +507,11 @@ class ScreeningCliTests(unittest.TestCase):
                 self.assertEqual(second, 2)
                 reader = ScreeningRunReader(Path("stores/screening/runs.sqlite"))
                 self.assertIsNotNone(reader.get_run("run-revision-resume"))
-                sets = reader.list_review_sets()
-                self.assertEqual(len(sets), 1)
-                self.assertEqual(sets[0].run_revision_id, "run-revision-resume")
-                self.assertEqual(sets[0].payload["created_at"], "2026-04-24T09:00:00+09:00")
+                runs = reader.list_runs()
+                self.assertEqual(len(runs), 1)
+                self.assertEqual(runs[0].run_revision_id, "run-revision-resume")
+                self.assertEqual(runs[0].run_at, "2026-04-24T09:00:00+09:00")
+                self.assertIsNotNone(runs[0].stock_analyses[0]["candidate"])
             finally:
                 os.chdir(cwd)
 
@@ -648,11 +649,11 @@ class ScreeningCliTests(unittest.TestCase):
                     "(skipped=0, unsupported=0, errors=0)",
                     payload["provider_status_lines"],
                 )
-                warnings = payload["security_analyses"][0]["freshness_warnings"]
+                warnings = payload["stock_analyses"][0]["freshness_warnings"]
                 self.assertEqual(warnings[0]["event_kind"], "borrowing")
                 self.assertEqual(warnings[0]["stale_metric"], "edinet_metrics")
                 self.assertEqual(
-                    payload["security_analyses"][0]["metrics"]["edinet_freshness_warning_count"], 1
+                    payload["stock_analyses"][0]["metrics"]["edinet_freshness_warning_count"], 1
                 )
             finally:
                 os.chdir(cwd)

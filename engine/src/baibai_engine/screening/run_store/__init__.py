@@ -1,6 +1,6 @@
 """Screening run-store public interfaces."""
 
-from .read import ReviewSetPublication, RunPublication, ScreeningRunReader, connect_read_only
+from .read import RunPublication, ScreeningRunReader, connect_read_only
 from .store import (
     DEFAULT_RUN_STORE_PATH,
     PruneResult,
@@ -17,7 +17,6 @@ __all__ = [
     "DEFAULT_RUN_STORE_PATH",
     "PruneResult",
     "PublicationResult",
-    "ReviewSetPublication",
     "RunPublication",
     "RunStoreAmbiguousError",
     "RunStoreConflictError",
