@@ -9,6 +9,7 @@ from itertools import pairwise
 
 from baibai_engine.foundation.date_utils import add_months_clamped
 from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.market.financial_documents import latest_forecast_source
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.valuation.metrics.capital import (
     SHARE_COUNT_ANCHOR_TOLERANCE,
@@ -73,6 +74,15 @@ def _resolve_dividend_forecast(
     treatment.
     """
 
+    if any(row.dividend_forecast_status != "legacy_unknown" for row in summaries):
+        source = latest_forecast_source(summaries, dividend=True)
+        return (
+            _DividendForecast(
+                source.forecast_period_end or date.max, source, source.dps_forecast_annual
+            )
+            if source is not None
+            else None
+        )
     actual_rows = _actual_dps_rows(summaries)
     threshold = actual_rows[0].disclosed_at if actual_rows else None
     for source in sorted(summaries, key=lambda item: item.disclosed_at, reverse=True):

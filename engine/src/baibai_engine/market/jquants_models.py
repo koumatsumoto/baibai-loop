@@ -150,6 +150,19 @@ class JQuantsFinancialSummary:
     # 株数が壊れていないかを同じ行の中で照合するのに使う。
     average_shares: float | None = None
 
+    # Source-document identity is independent of accounting-period identity. None
+    # denotes the older date-only store; no original document is invented for it.
+    record_key: str | None = None
+    disclosure_number: str | None = None
+    disclosed_time: str | None = None
+    document_type: str | None = None
+    document_payload: str | None = None
+    forecast_period_start: date | None = None
+    forecast_period_end: date | None = None
+    forecast_basis: str | None = None
+    forecast_status: str = "legacy_unknown"
+    dividend_forecast_status: str = "legacy_unknown"
+
     @field_validator("ticker", mode="before")
     @classmethod
     def _normalize_ticker_field(cls, value: str) -> str:

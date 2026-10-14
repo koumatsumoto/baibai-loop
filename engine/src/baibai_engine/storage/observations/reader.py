@@ -20,6 +20,7 @@ from typing import Any, Literal
 from baibai_engine.foundation.date_utils import weekday_distance
 from baibai_engine.foundation.time import JST
 from baibai_engine.market import master_snapshot as master_contract
+from baibai_engine.market.financial_documents import project_financial_documents
 from baibai_engine.market.jpx_models import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
@@ -931,9 +932,7 @@ def count_fin_summaries(sqlite_path: Path, start: date, end: date) -> int:
 def read_fin_summaries(
     sqlite_path: Path, start: date, end: date
 ) -> list[JQuantsFinancialSummary] | None:
-    """Return financial summaries for `[start, end]` from SQLite, or `None`
-    when the cache cannot serve the full range.
-    """
+    """Read covered source documents; project forecasts under the same pure contract."""
     if not sqlite_path.exists():
         return None
     conn = connect_current(sqlite_path)
@@ -942,137 +941,46 @@ def read_fin_summaries(
     try:
         if not range_covered(conn, "jquants_fin_summaries", start, end):
             return None
-        rows = conn.execute(
-            "SELECT ticker, disclosed_at, forecast_eps, eps_ttm, bps, "
-            "shares_outstanding, sales, cfo, cash_eq, total_assets, equity, "
-            "operating_profit, ordinary_profit, profit, "
-            "forecast_profit, forecast_ordinary_profit, "
-            "fiscal_period, fiscal_year_end, period_start, period_end, "
-            "dps_actual_annual, dps_forecast_annual, "
-            "treasury_shares, equity_to_asset_ratio, "
-            "dividend_q1, dividend_interim, dividend_q3, dividend_year_end, "
-            "dividend_total_annual, average_shares "
-            "FROM jquants_fin_summaries WHERE disclosed_at BETWEEN ? AND ? "
-            "ORDER BY ticker, disclosed_at",
-            (start.isoformat(), end.isoformat()),
-        ).fetchall()
+        return read_financial_documents(conn, start=start, end=end)
     finally:
         conn.close()
 
+
+def read_financial_documents(
+    conn: sqlite3.Connection, *, start: date, end: date, ticker: str | None = None
+) -> list[JQuantsFinancialSummary]:
+    """Read stored documents without asserting provider acquisition coverage."""
+    cursor = conn.execute(
+        "SELECT * FROM jquants_fin_summaries WHERE disclosed_at BETWEEN ? AND ? "
+        "AND (? IS NULL OR ticker = ?) ORDER BY ticker, disclosed_at, disclosed_time",
+        (start.isoformat(), end.isoformat(), ticker, ticker),
+    )
+    columns = [item[0] for item in cursor.description]
     summaries: list[JQuantsFinancialSummary] = []
-    for row in rows:
-        (
-            ticker,
-            disclosed_at,
-            forecast_eps,
-            eps_ttm,
-            bps,
-            shares_outstanding,
-            sales,
-            cfo,
-            cash_eq,
-            total_assets,
-            equity,
-            operating_profit,
-            ordinary_profit,
-            profit,
-            forecast_profit,
-            forecast_ordinary_profit,
-            fiscal_period,
-            fiscal_year_end,
-            period_start,
-            period_end,
-            dps_actual_annual,
-            dps_forecast_annual,
-            treasury_shares,
-            equity_to_asset_ratio,
-            dividend_q1,
-            dividend_interim,
-            dividend_q3,
-            dividend_year_end,
-            dividend_total_annual,
-            average_shares,
-        ) = row
+    date_fields = {"disclosed_at", "fiscal_year_end", "period_start", "period_end"}
+    for row in cursor.fetchall():
+        values = dict(zip(columns, row, strict=True))
         try:
-            summaries.append(
-                JQuantsFinancialSummary(
-                    ticker=str(ticker),
-                    disclosed_at=date.fromisoformat(disclosed_at),
-                    forecast_eps=optional_float(forecast_eps),
-                    eps_ttm=optional_float(eps_ttm),
-                    bps=optional_float(bps),
-                    shares_outstanding=optional_float(shares_outstanding),
-                    sales=optional_float(sales),
-                    cfo=optional_float(cfo),
-                    cash_eq=optional_float(cash_eq),
-                    total_assets=optional_float(total_assets),
-                    equity=optional_float(equity),
-                    operating_profit=optional_float(operating_profit),
-                    ordinary_profit=optional_float(ordinary_profit),
-                    profit=optional_float(profit),
-                    forecast_profit=optional_float(forecast_profit),
-                    forecast_ordinary_profit=optional_float(forecast_ordinary_profit),
-                    fiscal_period=fiscal_period if fiscal_period else None,
-                    fiscal_year_end=optional_date(fiscal_year_end),
-                    period_start=optional_date(period_start),
-                    period_end=optional_date(period_end),
-                    dps_actual_annual=optional_float(dps_actual_annual),
-                    dps_forecast_annual=optional_float(dps_forecast_annual),
-                    treasury_shares=optional_float(treasury_shares),
-                    equity_to_asset_ratio=optional_float(equity_to_asset_ratio),
-                    dividend_q1=optional_float(dividend_q1),
-                    dividend_interim=optional_float(dividend_interim),
-                    dividend_q3=optional_float(dividend_q3),
-                    dividend_year_end=optional_float(dividend_year_end),
-                    dividend_total_annual=optional_float(dividend_total_annual),
-                    average_shares=optional_float(average_shares),
-                )
-            )
+            for field in date_fields:
+                values[field] = optional_date(values[field])
+            summaries.append(JQuantsFinancialSummary(**values))
         except (TypeError, ValueError) as exc:
             raise JQuantsProviderError(
-                f"corrupt SQLite row in jquants_fin_summaries for {ticker}: {exc}"
+                f"corrupt financial document for {values['ticker']}: {exc}"
             ) from exc
-    return summaries
+    return project_financial_documents(summaries, end)
 
 
 def read_fy_summaries(
     sqlite_path: Path, start: date, end: date
 ) -> list[JQuantsFinancialSummary] | None:
-    """Read only FY EPS rows over a fully covered financial-summary range."""
-    if not sqlite_path.exists():
-        return None
-    conn = connect_current(sqlite_path)
-    if conn is None:
-        return None
-    try:
-        if not range_covered(conn, "jquants_fin_summaries", start, end):
-            return None
-        rows = conn.execute(
-            "SELECT ticker, disclosed_at, eps_ttm, fiscal_period, fiscal_year_end "
-            "FROM jquants_fin_summaries WHERE disclosed_at BETWEEN ? AND ? "
-            "AND fiscal_period = 'FY' ORDER BY ticker, disclosed_at",
-            (start.isoformat(), end.isoformat()),
-        ).fetchall()
-    finally:
-        conn.close()
-
-    summaries: list[JQuantsFinancialSummary] = []
-    for ticker, disclosed_at, eps_ttm, fiscal_period, fiscal_year_end in rows:
-        try:
-            summaries.append(
-                JQuantsFinancialSummary(
-                    ticker=str(ticker),
-                    disclosed_at=date.fromisoformat(disclosed_at),
-                    eps_ttm=optional_float(eps_ttm),
-                    fiscal_period=str(fiscal_period),
-                    fiscal_year_end=optional_date(fiscal_year_end),
-                )
-            )
-        except (TypeError, ValueError) as exc:
-            raise JQuantsProviderError(
-                f"corrupt FY summary row in jquants_fin_summaries for {ticker}: {exc}"
-            ) from exc
-    return summaries
+    """Read actual FY documents, retaining revision identity and capital anchors."""
+    rows = read_fin_summaries(sqlite_path, start, end)
+    return (
+        None
+        if rows is None
+        else [row for row in rows if row.fiscal_period == "FY" and row.eps_ttm is not None]
+    )
 
 
 def read_jpx_earnings_calendar_snapshot(

@@ -9,6 +9,7 @@ from math import isfinite
 from statistics import fmean
 
 from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.market.financial_documents import latest_forecast_source
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.metric_quality import OperatingProfitSource
 from baibai_engine.valuation.metrics.capital import _normalize_summaries_to_asof_basis
@@ -119,20 +120,13 @@ def _resolve_earnings_forecast(
     summaries: Sequence[JQuantsFinancialSummary],
     latest_actual: JQuantsFinancialSummary | None,
 ) -> _EarningsForecast | None:
-    """Resolve the selected forecast under the persisted date-only v23 contract.
-
-    The store does not retain document identity or current/next target metadata.  The
-    newest persisted row is therefore the only state that both direct and SQLite paths
-    can reproduce.  Period-aware composition needs a lossless source shape and is not
-    inferred from the collapsed row.
-    """
-
+    """Resolve an independent earnings stream from projected source documents."""
     del latest_actual
-    source = summaries[-1] if summaries else None
+    source = latest_forecast_source(summaries)
     if source is None:
         return None
     return _EarningsForecast(
-        target_period_end=date.max,
+        target_period_end=source.forecast_period_end or date.max,
         source=source,
         eps=source.forecast_eps,
         profit=source.forecast_profit,

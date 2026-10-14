@@ -8,11 +8,8 @@ from math import isfinite
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.market.jquants_decode import (
-    JQuantsProviderError,
-    first_period_float,
-    has_period_slot,
-)
+from baibai_engine.market.financial_documents import normalize_financial_summary
+from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.margin_publication import (
     require_all_issues_daily_balance_date,
     require_legacy_weekly_balance_date,
@@ -58,20 +55,35 @@ def store_jquants_fin_summaries(
     *,
     requested_start: date,
     requested_end: date,
+    requested_ticker: str | None = None,
 ) -> int:
     conn = open_connection(db_path)
     try:
         records_list = list(records)
         normalized = _fin_summary_rows_with_quality(records_list)
         rows = normalized.rows
-        replace_date_range(
-            conn,
-            "jquants_fin_summaries",
-            "disclosed_at",
-            requested_start,
-            requested_end,
-            replacement_row_count=len(rows),
-        )
+        if requested_ticker is None:
+            replace_date_range(
+                conn,
+                "jquants_fin_summaries",
+                "disclosed_at",
+                requested_start,
+                requested_end,
+                replacement_row_count=len(rows),
+            )
+        else:
+            if any(row[0] != requested_ticker for row in rows):
+                raise ValueError("financial payload contains a different requested ticker")
+            held = conn.execute(
+                "SELECT COUNT(*) FROM jquants_fin_summaries WHERE ticker = ? AND disclosed_at BETWEEN ? AND ?",
+                (requested_ticker, requested_start.isoformat(), requested_end.isoformat()),
+            ).fetchone()[0]
+            if held and not rows:
+                raise EmptyRangeReplacementError("refusing empty issuer financial replacement")
+            conn.execute(
+                "DELETE FROM jquants_fin_summaries WHERE ticker = ? AND disclosed_at BETWEEN ? AND ?",
+                (requested_ticker, requested_start.isoformat(), requested_end.isoformat()),
+            )
         if rows:
             conn.executemany(
                 """
@@ -83,25 +95,31 @@ def store_jquants_fin_summaries(
                   dps_actual_annual, dps_forecast_annual,
                   treasury_shares, equity_to_asset_ratio,
                   dividend_q1, dividend_interim, dividend_q3, dividend_year_end,
-                  dividend_total_annual, average_shares
+                  dividend_total_annual, average_shares, record_key, disclosure_number,
+                  disclosed_time,
+                  document_type, document_payload
                 ) VALUES (
                   ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )
                 """,
                 rows,
             )
-        persisted_count = record_range_source_coverage(
-            conn,
-            source="jquants_fin_summaries",
-            operation="get_fin_summary_range",
-            table="jquants_fin_summaries",
-            date_column="disclosed_at",
-            requested_start=requested_start,
-            requested_end=requested_end,
-            status=normalized.status,
-            error=normalized.error,
-        )
+        if requested_ticker is None:
+            persisted_count = record_range_source_coverage(
+                conn,
+                source="jquants_fin_summaries",
+                operation="get_fin_summary_range",
+                table="jquants_fin_summaries",
+                date_column="disclosed_at",
+                requested_start=requested_start,
+                requested_end=requested_end,
+                status=normalized.status,
+                error=normalized.error,
+            )
+        else:
+            # An issuer repair does not establish all-market acquisition coverage.
+            persisted_count = len(rows)
         conn.commit()
         return persisted_count
     finally:
@@ -793,102 +811,64 @@ def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> Norm
         if ticker is None or disclosed_at is None:
             rejected_count += 1
             continue
-        # 会社予想の純利益/経常のペアは forecast_eps と同一予想期から採る。当期予想 EPS
-        # (FEPS) が埋まっていれば当期予想の FNP/FOdP、本決算開示で FEPS が空なら翌期
-        # ガイダンスの NxFNp/NxFOdP を採る (forecast_eps の FEPS→NxFEPS と同じ期選択)。
-        # 期をまたいだ比較 (当期 EPS 期 と翌期利益の突合) は一時益 flag の誤検出になるので混ぜない。
-        if has_period_slot(record, "FEPS"):
-            forecast_profit = to_float(first(record, "FNP"))
-            forecast_ordinary_profit = to_float(first(record, "FOdP"))
-        else:
-            forecast_profit = to_float(first(record, "NxFNp"))
-            forecast_ordinary_profit = to_float(first(record, "NxFOdP"))
-        rows.append(
-            (
-                ticker,
-                disclosed_at,
-                # ClientV2 の fin-summary は短縮キーを返す。FEPS=当期予想 EPS は本決算
-                # (FY)開示で空になり、翌期ガイダンスは NxFEPS に入る。FEPS→NxFEPS の順で
-                # 各時点の最良 forward EPS(per_forward の基)を埋める。
-                first_period_float(record, "FEPS", "NxFEPS"),
-                to_float(first(record, "EpsTtm", "eps_ttm", "EPS", "eps")),
-                to_float(first(record, "BPS", "bps")),
-                to_float(
-                    first(
-                        record,
-                        "SharesOutstanding",
-                        "shares_outstanding",
-                        "IssuedShareEquityQuote",
-                        "ShOutFY",
-                    )
-                ),
-                to_float(first(record, "NetSales", "net_sales", "Sales", "sales")),
-                to_float(
-                    first(
-                        record,
-                        "CashFlowsFromOperatingActivities",
-                        "cash_flows_from_operating_activities",
-                        "OperatingCashFlow",
-                        "operating_cash_flow",
-                        "CFO",
-                        "cfo",
-                    )
-                ),
-                to_float(
-                    first(
-                        record,
-                        "CashAndEquivalents",
-                        "cash_and_equivalents",
-                        "CashEq",
-                        "cash_eq",
-                    )
-                ),
-                to_float(first(record, "TotalAssets", "total_assets", "TA", "ta")),
-                to_float(first(record, "Equity", "equity", "Eq", "eq")),
-                to_float(first(record, "OperatingProfit", "operating_profit", "OP")),
-                to_float(first(record, "OrdinaryProfit", "ordinary_profit", "OdP")),
-                to_float(first(record, "Profit", "profit", "NP")),
-                forecast_profit,
-                forecast_ordinary_profit,
-                to_str_or_none(
-                    first(record, "TypeOfCurrentPeriod", "type_of_current_period", "CurPerType")
-                ),
-                date_iso(
-                    first(
-                        record,
-                        "CurrentFiscalYearEndDate",
-                        "current_fiscal_year_end_date",
-                        "CurFYEn",
-                    )
-                ),
-                date_iso(
-                    first(record, "CurrentPeriodStartDate", "current_period_start_date", "CurPerSt")
-                ),
-                date_iso(
-                    first(record, "CurrentPeriodEndDate", "current_period_end_date", "CurPerEn")
-                ),
-                # DivAnn=実績年間 DPS (FY 開示)。予想年間は四半期開示の FDivAnn、
-                # 本決算開示では進行期ガイダンスが NxFDivAnn に入る (FEPS→NxFEPS と同型)。
-                to_float(first(record, "DivAnn")),
-                first_period_float(record, "FDivAnn", "NxFDivAnn"),
-                # TrShFY=期末自己株式数、EqAR=開示された自己資本比率。ShOutFY は自己株式を
-                # 含む発行済株式総数、Eq は非支配株主持分を含む純資産なので、時価総額と
-                # 自己資本比率をそれぞれ正しい分母で作るには両方が要る。
-                to_float(first(record, "TrShFY", "treasury_shares", "TreasuryStock")),
-                to_float(first(record, "EqAR", "equity_to_asset_ratio", "EquityToAssetRatio")),
-                # 支払ごとの 1 株当たり配当。年間の DivAnn は中間・期末それぞれの基準日
-                # 時点の株式基準で書かれるので、分割・併合を跨いだ年度は株価と基準が揃わ
-                # ない。支払ごとに持てば、各支払の基準日より後の調整だけを掛けられる。
-                to_float(first(record, "Div1Q")),
-                to_float(first(record, "Div2Q")),
-                to_float(first(record, "Div3Q")),
-                to_float(first(record, "DivFY")),
-                # DivTotalAnn=通期に支払った配当の総額 (円)。株式基準を持たないので、
-                # 自己株式を除いた株式数で割った値が上の換算の独立した照合になる。
-                to_float(first(record, "DivTotalAnn")),
-                # AvgSh=期中平均株式数。提出者が EPS を出すのに使った株数そのもので、
-                # 期末発行済から自己株を引いた株数が壊れていないかを同じ行の中で照合できる。
-                to_float(first(record, "AvgSh")),
-            )
+        summary = normalize_financial_summary(record)
+        if summary is None:
+            excluded_count += 1
+            continue
+        columns = (
+            "ticker",
+            "disclosed_at",
+            "forecast_eps",
+            "eps_ttm",
+            "bps",
+            "shares_outstanding",
+            "sales",
+            "cfo",
+            "cash_eq",
+            "total_assets",
+            "equity",
+            "operating_profit",
+            "ordinary_profit",
+            "profit",
+            "forecast_profit",
+            "forecast_ordinary_profit",
+            "fiscal_period",
+            "fiscal_year_end",
+            "period_start",
+            "period_end",
+            "dps_actual_annual",
+            "dps_forecast_annual",
+            "treasury_shares",
+            "equity_to_asset_ratio",
+            "dividend_q1",
+            "dividend_interim",
+            "dividend_q3",
+            "dividend_year_end",
+            "dividend_total_annual",
+            "average_shares",
+            "record_key",
+            "disclosure_number",
+            "disclosed_time",
+            "document_type",
+            "document_payload",
         )
+        # Current source documents have one authoritative forecast payload. The four
+        # collapsed forecast columns are reserved for imported date-only legacy rows.
+        values = []
+        for column in columns:
+            value = getattr(summary, column)
+            if (
+                column
+                in {
+                    "forecast_eps",
+                    "forecast_profit",
+                    "forecast_ordinary_profit",
+                    "dps_forecast_annual",
+                }
+                and record.get("CurFYSt")
+                and record.get("CurFYEn")
+            ):
+                value = None
+            values.append(value.isoformat() if isinstance(value, date) else value)
+        rows.append(tuple(values))
     return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)

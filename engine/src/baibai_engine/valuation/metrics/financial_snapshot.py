@@ -7,6 +7,7 @@ from datetime import date
 
 from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.market.edinet_models import EdinetMetricRecord
+from baibai_engine.market.financial_documents import project_financial_documents
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.metric_quality import OperatingProfitSource, TTMQuality
 
@@ -52,7 +53,7 @@ def build_financial_snapshot(
     asof_date: date,
 ) -> FinancialSnapshot:
     normalization = _normalize_summaries_with_status(
-        [summary for summary in summaries if summary.disclosed_at <= asof_date],
+        project_financial_documents(summaries, asof_date),
         adjustment_events,
         asof_date,
     )
