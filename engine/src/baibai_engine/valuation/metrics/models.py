@@ -58,6 +58,8 @@ class FinancialSnapshot:
     # 掛け直せない年度は利回りを出さず (unresolved_split_basis)、E[r] も付けない。
     # dividend_split_factor は既存の配当計算窓の累積 factor が 1 以外なら記録し、
     # 1 なら None。全splitの有無を表すflagではない。
+    earnings_forecast_source: dict[str, str | None] | None = None
+    dividend_forecast_source: dict[str, str | None] | None = None
     dps_actual_annual: float | None = None
     dps_forecast_annual: float | None = None
     dividend_yield: float | None = None

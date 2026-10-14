@@ -32,7 +32,10 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
     # (FEPS) が埋まっていれば当期予想の FNP/FOdP、本決算開示で FEPS が空なら翌期
     # ガイダンスの NxFNp/NxFOdP を採る (forecast_eps の FEPS→NxFEPS と同じ期選択)。
     # 期をまたいだ比較 (当期 EPS 期 と翌期利益の突合) は一時益 flag の誤検出になるので混ぜない。
-    if has_period_slot(record, "FEPS"):
+    legacy_forecast = _period(record, "current") is None
+    if not legacy_forecast:
+        forecast_profit = forecast_ordinary_profit = None
+    elif has_period_slot(record, "FEPS"):
         forecast_profit = to_float(coalesce_field(record, "FNP"))
         forecast_ordinary_profit = to_float(coalesce_field(record, "FOdP"))
     else:
@@ -50,7 +53,7 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
         # ClientV2 の fin-summary は短縮キーを返す。FEPS=当期予想 EPS は本決算(FY)
         # 開示で空になり、翌期ガイダンスは NxFEPS に入る。FEPS→NxFEPS の順で各時点の
         # 最良 forward EPS(per_forward の基)を埋める。
-        forecast_eps=first_period_float(record, "FEPS", "NxFEPS"),
+        forecast_eps=first_period_float(record, "FEPS", "NxFEPS") if legacy_forecast else None,
         eps_ttm=to_float(
             coalesce_field(
                 record,
@@ -142,7 +145,9 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
         # DivAnn=実績年間 DPS。予想年間は FDivAnn (四半期) → NxFDivAnn (本決算の
         # 進行期ガイダンス) の順で埋める (FEPS→NxFEPS と同型)。
         dps_actual_annual=to_float(coalesce_field(record, "DivAnn")),
-        dps_forecast_annual=first_period_float(record, "FDivAnn", "NxFDivAnn"),
+        dps_forecast_annual=first_period_float(record, "FDivAnn", "NxFDivAnn")
+        if legacy_forecast
+        else None,
         # TrShFY = 期末自己株式数、EqAR = 開示された自己資本比率。ShOutFY (発行済・自己株
         # 込み) と Eq (純資産) だけでは時価総額も自己資本比率も正しい分母で作れない。
         treasury_shares=to_float(
@@ -257,7 +262,7 @@ def project_financial_documents(
         )
         for i, row in enumerate(rows):
             record = records[i]
-            slot = next(
+            selected_slot = next(
                 (
                     slot
                     for slot in ("current", "next")
@@ -267,11 +272,11 @@ def project_financial_documents(
             )
             eps = profit = ordinary = dps = None
             earnings_status = dividend_status = "not_applicable"
-            if slot is not None:
-                prefix = "F" if slot == "current" else "NxF"
+            if selected_slot is not None:
+                prefix = "F" if selected_slot == "current" else "NxF"
                 primary_keys = (
                     f"{prefix}EPS",
-                    "FNP" if slot == "current" else "NxFNp",
+                    "FNP" if selected_slot == "current" else "NxFNp",
                     f"{prefix}OdP",
                 )
                 nc_keys = (f"{prefix}NCEPS", f"{prefix}NCNP", f"{prefix}NCOdP")
@@ -324,14 +329,28 @@ def latest_forecast_source(
         else ("forecast_eps", "forecast_profit", "forecast_ordinary_profit")
     )
     values = {tuple(getattr(row, field) for field in fields) for row in latest}
-    if len(values) != 1:
-        return replace(
-            latest[0],
-            **dict.fromkeys(fields),
-            forecast_status="unresolved",
-            dividend_forecast_status="unresolved",
+    source = latest[0]
+    if len(latest) > 1:
+        source = replace(
+            source,
+            disclosure_number=None,
+            forecast_source_documents=tuple(
+                sorted({row.disclosure_number for row in latest if row.disclosure_number})
+            ),
         )
-    return latest[0]
+    if len(values) != 1:
+        return (
+            replace(source, dps_forecast_annual=None, dividend_forecast_status="unresolved")
+            if dividend
+            else replace(
+                source,
+                forecast_eps=None,
+                forecast_profit=None,
+                forecast_ordinary_profit=None,
+                forecast_status="unresolved",
+            )
+        )
+    return source
 
 
 def forecast_source_trace(
@@ -339,7 +358,7 @@ def forecast_source_trace(
 ) -> dict[str, str | None] | None:
     if row is None:
         return None
-    return {
+    trace = {
         "status": row.dividend_forecast_status if dividend else row.forecast_status,
         "disclosure_number": row.disclosure_number,
         "disclosed_at": row.disclosed_at.isoformat(),
@@ -351,3 +370,6 @@ def forecast_source_trace(
         "period_end": row.forecast_period_end.isoformat() if row.forecast_period_end else None,
         "basis": "issuer_dividend" if dividend else row.forecast_basis,
     }
+    if row.forecast_source_documents:
+        trace["candidate_disclosure_numbers"] = ",".join(row.forecast_source_documents)
+    return trace

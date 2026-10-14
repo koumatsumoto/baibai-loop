@@ -7,7 +7,11 @@ from datetime import date
 
 from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.market.edinet_models import EdinetMetricRecord
-from baibai_engine.market.financial_documents import project_financial_documents
+from baibai_engine.market.financial_documents import (
+    forecast_source_trace,
+    latest_forecast_source,
+    project_financial_documents,
+)
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.metric_quality import OperatingProfitSource, TTMQuality
 
@@ -40,7 +44,7 @@ from .profit import (
 )
 from .ratios import _safe_positive_ratio, _safe_ratio, _yoy_ratio
 
-VALUATION_CALCULATION_REVISION = "dividend-period-freshness-v26"
+VALUATION_CALCULATION_REVISION = "document-period-forecasts-v27"
 
 
 def build_financial_snapshot(
@@ -270,6 +274,10 @@ def build_financial_snapshot(
     return FinancialSnapshot(
         latest_financial_disclosure_date=latest.disclosed_at if latest else None,
         per_forward=per_forward,
+        earnings_forecast_source=forecast_source_trace(forecast.source if forecast else None),
+        dividend_forecast_source=forecast_source_trace(
+            latest_forecast_source(summaries, dividend=True), dividend=True
+        ),
         per_trailing=per_trailing,
         pbr=pbr,
         ev_ebitda=ev_ebitda,

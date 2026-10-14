@@ -385,6 +385,18 @@ def _resolve_capital_basis(
     if issued_row is not None and treasury_row is not None:
         issued_source_key = _accounting_observation_key(issued_row)
         treasury_source_key = _accounting_observation_key(treasury_row)
+        if (
+            issued_source_key == treasury_source_key
+            and issued_row.record_key is not None
+            and treasury_row.record_key is not None
+            and issued_row.record_key != treasury_row.record_key
+        ):
+            return _CapitalBasisResolution(
+                issued=issued,
+                treasury=treasury,
+                shares_ex_treasury=None,
+                failure_reason="conflicting_capital_document_sources",
+            )
         if issued_source_key != treasury_source_key and treasury > 0:
             issued_at_treasury = treasury_row.shares_outstanding
             if issued_at_treasury is None:

@@ -74,21 +74,20 @@ def check() -> tuple[str, ...]:
                 # Retained evidence predates the one-bar scope. Recognize its
                 # original hash for provenance without making it current at runtime.
                 known.add(production_rules_contract_hash(rules_json, universe_scope_revision=""))
-                # Retention only: v25 evidence keeps its original calculation and
-                # input-window contract, before or after the one-bar scope change.
-                # Do not derive these historical facts from current runtime values.
-                for scope_revision in ("", "valid-price-one-bar-v2"):
-                    known.add(
-                        rules_contract_hash(
-                            rules_json,
-                            universe_scope_revision=scope_revision,
-                            valuation_calculation_revision="same-profit-basis-yoy-v25",
-                            variant="production",
-                            valuation_history_sessions=750,
-                            bars_input_window_days=1200,
-                            production_authority=True,
+                # Historical evidence retains its original calculation identity.
+                for revision in ("same-profit-basis-yoy-v25", "dividend-period-freshness-v26"):
+                    for scope_revision in ("", "valid-price-one-bar-v2"):
+                        known.add(
+                            rules_contract_hash(
+                                rules_json,
+                                universe_scope_revision=scope_revision,
+                                valuation_calculation_revision=revision,
+                                variant="production",
+                                valuation_history_sessions=750,
+                                bars_input_window_days=1200,
+                                production_authority=True,
+                            )
                         )
-                    )
             except ValidationError:
                 # Older frozen schemas cannot be interpreted by the current writer.
                 continue

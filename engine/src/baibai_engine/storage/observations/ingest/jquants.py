@@ -75,13 +75,15 @@ def store_jquants_fin_summaries(
             if any(row[0] != requested_ticker for row in rows):
                 raise ValueError("financial payload contains a different requested ticker")
             held = conn.execute(
-                "SELECT COUNT(*) FROM jquants_fin_summaries WHERE ticker = ? AND disclosed_at BETWEEN ? AND ?",
+                "SELECT COUNT(*) FROM jquants_fin_summaries WHERE ticker = ? "
+                "AND disclosed_at BETWEEN ? AND ?",
                 (requested_ticker, requested_start.isoformat(), requested_end.isoformat()),
             ).fetchone()[0]
             if held and not rows:
                 raise EmptyRangeReplacementError("refusing empty issuer financial replacement")
             conn.execute(
-                "DELETE FROM jquants_fin_summaries WHERE ticker = ? AND disclosed_at BETWEEN ? AND ?",
+                "DELETE FROM jquants_fin_summaries WHERE ticker = ? "
+                "AND disclosed_at BETWEEN ? AND ?",
                 (requested_ticker, requested_start.isoformat(), requested_end.isoformat()),
             )
         if rows:
@@ -852,23 +854,9 @@ def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> Norm
             "document_type",
             "document_payload",
         )
-        # Current source documents have one authoritative forecast payload. The four
-        # collapsed forecast columns are reserved for imported date-only legacy rows.
         values = []
         for column in columns:
             value = getattr(summary, column)
-            if (
-                column
-                in {
-                    "forecast_eps",
-                    "forecast_profit",
-                    "forecast_ordinary_profit",
-                    "dps_forecast_annual",
-                }
-                and record.get("CurFYSt")
-                and record.get("CurFYEn")
-            ):
-                value = None
             values.append(value.isoformat() if isinstance(value, date) else value)
         rows.append(tuple(values))
     return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)

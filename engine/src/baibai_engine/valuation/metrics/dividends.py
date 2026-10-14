@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from itertools import pairwise
 
 from baibai_engine.foundation.date_utils import add_months_clamped
 from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
-from baibai_engine.market.financial_documents import latest_forecast_source
+from baibai_engine.market.financial_documents import (
+    disclosure_revision,
+    latest_forecast_source,
+    project_financial_documents,
+)
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.valuation.metrics.capital import (
     SHARE_COUNT_ANCHOR_TOLERANCE,
@@ -347,10 +351,7 @@ def build_shareholder_return_change_signals(
     deliberately described as share-count reduction rather than proof of a
     buyback because the source includes treasury stock.
     """
-    available = sorted(
-        (summary for summary in summaries if summary.disclosed_at <= asof_date),
-        key=lambda item: item.disclosed_at,
-    )
+    available = project_financial_documents(summaries, asof_date)
     normalized = _normalize_summaries_to_asof_basis(available, ticker_bars, asof_date)
     fy_rows = _latest_fy_revisions(normalized)
 
@@ -434,14 +435,35 @@ def build_shareholder_return_change_signals(
 def _latest_fy_revisions(
     summaries: Sequence[JQuantsFinancialSummary],
 ) -> list[JQuantsFinancialSummary]:
-    latest: dict[date, JQuantsFinancialSummary] = {}
+    grouped: dict[date, list[JQuantsFinancialSummary]] = {}
     for summary in summaries:
         if summary.fiscal_period != "FY" or summary.fiscal_year_end is None:
             continue
-        previous = latest.get(summary.fiscal_year_end)
-        if previous is None or summary.disclosed_at > previous.disclosed_at:
-            latest[summary.fiscal_year_end] = summary
-    return [latest[fiscal_year_end] for fiscal_year_end in sorted(latest)]
+        if summary.document_type in {"EarnForecastRevision", "DividendForecastRevision"}:
+            continue
+        grouped.setdefault(summary.fiscal_year_end, []).append(summary)
+    result = []
+    for year_end in sorted(grouped):
+        rows = grouped[year_end]
+        revision = max(map(disclosure_revision, rows))
+        tied = [row for row in rows if disclosure_revision(row) == revision]
+        # Preserve unresolved years in the consecutive-FY series rather than
+        # silently skipping a contradictory EPS/DPS observation.
+        changes: dict[str, float | None] = {}
+        for field in ("eps_ttm", "dps_actual_annual", "shares_outstanding", "treasury_shares"):
+            values = {getattr(row, field) for row in tied}
+            if len(values) != 1:
+                changes[field] = None
+        result.append(
+            replace(
+                tied[0],
+                eps_ttm=changes.get("eps_ttm", tied[0].eps_ttm),
+                dps_actual_annual=changes.get("dps_actual_annual", tied[0].dps_actual_annual),
+                shares_outstanding=changes.get("shares_outstanding", tied[0].shares_outstanding),
+                treasury_shares=changes.get("treasury_shares", tied[0].treasury_shares),
+            )
+        )
+    return result
 
 
 def _asof_basis_fy_dps(

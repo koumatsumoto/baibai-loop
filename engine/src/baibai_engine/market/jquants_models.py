@@ -160,6 +160,7 @@ class JQuantsFinancialSummary:
     forecast_period_start: date | None = None
     forecast_period_end: date | None = None
     forecast_basis: str | None = None
+    forecast_source_documents: tuple[str, ...] = ()
     forecast_status: str = "legacy_unknown"
     dividend_forecast_status: str = "legacy_unknown"
 

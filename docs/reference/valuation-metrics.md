@@ -72,7 +72,11 @@ Researchの選択済み銘柄入力の`cash_flow`は、機械anchorと同じrun�
 ### 2.1 採用ソース
 
 - **会社予想 EPS ベース**（会社が期初/修正後に開示した公式予想）
-- 取得: J-Quantsの会社予想EPS。採用値は現行providerの取得契約に従う。
+- 取得: J-Quantsの会社予想EPS。保存済み文書を[`market/financial_documents`](../../engine/src/baibai_engine/market/financial_documents.py)の共通純粋投影で読み、対象期・連結basis・指標sourceを解決する。EPSが有効なら純利益・経常利益の欠測だけでPERを落とさない。IFRS等の経常利益欠測も許す。
+
+数値の有無より先に、as-ofに適用する最新の決算期状態を決める。当期・翌期とprimary・nonconsolidatedの全欄は保存し、異なる期間やbasisを混ぜない。単体会社のprimary欄に入った翌期予想も使うが、連結会社の単体補足予想で連結予想を上書きしない。利益3項目は同一文書の同一slotから任意に読む。年間DPSは独立した文書streamから明示0を保持して解決する。空欄はその文書の非掲載であり、撤回の確認に読み替えない。新しい決算期の空欄を古い対象期の数値で埋めない。
+
+開示日・時刻が同じ文書の矛盾は`unresolved`とし、DocNoの大小や投入順で採否を決めない。Security Analysisの`earnings_forecast_source` / `dividend_forecast_source`はJSON文字列で、status・文書番号・開示日/時刻・DocType・対象期間・basisを残す。旧date-only保存値は`legacy_unknown`の機械入力として維持し、確認済み会社予想へ格上げせず、確認済み新期間や修正へ優先しない。取得窓の延長や全legacy値の一括無効化は行わない。
 
 ### 2.2 却下したソース
 
@@ -330,7 +334,7 @@ J-Quants の財務サマリーは四半期 disclosure の時系列として扱�
 
 YoYは`当期 / 前年 - 1`で、前年0なら`null`。赤字縮小は`前年 < 当期 < 0`のときだけ`true`、両値が観測済みでそれ以外なら`false`、欠測なら`null`とする。負の前年値に対するYoYの符号だけで改善・悪化を読み取らない。
 
-forecast は source store が同日文書identityと対象期を保持しないため、開示日順で保存された状態だけを使い、文書間の合成を推測しない。
+実績の会計期間identityと文書revision（開示日・時刻）は別に扱う。同時刻のEPS・資本状態の矛盾を任意の一行へ潰さず、比較・分母を未解決にする。利益・配当の予想専用文書はactual FY系列へ入れない。予想の対象期・source解決は§2.1に従う。
 
 ## 14. 算出エラー・欠損の扱い
 

@@ -6,6 +6,7 @@ measure a different Candidate Discovery input from the production Screening Run.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from datetime import date
 
@@ -156,6 +157,16 @@ def build_security_analysis_metrics(
         "forecast_full_year_loss_flag": financial.forecast_full_year_loss_flag,
         "dps_actual_annual": financial.dps_actual_annual,
         "dps_forecast_annual": financial.dps_forecast_annual,
+        "earnings_forecast_source": json.dumps(
+            financial.earnings_forecast_source, ensure_ascii=False
+        )
+        if financial.earnings_forecast_source
+        else None,
+        "dividend_forecast_source": json.dumps(
+            financial.dividend_forecast_source, ensure_ascii=False
+        )
+        if financial.dividend_forecast_source
+        else None,
         "dividend_yield": financial.dividend_yield,
         "dividend_basis": financial.dividend_basis,
         "dividend_split_factor": financial.dividend_split_factor,

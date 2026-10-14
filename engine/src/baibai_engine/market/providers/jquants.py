@@ -24,6 +24,7 @@ from baibai_engine.market.config import JQUANTS_CLIENT_V2_METHODS
 from baibai_engine.market.financial_documents import (
     normalize_financial_summary as normalize_financial_summary,
 )
+from baibai_engine.market.financial_documents import project_financial_documents
 from baibai_engine.market.jquants_decode import JQuantsProviderError as JQuantsProviderError
 from baibai_engine.market.jquants_decode import (
     _parse_yyyymmdd_param,
@@ -747,11 +748,14 @@ class JQuantsProvider(_JQuantsTransport):
                 f"for {start.isoformat()}..{end.isoformat()}"
             )
         records = self._load_or_fetch_range("get_fin_summary_range", start, end)
-        return [
-            summary
-            for record in records
-            if (summary := normalize_financial_summary(record)) is not None
-        ]
+        return project_financial_documents(
+            [
+                summary
+                for record in records
+                if (summary := normalize_financial_summary(record)) is not None
+            ],
+            end,
+        )
 
     def get_fy_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]:
         """Return only FY rows while still proving the full summary range is covered."""
