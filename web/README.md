@@ -16,7 +16,7 @@ materialized JSONとfrontend assetは生成しますが、application DBやdomai
 調査・提案の保存履歴は現在のScreeningから独立して読めます。`/api/stock-assessments`は保存済みStock Assessmentの一覧、`/api/investment-proposals`は保存済みInvestment Proposalの一覧です。`/api/operations`の`research`はResearch selectionのscope・capacity・固定対象・選定理由・run参照と、Assessment Reviewまでの進行、提案参照を投影します。0件選択、成果未記録、調査未完了、企業評価完了、提案工程完了を区別します。判断と取引の関係は[Decision flow](../docs/domain-language.md#decision-flow)を参照してください。
 表示分類は`config/market-context-panel.yaml`、consumer契約を持つevidenceは`reports/published/`から読みます。APIとserving R2 keyの対応は`contracts/routes.json`が所有します。
 
-銘柄一覧・詳細・履歴の機械anchorは表示対象runの保存済みSecurity Analysisから読み、候補入りを照会条件にしません。企業固有のStock Assessmentとの区別と欠測の意味は[Valuation metrics](../docs/reference/valuation-metrics.md#machine-valuation)を参照してください。
+銘柄一覧・詳細・履歴の機械anchorは表示対象runの保存済みStock Analysisから読み、候補入りを照会条件にしません。企業固有のStock Assessmentとの区別と欠測の意味は[Valuation metrics](../docs/reference/valuation-metrics.md#machine-valuation)を参照してください。
 機械E[r]の保存済みモデル・単位・anchor指標・前提も同じread modelへ渡し、銘柄詳細で年率と成分に併記します。
 
 銘柄詳細の[External Assessment](../docs/reference/data-sources.md#external-assessment)は保存済み外部提示値と出所別比較を表示します。外部観測だけを持つ銘柄もexportへ含め、独自FV・推薦順位とは別結果として扱います。
@@ -62,4 +62,4 @@ Investment Proposalの評価リンクは、その提案が固定参照したStoc
 別母集団で、欠測はnullのまま返す。bulk exportだけが単一生成内でmaster・市場短期系列・benchmarkを
 共有し、計算はdomainに保つ。永続cacheや別の分析正本は作らない。
 
-候補探索の銘柄検索はSecurity Analysisと、読取時点以前に保存された外部観測の銘柄を扱います。機械分析のない銘柄は外部参考評価の記録として表示し、PER・PBR・配当条件の数値対象にはしません。保存masterに名称があれば検索・詳細へ表示し、なければtickerと「名称未確認」で辿れます。run未発行でも保存外部観測を検索できます。
+候補探索の銘柄検索はStock Analysisと、読取時点以前に保存された外部観測の銘柄を扱います。機械分析のない銘柄は外部参考評価の記録として表示し、PER・PBR・配当条件の数値対象にはしません。保存masterに名称があれば検索・詳細へ表示し、なければtickerと「名称未確認」で辿れます。run未発行でも保存外部観測を検索できます。

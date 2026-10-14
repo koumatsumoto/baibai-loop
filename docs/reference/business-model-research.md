@@ -78,9 +78,10 @@ issuerが作成し、EDINET / TDnet / JPX経由で配布した文書は`issuer-p
 ## `unknown` / `blocked` / `defer`の扱い
 
 - issuerの公表を確認できても、その将来主張は確定値ではない。独立裏取りが必要な重要claimは、試したsourceと未了の影響を該当するcase・risk・valuationに残す。issuer-primaryで確定できる過去の公表値は、因果解釈から分離して保持する。
-- `blocked`は個別の確認事項を終えられない状態で、Stock Assessmentのstanceではない。根拠不足だけで自動unsupportedにせず、重要な不明が解消できなければ企業評価をuncertainとする。
+- `blocked`は個別の確認事項を終えられない状態で、Stock Assessmentのstanceではない。根拠不足だけで自動unsupportedにせず、投資仮説の維持・不成立を判断できない重要な不明はuncertainとして残す。
 - 重要なclaimをissuer familyだけで支える場合やsourceの矛盾が未解決なら、肯定的な価値を無条件にBaseへ入れない。独立Reviewは根拠の検証状態を`primary_source_check`へ反映し、重要な根拠不足のsupportedを通さない。小口配分やoverrideで代替しない。
 - 割安と構造的毀損の区別、永久損失、Base/Downsideの成立性を保守的にも評価できなければ、理由付きunresolved valuationを使う。評価が可能でも重要な不明が残る場合はcase・risk・stanceで明示する。
+- valuationのresolved/unresolved、企業評価のstance、新規/保有の行動は分けて判断する。企業評価は[Stock Assessment](./stock-assessment.md)、新規購入の条件と行動は[Investment Proposal](./investment-proposal.md)に従う。valuation不足から保有を一律deferにせず、確認済みの重大なbreakによるsellと、今回intactを確認したholdの扱いは[保有継続と回収](./investment-proposal.md#holding)を正本とする。
 - 非重要なunknownはReviewの`nonmaterial_unknown_reason`へ根拠を示し、比較を続けてよい。unsupportedは確認した重大な不成立や不適切な企業評価の結論である。現在価格がPmaxを超えたという理由だけで企業評価をunsupportedにしない。現在の購入条件と候補間配分はInvestment Proposalが所有する。
 
 ## 試行1 — 継続契約software / data
@@ -111,7 +112,7 @@ recurring売上・粗利比率、ARR/MRR、NRR/GRR、logo/売上churn、ARPU/sea
 
 ### `blocked` / `defer`の条件
 
-retentionまたはrecurring境界がunknownなのに継続率がFVの主要根拠、serviceとsoftwareのmarginを分けられずoperating leverageを評価不能、大口解約・platform依存がpermanent-loss判断を左右する場合は該当checkをblockedとする。そのunknownがload-bearingで、ゼロ成長・margin低下などの保守的な範囲も置けない場合はvaluationを理由付きunresolved、企業評価をuncertainとし、Proposalではdeferする。
+retentionまたはrecurring境界がunknownなのに継続率がFVの主要根拠、serviceとsoftwareのmarginを分けられずoperating leverageを評価不能、大口解約・platform依存がpermanent-loss判断を左右する場合は該当checkをblockedとする。そのunknownがload-bearingで、ゼロ成長・margin低下などの保守的な範囲も置けない場合はvaluationを理由付きunresolvedとする。企業評価と行動は上記の共通の扱いに従う。
 
 ## 試行2 — 人員依存project / outsourcing
 
@@ -141,7 +142,7 @@ retentionまたはrecurring境界がunknownなのに継続率がFVの主要根�
 
 ### `blocked` / `defer`の条件
 
-受注/backlogと売上のreconciliationが不明、headcount・単価・稼働率・labor costのうちgrowth/marginを説明する材料が無い、契約資産や不採算projectが急増しcash回収と損失上限を評価できない場合は該当checkをblockedとし、評価期間のBase/Downsideを保守的にも置けなければvaluationを理由付きunresolved、企業評価をuncertainとし、Proposalではdeferする。
+受注/backlogと売上のreconciliationが不明、headcount・単価・稼働率・labor costのうちgrowth/marginを説明する材料が無い、契約資産や不採算projectが急増しcash回収と損失上限を評価できない場合は該当checkをblockedとする。評価期間のBase/Downsideを保守的にも置けなければvaluationを理由付きunresolvedとする。企業評価と行動は上記の共通の扱いに従う。
 
 ## 試行3 — IP / live-service / hit portfolio
 
@@ -171,7 +172,7 @@ title/IP別売上、MAU/DAU、payer数・payer率、ARPU/ARPPU、retention、boo
 
 ### `blocked` / `defer`の条件
 
-既存titleだけのflow収益と固定費耐性を評価できない、未発売pipeline成功を除くとrequired returnを満たさないのにstage・cost・独立需要evidenceがunknown、または上位IP/license/platform契約の終了条件がunknownなら該当checkをblockedとする。そのunknownがload-bearingで、pipeline価値ゼロ・既存title減衰・margin低下などの保守的な範囲も置けない場合はvaluationを理由付きunresolved、企業評価をuncertainとし、Proposalではdeferする。未発売titleを除いた既存flowで事業継続と十分な価値を支えられるなら、pipelineの上振れを補助的な可能性として文章に留め、比較を続けてよい。
+既存titleだけのflow収益と固定費耐性を評価できない、未発売pipeline成功を除くとrequired returnを満たさないのにstage・cost・独立需要evidenceがunknown、または上位IP/license/platform契約の終了条件がunknownなら該当checkをblockedとする。そのunknownがload-bearingで、pipeline価値ゼロ・既存title減衰・margin低下などの保守的な範囲も置けない場合はvaluationを理由付きunresolvedとする。企業評価と行動は上記の共通の扱いに従う。未発売titleを除いた既存flowで事業継続と十分な価値を支えられるなら、pipelineの上振れを補助的な可能性として文章に留め、比較を続けてよい。
 
 ## 試行の見直し
 

@@ -309,7 +309,9 @@ matched 比較の被覆率・membership 数・集中度など、forward outcome 
 
 ### 判断コホートの集計
 
-Research Set の ticker の research FV と screening FV の bridge は、有効観測（同じStock Assessmentの再利用・scaffold-only・未 review・遡及記入を除く）が 5 件以上になったら乖離率の中央値・範囲・要因件数・coverage を記述集計する。この集計だけで screening 式を変えず、変更仮説は別 issue で事前登録して design/confirm へ進める。
+Research Setの対象について、[Stock Assessment](./stock-assessment.md#scenario-arithmetic)の期間別終価・今後分配・要求年率で割り引いた現在価値と、[機械anchor](./valuation-metrics.md#machine-valuation)は異なる評価座標である。数値差や乖離率を比較するのは、同一基準日、株式単位、対象期間、分配の扱い、valuation methodが比較可能で、終価・分配込み価値・現在価値のどれを比較するか明示できる場合に限る。現在fundamentalsを固定した倍率anchorを将来終価や分配込み現在価値と同一視しない。条件が異なる場合は差の数値比較を避け、期間・分配・評価方法などの方法差として説明する。
+
+比較可能な有効観測（同じStock Assessmentの再利用・scaffold-only・未Review・遡及記入を除く）が5件以上になったら、保存済み評価と機械anchorを読み、乖離率の中央値・範囲・要因件数・coverageを記述する。比較不能な対象は理由とともにcoverageへ区別する。この記述だけでscreening式を変えず、変更仮説は別Issueで事前登録してdesign/confirmへ進める。
 
 ### 支配権イベントの実現 exit 値
 
