@@ -34,7 +34,7 @@ class LakeCredentialError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class R2ReadCredentials:
-    """Read-side R2 credentials. Never rendered, logged, or compared by value."""
+    """Read-side R2 credentials with credential fields omitted from text representations."""
 
     account_id: str
     access_key_id: str
@@ -119,10 +119,10 @@ def lake_session(*, credentials: R2ReadCredentials | None = None) -> Iterator[La
     """
 
     connection = duckdb.connect(":memory:")
-    connection.execute("SET autoinstall_known_extensions = false")
-    connection.execute("SET autoload_known_extensions = false")
-    session = LakeSession(connection=connection, credentials=credentials)
     try:
+        connection.execute("SET autoinstall_known_extensions = false")
+        connection.execute("SET autoload_known_extensions = false")
+        session = LakeSession(connection=connection, credentials=credentials)
         if credentials is not None:
             _authorize_r2(session, credentials)
         yield session

@@ -788,7 +788,7 @@ class TestExplicitObjectReads:
     def test_rows_arrive_in_bounded_batches_rather_than_one_list(
         self, session: LakeSession, lake: Lake
     ) -> None:
-        """Peak memory has to follow the batch size, not the dataset size.
+        """Python row conversion is bounded separately from DuckDB query memory.
 
         A decade of daily bars is eight figures of rows; converting them all into
         Python objects at once is what would make a real fill unbuildable.
@@ -822,6 +822,28 @@ class TestExplicitObjectReads:
 
 
 class TestCredentialBoundary:
+    @pytest.mark.parametrize("failed_statement", [1, 2])
+    def test_session_closes_when_connection_setup_fails(
+        self, monkeypatch: pytest.MonkeyPatch, failed_statement: int
+    ) -> None:
+        class FailingConnection:
+            statements = 0
+            closed = False
+
+            def execute(self, _statement: str) -> None:
+                self.statements += 1
+                if self.statements == failed_statement:
+                    raise RuntimeError("setup failed")
+
+            def close(self) -> None:
+                self.closed = True
+
+        connection = FailingConnection()
+        monkeypatch.setattr(duck_module.duckdb, "connect", lambda _database: connection)
+        with pytest.raises(RuntimeError, match="setup failed"), lake_session():
+            pytest.fail("a failed setup must not yield a session")
+        assert connection.closed
+
     def test_remote_authorization_loads_but_never_installs_httpfs(self) -> None:
         class RecordingConnection:
             def __init__(self) -> None:

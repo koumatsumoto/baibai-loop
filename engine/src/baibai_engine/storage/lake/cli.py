@@ -1,4 +1,4 @@
-"""Read-only CLI for market lake contracts and local object inventory."""
+"""Market lake CLI dispatch, manifest reads, and local object inventory."""
 
 from __future__ import annotations
 
@@ -183,8 +183,6 @@ def _read_only_main(argv: list[str] | None = None) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    import sys
-
     from baibai_engine.storage.lake.write_cli import WRITE_COMMANDS, print_combined_help
     from baibai_engine.storage.lake.write_cli import main as write_main
 
