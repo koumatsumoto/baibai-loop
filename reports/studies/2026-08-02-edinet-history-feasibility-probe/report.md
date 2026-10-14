@@ -68,4 +68,4 @@ hidden-assetsの歴史backfillは実装しない。`asset_backed_ratio`はforwar
 
 ## 5. 次の扱い
 
-`reports/2026-08-02-hidden-assets.md`の結論どおり、`asset_backed_ratio`はforward蓄積を待つ。歴史backfillのfollow-up issueは作らない。将来、年次BS carry-forwardを独立methodとして検討する場合は、point-in-time有効期間・訂正書・上場廃止を含む別の事前登録から始める。
+[hidden-assets の履歴報告](../2026-08-02-hidden-assets/report.md)の結論どおり、`asset_backed_ratio`はforward蓄積を待つ。歴史backfillのfollow-up issueは作らない。将来、年次BS carry-forwardを独立methodとして検討する場合は、point-in-time有効期間・訂正書・上場廃止を含む別の事前登録から始める。

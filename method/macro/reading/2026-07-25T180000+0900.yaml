@@ -2,7 +2,7 @@
 #
 # 全登録 series に規則が解決することが要件であり、系列追加が本ファイルの編集を
 # 要求しない。したがって frequency 別の defaults を正とし、override は「default が
-# 事実に反する系列」だけに書く。網羅性は tests/engine/test_macro_reading.py が保証する。
+# 事実に反する系列」だけに書く。網羅性は tests/engine/market_context/test_reading.py が保証する。
 #
 # 用語:
 #   percentile_window_years  percentile / z-score の統計窓（年）。provider の提供
@@ -28,8 +28,8 @@ defaults:
     percentile_window_years: 10
     short_trend_months: 3
     long_trend_months: 12
-    # 国内最長の連休（GW・年末年始は最終営業日から 6 日空く）を跨いでも平常時に
-    # 注記が出ない水準。1 週間止まれば注記が出る。
+    # 日次系列の観測齢を暦日で見る目安。祝日暦や公表予定の完全な判定ではなく、
+    # 長い休場期間には正常な系列でも注記が出ることがある。
     staleness_warn_days: 7
   weekly:
     percentile_window_years: 10
