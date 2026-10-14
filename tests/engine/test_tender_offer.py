@@ -664,9 +664,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 )
                 provider = _Provider(
                     {
-                        "REG": _archive(
-                            {_PRICE: "株券１株につき金1,060円", _FUNDING: _CASH_ONLY}
-                        ),
+                        "REG": _archive({_PRICE: "株券１株につき金1,060円", _FUNDING: _CASH_ONLY}),
                         "RES": _archive({_OUTCOME: _SUCCESS}),
                         "COR": _archive(blocks),
                     }

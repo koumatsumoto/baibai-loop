@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import signal
+
 # fixed operational commands, never credential arguments
 import subprocess  # nosec B404
 import sys

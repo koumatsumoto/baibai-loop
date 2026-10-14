@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import shutil
+
 # fixed gh command, credential JSON goes only to stdin
 import subprocess  # nosec B404
 import time
