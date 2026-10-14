@@ -153,7 +153,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
         self.assertIsNone(financial.per_forward)
 
     def test_market_cap_excludes_treasury_shares(self) -> None:
-        """この valuation の時価総額は株価 × 自己株控除後株数である。"""
+        """この valuation の時価総額は株価 x 自己株控除後株数である。"""
         # 自己株 100 株 (10%)、非支配株主持分 200 (自己資本 800 / 純資産 1,000)。
         snapshot = self._capital_snapshot(
             shares_outstanding=1_000.0,
@@ -939,7 +939,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
         3 期。1 株当たりで合成すると各項の分母が違うため
         21.32 + 113.50 - 161.76 = -26.94 となり、黒字の会社が赤字に見えて収益 anchor を
         失う。この fixture は各期の円利益を明示的に構成し、TTM 合成を検証する。
-        実データの期末株数 × EPS が純利益と一致するという意味ではない。
+        実データの期末株数 x EPS が純利益と一致するという意味ではない。
         """
         asof = date(2019, 11, 15)
         security = _security()

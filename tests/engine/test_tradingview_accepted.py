@@ -4,6 +4,7 @@ import copy
 import hashlib
 import json
 import sqlite3
+from contextlib import closing
 
 import pytest
 from tests.engine.test_tradingview_collector import payload, stored
@@ -47,7 +48,7 @@ def document():
 
 
 def input_file(tmp_path, value=None):
-    raw = json.dumps(value or document(), sort_keys=True, separators=(",", ":")).encode()
+    raw = json.dumps(document() if value is None else value, sort_keys=True, separators=(",", ":")).encode()
     path = tmp_path / "input.json"
     path.write_bytes(raw)
     return path, hashlib.sha256(raw).hexdigest()
@@ -78,7 +79,7 @@ def test_explicit_weekend_receipts_keep_exact_times_and_other_market_data(tmp_pa
     assert report["source_ref"] == document()["source_ref"]
     assert report["input_sha256"] == digest
     assert report["provider_requests"] == 0
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         rows = conn.execute(
             "SELECT snapshot_date,ticker,fetched_at_utc,quote_at_utc,provider_updated_at_utc,estimate_currency FROM tradingview_forecast_snapshots ORDER BY ticker"
         ).fetchall()
@@ -118,7 +119,7 @@ def test_conflict_does_not_append_other_receipts_or_overwrite_existing(tmp_path)
 
 def test_insert_failure_rolls_back_entire_acceptance(tmp_path):
     path = market(tmp_path)
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute(
             "CREATE TRIGGER fail_last BEFORE INSERT ON tradingview_forecast_snapshots WHEN NEW.ticker='1002' BEGIN SELECT RAISE(ABORT,'private'); END"
         )
@@ -186,7 +187,7 @@ def test_readback_checks_all_values_and_retained_history(tmp_path, change):
         report = copy.deepcopy(report)
         report["source_ref"]["sha256"] = "b" * 64
     else:
-        with sqlite3.connect(path) as conn:
+        with closing(sqlite3.connect(path)) as conn, conn:
             conn.execute(
                 "UPDATE tradingview_forecast_snapshots SET quote_close=777 WHERE ticker=?",
                 ("1000" if change == "accepted_value" else "1003",),
@@ -236,3 +237,10 @@ def test_cli_acceptance_never_loads_credentials_and_never_echoes_invalid_input(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == "TradingView acquisition failed; category=storage\n"
+
+
+def test_empty_document_is_not_replaced_with_valid_receipts(tmp_path):
+    source, digest = input_file(tmp_path, {})
+    assert json.loads(source.read_text()) == {}
+    with pytest.raises(FetchError):
+        load_observations(source, sha256=digest)

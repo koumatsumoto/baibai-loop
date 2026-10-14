@@ -22,7 +22,7 @@ BASE = datetime(2026, 10, 12, 12, tzinfo=UTC).timestamp()
 
 
 @pytest.fixture
-def wire(monkeypatch, tmp_path):
+def wire(monkeypatch):
     class Transport:
         elapsed = 0.0
         calls = []
@@ -68,7 +68,10 @@ def wire(monkeypatch, tmp_path):
 
     monkeypatch.setattr("socket.socket.connect", no_socket)
     transport.provider = JQuantsProvider("synthetic-key")
-    return transport
+    try:
+        yield transport
+    finally:
+        transport.provider._get_client()._request_session().close()
 
 
 def calendar(wire):
@@ -242,10 +245,5 @@ def test_read_client_retains_normal_tls_proxy_pool_timeout_and_does_not_patch_sd
     assert all(timeout.connect_timeout == timeout.read_timeout == 30 for timeout in wire.timeouts)
     assert session.adapters["https://"]._pool_maxsize == client.MAX_WORKERS + 10
     assert session.adapters["https://"].max_retries.allowed_methods == frozenset({"GET"})
-    assert (
-        jquantsapi.ClientV2(api_key="other-synthetic-key")
-        ._request_session()
-        .adapters["https://"]
-        .max_retries.total
-        == 3
-    )
+    with jquantsapi.ClientV2(api_key="other-synthetic-key")._request_session() as other_session:
+        assert other_session.adapters["https://"].max_retries.total == 3
