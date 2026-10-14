@@ -1,0 +1,43 @@
+{
+  "source_window_start": "2023-08-10",
+  "source_window_end": "2023-10-26",
+  "index_days": 78,
+  "index_documents": 17868,
+  "target_filings": [
+    {
+      "doc_id": "S100RO4C",
+      "doc_type_code": "240",
+      "doc_date": "2023-08-10",
+      "submit_datetime": "2023-08-10 11:41",
+      "sequence_number": 1270,
+      "offeror_edinet_code": "E30299",
+      "subject_edinet_code": "E02035"
+    },
+    {
+      "doc_id": "S100RWTX",
+      "doc_type_code": "270",
+      "doc_date": "2023-09-26",
+      "submit_datetime": "2023-09-26 16:35",
+      "sequence_number": 240,
+      "offeror_edinet_code": "E30299",
+      "subject_edinet_code": "E02035"
+    }
+  ],
+  "summary": {
+    "delisting_count": 1,
+    "candidate_delisting_count": 1,
+    "resolved_count": 1,
+    "downloaded_document_count": 2,
+    "rejection_reason_counts": {}
+  },
+  "exit_value": {
+    "ticker": "6881",
+    "delisted_on": "2023-10-26",
+    "offer_price_yen": 600.0,
+    "offer_doc_id": "S100RO4C",
+    "result_doc_id": "S100RWTX",
+    "filed_on": "2023-08-10"
+  },
+  "production_written": false,
+  "fixed_calibration_evidence_changed": false
+}

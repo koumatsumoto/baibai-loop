@@ -303,6 +303,8 @@ Research Set の ticker の research FV と screening FV の bridge は、有効
 
 上場廃止で市場終値が無くなった forward 窓は、成立した現金公開買付けの 1 株買付価格で解決する（`resolved_control_event_exit`）。これは効果量を選ぶ仮説ではなく、観測済みの対価へ置き換える correctness 変更である。導出規則・置換規則・比較方法・停止条件は [`reports/studies/2026-08-11-capital-control-exit-values/preregistration.md`](../../reports/studies/2026-08-11-capital-control-exit-values/preregistration.md) に事前登録し、置換前後の較正影響を同ディレクトリの report に固定する。実値化できない上場廃止は従来どおり全損・中立の両側 bracket に残り、`unpriced_exit_flips_direction` の判定材料であり続ける。
 
+JPX理由の「公開買付」「株式の併合 / 株式併合」「株式等売渡請求」は資料確認へ進む候補条件で、現金対価の証明ではない。株式併合・売渡請求だけの表記でも、先行する現金公開買付けを資料で検証する。対象ticker・届出/訂正・取下げ・成立報告・普通株1株の単一価格・現金のみという既存の証拠条件を保ち、資料なし・撤回・非現金・価格不一致は未解決に残す。CLIの`candidates`は調査候補件数、`resolved`が証拠を満たした件数である。6881の通常資料取得による再現と取得範囲は[測定記録](../../reports/studies/2026-10-14-tender-exit-candidate-coverage/report.md)を参照する。
+
 ### 破綻型の実現 exit 値
 
 上場維持基準への不適合・破産・民事再生・会社更生・債務超過・内部管理体制・開示義務違反による上場廃止は、市場が最後に付けた終値で解決する（`resolved_failure_exit`）。資金が消えた退出には再投資の問いが立たないので、買収型と違い対価の規約を決めずに実値化できる。
