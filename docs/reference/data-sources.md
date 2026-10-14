@@ -142,6 +142,8 @@ External Assessmentは媒体が提示した値・出所・尺度・時点を参�
 
 同じ配信元の受領間を、確認できた同じorigin・単位・株式基準・対象期間または尺度で比較する。欠測の回復・人数変更・同値の再観測は数値改善の主張と区別する。既存の企業固有評価は[Thesis](./thesis.md)が所有する。型と比較規則は`external_assessment/models.py`・`analysis.py`、cutoffと選択・保存契約は[market lake](./market-lake.md#external-assessment-query)を参照する。
 
+取得・観測の状態は運用上の利用可能性を示す。[ルールの目的区分](./screening-runtime.md#rule-purpose)にある投資上の資格・判断や、その経済的最適性の根拠にはしない。
+
 <!-- 歴史reportからの引用anchorを保持する。runtimeの旧名aliasではない。 -->
 <a id="external-assessment-acquisition"></a>
 

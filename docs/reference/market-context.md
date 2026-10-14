@@ -42,6 +42,8 @@ Market Contextは経済、市場全体、業種と個別株の相対状態を扱
 
 個別対業種の`relative_return_20d`は個別の価格騰落－peer中央値で、ratioの差（0.1＝10 percentage points）である。`comparison_start_date / comparison_end_date / master_snapshot_date`を併記し、peer数と比較基準を示す。市場・業種が上昇し個別が下落しても、乖離だけから割安と認定しない。財務・利益・企業価値の算術はValuationが所有する。
 
+Security Analysisの業種順位は業種平均の相対騰落を並べた順位で、同値の業種は名前順で異なるpercentileを持つ。これは現在の決定的な並べ方であり、同値間の経済的な優劣を示さない。
+
 masterはrequested cutoff以下の最新の一つのsnapshotを集合ごと選ぶ。そのsnapshotにいないtickerを古いsnapshotから復活させず、未来分類を使わない。価格はcutoff以下のraw closeを保存済み分割factorの後方累積で揃え、closeがnullの分割eventも落とさない。現金配当込みreturnではない。価格の観測日、requested cutoff、master snapshotの日は同一とは限らないため、各基準日を見て読む。
 
 既存CLIは次の領域計算を参照する。
@@ -154,6 +156,8 @@ GETの回数・待機は上の共通契約に従う。全営業日・3系列で�
 
 `market-context indicators refresh` は複数 series を 1 pass で取得し、1 series の失敗は他 series を止めない。失敗した series は最後にまとめて stderr へ列挙し、exit code は非 0 になる（1 つの壊れたソースが同一グループの残り全系列を stale にしない）。1 pass は 1 つの fetch context を共有するので、複数 series が同じ bulk ファイルを参照しても download は 1 回、browser fallback を要する provider の起動も 1 回で済む。取得値は store へ入る前に有限値であることを検証し、NaN / ±inf は取得失敗として扱う（派生計算・percentile・export を汚染させない）。`provider_runs`は取得の成否と`record_count`を記録する。
 
+registryの`plausible_min / plausible_max`を超えた観測は、その系列の書込を拒否する。系列全体の更新失敗として記録し、他系列の更新は続ける。境界外が直ちに原資料の誤りと確定するわけではなく、範囲設定とsourceを確認する運用上の停止である。
+
 ### PMI release manifestの更新
 
 PMI は data API が無いため、月次 release URL の manifest（`engine/src/baibai_engine/market_context/indicators/providers/pmi_release_urls.yaml`、`schema_version: 2`、PMI stream ごとに `observed_at` → 公式 release URL）を正本とし、`spglobal_pmi` provider が各 URL の公式 PDF を live 取得して headline 値を抽出する。release URL の validator は `https://www.pmi.spglobal.com/Public/Home/PressRelease/<32 hex>` だけを許可する。
@@ -205,6 +209,7 @@ uv run baibai-engine market-context reading --asof 2026-07-24 --format json   # 
 
 - percentileとz-scoreは`statistic`が示すlevelまたはyoyの分布内位置である。latest valueとtrendまでyoyへ変わるわけではない。
 - `insufficient_history`では位置統計を使わない。観測された最新値そのものまで無効にする意味ではなく、期間・鮮度を示して読む。
+- daily系列の位置統計は窓の開始近くまで届くことと標本8点以上を確認するが、窓内の日次観測密度は保証しない。疎な系列のpercentileを密な日次履歴と同列に扱わない。
 - `next_print_estimate`はcadenceとlagからの推定で、公式event calendarではない。`stale`は観測の古さであり、値の誤りの確定ではない。
 - flagsと極端なz-scoreは確認の入口であり、売買signalや誤値判定ではない。
 - 異なる実効窓とsampling cadenceを同じ物差しとして比較しない。`window_years`、`window_observations`と規則revisionを確認する。
@@ -222,6 +227,8 @@ Baibai Loop の Market Context タブは、上から **現在の市場環境判�
 <a id="assessment"></a>
 
 保存storeからの公開Readingは一つの`store_snapshot_payload`で`read_semantics`を付け、Research・Owner MCP・Web・CLIへ同じ説明を渡す。`as_of`は観測対象日であり、Researchの`known_at / received_cutoff`はReadingに適用しない。既存ProviderSpecの公表vintage契約を持つ系列だけを対象日でclampし、その他は現在保存されている後日取得/改定履歴で再計算する。全体の当時点再現は保証しない。各系列は`vintage_selection / vintage_cutoff`を示す。任意のreaderを受ける純粋計算・serializerにはこのstore固有の保証や説明を付けない。数値・元時刻・vintage選択を変更する仕組みではない。
+
+`recomputed_current_store`は現在のstoreからの再計算を示すprovenanceであり、その日の`known_at`を満たす証明ではない。過去の判断や成績と突き合わせるときは、この利用可能時点の制約を残す。
 
 ## ③ 明示作成する市場環境判断
 
