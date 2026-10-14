@@ -16,6 +16,8 @@ from baibai_engine.market.bars import (
     asof_basis_closes,
 )
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
+from baibai_engine.market.jquants_models import JQuantsFinancialSummary
+from baibai_engine.storage.observations.reader import read_financial_documents
 
 # 配当・株数の基準はValuationのcarryと同じにする。較正と本番が異なる量を扱わないよう、
 # 規約の定数は計算を所有するValuationから読み、ここへ重複定義しない。
@@ -27,6 +29,7 @@ from baibai_engine.valuation.metrics.dividends import (
     DIVIDEND_RECORD_DATE_GUARD_DAYS,
     DIVIDEND_ROUTE_TOLERANCE,
 )
+from baibai_engine.valuation.metrics.periods import _latest_consistent_actual
 
 from .horizons import HORIZONS, STALE_PRICE_MAX_LAG_DAYS, HorizonSpec, require_horizon
 
@@ -42,6 +45,9 @@ __all__ = (
     "read_control_event_exits",
     "read_failure_exits",
 )
+
+
+FORWARD_CALCULATION_REVISION = "fy-dividend-document-revisions-v1"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -61,7 +67,8 @@ class ForwardObservationPolicy:
     @property
     def digest(self) -> str:
         """A canonical statement of the policy, stable across field additions."""
-        return "|".join(f"{field.name}={getattr(self, field.name)!r}" for field in fields(self))
+        policy = "|".join(f"{field.name}={getattr(self, field.name)!r}" for field in fields(self))
+        return f"{FORWARD_CALCULATION_REVISION}|{policy}"
 
 
 DEFAULT_FORWARD_OBSERVATION_POLICY = ForwardObservationPolicy()
@@ -674,29 +681,54 @@ def _load_fy_dividends(
 ) -> list[_FYDividendObservation]:
     if cutoff is None:
         return []
-    rows = conn.execute(
-        "SELECT fiscal_year_end, disclosed_at, period_start, dps_actual_annual, "
-        "dividend_q1, dividend_interim, dividend_q3, dividend_year_end, "
-        "dividend_total_annual, shares_outstanding, treasury_shares, average_shares "
-        "FROM jquants_fin_summaries "
-        "WHERE ticker = ? AND fiscal_period = 'FY' AND fiscal_year_end IS NOT NULL "
-        "AND disclosed_at <= ? ORDER BY fiscal_year_end, disclosed_at",
-        (ticker, cutoff.isoformat()),
-    ).fetchall()
-    return [
-        _FYDividendObservation(
-            fiscal_year_end=date.fromisoformat(str(row[0])),
-            disclosed_at=date.fromisoformat(str(row[1])),
-            dps_actual_annual=(float(row[3]) if row[3] is not None else None),
-            period_start=(date.fromisoformat(str(row[2])) if row[2] is not None else None),
-            payments=tuple(float(value) if value is not None else None for value in row[4:8]),
-            dividend_total_annual=(float(row[8]) if row[8] is not None else None),
-            shares_outstanding=(float(row[9]) if row[9] is not None else None),
-            treasury_shares=(float(row[10]) if row[10] is not None else None),
-            average_shares=(float(row[11]) if row[11] is not None else None),
+    by_year: dict[date, list[JQuantsFinancialSummary]] = {}
+    for row in read_financial_documents(conn, start=date.min, end=cutoff, ticker=ticker):
+        if row.fiscal_period == "FY" and row.fiscal_year_end is not None:
+            by_year.setdefault(row.fiscal_year_end, []).append(row)
+    observations = []
+    for year, rows in sorted(by_year.items()):
+        # A forecast-only revision does not cancel a recorded actual dividend.
+        # Same-day revisions use the shared disclosure-time/conflict contract.
+        candidates = [row for row in rows if row.dps_actual_annual is not None]
+        selected = _latest_consistent_actual(
+            candidates,
+            (
+                "dps_actual_annual",
+                "dividend_q1",
+                "dividend_interim",
+                "dividend_q3",
+                "dividend_year_end",
+                "dividend_total_annual",
+                "shares_outstanding",
+                "treasury_shares",
+                "average_shares",
+            ),
         )
-        for row in rows
-    ]
+        if selected is None:
+            # Retain the fiscal year as unresolved, rather than dropping its dividend.
+            observations.append(
+                _FYDividendObservation(year, max(row.disclosed_at for row in rows), None)
+            )
+            continue
+        observations.append(
+            _FYDividendObservation(
+                fiscal_year_end=year,
+                disclosed_at=selected.disclosed_at,
+                dps_actual_annual=selected.dps_actual_annual,
+                period_start=selected.period_start,
+                payments=(
+                    selected.dividend_q1,
+                    selected.dividend_interim,
+                    selected.dividend_q3,
+                    selected.dividend_year_end,
+                ),
+                dividend_total_annual=selected.dividend_total_annual,
+                shares_outstanding=selected.shares_outstanding,
+                treasury_shares=selected.treasury_shares,
+                average_shares=selected.average_shares,
+            )
+        )
+    return observations
 
 
 def _resolve_total_return(

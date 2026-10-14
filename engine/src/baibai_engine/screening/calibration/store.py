@@ -22,6 +22,7 @@ from baibai_engine.valuation.metrics.financial_snapshot import VALUATION_CALCULA
 
 from .forward import (
     DEFAULT_FORWARD_OBSERVATION_POLICY,
+    FORWARD_CALCULATION_REVISION,
     FORWARD_FIELD_NAMES,
     RESOLVED_STATUSES,
     TOTAL_RETURN_BASIS,
@@ -52,6 +53,7 @@ def _derive_cache_schema_version() -> str:
         ",".join(DIAGNOSTIC_FIELD_NAMES),
         ",".join(FORWARD_FIELD_NAMES),
         VALUATION_CALCULATION_REVISION,
+        FORWARD_CALCULATION_REVISION,
         repr(RELAXED),
     )
 

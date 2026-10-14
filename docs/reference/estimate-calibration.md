@@ -133,7 +133,7 @@ cohort比較は`--basis price|total`を取り、母集団は保存された`Pane
 
 ### E[r]絶対水準
 
-`er_level_calibration` は E[r] 合計の絶対年率と、実績 FY 配当を加えた実現 total return の絶対年率を `er_annual` quintile ごとに比較する。実現配当は `entry_date < fiscal_year_end <= exit_date` の FY 行を対象に、同じ FY の最新 non-null `DivAnn` を forward store の最終 bar 株式基準へ正規化して合算する。対象 FY 行なし、`DivAnn` 欠損、adjustment factor 不完全は 0 円とせず total-return 側を unresolved にする。明示された `DivAnn == 0` は観測済み無配である。端の FY は月割りしないため、この座標は実際の中間・期末配当の権利落ち日を再現する cash-flow ledger ではない。
+`er_level_calibration` は E[r] 合計の絶対年率と、実績 FY 配当を加えた実現 total return の絶対年率を `er_annual` quintile ごとに比較する。実現配当は `entry_date < fiscal_year_end <= exit_date` の FY 行を対象に、同じ FY の最新 non-null `DivAnn` を forward store の最終 bar 株式基準へ正規化して合算する。同日開示は開示時刻まで比較し、時刻不明を新旧の根拠にしない。同じ最新revisionの配当・換算に使う株数等が矛盾する場合も未解決に残す。対象 FY 行なし、`DivAnn` 欠損、adjustment factor 不完全は 0 円とせず total-return 側を unresolved にする。明示された `DivAnn == 0` は観測済み無配である。端の FY は月割りしないため、この座標は実際の中間・期末配当の権利落ち日を再現する cash-flow ledger ではない。
 
 ## 判断面へ渡す較正文脈
 
@@ -217,7 +217,7 @@ uv run baibai-engine screening calibration-build \
   --start <YYYY-MM-DD> --end <YYYY-MM-DD> --force
 ```
 
-`--force`では指定範囲だけから新snapshotを作る。入力coverage不足は再構築だけでは解消しない。説明文・commentだけの変更では、method revisionを進めず再生成しない。
+`--force`では指定範囲だけから新snapshotを作る。入力coverage不足は再構築だけでは解消しない。説明文・commentだけの変更では、method revisionを進めず再生成しない。forwardの計算規約は`FORWARD_CALCULATION_REVISION`でcache identityに含める。開示時刻・同時開示の矛盾判定へ切り替える前のsnapshotを新規約の結果として再利用せず、必要なscopeを再構築する。公開済みのhistorical artifactは改訂前の測定記録として保ち、自動で書き換えない。
 
 <a id="commands"></a>
 
