@@ -32,7 +32,7 @@ def _raw() -> dict[str, object]:
 
 
 def _document(raw: dict[str, object] | None = None) -> PortfolioLedgerDocument:
-    return PortfolioLedgerDocument.model_validate(raw or _raw())
+    return PortfolioLedgerDocument.model_validate(_raw() if raw is None else raw)
 
 
 def test_representative_ledger_reconciles_every_required_event_to_one_yen() -> None:

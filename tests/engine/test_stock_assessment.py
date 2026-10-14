@@ -1,6 +1,7 @@
 """Stock Assessment owns evidence, valuation and Review, independently of action inputs."""
 
 import sqlite3
+from contextlib import closing
 from copy import deepcopy
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -40,7 +41,7 @@ from baibai_engine.storage.application.schema import SCHEMA_SQL
 
 @pytest.fixture
 def connection():
-    with sqlite3.connect(":memory:") as connection:
+    with closing(sqlite3.connect(":memory:")) as connection, connection:
         connection.execute("PRAGMA foreign_keys = ON")
         connection.executescript(SCHEMA_SQL)
         yield connection

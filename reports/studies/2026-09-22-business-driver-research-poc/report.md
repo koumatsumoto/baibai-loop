@@ -1,5 +1,7 @@
 # 1814 / 1873：事業ドライバー追加調査の判断増分
 
+2026-09-22 時点の旧 Triage / Review Set / Thesis / CAA と当時の L1 API・SQL に基づく履歴。固定 artifact 内の旧名称・request は証跡として保持するが、現行手順としては再利用しない。現在の API・schema と固定 release の利用可否を確認してから再照合する。
+
 価値tier: T1 — 通常Researchの後に残る不確実性を追加一次資料が減らすかを測り、次に集める情報を選ぶ。
 
 対象Issue: [#1334](https://github.com/koumatsumoto/baibai-loop/issues/1334)、親: [#1323](https://github.com/koumatsumoto/baibai-loop/issues/1323)。調査日2026-09-22、情報cutoffは2026-09-18のJST日末。金額は特記以外 **bn JPY（10億円）**。ページはPDFの先頭を1とする。
@@ -28,7 +30,7 @@
 | manifest SHA-256 | `f6ab45e143aad0445d66424e9164a14166d70059f77d2684fbe1bbbf86b808a8` |
 | 読取code基点 | `543a48c5` |
 
-exact IDで`triage_resolve`し、返された同じ`triage_ref`で`triage_get_input`と`triage_get_judgment`が成功した。全canonical応答を取得し、[fixed-evidence.json](./artifacts/fixed-evidence.json)へ対象2社だけを抜粋保存した。hashは全canonical payloadの識別子であり、抜粋ファイルのhashではない。Macro Context等のbindingは入力側に保持する。
+exact IDで`triage_resolve`し、返された同じ`triage_ref`で`triage_get_input`と`triage_get_judgment`が成功した。全canonical応答を取得し、[fixed-evidence.json](./artifacts/fixed-evidence.json)へ対象2社だけを抜粋保存した。hashは全canonical payloadの識別子であり、抜粋ファイルのhashではない。Macro Context等のbindingは入力側に保持する。入力の `input_basis` は `reconstructed_from_production_contract` であり、当時の contract から再構成された入力である。保存済みの元 ModelInput 全文と byte 一致したという意味ではなく、2社抜粋から上流の全 payload hash を再検証することもできない。
 
 初回`l1_resolve_current`は`UPSTREAM_UNAVAILABLE`となったが、Issueで指定済みの固定refによる`l1_describe_dataset`と後続queryは成功した。currentへの乗換え、別世代の補完はない。`edinet.documents`のcoverageはcomplete、metrics / segment / debtはpartialだった。
 
@@ -39,7 +41,7 @@ exact IDで`triage_resolve`し、返された同じ`triage_ref`で`triage_get_in
 | 1814 | S100YK21 | 2026-06-25 15:00 | 2025-04-01〜2026-03-31 | usable |
 | 1873 | S100YR5P | 2026-07-22 10:00 | 2025-05-01〜2026-04-30 | usable |
 
-同じrefのdescribeで列・日付・nullableを確認後、次を取得した。正確なsource宣言、全SQL、schema、rows、coverageはJSONの`filings` / `datasets`に保存しており、各`request`を`l1_query`へ渡して再実行できる。
+同じrefのdescribeで列・日付・nullableを確認後、次を取得した。正確なsource宣言、全SQL、schema、rows、coverageはJSONの`filings` / `datasets`に保存しており、各`request`は当時の再実行入力を記録する。現行APIが同じ引数・列を受け付けることや固定releaseの保持は、このartifactだけでは保証しない。
 
 | dataset / alias | source期間 | WHERE | 結果 |
 | --- | --- | --- | --- |
