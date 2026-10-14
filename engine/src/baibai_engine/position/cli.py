@@ -32,6 +32,7 @@ from baibai_engine.market.jpx_total_return import (
 from baibai_engine.market.store import read_daily_bars_for_tickers, read_market_calendar
 from baibai_engine.market_context.observations.benchmark import BenchmarkObservation
 from baibai_engine.position.broker_fact_recording import BrokerFactRecordingError
+from baibai_engine.position.decision_references import resolve_buy_reference
 from baibai_engine.position.drafts import (
     HumanEvent,
     apply_draft,
@@ -40,6 +41,7 @@ from baibai_engine.position.drafts import (
     build_meta_draft,
     build_override_draft,
     build_sell_execution_draft,
+    known_broker_reference,
     load_draft,
     write_draft,
 )
@@ -66,7 +68,6 @@ from baibai_engine.position.outcome_store import (
 )
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.position.valuation import current_portfolio
-from baibai_engine.research.capital_allocation_query import historical_allocated_ticker
 from baibai_engine.research.position_review import PositionReviewDocument
 from baibai_engine.research.position_review_service import PositionReviewService
 
@@ -172,7 +173,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     broker_fact_parser.add_argument("--root", type=Path, default=Path.cwd())
     broker_fact_parser.add_argument("--db", type=Path)
-    broker_fact_parser.add_argument("--decision-reference", required=True)
+    broker_fact_parser.add_argument("--decision-reference")
+    broker_fact_parser.add_argument(
+        "--direct-fact", action="store_true", help="explicitly record a buy without a proposal"
+    )
     broker_fact_parser.add_argument(
         "--status", choices=("open", "filled", "cancelled", "expired"), required=True
     )
@@ -683,11 +687,13 @@ def _run_position_review_build_db(
 
 def _run_record_broker_fact(args: argparse.Namespace, *, now: datetime | None) -> int:
     try:
+        ledger_service = LedgerStoreService(args.db)
         draft, event_ids = build_broker_fact_draft(
-            LedgerStoreService(args.db),
-            partial(historical_allocated_ticker, db_path=args.db),
+            ledger_service,
+            partial(resolve_buy_reference, db_path=args.db),
             decision_reference=args.decision_reference,
             status=args.status,
+            direct_fact=args.direct_fact,
             side=args.side,
             occurred_at=args.occurred_at,
             occurred_on=args.occurred_on,
@@ -711,13 +717,34 @@ def _run_record_broker_fact(args: argparse.Namespace, *, now: datetime | None) -
             write_draft(output_path, draft)
         else:
             output_path = None
+        reference = args.decision_reference
+        if draft is not None:
+            if draft.binding_addition is not None:
+                reference = draft.binding_addition.reference
+            elif reference is None:
+                reference = next(
+                    getattr(event, "decision_reference", None)
+                    for event in draft.replacement.events
+                    if event.event_id in event_ids
+                    and getattr(event, "decision_reference", None) is not None
+                )
+        elif reference is None:
+            known = known_broker_reference(
+                ledger_service.load(),
+                execution_id=args.execution_id,
+                order_id=args.order_id,
+                reservation_ids=tuple(args.reservation_id or ()),
+            )
+            if known is None:
+                raise ValueError("saved broker identity is unavailable; prepare again")
+            reference = known[0]
     except (OSError, PortfolioLedgerError, BrokerFactRecordingError, ValueError) as error:
         print(f"error: failed to build broker fact draft: {error}", file=sys.stderr)
         return 2
     yaml.safe_dump(
         {
             "status": "draft_created" if draft is not None else "no_change",
-            "decision_reference": args.decision_reference,
+            "decision_reference": reference,
             "output": None if output_path is None else str(output_path),
             "event_ids": list(event_ids),
         },

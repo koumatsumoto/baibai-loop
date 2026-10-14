@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 from collections.abc import Callable
 from datetime import datetime, timedelta
@@ -15,6 +14,7 @@ from tests.helpers.ledger import load_portfolio_ledger, portfolio_snapshot
 
 from baibai_engine.position.broker_fact_recording import BrokerFactRecordingError
 from baibai_engine.position.cli import main
+from baibai_engine.position.decision_references import resolve_buy_reference
 from baibai_engine.position.drafts import (
     apply_draft,
     build_broker_fact_draft,
@@ -22,7 +22,6 @@ from baibai_engine.position.drafts import (
     load_draft,
 )
 from baibai_engine.position.store import LedgerStoreService
-from baibai_engine.research.capital_allocation_query import historical_allocated_ticker
 from baibai_engine.storage.application.write import initialize_database
 
 ROOT = Path(__file__).parents[2]
@@ -37,49 +36,19 @@ def _services(
 ) -> tuple[LedgerStoreService, Callable[[str], str]]:
     db = tmp_path / "app.sqlite"
     initialize_database(db)
-    payload = {
-        "schema_version": 2,
-        "kind": "capital_allocation_assessment",
-        "capital_allocation_assessment_id": ASSESSMENT_ID,
-        "as_of": "2026-07-30",
-        "published_at": "2026-07-30T08:30:00+09:00",
-        "result": result,
-        "headline": "2331 へ配分" if result == "allocate" else "配分しない",
-        "research_triage_id": "research_triage-20260730-test",
-        "market_context_assessment_id": None,
-        "comparison": "要求利回りと永久損失を比較した",
-        "forgone": "次回決算で再評価する",
-        "alternatives": [
-            {
-                "ticker": "2331",
-                "thesis_id": "thesis-20260730-2331-r1",
-                "thesis_core_sha256": "a" * 64,
-                "thesis_review_id": ("review-20260730-2331-r1" if result == "allocate" else None),
-                "disposition": "allocate" if result == "allocate" else "decline",
-                "rationale": "要求利回りと永久損失を比較した",
-            }
-        ],
-        "review": {
-            "attempt": 1,
-            "reviewer_identity": "independent-reviewer",
-            "reviewed_at": "2026-07-30T08:20:00+09:00",
-            "conclusion": "pass",
-            "draft_sha256": "b" * 64,
-            "open_findings": [],
-        },
-    }
     with sqlite3.connect(db) as connection:
         connection.execute(
-            "INSERT INTO capital_allocation_assessment VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                ASSESSMENT_ID,
-                "2026-07-30",
-                "2026-07-30T08:30:00+09:00",
-                result,
-                "research_triage-20260730-test",
-                json.dumps(payload, ensure_ascii=False),
-            ),
+            """CREATE TABLE IF NOT EXISTS position_decision_reference (
+                reference TEXT PRIMARY KEY, ticker TEXT NOT NULL, side TEXT NOT NULL,
+                origin TEXT NOT NULL, proposal_id TEXT, source_id TEXT NOT NULL,
+                source_digest TEXT
+            )"""
         )
+        if result == "allocate":
+            connection.execute(
+                "INSERT INTO position_decision_reference VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (ASSESSMENT_ID, "2331", "buy", "retained_reference", None, ASSESSMENT_ID, "a" * 64),
+            )
     original = load_portfolio_ledger(LEDGER)
     source = original.model_copy(
         update={
@@ -91,7 +60,7 @@ def _services(
         }
     )
     seed_ledger(db, source)
-    return LedgerStoreService(db), partial(historical_allocated_ticker, db_path=db)
+    return LedgerStoreService(db), partial(resolve_buy_reference, db_path=db)
 
 
 def _open_draft(
@@ -487,9 +456,9 @@ def test_broker_fact_cli_passes_execution_id_and_reports_retry_as_no_change(
     assert not (tmp_path / "retry.yaml").exists()
 
 
-def test_non_allocation_assessment_and_ticker_mismatch_are_rejected(tmp_path: Path) -> None:
+def test_unavailable_buy_reference_and_ticker_mismatch_are_rejected(tmp_path: Path) -> None:
     ledger, assessments = _services(tmp_path, result="no_allocation")
-    with pytest.raises(ValueError, match="not an allocate decision"):
+    with pytest.raises(ValueError, match="buy decision reference is unavailable"):
         _open_draft(ledger, assessments)
 
     ledger, assessments = _services(tmp_path / "other")
@@ -634,7 +603,7 @@ def test_broker_draft_keeps_the_snapshot_head_when_another_write_intervenes(
 
 
 @pytest.mark.parametrize("terminal_status", ["cancelled", "expired"])
-def test_active_and_known_terminal_retries_do_not_resolve_historical_caa(
+def test_active_and_known_terminal_retries_do_not_resolve_buy_binding(
     tmp_path: Path, monkeypatch, capsys, terminal_status: str
 ) -> None:
     ledger, resolve = _services(tmp_path)
@@ -655,7 +624,7 @@ def test_active_and_known_terminal_retries_do_not_resolve_historical_caa(
 
     db = tmp_path / "app.sqlite"
     with sqlite3.connect(db) as connection:
-        connection.execute("DELETE FROM capital_allocation_assessment")
+        connection.execute("DELETE FROM position_decision_reference")
     before = db.read_bytes()
     fill_args = dict(
         decision_reference=ASSESSMENT_ID,
@@ -684,10 +653,8 @@ def test_active_and_known_terminal_retries_do_not_resolve_historical_caa(
     apply_draft(ledger, terminal, human_confirmed=True)
     assert build_broker_fact_draft(ledger, unavailable_history, **terminal_args) == (None, ())
 
-    # CLIもcallableを渡すだけにし、予約済み再試行の前にCAAを先読みしない。
-    monkeypatch.setattr(
-        "baibai_engine.position.cli.historical_allocated_ticker", unavailable_history
-    )
+    # CLIもcallableを渡すだけにし、予約済み再試行の前にbindingを先読みしない。
+    monkeypatch.setattr("baibai_engine.position.cli.resolve_buy_reference", unavailable_history)
     before = db.read_bytes()
     assert (
         main(
@@ -717,7 +684,7 @@ def test_active_and_known_terminal_retries_do_not_resolve_historical_caa(
     assert db.read_bytes() == before
 
 
-def test_historical_allocation_query_does_not_write_or_replay_current_eligibility(
+def test_retained_buy_reference_does_not_write_or_replay_current_eligibility(
     tmp_path: Path, monkeypatch
 ) -> None:
     _services(tmp_path)
@@ -728,12 +695,12 @@ def test_historical_allocation_query_does_not_write_or_replay_current_eligibilit
         pytest.fail("historical identity entered current allocation publication check")
 
     monkeypatch.setattr(
-        "baibai_engine.research.capital_allocation_service.CapitalAllocationAssessmentService.check",
+        "baibai_engine.research.entry_policy.evaluate_buy_terms",
         reject_current_check,
     )
-    assert historical_allocated_ticker(ASSESSMENT_ID, db_path=db) == "2331"
+    assert resolve_buy_reference(ASSESSMENT_ID, db_path=db) == "2331"
     assert db.read_bytes() == before
     missing = tmp_path / "missing.sqlite"
     with pytest.raises(ValueError, match="application database is unavailable"):
-        historical_allocated_ticker(ASSESSMENT_ID, db_path=missing)
+        resolve_buy_reference(ASSESSMENT_ID, db_path=missing)
     assert not missing.exists()
