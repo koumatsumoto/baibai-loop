@@ -88,6 +88,7 @@ class TenderOfferFiling:
     sequence_number: int
     offeror_edinet_code: str
     subject_edinet_code: str
+    parent_doc_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -193,7 +194,8 @@ def read_tender_offer_filings(
     placeholders = ",".join("?" for _ in doc_types)
     rows = connection.execute(
         "SELECT doc_id, doc_type_code, doc_date, submit_datetime, sequence_number, "
-        "edinet_code, subject_edinet_code, legal_status, disclosure_status, withdrawal_status "
+        "edinet_code, subject_edinet_code, legal_status, disclosure_status, withdrawal_status, "
+        "parent_doc_id "
         f"FROM edinet_documents WHERE doc_date <= ? AND doc_type_code IN ({placeholders}) "  # nosec B608
         "AND edinet_code IS NOT NULL AND subject_edinet_code IS NOT NULL",
         (through.isoformat(), *doc_types),
@@ -207,6 +209,7 @@ def read_tender_offer_filings(
             sequence_number=int(sequence_number),
             offeror_edinet_code=str(offeror),
             subject_edinet_code=str(subject),
+            parent_doc_id=str(parent) if parent else None,
         )
         for (
             doc_id,
@@ -219,6 +222,7 @@ def read_tender_offer_filings(
             legal,
             disclosure,
             withdrawal,
+            parent,
         ) in rows
         if is_usable_filing_status(legal, disclosure, withdrawal)
     ]
@@ -383,8 +387,11 @@ def _select_case(
     relevant = [filing for filing in filings if filing.doc_date <= delisting.delisted_on]
     if not relevant:
         return None, "no_filing_in_document_window"
+    latest_round = _latest_offer_round(relevant)
+    if latest_round is None:
+        return None, "incomplete_case"
     by_offeror: dict[str, list[TenderOfferFiling]] = {}
-    for filing in relevant:
+    for filing in latest_round:
         by_offeror.setdefault(filing.offeror_edinet_code, []).append(filing)
 
     cases: list[_Case] = []
@@ -418,9 +425,72 @@ def _select_case(
         )
     if len(cases) > 1:
         return None, "multiple_offerors"
+    if cases and missing_result:
+        return None, "incomplete_case"
     if not cases:
         return None, "withdrawn" if withdrawn and not missing_result else "incomplete_case"
     return cases[0], ""
+
+
+def _latest_offer_round(
+    filings: Sequence[TenderOfferFiling],
+) -> list[TenderOfferFiling] | None:
+    """Separate completed campaigns while retaining overlapping bids and tiers.
+
+    A new registration starts a separate round only after every open registration
+    has a result or withdrawal. Parent IDs attach late corrections to their original
+    round. An unknown parent or an unfinished competing bid cannot prove separation.
+    Same-day closing/opening filings stay together rather than implying an order
+    between two offers from their submission times alone.
+    """
+    registrations: dict[str, TenderOfferFiling] = {}
+    roots_by_doc: dict[str, set[str]] = {}
+    open_roots: set[str] = set()
+    round_roots: set[str] = set()
+    members: list[tuple[TenderOfferFiling, set[str]]] = []
+    ended_on = date.min
+    for filing in sorted(filings, key=_filing_order):
+        if filing.doc_type_code == TENDER_OFFER_REGISTRATION_DOC_TYPE:
+            if not open_roots and filing.doc_date > ended_on:
+                round_roots = set()
+            roots = {filing.doc_id}
+            registrations[filing.doc_id] = filing
+            open_roots.update(roots)
+            round_roots.update(roots)
+        elif filing.parent_doc_id:
+            roots = roots_by_doc.get(filing.parent_doc_id, set())
+            if not roots or any(
+                registrations[root].offeror_edinet_code != filing.offeror_edinet_code
+                or registrations[root].subject_edinet_code != filing.subject_edinet_code
+                for root in roots
+            ):
+                return None
+        else:
+            # Older index rows can lack parent IDs. Keep their existing chronological
+            # association, including every active tier for a result or withdrawal.
+            roots = {
+                root
+                for root in open_roots
+                if registrations[root].offeror_edinet_code == filing.offeror_edinet_code
+            }
+            if not roots:
+                previous = [
+                    root
+                    for root, registration in registrations.items()
+                    if registration.offeror_edinet_code == filing.offeror_edinet_code
+                ]
+                roots = set(previous[-1:])
+            if not roots:
+                return None
+        roots_by_doc[filing.doc_id] = roots
+        members.append((filing, roots))
+        if filing.doc_type_code in (
+            TENDER_OFFER_RESULT_DOC_TYPE,
+            TENDER_OFFER_WITHDRAWAL_DOC_TYPE,
+        ):
+            open_roots.difference_update(roots)
+            ended_on = max(ended_on, filing.doc_date)
+    return [filing for filing, roots in members if roots & round_roots]
 
 
 def _realize_case(
@@ -489,15 +559,21 @@ def _registration_chains(
 ) -> tuple[tuple[TenderOfferFiling, ...], ...]:
     """Split one offeror's registration filings into one chain per offer.
 
-    A correction belongs to the most recent registration that precedes it, which is the
-    filing order EDINET publishes them in.
+    Parent IDs own correction membership. Index rows without a parent retain the
+    chronological association used before identity backfill.
     """
     chains: list[list[TenderOfferFiling]] = []
+    chain_by_doc: dict[str, list[TenderOfferFiling]] = {}
     for filing in filings:
         if filing.doc_type_code == TENDER_OFFER_REGISTRATION_DOC_TYPE:
             chains.append([filing])
+            chain_by_doc[filing.doc_id] = chains[-1]
         elif filing.doc_type_code == TENDER_OFFER_REGISTRATION_CORRECTION_DOC_TYPE and chains:
-            chains[-1].append(filing)
+            chain = chain_by_doc.get(filing.parent_doc_id) if filing.parent_doc_id else chains[-1]
+            if chain is None:
+                return ()
+            chain.append(filing)
+            chain_by_doc[filing.doc_id] = chain
     return tuple(tuple(chain) for chain in chains)
 
 
