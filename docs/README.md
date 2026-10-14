@@ -28,9 +28,21 @@ Valuation・Market Context・External Assessmentの意味は[domain-language](./
 | 保存済み情報を表示・照会する | [Web](../web/README.md)・[Owner MCP](../tools/owner_mcp/README.md) |
 | 保存済みの機械評価と企業固有評価を読む | [Valuation metrics](./reference/valuation-metrics.md#machine-valuation)・[Thesis](./reference/thesis.md#scenario-arithmetic) |
 | 見積り方法・保存済みER較正文脈を確認する | [Estimate calibration](./reference/estimate-calibration.md) |
-| 条件・閾値の目的と根拠を確認する | [ルールの目的と根拠](./reference/screening-runtime.md#rule-purpose)から各責務の正本へ辿る |
+| 条件・閾値の目的と根拠を確認する | [判断条件の見取り図](#判断条件の見取り図)から各責務の正本へ辿る |
 | PC・クラウドで開発する、Actionsとの分担を確認する | [AGENTS](../AGENTS.md)・[Python foundation](./reference/python-foundation.md#cloud-development-boundary) |
 | artifact・指標の意味を調べる | [Reference index](./reference/README.md) |
+
+## 判断条件の見取り図
+
+[取得・観測の利用可能性](./reference/data-sources.md)は銘柄の価値判断と分ける。計算できるか、候補として調べるか、購入するか、保有するかも別の問いである。各条件の数値・判定式は対応する実装とmethodが所有し、下表は理由と責務への入口だけを示す。閾値の採否・未測定事項の進捗は[Issue #1481](https://github.com/koumatsumoto/baibai-loop/issues/1481)に残し、テスト成功を経済的な最適性とは扱わない。
+
+| 判断の段階 | 理由・意味の正本 | 実装と代表的な回帰 |
+| --- | --- | --- |
+| 計算入力から候補集合・Review Setまで | [指標と欠測](./reference/valuation-metrics.md)、[Screeningの資格・順位・品質](./reference/screening-runtime.md#rule-purpose) | [`CommonEligibilityRules.matches`](../engine/src/baibai_engine/screening/rule_config.py)、[Nomination](../engine/src/baibai_engine/screening/discovery/review_set.py)、[回帰](../tests/engine/test_review_set.py) |
+| 機械E[r]の参考値と較正 | [機械見積り](./reference/valuation-metrics.md#machine-valuation)、[較正文脈](./reference/estimate-calibration.md#estimator-vs-decision) | [文脈読取](../engine/src/baibai_engine/valuation/calibration/query.py)、[回帰](../tests/engine/test_er_calibration_context_contract.py) |
+| 明示Researchと企業固有の評価 | [有限対象と進行](./reference/analysis-operations.md)、[Thesisと独立Review](./reference/thesis.md) | [対象と進捗](../engine/src/baibai_engine/research/operation/progress.py)、[回帰](../tests/engine/test_research_progression.py) |
+| 候補比較と新規購入 | [CAA](./reference/capital-allocation-assessment.md)、[資本方針](./portfolio-management.md) | [`evaluate_entry`](../engine/src/baibai_engine/research/entry_policy.py)、[回帰](../tests/engine/test_investment_judgment_v4.py) |
+| 保有継続・回収と確認済み取引 | [Position Review](./reference/position-review.md)、[Portfolio Ledger](./reference/portfolio-ledger.md) | [保有判断](../engine/src/baibai_engine/research/position_review.py)、[台帳回帰](../tests/engine/test_portfolio_ledger.py) |
 
 ## 文書の役割
 
