@@ -112,8 +112,10 @@ def _original_assessment(
             if bought_at is None or datetime.fromisoformat(str(published[0])) > bought_at:
                 return (
                     None,
-                    f"判断参照 {reference} の評価公開は買付より後です。買付時の評価と確認できず、"
-                    "現在評価を当初理由として補完しない。",
+                    (
+                        f"判断参照 {reference} の評価公開は買付より後です。"
+                        "買付時の評価と確認できず、現在評価を当初理由として補完しない。"
+                    ),
                 )
             return item.assessment_ref, None
     label = "報告に判断参照なし" if reference is None else f"判断参照 {reference}"

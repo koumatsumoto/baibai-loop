@@ -273,7 +273,11 @@ def preview_current_terms(
     from baibai_engine.research.assessment import current_price_projection
     from baibai_engine.research.assessment_store import latest_assessment_id
     from baibai_engine.research.proposal_fingerprint import proposal_inputs_fingerprint
-    from baibai_engine.research.proposal_inputs import collect_proposal_inputs
+    from baibai_engine.research.proposal_inputs import (
+        DEFAULT_BUDGET_MAX_YEN,
+        DEFAULT_BUDGET_MIN_YEN,
+        collect_proposal_inputs,
+    )
     from baibai_engine.research.proposal_service import (
         assessment_quote_basis,
         terms_unavailable_reasons,
@@ -291,8 +295,8 @@ def preview_current_terms(
             proposal_id=proposal_id,
             now=now,
             sqlite_path=sqlite_path,
-            budget_min_yen=proposal.inputs.budget_min_yen,
-            budget_max_yen=proposal.inputs.budget_max_yen,
+            budget_min_yen=DEFAULT_BUDGET_MIN_YEN,
+            budget_max_yen=DEFAULT_BUDGET_MAX_YEN,
         )
         changes: list[GateReason] = []
         baseline = proposal_inputs_fingerprint(proposal.inputs)
@@ -332,6 +336,7 @@ def preview_current_terms(
                 else None,
                 "current_quote_calculation": None,
                 "saved_limit_revalidation": None,
+                "current_terms_warnings": [],
             }
             if item.assessment_ref is not None:
                 pair = require_assessment_ref(connection, item.assessment_ref)
@@ -392,6 +397,11 @@ def preview_current_terms(
                         else str(item.terms.limit_price_yen),
                         "quantity": None if item.terms is None else item.terms.quantity,
                     }
+                revalidation = row["saved_limit_revalidation"]
+                if isinstance(revalidation, dict):
+                    revalidation["hard_blockers"] = [
+                        reason.model_dump(mode="json") for reason in blockers
+                    ]
             if blockers:
                 blocked = True
                 changes.extend(blockers)
@@ -400,6 +410,10 @@ def preview_current_terms(
         warnings = build_proposal_warnings(
             inputs, proposal.items, proposal.liquidity_context, assessments=assessments
         )
+        for row in rows:
+            row["current_terms_warnings"] = list(
+                warnings.terms_warnings.get(str(row["ticker"]), ())
+            )
         return CurrentProposalPreview(
             proposal_id,
             now,

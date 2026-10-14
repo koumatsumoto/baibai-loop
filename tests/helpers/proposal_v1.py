@@ -1,4 +1,4 @@
-"""投資提案の合成fixtureと、共通schema結合前のテスト専用DDL。"""
+"""正式writerと現行schemaで作る投資提案の合成fixture。"""
 
 import sqlite3
 from datetime import datetime, timedelta
@@ -13,10 +13,9 @@ from baibai_engine.research.operation.service import OperationService
 from baibai_engine.research.proposal import InvestmentProposal, proposal_draft_sha256
 from baibai_engine.research.proposal_scaffold import scaffold_proposal
 from baibai_engine.research.proposal_warnings import build_proposal_warnings
-from baibai_engine.storage.application.write import connect_rw, initialize_database
+from baibai_engine.storage.application.write import initialize_database
 from tests.helpers.assessment_v1 import (
     assessment_id,
-    create_assessment_tables,
     pair_payload,
     update_review_hash,
 )
@@ -27,36 +26,6 @@ from tests.helpers.screening_sqlite import seed_daily_bars
 PREPARED = datetime.fromisoformat("2026-10-14T16:10:00+09:00")
 PUBLISHED = datetime.fromisoformat("2026-10-14T16:20:00+09:00")
 PROPOSAL_ID = "investment-proposal-00000000-0000-4000-8000-000000000003"
-
-
-def create_proposal_tables(connection: sqlite3.Connection):
-    connection.executescript(
-        """
-        CREATE TABLE investment_proposal(
-            proposal_id TEXT PRIMARY KEY, as_of TEXT NOT NULL, prepared_at TEXT NOT NULL,
-            published_at TEXT NOT NULL,
-            request_scope TEXT NOT NULL CHECK(request_scope IN
-                ('discover_new','specified_stocks','review_positions')),
-            payload TEXT NOT NULL CHECK(json_valid(payload)), draft_sha256 TEXT NOT NULL
-        );
-        CREATE TABLE investment_proposal_item(
-            proposal_id TEXT NOT NULL REFERENCES investment_proposal(proposal_id),
-            item_index INTEGER NOT NULL, ticker TEXT NOT NULL,
-            action TEXT NOT NULL CHECK(action IN ('buy','hold','sell','no_action','defer')),
-            assessment_id TEXT REFERENCES stock_assessment(assessment_id),
-            PRIMARY KEY(proposal_id,item_index), UNIQUE(proposal_id,ticker)
-        );
-        CREATE TRIGGER investment_proposal_immutable BEFORE UPDATE ON investment_proposal
-            BEGIN SELECT RAISE(ABORT,'immutable Investment Proposal'); END;
-        CREATE TABLE position_decision_reference(
-            reference TEXT PRIMARY KEY, ticker TEXT NOT NULL,
-            side TEXT NOT NULL CHECK(side='buy'),
-            origin TEXT NOT NULL CHECK(origin IN ('proposal','retained_reference','manual_fact')),
-            proposal_id TEXT REFERENCES investment_proposal(proposal_id),
-            source_id TEXT NOT NULL, source_digest TEXT
-        );
-        """
-    )
 
 
 def backend_case(
@@ -72,9 +41,6 @@ def backend_case(
     """実writerでA選定/OperationとCpairを作る。新Operation行のSQL seedはしない。"""
     app, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
     initialize_database(app)
-    with connect_rw(app) as connection:
-        create_assessment_tables(connection)
-        create_proposal_tables(connection)
     events = [
         {
             "type": "opening_balance",

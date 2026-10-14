@@ -12,12 +12,10 @@ from pydantic import ValidationError
 from tests.helpers.assessment_v1 import (
     NOW,
     assessment_id,
-    create_assessment_tables,
     pair_payload,
 )
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
-from tests.helpers.proposal_v1 import create_proposal_tables
 from tests.helpers.research_selection import selection as make_selection
 
 from baibai_engine.research.assessment_store import publish_reviewed_assessment
@@ -49,9 +47,6 @@ PUBLISHED = datetime.fromisoformat("2026-10-14T16:20:00+09:00")
 def case(tmp_path):
     db, market = tmp_path / "app.sqlite", tmp_path / "absent-market.sqlite"
     initialize_database(db)
-    with connect_rw(db) as connection:
-        create_assessment_tables(connection)
-        create_proposal_tables(connection)
     return db, market
 
 
@@ -170,6 +165,7 @@ def proposal_for(operation, *, actions=None, number=1):
                 action="buy",
                 timing="wait_limit",
                 terms=None,
+                proposed_limit_yen=template["terms"]["limit_price_yen"],
                 terms_unavailable_reasons=[
                     {"code": "price_grid_rule_unavailable", "message": "対象市場分類が未確認"}
                 ],

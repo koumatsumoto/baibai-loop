@@ -467,9 +467,7 @@ class InvestmentProposalService:
                     stored = load_investment_proposal(connection, proposal.proposal_id)
                     if canonical_json(
                         stored.model_dump(mode="json", exclude={"published_at"})
-                    ) != canonical_json(
-                        proposal.model_dump(mode="json", exclude={"published_at"})
-                    ):
+                    ) != canonical_json(proposal.model_dump(mode="json", exclude={"published_at"})):
                         raise ProposalConflictError(
                             "immutable investment proposal differs from its existing publication"
                         )

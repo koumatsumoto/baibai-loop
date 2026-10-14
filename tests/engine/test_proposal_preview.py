@@ -89,7 +89,37 @@ def test_expired_preview_is_blocked_and_does_not_invent_expiry_fact(tmp_path):
     assert any(
         reason.code == "target_session_not_next_available" for reason in preview.change_reasons
     )
+    assert any(
+        reason["code"] == "target_session_not_next_available"
+        for reason in preview.items[0]["saved_limit_revalidation"]["hard_blockers"]
+    )
     assert preview.items[0]["saved_terms"]["expires_at"] == "2026-10-15T15:30:00+09:00"
+    assert _snapshot(case.app) == before
+
+
+def test_preview_reports_current_budget_warnings_separately_from_saved_terms(tmp_path, monkeypatch):
+    from baibai_engine.research import proposal_inputs
+
+    case = backend_case(tmp_path)
+    proposal = reviewed_proposal(case)
+    InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
+        proposal
+    )
+    before = _snapshot(case.app)
+    saved_warnings = list(proposal.items[0].terms.warnings)
+    assert "budget_guide_under" not in saved_warnings
+    monkeypatch.setattr(proposal_inputs, "DEFAULT_BUDGET_MIN_YEN", 350000)
+    monkeypatch.setattr(proposal_inputs, "DEFAULT_BUDGET_MAX_YEN", 400000)
+    preview = preview_current_terms(
+        proposal_id=proposal.proposal_id,
+        db_path=case.app,
+        sqlite_path=case.market,
+        now=PUBLISHED + timedelta(minutes=5),
+    )
+    assert preview.status == "changed"
+    assert preview.current_inputs.budget_min_yen == 350000
+    assert "budget_guide_under" in preview.items[0]["current_terms_warnings"]
+    assert preview.items[0]["saved_terms"]["warnings"] == saved_warnings
     assert _snapshot(case.app) == before
 
 

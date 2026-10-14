@@ -177,7 +177,10 @@ def test_partial_buy_uses_saved_hope_ceiling_cash_and_never_creates_binding(tmp_
     assert not service.check(too_expensive).valid
 
 
-def test_original_reason_resolves_original_saved_proposal_not_latest_assessment(tmp_path):
+@pytest.mark.parametrize("before_assessment_publication", [False, True])
+def test_original_reason_requires_original_pair_before_first_buy(
+    tmp_path, before_assessment_publication
+):
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
     InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
@@ -188,13 +191,14 @@ def test_original_reason_resolves_original_saved_proposal_not_latest_assessment(
 
     store = LedgerStoreService(case.app)
     ledger, head = store.load_with_head()
+    reported_day = "2026-10-14" if before_assessment_publication else "2026-10-15"
     reservation = ReservationEvent.model_validate(
         {
             "type": "reservation",
             "event_id": "next-real-order",
             "reservation_id": "next-real-reservation",
             "order_id": "next-broker-order",
-            "occurred_at": "2026-10-15T09:00:00+09:00",
+            "occurred_at": f"{reported_day}T09:00:00+09:00",
             "ticker": "1234",
             "side": "buy",
             "sector": "情報・通信業",
@@ -210,7 +214,7 @@ def test_original_reason_resolves_original_saved_proposal_not_latest_assessment(
             "type": "execution",
             "event_id": "next-real-fill",
             "execution_id": "next-broker-fill",
-            "occurred_at": "2026-10-15T09:01:00+09:00",
+            "occurred_at": f"{reported_day}T09:01:00+09:00",
             "ticker": "1234",
             "side": "buy",
             "reservation_id": reservation.reservation_id,
@@ -231,8 +235,12 @@ def test_original_reason_resolves_original_saved_proposal_not_latest_assessment(
     seed_daily_bars(case.market, [("1234", "2026-10-15", 900.0, 1.0)])
     inputs = _collect(case, now=PUBLISHED + timedelta(days=1))
     assert inputs.prior_buy_execution_references == (execution.execution_id,)
-    assert inputs.positions[0].original_assessment_ref == proposal.items[0].assessment_ref
-    assert inputs.positions[0].original_reason_unavailable_reason is None
+    if before_assessment_publication:
+        assert inputs.positions[0].original_assessment_ref is None
+        assert "評価公開は買付より後" in inputs.positions[0].original_reason_unavailable_reason
+    else:
+        assert inputs.positions[0].original_assessment_ref == proposal.items[0].assessment_ref
+        assert inputs.positions[0].original_reason_unavailable_reason is None
     assert (
         _collect(
             case, now=PUBLISHED + timedelta(days=1), proposal_id="other-new-identity"

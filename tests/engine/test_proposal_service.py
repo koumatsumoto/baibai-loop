@@ -100,12 +100,13 @@ def test_same_id_retry_reads_immutable_before_current_clock_latest_or_quote_gate
 
 def test_same_id_retry_requires_the_exact_signed_typed_payload(case):
     proposal = reviewed_proposal(case)
-    service = InvestmentProposalService(case.app,sqlite_path=case.market,clock=lambda:PUBLISHED)
+    service = InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     service.publish(proposal)
     raw = proposal.payload()
     raw["inputs"]["quotes"][0]["price_yen"] = "1100.000"
     from baibai_engine.research.proposal import InvestmentProposal
-    with pytest.raises(ProposalConflictError,match="immutable"):
+
+    with pytest.raises(ProposalConflictError, match="immutable"):
         service.publish(InvestmentProposal.model_validate(raw))
 
 
@@ -233,8 +234,9 @@ def test_nonbuy_has_no_binding_and_date_clock_guard_even_with_same_facts(case):
 def test_live_latest_gate_applies_to_buy_but_not_no_action(case):
     buy = reviewed_proposal(case)
     no_action = reviewed_proposal(case, action="no_action")
-    from baibai_engine.research.assessment_store import AssessmentStoreService
     from tests.helpers.assessment_v1 import assessment_id, pair_payload
+
+    from baibai_engine.research.assessment_store import AssessmentStoreService
 
     document, review = pair_payload(review_number=22)
     AssessmentStoreService(
@@ -254,9 +256,10 @@ def test_live_latest_gate_applies_to_buy_but_not_no_action(case):
 
 def test_late_outcome_does_not_rewrite_saved_scope_but_rejects_stale_new_publication(tmp_path):
     case = backend_case(tmp_path, tickers=("1234", "5678"))
+    from tests.helpers.assessment_v1 import assessment_id, pair_payload
+
     from baibai_engine.research.assessment_store import AssessmentStoreService
     from baibai_engine.research.operation.progress import UnfinishedTarget
-    from tests.helpers.assessment_v1 import assessment_id, pair_payload
 
     case.operation = case.operations.record_outcome(
         case.operation.operation_id,
