@@ -82,7 +82,9 @@ def advance_lake_store_origin(
 
     uri = f"{path.resolve().as_uri()}?mode=rw"
     try:
-        with closing(sqlite3.connect(uri, uri=True, isolation_level=None, timeout=30)) as connection:
+        with closing(
+            sqlite3.connect(uri, uri=True, isolation_level=None, timeout=30)
+        ) as connection:
             connection.execute("BEGIN IMMEDIATE")
             actual = read_lake_store_origin_from_connection(connection)
             if actual != expected:
