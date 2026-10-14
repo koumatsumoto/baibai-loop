@@ -54,7 +54,7 @@ def test_external_only_ticker_is_available_in_api_and_materialized_export(
         response = client.get("/api/securities/9999")
     assert response.status_code == 200
     detail = response.json()
-    assert detail["security_analysis"] is None
+    assert detail["stock_analysis"] is None
     assert (
         detail["external_assessment"]["model_valuations"][0]["inputs"]["latest"]["consensus_target"]
         == 1500
@@ -258,7 +258,7 @@ def test_all_external_sources_are_searchable_without_machine_analysis(
             detail = client.get(f"/api/securities/{ticker}")
             assert detail.status_code == 200
             assert detail.json()["company_name"] == identity["name"]
-            assert detail.json()["security_analysis"] is None
+            assert detail.json()["stock_analysis"] is None
     out = tmp_path / "export"
     export_read_models(app_method_root, out)
     saved = json.loads((out / "views/screening_latest.json").read_text())

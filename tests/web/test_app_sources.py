@@ -4,7 +4,7 @@ from datetime import date
 from pathlib import Path
 
 import pytest
-from tests.helpers.screening_run import screening_run_payload, security_analysis
+from tests.helpers.screening_run import RULES_HASH, screening_run_payload, stock_analysis
 from tests.helpers.screening_sqlite import seed_daily_bars
 from tests.web.test_research_assessment_views import seed_web_assessment, seed_web_proposal
 
@@ -165,15 +165,16 @@ class TestDbScreeningSource:
                 as_of="2026-08-01",
                 run_at="2026-08-01T18:30:00+09:00",
                 universe_size=1,
-                rules_hash="rules-hash-v1",
-                security_analyses=[security_analysis("4432", name="sample")],
-            )
+                rules_hash=RULES_HASH,
+                stock_analyses=[stock_analysis("4432", name="sample")],
+            ),
+            rules=load_screening_rules(),
         )
 
         run = DbScreeningSource(runs_path).latest_run()
 
         assert run is not None
-        assert run.screening_rules_hash == "rules-hash-v1"
+        assert run.screening_rules_hash == RULES_HASH
         assert run.er_model_version == "expected-return-v1"
 
 

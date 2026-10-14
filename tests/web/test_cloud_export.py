@@ -55,40 +55,6 @@ def _meta_source(root: Path) -> DbMetaSource:
     )
 
 
-def _insert_review_set(root: Path, *, review_set_id: str) -> str:
-    runs_db = root / "stores/screening/runs.sqlite"
-    run = ScreeningRunReader(runs_db).latest_run()
-    assert run is not None
-    payload = {
-        "schema_version": 2,
-        "kind": "review_set",
-        "review_set_id": review_set_id,
-        "run_revision_id": run.run_revision_id,
-        "as_of": run.as_of_date,
-        "created_at": "2026-07-08T12:01:00+09:00",
-        "screening_rules_hash": "1" * 64,
-        "method": {
-            "method_id": "multi-valuation-v3",
-            "method_hash": "0" * 64,
-            "nomination_depth": 20,
-        },
-        "entries": [],
-        "diagnostics": {},
-    }
-    with sqlite3.connect(runs_db) as connection:
-        connection.execute(
-            "INSERT INTO review_set(review_set_id, run_revision_id, created_at, payload) "
-            "VALUES (?, ?, ?, ?)",
-            (
-                review_set_id,
-                run.run_revision_id,
-                "2026-07-08T12:01:00+09:00",
-                canonical_json(payload),
-            ),
-        )
-    return run.run_revision_id
-
-
 def _seed_indicator_observations(root: Path) -> None:
     conn = open_connection(root / "stores/market_context/indicators.sqlite")
     try:
@@ -280,7 +246,7 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     )
     assert screening.run is not None
     assert screening.run.analyzed_security_count == 3
-    assert screening.review_sets == []
+    assert screening.candidate_discovery.candidate_count == 0
     OperationsView.model_validate_json((views / "operations.json").read_text(encoding="utf-8"))
     TasksView.model_validate_json((views / "tasks.json").read_text(encoding="utf-8"))
     meta = MetaView.model_validate_json((views / "meta.json").read_text(encoding="utf-8"))
@@ -295,7 +261,7 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     )
     for name in ("security--0001.json", "security--0002.json", "security--2331.json"):
         detail = SecurityDetailView.model_validate_json((views / name).read_text(encoding="utf-8"))
-        assert detail.security_analysis is not None
+        assert detail.stock_analysis is not None
 
     assert not (output_dir / "history/select").exists()
 
@@ -339,7 +305,6 @@ def test_export_keeps_saved_proposal_detail_independent_of_current_screening(
     app_method_root: Path, tmp_path: Path
 ) -> None:
     (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
-    _insert_review_set(app_method_root, review_set_id="review-set-current")
     _, _, _, proposal = seed_web_proposal(app_method_root)
     proposal_id = proposal.proposal_id
     output_dir = tmp_path / "export"
@@ -596,7 +561,7 @@ def test_export_reuses_research_history_and_ledger_per_export(
         2026, 10, 12, 12, tzinfo=JST
     )
     prepare = mocker.spy(export_module, "prepare_security_inputs")
-    convert = mocker.spy(stocks, "_machine_review_set_view")
+    convert = mocker.spy(stocks, "_candidate_summary")
     read = mocker.spy(db_sources, "list_stock_assessment_publications")
     replay = mocker.spy(db_sources, "current_portfolio")
     mocker.patch.object(

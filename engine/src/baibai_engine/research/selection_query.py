@@ -14,8 +14,7 @@ from baibai_engine.position.ledger import replay_events_through
 from baibai_engine.position.ledger_read import load_ledger_document
 from baibai_engine.research.selection import AnalysisInputSnapshot, InputGap, ResearchRequest
 from baibai_engine.research.selection_policy import CURRENT_RESEARCH_CAPACITY
-from baibai_engine.screening.discovery.contracts import PublishedReviewSet
-from baibai_engine.screening.discovery.projection import review_set_candidates
+from baibai_engine.screening.discovery.projection import candidate_rows
 from baibai_engine.screening.run_store import ScreeningRunReader
 from baibai_engine.screening.run_store.read import RunPublication
 from baibai_engine.storage.application.paths import database_path
@@ -41,7 +40,9 @@ def _run(
             raise ValueError(f"unknown run_revision_id: {run_revision_id}")
         return None
     reader = ScreeningRunReader(runs_path)
-    run = reader.get_run(run_revision_id) if run_revision_id is not None else reader.latest_run()
+    run = reader.analysis_run(
+        as_of=research_as_of, known_at=known_at, run_revision_id=run_revision_id
+    )
     if run is None:
         if run_revision_id is not None:
             raise ValueError(f"unknown run_revision_id: {run_revision_id}")
@@ -55,9 +56,9 @@ def _run(
         raise ValueError("selected Screening Run is after the Research cutoff")
     if run.payload.get("asof_date") != run.as_of_date or run.payload.get("run_at") != run.run_at:
         raise ValueError("Screening Run header differs from its canonical identity")
-    tickers = [row.get("ticker") for row in run.security_analyses]
+    tickers = [row.get("ticker") for row in run.stock_analyses]
     if any(not isinstance(t, str) for t in tickers) or len(set(tickers)) != len(tickers):
-        raise ValueError("invalid Security Analysis identities")
+        raise ValueError("invalid Stock Analysis identities")
     return run
 
 
@@ -81,7 +82,7 @@ def load_analysis_snapshot(
             known_at=known_at,
         )
     )
-    rows = {} if run is None else {row["ticker"]: row for row in run.security_analyses}
+    rows = {} if run is None else {row["ticker"]: row for row in run.stock_analyses}
     missing = set(tickers) - rows.keys()
     reasons = {gap.ticker: gap.reason for gap in gaps}
     if missing - reasons.keys():
@@ -150,38 +151,8 @@ def load_selection_context(
                 "no_screening_run", (), "Screening Run is unavailable"
             ).public()
         )
-    elif request.scope == "discover_new":
-        reader = ScreeningRunReader(runs_path)
-        publications = (
-            reader.list_review_sets(run_revision_id=run.run_revision_id) if run_revision_id else []
-        )
-        publication = (
-            (publications[0] if publications else None)
-            if run_revision_id
-            else reader.resolve_review_set()
-        )
-        if publication is None:
-            missing.append(
-                ResearchInputsRequiredError(
-                    "no_candidate_projection", (), "candidate projection is unavailable"
-                ).public()
-            )
-        else:
-            review = PublishedReviewSet.model_validate(publication.payload)
-            if (
-                publication.run_revision_id != run.run_revision_id
-                or review.run_revision_id != run.run_revision_id
-                or review.review_set_id != publication.review_set_id
-                or review.as_of.isoformat() != run.as_of_date
-                or (
-                    run.payload.get("screening_rules_hash") is not None
-                    and review.screening_rules_hash != run.payload["screening_rules_hash"]
-                )
-                or review.created_at != datetime.fromisoformat(publication.created_at)
-                or review.created_at > known_at
-            ):
-                raise ValueError("candidate projection differs from the selected run/cutoff")
-            candidates = list(review_set_candidates(review))
+    else:
+        candidates = [dict(row) for row in candidate_rows(run.stock_analyses)]
     held: tuple[str, ...] = ()
     app_path = database_path(db_path)
     if app_path.exists():
@@ -195,7 +166,7 @@ def load_selection_context(
                     )
                 )
     requested = request.requested_tickers or (held if request.scope == "review_positions" else ())
-    rows = {} if run is None else {row["ticker"]: row for row in run.security_analyses}
+    rows = {} if run is None else {row["ticker"]: row for row in run.stock_analyses}
     absent = tuple(ticker for ticker in requested if ticker not in rows)
     if absent:
         missing.append(
@@ -205,7 +176,7 @@ def load_selection_context(
         )
     context = latest_assessment(app_path, as_of=as_of, known_at=known_at)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "status": "inputs_required" if missing else "ready",
         "request": request.model_dump(mode="json"),
         "research_as_of": as_of.isoformat(),
@@ -214,6 +185,9 @@ def load_selection_context(
         "run_revision_id": None if run is None else run.run_revision_id,
         "capacity": CURRENT_RESEARCH_CAPACITY.model_dump(mode="json"),
         "candidates": candidates,
+        "candidate_discovery_method": None
+        if run is None
+        else run.payload["candidate_discovery"]["method"],
         "requested_analyses": {t: rows[t] for t in requested if t in rows},
         "held_tickers": list(held),
         "missing_inputs": missing,

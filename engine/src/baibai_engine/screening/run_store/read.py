@@ -5,9 +5,15 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
+
+from baibai_engine.screening.discovery.contracts import (
+    CandidateDiscoverySummary,
+    StockCandidateContext,
+    validate_candidate_run,
+)
 
 from .schema import RUN_STORE_SCHEMA_VERSION
 from .store import RunStoreAmbiguousError, decode_payload, run_store_path
@@ -23,20 +29,7 @@ class RunPublication:
     universe_size: int
     rules_ref: str | None
     payload: dict[str, Any]
-    security_analyses: tuple[dict[str, Any], ...]
-
-
-@dataclass(frozen=True, slots=True)
-class ReviewSetPublication:
-    review_set_id: str
-    run_revision_id: str
-    as_of_date: str
-    created_at: str
-    payload: dict[str, Any]
-
-    @property
-    def as_of(self) -> str:
-        return self.as_of_date
+    stock_analyses: tuple[dict[str, Any], ...]
 
 
 def connect_read_only(path: Path | None = None) -> sqlite3.Connection:
@@ -102,6 +95,54 @@ class ScreeningRunReader:
                 LIMIT 1
                 """
             ).fetchone()
+            return None if row is None else _run_from_row(connection, row)
+
+    def latest_run_on(self, *, as_of: date) -> RunPublication | None:
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN")
+            row = connection.execute(
+                "SELECT * FROM screening_run WHERE asof_date = ? "
+                "ORDER BY julianday(run_at) DESC, run_revision_id DESC LIMIT 1",
+                (as_of.isoformat(),),
+            ).fetchone()
+            return None if row is None else _run_from_row(connection, row)
+
+    def analysis_run(
+        self, *, as_of: date, known_at: datetime, run_revision_id: str | None = None
+    ) -> RunPublication | None:
+        """Select one analysis within Research's date and known-time boundaries."""
+        if known_at.tzinfo is None or known_at.utcoffset() is None:
+            raise ValueError("known_at must be timezone-aware")
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN")
+            if run_revision_id is not None:
+                row = connection.execute(
+                    "SELECT * FROM screening_run WHERE run_revision_id = ?", (run_revision_id,)
+                ).fetchone()
+                if row is None:
+                    raise ValueError(f"unknown run_revision_id: {run_revision_id}")
+                if (
+                    row["asof_date"] > as_of.isoformat()
+                    or datetime.fromisoformat(row["run_at"]) > known_at
+                ):
+                    raise ValueError("explicit analysis run is after the Research cutoff")
+            else:
+                headers = connection.execute(
+                    "SELECT * FROM screening_run WHERE asof_date <= ?",
+                    (as_of.isoformat(),),
+                ).fetchall()
+                # SQLite julianday rounds to milliseconds. Research's cutoff and
+                # latest-run selection preserve the saved clock's full precision.
+                timed_headers = [
+                    (header, datetime.fromisoformat(header["run_at"])) for header in headers
+                ]
+                eligible = [item for item in timed_headers if item[1] <= known_at]
+                selected = max(
+                    eligible,
+                    key=lambda item: (item[0]["asof_date"], item[1], item[0]["run_revision_id"]),
+                    default=None,
+                )
+                row = None if selected is None else selected[0]
             return None if row is None else _run_from_row(connection, row)
 
     def valuation_run(
@@ -176,91 +217,21 @@ class ScreeningRunReader:
                 )
             return _run_from_row(connection, rows[0])
 
-    def get_review_set(self, review_set_id: str) -> ReviewSetPublication | None:
-        with closing(self._connect()) as connection:
-            connection.execute("BEGIN")
-            row = connection.execute(
-                """
-                SELECT s.*, r.asof_date
-                FROM review_set AS s
-                JOIN screening_run AS r USING (run_revision_id)
-                WHERE s.review_set_id = ?
-                """,
-                (review_set_id,),
-            ).fetchone()
-            return None if row is None else _review_set_from_row(row)
-
-    def latest_review_set(self, *, as_of_date: str) -> ReviewSetPublication | None:
-        """Return the latest published Review Set for exactly one as-of date."""
-
-        return self.resolve_review_set(as_of_date=as_of_date)
-
-    def resolve_review_set(
-        self,
-        *,
-        review_set_id: str | None = None,
-        public_run_id: str | None = None,
-        as_of_date: str | None = None,
-        not_before: str | None = None,
-    ) -> ReviewSetPublication | None:
-        """Read exact identity or the daily canonical publication, without fallback.
-
-        Date selection uses the latest publication on that day, as daily analysis
-        does. not_before chooses the first eligible day; no selector chooses the last.
-        A public run ID shared by revisions needs an exact Review Set ID.
-        """
-        with closing(self._connect()) as connection:
-            connection.execute("BEGIN")
-            return resolve_review_set_on_connection(
-                connection,
-                review_set_id=review_set_id,
-                public_run_id=public_run_id,
-                as_of_date=as_of_date,
-                not_before=not_before,
-            )
-
-    def list_review_sets(
-        self,
-        *,
-        run_revision_id: str | None = None,
-        as_of_date: str | None = None,
-    ) -> list[ReviewSetPublication]:
-        clauses: list[str] = []
-        parameters: list[str] = []
-        if run_revision_id is not None:
-            clauses.append("s.run_revision_id = ?")
-            parameters.append(run_revision_id)
-        if as_of_date is not None:
-            clauses.append("r.asof_date = ?")
-            parameters.append(as_of_date)
-        where = "" if not clauses else " WHERE " + " AND ".join(clauses)
-        with closing(self._connect()) as connection:
-            connection.execute("BEGIN")
-            # The optional clauses are fixed above and every value is bound.
-            rows = connection.execute(
-                """
-                SELECT s.*, r.asof_date
-                FROM review_set AS s
-                JOIN screening_run AS r USING (run_revision_id)
-                """  # nosec B608
-                + where
-                + " ORDER BY r.asof_date DESC, julianday(s.created_at) DESC, s.review_set_id DESC",
-                parameters,
-            ).fetchall()
-            return [_review_set_from_row(row) for row in rows]
-
     def _connect(self) -> sqlite3.Connection:
         return connect_read_only(self._path)
 
 
 def _run_from_row(connection: sqlite3.Connection, row: sqlite3.Row) -> RunPublication:
-    security_analyses = connection.execute(
+    stock_analyses = connection.execute(
         """
-        SELECT payload FROM security_analysis
+        SELECT payload FROM stock_analysis
         WHERE run_revision_id = ? ORDER BY ordinal
         """,
         (row["run_revision_id"],),
     ).fetchall()
+    header = dict(decode_payload(row["payload"]))
+    analyses = tuple(dict(decode_payload(item[0])) for item in stock_analyses)
+    validate_candidate_run(header, analyses)
     return RunPublication(
         run_revision_id=str(row["run_revision_id"]),
         public_run_id=str(row["public_run_id"]),
@@ -269,30 +240,12 @@ def _run_from_row(connection: sqlite3.Connection, row: sqlite3.Row) -> RunPublic
         run_at=str(row["run_at"]),
         universe_size=int(row["universe_size"]),
         rules_ref=None if row["rules_ref"] is None else str(row["rules_ref"]),
-        payload=dict(decode_payload(row["payload"])),
-        security_analyses=tuple(dict(decode_payload(item[0])) for item in security_analyses),
+        payload=header,
+        stock_analyses=analyses,
     )
 
 
-def _review_set_from_row(row: sqlite3.Row) -> ReviewSetPublication:
-    from baibai_engine.screening.discovery.review_set import validate_review_set_shape
-
-    payload = dict(decode_payload(row["payload"]))
-    validate_review_set_shape(payload)
-    return ReviewSetPublication(
-        review_set_id=str(row["review_set_id"]),
-        run_revision_id=str(row["run_revision_id"]),
-        as_of_date=str(row["asof_date"]),
-        created_at=str(row["created_at"]),
-        payload=payload,
-    )
-
-
-__all__ = [
-    "ReviewSetPublication",
-    "RunPublication",
-    "ScreeningRunReader",
-]
+__all__ = ["RunPublication", "ScreeningRunReader"]
 
 
 def stored_run_page(
@@ -307,7 +260,7 @@ def stored_run_page(
     """Bounded headers/analyses/publications without loading every child analysis."""
     from baibai_engine.foundation.sqlite_pages import select_page
 
-    if kind == "security_analysis":
+    if kind == "stock_analysis":
         parent = filters["run_revision_id"]
         if (
             connection.execute(
@@ -316,8 +269,21 @@ def stored_run_page(
             is None
         ):
             raise FileNotFoundError("run unavailable")
+        _require_candidate_shape(connection, str(parent))
+        equal = {key: value for key, value in filters.items() if key != "candidates_only"}
+        ranges: list[tuple[str, str, object]] = (
+            [("json_array_length(json_extract(payload, '$.candidate.reasons'))", ">", 0)]
+            if filters.get("candidates_only")
+            else []
+        )
         rows = select_page(
-            connection, table=kind, order=("ordinal",), equal=filters, after=after, limit=limit
+            connection,
+            table=kind,
+            order=("ordinal",),
+            equal=equal,
+            ranges=ranges,
+            after=after,
+            limit=limit,
         )
     elif kind == "screening_run":
         equal = {key: filters[key] for key in ("run_revision_id",) if key in filters}
@@ -341,94 +307,69 @@ def stored_run_page(
             after=after,
             limit=limit,
         )
-    elif kind == "review_set":
-        equal = {
-            f"s.{key}": filters[key]
-            for key in ("run_revision_id", "review_set_id")
-            if key in filters
-        }
-        if (
-            "run_revision_id" in filters
-            and connection.execute(
-                "SELECT 1 FROM screening_run WHERE run_revision_id = ?",
-                (filters["run_revision_id"],),
-            ).fetchone()
-            is None
-        ):
-            raise FileNotFoundError("run unavailable")
-        rows = select_page(
-            connection,
-            table="review_set s JOIN screening_run r USING (run_revision_id)",
-            columns=(
-                "s.*, r.asof_date, julianday(s.created_at) AS page_time"
-                if full
-                else "s.review_set_id, s.run_revision_id, s.created_at, r.asof_date, "
-                "julianday(s.created_at) AS page_time"
-            ),
-            order=("r.asof_date", "julianday(s.created_at)", "s.review_set_id"),
-            equal=equal,
-            ranges=[
-                ("r.asof_date", op, filters[key])
-                for key, op in (("from", ">="), ("to", "<="))
-                if key in filters
-            ],
-            after=after,
-            limit=limit,
-        )
     else:
         raise ValueError("unknown run row kind")
     for row in rows:
         if "payload" in row:
             row["payload"] = dict(decode_payload(row["payload"]))
+            if kind == "stock_analysis":
+                StockCandidateContext.model_validate(row["payload"].get("candidate"))
     return rows
 
 
-def resolve_review_set_on_connection(
-    connection: sqlite3.Connection,
-    *,
-    review_set_id: str | None = None,
-    public_run_id: str | None = None,
-    as_of_date: str | None = None,
-    not_before: str | None = None,
-) -> ReviewSetPublication | None:
-    """Resolve the canonical publication within the caller's read transaction."""
-    if sum(x is not None for x in (review_set_id, public_run_id, as_of_date, not_before)) > 1:
-        raise ValueError("at most one Review Set selector is allowed")
-    if review_set_id is not None:
-        row = connection.execute(
-            "SELECT s.*, r.asof_date FROM review_set s "
-            "JOIN screening_run r USING (run_revision_id) WHERE s.review_set_id = ?",
-            (review_set_id,),
-        ).fetchone()
-        return None if row is None else _review_set_from_row(row)
-    if public_run_id is not None:
-        runs = connection.execute(
-            "SELECT run_revision_id FROM screening_run WHERE public_run_id = ?",
-            (public_run_id,),
-        ).fetchall()
-        if len(runs) > 1:
-            raise RunStoreAmbiguousError("public run ID has multiple revisions")
-        if not runs:
-            return None
-        clause, parameters = "r.run_revision_id = ?", (runs[0][0],)
-    elif as_of_date is not None:
-        clause, parameters = "r.asof_date = ?", (as_of_date,)
-    else:
-        aggregate = "min" if not_before is not None else "max"
-        day = connection.execute(
-            f"SELECT {aggregate}(r.asof_date) FROM review_set s "  # nosec B608
-            "JOIN screening_run r USING (run_revision_id) "
-            "WHERE (? IS NULL OR r.asof_date >= ?)",
-            (not_before, not_before),
-        ).fetchone()[0]
-        if day is None:
-            return None
-        clause, parameters = "r.asof_date = ?", (day,)
+def _require_candidate_shape(connection: sqlite3.Connection, run_revision_id: str) -> None:
+    """Reject broken candidate rows before any ticker or candidates-only filtering."""
     row = connection.execute(
-        "SELECT s.*, r.asof_date FROM review_set s "
-        "JOIN screening_run r USING (run_revision_id) WHERE "  # nosec B608
-        + clause
-        + " ORDER BY julianday(s.created_at) DESC, s.review_set_id DESC LIMIT 1",
-        parameters,
+        "SELECT payload FROM screening_run WHERE run_revision_id = ?", (run_revision_id,)
     ).fetchone()
-    return None if row is None else _review_set_from_row(row)
+    if row is None:
+        raise FileNotFoundError("run unavailable")
+    header = decode_payload(row[0])
+    if (
+        type(header.get("schema_version")) is not int
+        or header["schema_version"] != 1
+        or header.get("kind") != "stock_analysis_run"
+    ):
+        raise ValueError("invalid stock analysis run header")
+    CandidateDiscoverySummary.model_validate(header.get("candidate_discovery"))
+    invalid = connection.execute(
+        """
+        SELECT 1 FROM stock_analysis
+        WHERE run_revision_id = ? AND (
+            json_type(payload, '$.candidate') IS NOT 'object'
+            OR json_type(payload, '$.candidate.common_eligible') NOT IN ('true', 'false')
+            OR json_type(payload, '$.candidate.common_eligible') IS NULL
+            OR json_type(payload, '$.candidate.reasons') IS NOT 'array'
+            OR json_type(payload, '$.candidate.normalized_per_3fy_sector_gap')
+                NOT IN ('integer', 'real', 'null')
+            OR json_type(payload, '$.candidate.normalized_per_3fy_sector_gap') IS NULL
+            OR (json_extract(payload, '$.candidate.common_eligible') = 0 AND (
+                json_array_length(json_extract(payload, '$.candidate.reasons')) != 0
+                OR json_type(payload, '$.candidate.normalized_per_3fy_sector_gap') IS NOT 'null'
+            ))
+        ) LIMIT 1
+        """,
+        (run_revision_id,),
+    ).fetchone()
+    if invalid is not None:
+        raise ValueError("invalid saved candidate context")
+    invalid_reason = connection.execute(
+        """
+        SELECT 1 FROM stock_analysis a, json_each(a.payload, '$.candidate.reasons') reason
+        WHERE a.run_revision_id = ? AND (
+            reason.type IS NOT 'object'
+            OR json_type(reason.value, '$.valuation_approach_id') IS NOT 'text'
+            OR json_extract(reason.value, '$.valuation_approach_id') NOT IN (
+                'current-earnings-power', 'normalized-earnings-power',
+                'asset-value', 'reinvestment-value'
+            )
+            OR json_type(reason.value, '$.valuation_method_id') IS NOT 'text'
+            OR length(json_extract(reason.value, '$.valuation_method_id')) = 0
+            OR json_type(reason.value, '$.rank') IS NOT 'integer'
+            OR json_extract(reason.value, '$.rank') < 1
+        ) LIMIT 1
+        """,
+        (run_revision_id,),
+    ).fetchone()
+    if invalid_reason is not None:
+        raise ValueError("invalid saved candidate reason")

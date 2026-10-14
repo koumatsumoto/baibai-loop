@@ -9,13 +9,13 @@ status: active
 
 Baibai Loop スクリーニングで使う valuation 指標の算出仕様とデータソース。screening run storeとapplication DBのresearch thesisで参照される指標の前提を確定する。
 
-Candidate Discoveryのprimary authorityは4 Valuation Approachesのnative eligibility / orderである。機械E[r]はvaluation reversionとcarryをまとめたsecondary return priorで、Review Set membership、global rank、AI research priorityを所有しない。
+Candidate Discoveryのprimary authorityは4 Valuation Approachesのnative eligibility / orderである。機械E[r]はvaluation reversionとcarryをまとめたsecondary return priorで、候補一覧 membership、global rank、AI research priorityを所有しない。
 
 Researchの判断見積りは[ThesisのBase/Downsideと共通算術](./thesis.md#scenario-arithmetic)に従う。銘柄とシナリオに対応する比較期間について、sourceに基づく価値・累積分配・returnを計算し、[独立Review](./thesis.md#independent-second-pass)で反証する。
 
 screening時点のE[r] / FV anchorは候補比較の文脈として表示・参照し、[Thesis payloadへ重複転記しない](./thesis.md#input-snapshot-and-lineage)。機械E[r]の5年priorと3y/5y calibrationは個別判断の期間を固定しない。保存済み較正文脈の意味・解釈はValuationが所有し、生成とevidenceの条件は[見積り較正](./estimate-calibration.md#判断面へ渡す較正文脈)を参照する。
 
-財務・倍率計算の正本は[valuation/metrics](../../engine/src/baibai_engine/valuation/metrics/)にある。`models`がFinancialSnapshot/4項目TTMRules/配当basisを所有し、`financial_snapshot`が生成本体、`periods`が会計期間/TTM、`capital`が株式/普通株自己資本basis、`dividends`が配当/還元、`profit`が利益、`history`が価格感応倍率履歴、`relative`が値で渡された業種/市場母集団と自己レンジの倍率比較を所有する。価格騰落・標本volatility・出来高・安値乖離・信用需給は`market_context/{history,margin}`、共有split算術は`market/bars`、対象/母集団選択とSecurity Analysis向けの結果組立は`screening/metrics/snapshot`が所有する。ScreeningRulesはTTMRulesを構成して計算へ渡し、計算領域へ設定読込や母集団選択を持ち込まない。本書は指標の意味と、異なるbasisを混ぜないための理由を扱う。
+財務・倍率計算の正本は[valuation/metrics](../../engine/src/baibai_engine/valuation/metrics/)にある。`models`がFinancialSnapshot/4項目TTMRules/配当basisを所有し、`financial_snapshot`が生成本体、`periods`が会計期間/TTM、`capital`が株式/普通株自己資本basis、`dividends`が配当/還元、`profit`が利益、`history`が価格感応倍率履歴、`relative`が値で渡された業種/市場母集団と自己レンジの倍率比較を所有する。価格騰落・標本volatility・出来高・安値乖離・信用需給は`market_context/{history,margin}`、共有split算術は`market/bars`、対象/母集団選択とStock Analysis向けの結果組立は`screening/metrics/snapshot`が所有する。ScreeningRulesはTTMRulesを構成して計算へ渡し、計算領域へ設定読込や母集団選択を持ち込まない。本書は指標の意味と、異なるbasisを混ぜないための理由を扱う。
 
 <a id="machine-valuation"></a>
 
@@ -33,16 +33,16 @@ sector_median_anchor = price * mean(available_sector_anchor / current_multiple)
 self_range_anchor = price * mean(available_self_anchor / current_multiple)
 ```
 
-carryの`dividend_yield / net_share_change_yoy`が欠測なら、その成分の計算上の寄与は0である。これは無配・株数不変を観測した意味ではない。Valuationの公開読取、Researchの機械anchor、新しいReview SetとResearch入力は、この二つのnullable入力と`dividend_basis`、`carry_missing_assumption`を併記する。株数変化はclip前のグロス発行済株式数YoY（増加が正、減少が負）であり、将来の自社株買いcashではない。ER値・算式・既存の`er_assumptions`は変更しない。
-新しいReview SetとResearch入力は、同じSecurity Analysisの`dps_actual_annual / dps_forecast_annual`も欠測を保持して投影する。両値は配当計算の株式basisへ正規化した入力であり、原典の未加工値や予想配当の持続性の認定ではない。保存済みの旧publicationには後付けしない。
+carryの`dividend_yield / net_share_change_yoy`が欠測なら、その成分の計算上の寄与は0である。これは無配・株数不変を観測した意味ではない。Valuationの公開読取、Researchの機械anchor、新しい候補一覧とResearch入力は、この二つのnullable入力と`dividend_basis`、`carry_missing_assumption`を併記する。株数変化はclip前のグロス発行済株式数YoY（増加が正、減少が負）であり、将来の自社株買いcashではない。ER値・算式・既存の`er_assumptions`は変更しない。
+新しい候補一覧とResearch入力は、同じStock Analysisの`dps_actual_annual / dps_forecast_annual`も欠測を保持して投影する。両値は配当計算の株式basisへ正規化した入力であり、原典の未加工値や予想配当の持続性の認定ではない。保存済みの旧publicationには後付けしない。
 
-保存済みReview SetとResearch snapshotに成分fieldが無い場合は「そのsnapshotに記録なし」であり、nullや0を補完して保存・再発行しない。Researchも欠測・field不在をゼロ観測の根拠にしない。直接のValuation/Research読取は元Security Analysisに残る成分を引用できるが、凍結した判断入力へ後から混ぜない。
+保存済み候補一覧とResearch snapshotに成分fieldが無い場合は「そのsnapshotに記録なし」であり、nullや0を補完して保存・再発行しない。Researchも欠測・field不在をゼロ観測の根拠にしない。直接のValuation/Research読取は元Stock Analysisに残る成分を引用できるが、凍結した判断入力へ後から混ぜない。
 
 ERは年率ratio（0.1＝10%/年）の機械priorで、モデル・単位・成分・前提を併記する。業種中央値anchorはERの保守側blendそのものではなく、自己レンジは現在fundamentalsを固定した価格比較（[§9](#9-過去自己比較過去-3-年レンジ)）である。企業固有の調査FV・期間内分配・Projectionと同一の評価名へまとめない。4 Approachの推薦式・推薦枠は[Screening runtime](./screening-runtime.md#candidate-discovery)が所有する。
 
-保存名`fv_sector_median_yen / fv_self_range_yen / er_*`とserializerの丸めは維持する。読取は再計算しない。`valuation.query.machine_valuation_from_analysis`が小さな機械評価結果へ投影し、Webの一覧・銘柄詳細・履歴は同じ保存値の業種中央値anchorと参考価格の乖離を表示する。Review Set入りを照会条件にせず、候補外の保存済みSecurity Analysisも読める。
+保存名`fv_sector_median_yen / fv_self_range_yen / er_*`とserializerの丸めは維持する。読取は再計算しない。`valuation.query.machine_valuation_from_analysis`が小さな機械評価結果へ投影し、Webの一覧・銘柄詳細・履歴は同じ保存値の業種中央値anchorと参考価格の乖離を表示する。候補一覧入りを照会条件にせず、候補外の保存済みStock Analysisも読める。
 
-`read_api.stored_machine_valuation`はticker、cutoff、任意の固定run identityを受ける。通常はcutoff以下の最新runを`asof_date / run_at / run_revision_id`降順で選び、そのrun内でtickerを読む。最新全体が未来でも過去runを選び、固定runの未来as-ofや不明identityは拒否する。cutoffはrunの論理as-ofであり、後日に生成した過去as-ofのreplayも選択し得る。対象runなし、run内tickerなし、推計座標欠測を区別し、古いrunの値やReview Setで穴を埋めない。取得・DB書込・AI起動は行わない。ticker profileの保存済み解析も同じrun解決を使う。
+`read_api.stored_machine_valuation`はticker、cutoff、任意の固定run identityを受ける。通常はcutoff以下の最新runを`asof_date / run_at / run_revision_id`降順で選び、そのrun内でtickerを読む。最新全体が未来でも過去runを選び、固定runの未来as-ofや不明identityは拒否する。cutoffはrunの論理as-ofであり、後日に生成した過去as-ofのreplayも選択し得る。対象runなし、run内tickerなし、推計座標欠測を区別し、古いrunの値や候補一覧で穴を埋めない。取得・DB書込・AI起動は行わない。ticker profileの保存済み解析も同じrun解決を使う。
 
 ## 1. 使用指標
 
@@ -63,7 +63,7 @@ ERは年率ratio（0.1＝10%/年）の機械priorで、モデル・単位・成�
 
 ### Researchへ渡すCF文脈
 
-`valuation.query.cash_flow_from_analysis`は保存済みSecurity Analysisの金額・利回り・品質を出所別に読む。J-QuantsのOCF TTMと、選択EDINET書類のOCF/capex/FCFは別系列であり、同一期間・連結範囲を保証しない。異なる系列のOCFとcapexを減算してFCFを作らない。
+`valuation.query.cash_flow_from_analysis`は保存済みStock Analysisの金額・利回り・品質を出所別に読む。J-QuantsのOCF TTMと、選択EDINET書類のOCF/capex/FCFは別系列であり、同一期間・連結範囲を保証しない。異なる系列のOCFとcapexを減算してFCFを作らない。
 
 Researchの選択済み銘柄入力の`cash_flow`は、機械anchorと同じrunの保存値を引用し、EDINETの書類ID・種類・提出日時・書類metadata期間・capex出所を残す。書類metadata期間はCF実測期間ではなく、最新財務開示日もOCF合成期間ではない。必要なら原典のCF計算書で期間・連結範囲・単位を確認する。欠測はnullのまま、明示0と負値は保持し、後日の資料で補完しない。Researchの合成入口と入力確定時刻は[Research進行](./analysis-operations.md#明示開始と固定対象)に従う。
 
@@ -183,7 +183,7 @@ EDINET `type=5` CSV-derived metrics から以下を抽出する。
 - `asset_backed_ratio = (net_cash + investment_securities) / market_cap`
 - `fcf_ttm = edinet_ocf_ttm - capex_ttm`
 
-`asset_backed_ratio` は投資有価証券の帳簿価額を加えた gross proxy である。上場株式だけでなく非上場・低流動性の保有を含み得て、含み損益、売却税、持合い・契約上の売却制約、事業上必要な保有を反映しない。このため marketable / liquid / fair value の指標とは呼ばない。非金融企業だけを対象とするCandidate DiscoveryのAsset Valueと較正panelの調査入口に限定し、E[r]、FV、Security Analysis全体の順位、warningには使わない。銀行業、保険業、その他金融業、証券・商品先物取引業は、cash / debt / securitiesが事業そのものなのでAsset Valueのeligibilityから除外する。`net_cash`、`investment_securities`、正の時価総額のいずれかが欠ける場合は`null`とし、net debtが投資有価証券を上回る場合の負値はそのまま保持する。`net_cash_to_market_cap`はReview analysis contextへ残すが、Asset Valueのeligibility / orderには使わない。
+`asset_backed_ratio` は投資有価証券の帳簿価額を加えた gross proxy である。上場株式だけでなく非上場・低流動性の保有を含み得て、含み損益、売却税、持合い・契約上の売却制約、事業上必要な保有を反映しない。このため marketable / liquid / fair value の指標とは呼ばない。非金融企業だけを対象とするCandidate DiscoveryのAsset Valueと較正panelの調査入口に限定し、E[r]、FV、Stock Analysis全体の順位、warningには使わない。銀行業、保険業、その他金融業、証券・商品先物取引業は、cash / debt / securitiesが事業そのものなのでAsset Valueのeligibilityから除外する。`net_cash`、`investment_securities`、正の時価総額のいずれかが欠ける場合は`null`とし、net debtが投資有価証券を上回る場合の負値はそのまま保持する。`net_cash_to_market_cap`はReview analysis contextへ残すが、Asset Valueのeligibility / orderには使わない。
 
 J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定に使う。
 
@@ -277,13 +277,13 @@ Historical P/S と EV/EBITDA は、各日の raw close を `adjustment_factor` �
 
 自己レンジは、現在のfundamentalsを固定して価格だけを変化させた比較であり、各日の当時のfundamentalsから復元した倍率履歴ではない。価格比例の軸では自己レンジ中央値と現在倍率の比は価格中央値と現在価格の比に一致する。E[r]でこのanchorが採用される場合も、その意味を「過去の利益倍率の再現」としない。
 
-自己レンジ / sigma gap は直近 750 本の bar（営業日ベース ≒ 3 年、§9）を代表的標本として前提にするが、上場が古くても bar 履歴に長期ギャップがある銘柄(上場区分変更・データ供給断など)では、レンジが実質それより短い期間で計算される。これを検出するため、Screening RunのSecurity Analysisには直近 **750 暦日窓**の bar 密度を以下の事実として記録する（窓が暦日なのは、取引カレンダーを fetch せず population 内の最大 bar 数を分母にして密度を出すため）。
+自己レンジ / sigma gap は直近 750 本の bar（営業日ベース ≒ 3 年、§9）を代表的標本として前提にするが、上場が古くても bar 履歴に長期ギャップがある銘柄(上場区分変更・データ供給断など)では、レンジが実質それより短い期間で計算される。これを検出するため、Screening RunのStock Analysisには直近 **750 暦日窓**の bar 密度を以下の事実として記録する（窓が暦日なのは、取引カレンダーを fetch せず population 内の最大 bar 数を分母にして密度を出すため）。
 
 - `price_history_sessions_750d`: 直近 750 暦日のうち bar が存在する営業日数
 - `price_history_coverage_750d`: 上記 / 当日 scope 内の最大値(最も密な銘柄が取引カレンダーの近似)
 
 `short_history_flag`(上場 750 暦日未満)は新規上場を扱い、本 fact は「上場は古いが履歴が疎」な銘柄を扱う。
-Security Analysisへの入力は有効価格1本から許すが、履歴を要する指標を埋めない。`avg_turnover_oku`は20本、1/5/20/60営業日騰落率はそれぞれ2/6/21/61本、自己価格中央値anchorは100本を必要とし、足りなければnullを保つ。1本だけの自己レンジ位置や52週安値gapは算術上0になり得るが、長期の割安さを示すものではない。`price_history_coverage_750d`は当日のscope内の相対密度なので、小さなfixtureでは1本でも1.0になり得る。必ず観測本数と期間proxyを合わせて読む。
+Stock Analysisへの入力は有効価格1本から許すが、履歴を要する指標を埋めない。`avg_turnover_oku`は20本、1/5/20/60営業日騰落率はそれぞれ2/6/21/61本、自己価格中央値anchorは100本を必要とし、足りなければnullを保つ。1本だけの自己レンジ位置や52週安値gapは算術上0になり得るが、長期の割安さを示すものではない。`price_history_coverage_750d`は当日のscope内の相対密度なので、小さなfixtureでは1本でも1.0になり得る。必ず観測本数と期間proxyを合わせて読む。
 
 ### 9.1 `adjustment_close` の中身（dividend / 配当の扱い）
 
@@ -309,8 +309,8 @@ source factor `0` と `1` は分割イベントとして採らず、`0`を分割
 - TTM 品質を `exact` / `approximated` / `unavailable` で明示する
 - EDINET CSV抽出では年次報告（書類種別120/130）の取得値を`exact`、それ以外の取得値を`approximated`、算出不能を`unavailable`とする。半期のCFO・CapExを取得しても完全TTMへ合成・年率化しない。書類の`source_period_end`はフローのcontext終点とは限らない。
 - 品質は供給元の計算・期間の区別であり、継続利益、資金の経済的持続性、株主回収可能性、倍率全体の正しさの認定ではない。`approximated`を一律に半期と解釈しない。
-- Review Setの`analysis.data_quality.ttm_quality_ev_ebitda` / `ttm_quality_fcf`は、採用したSecurity Analysisの`ttm_quality.ev_ebitda` / `fcf_yield`をそのまま投影する。採用元の品質がなければ`null`で、別世代・別sourceから補わず、この注記だけでNominationを変えない。
-- 新しい候補snapshotは2項目を明示し、項目のない保存snapshotはキー欠如を保つ。Researchは選択したraw Security Analysisのnull・field欠落を維持する。明示的`null`とキー欠如をserializerで区別し、旧canonicalとhashを変更しない。
+- Webの同じStock Analysis rowにある`ttm_quality_ev_ebitda` / `ttm_quality_fcf`は、raw Stock Analysisの`ttm_quality.ev_ebitda` / `fcf_yield`をそのまま投影する。採用元の品質がなければ`null`で、別世代・別sourceから補わず、この注記だけで候補理由を変えない。
+- Web DTOでは2項目を必須nullable fieldとして明示する。Researchは選択したraw Stock Analysisのnull・field欠落を維持する。保存rawとWeb表示のshapeを区別し、旧canonicalとhashを変更しない。
 - `EV/EBITDA` は `ttm_quality_ev_ebitda = exact` かつ EV / EBITDA がどちらも正のときのみ valuation-reversion 判定に使用する
 - 指標をeligibility/orderへ使う条件は各Approachに従う。`asset_backed_ratio`は非金融企業のAsset Valueで使い、E[r]・FV・全銘柄の単一順位やwarningには使わない。TTM品質の注記と、Approachが要求する入力条件を区別する。
 

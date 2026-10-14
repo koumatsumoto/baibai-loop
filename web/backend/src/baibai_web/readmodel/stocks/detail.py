@@ -24,9 +24,8 @@ from baibai_web.readmodel.stocks.research import (
 )
 from baibai_web.readmodel.stocks.screening import (
     _JST,
-    _operative_run,
     _screening_run_view,
-    _security_analysis_row_view,
+    _stock_analysis_row_view,
 )
 from baibai_web.sources.protocols import (
     ExternalAssessmentSource,
@@ -35,6 +34,7 @@ from baibai_web.sources.protocols import (
     ResearchSource,
     ScreeningSource,
 )
+from baibai_web.sources.screening_selection import operative_screening_run
 from baibai_web.sources.types import (
     ResearchRevision,
     ScreeningRunRecord,
@@ -75,7 +75,7 @@ def prepare_security_inputs(
             if not isinstance(item, Mapping):
                 raise ValueError("investment proposal item must be an object")
             proposals.setdefault(str(item["ticker"]), []).append(summary)
-    run, _review_sets = _operative_run(screening)
+    run = operative_screening_run(screening)
     rows: dict[str, Mapping[str, object]] = {}
     if run is not None:
         for row in run.rows:
@@ -115,7 +115,7 @@ def build_security_detail(
     latest_revision = revisions[0] if revisions else None
     proposals = inputs.proposals.get(ticker, [])
     run = inputs.run
-    raw_security_analysis = inputs.rows.get(ticker)
+    raw_stock_analysis = inputs.rows.get(ticker)
     holding_snapshot = inputs.holdings.get(ticker)
     assessment = (
         None
@@ -134,19 +134,17 @@ def build_security_detail(
     if (
         holding_snapshot is None
         and latest_revision is None
-        and raw_security_analysis is None
+        and raw_stock_analysis is None
         and not has_external
         and not proposals
     ):
         return None
 
-    security_name = (
-        text(raw_security_analysis.get("name")) if raw_security_analysis is not None else None
-    )
+    security_name = text(raw_stock_analysis.get("name")) if raw_stock_analysis is not None else None
     security_sector = (
-        text(raw_security_analysis.get("sector_33")) if raw_security_analysis is not None else None
+        text(raw_stock_analysis.get("sector_33")) if raw_stock_analysis is not None else None
     )
-    if raw_security_analysis is None and has_external:
+    if raw_stock_analysis is None and has_external:
         identity = market.security_identities(as_of=today).get(ticker, {})
         security_name = text(identity.get("name")) or None
         security_sector = text(identity.get("sector_33"))
@@ -169,14 +167,14 @@ def build_security_detail(
         _assessment_detail_view(assessment_detail) if assessment_detail is not None else None
     )
     reserved_here = {ticker} if ticker in inputs.reserved else set()
-    security_analysis = (
-        _security_analysis_row_view(
-            raw_security_analysis,
+    stock_analysis = (
+        _stock_analysis_row_view(
+            raw_stock_analysis,
             held={ticker} if holding_snapshot is not None else set(),
             reserved=reserved_here,
             researched={ticker} if revisions else set(),
         )
-        if raw_security_analysis is not None
+        if raw_stock_analysis is not None
         else None
     )
     return SecurityDetailView(
@@ -200,6 +198,6 @@ def build_security_detail(
         revisions=[_research_revision_view(item) for item in revisions],
         latest_assessment=latest_assessment,
         investment_proposals=proposals,
-        security_analysis=security_analysis,
+        stock_analysis=stock_analysis,
         screening_run=(_screening_run_view(run, today=today) if run is not None else None),
     )

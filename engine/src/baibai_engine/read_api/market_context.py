@@ -1,4 +1,4 @@
-"""Web/batch/Owner MCPの指標・Reading・市場状態・判断履歴を公開する読取境界。"""
+"""Web/batchの指標・Reading・市場状態・判断履歴を公開する読取境界。"""
 
 from __future__ import annotations
 
@@ -19,9 +19,7 @@ from baibai_engine.market_context.indicators.definitions import SeriesDefinition
 from baibai_engine.market_context.master import MasterSnapshot
 from baibai_engine.market_context.reading.query import (
     READING_RULES_PATH,
-    read_store_snapshot,
     reading_snapshot,
-    store_snapshot_payload,
 )
 from baibai_engine.market_context.reading.reader import build_store_observation_reader
 from baibai_engine.market_context.security import build_security_market_context
@@ -219,112 +217,4 @@ __all__ = [
     "prepare_market_context_inputs",
     "reading_snapshot",
     "registered_indicator",
-    "stored_indicator_rows",
-    "stored_reading",
 ]
-
-
-def stored_indicator_rows(
-    path: Path,
-    *,
-    kind: str,
-    filters: dict[str, object],
-    after: list[str | int | float] | None,
-    limit: int,
-    exact: bool = False,
-) -> list[dict[str, object]]:
-    """Read raw acquisition rows or the owner's effective observation selection."""
-    from dataclasses import asdict
-
-    from baibai_engine.foundation.sqlite_pages import select_page
-    from baibai_engine.market_context.indicators.db import (
-        observations_in_range,
-        open_read_only_connection,
-        validate_current_schema,
-    )
-    from baibai_engine.market_context.indicators.read_contracts import point_in_time_providers
-
-    from .stored import required_read
-
-    with required_read(path, open_read_only_connection) as connection:
-        validate_current_schema(connection)
-        if kind == "observations":
-            series_id = str(filters["series_id"])
-            if (
-                not connection.execute(
-                    "SELECT 1 FROM observations WHERE series_id = ? LIMIT 1", (series_id,)
-                ).fetchone()
-                and series_id not in load_definitions().by_id()
-            ):
-                raise FileNotFoundError("series unavailable")
-            if not exact and filters.get("mode", "effective") == "effective":
-                definition = load_definitions().by_id().get(series_id)
-                if definition is None:
-                    raise FileNotFoundError("effective series unavailable")
-                values = observations_in_range(
-                    connection,
-                    series_id,
-                    date.fromisoformat(str(filters["from"])),
-                    date.fromisoformat(str(filters["to"])),
-                    point_in_time=definition.provider in point_in_time_providers(),
-                    vintage_on_or_before=date.fromisoformat(
-                        str(filters.get("as_of") or filters["to"])
-                    ),
-                    after=None if after is None else (str(after[0]), str(after[1])),
-                    limit=limit,
-                )
-                return [
-                    {
-                        key: value.isoformat() if isinstance(value, date) else value
-                        for key, value in asdict(row).items()
-                    }
-                    for row in values
-                ]
-            equal: dict[str, object] = {
-                key: filters[key]
-                for key in ("series_id", "observed_at", "vintage_at")
-                if key in filters
-            }
-            ranges = [
-                ("observed_at", op, filters[key])
-                for key, op in (("from", ">="), ("to", "<="))
-                if key in filters
-            ]
-            return select_page(
-                connection,
-                table="observations",
-                order=("observed_at", "vintage_at"),
-                equal=equal,
-                ranges=ranges,
-                after=after,
-                limit=limit,
-            )
-        if kind != "provider_runs":
-            raise ValueError("unknown indicator row kind")
-        from baibai_engine.foundation.sqlite_pages import jst_day_ranges
-
-        return select_page(
-            connection,
-            table="provider_runs",
-            columns="*, julianday(finished_at) AS page_time",
-            order=("julianday(finished_at)", "run_id"),
-            equal={key: filters[key] for key in ("series_id", "run_id") if key in filters},
-            ranges=jst_day_ranges("finished_at", filters),
-            after=after,
-            limit=limit,
-        )
-
-
-def stored_reading(path: Path, *, asof: date) -> dict[str, object]:
-    from baibai_engine.market_context.indicators.db import (
-        open_read_only_connection,
-        validate_current_schema,
-    )
-
-    from .stored import required_read
-
-    with required_read(path, open_read_only_connection) as connection:
-        validate_current_schema(connection)
-        return store_snapshot_payload(
-            read_store_snapshot(connection, asof=asof, rules_path=READING_RULES_PATH)
-        )

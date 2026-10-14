@@ -206,7 +206,7 @@ def _status(
 def interpreted_next_earnings_status(saved_status: str | None) -> str | None:
     """Read a frozen legacy ``announced`` as the date-only claim it actually made.
 
-    Saved run, Review Set and Triage bytes remain immutable. This projection is for
+    Saved run bytes remain immutable. This projection is for
     present-day readers and model inputs; historical exact reads retain the source.
     """
 

@@ -47,7 +47,7 @@ from baibai_engine.screening.calibration.store import (
     read_forward,
     read_panel,
 )
-from baibai_engine.screening.discovery.review_set import candidate_discovery_method_hash
+from baibai_engine.screening.discovery.candidates import candidate_discovery_method_hash
 from baibai_engine.screening.metrics.snapshot import BARS_INPUT_WINDOW_DAYS
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
@@ -1247,6 +1247,16 @@ class DerivedCacheIdentityTests(unittest.TestCase):
             calibration_store._derive_cache_schema_version(),
             calibration_store._derive_cache_schema_version(),
         )
+
+
+def test_complete_panel_values_match_pre_refactor_commit(tmp_path: Path) -> None:
+    from baibai_engine.storage.application.json import canonical_json
+
+    sqlite_path = tmp_path / "market.sqlite"
+    build_calibration_fixture_sqlite(sqlite_path)
+    result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+    golden = ROOT / "tests/fixtures/screening/calibration-panel-golden.json"
+    assert canonical_json(asdict(result)) + "\n" == golden.read_text()
 
 
 if __name__ == "__main__":

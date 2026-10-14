@@ -4,13 +4,13 @@ The profile is the entry point for AI research on one security: price and
 liquidity facts for any listed ticker (inside or outside the screening
 universe), benchmark- and sector-relative momentum, the market benchmark_trend at the
 evaluation date, event facts (next earnings, JPX
-regulation), the ticker's latest recorded Security Analysis, and prior research
+regulation), the ticker's latest recorded Stock Analysis, and prior research
 decisions. Every field is a deterministic transform of stored data; the profile
 contains no interpretation and no composite score. The portfolio block retains
 its independent ledger_as_of; this is not an as-of replay of holdings.
 
 Valuation metrics are quoted from the Screening Run rather than recomputed, so
-the profile never disagrees with its Security Analysis. Absence is explicit.
+the profile never disagrees with its Stock Analysis. Absence is explicit.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ def build_ticker_profile(
     )
     master = market_context["master"]
     sector = master.get("sector_33") if isinstance(master, dict) else None
-    screening_context = _load_security_analysis_context(
+    screening_context = _load_stock_analysis_context(
         runs_db_path,
         ticker,
         asof_date,
@@ -139,7 +139,7 @@ def _empty_portfolio_block() -> dict[str, object]:
     }
 
 
-def _load_security_analysis_context(
+def _load_stock_analysis_context(
     runs_db_path: Path,
     ticker: str,
     asof_date: date,
@@ -149,7 +149,7 @@ def _load_security_analysis_context(
     if not runs_db_path.is_file():
         return {
             "screening_run_revision_id": None,
-            "has_security_analysis": False,
+            "has_stock_analysis": False,
             "note": "no screening run on or before asof",
         }
     reader = ScreeningRunReader(runs_db_path)
@@ -159,27 +159,27 @@ def _load_security_analysis_context(
             raise ValueError(f"unknown run_revision_id: {run_revision_id}")
         return {
             "screening_run_revision_id": None,
-            "has_security_analysis": False,
+            "has_stock_analysis": False,
             "note": "no screening run on or before asof",
         }
-    security_analyses = run.security_analyses
-    security_analysis = None
-    if security_analyses:
-        security_analysis = next(
-            (item for item in security_analyses if item.get("ticker") == ticker),
+    stock_analyses = run.stock_analyses
+    stock_analysis = None
+    if stock_analyses:
+        stock_analysis = next(
+            (item for item in stock_analyses if item.get("ticker") == ticker),
             None,
         )
     block: dict[str, object] = {
         "screening_run_revision_id": run.run_revision_id,
         "screening_run_as_of": run.as_of_date,
-        "has_security_analysis": security_analysis is not None,
+        "has_stock_analysis": stock_analysis is not None,
     }
-    if security_analysis is not None:
-        block["security_analysis"] = dict(security_analysis)
+    if stock_analysis is not None:
+        block["stock_analysis"] = dict(stock_analysis)
     else:
         block["note"] = (
-            "ticker has no Security Analysis in the recorded Screening Run "
-            "(outside the recorded run scope or no retained Security Analysis)"
+            "ticker has no Stock Analysis in the recorded Screening Run "
+            "(outside the recorded run scope or no retained Stock Analysis)"
         )
     return block
 

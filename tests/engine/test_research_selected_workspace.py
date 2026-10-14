@@ -24,6 +24,7 @@ from baibai_engine.research.workspace import (
     selected_prepare,
 )
 from baibai_engine.research.workspace_cli import main
+from baibai_engine.screening.rule_config import load_screening_rules
 
 NOW = datetime.fromisoformat("2026-09-07T18:00:00+09:00")
 
@@ -359,19 +360,21 @@ def test_cli_inputs_required_and_old_flags_are_removed(tmp_path, capsys):
 
 
 def test_previous_analysis_day_current_research_and_formal_assessment_are_separate(tmp_path):
-    from tests.helpers.screening_run import screening_run_payload, security_analysis
+    from tests.helpers.screening_run import screening_run_payload, stock_analysis
 
     from baibai_engine.research.inputs import project_research_inputs
     from baibai_engine.research.selection_query import load_analysis_snapshot
     from baibai_engine.screening.run_store import ScreeningRunStore
 
     runs = tmp_path / "runs"
-    row = security_analysis("1234", name="合成会社", metrics={"er_annual": 0.13})
+    row = stock_analysis("1234", name="合成会社", metrics={"er_annual": 0.13})
     payload = screening_run_payload(
-        as_of="2026-09-06", run_at="2026-09-06T18:00:00+09:00", security_analyses=[row]
+        as_of="2026-09-06", run_at="2026-09-06T18:00:00+09:00", stock_analyses=[row]
     )
     payload.pop("er_model_version")
-    ScreeningRunStore(runs).publish_run(payload, run_revision_id="previous-analysis")
+    ScreeningRunStore(runs).publish_run(
+        payload, run_revision_id="previous-analysis", rules=load_screening_rules()
+    )
     analysis = load_analysis_snapshot(
         run_revision_id="previous-analysis",
         research_as_of=NOW.date(),
@@ -389,7 +392,10 @@ def test_previous_analysis_day_current_research_and_formal_assessment_are_separa
     assert saved.research_as_of.isoformat() == "2026-09-07"
     assert saved.inputs.analysis.analysis_as_of.isoformat() == "2026-09-06"
     assert saved.inputs.analysis.er_model_version is None
-    assert saved.inputs.analysis.analyses["1234"] == row
+    canonical_row = dict(saved.inputs.analysis.analyses["1234"])
+    candidate = canonical_row.pop("candidate")
+    assert candidate["reasons"] == []
+    assert canonical_row == row
     projected = project_research_inputs(saved)
     assert projected["securities"]["1234"]["machine_valuation"]["as_of"] == "2026-09-06"
     directory = prepared.workspace / "1234"

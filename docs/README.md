@@ -24,7 +24,7 @@ Valuation・Market Context・External Assessmentの意味は[domain-language](./
 | 保存済み市場・業種・個別相対を読む | [Market Context読取](./reference/market-context.md#market-context-reads) |
 | 市場環境判断を作る | [Market Context assessment](../.agents/skills/market-context-assessment/SKILL.md) |
 | batch・storeを運用する | [Ops Maintenance](../.agents/skills/ops-maintenance/SKILL.md) |
-| 保存済み情報を表示・照会する | [Web](../web/README.md)・[Owner MCP](../tools/owner_mcp/README.md) |
+| 保存済み情報を表示・照会する | [Web](../web/README.md)・[固定lake release読取](./reference/market-lake.md#fixed-release-read) |
 | 保存済みの機械評価と企業固有評価を読む | [Valuation metrics](./reference/valuation-metrics.md#machine-valuation)・[Thesis](./reference/thesis.md#scenario-arithmetic) |
 | 見積り方法・保存済みER較正文脈を確認する | [Estimate calibration](./reference/estimate-calibration.md) |
 | 条件・閾値の目的と根拠を確認する | [判断条件の見取り図](#判断条件の見取り図)から各責務の正本へ辿る |
@@ -37,7 +37,7 @@ Valuation・Market Context・External Assessmentの意味は[domain-language](./
 
 | 判断の段階 | 理由・意味の正本 | 実装と代表的な回帰 |
 | --- | --- | --- |
-| 計算入力から候補集合・Review Setまで | [指標と欠測](./reference/valuation-metrics.md)、[Screeningの資格・順位・品質](./reference/screening-runtime.md#rule-purpose) | [`CommonEligibilityRules.matches`](../engine/src/baibai_engine/screening/rule_config.py)、[Nomination](../engine/src/baibai_engine/screening/discovery/review_set.py)、[回帰](../tests/engine/test_review_set.py) |
+| 計算入力から候補集合・候補一覧まで | [指標と欠測](./reference/valuation-metrics.md)、[Screeningの資格・順位・品質](./reference/screening-runtime.md#rule-purpose) | [`CommonEligibilityRules.matches`](../engine/src/baibai_engine/screening/rule_config.py)、[候補文脈](../engine/src/baibai_engine/screening/discovery/candidates.py)、[回帰](../tests/engine/test_candidate_discovery.py) |
 | 機械E[r]の参考値と較正 | [機械見積り](./reference/valuation-metrics.md#machine-valuation)、[較正文脈](./reference/estimate-calibration.md#estimator-vs-decision) | [文脈読取](../engine/src/baibai_engine/valuation/calibration/query.py)、[回帰](../tests/engine/test_er_calibration_context_contract.py) |
 | 明示Researchと企業固有の評価 | [有限対象と進行](./reference/analysis-operations.md)、[Thesisと独立Review](./reference/thesis.md) | [対象と進捗](../engine/src/baibai_engine/research/operation/progress.py)、[回帰](../tests/engine/test_research_progression.py) |
 | 候補比較と新規購入 | [CAA](./reference/capital-allocation-assessment.md)、[資本方針](./portfolio-management.md) | [`evaluate_entry`](../engine/src/baibai_engine/research/entry_policy.py)、[回帰](../tests/engine/test_investment_judgment_v4.py) |

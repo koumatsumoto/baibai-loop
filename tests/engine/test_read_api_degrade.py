@@ -20,15 +20,13 @@ from baibai_engine.market_context.indicators.db import (
     initialize_database as initialize_indicator_database,
 )
 from baibai_engine.read_api.sqlite import read_rows
+from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.run_store import initialize_run_store
 from baibai_engine.screening.run_store.schema import RUN_STORE_SCHEMA_VERSION
 from baibai_engine.storage.application.schema import APPLICATION_SCHEMA_VERSION
 from baibai_engine.storage.application.write import initialize_database
 from baibai_engine.storage.observations.schema import _SCHEMA_SQL as MARKET_SCHEMA_SQL
 from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION
-
-# Strict Owner MCP reads report unavailable canonical stores rather than UI no-data.
-_STRICT_STORED_READERS = frozenset({"stored_indicator_rows", "stored_reading"})
 
 # These parse Git-managed YAML paths, not runtime stores.
 _NOT_STORE_READERS = frozenset(
@@ -48,7 +46,6 @@ _WRITE_GATES = frozenset({"market_calendar_business_day", "previous_run_revision
 _DECLARED_OUTSIDE_THE_SWEEP = frozenset(
     {
         *_NOT_STORE_READERS,
-        *_STRICT_STORED_READERS,
         "is_unwritten_store",  # requires a query exception as well as a store
         "registered_indicator",  # reads the bundled definitions, not a store
         "indicator_series_names",  # reads the bundled definitions, not a store
@@ -57,8 +54,9 @@ _DECLARED_OUTSIDE_THE_SWEEP = frozenset(
         "interpreted_next_earnings_status",  # pure legacy-status projection; owned by earnings tests
         "anchor_gap_pct",  # pure machine-anchor presentation; owned by valuation tests
         "candidate_er_bands",  # pure band selection over a validated calibration horizon
+        "candidate_rows",  # pure same-run filter; owned by candidate discovery tests
+        "reinvestment_coordinates",  # pure saved-metric projection; owned by valuation tests
         "load_er_calibration_context",  # reads Git-managed calibration YAML, not SQLite
-        "stored_er_calibration_context",  # reads Git-managed calibration YAML, not SQLite
         "replay_events_through",  # pure event replay; owned by ledger tests
         "summarize_portfolio",  # pure capital projection; owned by ledger tests
         "current_portfolio",  # composes an explicit ledger with market input; covered by current-capital tests
@@ -88,10 +86,8 @@ _ARGUMENTS: dict[str, object] = {
     "context_asof": date(2026, 7, 28),
     "requested_asof": date(2026, 7, 29),
     "run_revision_id": "run-revision-20260729",
-    "review_set_id": "review-set-20260729-a",
     "series_id": "jp.cpi",
     "since": date(2026, 7, 28),
-    "research_triage_id": "research_triage-20260729-a",
     "start": date(2026, 7, 1),
     "thesis_id": "thesis-20260729-1234-r1",
     "ticker": "1234",
@@ -134,7 +130,7 @@ def _classify_readers() -> tuple[list[tuple[str, object, dict[str, object]]], se
     for name, function in sorted(_published_callables().items()):
         if not callable(function) or inspect.isclass(function):
             continue
-        if name in _NOT_STORE_READERS | _STRICT_STORED_READERS:
+        if name in _NOT_STORE_READERS:
             uncovered.add(name)
             continue
         try:
@@ -417,21 +413,23 @@ def test_indicator_partial_store_is_not_unpublished(tmp_path: Path, mutation: st
 
 
 def test_run_payload_partial_store_is_not_an_absent_id(tmp_path: Path) -> None:
-    from tests.helpers.screening_run import screening_run_payload, security_analysis
+    from tests.helpers.screening_run import screening_run_payload, stock_analysis
 
     from baibai_engine.screening.run_store import ScreeningRunStore
 
     path = tmp_path / "runs.sqlite"
     ScreeningRunStore(path).publish_run(
-        screening_run_payload(security_analyses=(security_analysis(),)), run_revision_id="run-test"
+        screening_run_payload(stock_analyses=(stock_analysis(),)),
+        run_revision_id="run-test",
+        rules=load_screening_rules(),
     )
     assert isinstance(read_api.screening_run_payload(path, run_revision_id="run-test"), dict)
     assert read_api.screening_run_payload(path, run_revision_id="absent") is None
     with sqlite3.connect(path) as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        connection.execute("DROP TABLE security_analysis")
+        connection.execute("DROP TABLE stock_analysis")
     original = path.read_bytes()
-    with pytest.raises(sqlite3.OperationalError, match="no such table: security_analysis"):
+    with pytest.raises(sqlite3.OperationalError, match="no such table: stock_analysis"):
         read_api.screening_run_payload(path, run_revision_id="run-test")
     assert path.read_bytes() == original
     with sqlite3.connect(path) as connection:

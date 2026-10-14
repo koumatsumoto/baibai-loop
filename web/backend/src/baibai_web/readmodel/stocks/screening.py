@@ -1,4 +1,4 @@
-"""ScreeningとReview Setを保存済み判断に束縛して表示する。"""
+"""Stock Analysisと同runの候補文脈を表示する。"""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from baibai_engine.read_api import (
     anchor_gap_pct,
     interpreted_next_earnings_status,
     machine_valuation_from_analysis,
+    reinvestment_coordinates,
 )
 from baibai_engine.read_api.er_calibration_context import (
     ErCalibrationContextArtifact,
@@ -17,6 +18,7 @@ from baibai_engine.read_api.er_calibration_context import (
 )
 from baibai_web.readmodel.builders.presentation import number, text
 from baibai_web.readmodel.models import (
+    CandidateDiscoverySummaryView,
     ErLevelCalibrationBandView,
     ErLevelCalibrationBasisView,
     ErLevelCalibrationContextView,
@@ -24,18 +26,14 @@ from baibai_web.readmodel.models import (
     ErLevelCalibrationHorizonView,
     ErLevelCalibrationStatsView,
     ExternalAssessmentSecurityView,
-    ReviewSetAnalysisView,
-    ReviewSetEntryView,
-    ReviewSetNominationView,
-    ReviewSetView,
     ScreeningHistoryRunView,
     ScreeningRunView,
     ScreeningView,
-    SecurityAnalysisRowView,
+    StockAnalysisRowView,
+    StockCandidateContextView,
 )
 from baibai_web.readmodel.stocks.presentation import (
     _held_and_reserved_tickers,
-    _mapping_items_optional,
     _portfolio_state,
 )
 from baibai_web.readmodel.stocks.research import _proposal_summary_view
@@ -101,9 +99,9 @@ def build_screening(
     market: MarketPriceSource | None = None,
     external_cutoff: datetime | None = None,
 ) -> ScreeningView:
-    """Build the latest Security Analysis view with portfolio/research annotations."""
+    """Build the latest Stock Analysis view with portfolio/research annotations."""
 
-    run, review_sets = _operative_run(screening)
+    run = operative_screening_run(screening)
     cutoff = external_cutoff or datetime.now(_JST)
     held, reserved = _held_and_reserved_tickers(ledger)
     revisions = research.revisions()
@@ -138,8 +136,8 @@ def build_screening(
     if run is None:
         return ScreeningView(
             run=None,
-            security_analyses=[],
-            review_sets=review_sets,
+            stock_analyses=[],
+            candidate_discovery=None,
             investment_proposals=proposals,
             er_level_calibration=None,
             external_assessment_securities=external_securities,
@@ -148,8 +146,8 @@ def build_screening(
     today = datetime.now(_JST).date()
     return ScreeningView(
         run=_screening_run_view(run, today=today),
-        security_analyses=[
-            _security_analysis_row_view(
+        stock_analyses=[
+            _stock_analysis_row_view(
                 row,
                 held=held,
                 reserved=reserved,
@@ -158,7 +156,7 @@ def build_screening(
             )
             for row in run.rows
         ],
-        review_sets=review_sets,
+        candidate_discovery=_candidate_summary(run),
         investment_proposals=proposals,
         er_level_calibration=_er_level_calibration_view(applicable_calibration),
         external_assessment_securities=external_securities,
@@ -182,11 +180,14 @@ def _calibration_for_run(
     return context
 
 
-def _operative_run(
-    screening: ScreeningSource,
-) -> tuple[ScreeningRunRecord | None, list[ReviewSetView]]:
-    run, review_sets = operative_screening_run(screening)
-    return run, [_machine_review_set_view(item) for item in review_sets]
+def _candidate_summary(run: ScreeningRunRecord) -> CandidateDiscoverySummaryView:
+    summary = run.candidate_discovery
+    diagnostics = summary["diagnostics"]
+    if not isinstance(diagnostics, Mapping):
+        raise ValueError("candidate diagnostics must be an object")
+    return CandidateDiscoverySummaryView.model_validate(
+        {"method": summary["method"], **diagnostics}
+    )
 
 
 def build_screening_history_run(
@@ -206,7 +207,7 @@ def build_screening_history_run(
     return ScreeningHistoryRunView(
         run=_screening_run_view(run, today=datetime.now(_JST).date()),
         rows=[
-            _security_analysis_row_view(
+            _stock_analysis_row_view(
                 row,
                 held=held,
                 reserved=reserved,
@@ -214,47 +215,6 @@ def build_screening_history_run(
             )
             for row in run.rows
         ],
-    )
-
-
-def _machine_review_set_view(raw: Mapping[str, object]) -> ReviewSetView:
-    payload = raw.get("payload")
-    if not isinstance(payload, Mapping):
-        raise ValueError("machine review_set payload must be an object")
-    return ReviewSetView(
-        review_set_id=str(raw["review_set_id"]),
-        run_revision_id=str(raw["run_revision_id"]),
-        created_at=datetime.fromisoformat(str(raw["created_at"])),
-        entries=[
-            _review_set_entries_entry_view(item)
-            for item in _mapping_items_optional(payload.get("entries"))
-        ],
-    )
-
-
-def _review_set_entries_entry_view(raw: Mapping[str, object]) -> ReviewSetEntryView:
-    nominations = _mapping_items_optional(raw.get("nominations"))
-    analysis = raw.get("analysis")
-    if not isinstance(analysis, Mapping):
-        raise ValueError("Review Set entry analysis must be an object")
-    context = analysis.get("context")
-    if not isinstance(context, Mapping):
-        raise ValueError("Review Set entry context must be an object")
-    normalized_context = {
-        **context,
-        "next_earnings_status": interpreted_next_earnings_status(
-            text(context.get("next_earnings_status"))
-        ),
-        "large_holding_filing_within_lookback": context.get("large_holding_event_recent"),
-        "tender_offer_filing_within_lookback": context.get("tender_offer_event_recent"),
-    }
-    normalized_analysis = {**analysis, "context": normalized_context}
-    return ReviewSetEntryView(
-        ticker=str(raw.get("ticker", "")),
-        name=text(raw.get("name")),
-        sector_33=text(raw.get("sector_33")),
-        nominations=[ReviewSetNominationView.model_validate(item) for item in nominations],
-        analysis=ReviewSetAnalysisView.model_validate(normalized_analysis),
     )
 
 
@@ -298,14 +258,18 @@ def _screening_run_view(run: ScreeningRunRecord, *, today: date) -> ScreeningRun
     )
 
 
-def _security_analysis_row_view(
+def _stock_analysis_row_view(
     row: Mapping[str, object],
     *,
     held: set[str],
     reserved: set[str],
     researched: set[str],
     er_level_calibration: ErCalibrationContextArtifact | None = None,
-) -> SecurityAnalysisRowView:
+) -> StockAnalysisRowView:
+    flags_raw = row.get("jpx_flags")
+    coordinates = reinvestment_coordinates(row)
+    quality_raw = row.get("ttm_quality")
+    quality = quality_raw if isinstance(quality_raw, Mapping) else {}
     ticker = str(row.get("ticker", ""))
     metrics_raw = row.get("metrics")
     metrics = metrics_raw if isinstance(metrics_raw, Mapping) else {}
@@ -313,7 +277,7 @@ def _security_analysis_row_view(
     values.update({name: number(metrics.get(name)) for name in _METRIC_FIELDS})
     # 文字列の annotation は `number` を通すと必ず None になるので別に詰める。
     # `dividend_basis` は「配当利回りが空である理由」を持つ唯一の field で、
-    # unresolved_split_basis を無配と読み違えないために Security Analysis 一覧まで届ける必要がある。
+    # unresolved_split_basis を無配と読み違えないために Stock Analysis 一覧まで届ける必要がある。
     text_values = {name: text(metrics.get(name)) for name in _METRIC_TEXT_FIELDS}
     flags = _data_quality_flags(row, metrics)
     valuation = machine_valuation_from_analysis(row)
@@ -329,7 +293,37 @@ def _security_analysis_row_view(
         bands = candidate_er_bands(horizon, er_annual)
         quintile = bands[0].quintile
         meets_hurdle = len(bands) > 1
-    return SecurityAnalysisRowView(
+    return StockAnalysisRowView(
+        candidate=StockCandidateContextView.model_validate(row.get("candidate")),
+        listing_span_days=number(row.get("listing_span_days")),
+        jpx_flags=list(flags_raw) if isinstance(flags_raw, list | tuple) else None,
+        forecast_special_gain_flag=_optional_bool(metrics.get("forecast_special_gain_flag")),
+        forecast_full_year_loss_flag=_optional_bool(metrics.get("forecast_full_year_loss_flag")),
+        investment_securities=number(metrics.get("investment_securities")),
+        asset_backed_ratio=number(metrics.get("asset_backed_ratio")),
+        p_s_sector_gap=coordinates["p_s_sector_gap"],
+        operating_return_on_capital_proxy=coordinates["operating_return_on_capital_proxy"],
+        operating_margin=coordinates["operating_margin"],
+        bs_carry_forward_fields=_optional_text(metrics.get("bs_carry_forward_fields")),
+        bs_carry_forward_lag_days=number(metrics.get("bs_carry_forward_lag_days")),
+        edinet_failure_reasons=_optional_text(metrics.get("edinet_failure_reasons")),
+        stale_fin_flag=_optional_bool(metrics.get("stale_fin_flag")),
+        ttm_quality_ev_ebitda=quality.get("ev_ebitda"),
+        ttm_quality_fcf=quality.get("fcf_yield"),
+        next_earnings_status=interpreted_next_earnings_status(
+            _optional_text(metrics.get("next_earnings_status"))
+        ),
+        next_earnings_estimated_date=_optional_text(metrics.get("next_earnings_estimated_date")),
+        tse_capital_policy_status=_optional_text(metrics.get("tse_capital_policy_status")),
+        large_holding_filing_within_lookback=_optional_bool(
+            metrics.get("large_holding_event_recent")
+        ),
+        tender_offer_filing_within_lookback=_optional_bool(
+            metrics.get("tender_offer_event_recent")
+        ),
+        fv_sector_median_yen=number(metrics.get("fv_sector_median_yen")),
+        fv_self_range_yen=number(metrics.get("fv_self_range_yen")),
+        er_origin=_optional_text(metrics.get("er_origin")),
         ticker=ticker,
         name=text(row.get("name")),
         sector_33=text(row.get("sector_33")),
@@ -351,6 +345,14 @@ def _security_analysis_row_view(
         **values,
         **text_values,
     )
+
+
+def _optional_bool(value: object) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
+def _optional_text(value: object) -> str | None:
+    return value if isinstance(value, str) else None
 
 
 def _er_level_calibration_view(

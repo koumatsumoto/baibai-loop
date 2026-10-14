@@ -1,6 +1,6 @@
-"""Build the Security Analysis used by production runs and calibration replay.
+"""Build the Stock Analysis used by production runs and calibration replay.
 
-Both paths must assemble the same Security Analysis; otherwise calibration would
+Both paths must assemble the same Stock Analysis; otherwise calibration would
 measure a different Candidate Discovery input from the production Screening Run.
 """
 
@@ -14,7 +14,7 @@ from baibai_engine.market.valuation_catalysts import ValuationCatalystContext
 from baibai_engine.screening.schema import (
     DerivedMetrics,
     FreshnessWarning,
-    SecurityAnalysis,
+    StockAnalysis,
     UniverseSnapshot,
 )
 from baibai_engine.valuation.estimates import (
@@ -27,7 +27,7 @@ from baibai_engine.valuation.metrics.models import UNRESOLVED_DIVIDEND_BASIS, Fi
 from .earnings_lag import EarningsLag
 
 
-def build_security_analysis(
+def build_stock_analysis(
     *,
     ticker: str,
     security: SecurityMaster,
@@ -39,8 +39,8 @@ def build_security_analysis(
     earnings_lag: EarningsLag | None = None,
     normalized_per_3fy: float | None = None,
     valuation_catalyst_context: ValuationCatalystContext | None = None,
-) -> SecurityAnalysis:
-    return SecurityAnalysis(
+) -> StockAnalysis:
+    return StockAnalysis(
         ticker=ticker,
         name=security.name,
         per_forward=financial.per_forward,
@@ -77,7 +77,7 @@ def build_security_analysis(
         sector_relative_strength_percentile=derived.sector_relative_strength_percentile,
         price_history_sessions_750d=derived.price_history_sessions_750d,
         price_history_coverage_750d=derived.price_history_coverage_750d,
-        metrics=build_security_analysis_metrics(
+        metrics=build_stock_analysis_metrics(
             financial,
             derived=derived,
             freshness_warning_count=len(freshness_warnings),
@@ -94,7 +94,7 @@ def build_security_analysis(
     )
 
 
-def build_security_analysis_metrics(
+def build_stock_analysis_metrics(
     financial: FinancialSnapshot,
     *,
     freshness_warning_count: int,
@@ -106,7 +106,7 @@ def build_security_analysis_metrics(
 ) -> Mapping[str, float | int | bool | str | None]:
     return {
         # Approach-native relative valuation coordinates. These are L2 derived
-        # measurements; valuation-approach nominations read them directly.
+        # measurements; candidate valuation approaches read them directly.
         "per_forward_sector_gap": derived.sector_median_gap.get("per_forward"),
         "per_trailing_sector_gap": derived.sector_median_gap.get("per_trailing"),
         "pbr_sector_gap": derived.sector_median_gap.get("pbr"),
@@ -166,7 +166,7 @@ def build_security_analysis_metrics(
         "operating_profit_yoy": financial.operating_profit_yoy,
         "operating_profit_loss_narrowing": financial.operating_profit_loss_narrowing,
         "shares_outstanding": financial.shares_outstanding,
-        # Accrual and net-share-change signals surface in Security Analysis so the
+        # Accrual and net-share-change signals surface in Stock Analysis so the
         # research layer can read them without a second cache fetch.
         "accruals_to_assets": financial.accruals_to_assets,
         "net_share_change_yoy": financial.net_share_change_yoy,

@@ -12,21 +12,20 @@ def _choices(parser) -> set[str]:
     return set(subparsers.choices)
 
 
-def test_screening_cli_owns_machine_runs_and_review_sets() -> None:
+def test_screening_cli_owns_single_runs_and_candidate_reads() -> None:
     choices = _choices(build_screening_parser())
-    assert {"run", "review-set"} <= choices
+    assert {"run", "run-show", "candidates"} <= choices
+    assert "review-set" not in choices
     assert "research-triage" not in choices
     assert not ({"select", "selection", "shortlist"} & choices)
 
 
-def test_review_set_capacity_is_not_a_public_cli_override() -> None:
+def test_candidate_capacity_is_not_a_public_cli_override() -> None:
     with pytest.raises(SystemExit):
         build_screening_parser().parse_args(
             [
-                "review-set",
-                "publish",
-                "--asof",
-                "2026-08-28",
+                "candidates",
+                "show",
                 "--run-revision-id",
                 "run-revision-fixture",
                 "--review-cap",
@@ -87,7 +86,7 @@ def test_runtime_has_no_retired_triage_imports_or_prepare_flags():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[2]
-    for directory in ("engine/src", "batch/src", "web/backend/src", "tools/owner_mcp"):
+    for directory in ("engine/src", "batch/src", "web/backend/src"):
         for path in (root / directory).rglob("*.py"):
             for node in ast.walk(ast.parse(path.read_text())):
                 names = (

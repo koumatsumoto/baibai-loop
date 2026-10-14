@@ -1,4 +1,4 @@
-"""Produce the exact nomination union consumed by Research Triage."""
+"""Compute candidate contexts once from rounded Stock Analyses."""
 
 from __future__ import annotations
 
@@ -7,16 +7,17 @@ from collections.abc import Mapping, Sequence
 from hashlib import sha256
 from math import isfinite
 from statistics import median
+from types import MappingProxyType
 from typing import NamedTuple
 
 from baibai_engine.foundation.coerce import metric_map, optional_float, string_or_none
 from baibai_engine.screening.discovery.contracts import (
     APPROACH_IDS,
-    Nomination,
-    PublishedReviewSet,
-    ReinvestmentAnalysis,
-    ReviewSetAnalysis,
-    ReviewSetEntry,
+    CandidateDiscoveryMethodIdentity,
+    CandidateDiscoveryResult,
+    CandidateReason,
+    StockCandidateContext,
+    ValuationApproachId,
 )
 from baibai_engine.screening.rule_config import CandidateDiscoveryRules
 from baibai_engine.screening.universe import UNIVERSE_SCOPE_REVISION
@@ -25,7 +26,8 @@ from baibai_engine.valuation.metrics.relative import (
     MIN_SECTOR_MEDIAN_POPULATION,
     normalized_earnings_sector_gaps,
 )
-from baibai_engine.valuation.query import machine_valuation_from_analysis
+
+from .projection import reinvestment_coordinates
 
 # 金融の資産・調達を非金融の残余資産proxyへ投入しない (#1153)。
 # docs/reference/screening-runtime.md#approach-applicability
@@ -52,8 +54,8 @@ class _QualityFloors(NamedTuple):
     operating_margin: float
 
 
-class ReviewSetContractError(ValueError):
-    """Raised when a Review Set cannot be reproduced from its source analyses."""
+class CandidateDiscoveryContractError(ValueError):
+    """Raised when candidate inputs do not identify unique Stock Analyses."""
 
 
 def candidate_discovery_method_hash(
@@ -61,6 +63,7 @@ def candidate_discovery_method_hash(
     *,
     required_jpx_flags: Sequence[str],
 ) -> str:
+    # These historical wire keys freeze algorithm identity, not a publication API.
     representation = {
         "method_id": rules.method_id,
         "universe_scope_revision": UNIVERSE_SCOPE_REVISION,
@@ -131,80 +134,48 @@ def candidate_discovery_method_hash(
     return sha256(canonical_json(representation).encode()).hexdigest()
 
 
-def build_review_set(
-    security_analyses: Sequence[Mapping[str, object]],
+def build_candidate_contexts(
+    stock_analyses: Sequence[Mapping[str, object]],
     *,
     rules: CandidateDiscoveryRules,
     required_jpx_flags: Sequence[str],
-) -> dict[str, object]:
-    eligible = _eligible_population(security_analyses, rules, required_jpx_flags)
+) -> CandidateDiscoveryResult:
+    tickers = [_ticker(row) for row in stock_analyses]
+    if len(tickers) != len(set(tickers)):
+        raise CandidateDiscoveryContractError("duplicate stock analysis ticker")
+    eligible = _eligible_population(stock_analyses, rules, required_jpx_flags)
     normalized_gaps = normalized_earnings_sector_gaps(_normalized_earnings_inputs(eligible))
-    nominations_by_ticker = {
-        ticker: list(nominations)
-        for ticker, nominations in _nomination_ranks(
-            eligible, rules=rules, normalized_gaps=normalized_gaps
-        ).items()
+    reasons = _candidate_reasons(eligible, rules=rules, normalized_gaps=normalized_gaps)
+    eligible_tickers = {_ticker(row) for row in eligible}
+    contexts = {
+        ticker: StockCandidateContext(
+            common_eligible=ticker in eligible_tickers,
+            reasons=reasons.get(ticker, ()),
+            normalized_per_3fy_sector_gap=normalized_gaps.get(ticker),
+        )
+        for ticker in tickers
     }
-    nomination_counts = {
-        approach: sum(
-            any(item.valuation_approach_id == approach for item in nominations)
-            for nominations in nominations_by_ticker.values()
-        )
-        for approach in APPROACH_IDS
-    }
-    by_ticker = {_ticker(row): row for row in eligible}
-    pool = set(nominations_by_ticker)
-
-    entries: list[dict[str, object]] = []
-    for ticker in sorted(pool):
-        nominations = sorted(
-            nominations_by_ticker[ticker],
-            key=lambda item: APPROACH_IDS.index(item.valuation_approach_id),
-        )
-        row = by_ticker[ticker]
-        entries.append(
-            ReviewSetEntry(
-                ticker=ticker,
-                name=string_or_none(row.get("name")) or "",
-                sector_33=string_or_none(row.get("sector_33")) or "",
-                nominations=tuple(nominations),
-                analysis=ReviewSetAnalysis.model_validate(
-                    _analysis(row, normalized_gap=normalized_gaps.get(ticker))
-                ),
-            ).model_dump(mode="json")
-        )
-    return {
-        "schema_version": 2,
-        "kind": "review_set",
-        "method": {
-            "method_id": rules.method_id,
-            "method_hash": candidate_discovery_method_hash(
-                rules,
-                required_jpx_flags=required_jpx_flags,
+    return CandidateDiscoveryResult(
+        method=CandidateDiscoveryMethodIdentity(
+            method_id=rules.method_id,
+            method_hash=candidate_discovery_method_hash(
+                rules, required_jpx_flags=required_jpx_flags
             ),
-            "nomination_depth": rules.nomination_depth,
-        },
-        "entries": entries,
-        "diagnostics": {
-            "common_eligible_count": len(eligible),
-            "nomination_counts": nomination_counts,
-            "unique_candidate_count": len(pool),
-            "review_set_count": len(entries),
-        },
-    }
-
-
-def build_nomination_ranks(
-    security_analyses: Sequence[Mapping[str, object]],
-    *,
-    rules: CandidateDiscoveryRules,
-    required_jpx_flags: Sequence[str],
-) -> dict[str, tuple[Nomination, ...]]:
-    """Return every approach nomination used by the union and calibration replay."""
-
-    eligible = _eligible_population(security_analyses, rules, required_jpx_flags)
-    normalized_gaps = normalized_earnings_sector_gaps(_normalized_earnings_inputs(eligible))
-    return _nomination_ranks(eligible, rules=rules, normalized_gaps=normalized_gaps)
+            nomination_depth=rules.nomination_depth,
+        ),
+        contexts=MappingProxyType(contexts),
+        common_eligible_count=len(eligible),
+        candidate_counts_by_approach=MappingProxyType(
+            {
+                approach: sum(
+                    any(reason.valuation_approach_id == approach for reason in context.reasons)
+                    for context in contexts.values()
+                )
+                for approach in APPROACH_IDS
+            }
+        ),
+        candidate_count=sum(bool(context.reasons) for context in contexts.values()),
+    )
 
 
 def _eligible_population(
@@ -217,12 +188,12 @@ def _eligible_population(
     ]
 
 
-def _nomination_ranks(
+def _candidate_reasons(
     eligible: Sequence[Mapping[str, object]],
     *,
     rules: CandidateDiscoveryRules,
     normalized_gaps: Mapping[str, float | None],
-) -> dict[str, tuple[Nomination, ...]]:
+) -> dict[str, tuple[CandidateReason, ...]]:
     reinvestment_floors = _reinvestment_quality_floors(eligible)
     ordered = {
         approach: _ordered_eligible(
@@ -233,14 +204,14 @@ def _nomination_ranks(
         )
         for approach in APPROACH_IDS
     }
-    nominations_by_ticker: dict[str, list[Nomination]] = defaultdict(list)
+    nominations_by_ticker: dict[str, list[CandidateReason]] = defaultdict(list)
     for approach in APPROACH_IDS:
         method_id = rules.approaches[approach].method_id
         # 有限の調査入力枠であり、枠外を経済的rejectへ変換しない (#1481)。
         # docs/reference/screening-runtime.md#nomination-capacity
         for rank, row in enumerate(ordered[approach][: rules.nomination_depth], start=1):
             nominations_by_ticker[_ticker(row)].append(
-                Nomination(
+                CandidateReason(
                     valuation_approach_id=approach,
                     valuation_method_id=method_id,
                     rank=rank,
@@ -255,31 +226,6 @@ def _nomination_ranks(
         )
         for ticker, nominations in nominations_by_ticker.items()
     }
-
-
-def validate_review_set_payload(
-    payload: Mapping[str, object],
-    *,
-    security_analyses: Sequence[Mapping[str, object]],
-    rules: CandidateDiscoveryRules,
-    required_jpx_flags: Sequence[str],
-) -> None:
-    validate_review_set_shape(payload)
-    expected = build_review_set(
-        security_analyses,
-        rules=rules,
-        required_jpx_flags=required_jpx_flags,
-    )
-    comparable = {key: payload.get(key) for key in expected}
-    if canonical_json(comparable) != canonical_json(expected):
-        raise ReviewSetContractError("review set does not match its source analyses and method")
-
-
-def validate_review_set_shape(payload: Mapping[str, object]) -> None:
-    try:
-        PublishedReviewSet.model_validate(payload)
-    except ValueError as error:
-        raise ReviewSetContractError(f"published review set is invalid: {error}") from error
 
 
 def _common_eligible(
@@ -301,7 +247,7 @@ def _common_eligible(
 
 
 def _ordered_eligible(
-    approach: str,
+    approach: ValuationApproachId,
     rows: Sequence[Mapping[str, object]],
     *,
     normalized_gaps: Mapping[str, float | None],
@@ -428,120 +374,6 @@ def _quality_floor(values: Sequence[_ReinvestmentValues]) -> _QualityFloors:
     )
 
 
-def _analysis(row: Mapping[str, object], *, normalized_gap: float | None) -> dict[str, object]:
-    metrics = dict(metric_map(row.get("metrics")))
-    reinvestment = _reinvestment_observations(row)
-    quality = dict(metric_map(row.get("ttm_quality")))
-    machine_valuation = machine_valuation_from_analysis(row)
-    return {
-        "identity_liquidity": {
-            key: row.get(key)
-            for key in ("market_cap_oku", "avg_turnover_oku", "listing_span_days", "jpx_flags")
-        },
-        "valuation": {
-            key: row.get(key)
-            for key in ("per_forward", "per_trailing", "pbr", "ev_ebitda", "p_s", "pcfr")
-        },
-        "current_earnings": {
-            key: metrics.get(key)
-            for key in (
-                "fcf_yield",
-                "ocf_yield",
-                "forecast_special_gain_flag",
-                "forecast_full_year_loss_flag",
-            )
-        },
-        "normalized_earnings": {
-            "normalized_per_3fy": metrics.get("normalized_per_3fy"),
-            "normalized_per_3fy_sector_gap": normalized_gap,
-        },
-        "asset_value": {
-            key: metrics.get(key)
-            for key in (
-                "asset_backed_ratio",
-                "net_cash_to_market_cap",
-                "investment_securities",
-                "equity_ratio",
-            )
-        },
-        "reinvestment": reinvestment.model_dump(mode="json"),
-        "expected_return": {
-            **{
-                key: metrics.get(key)
-                for key in (
-                    "er_annual",
-                    "er_reversion_annual",
-                    "er_carry_annual",
-                    "fv_sector_median_yen",
-                    "fv_self_range_yen",
-                    "er_origin",
-                    "er_model_version",
-                    "er_unit",
-                    "er_assumptions",
-                )
-            },
-            "dividend_yield": machine_valuation.dividend_yield,
-            "dividend_basis": machine_valuation.dividend_basis,
-            "dps_actual_annual": metrics.get("dps_actual_annual"),
-            "dps_forecast_annual": metrics.get("dps_forecast_annual"),
-            "net_share_change_yoy": machine_valuation.net_share_change_yoy,
-            "carry_missing_assumption": machine_valuation.carry_missing_assumption,
-        },
-        "data_quality": {
-            **{
-                key: metrics.get(key)
-                for key in (
-                    "bs_carry_forward_fields",
-                    "bs_carry_forward_lag_days",
-                    "edinet_failure_reasons",
-                    "stale_fin_flag",
-                )
-            },
-            "ttm_quality_ev_ebitda": quality.get("ev_ebitda"),
-            "ttm_quality_fcf": quality.get("fcf_yield"),
-        },
-        "context": {
-            key: metrics.get(key)
-            for key in (
-                "next_earnings_status",
-                "next_earnings_estimated_date",
-                "margin_short_to_adv",
-                "tse_capital_policy_status",
-                "large_holding_event_recent",
-                "tender_offer_event_recent",
-            )
-        },
-    }
-
-
-def _reinvestment_observations(row: Mapping[str, object]) -> ReinvestmentAnalysis:
-    """Preserve known coordinates independently of the nomination requirements."""
-    metrics = metric_map(row.get("metrics"))
-    operating_profit = _finite(metrics.get("operating_profit_ttm"))
-    sales = _positive(metrics.get("sales_ttm"))
-    equity = _finite(metrics.get("same_state_equity_yen"))
-    debt = _finite(metrics.get("debt"))
-    cash = _finite(metrics.get("cash"))
-    capital = (
-        _positive(equity + debt - cash)
-        if equity is not None and debt is not None and cash is not None
-        else None
-    )
-    return ReinvestmentAnalysis(
-        p_s_sector_gap=_finite(metrics.get("p_s_sector_gap")),
-        operating_return_on_capital_proxy=(
-            operating_profit / capital
-            if operating_profit is not None and capital is not None
-            else None
-        ),
-        sales_yoy=_finite(metrics.get("sales_yoy")),
-        operating_margin=(
-            operating_profit / sales if operating_profit is not None and sales is not None else None
-        ),
-        fcf_yield=_finite(metrics.get("fcf_yield")),
-    )
-
-
 def _reinvestment_values(
     row: Mapping[str, object],
 ) -> _ReinvestmentValues | None:
@@ -571,9 +403,9 @@ def _reinvestment_values(
     assert p_s_gap is not None
     assert sales_yoy is not None
     assert fcf_yield is not None
-    observations = _reinvestment_observations(row)
-    operating_margin = observations.operating_margin
-    capital_return = observations.operating_return_on_capital_proxy
+    observations = reinvestment_coordinates(row)
+    operating_margin = observations["operating_margin"]
+    capital_return = observations["operating_return_on_capital_proxy"]
     if operating_margin is None or capital_return is None:
         return None
     if operating_margin <= 0 or capital_return <= 0:
@@ -584,7 +416,7 @@ def _reinvestment_values(
 def _ticker(row: Mapping[str, object]) -> str:
     ticker = string_or_none(row.get("ticker"))
     if ticker is None:
-        raise ReviewSetContractError("security analysis has no ticker")
+        raise CandidateDiscoveryContractError("stock analysis has no ticker")
     return ticker
 
 
@@ -609,10 +441,7 @@ def _desc_null(value: object) -> tuple[bool, float]:
 
 
 __all__ = [
-    "ReviewSetContractError",
-    "build_nomination_ranks",
-    "build_review_set",
+    "CandidateDiscoveryContractError",
+    "build_candidate_contexts",
     "candidate_discovery_method_hash",
-    "validate_review_set_payload",
-    "validate_review_set_shape",
 ]

@@ -1,4 +1,4 @@
--- l1.query source alias: docs = edinet.documents (entire retained document range).
+-- DuckDB view: docs = edinet.documents from one fixed release (entire retained document range).
 -- Parameters: ticker (four-character code), cutoff (JST date, inclusive).
 -- Choose the filing BEFORE querying its facts. Never fall back after this selection.
 WITH RECURSIVE origins AS (

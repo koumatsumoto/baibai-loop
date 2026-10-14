@@ -9,11 +9,11 @@ ROOT = Path(__file__).resolve().parents[2]
 from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.models import SecurityMaster
-from baibai_engine.screening.discovery.review_set import build_review_set
+from baibai_engine.screening.discovery.candidates import build_candidate_contexts
 from baibai_engine.screening.metrics.snapshot import build_metrics
 from baibai_engine.screening.rule_config import load_screening_rules
-from baibai_engine.screening.screening_run_serializer import security_analysis_payload
-from baibai_engine.screening.security_analysis_builder import build_security_analysis
+from baibai_engine.screening.screening_run_serializer import stock_analysis_payload
+from baibai_engine.screening.stock_analysis_builder import build_stock_analysis
 from baibai_engine.screening.universe import (
     TSE_33_SECTORS,
     UniverseSourceDriftError,
@@ -426,7 +426,7 @@ class ScreeningUniverseTests(unittest.TestCase):
                     rules,
                     frozenset({"400A"}),
                 )
-                analysis = build_security_analysis(
+                analysis = build_stock_analysis(
                     ticker="400A",
                     security=security,
                     financial=metrics.financials["400A"],
@@ -438,12 +438,15 @@ class ScreeningUniverseTests(unittest.TestCase):
                 self.assertIsNone(analysis.price_change_20d)
                 self.assertIsNone(analysis.metrics["fv_self_range_yen"])
                 self.assertEqual(analysis.avg_turnover_oku, 3.0 if count == 20 else None)
-                review_set = build_review_set(
-                    [security_analysis_payload(analysis)],
+                discovery = build_candidate_contexts(
+                    [stock_analysis_payload(analysis)],
                     rules=rules.candidate_discovery,
                     required_jpx_flags=rules.universe.required_jpx_flags,
                 )
-                self.assertEqual([entry["ticker"] for entry in review_set["entries"]], ["400A"])
+                self.assertEqual(
+                    [ticker for ticker, context in discovery.contexts.items() if context.reasons],
+                    ["400A"],
+                )
 
 
 class HistoricalMarketSegmentTests(unittest.TestCase):

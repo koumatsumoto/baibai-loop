@@ -32,7 +32,6 @@ _SCAN_DIRECTORIES = (".agents/skills",)
 _SCAN_FILES = (
     "docs/reference/market-lake.md",
     "batch/OPERATIONS.md",
-    "tools/owner_mcp/OPERATIONS.md",
     "docs/reference/analysis-operations.md",
 )
 _FENCE = re.compile(r"^\s*```")

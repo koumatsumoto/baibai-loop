@@ -15,7 +15,7 @@ Market Contextの`indicators`はL1のregistry・取得・DB adapter、`reading`�
 
 ## 現行配置と保全するidentity
 
-`indicators`はL1の取得/registry/観測DB、`reading/query.py`は保存観測からのL2読取、`assessment`は明示判断と保存履歴を所有する。Web/batch/Owner MCPの公開読取は`read_api/market_context.py`へ統合し、旧moduleを転送する入口は置かない。Webの現在の内容は`AssessmentContent`、過去の章・確率・主張・引用は歴史的本文の表示であり、新writerの必須構造ではない。
+`indicators`はL1の取得/registry/観測DB、`reading/query.py`は保存観測からのL2読取、`assessment`は明示判断と保存履歴を所有する。Web/batchの公開読取は`read_api/market_context.py`へ統合し、旧moduleを転送する入口は置かない。Webの現在の内容は`AssessmentContent`、過去の章・確率・主張・引用は歴史的本文の表示であり、新writerの必須構造ではない。
 
 runtimeの指標DBは`stores/market_context/indicators.sqlite`/R2 `indicators.sqlite`（schema7）、判断はapplication schema21の`market_context_assessment / market_context_assessment_head`に保存する。新規判断はschema6・`market-context-assessment-*` identityを使う。旧`macro-context-*` ID・JSON・引用・hashは変更せず、新しい`/api/market-context/assessments/{context_id}`から直接読む。schema5/6は同じコンパクト意味、旧3/4は保存された章立て履歴であり、新writerの構造とは分ける。新Triage4・CAA2は`market_context_assessment_id`を参照し、保存Triage3・CAA1は元payload/hashを保つ読取で利用・再開する。保存名の切替は完了しており、通常の取得・反映・復旧は[運用手順](../../batch/OPERATIONS.md#store-identity-recovery)に従う。
 
@@ -35,7 +35,7 @@ Market Contextは経済、市場全体、業種と個別株の相対状態を扱
 
 | 出口 | 統計・対象 | 意味と欠測 |
 | --- | --- | --- |
-| Security Analysisの業種relative strength | Screeningの既存比較母集団。20 bar騰落の業種平均－市場平均と業種順位 | `market_context/sector`が計算し、Screeningが入力母集団・価格窓を供給する。同値の業種は平均順位を母集団数で割った同じ百分位を持つ。個別対業種の差ではない |
+| Stock Analysisの業種relative strength | Screeningの既存比較母集団。20 bar騰落の業種平均－市場平均と業種順位 | `market_context/sector`が計算し、Screeningが入力母集団・価格窓を供給する。同値の業種は平均順位を母集団数で割った同じ百分位を持つ。個別対業種の差ではない |
 | market snapshot | benchmarkの週次20/60 bar騰落・20 bar平均超のbreadth、同じ観測日の銘柄による業種中央値 | 1321 proxyの±3%方向注記は広いリスク許容判断ではない。breadthは既存最小標本数、sectorは既存対象を維持し、平均対平均と統合しない |
 | security market context | 指定銘柄（候補外も可）の価格・benchmark比較と、同業peerの20 bar中央値 | 個別とbenchmark/peerは指定銘柄の同じ開始・終了日を使う。peerは自銘柄を除き、端点不足を補間・前日値で埋めない |
 | Reading / MarketContextAssessment・保存履歴 | 保存済み経済観測・Reading規則、保存済み判断 | 観測/公表vintageの契約を維持する。判断は`as_of / known_at`で適格性を判定し実発行時刻で選ぶ。固定IDの履歴閲覧は旧schemaも本文のまま返す |
@@ -52,7 +52,7 @@ uv run baibai-engine screening ticker-profile --ticker <TICKER> --asof YYYY-MM-D
 uv run baibai-engine market-context reading --asof YYYY-MM-DD --format json
 ```
 
-`ticker-profile`はMarket Context、保存済みSecurity Analysis、event、portfolioを合成する。市場・分類とrunのcutoffは要求日を使うが、portfolioは現在のledger documentを独立の`ledger_as_of`で表示し、要求日への保有履歴再生は行わない。profile全体を完全な過去時点再現とは扱わない。既存の`price.self_range_percentile`は価格観測の順位割合で、Valuationのmin/max内位置と別の量であり、窓は合成callerが既存methodから渡す。
+`ticker-profile`はMarket Context、保存済みStock Analysis、event、portfolioを合成する。市場・分類とrunのcutoffは要求日を使うが、portfolioは現在のledger documentを独立の`ledger_as_of`で表示し、要求日への保有履歴再生は行わない。profile全体を完全な過去時点再現とは扱わない。既存の`price.self_range_percentile`は価格観測の順位割合で、Valuationのmin/max内位置と別の量であり、窓は合成callerが既存methodから渡す。
 
 日次の指標独立公開、有限AI調査・提案への接続、環境判断の深度は固定せず、materialな根拠・反証・含意に合わせる。以下にL1/Readingとassessmentの契約を示す。
 
@@ -94,7 +94,7 @@ registryは系列定義の正本である。通常のopenでは登録外のfacts
 
 registryのband変更時は、Git管理外のstoreをread-only validatorで全履歴・全vintage検査する。CIのfixtureだけでは既存観測との整合を証明できない。検査はstoreを書き換えず、観測とcanonical trigger契約の違反を報告する。
 
-同じvalidatorはapplication storeの判断履歴のmetadataと現在の作成型を検証する。旧schemaの本文はstored_onlyとして保持し、旧writerの構造条件で拒否しない。退役系列の引用はwarningとして記録する。Review Set発行はContextを読まないため、この検査失敗をReview Set停止と読み替えない。判断を使うTriage・Researchと履歴閲覧への影響を確認する。検証の実行条件とapplication store不在時の扱いは[完全local gate](./python-foundation.md#9-ci-and-local-parity)、系列退役の順序は[運用手順](../../batch/OPERATIONS.md#指標観測とregistryの修正)に従う。
+同じvalidatorはapplication storeの判断履歴のmetadataと現在の作成型を検証する。旧schemaの本文はstored_onlyとして保持し、旧writerの構造条件で拒否しない。退役系列の引用はwarningとして記録する。候補一覧発行はContextを読まないため、この検査失敗を候補一覧停止と読み替えない。判断を使うTriage・Researchと履歴閲覧への影響を確認する。検証の実行条件とapplication store不在時の扱いは[完全local gate](./python-foundation.md#9-ci-and-local-parity)、系列退役の順序は[運用手順](../../batch/OPERATIONS.md#指標観測とregistryの修正)に従う。
 
 ### データソース registry
 
@@ -224,7 +224,7 @@ Baibai Loop の Market Context タブは、上から **現在の市場環境判�
 
 <a id="assessment"></a>
 
-保存storeからの公開Readingは一つの`store_snapshot_payload`で`read_semantics`を付け、Research・Owner MCP・Web・CLIへ同じ説明を渡す。`as_of`は観測対象日であり、Researchの`known_at / received_cutoff`はReadingに適用しない。既存ProviderSpecの公表vintage契約を持つ系列だけを対象日でclampし、その他は現在保存されている後日取得/改定履歴で再計算する。全体の当時点再現は保証しない。各系列は`vintage_selection / vintage_cutoff`を示す。任意のreaderを受ける純粋計算・serializerにはこのstore固有の保証や説明を付けない。数値・元時刻・vintage選択を変更する仕組みではない。
+保存storeからの公開Readingは一つの`store_snapshot_payload`で`read_semantics`を付け、Research・Web・CLIへ同じ説明を渡す。`as_of`は観測対象日であり、Researchの`known_at / received_cutoff`はReadingに適用しない。既存ProviderSpecの公表vintage契約を持つ系列だけを対象日でclampし、その他は現在保存されている後日取得/改定履歴で再計算する。全体の当時点再現は保証しない。各系列は`vintage_selection / vintage_cutoff`を示す。任意のreaderを受ける純粋計算・serializerにはこのstore固有の保証や説明を付けない。数値・元時刻・vintage選択を変更する仕組みではない。
 
 `recomputed_current_store`は現在のstoreからの再計算を示すprovenanceであり、その日の`known_at`を満たす証明ではない。過去の判断や成績と突き合わせるときは、この利用可能時点の制約を残す。
 

@@ -106,6 +106,49 @@ export interface BenchmarkTrendView {
   trend_state: 'uptrend' | 'downtrend' | 'neutral' | 'unknown'
 }
 
+export interface CandidateDiscoveryMethodIdentityView {
+  method_id: string
+  method_hash: string
+  nomination_depth: number
+}
+
+export interface CandidateDiscoverySummaryView {
+  method: CandidateDiscoveryMethodIdentityView
+  common_eligible_count: number
+  candidate_counts_by_approach: Record<string, number>
+  candidate_count: number
+}
+
+/**
+ * A ticker whose presence in the 候補 changed between two runs.
+ *
+ * ``disclosed_since_previous`` is ``null`` when the store that holds disclosure
+ * dates could not answer, which must not read as "no disclosure".
+ */
+export interface CandidateEntryDeltaView {
+  ticker: string
+  company_name: string | null
+  er_annual_pct: number | null
+  disclosed_since_previous: boolean | null
+}
+
+/**
+ * A ticker in both 候補s whose machine E[r] moved most.
+ */
+export interface CandidateExpectedReturnDeltaView {
+  ticker: string
+  company_name: string | null
+  er_annual_pct: number | null
+  previous_er_annual_pct: number | null
+  change_pp: number
+}
+
+export interface CandidateReasonView {
+  valuation_approach_id: 'current-earnings-power' | 'normalized-earnings-power' | 'asset-value' | 'reinvestment-value'
+  valuation_method_id: string
+  rank: number
+}
+
 /**
  * What changed between the latest machine run and the one before it.
  *
@@ -115,10 +158,10 @@ export interface BenchmarkTrendView {
  *
  * ``unavailable`` lists the sections no store could answer, so an empty section is
  * never read as "nothing changed". ``method_changed`` marks different screening or
- * Candidate Discovery method hashes, so no Review Set deltas are reported. Missing
- * method identity makes Review Set comparison unavailable. An E[r]-only model
+ * Candidate Discovery method hashes, so no 候補 deltas are reported. Missing
+ * method identity makes 候補 comparison unavailable. An E[r]-only model
  * change keeps membership deltas but makes
- * ``review_set_estimate`` unavailable and suppresses estimate movers.
+ * ``candidate_estimate`` unavailable and suppresses estimate movers.
  * Missing E[r] on either side of a shared ticker also marks that section unavailable,
  * while comparable tickers retain their movers.
  * Holdings that cannot be compared are counts rather than rows: repeating the same
@@ -131,9 +174,9 @@ export interface DailyDeltaView {
   as_of: string | null
   previous_as_of: string | null
   method_changed: boolean
-  entered: ReviewSetEntryDeltaView[]
-  exited: ReviewSetEntryDeltaView[]
-  er_moves: ReviewSetExpectedReturnDeltaView[]
+  entered: CandidateEntryDeltaView[]
+  exited: CandidateEntryDeltaView[]
+  er_moves: CandidateExpectedReturnDeltaView[]
   er_moves_total: number
   holdings: HoldingDeltaView[]
   holdings_without_price: number
@@ -166,7 +209,7 @@ export interface DashboardView {
   research_load_errors: string[]
 }
 
-export type DeltaUnavailable = 'screening_run' | 'previous_screening_run' | 'review_set' | 'review_set_estimate' | 'holdings' | 'market'
+export type DeltaUnavailable = 'screening_run' | 'previous_screening_run' | 'candidates' | 'candidate_estimate' | 'holdings' | 'market'
 
 export interface ErLevelCalibrationBandView {
   band_id: string
@@ -845,149 +888,12 @@ export interface ReservationView {
   route_label: string | null
 }
 
-export interface ReviewSetAnalysisView {
-  identity_liquidity: ReviewSetIdentityLiquidityView
-  valuation: ReviewSetValuationView
-  current_earnings: ReviewSetCurrentEarningsView
-  normalized_earnings: ReviewSetNormalizedEarningsView
-  asset_value: ReviewSetAssetValueView
-  reinvestment: ReviewSetReinvestmentView | null
-  expected_return: ReviewSetExpectedReturnView
-  data_quality: ReviewSetDataQualityView
-  context: ReviewSetContextView
-}
-
-export interface ReviewSetAssetValueView {
-  asset_backed_ratio: number | null
-  net_cash_to_market_cap: number | null
-  investment_securities: number | null
-  equity_ratio: number | null
-}
-
-export interface ReviewSetContextView {
-  next_earnings_status: 'scheduled' | 'scheduled_date_reached' | 'estimated' | 'unknown' | null
-  next_earnings_estimated_date: string | null
-  margin_short_to_adv: number | null
-  tse_capital_policy_status: string | null
-  large_holding_filing_within_lookback: boolean | null
-  tender_offer_filing_within_lookback: boolean | null
-}
-
-export interface ReviewSetCurrentEarningsView {
-  fcf_yield: number | null
-  ocf_yield: number | null
-  forecast_special_gain_flag: boolean | null
-  forecast_full_year_loss_flag: boolean | null
-}
-
-export interface ReviewSetDataQualityView {
-  bs_carry_forward_fields: string | null
-  bs_carry_forward_lag_days: number | null
-  edinet_failure_reasons: string | null
-  stale_fin_flag: boolean | null
-  ttm_quality_ev_ebitda: 'exact' | 'approximated' | 'unavailable' | null
-  ttm_quality_fcf: 'exact' | 'approximated' | 'unavailable' | null
-}
-
-/**
- * A ticker whose presence in the Review Set changed between two runs.
- *
- * ``disclosed_since_previous`` is ``null`` when the store that holds disclosure
- * dates could not answer, which must not read as "no disclosure".
- */
-export interface ReviewSetEntryDeltaView {
-  ticker: string
-  company_name: string | null
-  er_annual_pct: number | null
-  disclosed_since_previous: boolean | null
-}
-
-/**
- * One member of the exact approach Nomination union.
- */
-export interface ReviewSetEntryView {
-  ticker: string
-  name: string | null
-  sector_33: string | null
-  nominations: ReviewSetNominationView[]
-  analysis: ReviewSetAnalysisView
-}
-
-/**
- * A ticker in both Review Sets whose machine E[r] moved most.
- */
-export interface ReviewSetExpectedReturnDeltaView {
-  ticker: string
-  company_name: string | null
-  er_annual_pct: number | null
-  previous_er_annual_pct: number | null
-  change_pp: number
-}
-
-export interface ReviewSetExpectedReturnView {
-  er_annual: number | null
-  er_reversion_annual: number | null
-  er_carry_annual: number | null
-  fv_sector_median_yen: number | null
-  fv_self_range_yen: number | null
-  er_origin: string | null
-  er_model_version: string | null
-  er_unit: string | null
-  er_assumptions: string | null
-  dividend_yield: number | null
-  dividend_basis: string | null
-  net_share_change_yoy: number | null
-  carry_missing_assumption: string | null
-}
-
-export interface ReviewSetIdentityLiquidityView {
-  market_cap_oku: number | null
-  avg_turnover_oku: number | null
-  listing_span_days: number | null
-  jpx_flags: string[] | null
-}
-
-export interface ReviewSetNominationView {
-  valuation_approach_id: string
-  valuation_method_id: string
-  rank: number
-}
-
-export interface ReviewSetNormalizedEarningsView {
-  normalized_per_3fy: number | null
-  normalized_per_3fy_sector_gap: number | null
-}
-
-export interface ReviewSetReinvestmentView {
-  p_s_sector_gap: number | null
-  operating_return_on_capital_proxy: number | null
-  sales_yoy: number | null
-  operating_margin: number | null
-  fcf_yield: number | null
-}
-
-export interface ReviewSetValuationView {
-  per_forward: number | null
-  per_trailing: number | null
-  pbr: number | null
-  ev_ebitda: number | null
-  p_s: number | null
-  pcfr: number | null
-}
-
-export interface ReviewSetView {
-  review_set_id: string
-  run_revision_id: string
-  created_at: string
-  entries: ReviewSetEntryView[]
-}
-
 /**
  * Stable UI projection of one retained screening run.
  */
 export interface ScreeningHistoryRunView {
   run: ScreeningRunView
-  rows: SecurityAnalysisRowView[]
+  rows: StockAnalysisRowView[]
 }
 
 export interface ScreeningHistoryView {
@@ -1006,62 +912,12 @@ export interface ScreeningRunView {
 
 export interface ScreeningView {
   run: ScreeningRunView | null
-  security_analyses: SecurityAnalysisRowView[]
+  stock_analyses: StockAnalysisRowView[]
   external_assessment_securities: ExternalAssessmentSecurityView[]
   external_assessment_cutoff: string | null
-  review_sets: ReviewSetView[]
+  candidate_discovery: CandidateDiscoverySummaryView | null
   investment_proposals: InvestmentProposalSummaryView[]
   er_level_calibration: ErLevelCalibrationContextView | null
-}
-
-export interface SecurityAnalysisRowView {
-  ticker: string
-  name: string | null
-  sector_33: string | null
-  market_cap_oku: number | null
-  avg_turnover_oku: number | null
-  per_trailing: number | null
-  normalized_per_3fy: number | null
-  per_forward: number | null
-  pbr: number | null
-  ev_ebitda: number | null
-  p_s: number | null
-  pcfr: number | null
-  dividend_yield: number | null
-  dividend_basis: string | null
-  dividend_split_factor: number | null
-  er_annual: number | null
-  er_reversion_annual: number | null
-  er_carry_annual: number | null
-  net_share_change_yoy: number | null
-  carry_missing_assumption: string | null
-  er_model_version: string | null
-  er_unit: string | null
-  er_anchor_metrics: string | null
-  er_assumptions: string | null
-  net_cash_to_market_cap: number | null
-  fcf_yield: number | null
-  ocf_yield: number | null
-  equity_ratio: number | null
-  sales_yoy: number | null
-  operating_profit_yoy: number | null
-  sector_relative_strength_percentile: number | null
-  price_change_20d: number | null
-  gap_from_52w_low: number | null
-  next_earnings_date: string | null
-  margin_week_end: string | null
-  margin_long_to_adv: number | null
-  margin_short_to_adv: number | null
-  margin_long_share: number | null
-  margin_long_delta_26w: number | null
-  margin_std_long_share: number | null
-  data_quality_flags: string[]
-  portfolio_state: PortfolioState
-  has_research: boolean
-  fair_value_anchor_yen: number | null
-  fair_value_gap_pct: number | null
-  er_level_quintile: number | null
-  er_meets_8_5pct_band: boolean
 }
 
 export interface SecurityDetailView {
@@ -1074,7 +930,7 @@ export interface SecurityDetailView {
   revisions: ResearchRevisionView[]
   latest_assessment: StockAssessmentDetailView | null
   investment_proposals: InvestmentProposalSummaryView[]
-  security_analysis: SecurityAnalysisRowView | null
+  stock_analysis: StockAnalysisRowView | null
   screening_run: ScreeningRunView | null
 }
 
@@ -1133,6 +989,80 @@ export interface SecurityRelativeContextView {
   sector: SecurityPeerContextView | null
 }
 
+export interface StockAnalysisRowView {
+  candidate: StockCandidateContextView
+  listing_span_days: number | null
+  jpx_flags: string[] | null
+  forecast_special_gain_flag: boolean | null
+  forecast_full_year_loss_flag: boolean | null
+  investment_securities: number | null
+  asset_backed_ratio: number | null
+  p_s_sector_gap: number | null
+  operating_return_on_capital_proxy: number | null
+  operating_margin: number | null
+  bs_carry_forward_fields: string | null
+  bs_carry_forward_lag_days: number | null
+  edinet_failure_reasons: string | null
+  stale_fin_flag: boolean | null
+  ttm_quality_ev_ebitda: 'exact' | 'approximated' | 'unavailable' | null
+  ttm_quality_fcf: 'exact' | 'approximated' | 'unavailable' | null
+  next_earnings_status: 'scheduled' | 'scheduled_date_reached' | 'estimated' | 'unknown' | null
+  next_earnings_estimated_date: string | null
+  tse_capital_policy_status: string | null
+  large_holding_filing_within_lookback: boolean | null
+  tender_offer_filing_within_lookback: boolean | null
+  fv_sector_median_yen: number | null
+  fv_self_range_yen: number | null
+  er_origin: string | null
+  ticker: string
+  name: string | null
+  sector_33: string | null
+  market_cap_oku: number | null
+  avg_turnover_oku: number | null
+  per_trailing: number | null
+  normalized_per_3fy: number | null
+  per_forward: number | null
+  pbr: number | null
+  ev_ebitda: number | null
+  p_s: number | null
+  pcfr: number | null
+  dividend_yield: number | null
+  dividend_basis: string | null
+  dividend_split_factor: number | null
+  er_annual: number | null
+  er_reversion_annual: number | null
+  er_carry_annual: number | null
+  net_share_change_yoy: number | null
+  carry_missing_assumption: string | null
+  er_model_version: string | null
+  er_unit: string | null
+  er_anchor_metrics: string | null
+  er_assumptions: string | null
+  net_cash_to_market_cap: number | null
+  fcf_yield: number | null
+  ocf_yield: number | null
+  equity_ratio: number | null
+  sales_yoy: number | null
+  operating_profit_yoy: number | null
+  sector_relative_strength_percentile: number | null
+  price_change_20d: number | null
+  gap_from_52w_low: number | null
+  next_earnings_date: string | null
+  margin_week_end: string | null
+  margin_long_to_adv: number | null
+  margin_short_to_adv: number | null
+  margin_long_share: number | null
+  margin_long_delta_26w: number | null
+  margin_std_long_share: number | null
+  data_quality_flags: string[]
+  portfolio_state: PortfolioState
+  has_research: boolean
+  fair_value_anchor_yen: number | null
+  fair_value_gap_pct: number | null
+  er_level_quintile: number | null
+  er_meets_8_5pct_band: boolean
+}
+
 export interface StockAssessmentDetailView {
   revision: ResearchRevisionView
   document: Record<string, unknown>
@@ -1144,6 +1074,12 @@ export interface StockAssessmentDetailView {
 export interface StockAssessmentsView {
   assessments: ResearchRevisionView[]
   next_cursor: string | null
+}
+
+export interface StockCandidateContextView {
+  common_eligible: boolean
+  reasons: CandidateReasonView[]
+  normalized_per_3fy_sector_gap: number | null
 }
 
 /**

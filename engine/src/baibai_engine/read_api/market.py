@@ -107,7 +107,7 @@ def latest_disclosure_dates_after(
 ) -> dict[str, date]:
     """Return each ticker's newest financial disclosure strictly after ``after``.
 
-    A candidate that entered the Review Set right after reporting is a different thing
+    A candidate that entered the candidate list right after reporting is a different thing
     from one that entered on a price move alone, and the screen's own output does
     not carry the disclosure date. A ticker with no disclosure in the window yields
     no entry.
@@ -173,20 +173,3 @@ __all__ = [
     "previous_business_day",
     "worst_close_drawdown",
 ]
-
-
-def stored_market_rows(
-    path: Path,
-    *,
-    kind: str,
-    filters: dict[str, object],
-    after: list[str | int | float] | None = None,
-    limit: int = 1,
-) -> list[dict[str, object]]:
-    from baibai_engine.storage.observations.stored import local_rows
-
-    from .sqlite import connect_read_only
-    from .stored import required_read
-
-    with required_read(path, connect_read_only) as connection:
-        return local_rows(connection, kind=kind, filters=filters, after=after, limit=limit)

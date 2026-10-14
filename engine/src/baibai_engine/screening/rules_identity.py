@@ -14,7 +14,7 @@ from .universe import UNIVERSE_SCOPE_REVISION
 def production_rules_contract_hash(
     rules_json: str, *, universe_scope_revision: str = UNIVERSE_SCOPE_REVISION
 ) -> str:
-    """Return the exact screening identity used by production runs and Review Sets."""
+    """Return the exact screening identity used by production runs and candidate contexts."""
 
     from baibai_engine.screening.metrics.snapshot import BARS_INPUT_WINDOW_DAYS
     from baibai_engine.valuation.metrics.financial_snapshot import VALUATION_CALCULATION_REVISION

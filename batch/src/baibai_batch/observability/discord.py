@@ -3,7 +3,7 @@
 One message per terminal state of ``cloud-daily-batch``. It serves the daily
 machine loop's "見せる" role: from one message a reader learns whether the day's
 artefacts were published, which step to open when they were not, and which names
-entered or left the Review Set — the only channel that reaches the reader without
+entered or left the candidate list — the only channel that reaches the reader without
 being opened. Everything else about a run (durations, per-batch metrics, the lake
 release) lives in the workflow log the ``run:`` line points at.
 
@@ -74,8 +74,8 @@ STEP_ORDER = (
     "lease-release",
 )
 
-_ENTERED_PREFIX = "🆕 新規 Review Set 入り: "
-_EXITED_PREFIX = "👋 Review Set 退出: "
+_ENTERED_PREFIX = "🆕 新規 候補入り: "
+_EXITED_PREFIX = "👋 候補退出: "
 _DELTA_EMPTY_TEXT = "なし"
 _DELTA_UNMEASURED_TEXT = "計測なし"
 _DELTA_UNMEASURED_UNKNOWN_REASON = "理由不明"
@@ -262,12 +262,12 @@ def _render_side(value: object) -> str:
 
 
 def render_delta(notice: Mapping[str, object]) -> list[str]:
-    """Render both sides of the Review Set delta, one line each, whenever a Review Set exists.
+    """Render candidate entries/exits whenever the machine run was updated.
 
     Silence would carry three different facts — nothing entered, the delta could not
     be measured, and the notification path is broken — and a reader cannot tell them
     apart. So on every run that reached the export the two lines are present and say
-    which case it is. A non-business day has no Review Set and no lines.
+    which case it is. A non-business day has no candidate list and no lines.
     """
 
     if not notice or notice.get("skipped") is True:

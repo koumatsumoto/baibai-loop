@@ -15,7 +15,9 @@ from .cache import (
 )
 from .providers import ProviderBundle
 from .query import (
+    candidates_show_command,
     market_snapshot_command,
+    run_show_command,
     ticker_profile_command,
 )
 from .run import run_command
@@ -26,10 +28,12 @@ __all__ = [
     "backfill_master_command",
     "bootstrap_cache_command",
     "build_parser",
+    "candidates_show_command",
     "extract_edinet_metrics_command",
     "invalidate_coverage_command",
     "main",
     "market_snapshot_command",
     "run_command",
+    "run_show_command",
     "ticker_profile_command",
 ]

@@ -3,12 +3,12 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from baibai_engine.screening.security_analysis_builder import expected_return_inputs
+from baibai_engine.screening.stock_analysis_builder import expected_return_inputs
 
 ROOT = Path(__file__).resolve().parents[2]
 
 from baibai_engine.screening.schema import DerivedMetrics
-from baibai_engine.screening.security_analysis_builder import _close_from_snapshot
+from baibai_engine.screening.stock_analysis_builder import _close_from_snapshot
 from baibai_engine.valuation.estimates import (
     REALIZATION_RATE_ANNUAL,
     SHARE_COUNT_CLIP,
