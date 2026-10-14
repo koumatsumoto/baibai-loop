@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router'
 import { fetchJson } from '../api/client'
 import type { ScreeningView } from '../api/types'
 import { AsOfBadge } from '../components/AsOfBadge'
@@ -25,7 +24,6 @@ export function CandidateExplorationPage() {
     <details className="rounded-lg border bg-card p-4">
       <summary className="cursor-pointer font-medium">選定時の候補と根拠</summary>
       <div className="mt-4 grid gap-4">
-        {data.research_triages.map(item => <Link className="flex flex-wrap items-center gap-3 text-sm underline" key={item.research_triage_id} to={`/research-triage?research_triage_id=${encodeURIComponent(item.research_triage_id)}`}>選定時の調査優先度・見送り理由を見る <AsOfBadge value={item.as_of} /></Link>)}
         <ReviewSetSection reviewSet={reviewSet} runAsOf={data.run?.as_of ?? '未発行'} />
       </div>
     </details>

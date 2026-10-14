@@ -614,6 +614,9 @@ export interface ModelValuationObservation {
 }
 
 export interface OperationResearchTargetView {
+  selection_rationale: string | null
+  research_question: string | null
+  key_risk: string | null
   ticker: string
   purpose: 'new' | 'holding'
   outcome_status: 'reviewed' | 'proposal' | 'unfinished' | null
@@ -627,8 +630,10 @@ export interface OperationResearchTargetView {
 }
 
 export interface OperationResearchView {
+  request_scope: string | null
+  selection_summary: string | null
+  max_deep_research_targets: number | null
   request: string
-  research_triage_id: string | null
   targets: OperationResearchTargetView[]
   capital_allocation_assessment_id: string | null
   source_run_revision_id: string | null
@@ -786,35 +791,6 @@ export interface ResearchRevisionView {
   status: string
 }
 
-export interface ResearchTriageDetailView {
-  research_triage_id: string
-  review_set_id: string
-  run_revision_id: string
-  as_of: string
-  published_at: string
-  entries: ResearchTriageEntryView[]
-  payload: Record<string, unknown>
-}
-
-export interface ResearchTriageEntryView {
-  ticker: string
-  decision: string
-  priority: number | null
-  rationale: string
-  research_question: string | null
-  key_risk: string | null
-  review_set_entry_snapshot: ReviewSetEntrySnapshotView | null
-}
-
-export interface ResearchTriageView {
-  research_triage_id: string
-  review_set_id: string
-  run_revision_id: string
-  as_of: string
-  published_at: string
-  entries: ResearchTriageEntryView[]
-}
-
 export interface ReservationView {
   reservation_id: string
   side: 'buy' | 'sell'
@@ -883,17 +859,6 @@ export interface ReviewSetEntryDeltaView {
   company_name: string | null
   er_annual_pct: number | null
   disclosed_since_previous: boolean | null
-}
-
-/**
- * Machine coordinates frozen into one Research Triage judgment entry.
- */
-export interface ReviewSetEntrySnapshotView {
-  name: string | null
-  sector_33: string | null
-  nominations: Record<string, unknown>[] | null
-  expected_return: Record<string, unknown> | null
-  data_quality: Record<string, unknown> | null
 }
 
 /**
@@ -1004,7 +969,6 @@ export interface ScreeningView {
   external_assessment_securities: ExternalAssessmentSecurityView[]
   external_assessment_cutoff: string | null
   review_sets: ReviewSetView[]
-  research_triages: ResearchTriageView[]
   capital_allocation_assessments: CapitalAllocationAssessmentSummaryView[]
   er_level_calibration: ErLevelCalibrationContextView | null
 }

@@ -9,7 +9,6 @@ from baibai_engine.research.capital_allocation import (
     StoredCapitalAllocationAssessment,
     capital_allocation_draft_sha256,
 )
-from baibai_engine.research.capital_allocation_service import CapitalAllocationAssessmentService
 from baibai_engine.storage.application.json import canonical_json
 
 
@@ -82,18 +81,13 @@ def test_saved_allocation_keeps_original_payload_and_review_hash_without_an_old_
     current = CapitalAllocationAssessment.model_validate(_payload()).payload()
     old = {**current, "schema_version": 1, "macro_context_id": "macro-context-2026-07-17-saved"}
     old.pop("market_context_assessment_id")
-    allocation = StoredCapitalAllocationAssessment.from_payload(old)
-    assert allocation.schema_version == 1
-    assert allocation.market_context_assessment_id == old["macro_context_id"]
-    assert allocation.payload() == old
-    reviewed = {k: v for k, v in old.items() if k not in {"review", "published_at"}}
+    with pytest.raises(ValidationError, match="schema_version"):
+        StoredCapitalAllocationAssessment.from_payload(old)
+    stored = StoredCapitalAllocationAssessment.from_payload(current)
+    assert stored.payload() == current
+    assert stored.research_triage_id == "research-triage-test"
+    reviewed = {k: v for k, v in current.items() if k not in {"review", "published_at"}}
     assert (
-        capital_allocation_draft_sha256(allocation)
+        capital_allocation_draft_sha256(stored)
         == sha256(canonical_json(reviewed).encode()).hexdigest()
     )
-    with pytest.raises(ValidationError):
-        CapitalAllocationAssessment.model_validate(old)
-    database = tmp_path / "not-created.sqlite"
-    with pytest.raises(ValueError, match="read-only"):
-        CapitalAllocationAssessmentService(database).publish(allocation)
-    assert not database.exists()

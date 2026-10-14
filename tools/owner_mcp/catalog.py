@@ -162,7 +162,6 @@ def resources() -> dict[str, ResourceSpec]:
             m.ContextKey,
             m.DateRange,
         ),
-        ("research.triage", "research_triage", m.TriageKey, m.TriageKey, m.TriageFilters),
         ("research.thesis", "thesis", m.ThesisKey, m.ThesisKey, m.TickerRange),
         (
             "research.thesis_review",

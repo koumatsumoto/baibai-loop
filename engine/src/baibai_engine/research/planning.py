@@ -19,7 +19,7 @@ from baibai_engine.research.capital_inputs import (
     evaluate_allocation_in_transaction,
 )
 from baibai_engine.research.decimal_number import decimal_to_number
-from baibai_engine.research.operation.research_binding import load_research_selection
+from baibai_engine.research.operation.research_binding import require_planning_research_scope
 from baibai_engine.storage.application.paths import database_path
 from baibai_engine.storage.application.read import connect_read_only
 from baibai_engine.valuation.scenario import finite_decimal
@@ -52,6 +52,16 @@ def plan_limit(
         alternative = next(
             item for item in assessment.alternatives if item.disposition == "allocate"
         )
+        if assessment.research_scope is None:
+            raise ValueError("planning unavailable: current Research scope is missing")
+        selection = require_planning_research_scope(
+            connection,
+            scope=assessment.research_scope,
+            alternatives=tuple(
+                (item.ticker, item.thesis_id, item.thesis_core_sha256, item.thesis_review_id or "")
+                for item in assessment.alternatives
+            ),
+        )
         pair, entry, quote, cash = evaluate_allocation_in_transaction(
             connection,
             alternative=alternative,
@@ -61,35 +71,12 @@ def plan_limit(
             sqlite_path=sqlite_path,
             budget_max_yen=budget_max_yen,
         )
-        liquidity_row = connection.execute(
-            "SELECT as_of, json_extract(payload, '$.entries') FROM research_triage "
-            "WHERE research_triage_id=?",
-            (assessment.research_triage_id,),
-        ).fetchone()
-        liquidity_as_of = None if liquidity_row is None else str(liquidity_row[0])
-        liquidity_entries = [] if liquidity_row is None else json.loads(str(liquidity_row[1]))
-        liquidity: dict[str, object] = next(
-            (
-                item.get("candidate_snapshot", {}).get("analysis", {}).get("identity_liquidity", {})
-                for item in liquidity_entries
-                if item.get("ticker") == alternative.ticker
-            ),
-            {},
+        source = selection.inputs.analysis
+        liquidity = source.analyses.get(alternative.ticker, {})
+        liquidity_as_of = (
+            None if source.analysis_as_of is None else source.analysis_as_of.isoformat()
         )
-        liquidity_run_revision_id = None
-        if assessment.research_triage_id is None:
-            # 指定時の流動性根拠を使い、最新候補や別runへ付け替えない。
-            # 現在の価格・cash・注文sessionの検証は同じ既存経路で行う。
-            # docs/reference/capital-allocation-assessment.md#research-source
-            if assessment.research_scope is None:
-                raise ValueError("user-selected assessment has no Research scope")
-            selection = load_research_selection(connection, assessment.research_scope.operation_id)
-            source = selection.explicit_run
-            if source is None:
-                raise ValueError("user-selected assessment has no canonical analysis snapshot")
-            liquidity = source.analyses[alternative.ticker]
-            liquidity_as_of = source.as_of.isoformat()
-            liquidity_run_revision_id = source.run_revision_id
+        liquidity_run_revision_id = source.run_revision_id
         adv_yen: Decimal | None
         try:
             adv_yen = finite_decimal(liquidity.get("avg_turnover_oku")) * 100000000
@@ -238,7 +225,6 @@ def plan_limit(
         "budget_max_yen": budget_max_yen,
         "portfolio_exposure": exposure,
         "liquidity_context": {
-            "research_triage_id": assessment.research_triage_id,
             **({"run_revision_id": liquidity_run_revision_id} if liquidity_run_revision_id else {}),
             "as_of": liquidity_as_of,
             "adv_yen": None if adv_yen is None else decimal_to_number(adv_yen),

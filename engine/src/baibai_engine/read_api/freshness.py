@@ -65,7 +65,7 @@ def application_db_updated_at(path: Path) -> datetime | None:
 
     The value is the max over application business-record and judgment write instants:
     ledger events, research theses and reviews, Position Reviews, market context assessments,
-    reviewed research_triages, tasks (created and closed), and
+    tasks (created and closed), and
     operation sessions (started and completed). Nullable decision timestamps are
     excluded until set. Values are normalized to timezone-aware JST before the max
     so timezone-aware timestamps and date-only columns compare in one pass.
@@ -96,7 +96,6 @@ _WRITE_INSTANT_COLUMNS: tuple[tuple[str, str], ...] = (
     ("thesis_review", "reviewed_at"),
     ("position_review", "as_of"),
     ("market_context_assessment", "published_at"),
-    ("research_triage", "published_at"),
     ("task", "created_at"),
     ("task", "closed_at"),
     ("operation_session", "started_at"),

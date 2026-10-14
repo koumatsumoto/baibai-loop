@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from contextlib import closing
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
@@ -126,40 +126,13 @@ class CapitalAllocationAssessmentService:
             raise CapitalAllocationConflictError(
                 f"content review binds a different draft, expected {expected_draft}"
             )
-        research_triage = (
-            {}
-            if assessment.research_triage_id is None
-            else self._research_triage(connection, assessment.research_triage_id)
-        )
         # Validate the authored draft before replacing its timestamp, so a draft
         # from before this Operation cannot be made current by the writer's clock.
         self._verify_research_set(
             connection,
             assessment.model_copy(update={"published_at": min(assessment.published_at, now)}),
         )
-        # NULLはTriageを偽造しないための表現。対象資格を無検証にする意味ではない。
-        # 上で固定Operationの完成Thesis/Reviewと未完了被覆へ束縛している。
-        # docs/reference/capital-allocation-assessment.md#research-source / refs #1481
-        research_triage_as_of = str(research_triage.get("as_of", ""))
-        if research_triage_as_of and assessment.as_of < date.fromisoformat(research_triage_as_of):
-            raise CapitalAllocationConflictError(
-                f"assessment as_of {assessment.as_of} precedes research triage "
-                f"{research_triage_as_of}"
-            )
-        research_triage_tickers = (
-            None
-            if assessment.research_triage_id is None
-            else (_admissible_research_tickers(research_triage, assessment.research_triage_id))
-        )
         for alternative in assessment.alternatives:
-            if (
-                research_triage_tickers is not None
-                and alternative.ticker not in research_triage_tickers
-            ):
-                raise CapitalAllocationConflictError(
-                    f"alternative {alternative.ticker} is not researchable in "
-                    f"{assessment.research_triage_id}"
-                )
             stored = load_reviewed_thesis(connection, alternative.thesis_id)
             if stored.document.input_snapshot.ticker != alternative.ticker:
                 raise CapitalAllocationConflictError(
@@ -222,44 +195,11 @@ class CapitalAllocationAssessmentService:
         except ValueError as error:
             raise CapitalAllocationConflictError(str(error)) from error
 
-    def _research_triage(
-        self, connection: sqlite3.Connection, research_triage_id: str
-    ) -> dict[str, object]:
-        row = connection.execute(
-            "SELECT payload FROM research_triage WHERE research_triage_id = ?",
-            (research_triage_id,),
-        ).fetchone()
-        if row is None:
-            raise CapitalAllocationConflictError(
-                f"research triage is unavailable: {research_triage_id}"
-            )
-        payload = json.loads(str(row[0]))
-        if not isinstance(payload, dict):
-            raise CapitalAllocationConflictError(
-                f"research triage payload is not an object: {research_triage_id}"
-            )
-        return payload
-
     def _existing_path(self) -> Path:
         path = database_path(self._db_path)
         if not path.is_file():
             raise CapitalAllocationConflictError(f"application database is unavailable: {path}")
         return path
-
-
-def _admissible_research_tickers(
-    payload: Mapping[str, object], research_triage_id: str
-) -> frozenset[str]:
-    entries = payload.get("entries")
-    if not isinstance(entries, list):
-        raise CapitalAllocationConflictError(
-            f"research triage has no entries: {research_triage_id}"
-        )
-    return frozenset(
-        str(entry["ticker"])
-        for entry in entries
-        if isinstance(entry, dict) and entry.get("decision") == "research"
-    )
 
 
 __all__ = ["CapitalAllocationAssessmentService"]

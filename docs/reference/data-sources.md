@@ -120,7 +120,7 @@ EDINET metricの`extractor_revision`は明示的な抽出意味revisionであり
 
 ## EDINETのResearch補助fact
 
-`edinet.segment_facts`と`edinet.debt_schedule`は、有価証券報告書・訂正有価証券報告書のtype=1 XBRL ZIPから保存する任意のL1入力である。Triageの判断やscreening/calibrationの採否条件は変えない。初回収録は既存document inventoryの各issuerの直近年次とその訂正、そこに含まれる比較年度に限定する。その後は収録した書類を保持し、新規年次・訂正を追加する。取得開始前の全提出履歴は保証しない。
+`edinet.segment_facts`と`edinet.debt_schedule`は、有価証券報告書・訂正有価証券報告書のtype=1 XBRL ZIPから保存する任意のL1入力である。Researchの判断やscreening/calibrationの採否条件は変えない。初回収録は既存document inventoryの各issuerの直近年次とその訂正、そこに含まれる比較年度に限定する。その後は収録した書類を保持し、新規年次・訂正を追加する。取得開始前の全提出履歴は保証しない。
 
 セグメントは標準数値elementだけを対象とし、外部売上と内部売上込みの売上、営業・経常・税引前・純利益・issuer定義利益のbasis、連結・非連結、当期・比較期を分ける。資産はinstant、売上・利益はdurationである。事業、その他、調整、合計を分け、QNameと原典の日本語member labelを残す。企業独自elementは名称の類似で標準指標へ割り当てない。事業区分の変更をまたいだ増減比較は原典を確認する。
 

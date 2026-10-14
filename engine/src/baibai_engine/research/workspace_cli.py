@@ -1,5 +1,5 @@
-"""CLI for Research Triage and Fundamental Research authoring:
-triage / prepare / status / thesis-scaffold /
+"""CLI for selected Research authoring:
+selection-context / prepare / status / thesis-scaffold /
 review-scaffold / promote / plan-limit / capital-allocation-scaffold / capital-allocation-publish.
 
 This is also the `baibai-engine research` help surface, so the read-only `evaluate`
@@ -19,7 +19,10 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import json
+import sqlite3
 import sys
+from dataclasses import asdict
 from datetime import date, datetime
 from pathlib import Path
 from typing import TextIO
@@ -42,14 +45,17 @@ from .capital_allocation import (
 )
 from .capital_allocation_scaffold import scaffold_capital_allocation
 from .capital_allocation_service import CapitalAllocationAssessmentService
+from .operation.service import OperationConflictError
 from .planning import plan_limit
+from .selection import ResearchRequest, ResearchSelectionDraft
+from .selection_query import ResearchInputsRequiredError, load_selection_context
 from .thesis import ThesisError
 from .workspace import (
     ResearchWorkspaceError,
     compute_status,
-    prepare_holding_workspace,
-    prepare_workspace,
+    prepare_selected_workspace,
     promote,
+    resume_selected_workspace,
     scaffold_review,
     scaffold_thesis,
 )
@@ -69,63 +75,32 @@ def _emit(payload: object, out: TextIO) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-engine research")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    from .triage.cli import build_parser as build_triage_parser
-
-    subparsers.add_parser(
-        "triage",
-        help="scaffold or publish a Research Triage",
-        parents=[build_triage_parser()],
-        add_help=False,
+    context_parser = subparsers.add_parser(
+        "selection-context", help="read saved inputs for AI target selection"
     )
-
+    context_parser.add_argument("--request", required=True)
+    context_parser.add_argument(
+        "--scope", required=True, choices=("discover_new", "specified_stocks", "review_positions")
+    )
+    context_parser.add_argument("--ticker", action="append", default=[])
+    context_parser.add_argument("--research-asof", type=date.fromisoformat)
+    context_parser.add_argument("--run-revision-id")
+    context_parser.add_argument("--db", type=Path)
+    context_parser.add_argument("--runs-path", type=Path, default=RUNS_DB_PATH)
+    context_parser.add_argument("--out", type=Path)
     prepare_parser = subparsers.add_parser(
-        "prepare", help="build a research workspace from a self-contained ResearchTriage"
+        "prepare", help="save selected Research inputs or resume an Operation"
     )
-    source_parser = prepare_parser.add_mutually_exclusive_group()
-    source_parser.add_argument(
-        "--research-triage-id",
-        help="canonical ResearchTriage admitting the fixed new targets",
-    )
-    source_parser.add_argument(
-        "--run-revision-id", help="saved analysis run for user-selected targets"
-    )
+    source_parser = prepare_parser.add_mutually_exclusive_group(required=True)
+    source_parser.add_argument("--selection-file", type=Path)
+    source_parser.add_argument("--operation-id")
     prepare_parser.add_argument("--db", type=Path)
-    prepare_parser.add_argument(
-        "--request", required=True, help="explicit user start request; no human adoption is implied"
-    )
-    prepare_parser.add_argument("--asof", type=date.fromisoformat)
-    prepare_parser.add_argument("--holding-ticker", action="append", default=[])
+    prepare_parser.add_argument("--workspace", required=True, type=Path)
     prepare_parser.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
     prepare_parser.add_argument("--runs-path", type=Path, default=RUNS_DB_PATH)
     prepare_parser.add_argument("--indicators-path", type=Path, default=INDICATORS_DB_PATH)
-    prepare_parser.add_argument("--workspace", required=True, type=Path)
     prepare_parser.add_argument(
-        "--ticker",
-        action="append",
-        default=[],
-        help="AI-selected new research ticker; combined new/holding selection is capped at three",
-    )
-    prepare_parser.add_argument(
-        "--force", action="store_true", help="rebuild an existing local workspace"
-    )
-
-    holding_prepare_parser = subparsers.add_parser(
-        "position-prepare", help="build a one-ticker workspace for an open holding"
-    )
-    holding_prepare_parser.add_argument(
-        "--asof", required=True, help="workspace as-of date (YYYY-MM-DD)"
-    )
-    holding_prepare_parser.add_argument("--db", type=Path)
-    holding_prepare_parser.add_argument(
-        "--request", help="explicit request required for a new holding-only Operation"
-    )
-    holding_prepare_parser.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
-    holding_prepare_parser.add_argument("--runs-path", type=Path, default=RUNS_DB_PATH)
-    holding_prepare_parser.add_argument("--indicators-path", type=Path, default=INDICATORS_DB_PATH)
-    holding_prepare_parser.add_argument("--ticker", required=True)
-    holding_prepare_parser.add_argument("--workspace", required=True, type=Path)
-    holding_prepare_parser.add_argument(
-        "--force", action="store_true", help="rebuild an existing local workspace"
+        "--force", action="store_true", help="repair generated projections; retain authored drafts"
     )
 
     status_parser = subparsers.add_parser(
@@ -204,13 +179,7 @@ def build_parser() -> argparse.ArgumentParser:
     assessment_scaffold_parser.add_argument("--db", type=Path)
     assessment_scaffold_parser.add_argument("--capital-allocation-assessment-id", required=True)
     assessment_scaffold_parser.add_argument("--asof", required=True)
-    assessment_scaffold_parser.add_argument("--research-triage-id")
-    assessment_scaffold_parser.add_argument(
-        "--thesis-id",
-        action="append",
-        required=True,
-        help="one promoted thesis per researched ticker; repeat the flag",
-    )
+    assessment_scaffold_parser.add_argument("--operation-id", required=True)
     assessment_scaffold_parser.add_argument("--out", type=Path)
 
     assessment_publish_parser = subparsers.add_parser(
@@ -237,10 +206,6 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         from .calculation_cli import main as calculate_main
 
         return calculate_main(arguments[1:])
-    if arguments and arguments[0] == "triage":
-        from .triage.cli import main as triage_main
-
-        return triage_main(arguments[1:])
     if arguments and arguments[0] == "evaluate":
         # Returned unwrapped: evaluation reports "not decision-ready" as exit 2,
         # which is not this CLI's usage/data/conflict code set.
@@ -253,57 +218,53 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     resolved_now = now or datetime.now(JST)
     try:
         match args.command:
-            case "prepare":
-                prepared = prepare_workspace(
-                    research_triage_id=args.research_triage_id,
+            case "selection-context":
+                try:
+                    request = ResearchRequest(
+                        text=args.request, scope=args.scope, requested_tickers=tuple(args.ticker)
+                    )
+                except ValidationError as error:
+                    parser.error(str(error))
+                payload = load_selection_context(
+                    request=request,
+                    research_as_of=args.research_asof,
                     run_revision_id=args.run_revision_id,
-                    db_path=args.db,
-                    workspace=args.workspace,
-                    research_set=args.ticker,
-                    holding_tickers=args.holding_ticker,
-                    request=args.request,
-                    asof=args.asof,
-                    sqlite_path=args.sqlite_path,
+                    known_at=resolved_now,
                     runs_path=args.runs_path,
-                    indicators_path=args.indicators_path,
-                    started_at=resolved_now,
-                    force=args.force,
-                )
-                _emit(
-                    {
-                        "workspace": str(prepared.workspace),
-                        "actionable": prepared.actionable,
-                        "review_set_size": prepared.review_set_size,
-                        "admissible_count": prepared.admissible_count,
-                        "research_triage_id": prepared.research_triage_id,
-                        "admissible_research_tickers": list(prepared.admissible_research_tickers),
-                        "note": None if prepared.actionable else "no_targets",
-                        "operation_id": prepared.operation_id,
-                    },
-                    out,
-                )
-            case "position-prepare":
-                prepared = prepare_holding_workspace(
-                    asof=_parse_date(args.asof),
                     db_path=args.db,
-                    ticker=args.ticker,
-                    workspace=args.workspace,
-                    request=args.request,
-                    started_at=resolved_now,
-                    sqlite_path=args.sqlite_path,
-                    runs_path=args.runs_path,
-                    indicators_path=args.indicators_path,
-                    force=args.force,
                 )
-                _emit(
-                    {
-                        "workspace": str(prepared.workspace),
-                        "actionable": prepared.actionable,
-                        "review_set_size": prepared.review_set_size,
-                        "admissible_count": prepared.admissible_count,
-                    },
-                    out,
-                )
+                content = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+                if args.out is not None:
+                    from baibai_engine.foundation.filesystem import write_text_atomic
+
+                    write_text_atomic(args.out, content)
+                out.write(content)
+                return 3 if payload["status"] == "inputs_required" else 0
+            case "prepare":
+                if args.selection_file is not None:
+                    prepared = prepare_selected_workspace(
+                        draft=ResearchSelectionDraft.model_validate_json(
+                            args.selection_file.read_text()
+                        ),
+                        db_path=args.db,
+                        workspace=args.workspace,
+                        sqlite_path=args.sqlite_path,
+                        runs_path=args.runs_path,
+                        indicators_path=args.indicators_path,
+                        now=resolved_now,
+                        force=args.force,
+                    )
+                else:
+                    prepared = resume_selected_workspace(
+                        operation_id=args.operation_id,
+                        db_path=args.db,
+                        workspace=args.workspace,
+                        now=resolved_now,
+                        force=args.force,
+                    )
+                result = asdict(prepared)
+                result["workspace"] = str(prepared.workspace)
+                out.write(json.dumps(result, ensure_ascii=False) + "\n")
             case "status":
                 _emit(compute_status(args.workspace, db_path=args.db, now=resolved_now), out)
             case "thesis-scaffold":
@@ -372,8 +333,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     db_path=args.db,
                     capital_allocation_assessment_id=args.capital_allocation_assessment_id,
                     as_of=_parse_date(args.asof),
-                    research_triage_id=args.research_triage_id,
-                    thesis_ids=list(args.thesis_id),
+                    operation_id=args.operation_id,
                     published_at=resolved_now,
                 )
                 if args.out is not None:
@@ -411,12 +371,40 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     _emit(service.publish(assessment).payload(), out)
             case _:  # pragma: no cover - argparse enforces the command set
                 raise AssertionError(f"unreachable command: {args.command!r}")
-    except (CapitalAllocationError, ValidationError) as error:
+    except ResearchInputsRequiredError as error:
+        out.write(
+            json.dumps(
+                {
+                    "status": "inputs_required",
+                    "operation_id": None,
+                    "missing_inputs": [error.public()],
+                },
+                ensure_ascii=False,
+            )
+            + "\n"
+        )
+        return 3
+    except OperationConflictError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 4
+    except ValidationError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 4 if args.command == "prepare" else 3
+    except CapitalAllocationError as error:
         print(f"error: {error}", file=sys.stderr)
         return 3
     except ResearchWorkspaceError as error:
         print(f"error: {error}", file=sys.stderr)
         return error.exit_code
+    except (ValueError, RuntimeError, OSError, sqlite3.Error) as error:
+        out.write(
+            json.dumps(
+                {"status": "invalid_source", "operation_id": None, "reason": str(error)},
+                ensure_ascii=False,
+            )
+            + "\n"
+        )
+        return 3
     except ThesisError as error:
         print(f"error: {error}", file=sys.stderr)
         return 3

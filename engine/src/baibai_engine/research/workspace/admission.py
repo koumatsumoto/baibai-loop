@@ -1,249 +1,84 @@
-"""選択済みResearch Setと候補のexact bindingを検証する。"""
+"""workspaceをOperationの固定選定へ束縛する。"""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
-from datetime import date
 from pathlib import Path
 
-from pydantic import ValidationError
-
-from baibai_engine.research.operation.progress import (
+from baibai_engine.research.operation.progress import selection_binding
+from baibai_engine.research.operation.service import OperationService
+from baibai_engine.research.selection import (
     ResearchSelection,
     ResearchTarget,
-    selection_binding,
     selection_sha256,
-)
-from baibai_engine.research.operation.service import OperationService
-from baibai_engine.research.triage.contracts import StoredResearchTriage
-from baibai_engine.research.triage.query import (
-    current_research_triage,
-    research_triage_payload_hash,
+    selection_targets,
 )
 from baibai_engine.research.workspace.files import (
     ResearchWorkspaceConflictError,
-    ResearchWorkspaceDataError,
     _load_mapping,
     _nonempty_string,
 )
-from baibai_engine.storage.application.paths import database_path
-
-# --------------------------------------------------------------------------- #
-# prepare
-# --------------------------------------------------------------------------- #
-
-
-@dataclass(frozen=True, slots=True)
-class ResearchPreparation:
-    workspace: Path
-    actionable: bool
-    admissible_count: int
-    review_set_size: int
-    research_triage_id: str | None = None
-    operation_id: str | None = None
-    admissible_research_tickers: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class ResearchSetAdmissionBinding:
-    """The canonical ResearchTriage judgment a research workspace is bound to.
-
-    ``admissible_tickers`` is the Research Triage's ``research`` set in judgment order: the exact
-    range an explicit AI selection may admit into new Research. The selection chooses
-    which of those to research; what they cannot do is widen the set from the
-    workspace, because a canonical thesis is produced per ticker and the Gate
-    already decided this cycle's answer for each one.
-    """
-
-    research_triage_id: str
-    asof: date
-    payload_hash: str
-    screening_rules_hash: str
-    admissible_tickers: tuple[str, ...]
-    triage_decision_by_ticker: dict[str, str]
-    research_focus_by_ticker: dict[str, dict[str, str | None]]
-    review_set_entries: tuple[dict[str, object], ...]
-    run_revision_id: str | None = None
-
-
-def _research_triage_decisions(
-    triage: StoredResearchTriage,
-) -> tuple[tuple[str, ...], dict[str, str]]:
-    """Read one research_triage payload as a ResearchTriage judgment, or fail closed."""
-
-    decisions: dict[str, str] = {}
-    for entry in triage.entries:
-        decisions[entry.ticker] = entry.decision
-    return triage.admissible_research_tickers(), decisions
-
-
-def _review_set_entries_from_triage(triage: StoredResearchTriage) -> tuple[dict[str, object], ...]:
-    rows: list[dict[str, object]] = []
-    for entry in sorted(triage.entries, key=lambda item: item.ticker):
-        snapshot = entry.candidate_snapshot
-        analysis = snapshot.analysis.model_dump(mode="json")
-        status = snapshot.analysis.context.next_earnings_status
-        # The canonical Triage keeps its original bytes; Research sees the old
-        # date-only claim under the same neutral name as current runs.
-        analysis["context"]["next_earnings_status"] = (
-            "scheduled_date_reached" if status == "announced" else status
-        )
-        rows.append(
-            {
-                "ticker": entry.ticker,
-                "name": snapshot.name,
-                "sector_33": snapshot.sector_33,
-                "nominations": [item.model_dump(mode="json") for item in snapshot.nominations],
-                "research_priority": entry.priority,
-                "analysis": analysis,
-            }
-        )
-    return tuple(rows)
-
-
-def _resolve_research_triage(
-    *,
-    db_path: Path | None,
-    expected_research_triage_id: str,
-) -> ResearchSetAdmissionBinding:
-    """Resolve one current judgment directly from the application DB."""
-
-    try:
-        triage = current_research_triage(database_path(db_path), expected_research_triage_id)
-        if triage is None:
-            raise ResearchWorkspaceDataError(
-                f"research triage is unavailable: {expected_research_triage_id}"
-            )
-    except (RuntimeError, ValueError, ValidationError) as exc:
-        raise ResearchWorkspaceDataError(str(exc)) from exc
-    admissible_tickers, decisions = _research_triage_decisions(triage)
-    return ResearchSetAdmissionBinding(
-        research_triage_id=triage.research_triage_id,
-        asof=triage.as_of,
-        payload_hash=research_triage_payload_hash(triage),
-        screening_rules_hash=triage.screening_rules_hash,
-        admissible_tickers=admissible_tickers,
-        triage_decision_by_ticker=decisions,
-        research_focus_by_ticker={
-            entry.ticker: {
-                "rationale": entry.rationale,
-                "research_question": entry.research_question,
-                "key_risk": entry.key_risk,
-            }
-            for entry in triage.entries
-        },
-        review_set_entries=_review_set_entries_from_triage(triage),
-        run_revision_id=triage.run_revision_id,
-    )
-
-
-def _verify_research_triage(
-    manifest: Mapping[str, object], inputs: Mapping[str, object], *, db_path: Path | None
-) -> ResearchSetAdmissionBinding:
-    """Re-resolve the bound judgment on every workspace gate, from the pinned inputs.
-
-    The manifest names the judgment so an operator can read it, but the identity is
-    re-derived from the canonical Research Triage each time, so a hand-written ticker list is never
-    what a gate reads. Renaming the bound Research Triage stops matching the judgment;
-    an edit cannot admit a ticker that canonical Research Triage marked ``skip``.
-    """
-
-    binding = inputs.get("research_triage")
-    if not isinstance(binding, Mapping):
-        raise ResearchWorkspaceDataError(
-            "workspace has no ResearchTriage binding; rebuild it with "
-            "`research prepare --research-triage-id <RESEARCH_TRIAGE_ID> --force`"
-        )
-    recorded_research_triage_id = _nonempty_string(
-        binding.get("research_triage_id"),
-        label="manifest.inputs.research_triage.research_triage_id",
-    )
-    recorded_payload_hash = _nonempty_string(
-        binding.get("payload_sha256"),
-        label="manifest.inputs.research_triage.payload_sha256",
-    )
-    try:
-        gate = _resolve_research_triage(
-            db_path=db_path,
-            expected_research_triage_id=recorded_research_triage_id,
-        )
-    except ResearchWorkspaceDataError as error:
-        raise ResearchWorkspaceConflictError(
-            "workspace ResearchTriage binding does not match the canonical research_triage "
-            f"{recorded_research_triage_id}; rebuild the workspace with "
-            f"`research prepare --force` ({error})"
-        ) from error
-    if gate.payload_hash != recorded_payload_hash or gate.asof.isoformat() != str(
-        manifest.get("as_of")
-    ):
-        raise ResearchWorkspaceConflictError(
-            "workspace ResearchTriage binding does not match the canonical research_triage "
-            f"{gate.research_triage_id}; rebuild the workspace with `research prepare --force`"
-        )
-    return gate
-
-
-def _require_primary_research_ticker(
-    workspace: Path,
-    ticker: str,
-    *,
-    action: str,
-    gate: ResearchSetAdmissionBinding | None,
-    db_path: Path | None,
-) -> None:
-    research_workspace = _load_mapping(
-        workspace / "research-workspace.yaml", label="research workspace"
-    )
-    research_set = research_workspace.get("research_set")
-    if not isinstance(research_set, list) or ticker not in research_set:
-        raise ResearchWorkspaceDataError(
-            f"cannot {action} for {ticker}: ticker is not in the Research Set"
-        )
-    if gate is not None and ticker not in gate.admissible_tickers:
-        raise ResearchWorkspaceDataError(
-            f"cannot {action} for {ticker}: {gate.research_triage_id} did not mark it research"
-        )
-    manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
-    if (
-        not isinstance(manifest.get("operation_id"), str)
-        or not str(manifest["operation_id"]).strip()
-    ):
-        raise ResearchWorkspaceConflictError(
-            "current Operation ID is required for mutation; explicitly prepare the fixed selection"
-        )
-    selection = workspace_selection(manifest, db_path=db_path, active=True)
-    purpose = "holding" if manifest.get("purpose") == "position_review" else "new"
-    if ResearchTarget(ticker=ticker, purpose=purpose) not in selection.targets:
-        raise ResearchWorkspaceConflictError(
-            "ticker/purpose is outside the fixed Operation selection"
-        )
-    if purpose == "new" and (
-        (gate is not None and selection.research_triage_id != gate.research_triage_id)
-        or set(research_set) != {item.ticker for item in selection.targets if item.purpose == "new"}
-    ):
-        raise ResearchWorkspaceConflictError(
-            "workspace new targets differ from the fixed Operation"
-        )
 
 
 def workspace_selection(
     manifest: Mapping[str, object], *, db_path: Path | None, active: bool = False
 ) -> ResearchSelection:
+    expected_keys = {
+        "schema_version",
+        "operation_id",
+        "research_as_of",
+        "selection_sha256",
+        "purpose",
+    }
+    if manifest.get("holding_ticker") is not None:
+        expected_keys |= {"holding_ticker", "domain_inputs_ref"}
+    if set(manifest) != expected_keys:
+        raise ResearchWorkspaceConflictError("workspace manifest fields differ from V2")
+    if manifest.get("schema_version") != 2:
+        raise ResearchWorkspaceConflictError("workspace requires an explicit V2 cutover")
     identifier = _nonempty_string(manifest.get("operation_id"), label="manifest.operation_id")
     operation = OperationService(db_path).get(identifier)
-    if str(manifest.get("as_of")) != operation.as_of.isoformat():
-        raise ResearchWorkspaceConflictError(
-            "workspace analysis as_of differs from the fixed Operation"
-        )
-    try:
-        selection = selection_binding(operation.payload)
-    except ValueError as error:
-        raise ResearchWorkspaceConflictError(f"Operation selection is invalid: {error}") from error
-    if selection is None or manifest.get("selection_sha256") != selection_sha256(selection):
+    selection = selection_binding(operation.payload)
+    if (
+        selection is None
+        or manifest.get("selection_sha256") != selection_sha256(selection)
+        or str(manifest.get("research_as_of")) != operation.as_of.isoformat()
+    ):
         raise ResearchWorkspaceConflictError(
             "workspace differs from the Operation's fixed selection"
         )
+    purpose = (
+        "position_review"
+        if selection.request.scope == "review_positions"
+        else "fundamental_research"
+    )
+    if manifest.get("purpose") != purpose:
+        raise ResearchWorkspaceConflictError("workspace purpose differs from the fixed selection")
+    holding = manifest.get("holding_ticker")
+    if holding is not None and ResearchTarget(
+        ticker=str(holding), purpose="holding"
+    ) not in selection_targets(selection):
+        raise ResearchWorkspaceConflictError("holding subject is outside the fixed selection")
     if active and operation.status != "active":
         raise ResearchWorkspaceConflictError("completed research Operation cannot add work")
     return selection
+
+
+def _require_primary_research_ticker(
+    workspace: Path, ticker: str, *, action: str, gate: ResearchSelection, db_path: Path | None
+) -> None:
+    manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
+    selection = workspace_selection(manifest, db_path=db_path, active=True)
+    purpose = "holding" if manifest.get("purpose") == "position_review" else "new"
+    if purpose == "holding" and manifest.get("holding_ticker") is None:
+        raise ResearchWorkspaceConflictError(
+            "author holding research in its holdings/<ticker> child workspace"
+        )
+    if (
+        selection != gate
+        or ResearchTarget(ticker=ticker, purpose=purpose) not in selection_targets(selection)
+        or (manifest.get("holding_ticker") is not None and manifest["holding_ticker"] != ticker)
+    ):
+        raise ResearchWorkspaceConflictError(
+            f"cannot {action}: ticker/purpose is outside the fixed selection"
+        )

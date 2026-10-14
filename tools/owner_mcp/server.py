@@ -12,7 +12,7 @@ from pydantic import JsonValue, StrictInt, ValidationError
 from tools.l1_mcp.contract import LIMITS, wire
 from tools.l1_mcp.server import Adapter, register_tools
 
-from .reader import OwnerError, Reader, ReviewSetSelector, Selector, TriageRef
+from .reader import OwnerError, Reader, ReviewSetSelector
 
 MESSAGES = {
     "INVALID_ARGUMENT": "selector・固定reference・timezone付き時刻を確認してください。",
@@ -59,44 +59,11 @@ def create_server(adapter: Adapter, reader: Reader | None = None) -> MCPServer[A
         "baibai-loop-owner",
         instructions=(
             "L1はresolve→describe→queryの順で同じrelease_refを使ってください。"
-            "Triageはresolve後のtriage_refを別Chatでも保持してください。"
-            "get_inputは実行時production contractの再構築です。"
-            "historical exact promptではありません。"
-            "選択前に元判断を混ぜない比較ではget_judgmentを呼ばないでください。"
             "portfolioのatはtimezone付き時刻です。store同期・更新は行いません。"
         ),
     )
     register_tools(server, adapter)
     annotations = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
-
-    @server.tool(annotations=annotations)
-    def triage_resolve(
-        research_triage_id: str | None = None,
-        as_of: str | None = None,
-        not_before: str | None = None,
-    ) -> CallToolResult:
-        """0〜1 selectorでcomplete Triageを固定。日付はexact、not_beforeは最初、無指定はlatest。"""
-
-        def resolve() -> dict[str, Any]:
-            try:
-                selector = Selector(
-                    research_triage_id=research_triage_id, as_of=as_of, not_before=not_before
-                )
-            except ValidationError as exc:
-                raise OwnerError("INVALID_ARGUMENT") from exc
-            return reader.resolve(selector)
-
-        return call(resolve)
-
-    @server.tool(annotations=annotations)
-    def triage_get_input(triage_ref: TriageRef) -> CallToolResult:
-        """exact sourceからproduction入力を再構築し両hashを検証する。元判断は含まない。"""
-        return call(lambda: reader.get_input(triage_ref))
-
-    @server.tool(annotations=annotations)
-    def triage_get_judgment(triage_ref: TriageRef) -> CallToolResult:
-        """hash検証済みfull canonical ResearchTriageを返す。input policy driftには依存しない。"""
-        return call(lambda: reader.get_judgment(triage_ref))
 
     @server.tool(annotations=annotations)
     def portfolio_get_exclusions(at: str) -> CallToolResult:

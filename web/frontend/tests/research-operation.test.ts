@@ -13,7 +13,7 @@ function session(targets: OperationResearchTargetView[]): OperationSessionView {
     operation_id: 'op-20260907-capital-allocation-1', session_kind: 'capital-allocation', status: 'completed',
     as_of: '2026-09-07', ticker: null, started_at: '2026-09-07T18:00:00+09:00', completed_at: '2026-09-07T18:00:00+09:00',
     payload: { checkpoint: 'synthetic proposal complete', result: 'synthetic completion', human_confirmation: null },
-    research: { request: 'synthetic explicit request', research_triage_id: null, targets, capital_allocation_assessment_id: null, source_run_revision_id: null, source_analysis_as_of: null },
+    research: { request: 'synthetic explicit request', request_scope: 'discover_new', selection_summary: '合成選定理由', max_deep_research_targets: 3, targets, capital_allocation_assessment_id: null, source_run_revision_id: null, source_analysis_as_of: null },
   }
 }
 function render(operation: OperationSessionView) { return renderToStaticMarkup(createElement(MemoryRouter, null, createElement(Fragment, null, createElement(HoldingProposals, { operations: [operation] }), createElement(ResearchOperationCard, { operations: [operation] })))) }
@@ -24,7 +24,7 @@ describe('有限調査と提案の表示', () => {
     operation.research!.source_run_revision_id = 'synthetic-explicit-run'
     operation.research!.source_analysis_as_of = '2026-09-07'
     const html = render(operation)
-    for (const text of ['ユーザー指定の調査', 'synthetic-explicit-run', 'synthetic explicit request', '2026-09-07']) expect(html).toContain(text)
+    for (const text of ['保存した分析基準日', 'synthetic-explicit-run', 'synthetic explicit request', '2026-09-07']) expect(html).toContain(text)
     expect(html).not.toContain('/research-triage')
   })
   it('部分完了と保有提案を表示し、人間確認済み公開と分ける', () => {
@@ -53,10 +53,9 @@ describe('有限調査と提案の表示', () => {
   it('保存済みのCAAと指定Triageへ進み、旧payloadから進捗を推測しない', () => {
     const operation = session([])
     operation.research!.capital_allocation_assessment_id = 'synthetic-caa'
-    operation.research!.research_triage_id = 'synthetic-triage'
     const html = render(operation)
     expect(html).toContain('/stocks/capital-allocation-assessments/synthetic-caa')
-    expect(html).toContain('/research-triage?research_triage_id=synthetic-triage')
+    expect(html).not.toContain('/research-triage')
     operation.research = null
     expect(render(operation)).toContain('有限調査の進行記録はまだありません')
     expect(render(operation)).not.toContain('提案工程完了')

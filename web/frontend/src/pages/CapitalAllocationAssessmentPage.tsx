@@ -19,7 +19,7 @@ function thesisAnchor(item: AllocationAlternativeView): string {
 }
 
 export function AssessmentResearchSource({ researchTriageId }: { researchTriageId: string | null }) {
-  return researchTriageId ? <Link className="text-sm underline" to={`/research-triage?research_triage_id=${encodeURIComponent(researchTriageId)}`}>この配分判断が参照した対象選定・調査優先度を見る →</Link> : <p className="text-sm">ユーザー指定の対象を調査した配分判断です。開始要求と固定対象は調査の記録で確認できます。</p>
+  return <p className="text-sm">{researchTriageId ? '過去の選定参照を保持した配分判断です。' : 'Researchで選定した対象の配分判断です。開始要求と固定対象は調査の記録で確認できます。'}</p>
 }
 
 export function AllocationThesisDetails({ item }: { item: AllocationAlternativeView }) {
@@ -90,7 +90,7 @@ export function CapitalAllocationAssessmentPage() {
       {data.alternatives.map(item => <AllocationThesisDetails item={item} key={item.thesis_id} />)}
       <AssessmentResearchSource researchTriageId={data.research_triage_id} />
       {data.market_context_assessment_id && <Link className="text-sm underline" to={`/market-context/assessments/${data.market_context_assessment_id}`}>この配分判断が参照した市場環境判断を見る →</Link>}
-      <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">判断の参照記録</summary><p className="mt-2 break-all">{data.research_triage_id ? `Research Triage: ${data.research_triage_id}` : `ユーザー指定 · Operation: ${data.research_operation_id}`} · 配分比較のReview: {data.content_review.conclusion}</p></details>
+      <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">判断の参照記録</summary><p className="mt-2 break-all">{data.research_triage_id ? `過去の選定参照: ${data.research_triage_id}` : `Research · Operation: ${data.research_operation_id}`} · 配分比較のReview: {data.content_review.conclusion}</p></details>
       <Link className="text-sm underline" to="/stocks">提案一覧に戻る</Link>
     </PageShell>
   )

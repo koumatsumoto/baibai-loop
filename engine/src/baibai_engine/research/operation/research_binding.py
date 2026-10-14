@@ -10,11 +10,11 @@ from datetime import datetime
 from baibai_engine.research.operation.models import OperationSession
 from baibai_engine.research.operation.progress import (
     ResearchComparisonScope,
-    ResearchSelection,
     ReviewedTarget,
     comparison_scope,
     selection_binding,
 )
+from baibai_engine.research.selection import ResearchSelection
 
 
 def require_matching_research_set(
@@ -31,10 +31,8 @@ def require_matching_research_set(
         expected = comparison_scope(operation.operation_id, operation.payload)
         selection = selection_binding(operation.payload)
         assert selection is not None
-        if selection.research_triage_id != research_triage_id:
-            raise ValueError("assessment Research Triage differs from the active Operation")
-        if research_triage_id is None and selection.explicit_run is None:
-            raise ValueError("assessment requires the canonical explicit selection source")
+        if research_triage_id is not None:
+            raise ValueError("new CAA requires research_triage_id=None")
         completed = [item.ticker for item in expected.outcomes if isinstance(item, ReviewedTarget)]
         alternatives = tuple(tickers)
         if (
@@ -74,16 +72,34 @@ def require_active_research_set(
     )
 
 
-def load_research_selection(connection: sqlite3.Connection, operation_id: str) -> ResearchSelection:
+def require_planning_research_scope(
+    connection: sqlite3.Connection,
+    *,
+    scope: ResearchComparisonScope,
+    alternatives: tuple[tuple[str, str, str, str], ...],
+) -> ResearchSelection:
     row = connection.execute(
-        "SELECT * FROM operation_session WHERE operation_id=?", (operation_id,)
+        "SELECT * FROM operation_session WHERE operation_id=?", (scope.operation_id,)
     ).fetchone()
     if row is None:
-        raise ValueError("research Operation is unavailable")
+        raise ValueError(
+            "planning unavailable: current Research Operation is missing; create a new comparison"
+        )
     operation = OperationSession.model_validate(
         {**dict(row), "payload": json.loads(row["payload"])}
     )
+    if (
+        operation.session_kind != "capital-allocation"
+        or comparison_scope(operation.operation_id, operation.payload) != scope
+    ):
+        raise ValueError("planning unavailable: Research scope changed; create a new comparison")
+    expected = {
+        (item.ticker, item.thesis_id, item.thesis_core_sha256, item.thesis_review_id)
+        for item in scope.outcomes
+        if isinstance(item, ReviewedTarget)
+    }
+    if not expected or len(alternatives) != len(expected) or set(alternatives) != expected:
+        raise ValueError("planning alternatives differ from completed Reviewed Thesis bindings")
     selection = selection_binding(operation.payload)
-    if selection is None:
-        raise ValueError("fixed research_selection is required")
+    assert selection is not None
     return selection

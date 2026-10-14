@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
+from tests.helpers.research_selection import draft_for
+from tests.helpers.research_selection import selection as make_selection
 from tests.helpers.research_v4 import pair_payload
 
 from baibai_engine.position.drafts import apply_draft, build_event_draft, build_sell_execution_draft
@@ -59,13 +61,7 @@ def test_holding_judgment_preserves_author_and_allows_active_capital_research(
         started_at=NOW,
         payload=OperationPayload(
             checkpoint="research",
-            artifacts=(
-                {
-                    "kind": "research_selection",
-                    "request": "synthetic other explicit request",
-                    "targets": [],
-                },
-            ),
+            artifacts=(make_selection(now=NOW).model_dump(mode="json"),),
         ),
     )
     service = PositionReviewService(db, sqlite_path=market, clock=lambda: NOW)
@@ -333,15 +329,19 @@ def test_legacy_holding_first_review_follows_public_workspace_commands(
     common = ["--db", str(db), "--ticker", "2331", "--workspace", str(workspace)]
     monkeypatch.setattr(position_cli, "MARKET_DB_PATH", market)
     assert position_cli.main(["ledger", "--db", str(db)], now=NOW) == 0
+    selected = make_selection(now=NOW, tickers=("2331",), scope="review_positions")
+    selection_file = tmp_path / "selection.json"
+    selection_file.write_text(draft_for(selected).model_dump_json())
     assert (
         research_main(
             [
-                "position-prepare",
-                *common,
-                "--asof",
-                NOW.date().isoformat(),
-                "--request",
-                "synthetic explicit holding request",
+                "prepare",
+                "--selection-file",
+                str(selection_file),
+                "--db",
+                str(db),
+                "--workspace",
+                str(workspace),
                 "--sqlite-path",
                 str(market),
             ],
@@ -349,6 +349,8 @@ def test_legacy_holding_first_review_follows_public_workspace_commands(
         )
         == 0
     )
+    workspace = workspace / "holdings" / "2331"
+    common = ["--db", str(db), "--ticker", "2331", "--workspace", str(workspace)]
     # Legacy is deliberately not passed to the v4 refresh reader.
     assert (
         research_main(

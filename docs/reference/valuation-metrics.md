@@ -33,10 +33,10 @@ sector_median_anchor = price * mean(available_sector_anchor / current_multiple)
 self_range_anchor = price * mean(available_self_anchor / current_multiple)
 ```
 
-carryの`dividend_yield / net_share_change_yoy`が欠測なら、その成分の計算上の寄与は0である。これは無配・株数不変を観測した意味ではない。Valuationの公開読取、Researchの機械anchor、新しいReview Set/Triage入力は、この二つのnullable入力と`dividend_basis`、`carry_missing_assumption`を併記する。株数変化はclip前のグロス発行済株式数YoY（増加が正、減少が負）であり、将来の自社株買いcashではない。ER値・算式・既存の`er_assumptions`は変更しない。
-新しいReview Set/Triage入力は、同じSecurity Analysisの`dps_actual_annual / dps_forecast_annual`も欠測を保持して投影する。両値は配当計算の株式basisへ正規化した入力であり、原典の未加工値や予想配当の持続性の認定ではない。保存済みの旧publicationには後付けしない。
+carryの`dividend_yield / net_share_change_yoy`が欠測なら、その成分の計算上の寄与は0である。これは無配・株数不変を観測した意味ではない。Valuationの公開読取、Researchの機械anchor、新しいReview SetとResearch入力は、この二つのnullable入力と`dividend_basis`、`carry_missing_assumption`を併記する。株数変化はclip前のグロス発行済株式数YoY（増加が正、減少が負）であり、将来の自社株買いcashではない。ER値・算式・既存の`er_assumptions`は変更しない。
+新しいReview SetとResearch入力は、同じSecurity Analysisの`dps_actual_annual / dps_forecast_annual`も欠測を保持して投影する。両値は配当計算の株式basisへ正規化した入力であり、原典の未加工値や予想配当の持続性の認定ではない。保存済みの旧publicationには後付けしない。
 
-保存済みReview Set/Triageに成分fieldが無い場合は「そのsnapshotに記録なし」であり、nullや0を補完して保存・再発行しない。新しいTriage runnerも欠測・field不在をゼロ観測の根拠にしない。直接のValuation/Research読取は元Security Analysisに残る成分を引用できるが、凍結した判断入力へ後から混ぜない。
+保存済みReview SetとResearch snapshotに成分fieldが無い場合は「そのsnapshotに記録なし」であり、nullや0を補完して保存・再発行しない。Researchも欠測・field不在をゼロ観測の根拠にしない。直接のValuation/Research読取は元Security Analysisに残る成分を引用できるが、凍結した判断入力へ後から混ぜない。
 
 ERは年率ratio（0.1＝10%/年）の機械priorで、モデル・単位・成分・前提を併記する。業種中央値anchorはERの保守側blendそのものではなく、自己レンジは現在fundamentalsを固定した価格比較（[§9](#9-過去自己比較過去-3-年レンジ)）である。企業固有の調査FV・期間内分配・Projectionと同一の評価名へまとめない。4 Approachの推薦式・推薦枠は[Screening runtime](./screening-runtime.md#candidate-discovery)が所有する。
 
@@ -228,7 +228,7 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 
 機械 E[r] の carry は `dividend_yield + clip(-net_share_change_yoy, ±5%)` で、後半は過去 1 年の**グロス発行済株式数**（自己株式を含む）の変化である。日本の自社株買いは取得した株式を自己株式へ入れるだけなので、発行済株式総数は消却するまで減らない。したがってこの成分は過去の株数縮小・希薄化 signal であり、将来の自社株買い cash や未消化枠ではない。
 
-将来の資本配分は機械 annotation で推定せず、research_triage で選ばれた銘柄だけを research で一次開示から確認する。
+将来の資本配分は機械 annotation で推定せず、Researchで選定した対象を一次開示から確認する。
 
 ## 8. 業種中央値の算出
 
@@ -309,8 +309,8 @@ source factor `0` と `1` は分割イベントとして採らず、`0`を分割
 - TTM 品質を `exact` / `approximated` / `unavailable` で明示する
 - EDINET CSV抽出では年次報告（書類種別120/130）の取得値を`exact`、それ以外の取得値を`approximated`、算出不能を`unavailable`とする。半期のCFO・CapExを取得しても完全TTMへ合成・年率化しない。書類の`source_period_end`はフローのcontext終点とは限らない。
 - 品質は供給元の計算・期間の区別であり、継続利益、資金の経済的持続性、株主回収可能性、倍率全体の正しさの認定ではない。`approximated`を一律に半期と解釈しない。
-- Research Triageの`analysis.data_quality.ttm_quality_ev_ebitda` / `ttm_quality_fcf`は、採用したSecurity Analysisの`ttm_quality.ev_ebitda` / `fcf_yield`をそのまま投影する。採用元の品質がなければ`null`で、別世代・別sourceから補わず、この注記だけでNominationを変えない。
-- 新規snapshotは2項目を明示し、Triage ModelInputはschema version 2となる。2項目のない保存済みsnapshotはキー欠如を保ち、従来どおりversion 1として再構築する。明示的`null`とキー欠如をserializerで区別し、旧canonicalとhashを変更しない。
+- Review Setの`analysis.data_quality.ttm_quality_ev_ebitda` / `ttm_quality_fcf`は、採用したSecurity Analysisの`ttm_quality.ev_ebitda` / `fcf_yield`をそのまま投影する。採用元の品質がなければ`null`で、別世代・別sourceから補わず、この注記だけでNominationを変えない。
+- 新しい候補snapshotは2項目を明示し、項目のない保存snapshotはキー欠如を保つ。Researchは選択したraw Security Analysisのnull・field欠落を維持する。明示的`null`とキー欠如をserializerで区別し、旧canonicalとhashを変更しない。
 - `EV/EBITDA` は `ttm_quality_ev_ebitda = exact` かつ EV / EBITDA がどちらも正のときのみ valuation-reversion 判定に使用する
 - 指標をeligibility/orderへ使う条件は各Approachに従う。`asset_backed_ratio`は非金融企業のAsset Valueで使い、E[r]・FV・全銘柄の単一順位やwarningには使わない。TTM品質の注記と、Approachが要求する入力条件を区別する。
 

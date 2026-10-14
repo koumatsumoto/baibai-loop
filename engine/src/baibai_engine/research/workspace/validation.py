@@ -11,6 +11,8 @@ import yaml
 
 from baibai_engine.position.ledger import replay_events_through
 from baibai_engine.position.store import LedgerStoreService
+from baibai_engine.research.inputs import project_research_inputs
+from baibai_engine.research.selection import ResearchSelection
 from baibai_engine.research.thesis import (
     ThesisDocument,
     ThesisReview,
@@ -19,14 +21,11 @@ from baibai_engine.research.thesis import (
     thesis_core_hash,
 )
 from baibai_engine.research.workspace.admission import (
-    ResearchSetAdmissionBinding,
-    _verify_research_triage,
     workspace_selection,
 )
 from baibai_engine.research.workspace.files import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceDataError,
-    _dict_list,
     _load_mapping,
     _string_or_none,
 )
@@ -35,53 +34,11 @@ from baibai_engine.storage.application.json import canonical_json
 
 def _verify_external_inputs(
     manifest: Mapping[str, object], *, db_path: Path | None = None
-) -> ResearchSetAdmissionBinding | None:
-    """Re-check the canonical subject for this workspace's purpose.
-
-    Returning the gate rather than reading it later is what keeps the two in step:
-    a caller cannot validate drafts without having first proved, against the store,
-    which tickers the Gate admits.
-
-    Position Review has no Research Triage — the ledger is its source — so it gets ``None``, and
-    its holding subject is re-proved against that ledger here. Both purposes
-    therefore prove their subject against a store: without that, declaring
-    ``position_review`` in the manifest would be a way to opt out of the Gate.
-    """
-
-    selection = (
-        None
-        if manifest.get("operation_id") is None
-        else workspace_selection(manifest, db_path=db_path)
-    )
-    purpose = str(manifest.get("purpose") or "fundamental_research")
-    if purpose not in {"fundamental_research", "position_review"}:
-        raise ResearchWorkspaceDataError("invalid workspace purpose")
-    if purpose == "position_review":
+) -> ResearchSelection:
+    selection = workspace_selection(manifest, db_path=db_path)
+    if manifest.get("holding_ticker") is not None:
         _require_holding_subject(manifest, db_path=db_path)
-        return None
-    inputs = manifest.get("inputs")
-    if not isinstance(inputs, Mapping):
-        raise ResearchWorkspaceDataError("manifest is missing external input hashes")
-    if selection is not None and selection.explicit_run is not None:
-        # Triage所属の代わりにcanonical Operationのrun・対象・要求を照合する。
-        # workspace編集で別銘柄を調査/発行できる入口にはしない。
-        # docs/reference/analysis-operations.md#explicit-research-source
-        if inputs.get("explicit_run") != selection.explicit_run.binding():
-            raise ResearchWorkspaceConflictError(
-                "workspace explicit run differs from fixed selection"
-            )
-        if manifest.get("research_set") != [
-            target.ticker for target in selection.targets if target.purpose == "new"
-        ]:
-            raise ResearchWorkspaceConflictError("workspace targets differ from fixed selection")
-        return None
-    if (
-        selection is not None
-        and not any(item.purpose == "new" for item in selection.targets)
-        and inputs.get("research_triage") is None
-    ):
-        return None
-    return _verify_research_triage(manifest, inputs, db_path=db_path)
+    return selection
 
 
 def _require_holding_subject(manifest: Mapping[str, object], *, db_path: Path | None) -> None:
@@ -97,92 +54,18 @@ def _require_holding_subject(manifest: Mapping[str, object], *, db_path: Path | 
 
 
 def _validate_editable_drafts(
-    workspace: Path, manifest: Mapping[str, object], *, gate: ResearchSetAdmissionBinding | None
+    workspace: Path, manifest: Mapping[str, object], *, gate: ResearchSelection
 ) -> None:
-    research_workspace = _load_mapping(
-        workspace / "research-workspace.yaml", label="research workspace"
-    )
-    manifest_asof = str(manifest.get("as_of") or "")
-    if research_workspace.get("as_of") != manifest_asof:
-        raise ResearchWorkspaceDataError("workspace draft as_of does not match manifest")
-
-    purpose = str(manifest.get("purpose") or "fundamental_research")
-    if purpose == "position_review":
-        _validate_position_review_drafts(research_workspace, manifest)
-        return
-    if purpose != "fundamental_research":
-        raise ResearchWorkspaceDataError(f"manifest purpose is invalid: {purpose}")
-
-    workspace_entries = _dict_list(research_workspace.get("review_set_entries"))
-    review_set_tickers = tuple(str(row.get("ticker") or "") for row in workspace_entries)
-    expected_entries = list(gate.review_set_entries) if gate is not None else []
-    machine_entries = [
-        {
-            key: row.get(key)
-            for key in (
-                "ticker",
-                "name",
-                "sector_33",
-                "nominations",
-                "research_priority",
-                "analysis",
-            )
-        }
-        for row in workspace_entries
-    ]
-    if canonical_json(machine_entries) != canonical_json(expected_entries):
-        raise ResearchWorkspaceConflictError(
-            "workspace Review Set Entry snapshot differs from canonical Research Triage; "
-            "rebuild the workspace with `research prepare --force`"
-        )
-    research_set = research_workspace.get("research_set")
-    if not isinstance(research_set, list) or not all(
-        isinstance(ticker, str) and ticker for ticker in research_set
+    ref = manifest.get("domain_inputs_ref")
+    path = workspace / "domain-inputs.yaml" if ref is None else workspace / str(ref)
+    if ref is not None and (
+        ref != "../../domain-inputs.yaml" or manifest.get("holding_ticker") is None
     ):
-        raise ResearchWorkspaceDataError("workspace research_set must be an array of tickers")
-    research_set_tickers = [str(ticker) for ticker in research_set]
-    if len(research_set_tickers) != len(set(research_set_tickers)) or any(
-        gate is not None and ticker not in review_set_tickers for ticker in research_set_tickers
-    ):
-        raise ResearchWorkspaceDataError("workspace research_set is invalid")
-    manifest_research_set = manifest.get("research_set")
-    if manifest_research_set != research_set:
+        raise ResearchWorkspaceConflictError("invalid parent domain input reference")
+    actual = _load_mapping(path, label="domain inputs")
+    if canonical_json(actual) != canonical_json(project_research_inputs(gate)):
         raise ResearchWorkspaceConflictError(
-            "workspace Research Set differs from the fixed selection; "
-            "rebuild the workspace with `research prepare --force`"
-        )
-    # An explicit source was checked against the canonical Operation above.
-    if gate is None:
-        inputs = manifest.get("inputs")
-        explicit_binding = inputs.get("explicit_run") if isinstance(inputs, Mapping) else None
-        if research_set_tickers and not isinstance(explicit_binding, Mapping):
-            raise ResearchWorkspaceDataError(
-                "Fundamental Research workspace has no ResearchTriage binding"
-            )
-        return
-    forbidden = [ticker for ticker in research_set_tickers if ticker not in gate.admissible_tickers]
-    if forbidden:
-        raise ResearchWorkspaceDataError(
-            f"workspace Research Set includes {', '.join(forbidden)}, which "
-            f"{gate.research_triage_id} did not mark research"
-        )
-
-
-def _validate_position_review_drafts(
-    research_workspace: Mapping[str, object],
-    manifest: Mapping[str, object],
-) -> None:
-    ticker = _string_or_none(manifest.get("holding_ticker"))
-    if ticker is None:
-        raise ResearchWorkspaceDataError("position-review manifest is missing holding_ticker")
-    subject_tickers = [
-        str(row.get("ticker") or "")
-        for row in _dict_list(research_workspace.get("position_review_subject"))
-    ]
-    research_set = research_workspace.get("research_set")
-    if subject_tickers != [ticker] or research_set != [ticker]:
-        raise ResearchWorkspaceDataError(
-            "position-review workspace must keep its holding subject fixed"
+            "domain inputs differ from the Operation's fixed snapshot"
         )
 
 

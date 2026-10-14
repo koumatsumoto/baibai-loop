@@ -11,12 +11,11 @@ def operative_screening_run(
 ) -> tuple[ScreeningRunRecord | None, list[dict[str, object]]]:
     """Resolve the run every screening surface reads, with its own review_sets.
 
-    The L2 machine Review Set binds to a specific run revision; the L3 Research
-    Triage refers to that published set.
+    The L2 machine Review Set binds to a specific run revision.
     A newer revision of the same as-of — a determinism re-run, say — carries no
     review_set of its own, so presenting it would blank the machine-review_set view.
     Falling back to the newest review_set's run
-    keeps Security Analyses, their review_sets, and the research_triage join on one run.
+    keeps Security Analyses and their review_sets on one run.
 
     Every surface that shows a candidate resolves the run here, so the list and the
     security page cannot end up describing the same ticker from different runs.

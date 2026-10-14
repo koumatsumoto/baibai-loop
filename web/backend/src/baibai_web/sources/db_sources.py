@@ -20,13 +20,11 @@ from baibai_engine.read_api import (
     indicator_latest_observed_at,
     indicator_series,
     latest_disclosure_dates_after,
-    latest_research_triage_payload,
     latest_unadjusted_closes,
     list_capital_allocation_assessment_payloads,
     list_operation_sessions,
     list_portfolio_outcome_payloads,
     list_position_review_publications,
-    list_research_triage_payloads,
     list_task_payloads,
     list_thesis_publications,
     list_thesis_review_publications,
@@ -35,8 +33,6 @@ from baibai_engine.read_api import (
     portfolio_ledger_document,
     position_review_null_reason,
     previous_business_day,
-    research_triage_payload,
-    research_triage_payloads_for_review_set,
     reviewed_thesis_projection,
     safe_load,
     screening_review_set_payloads,
@@ -242,33 +238,8 @@ class DbResearchSource:
     def load_errors(self) -> list[str]:
         return list(self._load_errors)
 
-    def research_triages(
-        self,
-        *,
-        review_set_ids: Sequence[str] | None = None,
-    ) -> list[dict[str, object]]:
-        if review_set_ids is None:
-            latest = latest_research_triage_payload(self._path)
-            return [] if latest is None else [latest]
-        latest_by_review_set: list[dict[str, object]] = []
-        for review_set_id in dict.fromkeys(review_set_ids):
-            payloads = research_triage_payloads_for_review_set(self._path, review_set_id)
-            if payloads:
-                latest_by_review_set.append(payloads[0])
-        return sorted(
-            latest_by_review_set,
-            key=lambda item: str(item["published_at"]),
-            reverse=True,
-        )
-
     def assessments(self) -> list[dict[str, object]]:
         return list_capital_allocation_assessment_payloads(self._path)
-
-    def research_triage(self, research_triage_id: str) -> dict[str, object] | None:
-        return research_triage_payload(self._path, research_triage_id)
-
-    def research_triage_history(self) -> list[dict[str, object]]:
-        return list_research_triage_payloads(self._path)
 
     def assessment(self, capital_allocation_assessment_id: str) -> dict[str, object] | None:
         return capital_allocation_assessment_payload(

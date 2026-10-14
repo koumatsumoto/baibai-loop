@@ -128,39 +128,6 @@ class TestDbResearchSource:
         assert source.thesis_detail(revision.thesis_id).revision.review_id == revision.review_id
         assert revision.review_id == (max(reviews) if reviews else None)
 
-    def test_research_triages_returns_the_latest_judgment_for_each_review_set(
-        self,
-        tmp_path: Path,
-        mocker,
-    ) -> None:
-        read = mocker.patch(
-            "baibai_web.sources.db_sources.research_triage_payloads_for_review_set",
-            side_effect=[
-                [
-                    {
-                        "research_triage_id": "triage-a",
-                        "published_at": "2026-08-28T14:00:00+09:00",
-                    },
-                    {
-                        "research_triage_id": "triage-a-old",
-                        "published_at": "2026-08-28T13:00:00+09:00",
-                    },
-                ],
-                [
-                    {
-                        "research_triage_id": "triage-b",
-                        "published_at": "2026-08-28T15:00:00+09:00",
-                    }
-                ],
-            ],
-        )
-        source = DbResearchSource(tmp_path / "app.sqlite")
-
-        triages = source.research_triages(review_set_ids=["review-set-a", "review-set-b"])
-
-        assert [item["research_triage_id"] for item in triages] == ["triage-b", "triage-a"]
-        assert [call.args[1] for call in read.call_args_list] == ["review-set-a", "review-set-b"]
-
 
 class TestDbTaskSource:
     def make_source(self, root: Path) -> TaskSource:
