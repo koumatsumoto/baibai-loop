@@ -28,6 +28,7 @@ from baibai_engine.valuation.metrics.capital import (
 from baibai_engine.valuation.metrics.dividends import (
     DIVIDEND_RECORD_DATE_GUARD_DAYS,
     DIVIDEND_ROUTE_TOLERANCE,
+    _dividend_basis_factor,
 )
 from baibai_engine.valuation.metrics.periods import _latest_consistent_actual
 
@@ -47,7 +48,7 @@ __all__ = (
 )
 
 
-FORWARD_CALCULATION_REVISION = "fy-dividend-document-revisions-v1"
+FORWARD_CALCULATION_REVISION = "fy-dividend-document-revisions-v2"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -805,10 +806,10 @@ def _asof_basis_dividend(
         return 0.0
     window_start = observation.period_start or add_months_clamped(observation.fiscal_year_end, -12)
     if (
-        _cumulative_adjustment_factor_after(
-            bars, after=window_start, asof_date=observation.disclosed_at
+        _dividend_basis_factor(
+            bars, accrual_start=window_start, disclosed_at=observation.disclosed_at
         )
-        == 1.0
+        is None
     ):
         return reported * _cumulative_adjustment_factor_after(
             bars, after=observation.disclosed_at, asof_date=basis_date

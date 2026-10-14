@@ -34,9 +34,8 @@ from baibai_engine.valuation.metrics.periods import (
     resolve_actual_conflicts,
 )
 
-# 通期実績 DPS の accrual 期間を bound する暦日窓。前期の通期実績開示行が窓内に
-# 無い (実績が 1 期分しか無い) ときのフォールバックで、開示日から約 1 年遡って
-# その期間内・開示前の分割を carry へ反映するために使う。
+# 会計期間の開始日・期末日が両方とも不明な場合の、開示日から遡る暦日窓。
+# 実際の会計期間や配当基準日を復元するものではない。
 DIVIDEND_ACCRUAL_LOOKBACK_DAYS = 400
 
 # 5 年 carry へ反復させる会社予想の上限。直近実績の 2 倍を超える進行期予想は、
@@ -170,9 +169,8 @@ def _actual_dps_rows(
 # 基準日の 5 日以内に集中し、5〜20 日の帯には 1 件も現れない (#901)。
 DIVIDEND_RECORD_DATE_GUARD_DAYS = 5
 
-# 総額から出した 1 株当たりと、支払ごとに換算した合計が食い違ってよい幅。総額は百万円
-# 単位で開示され、割る株数は期末時点なので、支払の基準日の株数とは自社株買いのぶんだけ
-# ずれる。この幅を超える食い違いは、どちらかの経路が別の株式基準を見ている合図になる。
+# 年間 DPS と明細合計、および配当総額 / 株数と換算済み明細の許容相対差。
+# 総額の丸めや株数の時点差などを許すための規約であり、差の原因を特定する閾値ではない。
 DIVIDEND_ROUTE_TOLERANCE = 0.05
 
 
@@ -194,13 +192,19 @@ def _dividend_basis_factor(
     *,
     accrual_start: date,
     disclosed_at: date,
-) -> float:
-    """会計期間に起きた分割・併合の累積 factor。1.0 なら年度を通じて基準が一意。
+) -> float | None:
+    """会計期間の調整が無ければ None、あれば相殺して 1.0 でも累積 factor を返す。
 
     年間 DPS は中間・期末それぞれの基準日時点の株式基準で記載され、開示日で基準が決まる
     わけではない。期間内に分割・併合が入ると支払ごとに action の前後が分かれるので、
     報告された年間値をそのまま株価と比べられない。
     """
+    if not any(
+        accrual_start < bar.traded_at <= disclosed_at
+        and bar.adjustment_factor not in (None, 0.0, 1.0)
+        for bar in ticker_bars
+    ):
+        return None
     return _cumulative_adjustment_factor_after(ticker_bars, accrual_start, disclosed_at)
 
 
@@ -242,7 +246,7 @@ def _asof_basis_dividend(
     支払ごとに、その基準日より後の調整だけを掛けて足す。この経路は期末発行済株式数を
     使わないので、提出者がその株数を遡及修正したかどうかに左右されない。基準日のすぐ
     そばに調整がある年度は、権利落ち日しか持たない store からは前後を決められないので
-    答えない。答えられた値は 2 つの独立な量と突き合わせる。調整を掛ける前の明細合計が
+    答えない。答えられた値は利用可能な 2 種類の量と突き合わせる。調整を掛ける前の明細合計が
     報告された年間値と一致すること (明細の欠落を「解決済み」として出さない)、そして
     株式基準を持たない配当総額から出した 1 株当たりと一致すること。
     """
@@ -327,7 +331,7 @@ def _resolve_dividend_carry(
     actual_rows = _actual_dps_rows(summaries)
     forecast_state = _resolve_dividend_forecast(summaries)
     forecast = forecast_state.annual_dps if forecast_state is not None else None
-    basis_factor = 1.0
+    basis_factor: float | None = None
     actual_annual: float | None = None
     actual_unresolved = bool(
         actual_rows and "dps_actual_annual" in actual_rows[0].unresolved_actual_fields
@@ -340,12 +344,12 @@ def _resolve_dividend_carry(
             accrual_start=_dividend_accrual_start(latest_actual),
             disclosed_at=latest_actual.disclosed_at,
         )
-        if basis_factor == 1.0:
+        if basis_factor is None:
             actual_annual = latest_actual.dps_actual_annual
         else:
             actual_annual = _asof_basis_dividend(latest_actual, ticker_bars, asof_date=asof_date)
 
-    recorded_factor = basis_factor if basis_factor != 1.0 else None
+    recorded_factor = basis_factor
 
     forecast_is_usable_for_carry = (
         forecast is not None
@@ -581,7 +585,7 @@ def _asof_basis_fy_dps(
             accrual_start=_dividend_accrual_start(row),
             disclosed_at=row.disclosed_at,
         )
-        if factor == 1.0:
+        if factor is None:
             values[fiscal_year_end] = value
             continue
         resolved = _asof_basis_dividend(row, ticker_bars, asof_date=asof_date)
