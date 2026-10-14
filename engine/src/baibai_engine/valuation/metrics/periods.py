@@ -166,7 +166,8 @@ def _latest_actual_row(
                 for field_name in required
             )
             if field_names
-            else any(getattr(summary, field_name) is not None for field_name in required)
+            else bool(summary.unresolved_actual_fields)
+            or any(getattr(summary, field_name) is not None for field_name in required)
         )
     ]
     return _latest_consistent_actual(candidates, required if field_names else ())
@@ -179,9 +180,13 @@ def _latest_actual_row_with_any(
     candidates = [
         summary
         for summary in summaries
-        if any(getattr(summary, field_name) is not None for field_name in field_names)
+        if any(
+            getattr(summary, field_name) is not None
+            or field_name in summary.unresolved_actual_fields
+            for field_name in field_names
+        )
     ]
-    return _latest_consistent_actual(candidates, field_names)
+    return _latest_consistent_actual(candidates, ())
 
 
 def _latest_actual_row_by_field_priority(
@@ -205,7 +210,10 @@ def _latest_actual_row_by_field_priority(
             summary
             for summary in summaries
             if _accounting_period_identity(summary) == period_key
-            and getattr(summary, field_name) is not None
+            and (
+                getattr(summary, field_name) is not None
+                or field_name in summary.unresolved_actual_fields
+            )
         ]
         if candidates:
             return _latest_consistent_actual(candidates, (field_name,))

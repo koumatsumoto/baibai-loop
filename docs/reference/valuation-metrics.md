@@ -74,7 +74,7 @@ Researchの選択済み銘柄入力の`cash_flow`は、機械anchorと同じrun�
 - **会社予想 EPS ベース**（会社が期初/修正後に開示した公式予想）
 - 取得: J-Quantsの会社予想EPS。保存済み文書を[`market/financial_documents`](../../engine/src/baibai_engine/market/financial_documents.py)の共通純粋投影で読み、対象期・連結basis・指標sourceを解決する。EPSが有効なら純利益・経常利益の欠測だけでPERを落とさない。IFRS等の経常利益欠測も許す。
 
-数値の有無より先に、as-ofに適用する最新の決算期状態を決める。当期・翌期とprimary・nonconsolidatedの全欄は保存し、異なる期間やbasisを混ぜない。単体会社のprimary欄に入った翌期予想も使うが、連結会社の単体補足予想で連結予想を上書きしない。利益3項目は同一文書の同一slotから任意に読む。年間DPSは独立した文書streamから明示0を保持して解決する。空欄はその文書の非掲載であり、撤回の確認に読み替えない。新しい決算期の空欄を古い対象期の数値で埋めない。
+数値の有無より先に、as-ofに適用する最新の決算期状態を決める。当期・翌期とprimary・nonconsolidatedの全欄は保存し、異なる期間やbasisを混ぜない。単体会社のprimary欄に入った翌期予想も使うが、連結会社の単体補足予想で連結予想を上書きしない。利益3項目は同一対象期・basisの最新の同時開示候補からfield単位で読む。非競合の補完項目を単一文書へ限定せず、項目ごとのsource recordを残す。異なる対象期・basisや、順序が確定している古いrevisionの項目を混ぜない。年間DPSは独立した文書streamから明示0を保持して解決する。空欄はその文書の非掲載であり、撤回の確認に読み替えない。新しい決算期の空欄を古い対象期の数値で埋めない。
 
 source文書のbasisと採用対象のbasisを別に保持する。単体→連結・連結→単体の移行後に、旧primary予想を新basisへラベル替えしない。同時刻のstatementがbasisについて矛盾すれば、basis自体を未解決にする。
 

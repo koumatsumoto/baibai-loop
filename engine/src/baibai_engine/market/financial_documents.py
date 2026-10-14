@@ -6,7 +6,7 @@ import hashlib
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
-from datetime import date
+from datetime import date, time
 from math import isfinite
 from typing import Any
 
@@ -168,14 +168,26 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
         average_shares=to_float(coalesce_field(record, "AvgSh")),
         record_key=financial_document_key(record),
         disclosure_number=_text(record.get("DiscNo")),
-        disclosed_time=_text(record.get("DiscTime")),
+        disclosed_time=_disclosed_time(record.get("DiscTime")),
         document_type=_text(record.get("DocType")),
         document_payload=financial_document_payload(record),
     )
 
 
 def _text(value: Any) -> str | None:
-    return str(value).strip() if value is not None and str(value).strip() else None
+    text = str(value).strip() if value is not None else ""
+    return None if text in {"", "nan", "NaN", "NaT", "<NA>"} else text
+
+
+def _disclosed_time(value: Any) -> str | None:
+    text = _text(value)
+    if text is None:
+        return None
+    try:
+        parsed = time.fromisoformat(text)
+    except ValueError:
+        return None
+    return parsed.isoformat() if parsed.tzinfo is None else None
 
 
 def financial_document_payload(record: Mapping[str, Any]) -> str:
@@ -214,7 +226,7 @@ def latest_disclosure_candidates(
     return [row for row in same_day if not row.disclosed_time or row.disclosed_time == known_time]
 
 
-def _statement_basis(row: JQuantsFinancialSummary) -> str:
+def statement_basis(row: JQuantsFinancialSummary) -> str:
     kind = row.document_type or ""
     if "NonConsolidated" in kind:
         return "nonconsolidated"
@@ -230,7 +242,7 @@ def _statement_basis_state(rows: Sequence[JQuantsFinancialSummary]) -> str:
     candidates = latest_disclosure_candidates(
         [row for row in rows if (row.fiscal_year_end or date.min) == end]
     )
-    bases = {_statement_basis(row) for row in candidates}
+    bases = {statement_basis(row) for row in candidates}
     return next(iter(bases)) if len(bases) == 1 else "basis_unresolved"
 
 
@@ -239,7 +251,7 @@ def _primary_source_basis(
     statements: Sequence[JQuantsFinancialSummary],
 ) -> str:
     if "FinancialStatements" in (row.document_type or ""):
-        return _statement_basis(row)
+        return statement_basis(row)
     previous = [s for s in statements if s.disclosed_at < row.disclosed_at]
     same_day = [s for s in statements if s.disclosed_at == row.disclosed_at]
     certain = [
@@ -249,7 +261,7 @@ def _primary_source_basis(
     ]
     uncertain = [s for s in same_day if not s.disclosed_time or not row.disclosed_time]
     basis = _statement_basis_state([*previous, *certain])
-    alternatives = {basis, *(_statement_basis(s) for s in uncertain)}
+    alternatives = {basis, *(statement_basis(s) for s in uncertain)}
     return basis if len(alternatives) == 1 else "primary_unknown"
 
 
@@ -315,6 +327,7 @@ def project_financial_documents(
                 ),
                 None,
             )
+            field_sources: list[tuple[str, tuple[str, ...]]] = []
             source_basis = _primary_source_basis(row, statements)
             eps = profit = ordinary = dps = None
             earnings_status = dividend_status = "not_applicable"
@@ -340,9 +353,18 @@ def project_financial_documents(
                         else "missing"
                     )
                     eps, profit, ordinary = (to_float(record.get(key)) for key in keys)
+                    for field, key in zip(
+                        ("forecast_eps", "forecast_profit", "forecast_ordinary_profit"),
+                        keys,
+                        strict=True,
+                    ):
+                        if has_period_slot(record, key) and row.record_key:
+                            field_sources.append((field, (row.record_key,)))
                 dps_key = f"{prefix}DivAnn"
                 dividend_status = "confirmed" if has_period_slot(record, dps_key) else "missing"
                 dps = to_float(record.get(dps_key))
+                if has_period_slot(record, dps_key) and row.record_key:
+                    field_sources.append(("dps_forecast_annual", (row.record_key,)))
             projected.append(
                 replace(
                     row,
@@ -354,6 +376,7 @@ def project_financial_documents(
                     forecast_period_end=target[1] if target else None,
                     forecast_basis=source_basis,
                     forecast_target_basis=target_basis,
+                    forecast_field_sources=tuple(field_sources),
                     forecast_status=earnings_status,
                     dividend_forecast_status=dividend_status,
                 )
@@ -400,28 +423,55 @@ def latest_forecast_source(
                 sorted({row.disclosure_number for row in latest if row.disclosure_number})
             ),
         )
-    conflicts = {
-        field
-        for field in fields
-        if len({getattr(row, field) for row in latest if getattr(row, field) is not None}) > 1
-    }
-    if conflicts:
-        if dividend:
-            return replace(source, dps_forecast_annual=None, dividend_forecast_status="unresolved")
-        eps = None if "forecast_eps" in conflicts else source.forecast_eps
-        profit = None if "forecast_profit" in conflicts else source.forecast_profit
-        ordinary = (
-            None if "forecast_ordinary_profit" in conflicts else source.forecast_ordinary_profit
-        )
-        return replace(
+    agreed: dict[str, float | None] = {}
+    conflicts = set()
+    field_sources = []
+    for field in fields:
+        observed = [row for row in latest if getattr(row, field) is not None]
+        values = {getattr(row, field) for row in observed}
+        unknown = [
+            row
+            for row in latest
+            if getattr(row, field) is None
+            and any(name == field and records for name, records in row.forecast_field_sources)
+        ]
+        agreed[field] = next(iter(values)) if len(values) == 1 and not unknown else None
+        if len(values) > 1 or unknown:
+            conflicts.add(field)
+        records = {
+            key
+            for row in latest
+            for name, keys in row.forecast_field_sources
+            if name == field
+            for key in keys
+        }
+        records.update(row.record_key for row in observed if row.record_key)
+        field_sources.append((field, tuple(sorted(records))))
+    if len(latest) > 1:
+        source = replace(
             source,
-            forecast_eps=eps,
-            forecast_profit=profit,
-            forecast_ordinary_profit=ordinary,
-            forecast_status="partially_unresolved"
-            if any(value is not None for value in (eps, profit, ordinary))
-            else "unresolved",
+            record_key=None,
+            document_payload=None,
+            forecast_field_sources=tuple(field_sources),
         )
+    if dividend:
+        source = replace(source, dps_forecast_annual=agreed["dps_forecast_annual"])
+        if conflicts:
+            return replace(source, dividend_forecast_status="unresolved")
+    else:
+        source = replace(
+            source,
+            forecast_eps=agreed["forecast_eps"],
+            forecast_profit=agreed["forecast_profit"],
+            forecast_ordinary_profit=agreed["forecast_ordinary_profit"],
+        )
+        if conflicts:
+            return replace(
+                source,
+                forecast_status="partially_unresolved"
+                if any(value is not None for value in agreed.values())
+                else "unresolved",
+            )
     if getattr(source, status_field) == "confirmed" and all(
         getattr(source, field) is None for field in fields
     ):
@@ -453,4 +503,8 @@ def forecast_source_trace(
     }
     if row.forecast_source_documents:
         trace["candidate_disclosure_numbers"] = ",".join(row.forecast_source_documents)
+    for field, records in row.forecast_field_sources:
+        if (field == "dps_forecast_annual") != dividend:
+            continue
+        trace[f"{field}_source_records"] = ",".join(records) or None
     return trace

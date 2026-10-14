@@ -579,3 +579,110 @@ def test_latest_legacy_actual_missing_ttm_field_keeps_existing_availability() ->
     rules = load_screening_rules().ttm
     assert _ttm_value(rows, "profit", rules)[0] is None
     assert _ttm_value(rows, "sales", rules)[0] is None
+
+
+@pytest.mark.parametrize("missing_time", [None, "", float("nan")])
+def test_missing_sdk_time_cannot_become_a_known_revision(missing_time: Any) -> None:
+    rows = decode([document("unknown", time=missing_time, FEPS="30"), document("known", FEPS="20")])
+    assert rows[0].disclosed_time is None
+    assert snapshot(rows).per_forward is None
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_complementary_earnings_documents_keep_independent_fields_and_sources(
+    reverse: bool,
+) -> None:
+    records = [document("eps", FEPS="20"), document("profit", FNP="100", FOdP="90")]
+    if reverse:
+        records.reverse()
+    result = snapshot(decode(records))
+    assert result.per_forward == 1074 / 20
+    assert result.forecast_special_gain_flag
+    assert result.earnings_forecast_source
+    assert result.earnings_forecast_source["forecast_eps_source_records"] == "doc:eps"
+    assert result.earnings_forecast_source["forecast_profit_source_records"] == "doc:profit"
+    assert (
+        result.earnings_forecast_source["forecast_ordinary_profit_source_records"] == "doc:profit"
+    )
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_complementary_fy_eps_and_dps_keep_both_without_joining_capital_pair(reverse: bool) -> None:
+    from baibai_engine.valuation.metrics.dividends import _latest_fy_revisions
+
+    a, b = (
+        actual_document("eps", ShOutFY="1000"),
+        actual_document("payout", DivAnn="7", TrShFY="100"),
+    )
+    a["NP"] = a["Sales"] = ""
+    b["EPS"] = b["NP"] = b["Sales"] = ""
+    rows = decode([a, b] if not reverse else [b, a])
+    fy = _latest_fy_revisions(rows)[0]
+    assert fy.eps_ttm == 20
+    assert fy.dps_actual_annual == 7
+    assert fy.shares_outstanding is None or fy.treasury_shares is None
+    assert _resolve_capital_basis(rows).shares_ex_treasury is None
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_unresolved_only_latest_period_cannot_revive_old_profit(reverse: bool) -> None:
+    from baibai_engine.valuation.metrics.capital import _normalize_summaries_with_status
+    from baibai_engine.valuation.metrics.periods import _ttm_value
+
+    old = document(
+        "old-fy",
+        day="2025-08-10",
+        DocType="FYFinancialStatements_NonConsolidated_JP",
+        CurFYSt="2024-07-01",
+        CurFYEn="2025-06-30",
+        CurPerSt="2024-07-01",
+        CurPerEn="2025-06-30",
+        EPS="10",
+        NP="100",
+    )
+    latest = [
+        document(
+            "latest-a",
+            day="2026-08-10",
+            DocType="FYFinancialStatements_NonConsolidated_JP",
+            CurFYSt="2025-07-01",
+            CurFYEn="2026-06-30",
+            CurPerSt="2025-07-01",
+            CurPerEn="2026-06-30",
+            EPS="20",
+            NP="200",
+        ),
+        document(
+            "latest-b",
+            day="2026-08-10",
+            DocType="FYFinancialStatements_NonConsolidated_JP",
+            CurFYSt="2025-07-01",
+            CurFYEn="2026-06-30",
+            CurPerSt="2025-07-01",
+            CurPerEn="2026-06-30",
+            EPS="30",
+            NP="300",
+        ),
+    ]
+    if reverse:
+        latest.reverse()
+    rows = decode([old, *latest])
+    rules = load_screening_rules().ttm
+    assert _ttm_value(rows, "profit", rules)[0] is None
+    normalized = _normalize_summaries_with_status(rows, (), ASOF).summaries
+    assert normalized[-1].unresolved_actual_fields
+    assert _ttm_value(normalized, "profit", rules)[0] is None
+    assert snapshot(rows).operating_profit is None
+
+
+def test_explicit_unknown_forecast_slot_is_not_an_absent_complement() -> None:
+    rows = decode(
+        [
+            document("unknown", time="", FEPS="NaN", FNP="100"),
+            document("known", FEPS="20", FOdP="90"),
+        ]
+    )
+    result = snapshot(rows)
+    assert result.per_forward is None
+    assert result.earnings_forecast_source
+    assert result.earnings_forecast_source["forecast_eps_source_records"] == "doc:known,doc:unknown"

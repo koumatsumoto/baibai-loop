@@ -13,6 +13,7 @@ from baibai_engine.market.financial_documents import (
     latest_disclosure_candidates,
     latest_forecast_source,
     project_financial_documents,
+    statement_basis,
 )
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.valuation.metrics.capital import (
@@ -462,34 +463,61 @@ def _latest_fy_revisions(
         tied = latest_disclosure_candidates(rows)
         # Preserve unresolved years in the consecutive-FY series rather than
         # silently skipping a contradictory EPS/DPS observation.
-        changes: dict[str, float | None] = {}
-        for field in ("eps_ttm", "dps_actual_annual", "shares_outstanding", "treasury_shares"):
-            values = {getattr(row, field) for row in tied if getattr(row, field) is not None}
-            if len(values) > 1 or any(field in row.unresolved_actual_fields for row in tied):
-                changes[field] = None
         representative = max(
             tied,
-            key=lambda row: tuple(
-                getattr(row, field) is not None
-                for field in (
-                    "eps_ttm",
-                    "dps_actual_annual",
-                    "shares_outstanding",
-                    "treasury_shares",
-                )
+            key=lambda row: (
+                sum(
+                    getattr(row, field) is not None
+                    for field in ("shares_outstanding", "treasury_shares")
+                ),
+                row.eps_ttm is not None,
+                row.dps_actual_annual is not None,
             ),
         )
+        if len(tied) == 1 or len({statement_basis(row) for row in tied}) != 1:
+            result.append(representative)
+            continue
+
+        def agreed(candidates: Sequence[JQuantsFinancialSummary], field: str) -> float | None:
+            values = {getattr(row, field) for row in candidates if getattr(row, field) is not None}
+            return (
+                next(iter(values))
+                if len(values) == 1
+                and not any(field in row.unresolved_actual_fields for row in candidates)
+                else None
+            )
+
+        eps, dps = agreed(tied, "eps_ttm"), agreed(tied, "dps_actual_annual")
+        dps_sources = [row for row in tied if dps is not None and row.dps_actual_annual == dps]
+        dividend_source = max(
+            dps_sources,
+            key=lambda row: sum(
+                getattr(row, field) is not None
+                for field in (
+                    "dividend_q1",
+                    "dividend_interim",
+                    "dividend_q3",
+                    "dividend_year_end",
+                    "dividend_total_annual",
+                )
+            ),
+            default=representative,
+        )
+        # EPS and payout are independent facts. The capital pair remains exactly
+        # the representative source's pair; never fill its missing half from another.
         result.append(
             replace(
                 representative,
-                eps_ttm=changes.get("eps_ttm", representative.eps_ttm),
-                dps_actual_annual=changes.get(
-                    "dps_actual_annual", representative.dps_actual_annual
-                ),
-                shares_outstanding=changes.get(
-                    "shares_outstanding", representative.shares_outstanding
-                ),
-                treasury_shares=changes.get("treasury_shares", representative.treasury_shares),
+                eps_ttm=eps,
+                dps_actual_annual=dps,
+                dividend_q1=dividend_source.dividend_q1,
+                dividend_interim=dividend_source.dividend_interim,
+                dividend_q3=dividend_source.dividend_q3,
+                dividend_year_end=dividend_source.dividend_year_end,
+                dividend_total_annual=dividend_source.dividend_total_annual,
+                disclosure_number=None,
+                record_key=None,
+                document_payload=None,
             )
         )
     return result

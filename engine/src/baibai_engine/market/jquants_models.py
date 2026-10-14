@@ -163,6 +163,7 @@ class JQuantsFinancialSummary:
     forecast_target_basis: str | None = None
     unresolved_actual_fields: tuple[str, ...] = ()
     forecast_source_documents: tuple[str, ...] = ()
+    forecast_field_sources: tuple[tuple[str, tuple[str, ...]], ...] = ()
     forecast_status: str = "legacy_unknown"
     dividend_forecast_status: str = "legacy_unknown"
 
