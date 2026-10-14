@@ -602,3 +602,25 @@ def test_documented_shell_composition_is_not_interpreted(tmp_path: Path, shell: 
     path.parent.mkdir()
     path.write_text(f"```bash\nuv run baibai-engine lake inventory{shell}\n```\n")
     assert check_documented_commands.check(tmp_path) == []
+
+
+@pytest.mark.parametrize(
+    "method_path",
+    [
+        "method/screening/rules/2026-10-14T065100+0900.yaml",
+        "method/screening/rules/2099-01-01T000000+0900.yaml",
+        "method/macro/reading/2099-01-01T000000+0900.yaml",
+    ],
+)
+def test_repository_path_gate_tracks_dated_methods_without_pin_updates(tmp_path, method_path):
+    owner = tmp_path / "engine/src/baibai_engine/foundation/repository_layout.py"
+    owner.parent.mkdir(parents=True)
+    owner.write_text(f"METHOD = {method_path!r}\n", encoding="utf-8")
+    assert check_repository_paths.check(tmp_path) == []
+    consumer = tmp_path / "batch/src/baibai_batch/job.py"
+    consumer.parent.mkdir(parents=True)
+    consumer.write_text(f"METHOD = {method_path!r}\n", encoding="utf-8")
+    errors = check_repository_paths.check(tmp_path)
+    assert len(errors) == 1
+    assert repr(method_path) in errors[0]
+    assert "belongs in engine/src/baibai_engine/foundation/repository_layout.py" in errors[0]
