@@ -8,7 +8,9 @@ class SecurityCodeError(ValueError):
 def normalize_ticker(value: str) -> str:
     ticker = value.strip()
     if len(ticker) != 4 or not ticker.isascii() or not ticker.isalnum():
-        raise SecurityCodeError(f"ticker must be a 4-character ASCII alphanumeric string: {value!r}")
+        raise SecurityCodeError(
+            f"ticker must be a 4-character ASCII alphanumeric string: {value!r}"
+        )
     return ticker.upper()
 
 
