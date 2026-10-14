@@ -470,27 +470,11 @@ def _evaluate_sector_median_basis(
     population: Sequence[PanelRow],
     excess: Mapping[str, float],
 ) -> dict[str, object]:
-    """Split each sector-gap axis by which population produced its median.
+    """Compare within each baseline group without claiming sector-matched effects.
 
-    A sector below the head-count floor is compared against the whole market instead,
-    and the two answers are not the same quantity: the sectors that fall through sit
-    below the market on every valuation axis, so their names carry a negative gap that
-    sector composition alone can explain. The axis result is reported for each basis so
-    that a reader can tell an axis that works from an axis that works on one basis.
-
-    **What the group did is not what the axis is worth.** Falling back is decided per
-    sector, so the market-basis group is a union of whole sectors and its median outcome
-    is that sector mix -- subtracting each row's own sector median drives it to zero on
-    every axis and cohort. `group_median_excess` is therefore reported as the mix it is,
-    and the axis is measured inside each group by splitting on the axis value itself:
-    the cheap half against the expensive half is a comparison the sector mix cannot
-    produce, because both halves carry the same sectors.
-
-    The two sides are not the same size. A cohort holds a few thousand names on their own
-    sector and roughly fifty on the market, because only nine sectors sit below the floor.
-    A decile spread over fifty rows puts five names in a bucket, so the spread is reported
-    only where the sample supports it while the half-split, which needs far less, carries
-    the comparison on both sides.
+    Group levels describe the observed population. Half-split and decile differences
+    describe its axis ordering; the two sides can still differ in sector composition
+    and other characteristics. Sample availability depends on the cohort and axis.
     """
     result: dict[str, object] = {}
     for axis_name in SECTOR_MEDIAN_AXES:
@@ -532,16 +516,14 @@ def _evaluate_sector_median_basis(
     return result
 
 
-# 群内を軸値で 2 分割して効きを測るのに要る最小標本。市場 fallback 側は 1 cohort
-# あたり 50〜80 行なので decile は組めないが、半分ずつなら分位あたり 15 行以上を保てる。
+# 群内の半分割に要る最小標本。両側で15行以上を確保する。
 MIN_HALF_SPLIT_SAMPLE = 30
 
 
 def _half_split_effect(pairs: Sequence[tuple[float, float]]) -> dict[str, object]:
     """群の中で「割安側」と「割高側」の実現超過を比べる。
 
-    群そのものの中央値は、群の決まり方 (業種が薄いかどうか) が持ち込む構成をそのまま
-    映す。同じ群を軸値で割れば両側が同じ構成を持つので、差は軸の効きだけを表す。
+    群内の単純な軸値順による比較であり、両側の業種構成や他の交絡を揃えてはいない。
     """
     if len(pairs) < MIN_HALF_SPLIT_SAMPLE:
         return {
@@ -697,9 +679,8 @@ def _evaluate_er_level_calibration(
         realized_total = median(total for _, _, total in chunk)
         quintiles.append(
             {
-                # The display context maps a current estimate back to the historical
-                # calibration band. Keep the observed band edge with the cohort;
-                # reconstructing it later from the median would only be an approximation.
+                # This diagnostic uses observed outcomes. Display-context boundaries
+                # are separately derived from all declared predictions in context.py.
                 "max_predicted_er_annual": round(
                     max(float(row.er_annual or 0.0) for row, _, _ in chunk), 6
                 ),

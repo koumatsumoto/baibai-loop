@@ -71,7 +71,6 @@ def _margin_short_to_adv_adoption_sign(value: object) -> float | None:
 
 def _direction_signs(
     context: _CohortExcessContext,
-    panel: Sequence[PanelRow],
     *,
     horizon: str,
     candidate_discovery_rules: CandidateDiscoveryRules,
@@ -135,7 +134,6 @@ def _signs_for_returns(
         return dict.fromkeys(_ALL_SENSITIVITY_METRICS)
     return _direction_signs(
         context,
-        panel,
         horizon=horizon,
         candidate_discovery_rules=candidate_discovery_rules,
     )
