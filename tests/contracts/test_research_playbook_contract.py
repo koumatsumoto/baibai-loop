@@ -28,6 +28,7 @@ def test_active_research_playbooks_map_explicitly_to_valuation_approaches() -> N
     for path in PLAYBOOK_ROOT.glob("*/*.md"):
         metadata = _frontmatter(path)
         if metadata.get("status") == "active":
+            assert path.parent.name not in active, f"multiple active playbooks: {path.parent}"
             active[path.parent.name] = metadata
 
     assert set(active) == set(EXPECTED_ACTIVE_MAPPINGS)

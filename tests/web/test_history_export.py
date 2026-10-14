@@ -10,9 +10,7 @@ from baibai_web.materialize import _write_history
 
 def test_indexed_history_missing_from_lookup_aborts_export(tmp_path: Path, mocker) -> None:
     expected_date = date(2026, 10, 14)
-    mocker.patch(
-        "baibai_web.materialize.screening_run_asof_dates", return_value=[expected_date]
-    )
+    mocker.patch("baibai_web.materialize.screening_run_asof_dates", return_value=[expected_date])
     mocker.patch("baibai_web.materialize.build_screening_history_run", return_value=None)
 
     with pytest.raises(ValueError, match="indexed Screening history is unavailable: 2026-10-14"):
