@@ -98,7 +98,6 @@ class PortfolioOutcomePayload(BaseModel):
             "confirmed_income_yen": self.confirmed_income_yen,
             "confirmed_cost_yen": self.confirmed_cost_yen,
             "confirmed_tax_yen": self.confirmed_tax_yen,
-            "estimated_exit_tax_yen": self.estimated_exit_tax_yen,
             "estimated_exit_tax_status": self.estimated_exit_tax_status,
             "open_tickers": self.open_tickers,
             "closed_tickers": self.closed_tickers,
@@ -108,6 +107,10 @@ class PortfolioOutcomePayload(BaseModel):
         missing = sorted(field for field, value in required.items() if value is None)
         if missing:
             raise ValueError(f"resolved outcome fields are required: {', '.join(missing)}")
+        if self.estimated_exit_tax_status == "estimated" and self.estimated_exit_tax_yen is None:
+            raise ValueError("estimated exit tax requires a value")
+        if self.estimated_exit_tax_status == "unknown" and self.estimated_exit_tax_yen is not None:
+            raise ValueError("unknown exit tax must be null")
         if self.benchmark_cumulative_return_pct != benchmark.cumulative_return_pct:
             raise ValueError("outcome benchmark return does not match benchmark observation")
         assert self.portfolio_twr_pct is not None
