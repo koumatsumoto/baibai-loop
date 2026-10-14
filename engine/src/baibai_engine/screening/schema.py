@@ -67,8 +67,8 @@ class DerivedMetrics:
     sector_median_value: NullableFloatMap = Field(default_factory=dict)
     # 上の 2 つがどの母集団から作られたかを軸ごとに記録する。母数が薄い業種では
     # 市場全体へ落ちるので、同じ field が「業種との差」と「市場との差」の 2 つの量を
-    # 指す。落ちた業種は市場より低倍率に寄るため、素性が無いと gate を越えた根拠が
-    # 業種比較なのか市場比較なのか読めない。値は `SECTOR_MEDIAN_BASIS_SECTOR` /
+    # 指す。比較対象を明示し、業種差と市場差を取り違えない。
+    # 値は `SECTOR_MEDIAN_BASIS_SECTOR` /
     # `SECTOR_MEDIAN_BASIS_MARKET` のいずれか。
     sector_median_basis: StringMap = Field(default_factory=dict)
     self_range_percentile: NullableFloatMap = Field(default_factory=dict)
@@ -84,9 +84,9 @@ class DerivedMetrics:
     # Supply/demand read from the exchange's published margin balances. Definitions
     # and the reason each one is shaped this way live in `market_context.margin`. The field
     # names the balance date behind the numbers, which is what makes their age
-    # readable: through 2026-09-18 the balances are weekly and published days later,
-    # so an asof in the middle of a week is looking at data up to nine days old by
-    # construction; the daily series that replaces them narrows that to a day.
+    # readable. The retained field name also holds daily balance dates after the
+    # weekly-to-daily transition. Publication delays, holidays and missing releases
+    # affect actual age; daily frequency does not guarantee one-day freshness.
     margin_week_end: date | None = None
     margin_issue_type: str | None = None
     margin_long_to_adv: float | None = None

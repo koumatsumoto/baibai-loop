@@ -333,8 +333,8 @@ def _write_history(
             research,
             as_of=screening_as_of,
         )
-        if history is None:  # pragma: no cover - date index and exact lookup share one store
-            continue
+        if history is None:
+            raise ValueError(f"indexed Screening history is unavailable: {screening_as_of}")
         written.append(
             _write_model(
                 output_dir / "history/candidate-views" / f"{screening_as_of.isoformat()}.json",

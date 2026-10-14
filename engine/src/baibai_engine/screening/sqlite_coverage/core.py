@@ -79,9 +79,8 @@ def verify_screening_sqlite_coverage(
             # twice (once before `bootstrap-cache`, once on the recheck). What the
             # deep check adds over the quick one is index-content cross-checking,
             # and a store arriving from R2 has already passed `quick_check` on
-            # download. Index damage that survives both still surfaces here, as a
-            # read result: the density checks below count usable rows through the
-            # same indexes the screen reads.
+            # download. The density checks below detect some missing-data cases;
+            # they do not replace integrity_check's index-content verification.
             integrity_row = conn.execute("PRAGMA quick_check").fetchone()
             if integrity_row is None or integrity_row[0] != "ok":
                 reason = integrity_row[0] if integrity_row else "<no result>"
@@ -149,14 +148,14 @@ def verify_screening_sqlite_coverage(
                 require_rows=True,
                 enforce_record_count=True,
             )
+            _append_source_coverage_quality_issues(
+                conn,
+                issues,
+                source="jquants_fin_summaries",
+                start=fin_start,
+                end=asof_date,
+            )
             if not range_covered(conn, "jquants_fin_summaries", fin_start, asof_date):
-                _append_source_coverage_quality_issues(
-                    conn,
-                    issues,
-                    source="jquants_fin_summaries",
-                    start=fin_start,
-                    end=asof_date,
-                )
                 issues.append(
                     CacheCoverageIssue(
                         source="jquants_fin_summaries",
@@ -165,13 +164,6 @@ def verify_screening_sqlite_coverage(
                     )
                 )
             else:
-                _append_source_coverage_quality_issues(
-                    conn,
-                    issues,
-                    source="jquants_fin_summaries",
-                    start=fin_start,
-                    end=asof_date,
-                )
                 _append_required_date_rows_issue(
                     conn,
                     issues,
