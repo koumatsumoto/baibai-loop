@@ -240,6 +240,21 @@ def _cache(lake: Lake, *, recording: RecordingSource | None = None) -> LakeObjec
 
 
 class TestFixedRelease:
+    @pytest.mark.parametrize("error", [FileNotFoundError("missing"), PermissionError("denied")])
+    def test_pointer_read_failure_does_not_claim_the_pointer_is_absent(
+        self, lake: Lake, monkeypatch: pytest.MonkeyPatch, error: OSError
+    ) -> None:
+        def fail_read(_source: LocalMirrorSource, key: str) -> bytes:
+            assert key == current_l1_pointer_key()
+            raise error
+
+        monkeypatch.setattr(LocalMirrorSource, "read_bytes", fail_read)
+        with pytest.raises(LakeReadError, match="current pointer could not be read") as failure:
+            resolve_current_release(LocalMirrorSource(lake.mirror))
+
+        assert failure.value.__cause__ is error
+        assert "pointer is absent" not in str(failure.value)
+
     def test_pointer_is_read_once_and_a_mid_run_switch_does_not_change_the_input(
         self, session: LakeSession, lake: Lake, tmp_path: Path
     ) -> None:
