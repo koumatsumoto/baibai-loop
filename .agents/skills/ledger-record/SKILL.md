@@ -37,7 +37,7 @@ uv run baibai-engine position sell-execution-draft --db stores/application/baiba
   --decision-reference <POSITION_REVIEW_ID> --out <DRAFT>
 ```
 
-売付の未約定注文は`broker-fact-draft --side sell --status open`で記録し、見込代金をcashに入れない。注文に束縛された売付約定・取消・失効は同じreservation IDを使う。売却の約定日だけが報告された場合は`--occurred-on`を使う。時刻も報告された場合は`--occurred-at`を使う。status等に応じた必須項目は対象commandのpublic `--help`に従う。過去の取引記録を現在の購入適格性で再審査しないが、報告・参照・数量・cashの整合は検証する。入金やincomeにbuy assessmentを要求しない。
+売付の未約定注文は`broker-fact-draft --side sell --status open`で記録し、見込代金をcashに入れない。注文に束縛された約定・取消・失効は同じreservation IDを使う。買付・売付の約定日だけが報告された場合は`--occurred-on`を使う。買付のdate-only約定は保存済みreservation IDを指定する。時刻も報告された場合は`--occurred-at`を使う。status等に応じた必須項目は対象commandのpublic `--help`に従う。過去の取引記録を現在の購入適格性で再審査しないが、報告・参照・数量・cashの整合は検証する。入金やincomeにbuy assessmentを要求しない。
 
 ## draftとapply
 

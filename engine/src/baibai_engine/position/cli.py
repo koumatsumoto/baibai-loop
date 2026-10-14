@@ -177,7 +177,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--status", choices=("open", "filled", "cancelled", "expired"), required=True
     )
     broker_fact_parser.add_argument("--side", choices=("buy", "sell"), default="buy")
-    broker_fact_parser.add_argument("--occurred-at", type=_datetime_argument, required=True)
+    broker_occurrence = broker_fact_parser.add_mutually_exclusive_group(required=True)
+    broker_occurrence.add_argument("--occurred-at", type=_datetime_argument)
+    broker_occurrence.add_argument("--occurred-on", type=_date_argument)
     broker_fact_parser.add_argument("--ticker")
     broker_fact_parser.add_argument("--quantity", type=int)
     broker_fact_parser.add_argument("--price-yen", type=_decimal_argument)
@@ -672,6 +674,7 @@ def _run_record_broker_fact(args: argparse.Namespace, *, now: datetime | None) -
             status=args.status,
             side=args.side,
             occurred_at=args.occurred_at,
+            occurred_on=args.occurred_on,
             ticker=args.ticker,
             quantity=args.quantity,
             price_yen=args.price_yen,

@@ -7,7 +7,7 @@ import re
 from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Annotated, Literal, cast
@@ -177,12 +177,12 @@ class ExecutionEvent(_EventBase):
         raise ValueError("occurred_on must be an ISO date")
 
     @model_validator(mode="after")
-    def _validate_date_only_sell(self) -> ExecutionEvent:
-        if self.occurred_on is not None and (
-            self.side != "sell"
-            or self.occurred_at != datetime.combine(self.occurred_on, time.min, tzinfo=JST)
+    def _validate_date_only_execution(self) -> ExecutionEvent:
+        if (
+            self.occurred_on is not None
+            and self.occurred_at.astimezone(JST).date() != self.occurred_on
         ):
-            raise ValueError("occurred_on requires the date-only sell replay key")
+            raise ValueError("occurred_on must match the execution replay date")
         return self
 
 

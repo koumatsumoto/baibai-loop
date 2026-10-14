@@ -13,6 +13,7 @@ import yaml
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
 
+from baibai_engine.position.broker_fact_recording import BrokerFactRecordingError
 from baibai_engine.position.cli import main
 from baibai_engine.position.drafts import (
     apply_draft,
@@ -191,6 +192,105 @@ def test_human_sell_order_persists_without_allocation_or_cash_change(tmp_path: P
     assert reservation_id not in filled_state.active_reservations
     assert sum(lot.quantity for lot in filled_state.lots["2331"]) == 100
     assert filled_state.available_cash_yen == original_cash.available_cash_yen + 111_000
+
+
+def test_same_day_reserved_buy_fill_uses_reported_date_without_claiming_fill_time(
+    tmp_path: Path,
+) -> None:
+    ledger, assessments = _services(tmp_path)
+    opened, _ = _open_draft(ledger, assessments)
+    assert opened is not None
+    apply_draft(ledger, opened, human_confirmed=True)
+    before, _ = ledger.load_with_head()
+    reservation_id = before.events[-1].reservation_id
+    from baibai_engine.position.ledger import replay_events_through
+
+    before_state = replay_events_through(before.events, before.as_of)
+
+    draft, event_ids = build_broker_fact_draft(
+        ledger,
+        assessments,
+        decision_reference=ASSESSMENT_ID,
+        status="filled",
+        occurred_on=ORDERED_AT.date(),
+        ticker="2331",
+        quantity=200,
+        price_yen=Decimal("1050"),
+        reservation_id=reservation_id,
+        now=ORDERED_AT + timedelta(minutes=1),
+    )
+    assert draft is not None
+    fill = draft.replacement.events[-1]
+    assert fill.occurred_on == ORDERED_AT.date()
+    assert fill.occurred_at == ORDERED_AT  # reservation instant is only a replay key
+    apply_draft(ledger, draft, human_confirmed=True)
+    stored, _ = ledger.load_with_head()
+    state = replay_events_through(stored.events, stored.as_of)
+    assert reservation_id not in state.active_reservations
+    assert sum(lot.quantity for lot in state.lots["2331"]) == 400
+    assert state.reserved_cash_yen == before_state.reserved_cash_yen - 210_000
+    again, repeated_ids = build_broker_fact_draft(
+        ledger,
+        assessments,
+        decision_reference=ASSESSMENT_ID,
+        status="filled",
+        occurred_on=ORDERED_AT.date(),
+        ticker="2331",
+        quantity=200,
+        price_yen=Decimal("1050"),
+        reservation_id=reservation_id,
+        now=ORDERED_AT + timedelta(minutes=1),
+    )
+    assert again is None
+    assert repeated_ids == ()
+    assert len(event_ids) == 1
+    with pytest.raises(BrokerFactRecordingError, match="conflicting human report"):
+        build_broker_fact_draft(
+            ledger,
+            assessments,
+            decision_reference=ASSESSMENT_ID,
+            status="filled",
+            occurred_on=ORDERED_AT.date(),
+            ticker="2331",
+            quantity=200,
+            price_yen=Decimal("1000"),
+            reservation_id=reservation_id,
+            now=ORDERED_AT + timedelta(minutes=1),
+        )
+
+
+def test_same_day_reserved_sell_date_only_replays_after_order(tmp_path: Path) -> None:
+    ledger, _ = _services(tmp_path)
+    opened, _ = build_broker_fact_draft(
+        ledger,
+        lambda _: "2331",
+        decision_reference="human-reported-sell-2331",
+        status="open",
+        side="sell",
+        occurred_at=ORDERED_AT,
+        ticker="2331",
+        quantity=100,
+        sector="サービス業",
+        price_guard_yen=Decimal("1100"),
+        expires_at=EXPIRES_AT,
+        now=ORDERED_AT + timedelta(minutes=1),
+    )
+    assert opened is not None
+    apply_draft(ledger, opened, human_confirmed=True)
+    before, _ = ledger.load_with_head()
+    reservation_id = before.events[-1].reservation_id
+    draft = build_sell_execution_draft(
+        ledger,
+        occurred_on=ORDERED_AT.date(),
+        ticker="2331",
+        quantity=100,
+        price_yen=Decimal("1110"),
+        reservation_id=reservation_id,
+    )
+    fill = draft.replacement.events[-1]
+    assert fill.occurred_on == ORDERED_AT.date()
+    assert fill.occurred_at == ORDERED_AT
+    apply_draft(ledger, draft, human_confirmed=True)
 
 
 def test_non_allocation_assessment_and_ticker_mismatch_are_rejected(tmp_path: Path) -> None:

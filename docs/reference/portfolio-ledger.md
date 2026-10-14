@@ -36,7 +36,7 @@ DB constraint、`baibai_engine.position`のmodel、application serviceのwrite-t
 event ID、reservation ID、order identity、execution IDは再利用しない。新しいbuyのbroker factはcanonical buy assessment IDへ束縛する。buy executionはactive reservation、同じticker、remaining以下、guard以下、expiry以前を必須とする。releaseは明示eventであり自動生成しない。
 
 event rowはappend-onlyで、late reportも新規rowとして保存する。replay順は`(occurred_at, same_instant_order)`である。同時刻の既存eventの順序とIDを変更しない。
-売却の約定日だけが報告された場合は`occurred_on`に日付を保存し、`occurred_at`の日本時間00:00はreplay順・日付検索のための内部値とする。実際の約定時刻を表す値として扱わない。
+約定日だけが報告された場合は買付・売付とも`occurred_on`に日付を保存する。`occurred_at`はreplay順・日付検索のための内部キーであり、実際の約定時刻を表さない。同日に記録済みの注文へ束縛する場合は、注文の記録時点をreplayキーにして注文より前に約定を再生しない。注文に束縛されない売付は日本時間00:00をキーにする。
 
 <a id="snapshot-equations"></a>
 

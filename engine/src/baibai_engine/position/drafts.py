@@ -27,6 +27,7 @@ from baibai_engine.position.ledger import (
     IncomeEvent,
     PortfolioLedgerDocument,
     ReleaseEvent,
+    ReservationEvent,
     WithdrawalEvent,
     active_human_overrides,
     replay_events_through,
@@ -59,7 +60,8 @@ def build_broker_fact_draft(
     decision_reference: str,
     status: BrokerFactStatus,
     side: Literal["buy", "sell"] = "buy",
-    occurred_at: datetime,
+    occurred_at: datetime | None = None,
+    occurred_on: date | None = None,
     ticker: str | None = None,
     quantity: int | None = None,
     price_yen: Decimal | None = None,
@@ -89,6 +91,13 @@ def build_broker_fact_draft(
         raise ValueError("multiple reservation_ids require a terminal broker fact")
 
     source, expected_head = ledger_service.load_with_head()
+    if (occurred_at is None) == (occurred_on is None):
+        raise ValueError("specify exactly one of occurred_at and occurred_on")
+    if occurred_on is not None:
+        if status != "filled" or len(requested_ids) != 1:
+            raise ValueError("date-only broker fact requires one reserved fill")
+        occurred_at = _date_only_execution_key(source, occurred_on, requested_ids[0])
+    assert occurred_at is not None
     reservations = reservation_snapshots(replay_events_through(source.events, source.as_of))
     reservations_by_id = {item.reservation_id: item for item in reservations}
     released_ids = {
@@ -142,6 +151,7 @@ def build_broker_fact_draft(
             status=status,
             side=side,
             occurred_at=occurred_at,
+            occurred_on=occurred_on,
             ticker=ticker,
             quantity=quantity,
             price_yen=price_yen,
@@ -268,12 +278,10 @@ def build_sell_execution_draft(
 
     if (occurred_at is None) == (occurred_on is None):
         raise ValueError("specify exactly one of occurred_at and occurred_on")
-    if occurred_on is not None:
-        # This is only a replay key. occurred_on is the reported broker fact;
-        # the midnight key does not assert that a fill happened at midnight.
-        occurred_at = datetime.combine(occurred_on, time.min, tzinfo=JST)
-    assert occurred_at is not None
     source, expected_head = service.load_with_head()
+    if occurred_on is not None:
+        occurred_at = _date_only_execution_key(source, occurred_on, reservation_id)
+    assert occurred_at is not None
     if reservation_id is not None:
         active = {
             item.reservation_id: item
@@ -346,6 +354,30 @@ def build_sell_execution_draft(
         replacement=replacement,
         confirmation_required=True,
     )
+
+
+def _date_only_execution_key(
+    source: PortfolioLedgerDocument, occurred_on: date, reservation_id: str | None
+) -> datetime:
+    """Choose a replay key after the order without claiming an execution time."""
+
+    day_start = datetime.combine(occurred_on, time.min, tzinfo=JST)
+    if reservation_id is None:
+        return day_start
+    order = next(
+        (
+            event
+            for event in source.events
+            if isinstance(event, ReservationEvent) and event.reservation_id == reservation_id
+        ),
+        None,
+    )
+    if order is None:
+        raise ValueError("date-only fill requires a saved reservation")
+    replay_key = max(day_start, order.occurred_at)
+    if replay_key.astimezone(JST).date() != occurred_on:
+        raise ValueError("date-only fill predates the saved reservation")
+    return replay_key
 
 
 def _sell_event_suffix(
