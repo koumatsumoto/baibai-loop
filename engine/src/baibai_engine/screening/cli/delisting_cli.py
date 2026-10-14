@@ -58,7 +58,7 @@ def build_tender_offer_exits_command(
     print(
         "build-tender-offer-exits: "
         f"delistings={summary.delisting_count}, "
-        f"tender_offer_delistings={summary.tender_offer_delisting_count}, "
+        f"candidates={summary.candidate_delisting_count}, "
         f"resolved={stored}, downloads={summary.downloaded_document_count}",
         file=out,
         flush=True,

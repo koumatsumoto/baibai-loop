@@ -195,26 +195,83 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 sqlite_path, provider=provider, asof=self.ASOF
             )
 
-            self.assertEqual(summary.tender_offer_delisting_count, 1)
+            self.assertEqual(summary.candidate_delisting_count, 1)
             self.assertEqual(summary.resolved_count, 1)
             self.assertEqual(values[0].ticker, "2000")
             self.assertEqual(values[0].offer_price_yen, 1060.0)
             self.assertEqual(values[0].delisted_on, self.DELISTED_ON)
 
-    def test_a_delisting_jpx_does_not_attribute_to_a_tender_offer_is_skipped(self) -> None:
+    def test_a_non_candidate_delisting_mechanism_is_skipped(self) -> None:
         with TemporaryDirectory() as tmp:
-            sqlite_path = self._store(
-                tmp, self._registration_and_result(), reason="株式等売渡請求による取得"
-            )
+            sqlite_path = self._store(tmp, self._registration_and_result(), reason="吸収合併")
             provider = _Provider({})
 
             values, summary = build_tender_offer_exit_values(
                 sqlite_path, provider=provider, asof=self.ASOF
             )
 
-            self.assertEqual(summary.tender_offer_delisting_count, 0)
+            self.assertEqual(summary.candidate_delisting_count, 0)
             self.assertEqual(values, ())
             self.assertEqual(provider.requested, [])
+
+    def test_squeeze_out_mechanisms_require_the_same_cash_offer_evidence(self) -> None:
+        for reason in ("株式の併合", "株式併合", "株式等売渡請求による取得"):
+            with self.subTest(reason=reason), TemporaryDirectory() as tmp:
+                sqlite_path = self._store(tmp, self._registration_and_result(), reason=reason)
+                provider = _Provider(
+                    {
+                        "REG": _archive(
+                            {_PRICE: "株券普通株式１株につき金1,060円", _FUNDING: _CASH_ONLY}
+                        ),
+                        "RES": _archive({_OUTCOME: _SUCCESS}),
+                    }
+                )
+                values, summary = build_tender_offer_exit_values(
+                    sqlite_path, provider=provider, asof=self.ASOF
+                )
+                self.assertEqual(summary.candidate_delisting_count, 1)
+                self.assertEqual(summary.resolved_count, 1)
+                self.assertEqual(values[0].offer_price_yen, 1060.0)
+                self.assertEqual(values[0].delisted_on, self.DELISTED_ON)
+
+    def test_squeeze_out_reason_alone_does_not_establish_a_cash_exit(self) -> None:
+        for reason in ("株式の併合", "株式等売渡請求による取得"):
+            with self.subTest(reason=reason), TemporaryDirectory() as tmp:
+                sqlite_path = self._store(tmp, [], reason=reason)
+                provider = _Provider({})
+                values, summary = build_tender_offer_exit_values(
+                    sqlite_path, provider=provider, asof=self.ASOF
+                )
+                self.assertEqual(summary.candidate_delisting_count, 1)
+                self.assertEqual(summary.resolved_count, 0)
+                self.assertEqual(values, ())
+                self.assertEqual(
+                    summary.rejection_reason_counts, {"no_filing_in_document_window": 1}
+                )
+                self.assertEqual(provider.requested, [])
+
+    def test_squeeze_out_non_cash_consideration_remains_unresolved(self) -> None:
+        with TemporaryDirectory() as tmp:
+            sqlite_path = self._store(
+                tmp, self._registration_and_result(), reason="株式等売渡請求による取得"
+            )
+            provider = _Provider(
+                {
+                    "REG": _archive(
+                        {
+                            _PRICE: "株券普通株式１株につき金1,060円",
+                            _FUNDING: "金銭以外の対価の種類株式",
+                        }
+                    ),
+                    "RES": _archive({_OUTCOME: _SUCCESS}),
+                }
+            )
+            values, summary = build_tender_offer_exit_values(
+                sqlite_path, provider=provider, asof=self.ASOF
+            )
+            self.assertEqual(summary.candidate_delisting_count, 1)
+            self.assertEqual(values, ())
+            self.assertEqual(summary.rejection_reason_counts, {"price_or_outcome_unreadable": 1})
 
     def test_a_withdrawn_offer_produces_no_exit_value(self) -> None:
         with TemporaryDirectory() as tmp:
