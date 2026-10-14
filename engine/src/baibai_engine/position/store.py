@@ -10,6 +10,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
+from baibai_engine.position.decision_references import (
+    DecisionReferenceBinding,
+    add_manual_fact_binding,
+)
 from baibai_engine.position.ledger import (
     LedgerEvent,
     MarketPrice,
@@ -61,6 +65,7 @@ class LedgerStoreService:
         expected_head: int,
         expected_document: PortfolioLedgerDocument,
         replacement: PortfolioLedgerDocument,
+        binding_addition: DecisionReferenceBinding | None = None,
     ) -> LedgerApplyResult:
         """Atomically append events and replace document rows after a stale check.
 
@@ -87,6 +92,8 @@ class LedgerStoreService:
                 additions = tuple(
                     event for event in replacement.events if event.event_id not in current_by_id
                 )
+                if binding_addition is not None:
+                    add_manual_fact_binding(connection, binding_addition, additions=additions)
                 _append_events(connection, additions)
                 _replace_prices(connection, replacement.market_prices)
                 _replace_meta(connection, replacement)

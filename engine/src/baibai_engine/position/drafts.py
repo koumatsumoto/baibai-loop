@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
@@ -22,6 +22,7 @@ from baibai_engine.position.broker_fact_recording import (
     record_broker_fact,
     record_terminal_broker_facts,
 )
+from baibai_engine.position.decision_references import DecisionReferenceBinding
 from baibai_engine.position.ledger import (
     ConfirmedTaxEvent,
     ContributionEvent,
@@ -49,12 +50,19 @@ class LedgerDraft(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     kind: DraftKind
     expected_head: int = Field(ge=0)
     source: PortfolioLedgerDocument
     replacement: PortfolioLedgerDocument
     confirmation_required: bool = True
+    binding_addition: DecisionReferenceBinding | None = None
+
+    @model_validator(mode="after")
+    def _binding_kind(self) -> LedgerDraft:
+        if self.binding_addition is not None and self.kind != "broker-fact":
+            raise ValueError("only a direct buy broker-fact may add a decision binding")
+        return self
 
 
 def build_broker_fact_draft(
@@ -533,6 +541,7 @@ def apply_draft(
         expected_head=draft.expected_head,
         expected_document=draft.source,
         replacement=draft.replacement,
+        binding_addition=draft.binding_addition,
     )
 
 
