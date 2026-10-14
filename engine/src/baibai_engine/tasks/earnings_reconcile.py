@@ -1,6 +1,7 @@
 """Say where a task's event date stands against the exchange's published schedule.
 
-An earnings follow-up may be scheduled months before the next announcement. Its date may come from the published schedule or an estimate;
+An earnings follow-up may be scheduled months before the next announcement.
+Its date may come from the published schedule or an estimate;
 either can diverge when the exchange revises the schedule. This comparison reports
 that difference without deciding whether the task still targets the same event.
 The task 規約 (ops-maintenance skill) requires an explicit `task edit` for changes.

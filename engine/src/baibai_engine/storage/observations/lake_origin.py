@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -33,7 +34,7 @@ def read_lake_store_origin(path: Path) -> LakeStoreOrigin | None:
     if not path.is_file():
         raise LakeStoreOriginError(f"market store does not exist: {path}")
     try:
-        with sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True) as connection:
+        with closing(sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)) as connection:
             return read_lake_store_origin_from_connection(connection)
     except sqlite3.Error as exc:
         raise LakeStoreOriginError("market store origin cannot be read") from exc
@@ -81,7 +82,7 @@ def advance_lake_store_origin(
 
     uri = f"{path.resolve().as_uri()}?mode=rw"
     try:
-        with sqlite3.connect(uri, uri=True, isolation_level=None, timeout=30) as connection:
+        with closing(sqlite3.connect(uri, uri=True, isolation_level=None, timeout=30)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             actual = read_lake_store_origin_from_connection(connection)
             if actual != expected:

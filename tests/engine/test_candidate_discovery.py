@@ -114,7 +114,7 @@ def test_golden_preserves_frozen_membership_ranks_gaps_and_identities() -> None:
     # Candidate membership is unchanged; the old forward cache predates document-time
     # dividend selection and must not be accepted as a measurement under the new rules.
     assert GOLDEN["cache_schema_version"] == "e85d374e84ce09e0"
-    assert CACHE_SCHEMA_VERSION != GOLDEN["cache_schema_version"]
+    assert GOLDEN["cache_schema_version"] != CACHE_SCHEMA_VERSION
     assert GOLDEN["er_model_version"] == EXPECTED_RETURN_MODEL_VERSION
     assert GOLDEN["valuation_calculation_revision"] == VALUATION_CALCULATION_REVISION
 
