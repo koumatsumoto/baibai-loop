@@ -189,7 +189,7 @@ AssessmentとReviewのUUIDはscaffold時に固定する。同IDは両方の同�
 
 ## 差分refreshと現在価格
 
-同日には同じimmutable pairをそのままProposalから参照してprice/cashを再計算できる。翌日以降の新規買付には当日起点のvaluationが必要であり、`assessment-scaffold --from-assessment-id`で最新の保存pairから差分draftを作る。原典sourceのas_of/retrieved_atとfactの観測日は変更しない。
+同日には同じimmutable pairをそのままProposalから参照してprice/cashを再計算できる。翌日以降の新規買付には当日起点のvaluationが必要であり、`assessment-scaffold --from-assessment-id`で指定した保存pairを素材に差分draftを作る。素材のprior refと、公開時に置き換える最新pairのsupersedes先は分けて固定する。原典sourceのas_of/retrieved_atとfactの観測日は変更しない。
 
 新しい期間・今後分配とrefresh確認理由は未入力で出す。価値・materialな開示・投資仮説・株式単位・残る期間・受け取る分配を作者が再確認し、今回の全core hashへ新しい独立Reviewを取る。review_scopeに、新資料を再確認した範囲、以前の保存根拠を読み直した範囲と限界を記す。旧Reviewのhashや時刻を付け替えず、全原典の毎回再fetchを一律に要求しない。
 

@@ -17,6 +17,10 @@ from tests.helpers.ledger import load_portfolio_ledger
 from tests.helpers.research_selection import draft_for, selection
 
 from baibai_engine.research.assessment import AssessmentError, load_assessment
+from baibai_engine.research.assessment_store import (
+    AssessmentStoreService,
+    load_reviewed_assessment,
+)
 from baibai_engine.research.operation.progress import progress_binding
 from baibai_engine.research.operation.service import OperationService
 from baibai_engine.research.workspace import (
@@ -225,6 +229,131 @@ def test_refresh_scaffold_preserves_sources_and_requires_new_horizon_and_review(
     assert raw["refresh"]["prior_assessment_ref"]["assessment_id"] == published.assessment_id
     with pytest.raises(ResearchWorkspaceDataError):
         promote(workspace=workspace, ticker="1234", db_path=db, now=NOW + timedelta(days=1))
+
+
+def _prior_and_latest(case):
+    db, _workspace, _operation = case
+    prior, review = pair_payload(review_number=12)
+    first = AssessmentStoreService(
+        db, clock=lambda: datetime.fromisoformat("2026-10-14T16:06:00+09:00")
+    ).publish_reviewed_assessment(assessment_id(11), prior, review)
+    latest, review = pair_payload(review_number=14)
+    latest["findings"]["business_understanding"] += " Bで検討した補足。"
+    latest["conclusion"]["assessed_at"] = "2026-10-14T16:08:00+09:00"
+    review["reviewed_at"] = "2026-10-14T16:13:00+09:00"
+    update_review_hash(latest, review)
+    second = AssessmentStoreService(
+        db, clock=lambda: datetime.fromisoformat("2026-10-14T16:16:00+09:00")
+    ).publish_reviewed_assessment(
+        assessment_id(13), latest, review, supersedes_id=first.assessment_id
+    )
+    return first, second
+
+
+def test_refresh_from_old_material_supersedes_latest_and_publishes_new_reviewed_pair(case):
+    db, workspace, _ = case
+    prior, latest = _prior_and_latest(case)
+    result = scaffold(case, from_assessment_id=prior.assessment_id)
+    draft_path = Path(result["assessment_draft"])
+    raw = yaml.safe_load(draft_path.read_text())
+    identity = yaml.safe_load((draft_path.parent / "assessment-publication.yaml").read_text())
+    assert raw["refresh"]["prior_assessment_ref"] == {
+        "assessment_id": prior.assessment_id,
+        "core_sha256": prior.core_sha256,
+        "review_id": prior.review.review_id,
+    }
+    assert identity["supersedes_id"] == latest.assessment_id
+    assert (
+        raw["input_snapshot"]["sources"]
+        == prior.document.model_dump(mode="json")["input_snapshot"]["sources"]
+    )
+    assert (
+        raw["input_snapshot"]["facts"]
+        == prior.document.model_dump(mode="json")["input_snapshot"]["facts"]
+    )
+    raw["valuation"]["horizon_months"] = 12
+    for name in ("base", "downside"):
+        raw["valuation"][name]["cash_distribution_per_share_yen"] = "0"
+    raw["refresh"].update(
+        checked_at=NOW.isoformat(),
+        material_information_check="Aの保存資料と最新Bの差分を確認し、今回の所見を再検討した。",
+        changed_sections=["findings"],
+        unchanged_assumptions_reason="継続収益の仮定を原資料で再確認した。",
+        horizon_reason="本日起点の約12ヶ月として再確認した。",
+        distribution_reason="今回期間に受け取る分配0を再確認した。",
+        corporate_action_reason="起点の株式単位に変更なし。",
+    )
+    raw["findings"]["value_gap_explanation"] += " 最新Bの補足を踏まえて原Aの価値差を再確認。"
+    draft_path.write_text(yaml.safe_dump(raw))
+    review_result = scaffold_review(workspace=workspace, ticker="1234", db_path=db)
+    review_path = Path(review_result["review_draft"])
+    review = yaml.safe_load(review_path.read_text())
+    review.update(
+        reviewer_identity="synthetic-independent-refresh-reviewer",
+        reviewed_at=(NOW + timedelta(minutes=1)).isoformat(),
+        primary_source_check="verified",
+        checked_source_ids=["annual", "price"],
+        recalculated_projections=prior.review.model_dump(mode="json")["recalculated_projections"],
+        strongest_countercase=raw["conclusion"]["strongest_countercase"],
+        review_scope="Aの保存根拠と最新Bの補足を読み直し、今回の全coreと数値を独立検証した。",
+    )
+    review_path.write_text(yaml.safe_dump(review))
+    promoted = promote(
+        workspace=workspace, ticker="1234", db_path=db, now=NOW + timedelta(minutes=2)
+    )
+    assert promoted.assessment_id == result["assessment_id"]
+    from baibai_engine.storage.application.read import connect_read_only
+
+    with connect_read_only(db) as connection:
+        pair = load_reviewed_assessment(connection, promoted.assessment_id)
+        header = connection.execute(
+            "SELECT supersedes_id,published_at FROM stock_assessment WHERE assessment_id=?",
+            (promoted.assessment_id,),
+        ).fetchone()
+        assert pair.document.refresh.prior_assessment_ref.assessment_id == prior.assessment_id
+        assert header[0] == latest.assessment_id
+        assert datetime.fromisoformat(header[1]) > datetime.fromisoformat(
+            "2026-10-14T16:16:00+09:00"
+        )
+
+
+def test_refresh_retry_preserves_identity_but_explicit_material_change_gets_new_identity(case):
+    _db, _workspace, _operation = case
+    prior, latest = _prior_and_latest(case)
+    first = scaffold(case, from_assessment_id=prior.assessment_id)
+    same = scaffold(
+        case, now=NOW + timedelta(minutes=1), force=True, from_assessment_id=prior.assessment_id
+    )
+    assert same["assessment_id"] == first["assessment_id"]
+    switched = scaffold(case, force=True, from_assessment_id=latest.assessment_id)
+    assert switched["assessment_id"] != first["assessment_id"]
+    raw = yaml.safe_load(Path(switched["assessment_draft"]).read_text())
+    assert raw["refresh"]["prior_assessment_ref"]["assessment_id"] == latest.assessment_id
+    identity = yaml.safe_load(
+        (Path(switched["assessment_draft"]).parent / "assessment-publication.yaml").read_text()
+    )
+    assert identity["supersedes_id"] == latest.assessment_id
+
+
+def test_refresh_file_failure_retry_preserves_scaffolded_identity(case, monkeypatch):
+    _db, workspace, _operation = case
+    prior, latest = _prior_and_latest(case)
+    writer = scaffold_module.write_text_atomic
+
+    def fail_draft(path, content):
+        if path.name == "assessment-draft.yaml":
+            raise OSError("synthetic draft write failure")
+        writer(path, content)
+
+    monkeypatch.setattr(scaffold_module, "write_text_atomic", fail_draft)
+    with pytest.raises(OSError, match="draft write failure"):
+        scaffold(case, from_assessment_id=prior.assessment_id)
+    identity = yaml.safe_load((workspace / "1234/assessment-publication.yaml").read_text())
+    assert not (workspace / "1234/assessment-draft.yaml").exists()
+    monkeypatch.setattr(scaffold_module, "write_text_atomic", writer)
+    resumed = scaffold(case, from_assessment_id=prior.assessment_id)
+    assert resumed["assessment_id"] == identity["assessment_id"]
+    assert identity["supersedes_id"] == latest.assessment_id
 
 
 def test_holding_workspace_promote_records_the_same_assessment_contract(tmp_path):

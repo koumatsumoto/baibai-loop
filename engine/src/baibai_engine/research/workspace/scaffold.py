@@ -82,16 +82,14 @@ def scaffold_assessment(
         raise ResearchWorkspaceDataError("assessment predates the fixed Research selection")
     # The refresh path preserves saved source/fact dates and does not read a new quote.
     quote = None
-    if from_assessment_id is not None:
-        with closing(connect_read_only(database_path(db_path))) as connection:
+    with closing(connect_read_only(database_path(db_path))) as connection:
+        connection.execute("BEGIN")
+        supersedes_id = latest_assessment_id(connection, ticker)
+        if from_assessment_id is not None:
             pair = load_reviewed_assessment(connection, from_assessment_id)
-            if (
-                pair.document.input_snapshot.ticker != ticker
-                or latest_assessment_id(connection, ticker) != from_assessment_id
-            ):
-                raise ResearchWorkspaceConflictError(
-                    "refresh must use latest revision of this ticker"
-                )
+            if pair.document.input_snapshot.ticker != ticker:
+                raise ResearchWorkspaceConflictError("refresh material must belong to this ticker")
+    if from_assessment_id is not None:
         payload = scaffold_assessment_refresh(pair, as_of=as_of, assessed_at=retrieved_at)
     else:
         quote = read_unadjusted_close(sqlite_path=sqlite_path, ticker=ticker, at=retrieved_at)
@@ -183,10 +181,22 @@ def scaffold_assessment(
         if identity_path.exists()
         else {}
     )
-    if not identity or identity.get("supersedes_id") != from_assessment_id:
+    same_material = True
+    if path.exists():
+        previous = _load_mapping(path, label="assessment draft")
+        previous_refresh = previous.get("refresh")
+        previous_ref = (
+            previous_refresh.get("prior_assessment_ref")
+            if isinstance(previous_refresh, dict)
+            else None
+        )
+        refresh = payload.get("refresh")
+        current_ref = refresh.get("prior_assessment_ref") if isinstance(refresh, dict) else None
+        same_material = previous_ref == current_ref
+    if not identity or identity.get("supersedes_id") != supersedes_id or not same_material:
         identity = {
             "assessment_id": f"stock-assessment-{uuid4()}",
-            "supersedes_id": from_assessment_id,
+            "supersedes_id": supersedes_id,
         }
     write_text_atomic(identity_path, _dump_yaml(identity))
     content = _ASSESSMENT_DRAFT_HEADER + _dump_yaml(payload)
