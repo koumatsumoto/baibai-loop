@@ -153,6 +153,158 @@ class DividendCarryResolverTests(unittest.TestCase):
         assert carry.dividend_yield is not None
         self.assertAlmostEqual(carry.dividend_yield, 12.0 / 600.0, places=9)
 
+    def test_old_period_correction_keeps_current_guidance(self) -> None:
+        """9257: 2024年期の遅い訂正は、2026年期予想を失効させない。"""
+        summaries = [
+            _summary(
+                "9257",
+                date(2026, 2, 13),
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 12, 31),
+                period_end=date(2025, 12, 31),
+                dps_actual_annual=14.09,
+                dps_forecast_annual=19.11,
+            ),
+            _summary(
+                "9257",
+                date(2026, 5, 15),
+                fiscal_period="1Q",
+                fiscal_year_end=date(2026, 12, 31),
+                period_end=date(2026, 3, 31),
+                dps_forecast_annual=19.19,
+            ),
+            _summary(
+                "9257",
+                date(2026, 6, 24),
+                fiscal_period="FY",
+                fiscal_year_end=date(2024, 12, 31),
+                period_end=date(2024, 12, 31),
+                dps_actual_annual=0.0,
+            ),
+        ]
+        for rows in (summaries, list(reversed(summaries))):
+            with self.subTest(disclosure_order=[row.disclosed_at for row in rows]):
+                carry = _resolve_dividend_carry(rows, [], 1000.0, date(2026, 6, 24))
+                self.assertEqual(carry.basis, "forecast_annual")
+                self.assertEqual(carry.dps_actual_annual, 14.09)
+                self.assertEqual(carry.dps_forecast_annual, 19.19)
+                self.assertAlmostEqual(carry.dividend_yield or 0.0, 0.01919)
+
+    def test_same_period_actual_revision_invalidates_earlier_guidance(self) -> None:
+        summaries = [
+            _summary(
+                "130A",
+                date(2026, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                dps_actual_annual=30.0,
+            ),
+            _summary("130A", date(2026, 5, 15), dps_forecast_annual=40.0),
+            _summary(
+                "130A",
+                date(2026, 5, 20),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                dps_actual_annual=0.0,
+            ),
+        ]
+        carry = _resolve_dividend_carry(summaries, [], 1000.0, date(2026, 5, 20))
+        self.assertEqual(carry.basis, "actual_reported")
+        self.assertEqual(carry.dps_actual_annual, 0.0)
+        self.assertIsNone(carry.dps_forecast_annual)
+        self.assertEqual(carry.dividend_yield, 0.0)
+
+        # 同日公表の新予想は、訂正実績と共存できる。
+        summaries[-1] = _summary(
+            "130A",
+            date(2026, 5, 20),
+            fiscal_period="FY",
+            fiscal_year_end=date(2026, 3, 31),
+            dps_actual_annual=0.0,
+            dps_forecast_annual=10.0,
+        )
+        carry = _resolve_dividend_carry(summaries, [], 1000.0, date(2026, 5, 20))
+        self.assertEqual(carry.basis, "forecast_annual")
+        self.assertEqual(carry.dividend_yield, 0.01)
+
+    def test_null_dps_does_not_establish_a_withdrawal(self) -> None:
+        summaries = [
+            _summary(
+                "130A",
+                date(2026, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                dps_actual_annual=30.0,
+            ),
+            _summary("130A", date(2026, 5, 15), dps_forecast_annual=40.0),
+        ]
+        for period, year_end in (("FY", date(2026, 3, 31)), ("1Q", date(2027, 3, 31))):
+            with self.subTest(period=period):
+                # 同年度のnull訂正も、異種文書の項目欠測もsourceから識別できない。
+                null_row = _summary(
+                    "130A",
+                    date(2026, 5, 20),
+                    fiscal_period=period,
+                    fiscal_year_end=year_end,
+                )
+                carry = _resolve_dividend_carry(
+                    [*summaries, null_row], [], 1000.0, date(2026, 5, 20)
+                )
+                self.assertEqual(carry.basis, "forecast_annual")
+                self.assertEqual(carry.dps_actual_annual, 30.0)
+                self.assertEqual(carry.dps_forecast_annual, 40.0)
+
+    def test_normalized_null_forecast_does_not_restore_raw_positive_value(self) -> None:
+        rows = [
+            _summary(
+                "130A",
+                date(2026, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                dps_actual_annual=40.0,
+                dps_forecast_annual=50.0,
+            )
+        ]
+        split = [_split_bar("130A", date(2026, 7, 1), 0.5)]
+        asof = date(2026, 8, 1)
+        normalized = _normalize_summaries_to_asof_basis(rows, split, asof)
+        self.assertIsNone(normalized[0].dps_forecast_annual)
+        carry = _resolve_dividend_carry(normalized, split, 1000.0, asof)
+        self.assertEqual(carry.basis, "actual_reported")
+        self.assertIsNone(carry.dps_forecast_annual)
+        self.assertEqual(carry.dividend_yield, 0.02)
+
+    def test_new_fiscal_year_actual_still_expires_previous_guidance(self) -> None:
+        rows = [
+            _summary(
+                "130A",
+                date(2025, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 3, 31),
+                dps_actual_annual=30.0,
+                dps_forecast_annual=40.0,
+            ),
+            _summary(
+                "130A",
+                date(2026, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                dps_actual_annual=0.0,
+            ),
+            _summary(
+                "130A",
+                date(2026, 5, 20),
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 3, 31),
+                dps_actual_annual=30.0,
+            ),
+        ]
+        carry = _resolve_dividend_carry(rows, [], 1000.0, date(2026, 5, 20))
+        self.assertEqual(carry.basis, "actual_reported")
+        self.assertEqual(carry.dps_actual_annual, 0.0)
+        self.assertIsNone(carry.dps_forecast_annual)
+        self.assertEqual(carry.dividend_yield, 0.0)
+
     def test_refuses_the_actual_yield_when_a_split_falls_in_the_accrual_window(self) -> None:
         # 分割が期末に重なる形。期末配当の基準日は分割の効力発生日より前なので実績 DPS は
         # 分割前基準だが、権利落ち日しか持たない store からはそれを言えない。基準が確定

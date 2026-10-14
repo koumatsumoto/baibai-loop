@@ -66,10 +66,15 @@ class _DividendForecast:
 def _resolve_dividend_forecast(
     summaries: Sequence[JQuantsFinancialSummary],
 ) -> _DividendForecast | None:
-    """Resolve annual DPS without carrying a forecast behind the latest actual DPS."""
+    """Use the latest accounting-period actual, then its revision, as the freshness floor.
 
-    actual_dates = [row.disclosed_at for row in summaries if row.dps_actual_annual is not None]
-    threshold = max(actual_dates, default=None)
+    A later disclosure correcting an older period does not invalidate current guidance.
+    Null DPS alone does not establish a withdrawal and keeps its existing missing-value
+    treatment.
+    """
+
+    actual_rows = _actual_dps_rows(summaries)
+    threshold = actual_rows[0].disclosed_at if actual_rows else None
     for source in sorted(summaries, key=lambda item: item.disclosed_at, reverse=True):
         if threshold is not None and source.disclosed_at < threshold:
             return None
