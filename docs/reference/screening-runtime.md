@@ -19,6 +19,8 @@ screeningはValuationの財務/倍率計算・機械推計とMarket Contextの�
 
 データが計算可能か、価値Approachが適用できるか、どこまで調査するか、購入時に何を求めるかは別の問いである。再現テストの成功は算術・契約の確認であり、経済的な閾値の最適性を意味しない。
 
+以下の8分類は投資判断に至る各ルールの入口である。Collectionの取得失敗、[Market Contextの系列更新・Reading](./market-context.md)、[External Assessmentの観測状態](./data-sources.md#external-assessment-acquisition)による停止・欠測は、銘柄の価値判断やApproachの資格とは区別する。各境界の出所と再現性を示せても、機会損失や収益上の最適性を実測したことにはならない。未測定の影響と改善候補は[#1481](https://github.com/koumatsumoto/baibai-loop/issues/1481)で扱う。
+
 | 種類・適用範囲 | 守る理由と限界 | 根拠の区分・正本 |
 | --- | --- | --- |
 | 入力scope・妥当性（L1→Security Analysis） | 普通株の指標を他のinstrumentへ適用せず、必要な価格・財務・権利単位を揃える。対象市場・最小20barは計算対象の契約で、投資適格性や最適上場期間ではない | 定義・算術のcorrectness。[入力scope](#input-scope)、[指標・期間・欠測](./valuation-metrics.md)、導入[#12](https://github.com/koumatsumoto/baibai-loop/issues/12)、分析層との分離[#222](https://github.com/koumatsumoto/baibai-loop/issues/222) |
@@ -129,6 +131,8 @@ cloudからL3 Research Triageを発行しない。local `baibai-batch analysis r
 価格、財務、銘柄master、calendar、信用・空売り、JPX規制、EDINET、上場廃止・現金公開買付けとcoverageを読む。現行table/columnはschema、lake datasetは`baibai-engine lake inventory`を参照する。
 
 値の意味は[valuation metrics](./valuation-metrics.md)、sourceの選択は[data sources](./data-sources.md)、PIT・coverage・hydrateは[market lake](./market-lake.md)に従う。
+
+JPX決算calendarは銘柄ごとの次回決算日の注記だが、snapshotの取得失敗は現行`run`全体を保存前に止める。個別銘柄にcalendar行がないことと同じ停止条件ではない。予定日経過と発表確認の意味の修正は[#1507](https://github.com/koumatsumoto/baibai-loop/issues/1507)で扱う。EDINETのCSV抽出にhard failureが1件でもあると前処理snapshotを書かず、dailyもScreeningを進めない。いずれも取得・成果物の完全性に関する現行運用境界であり、銘柄の経済的な除外根拠や停止による機会損失の実測ではない。
 
 J-Quantsのread取得は[provider](../../engine/src/baibai_engine/market/providers/jquants.py)が生成するClientV2のHTTPS adapterで再試行を所有する。単一GETは初回＋最大5回で、429と既存の一時HTTP失敗を対象にする。有効な`Retry-After`の秒数／HTTP-dateを優先し、無いか不正なら30・60・120・300・600秒で待つ。認証・403・解析失敗を再試行せず、SDKのページ・日付range全体も再実行しない。従来の成功chunk保存・cacheからの再開を維持する。job残時間をproviderへ渡す経路は現行に無く、残時間による待機前終了は未実装である。永続cooldownや他providerのretryはこの契約に含めない。
 
