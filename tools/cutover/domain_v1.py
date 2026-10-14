@@ -441,6 +441,15 @@ def _selection_sources(
                     }
                 )
             elif triage_id is not None:
+                # Source22 admits only new targets through Triage. Holding
+                # evidence stays in the source payload and preserved workspace.
+                new_tickers = {
+                    item["ticker"]
+                    for item in selection.get("targets", [])
+                    if item.get("purpose") == "new"
+                }
+                if not new_tickers:
+                    continue
                 row = triages.get(triage_id)
                 if row is None:
                     blocked.append(f"missing old selected Triage evidence: {triage_id}")
@@ -455,9 +464,9 @@ def _selection_sources(
                     blocked.append(f"old selected Triage source identity differs: {triage_id}")
                     continue
                 entries = {entry.get("ticker"): entry for entry in raw["entries"]}
-                if not tickers <= entries.keys() or any(
+                if not new_tickers <= entries.keys() or any(
                     not isinstance(entries[ticker].get("candidate_snapshot"), dict)
-                    for ticker in tickers
+                    for ticker in new_tickers
                 ):
                     blocked.append(f"old selected Triage analysis is incomplete: {triage_id}")
                     continue
@@ -469,7 +478,7 @@ def _selection_sources(
                         "source_run_revision_id": row["run_revision_id"],
                         "source_as_of": row["as_of"],
                         "source_published_at": row["published_at"],
-                        "selected_entries": [entries[ticker] for ticker in sorted(tickers)],
+                        "selected_entries": [entries[ticker] for ticker in sorted(new_tickers)],
                         "requires_reselection": True,
                     }
                 )

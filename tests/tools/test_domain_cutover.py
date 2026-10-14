@@ -3,6 +3,7 @@
 import hashlib
 import json
 import sqlite3
+from contextlib import closing
 from copy import deepcopy
 from pathlib import Path
 
@@ -494,6 +495,87 @@ def test_active_workspace_handoff_preserves_drafts_and_splits_mixed_requests(tmp
     assert {path: path.read_bytes() for path in root.rglob("*") if path.is_file()} == before
 
 
+@pytest.mark.parametrize("missing_new_entry", [False, True])
+def test_mixed_triage_handoff_covers_only_new_targets_and_keeps_holding_material(
+    tmp_path, missing_new_entry
+):
+    source = source22(tmp_path)
+    # Frozen synthetic source22 Triage4, produced by the archived ed7b2bb7 helper.
+    triage = json.loads(Path("tests/fixtures/application/triage-v4-synthetic.json").read_text())
+    if missing_new_entry:
+        triage["entries"] = [entry for entry in triage["entries"] if entry["ticker"] != "1234"]
+    with closing(sqlite3.connect(source)) as connection:
+        connection.execute(
+            "INSERT INTO research_triage VALUES (?,?,?,?,?,?)",
+            (
+                triage["research_triage_id"],
+                triage["review_set_id"],
+                triage["run_revision_id"],
+                triage["as_of"],
+                triage["published_at"],
+                canonical_json(triage),
+            ),
+        )
+        connection.commit()
+    identifier = active_source(source, triage_id=triage["research_triage_id"])
+    holding_progress = {
+        "kind": "research_progress",
+        "outcomes": [
+            {
+                "ticker": "2331",
+                "purpose": "holding",
+                "status": "unfinished",
+                "reason": "保有仮説の差分確認を執筆中",
+                "references": ["2331/thesis-draft.yaml"],
+            }
+        ],
+    }
+    with closing(sqlite3.connect(source)) as connection:
+        payload = json.loads(
+            connection.execute(
+                "SELECT payload FROM operation_session WHERE operation_id=?", (identifier,)
+            ).fetchone()[0]
+        )
+        payload["artifacts"].append(holding_progress)
+        connection.execute(
+            "UPDATE operation_session SET payload=? WHERE operation_id=?",
+            (canonical_json(payload), identifier),
+        )
+        connection.commit()
+        ledger = load_ledger_document(connection)
+        holdings = replay_events_through(ledger.events, ledger.as_of).lots
+        assert sum(lot.quantity for lot in holdings["2331"]) > 0
+        assert "1234" not in holdings
+    root, workspace = bound_workspace(tmp_path, identifier)
+    holding_directory = workspace / "2331"
+    holding_directory.mkdir()
+    holding_draft = holding_directory / "thesis-draft.yaml"
+    holding_draft.write_text("保有の合成根拠と反証の未完draft\n")
+    before_source = source.read_bytes()
+    before_workspace = {path: path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    checked = execute(tmp_path, source, workspace_root=root, check=True)
+    assert not (tmp_path / "drafts").exists()
+    if missing_new_entry:
+        assert any("old selected Triage analysis is incomplete" in item for item in checked.blocked)
+        assert execute(tmp_path, source, workspace_root=root).blocked == checked.blocked
+        assert not (tmp_path / "final.sqlite").exists()
+    else:
+        assert checked.blocked == ()
+        assert execute(tmp_path, source, workspace_root=root) == checked
+        retained = material_files(tmp_path)[0]
+        assert retained["selected_entries"] == [triage["entries"][0]]
+        handoff = json.loads((tmp_path / "drafts/handoff.json").read_text())[0]
+        assert handoff["source_payload"]["artifacts"][1] == holding_progress
+        assert handoff["requests"][1]["targets"] == [{"ticker": "2331", "purpose": "holding"}]
+        copied = list((tmp_path / "drafts").glob("workspace-*/2331/thesis-draft.yaml"))
+        assert len(copied) == 1
+        assert copied[0].read_bytes() == holding_draft.read_bytes()
+    assert source.read_bytes() == before_source
+    assert {
+        path: path.read_bytes() for path in root.rglob("*") if path.is_file()
+    } == before_workspace
+
+
 @pytest.mark.parametrize(
     "case", ["missing_root", "different_id", "outside_symlink", "nested_other"]
 )
@@ -664,6 +746,19 @@ def test_old_selected_snapshot_keeps_only_actual_values_without_new_candidate_fi
     assert material["source_as_of"] == "2026-10-13"
     assert material["source_run_revision_id"] == "run-pruned"
     assert all("candidate" not in row for row in material["selected_analyses"].values())
+
+
+def test_explicit_run_handoff_still_requires_holding_analysis(tmp_path):
+    source = source22(tmp_path)
+    identifier = active_source(
+        source,
+        explicit={"analyses": {"1234": {"ticker": "1234", "metrics": {}}}},
+    )
+    root, _workspace = bound_workspace(tmp_path, identifier)
+    report = execute(tmp_path, source, workspace_root=root)
+    assert any("old selected analysis snapshot is incomplete" in item for item in report.blocked)
+    assert not (tmp_path / "final.sqlite").exists()
+    assert not (tmp_path / "drafts").exists()
 
 
 def test_missing_selected_old_triage_evidence_stops_before_cache_retirement(tmp_path):
