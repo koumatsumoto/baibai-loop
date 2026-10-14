@@ -198,6 +198,9 @@ export interface DashboardView {
   valuation_as_of: string | null
   valuation_stale: boolean
   total_capital_yen: number | null
+  /**
+   * 台帳上の未予約現金。売却代金は約定時にgrossで計上し、受渡済み資金や証券会社の発注可能額は表さない。
+   */
   available_cash_yen: number | null
   reserved_cash_yen: number | null
   holdings_market_value_yen: number | null
@@ -655,6 +658,9 @@ export interface PortfolioOutcomeView {
   period_end_date: string
   status: string
   reason: string | null
+  /**
+   * 記録済みの税・費用を反映した期間return。未報告の税・費用をゼロ確定とみなさない。
+   */
   portfolio_twr_pct: number | null
   benchmark_cumulative_return_pct: number | null
 }

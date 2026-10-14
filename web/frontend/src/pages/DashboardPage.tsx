@@ -36,16 +36,16 @@ import { cn } from '../lib/utils'
 // Why each section is on this page, carried behind its own ⓘ instead of a subtitle that
 // repeats what the numbers already say.
 const HINT = {
-  allocation: '次の買いに動かせる資金がどれだけ残っているかと、これまでの判断が実際に効いているかを 1 か所で確かめる。配分は判断材料であり、比率を目安へ近づけること自体は目的ではない。',
+  allocation: '台帳で未予約の現金と、これまでの判断が実際に効いているかを 1 か所で確かめる。売却代金は約定時に計上し、受渡済み資金や証券会社の発注可能額とは照合していない。配分は判断材料であり、比率を目安へ近づけること自体は目的ではない。',
   delta: '前回の機械実行と比べた候補プールへの出入り、機械 E[r] の変化、FV に達した保有を並べる。市場環境の判断と指標は専用画面で読む。売買の指示ではなく、次にどこを見るかを決める材料。答えられなかった区分は明示するので、空欄と「計測できなかった」を混同しない。',
   holdings: '保有中の各銘柄の取得原価・現値・FV との乖離。売買判断そのものではなく、どの銘柄を次に見直すかを決めるための現状。',
   reservations: '報告済みの未約定注文。買付だけ資金を予約し、売付の見込代金は現金に加えません。約定・取消・失効は次の明示報告で更新します。',
-  outcomes: '税・費用込みの総合 return を、同じ期間の配当込み TOPIX と同じ basis で比べた結果。短期の数字で方針を変えるためではなく、見積りが実現と合っているかを年単位で確かめるために置いている。',
+  outcomes: '記録済みの税・費用を反映した return を、同じ期間の配当込み TOPIX と比べた結果。未報告の税・費用は含まない。短期の数字で方針を変えるためではなく、見積りが実現と合っているかを年単位で確かめるために置いている。',
 } as const
 
 const allocationConfig = {
   holdings: { label: '保有株式', color: 'var(--chart-1)' },
-  available: { label: '購入余力', color: 'var(--chart-2)' },
+  available: { label: '未予約現金', color: 'var(--chart-2)' },
   reserved: { label: '予約', color: 'var(--chart-3)' },
 } satisfies ChartConfig
 
@@ -59,7 +59,7 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
   const allocation = total !== null && holdingsValue !== null && available !== null && reserved !== null
     ? [
         { key: 'holdings', name: '保有株式', value: holdingsValue, fill: 'var(--color-holdings)' },
-        { key: 'available', name: '購入余力', value: available, fill: 'var(--color-available)' },
+        { key: 'available', name: '未予約現金', value: available, fill: 'var(--color-available)' },
         { key: 'reserved', name: '予約', value: reserved, fill: 'var(--color-reserved)' },
       ]
     : []
@@ -121,7 +121,7 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
           {[
             { label: '総資産', value: data.total_capital_yen, detail: `${data.holdings.length} 銘柄を保有`, color: 'bg-foreground', tone: 'plain' as const, sign: false },
             { label: '保有株式', value: data.holdings_market_value_yen, detail: data.deployed_pct === null ? '評価額' : `総資産の ${formatPct(data.deployed_pct)}`, color: 'bg-chart-1', tone: 'plain' as const, sign: false },
-            { label: '購入余力', value: data.available_cash_yen, detail: data.cash_pct === null ? '利用可能な現金' : `総資産の ${formatPct(data.cash_pct)}`, color: 'bg-chart-2', tone: 'plain' as const, sign: false },
+            { label: '台帳の未予約現金', value: data.available_cash_yen, detail: data.cash_pct === null ? '受渡済み資金とは別' : `総資産の ${formatPct(data.cash_pct)}・受渡未照合`, color: 'bg-chart-2', tone: 'plain' as const, sign: false },
             { label: '予約', value: data.reserved_cash_yen, detail: data.reserved_pct === null ? '確保済みの現金' : `総資産の ${formatPct(data.reserved_pct)}`, color: 'bg-chart-3', tone: 'plain' as const, sign: false },
             { label: '評価損益', value: hasPnl ? pnl.yen : null, detail: pnl.pct === null ? '取得原価に対する損益' : `取得原価比 ${formatPct(pnl.pct, { sign: true })}`, color: null, tone: 'pnl' as const, sign: true },
             { label: '累積確定損益', value: data.realized_gross_pnl_yen ?? null, detail: '台帳開始以来の売却損益・税／手数料控除前', color: null, tone: 'pnl' as const, sign: true },
@@ -170,8 +170,8 @@ function warningCopy(warning: WarningView) {
   }
   if (warning.code === 'portfolio.dry-powder') {
     return {
-      title: '購入余力',
-      description: `購入余力が ${actual} で、目安 ${threshold} を下回っています。新規購入前に確認してください。`,
+      title: '台帳の未予約現金',
+      description: `未予約現金の比率が ${actual} で、目安 ${threshold} を下回っています。新規購入前に証券会社の発注可能額を確認してください。`,
     }
   }
   return {
@@ -456,10 +456,10 @@ const STATUS_LABEL: Record<string, string> = {
 // dedicated screen is the natural home once an outcome carries more than a period
 // comparison (annual review notes, per-holding attribution, calibration against the
 // entry estimate); that surface does not exist yet.
-function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) {
+export function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) {
   return (
     <SectionCard
-      description="ポートフォリオと配当込み TOPIX の期間比較"
+      description="記録済みの税・費用を反映したポートフォリオと配当込み TOPIX の期間比較。未報告分は含みません。"
       hint={HINT.outcomes}
       meta={<Badge variant="secondary">{outcomes.length} 件</Badge>}
       title="運用成績"
