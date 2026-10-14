@@ -6,7 +6,7 @@ import type { OperationResearchTargetView, OperationSessionView } from '../src/a
 import { HoldingProposals, ResearchOperationCard } from '../src/pages/research/ResearchOperationCard'
 
 function target(ticker: string, purpose: 'new' | 'holding', extra: Partial<OperationResearchTargetView> = {}): OperationResearchTargetView {
-  return { ticker, purpose, outcome_status: null, thesis_id: null, thesis_review_id: null, unfinished_reason: null, references: [], checked_at: null, holding_proposal: null, ...extra }
+  return { ticker, purpose, outcome_status: null, thesis_id: null, thesis_review_id: null, unfinished_reason: null, references: [], checked_at: null, holding_proposal: null, holding_proposal_null_reason: null, ...extra }
 }
 function session(targets: OperationResearchTargetView[]): OperationSessionView {
   return {
@@ -46,8 +46,8 @@ describe('有限調査と提案の表示', () => {
     expect(html).toContain('配分の提案・採否・約定を意味しません')
   })
   it('保有の未確定理由と保存した価格basisを維持する', () => {
-    const html = render(session([target('1234', 'holding', { outcome_status: 'proposal', holding_proposal: { action: null, unresolved_reason: '企業評価の確認待ち', quote: { price_yen: 1200, price_basis: 'last_close_unadjusted', observed_at: '2026-09-07T15:30:00+09:00' } } })]))
-    for (const text of ['保有判断未確定', '企業評価の確認待ち', 'last_close_unadjusted', '1200円', '最新の銘柄情報']) expect(html).toContain(text)
+    const html = render(session([target('1234', 'holding', { outcome_status: 'proposal', holding_proposal_null_reason: '企業評価の基準日が判断日と異なります', holding_proposal: { action: null, unresolved_reason: '企業評価の確認待ち', quote: { price_yen: 1200, price_basis: 'last_close_unadjusted', observed_at: '2026-09-07T15:30:00+09:00' } } })]))
+    for (const text of ['保有判断未確定', '判定理由: 企業評価の基準日が判断日と異なります', '企業評価の確認待ち', 'last_close_unadjusted', '1200円', '最新の銘柄情報']) expect(html).toContain(text)
     expect(html).not.toContain('売却の提案')
   })
   it('保存済みのCAAと指定Triageへ進み、旧payloadから進捗を推測しない', () => {

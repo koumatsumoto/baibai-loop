@@ -37,6 +37,7 @@ class PositionReviewSummary:
     thesis_id: str
     action: str | None
     note: str | None
+    null_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

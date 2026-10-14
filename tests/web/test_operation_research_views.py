@@ -86,6 +86,9 @@ def test_operations_preserve_new_holding_unfinished_and_unconfirmed_proposals(
         "proposal",
     )
     assert proposal["holding_proposal"] == holding.draft.model_dump(mode="json")
+    assert proposal["holding_proposal_null_reason"] == (
+        "残存見返りの判断が未確認です" if action is None else None
+    )
     assert proposal["holding_proposal"]["action"] == action
     assert proposal["checked_at"] == NOW.isoformat()
     assert assessments[0]["research_operation_id"] == operation.operation_id

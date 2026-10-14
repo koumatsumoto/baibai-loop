@@ -101,16 +101,24 @@ def evaluate_position_review(
             document.holding.quantity if document.holding.quantity_basis_confirmed else None,
         )
     quote = document.quote
-    available = (
-        case.status == "intact"
-        and primary_verified
-        and thesis.valuation.status == "resolved"
-        and thesis.input_snapshot.as_of == document.as_of
-        and quote is not None
-        and quote.basis_confirmed
-        and document.holding.quantity_basis_confirmed
-        and 0 <= (document.as_of - quote.observed_at.date()).days <= max_quote_age_days
-    )
+    unavailable_reason: str | None = None
+    if case.status != "intact":
+        unavailable_reason = "investment_case_uncertain"
+    elif not primary_verified:
+        unavailable_reason = "primary_evidence_requires_verification"
+    elif thesis.valuation.status != "resolved":
+        unavailable_reason = "valuation_unresolved"
+    elif thesis.input_snapshot.as_of != document.as_of:
+        unavailable_reason = "valuation_basis_requires_refresh"
+    elif quote is None:
+        unavailable_reason = "quote_missing"
+    elif not document.holding.quantity_basis_confirmed or not quote.basis_confirmed:
+        unavailable_reason = "quantity_basis_unconfirmed"
+    elif (document.as_of - quote.observed_at.date()).days < 0:
+        unavailable_reason = "quote_after_judgment"
+    elif (document.as_of - quote.observed_at.date()).days > max_quote_age_days:
+        unavailable_reason = "quote_stale"
+    available = unavailable_reason is None
     projection = current_price_projection(
         thesis,
         price_yen=None if quote is None else quote.price_yen,
@@ -127,7 +135,9 @@ def evaluate_position_review(
     ):
         return PositionReviewEvaluation(
             None,
-            document.unresolved_reason or "remaining_reward_requires_confirmation",
+            unavailable_reason
+            or document.unresolved_reason
+            or "remaining_reward_requires_confirmation",
             None,
             projection,
         )

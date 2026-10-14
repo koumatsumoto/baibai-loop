@@ -132,6 +132,7 @@ class OperationResearchTargetView(BaseModel):
     references: list[str]
     checked_at: datetime | None
     holding_proposal: dict[str, object] | None
+    holding_proposal_null_reason: str | None = None
 
 
 class OperationResearchView(BaseModel):

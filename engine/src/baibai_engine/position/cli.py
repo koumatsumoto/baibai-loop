@@ -647,7 +647,13 @@ def _run_position_review_build_db(
         payload = document.model_dump(mode="json")
         _write_yaml_exclusive(path, payload)
         yaml.safe_dump(
-            {**payload, "current_price_projection": evaluation.current_price_projection},
+            {
+                **payload,
+                "current_price_projection": evaluation.current_price_projection,
+                "current_price_projection_unavailable_reason": (
+                    evaluation.reason if evaluation.current_price_projection is None else None
+                ),
+            },
             sys.stdout,
             allow_unicode=True,
         )

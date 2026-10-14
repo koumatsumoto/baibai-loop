@@ -7,7 +7,11 @@ from dataclasses import dataclass
 from datetime import date, datetime
 
 from baibai_engine.read_api import HoldingSnapshot
-from baibai_web.readmodel.builders.presentation import holding_view, text
+from baibai_web.readmodel.builders.presentation import (
+    holding_view,
+    position_review_reason_text,
+    text,
+)
 from baibai_web.readmodel.models import (
     PositionReviewView,
     SecurityDetailView,
@@ -29,9 +33,18 @@ from baibai_web.sources.protocols import (
     ScreeningSource,
 )
 from baibai_web.sources.types import (
+    PositionReviewSummary,
     ResearchRevision,
     ScreeningRunRecord,
 )
+
+
+def _position_review_note(item: PositionReviewSummary) -> str | None:
+    if item.action is not None or item.null_reason is None:
+        return item.note
+    reason = position_review_reason_text(item.null_reason)
+    assert reason is not None
+    return reason if not item.note or item.note == reason else f"{reason}。{item.note}"
 
 
 @dataclass(frozen=True)
@@ -181,7 +194,7 @@ def build_security_detail(
                 as_of=item.as_of,
                 thesis_id=item.thesis_id,
                 action=item.action,
-                note=item.note,
+                note=_position_review_note(item),
             )
             for item in research.position_reviews(ticker=ticker)
         ],

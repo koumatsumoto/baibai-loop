@@ -165,3 +165,74 @@ def test_holding_economic_rule(status, remaining, resolved, expected):
     assert result.action == expected
     if status == "broken" and not resolved:
         assert result.sell_quantity is None
+
+
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        ("next_day", "valuation_basis_requires_refresh"),
+        ("unresolved_valuation", "valuation_unresolved"),
+        ("missing_quote", "quote_missing"),
+        ("stale_quote", "quote_stale"),
+        ("future_quote", "quote_after_judgment"),
+        ("holding_basis", "quantity_basis_unconfirmed"),
+        ("quote_basis", "quantity_basis_unconfirmed"),
+        ("primary_evidence", "primary_evidence_requires_verification"),
+        ("uncertain_case", "investment_case_uncertain"),
+    ],
+)
+def test_holding_null_identifies_unavailable_input(change, reason):
+    payload, _ = pair_payload()
+    if change == "unresolved_valuation":
+        payload["valuation"] = dict(
+            status="unresolved",
+            market_price_fact_id=None,
+            horizon_months=None,
+            required_annual_return_pct=None,
+            base=None,
+            downside=None,
+            unresolved_reason="評価に必要な根拠が未確認",
+        )
+    if change == "uncertain_case":
+        payload["investment_case"]["status"] = "uncertain"
+    thesis = ThesisDocument.model_validate(payload)
+    observed_at = {
+        "stale_quote": "2026-08-30T15:30:00+09:00",
+        "future_quote": "2026-09-08T15:30:00+09:00",
+    }.get(change, "2026-09-04T15:30:00+09:00")
+    document = PositionReviewDocument(
+        schema_version=3,
+        position_review_id="review",
+        thesis_id="thesis",
+        position_id="position",
+        ticker="1234",
+        as_of=date(2026, 9, 8) if change == "next_day" else date(2026, 9, 7),
+        holding=HoldingInput(
+            quantity=100,
+            cost_yen=Decimal(100000),
+            quantity_basis_confirmed=change != "holding_basis",
+        ),
+        quote=None
+        if change == "missing_quote"
+        else QuoteInput(
+            price_yen=Decimal(1250),
+            observed_at=datetime.fromisoformat(observed_at),
+            price_basis="last_close_unadjusted",
+            source_ref="quote",
+            basis_confirmed=change != "quote_basis",
+        ),
+        remaining_reward=RemainingReward(
+            status="sufficient", reason="将来分配と残存価値から見返りを確認"
+        ),
+    )
+    result = evaluate_position_review(
+        document,
+        thesis,
+        primary_verified=change != "primary_evidence",
+        max_quote_age_days=7,
+    )
+    assert (result.action, result.reason, result.current_price_projection) == (
+        None,
+        reason,
+        None,
+    )

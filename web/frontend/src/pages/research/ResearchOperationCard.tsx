@@ -20,6 +20,7 @@ export function HoldingProposals({ operations, names = new Map() }: { operations
       return <article className="grid scroll-mt-24 gap-2 rounded-lg border p-4" id={`holding-proposal-${operation.operation_id}-${target.ticker}`} key={`${operation.operation_id}-${target.ticker}`}>
         <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="font-medium">{names.get(target.ticker) ?? target.ticker}</h2><Badge variant="outline">{draft?.action === 'exit' ? '売却の提案' : draft?.action === 'hold' ? '継続保有の提案' : '保有判断未確定'}</Badge></div>
         {reward?.reason != null && <p className="text-sm">{String(reward.reason)}</p>}
+        {target.holding_proposal_null_reason != null && <p className="text-sm">判定理由: {target.holding_proposal_null_reason}</p>}
         {draft?.unresolved_reason != null && <p className="text-sm">未確定の理由: {String(draft.unresolved_reason)}</p>}
         <div className="flex flex-wrap gap-2"><AsOfBadge value={asOf} /><p className="text-xs text-muted-foreground">検証時点 {target.checked_at ?? '未記録'}</p></div>
         <p className="break-words text-xs text-muted-foreground">{quote ? `保存した価格 ${String(quote.price_yen ?? '未記録')}円 · ${String(quote.price_basis ?? '未記録')} · ${String(quote.observed_at ?? '未記録')}` : '価格の入力は記録されていません。'}</p>

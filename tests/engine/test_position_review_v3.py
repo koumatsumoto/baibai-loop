@@ -687,3 +687,42 @@ def test_position_review_uses_policy_quote_age(holding_case, monkeypatch):
             }
         )
         assert service.check(draft).action == expected
+
+
+def test_next_day_build_explains_unavailable_current_projection(holding_case, tmp_path, capsys):
+    import yaml
+
+    from baibai_engine.position import cli as position_cli
+
+    db, market, _ = holding_case
+    tomorrow = NOW + timedelta(days=1)
+    draft_path = tmp_path / "next-day-position-review.yaml"
+    assert (
+        position_cli.main(
+            [
+                "position-review-build",
+                "--db",
+                str(db),
+                "--thesis-id",
+                "current",
+                "--position-id",
+                "2331",
+                "--sqlite",
+                str(market),
+                "--out",
+                draft_path.name,
+                "--root",
+                str(tmp_path),
+            ],
+            now=tomorrow,
+        )
+        == 0
+    )
+    output = yaml.safe_load(capsys.readouterr().out)
+    assert output["current_price_projection"] is None
+    assert output["current_price_projection_unavailable_reason"] == (
+        "valuation_basis_requires_refresh"
+    )
+    assert "current_price_projection_unavailable_reason" not in yaml.safe_load(
+        draft_path.read_text()
+    )
