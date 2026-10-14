@@ -35,18 +35,4 @@ manifest/Operation ID、またはactiveの同一draftで再開する。scope・�
 
 ## 統合時の一回移行
 
-application22をread-onlyのconsistent transactionで読み、最終application24へ一回で切り替える。選択した旧評価・提案・保有理由と必要な根拠を執筆材料draftへ抽出し、新Assessment/Proposal/Operationとして自動公開しない。台帳全event/meta/price、task・市場判断・outcomeを保持し、ledger replay前後一致を確認する。旧買付判断はticker識別の最小bindingを保持し、未保存の価格・数量・期限を約定から作らない。
-
-```bash
-uv run python -m tools.cutover.domain_v1 \
-  --source-app <OLD_APP_COPY> --output-app <NEW_APP_COPY> \
-  --source-runs <OLD_RUN_COPY> --output-runs <NEW_RUN_COPY> \
-  --manifest <KEEP_MANIFEST> --draft-dir <MATERIAL_DRAFT_DIR> \
-  --workspace-root <ACTIVE_WORKSPACE_ROOT> --check
-```
-
---checkは書込なしで不足と必要参照を報告する。実行は新未存在output/draft-dirへ限り、source/backupを保持する。activeがある場合は工具専用workspace-rootが必要で、旧Operation IDに一致するworkspaceだけを非破壊退避する。root外・別Operationを黙って探索しない。通常runtimeに旧workspaceのfallbackを置かない。
-
-旧run cacheは原本または必要な選択根拠を退避し、新runは通常Screeningで実時刻・新IDにより再生成する。切替後は通常selection-context→prepareで新Operationを開始し、退避材料を確認して新Assessment/独立Reviewを公開し、そのOperationと現在入力から新Proposalを作る。新成果を移行manifestへ事前登録しない。欠けた理由・評価を過去の判断として補完せず、Fillから旧提案条件を復元しない。工具の検証と隔離コピーによるrehearsalを、本番切替実施と混同しない。
-
-統合releaseの切替窓はapplication全writerとactive draft編集を停止し、引継先を確認する。最終copy後に新read transactionでsourceの全保持table内容とledger末尾を照合し、変化があれば切り替えずcopyをやり直す。code/storeは最終schemaが一致した世代で親が順序を判断する。source/backupを不可逆削除せず、日次batchに移行を代行させない。
+保存材料の引継ぎ・writer停止・隔離検証・本番切替は[Research domainの一回移行](../../batch/OPERATIONS.md#research-domain-cutover)に集約する。通常Researchの開始・再開と、旧schemaからの一度限りの切替を混同しない。
