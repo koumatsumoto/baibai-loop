@@ -74,11 +74,11 @@ def source22(tmp_path):
     seed_ledger(native, ledger)
     source = tmp_path / "source22.sqlite"
     document, review = old_pair()
-    with sqlite3.connect(source) as connection:
+    with closing(sqlite3.connect(source)) as connection, connection:
         connection.executescript(
             Path("tests/fixtures/application/research-selection-v1-schema.sql").read_text()
         )
-        with sqlite3.connect(native) as reader:
+        with closing(sqlite3.connect(native)) as reader:
             reader.row_factory = sqlite3.Row
             for table in tool._UNCHANGED:
                 for row in reader.execute(f'SELECT * FROM "{table}"'):  # nosec B608
@@ -1316,6 +1316,68 @@ def test_old_position_review2_binds_by_saved_row_and_sources_not_invented_root_i
     assert "thesis_id" not in raw
     assert material["source_id"] == identifier
     assert material["source_thesis_id"] == OLD_ID
+    assert material["source_document"] == raw
+    assert material["adoption_history"] is None
+    assert material["original_investment_reason"] is None
+    assert material["new_proposal_required"] is True
+
+
+@pytest.mark.parametrize("fault", [None, "candidate_ticker", "candidate_hash"])
+def test_old_position_review2_preserves_a_valid_replacement_without_adopting_it(tmp_path, fault):
+    source = source22(tmp_path)
+    candidate_id = "synthetic-replacement-assessment"
+    candidate, review = old_pair()
+    candidate["input_snapshot"]["ticker"] = "5678"
+    for item in candidate["input_snapshot"]["sources"]:
+        item["ticker"] = "5678"
+    digest = _legacy_thesis_core_hash(_LegacyThesisDocument.model_validate(candidate))
+    review["review_id"] = "synthetic-replacement-review"
+    review["reviewed_thesis_sha256"] = digest
+    raw = json.loads(
+        Path("tests/fixtures/application/position-review-v2-synthetic.json").read_text()
+    )
+    raw["sources"]["candidate_thesis"] = {"entity_id": candidate_id}
+    raw["replacement_comparison"] = {
+        "status": "evaluated",
+        "candidate": {"ticker": "9999" if fault == "candidate_ticker" else "5678"},
+    }
+    identifier = "synthetic-position-review-with-replacement"
+    with closing(sqlite3.connect(source)) as connection, connection:
+        connection.execute(
+            "INSERT INTO thesis VALUES (?,?,?,?,?,?,?,?)",
+            (
+                candidate_id,
+                "5678",
+                "2026-10-14",
+                "candidate",
+                "2026-10-14T16:06:00+09:00",
+                None,
+                canonical_json(candidate),
+                "0" * 64 if fault == "candidate_hash" else digest,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO thesis_review VALUES (?,?,?,?)",
+            (review["review_id"], candidate_id, review["reviewed_at"], canonical_json(review)),
+        )
+        connection.execute(
+            "INSERT INTO position_review VALUES (?,?,?,?,?,?)",
+            (identifier, "1234", "2026-10-14", OLD_ID, candidate_id, canonical_json(raw)),
+        )
+    before = source.read_bytes()
+    report = execute(
+        tmp_path, source, manifest=KeepManifest(keep_position_reason_sources=(identifier,))
+    )
+    assert source.read_bytes() == before
+    if fault is not None:
+        assert report.blocked
+        assert not (tmp_path / "final.sqlite").exists()
+        return
+    assert report.blocked == ()
+    material = next(
+        item for item in material_files(tmp_path) if item["kind"] == "position_reason_source_draft"
+    )
+    assert material["source_candidate_thesis_id"] == candidate_id
     assert material["source_document"] == raw
     assert material["adoption_history"] is None
     assert material["original_investment_reason"] is None
