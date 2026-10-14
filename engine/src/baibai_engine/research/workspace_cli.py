@@ -27,7 +27,6 @@ from baibai_engine.foundation.repository_layout import (
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 
-from .assessment import AssessmentError
 from .operation.service import OperationConflictError
 from .proposal import ProposalConflictError
 from .selection import ResearchRequest, ResearchSelectionDraft
@@ -354,9 +353,6 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             )
             + "\n"
         )
-        return 3
-    except AssessmentError as error:
-        print(f"error: {error}", file=sys.stderr)
         return 3
     return 0
 
