@@ -17,7 +17,7 @@ screeningはValuationの財務/倍率計算・機械推計とMarket Contextの�
 
 ## ルールの目的と根拠
 
-Screeningは[入力scope](#input-scope)と[共通factの資格](#history-context)で計算できる母集団を定め、[4 Approach](#approach-applicability)がそれぞれ意味の合う指標から推薦する。[品質context](#data-quality-context)はrunの利用判断、[Nomination容量](#nomination-capacity)は有限の探索・Triage入力枠であり、企業の経済的rejectや購入条件ではない。観測・取得の失敗は[情報源の状態](./data-sources.md)で扱い、未観測を0や対象なしへ変えない。
+Screeningは[入力scope](#input-scope)でSecurity Analysisの計算対象を定め、その計算結果に[共通factの資格](#history-context)を適用してCandidate Discovery・比較中央値の対象を選び、[4 Approach](#approach-applicability)それぞれの条件と指標から候補を推薦する。[品質context](#data-quality-context)はrunの利用判断、[Nomination容量](#nomination-capacity)は有限の探索・Triage入力枠であり、企業の経済的rejectや購入条件ではない。観測・取得の失敗は[情報源の状態](./data-sources.md)で扱い、未観測を0や対象なしへ変えない。
 
 数値と判定式は[現行rules](../../method/screening/rules/)、[`CommonEligibilityRules.matches`](../../engine/src/baibai_engine/screening/rule_config.py)、[Review Set生成](../../engine/src/baibai_engine/screening/discovery/review_set.py)、[業種中央値の実装](../../engine/src/baibai_engine/valuation/metrics/relative.py)が所有する。業種母数の理由は[valuation metrics](./valuation-metrics.md#median-population-rationale)、推薦集合と資格の回帰は[Review Set tests](../../tests/engine/test_review_set.py)を参照する。算術・保存契約の再現は閾値の収益上の最適性を示さない。
 
