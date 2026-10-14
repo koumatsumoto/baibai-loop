@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -54,11 +55,6 @@ def _small_pilot_release_policy(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(autouse=True)
 def _fixed_publication_clock(monkeypatch: pytest.MonkeyPatch) -> None:
     fixed_now = datetime(2026, 1, 7, tzinfo=UTC)
-    monkeypatch.setattr(
-        lake_publish_module,
-        "_utc_now",
-        lambda: fixed_now,
-    )
     create_release = market_publish_module.create_lake_l1_release
     monkeypatch.setattr(
         market_publish_module,
@@ -123,7 +119,7 @@ def _successor_release(mirror: Path, release_id: str) -> Path:
 
 
 def _bind_market_store_to_pointer(path: Path, pointer: L1ReleasePointer) -> None:
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         write_lake_store_origin(
             connection,
             LakeStoreOrigin(
@@ -573,7 +569,7 @@ def test_origin_is_checked_from_the_same_sealed_snapshot_that_is_exported(
     _bind_market_store_to_pointer(live_store, pointer)
     stale_store = tmp_path / "stale-market.sqlite"
     create_snapshot(live_store, stale_store)
-    with sqlite3.connect(stale_store) as connection:
+    with closing(sqlite3.connect(stale_store)) as connection, connection:
         write_lake_store_origin(
             connection,
             LakeStoreOrigin(
@@ -1165,12 +1161,9 @@ def _two_month_release(tmp_path: Path) -> tuple[Path, Path, Path]:
     return sqlite_path, mirror, release_path
 
 
-def test_a_one_month_correction_moves_only_that_month(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_one_month_correction_moves_only_that_month(tmp_path: Path) -> None:
     """Content addressing, end to end: every month is derived again, one month moves."""
 
-    monkeypatch.setattr(lake_publish_module, "_utc_now", lambda: datetime(2026, 3, 2, tzinfo=UTC))
     sqlite_path, mirror, release_path = _two_month_release(tmp_path)
     store = MemoryR2Store()
     first = publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
