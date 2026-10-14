@@ -29,6 +29,7 @@ from baibai_engine.valuation.metrics.models import (
 )
 from baibai_engine.valuation.metrics.periods import (
     _accounting_observation_key,
+    _accounting_period_identity,
     resolve_actual_conflicts,
 )
 
@@ -474,7 +475,11 @@ def _latest_fy_revisions(
                 row.dps_actual_annual is not None,
             ),
         )
-        if len(tied) == 1 or len({statement_basis(row) for row in tied}) != 1:
+        if (
+            len(tied) == 1
+            or len({statement_basis(row) for row in tied}) != 1
+            or len({_accounting_period_identity(row) for row in tied}) != 1
+        ):
             result.append(representative)
             continue
 
