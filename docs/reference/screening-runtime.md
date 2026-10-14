@@ -54,7 +54,7 @@ Security Analysisは`observed / derived / estimate`を混同しない。欠損�
 
 <a id="input-scope"></a>
 
-Security Analysisは普通株・対象市場・20bar以上を評価対象とする。各指標の入力期間・TTM・株式basisは[Valuation metrics](./valuation-metrics.md)に従い、productionと較正replayで共有する。入力不足はnullや品質contextとして残し、実績・予測・観測期間を混ぜて穴埋めしない。
+Security Analysisは普通株・対象市場・20bar以上を評価対象とする。cache coverageのrequired-field 75%とbar・財務密度は、as-of masterの対象市場かつ東証33業種の普通株を母集団とし、価格・財務が欠けた普通株も分母に残す。対象市場の未知業種は分類を更新するまで停止する。各指標の入力期間・TTM・株式basisは[Valuation metrics](./valuation-metrics.md)に従い、productionと較正replayで共有する。入力不足はnullや品質contextとして残し、実績・予測・観測期間を混ぜて穴埋めしない。
 
 <a id="history-context"></a>
 

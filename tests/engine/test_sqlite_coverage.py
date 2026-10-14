@@ -18,6 +18,7 @@ from tests.helpers.screening_sqlite import add_source_coverage as _add_source_co
 
 from baibai_engine.screening.cli.cache import verify_cache_coverage_command
 from baibai_engine.screening.sqlite_coverage import core as coverage_core
+from baibai_engine.screening.sqlite_coverage import jquants as jquants_coverage
 from baibai_engine.screening.sqlite_coverage import (
     plan_required_field_repair,
     read_required_field_coverage,
@@ -396,7 +397,7 @@ class SQLiteCoverageTests(unittest.TestCase):
                 "INSERT INTO jquants_master_snapshots("
                 "snapshot_date, ticker, name, market, sector_33, is_common_stock"
                 ") VALUES (?, ?, ?, ?, ?, ?)",
-                (first.isoformat(), "1301", "name-1301", "Prime", "Sector", 1),
+                (first.isoformat(), "1301", "name-1301", "Prime", "水産・農林業", 1),
             )
             conn.execute(
                 "DELETE FROM source_coverage WHERE source = ? AND coverage_key = ?",
@@ -580,6 +581,74 @@ class SQLiteCoverageTests(unittest.TestCase):
             self.assertIsNotNone(at_threshold)
             assert at_threshold is not None
             self.assertEqual(at_threshold.blocking_fields, ())
+
+    def test_non_common_rows_do_not_enter_field_population_or_repair(self) -> None:
+        asof = _COMMON_COVERAGE_ASOF
+        start = asof - timedelta(days=730)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
+            conn.executemany(
+                "INSERT INTO jquants_master_snapshots("
+                "snapshot_date, ticker, name, market, sector_33, is_common_stock"
+                ") VALUES (?, ?, ?, ?, ?, ?)",
+                [
+                    (asof.isoformat(), f"9{index:03d}", "Fund", "Prime", "その他", 1)
+                    for index in range(40)
+                ]
+                + [
+                    (
+                        asof.isoformat(),
+                        f"8{index:03d}",
+                        "Other market",
+                        "TOKYO PRO MARKET",
+                        "機械",
+                        1,
+                    )
+                    for index in range(20)
+                ],
+            )
+            conn.commit()
+            conn.close()
+
+            coverage = read_required_field_coverage(sqlite_path, start=start, asof=asof)
+            plan = plan_required_field_repair(sqlite_path, start=start, asof=asof)
+
+            self.assertIsNotNone(coverage)
+            assert coverage is not None
+            self.assertEqual(coverage.population_tickers, 100)
+            self.assertEqual(coverage.minimum_tickers, 75)
+            self.assertEqual(coverage.valuation_required_fields_tickers, 100)
+            self.assertEqual(coverage.blocking_fields, ())
+            self.assertIsNotNone(plan)
+            assert plan is not None
+            self.assertEqual(plan.ranges, ())
+
+    def test_missing_common_financials_remain_in_field_population(self) -> None:
+        asof = _COMMON_COVERAGE_ASOF
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
+            conn.executemany(
+                "INSERT INTO jquants_master_snapshots("
+                "snapshot_date, ticker, name, market, sector_33, is_common_stock"
+                ") VALUES (?, ?, ?, ?, ?, ?)",
+                [
+                    (asof.isoformat(), f"8{index:03d}", "Stock", "Prime", "機械", 1)
+                    for index in range(40)
+                ],
+            )
+            conn.commit()
+            conn.close()
+
+            coverage = read_required_field_coverage(
+                sqlite_path, start=asof - timedelta(days=730), asof=asof
+            )
+
+            self.assertIsNotNone(coverage)
+            assert coverage is not None
+            self.assertEqual(coverage.population_tickers, 140)
+            self.assertEqual(coverage.minimum_tickers, 105)
+            self.assertEqual(coverage.summary_tickers, 100)
+            self.assertIn("summary_rows", coverage.blocking_fields)
 
     def test_valuation_field_intersection_is_checked_not_only_each_column(self) -> None:
         asof = _COMMON_COVERAGE_ASOF
@@ -1268,7 +1337,7 @@ class SQLiteCoverageTests(unittest.TestCase):
         with _complete_coverage_database() as sqlite_path:
             conn = sqlite3.connect(sqlite_path)
             conn.execute(
-                "UPDATE jquants_master_snapshots SET is_common_stock = 0 WHERE ticker != ?",
+                "UPDATE jquants_master_snapshots SET sector_33 = 'その他' WHERE ticker != ?",
                 ("1301",),
             )
             conn.commit()
@@ -1283,6 +1352,104 @@ class SQLiteCoverageTests(unittest.TestCase):
                     for issue in issues
                 )
             )
+
+    def test_unknown_sector_in_eligible_market_blocks_but_outside_does_not(self) -> None:
+        asof = _COMMON_COVERAGE_ASOF
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
+            conn.execute(
+                "UPDATE jquants_master_snapshots SET sector_33 = '未知業種' WHERE ticker = '1301'"
+            )
+            conn.execute(
+                "UPDATE jquants_master_snapshots SET market = 'TOKYO PRO MARKET', "
+                "sector_33 = '別の未知業種' WHERE ticker = '1302'"
+            )
+            conn.execute(
+                "UPDATE source_coverage SET record_count = 100 "
+                "WHERE source = 'jquants_master_snapshots'"
+            )
+            conn.commit()
+            issues: list[jquants_coverage.CacheCoverageIssue] = []
+            jquants_coverage._append_master_snapshot_issues(conn, issues, asof_date=asof)
+            conn.close()
+
+            unknown = [issue for issue in issues if "unknown sector_33" in issue.reason]
+            self.assertEqual(len(unknown), 1)
+            self.assertIn("1 row(s)", unknown[0].reason)
+
+    def test_non_common_bars_and_financials_cannot_mask_common_density(self) -> None:
+        asof = _COMMON_COVERAGE_ASOF
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
+            conn.executemany(
+                "INSERT INTO jquants_master_snapshots("
+                "snapshot_date, ticker, name, market, sector_33, is_common_stock"
+                ") VALUES (?, ?, ?, ?, ?, ?)",
+                [
+                    (asof.isoformat(), f"9{index:03d}", "Fund", "Prime", "その他", 1)
+                    for index in range(60)
+                ],
+            )
+            conn.execute(
+                "DELETE FROM jquants_daily_bars WHERE traded_at = ? AND ticker >= '1341'",
+                (asof.isoformat(),),
+            )
+            conn.executemany(
+                "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
+                [(f"9{index:03d}", asof.isoformat(), 100.0) for index in range(60)],
+            )
+            conn.execute("DELETE FROM jquants_fin_summaries WHERE ticker >= '1341'")
+            conn.executemany(
+                "INSERT INTO jquants_fin_summaries(ticker, disclosed_at) VALUES (?, ?)",
+                [(f"9{index:03d}", asof.isoformat()) for index in range(60)],
+            )
+            conn.commit()
+            issues: list[jquants_coverage.CacheCoverageIssue] = []
+            with patch("baibai_engine.market.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100):
+                jquants_coverage._append_asof_bar_density_issue(conn, issues, asof_date=asof)
+                jquants_coverage._append_recent_bar_density_issue(conn, issues, asof_date=asof)
+                jquants_coverage._append_fin_summary_density_issue(
+                    conn, issues, start=asof - timedelta(days=730), end=asof
+                )
+            conn.close()
+
+            self.assertEqual(
+                {issue.source for issue in issues}, {"jquants_daily_bars", "jquants_fin_summaries"}
+            )
+            self.assertTrue(any("recent usable ticker count" in issue.reason for issue in issues))
+
+    def test_non_common_bars_cannot_mask_history_bucket_density(self) -> None:
+        asof = _COMMON_COVERAGE_ASOF
+        start = asof - timedelta(days=19)
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = open_connection(Path(tmp) / "market.sqlite")
+            conn.executemany(
+                "INSERT INTO jquants_master_snapshots("
+                "snapshot_date, ticker, name, market, sector_33, is_common_stock"
+                ") VALUES (?, ?, ?, 'Prime', ?, 1)",
+                [(asof.isoformat(), f"{1301 + index:04d}", "Stock", "機械") for index in range(100)]
+                + [(asof.isoformat(), f"9{index:03d}", "Fund", "その他") for index in range(60)],
+            )
+            tickers = [f"{1301 + index:04d}" for index in range(40)] + [
+                f"9{index:03d}" for index in range(60)
+            ]
+            conn.executemany(
+                "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
+                [
+                    (ticker, (start + timedelta(days=day)).isoformat(), 100.0)
+                    for day in range(5)
+                    for ticker in tickers
+                ],
+            )
+            issues: list[jquants_coverage.CacheCoverageIssue] = []
+            with patch("baibai_engine.market.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100):
+                jquants_coverage._append_daily_history_density_issue(
+                    conn, issues, start=start, end=asof
+                )
+            conn.close()
+
+            self.assertEqual(len(issues), 1)
+            self.assertIn("(0/5 usable dates)", issues[0].reason)
 
     def test_master_below_production_floor_reports_incomplete_cache(self) -> None:
         asof = date(2026, 5, 8)
