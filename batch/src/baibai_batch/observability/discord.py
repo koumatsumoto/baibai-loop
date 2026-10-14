@@ -14,9 +14,9 @@ and run it on the GitHub-hosted runner's system ``python3``.
 The webhook URL is read only from the notification step's environment, never from
 a CLI argument, and never echoed. Validation failures, timeouts and HTTP errors
 report a sanitized reason that omits the URL and any response body. A delivery
-failure is printed and the script still exits 0: a red job means the day's
-artefacts were not published (``docs/architecture.md`` §Failure policy), and a
-broken webhook is not that.
+failure is printed and the script still exits 0, so notification delivery does
+not change the batch/publication outcome. A failed workflow does not itself prove
+that publication never happened; failures can also occur after a pointer switch.
 """
 
 from __future__ import annotations
@@ -202,9 +202,9 @@ def run_url(env: Mapping[str, str]) -> str:
 def load_notice(path: Path | None) -> dict[str, object]:
     """Read what the batch left for the notifier; anything unreadable reads as absent.
 
-    The batch writes the notice on every terminal path it reaches. No notice means
-    the batch never reached one (it was not started, or died before its first
-    line), which the exit code and the step outcomes already say.
+    An absent result can mean no file, an unreadable file, or an invalid payload.
+    It does not establish where execution stopped. Exit code and step outcomes
+    remain available independently, and unknown notice fields stay unknown.
     """
 
     if path is None:
@@ -266,7 +266,8 @@ def render_delta(notice: Mapping[str, object]) -> list[str]:
     Silence would carry three different facts — nothing entered, the delta could not
     be measured, and the notification path is broken — and a reader cannot tell them
     apart. So on every run that reached the export the two lines are present and say
-    which case it is. A non-business day has no candidate list and no lines.
+    which case it is. A non-business day or failed screening reports that the
+    stored result was retained, without claiming a new candidate delta.
     """
 
     if not notice:
