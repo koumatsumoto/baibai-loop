@@ -69,7 +69,7 @@ def prepare_selected_workspace(
 ) -> SelectedResearchPreparation:
     if now.utcoffset() is None or draft.input_known_at > now:
         raise ResearchWorkspaceConflictError("input_known_at is after prepare time")
-    service = OperationService(db_path, sqlite_path=sqlite_path, runs_path=runs_path)
+    service = OperationService(db_path, runs_path=runs_path)
     manifest_path = workspace / "manifest.yaml"
     if manifest_path.exists():
         manifest = _load_mapping(manifest_path, label="workspace manifest")

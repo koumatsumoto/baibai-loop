@@ -153,7 +153,7 @@ def backend_case(
         tickers=tickers,
         scope="review_positions" if holding else "specified_stocks",
     )
-    operations = OperationService(app, sqlite_path=market)
+    operations = OperationService(app)
     operation = operations.start(
         session_kind="position-review" if holding else "capital-allocation",
         as_of=selected.research_as_of,

@@ -10,7 +10,7 @@ from datetime import date, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from baibai_engine.foundation.repository_layout import MARKET_DB_PATH, RUNS_DB_PATH
+from baibai_engine.foundation.repository_layout import RUNS_DB_PATH
 from baibai_engine.foundation.time import JST
 from baibai_engine.research.assessment import AssessmentRef
 from baibai_engine.research.assessment_store import load_reviewed_assessment
@@ -59,11 +59,9 @@ class OperationService:
         self,
         db_path: Path | None = None,
         *,
-        sqlite_path: Path = MARKET_DB_PATH,
         runs_path: Path = RUNS_DB_PATH,
     ) -> None:
         self._db_path = db_path
-        self._sqlite_path = sqlite_path
         self._runs_path = runs_path
 
     def start(

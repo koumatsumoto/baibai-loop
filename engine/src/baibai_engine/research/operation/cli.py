@@ -11,7 +11,6 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
-from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.research.operation.models import SESSION_KINDS, OperationPayload
@@ -90,7 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     args = build_parser().parse_args(argv)
-    service = OperationService(args.db, sqlite_path=getattr(args, "sqlite_path", MARKET_DB_PATH))
+    service = OperationService(args.db)
     current_time = now or datetime.now(JST)
     try:
         if args.command == "start":

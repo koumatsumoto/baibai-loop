@@ -66,9 +66,9 @@ def seed_assessment(db, ticker="1234", *, number=1, now=NOW):
 
 
 def start(case, tickers=(), *, scope="discover_new"):
-    db, market = case
+    db, _market = case
     value = make_selection(now=NOW, tickers=tickers, scope=scope)
-    service = OperationService(db, sqlite_path=market)
+    service = OperationService(db)
     operation = service.start(
         session_kind="position-review" if scope == "review_positions" else "capital-allocation",
         as_of=NOW.date(),
