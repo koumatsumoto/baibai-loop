@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -1405,6 +1405,7 @@ def test_night_research_reaches_next_morning_planning_through_delta_refresh(
     publish_allocate("night", night_assessment, night)
     assert plan(night_assessment, night)["status"] == "planned_limit"
     before = plan(night_assessment, morning)
+    assert before == plan(night_assessment, morning.astimezone(UTC))
     assert before["status"] == "defer"
     assert before["defer_reasons"] == ["valuation_basis_requires_refresh"]
 
@@ -1481,6 +1482,7 @@ def test_night_research_reaches_next_morning_planning_through_delta_refresh(
     morning_assessment = "capital-allocation-assessment-20260908-morning"
     publish_allocate("morning", morning_assessment, morning)
     after = plan(morning_assessment, morning)
+    assert after == plan(morning_assessment, morning.astimezone(UTC))
     assert after["status"] == "planned_limit"
     assert after["quantity"] == 300
     assert after["price_as_of"] == "2026-09-07"

@@ -2,7 +2,7 @@
 
 import socket
 import sqlite3
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 from tests.engine.test_position_review_v3 import NOW
@@ -169,6 +169,36 @@ def test_empty_selection_completes_without_fake_caa_or_confirmation(holding_case
             connection.execute("SELECT count(*) FROM capital_allocation_assessment").fetchone()[0]
             == 0
         )
+
+
+@pytest.mark.parametrize(
+    "clock_time",
+    [
+        datetime.fromisoformat("2026-09-08T08:30:00+09:00"),
+        datetime.fromisoformat("2026-09-07T23:30:00+00:00"),
+    ],
+)
+def test_caa_today_uses_japanese_business_day_for_equivalent_instants(holding_case, clock_time):
+    db, market, _ = holding_case
+    seed_research(db)
+    service, operation = start(db, market, (("1234", "new"),))
+    service.record_thesis(operation.operation_id, "thesis-1234", now=NOW)
+    draft = assessment(db, ["thesis-1234"]).model_copy(
+        update={
+            "as_of": date(2026, 9, 8),
+            "published_at": datetime.fromisoformat("2026-09-08T08:15:00+09:00"),
+        }
+    )
+    draft = draft.model_copy(
+        update={
+            "review": draft.review.model_copy(
+                update={"draft_sha256": capital_allocation_draft_sha256(draft)}
+            )
+        }
+    )
+    publisher = CapitalAllocationAssessmentService(db, clock=lambda: clock_time)
+    publisher.check(draft)
+    assert publisher.publish(draft).published_at == clock_time
 
 
 def test_completed_a_and_unfinished_b_compare_only_a_with_fixed_coverage(holding_case):

@@ -119,7 +119,7 @@ class CapitalAllocationAssessmentService:
         now: datetime,
         require_review_binding: bool,
     ) -> None:
-        if assessment.as_of != now.date():
+        if assessment.as_of != now.astimezone(JST).date():
             raise CapitalAllocationConflictError("formal assessment basis must be today")
         expected_draft = capital_allocation_draft_sha256(assessment)
         if require_review_binding and assessment.review.draft_sha256 != expected_draft:
