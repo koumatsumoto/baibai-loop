@@ -378,6 +378,7 @@ def test_unreadable_holding_input_leaves_no_operation_or_workspace(tmp_path, mon
     monkeypatch.setattr(workspace_prepare, "research_inputs", unavailable)
     with pytest.raises(ValueError, match="synthetic unreadable input"):
         prepare_holding_workspace(
+            sqlite_path=tmp_path / "absent-market",
             asof=CASE_NOW.date(),
             db_path=db,
             ticker="2331",
@@ -488,6 +489,7 @@ def test_research_resumes_reordered_set_and_keeps_prepare_context(
         lambda **kwargs: context,
     )
     prepare_workspace(
+        sqlite_path=tmp_path / "absent-market",
         started_at=CASE_NOW,
         request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
@@ -497,6 +499,7 @@ def test_research_resumes_reordered_set_and_keeps_prepare_context(
     )
     operation = OperationService(db).active()
     prepare_workspace(
+        sqlite_path=tmp_path / "absent-market",
         started_at=CASE_NOW,
         request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
@@ -553,6 +556,7 @@ def test_status_and_promote_share_case_eligibility(tmp_path: Path, mutation: str
     triage = _publish_triage(db)
     workspace = tmp_path / "workspace"
     prepare_workspace(
+        sqlite_path=tmp_path / "absent-market",
         started_at=CASE_NOW,
         request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
@@ -887,6 +891,8 @@ def test_prepare_and_status_need_only_published_triage_id(
                 triage.research_triage_id,
                 "--db",
                 str(db_path),
+                "--sqlite-path",
+                str(tmp_path / "absent-market"),
                 "--workspace",
                 str(workspace),
                 "--ticker",
@@ -930,6 +936,7 @@ def test_workspace_rejects_skip_admission_and_payload_hash_drift(tmp_path: Path)
     triage = _publish_triage(db_path)
     workspace = tmp_path / "workspace"
     prepare_workspace(
+        sqlite_path=tmp_path / "absent-market",
         started_at=CASE_NOW,
         request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
@@ -963,6 +970,7 @@ def test_zero_research_is_a_normal_prepared_workspace(tmp_path: Path) -> None:
 
     workspace = tmp_path / "workspace"
     prepared = prepare_workspace(
+        sqlite_path=tmp_path / "absent-market",
         started_at=CASE_NOW,
         request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
@@ -987,6 +995,7 @@ def test_explicit_empty_selection_is_recorded_without_fake_proposal(tmp_path: Pa
     triage = _publish_triage(db_path)
 
     prepared = prepare_workspace(
+        sqlite_path=tmp_path / "absent-market",
         started_at=CASE_NOW,
         request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
@@ -1005,6 +1014,7 @@ def test_prepare_rejects_skip_ticker_before_starting_operation(tmp_path: Path) -
 
     with pytest.raises(ResearchWorkspaceDataError, match="did not mark research"):
         prepare_workspace(
+            sqlite_path=tmp_path / "absent-market",
             started_at=CASE_NOW,
             request="synthetic explicit research request",
             research_triage_id=triage.research_triage_id,
@@ -1039,6 +1049,7 @@ def test_active_operation_blocks_only_new_research_start(tmp_path: Path) -> None
 
     with pytest.raises(ResearchWorkspaceConflictError, match="active operation already exists"):
         prepare_workspace(
+            sqlite_path=tmp_path / "absent-market",
             started_at=CASE_NOW,
             request="synthetic explicit research request",
             research_triage_id=triage.research_triage_id,
@@ -1057,6 +1068,7 @@ def test_force_cannot_overwrite_workspace_with_a_different_active_research_set(
     triage = _publish_triage(db_path, second_research=True)
     workspace = tmp_path / "workspace"
     prepare_workspace(
+        sqlite_path=tmp_path / "absent-market",
         started_at=CASE_NOW,
         request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
@@ -1068,6 +1080,7 @@ def test_force_cannot_overwrite_workspace_with_a_different_active_research_set(
 
     with pytest.raises(ResearchWorkspaceConflictError, match="active operation already exists"):
         prepare_workspace(
+            sqlite_path=tmp_path / "absent-market",
             started_at=CASE_NOW,
             request="synthetic explicit research request",
             research_triage_id=triage.research_triage_id,
@@ -1085,6 +1098,7 @@ def test_thesis_scaffold_without_quote_is_unresolved_v4(tmp_path):
     triage = _publish_triage(db)
     workspace = tmp_path / "research"
     prepare_workspace(
+        sqlite_path=tmp_path / "absent-market",
         started_at=CASE_NOW,
         request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
@@ -1137,6 +1151,7 @@ def test_all_cases_promote_without_a_winner_and_status_tracks_exact_publication(
     triage = _publish_triage(db, second_research=True)
     workspace = tmp_path / "workspace"
     prepare_workspace(
+        sqlite_path=tmp_path / "absent-market",
         started_at=CASE_NOW,
         request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
@@ -1195,6 +1210,7 @@ def test_all_cases_promote_without_a_winner_and_status_tracks_exact_publication(
     # Re-prepare keeps authored drafts; status derives publication without a local journal.
     authored = (workspace / "2331/thesis-draft.yaml").read_bytes()
     prepare_workspace(
+        sqlite_path=tmp_path / "absent-market",
         started_at=CASE_NOW,
         request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
@@ -1236,6 +1252,7 @@ def test_holding_workspace_has_one_ledger_subject_without_comparison(tmp_path: P
     _publish_triage(db, with_holdings=True)
     workspace = tmp_path / "holding"
     workspace_module.prepare_holding_workspace(
+        sqlite_path=tmp_path / "absent-market",
         started_at=CASE_NOW,
         request="synthetic explicit holding request",
         db_path=db,
@@ -1268,6 +1285,7 @@ def test_publication_ignores_checklist_but_requires_exact_documents(
     triage = _publish_triage(db)
     workspace = tmp_path / "workspace"
     prepare_workspace(
+        sqlite_path=tmp_path / "absent-market",
         started_at=CASE_NOW,
         request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
@@ -1313,6 +1331,7 @@ def test_obsolete_override_cannot_bypass_exact_publication(tmp_path: Path) -> No
     triage = _publish_triage(db)
     workspace = tmp_path / "workspace"
     prepare_workspace(
+        sqlite_path=tmp_path / "absent-market",
         started_at=CASE_NOW,
         request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
@@ -1360,6 +1379,7 @@ def test_risk_only_case_completes_review_promotion_and_no_allocation(tmp_path):
     triage = _publish_triage(db)
     workspace = tmp_path / "research"
     prepare_workspace(
+        sqlite_path=tmp_path / "absent-market",
         request="synthetic explicit research request",
         research_triage_id=triage.research_triage_id,
         db_path=db,
@@ -1670,6 +1690,7 @@ def test_saved_v3_triage_workspace_resumes_with_original_payload_hash(tmp_path):
     with sqlite3.connect(db) as con:
         con.execute("UPDATE research_triage SET payload=?", (raw,))
     args = dict(
+        sqlite_path=tmp_path / "absent-market",
         started_at=CASE_NOW,
         request="resume saved v3 admission",
         research_triage_id=triage.research_triage_id,
