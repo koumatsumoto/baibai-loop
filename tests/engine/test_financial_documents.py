@@ -686,3 +686,37 @@ def test_explicit_unknown_forecast_slot_is_not_an_absent_complement() -> None:
     assert result.per_forward is None
     assert result.earnings_forecast_source
     assert result.earnings_forecast_source["forecast_eps_source_records"] == "doc:known,doc:unknown"
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_conflicting_payment_allocations_cannot_select_split_adjustment_by_order(
+    reverse: bool,
+) -> None:
+    from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent
+    from baibai_engine.valuation.metrics.dividends import (
+        _asof_basis_fy_dps,
+        _latest_fy_revisions,
+        _resolve_dividend_carry,
+    )
+
+    eps = actual_document("eps-only")
+    eps["NP"] = eps["Sales"] = ""
+    a, b = (
+        actual_document("interim", DivAnn="7", Div2Q="7"),
+        actual_document("year-end", DivAnn="7", DivFY="7"),
+    )
+    for record in (a, b):
+        record["EPS"] = record["NP"] = record["Sales"] = ""
+    records = [eps, *([b, a] if reverse else [a, b])]
+    rows = decode(records)
+    events = [
+        JQuantsAdjustmentFactorEvent(
+            ticker="9999", traded_at=date(2026, 1, 15), adjustment_factor=0.5
+        )
+    ]
+    fy_rows = _latest_fy_revisions(rows)
+    assert fy_rows[0].eps_ttm == 20
+    assert fy_rows[0].dps_actual_annual == 7
+    assert _asof_basis_fy_dps(fy_rows, events, asof_date=ASOF) == {}
+    assert _resolve_dividend_carry(rows, events, 100, ASOF).dividend_yield is None
+    assert _resolve_dividend_carry(rows, (), 100, ASOF).dividend_yield == 0.07
