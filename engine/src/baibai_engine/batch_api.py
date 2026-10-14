@@ -166,6 +166,9 @@ from baibai_engine.research.triage.query import (
 )
 from baibai_engine.research.triage.service import ResearchTriageConflictError, ResearchTriageService
 from baibai_engine.screening.discovery.contracts import PublishedReviewSet
+from baibai_engine.screening.discovery.contracts import (
+    validate_candidate_run as validate_candidate_run,
+)
 from baibai_engine.screening.earnings_lag import interpreted_next_earnings_status
 from baibai_engine.screening.run_store import ReviewSetPublication, ScreeningRunReader
 from baibai_engine.screening.run_store.schema import RUN_STORE_SCHEMA_VERSION
@@ -454,6 +457,7 @@ def _matching_daily_triage(
 
 
 __all__ = [
+    "validate_candidate_run",
     "APPLICATION_DB_PATH",
     "APPLICATION_SCHEMA_VERSION",
     "ASSESSMENT_SCHEMA_VERSION",

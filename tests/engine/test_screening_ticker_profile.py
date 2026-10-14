@@ -8,8 +8,9 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
+from tests.engine.test_screening_run_store import _run as _stock_run_payload
 from tests.helpers.db_seed import seed_ledger
-from tests.helpers.screening_run import screening_run_payload, security_analysis
+from tests.helpers.screening_run import security_analysis as stock_analysis
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.foundation.yaml_io import safe_load
@@ -17,7 +18,6 @@ from baibai_engine.market_context.prices import read_price_bars
 from baibai_engine.position.ledger import PortfolioLedgerDocument
 from baibai_engine.read_api.ticker_profile import build_ticker_profile
 from baibai_engine.screening.cli import build_parser, ticker_profile_command
-from baibai_engine.screening.discovery.review_set import build_review_set
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.run_store import ScreeningRunStore
 from baibai_engine.storage.observations.schema import open_connection
@@ -70,28 +70,20 @@ def _insert_reference_rows(sqlite_path: Path) -> None:
         conn.close()
 
 
-def _write_security_analyses(runs_db_path: Path) -> None:
+def _write_stock_analyses(runs_db_path: Path) -> None:
     ScreeningRunStore(runs_db_path).publish_run(
-        screening_run_payload(
-            as_of="2026-05-29",
-            run_at="2026-05-29T09:00:00+09:00",
-            universe_size=1,
-            security_analyses=[
-                security_analysis(
+        _stock_run_payload(
+            asof="2026-05-29",
+            at="2026-05-29T09:00:00+09:00",
+            rows=[
+                stock_analysis(
                     "AAAA",
                     name="テスト製作所",
                     metrics={"ocf_yield": 0.11},
                 )
             ],
-            filters={},
-            generated_by="test",
-            data_sources=[],
-            provider_status_lines=[],
-            universe_exclusion_lines=[],
-            ttm_quality_counts={},
-            evidence_hits_summary={},
-            fallback_lines=[],
         ),
+        rules=load_screening_rules(),
         run_revision_id="run-20260529-test",
     )
 
@@ -139,7 +131,7 @@ class BuildTickerProfileTests(unittest.TestCase):
             _insert_bars(sqlite_path, "1321", [200.0] * 30, end=_ASOF)
             _insert_bars(sqlite_path, "BBBB", [300 * 0.99**i for i in range(30)], end=_ASOF)
             _insert_reference_rows(sqlite_path)
-            _write_security_analyses(root / "runs.sqlite")
+            _write_stock_analyses(root / "runs.sqlite")
 
             profile = self._build(root, "AAAA")
 
@@ -170,10 +162,10 @@ class BuildTickerProfileTests(unittest.TestCase):
             self.assertEqual(jpx["flags"], ["特別注意銘柄"])
             screening = profile["screening"]
             assert isinstance(screening, dict)
-            self.assertTrue(screening["has_security_analysis"])
-            security_analysis = screening["security_analysis"]
-            assert isinstance(security_analysis, dict)
-            self.assertEqual(security_analysis["metrics"], {"ocf_yield": 0.11})
+            self.assertTrue(screening["has_stock_analysis"])
+            stock_analysis = screening["stock_analysis"]
+            assert isinstance(stock_analysis, dict)
+            self.assertEqual(stock_analysis["metrics"], {"ocf_yield": 0.11})
 
     def test_price_series_keeps_an_action_event_without_a_close(self) -> None:
         """売買停止日のfactorを落とさず、前後価格を同じ株式基準へ揃える。"""
@@ -234,60 +226,49 @@ class BuildTickerProfileTests(unittest.TestCase):
             self.assertIsNone(profile["relative"])
             screening = profile["screening"]
             assert isinstance(screening, dict)
-            self.assertFalse(screening["has_security_analysis"])
+            self.assertFalse(screening["has_stock_analysis"])
 
-    def test_profile_marks_ticker_missing_from_security_analyses(self) -> None:
+    def test_profile_marks_ticker_missing_from_stock_analyses(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             sqlite_path = root / "market.sqlite"
             _insert_bars(sqlite_path, "BBBB", [300.0] * 30, end=_ASOF)
             _insert_reference_rows(sqlite_path)
-            _write_security_analyses(root / "runs.sqlite")
+            _write_stock_analyses(root / "runs.sqlite")
 
             profile = self._build(root, "BBBB")
 
             screening = profile["screening"]
             assert isinstance(screening, dict)
-            self.assertFalse(screening["has_security_analysis"])
-            self.assertIn("no Security Analysis", str(screening["note"]))
-            self.assertNotIn("security_analysis", screening)
+            self.assertFalse(screening["has_stock_analysis"])
+            self.assertIn("no Stock Analysis", str(screening["note"]))
+            self.assertNotIn("stock_analysis", screening)
 
-    def test_profile_retains_security_analysis_without_nomination(self) -> None:
+    def test_profile_retains_stock_analysis_without_nomination(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            _write_security_analyses(root / "runs.sqlite")
+            _write_stock_analyses(root / "runs.sqlite")
             profile = self._build(root, "AAAA")
             screening = profile["screening"]
             assert isinstance(screening, dict)
-            analysis = screening["security_analysis"]
+            analysis = screening["stock_analysis"]
             assert isinstance(analysis, dict)
-            rules = load_screening_rules()
-            review_set = build_review_set(
-                [analysis],
-                rules=rules.candidate_discovery,
-                required_jpx_flags=rules.universe.required_jpx_flags,
-            )
-            self.assertEqual(review_set["entries"], [])
-            self.assertTrue(screening["has_security_analysis"])
+            self.assertEqual(analysis["candidate"]["reasons"], [])
+            self.assertTrue(screening["has_stock_analysis"])
             self.assertNotIn("note", screening)
 
     def test_screening_uses_only_latest_stored_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             runs_path = root / "runs.sqlite"
-            _write_security_analyses(runs_path)
+            _write_stock_analyses(runs_path)
             latest = ScreeningRunStore(runs_path).publish_run(
-                screening_run_payload(
-                    as_of="2026-05-30",
-                    run_at="2026-05-30T09:00:00+09:00",
-                    universe_size=1,
-                    security_analyses=[security_analysis("BBBB", name="同業ペア", metrics={})],
-                    filters={},
-                    generated_by="test",
-                    data_sources=[],
-                    provider_status_lines=[],
-                    fallback_lines=[],
-                )
+                _stock_run_payload(
+                    asof="2026-05-30",
+                    at="2026-05-30T09:00:00+09:00",
+                    rows=[stock_analysis("BBBB", name="同業ペア", metrics={})],
+                ),
+                rules=load_screening_rules(),
             )
 
             profile = build_ticker_profile(
@@ -302,7 +283,7 @@ class BuildTickerProfileTests(unittest.TestCase):
             assert isinstance(screening, dict)
             self.assertEqual(screening["screening_run_revision_id"], latest.publication_id)
             self.assertEqual(screening["screening_run_as_of"], "2026-05-30")
-            self.assertFalse(screening["has_security_analysis"])
+            self.assertFalse(screening["has_stock_analysis"])
 
     def test_master_and_sector_peers_use_only_latest_global_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
