@@ -49,9 +49,9 @@ def initialize_database(
                 "application database requires an explicit semantic cutover "
                 f"(found user_version={current}, expected={APPLICATION_SCHEMA_VERSION})"
             )
-        connection.execute("BEGIN IMMEDIATE")
         try:
-            connection.executescript(SCHEMA_SQL)
+            # executescript commits a pending transaction before executing its SQL.
+            connection.executescript("BEGIN IMMEDIATE;\n" + SCHEMA_SQL)
             connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION}")
             connection.commit()
         except BaseException:
@@ -79,7 +79,10 @@ def backup_database(
     target_dir.mkdir(parents=True, exist_ok=True)
     stamp = (now or datetime.now(JST)).strftime("%Y%m%dT%H%M%S%f%z")
     target = target_dir / f"baibai-{stamp}.sqlite"
-    with sqlite3.connect(source_path) as source, sqlite3.connect(target) as destination:
+    with (
+        closing(sqlite3.connect(source_path)) as source,
+        closing(sqlite3.connect(target)) as destination,
+    ):
         source.backup(destination)
         if destination.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
             raise sqlite3.DatabaseError("backup integrity_check failed")

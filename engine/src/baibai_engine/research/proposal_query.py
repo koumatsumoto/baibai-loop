@@ -270,15 +270,15 @@ def preview_current_terms(
     from baibai_engine.position.policy import PORTFOLIO_POLICY
     from baibai_engine.research.assessment import current_price_projection
     from baibai_engine.research.assessment_store import latest_assessment_id
+    from baibai_engine.research.proposal_conditions import (
+        assessment_quote_basis,
+        terms_unavailable_reasons,
+    )
     from baibai_engine.research.proposal_fingerprint import proposal_inputs_fingerprint
     from baibai_engine.research.proposal_inputs import (
         DEFAULT_BUDGET_MAX_YEN,
         DEFAULT_BUDGET_MIN_YEN,
         collect_proposal_inputs,
-    )
-    from baibai_engine.research.proposal_conditions import (
-        assessment_quote_basis,
-        terms_unavailable_reasons,
     )
     from baibai_engine.research.proposal_warnings import build_proposal_warnings
 

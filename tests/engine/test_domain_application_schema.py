@@ -1,10 +1,12 @@
 """Final application shape has one assessment/proposal contract and unchanged fact tables."""
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
 
+from baibai_engine.storage.application import write as application_write
 from baibai_engine.storage.application.schema import APPLICATION_SCHEMA_VERSION, SCHEMA_SQL
 from baibai_engine.storage.application.write import initialize_database
 
@@ -29,7 +31,7 @@ NEW = (
 
 @pytest.fixture
 def connection():
-    with sqlite3.connect(":memory:") as connection:
+    with closing(sqlite3.connect(":memory:")) as connection:
         connection.execute("PRAGMA foreign_keys=ON")
         connection.executescript(SCHEMA_SQL)
         yield connection
@@ -72,7 +74,7 @@ def proposal(connection):
 def test_final_schema24_has_only_current_research_and_fact_tables(tmp_path):
     path = tmp_path / "app.sqlite"
     assert initialize_database(path) == APPLICATION_SCHEMA_VERSION == 24
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection:
         tables = {
             row[0]
             for row in connection.execute("SELECT name FROM sqlite_schema WHERE type='table'")
@@ -84,7 +86,7 @@ def test_final_schema24_has_only_current_research_and_fact_tables(tmp_path):
 
 
 def test_non_target_ddl_and_ledger_columns_remain_source22_compatible(connection):
-    with sqlite3.connect(":memory:") as old:
+    with closing(sqlite3.connect(":memory:")) as old:
         old.executescript(
             Path("tests/fixtures/application/research-selection-v1-schema.sql").read_text()
         )
@@ -194,3 +196,15 @@ def test_decision_binding_has_three_explicit_origins_and_buy_only(
     else:
         with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
             connection.execute(sql, values)
+
+
+def test_initialization_failure_rolls_back_schema_and_can_retry(tmp_path, monkeypatch):
+    path = tmp_path / "app.sqlite"
+    with monkeypatch.context() as patch:
+        patch.setattr(application_write, "SCHEMA_SQL", SCHEMA_SQL + "\nINVALID SQL;")
+        with pytest.raises(sqlite3.OperationalError):
+            initialize_database(path)
+    with closing(sqlite3.connect(path)) as connection:
+        assert connection.execute("SELECT name FROM sqlite_schema").fetchall() == []
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 0
+    assert initialize_database(path) == APPLICATION_SCHEMA_VERSION
