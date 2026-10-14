@@ -88,6 +88,7 @@ def test_metric_values_and_quality_reasons_remain_stable() -> None:
         ("failed_coverage", 0, 1),
         ("hard_failure", 1, 0),
         ("corrupt_count", 1, 0),
+        ("invalid_ticker", 1, 0),
     ],
 )
 def test_existing_baseline_reuse_and_failure_contract(tmp_path, change, expected_exit, downloads):
@@ -141,6 +142,9 @@ def test_existing_baseline_reuse_and_failure_contract(tmp_path, change, expected
             connection.execute(
                 "UPDATE source_coverage SET record_count=999 WHERE source='edinet_metrics'"
             )
+        elif change == "invalid_ticker":
+            connection.execute("UPDATE edinet_metrics SET ticker='invalid'")
+        retained = connection.execute("SELECT * FROM edinet_metrics ORDER BY ticker").fetchall()
     # A missing ZIP for the current revision makes accidental re-extraction fail.
     retry = FakeEDINETProvider(
         documents=[document], zip_by_doc_id={"S100BASELINE": csv_zip()} if downloads else {}
@@ -162,6 +166,10 @@ def test_existing_baseline_reuse_and_failure_contract(tmp_path, change, expected
         ).fetchall()
     if expected_exit:
         assert latest == []
+        with closing(sqlite3.connect(db)) as connection:
+            assert connection.execute(
+                "SELECT * FROM edinet_metrics ORDER BY ticker"
+            ).fetchall() == retained
     elif change == "current_revision":
         # All extracted columns, including provenance and quality, are reused unchanged.
         assert [row[1:] for row in latest] == [row[1:] for row in original]

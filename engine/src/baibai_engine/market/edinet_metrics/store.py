@@ -12,7 +12,7 @@ from typing import Any
 
 from baibai_engine.market.edinet_decode import normalize_metric_record
 from baibai_engine.market.edinet_metrics.revision import has_hard_metric_failure
-from baibai_engine.market.edinet_models import EdinetMetricRecord
+from baibai_engine.market.edinet_models import EdinetMetricRecord, EDINETProviderError
 from baibai_engine.storage.observations.schema import connect_current
 from baibai_engine.storage.observations.snapshot_coverage import date_covered
 
@@ -164,7 +164,7 @@ def read_edinet_metric_baseline(
                         extractor_revision=str(row[35]) if row[35] is not None else None,
                         source_document_revision=(str(row[36]) if row[36] is not None else None),
                     )
-            except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            except (TypeError, ValueError, EDINETProviderError) as exc:
                 raise EDINETMetricBaselineError(
                     f"EDINET metric baseline row is invalid for {key}: {type(exc).__name__}"
                 ) from exc

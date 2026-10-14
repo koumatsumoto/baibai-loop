@@ -25,6 +25,10 @@ class FakeResponse:
     content: bytes = b""
     headers: dict[str, str] = field(default_factory=dict)
     _payload: Any = None
+    close_count: int = 0
+
+    def close(self) -> None:
+        self.close_count += 1
 
     def json(self) -> Any:
         if self._payload is None:
@@ -43,7 +47,7 @@ def response(
     content_type: str | None = None,
     payload: Any = None,
 ) -> FakeResponse:
-    """One response. `content_type` is the only header the providers read."""
+    """One response; tests can add further headers such as Retry-After."""
 
     headers = {} if content_type is None else {"content-type": content_type}
     return FakeResponse(status_code=status_code, content=content, headers=headers, _payload=payload)

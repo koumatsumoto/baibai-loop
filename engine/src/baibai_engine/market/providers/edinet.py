@@ -7,6 +7,7 @@ import re
 import time
 import zipfile
 from collections.abc import Mapping, Sequence
+from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -265,13 +266,15 @@ class EDINETProvider:
         )
 
     def _request_json(self, url: str) -> dict[str, Any]:
-        payload = self._request_response(url, timeout=30).json()
+        with closing(self._request_response(url, timeout=30)) as response:
+            payload = response.json()
         if not isinstance(payload, dict):
             raise EDINETProviderError("EDINET response JSON must be an object")
         return payload
 
     def _request_bytes(self, url: str) -> bytes:
-        return bytes(self._request_response(url, timeout=60).content)
+        with closing(self._request_response(url, timeout=60)) as response:
+            return bytes(response.content)
 
     def _request_response(self, url: str, *, timeout: int) -> requests.Response:
         """One retry budget for HTTP failures and EDINET's HTTP 200 body 429."""
@@ -292,15 +295,19 @@ class EDINETProvider:
             )
             if response.status_code < 400 and not rate_limited:
                 return response
-            if rate_limited and attempt >= max_attempts - 1:
-                raise EDINETRateLimitError("EDINET request rate limited after retries")
-            if not rate_limited and response.status_code not in {500, 502, 503, 504}:
-                raise EDINETProviderError(
-                    f"EDINET request failed with status {response.status_code}"
-                )
-            if attempt < max_attempts - 1:
+            try:
+                if rate_limited and attempt >= max_attempts - 1:
+                    raise EDINETRateLimitError("EDINET request rate limited after retries")
+                if not rate_limited and response.status_code not in {500, 502, 503, 504}:
+                    raise EDINETProviderError(
+                        f"EDINET request failed with status {response.status_code}"
+                    )
                 backoff = 3 * (2**attempt)
-                time.sleep(_retry_after_seconds(response, backoff) if rate_limited else backoff)
+                wait = _retry_after_seconds(response, backoff) if rate_limited else backoff
+            finally:
+                response.close()
+            if attempt < max_attempts - 1:
+                time.sleep(wait)
         raise EDINETProviderError("EDINET request failed after retries")
 
     def _sanitize_secret(self, text: str) -> str:

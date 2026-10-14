@@ -160,3 +160,39 @@ def test_listing_json_parse_error_is_not_retried(tmp_path, clock):
         request("list", tmp_path, session)
     assert len(session.calls) == 1
     assert clock == []
+
+
+@pytest.mark.parametrize("kind", ["csv", "xbrl", "list"])
+def test_each_retry_response_is_closed_before_wait_and_success_is_closed(
+    kind, tmp_path, clock, monkeypatch
+):
+    limited = rate_limit()
+    unavailable = response(status_code=503)
+    accepted = success(kind)
+    session = FakeSession(limited, unavailable, accepted)
+    sleep = edinet.time.sleep
+
+    def checked_sleep(seconds):
+        assert limited.close_count == 1
+        if len(session.calls) == 2:
+            assert unavailable.close_count == 1
+        sleep(seconds)
+
+    monkeypatch.setattr(edinet.time, "sleep", checked_sleep)
+    request(kind, tmp_path, session)
+    assert [item.close_count for item in (limited, unavailable, accepted)] == [1, 1, 1]
+
+
+@pytest.mark.parametrize("status", [403, 429, 503])
+def test_terminal_http_failures_close_every_response(status, tmp_path, clock):
+    replies = [response(status_code=status) for _ in range(1 if status == 403 else 6)]
+    with pytest.raises(EDINETProviderError):
+        request("list", tmp_path, FakeSession(*replies))
+    assert all(item.close_count == 1 for item in replies)
+
+
+def test_json_parse_failure_still_closes_the_successful_http_response(tmp_path, clock):
+    invalid = response(b"invalid JSON")
+    with pytest.raises(ValueError, match="no JSON body"):
+        request("list", tmp_path, FakeSession(invalid))
+    assert invalid.close_count == 1

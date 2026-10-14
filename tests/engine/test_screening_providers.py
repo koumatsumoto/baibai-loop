@@ -4,8 +4,10 @@ import sqlite3
 import tempfile
 import unittest
 import zipfile
+from contextlib import closing
 from datetime import date, timedelta
 from io import BytesIO
+from itertools import permutations
 from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
@@ -1824,7 +1826,7 @@ class ScreeningProviderTests(unittest.TestCase):
         """
         by_url = {source.url: source for source in files}
         snapshots: list[JPXEarningsCalendarSnapshot] = []
-        for urls in (tuple(by_url), tuple(reversed(tuple(by_url)))):
+        for urls in permutations(by_url):
             provider = JPXProvider()
             with (
                 patch.object(provider, "_resolve_earnings_calendar_urls", return_value=urls),
@@ -1833,7 +1835,8 @@ class ScreeningProviderTests(unittest.TestCase):
                 ),
             ):
                 snapshots.append(provider.get_earnings_calendar_snapshot(asof_date))
-        self.assertEqual(snapshots[0].entries, snapshots[1].entries)
+        for snapshot in snapshots[1:]:
+            self.assertEqual(snapshots[0], snapshot)
         return snapshots[0]
 
     def test_jpx_earnings_snapshot_keeps_the_freshest_publication_on_conflict(self) -> None:
@@ -2303,14 +2306,11 @@ class ScreeningProviderTests(unittest.TestCase):
                 sqlite_path=sqlite_path,
             )
             provider.get_regulation_snapshot(date(2026, 4, 24))
-            rows = (
-                sqlite3.connect(sqlite_path)
-                .execute(
+            with closing(sqlite3.connect(sqlite_path)) as connection:
+                rows = connection.execute(
                     "SELECT fetched_at_utc FROM jpx_regulation_sources WHERE asof_date = ?",
                     ("2026-04-24",),
-                )
-                .fetchall()
-            )
+                ).fetchall()
 
         self.assertEqual(len(rows), 1)
         self.assertIsNotNone(rows[0][0])
