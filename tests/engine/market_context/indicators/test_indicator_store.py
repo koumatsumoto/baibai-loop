@@ -5,7 +5,7 @@ import json
 import sqlite3
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import closing, redirect_stdout
 from datetime import UTC, date, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -71,7 +71,7 @@ class IndicatorsDBTests(unittest.TestCase):
             finally:
                 connection.close()
 
-            with sqlite3.connect(real_db) as check:
+            with closing(sqlite3.connect(real_db)) as check, check:
                 self.assertIsNone(
                     check.execute(
                         "SELECT 1 FROM sqlite_master WHERE name = 'write_probe'"
@@ -99,7 +99,7 @@ class IndicatorsDBTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
             initialize_database(database).close()
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection, connection:
                 connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
 
             connection = open_connection(database)
@@ -113,7 +113,7 @@ class IndicatorsDBTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
             initialize_database(database).close()
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection, connection:
                 connection.executescript(
                     """
                     CREATE TABLE registry_prune_authorizations(
@@ -140,7 +140,7 @@ class IndicatorsDBTests(unittest.TestCase):
             with self.assertRaisesRegex(IndicatorsSchemaError, "trigger contract mismatch"):
                 open_connection(database)
 
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection, connection:
                 version = connection.execute("PRAGMA user_version").fetchone()[0]
                 retired_objects = connection.execute(
                     "SELECT count(*) FROM sqlite_master WHERE name IN "
@@ -154,7 +154,7 @@ class IndicatorsDBTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
             initialize_database(database).close()
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection, connection:
                 connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 2}")
 
             with self.assertRaisesRegex(
@@ -343,7 +343,7 @@ class IndicatorsDBTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
             _write_retired_series(database)
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection, connection:
                 indicators_db.set_registry_generation(connection, load_definitions().generation)
 
             with self.assertRaisesRegex(ValueError, "does not name at the same generation"):
@@ -412,7 +412,7 @@ class IndicatorsDBTests(unittest.TestCase):
                     end=date(2026, 5, 1),
                 )
 
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection, connection:
                 generation = connection.execute(
                     "SELECT generation FROM registry_state WHERE singleton = 1"
                 ).fetchone()[0]
@@ -437,7 +437,7 @@ class IndicatorsDBTests(unittest.TestCase):
                         return
                     self.assertTrue(kwargs["flush"])
                     self.assertEqual(_retired_counts(database), (0, 0, 0))
-                    with sqlite3.connect(database) as check:
+                    with closing(sqlite3.connect(database)) as check, check:
                         generation = indicators_db.registry_generation(check)
                     self.assertEqual(generation, load_definitions().generation)
                     committed.append(True)
@@ -499,7 +499,7 @@ class IndicatorsDBTests(unittest.TestCase):
                 )
             self.assertEqual(blocked, [True, True])
             self.assertEqual(_retired_counts(database), (0, 0, 0))
-            with sqlite3.connect(database, timeout=0) as check:
+            with closing(sqlite3.connect(database, timeout=0)) as check, check:
                 check.execute(
                     "UPDATE registry_state SET generation = generation WHERE singleton = 1"
                 )
@@ -544,7 +544,7 @@ class IndicatorsDBTests(unittest.TestCase):
                 report.assert_not_called()
             finally:
                 connection.close()
-            with sqlite3.connect(database) as check:
+            with closing(sqlite3.connect(database)) as check, check:
                 self.assertEqual(indicators_db.registry_generation(check), definitions.generation)
 
     def test_observations_in_range_returns_latest_vintage_per_observed_date(self) -> None:
@@ -644,7 +644,7 @@ class IndicatorsDBTests(unittest.TestCase):
             finally:
                 conn.close()
 
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection, connection:
                 self.assertEqual(connection.execute("PRAGMA foreign_keys").fetchone()[0], 0)
                 with self.assertRaisesRegex(
                     sqlite3.IntegrityError,
@@ -688,6 +688,7 @@ class IndicatorsDBTests(unittest.TestCase):
             database = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(database)
             try:
+                conn.execute("BEGIN")
                 insert_observations(
                     conn,
                     [observation("us.10y", date(2026, 4, 30), 4.30)],
@@ -699,6 +700,12 @@ class IndicatorsDBTests(unittest.TestCase):
                             observation("us.10y", date(2026, 5, 1), 4.39),
                             observation("us.10y", date(2026, 5, 2), 999.0),
                         ],
+                    )
+                self.assertTrue(conn.in_transaction)
+                with closing(sqlite3.connect(database)) as observer:
+                    self.assertEqual(
+                        observer.execute("SELECT COUNT(*) FROM observations").fetchone()[0],
+                        0,
                     )
                 conn.commit()
                 stored = [
@@ -801,7 +808,7 @@ class IndicatorsDBTests(unittest.TestCase):
                     definitions=IndicatorDefinitions(series=(narrowed,)),
                 )
 
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection, connection:
                 stored = connection.execute(
                     "SELECT plausible_min, plausible_max FROM series "
                     "WHERE series_id = 'test.series'"
@@ -846,7 +853,7 @@ class IndicatorsDBTests(unittest.TestCase):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
                 database = Path(tmp) / "indicators.sqlite"
                 initialize_database(database).close()
-                with sqlite3.connect(database) as connection:
+                with closing(sqlite3.connect(database)) as connection, connection:
                     if mode in {"missing", "changed"}:
                         connection.execute(
                             "DROP TRIGGER validate_observation_plausibility_before_insert"
