@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -155,6 +155,80 @@ def test_research_prepare_interprets_legacy_date_status_and_preserves_triage(
     assert triage.entries[0].candidate_snapshot.analysis.context.next_earnings_status == (
         "announced"
     )
+
+
+def test_force_reprepare_legacy_workspace_preserves_authored_work_and_input_cutoff(
+    tmp_path, monkeypatch
+) -> None:
+    from baibai_engine.research.triage.query import research_triage_payload as read_triage
+
+    db = tmp_path / "app.sqlite"
+    triage = _publish_triage(db, legacy_announced=True)
+    canonical_before = read_triage(db, triage.research_triage_id)
+    monkeypatch.setattr(
+        workspace_prepare,
+        "_load_er_distribution_context",
+        lambda **kwargs: {"status": "unavailable"},
+    )
+    workspace = tmp_path / "workspace"
+    kwargs = dict(
+        research_triage_id=triage.research_triage_id,
+        asof=CASE_NOW.date(),
+        db_path=db,
+        workspace=workspace,
+        request="verify date-only earnings annotation",
+        research_set=("2331",),
+        sqlite_path=tmp_path / "absent-market",
+        runs_path=tmp_path / "absent-runs",
+        indicators_path=tmp_path / "absent-indicators",
+    )
+    first = prepare_workspace(started_at=CASE_NOW, **kwargs)
+    _authored_case(workspace, "2331", "reject")
+    authored_before = {path: path.read_bytes() for path in (workspace / "2331").glob("*.yaml")}
+    original_inputs = yaml.safe_load((workspace / "domain-inputs.yaml").read_text())
+
+    # Simulate generated files from before the date-only status was projected.
+    for filename, entries_key in (
+        ("research-workspace.yaml", "review_set_entries"),
+        ("domain-inputs.yaml", "research_triage"),
+    ):
+        path = workspace / filename
+        document = yaml.safe_load(path.read_text())
+        entries = (
+            document[entries_key]["entries"]
+            if filename == "domain-inputs.yaml"
+            else document[entries_key]
+        )
+        next(entry for entry in entries if entry["ticker"] == "2331")["analysis"]["context"][
+            "next_earnings_status"
+        ] = "announced"
+        path.write_text(yaml.safe_dump(document))
+
+    resumed = prepare_workspace(started_at=CASE_NOW + timedelta(hours=1), force=True, **kwargs)
+    assert resumed.operation_id == first.operation_id
+    assert OperationService(db).active().started_at == CASE_NOW
+    assert {path: path.read_bytes() for path in (workspace / "2331").glob("*.yaml")} == (
+        authored_before
+    )
+    refreshed_inputs = yaml.safe_load((workspace / "domain-inputs.yaml").read_text())
+    refreshed_workspace = yaml.safe_load((workspace / "research-workspace.yaml").read_text())
+    assert refreshed_inputs["known_at"] == original_inputs["known_at"] == CASE_NOW.isoformat()
+    assert (
+        refreshed_inputs["research_triage"]["entries"][0]["analysis"]["context"][
+            "next_earnings_status"
+        ]
+        == "scheduled_date_reached"
+    )
+    assert (
+        next(
+            entry
+            for entry in refreshed_workspace["review_set_entries"]
+            if entry["ticker"] == "2331"
+        )["analysis"]["context"]["next_earnings_status"]
+        == "scheduled_date_reached"
+    )
+    assert read_triage(db, triage.research_triage_id) == canonical_before
+    assert compute_status(workspace, db_path=db, now=CASE_NOW)["cases"][0]["ticker"] == "2331"
 
 
 def test_holding_resume_retains_parent_input_and_removes_old_duplicate(tmp_path):
