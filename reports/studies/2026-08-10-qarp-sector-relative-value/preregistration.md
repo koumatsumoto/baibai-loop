@@ -8,6 +8,8 @@ date: 2026-08-10
 
 # QARP sector相対割安残差レーンの事前登録
 
+この記録は 2026-08-10 の旧 core ranking・panel schema・PIT 導出を対象とする。現行の Candidate Discovery や財務開示期間の仕様とは区別する。sector fixed effect と共通 size slope は指定した線形関係の調整であり、未知の交絡・因果を除去するものではない。全損・中立・報告値は固定ケース感度で、未知対価の全範囲の保証ではない。
+
 価値tier: T1 — core E[r] と異なる選択幾何が、core top-20 外から trap 非劣後かつ正の増分価値を持つ候補を安定供給できるかを、production 配線前に判定する。
 
 本書は QARP の forward outcome を読む前に、入力列、quality gate、sector・size 統制、順位、比較対象、時間窓、重み、sufficiency、effect、verdict、cleanup を固定する。結果後に閾値、窓、重み、fallback、variant を変更しない。
