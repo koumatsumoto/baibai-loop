@@ -3,6 +3,7 @@ from __future__ import annotations
 import shlex
 import sqlite3
 import subprocess
+from contextlib import closing
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -50,7 +51,7 @@ RECEIVED = datetime(2026, 9, 30, 15, tzinfo=UTC)
 
 
 def test_acquire_workflow_timeout_can_start_a_harmless_command():
-    workflow = yaml.safe_load(WORKFLOW.read_text())
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     commands = [
         shlex.split(step["run"])
         for step in workflow["jobs"]["acquire"]["steps"]
@@ -81,7 +82,7 @@ def publication(tmp_path, monkeypatch):
     narrow_release_policy(monkeypatch, datasets=datasets, minimum_population_count=None)
     monkeypatch.setattr(publisher, "lake_verified_git_commit", lambda: "a" * 40)
     database = market_store(tmp_path / "market.sqlite")
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute(
             "INSERT INTO jquants_master_snapshots VALUES (?,?,?,?,?,?)",
             ("2026-09-30", "7203", "合成会社", "PRIME", "輸送用機器", 1),
@@ -173,7 +174,7 @@ def publication(tmp_path, monkeypatch):
     return store, plan, handle, database, mirror, tmp_path
 
 
-def test_real_remote_graph_readback_preserves_null_receipts_history_and_unrelated_data(
+def test_stored_graph_readback_preserves_null_receipts_history_and_unrelated_data(
     publication,
     capsys,
 ):
@@ -262,7 +263,7 @@ def test_real_remote_graph_readback_preserves_null_receipts_history_and_unrelate
 
 def test_stale_origin_is_rejected_before_stage_changes_or_canonical_upload(publication):
     store, plan, handle, database, mirror, tmp_path = publication
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute("UPDATE lake_store_origin SET release_id='stale-generation'")
     before = external_assessment_history_digests(database)
     puts = len(store.put_keys)
@@ -527,7 +528,7 @@ def test_missing_or_unattempted_cohort_cannot_publish(publication):
 
 
 def test_workflow_is_daily_serial_private_and_keeps_publication_inside_existing_lease():
-    workflow = yaml.load(WORKFLOW.read_text(), Loader=yaml.BaseLoader)
+    workflow = yaml.load(WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
     assert set(workflow["on"]) == {"workflow_dispatch", "schedule"}
     assert workflow["concurrency"]["group"] == "external-assessment-acquire"
     assert workflow["concurrency"]["cancel-in-progress"] == "false"
@@ -574,7 +575,7 @@ def test_selected_month_history_keeps_old_receipts_and_ignores_other_months(publ
             partitions=selected,
         )
     # An old receipt in the selected month must still match all its metadata.
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute(
             "UPDATE external_assessment_model_valuation_observations SET consensus_target_updated_label='changed' WHERE snapshot_date >= '2026-09-01' AND snapshot_date < '2026-10-01'"
         )
@@ -590,7 +591,7 @@ def test_selected_month_history_keeps_old_receipts_and_ignores_other_months(publ
             partitions=selected,
         )
     # The August partition is outside this readback scope.
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute(
             "DELETE FROM external_assessment_analyst_rating_observations WHERE snapshot_date < '2026-09-01'"
         )
