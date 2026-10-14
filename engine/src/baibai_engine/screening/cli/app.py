@@ -567,6 +567,14 @@ def main(argv: list[str] | None = None) -> int:
             allow_stale_jpx=args.allow_stale_jpx,
         )
 
+    if args.command == "refresh-tse-capital-policy":
+        return refresh_tse_capital_policy_command(
+            sqlite_path=Path(args.sqlite_path),
+        )
+
+    if args.command == "refresh-jpx-delistings":
+        return refresh_jpx_delistings_command(sqlite_path=Path(args.sqlite_path))
+
     try:
         config = ScreeningConfig.from_env()
     except ConfigError as exc:
@@ -654,14 +662,6 @@ def main(argv: list[str] | None = None) -> int:
             asof_date=_parse_iso_date(args.asof),
             providers=providers,
         )
-
-    if args.command == "refresh-tse-capital-policy":
-        return refresh_tse_capital_policy_command(
-            sqlite_path=Path(args.sqlite_path),
-        )
-
-    if args.command == "refresh-jpx-delistings":
-        return refresh_jpx_delistings_command(sqlite_path=Path(args.sqlite_path))
 
     if args.command == "backfill-edinet-identity":
         return backfill_edinet_identity_command(

@@ -1,4 +1,4 @@
-"""Produce point-in-time TSE policy and EDINET filing context for Stock Analysis.
+"""Produce snapshot-dated TSE policy and EDINET filing context for Stock Analysis.
 
 The context is a fact-layer annotation and never affects ranking, E[r], or a gate.
 Filing absence is reported only when identity coverage proves the whole lookback window.
@@ -18,6 +18,8 @@ from typing import Literal
 import openpyxl
 import requests
 
+from baibai_engine.market.edinet_decode import parse_sec_code
+from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.ticker import normalize_ticker
 from baibai_engine.storage.observations.schema import connect_current, open_connection
 
@@ -58,6 +60,7 @@ class TSECapitalPolicyRow:
     status_change: str | None
     updated_on: date | None
     contact_requested: bool
+    # First observed disclosed month at/before this row, not the exact disclosure day.
     first_disclosed_month_end: date | None
     first_disclosure_left_censored: bool
 
@@ -109,7 +112,8 @@ def parse_tse_capital_policy_workbook(content: bytes) -> tuple[TSECapitalPolicyR
     """Expand every monthly sheet without inventing an exact first disclosure day.
 
     The workbook carries the current month plus past-month snapshots, so the series is
-    point-in-time reconstructable. The earliest sheet cannot say whether a company that
+    reconstructable by snapshot month, not by the publication time or revision vintage.
+    The earliest sheet cannot say whether a company that
     already appears on it disclosed that month or earlier, so those rows are marked
     left-censored instead of being dated to the first sheet.
     """
@@ -120,29 +124,32 @@ def parse_tse_capital_policy_workbook(content: bytes) -> tuple[TSECapitalPolicyR
 
     raw_rows: list[tuple[date, str, CapitalPolicyStatus, str | None, date | None, bool]] = []
     sheet_months: list[date] = []
-    for worksheet in workbook.worksheets:
-        match = _MONTH_SHEET_RE.search(worksheet.title.strip())
-        if match is None:
-            continue
-        month_end = _calendar_month_end(int(match.group(1)), int(match.group(2)))
-        sheet_months.append(month_end)
-        rows = list(worksheet.iter_rows(values_only=True))
-        columns = _resolve_tse_columns(rows, sheet=worksheet.title)
-        for values in rows[columns.first_data_row :]:
-            ticker_raw = _cell(values, columns.ticker)
-            status_raw = _text(_cell(values, columns.status))
-            if ticker_raw in (None, "") and not status_raw:
+    try:
+        for worksheet in workbook.worksheets:
+            match = _MONTH_SHEET_RE.search(worksheet.title.strip())
+            if match is None:
                 continue
-            raw_rows.append(
-                (
-                    month_end,
-                    _ticker_from_excel(ticker_raw),
-                    _capital_policy_status(status_raw),
-                    _text(_cell(values, columns.status_change)) or None,
-                    _excel_date(_cell(values, columns.updated_on)),
-                    bool(_text(_cell(values, columns.contact_requested))),
+            month_end = _calendar_month_end(int(match.group(1)), int(match.group(2)))
+            sheet_months.append(month_end)
+            rows = list(worksheet.iter_rows(values_only=True))
+            columns = _resolve_tse_columns(rows, sheet=worksheet.title)
+            for values in rows[columns.first_data_row :]:
+                ticker_raw = _cell(values, columns.ticker)
+                status_raw = _text(_cell(values, columns.status))
+                if ticker_raw in (None, "") and not status_raw:
+                    continue
+                raw_rows.append(
+                    (
+                        month_end,
+                        _ticker_from_excel(ticker_raw),
+                        _capital_policy_status(status_raw),
+                        _text(_cell(values, columns.status_change)) or None,
+                        _excel_date(_cell(values, columns.updated_on)),
+                        bool(_text(_cell(values, columns.contact_requested))),
+                    )
                 )
-            )
+    finally:
+        workbook.close()
     if not sheet_months or not raw_rows:
         raise ValuationCatalystError("TSE capital-policy workbook has no monthly rows")
     if len(sheet_months) != len(set(sheet_months)):
@@ -162,7 +169,11 @@ def parse_tse_capital_policy_workbook(content: bytes) -> tuple[TSECapitalPolicyR
             status_change=status_change,
             updated_on=updated_on,
             contact_requested=contact_requested,
-            first_disclosed_month_end=first_disclosed.get(ticker),
+            first_disclosed_month_end=(
+                first_disclosed.get(ticker)
+                if first_disclosed.get(ticker, date.max) <= month_end
+                else None
+            ),
             first_disclosure_left_censored=first_disclosed.get(ticker) == earliest_sheet,
         )
         for month_end, ticker, status, status_change, updated_on, contact_requested in sorted(
@@ -213,13 +224,20 @@ def refresh_tse_capital_policy(
     sqlite_path: Path, *, session: requests.Session | None = None
 ) -> TSECapitalPolicyRefreshSummary:
     """Download and replace every month present in the TSE workbook."""
-    client = session or requests.Session()
-    response = client.get(TSE_CAPITAL_POLICY_URL, timeout=_HTTP_TIMEOUT_SECONDS)
-    if response.status_code >= 400:
-        raise ValuationCatalystError(
-            f"failed to download TSE capital-policy workbook: {response.status_code}"
-        )
-    rows = parse_tse_capital_policy_workbook(response.content)
+    client = session if session is not None else requests.Session()
+    try:
+        response = client.get(TSE_CAPITAL_POLICY_URL, timeout=_HTTP_TIMEOUT_SECONDS)
+        try:
+            if response.status_code >= 400:
+                raise ValuationCatalystError(
+                    f"failed to download TSE capital-policy workbook: {response.status_code}"
+                )
+            rows = parse_tse_capital_policy_workbook(response.content)
+        finally:
+            response.close()
+    finally:
+        if session is None:
+            client.close()
     store_tse_capital_policy_rows(sqlite_path, rows)
     return TSECapitalPolicyRefreshSummary(
         sheet_count=len({row.snapshot_month_end for row in rows}),
@@ -232,7 +250,7 @@ def refresh_tse_capital_policy(
 def read_valuation_catalyst_contexts(
     sqlite_path: Path, *, as_of: date, tickers: Iterable[str]
 ) -> dict[str, ValuationCatalystContext]:
-    """Read point-in-time policy state and recent target-company filings.
+    """Read policy snapshots dated at/before as-of and recent target-company filings.
 
     Never affects rank: the caller copies these into the Stock Analysis payload only.
     """
@@ -375,8 +393,8 @@ def edinet_code_to_ticker(connection: sqlite3.Connection) -> dict[str, str]:
         "WHERE edinet_code IS NOT NULL AND sec_code IS NOT NULL"
     ):
         try:
-            ticker = normalize_ticker(str(sec_code)[:4])
-        except ValueError:
+            ticker = parse_sec_code(sec_code)
+        except EDINETProviderError:
             continue
         observed.setdefault(str(edinet_code), set()).add(ticker)
     return {code: next(iter(values)) for code, values in observed.items() if len(values) == 1}

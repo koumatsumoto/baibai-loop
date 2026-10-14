@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from contextlib import closing
 from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
@@ -10,6 +11,7 @@ import openpyxl
 
 from baibai_engine.market.valuation_catalysts import (
     ValuationCatalystError,
+    edinet_code_to_ticker,
     edinet_identity_covered,
     parse_tse_capital_policy_workbook,
     read_control_filing_index,
@@ -219,6 +221,9 @@ class TSECapitalPolicyWorkbookTest(unittest.TestCase):
         newly_disclosed = rows[("1332", date(2026, 6, 30))]
         self.assertEqual(newly_disclosed.first_disclosed_month_end, date(2026, 6, 30))
         self.assertFalse(newly_disclosed.first_disclosure_left_censored)
+        earlier = rows[("1332", date(2025, 5, 31))]
+        self.assertIsNone(earlier.first_disclosed_month_end)
+        self.assertFalse(earlier.first_disclosure_left_censored)
 
     def test_an_unknown_status_word_is_refused_rather_than_guessed(self) -> None:
         content = _workbook(
@@ -296,6 +301,21 @@ class ControlFilingIndexTest(unittest.TestCase):
         connection.commit()
         connection.close()
         _store_documents(sqlite_path, rows)
+
+    def test_identity_mapping_does_not_truncate_nonordinary_or_malformed_codes(self) -> None:
+        with TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _store_documents(
+                sqlite_path,
+                [
+                    ("2026-06-01", 1, "S1", "13010", "120", "1", "0", "0", "E1", None, None),
+                    ("2026-06-01", 2, "S2", "13011", "120", "1", "0", "0", "E2", None, None),
+                    ("2026-06-01", 3, "S3", "1301bad", "120", "1", "0", "0", "E3", None, None),
+                    ("2026-06-01", 4, "S4", "130a0", "120", "1", "0", "0", "E4", None, None),
+                ],
+            )
+            with closing(open_connection(sqlite_path)) as connection:
+                self.assertEqual(edinet_code_to_ticker(connection), {"E1": "1301", "E4": "130A"})
 
     def test_a_day_that_was_never_listed_makes_the_window_unobserved(self) -> None:
         with TemporaryDirectory() as tmp:
