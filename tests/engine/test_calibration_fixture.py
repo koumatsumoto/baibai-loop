@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from tests.helpers.calibration_store import forward_row
 
 

@@ -410,5 +410,5 @@ def test_registry_priority_is_not_a_boolean(tmp_path, priority):
         _registry_yaml(plausible_min="-2", plausible_max="20") + f"    priority: {priority}\n",
         encoding="utf-8",
     )
-    with pytest.raises(ValueError, match="priority.*integer"):
+    with pytest.raises(ValueError, match=r"priority.*integer"):
         load_definitions(path)

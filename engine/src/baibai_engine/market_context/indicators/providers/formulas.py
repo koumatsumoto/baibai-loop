@@ -80,15 +80,11 @@ FORMULAS: Mapping[str, DerivedFormula] = {
         plausible_min=-5.0,
         plausible_max=10.0,
     ),
-    # A 2-year yield is the market's price for the next two years of policy, so its
-    # distance from the policy rate is how much easing or tightening is already paid
-    # for. This spread describes the two stored rates; it is not a consensus
-    # forecast or a probability of a policy decision.
+    # Observed spread between a two-year bond yield and a policy-rate reference.
+    # Different maturities and instruments are compared; this does not isolate
+    # expected policy changes or assign probabilities to policy decisions.
     "us.policy_path_gap": DerivedFormula(
-        # Against the midpoint of the target range, not its ceiling: the sign of this
-        # spread is what carries the meaning, and measuring from the ceiling shifts the
-        # neutral point by half the width of the range — a quarter of a cut, exactly
-        # where the series says the most.
+        # Use the declared target-range midpoint, not its upper boundary.
         inputs=("us.2y", "us.fed_funds.upper", "us.fed_funds.lower"),
         unit="percent",
         compute=lambda v: v["us.2y"] - (v["us.fed_funds.upper"] + v["us.fed_funds.lower"]) / 2.0,
@@ -136,10 +132,9 @@ FORMULAS: Mapping[str, DerivedFormula] = {
         plausible_max=5.0,
     ),
     "jp.real_10y_proxy": DerivedFormula(
-        # Month-end 10Y JGB yield minus that month's core-CPI YoY: a real-yield
-        # proxy Japan has no clean free daily linker series for. Inflation only
-        # moves monthly, so a monthly cadence is the honest resolution rather
-        # than a daily series holding inflation flat within the month.
+        # Month-end nominal JGB yield minus observed core-CPI YoY, not expected
+        # inflation or a market-implied real yield. The monthly CPI observation
+        # determines this proxy's frequency.
         inputs=("jp.10y", "jp.cpi.core_yoy"),
         unit="percent",
         compute=lambda v: v["jp.10y"] - v["jp.cpi.core_yoy"],
