@@ -28,23 +28,16 @@ SKEW_PUT_MONEYNESS = 0.95
 # and narrow enough to stay out of the wings, where a thin quote moves the volatility
 # by points for reasons that have nothing to do with the basis.
 BASIS_BAND = 0.10
-# Put-call parity puts the same volatility on both sides of a strike, so a gap at all
-# is the source's own inconsistency rather than a market state. The bound is the top of
-# the range the source routinely stays inside — the front expiry's gap reaches 12.4 at
-# its 99th percentile over the sampled sessions — and nothing more: a skew compared
-# against its own neighbouring sessions drifts further the wider the gap gets,
-# continuously, with no knee to cut at. So the bound buys a stated limit, not a natural
-# one, and drawing it lower would empty the two difference readings on days the source
-# is behaving normally.
+# Operational bound on the median put/call IV disagreement. This is a chosen
+# tolerance, not a natural breakpoint or proof of a particular data error.
+# Historical sample diagnostics are kept in the option-IV study report.
 MAX_BASIS_GAP = 12.0
 # A median over two strikes is the mean of two numbers, so one broken strike would set
 # the verdict; the chains seen here carry twenty or more, and a day that does not is
 # not a chain this check can speak about.
 MIN_BASIS_PAIRS = 3
-# What the source writes where it has no volatility to report. It is a value, not a
-# blank, and it lands on contracts deep enough in the money to carry no time value —
-# reading it as a 1% volatility would drag every average and gap it entered. Nothing
-# in this market quotes a volatility this low, so the bound doubles as a floor.
+# Values at or below the source's observed 1% placeholder are excluded.
+# This is a provider-specific cleaning rule, not a universal market lower bound.
 PLACEHOLDER_VOLATILITY = 1.0
 PUT = "1"
 CALL = "2"
@@ -79,20 +72,15 @@ class FearReadings:
 
 
 def fear_readings(quotes: Sequence[OptionQuote], asof: date) -> FearReadings:
-    """Summarise one day's chain.
+    """Summarise the two nearest usable, paired expiries.
 
-    Returning None says the chain could not answer, which a zero would hide. `iv_30d`
-    and `iv_skew` both need two expiries that bracket 30 days. Skew additionally
-    requires usable put legs and a passing basis check, so it can be absent while
-    the level is available. `iv_term` needs two priced expiries and a passing basis
-    check, but does not require them to bracket 30 days.
+    Level and skew require a bracket around 30 days. Skew also requires usable put
+    legs and a passing basis check; term needs two priced expiries and the same
+    basis check, but no 30-day bracket. Missing readings remain None, not zero.
 
-    `iv_30d` averages the put and the call at one strike, and at the money the two
-    carry the same sensitivity to the price the source priced against, so an error in
-    it moves them in opposite directions and the average survives. The other two are
-    positions relative to that price — one subtracts two levels, the other selects the
-    strikes it reads by moneyness — so both are withheld once the chain fails the
-    basis check.
+    The level averages put/call volatility at the nearest paired strike and is
+    deliberately retained even when the basis check fails. Symmetric errors cancel
+    in that average; one-sided or asymmetric errors need not.
     """
     by_expiry = usable_expiries(quotes, asof)
     if not by_expiry:
@@ -147,32 +135,13 @@ def _constant_maturity_skew(
     far_days: int | None,
     far_skew: float | None,
 ) -> float | None:
-    """Interpolate the asymmetry to the same 30-day maturity the level is quoted at.
+    """Interpolate put skew on the inverse-square-root maturity axis.
 
-    The smile steepens as a contract approaches settlement, so a skew read off
-    whichever expiry happens to be in front is a different quantity every week of the
-    cycle, and a reader comparing it to a pooled quantile would find fear on the
-    calendar rather than in the market. Quoting it at one maturity takes nearly all of
-    that out, at the cost of the days where the two expiries do not straddle 30 — the
-    days the level also cannot be quoted. The basis check and missing put legs
-    can additionally withhold skew while leaving the level available.
-
-    The skew falls away roughly as the inverse root of maturity, so the two readings
-    are placed on that axis and the target read off the line between them. Walking the
-    days instead bends a curve with a straight line, and the resulting bias is largest
-    where the bracket is widest — which is most of the settlement cycle. Measured over
-    the same window with both rules computed side by side, the days-linear reading runs
-    4.03 a week out against 3.57 a month out (correlation -0.21 with the front
-    maturity); this one runs 3.43 / 3.54 / 3.60 / 3.58, no longer a gradient (-0.03).
-    Only the second set is reproducible from the committed sample, which holds the
-    reading this rule produces. A residue is still there:
-    the 0.17 spread across those buckets is an eighth of the reading's own
-    interquartile range, so a difference that small between two sessions a fortnight
-    apart is not necessarily the market.
-
-    Interpolating along the axis rather than rescaling onto it keeps the answer a
-    weighted average of the two readings, so it can never land outside them: the
-    weight is 1 when the front expiry is the target and 0 when the second one is.
+    This is the indicator's chosen interpolation convention, not a guarantee that
+    maturity effects or market noise disappear. Both expiries must bracket 30 days.
+    The convex weights keep the result between the two available skew readings.
+    Historical rationale and sample diagnostics are in
+    reports/studies/2026-07-31-option-iv-quantiles/report.md.
     """
     if near_skew is None or far_days is None or far_skew is None or far_days == near_days:
         return None
@@ -189,16 +158,12 @@ def _basis_is_consistent(quotes: Sequence[OptionQuote]) -> bool:
 
 
 def basis_gap(quotes: Sequence[OptionQuote]) -> float | None:
-    """How far apart the two sides of one expiry are, in volatility points.
+    """Median put-minus-call implied volatility near the money, in points.
 
-    A put and a call on one strike and expiry carry the same volatility, so this is
-    zero when both sides were computed on one footing and its size measures how far the
-    chain has left that. What breaks the footing in the source is not established here
-    and the readings do not need it: the gap is measurable, and a chain showing a large
-    one cannot support a reading positioned against the price it was quoted against,
-    whatever the cause. None where too few strikes quote both sides to take a median
-    over — such a chain cannot be checked at all, which is a different answer from a
-    gap of zero.
+    Matching put/call IVs are expected under a common pricing basis and consistent
+    prices. A nonzero gap is observable disagreement, not proof of its cause.
+    This operational check withholds difference readings above the chosen bound.
+    Too few paired strikes return None rather than claiming a zero gap.
     """
     underlying = _underlying(quotes)
     low, high = underlying * (1 - BASIS_BAND), underlying * (1 + BASIS_BAND)
@@ -250,33 +215,13 @@ def usable_expiries(quotes: Sequence[OptionQuote], asof: date) -> dict[date, lis
 
 
 def _atm_volatility(quotes: Sequence[OptionQuote]) -> float | None:
-    """The at-the-money reading, averaged across the put and the call.
+    """Average put/call IV at the nearest strike quoting both sides.
 
-    A single side carries its own directional bias — the put is bid for protection
-    and the call is offered against holdings — so the average is closer to what the
-    market charges for movement itself. It is also what survives the source's own
-    inconsistency: at the money a put and a call carry the same sensitivity to the
-    price they were quoted against, so an error in it pushes them apart and leaves
-    their average where it was. Regressing this reading's departure from its own
-    neighbourhood on the signed disagreement over 433 sampled sessions gives a slope
-    of +0.04 (standard error 0.04): a disagreement carried by one side alone would
-    move the average by half of itself, and either sign of 0.5 is thirteen standard
-    errors away. Which is why the basis check does not withhold the level.
-
-    That test has no power on the sessions the check does withhold. Fitted on those
-    seven alone the slope is -0.29 (standard error 0.12), which does not separate a
-    two-sided error from a one-sided one; five of the seven sat in a stretch where the
-    level itself moved ten points in days, and that movement is most of what the fit
-    sees. The level is kept there anyway, because withholding it would empty the
-    sessions most worth reading — at the price that on those days it may be off by
-    half the disagreement.
-
-    Both sides are required, so the strike is chosen among those quoting both rather
-    than by distance alone: a single side carries the directional bias the average
-    exists to remove, and returning it under the same name would be a different
-    reading wearing this one's quantiles. Reaching one strike further for a pair keeps
-    the reading available; on every sampled session the nearest strike already quoted
-    both, so the reach only ever costs distance on a chain missing a quote.
+    Symmetric opposite shifts cancel; asymmetric shifts can move the average.
+    The level remains available even when the difference readings fail the basis
+    check, so it must not be described as immune to source inconsistency.
+    Reaching for the nearest paired strike can also move the reading away from
+    exact at-the-money when the closest strike lacks one side.
     """
     underlying = _underlying(quotes)
     sides: dict[float, dict[str, float]] = {}
