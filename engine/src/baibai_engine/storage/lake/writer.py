@@ -523,7 +523,7 @@ def _validate_sqlite_contract(connection: sqlite3.Connection, dataset: LakeDatas
             column.name,
             column.sqlite_type,
             0 if column.nullable else 1,
-            None,
+            column.sqlite_default,
             column.primary_key_ordinal,
         )
         for index, column in enumerate(dataset.columns)

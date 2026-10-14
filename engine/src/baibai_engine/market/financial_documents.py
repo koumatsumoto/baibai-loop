@@ -319,6 +319,8 @@ def latest_forecast_source(
     candidates = (
         [row for row in rows if getattr(row, status_field) == "confirmed"] if known else list(rows)
     )
+    if not candidates and known:
+        candidates = [row for row in rows if getattr(row, status_field) == "missing"]
     if not candidates:
         return None
     revision = max(map(disclosure_revision, candidates))
@@ -349,6 +351,14 @@ def latest_forecast_source(
                 forecast_ordinary_profit=None,
                 forecast_status="unresolved",
             )
+        )
+    if getattr(source, status_field) == "confirmed" and all(
+        getattr(source, field) is None for field in fields
+    ):
+        return (
+            replace(source, dividend_forecast_status="unresolved")
+            if dividend
+            else replace(source, forecast_status="unresolved")
         )
     return source
 

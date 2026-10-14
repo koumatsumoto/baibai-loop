@@ -164,6 +164,9 @@ def test_target_period_changes_before_numeric_availability() -> None:
     result = snapshot(decode([old, new]))
     assert result.per_forward is None
     assert result.dps_forecast_annual is None
+    assert result.earnings_forecast_source
+    assert result.earnings_forecast_source["period_end"] == "2026-12-31"
+    assert result.earnings_forecast_source["status"] == "missing"
 
 
 def test_unknown_present_slot_does_not_revive_old_forecast() -> None:
@@ -288,3 +291,75 @@ def test_same_time_different_docs_cannot_supply_capital_pair(tmp_path: Path) -> 
         assert coverage.market_cap_required_fields_tickers == 0
     finally:
         conn.close()
+
+
+def test_financial_lake_contract_roundtrip_preserves_documents(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from datetime import UTC, datetime
+    from hashlib import sha256
+
+    from tests.helpers.lake_policy import narrow_release_policy
+
+    from baibai_engine.storage.lake.duck import lake_session
+    from baibai_engine.storage.lake.hydrate import hydrate_market_store
+    from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
+    from baibai_engine.storage.lake.reader import resolve_release
+    from baibai_engine.storage.lake.release import create_l1_release
+    from baibai_engine.storage.lake.writer import (
+        export_legacy_sqlite,
+        sealed_sqlite_snapshot,
+        validate_legacy_parity,
+    )
+
+    narrow_release_policy(monkeypatch, datasets=("jquants.fin_summaries",))
+    db = tmp_path / "source.sqlite"
+    mirror = tmp_path / "mirror"
+    store_jquants_fin_summaries(
+        db, documents(), requested_start=date(2026, 8, 10), requested_end=ASOF
+    )
+    with sealed_sqlite_snapshot(sqlite_path=db, mirror_root=mirror) as sealed:
+        exported = export_legacy_sqlite(
+            dataset_name="jquants.fin_summaries",
+            mirror_root=mirror,
+            source_snapshot=sealed,
+            producer_git_commit="a" * 40,
+            created_at=datetime(2026, 10, 14, tzinfo=UTC),
+        )
+    assert exported.manifest.contract_version == 2
+    validate_legacy_parity(sqlite_path=db, mirror_root=mirror, manifest=exported.manifest)
+    release_path, manifest = create_l1_release(
+        dataset_manifest_paths=[exported.manifest_path],
+        mirror_root=mirror,
+        release_id="financial-documents",
+        created_at=datetime(2026, 10, 14, tzinfo=UTC),
+    )
+    source = LocalMirrorSource(mirror)
+    release = resolve_release(
+        source, manifest.release_id, manifest_sha256=sha256(release_path.read_bytes()).hexdigest()
+    )
+    destination = tmp_path / "arrived.sqlite"
+    # Hydration fills typed rows; source coverage belongs to the store skeleton.
+    source_conn = sqlite3.connect(db)
+    destination_conn = sqlite3.connect(destination)
+    try:
+        source_conn.backup(destination_conn)
+        destination_conn.execute("DELETE FROM jquants_fin_summaries")
+        destination_conn.commit()
+    finally:
+        source_conn.close()
+        destination_conn.close()
+    with lake_session() as session:
+        hydrate_market_store(
+            session,
+            release=release,
+            cache=LakeObjectCache(root=mirror, source=source),
+            store=destination,
+            dataset_names=("jquants.fin_summaries",),
+        )
+    original = read_fin_summaries(db, date(2026, 8, 10), ASOF)
+    arrived = read_fin_summaries(destination, date(2026, 8, 10), ASOF)
+    assert original == arrived
+    assert arrived is not None
+    assert len(arrived) == 4
+    assert snapshot(arrived).dps_forecast_annual == 0
