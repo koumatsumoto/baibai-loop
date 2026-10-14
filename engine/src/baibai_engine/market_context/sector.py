@@ -31,11 +31,22 @@ def sector_relative_strength(
 
 
 def _rank_to_percentiles(values: Mapping[str, float | None]) -> dict[str, float | None]:
-    available = sorted((value, key) for key, value in values.items() if value is not None)
+    available = sorted(
+        ((value, key) for key, value in values.items() if value is not None),
+        key=lambda item: item[0],
+    )
     if not available:
         return dict.fromkeys(values)
     total = len(available)
     output: dict[str, float | None] = dict.fromkeys(values)
-    for index, (_, key) in enumerate(available, start=1):
-        output[key] = index / total
+    start = 0
+    while start < total:
+        end = start + 1
+        while end < total and available[end][0] == available[start][0]:
+            end += 1
+        # Midrank preserves unique-value ranks and gives equal values one percentile.
+        percentile = (start + 1 + end) / (2 * total)
+        for _, key in available[start:end]:
+            output[key] = percentile
+        start = end
     return output

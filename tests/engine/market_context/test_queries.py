@@ -20,7 +20,7 @@ from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.master import read_master_snapshot
 from baibai_engine.market_context.prices import read_price_bars
 from baibai_engine.market_context.reading.query import reading_snapshot
-from baibai_engine.market_context.sector import sector_relative_strength
+from baibai_engine.market_context.sector import _rank_to_percentiles, sector_relative_strength
 from baibai_engine.market_context.security import build_security_market_context
 from baibai_engine.market_context.snapshot import build_market_snapshot
 from baibai_engine.storage.observations.schema import open_connection
@@ -104,6 +104,24 @@ def test_mean_population_relative_strength_and_snapshot_median_remain_distinct(t
     assert row["pct_above_ma20"] == pytest.approx(1 / 3)
     # Own-vs-peers uses the peer median, rather than either whole-sector statistic.
     assert security(path)["relative"]["sector"]["relative_return_20d"] == pytest.approx(-0.45)
+
+
+def test_sector_strength_ties_have_one_percentile_independent_of_sector_name():
+    result = sector_relative_strength(
+        {"AAAA": 0.0, "BBBB": 0.0}, {"AAAA": "Z sector", "BBBB": "A sector"}
+    )
+    assert result.relative_returns == {"Z sector": 0.0, "A sector": 0.0}
+    assert result.percentiles == {"Z sector": 0.75, "A sector": 0.75}
+
+
+def test_sector_percentile_midrank_handles_partial_ties_nulls_and_input_order():
+    values = {"low": -1.0, "C": 0.0, "B": 0.0, "high": 1.0, "missing": None}
+    expected = {"low": 0.25, "C": 0.625, "B": 0.625, "high": 1.0, "missing": None}
+    assert _rank_to_percentiles(values) == expected
+    assert _rank_to_percentiles(dict(reversed(list(values.items())))) == expected
+    assert _rank_to_percentiles({"only": 0.0}) == {"only": 1.0}
+    assert _rank_to_percentiles({"C": None}) == {"C": None}
+    assert _rank_to_percentiles({}) == {}
 
 
 def test_null_close_split_factor_adjusts_past_prices_without_future_events(tmp_path):
