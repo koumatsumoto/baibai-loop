@@ -490,7 +490,13 @@ def _load_er_distribution_context(
         "er_model_version": artifact.er_model_version,
         "primary_realized_basis": artifact.primary_realized_basis,
         "primary_weighting": "ticker_asof_observation_equal",
-        "interpretation": "historical distribution; not an individual security forecast",
+        "required_asofs": artifact.required_asofs,
+        "evidence_complete": artifact.evidence_complete,
+        "evidence_blocking_reasons": artifact.evidence_blocking_reasons,
+        "interpretation": (
+            "観測対象の歴史分布。未評価を含む全母集団の期待収益・個別予測・購入条件ではない。"
+            "basisごとに観測対象が異なり、price-total差は配当効果を表さない。"
+        ),
         "candidates": candidate_context,
     }
     return context

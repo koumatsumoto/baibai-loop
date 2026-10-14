@@ -1,7 +1,7 @@
 import { useMemo, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { Search } from 'lucide-react'
-import type { ReviewSetEntryView, ReviewSetView } from '../../api/types'
+import type { ErLevelCalibrationContextView, ReviewSetEntryView, ReviewSetView } from '../../api/types'
 import { SectionCard } from '../../components/SectionCard'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
@@ -11,6 +11,27 @@ import { parseOptionalNumber, projectSecurityRows, SECURITY_PAGE_SIZE, valuation
 
 function number(value: number | null | undefined): string { return value == null ? EMPTY : formatNumber(value, 2) }
 function ratio(value: number | null | undefined): string { return value == null ? '未観測' : `${formatNumber(value * 100, 1)}%` }
+
+export function CalibrationDistribution({ context }: { context: ErLevelCalibrationContextView }) {
+  return <details className="rounded-md border p-3">
+    <summary className="cursor-pointer text-sm">機械E[r]帯の観測分布 · 宣言{context.required_asofs.length}月</summary>
+    <div className="mt-3 grid gap-2 text-xs">
+      <p>観測対象の歴史分布です。未評価を含む全母集団の期待収益・個別予測・購入条件ではありません。priceとtotalは観測対象が異なり、その差は配当効果を表しません。</p>
+      <p>E[r]較正の証拠充足：{context.evidence_complete ? '成立' : '未成立'}{context.evidence_blocking_reasons.length > 0 && `（${context.evidence_blocking_reasons.join('、')}）`}</p>
+      <div className="overflow-x-auto"><table className="w-full text-left"><thead><tr><th>期間・帯</th><th>実現basis</th><th>観測 / 宣言</th><th>未評価・理由</th><th>年率中央値 / q10</th><th>下振れ率</th></tr></thead>
+        <tbody>{context.horizons.flatMap(horizon => horizon.bands.flatMap(band => band.bases.map(basis => <tr key={`${horizon.horizon}-${band.band_id}-${basis.basis}`}>
+          <td>{horizon.horizon} {band.quintile == null ? 'E[r] ≥ 8.5%' : `Q${band.quintile}`}</td>
+          <td>{basis.basis === 'price_return_only' ? '価格のみ' : 'FY配当込み'}</td>
+          <td>{basis.coverage.observed_n} / {basis.coverage.declared_n}<br />観測{basis.observed_cohort_count} / 宣言{horizon.cohort_count}月</td>
+          <td>{basis.coverage.missing_n}{Object.entries(basis.coverage.missing_reason_counts).map(([reason, n]) => <div key={reason}>{reason}: {n}</div>)}</td>
+          <td>{basis.ticker_equal ? `${ratio(basis.ticker_equal.median)} / ${ratio(basis.ticker_equal.q10)}` : '未評価'}</td>
+          <td>{basis.ticker_equal ? ratio(basis.ticker_equal.trap_rate) : '未評価'}</td>
+        </tr>)))}</tbody>
+      </table></div>
+      <p>下振れは各basisの観測済み母集団の累積中央値から20ポイント以上劣後した割合です。未評価を0損益に補完していません。</p>
+    </div>
+  </details>
+}
 function FilterLabel({ title, children }: { title: string; children: ReactNode }) {
   return <label className="grid gap-1"><span className="text-xs font-medium text-muted-foreground">{title}</span>{children}</label>
 }
@@ -47,7 +68,7 @@ export function SecuritySearchItem({ row, candidate }: { row: SecuritySearchRow;
   </li>
 }
 
-export function SecurityAnalysisSection({ rows, runAsOf, externalCutoff, reviewSet }: { rows: SecuritySearchRow[]; runAsOf: string | null; externalCutoff?: string | null; reviewSet?: ReviewSetView | null }) {
+export function SecurityAnalysisSection({ rows, runAsOf, externalCutoff, reviewSet, calibration }: { rows: SecuritySearchRow[]; runAsOf: string | null; externalCutoff?: string | null; reviewSet?: ReviewSetView | null; calibration?: ErLevelCalibrationContextView | null }) {
   const sectors = useMemo(() => [...new Set(rows.flatMap(row => row.sector_33 === null ? [] : [row.sector_33]))].sort((a, b) => a.localeCompare(b, 'ja-JP')), [rows])
   const candidates = useMemo(() => new Map(reviewSet?.entries.map(entry => [entry.ticker, entry]) ?? []), [reviewSet])
   const { pathname, search } = useLocation()
@@ -89,6 +110,7 @@ export function SecurityAnalysisSection({ rows, runAsOf, externalCutoff, reviewS
         <FilterLabel title="順序"><select className="h-9 rounded-md border bg-background px-3 text-sm" onChange={event => updateParam('direction', event.target.value)} value={sort.direction}><option value="asc">昇順</option><option value="desc">降順</option></select></FilterLabel>
       </div></details>
       <p aria-live="polite" className="text-xs text-muted-foreground">{start}–{end} / {projection.filteredTotal}件</p>
+      {calibration && <CalibrationDistribution context={calibration} />}
       {externalCutoff && <p className="text-xs text-muted-foreground">外部観測の読取時点 {formatJstDateTime(externalCutoff)} JST。機械分析なしの銘柄は数値条件では抽出しません。</p>}
     </div>
     {projection.filteredTotal === 0 ? <p className="px-5 py-8 text-sm text-muted-foreground">条件に合う銘柄はありません。</p> : <ul className="divide-y">{projection.rows.map(row => <SecuritySearchItem candidate={candidates.get(row.ticker)} key={row.ticker} row={row} />)}</ul>}

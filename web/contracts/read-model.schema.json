@@ -1371,8 +1371,15 @@
           "title": "Upper Er Annual"
         },
         "median_predicted_er_annual": {
-          "title": "Median Predicted Er Annual",
-          "type": "number"
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Median Predicted Er Annual"
         },
         "cohort_count": {
           "title": "Cohort Count",
@@ -1409,15 +1416,43 @@
           "title": "Basis",
           "type": "string"
         },
+        "coverage": {
+          "$ref": "#/$defs/ErLevelCalibrationCoverageView"
+        },
+        "observed_cohort_count": {
+          "title": "Observed Cohort Count",
+          "type": "integer"
+        },
+        "median_n": {
+          "title": "Median N",
+          "type": "integer"
+        },
         "ticker_equal": {
-          "$ref": "#/$defs/ErLevelCalibrationStatsView"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErLevelCalibrationStatsView"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "cohort_equal": {
-          "$ref": "#/$defs/ErLevelCalibrationStatsView"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErLevelCalibrationStatsView"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
         "basis",
+        "coverage",
+        "observed_cohort_count",
+        "median_n",
         "ticker_equal",
         "cohort_equal"
       ],
@@ -1426,6 +1461,28 @@
     },
     "ErLevelCalibrationContextView": {
       "properties": {
+        "interpretation": {
+          "title": "Interpretation",
+          "type": "string"
+        },
+        "required_asofs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Asofs",
+          "type": "array"
+        },
+        "evidence_complete": {
+          "title": "Evidence Complete",
+          "type": "boolean"
+        },
+        "evidence_blocking_reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Blocking Reasons",
+          "type": "array"
+        },
         "generated_at": {
           "format": "date-time",
           "title": "Generated At",
@@ -1469,6 +1526,10 @@
         }
       },
       "required": [
+        "interpretation",
+        "required_asofs",
+        "evidence_complete",
+        "evidence_blocking_reasons",
         "generated_at",
         "valid_through",
         "reference_horizon",
@@ -1480,6 +1541,37 @@
         "horizons"
       ],
       "title": "ErLevelCalibrationContextView",
+      "type": "object"
+    },
+    "ErLevelCalibrationCoverageView": {
+      "properties": {
+        "declared_n": {
+          "title": "Declared N",
+          "type": "integer"
+        },
+        "observed_n": {
+          "title": "Observed N",
+          "type": "integer"
+        },
+        "missing_n": {
+          "title": "Missing N",
+          "type": "integer"
+        },
+        "missing_reason_counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Missing Reason Counts",
+          "type": "object"
+        }
+      },
+      "required": [
+        "declared_n",
+        "observed_n",
+        "missing_n",
+        "missing_reason_counts"
+      ],
+      "title": "ErLevelCalibrationCoverageView",
       "type": "object"
     },
     "ErLevelCalibrationHorizonView": {

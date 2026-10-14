@@ -257,10 +257,20 @@ class ErLevelCalibrationStatsView(BaseModel):
     n: int
 
 
+class ErLevelCalibrationCoverageView(BaseModel):
+    declared_n: int
+    observed_n: int
+    missing_n: int
+    missing_reason_counts: dict[str, int]
+
+
 class ErLevelCalibrationBasisView(BaseModel):
     basis: str
-    ticker_equal: ErLevelCalibrationStatsView
-    cohort_equal: ErLevelCalibrationStatsView
+    coverage: ErLevelCalibrationCoverageView
+    observed_cohort_count: int
+    median_n: int
+    ticker_equal: ErLevelCalibrationStatsView | None
+    cohort_equal: ErLevelCalibrationStatsView | None
 
 
 class ErLevelCalibrationBandView(BaseModel):
@@ -268,7 +278,7 @@ class ErLevelCalibrationBandView(BaseModel):
     quintile: int | None
     lower_er_annual: float | None
     upper_er_annual: float | None
-    median_predicted_er_annual: float
+    median_predicted_er_annual: float | None
     cohort_count: int
     median_n: int
     bases: list[ErLevelCalibrationBasisView]
@@ -283,6 +293,10 @@ class ErLevelCalibrationHorizonView(BaseModel):
 
 
 class ErLevelCalibrationContextView(BaseModel):
+    interpretation: str
+    required_asofs: list[str]
+    evidence_complete: bool
+    evidence_blocking_reasons: list[str]
     generated_at: datetime
     valid_through: date
     reference_horizon: str

@@ -31,7 +31,7 @@ def test_retained_schema_2_is_withheld_even_for_matching_historical_identity() -
     assert context is None
 
 
-def test_schema_3_context_reaches_web_for_matching_identity(tmp_path) -> None:
+def test_schema_4_context_reaches_web_for_matching_identity(tmp_path) -> None:
     raw = context_artifact()
     path = tmp_path / "fixed-context.yaml"
     path.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
@@ -41,7 +41,7 @@ def test_schema_3_context_reaches_web_for_matching_identity(tmp_path) -> None:
         today=date.fromisoformat(raw["generated_at"][:10]),
     )
     assert context is not None
-    assert context.schema_version == 3
+    assert context.schema_version == 4
     assert [horizon.horizon for horizon in context.horizons] == ["3y", "5y"]
 
 
