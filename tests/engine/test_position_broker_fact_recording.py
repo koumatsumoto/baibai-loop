@@ -441,7 +441,7 @@ def test_corrected_fill_is_a_conflict_not_a_silent_noop() -> None:
         )
 
 
-def test_fill_cannot_replace_the_reservation_decision_referenceerence() -> None:
+def test_fill_cannot_replace_the_reservation_decision_reference() -> None:
     opened = record_broker_fact(
         load_portfolio_ledger(FIXTURE),
         decision_reference=PROPOSAL,
@@ -473,7 +473,7 @@ def test_fill_cannot_replace_the_reservation_decision_referenceerence() -> None:
         )
 
 
-def test_direct_fill_inserts_approval_before_newer_existing_events() -> None:
+def test_direct_fill_inserts_reservation_before_newer_existing_events() -> None:
     result = record_broker_fact(
         load_portfolio_ledger(FIXTURE),
         decision_reference=PROPOSAL,

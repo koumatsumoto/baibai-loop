@@ -117,22 +117,6 @@ def _active_payload(checkpoint: str = "source review") -> OperationPayload:
     )
 
 
-def _complete_payload(kind: SessionKind) -> OperationPayload:
-    values: dict[str, object] = {
-        "checkpoint": "final",
-        "result": "trigger work completed",
-        "next": "wait for the next trigger",
-    }
-    values["human_confirmation"] = {
-        "request": "confirm",
-        "result": "human confirmed",
-    }
-    values["artifacts"] = ({"kind": "review", "summary": "reviewed"},)
-    if kind == "position-review":
-        values["canonical_refs"] = ("position-review-test",)
-    return OperationPayload.model_validate(values)
-
-
 def test_all_kinds_share_one_active_slot_and_no_checkpoint_history(tmp_path: Path) -> None:
     db = tmp_path / "app.sqlite"
     service = OperationService(db)

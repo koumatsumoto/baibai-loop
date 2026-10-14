@@ -58,7 +58,7 @@ DOMAINS: Mapping[str, Domain] = {
     ),
     "screening": Domain(
         module="baibai_engine.screening.cli.app",
-        summary="machine screening: analyze securities and publish a Review Set",
+        summary="machine screening: publish Stock Analyses and candidate discovery",
     ),
     "market-context": Domain(
         module="baibai_engine.market_context.cli",
@@ -70,7 +70,7 @@ DOMAINS: Mapping[str, Domain] = {
     ),
     "position": Domain(
         module="baibai_engine.position.cli",
-        summary="portfolio ledger, Position Reviews, and the drafts that record their results",
+        summary="portfolio ledger, human-reported broker fact drafts, and portfolio outcomes",
     ),
     "research": Domain(
         module="baibai_engine.research.workspace_cli",

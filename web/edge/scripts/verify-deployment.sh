@@ -85,6 +85,10 @@ paths=(
   /api/screening/latest
   /api/screening/history
   /api/operations
+  /api/tasks
+  /api/daily-delta
+  /api/stock-assessments
+  /api/investment-proposals
   /api/meta
   /api/market-context
   /api/market-context/indicators/us.10y
@@ -98,7 +102,9 @@ absent_key_paths=(
   /api/screening/history/2000-01-01
   /api/market-context/assessments/no-such-context
   /api/market-context/indicators/no.such.series
-  /api/assessments/no-such-assessment
+  /api/stock-assessments/stock-assessment-00000000-0000-4000-8000-000000000000
+  /api/investment-proposals/investment-proposal-00000000-0000-4000-8000-000000000000
+  /api/investment-proposals/investment-proposal-00000000-0000-4000-8000-000000000000/current-preview
   /api/securities/ZZZZ
 )
 

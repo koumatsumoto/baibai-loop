@@ -30,10 +30,6 @@ class RunStoreConflictError(ValueError):
     """Raised when immutable publication identity is reused with different content."""
 
 
-class RunStoreNotFoundError(ValueError):
-    """Raised when a publication refers to an unknown parent."""
-
-
 class RunStoreAmbiguousError(ValueError):
     """Raised when a convenience query cannot identify one immutable revision."""
 
@@ -429,7 +425,6 @@ __all__ = [
     "PublicationResult",
     "RunStoreAmbiguousError",
     "RunStoreConflictError",
-    "RunStoreNotFoundError",
     "ScreeningRunStore",
     "connect_rw",
     "decode_payload",

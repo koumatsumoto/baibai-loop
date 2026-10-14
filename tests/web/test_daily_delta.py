@@ -145,8 +145,6 @@ def test_absent_comparison_and_empty_candidate_fixture_are_distinct(missing: str
         sources[0].latest_run.return_value = None
     elif missing == "previous":
         sources[0].previous_run.return_value = None
-    elif missing == "candidates":
-        sources[0].candidatess.side_effect = [[], _candidate_fixture([], 0.1)]
     view = build_daily_delta(*sources)
     expected = {
         "latest": "screening_run",
@@ -163,7 +161,6 @@ def test_absent_comparison_and_empty_candidate_fixture_are_distinct(missing: str
 def test_method_change_does_not_skip_holdings(mocker) -> None:
     sources = _sources(latest=replace(_run(4), screening_rules_hash="changed"))
     sources[1].exists.return_value = True
-    sources[2].load_errors.return_value = []
     holding_delta = mocker.patch(
         "baibai_web.readmodel.builders.daily_delta._holding_deltas", return_value=([], 3)
     )

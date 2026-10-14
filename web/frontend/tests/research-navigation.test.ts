@@ -16,7 +16,7 @@ describe('調査・提案の入口', () => {
     expect(html).toMatch(new RegExp(`aria-current="page"[^>]*>${label}</a>`))
   })
   it('見送りを買いにせず、保存IDの詳細へ進む', () => {
-    const proposals: InvestmentProposalSummaryView[] = [{ proposal_id: 'synthetic-original-proposal', as_of: '2026-10-14', published_at: '2026-10-14T18:00:00+09:00', request_scope: 'specified_stocks', headline: '余力を温存する', item_count: 2, actions: ['no_action'], research_operation_id: 'research-op-original' }]
+    const proposals: InvestmentProposalSummaryView[] = [{ proposal_id: 'synthetic-original-proposal', as_of: '2026-10-14', published_at: '2026-10-14T18:00:00+09:00', request_scope: 'specified_stocks', headline: '余力を温存する', item_count: 2, tickers: ['1234', '5678'], actions: ['no_action'], research_operation_id: 'research-op-original' }]
     const html = render(createElement(InvestmentProposals, { proposals }))
     for (const text of ['見送り', '余力を温存する', '/stocks/investment-proposals/synthetic-original-proposal', '2026-10-14', '採否・注文・約定は別工程']) expect(html).toContain(text)
     expect(html).not.toContain('買い')

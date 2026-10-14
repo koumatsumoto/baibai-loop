@@ -29,7 +29,7 @@ function dashboard(overrides: Partial<DashboardView> = {}): DashboardView {
     realized_gross_pnl_yen: 136_100,
     deployed_cost_yen: 100_000, cash_pct: 47.62, reserved_pct: 0,
     deployed_pct: 52.38, holdings: [holding('8255')],
-    reservations: [], warnings: [], research_load_errors: [],
+    reservations: [], warnings: [],
     ...overrides,
   }
 }

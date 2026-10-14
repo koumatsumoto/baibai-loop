@@ -52,7 +52,6 @@ from baibai_engine.storage.lake.objects import (
     LocalMirrorSource,
     mirror_path,
     mirror_root,
-    sha256_file,
 )
 from baibai_engine.storage.lake.prefetch import (
     PrefetchingSource,
@@ -71,6 +70,7 @@ from baibai_engine.storage.lake.reader import (
 )
 from baibai_engine.storage.lake.release import L1ReleasePointer, create_l1_release
 from baibai_engine.storage.lake.retention import LakeRetentionError, exclusive_lock
+from baibai_engine.storage.lake.sources import sha256_file
 from baibai_engine.storage.lake.writer import export_legacy_sqlite, sealed_sqlite_snapshot
 from baibai_engine.storage.observations.lake_origin import (
     LakeStoreOrigin,
@@ -91,7 +91,7 @@ _BUILT_AT = datetime(2026, 8, 12, 3, 0, tzinfo=UTC)
 @pytest.fixture(autouse=True)
 def _small_pilot_release_policy(monkeypatch: pytest.MonkeyPatch) -> None:
     # These fixtures build the two datasets these tests exercise, so the profile is
-    # narrowed to them: a policy that still required the other thirteen would refuse
+    # narrowed to them: a policy that still required every other dataset would refuse
     # every fixture release for being incomplete, which is a fact about the fixture
     # rather than about the code under test.
     narrow_release_policy(monkeypatch)
@@ -1466,13 +1466,13 @@ class TestHydrate:
     ) -> None:
         """A readable SQLite is the mistyped path that a file-type check would miss.
 
-        `runs.sqlite` and the application store open cleanly and pass every integrity
+        `research.sqlite` and the application store open cleanly and pass every integrity
         check, so what refuses them is the contract comparison: the release's tables are
         not there. The copy is made first, so the proof that matters is that the named
         file still holds its own bytes afterwards.
         """
 
-        store = tmp_path / "runs.sqlite"
+        store = tmp_path / "research.sqlite"
         connection = sqlite3.connect(store)
         connection.execute("CREATE TABLE screening_run(run_revision_id TEXT PRIMARY KEY)")
         connection.execute("INSERT INTO screening_run VALUES ('r1')")

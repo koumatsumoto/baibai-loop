@@ -101,7 +101,7 @@ def run_command(
         )
         return 1
 
-    # 窓の正本は metrics.py の BARS_INPUT_WINDOW_DAYS / FIN_INPUT_WINDOW_DAYS
+    # 窓の正本は metrics/snapshot.py の BARS_INPUT_WINDOW_DAYS / FIN_INPUT_WINDOW_DAYS
     # (較正リプレイと共有)。fin を bars と同じ 1200 日にしないのは、J-Quants Light
     # で ~26 chunk (各 1-3 分) の追加取得コストが支配的になるため。
     bars_start_date = asof_date - timedelta(days=BARS_INPUT_WINDOW_DAYS)
@@ -209,7 +209,6 @@ def run_command(
         asof_date,
         adjustment_events_by_ticker=normalized_split_bars_by_ticker,
     )
-    edinet_load_error: str | None = None
     edinet_by_ticker: Mapping[str, EdinetMetricRecord] = {}
     if providers.edinet is None:
         print("EDINET preprocessed metrics provider is required for screening run", file=sys.stderr)
@@ -364,8 +363,6 @@ def run_command(
         fallback_lines.append(
             f"業績YoY入力欠損(common eligible母集団): {population_yoy_missing} 銘柄"
         )
-    if edinet_load_error is not None:
-        fallback_lines.append(f"EDINET 読み込み失敗: {edinet_load_error}")
     if disclosure_load_result.load_errors:
         fallback_lines.append(
             f"Disclosure title scan 読み込み失敗: {len(disclosure_load_result.load_errors)} 件"
@@ -386,17 +383,13 @@ def run_command(
         "jpx-public-earnings-calendar",
         "jpx-public-regulation",
     ]
-    if edinet_by_ticker:
-        data_sources.append("edinet-preprocessed-metrics")
+    data_sources.append("edinet-preprocessed-metrics")
     if disclosure_load_result.file_count:
         data_sources.append("disclosure-title-events")
     provider_status_lines = [
         "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ JPX（決算発表予定・規制）"
     ]
-    if edinet_by_ticker:
-        provider_status_lines.append("EDINET preprocessed metrics: loaded")
-    else:
-        provider_status_lines.append("EDINET preprocessed metrics: optional unavailable")
+    provider_status_lines.append("EDINET preprocessed metrics: loaded")
     if disclosure_load_result.file_count:
         provider_status_lines.append(
             "Disclosure title material-event scan: "

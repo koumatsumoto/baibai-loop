@@ -2,7 +2,7 @@
 title: "Screeningの履歴条件と旧設定の見直し"
 summary: "182日共通floorと未使用YoY閾値を整理し、固定L1でのv6再現と長期較正の成立範囲を検証する。"
 doc_type: measurement-record
-status: active
+status: historical
 ---
 
 # Screeningの履歴条件と旧設定の見直し（#1481）

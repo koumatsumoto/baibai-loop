@@ -2,7 +2,7 @@
 title: "QARP sector相対割安残差レーンの事前登録"
 summary: "quality gate後の全流動性母集団をsector fixed effectとsizeで調整し、core外候補の増分をmatched boundaryと比較する条件を固定する。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-10
 ---
 

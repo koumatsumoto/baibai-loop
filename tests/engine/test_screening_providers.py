@@ -1657,7 +1657,7 @@ class ScreeningProviderTests(unittest.TestCase):
         client = FakeClient()
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "data" / "screening" / "market.sqlite"
-            provider = JQuantsProvider("token", Path(tmp), client=client, sqlite_path=sqlite_path)
+            provider = JQuantsProvider("token", client=client, sqlite_path=sqlite_path)
             with patch("baibai_engine.market.providers.jquants.time.sleep", return_value=None):
                 bars = provider.get_eq_bars_daily_range(date(2026, 1, 1), date(2026, 2, 15))
 
@@ -1695,7 +1695,7 @@ class ScreeningProviderTests(unittest.TestCase):
         client = FakeClient()
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "data" / "screening" / "market.sqlite"
-            provider = JQuantsProvider("token", Path(tmp), client=client, sqlite_path=sqlite_path)
+            provider = JQuantsProvider("token", client=client, sqlite_path=sqlite_path)
             with patch("baibai_engine.market.providers.jquants.time.sleep") as sleep_first:
                 first = provider.get_eq_bars_daily_range(date(2026, 1, 1), date(2026, 2, 15))
             self.assertEqual(len(client.calls), 2)
@@ -1730,7 +1730,7 @@ class ScreeningProviderTests(unittest.TestCase):
         target = date(2026, 4, 24)
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            provider = JQuantsProvider("token", Path(tmp), client=client, sqlite_path=sqlite_path)
+            provider = JQuantsProvider("token", client=client, sqlite_path=sqlite_path)
             first = provider.get_mkt_short_sale_report_range(target, target)
             refreshed = provider.refresh_mkt_short_sale_report_range(target, target)
 
@@ -1739,14 +1739,14 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(refreshed[0].short_ratio, 0.007)
 
     def test_jpx_parse_csv_rows_supports_cp932(self) -> None:
-        provider = JPXProvider(Path("/tmp"))
+        provider = JPXProvider()
         rows = provider._parse_csv_rows(
             "コード,規制区分\n3856,整理銘柄\n".encode("cp932"), "https://example.com/sample.csv"
         )
         self.assertEqual(rows, [{"コード": "3856", "規制区分": "整理銘柄"}])
 
     def test_jpx_earnings_parser_detects_header_and_normalizes_rows(self) -> None:
-        provider = JPXProvider(Path("/tmp"))
+        provider = JPXProvider()
         content = self._earnings_xlsx(
             [
                 ["決算発表予定", "", ""],
@@ -1776,7 +1776,7 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertIsNone(parsed.published_on)
 
     def test_jpx_earnings_parser_fails_on_layout_and_invalid_code(self) -> None:
-        provider = JPXProvider(Path("/tmp"))
+        provider = JPXProvider()
         url = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/kessan.xlsx"
         with self.assertRaisesRegex(JPXProviderError, "header layout"):
             provider._parse_earnings_calendar_excel(
@@ -1789,7 +1789,7 @@ class ScreeningProviderTests(unittest.TestCase):
             )
 
     def test_jpx_earnings_snapshot_fails_when_every_date_is_past(self) -> None:
-        provider = JPXProvider(Path("/tmp"))
+        provider = JPXProvider()
         url = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/a/kessan.xlsx"
         with (
             patch.object(provider, "_resolve_earnings_calendar_urls", return_value=(url,)),
@@ -1813,7 +1813,7 @@ class ScreeningProviderTests(unittest.TestCase):
         by_url = {source.url: source for source in files}
         snapshots: list[JPXEarningsCalendarSnapshot] = []
         for urls in (tuple(by_url), tuple(reversed(tuple(by_url)))):
-            provider = JPXProvider(Path("/tmp"))
+            provider = JPXProvider()
             with (
                 patch.object(provider, "_resolve_earnings_calendar_urls", return_value=urls),
                 patch.object(
@@ -1921,7 +1921,7 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(snapshot.entries[0].announcement_date, date(2026, 7, 20))
 
     def test_jpx_earnings_snapshot_warns_when_the_index_layout_breaks_precedence(self) -> None:
-        provider = JPXProvider(Path("/tmp"))
+        provider = JPXProvider()
         files = (
             self._earnings_file(
                 self._earnings_url("06_0731"), None, {"130A": date(2026, 7, 20)}, prefix="att"
@@ -1945,7 +1945,7 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertIn("no readable publication stamp", messages)
 
     def test_jpx_earnings_snapshot_warns_when_several_rolling_files_are_listed(self) -> None:
-        provider = JPXProvider(Path("/tmp"))
+        provider = JPXProvider()
         files = (
             self._earnings_file(
                 self._earnings_url(), None, {"130A": date(2026, 7, 20)}, prefix="att"
@@ -1967,7 +1967,7 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertIn("several rolling `kessan` files", "\n".join(logs.output))
 
     def test_jpx_earnings_parser_reads_publication_stamp_but_not_cohort_titles(self) -> None:
-        provider = JPXProvider(Path("/tmp"))
+        provider = JPXProvider()
         url = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/kessan.xlsx"
         header = ["決算発表予定日", "コード"]
 
@@ -2019,7 +2019,7 @@ class ScreeningProviderTests(unittest.TestCase):
         all takes the same exit.
         """
 
-        provider = JPXProvider(Path("/tmp"))
+        provider = JPXProvider()
         with self.assertLogs("baibai_engine.market.providers.jpx", level="WARNING") as logs:
             parsed = provider._parse_earnings_calendar_excel(
                 self._earnings_xlsx(
@@ -2053,7 +2053,7 @@ class ScreeningProviderTests(unittest.TestCase):
         <a href="/listing/event-schedules/other/kessan-4.xlsx">other</a>
         <a href="./files/notes.xlsx">notes</a>
         """
-        provider = JPXProvider(Path("/tmp"), session=_FixedHtmlSession(html))
+        provider = JPXProvider(session=_FixedHtmlSession(html))
 
         self.assertEqual(
             provider._resolve_earnings_calendar_urls(),
@@ -2072,7 +2072,6 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_jpx_special_attention_current_sections(self) -> None:
         html = self._read_jpx_fixture("special_caution.html")
         provider = JPXProvider(
-            Path("/tmp"),
             regulation_urls={
                 "特別注意銘柄": "https://www.jpx.co.jp/listing/measures/alert/index.html"
             },
@@ -2092,7 +2091,7 @@ class ScreeningProviderTests(unittest.TestCase):
             "<table><tr><th>銘柄名</th><th>コード</th></tr>"
             "<tr><td>A</td><td>29010</td></tr><tr><td>C</td><td>6548</td></tr></table>",
         )
-        rows = JPXProvider(Path("/tmp"))._parse_special_attention_html_rows(html, "fixture")
+        rows = JPXProvider()._parse_special_attention_html_rows(html, "fixture")
         self.assertEqual(
             rows,
             [{"code": code, "flag": "特別注意銘柄"} for code in ("2901", "130A", "6548")],
@@ -2100,9 +2099,7 @@ class ScreeningProviderTests(unittest.TestCase):
 
     def test_jpx_special_attention_all_sections_empty(self) -> None:
         html = "<h2>現在の指定状況</h2><p>現在、該当する情報はありません。</p>"
-        self.assertEqual(
-            JPXProvider(Path("/tmp"))._parse_special_attention_html_rows(html, "fixture"), []
-        )
+        self.assertEqual(JPXProvider()._parse_special_attention_html_rows(html, "fixture"), [])
 
     def test_jpx_special_attention_rejects_layout_drift(self) -> None:
         html = self._read_jpx_fixture("special_caution.html").decode()
@@ -2123,11 +2120,11 @@ class ScreeningProviderTests(unittest.TestCase):
         }
         for label, changed in cases.items():
             with self.subTest(label=label), self.assertRaises(JPXProviderError):
-                JPXProvider(Path("/tmp"))._parse_special_attention_html_rows(changed, "fixture")
+                JPXProvider()._parse_special_attention_html_rows(changed, "fixture")
 
     def test_jpx_download_rows_rejects_non_jpx_origin(self) -> None:
         session = ExplodingSession("request should not be attempted")
-        provider = JPXProvider(Path("/tmp"), session=session)
+        provider = JPXProvider(session=session)
 
         with self.assertRaisesRegex(JPXProviderError, "https://www\\.jpx\\.co\\.jp"):
             provider._download_rows(
@@ -2138,7 +2135,6 @@ class ScreeningProviderTests(unittest.TestCase):
 
     def test_jpx_parse_reorganization_html_rows_from_content_type(self) -> None:
         provider = JPXProvider(
-            Path("/tmp"),
             session=always(html_response(self._read_jpx_fixture("reorganization.html"))),
         )
         rows = provider._download_rows(
@@ -2154,7 +2150,7 @@ class ScreeningProviderTests(unittest.TestCase):
         )
 
     def test_jpx_parse_trading_halt_html_rows_extracts_codes(self) -> None:
-        provider = JPXProvider(Path("/tmp"))
+        provider = JPXProvider()
 
         rows = provider._parse_html_rows(
             "取引停止",
@@ -2165,7 +2161,7 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(rows, [{"code": "9941", "flag": "取引停止"}])
 
     def test_jpx_parse_delisting_warning_html_rows_extracts_codes(self) -> None:
-        provider = JPXProvider(Path("/tmp"))
+        provider = JPXProvider()
 
         rows = provider._parse_html_rows(
             "上場廃止警告",
@@ -2182,7 +2178,7 @@ class ScreeningProviderTests(unittest.TestCase):
         )
 
     def test_jpx_parse_html_rows_fail_fast_on_layout_change(self) -> None:
-        provider = JPXProvider(Path("/tmp"))
+        provider = JPXProvider()
         broken_html = (
             self._read_jpx_fixture("reorganization.html")
             .decode("utf-8")
@@ -2205,17 +2201,15 @@ class ScreeningProviderTests(unittest.TestCase):
             .encode("utf-8")
         )
 
-        with tempfile.TemporaryDirectory() as tmp:
-            provider = JPXProvider(
-                Path(tmp),
-                regulation_urls={"取引停止": url},
-                session=by_url({url: html_response(broken_html)}),
-            )
-            with self.assertRaisesRegex(JPXProviderError, "invalid JPX code"):
-                provider.get_regulation_snapshot(date(2026, 4, 24))
+        provider = JPXProvider(
+            regulation_urls={"取引停止": url},
+            session=by_url({url: html_response(broken_html)}),
+        )
+        with self.assertRaisesRegex(JPXProviderError, "invalid JPX code"):
+            provider.get_regulation_snapshot(date(2026, 4, 24))
 
     def test_jpx_trading_halt_empty_marker_returns_no_rows(self) -> None:
-        provider = JPXProvider(Path("/tmp"))
+        provider = JPXProvider()
         rows = provider._parse_html_rows(
             "取引停止",
             self._read_jpx_fixture("trading_halt_empty.html"),
@@ -2227,7 +2221,7 @@ class ScreeningProviderTests(unittest.TestCase):
         # ヘッダが 1 段になった場合、header_rows=2 を要求しているので 2 行目 (data) が
         # `<th>` 全列ではなく fail-fast に落ちる。これにより JPX が rowspan を外して
         # 出してきても列ズレで silently 1 件欠損する事故を防げる。
-        provider = JPXProvider(Path("/tmp"))
+        provider = JPXProvider()
         with self.assertRaisesRegex(JPXProviderError, "unexpected JPX HTML header layout"):
             provider._parse_html_rows(
                 "取引停止",
@@ -2240,7 +2234,7 @@ class ScreeningProviderTests(unittest.TestCase):
         # HTMLParser の stack で外側のみ index される設計が壊れたら、内側の行が
         # 外側 row として混入し header check で raise されるか、コード列に
         # 別の値が入って test 期待値と不一致になる。
-        provider = JPXProvider(Path("/tmp"))
+        provider = JPXProvider()
         rows = provider._parse_html_rows(
             "整理銘柄",
             self._read_jpx_fixture("reorganization_nested.html"),
@@ -2250,7 +2244,6 @@ class ScreeningProviderTests(unittest.TestCase):
 
     def test_jpx_download_rows_rejects_unsupported_format(self) -> None:
         provider = JPXProvider(
-            Path("/tmp"),
             session=always(response(b"<plain>", content_type="text/plain; charset=UTF-8")),
         )
         with self.assertRaisesRegex(JPXProviderError, "unsupported JPX regulation source format"):
@@ -2260,7 +2253,7 @@ class ScreeningProviderTests(unittest.TestCase):
             )
 
     def test_jpx_download_rows_raises_on_http_error_status(self) -> None:
-        provider = JPXProvider(Path("/tmp"), session=always(response(status_code=503)))
+        provider = JPXProvider(session=always(response(status_code=503)))
         with self.assertRaisesRegex(JPXProviderError, "status=503"):
             provider._download_rows(
                 "整理銘柄",
@@ -2270,7 +2263,6 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_jpx_get_regulation_snapshot_uses_cache_without_calling_session(self) -> None:
         url = "https://www.jpx.co.jp/listing/market-alerts/supervision/"
         with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "cache"
             sqlite_path = Path(tmp) / "data" / "screening" / "market.sqlite"
             store_jpx_regulations(
                 sqlite_path,
@@ -2280,7 +2272,6 @@ class ScreeningProviderTests(unittest.TestCase):
             )
 
             provider = JPXProvider(
-                cache_dir,
                 regulation_urls={"整理銘柄": url},
                 session=ExplodingSession("session.get must not be called when cache is present"),
                 sqlite_path=sqlite_path,
@@ -2293,10 +2284,8 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_jpx_get_regulation_snapshot_records_fetched_at_utc_on_fetch(self) -> None:
         url = "https://www.jpx.co.jp/listing/market-alerts/supervision/list.csv"
         with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "cache"
             sqlite_path = Path(tmp) / "data" / "screening" / "market.sqlite"
             provider = JPXProvider(
-                cache_dir,
                 regulation_urls={"整理銘柄": url},
                 session=always(response(b"code\n49170\n", content_type="text/csv")),
                 sqlite_path=sqlite_path,
@@ -2316,7 +2305,6 @@ class ScreeningProviderTests(unittest.TestCase):
 
     def test_jpx_get_regulation_snapshot_rejects_rows_without_code_column(self) -> None:
         provider = JPXProvider(
-            Path("/tmp"),
             regulation_urls={
                 "整理銘柄": "https://www.jpx.co.jp/listing/market-alerts/supervision/list.csv"
             },
@@ -2329,7 +2317,7 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_jpx_decode_html_text_prefers_content_type_charset(self) -> None:
         # JPX が cp932 ページを Content-Type で告知してきた場合、フォールバックの utf-8
         # が偶然成功して文字化けが残るリスクを避けるため、charset を最優先で試行する。
-        provider = JPXProvider(Path("/tmp"))
+        provider = JPXProvider()
         cp932_payload = "整理銘柄".encode("cp932")
         decoded = provider._decode_html_text(
             cp932_payload,
@@ -2339,7 +2327,7 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(decoded, "整理銘柄")
 
     def test_jpx_decode_html_text_raises_when_all_encodings_fail(self) -> None:
-        provider = JPXProvider(Path("/tmp"))
+        provider = JPXProvider()
         # 0xFF は cp932 / utf-8 / utf-8-sig いずれでも lead byte として無効なので、
         # フォールバック 3 段すべて UnicodeDecodeError で落ちる。LookupError 経路の
         # 確認も兼ねて、Content-Type には未知の encoding 名を載せる。
@@ -2378,14 +2366,12 @@ class ScreeningProviderTests(unittest.TestCase):
                     .replace(code, broken_code, 1)
                     .encode("utf-8")
                 )
-                with tempfile.TemporaryDirectory() as tmp:
-                    provider = JPXProvider(
-                        Path(tmp),
-                        regulation_urls={source_name: url},
-                        session=_FixedHtmlSession(broken_html),
-                    )
-                    with self.assertRaisesRegex(JPXProviderError, "invalid JPX code"):
-                        provider.get_regulation_snapshot(date(2026, 4, 24))
+                provider = JPXProvider(
+                    regulation_urls={source_name: url},
+                    session=_FixedHtmlSession(broken_html),
+                )
+                with self.assertRaisesRegex(JPXProviderError, "invalid JPX code"):
+                    provider.get_regulation_snapshot(date(2026, 4, 24))
 
 
 def test_capex_original_edinet_rows():

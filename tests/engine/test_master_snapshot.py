@@ -488,7 +488,6 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             no_fetch_client = _MasterClient()
             cache_only = JQuantsProvider(
                 "token",
-                Path(tmp) / "raw-cache-only",
                 client=no_fetch_client,
                 sqlite_path=db,
                 cache_only=True,
@@ -500,7 +499,6 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             fetch_client = _MasterClient()
             provider = JQuantsProvider(
                 "token",
-                Path(tmp) / "raw",
                 client=fetch_client,
                 sqlite_path=db,
             )
@@ -514,7 +512,7 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             db = Path(tmp) / "market.sqlite"
             store_jquants_master(db, make_master_records(today), requested_asof=today)
             client = _MasterClient()
-            provider = JQuantsProvider("token", Path(tmp) / "raw", client=client, sqlite_path=db)
+            provider = JQuantsProvider("token", client=client, sqlite_path=db)
             output = io.StringIO()
             result = backfill_master_command(
                 asof_dates=[today],
@@ -533,7 +531,7 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             db = Path(tmp) / "market.sqlite"
             store_jquants_master(db, make_master_records(future), requested_asof=future)
             client = _MasterClient()
-            provider = JQuantsProvider("token", Path(tmp) / "raw", client=client, sqlite_path=db)
+            provider = JQuantsProvider("token", client=client, sqlite_path=db)
 
             self.assertEqual(len(provider.get_eq_master(requested)), 2500)
             self.assertEqual(client.calls, [requested.isoformat()])
@@ -553,7 +551,7 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             conn.commit()
             conn.close()
             client = _MasterClient()
-            provider = JQuantsProvider("token", Path(tmp) / "raw", client=client, sqlite_path=db)
+            provider = JQuantsProvider("token", client=client, sqlite_path=db)
 
             self.assertEqual(len(provider.get_eq_master(asof)), 2500)
             self.assertEqual(client.calls, [asof.isoformat()])
@@ -565,7 +563,7 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             client = _MasterClient()
-            provider = JQuantsProvider("token", Path(tmp) / "raw", client=client, sqlite_path=db)
+            provider = JQuantsProvider("token", client=client, sqlite_path=db)
             bundle = ProviderBundle(
                 jquants=_BootstrapJQuants(provider, db),
                 edinet=None,

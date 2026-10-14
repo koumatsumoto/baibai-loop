@@ -173,7 +173,6 @@ class DbOperationsSource:
 class DbResearchSource:
     def __init__(self, db_path: Path) -> None:
         self._path = db_path.resolve()
-        self._load_errors: list[str] = []
 
     def revisions(self) -> list[ResearchRevision]:
         # A malformed newer pair is a source error. Never expose an older supported
@@ -208,9 +207,6 @@ class DbResearchSource:
         return preview_current_proposal_terms(
             self._path, proposal_id=proposal_id, sqlite_path=sqlite_path, now=now
         )
-
-    def load_errors(self) -> list[str]:
-        return list(self._load_errors)
 
     def _revision(
         self,

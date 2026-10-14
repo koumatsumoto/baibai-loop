@@ -2,7 +2,7 @@
 title: "株数減少・予想増配の長期evidence事前登録"
 summary: "既知のintegrity blockerをGate 0に置き、2成分の長期診断と一次IR固定標本を分離する。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-02
 ---
 

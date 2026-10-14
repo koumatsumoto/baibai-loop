@@ -2,7 +2,7 @@
 title: "投資有価証券による資産バリュー軸の計測結果"
 summary: "EDINET抽出と資産厚・還元変化の診断経路を実装したが、forward outcome期間に入力履歴がなくinconclusiveと判定した。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-02
 ---
 
@@ -19,7 +19,7 @@ date: 2026-08-02
 
 ## 1. 固定した実行契約
 
-定義、exact tag、除外tag、固定control、4群、時間分割、availability gate、採否条件は、outcome計測前のcommit `757c450` と [`2026-08-02-hidden-assets-preregistration.md`](.../2026-08-02-hidden-assets/preregistration/report.md) で固定した。実装は`2bedb80`、生成panelの丸め済み時価総額を正確なratioと照合するreader契約は`03764fc`で固定した。
+定義、exact tag、除外tag、固定control、4群、時間分割、availability gate、採否条件は、outcome計測前のcommit `757c450` と [`2026-08-02-hidden-assets-preregistration.md`](../2026-08-02-hidden-assets/preregistration.md) で固定した。実装は`2bedb80`、生成panelの丸め済み時価総額を正確なratioと照合するreader契約は`03764fc`で固定した。
 
 - market SQLite schema: `17`
 - calibration cache schema: `10`

@@ -661,8 +661,7 @@ require_complete_export() {
 upload_serving_views() {
   # The mutable image of the current run: every view except the freshness claim,
   # which is nearly all of what a run publishes. All of it is rewritten each
-  # business day, so this is the part worth overlapping with the store push and
-  # the part a failed run can leave behind without lasting harm.
+  # business day. The workflow uploads it only after the machine-store push succeeds.
   local output_dir="$1"
   require_complete_export "${output_dir}"
   use_serving_transfer_settings
@@ -792,8 +791,8 @@ case "${1:-}" in
   # production views, and the local credential carries write permission because R2
   # grants it per token rather than per bucket. The boundary lives here instead.
   #
-  # The publish is two stages so the mutable image can overlap the store push while
-  # the durable record cannot: see the two functions for which is which.
+  # The publish is two stages so freshness advances only after all view uploads
+  # succeed; both stages follow the successful store push.
   upload-serving-views)
     [[ $# -eq 2 ]] || { usage; exit 2; }
     if [[ "${GITHUB_ACTIONS:-}" != "true" ]]; then

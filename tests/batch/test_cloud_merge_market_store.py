@@ -90,20 +90,6 @@ def _add_bar(path: Path, ticker: str, traded_at: str, close: float) -> None:
         conn.close()
 
 
-def _add_exit_value(path: Path, ticker: str, price: float) -> None:
-    conn = open_connection(path)
-    try:
-        conn.execute(
-            "INSERT OR REPLACE INTO tender_offer_exit_values("
-            "ticker, delisted_on, offer_price_yen, offer_doc_id, result_doc_id, filed_on"
-            ") VALUES (?, '2026-05-01', ?, 'REG', 'RES', '2026-02-01')",
-            (ticker, price),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
 def _short_record(name: str, ratio: float) -> dict[str, object]:
     return {
         "DiscDate": "2026-08-01",
@@ -228,7 +214,7 @@ def test_the_exempt_columns_belong_to_a_table_the_merge_unions(tmp_path: Path) -
 
 class TestLakeOwnedTables:
     def test_rows_the_release_owns_are_not_carried_by_the_merge(self, tmp_path: Path) -> None:
-        """The release reconciles the seventeen tables; copying them here would fork them."""
+        """The release reconciles its owned tables; copying them here would fork them."""
 
         source = _store(tmp_path / "source.sqlite")
         target = _store(tmp_path / "target.sqlite")

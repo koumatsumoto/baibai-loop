@@ -11,6 +11,7 @@ from tests.helpers.indicator_store import (
     observation,
 )
 
+from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.market_context.indicators.providers import (
     IndicatorsProviderError,
@@ -28,12 +29,17 @@ from baibai_engine.market_context.indicators.providers.formulas import (
 
 class IndicatorsProviderParserTests(SnapshotFixtures):
     def test_derived_net_liquidity_formula_converts_units(self) -> None:
+        definitions = load_definitions().by_id()
+        self.assertEqual(definitions["us.fed_assets"].unit, "usd-million")
+        self.assertEqual(definitions["us.tga"].unit, "usd-million")
+        self.assertEqual(definitions["us.reverse_repo"].unit, "usd-billion")
         value = FORMULAS["us.net_liquidity"].evaluate(
-            {"us.fed_assets": 6_600_000.0, "us.reverse_repo": 500_000.0, "us.tga": 700_000.0}
+            {"us.fed_assets": 8_000_000.0, "us.reverse_repo": 1_000.0, "us.tga": 500_000.0}
         )
 
-        # (6,600,000 - 500,000 - 700,000) / 1000 = 5400.0 (USD million -> USD billion)
-        self.assertEqual(value, 5400.0)
+        # Assets and TGA arrive in millions; RRP already arrives in billions.
+        # (8,000,000 - 500,000) / 1000 - 1,000 = 6,500 billion.
+        self.assertEqual(value, 6500.0)
 
     def test_derived_rate_diff_formula(self) -> None:
         value = FORMULAS["rate_diff.us_jp_10y"].evaluate({"us.10y": 4.55, "jp.10y": 2.715})

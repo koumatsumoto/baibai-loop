@@ -237,32 +237,6 @@ def liquid_panel_row(ticker: str, asof: str, **overrides: Any) -> dict[str, Any]
     return row
 
 
-def store_panel(root: Path, asof: date, *args: Any, **kwargs: Any) -> None:
-    """`write_panel` with the source and cutoff every fixture cohort declares.
-
-    A cohort that names no source is one the store refuses to read back, so the two
-    arguments no test varies are filled here rather than at each call.
-    """
-
-    write_panel(
-        root,
-        asof,
-        *args,
-        **kwargs,
-    )
-
-
-def store_forward(root: Path, asof: date, *args: Any, **kwargs: Any) -> None:
-    """`write_forward` with the source and cutoff every fixture cohort declares."""
-
-    write_forward(
-        root,
-        asof,
-        *args,
-        **kwargs,
-    )
-
-
 def publish_panel(
     directory: Path,
     asof: str,

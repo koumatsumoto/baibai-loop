@@ -154,7 +154,7 @@ export interface CandidateReasonView {
  *
  * Every field is an observation or a comparison of observations. The view names no
  * cause and carries no recommendation: it tells the reader where to look, and the
- * decision to start a research cycle or a Position Review stays human.
+ * decision to start new-stock or holding research stays human.
  *
  * ``unavailable`` lists the sections no store could answer, so an empty section is
  * never read as "nothing changed". ``method_changed`` marks different screening or
@@ -206,7 +206,6 @@ export interface DashboardView {
   holdings: HoldingView[]
   reservations: ReservationView[]
   warnings: WarningView[]
-  research_load_errors: string[]
 }
 
 export type DeltaUnavailable = 'screening_run' | 'previous_screening_run' | 'candidates' | 'candidate_estimate' | 'holdings' | 'market'
@@ -442,7 +441,7 @@ export interface HistoricalSynthesisView {
 }
 
 /**
- * Observed holding price movement; holding decisions belong to Position Review.
+ * Observed holding price movement; holding decisions belong to Investment Proposal.
  */
 export interface HoldingDeltaView {
   ticker: string
@@ -965,7 +964,7 @@ export interface SecurityPeerContextView {
 export interface SecurityPriceContextView {
   resolved_date: string
   close: number
-  price_basis: 'adjusted_close_preferred'
+  price_basis: 'split_adjusted_close'
   return_1d: number | null
   return_5d: number | null
   return_20d: number | null

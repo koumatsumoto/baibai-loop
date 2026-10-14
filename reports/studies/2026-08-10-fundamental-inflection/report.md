@@ -2,7 +2,7 @@
 title: "会社予想改定・複数期加速レーンの長期較正"
 summary: "会社予想の上方改定とmargin加速は候補を作れたが、exact-sector matched boundaryの被覆が全窓で不足し、診断値も一貫して非採用方向だったためinsufficientと判定する。"
 doc_type: measurement-record
-status: active
+status: historical
 date: 2026-08-10
 ---
 

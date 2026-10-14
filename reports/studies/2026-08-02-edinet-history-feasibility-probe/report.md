@@ -2,7 +2,7 @@
 title: "EDINET歴史point-in-time抽出のfeasibility probe"
 summary: "2021-05-31断面のEDINET歴史CSVは取得可能だが、現行の単一書類選択ではhidden-assets入力coverageが事前基準を下回るためbackfillを採用しない。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-02
 ---
 

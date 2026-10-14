@@ -133,9 +133,8 @@ def build_limit_outcomes(*, app_db: Path, market_db: Path, asof: date) -> dict[s
     finally:
         connection.close()
 
-    # decision reference を持つ注文だけが repository の判断経路を通っている。持たない行は
-    # 既存保有の取り込みで、その約定は指値規律の結果ではない。混ぜて 1 つの fill 率にすると
-    # 取り込み分が規律の成績に化ける。
+    # 判断参照付きの注文を別集計する。参照なしの直接取引事実や既存保有の取り込みを、
+    # Proposalに基づく指値規律の成績へ混ぜない。
     decision_bound = [item for item in outcomes if item.decision_reference is not None]
     return {
         "kind": "limit-outcome-aggregate",
@@ -304,7 +303,7 @@ def _parse_date(value: str) -> date:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="python -m tools.measure_limit_outcomes",
+        prog="python -m tools.experiments.measure_limit_outcomes",
         description=(
             "Aggregate full-quantity fill rate and forgone upside across "
             "human-approved limit orders. "

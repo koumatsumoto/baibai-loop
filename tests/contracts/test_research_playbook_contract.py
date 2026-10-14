@@ -7,7 +7,6 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 PLAYBOOK_ROOT = ROOT / "method/research/playbooks"
 RESEARCH_SKILL = ROOT / ".agents/skills/research/SKILL.md"
-RESEARCH_TRIAGE_SKILL = ROOT / ".agents/skills/research-triage/SKILL.md"
 
 EXPECTED_ACTIVE_MAPPINGS = {
     "current-earnings-power": "current-earnings-power-research-v1",

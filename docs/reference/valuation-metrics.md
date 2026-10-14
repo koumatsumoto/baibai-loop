@@ -7,7 +7,7 @@ status: active
 
 # valuation-metrics — valuation 指標の算出仕様
 
-Baibai Loop スクリーニングで使う valuation 指標の算出仕様とデータソース。screening run storeとapplication DBのresearch thesisで参照される指標の前提を確定する。
+Baibai Loop スクリーニングで使う valuation 指標の算出仕様とデータソース。screening run storeとapplication DBのStock Assessmentで参照される指標の前提を確定する。
 
 Candidate Discoveryのprimary authorityは4 Valuation Approachesのnative eligibility / orderである。機械E[r]はvaluation reversionとcarryをまとめたsecondary return priorで、候補一覧 membership、global rank、AI research priorityを所有しない。
 
@@ -78,16 +78,16 @@ Researchの選択済み銘柄入力の`cash_flow`は、機械anchorと同じrun�
 
 source文書のbasisと採用対象のbasisを別に保持する。単体→連結・連結→単体の移行後に、旧primary予想を新basisへラベル替えしない。同時刻のstatementがbasisについて矛盾すれば、basis自体を未解決にする。
 
-開示時刻不明は同日の既知時刻より古いとは決めず、候補として残す。開示日・時刻が同じ文書、または時刻不明で順序を確定できない文書の矛盾は対象fieldを`unresolved`とし、DocNoの大小や投入順で採否を決めない。一致しているEPS・NP・Sales等まで落とさず、利益予想の一部だけが矛盾した場合は`partially_unresolved`を記録する。Security Analysisの`earnings_forecast_source` / `dividend_forecast_source`はJSON文字列で、status・文書番号・開示日/時刻・DocType・対象期間・sourceのbasis・採用対象basisを残す。旧date-only保存値は`legacy_unknown`の機械入力として維持し、確認済み会社予想へ格上げせず、確認済み新期間や修正へ優先しない。取得窓の延長や全legacy値の一括無効化は行わない。
+開示時刻不明は同日の既知時刻より古いとは決めず、候補として残す。開示日・時刻が同じ文書、または時刻不明で順序を確定できない文書の矛盾は対象fieldを`unresolved`とし、DocNoの大小や投入順で採否を決めない。一致しているEPS・NP・Sales等まで落とさず、利益予想の一部だけが矛盾した場合は`partially_unresolved`を記録する。Stock Analysisの`earnings_forecast_source` / `dividend_forecast_source`はJSON文字列で、status・文書番号・開示日/時刻・DocType・対象期間・sourceのbasis・採用対象basisを残す。旧date-only保存値は`legacy_unknown`の機械入力として維持し、確認済み会社予想へ格上げせず、確認済み新期間や修正へ優先しない。取得窓の延長や全legacy値の一括無効化は行わない。
 
 ### 2.2 却下したソース
 
-- **アナリストコンセンサスEPS**: 現行の取得経路では使用しない。
+- **アナリストコンセンサスEPS**: 機械Forward PERには使用しない。External Assessmentで読む外部予測と区別する。
 - **期初予想のみ使用**: 期中の修正予想を無視すると精度低下、最新の修正予想を使う
 
 ### 2.3 会社予想未公表 or 予想レンジ提示銘柄の扱い
 
-有効な会社予想EPSを得られなければ`per_forward`はnullとする。Current Earnings Powerは正のforward PERを優先し、なければ正のtrailing PERを使う。選んだPERと対応gapを得られない場合は、そのApproachではnominateしない。他Approachの条件やThesisの評価方法へ、このfallbackを横展開しない。
+有効な会社予想EPSを得られなければ`per_forward`はnullとする。Current Earnings Powerは正のforward PERを優先し、なければ正のtrailing PERを使う。選んだPERと対応gapを得られない場合は、そのApproachではnominateしない。他Approachの条件やStock Assessmentの評価方法へ、このfallbackを横展開しない。
 
 ### 2.4 会社予想の一時益 data-quality flag
 
@@ -189,7 +189,7 @@ EDINET `type=5` CSV-derived metrics から以下を抽出する。
 - `asset_backed_ratio = (net_cash + investment_securities) / market_cap`
 - `fcf_ttm = edinet_ocf_ttm - capex_ttm`
 
-`asset_backed_ratio` は投資有価証券の帳簿価額を加えた gross proxy である。上場株式だけでなく非上場・低流動性の保有を含み得て、含み損益、売却税、持合い・契約上の売却制約、事業上必要な保有を反映しない。このため marketable / liquid / fair value の指標とは呼ばない。非金融企業だけを対象とするCandidate DiscoveryのAsset Valueと較正panelの調査入口に限定し、E[r]、FV、Stock Analysis全体の順位、warningには使わない。銀行業、保険業、その他金融業、証券・商品先物取引業は、cash / debt / securitiesが事業そのものなのでAsset Valueのeligibilityから除外する。`net_cash`、`investment_securities`、正の時価総額のいずれかが欠ける場合は`null`とし、net debtが投資有価証券を上回る場合の負値はそのまま保持する。`net_cash_to_market_cap`はReview analysis contextへ残すが、Asset Valueのeligibility / orderには使わない。
+`asset_backed_ratio` は投資有価証券の帳簿価額を加えた gross proxy である。上場株式だけでなく非上場・低流動性の保有を含み得て、含み損益、売却税、持合い・契約上の売却制約、事業上必要な保有を反映しない。このため marketable / liquid / fair value の指標とは呼ばない。非金融企業だけを対象とするCandidate DiscoveryのAsset Valueと較正panelの調査入口に限定し、E[r]、FV、Stock Analysis全体の順位、warningには使わない。銀行業、保険業、その他金融業、証券・商品先物取引業は、cash / debt / securitiesが事業そのものなのでAsset Valueのeligibilityから除外する。`net_cash`、`investment_securities`、正の時価総額のいずれかが欠ける場合は`null`とし、net debtが投資有価証券を上回る場合の負値はそのまま保持する。`net_cash_to_market_cap`はStock Analysisの比較文脈へ残すが、Asset Valueのeligibility / orderには使わない。
 
 J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定に使う。
 
@@ -209,9 +209,11 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 - `dps_forecast_annual`: 進行期の予想年間 1 株配当。四半期開示の `FDivAnn`、本決算開示では進行期ガイダンスの `NxFDivAnn` を使う。分割を跨ぐ行では基準不明の正値を落とし、明示0は残す。
 - `dividend_yield` は、鮮度を満たす非負の `dps_forecast_annual` があれば原則として `dps_forecast_annual / 直近終値` とする。ただしsplit-safeな正の実績年間配当があり、予想が実績の2倍を超える場合は実績へ倒す。明示0の実績も利回り0として観測済みと扱い、予想・実績とも欠ければ `null` とする。
 
-**予想の鮮度下限は、実績年間DPSの最新会計期間を先に選び、同期間では最新の非null改訂を選んだ行の開示日とする。** この行と同日以降の非負予想を使い、過年度実績の訂正が後日開示されても当年度予想を失効させない。最新会計期間の実績行より前の予想は使わず、新年度の実績0も古い予想を失効させる。予想がsplit-safeな正の実績DPSの2倍を超える場合は、特別配当か未実現の還元転換かを機械入力から区別できないため、5年反復するcarryには実績を使う。実績が0または未観測なら、無配からの初配当や実績開示前の新規上場を消さないため予想を使う。同じ予想選択が判断面のcarryと較正panelのguidance signalで1つの実装から効く。
+予想DPSの対象期・文書選択は[§2.1](#21-採用ソース)の共通投影に従う。最新の適用対象期を先に確定し、同じ対象期の配当streamから読み、新期間の欠測を旧期間で埋めない。元payloadは当期・翌期slotと文書identityを保持する。空欄だけで取下げを確定せず、同時刻の矛盾は未解決にする。分割正規化で基準不明となった正予想も利用しない。
 
-最新開示の予想nullだけでは取下げと項目欠測を区別できないため、鮮度下限内の古い非null予想への遡及は維持する。分割正規化で利用不能になった正予想もnullとなる。現行summaryは元slot・予想対象期・取下げ状態・同日の改訂順を保持しておらず、それらの識別は未解決である。
+文書metadataのないlegacy入力だけは、最新実績年間DPSの会計期間と同期間の最新非null改訂の開示日を鮮度下限として、同日以降の非負予想を使う。これは確認済み対象期の予想へ格上げする経路ではない。
+
+予想がsplit-safeな正の実績DPSの2倍を超える場合は、特別配当か未実現の還元転換かを機械入力から区別できないため、5年反復するcarryには実績を使う。実績が0または未観測なら、無配からの初配当や実績開示前の新規上場を消さないため予想を使う。同じ予想選択を判断面のcarryと較正panelのguidance signalで共有する。
 
 **年間 DPS の株式基準**。決算短信・有価証券報告書は 1 株当たり配当を各支払の基準日時点の株式基準で記載する一方、1 株当たり財務数値（EPS・BPS）は分割へ遡及修正される。したがって同じ開示行の中で per-share の基準が混在し、**会計期間が分割・併合を跨いだ年度は年間 DPS を単一の係数で asof の株式基準へ換算できない**。期末発行済株式数を遡及修正するかどうかも提出者ごとに割れており、開示 payload に判別できる field は無い。`dividend_basis` はどの経路で答えたかを持つ。
 

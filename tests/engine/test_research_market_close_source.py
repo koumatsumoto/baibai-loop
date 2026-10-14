@@ -1,8 +1,6 @@
-"""`position/market_source.py`: the market read a thesis and a plan price against.
+"""注文・保有評価が使う市場終値と株式数basisの読取境界を検証する。
 
-These were reached through the research CLI, which meant a schema-literal coupling
-check and a WAL snapshot test were paying for a CLI invocation. The module has its
-own boundary — a market store, a session, and a close — so it is tested at it.
+市場storeのschema、営業日、安定したSQLite snapshotを直接検証する。
 """
 
 from __future__ import annotations

@@ -2,7 +2,7 @@
 title: "screening基盤の反証監査"
 summary: "株式・期間・時点・合成basisを実データとproduction entrypointで反証し、5つの実データ欠陥と2つの境界契約を修正した。"
 doc_type: measurement-record
-status: complete
+status: historical
 date: 2026-08-13
 ---
 

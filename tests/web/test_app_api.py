@@ -361,7 +361,7 @@ def test_history_id_is_available_independently_of_analysis_date(
 def test_assessment_history_keeps_an_earlier_contract_visible(
     app_method_root: Path,
 ) -> None:
-    """Older revisions stay in the table as a log; the UI is never asked to render them."""
+    """旧版の履歴も一覧と個別APIから読み出せる。"""
 
     db_path = app_method_root / "stores/application/baibai.sqlite"
     payload = {
@@ -449,7 +449,7 @@ def test_api_rejects_non_loopback_host(app_method_root: Path) -> None:
 def test_api_startup_rejects_an_obsolete_application_store(
     app_method_root: Path, tmp_path: Path
 ) -> None:
-    obsolete = tmp_path / "application-v16.sqlite"
+    obsolete = tmp_path / "application-obsolete.sqlite"
     initialize_database(obsolete)
     with sqlite3.connect(obsolete) as connection:
         connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION - 1}")

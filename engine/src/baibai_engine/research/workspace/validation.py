@@ -134,7 +134,7 @@ def _read_case(workspace: Path, ticker: str, asof: date) -> _CaseDraft:
                 f"assessment ticker {assessment.input_snapshot.ticker} does not match case {ticker}"
             )
         if assessment.input_snapshot.as_of < asof:
-            assessment_errors.append("assessment predates admitted Research Set")
+            assessment_errors.append("assessment predates the fixed Research selection")
         if review is not None and review.reviewed_assessment_sha256 != assessment_core_hash(
             assessment
         ):

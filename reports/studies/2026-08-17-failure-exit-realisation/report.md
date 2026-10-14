@@ -2,7 +2,7 @@
 title: "破綻型上場廃止の実現 exit 値 — 計測記録"
 summary: "破綻型の上場廃止で消えた forward 窓を市場最終終値で実値化し、左裾の変化と、既存 resolved 行が 1 行も動いていないことを固定する。"
 doc_type: measurement-record
-status: active
+status: historical
 date: 2026-08-17
 ---
 

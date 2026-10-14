@@ -2,7 +2,7 @@
 title: "株主還元の変化軸の事前登録"
 summary: "低 PER 帯で増配・還元開始・株数減少の変化が 1y/3y excess と trap を改善するかを測る事前登録。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-02
 ---
 

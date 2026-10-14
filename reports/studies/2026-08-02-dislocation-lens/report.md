@@ -2,7 +2,7 @@
 title: "急落ディスロケーション lens の計測結果"
 summary: "低PER帯の急落quality群は1yで慢性割安群に劣後し、財務品質条件もtrapを一貫して判別しなかったため機械lensを不採用とした。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-02
 ---
 
@@ -20,7 +20,7 @@ quality failのC群もA群より一貫して悪くならなかった。1y design
 
 ## 1. 事前登録と実行契約
 
-定義、出力列、時間窓、control、採否条件は forward outcome参照前の commit `630490e5c5887ba9f7ec21a9ac18c6f810a10ea4` と [`2026-08-02-dislocation-lens-preregistration.md`](.../2026-08-02-dislocation-lens/preregistration/report.md) で固定した。評価実装は結果参照前の commit `3b49eff217463382abf78737d43ebfbe6bd7a421` で固定した。
+定義、出力列、時間窓、control、採否条件は forward outcome参照前の commit `630490e5c5887ba9f7ec21a9ac18c6f810a10ea4` と [`2026-08-02-dislocation-lens-preregistration.md`](../2026-08-02-dislocation-lens/preregistration.md) で固定した。評価実装は結果参照前の commit `3b49eff217463382abf78737d43ebfbe6bd7a421` で固定した。
 
 実行コマンド:
 

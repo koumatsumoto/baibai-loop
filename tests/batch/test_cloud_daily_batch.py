@@ -730,7 +730,6 @@ def test_daily_batch_writes_the_notice_with_asof_and_an_unmeasured_delta(tmp_pat
     # rather than empty lists that would read as "nothing changed".
     assert _load_notice(notice_path) == {
         "asof": "2026-07-21",
-        "skipped": False,
         "screening_status": "published",
         "market_updated": False,
         "failed_stage": None,
@@ -745,7 +744,6 @@ def _delta_view(path: Path, entered: list[object], exited: list[object] | None =
     payload = {
         "entered": entered,
         "exited": [] if exited is None else exited,
-        "er_moves": [],
         "holdings": [],
         "unavailable": [],
     }
@@ -879,7 +877,7 @@ def test_daily_delta_names_nothing_when_the_view_cannot_be_read(tmp_path: Path) 
     assert notice.entered == []
 
 
-def test_daily_batch_writes_a_skipped_notice_on_a_non_business_day(tmp_path: Path) -> None:
+def test_daily_batch_reports_screening_skip_without_skipping_indicators(tmp_path: Path) -> None:
     today = datetime.now(JST).date()
     _seed_calendar(tmp_path, {today: "0"})
     notice_path = tmp_path / "notice.json"
@@ -894,7 +892,6 @@ def test_daily_batch_writes_a_skipped_notice_on_a_non_business_day(tmp_path: Pat
 
     assert exit_code == 0
     notice = _load_notice(notice_path)
-    assert notice["skipped"] is False
     assert notice["screening_status"] == "skipped_non_business_day"
     assert notice["asof"] == today.isoformat()
     assert notice["failed_stage"] is None
@@ -1047,7 +1044,7 @@ def test_indicator_refresh_groups_orders_derived_after_base() -> None:
 def test_a_reconcile_failure_degrades_the_batch_without_losing_the_publish(
     tmp_path: Path,
 ) -> None:
-    """The step reports and writes nothing, so it must never cost the day's publish.
+    """Task reconciliation follows publication, so its failure must not undo the day's publish.
 
     Pins the deferral itself: replacing the try/except with a bare `_run_step`
     puts the step back on the critical path, and nothing else in the suite would

@@ -2,7 +2,7 @@
 title: "お買い得捕捉経路の診断 — ゼロ購入 6 cycle の所在"
 summary: "6 cycle 連続ゼロ購入の原因を漏斗の各段で計測した。市況でも候補供給でもなく、機械 top と research hurdle の系統的な乖離が主因で、上流 E[r] の 2 つの水増し仮説はどちらも実データで否定された。"
 doc_type: measurement-record
-status: active
+status: historical
 ---
 
 # お買い得捕捉経路の診断

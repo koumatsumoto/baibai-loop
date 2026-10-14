@@ -67,7 +67,7 @@ def wire(monkeypatch, tmp_path):
         pytest.fail("offline transport must never connect")
 
     monkeypatch.setattr("socket.socket.connect", no_socket)
-    transport.provider = JQuantsProvider("synthetic-key", tmp_path)
+    transport.provider = JQuantsProvider("synthetic-key")
     return transport
 
 

@@ -270,7 +270,7 @@ def test_calculation_keeps_saved_core_and_independent_review_semantics():
     assert evaluated_pair(assessment, review).assessment_readiness == "ready"
 
 
-def test_legacy_ratio_reports_unit_and_value_errors_together():
+def test_assessment_ratio_reports_unit_and_value_errors_together():
     payload = inputs_payload()
     result = calculate(CalculationInput.model_validate(payload))
     assessment, review = pair_payload(as_of="2026-09-07", quote_as_of="2026-09-04")

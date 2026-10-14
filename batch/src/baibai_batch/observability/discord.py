@@ -230,7 +230,6 @@ def decide_outcome(
     batch_exit_code: str,
     failed_step: str,
     cancelled: bool,
-    skipped: bool,
 ) -> str:
     """Map the observable workflow state to the one label the message carries."""
 
@@ -239,7 +238,7 @@ def decide_outcome(
     if failed_step:
         return OUTCOME_FAILED
     if batch_exit_code == "0":
-        return OUTCOME_SKIPPED if skipped else OUTCOME_OK
+        return OUTCOME_OK
     if batch_exit_code == EXIT_DEFERRED_FAILURE:
         return OUTCOME_DEGRADED
     return OUTCOME_FAILED
@@ -270,7 +269,7 @@ def render_delta(notice: Mapping[str, object]) -> list[str]:
     which case it is. A non-business day has no candidate list and no lines.
     """
 
-    if not notice or notice.get("skipped") is True:
+    if not notice:
         return []
     screening_status = notice.get("screening_status")
     if screening_status in {"skipped_non_business_day", "failed"}:
@@ -381,7 +380,6 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
         batch_exit_code=args.batch_exit_code,
         failed_step=failed_step,
         cancelled=args.cancelled == "true",
-        skipped=notice.get("skipped") is True,
     )
     if outcome == OUTCOME_DEGRADED and not failed_step:
         failed_step = sanitize_one_line(notice.get("failed_stage") or "")

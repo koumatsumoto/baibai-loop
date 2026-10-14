@@ -1,4 +1,4 @@
-"""Bの保存機械値・候補外・profile新公開fieldの読取回帰。"""
+"""保存機械値・候補外・profile公開fieldの読取回帰。"""
 
 from __future__ import annotations
 

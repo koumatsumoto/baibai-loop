@@ -2,7 +2,7 @@
 title: "較正帯の履歴構成員と候補lookupの一致"
 summary: "固定19cohortで相対Qと固定境界の不一致を測り、schema 3で同じ境界による履歴集計へ統一する。"
 doc_type: measurement-record
-status: active
+status: historical
 ---
 
 # 較正帯の構成員一致（#1493）

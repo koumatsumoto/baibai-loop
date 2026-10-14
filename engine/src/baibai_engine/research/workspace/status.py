@@ -7,7 +7,6 @@ from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
 
-from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
 from baibai_engine.research.assessment import (
     AssessmentReview,
@@ -21,7 +20,6 @@ from baibai_engine.research.workspace.admission import (
     workspace_selection,
 )
 from baibai_engine.research.workspace.files import (
-    _dump_yaml,
     _load_mapping,
     _parse_date,
 )
@@ -37,12 +35,6 @@ from baibai_engine.storage.application.read import connect_read_only
 # --------------------------------------------------------------------------- #
 # status
 # --------------------------------------------------------------------------- #
-
-
-def _write_status(workspace: Path, *, db_path: Path | None) -> dict[str, object]:
-    status = compute_status(workspace, db_path=db_path)
-    write_text_atomic(workspace / "status.yaml", _dump_yaml(status))
-    return status
 
 
 def compute_status(

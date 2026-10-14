@@ -121,28 +121,6 @@ def assessment_projection(record: StoredAssessment | None, *, as_of: date) -> di
     }
 
 
-def legacy_context_projection(record: StoredAssessment | None, *, as_of: date) -> dict[str, Any]:
-    """Extract the six historical fields; this is not verification of a runner input.json."""
-    if record is None:
-        return {
-            "status": "missing",
-            "as_of": None,
-            "age_days": None,
-            "summary": None,
-            "synthesis": None,
-            "connection": None,
-        }
-    age = (as_of - record.as_of).days
-    return {
-        "status": "stale" if age > ASSESSMENT_STALE_DAYS else "current",
-        "as_of": record.as_of.isoformat(),
-        "age_days": age,
-        "summary": record.summary,
-        "synthesis": record.document.get("synthesis"),
-        "connection": record.document.get("connection"),
-    }
-
-
 def assessment_series_ids(record: StoredAssessment) -> frozenset[str]:
     body = record.document
     if record.schema_version in (5, 6):

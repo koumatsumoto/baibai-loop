@@ -111,7 +111,7 @@ recurring売上・粗利比率、ARR/MRR、NRR/GRR、logo/売上churn、ARPU/sea
 
 ### `blocked` / `defer`の条件
 
-retentionまたはrecurring境界がunknownなのに継続率がFVの主要根拠、serviceとsoftwareのmarginを分けられずoperating leverageを評価不能、大口解約・platform依存がpermanent-loss判断を左右する場合は該当checkをblockedとする。企業評価は、そのunknownがload-bearingで、ゼロ成長・margin低下などの保守的な範囲も置けない場合だけdeferする。
+retentionまたはrecurring境界がunknownなのに継続率がFVの主要根拠、serviceとsoftwareのmarginを分けられずoperating leverageを評価不能、大口解約・platform依存がpermanent-loss判断を左右する場合は該当checkをblockedとする。そのunknownがload-bearingで、ゼロ成長・margin低下などの保守的な範囲も置けない場合はvaluationを理由付きunresolved、企業評価をuncertainとし、Proposalではdeferする。
 
 ## 試行2 — 人員依存project / outsourcing
 
@@ -141,7 +141,7 @@ retentionまたはrecurring境界がunknownなのに継続率がFVの主要根�
 
 ### `blocked` / `defer`の条件
 
-受注/backlogと売上のreconciliationが不明、headcount・単価・稼働率・labor costのうちgrowth/marginを説明する材料が無い、契約資産や不採算projectが急増しcash回収と損失上限を評価できない場合は該当checkをblockedとし、評価期間のBase/Downsideを保守的にも置けなければ企業評価をdeferする。
+受注/backlogと売上のreconciliationが不明、headcount・単価・稼働率・labor costのうちgrowth/marginを説明する材料が無い、契約資産や不採算projectが急増しcash回収と損失上限を評価できない場合は該当checkをblockedとし、評価期間のBase/Downsideを保守的にも置けなければvaluationを理由付きunresolved、企業評価をuncertainとし、Proposalではdeferする。
 
 ## 試行3 — IP / live-service / hit portfolio
 
@@ -171,8 +171,8 @@ title/IP別売上、MAU/DAU、payer数・payer率、ARPU/ARPPU、retention、boo
 
 ### `blocked` / `defer`の条件
 
-既存titleだけのflow収益と固定費耐性を評価できない、未発売pipeline成功を除くとrequired returnを満たさないのにstage・cost・独立需要evidenceがunknown、または上位IP/license/platform契約の終了条件がunknownなら該当checkをblockedとする。企業評価は、そのunknownがload-bearingで、pipeline価値ゼロ・既存title減衰・margin低下などの保守的な範囲も置けない場合だけdeferする。未発売titleを除いた既存flowで事業継続と十分な価値を支えられるなら、pipelineの上振れを補助的な可能性として文章に留め、比較を続けてよい。
+既存titleだけのflow収益と固定費耐性を評価できない、未発売pipeline成功を除くとrequired returnを満たさないのにstage・cost・独立需要evidenceがunknown、または上位IP/license/platform契約の終了条件がunknownなら該当checkをblockedとする。そのunknownがload-bearingで、pipeline価値ゼロ・既存title減衰・margin低下などの保守的な範囲も置けない場合はvaluationを理由付きunresolved、企業評価をuncertainとし、Proposalではdeferする。未発売titleを除いた既存flowで事業継続と十分な価値を支えられるなら、pipelineの上振れを補助的な可能性として文章に留め、比較を続けてよい。
 
 ## 試行の見直し
 
-次回以降の自然発生researchから2〜3件で、共通checklistと比べて新たに立った問い、残ったunknown、scenario/FVまたはdispositionへの影響、追加負担をoperation sessionへ残す。確認のために候補選定、research、売買を強制せず、企業評価の`candidate / reject / defer`と、別の資本配分判断である`allocate / no_allocation / defer`を区別し、根拠のある各結論を正常結果とする。1件だけで投資精度の改善を断定せず、試行観点が問いを増やすだけで判断を変えない場合は、項目追加より削減・統合・撤回を優先する。
+次回以降の自然発生researchから2〜3件で、共通checklistと比べて新たに立った問い、残ったunknown、scenario/FVまたはdispositionへの影響、追加負担をoperation sessionへ残す。確認のために候補選定、research、売買を強制せず、企業評価の`supported / uncertain / unsupported`と、別の行動判断であるProposalの`buy / hold / sell / no_action / defer`を区別し、根拠のある各結論を正常結果とする。1件だけで投資精度の改善を断定せず、試行観点が問いを増やすだけで判断を変えない場合は、項目追加より削減・統合・撤回を優先する。

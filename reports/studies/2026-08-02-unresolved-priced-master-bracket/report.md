@@ -2,7 +2,7 @@
 title: "未解決 priced-master return の有界 bracket 拡張"
 summary: "未解決対象を全損・中立で挟む方向安定契約を採用し、eligibleを3y 30→39、5y 12→18へ増やした。margin_short_to_advはadoption candidate、還元2成分はnegativeと再判定した。"
 doc_type: measurement-record
-status: active
+status: historical
 date: 2026-08-02
 ---
 
@@ -21,7 +21,7 @@ date: 2026-08-02
 - `margin_short_to_adv`: **`adoption_candidate`**。raw annotationのproduction配線は別issueで扱う
 - `share_count_reduction_streak` / `dps_guidance_up`: authorityは解消したが効果条件のfailが残るため、両方とも **`negative`**
 
-事前登録は [`2026-08-02-unresolved-priced-master-bracket-preregistration.md`](.../2026-08-02-unresolved-priced-master-bracket/preregistration/report.md) で固定した。特定axisの結果を見て規則、cohort、metric、control、採否条件を変更していない。
+事前登録は [`2026-08-02-unresolved-priced-master-bracket-preregistration.md`](../2026-08-02-unresolved-priced-master-bracket/preregistration.md) で固定した。特定axisの結果を見て規則、cohort、metric、control、採否条件を変更していない。
 
 ## 1. 契約検証
 

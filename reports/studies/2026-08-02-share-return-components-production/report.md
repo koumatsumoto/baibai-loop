@@ -2,7 +2,7 @@
 title: "株数減少・予想増配の長期production判断"
 summary: "株数減少は3y control、予想増配は独立3yと5yで条件を外したため、両成分ともproductionへ採用しない。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-02
 ---
 
@@ -21,7 +21,7 @@ candidate annotation、UI、warning、gate、ranking、FV、E[r]、sizingは変�
 
 ## 固定scopeとartifact
 
-事前登録はcommit `e6ca851`、結果を読む前に固定した単発診断実装はcommit `70aee43`である。入力、cohort、control、一次IR標本、採否条件は [`2026-08-02-share-return-components-production-preregistration.md`](.../2026-08-02-share-return-components-production/preregistration/report.md) を正本とする。
+事前登録はcommit `e6ca851`、結果を読む前に固定した単発診断実装はcommit `70aee43`である。入力、cohort、control、一次IR標本、採否条件は [`2026-08-02-share-return-components-production-preregistration.md`](../2026-08-02-share-return-components-production/preregistration.md) を正本とする。
 
 - 独立3y confirm: `2023-06-30`、`2023-07-31`
 - 固定長期: `2020-01-31`、`2020-05-29`、`2021-01-29`、`2021-05-31` × `3y` / `5y`

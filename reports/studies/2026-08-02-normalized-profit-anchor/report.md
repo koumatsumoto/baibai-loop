@@ -2,7 +2,7 @@
 title: "利益正規化anchorとself-range長期化の計測結果"
 summary: "3 FY正規化PERは独立したtrap識別候補、cycle peak flagと1250/2500 self-rangeは不採用と判定した。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-02
 ---
 
@@ -21,7 +21,7 @@ H-1の結果は「FY平均EPSをそのままFV分母に採用してよい」と�
 
 ## 1. 事前登録と実行契約
 
-定義、赤字扱い、control、時間分割、採否条件は、outcome計測前のcommit `6149e37` と [`2026-08-02-normalized-profit-anchor-preregistration.md`](.../2026-08-02-normalized-profit-anchor/preregistration/report.md) で固定した。panel / evaluation実装はcommit `1795d23`、長期split確認をadjustment eventだけへ限定するI/O契約はcommit `64a91ca`で固定した。長期split eventをnormalized profitへ、通常履歴barをshareholder-returnへ渡す配線と、直近bar窓より前のsplitを固定するfixtureはcommit `68decc5`で検証し、その状態から全storeを再構築した。
+定義、赤字扱い、control、時間分割、採否条件は、outcome計測前のcommit `6149e37` と [`2026-08-02-normalized-profit-anchor-preregistration.md`](../2026-08-02-normalized-profit-anchor/preregistration.md) で固定した。panel / evaluation実装はcommit `1795d23`、長期split確認をadjustment eventだけへ限定するI/O契約はcommit `64a91ca`で固定した。長期split eventをnormalized profitへ、通常履歴barをshareholder-returnへ渡す配線と、直近bar窓より前のsplitを固定するfixtureはcommit `68decc5`で検証し、その状態から全storeを再構築した。
 
 - cache schema: `9`
 - production: 80 panels、forward 1,509,220行、resolved 1,055,260行

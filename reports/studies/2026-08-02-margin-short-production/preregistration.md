@@ -2,7 +2,7 @@
 title: "空売り残/ADVの長期production判断に関する事前登録"
 summary: "独立3y confirm、固定3y/5y authority、survivorship感応度でraw annotationの採否を固定する。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-02
 ---
 

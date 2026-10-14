@@ -101,8 +101,8 @@ def build_broker_fact_draft(
 ) -> tuple[LedgerDraft | None, tuple[str, ...]]:
     """Build a draft from a saved buy binding or an explicitly reported direct fact.
 
-    The historical assessment identifies the selected ticker. Order terms are
-    human-reported facts, not a persisted plan. Existing reservations keep the same
+    The saved decision binding identifies the buy ticker. Order terms are
+    human-reported facts, separate from the published proposal. Existing reservations keep the same
     decision reference for every partial or terminal broker fact. The resolver
     is called only when no active or known terminal reservation binds the report.
     """
@@ -194,7 +194,7 @@ def build_broker_fact_draft(
         )
 
     # A fully filled order is no longer active. Check a saved execution before
-    # consulting the historical assessment or looking for an active reservation.
+    # consulting the buy binding or looking for an active reservation.
     if (
         status == "filled"
         and execution_id is not None
@@ -236,12 +236,12 @@ def build_broker_fact_draft(
     elif side == "buy":
         if status in {"cancelled", "expired"}:
             raise ValueError(f"{status} requires an active reservation")
-        allocated_ticker = (
+        bound_ticker = (
             binding_addition.ticker
             if binding_addition is not None
             else resolve_buy_ticker(decision_reference)
         )
-        if ticker != allocated_ticker:
+        if ticker != bound_ticker:
             raise ValueError("broker fact ticker does not match the buy decision reference")
     elif status != "open":
         raise ValueError("sell broker fact requires an active order")
@@ -418,7 +418,7 @@ def build_sell_execution_draft(
     and any confirmed fee or tax that overdraws available cash. Broker fees and
     the confirmed capital-gain tax are recorded as their own cost / tax events so
     realized proceeds and cost stay separable in replay. ``decision_reference``
-    binds the sell to the Position Review that judged the exit. A matching
+    can retain the reported Investment Proposal reference. A matching
     ``execution_id`` and complete report returns None without a draft.
     """
 

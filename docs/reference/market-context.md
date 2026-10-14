@@ -94,7 +94,7 @@ registryは系列定義の正本である。通常のopenでは登録外のfacts
 
 registryのband変更時は、Git管理外のstoreをread-only validatorで全履歴・全vintage検査する。CIのfixtureだけでは既存観測との整合を証明できない。検査はstoreを書き換えず、観測とcanonical trigger契約の違反を報告する。
 
-同じvalidatorはapplication storeの判断履歴のmetadataと現在の作成型を検証する。旧schemaの本文はstored_onlyとして保持し、旧writerの構造条件で拒否しない。退役系列の引用はwarningとして記録する。候補一覧発行はContextを読まないため、この検査失敗を候補一覧停止と読み替えない。判断を使うTriage・Researchと履歴閲覧への影響を確認する。検証の実行条件とapplication store不在時の扱いは[完全local gate](./python-foundation.md#9-ci-and-local-parity)、系列退役の順序は[運用手順](../../batch/OPERATIONS.md#指標観測とregistryの修正)に従う。
+同じvalidatorはapplication storeの判断履歴のmetadataと現在の作成型を検証する。旧schemaの本文はstored_onlyとして保持し、旧writerの構造条件で拒否しない。退役系列の引用はwarningとして記録する。候補一覧発行はContextを読まないため、この検査失敗を候補一覧停止と読み替えない。判断を使うResearchと履歴閲覧への影響を確認する。検証の実行条件とapplication store不在時の扱いは[完全local gate](./python-foundation.md#9-ci-and-local-parity)、系列退役の順序は[運用手順](../../batch/OPERATIONS.md#指標観測とregistryの修正)に従う。
 
 ### データソース registry
 
@@ -244,7 +244,7 @@ Baibai Loop の Market Context タブは、上から **現在の市場環境判�
 
 保存済み`context_id`と`supersedes_id`は不変であり、新table/headへそのまま移す。旧schemaの本文、入力、supersedes、引用、保存済みscorecard参照は不変の履歴として取得し、新作成のvalidatorを適用しない。旧詳細の閲覧と新判断の表示は分け、共通projectionだけで過去本文を代替しない。ID閲覧では分析入力のcutoffを適用せず、分析用選択は日付と利用可能時刻を明示する。
 
-Research/Triageへ渡す共通projectionは要約・根拠・含意に加えて反証/不確実性を含む。旧Triageの実際の入力は保存されたrunner `input.json`が正本であり、上書き再生成しない。ファイルがない場合の照会は保存本文からの抽出で、当時の全入力一致や再現済みとは言わない。
+Researchへ渡す共通projectionは要約・根拠・含意に加えて反証/不確実性を含む。旧Triageの実際の入力は保存されたrunner `input.json`が正本であり、上書き再生成しない。ファイルがない場合の照会は保存本文からの抽出で、当時の全入力一致や再現済みとは言わない。
 
 旧v4の共通projectionには支配的な力の主張・伝達経路・確信度・反証・出典と、force IDで対応する相互作用を小さな`synthesis`として引用する。これは保存済み判断の抽出であり、新判断の必須章や新しい評価ではない。Research workspaceのassessment選択は今回の固定`known_at`を使い、External Assessmentの受信cutoffとは分ける。
 

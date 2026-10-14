@@ -15,7 +15,6 @@ from baibai_engine.market.margin_publication import (
     require_legacy_weekly_balance_date,
 )
 from baibai_engine.market.master_snapshot import (
-    MASTER_OPERATION,
     MASTER_SOURCE,
     master_coverage_key,
     validate_master_snapshot,
@@ -35,13 +34,11 @@ from baibai_engine.storage.observations.coverage import (
     replace_date_range,
 )
 from baibai_engine.storage.observations.jquants_contract import (
-    ALL_ISSUES_DAILY_MARGIN_OPERATION,
     ALL_ISSUES_DAILY_MARGIN_SOURCE,
     MARGIN_ALERT_OPERATION,
     MARGIN_ALERT_SOURCE,
     SHORT_SALE_REPORT_OPERATION,
     SHORT_SALE_REPORT_SOURCE,
-    WEEKLY_MARGIN_OPERATION,
     WEEKLY_MARGIN_SOURCE,
     all_issues_daily_margin_coverage_key,
     weekly_margin_coverage_key,
@@ -181,13 +178,9 @@ def store_jquants_weekly_margin(
         record_source_coverage(
             conn,
             source=WEEKLY_MARGIN_SOURCE,
-            operation=WEEKLY_MARGIN_OPERATION,
             coverage_key=weekly_margin_coverage_key(week_end),
             coverage_start=iso,
             coverage_end=iso,
-            requested_start=iso,
-            requested_end=iso,
-            params={"date": iso},
             record_count=persisted_count,
             status=normalized.status,
             error=normalized.error,
@@ -303,11 +296,9 @@ def store_jquants_all_issues_daily_margin(
         record_source_coverage(
             conn,
             source=ALL_ISSUES_DAILY_MARGIN_SOURCE,
-            operation=ALL_ISSUES_DAILY_MARGIN_OPERATION,
             coverage_key=all_issues_daily_margin_coverage_key(balance_date),
             coverage_start=iso,
             coverage_end=iso,
-            params={"date": iso, "publication_scope": "all_issues_daily"},
             record_count=persisted,
             status=normalized.status,
             error=normalized.error,
@@ -373,11 +364,9 @@ def store_jquants_short_sale_reports(
             record_source_coverage(
                 conn,
                 source=SHORT_SALE_REPORT_SOURCE,
-                operation=SHORT_SALE_REPORT_OPERATION,
                 coverage_key=f"{SHORT_SALE_REPORT_OPERATION}:{iso}..{iso}",
                 coverage_start=iso,
                 coverage_end=iso,
-                params={"disclosed_date": iso},
                 record_count=len(day_rows),
                 status=normalized.status,
                 error=normalized.error,
@@ -768,13 +757,9 @@ def store_jquants_master(
         record_source_coverage(
             conn,
             source=MASTER_SOURCE,
-            operation=MASTER_OPERATION,
             coverage_key=master_coverage_key(requested_asof),
             coverage_start=iso,
             coverage_end=iso,
-            requested_start=iso,
-            requested_end=iso,
-            params={"date": iso},
             record_count=persisted_count,
             status="ok",
             error=None,

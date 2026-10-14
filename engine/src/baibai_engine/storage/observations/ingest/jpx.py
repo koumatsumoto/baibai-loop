@@ -100,10 +100,8 @@ def store_jpx_regulations(
                 source_rows,
             )
         rows: list[tuple[Any, ...]] = []
-        raw_record_count = 0
         rejected_count = 0
         for raw_ticker, flags in flags_by_ticker.items():
-            raw_record_count += 1
             ticker = normalize_ticker_or_none(raw_ticker)
             if ticker is None:
                 rejected_count += 1
@@ -133,17 +131,10 @@ def store_jpx_regulations(
         record_source_coverage(
             conn,
             source="jpx_regulation_flags",
-            operation="regulations",
             coverage_key=asof_date.isoformat(),
             coverage_start=asof_date.isoformat(),
             coverage_end=asof_date.isoformat(),
-            requested_start=asof_date.isoformat(),
-            requested_end=asof_date.isoformat(),
-            params={"asof_date": asof_date.isoformat(), "source_names": sorted(source_name_tuple)},
             record_count=persisted_count,
-            raw_record_count=raw_record_count,
-            skipped_record_count=0,
-            rejected_record_count=rejected_count,
             status="partial" if rejected_count else "ok",
             error=(
                 f"{rejected_count} JPX regulation records were rejected" if rejected_count else None

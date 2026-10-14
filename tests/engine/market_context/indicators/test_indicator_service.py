@@ -194,7 +194,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             self.assertEqual(run[0:2], ("failed", 0))
             self.assertIn("value 2000", run[2])
 
-    def test_refresh_without_plausible_range_keeps_backward_compatibility(self) -> None:
+    def test_refresh_without_plausible_range_accepts_finite_values(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
             definition = _series("fred_csv", "TEST")

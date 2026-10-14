@@ -1,11 +1,7 @@
-"""Narrow the release profile to the datasets a fixture actually builds.
+"""合成fixtureが作るdatasetだけへrelease policyを限定する。
 
-The shipping profile requires every dataset the registry declares, because a release
-that silently omits one would send a reader to the legacy store for the rest. A fixture
-that builds two tables is not that situation: it is a test of the code around the
-release, not of the store's completeness. Narrowing the profile keeps those tests
-failing for their own reasons rather than for the fixture's shape, and keeps the real
-completeness rule un-relaxed where it matters.
+本番releaseはregistryの全datasetを満たす必要がある。個別境界のテストは
+対象datasetだけを作り、完全性や最低件数そのものの試験では制約を緩めない。
 """
 
 from __future__ import annotations

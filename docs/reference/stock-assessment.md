@@ -137,7 +137,7 @@ fixed_value_delay: terminal_sと累積cash_sを固定し、h+12か月で年率�
 
 Base/Downsideの必要terminalは、その累積分配で要求年率以上に届く最低の非負価値である。分配だけでHを超える場合は0という下限であり、等号成立点ではない。総価値差額は符号付き差額で、安全余裕・損失許容額・買い可否ではない。Downsideの不足を追加の不合格条件にしない。Hは既存Pmaxの代数的な読み替えで、FV、市場の期待値、独立した割安signalではない。
 
-固定価値の遅延は追加配当・利息・再投資を仮定せず、総価値と総returnを変えない。全損なら年率も-100%。損失caseで年率損失の絶対値が縮んでも総損失は減らない。実際の遅延では利益・分配・返済・資金調達・希薄化が変わり得るため、materialなら経済条件を一貫して組み直し、既存calculationとcountercaseへ記す。h+12の表示だけで遅延を検証済みとせず、必要年率未達だけを保有exitへ接続しない。
+固定価値の遅延は追加配当・利息・再投資を仮定せず、総価値と総returnを変えない。全損なら年率も-100%。損失caseで年率損失の絶対値が縮んでも総損失は減らない。実際の遅延では利益・分配・返済・資金調達・希薄化が変わり得るため、materialなら経済条件を一貫して組み直し、既存calculationとcountercaseへ記す。h+12の表示だけで遅延を検証済みとせず、必要年率未達だけを保有sellへ接続しない。
 
 内容検証済みのresolvedな`ready / ready_with_warnings`と、唯一の未完了がReview未添付の`review_required`で表示する。後者は計算資料が読めても`not_ready`・exit 2のままで、公開前に独立Reviewが必要である。未作成の`--review`指定先も未添付として扱う。その他のincompleteとunresolvedはnullとなり、欠損を0や過去supportedで埋めない。既存5項目・終了コードは診断の有無で変わらず、診断の数値計算・変換だけが失敗した場合も全contextをnull、理由をstderrへ出す。parseや既存入力エラーは従来どおりerrorとなる。総return・年率は小数4桁、通貨は既存Decimal変換で表示し、表示丸めを判定に使わない。
 
@@ -205,14 +205,6 @@ AssessmentとReviewのUUIDはscaffold時に固定する。同IDは両方の同�
 
 Caseのassessment-draft.yaml、assessment-review.yamlとassessment-publication.yamlを使う。最後のfileはscaffoldで固定する公開IDとsupersedes参照だけを持ち、企業評価本文の第二正本ではない。--forceでdraftを再生成しても同じ公開IDを維持し、明示refreshでは別IDを作る。公開状態はexact document/Reviewとの一致で決まり、自由なchecklistを第二gateにしない。
 
-```bash
-uv run baibai-engine research assessment-scaffold \
-  --workspace .cache/research/YYYY-MM-DD --ticker <TICKER> --asof YYYY-MM-DD \
-  --out .cache/research/YYYY-MM-DD/<TICKER>/assessment-draft.yaml
-uv run baibai-engine research assessment-evaluate <DRAFT> --review <REVIEW>
-uv run baibai-engine research assessment-review-scaffold --workspace <WORKSPACE> --ticker <TICKER>
-uv run baibai-engine research assessment-promote --workspace <WORKSPACE> --ticker <TICKER>
-uv run baibai-engine research status --workspace <WORKSPACE>
-```
+
 
 scaffoldの--outは任意FILEへの追加exportを指定でき、同じpayloadをworkspaceのcanonical draftにも生成する。公開はworkspace側の本文と固定IDを使う。別exportを編集した場合はworkspace側へ明示的にコピーするかworkspace側を直接編集し、exportの変更を黙って採用しない。出力衝突は--forceの明示なしに上書きしない。作成・独立Review・公開・提案への順序は[Research skill](../../.agents/skills/research/SKILL.md#company-research)が所有する。

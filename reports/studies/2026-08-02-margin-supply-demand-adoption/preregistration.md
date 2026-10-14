@@ -2,7 +2,7 @@
 title: "信用需給 gate・空売り残・規模内混雑の事前登録"
 summary: "制度信用期日偏重の selection gate、空売り残の厚さ、同規模帯内の信用買い残を固定条件で検証する。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-02
 ---
 

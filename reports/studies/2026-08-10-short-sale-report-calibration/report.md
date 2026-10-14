@@ -2,7 +2,7 @@
 title: "空売り残高報告 L1 backfill と outcome-free sufficiency 判定"
 summary: "取得可能な10年をPIT sourceへ保存したが、公式dataset floorからの連続coverageを満たさないためforward outcomeを読まずinsufficientと判定した。"
 doc_type: measurement-record
-status: complete
+status: historical
 date: 2026-08-10
 ---
 

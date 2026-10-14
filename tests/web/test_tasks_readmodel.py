@@ -35,7 +35,7 @@ def test_tasks_remain_visible_when_ledger_cannot_build_upcoming_events(mocker) -
         TaskRecord(
             task_id="task-later",
             title="Later task",
-            kind="research",
+            kind="earnings-review",
             status="open",
             ticker="2331",
             due_date=date(2099, 1, 2),
@@ -49,7 +49,7 @@ def test_tasks_remain_visible_when_ledger_cannot_build_upcoming_events(mocker) -
         TaskRecord(
             task_id="task-next",
             title="Next task",
-            kind="review",
+            kind="follow-up",
             status="open",
             ticker=None,
             due_date=date(2099, 1, 1),

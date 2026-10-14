@@ -2,7 +2,7 @@
 title: "E[r] 実現分布 context v2 と cap 2 点検証 — 事前登録"
 summary: "判断面へ出す固定 band の実現分布と、upside / buyback cap の固定2点リプレイ契約を結果計測前に固定する。"
 doc_type: measurement-record
-status: active
+status: historical
 date: 2026-08-10
 ---
 

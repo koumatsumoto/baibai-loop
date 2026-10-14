@@ -2,7 +2,7 @@
 title: "支配権イベントの実現 exit 値置換 — 計測記録"
 summary: "成立した現金公開買付けの買付価格で上場廃止銘柄の未解決 forward return を実値化し、置換前後の較正影響を固定する。"
 doc_type: measurement-record
-status: active
+status: historical
 date: 2026-08-11
 ---
 

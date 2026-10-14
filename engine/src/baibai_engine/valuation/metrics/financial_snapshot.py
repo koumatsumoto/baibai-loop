@@ -64,7 +64,7 @@ def build_financial_snapshot(
     summaries = normalization.summaries
     capital_basis_barrier = normalization.capital_basis_barrier
     latest = _latest_summary(summaries)
-    forecast = _resolve_earnings_forecast(summaries, latest)
+    forecast = _resolve_earnings_forecast(summaries)
     forecast_eps = forecast.eps if forecast is not None else None
     # 同じ予想期の純利益>経常利益はdata-quality注記。原因・持続性は一次開示で確認する。
     # 純利益/経常は同じ予想期・basis・開示候補から投影する分割不変の絶対額なので、

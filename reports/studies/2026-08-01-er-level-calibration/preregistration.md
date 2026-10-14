@@ -2,7 +2,7 @@
 title: "E[r] 絶対水準と実現 FY 配当の較正 — 事前登録"
 summary: "実現 FY 配当の近似 total return、quintile 水準較正、REALIZATION_RATE_ANNUAL の一回推定と 3y/5y 採否契約を計測前に固定する。"
 doc_type: measurement-record
-status: active
+status: historical
 ---
 
 # E[r] 絶対水準と実現 FY 配当の較正 — 事前登録

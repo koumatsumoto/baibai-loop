@@ -9,7 +9,7 @@ import sys
 from collections import defaultdict
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal, DecimalException
 from pathlib import Path
 from typing import cast
@@ -34,10 +34,10 @@ from baibai_engine.position.ledger_read import (
 )
 from baibai_engine.research.assessment import (
     AssessmentError,
-    AssessmentReview,
     StockAssessmentDocument,
 )
 from baibai_engine.research.assessment_store import ResearchValidationError
+from baibai_engine.research.decimal_number import decimal_to_number
 from baibai_engine.storage.application.read import connect_read_only
 from baibai_engine.storage.observations.convert import optional_float
 from baibai_engine.storage.observations.coverage import range_covered
@@ -45,7 +45,6 @@ from baibai_engine.storage.observations.schema import SQLiteSchemaError, validat
 
 _GAP_QUANTUM = Decimal("0.000001")
 _ADJUSTMENT_FACTOR_ABS_TOLERANCE = 1e-12
-_MIN_UTC = datetime.min.replace(tzinfo=UTC)
 
 
 class ResearchPriceWatchError(ValueError):
@@ -54,13 +53,8 @@ class ResearchPriceWatchError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class _AssessmentPublication:
-    assessment_id: str | Path
+    assessment_id: str
     document: StockAssessmentDocument
-    # The identity the assessment was published with. This tool only reads the store, so
-    # every publication has one and the field carries no draft default.
-    core_sha256: str
-    published_at: datetime = _MIN_UTC
-    review: AssessmentReview | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,8 +233,6 @@ def _load_latest_promoted_assessments(
             latest[ticker] = _AssessmentPublication(
                 assessment_id=pair.assessment_id,
                 document=pair.document,
-                review=pair.review,
-                core_sha256=pair.core_sha256,
             )
     return latest, headers
 
@@ -259,7 +251,7 @@ def _reservation_history(
                 "reservation_id": event.reservation_id,
                 "occurred_at": event.occurred_at.isoformat(),
                 "quantity": event.quantity,
-                "price_guard_yen": _decimal_number(event.price_guard_yen),
+                "price_guard_yen": decimal_to_number(event.price_guard_yen),
                 "expires_at": event.expires_at.isoformat(),
             }
         )
@@ -447,7 +439,7 @@ def _watch_row(
         "close_as_of": None
         if observation.close_as_of is None
         else observation.close_as_of.isoformat(),
-        "pmax_raw_yen": None if maximum is None else _decimal_number(maximum),
+        "pmax_raw_yen": None if maximum is None else decimal_to_number(maximum),
         "pmax_gap_pct": gap,
         "assessment_id": str(assessment_id),
         "assessment_stance": assessment.conclusion.stance,
@@ -483,12 +475,6 @@ def _portfolio_status(*, held: bool, reserved: bool) -> str:
 
 def _resolved_sort_key(row: dict[str, object]) -> tuple[float, str]:
     return (-cast(float, row["pmax_gap_pct"]), str(row["ticker"]))
-
-
-def _decimal_number(value: Decimal) -> int | float:
-    if value == value.to_integral_value():
-        return int(value)
-    return float(value)
 
 
 if __name__ == "__main__":

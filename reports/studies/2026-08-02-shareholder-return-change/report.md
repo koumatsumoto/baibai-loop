@@ -2,7 +2,7 @@
 title: "株主還元の変化軸の計測結果"
 summary: "低 PER 帯の還元変化 composite は事前登録条件を満たしたが、安定した独立軸はグロス株数減少に限られるため production 採用は追加長期検証へ分離する。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-02
 ---
 
@@ -20,7 +20,7 @@ date: 2026-08-02
 
 ## 1. 事前登録と実行契約
 
-入力境界、列、方向、低 PER 帯、時間窓、交絡順序、採否条件は、結果計測前の commit `de0fd1d40dcddfd7893591239fbbfc9884369f98` と [`2026-08-02-shareholder-return-change-preregistration.md`](.../2026-08-02-shareholder-return-change/preregistration/report.md) で固定した。実装は計測前の commit `8a04cb8d777880fe082bfa736b49944a24feea85` で固定した。
+入力境界、列、方向、低 PER 帯、時間窓、交絡順序、採否条件は、結果計測前の commit `de0fd1d40dcddfd7893591239fbbfc9884369f98` と [`2026-08-02-shareholder-return-change-preregistration.md`](../2026-08-02-shareholder-return-change/preregistration.md) で固定した。実装は計測前の commit `8a04cb8d777880fe082bfa736b49944a24feea85` で固定した。
 
 実行コマンド:
 

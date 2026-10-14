@@ -173,7 +173,7 @@ forward row は price-only の `price_return` / `status` と、`realized_dividen
 
 `normalized_per_3fy`がcalibrationのsubject mandatory metricではないことは、Candidate Discoveryで未使用という意味ではない。Normalized Earnings Powerのnative eligibility/orderには使い、FV/E[r] estimator入力には使わない。
 
-Bの候補正本統合後も、`PanelRow.in_review_set`、`valuation_approaches`、`valuation_approach_ranks`、PanelDiagnosticsの`security_analyses`/`nominated_candidates`、evidenceの`candidate_discovery_nomination_union`等は測定wireとして保持する。これらは独立publicationではなく候補集合membershipの測定値である。productionと較正は同じ丸め済みStock Analysisへ`build_candidate_contexts`を一度適用し、理由から測定値を導出する。cohort/forward/ER artifactをrun cacheの切替で消したり、現在identityへ書換えたりしない。
+候補正本の統合後も、`PanelRow.in_review_set`、`valuation_approaches`、`valuation_approach_ranks`、PanelDiagnosticsの`security_analyses`/`nominated_candidates`、evidenceの`candidate_discovery_nomination_union`等は測定wireとして保持する。これらは独立publicationではなく候補集合membershipの測定値である。productionと較正は同じ丸め済みStock Analysisへ`build_candidate_contexts`を一度適用し、理由から測定値を導出する。cohort/forward/ER artifactをrun cacheの切替で消したり、現在identityへ書換えたりしない。
 
 cache schema versionは[store実装](../../engine/src/baibai_engine/screening/calibration/store.py)がfieldと計算revision等から導出する。計算の意味変更は`VALUATION_CALCULATION_REVISION`を明示更新する。市場storeの整数`user_version`とは別契約である。panelは、productionの730日財務入力を変えずに補助履歴から、3 FYのsplit-safe DPS、DPS YoY・予想増配・配当開始、グロス株数減少streakと還元変化composite、赤字を含む連続3/5 FYのsplit-safe平均EPSによる正規化PER、PIT-TTMの`operating_profit_to_assets`・`operating_margin`・`asset_turnover`を記録する。これらのpanel列と`ProfitabilityLevelSignals`はcalibration専用で、productionへ渡さない。production ReinvestmentはStock Analysisから別途収益性を計算し、[native eligibility/order](./screening-runtime.md#candidate-discovery)に使う。グロス株数減少は自己株取得の事実ではなく、消却・発行等の純変化proxyである。`rules_hash`はrules・variant・入力窓・valuation calculation revision・Candidate Discovery method hashを含む。valuationの式・資本分母・価格基準またはCandidate Discoveryのeligibility・order・Nomination union contractが異なるpanelは、method identityとcache schemaの不一致でfail closedにする。
 
@@ -309,7 +309,7 @@ matched 比較の被覆率・membership 数・集中度など、forward outcome 
 
 ### 判断コホートの集計
 
-Research Set の ticker の research FV と screening FV の bridge は、有効観測（同一 thesis 再実行・scaffold-only・未 review・遡及記入を除く）が 5 件以上になったら乖離率の中央値・範囲・要因件数・coverage を記述集計する。この集計だけで screening 式を変えず、変更仮説は別 issue で事前登録して design/confirm へ進める。
+Research Set の ticker の research FV と screening FV の bridge は、有効観測（同じStock Assessmentの再利用・scaffold-only・未 review・遡及記入を除く）が 5 件以上になったら乖離率の中央値・範囲・要因件数・coverage を記述集計する。この集計だけで screening 式を変えず、変更仮説は別 issue で事前登録して design/confirm へ進める。
 
 ### 支配権イベントの実現 exit 値
 

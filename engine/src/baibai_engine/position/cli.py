@@ -1,6 +1,6 @@
 """Command-line entry for application-DB portfolio records.
 
-Composes ledger, position-review, and outcome inputs. This entry point owns
+Composes ledger, human-reported broker facts, and outcome inputs. This entry point owns
 SQLite composition while position core modules remain free of screening
 dependencies.
 """
@@ -689,14 +689,6 @@ def _draft_output_path(root: Path, output: Path, *, label: str) -> Path:
     if resolved.exists():
         raise ValueError(f"refusing to overwrite existing {label}: {resolved}")
     return resolved
-
-
-def _write_yaml_exclusive(path: Path, payload: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.parent.resolve() != path.parent:
-        raise OSError(f"draft parent became a symlink: {path.parent}")
-    with path.open("x", encoding="utf-8") as stream:
-        yaml.safe_dump(payload, stream, sort_keys=False, allow_unicode=True)
 
 
 if __name__ == "__main__":

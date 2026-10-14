@@ -10,7 +10,6 @@ it stays green while the command rejects every input the runbook asks for.
 
 from __future__ import annotations
 
-import copy
 import sqlite3
 from datetime import date, datetime
 from pathlib import Path
@@ -46,12 +45,6 @@ def _ledger_db(tmp_path: Path) -> Path:
         ),
     )
     return db
-
-
-def _mapping(path: Path) -> dict[str, object]:
-    parsed = safe_load(path.read_text(encoding="utf-8"))
-    assert isinstance(parsed, dict)
-    return copy.deepcopy(parsed)
 
 
 def _emitted(capsys: pytest.CaptureFixture[str]) -> dict[str, object]:

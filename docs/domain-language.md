@@ -90,8 +90,8 @@ Research Setはpipeline stateである。storeごとのauthorityは
              -> candidate.reasonsがある同じStock Analysisの候補一覧
 Stock Analysis / 候補一覧 -> Research selection (新規探索)
 指定銘柄 -> Research selection (候補外も可)
-保存済みStock Analysis + ユーザー明示指定 -> 新規admission
-新規admission / Holding -> 明示開始・新規/保有合算最大三対象の固定選択
+Holding -> Research selection (保有見直し)
+各入口 -> 明示開始・単一scopeと保存capacityによる固定選択
            -> 三領域の保存済み入力による有限Research -> Stock Assessment + Assessment Review
 reviewed Stock Assessment群 + 現在価格/cash/保有 -> Investment Proposal
                  -> buy / hold / sell / no_action / defer + 条件付きterms

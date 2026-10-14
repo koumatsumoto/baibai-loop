@@ -2,7 +2,7 @@
 title: "未解決 priced-master return の有界 bracket 拡張に関する事前登録"
 summary: "対象 return の完全解決を要求せず、全損・中立代入で結論方向が不変な cohort だけを authority 対象にする規則と再判定scopeを固定する。"
 doc_type: measurement-record
-status: active
+status: historical
 date: 2026-08-02
 ---
 
@@ -78,13 +78,13 @@ eligible増加数は採否条件にしない。規則が問いへ正しく答え
 - 独立3y confirm: `2023-06-30`、`2023-07-31`
 - 固定production authority: `2020-01-31`、`2020-05-29`、`2021-01-29`、`2021-05-31` × `3y` / `5y`
 - required metrics: core 3 + `margin_short_to_adv`
-- 効果、trap、8 control、標本、coverageの採否条件: [`2026-08-02-margin-short-production-preregistration.md`](.../2026-08-02-margin-short-production/preregistration/report.md)から変更しない
+- 効果、trap、8 control、標本、coverageの採否条件: [`2026-08-02-margin-short-production-preregistration.md`](../2026-08-02-margin-short-production/preregistration.md)から変更しない
 
 元reportの「完全解決時だけ再判定」は、本事前登録で integrity contractを両側代入へ置き換えたことを明記して再判定する。独立2 cohortが新契約でeligibleかつ元の全条件を満たす場合だけ `adoption_candidate`、方向・効果条件の未達は `negative`、authorityまたは標本だけの未達は `insufficient` とする。
 
 ### 株数減少・予想DPS増
 
-同じ2 cohortと固定4 as-of × 3y/5yを、[`2026-08-02-share-return-components-production-preregistration.md`](.../2026-08-02-share-return-components-production/preregistration/report.md) の metric、control、標本、採否条件を変えずに再評価する。authorityがeligibleになっても、H-Sの固定3y `dividend_yield` trap条件とH-Dの独立3y / 固定5yの負方向を上書きしない。元条件どおり各成分を `adoption_candidate / negative / insufficient` に判定する。
+同じ2 cohortと固定4 as-of × 3y/5yを、[`2026-08-02-share-return-components-production-preregistration.md`](../2026-08-02-share-return-components-production/preregistration.md) の metric、control、標本、採否条件を変えずに再評価する。authorityがeligibleになっても、H-Sの固定3y `dividend_yield` trap条件とH-Dの独立3y / 固定5yの負方向を上書きしない。元条件どおり各成分を `adoption_candidate / negative / insufficient` に判定する。
 
 ## 5. 実装と検算境界
 

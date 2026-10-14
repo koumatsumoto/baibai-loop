@@ -18,7 +18,7 @@ description: ユーザーの明示開始で有限対象を調査し、独立Revi
 ```bash
 uv run baibai-engine research selection-context \
   --request '<USER_START_REQUEST>' --scope discover_new \
-  --db stores/application/baibai.sqlite --runs-path stores/machine/runs.sqlite
+  --db stores/application/baibai.sqlite --runs-path stores/screening/runs.sqlite
 ```
 
 指定銘柄は `--scope specified_stocks --ticker <TICKER>`、保有は `--scope review_positions` とし、必要なら指定tickerを付ける。contextのrun参照、research_as_of、input_known_atとrequestをdraftへコピーし、比較した選定理由・調査の問い・主要リスク・今回の範囲をAIが記す。構造はCLIのhelpとselection modelが正本である。現在の三領域・保有・既存調査を読み、弱い対象で上限を埋めず、脱落を自動補充しない。

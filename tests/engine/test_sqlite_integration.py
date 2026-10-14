@@ -1,10 +1,7 @@
-"""End-to-end checks that the screening run and decision sync paths can be
-served entirely from the SQLite cache, without falling back to any JSON
-file or J-Quants / EDINET / JPX HTTP client.
+"""Screening publishes from SQLite without JSON files or provider HTTP calls.
 
-The fixtures here build a minimal but complete SQLite database with the
-exact rows each provider expects. The providers are wired with NO HTTP
-client, so any unexpected fall-through raises and fails the test.
+The fixture supplies the rows each provider reads. Providers have no HTTP client,
+so any unexpected fetch fails the test.
 """
 
 from __future__ import annotations
@@ -36,18 +33,12 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
     conn = open_connection(sqlite_path)
 
     ticker = "130A"
-    # Cover [asof - 2200, max(asof + 60, today + 5)]: the current screen reads
-    # 1200 days, while split-safe normalized PER proves a 2200-day factor range.
-    # Coverage is derived from actual rows, so the fixture must really hold them
-    # rather than only claim coverage via source_coverage. The forward window extends
-    # to today so the decision sync
-    # path's `end = max(now, asof)` stays inside the imported window for any test
-    # wall-clock — a fixed asof + 60 expires once the real clock passes that date.
+    # Current screening needs 1200 days; normalized PER needs 2200 days of
+    # split factors. Keep the fixture fixed to its requested as-of date.
     history_days_back = 2200
     forward_days = 60
     history_start = asof - timedelta(days=history_days_back)
-    today = datetime.now(UTC).date()
-    history_end = max(asof + timedelta(days=forward_days), today + timedelta(days=5))
+    history_end = asof + timedelta(days=forward_days)
     history_days = (history_end - history_start).days + 1
     bars_start = asof - timedelta(days=2200)
     fin_start = asof - timedelta(days=2200)
@@ -89,7 +80,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
         max_date=asof.isoformat(),
     )
 
-    # Bars: 800 days of synthetic prices
+    # Bars: the full declared synthetic history
     bars_rows = [
         (
             ticker,
@@ -125,11 +116,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
     add_source_coverage(
         conn,
         source="jquants_daily_bars",
-        coverage_key=(
-            f"records/_data/raw/screening/jquants/"
-            f"get_eq_bars_daily_range-end_dt-{history_end.isoformat()}-"
-            f"start_dt-{bars_start.isoformat()}.json"
-        ),
+        coverage_key=f"get_eq_bars_daily_range:{bars_start.isoformat()}..{history_end.isoformat()}",
         record_count=history_days,
         min_date=bars_start.isoformat(),
         max_date=history_end.isoformat(),
@@ -200,11 +187,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
     add_source_coverage(
         conn,
         source="jquants_fin_summaries",
-        coverage_key=(
-            f"records/_data/raw/screening/jquants/"
-            f"get_fin_summary_range-end_dt-{asof.isoformat()}-"
-            f"start_dt-{fin_start.isoformat()}.json"
-        ),
+        coverage_key=f"get_fin_summary_range:{fin_start.isoformat()}..{asof.isoformat()}",
         record_count=len(fin_rows),
         min_date=fin_start.isoformat(),
         max_date=asof.isoformat(),
@@ -230,8 +213,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
         fetched_at_utc=f"{asof.isoformat()}T00:00:00+09:00",
     )
 
-    # Market calendar — populate the same forward window as bars so the
-    # decision-register path's `[asof - 10, max(now, asof)]` range is always covered.
+    # Market calendar covers the same fixed window as the bar fixture.
     calendar_rows = [
         (
             (history_start + timedelta(days=index)).isoformat(),
@@ -246,7 +228,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
     add_source_coverage(
         conn,
         source="jquants_market_calendar",
-        coverage_key="records/_data/raw/screening/jquants/get_mkt_calendar-from_yyyymmdd-X-to_yyyymmdd-Y.json",
+        coverage_key=f"get_mkt_calendar:{history_start.isoformat()}..{history_end.isoformat()}",
         record_count=history_days,
         min_date=history_start.isoformat(),
         max_date=history_end.isoformat(),
@@ -275,7 +257,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
     add_source_coverage(
         conn,
         source="edinet_metrics",
-        coverage_key=f"records/_data/raw/screening/edinet/metrics/{asof.isoformat()}.json",
+        coverage_key=asof.isoformat(),
         record_count=1,
         min_date=asof.isoformat(),
         max_date=asof.isoformat(),
@@ -307,7 +289,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
     add_source_coverage(
         conn,
         source="jpx_regulation_flags",
-        coverage_key=f"records/_data/raw/screening/jpx/regulations/{asof.isoformat()}.json",
+        coverage_key=asof.isoformat(),
         record_count=0,
         min_date=asof.isoformat(),
         max_date=asof.isoformat(),
@@ -341,7 +323,6 @@ class ScreeningRunOverSqliteTests(unittest.TestCase):
                 providers = ProviderBundle(
                     jquants=JQuantsProvider(
                         config.jquants_api_key,
-                        config.cache_dir,
                         sqlite_path=sqlite_path,
                     ),
                     edinet=EDINETProvider(
@@ -350,7 +331,6 @@ class ScreeningRunOverSqliteTests(unittest.TestCase):
                         sqlite_path=sqlite_path,
                     ),
                     jpx=JPXProvider(
-                        config.cache_dir,
                         sqlite_path=sqlite_path,
                     ),
                 )

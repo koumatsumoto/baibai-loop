@@ -394,7 +394,7 @@ def test_exported_views_match_api_responses(app_method_root: Path, tmp_path: Pat
         ticker="2331",
         quantity=100,
         price_yen=Decimal("1100"),
-        decision_reference="position-review-20260711-2331-position-2331",
+        decision_reference="synthetic-human-sale-note",
     )
     apply_draft(service, draft, human_confirmed=True)
     output_dir = tmp_path / "export"
@@ -539,8 +539,8 @@ def _exported_views() -> set[str]:
 def test_every_worker_view_route_is_produced_by_the_exporter() -> None:
     """A route whose view the export never writes is a permanent 404 in production.
 
-    The two files are the only places the `views/` key space is written down, and
-    neither imports the other, so nothing else notices when one of them moves.
+    Workerが直接参照するviewとresearch indexをexportが実際に生成することを確認する。
+    公開route/schemaの契約検証に加えて、R2 object keyの生成漏れを検出する。
     """
 
     source = WORKER_SOURCE.read_text(encoding="utf-8")

@@ -2,7 +2,7 @@
 title: "支配権イベントの実現 exit 値置換 — 事前登録"
 summary: "成立した公開買付けの現金対価で上場廃止銘柄の未解決 forward return を置換し、根拠が確定しない行は既存の両側 bracket に残す契約を固定する。"
 doc_type: measurement-record
-status: active
+status: historical
 date: 2026-08-11
 ---
 

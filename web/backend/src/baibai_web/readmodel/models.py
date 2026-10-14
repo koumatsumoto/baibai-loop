@@ -110,7 +110,6 @@ class DashboardView(BaseModel):
     holdings: list[HoldingView]
     reservations: list[ReservationView]
     warnings: list[WarningView]
-    research_load_errors: list[str]
 
 
 class TasksView(BaseModel):
@@ -468,7 +467,7 @@ class SecurityMarketMasterView(BaseModel):
 class SecurityPriceContextView(BaseModel):
     resolved_date: date
     close: float
-    price_basis: Literal["adjusted_close_preferred"]
+    price_basis: Literal["split_adjusted_close"]
     return_1d: float | None
     return_5d: float | None
     return_20d: float | None
@@ -990,7 +989,7 @@ class CandidateExpectedReturnDeltaView(BaseModel):
 
 
 class HoldingDeltaView(BaseModel):
-    """Observed holding price movement; holding decisions belong to Position Review."""
+    """Observed holding price movement; holding decisions belong to Investment Proposal."""
 
     ticker: str
     company_name: str | None
@@ -1003,7 +1002,7 @@ class DailyDeltaView(BaseModel):
 
     Every field is an observation or a comparison of observations. The view names no
     cause and carries no recommendation: it tells the reader where to look, and the
-    decision to start a research cycle or a Position Review stays human.
+    decision to start new-stock or holding research stays human.
 
     ``unavailable`` lists the sections no store could answer, so an empty section is
     never read as "nothing changed". ``method_changed`` marks different screening or

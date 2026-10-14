@@ -2,7 +2,7 @@
 title: "利益正規化anchorとself-range長期化の事前登録"
 summary: "3/5 FY平均EPS、cycle peak flag、750/1250/2500 session self-rangeを固定窓で評価する。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-02
 ---
 

@@ -1,4 +1,4 @@
-"""旧holding suiteの価格非依存事実、override、株式basis、現在NAVの回帰。"""
+"""価格非依存の台帳事実、override、株式basis、現在NAVの回帰。"""
 
 import sqlite3
 from datetime import date, datetime, timedelta
@@ -198,7 +198,7 @@ def test_partial_sale_waits_for_session_then_restores_valuation(holding_case):
         ticker="2331",
         quantity=100,
         price_yen=Decimal(1000),
-        decision_reference="position-review-test",
+        decision_reference="human-sale-report",
     )
     apply_draft(service, sell, human_confirmed=True)
     ledger = service.load()

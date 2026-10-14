@@ -791,7 +791,6 @@ def open_connection(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     try:
         if _existing_tables(conn):
-            _upgrade_existing_store(conn)
             validate_current_schema(conn)
         else:
             conn.executescript(_SCHEMA_SQL)
@@ -801,17 +800,6 @@ def open_connection(db_path: Path) -> sqlite3.Connection:
     except Exception:
         conn.close()
         raise
-
-
-def _upgrade_existing_store(conn: sqlite3.Connection) -> None:
-    """Accept only the current store contract."""
-    current = int(conn.execute("PRAGMA user_version").fetchone()[0] or 0)
-    if current == SQLITE_SCHEMA_VERSION:
-        return
-    raise SQLiteSchemaError(
-        "obsolete market SQLite schema; replace it with a current local build "
-        f"(found user_version={current}, expected={SQLITE_SCHEMA_VERSION})"
-    )
 
 
 def connect_current(sqlite_path: Path) -> sqlite3.Connection | None:

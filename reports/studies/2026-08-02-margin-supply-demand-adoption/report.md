@@ -2,7 +2,7 @@
 title: "信用需給 gate・空売り残・規模内混雑の計測結果"
 summary: "制度信用期日偏重gateはtrapを改善せず不採用、空売り残/ADVは追加長期検証候補、規模帯内の信用買い残は不採用と判定した。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-02
 ---
 
@@ -21,7 +21,7 @@ H-1の不採用は、`margin_std_long_share` と将来returnの関連を否定�
 
 ## 1. 事前登録と実行契約
 
-入力境界、列、方向、時間窓、control、採否条件は、forward outcome計測前のcommit `5673a56` と [`2026-08-02-margin-supply-demand-adoption-preregistration.md`](.../2026-08-02-margin-supply-demand-adoption/preregistration/report.md) で固定した。計測実装とUI配線は outcome計測前のcommit `1f6b455` で固定し、authority sensitivityを同じ採否条件へ揃える修正はcommit `ad5c266` で固定してから全artifactを再生成した。
+入力境界、列、方向、時間窓、control、採否条件は、forward outcome計測前のcommit `5673a56` と [`2026-08-02-margin-supply-demand-adoption-preregistration.md`](../2026-08-02-margin-supply-demand-adoption/preregistration.md) で固定した。計測実装とUI配線は outcome計測前のcommit `1f6b455` で固定し、authority sensitivityを同じ採否条件へ揃える修正はcommit `ad5c266` で固定してから全artifactを再生成した。
 
 実行コマンド:
 

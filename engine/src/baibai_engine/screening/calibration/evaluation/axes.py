@@ -1,4 +1,4 @@
-"""Security Analysisの軸とquality bucketを評価する。"""
+"""Stock Analysisの軸とquality bucketを評価する。"""
 
 from __future__ import annotations
 
@@ -103,18 +103,10 @@ def _quality_group_deltas(
     high: Mapping[str, object], low: Mapping[str, object]
 ) -> dict[str, float | None]:
     return {
-        "median_excess_delta": _rounded_difference(
-            high.get("median_excess"), low.get("median_excess")
-        ),
-        "mean_excess_delta": _rounded_difference(high.get("mean_excess"), low.get("mean_excess")),
-        "trap_rate_delta": _rounded_difference(high.get("trap_rate"), low.get("trap_rate")),
+        "median_excess_delta": _rounded_delta(high.get("median_excess"), low.get("median_excess")),
+        "mean_excess_delta": _rounded_delta(high.get("mean_excess"), low.get("mean_excess")),
+        "trap_rate_delta": _rounded_delta(high.get("trap_rate"), low.get("trap_rate")),
     }
-
-
-def _rounded_difference(high: object, low: object) -> float | None:
-    if not isinstance(high, int | float) or not isinstance(low, int | float):
-        return None
-    return round(float(high) - float(low), 6)
 
 
 def _stratified_quality_control(

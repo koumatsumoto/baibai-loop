@@ -19,16 +19,6 @@ from tools.experiments.measure_signal_cohorts import (
     main,
 )
 
-FORWARD_COLUMNS = (
-    "asof",
-    "ticker",
-    "horizon",
-    "price_return",
-    "status",
-    "total_return",
-    "total_return_status",
-)
-
 
 def test_stored_population_flag_is_the_only_population_authority(tmp_path: Path) -> None:
     directory = calibration_root(tmp_path)

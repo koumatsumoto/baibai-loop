@@ -14,7 +14,7 @@ series:
     provider_series_id: us.net_liquidity
     source_id: derived-net-liquidity
     source_url: https://github.com/koumatsumoto/baibai-loop/blob/7c21b681c48ba17aee6cdeb3b08b0b5f4c86c6da/engine/src/baibai_engine/market_context/indicators/providers/formulas.py
-    notes: FRB総資産 − RRP − TGA を10億USD単位で算出（fed_assets/reverse_repo/tgaはFRED百万USD）
+    notes: FRB総資産 − RRP − TGA を10億USD単位で算出（fed_assets/tgaは百万USDから換算、reverse_repoは既に10億USD）
     aliases: [ネット流動性, net liquidity, US net liquidity]
   - series_id: us.erp
     name: 米株式リスクプレミアム

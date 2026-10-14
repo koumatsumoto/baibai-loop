@@ -35,9 +35,10 @@ from baibai_batch.storage.publication_lease import (
     verify_held,
 )
 from baibai_engine.storage.lake import datasets, models, writer
-from baibai_engine.storage.lake.objects import LocalMirrorSource, sha256_file
+from baibai_engine.storage.lake.objects import LocalMirrorSource
 from baibai_engine.storage.lake.reader import resolve_release
 from baibai_engine.storage.lake.release import create_l1_release
+from baibai_engine.storage.lake.sources import sha256_file
 from baibai_engine.storage.observations.ingest.jquants import store_jquants_fin_summaries
 from baibai_engine.storage.observations.lake_origin import (
     LakeStoreOrigin,

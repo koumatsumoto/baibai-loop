@@ -398,12 +398,11 @@ def test_staleness_warns_only_once_a_publication_has_been_missed(
     assert reading_at(stopped_days), "a missed publication must warn"
 
 
-def test_japanese_cpi_stays_settleable_through_the_day_its_next_print_lands() -> None:
-    """A scorecard settles an expired condition only from data the rules call fresh.
+def test_japanese_cpi_stays_fresh_through_the_day_its_next_print_lands() -> None:
+    """Reading freshness permits the source's normal publication wait.
 
-    e-Stat posts the March CPI late in April, so a February observation is the newest
-    one a condition with an April deadline can be settled from. Calling it stale would
-    turn the normal publication wait into an unscorable condition.
+    e-Stat posts the March CPI late in April, so February remains the newest
+    observation before that release. The scheduled wait must not imply a stalled source.
     """
 
     rule = load_reading_rules(DEFAULT_RULES_PATH).resolve(

@@ -2,7 +2,7 @@
 title: "空売り残高報告の L1 配線と trap 識別 — 事前登録"
 summary: "報告なしのゼロ語義、outcome-free sufficiency、固定control、3y/5yの採否条件をforward outcome参照前に固定する。"
 doc_type: measurement-record
-status: active
+status: historical
 date: 2026-08-10
 ---
 

@@ -72,16 +72,6 @@ class PanelRow:
     forward: Mapping[str, float]
 
 
-def _optional_float(value: str | None) -> float | None:
-    if value is None or value == "":
-        return None
-    try:
-        parsed = float(value)
-    except ValueError:
-        return None
-    return parsed
-
-
 def _annualized(cumulative_return: float, years: int) -> float:
     growth: float = (1.0 + cumulative_return) ** (1.0 / years)
     return growth - 1.0
@@ -341,11 +331,6 @@ def _share_count_continuity_comparison(
             repeated, single, horizon, min_control_rows=MIN_GROUP_ROWS
         ),
     }
-
-
-ComparisonName = Literal[
-    "high_estimate", "share_count_component", "share_count_continuity", "equity_anchor"
-]
 
 
 def _resolved_asof_range(rows: Sequence[PanelRow], horizon: str) -> Mapping[str, object]:

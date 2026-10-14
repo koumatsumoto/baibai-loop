@@ -1,7 +1,7 @@
 """Produce a deterministic benchmark trend for market and ticker fact profiles.
 
 The fixed 20-session thresholds describe only the Nikkei 225 ETF proxy's price
-direction. The resulting fact-layer annotation never gates or re-ranks the Review Set.
+direction. The resulting fact-layer annotation never gates or re-ranks Screening candidates.
 """
 
 from __future__ import annotations

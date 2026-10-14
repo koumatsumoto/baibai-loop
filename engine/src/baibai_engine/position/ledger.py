@@ -1018,8 +1018,8 @@ def estimated_exit_tax_yen(
 ) -> int | None:
     """Return the configured FIFO gross-unrealized-gain tax estimate.
 
-    Both the ledger aggregate and a Position Review use this deliberately small
-    estimate.  It is not an account-tax engine: confirmed tax, fees, loss
+    The ledger aggregate and portfolio outcome use this deliberately small
+    estimate. It is not an account-tax engine: confirmed tax, fees, loss
     offsets, and account type remain separate ledger facts.
     """
     if rate_bps is None or basis is None:

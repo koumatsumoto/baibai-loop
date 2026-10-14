@@ -483,13 +483,12 @@ def _run_screening_run(
 class _Notice:
     """What the batch leaves for the Discord notifier on every terminal path.
 
-    The as-of it ran for, whether the business-day gate skipped it, the first
+    The as-of it ran for, whether Screening was updated, the first
     fatal or deferred failure stage, and the names that entered or left the
     candidate list. The exit code carries the outcome itself.
     """
 
     asof: str = ""
-    skipped: bool = False
     screening_status: str = "pending"
     market_updated: bool = False
     failed_stage: str | None = None
@@ -501,7 +500,6 @@ class _Notice:
     def to_json(self) -> dict[str, object]:
         return {
             "asof": self.asof,
-            "skipped": self.skipped,
             "screening_status": self.screening_status,
             "market_updated": self.market_updated,
             "failed_stage": self.failed_stage,

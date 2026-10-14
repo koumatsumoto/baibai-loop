@@ -2,7 +2,7 @@
 title: "screening基盤の反証監査 — 事前登録"
 summary: "現行screeningの株式・期間・母集団・時点・合成basisを全件とtailで反証し、明示contractに反する到達可能な欠陥だけを修正する。"
 doc_type: measurement-record
-status: active
+status: historical
 date: 2026-08-12
 ---
 

@@ -82,7 +82,7 @@ class DerivedMetrics:
     price_history_sessions_750d: int | None = None
     price_history_coverage_750d: float | None = None
     # Supply/demand read from the exchange's published margin balances. Definitions
-    # and the reason each one is shaped this way live in `margin_metrics`. The field
+    # and the reason each one is shaped this way live in `market_context.margin`. The field
     # names the balance date behind the numbers, which is what makes their age
     # readable: through 2026-09-18 the balances are weekly and published days later,
     # so an asof in the middle of a week is looking at data up to nine days old by
@@ -95,7 +95,7 @@ class DerivedMetrics:
     margin_long_delta_26w: float | None = None
     margin_std_long_share: float | None = None
     # Annualized 60-session realized volatility is a calibration control. It is
-    # kept out of Security Analysis output until a separately tested decision use exists.
+    # kept out of Stock Analysis output until a separately tested decision use exists.
     realized_volatility_60d: float | None = None
 
     @field_validator(

@@ -33,7 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     inventory_parser = subparsers.add_parser(
         "inventory",
-        help="list object/byte totals and Raw sidecar retention classes in a local mirror",
+        help="list object/byte totals and capacity classes in a local mirror",
     )
     inventory_parser.add_argument(
         "--root",

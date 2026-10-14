@@ -41,10 +41,9 @@ def normalize_daily_bar(record: Mapping[str, Any]) -> JQuantsDailyBar | None:
     if close is None:
         # Non-trading day or missing close; treat as absent bar so history stays clean.
         return None
-    # AdjustmentClose is the split-adjusted close. We keep it separate from the
-    # raw `close` so that latest-day calculations stay on the unadjusted price
-    # while historical series can use the adjusted value to avoid jumps at
-    # split dates.
+    # 配信元の調整済みcloseも観測値として分けて保持する。取得時期の異なる
+    # adjustment_closeは株式基準が混在するため、履歴比較では使用せず
+    # bars.asof_basis_pricesがraw closeと独立factorから同一基準へ換算する。
     adjustment_close = to_float(
         coalesce_field(record, "AdjustmentClose", "adjustment_close", "AdjC", "adj_c")
     )

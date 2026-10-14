@@ -2,7 +2,7 @@
 title: "cohort 比較の total-return basis — carry の効果量は price-only で過小に出ていた"
 summary: "cohort 比較を実現配当込みの basis で測り直した。全 4 軸で結論の向きは変わらず、carry 軸の差は 3y で +7.65pt から +8.99pt へ広がった。母集団の実現年率も 3y で 5.88% から 7.89% へ上がり、price-only は群差だけでなく水準そのものを約 2pt 過小に出していた。"
 doc_type: measurement-record
-status: active
+status: historical
 ---
 
 # cohort 比較の total-return basis

@@ -4,8 +4,8 @@ The profile is the entry point for AI research on one security: price and
 liquidity facts for any listed ticker (inside or outside the screening
 universe), benchmark- and sector-relative momentum, the market benchmark_trend at the
 evaluation date, event facts (next earnings, JPX
-regulation), the ticker's latest recorded Stock Analysis, and prior research
-decisions. Every field is a deterministic transform of stored data; the profile
+regulation), the ticker's latest recorded Stock Analysis, and confirmed portfolio
+holdings. Every field is a deterministic transform of stored data; the profile
 contains no interpretation and no composite score. The portfolio block retains
 its independent ledger_as_of; this is not an as-of replay of holdings.
 

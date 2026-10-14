@@ -10,7 +10,6 @@ from tests.helpers.assessment_v1 import (
     APPENDIX_ASSESSMENT_PUBLICATION,
     NOW,
     assessment_id,
-    create_assessment_tables,
     pair_payload,
     review_id,
     update_review_hash,
@@ -36,13 +35,14 @@ from baibai_engine.research.assessment_store import (
     require_assessment_ref,
 )
 from baibai_engine.storage.application.json import canonical_json
+from baibai_engine.storage.application.schema import SCHEMA_SQL
 
 
 @pytest.fixture
 def connection():
     with sqlite3.connect(":memory:") as connection:
         connection.execute("PRAGMA foreign_keys = ON")
-        create_assessment_tables(connection)
+        connection.executescript(SCHEMA_SQL)
         yield connection
 
 
@@ -569,15 +569,13 @@ def test_publication_requires_formal_assessment_and_review_namespaces(connection
     assert connection.execute("SELECT count(*) FROM stock_assessment").fetchone()[0] == 0
 
 
-def test_service_owns_and_commits_short_transaction_with_fixture_schema(tmp_path):
+def test_service_owns_and_commits_short_transaction_with_current_schema(tmp_path):
     from baibai_engine.research.assessment_store import AssessmentStoreService
     from baibai_engine.storage.application.read import connect_read_only
-    from baibai_engine.storage.application.write import connect_rw, initialize_database
+    from baibai_engine.storage.application.write import initialize_database
 
     db = tmp_path / "app.sqlite"
     initialize_database(db)
-    with connect_rw(db) as db_connection:
-        create_assessment_tables(db_connection)
     document, review = pair_payload()
     service = AssessmentStoreService(db, clock=lambda: NOW)
     pair = service.publish_reviewed_assessment(assessment_id(), document, review)

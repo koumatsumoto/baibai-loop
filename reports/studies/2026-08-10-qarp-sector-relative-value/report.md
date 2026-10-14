@@ -2,7 +2,7 @@
 title: "QARP sector相対割安残差レーンの長期較正"
 summary: "quality通過後のsector・size相対割安は候補を作れたが、exact-sector matched boundaryの被覆が全窓で不足したためinsufficientと判定し、productionへ採用しない。"
 doc_type: measurement-record
-status: active
+status: historical
 date: 2026-08-10
 ---
 

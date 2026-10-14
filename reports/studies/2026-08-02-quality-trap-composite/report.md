@@ -2,7 +2,7 @@
 title: "質・トラップ複合軸の計測結果"
 summary: "F-score 型充足本数は E[r] 上位帯の 1y excess を改善せず、production 参入を棄却した。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-02
 ---
 
@@ -20,7 +20,7 @@ date: 2026-08-02
 
 ## 1. 事前登録と実行契約
 
-成分、field 名、方向、時間窓、交絡順序、採否条件は結果計測前の commit `ffa2641d20d8a53035315a2c43f83ae95030657f` と [`2026-08-02-quality-trap-composite-preregistration.md`](.../2026-08-02-quality-trap-composite/preregistration/report.md) で固定した。実装は計測前の commit `19f5a351f859a6b82b1c7141e2081c828fa7fa50` で固定した。
+成分、field 名、方向、時間窓、交絡順序、採否条件は結果計測前の commit `ffa2641d20d8a53035315a2c43f83ae95030657f` と [`2026-08-02-quality-trap-composite-preregistration.md`](../2026-08-02-quality-trap-composite/preregistration.md) で固定した。実装は計測前の commit `19f5a351f859a6b82b1c7141e2081c828fa7fa50` で固定した。
 
 実行コマンド:
 

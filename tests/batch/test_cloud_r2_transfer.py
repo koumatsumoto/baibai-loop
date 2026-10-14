@@ -405,7 +405,7 @@ def _serving_export(tmp_path: Path) -> Path:
 
 
 def test_views_upload_replaces_the_mirror_and_leaves_meta_alone(tmp_path: Path) -> None:
-    """The stage that runs alongside the store push touches only the mutable image."""
+    """The mirror stage after the store push touches only the mutable image."""
     bin_dir, log = _fake_aws(tmp_path)
     output = _serving_export(tmp_path)
     env = _environment(bin_dir, log)
@@ -512,9 +512,8 @@ def test_serving_concurrency_is_settable_without_a_code_change(tmp_path: Path) -
 def test_two_concurrent_publishes_do_not_share_a_transfer_config(tmp_path: Path) -> None:
     """Each process writes its own config, so neither can read the other's value.
 
-    The daily batch runs the views mirror beside the store push today, and a fixed
-    config path would silently become the last writer's setting the moment the push
-    side needed transfer settings too.
+    Independent invocations must keep their transfer settings isolated even when
+    they overlap; the daily workflow itself serializes the store and views pushes.
     """
     bin_dir, log = _fake_aws(tmp_path)
     output = _serving_export(tmp_path)
@@ -549,9 +548,6 @@ def test_two_concurrent_publishes_do_not_share_a_transfer_config(tmp_path: Path)
     assert "max_concurrent_requests = 11" not in outputs[1]
     # The trap removes each config, so neither survives its own process.
     assert not list(scratch.glob("baibai-r2-transfer.*"))
-
-
-APP_STORE = REPO_ROOT / "stores/application/baibai.sqlite"
 
 
 def test_pull_app_refuses_to_overwrite_a_local_application_store(tmp_path: Path) -> None:

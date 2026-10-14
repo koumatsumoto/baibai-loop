@@ -34,7 +34,7 @@ uv run baibai-engine screening run-show --run-revision-id run-revision-012345678
 uv run baibai-engine screening candidates show --run-revision-id run-revision-0123456789abcdef0123456789abcdef --format json
 ```
 
-どちらも保存済みrevisionのread-only出力で、`--output-path`・`--force`は出力fileだけに作用する。未知revision・破損storeは失敗、候補0件は正常結果である。旧`review-set publish/show`は廃止する。
+どちらも保存済みrevisionのread-only出力で、`--output-path`・`--force`は出力fileだけに作用する。未知revision・破損storeは失敗、候補0件は正常結果である。独立した候補一覧を発行するCLIは持たない。
 
 ## Stock Analysis
 
@@ -79,11 +79,11 @@ primary coordinateがnull、非有限、またはapproachの要件を満たさ�
 
 各Approach top20は有限の発見枠で、rank21以下を経済的rejectにしない。全Approachで重複するtickerもStock Analysisは一行だけで、全候補理由を同じ行に保持する。候補投影は元のraw rowの値を変更せず、ticker昇順を非経済的なcanonical順として使う。総合rank・Research priorityは作らない。
 
-候補純関数は丸め済み行をproductionと較正で共有する。normalized gapの母集団、reinvestment qualityのresolved母集団・sector minimum・market fallback、tie-breakはmethod契約で固定する。既存method hashのpreimageに残る`review_set_membership`等と`nomination_depth`はアルゴリズムidentityの凍結wireであり、旧publicationの存続ではない。Bでproduction rules hash、ER model version、Valuation calculation revisionを変更しない。
+候補純関数は丸め済み行をproductionと較正で共有する。normalized gapの母集団、reinvestment qualityのresolved母集団・sector minimum・market fallback、tie-breakはmethod契約で固定する。既存method hashのpreimageに残る`review_set_membership`等と`nomination_depth`はアルゴリズムidentityの凍結wireであり、旧publicationの存続ではない。候補正本の統合だけではproduction rules hash、ER model version、Valuation calculation revisionを変更しない。
 
 exact読取は保存された値・methodを返し、現在rulesを読み直さない。旧rules fileを指定した新しい計算を、過去の算式・当時値の再現とは扱わない。旧schemaのrun cacheは復元可能に退避し、新pathでObservationから新時刻・新UUIDのrunを作る。一回の最終code/store切替へまとめ、中間schemaの通常互換readerは作らない。現在必要な評価・提案・draftの旧根拠を保全する前に旧cacheを退避しない。
 
-較正cohort/forward rows/ER artifactはrun cacheと別の測定正本であり、Bのcache切替で再生成・削除しない。`PanelRow.in_review_set`、`valuation_approaches`、`valuation_approach_ranks`等は既存測定wireとして保持する。その値は同じ純関数の候補理由から導出する。[較正](./estimate-calibration.md)のidentity一致条件を保つ。
+較正cohort/forward rows/ER artifactはrun cacheと別の測定正本であり、run cacheの切替で再生成・削除しない。`PanelRow.in_review_set`、`valuation_approaches`、`valuation_approach_ranks`等は既存測定wireとして保持する。その値は同じ純関数の候補理由から導出する。[較正](./estimate-calibration.md)のidentity一致条件を保つ。
 
 <a id="data-quality-context"></a>
 
@@ -101,7 +101,7 @@ read ownerの`analysis_run`はResearch日以下のanalysisと`known_at`以下の
 
 ## Pruneと履歴
 
-`prune --keep N`は新しいrunをN世代残し、子のStock Analysisを同一transactionで削除して`VACUUM`する。候補tableは無い。評価・提案・保存Research入力はapplicationの正本であり、run pruneと分ける。Bで既存retentionを変更しない。
+`prune --keep N`は新しいrunをN世代残し、子のStock Analysisを同一transactionで削除して`VACUUM`する。候補tableは無い。評価・提案・保存Research入力はapplicationの正本であり、run pruneと分ける。候補正本の統合では既存retentionを変更しない。
 
 市場・業種・個別相対の算術とcutoffは[Market Context読取](./market-context.md#market-context-reads)が所有する。Screeningは既存の比較母集団を渡し、ValuationのER/FVや4 Approachの候補式へ環境scoreを追加しない。
 
@@ -119,4 +119,4 @@ J-Quantsのread取得は[provider](../../engine/src/baibai_engine/market/provide
 
 候補集合・rank・母集団・丸め・method/rules/model identityと、同じ入力のPanelRow全値を旧commitの合成goldenへ照合する。保存では全行context、空分析/空候補、rollback、完全冪等、rules mismatch、日時の内容Conflictを確認する。readはexact revision・同日複数・Research cutoffと、破損をfilterで隠さない経路を検証する。
 
-最終consumer treeでCLI、Research、Web/MCP/batch、生成contracts、materialize、frontendと完全local gateを実行する。fixture成功を実store検証・provider読取・本番切替成功と読み替えない。
+最終consumer treeでCLI、Research、Web/batch、生成contracts、materialize、frontendと完全local gateを実行する。fixture成功を実store検証・provider読取・本番切替成功と読み替えない。

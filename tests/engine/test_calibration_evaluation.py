@@ -17,8 +17,6 @@ from tests.helpers.calibration_store import (
     forward_row,
     panel_diagnostics,
     panel_row,
-    store_forward,
-    store_panel,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -61,6 +59,7 @@ from baibai_engine.screening.calibration.panel import (
     PanelRow,
     rules_content_hash,
 )
+from baibai_engine.screening.calibration.store import write_forward, write_panel
 from baibai_engine.screening.rule_config import ScreeningRules, load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.valuation.calibration.contracts import ErCalibrationContextArtifact
@@ -581,8 +580,8 @@ class EvaluateCohortsTest(unittest.TestCase):
                 errors = StringIO()
                 with TemporaryDirectory() as temp_dir, redirect_stderr(errors):
                     root = Path(temp_dir)
-                    store_panel(root, date(2025, 6, 30), panel, _panel_diagnostics())
-                    store_forward(root, date(2025, 6, 30), forwards)
+                    write_panel(root, date(2025, 6, 30), panel, _panel_diagnostics())
+                    write_forward(root, date(2025, 6, 30), forwards)
                     output_path = root / "evaluation.yaml"
 
                     exit_code = calibration_evaluate_command(
@@ -609,13 +608,13 @@ class EvaluateCohortsTest(unittest.TestCase):
         errors = StringIO()
         with TemporaryDirectory() as temp_dir, redirect_stderr(errors):
             root = Path(temp_dir)
-            store_panel(
+            write_panel(
                 root,
                 date(2025, 6, 30),
                 [_panel_row("1111")],
                 replace(_panel_diagnostics(), rules_hash=old_hash),
             )
-            store_forward(root, date(2025, 6, 30), [_forward_row("1111", 0.1)])
+            write_forward(root, date(2025, 6, 30), [_forward_row("1111", 0.1)])
             original = (root / "current.sqlite").read_bytes()
             output = root / "evaluation.yaml"
             code = calibration_evaluate_command(
@@ -635,8 +634,8 @@ class EvaluateCohortsTest(unittest.TestCase):
         with TemporaryDirectory() as temp_dir, redirect_stderr(errors):
             root = Path(temp_dir)
             diagnostics = replace(_panel_diagnostics(), panel_variant="unknown")  # type: ignore[arg-type]
-            store_panel(root, date(2025, 6, 30), [_panel_row("1111")], diagnostics)
-            store_forward(root, date(2025, 6, 30), [_forward_row("1111", 0.1)])
+            write_panel(root, date(2025, 6, 30), [_panel_row("1111")], diagnostics)
+            write_forward(root, date(2025, 6, 30), [_forward_row("1111", 0.1)])
 
             exit_code = calibration_evaluate_command(
                 calibration_dir=root,
@@ -651,8 +650,8 @@ class EvaluateCohortsTest(unittest.TestCase):
         errors = StringIO()
         with TemporaryDirectory() as temp_dir, redirect_stderr(errors):
             root = Path(temp_dir)
-            store_panel(root, date(2025, 6, 30), [_panel_row("1111")], _panel_diagnostics())
-            store_forward(root, date(2025, 6, 30), [_forward_row("1111", 0.1)])
+            write_panel(root, date(2025, 6, 30), [_panel_row("1111")], _panel_diagnostics())
+            write_forward(root, date(2025, 6, 30), [_forward_row("1111", 0.1)])
             with sqlite3.connect(root / "current.sqlite") as connection:
                 raw = connection.execute("SELECT diagnostics FROM cohort").fetchone()[0]
                 diagnostics = json.loads(raw)
@@ -675,16 +674,16 @@ class EvaluateCohortsTest(unittest.TestCase):
         errors = StringIO()
         with TemporaryDirectory() as temp_dir, redirect_stderr(errors):
             root = Path(temp_dir)
-            store_panel(root, date(2025, 6, 30), [_panel_row("1111")], _panel_diagnostics())
-            store_forward(root, date(2025, 6, 30), [_forward_row("1111", 0.1)])
+            write_panel(root, date(2025, 6, 30), [_panel_row("1111")], _panel_diagnostics())
+            write_forward(root, date(2025, 6, 30), [_forward_row("1111", 0.1)])
             later = date(2025, 7, 31)
-            store_panel(
+            write_panel(
                 root,
                 later,
                 [replace(_panel_row("2222"), asof=later.isoformat())],
                 replace(_panel_diagnostics(), asof=later.isoformat()),
             )
-            store_forward(root, later, [])
+            write_forward(root, later, [])
             with sqlite3.connect(root / "current.sqlite") as connection:
                 raw_diagnostics = connection.execute(
                     "SELECT diagnostics FROM cohort WHERE asof = ?", (later.isoformat(),)
@@ -1018,10 +1017,8 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         self.assertEqual(aggregate_interaction["no_change_n"], 50)
         self.assertEqual(aggregate_interaction["mean_median_excess_delta"], 0.4)
 
-    def test_er_ranked_virtual_replay_orders_by_er_within_screen_passers(self) -> None:
-        # screen 通過 20 銘柄に er_annual を 0.01..0.20 で与え、er と forward return を
-        # 逆相関にする → pure_er_top5 は er 上位 = 低リターン側を選ぶので
-        # pure_er_top5 と一致し、excess は選抜どおりの値になる。
+    def test_er_ranked_replay_is_independent_of_nomination_union(self) -> None:
+        # E[r] diagnostic uses the population; nomination membership only changes overlap.
         panel: list[PanelRow] = []
         forwards: list[ForwardReturnRow] = []
         n = 120
@@ -1046,10 +1043,18 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         median_excess = er_top5["median_excess"]
         assert isinstance(median_excess, float)
         self.assertLess(median_excess, 0.0)
-        # er_population は in_review_set に依らないが、er 順は同じ i=0..4。
-        pop_top5 = candidate_discovery["pure_er_top5"]
-        assert isinstance(pop_top5, dict)
-        self.assertEqual(pop_top5["median_excess"], er_top5["median_excess"])
+        changed = evaluate_cohorts(
+            {_ASOF: [replace(row, in_review_set=index >= 100) for index, row in enumerate(panel)]},
+            {_ASOF: forwards},
+            horizons=["6m"],
+        )["6m"]
+        self.assertEqual(changed["cohorts"][0]["candidate_discovery"]["pure_er_top5"], er_top5)
+        self.assertEqual(
+            changed["aggregate"]["candidate_discovery"]["nomination_union_vs_er_top5"][
+                "mean_overlap_n"
+            ],
+            0.0,
+        )
         aggregate = horizon["aggregate"]["candidate_discovery"]
         self.assertEqual(aggregate["nomination_union_vs_er_top5"]["cohorts"], 1)
         self.assertEqual(aggregate["nomination_union_vs_er_top5"]["mean_overlap_n"], 5.0)
@@ -1431,11 +1436,10 @@ class MarginSizeNormalizationTest(unittest.TestCase):
             )
         return exit_code, errors.getvalue()
 
-    def test_an_unregistered_required_metric_is_named_rather_than_blamed_on_the_core_three(
+    def test_an_unregistered_required_metric_is_named_with_required_metrics_present(
         self,
     ) -> None:
-        # This operator passed all three core metrics, so telling them to add the
-        # core three names nothing they can act on.
+        # Required subject metrics are present; report the actual unknown metric.
         exit_code, message = self._rejected_metrics_message(
             [*ESTIMATOR_POLICY_MANDATORY_METRICS, "not_a_registered_metric"]
         )
@@ -1504,13 +1508,13 @@ class MarginSizeNormalizationTest(unittest.TestCase):
 
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            store_panel(
+            write_panel(
                 root,
                 date(2025, 6, 30),
                 tuple(panel),
                 _panel_diagnostics(),
             )
-            store_forward(
+            write_forward(
                 root,
                 date(2025, 6, 30),
                 forwards,
@@ -1588,7 +1592,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
     ) -> tuple[dict[str, int], dict[str, object]]:
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            store_panel(
+            write_panel(
                 root,
                 date(2025, 6, 30),
                 tuple(panel),
@@ -1597,7 +1601,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
                     priced_master_without_universe_count=priced_master_without_universe_count,
                 ),
             )
-            store_forward(
+            write_forward(
                 root,
                 date(2025, 6, 30),
                 forwards,

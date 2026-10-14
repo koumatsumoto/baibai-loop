@@ -52,6 +52,7 @@ describe('有限調査と提案の表示', () => {
   })
   it('保有も評価の参照と発行提案の参照を独立表示し、本文を再保存しない', () => {
     const operation = session([target('1234', 'holding', { outcome_status: 'reviewed', assessment_ref: { assessment_id: 'stock-assessment-held', core_sha256: 'b'.repeat(64), review_id: 'assessment-review-held' } })])
+    operation.session_kind = 'position-review'
     operation.research!.request_scope = 'review_positions'
     operation.research!.proposal_id = 'investment-proposal-holding'
     const html = render(operation)

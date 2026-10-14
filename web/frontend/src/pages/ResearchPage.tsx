@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { fetchJson } from '../api/client'
+import { fetchProposalHistory } from '../api/proposal-history'
 import type { InvestmentProposalSummaryView, InvestmentProposalsView, DashboardView, OperationsView } from '../api/types'
 import { AsOfBadge } from '../components/AsOfBadge'
 import { UpdatedAtBadge } from '../components/UpdatedAtBadge'
@@ -30,9 +31,13 @@ export function ResearchPage() {
   const [error, setError] = useState<string | null>(null)
   const [operationError, setOperationError] = useState<string | null>(null)
   useEffect(() => {
-    fetchJson<InvestmentProposalsView>('/api/investment-proposals').then(setData).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : '提案を読み込めませんでした'))
+    const controller = new AbortController()
+    fetchProposalHistory(controller.signal)
+      .then(result => { if (!controller.signal.aborted) setData(result) })
+      .catch((reason: unknown) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '提案を読み込めませんでした') })
     fetchJson<DashboardView>('/api/dashboard').then(view => setNames(new Map(view.holdings.map(item => [item.ticker, item.company_name])))).catch(() => {})
     fetchJson<OperationsView>('/api/operations').then(setOperations).catch((reason: unknown) => setOperationError(reason instanceof Error ? reason.message : '調査進捗を読み込めませんでした'))
+    return () => controller.abort()
   }, [])
   if (!data && !error) return <LoadingPage label="提案を読み込んでいます" />
   return <PageShell above={<ResearchNav />} title="調査・提案" lead="完成した提案と、調査の進行を確認します。開始・再開は明示的に依頼し、採否と注文は人間が決めます。">

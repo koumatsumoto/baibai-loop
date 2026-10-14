@@ -74,7 +74,7 @@ Portfolio/Positionは確認済み取引と保有を所有し、Researchへ逆依
 | Portfolio/Position | Ledger、Reservation、Holding、Outcome | 人間確認済みbroker factを記録し、保有と資本を再構築 | application。Positionの事実記録・読取service。[Portfolio](./portfolio-management.md) |
 | Operation/task | Operation Session、調査進行、運用task | 明示開始・対象・成果・完了/未完了を記録 | application。`research/operation`と`tasks`のservice。AI完了を採用・約定に変換しない |
 
-L1/L2は定期処理へ、L3は明示開始へ分ける。新規と保有を区別し、合算最大三対象を開始時に固定する。0件・部分完了・未完了も記録し、弱い候補で枠を埋めず、一銘柄ずつ提案する。AIの完了、人間の採用、注文、約定は別の事実・状態である。成果物間の関係は[Decision flow](./domain-language.md#decision-flow)、開始・発行の条件は各skillが所有する。
+L1/L2は定期処理へ、L3は明示開始へ分ける。一つのOperationは新規または保有の単一scopeとし、保存capacityに従って開始時に対象を固定する。0件・部分完了・未完了も記録し、弱い候補で枠を埋めず、一銘柄ずつ提案する。AIの完了、人間の採用、注文、約定は別の事実・状態である。成果物間の関係は[Decision flow](./domain-language.md#decision-flow)、開始・発行の条件は各skillが所有する。
 
 <a id="store-authority"></a>
 

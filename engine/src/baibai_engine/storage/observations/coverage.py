@@ -6,7 +6,6 @@ import sqlite3
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from itertools import pairwise
-from typing import Any
 
 _DELETE_DATE_RANGE_SQL = {
     ("jquants_daily_bars", "traded_at"): (
@@ -363,7 +362,6 @@ def record_source_coverage(
     error: str | None = None,
     fetched_at_utc: str | None = None,
     replace: bool = True,
-    **_: Any,
 ) -> None:
     """Record the minimal provider coverage needed for preflight checks."""
     conflict_action = "REPLACE" if replace else "IGNORE"

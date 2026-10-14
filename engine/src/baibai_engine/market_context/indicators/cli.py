@@ -143,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     except IndicatorsSchemaError as exc:
         print(
-            f"error: {exc}; remove the local indicators cache and retry if it is disposable",
+            f"error: {exc}; follow batch/OPERATIONS.md store-identity-recovery before retrying",
             file=sys.stderr,
         )
         return 1

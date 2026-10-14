@@ -604,7 +604,6 @@ def main(argv: list[str] | None = None) -> int:
     providers = ProviderBundle(
         jquants=JQuantsProvider(
             config.jquants_api_key,
-            config.cache_dir,
             sqlite_path=sqlite_path,
             cache_only=args.command == "run",
         ),
@@ -619,7 +618,6 @@ def main(argv: list[str] | None = None) -> int:
             else None
         ),
         jpx=JPXProvider(
-            config.cache_dir,
             regulation_urls=JPX_REGULATION_URLS,
             sqlite_path=sqlite_path,
             cache_only=args.command == "run",

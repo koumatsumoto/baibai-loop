@@ -119,9 +119,7 @@ class MarginPublicationReadThroughTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             client = _MarginRecordingClient()
-            provider = JQuantsProvider(
-                "token", Path(tmp) / "raw", client=client, sqlite_path=sqlite_path
-            )
+            provider = JQuantsProvider("token", client=client, sqlite_path=sqlite_path)
 
             rows = provider.get_mkt_margin_alert_range(date(2026, 8, 10), date(2026, 8, 10))
 
@@ -133,9 +131,7 @@ class MarginPublicationReadThroughTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             client = _MarginRecordingClient()
-            provider = JQuantsProvider(
-                "token", Path(tmp) / "raw", client=client, sqlite_path=sqlite_path
-            )
+            provider = JQuantsProvider("token", client=client, sqlite_path=sqlite_path)
 
             rows = provider.get_mkt_all_issues_daily_margin(date(2026, 9, 25))
             with self.assertRaisesRegex(ValueError, "legacy weekly series"):
@@ -194,7 +190,6 @@ def _insert_daily_bars(
 class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
     def test_get_eq_master_uses_sqlite_when_available(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             asof = date(2026, 5, 7)
             records = make_master_records(asof)
@@ -202,7 +197,7 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             store_jquants_master(sqlite_path, records, requested_asof=asof)
 
             client = _RecordingClient()
-            provider = JQuantsProvider("token", cache_dir, client=client, sqlite_path=sqlite_path)
+            provider = JQuantsProvider("token", client=client, sqlite_path=sqlite_path)
 
             masters = provider.get_eq_master(asof)
 
@@ -212,14 +207,13 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
 
     def test_get_eq_master_falls_back_to_api_when_sqlite_empty(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             conn = open_connection(sqlite_path)
             conn.commit()
             conn.close()
 
             client = _RecordingClient()
-            provider = JQuantsProvider("token", cache_dir, client=client, sqlite_path=sqlite_path)
+            provider = JQuantsProvider("token", client=client, sqlite_path=sqlite_path)
 
             asof = date(2026, 5, 7)
             masters = provider.get_eq_master(asof)
@@ -229,7 +223,6 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
 
     def test_get_bars_uses_sqlite_for_covered_range(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             conn = open_connection(sqlite_path)
             # Dense bars across the whole window: coverage is derived from the
@@ -246,7 +239,7 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             conn.close()
 
             client = _RecordingClient()
-            provider = JQuantsProvider("token", cache_dir, client=client, sqlite_path=sqlite_path)
+            provider = JQuantsProvider("token", client=client, sqlite_path=sqlite_path)
 
             bars = provider.get_eq_bars_daily_range(date(2024, 3, 19), date(2024, 4, 18))
 
@@ -256,7 +249,6 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
 
     def test_get_fin_summaries_uses_persisted_chunk_without_refetch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             disclosed = date(2024, 4, 18)
             store_jquants_fin_summaries(
@@ -267,7 +259,7 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             )
 
             client = _RecordingClient()
-            provider = JQuantsProvider("token", cache_dir, client=client, sqlite_path=sqlite_path)
+            provider = JQuantsProvider("token", client=client, sqlite_path=sqlite_path)
 
             summaries = provider.get_fin_summary_range(disclosed, disclosed)
 
@@ -276,7 +268,6 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
 
     def test_normalized_profit_inputs_read_only_fy_rows_and_split_events(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             start = date(2021, 1, 1)
             end = date(2024, 4, 18)
@@ -315,7 +306,7 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             conn.close()
 
             client = _RecordingClient()
-            provider = JQuantsProvider("token", cache_dir, client=client, sqlite_path=sqlite_path)
+            provider = JQuantsProvider("token", client=client, sqlite_path=sqlite_path)
 
             split_bars = provider.get_adjustment_factor_bars_range(start, end)
             fy_summaries = provider.get_fy_summary_range(start, end)
@@ -334,7 +325,6 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
         fetch-capable run must still pull the new days through the asof so a
         weekly/daily bootstrap does not silently skip the latest trading day."""
         with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             conn = open_connection(sqlite_path)
             _insert_daily_bars(conn, [("2024-04-01", "2024-04-15")])
@@ -342,7 +332,7 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             conn.close()
 
             client = _RecordingClient()
-            provider = JQuantsProvider("token", cache_dir, client=client, sqlite_path=sqlite_path)
+            provider = JQuantsProvider("token", client=client, sqlite_path=sqlite_path)
 
             provider.get_eq_bars_daily_range(date(2024, 4, 1), date(2024, 4, 18))
 
@@ -360,7 +350,6 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
         fetch. Reading it live would delete and rewrite that cross-section on every
         pass, and a provider that answered with nothing would erase it."""
         with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             conn = open_connection(sqlite_path)
             _insert_daily_bars(conn, [("2024-04-01", "2024-04-15"), ("2024-06-03", "2024-06-14")])
@@ -368,7 +357,7 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             conn.close()
 
             client = _RecordingClient()
-            provider = JQuantsProvider("token", cache_dir, client=client, sqlite_path=sqlite_path)
+            provider = JQuantsProvider("token", client=client, sqlite_path=sqlite_path)
 
             bars = provider.get_eq_bars_daily_range(date(2024, 4, 1), date(2024, 4, 18))
 
@@ -379,7 +368,6 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
         """A cache-only screening run trusts the validated coverage and never
         fetches, even when the cached tail is a few days behind the asof."""
         with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             conn = open_connection(sqlite_path)
             _insert_daily_bars(conn, [("2024-04-01", "2024-04-15")])
@@ -388,7 +376,7 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
 
             client = _RecordingClient()
             provider = JQuantsProvider(
-                "token", cache_dir, client=client, sqlite_path=sqlite_path, cache_only=True
+                "token", client=client, sqlite_path=sqlite_path, cache_only=True
             )
 
             bars = provider.get_eq_bars_daily_range(date(2024, 4, 1), date(2024, 4, 18))
@@ -398,7 +386,6 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
 
     def test_get_bars_falls_back_when_range_not_covered(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             conn = open_connection(sqlite_path)
             _add_source_coverage(
@@ -412,16 +399,15 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             conn.close()
 
             client = _RecordingClient()
-            provider = JQuantsProvider("token", cache_dir, client=client, sqlite_path=sqlite_path)
+            provider = JQuantsProvider("token", client=client, sqlite_path=sqlite_path)
 
-            # Range starts before imported window, so fall through to API/JSON.
+            # Range starts before imported window, so fall through to API.
             provider.get_eq_bars_daily_range(date(2024, 3, 19), date(2024, 4, 5))
 
             self.assertGreater(len(client.bars_calls), 0)
 
     def test_cache_only_raises_when_bars_range_not_covered(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             conn = open_connection(sqlite_path)
             _add_source_coverage(
@@ -437,7 +423,6 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             client = _RecordingClient()
             provider = JQuantsProvider(
                 "token",
-                cache_dir,
                 client=client,
                 sqlite_path=sqlite_path,
                 cache_only=True,
@@ -450,7 +435,6 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
 
     def test_get_bars_falls_back_when_imported_chunks_have_gap(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             conn = open_connection(sqlite_path)
             # Dense at both ends but a hole in the middle wider than any market
@@ -483,7 +467,7 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             conn.close()
 
             client = _RecordingClient()
-            provider = JQuantsProvider("token", cache_dir, client=client, sqlite_path=sqlite_path)
+            provider = JQuantsProvider("token", client=client, sqlite_path=sqlite_path)
 
             provider.get_eq_bars_daily_range(date(2024, 3, 19), date(2024, 4, 18))
 
@@ -491,7 +475,6 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
 
     def test_get_bars_fetches_only_missing_sqlite_chunks(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             # Dense bars for the first chunk so the data-derived check recognizes
             # it as covered and the provider only fetches the later chunks.
@@ -510,7 +493,7 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             )
 
             client = _RecordingClient()
-            provider = JQuantsProvider("token", cache_dir, client=client, sqlite_path=sqlite_path)
+            provider = JQuantsProvider("token", client=client, sqlite_path=sqlite_path)
 
             with patch("baibai_engine.market.providers.jquants.time.sleep") as sleep:
                 bars = provider.get_eq_bars_daily_range(date(2024, 3, 19), date(2024, 5, 20))
@@ -584,9 +567,7 @@ class FinSummaryFetchWindowTests(unittest.TestCase):
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             self._seed_coverage(sqlite_path, windows)
             client = _FinRecordingClient()
-            provider = JQuantsProvider(
-                "token", Path(tmp) / "raw", client=client, sqlite_path=sqlite_path
-            )
+            provider = JQuantsProvider("token", client=client, sqlite_path=sqlite_path)
             with patch("baibai_engine.market.providers.jquants.time.sleep"):
                 provider.get_fin_summary_range(self._START, self._END)
             return client.fin_calls
@@ -678,9 +659,7 @@ class FinSummaryFetchWindowTests(unittest.TestCase):
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             self._seed_coverage(sqlite_path, windows)
             client = _FinRecordingClient()
-            provider = JQuantsProvider(
-                "token", Path(tmp) / "raw", client=client, sqlite_path=sqlite_path
-            )
+            provider = JQuantsProvider("token", client=client, sqlite_path=sqlite_path)
             with patch("baibai_engine.market.providers.jquants.time.sleep"):
                 provider.refresh_fin_summary_range(
                     self._START, self._END, revision_overlap_days=overlap
@@ -734,7 +713,7 @@ class FinSummaryFetchWindowTests(unittest.TestCase):
                 ],
             )
             provider = JQuantsProvider(
-                "token", Path(tmp) / "raw", client=_FinRecordingClient(), sqlite_path=sqlite_path
+                "token", client=_FinRecordingClient(), sqlite_path=sqlite_path
             )
 
             with patch("baibai_engine.market.providers.jquants.time.sleep") as sleep:
@@ -806,9 +785,7 @@ class FinSummaryFetchWindowTests(unittest.TestCase):
                 ((first_repair, first_repair), (second_repair, second_repair)),
             )
             client = _FailingSecondRepairClient()
-            provider = JQuantsProvider(
-                "token", Path(tmp) / "raw", client=client, sqlite_path=sqlite_path
-            )
+            provider = JQuantsProvider("token", client=client, sqlite_path=sqlite_path)
             progress: list[tuple[int, int, date, date]] = []
 
             with (
@@ -863,9 +840,7 @@ class FinSummaryFetchWindowTests(unittest.TestCase):
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             open_connection(sqlite_path).close()
             client = _FinRecordingClient()
-            provider = JQuantsProvider(
-                "token", Path(tmp) / "raw", client=client, sqlite_path=sqlite_path
-            )
+            provider = JQuantsProvider("token", client=client, sqlite_path=sqlite_path)
 
             with patch("baibai_engine.market.providers.jquants.time.sleep"):
                 provider.refresh_fin_summary_range(self._START, self._END, revision_overlap_days=7)
@@ -902,9 +877,7 @@ class CachedRangeInspectionCostTests(unittest.TestCase):
     def test_ensuring_a_covered_bar_range_builds_no_bars(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = self._covered_bar_store(tmp)
-            provider = JQuantsProvider(
-                "token", Path(tmp) / "raw", client=_RecordingClient(), sqlite_path=sqlite_path
-            )
+            provider = JQuantsProvider("token", client=_RecordingClient(), sqlite_path=sqlite_path)
 
             with patch(
                 "baibai_engine.market.providers.jquants.read_daily_bars", side_effect=AssertionError
@@ -916,9 +889,7 @@ class CachedRangeInspectionCostTests(unittest.TestCase):
     def test_skipping_cached_bar_chunks_builds_no_bars(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = self._covered_bar_store(tmp)
-            provider = JQuantsProvider(
-                "token", Path(tmp) / "raw", client=_RecordingClient(), sqlite_path=sqlite_path
-            )
+            provider = JQuantsProvider("token", client=_RecordingClient(), sqlite_path=sqlite_path)
 
             with (
                 patch(
@@ -941,7 +912,7 @@ class CachedRangeInspectionCostTests(unittest.TestCase):
                 requested_end=date(2024, 4, 30),
             )
             provider = JQuantsProvider(
-                "token", Path(tmp) / "raw", client=_FinRecordingClient(), sqlite_path=sqlite_path
+                "token", client=_FinRecordingClient(), sqlite_path=sqlite_path
             )
 
             with (
@@ -958,14 +929,13 @@ class CachedRangeInspectionCostTests(unittest.TestCase):
 
 class JQuantsProviderMiscTests(unittest.TestCase):
     def test_provider_works_when_sqlite_path_is_none(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            client = _RecordingClient()
-            provider = JQuantsProvider("token", Path(tmp), client=client)
+        client = _RecordingClient()
+        provider = JQuantsProvider("token", client=client)
 
-            masters = provider.get_eq_master(date(2026, 5, 7))
+        masters = provider.get_eq_master(date(2026, 5, 7))
 
-            self.assertEqual(client.eq_master_calls, ["2026-05-07"])
-            self.assertEqual(masters[0].name, "API_FALLBACK_NAME")
+        self.assertEqual(client.eq_master_calls, ["2026-05-07"])
+        self.assertEqual(masters[0].name, "API_FALLBACK_NAME")
 
 
 if __name__ == "__main__":  # pragma: no cover
@@ -987,7 +957,7 @@ def test_later_financial_http_failure_retains_validated_earlier_chunk(tmp_path: 
 
     client = FailingSecondChunkClient()
     database = tmp_path / "market.sqlite"
-    provider = JQuantsProvider("fixture", tmp_path, client=client, sqlite_path=database)
+    provider = JQuantsProvider("fixture", client=client, sqlite_path=database)
     provider._INTER_CHUNK_SLEEP_SECONDS = 0
     with pytest.raises(JQuantsProviderError):
         provider.refresh_fin_summary_range(

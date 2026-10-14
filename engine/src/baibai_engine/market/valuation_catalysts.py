@@ -1,4 +1,4 @@
-"""Produce point-in-time TSE policy and EDINET filing context for Research Triage.
+"""Produce point-in-time TSE policy and EDINET filing context for Stock Analysis.
 
 The context is a fact-layer annotation and never affects ranking, E[r], or a gate.
 Filing absence is reported only when identity coverage proves the whole lookback window.
@@ -24,7 +24,7 @@ from baibai_engine.storage.observations.schema import connect_current, open_conn
 TSE_CAPITAL_POLICY_URL = "https://www.jpx.co.jp/equities/follow-up/jr4eth0000004vj2-att/list.xlsx"
 
 # Six months of filings. A large-holding position or a tender offer older than that is
-# no longer the "recent" context the research_triage reader is asking about, and the window
+# no longer the "recent" context the Stock Analysis reader is asking about, and the window
 # has to be short enough that the identity coverage behind it is provable.
 FILING_LOOKBACK_DAYS = 183
 
@@ -234,7 +234,7 @@ def read_valuation_catalyst_contexts(
 ) -> dict[str, ValuationCatalystContext]:
     """Read point-in-time policy state and recent target-company filings.
 
-    Never affects rank: the caller copies these into the Security Analysis payload only.
+    Never affects rank: the caller copies these into the Stock Analysis payload only.
     """
     requested = sorted({normalize_ticker(ticker) for ticker in tickers})
     if not requested:

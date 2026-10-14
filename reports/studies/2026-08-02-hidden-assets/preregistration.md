@@ -2,7 +2,7 @@
 title: "投資有価証券による資産バリュー軸の事前登録"
 summary: "EDINETの投資有価証券簿価とnet cashを使うasset-backed ratioを、PBR統制と還元変化との交互作用で評価する。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-02
 ---
 

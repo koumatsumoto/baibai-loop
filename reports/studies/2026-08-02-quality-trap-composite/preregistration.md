@@ -2,7 +2,7 @@
 title: "質・トラップ複合軸の事前登録"
 summary: "E[r] 上位帯を F-score 型の充足本数で層別し、1y/3y の trap と excess を計測する事前登録。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-02
 ---
 

@@ -19,7 +19,7 @@ from pathlib import Path
 
 from baibai_engine.foundation.filesystem import write_bytes_atomic
 from baibai_engine.storage.lake.identity import verified_git_commit
-from baibai_engine.storage.lake.objects import sha256_file
+from baibai_engine.storage.lake.sources import sha256_file
 from baibai_engine.storage.lake.writer import LakeExportReport, export_lake_legacy
 from baibai_engine.storage.observations.lake_origin import read_lake_store_origin
 from baibai_engine.storage.observations.snapshot import create_snapshot

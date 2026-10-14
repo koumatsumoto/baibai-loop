@@ -33,9 +33,8 @@ from baibai_engine.storage.observations.readiness import unreadable_store_reason
 class EdinetExtractionSource(Protocol):
     """The two provider calls the extraction makes.
 
-    Narrower than the CLI's shared `EDINETAdapter` on purpose: naming that one here
-    would pull the whole adapter bundle — and with it J-Quants and JPX — into the
-    revision manifest.
+    抽出に必要なEDINET操作だけを定義し、CLIのprovider集合や
+    J-Quants・JPXへの依存を持ち込まない。
     """
 
     def list_documents(self, on_date: date) -> list[dict[str, Any]]: ...

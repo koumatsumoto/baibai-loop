@@ -118,10 +118,8 @@ class _EarningsForecast:
 
 def _resolve_earnings_forecast(
     summaries: Sequence[JQuantsFinancialSummary],
-    latest_actual: JQuantsFinancialSummary | None,
 ) -> _EarningsForecast | None:
     """Resolve an independent earnings stream from projected source documents."""
-    del latest_actual
     source = latest_forecast_source(summaries)
     if source is None:
         return None

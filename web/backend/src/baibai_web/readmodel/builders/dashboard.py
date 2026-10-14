@@ -39,14 +39,12 @@ def build_dashboard(
     latest_research = latest_research_by_ticker(revisions)
     latest_run = screening.latest_run()
     security_names = security_names_for_run(latest_run)
-    research_load_errors = research.load_errors()
 
     if not ledger.exists():
         return _empty_dashboard(
             generated_at=now,
             ledger_exists=False,
             ledger_error=None,
-            research_load_errors=research_load_errors,
         )
     try:
         snapshot = ledger.snapshot()
@@ -55,7 +53,6 @@ def build_dashboard(
             generated_at=now,
             ledger_exists=True,
             ledger_error=str(error),
-            research_load_errors=research_load_errors,
         )
 
     holding_tickers = [holding.ticker for holding in snapshot.holdings]
@@ -133,7 +130,6 @@ def build_dashboard(
         holdings=holdings,
         reservations=reservations,
         warnings=warnings,
-        research_load_errors=research_load_errors,
     )
 
 
@@ -142,7 +138,6 @@ def _empty_dashboard(
     generated_at: datetime,
     ledger_exists: bool,
     ledger_error: str | None,
-    research_load_errors: list[str],
 ) -> DashboardView:
     return DashboardView(
         generated_at=generated_at,
@@ -164,5 +159,4 @@ def _empty_dashboard(
         holdings=[],
         reservations=[],
         warnings=[],
-        research_load_errors=research_load_errors,
     )

@@ -1,4 +1,4 @@
-"""Original XBRL download, isolated from the screening metric revision closure."""
+"""Research用の原典XBRL取得。metric抽出と別の意味revisionで管理する。"""
 
 from __future__ import annotations
 

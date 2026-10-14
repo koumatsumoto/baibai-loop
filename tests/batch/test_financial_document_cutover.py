@@ -22,9 +22,10 @@ from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.hydrate import hydrate_market_store
 from baibai_engine.storage.lake.keys import current_l1_pointer_key
 from baibai_engine.storage.lake.models import SQLiteSnapshotSourceRef, canonical_lake_model_bytes
-from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource, sha256_file
+from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
 from baibai_engine.storage.lake.reader import resolve_release
 from baibai_engine.storage.lake.release import L1ReleasePointer, create_l1_release
+from baibai_engine.storage.lake.sources import sha256_file
 from baibai_engine.storage.observations.coverage import record_source_coverage
 from baibai_engine.storage.observations.lake_origin import (
     LakeStoreOrigin,
@@ -71,15 +72,11 @@ def old_store(path: Path) -> Path:
     record_source_coverage(
         conn,
         source=cutover.TABLE,
-        operation="get_fin_summary_range",
         coverage_key="get_fin_summary_range:2026-08-10..2026-09-14",
         coverage_start="2026-08-10",
         coverage_end="2026-09-14",
-        requested_start="2026-08-10",
-        requested_end="2026-09-14",
         record_count=3,
         status="ok",
-        params={},
     )
     conn.execute("PRAGMA user_version=31")
     conn.commit()

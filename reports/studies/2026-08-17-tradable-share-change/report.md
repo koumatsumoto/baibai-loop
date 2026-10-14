@@ -2,7 +2,7 @@
 title: "carry の株数項を自己株控除後で測り直す — 計測記録"
 summary: "自己株控除後の株数変化は rank IC が全窓で旧軸に劣り、優位である分位差は design と confirm で符号が反転する。H3（現行維持）とし fact だけ panel に残す。"
 doc_type: measurement-record
-status: active
+status: historical
 date: 2026-08-17
 ---
 

@@ -2,7 +2,7 @@
 title: "会社予想改定・複数期加速レーンの事前登録"
 summary: "同一期の上方改定と同一fiscal periodのmargin加速を全流動性母集団で順位化し、core外候補の長期増分を固定条件で判定する。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-10
 ---
 

@@ -19,7 +19,10 @@ from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 
 # 配当・株数の基準はValuationのcarryと同じにする。較正と本番が異なる量を扱わないよう、
 # 規約の定数は計算を所有するValuationから読み、ここへ重複定義しない。
-from baibai_engine.valuation.metrics.capital import SHARE_COUNT_ANCHOR_TOLERANCE
+from baibai_engine.valuation.metrics.capital import (
+    SHARE_COUNT_ANCHOR_TOLERANCE,
+    _cumulative_adjustment_factor_after,
+)
 from baibai_engine.valuation.metrics.dividends import (
     DIVIDEND_RECORD_DATE_GUARD_DAYS,
     DIVIDEND_ROUTE_TOLERANCE,
@@ -851,24 +854,6 @@ def _per_share_denominator(observation: _FYDividendObservation) -> float | None:
     if not 1 / SHARE_COUNT_ANCHOR_TOLERANCE <= ratio <= SHARE_COUNT_ANCHOR_TOLERANCE:
         return None
     return remaining
-
-
-def _cumulative_adjustment_factor_after(
-    bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
-    *,
-    after: date,
-    asof_date: date,
-) -> float:
-    """Match per-share facts to the final share basis used by asof_basis_closes."""
-    factor = 1.0
-    for bar in bars:
-        if bar.traded_at <= after or bar.traded_at > asof_date:
-            continue
-        if bar.adjustment_factor in (None, 0.0, 1.0):
-            continue
-        assert bar.adjustment_factor is not None
-        factor *= bar.adjustment_factor
-    return factor
 
 
 def latest_market_data_date(sqlite_path: Path) -> date | None:

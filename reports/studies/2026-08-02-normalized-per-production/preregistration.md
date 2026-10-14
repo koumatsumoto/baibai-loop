@@ -2,7 +2,7 @@
 title: "3 FY正規化PERのproduction判断面に関する事前登録"
 summary: "正規化PERのraw annotationとsector FV anchor replayを分離し、固定3y/5y authorityで採否する。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-02
 ---
 

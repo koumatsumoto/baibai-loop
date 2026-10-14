@@ -60,7 +60,7 @@ FORMULAS: Mapping[str, DerivedFormula] = {
     "us.net_liquidity": DerivedFormula(
         inputs=("us.fed_assets", "us.reverse_repo", "us.tga"),
         unit="usd-billion",
-        compute=lambda v: (v["us.fed_assets"] - v["us.reverse_repo"] - v["us.tga"]) / 1000.0,
+        compute=lambda v: (v["us.fed_assets"] - v["us.tga"]) / 1000.0 - v["us.reverse_repo"],
         plausible_min=50.0,
         plausible_max=100000.0,
     ),
@@ -82,8 +82,8 @@ FORMULAS: Mapping[str, DerivedFormula] = {
     ),
     # A 2-year yield is the market's price for the next two years of policy, so its
     # distance from the policy rate is how much easing or tightening is already paid
-    # for. The repository holds no consensus forecast — the licences do not allow one —
-    # and this spread is the closest thing the store can build from its own facts.
+    # for. This spread describes the two stored rates; it is not a consensus
+    # forecast or a probability of a policy decision.
     "us.policy_path_gap": DerivedFormula(
         # Against the midpoint of the target range, not its ceiling: the sign of this
         # spread is what carries the meaning, and measuring from the ceiling shifts the

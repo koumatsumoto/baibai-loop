@@ -206,8 +206,8 @@ batch/scripts/publish.sh
 このscriptは取得ETagの一致を確認し、backupのsource条件とPUTの`If-Match`で競合を止めて`baibai.sqlite`のconsistent snapshotだけをstoresへ送り、`cloud-materialize`をdispatchする。servingへの直接writeは行わない。PUT応答のETagを次の更新基準へ保存する。未知世代ではuploadせず停止し、現在のHEADだけで取得世代を補わない。
 
 **成功確認**: `publish.sh`とdispatchされた`cloud-materialize`が成功し、表示のas-ofと対象judgmentのIDを確認する。
-Screeningの候補は表示中のrun/候補に束縛され、保存済みCAAは別の提案記録として読む。
-公開済みCAAの反映は、そのimmutable IDのAssessment詳細と参照先Thesisで確認する。
+Screeningの候補は表示中のrun/候補に束縛され、保存済みInvestment Proposalは別の提案記録として読む。
+公開済みProposalの反映は、そのimmutable IDの提案詳細と参照先Stock Assessment・Assessment Reviewで確認する。
 後発runによる最新候補の変化だけで既存Operationの選定・固定入力を付け替えない。
 後発分析からResearchを進める場合は、完了済みmachine bundleを取得してResearchの通常手順で扱う。
 
@@ -216,8 +216,9 @@ schemaを一致させてから再実行する。application更新の表示には
 
 application DBはcurrent schemaだけを開き、materializeは取得済みコピーをread-onlyで読む。schemaを上げるPRは、
 source versionを限定したtemporary one-shot toolとexact commandを用意し、main merge後のattended cutover・検証・
-cloud反映が終わるまで保持する。完了証拠を残してから同じdeliveryのcleanupで削除する。現在のtreeに汎用cutover
-commandはないため、version不一致を見つけたoperatorは手書きSQLで進めず、schema変更issueへtoolを再構築する。
+cloud反映が終わるまで保持する。完了証拠を残してから同じdeliveryのcleanupで削除する。
+Research domainの今回の切替は[一回移行手順](../docs/reference/analysis-operations.md#統合時の一回移行)に従う。
+対象外のsource versionでは手書きSQLや汎用移行へ進まず、schema変更issueで専用toolと検証を用意する。
 
 ### application DB を復元する
 
@@ -641,7 +642,7 @@ read -r -p '対象日 YYYY-MM-DD: ' asof &&
 | --- | --- |
 | 0 | 全views export完了。非営業日はScreeningだけskipし、指標更新・exportを行う |
 | 1 | store検査/export等の致命的失敗。今回の結果を公開へ進めない |
-| 3 | 全views export完了だが、Screening取得/計算、指標refresh、prune等で失敗。新Screeningの有無は両IDとscreening_statusで確認 |
+| 3 | 全views export完了だが、Screening取得/計算、指標refresh、prune等で失敗。新Screeningの有無はrun_revision_idとscreening_statusで確認 |
 
 クラウド公開はこの後に既存L1 release、machine store、serving views、history/freshnessの順で一度進む。読み取り専用connectionの`PRAGMA data_version`でmarket storeのcommit変化を確認し、正常に読めるnoticeの明示的`market_updated=false`の時だけ既存L1 releaseを保持する。noticeの欠落・読取不能・不正JSON・field不正は詳細を含まないwarningで示し、既存L1公開経路へ進む。これは値のbyte比較ではなく、commit済みstore変更の検出である。Screening未更新なら`--skip-history`でhistoryを生成せず、workflowの新しい出力先にはhistoryを含めないため再uploadしない。run pruneも省き、旧値・ID・実計算時刻を保持する。local exportの有無を示す既存output名`published`を、R2公開成功と読み替えない。workflowが失敗しても一部反映が済んでいる場合がある。
 
@@ -665,7 +666,6 @@ label は5種。
 | label | 意味 |
 | --- | --- |
 | `[OK]` | batch exit 0、upload および lease release まで成功 |
-| `[SKIPPED]` | 全工程skipのnoticeを扱う既存label。通常dailyの日本休日は指標を公開するため`[OK]` |
 | `[DEGRADED]` | batch exit 3。全views export済みで、見出しに最初の失敗 stepを表示。Screening未更新の場合は保存済み結果の保持を明示 |
 | `[FAILED]` | batch の致命的失敗（見出しに batch 内の stage 名）、または lease 解放を含む batch 以外の step の失敗（見出しに step 名） |
 | `[CANCELLED]` | job が中断された（`timeout-minutes` 超過・手動 cancel） |
@@ -805,9 +805,9 @@ gh workflow run cloud-external-assessment.yml --ref main \
 
 公開後は今回専用のprivate mirrorから固定releaseの変更されたExternal Assessmentの年/月partitionを読み、原観測の全列と変更月内の既存・追加履歴digestを照合して`readback: verified`を記録する。新upload objectはpublisherがremoteから全bytesを読戻してSHAを検証し、その取得fileを固定releaseのSHA照合・型付き履歴検証にも使う。未取得の変更月objectはremoteから取得し、別runやexport元fileを流用しない。無変更partitionはmanifest object identityで確認する。同stageの再投入は追加row 0である。JST日付は元UTCから導出し、日跨ぎを単一日の全銘柄coverageとしない。公開失敗後は次回も最新正本をhydrateし、readback失敗を完了扱いしない。
 
-停止したbatchを確定済み観測だけで閉じるとoperatorが明示的に選ぶ場合は、同じ保存batch ID/master日付に`operation=publish_confirmed_partial`を指定する。この入口は取得jobを実行せず、保存planとtyped観測がなければ拒否する。最新正本のfresh hydrateと同じlease/readback契約で確定typedだけを公開し、欠落cohort・未記録pairを正常nullや確定失敗へ変えず、元stageを保持する。部分terminalは4状態件数・元JST受信日/source別typed件数を残し、全件完了と区別して同batchを閉じる。既存の旧5状態terminalも過去の検証済み証拠として認識するが、旧checkpointの追加取得には使わない。
+停止したbatchを確定済み観測だけで閉じるとoperatorが明示的に選ぶ場合は、同じ保存batch ID/master日付に`operation=publish_confirmed_partial`を指定する。この入口は取得jobを実行せず、保存planとtyped観測がなければ拒否する。最新正本のfresh hydrateと同じlease/readback契約で確定typedだけを公開し、欠落cohort・未記録pairを正常nullや確定失敗へ変えず、元stageを保持する。部分terminalは4状態件数・元JST受信日/source別typed件数を残し、全件完了と区別して同batchを閉じる。旧5状態terminalは現行readerでは受け付けない。過去の証拠は元revisionで確認し、現行checkpointへ読み替えない。
 
-完全/部分verified terminalの再実行はstage・DB・lease・L1を読み直さず、`previously_verified`・provider通信0・追加row 0を返す。過去の検証結果であり、今回の新公開や現在世代の再検証ではない。旧terminalの未知件数を0で補わない。
+完全/部分verified terminalの再実行はstage・DB・lease・L1を読み直さず、`previously_verified`・provider通信0・追加row 0を返す。過去の検証結果であり、今回の新公開や現在世代の再検証ではない。terminalに保存されていない集計値を0で補わない。
 
 終端`notify` jobは既存secret `DISCORD_WEBHOOK_URL`の宛先へrun単位で1件通知する。成功・既知失敗を含む公開・部分公開・以前の完全/部分公開・取得未完了・公開確認失敗・取消を区別し、確認済みの固定pair・typed・既知失敗・normalnull・未記録・追加row件数と実行linkを載せる。matrix失敗時や旧terminalの未知集計値は不明とし、通知用のR2読取は加えない。銘柄別値・HTML・private batch ID・認証情報・error本文は通知しない。配送失敗はsanitizedな理由をstderrへ残し、batch結果を変更しない。job成功だけで実配送済みとは判断せず、workflow履歴も確認する。
 

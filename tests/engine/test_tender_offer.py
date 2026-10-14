@@ -784,7 +784,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
             self.assertEqual(read_tender_offer_exit_values(sqlite_path), ())
 
     def test_an_empty_derivation_does_not_clear_values_already_established(self) -> None:
-        """The published copy cannot restore this table, so an empty run must not erase it."""
+        """空の導出結果で既存の確定したexit valueを消さない。"""
         with TemporaryDirectory() as tmp:
             sqlite_path = self._store(
                 tmp, self._registration_and_result(), reason="ＭＢＯ（公開買付け、株式併合）"

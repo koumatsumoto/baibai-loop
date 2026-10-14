@@ -52,7 +52,6 @@ def build_parser() -> argparse.ArgumentParser:
             "saved",
             "partial",
             "already_saved",
-            "non_trading_day",
             "skipped_historical_asof",
             "failure",
             "unknown",
@@ -64,7 +63,6 @@ def build_parser() -> argparse.ArgumentParser:
         choices=(
             "needs_fetch",
             "already_saved",
-            "non_trading_day",
             "before_close",
             "before_observation",
             "unknown",
@@ -106,9 +104,8 @@ def main(
         )
     elif (args.snapshot_status == "saved" and outcomes["publish-lake"] == "success") or (
         (args.eligible == "false" and outcomes["target"] == "success")
-        or args.preflight_status
-        in {"already_saved", "non_trading_day", "before_close", "before_observation"}
-        or args.snapshot_status in {"already_saved", "non_trading_day", "skipped_historical_asof"}
+        or args.preflight_status in {"already_saved", "before_close", "before_observation"}
+        or args.snapshot_status in {"already_saved", "skipped_historical_asof"}
     ):
         return 0
     else:

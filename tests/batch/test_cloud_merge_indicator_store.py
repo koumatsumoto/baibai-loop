@@ -648,17 +648,3 @@ def _inject_source_observation(path: Path, observation: ObservationRecord) -> No
         insert_observations(connection, [observation], deduplicate_unchanged=False)
         connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
         connection.commit()
-
-
-def _contract_trigger_sql(connection: sqlite3.Connection) -> tuple[str, ...]:
-    return tuple(
-        str(row[0])
-        for row in connection.execute(
-            "SELECT sql FROM sqlite_master WHERE type = 'trigger' "
-            "AND name IN ("
-            "'validate_observation_plausibility_before_insert', "
-            "'validate_observation_plausibility_before_update', "
-            "'validate_series_contract_before_update'"
-            ") ORDER BY name"
-        )
-    )

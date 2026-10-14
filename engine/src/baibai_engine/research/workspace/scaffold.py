@@ -233,8 +233,7 @@ def scaffold_review(
     The review author is a distinct role from the assessment author; this scaffold only
     lays out the recalculation slots and never produces the review conclusions. The
     bound ``reviewed_assessment_sha256`` is what lets ``promote`` detect a stale review.
-    The file lands under the stable name the assessment already references, so promote
-    resolves it without an intervening copy.
+    The file uses the stable assessment-review.yaml name that promote reads.
     """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
     gate = _verify_external_inputs(manifest, db_path=db_path)
@@ -287,7 +286,7 @@ def _enum_field_header(model: type[BaseModel]) -> str:
     """List the draft's closed-vocabulary fields and their allowed values.
 
     A scaffolded `null` carries no type, so a reviewer filling in `primary_source_check`
-    or `alternative_candidate_check` cannot tell a three-way verdict from free prose
+    cannot tell a three-way verdict from free prose
     until validation rejects the draft. The values are read off the model rather than
     written down, so a vocabulary change reaches the draft without a second edit.
     """

@@ -49,15 +49,6 @@ def _service(tmp_path: Path) -> tuple[LedgerStoreService, Path]:
             }
         ),
     )
-    # Final schema is coordinated with A/B; independent CAS tests create its table.
-    with sqlite3.connect(path) as connection:
-        connection.execute(
-            """CREATE TABLE IF NOT EXISTS position_decision_reference (
-                reference TEXT PRIMARY KEY, ticker TEXT NOT NULL, side TEXT NOT NULL,
-                origin TEXT NOT NULL, proposal_id TEXT, source_id TEXT NOT NULL,
-                source_digest TEXT
-            )"""
-        )
     return LedgerStoreService(path), path
 
 

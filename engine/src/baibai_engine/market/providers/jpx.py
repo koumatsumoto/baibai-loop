@@ -4,7 +4,7 @@ import csv
 import logging
 import re
 from collections.abc import Mapping, Sequence
-from datetime import date, datetime
+from datetime import date
 from html.parser import HTMLParser
 from io import BytesIO
 from pathlib import Path
@@ -14,8 +14,6 @@ import requests
 from pydantic import ConfigDict
 from pydantic.dataclasses import dataclass
 
-from baibai_engine.foundation.date_utils import weekday_distance
-from baibai_engine.foundation.time import JST
 from baibai_engine.market.jpx_models import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
@@ -27,8 +25,6 @@ from baibai_engine.market.ticker import normalize_ticker
 
 _JPX_ALLOWED_SCHEME = "https"
 _JPX_ALLOWED_HOST = "www.jpx.co.jp"
-_JPX_CACHE_SCHEMA_VERSION = 1
-_JPX_STALE_SNAPSHOT_BUSINESS_DAYS = 7
 _JPX_EXCEL_SUFFIXES = {".xls", ".xlsx"}
 JPX_EARNINGS_CALENDAR_INDEX_URL = (
     "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/index.html"
@@ -261,7 +257,6 @@ class JPXProvider:
 
     def __init__(
         self,
-        cache_dir: Path,
         regulation_urls: Mapping[str, str] | None = None,
         session: requests.Session | None = None,
         *,
@@ -269,7 +264,6 @@ class JPXProvider:
         cache_only: bool = False,
         allow_stale_snapshot: bool = False,
     ) -> None:
-        self._cache_dir = Path(cache_dir) / "jpx"
         self._session = session or requests.Session()
         self._regulation_urls = dict(regulation_urls or {})
         self._sqlite_path = Path(sqlite_path) if sqlite_path is not None else None
@@ -398,12 +392,7 @@ class JPXProvider:
 
             if has_jpx_regulation_data(self._sqlite_path, asof_date):
                 return True
-        if self._cache_only:
-            return False
         return False
-
-    def _regulation_cache_path(self, asof_date: date) -> Path:
-        return self._cache_dir / "regulations" / f"{asof_date.isoformat()}.json"
 
     def _raise_if_cache_only(self, source: str, requirement: str) -> None:
         if not self._cache_only:
@@ -414,24 +403,6 @@ class JPXProvider:
             f"sqlite={sqlite_label}. `screening run` is cache-only: bootstrap or repair "
             "SQLite before running screening."
         )
-
-    def _warn_if_stale_cache(self, asof_date: date, payload: Mapping[str, object]) -> None:
-        fetched_at_raw = payload.get("fetched_at_utc")
-        if not fetched_at_raw:
-            return
-        try:
-            fetched_at = datetime.fromisoformat(str(fetched_at_raw).replace("Z", "+00:00"))
-        except ValueError:
-            _LOGGER.warning("JPX regulation cache has invalid fetched_at_utc: %s", fetched_at_raw)
-            return
-        distance = weekday_distance(asof_date, fetched_at.astimezone(JST).date())
-        if distance > _JPX_STALE_SNAPSHOT_BUSINESS_DAYS:
-            _LOGGER.warning(
-                "JPX regulation cache may be stale: asof=%s fetched_at_utc=%s weekdays=%s",
-                asof_date.isoformat(),
-                fetched_at.isoformat(),
-                distance,
-            )
 
     def bootstrap_cache(self, asof_date: date) -> dict[str, int]:
         earnings = self.get_earnings_calendar_snapshot(asof_date)

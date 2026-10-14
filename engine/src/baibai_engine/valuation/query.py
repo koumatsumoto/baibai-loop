@@ -1,4 +1,4 @@
-"""保存済みSecurity Analysisの機械推計・CF文脈を投影する。再計算・選抜は行わない。"""
+"""保存済みStock Analysisの機械推計・CF文脈を投影する。再計算・選抜は行わない。"""
 
 from __future__ import annotations
 

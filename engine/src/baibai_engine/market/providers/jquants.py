@@ -106,14 +106,12 @@ class _JQuantsTransport:
     def __init__(
         self,
         api_key: str,
-        cache_dir: Path,
         client: Any | None = None,
         *,
         sqlite_path: Path | None = None,
         cache_only: bool = False,
     ) -> None:
         self._api_key = api_key
-        self._cache_dir = Path(cache_dir) / "jquants"
         self._client = client
         self._sqlite_path = Path(sqlite_path) if sqlite_path is not None else None
         self._cache_only = cache_only
@@ -402,8 +400,6 @@ class JQuantsProvider(_JQuantsTransport):
 
     def get_eq_master(self, requested_asof: date) -> list[SecurityMaster]:
         if self._sqlite_path is not None:
-            # Imported lazily to avoid a circular import: sqlite_reader pulls in
-            # this module's schema dataclasses to materialise rows.
             from baibai_engine.storage.observations.reader import read_eq_master_exact
 
             cached = read_eq_master_exact(self._sqlite_path, requested_asof)

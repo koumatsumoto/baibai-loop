@@ -11,7 +11,7 @@ status: active
 
 ## 明示開始と固定対象
 
-Operationが一回の依頼・選定・唯一の入力snapshotと成果を保持する。requestはtext/scope/指定集合を表し、identityはOperationが発行するresearch-op identityが所有する。対象の順序が実行順であり、容量は保存policyに従う。現在の上限を構造型や経済的資格と扱わない。scopeごとにnew/holdingを分け、既保有のnewを黙って保有見直しへ変換しない。
+Operationが一回の依頼・選定・唯一の入力snapshotと成果を保持する。requestはtext/scope/指定集合を表し、identityはOperationが発行するresearch-op identityが所有する。対象の順序が実行順であり、容量は保存policyに従う。現行policyは最大3対象で、定義は[`selection_policy.py`](../../engine/src/baibai_engine/research/selection_policy.py)が所有する。現在の上限を構造型や経済的資格と扱わない。scopeごとにnew/holdingを分け、既保有のnewを黙って保有見直しへ変換しない。
 
 新開始ではread-only contextを読みAIがdraftを作り、prepareでcanonical sourceと現在保有purposeを検証してsnapshotを一度commitする。snapshotには選択行のnull・field欠落をそのまま保持し、header identity不明を現在値で補完しない。機械分析の不足はInputGapで説明し、企業の否定と区別する。
 

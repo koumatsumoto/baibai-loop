@@ -308,14 +308,14 @@ def test_every_table_read_api_reads_exists_in_a_migrated_store(tmp_path: Path) -
 def test_read_rows_still_raises_for_a_broken_query(tmp_path: Path) -> None:
     store = tmp_path / "store.sqlite"
     with sqlite3.connect(store) as connection:
-        connection.execute("CREATE TABLE research_triage (payload TEXT)")
+        connection.execute("CREATE TABLE example_payload (payload TEXT)")
 
     with pytest.raises(sqlite3.OperationalError, match="no such table"):
         read_rows(store, "SELECT payload FROM absent_table")
     with pytest.raises(sqlite3.OperationalError, match="no such column"):
-        read_rows(store, "SELECT absent_column FROM research_triage")
+        read_rows(store, "SELECT absent_column FROM example_payload")
     with pytest.raises(sqlite3.OperationalError, match="syntax error"):
-        read_rows(store, "SELEKT payload FROM research_triage")
+        read_rows(store, "SELEKT payload FROM example_payload")
 
 
 def test_application_reader_rejects_an_obsolete_store_before_querying(tmp_path: Path) -> None:

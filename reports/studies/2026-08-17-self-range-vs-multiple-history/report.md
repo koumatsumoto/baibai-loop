@@ -2,7 +2,7 @@
 title: "自己レンジ anchor を真の倍率履歴と比べる — 計測記録"
 summary: "倍率履歴 anchor は 3y の両窓で rank IC を僅かに上回るが、配当層別 control の符号が窓で反転し、5y はこの store では構造的に測れない。H2（現行維持）とする。"
 doc_type: measurement-record
-status: active
+status: historical
 date: 2026-08-17
 ---
 

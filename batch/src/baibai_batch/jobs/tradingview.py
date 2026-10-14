@@ -203,7 +203,6 @@ def run_local(state_file: Path, *, batch_size: int = 50, interval: float = 15.0)
                         "saved",
                         "partial",
                         "already_saved",
-                        "non_trading_day",
                         "skipped_historical_asof",
                     },
                 )

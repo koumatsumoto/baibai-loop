@@ -8,7 +8,6 @@ import pytest
 from tests.helpers.assessment_v1 import (
     NOW,
     assessment_id,
-    create_assessment_tables,
     pair_payload,
     review_id,
     update_review_hash,
@@ -27,6 +26,7 @@ from baibai_engine.research.assessment_store import (
     load_reviewed_assessment,
     publish_reviewed_assessment,
 )
+from baibai_engine.storage.application.schema import SCHEMA_SQL
 from baibai_engine.valuation.scenario import maximum_entry_price, project_return
 
 
@@ -52,7 +52,7 @@ def prior(connection):
 def connection():
     with sqlite3.connect(":memory:") as connection:
         connection.execute("PRAGMA foreign_keys = ON")
-        create_assessment_tables(connection)
+        connection.executescript(SCHEMA_SQL)
         yield connection
 
 
