@@ -15,7 +15,6 @@ from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
 from baibai_engine.position.market_source import read_unadjusted_close
 from baibai_engine.research.assessment import (
-    AssessmentError,
     AssessmentReview,
     assessment_core_hash,
     load_assessment,
@@ -248,7 +247,8 @@ def scaffold_review(
             f"assessment draft not found for {ticker}: {assessment_path}"
         )
 
-    core_hash = _assessment_core_hash_if_valid(assessment_path)
+    assessment = load_assessment(assessment_path)
+    core_hash = assessment_core_hash(assessment)
     review_path = _review_draft_path(workspace, ticker)
     if review_path.exists() and not force:
         raise ResearchWorkspaceConflictError(
@@ -271,7 +271,7 @@ def scaffold_review(
             }
             for name in ("base", "downside")
         ]
-        if load_assessment(assessment_path).valuation.status == "resolved"
+        if assessment.valuation.status == "resolved"
         else [],
         "strongest_countercase": None,
         "nonmaterial_unknown_reason": None,
@@ -299,13 +299,3 @@ def _enum_field_header(model: type[BaseModel]) -> str:
             continue
         lines.append(f"# - {name}: {' | '.join(str(choice) for choice in choices)}\n")
     return "".join(lines)
-
-
-def _assessment_core_hash_if_valid(assessment_path: Path) -> str | None:
-    # A fully-filled draft hashes to its core; an incomplete draft cannot be hashed
-    # yet, so the review is bound once the assessment is complete.
-    try:
-        document = load_assessment(assessment_path)
-    except AssessmentError:
-        return None
-    return assessment_core_hash(document)

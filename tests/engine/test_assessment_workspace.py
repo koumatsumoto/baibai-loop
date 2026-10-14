@@ -146,11 +146,19 @@ def test_nonfinite_or_boolean_cached_price_does_not_create_draft(case, monkeypat
     assert not (case[1] / "1234").exists()
 
 
-def test_review_scaffold_has_exact_hash_new_uuid_and_independent_empty_slots(case):
+def test_review_scaffold_has_exact_hash_new_uuid_and_independent_empty_slots(case, monkeypatch):
     db, workspace, _ = case
     author(case)
     (workspace / "1234/assessment-review.yaml").unlink()
+    reads = []
+
+    def read_once(path):
+        reads.append(path)
+        return load_assessment(path)
+
+    monkeypatch.setattr(scaffold_module, "load_assessment", read_once)
     result = scaffold_review(workspace=workspace, ticker="1234", db_path=db)
+    assert reads == [workspace / "1234/assessment-draft.yaml"]
     raw = yaml.safe_load(Path(result["review_draft"]).read_text())
     assert Path(result["review_draft"]).name == "assessment-review.yaml"
     assert raw["review_id"].startswith("assessment-review-")
@@ -499,3 +507,11 @@ def test_new_public_cli_uses_scaffolded_identity_and_rejects_retired_commands(ca
         with pytest.raises(SystemExit) as exc:
             main([command], now=NOW)
         assert exc.value.code == 2
+
+
+def test_review_scaffold_rejects_an_incomplete_assessment_without_writing_review(case):
+    db, workspace, _ = case
+    scaffold(case)
+    with pytest.raises(AssessmentError):
+        scaffold_review(workspace=workspace, ticker="1234", db_path=db)
+    assert not (workspace / "1234/assessment-review.yaml").exists()
