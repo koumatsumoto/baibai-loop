@@ -1,9 +1,8 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from tests.helpers.assessment_history import historical_context_payload
-from tests.helpers.candidates import published_review_set
 
-from baibai_engine.batch_api import PublishedReviewSet, StoredAssessment
+from baibai_engine.batch_api import StoredAssessment
 from baibai_engine.market_context.assessment.models import MarketContextAssessment
 from baibai_engine.market_context.assessment.projection import assessment_projection
 
@@ -30,12 +29,11 @@ def test_counter_evidence_and_uncertainty_reach_model_input():
             "implications": [{"summary": "資金調達と受注を両方調査", "source_ids": ["reading"]}],
         }
     )
-    review = PublishedReviewSet.model_validate(published_review_set(as_of="2026-07-17"))
     cutoff = datetime(2026, 7, 18, 13, tzinfo=UTC)
     body = {
         "known_at": cutoff.isoformat(),
         "market_context_assessment": assessment_projection(
-            StoredAssessment.from_payload(doc.payload()), as_of=review.as_of
+            StoredAssessment.from_payload(doc.payload()), as_of=date(2026, 7, 17)
         ),
     }
     assert body["known_at"] == cutoff.isoformat()
@@ -47,10 +45,9 @@ def test_counter_evidence_and_uncertainty_reach_model_input():
 
 def test_historical_synthesis_keeps_the_claim_counter_evidence_and_interactions():
     original = historical_context_payload()
-    review = PublishedReviewSet.model_validate(published_review_set())
     body = {
         "market_context_assessment": assessment_projection(
-            StoredAssessment.from_payload(original), as_of=review.as_of
+            StoredAssessment.from_payload(original), as_of=date(2026, 7, 19)
         )
     }
     synthesis = body["market_context_assessment"]["synthesis"]

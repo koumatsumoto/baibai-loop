@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import type { SecurityAnalysisRowView } from '../src/api/types'
+import type { StockAnalysisRowView } from '../src/api/types'
+import { stockAnalysisRow } from './helpers/stock-analysis'
 import {
   filterSecurityRows,
   parseOptionalNumber,
@@ -12,9 +13,9 @@ import {
 
 function row(
   ticker: string,
-  overrides: Partial<SecurityAnalysisRowView> = {},
-): SecurityAnalysisRowView {
-  return {
+  overrides: Partial<StockAnalysisRowView> = {},
+): StockAnalysisRowView {
+  return stockAnalysisRow({
     ticker,
     name: `会社${ticker}`,
     sector_33: '情報・通信業',
@@ -50,14 +51,14 @@ function row(
     margin_long_delta_26w: 0.01,
     margin_std_long_share: 0.08,
     data_quality_flags: [],
-    portfolio_state: 'none',
+    portfolio_state: 'unheld',
     has_research: false,
     fair_value_anchor_yen: 1200,
     fair_value_gap_pct: 20,
     er_level_quintile: null,
     er_meets_8_5pct_band: false,
     ...overrides,
-  }
+  })
 }
 
 const noFilters: SecurityFilters = {

@@ -390,7 +390,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     calibration_evaluate_parser = subparsers.add_parser(
         "calibration-evaluate",
-        help="evaluate stored calibration cohorts (rank IC / decile / Review Set replay)",
+        help="evaluate stored calibration cohorts (rank IC / decile / candidate replay)",
     )
     calibration_evaluate_parser.add_argument(
         "--calibration-dir",

@@ -93,7 +93,7 @@ class ValuationApproachRules(BaseModel):
 
 
 class CandidateDiscoveryRules(BaseModel):
-    """The explicit multi-valuation method that produces the finite Review Set."""
+    """The explicit multi-valuation method that produces finite candidate contexts."""
 
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 

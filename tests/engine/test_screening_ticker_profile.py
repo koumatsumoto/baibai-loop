@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from tests.engine.test_screening_run_store import _run as _stock_run_payload
 from tests.helpers.db_seed import seed_ledger
-from tests.helpers.screening_run import security_analysis as stock_analysis
+from tests.helpers.screening_run import stock_analysis as stock_analysis
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.foundation.yaml_io import safe_load

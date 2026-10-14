@@ -9,7 +9,7 @@ status: active
 
 ## 役割
 
-screeningはValuationの財務/倍率計算・機械推計とMarket Contextの価格/需給結果を全対象のStock Analysisへ固定する。同じrunで候補文脈を確定し、`candidate.reasons`が空でない行を候補として表示する。独立したReview SetのID・table・発行時刻・後付け再発行は持たない。候補外も分析済みであり、Researchの企業評価を禁止する資格ではない。
+screeningはValuationの財務/倍率計算・機械推計とMarket Contextの価格/需給結果を全対象のStock Analysisへ固定する。同じrunで候補文脈を確定し、`candidate.reasons`が空でない行を候補として表示する。独立した候補一覧のID・table・発行時刻・後付け再発行は持たない。候補外も分析済みであり、Researchの企業評価を禁止する資格ではない。
 
 候補は4つのValuation Approachそれぞれのtop20のunionである。機械E[r]/FV anchor、Market Context Assessment、portfolio stateは候補membership・順位に使わない。機械的な候補理由はApproach/Method/rankを示し、AIがResearch対象を選ぶ理由とは分ける。ER/FVは[Valuation metrics](./valuation-metrics.md#machine-valuation)、Researchの対象選定は[Research](../../.agents/skills/research/SKILL.md)を参照する。
 

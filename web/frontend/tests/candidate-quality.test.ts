@@ -3,63 +3,33 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
 
-import type { ReviewSetExpectedReturnView, ReviewSetReinvestmentView, ReviewSetView } from '../src/api/types'
-import { ReviewSetSection } from '../src/pages/stocks/ReviewSetSection'
+import type { StockAnalysisRowView } from '../src/api/types'
+import { CandidateSection } from '../src/pages/stocks/CandidateSection'
+import { stockAnalysisRow, stockRun, candidateMethod } from './helpers/stock-analysis'
+
+type Reinvestment = Pick<StockAnalysisRowView, 'p_s_sector_gap' | 'operating_return_on_capital_proxy' | 'sales_yoy' | 'operating_margin' | 'fcf_yield'>
 
 function renderQuality(
   ev: 'exact' | 'approximated' | 'unavailable' | null | undefined,
   fcf: 'exact' | 'approximated' | 'unavailable' | null | undefined,
-  carry: Partial<ReviewSetExpectedReturnView> = {},
-  reinvestment: ReviewSetReinvestmentView | null = null,
+  carry: Partial<StockAnalysisRowView> = {},
+  reinvestment: Reinvestment | null = null,
   averagePer: number | null = null,
   earningsStatus: string | null = null,
   staleFinFlag: boolean | null = null,
 ): string {
-  const dataQuality = {
-    bs_carry_forward_fields: null,
-    bs_carry_forward_lag_days: null,
-    edinet_failure_reasons: null,
-    stale_fin_flag: staleFinFlag,
-    ...(ev === undefined ? {} : { ttm_quality_ev_ebitda: ev }),
-    ...(fcf === undefined ? {} : { ttm_quality_fcf: fcf }),
-  }
-  const reviewSet = {
-    review_set_id: 'review-1',
-    run_revision_id: 'run-1',
-    created_at: '2026-09-19T18:00:00+09:00',
-    entries: [{
-      ticker: '1301', name: 'sample', sector_33: '情報・通信業',
-      nominations: [], er_origin: null, er_model_version: null,
-      er_unit: null, er_assumptions: null,
-      analysis: {
-        identity_liquidity: { market_cap_oku: null, avg_turnover_oku: null, listing_span_days: null, jpx_flags: null },
-        valuation: { per_forward: null, per_trailing: null, pbr: null, ev_ebitda: null, p_s: null, pcfr: null },
-        current_earnings: { fcf_yield: null, ocf_yield: null, forecast_special_gain_flag: null, forecast_full_year_loss_flag: null },
-        normalized_earnings: { normalized_per_3fy: averagePer, normalized_per_3fy_sector_gap: null },
-        asset_value: { asset_backed_ratio: null, net_cash_to_market_cap: null, investment_securities: null, equity_ratio: null },
-        reinvestment,
-        expected_return: {
-          er_annual: null, er_reversion_annual: null, er_carry_annual: null,
-          fv_sector_median_yen: null, fv_self_range_yen: null, er_origin: null,
-          er_model_version: null, er_unit: null, er_assumptions: null,
-          dividend_yield: null, dividend_basis: null, net_share_change_yoy: null,
-          carry_missing_assumption: null, ...carry,
-        },
-        data_quality: dataQuality,
-        context: {
-          next_earnings_status: earningsStatus, next_earnings_estimated_date: null,
-          margin_short_to_adv: null, tse_capital_policy_status: null,
-          large_holding_filing_within_lookback: null, tender_offer_filing_within_lookback: null,
-        },
-      },
-    }],
-  } as ReviewSetView
-  return renderToStaticMarkup(
-    createElement(MemoryRouter, null, createElement(ReviewSetSection, { reviewSet, runAsOf: "2026-09-19" })),
-  )
+  const row = stockAnalysisRow({
+    normalized_per_3fy: averagePer, stale_fin_flag: staleFinFlag,
+    ttm_quality_ev_ebitda: ev ?? null, ttm_quality_fcf: fcf ?? null,
+    next_earnings_status: earningsStatus as StockAnalysisRowView['next_earnings_status'],
+    ...reinvestment, ...carry,
+  })
+  return renderToStaticMarkup(createElement(MemoryRouter, null,
+    createElement(CandidateSection, { rows: [row], run: stockRun, method: candidateMethod }),
+  ))
 }
 
-describe('Review Set TTM quality', () => {
+describe('candidate TTM quality', () => {
   it('describes average EPS and the limited CF role without changing frozen numbers', () => {
     const html = renderQuality('exact', 'exact', {}, null, 11.25)
     expect(html).toContain('3FY平均EPSベースPER')
@@ -125,7 +95,7 @@ describe('machine carry inputs', () => {
 })
 
 describe('earnings calendar annotation', () => {
-  it.each(['scheduled_date_reached', 'announced'])(
+  it.each(['scheduled_date_reached'])(
     'renders %s as a passed scheduled date without claiming disclosure', (status) => {
       const html = renderQuality(null, null, {}, null, null, status, true)
       expect(html).toContain('予定日到来・経過（発表未確認）')

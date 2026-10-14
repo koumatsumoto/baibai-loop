@@ -13,8 +13,9 @@ from baibai_engine.research.selection import (
     SelectedTarget,
 )
 from baibai_engine.research.selection_policy import CURRENT_RESEARCH_CAPACITY
-from baibai_engine.screening.run_store import ScreeningRunStore
-from tests.helpers.screening_run import screening_run_payload, security_analysis
+from baibai_engine.screening.rule_config import load_screening_rules
+from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
+from tests.helpers.screening_run import screening_run_payload, stock_analysis
 
 
 def selected_target(ticker="1234", purpose="new"):
@@ -42,20 +43,22 @@ def selection(
         )
     )
     if runs:
-        rows = (
-            rows if rows is not None else [security_analysis(t, name="合成会社") for t in tickers]
-        )
+        rows = rows if rows is not None else [stock_analysis(t, name="合成会社") for t in tickers]
         payload = screening_run_payload(
-            as_of=now.date().isoformat(), run_at=now.isoformat(), security_analyses=rows
+            as_of=now.date().isoformat(), run_at=now.isoformat(), stock_analyses=rows
         )
-        ScreeningRunStore(runs).publish_run(payload, run_revision_id="run-synthetic")
+        ScreeningRunStore(runs).publish_run(
+            payload, run_revision_id="run-synthetic", rules=load_screening_rules()
+        )
+        saved = ScreeningRunReader(runs).get_run("run-synthetic")
+        assert saved is not None
         snapshot = AnalysisInputSnapshot(
             run_revision_id="run-synthetic",
             analysis_as_of=now.date(),
             run_at=now,
             screening_rules_hash=payload["screening_rules_hash"],
             er_model_version=payload["er_model_version"],
-            analyses={row["ticker"]: row for row in rows},
+            analyses={row["ticker"]: row for row in saved.stock_analyses},
         )
     else:
         snapshot = AnalysisInputSnapshot(

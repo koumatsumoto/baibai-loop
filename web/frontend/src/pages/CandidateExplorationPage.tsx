@@ -7,8 +7,8 @@ import { LoadingPage } from '../components/LoadingIndicator'
 import { PageShell } from '../components/PageShell'
 import { PageState } from '../components/PageState'
 import { ResearchNav } from '../components/ResearchNav'
-import { ReviewSetSection } from './stocks/ReviewSetSection'
-import { SecurityAnalysisSection } from './stocks/SecurityAnalysisSection'
+import { CandidateSection } from './stocks/CandidateSection'
+import { StockAnalysisSection } from './stocks/StockAnalysisSection'
 
 export function CandidateExplorationPage() {
   const [data, setData] = useState<ScreeningView | null>(null)
@@ -18,13 +18,12 @@ export function CandidateExplorationPage() {
   }, [])
   if (error) return <PageState message={error} title="候補探索" />
   if (!data) return <LoadingPage label="候補を読み込んでいます" />
-  const reviewSet = [...data.review_sets].sort((a, b) => a.created_at.localeCompare(b.created_at)).at(-1) ?? null
   return <PageShell above={<ResearchNav />} title="候補探索" lead="全銘柄と保存済み外部評価から、調査する企業を探します。機械の候補やE[r]は購入の提案ではありません。" meta={data.run && <div className="flex flex-wrap gap-3"><UpdatedAtBadge value={data.run.generated_at} /><AsOfBadge value={data.run.as_of} /></div>}>
-    <SecurityAnalysisSection rows={[...data.security_analyses, ...data.external_assessment_securities]} reviewSet={reviewSet} runAsOf={data.run?.as_of ?? null} externalCutoff={data.external_assessment_cutoff} calibration={data.er_level_calibration} />
+    <StockAnalysisSection rows={[...data.stock_analyses, ...data.external_assessment_securities]} runAsOf={data.run?.as_of ?? null} externalCutoff={data.external_assessment_cutoff} calibration={data.er_level_calibration} />
     <details className="rounded-lg border bg-card p-4">
       <summary className="cursor-pointer font-medium">選定時の候補と根拠</summary>
       <div className="mt-4 grid gap-4">
-        <ReviewSetSection reviewSet={reviewSet} runAsOf={data.run?.as_of ?? '未発行'} />
+        <CandidateSection rows={data.stock_analyses} run={data.run} method={data.candidate_discovery} />
       </div>
     </details>
   </PageShell>

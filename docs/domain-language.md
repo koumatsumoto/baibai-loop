@@ -38,17 +38,17 @@ Valuationの機械ER/FV anchorは倍率・自己価格レンジとcarryの推計
 | Assumption | judgment input | AI/人間が置く前提。観測と区別する |
 | Conditional Estimate | estimate | 観測と仮定/規則から導出する条件付き見積り |
 | Candidate | pipeline role / state | 調査・投資候補。具体artifactが分かる箇所では具体名を優先する |
-| Candidate Discovery | activity | Security Analysis群からValuation ApproachごとのNominationを作りReview Setを形成する |
-| Candidate Discovery Method | method | approach集合、common eligibility、Nomination union ruleを束ねるversioned method identity |
+| Candidate Discovery | activity | 同runのStock Analysis群にValuation Approachごとの候補理由を確定する |
+| Candidate Discovery Method | method | approach集合、common eligibility、順位とunion ruleを束ねるversioned method identity |
 | Valuation Approach | method component | Valuation内で価値機会を発見する探索観点 |
 | External Assessment | source-bound context | 外部媒体の提示値と出所別の機械比較。企業の独自FV・採否判断と別結果 |
-| Machine Valuation | rebuildable estimate | 保存済みSecurity Analysisの機械ER・業種中央値/自己レンジanchor |
+| Machine Valuation | rebuildable estimate | 保存済みStock Analysisの機械ER・業種中央値/自己レンジanchor |
 | Projection | conditional valuation | 調査で置いた期間内累積分配と分配後残余価値。Thesisが内包する |
 | Screening Run | artifact | ある`as_of`に対するscreening一回分 |
-| Security Analysis | artifact entry | 一銘柄についてscreeningが作るobserved / derived / estimateの比較単位 |
-| Nomination | selection record | Valuation ApproachがReview Set入りを推薦した事実 |
-| Review Set | artifact | configured Valuation Approachesが生成したNominationのexact union |
-| Review Set Entry | artifact entry | Review Set内の一銘柄と判断時機械座標 |
+| Stock Analysis | artifact entry | 一銘柄のobserved / derived / estimateと、同runで確定する候補文脈 |
+| CandidateReason | value | 候補になったValuation Approach / MethodとそのApproach内のrank |
+| StockCandidateContext | value | common eligibility、候補理由、候補母集団内のnormalized gap |
+| 候補一覧 | read projection | 同runの`candidate.reasons`が空でないStock Analysisのticker昇順投影 |
 | Research Set | pipeline state | 明示開始時に固定する新規調査集合。[三入口のResearch選定](./reference/analysis-operations.md#明示開始と固定対象)で選び、保存capacityに従い0件も扱う |
 | Thesis | artifact / judgment | 一銘柄の投資仮説、valuation、risk、evidence |
 | Thesis Review | artifact / judgment | Thesisへの独立second pass |
@@ -69,8 +69,8 @@ Valuationの機械ER/FV anchorは倍率・自己価格レンジとcarryの推計
 | Official Benchmark Observation | observation | Market Contextが意味契約を所有する公式TOPIX gross-total-return観測。price-only市場方向評価とは別 |
 | Operation Session | application state | 明示開始に束縛した有限調査と成果の状態。L3完了と人間採否・取引事実を区別 |
 
-「4 Valuation Approach」はcurrent production methodの構成であり、Review Setのdomain定義ではない。
-current methodのapproach数とNomination depthは
+「4 Valuation Approach」はcurrent production methodの構成であり、候補一覧のdomain定義ではない。
+current methodのapproach数と候補選抜depthは
 [`screening-runtime.md`](./reference/screening-runtime.md)が記述する。
 
 ## Artifact、activity、state、method、physical store
@@ -78,7 +78,7 @@ current methodのapproach数とNomination depthは
 artifactは保存または受け渡す構造化成果物、activityはartifactを作る処理、pipeline stateは
 人間またはsystemが次工程へ進める対象の状態、methodはversionedな判断・計算規則である。
 physical storeはこれらの格納場所であり、domain termの意味を所有しない。たとえば
-Candidate Discoveryはactivity、Candidate Discovery Methodはmethod、Review Setはartifact、
+Candidate Discoveryはactivity、Candidate Discovery Methodはmethod、候補一覧は同runのread projection、
 Research Setはpipeline stateである。storeごとのauthorityは
 [`architecture.md#store-authority`](./architecture.md#store-authority)を参照する。
 
@@ -86,11 +86,11 @@ Research Setはpipeline stateである。storeごとのauthorityは
 
 ```text
 保存済み市場・財務観測 -> Valuation / Market ContextのL2結果
-             -> Screening Run -> Security Analysis[]
-             -> Valuation Approach[] -> Nomination[] -> Review Set
-Security Analysis / Review Set -> Research selection (新規探索)
+             -> Screening Run -> Stock Analysis[] + 同runの候補文脈
+             -> candidate.reasonsがある同じStock Analysisの候補一覧
+Stock Analysis / 候補一覧 -> Research selection (新規探索)
 指定銘柄 -> Research selection (候補外も可)
-保存済みSecurity Analysis + ユーザー明示指定 -> 新規admission
+保存済みStock Analysis + ユーザー明示指定 -> 新規admission
 新規admission / Holding -> 明示開始・新規/保有合算最大三対象の固定選択
            -> 三領域の保存済み入力による有限Research -> Thesis + Thesis Review
 reviewed Thesis群 -> Capital Allocation Assessment -> Planning Limit
@@ -119,7 +119,7 @@ Market Context Assessmentの実モデルは`market_context/assessment/models.py`
 
 ## Naming grammar
 
-- `Candidate`はpipeline role / stateを指す場合だけ使う。Security Analysis、Review Set Entry、
+- `Candidate`はpipeline role / stateを指す場合だけ使う。Stock Analysis、候補一覧 Entry、
   replacement Thesisを指すsurfaceでは具体名を使う。
 - `candidate_discovery_method`と`CandidateDiscoveryRules`はcanonical namingである。
   identity objectは`CandidateDiscoveryMethodIdentity`、persisted fieldは

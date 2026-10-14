@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { ExternalAssessmentSecurityView } from '../src/api/types'
 import { filterSecurityRows, projectSecurityRows, type SecurityFilters } from '../src/lib/stocks'
-import { SecurityAnalysisSection } from '../src/pages/stocks/SecurityAnalysisSection'
+import { StockAnalysisSection } from '../src/pages/stocks/StockAnalysisSection'
 
 const identities: ExternalAssessmentSecurityView[] = [
   { ticker: '9999', name: '合成検索企業', sector_33: 'サービス業', portfolio_state: 'unheld', has_research: false },
@@ -25,7 +25,7 @@ describe('保存済み外部観測の既存銘柄検索', () => {
     for (const condition of [{ perMax: 10 }, { pbrMax: 1 }, { dividendMinPct: 0 }]) expect(filterSecurityRows(identities, { ...filters, ...condition })).toEqual([])
   })
   it('run未発行でも詳細linkを出し、名称不明と機械分析なしを明示する', () => {
-    const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(SecurityAnalysisSection, { rows: identities, runAsOf: null, externalCutoff: '2026-10-13T00:00:00Z' })))
+    const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(StockAnalysisSection, { rows: identities, runAsOf: null, externalCutoff: '2026-10-13T00:00:00Z' })))
     for (const text of ['href="/securities/9999"', 'href="/securities/123A"', '合成検索企業', '名称未確認', '機械分析なし', '保存済み外部参考評価', '機械分析の基準 未発行', 'JST']) expect(html).toContain(text)
     expect(html).not.toContain('0.0%')
   })

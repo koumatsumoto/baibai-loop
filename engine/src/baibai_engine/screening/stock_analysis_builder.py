@@ -106,7 +106,7 @@ def build_stock_analysis_metrics(
 ) -> Mapping[str, float | int | bool | str | None]:
     return {
         # Approach-native relative valuation coordinates. These are L2 derived
-        # measurements; valuation-approach nominations read them directly.
+        # measurements; candidate valuation approaches read them directly.
         "per_forward_sector_gap": derived.sector_median_gap.get("per_forward"),
         "per_trailing_sector_gap": derived.sector_median_gap.get("per_trailing"),
         "pbr_sector_gap": derived.sector_median_gap.get("pbr"),

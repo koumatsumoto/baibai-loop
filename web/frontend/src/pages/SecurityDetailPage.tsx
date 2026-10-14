@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router'
 
 import { ApiError, fetchJson } from '../api/client'
-import type { SecurityAnalysisRowView, SecurityDetailView } from '../api/types'
+import type { StockAnalysisRowView, SecurityDetailView } from '../api/types'
 import { AsOfBadge } from '../components/AsOfBadge'
 import { ReviewedThesisContent } from '../components/ReviewedThesisContent'
 import { LoadingPage } from '../components/LoadingIndicator'
@@ -34,7 +34,7 @@ function FractionMetric({ value }: { value: number | null }) {
   return <PctBadge fraction value={value} />
 }
 
-export function ScreeningMetrics({ row }: { row: SecurityAnalysisRowView }) {
+export function ScreeningMetrics({ row }: { row: StockAnalysisRowView }) {
   return (
     <dl className="grid gap-6 sm:grid-cols-2 lg:grid-cols-5">
       <Field label="時価総額"><span className="font-mono tabular-nums">{row.market_cap_oku === null ? '—' : `${row.market_cap_oku.toLocaleString('ja-JP')} 億円`}</span></Field>
@@ -121,7 +121,7 @@ export function SecurityDetailPage() {
       title={data.company_name ?? data.ticker}
       width="reading"
     >
-      <nav aria-label="銘柄の根拠" className="flex flex-wrap gap-x-4 gap-y-2 text-sm"><a className="underline" href="#research">企業評価</a>{data.security_analysis && <a className="underline" href="#valuation">価値の指標</a>}<a className="underline" href="#market-context">市場の指標</a><a className="underline" href="#external-assessment">外部参考評価</a></nav>
+      <nav aria-label="銘柄の根拠" className="flex flex-wrap gap-x-4 gap-y-2 text-sm"><a className="underline" href="#research">企業評価</a>{data.stock_analysis && <a className="underline" href="#valuation">価値の指標</a>}<a className="underline" href="#market-context">市場の指標</a><a className="underline" href="#external-assessment">外部参考評価</a></nav>
       <div className="scroll-mt-24" id="research">
       <SectionCard
         description="latest research"
@@ -215,17 +215,17 @@ export function SecurityDetailPage() {
 
       </div></details>
 
-      {data.security_analysis && <div className="scroll-mt-24" id="valuation"><SectionCard description="保存済みの機械評価。企業固有のThesisや配分判断とは別です。" meta={data.screening_run && <AsOfBadge value={data.screening_run.as_of} />} padded title="価値の指標">
+      {data.stock_analysis && <div className="scroll-mt-24" id="valuation"><SectionCard description="保存済みの機械評価。企業固有のThesisや配分判断とは別です。" meta={data.screening_run && <AsOfBadge value={data.screening_run.as_of} />} padded title="価値の指標">
         <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-          <Field label="PER 予想 / 実績">{data.security_analysis.per_forward ?? '未観測'} / {data.security_analysis.per_trailing ?? '未観測'}</Field>
-          <Field label="PBR">{data.security_analysis.pbr ?? '未観測'}</Field>
-          <Field label="機械E[r]（%/年）"><FractionMetric value={data.security_analysis.er_annual} /></Field>
-          <Field label="配当利回り"><FractionMetric value={data.security_analysis.dividend_yield} /></Field>
-          <Field label="FCF利回り"><FractionMetric value={data.security_analysis.fcf_yield} /></Field>
-          <Field label="Net cash / 時価総額"><FractionMetric value={data.security_analysis.net_cash_to_market_cap} /></Field>
+          <Field label="PER 予想 / 実績">{data.stock_analysis.per_forward ?? '未観測'} / {data.stock_analysis.per_trailing ?? '未観測'}</Field>
+          <Field label="PBR">{data.stock_analysis.pbr ?? '未観測'}</Field>
+          <Field label="機械E[r]（%/年）"><FractionMetric value={data.stock_analysis.er_annual} /></Field>
+          <Field label="配当利回り"><FractionMetric value={data.stock_analysis.dividend_yield} /></Field>
+          <Field label="FCF利回り"><FractionMetric value={data.stock_analysis.fcf_yield} /></Field>
+          <Field label="Net cash / 時価総額"><FractionMetric value={data.stock_analysis.net_cash_to_market_cap} /></Field>
         </dl>
-        {data.security_analysis.carry_missing_assumption && <p className="mt-4 text-xs text-muted-foreground">E[r]の欠測成分は計算上0寄与です。無配・株数不変の確認ではありません。</p>}
-        <details className="mt-4"><summary className="cursor-pointer text-sm">全指標・計算前提・入力の注意</summary><div className="mt-4"><ScreeningMetrics row={data.security_analysis} /></div></details>
+        {data.stock_analysis.carry_missing_assumption && <p className="mt-4 text-xs text-muted-foreground">E[r]の欠測成分は計算上0寄与です。無配・株数不変の確認ではありません。</p>}
+        <details className="mt-4"><summary className="cursor-pointer text-sm">全指標・計算前提・入力の注意</summary><div className="mt-4"><ScreeningMetrics row={data.stock_analysis} /></div></details>
       </SectionCard></div>}
       <div className="scroll-mt-24" id="market-context"><SecurityMarketContextSection context={data.market_context} /></div>
       <div className="scroll-mt-24" id="external-assessment"><ExternalAssessmentSection assessment={data.external_assessment} /></div>

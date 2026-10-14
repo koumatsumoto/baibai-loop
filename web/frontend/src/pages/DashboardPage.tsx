@@ -307,8 +307,8 @@ function deltaCount(delta: DailyDeltaView) {
 const deltaUnavailableLabel: Record<DeltaUnavailable, string> = {
   screening_run: 'Screening Run（run なし）',
   previous_screening_run: 'Screening Run（比較する前 run なし）',
-  review_set: 'Review Set（選定出力または比較に必要な手法情報なし）',
-  review_set_estimate: 'Review Set の E[r]（見積り欠損またはモデルを比較できない）',
+  candidates: '候補（比較に必要な手法情報なし）',
+  candidate_estimate: '候補の E[r]（見積り欠損またはモデルを比較できない）',
   holdings: '保有（ledger なし）',
   market: '市場データ（store なし）',
 }
@@ -387,7 +387,7 @@ export function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null
           <DeltaEntries count={delta.exited.length} label="候補外れ">
           {delta.exited.map((item) => (
             <DeltaRow key={`exited-${item.ticker}`} label="候補外れ">
-              {/* A name that left the Review Set may have no detail view exported, so it is
+              {/* A name that left the candidate list may have no detail view exported, so it is
                   shown as text rather than a link that would 404. */}
               <span className="min-w-0 truncate font-medium">
                 <span className="font-mono">{item.ticker}</span>

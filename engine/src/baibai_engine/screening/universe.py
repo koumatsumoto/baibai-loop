@@ -49,7 +49,7 @@ from .rule_config import ScreeningRules
 # docs/reference/screening-runtime.md#input-scope
 MIN_BAR_HISTORY = 1
 AVG_TURNOVER_WINDOW_BARS = 20
-# Scope changes must give saved runs, Review Sets and calibration a new identity.
+# Scope changes must give saved runs, candidate contexts and calibration a new identity.
 UNIVERSE_SCOPE_REVISION = "valid-price-one-bar-v2"
 
 

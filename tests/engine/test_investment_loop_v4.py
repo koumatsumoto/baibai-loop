@@ -10,7 +10,7 @@ from tests.engine.test_reviewed_thesis_v4 import NOW as EVENING
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.research_selection import selection
 from tests.helpers.research_v4 import pair_payload
-from tests.helpers.screening_run import security_analysis
+from tests.helpers.screening_run import stock_analysis
 
 from baibai_engine.position.drafts import (
     apply_draft,
@@ -102,7 +102,7 @@ def test_sequential_allocation_uses_updated_cash_and_one_research_set(
         now=NOW,
         tickers=tuple(pairs),
         runs=runs,
-        rows=[security_analysis(ticker, avg_turnover_oku=0.01) for ticker in pairs],
+        rows=[stock_analysis(ticker, avg_turnover_oku=0.01) for ticker in pairs],
     )
     operation = OperationService(db, runs_path=runs).start(
         session_kind="capital-allocation",

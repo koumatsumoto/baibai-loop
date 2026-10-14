@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-import json
 from contextlib import closing
 from datetime import date
 from pathlib import Path
 from typing import Any
 
 from baibai_engine.foundation.sqlite_read import read_store_if_written
+from baibai_engine.screening.discovery.projection import candidate_rows, reinvestment_coordinates
 from baibai_engine.screening.earnings_lag import interpreted_next_earnings_status
 from baibai_engine.screening.run_store import ScreeningRunReader
 from baibai_engine.screening.run_store import connect_read_only as connect_run_store_read_only
-from baibai_engine.screening.run_store.read import ReviewSetPublication
 
 from .sqlite import read_rows
 
@@ -41,7 +40,7 @@ def screening_calibration_method_identity(root: Path) -> tuple[str, str] | None:
 def previous_run_revision_id(path: Path, asof: date) -> str | None:
     """Return the newest revision of the greatest prior as-of, or None when none exists.
 
-    Resolves the ambiguity ``screening review-set publish`` raises when the greatest prior
+    Resolves the ambiguity ``screening run`` raises when the greatest prior
     as-of holds more than one revision: the store's canonical ordering
     (``asof_date``, ``run_at``, ``run_revision_id`` descending) picks one
     deterministically. This answer feeds a run that is about to be written, so
@@ -76,19 +75,7 @@ def screening_run_payload(
     if run_revision_id is not None:
         run = read_store_if_written(path, lambda: reader.get_run(run_revision_id))
     elif as_of_date is not None:
-        rows = read_rows(
-            path,
-            """
-            SELECT run_revision_id
-            FROM screening_run
-            WHERE asof_date = ?
-            ORDER BY julianday(run_at) DESC, run_revision_id DESC
-            LIMIT 1
-            """,
-            (as_of_date.isoformat(),),
-            connector=connect_run_store_read_only,
-        )
-        run = read_store_if_written(path, lambda: reader.get_run(str(rows[0][0]))) if rows else None
+        run = read_store_if_written(path, lambda: reader.latest_run_on(as_of=as_of_date))
     else:
         run = read_store_if_written(path, lambda: reader.latest_run())
     return None if run is None else _run_payload(run)
@@ -113,54 +100,34 @@ def screening_run_asof_dates(path: Path, *, limit: int = 31) -> list[date]:
     return [date.fromisoformat(str(row[0])) for row in rows]
 
 
-def screening_review_set_payloads(
-    path: Path,
-    *,
-    run_revision_id: str | None = None,
-) -> list[dict[str, object]]:
-    """Return current-contract Review Set publications for the read-only Web view."""
-
-    from baibai_engine.screening.discovery.review_set import validate_review_set_shape
-
-    if run_revision_id is None:
-        query = """
-            SELECT s.review_set_id, s.run_revision_id, r.asof_date, s.created_at, s.payload
-            FROM review_set AS s
-            JOIN screening_run AS r USING (run_revision_id)
-            WHERE json_extract(s.payload, '$.schema_version') = 2
-            ORDER BY r.asof_date DESC, julianday(s.created_at) DESC, s.review_set_id DESC
-        """
-        parameters: tuple[object, ...] = ()
+def screening_candidates_payload(
+    path: Path, *, run_revision_id: str | None = None, as_of_date: date | None = None
+) -> dict[str, object] | None:
+    if run_revision_id is not None and as_of_date is not None:
+        raise ValueError("run_revision_id and as_of_date are mutually exclusive")
+    if not path.is_file():
+        return None
+    reader = ScreeningRunReader(path)
+    if run_revision_id is not None:
+        run = read_store_if_written(path, lambda: reader.get_run(run_revision_id))
+    elif as_of_date is not None:
+        run = read_store_if_written(path, lambda: reader.latest_run_on(as_of=as_of_date))
     else:
-        query = """
-            SELECT s.review_set_id, s.run_revision_id, r.asof_date, s.created_at, s.payload
-            FROM review_set AS s
-            JOIN screening_run AS r USING (run_revision_id)
-            WHERE s.run_revision_id = ?
-              AND json_extract(s.payload, '$.schema_version') = 2
-            ORDER BY r.asof_date DESC, julianday(s.created_at) DESC, s.review_set_id DESC
-        """
-        parameters = (run_revision_id,)
-    rows = read_rows(
-        path,
-        query,
-        parameters,
-        connector=connect_run_store_read_only,
-    )
-    projected: list[dict[str, object]] = []
-    for row in rows:
-        payload = json.loads(str(row["payload"]))
-        validate_review_set_shape(payload)
-        projected.append(
-            {
-                "review_set_id": str(row["review_set_id"]),
-                "run_revision_id": str(row["run_revision_id"]),
-                "as_of_date": str(row["asof_date"]),
-                "created_at": str(row["created_at"]),
-                "payload": payload,
-            }
-        )
-    return projected
+        run = read_store_if_written(path, reader.latest_run)
+    if run is None:
+        return None
+    rows = candidate_rows(run.stock_analyses)
+    return {
+        "run_revision_id": run.run_revision_id,
+        "public_run_id": run.public_run_id,
+        "as_of": run.as_of_date,
+        "run_at": run.run_at,
+        "screening_rules_hash": run.payload.get("screening_rules_hash"),
+        "candidate_discovery_method": run.payload["candidate_discovery"]["method"],
+        "candidates": list(rows),
+        "count": len(rows),
+        "input_basis": "saved_stock_analyses",
+    }
 
 
 def _run_payload(run: object) -> dict[str, object]:
@@ -181,15 +148,17 @@ def _run_payload(run: object) -> dict[str, object]:
         "screening_rules_hash": screening_rules_hash,
         "er_model_version": er_model_version,
         "payload": run.payload,
-        "security_analyses": list(run.security_analyses),
+        "stock_analyses": list(run.stock_analyses),
     }
 
 
 __all__ = [
+    "candidate_rows",
     "interpreted_next_earnings_status",
     "previous_run_revision_id",
+    "reinvestment_coordinates",
     "screening_calibration_method_identity",
-    "screening_review_set_payloads",
+    "screening_candidates_payload",
     "screening_run_asof_dates",
     "screening_run_payload",
 ]
@@ -237,12 +206,3 @@ def stored_screening_run(path: Path, selector: dict[str, object]) -> dict[str, A
         if not rows:
             raise FileNotFoundError("run unavailable")
         return rows[0]
-
-
-def stored_review_set(path: Path, **selectors: str) -> ReviewSetPublication | None:
-    from baibai_engine.screening.run_store.read import resolve_review_set_on_connection
-
-    from .stored import required_read
-
-    with required_read(path, connect_run_store_read_only) as connection:
-        return resolve_review_set_on_connection(connection, **selectors)

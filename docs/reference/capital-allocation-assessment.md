@@ -27,7 +27,7 @@ Assessmentは比較理由と判断bindingを保存する。Thesis由来の機械
 
 三入口とも[Researchの固定選定](./analysis-operations.md#明示開始と固定対象)へ束縛する。新writerの`research_triage_id`はNULLであり、過去CAA2の由来値はopaqueに保持してTriageを解決しない。現行CAA2の`research_scope`は必須であり、同じOperationの完成Thesis/core hash/Reviewと未完了被覆へ一致させる。独立したcontent reviewと購入条件を省略する意味ではない。保存済みCAA2のpayload・Review digestを再生成しない。
 
-PlanningのADVはOperationに保存した選択対象のSecurity Analysisと元run/as-ofを使う。CAAの固定scope・完成Thesis/core hash/Review・未完了理由が現在のOperationと一致することを先に確認する。active/completedどちらも照合でき、旧Operation sourceがない保存CAAや、progressが進んで比較範囲が変わったCAAは新しい比較が必要となる。最新候補へ付け替えず、現在価格・cash・注文sessionは既存の当日検証で確認する。API/Webはscopeと選定理由・正確なrun参照を示し、保存提案の一覧は最新Screeningへの所属を問わず読む。
+PlanningのADVはOperationに保存した選択対象のStock Analysisと元run/as-ofを使う。CAAの固定scope・完成Thesis/core hash/Review・未完了理由が現在のOperationと一致することを先に確認する。active/completedどちらも照合でき、旧Operation sourceがない保存CAAや、progressが進んで比較範囲が変わったCAAは新しい比較が必要となる。最新候補へ付け替えず、現在価格・cash・注文sessionは既存の当日検証で確認する。API/Webはscopeと選定理由・正確なrun参照を示し、保存提案の一覧は最新Screeningへの所属を問わず読む。
 
 ## Planningと資本情報
 

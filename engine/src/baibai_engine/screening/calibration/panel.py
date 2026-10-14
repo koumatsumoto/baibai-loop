@@ -5,7 +5,7 @@
 実装の単一性で担保する。相違点は入力の中立化だけ:
 
 - market_context_assessment=None (市場環境判断はannotation であり順位に使わない)
-- 過去のReview Setや判断を過去cohortの順位へ混入させない
+- 過去の候補集合や判断を過去cohortの順位へ混入させない
 - JPX 規制 flag は保存済みの同日snapshotだけを使い、source不足はdiagnosticsへ残す
 """
 

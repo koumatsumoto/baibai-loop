@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-
 from baibai_engine.external_assessment.acquisition.cli import (
     main as external_assessment_acquisition_main,
 )
@@ -145,12 +143,10 @@ from baibai_engine.market_context.indicators.service import (
     DEFAULT_LATEST_LOOKBACK_DAYS,
     LATEST_FETCH_LOOKBACK_DAYS,
 )
-from baibai_engine.screening.discovery.contracts import PublishedReviewSet
 from baibai_engine.screening.discovery.contracts import (
     validate_candidate_run as validate_candidate_run,
 )
 from baibai_engine.screening.earnings_lag import interpreted_next_earnings_status
-from baibai_engine.screening.run_store import ReviewSetPublication
 from baibai_engine.screening.run_store.schema import RUN_STORE_SCHEMA_VERSION
 from baibai_engine.storage.application.paths import database_path
 from baibai_engine.storage.application.read import connect_read_only
@@ -190,22 +186,7 @@ from baibai_engine.storage.observations.schema import (
 )
 from baibai_engine.storage.observations.snapshot import create_snapshot as create_market_snapshot
 
-
-def validated_review_set(publication: ReviewSetPublication) -> PublishedReviewSet:
-    review_set = PublishedReviewSet.model_validate(publication.payload)
-    if review_set.review_set_id != publication.review_set_id:
-        raise ValueError("Review Set reader returned a different identity")
-    if review_set.run_revision_id != publication.run_revision_id:
-        raise ValueError("Review Set reader returned a different run binding")
-    if review_set.as_of.isoformat() != publication.as_of_date:
-        raise ValueError("Review Set reader returned a different as-of binding")
-    if review_set.created_at != datetime.fromisoformat(publication.created_at):
-        raise ValueError("Review Set reader returned a different publication time")
-    return review_set
-
-
 __all__ = [
-    "validate_candidate_run",
     "APPLICATION_DB_PATH",
     "APPLICATION_SCHEMA_VERSION",
     "ASSESSMENT_SCHEMA_VERSION",
@@ -248,7 +229,6 @@ __all__ = [
     "LakeStoreOriginError",
     "LocalMirrorSource",
     "MarketSchemaError",
-    "PublishedReviewSet",
     "StoreLayoutError",
     "StoredAssessment",
     "advance_lake_store_origin",
@@ -299,8 +279,8 @@ __all__ = [
     "tradingview_safe_progress",
     "tradingview_validate_time",
     "tradingview_verify_observations",
+    "validate_candidate_run",
     "validate_indicator_schema",
     "validate_lake_release_policy",
     "validate_market_schema",
-    "validated_review_set",
 ]

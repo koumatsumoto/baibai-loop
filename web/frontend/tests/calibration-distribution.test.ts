@@ -2,7 +2,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { ErLevelCalibrationContextView } from '../src/api/types'
-import { CalibrationDistribution } from '../src/pages/stocks/SecurityAnalysisSection'
+import { CalibrationDistribution } from '../src/pages/stocks/StockAnalysisSection'
 
 const context: ErLevelCalibrationContextView = {
   interpretation: 'observed_distribution_only', required_asofs: ['2020-01-31', '2020-02-28'],

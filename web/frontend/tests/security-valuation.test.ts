@@ -2,10 +2,10 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import type { SecurityAnalysisRowView } from '../src/api/types'
+import { stockAnalysisRow } from './helpers/stock-analysis'
 import { ScreeningMetrics } from '../src/pages/SecurityDetailPage'
 
-const row = {
+const row = stockAnalysisRow({
   er_annual: 0.12, er_reversion_annual: 0.04, er_carry_annual: 0.08,
   er_model_version: 'synthetic-model', er_unit: 'ratio_per_year', er_anchor_metrics: 'PBR+PER',
   er_assumptions: 'fixed realization and cap',
@@ -13,7 +13,7 @@ const row = {
   carry_missing_assumption: 'Missing carry inputs contribute zero; missing is not observed zero.',
   market_cap_oku: null, fair_value_anchor_yen: null, fair_value_gap_pct: null,
   margin_short_to_adv: null, data_quality_flags: [],
-} as SecurityAnalysisRowView
+})
 
 describe('候補外も読める機械推計の説明', () => {
   it('保存モデル・単位・anchor・前提を年率と成分へ併記する', () => {
