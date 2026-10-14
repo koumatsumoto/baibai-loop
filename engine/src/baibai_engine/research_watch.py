@@ -432,6 +432,8 @@ def _watch_row(
         if unresolved is not None or maximum is None or observation.current_close_yen is None
         else _calculate_gap(maximum, observation.current_close_yen)
     )
+    if unresolved is None and gap is None:
+        unresolved = "price_comparison_unavailable"
     return {
         "ticker": ticker,
         "status": "unresolved" if unresolved else "resolved",

@@ -3,6 +3,7 @@
 import hashlib
 import json
 import sqlite3
+from contextlib import closing
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -39,7 +40,7 @@ def case(tmp_path):
     AssessmentStoreService(
         db, clock=lambda: datetime.fromisoformat("2026-09-07T18:00:00+09:00")
     ).publish_reviewed_assessment(assessment_id(), document, review)
-    with open_connection(market) as connection:
+    with closing(open_connection(market)) as connection, connection:
         for offset in range(5):
             day = date(2026, 9, 4) + timedelta(days=offset)
             connection.execute(
@@ -108,7 +109,7 @@ def test_latest_unsupported_or_unresolved_does_not_resurrect_supported(case, val
 
 def test_latest_corrupt_pair_remains_explicitly_unresolved_without_fallback(case):
     db, market = case
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection, connection:
         connection.execute(
             "INSERT INTO stock_assessment(assessment_id,ticker,as_of,stance,published_at,payload,core_sha256) VALUES (?,'2331','2026-09-08','uncertain','2026-09-08T18:00:00+09:00',?,'corrupt-hash')",
             (assessment_id(3), json.dumps({"kind": "stock_assessment", "schema_version": 1})),
@@ -128,7 +129,7 @@ def test_future_latest_assessment_is_not_used_or_hidden_by_an_old_revision(case)
 @pytest.mark.parametrize("factor", [0.5, None])
 def test_watch_keeps_original_pmax_but_no_gap_with_unconfirmed_comparison_basis(case, factor):
     db, market = case
-    with sqlite3.connect(market) as connection:
+    with closing(sqlite3.connect(market)) as connection, connection:
         connection.execute(
             "UPDATE jquants_daily_bars SET adjustment_factor=? "
             "WHERE ticker='2331' AND traded_at='2026-09-07'",
@@ -140,3 +141,20 @@ def test_watch_keeps_original_pmax_but_no_gap_with_unconfirmed_comparison_basis(
     assert 1101 < row["pmax_raw_yen"] < 1102
     assert row["pmax_gap_pct"] is None
     assert row["unresolved_reason"]
+
+
+def test_watch_marks_unrepresentable_price_gap_unresolved(case):
+    db, market = case
+    with closing(sqlite3.connect(market)) as connection, connection:
+        connection.execute(
+            "UPDATE jquants_daily_bars SET close=? "
+            "WHERE ticker='2331' AND traded_at='2026-09-08'",
+            (1e-300,),
+        )
+    payload = build_watch(app_db_path=db, sqlite_path=market, asof=date(2026, 9, 8))
+    row = payload["rows"][0]
+    assert row["status"] == "unresolved"
+    assert row["unresolved_reason"] == "price_comparison_unavailable"
+    assert row["pmax_gap_pct"] is None
+    assert payload["coverage"]["resolved_count"] == 0
+    assert payload["coverage"]["unresolved_count"] == 1

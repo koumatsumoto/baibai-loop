@@ -457,7 +457,8 @@ def range_covered(conn: sqlite3.Connection, source: str, start: date, end: date)
 
     Used for fetch-provenance sources (financial summaries, market calendar)
     whose completeness cannot be re-derived from row presence: a missing filing
-    is indistinguishable from "no filing was due". jquants_daily_bars uses `daily_bars_covered_by_data` instead: that heuristic
+    is indistinguishable from "no filing was due". jquants_daily_bars uses
+    `daily_bars_covered_by_data` instead: that heuristic
     checks the span and gaps of dates present, not completeness of each trading
     day or of every security within a date.
     """
