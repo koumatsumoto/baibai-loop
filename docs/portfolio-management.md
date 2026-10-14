@@ -30,7 +30,7 @@ CAAとPlanningは現在のfloorと、記録済み要求率によるPmaxを確認
 
 通常5〜8%程度は目安で、NAVによる自動sizingはしない。現在の1回20〜30万円guideは500万円の4〜6%に相当する。数量はguide上限と確認済みavailable cashの両方から100株単位で算出する。1単元がguideを超えてもcash内ならwarning付き候補となる。cashで1単元を買えなければ0/defer。下限を満たすためだけに増やさない。
 
-通常経路で既保有tickerやactive買い予約のあるtickerへの追加購入を提案しない。同CAAの約定後は全売却済みでも再利用せず、新しいResearch/CAAで判断する。企業評価を別IDにすることでこの条件を迂回しない。
+通常経路で既保有tickerやactive買い予約のあるtickerへの追加購入を提案しない。同CAAの約定後は全売却済みでも再利用せず、新しいResearch/CAAで判断する。企業評価を別IDにすることでこの条件を迂回しない。既保有への追加禁止は[#1242](https://github.com/koumatsumoto/baibai-loop/issues/1242)の現行方針として維持する。新規候補と同じ限界資本で比較する合成例には見送り得る追加機会があるが、実データでの経済効果と禁止の最適性は未実証であり、追加を許すResearch/CAA発行経路も採用していない。
 
 <a id="reservation-and-warnings"></a>
 ## 予約とwarning
