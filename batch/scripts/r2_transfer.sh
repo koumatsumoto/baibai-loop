@@ -22,17 +22,17 @@ copy_read_timeout=300
 # The application store is the one object here nothing regenerates: it holds the
 # judgments and the ledger. A single `.bak` is a single undo, and a store damaged before
 # anyone looked at it has already spent that undo by the second push, so this key keeps
-# one generation per day instead. Two weeks is the window in which a wrong number is
-# still noticed by reading the portfolio rather than by auditing it.
+# one dated backup key per day instead, retaining the latest 14 distinct dates.
+# Further pushes on the same date replace that day's backup; this is not an archive
+# of every application update.
 app_backup_generations=14
 machine_manifest_key="machine-manifest.json"
 machine_bundle_keys=(market.sqlite runs.sqlite indicators.sqlite)
 transfer_staging=""
 transfer_config=""
-# The serving prefix is thousands of small objects, so its wall clock is request
-# latency and not bytes: 54MB across 3,740 objects took 282s, which is 13 requests
-# a second against the CLI's default of 10 in flight. The in-flight count is
-# therefore the only lever on that number.
+# The serving prefix contains many small objects. Allow transfer concurrency to be
+# tuned without changing the caller's AWS configuration; measure its effect from
+# the per-stage counts and elapsed time rather than assuming a fixed throughput.
 serving_upload_concurrency_default=32
 
 cleanup_staging() {
@@ -165,10 +165,9 @@ merge_indicator_store() {
 }
 
 # Move the downloaded copy to the schema this code writes, so the merge's source and
-# target agree. Without it a store published before a migration landed can only be
-# moved forward by the daily batch, and every schema change would block publishing
-# from a developer machine until the cloud had run. The copy lives in the transfer
-# staging directory, so the object in R2 is untouched.
+# target agree. This helper is used for the downloaded indicator merge copy, not
+# as a general market/application migration or a daily-batch migration fallback.
+# The copy lives in transfer staging, so migrating it does not change the R2 object.
 migrate_downloaded_store() {
   local store="$1" path="$2"
   (
@@ -440,9 +439,9 @@ pull_keys() {
 }
 
 backup_key_for() {
-  # Dated for the application store and fixed for the rest. The machine stores are
-  # rewritten every business day and rebuildable from their sources, so a generation
-  # each would only hold copies of a store the next batch replaces anyway.
+  # Dated for the application store and one fixed backup for each machine store.
+  # Machine data is derived/acquired, but expired upstream history may not be
+  # recoverable; this backup is recovery protection, not proof of rebuildability.
   case "$1" in
     baibai.sqlite) printf '%s.bak-%s\n' "$1" "$(TZ=Asia/Tokyo date +%Y%m%d)" ;;
     *) printf '%s.bak\n' "$1" ;;
