@@ -8,7 +8,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.market.ticker import normalize_ticker
+from baibai_engine.market.ticker import SecurityCodeError, parse_security_code_parts
 from baibai_engine.screening.schema import FreshnessWarning
 from baibai_engine.valuation.metrics.models import FinancialSnapshot
 
@@ -196,15 +196,11 @@ def _normalize_event(
 
 
 def _parse_ticker(value: object) -> str | None:
-    if value in (None, ""):
-        return None
-    raw = str(value).strip().upper()
-    if len(raw) == 5 and raw[:4].isalnum():
-        raw = raw[:4]
     try:
-        return normalize_ticker(raw)
-    except ValueError:
+        ticker, common_stock = parse_security_code_parts(value)
+    except SecurityCodeError:
         return None
+    return ticker if common_stock else None
 
 
 def _parse_submit_date(value: str | None) -> date | None:
