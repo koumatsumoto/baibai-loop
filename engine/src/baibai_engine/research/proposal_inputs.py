@@ -117,6 +117,14 @@ def _original_assessment(
                         "買付時の評価と確認できず、現在評価を当初理由として補完しない。"
                     ),
                 )
+            if proposal.published_at > bought_at:
+                return (
+                    None,
+                    (
+                        f"判断参照 {reference} の提案公開は買付より後です。"
+                        "買付時の提案と確認できず、後から作った提案を当初理由として補完しない。"
+                    ),
+                )
             return item.assessment_ref, None
     label = "報告に判断参照なし" if reference is None else f"判断参照 {reference}"
     return None, f"{label}の当初評価・投資理由を確認できない。現在評価では補完しない。"

@@ -224,9 +224,7 @@ def _preview_holding(
         position=position,
         as_of=now.astimezone(JST).date(),
         quote=quoted,
-        remaining_reward=None
-        if item.action == "hold" and item.holding_basis == "investment_case_intact"
-        else item.remaining_reward,
+        remaining_reward=item.remaining_reward,
         case_reassessment_reason=item.case_reassessment_reason,
         primary_verified=pair.review.primary_source_check == "verified",
         reviewed=True,

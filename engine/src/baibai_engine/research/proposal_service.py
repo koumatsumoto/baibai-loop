@@ -248,9 +248,7 @@ def _validate_action(
             position=item.position,
             as_of=now.astimezone(JST).date(),
             quote=quote,
-            remaining_reward=None
-            if item.action == "hold" and item.holding_basis == "investment_case_intact"
-            else item.remaining_reward,
+            remaining_reward=item.remaining_reward,
             case_reassessment_reason=item.case_reassessment_reason,
             primary_verified=pair.review.primary_source_check == "verified",
             reviewed=True,
@@ -260,7 +258,14 @@ def _validate_action(
         blockers.extend(result_holding.hard_blockers)
         if (
             result_holding.action != item.action
-            or (item.action == "hold" and result_holding.holding_basis != item.holding_basis)
+            or (
+                item.action == "hold"
+                and result_holding.holding_basis != item.holding_basis
+                and not (
+                    item.holding_basis == "investment_case_intact"
+                    and result_holding.holding_basis == "sufficient_remaining_reward"
+                )
+            )
             or (item.action == "sell" and result_holding.reason_code != item.reason_code)
         ):
             blockers.append(
@@ -381,6 +386,20 @@ def check_proposal(
             GateReason(
                 code="proposal_time_after_publish",
                 message="準備・入力収集・独立Reviewの時刻を現在発行時刻までに揃えてください。",
+            )
+        )
+    if proposal.inputs.checked_at > proposal.review.reviewed_at:
+        blockers.append(
+            GateReason(
+                code="proposal_inputs_after_review",
+                message="保存入力の収集時刻は、その入力を確認した独立Review以前である必要があります。",
+            )
+        )
+    if any(quote.observed_at > proposal.inputs.checked_at for quote in proposal.inputs.quotes):
+        blockers.append(
+            GateReason(
+                code="quote_observed_after_inputs",
+                message="保存quoteの観測時刻は、保存入力の収集時刻以前である必要があります。",
             )
         )
     for item in proposal.items:

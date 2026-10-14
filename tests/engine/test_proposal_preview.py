@@ -4,7 +4,8 @@ import sqlite3
 from datetime import timedelta
 from decimal import Decimal
 
-from tests.helpers.proposal_v1 import PUBLISHED, backend_case, reviewed_proposal
+import pytest
+from tests.helpers.proposal_v1 import PUBLISHED, backend_case, bind_review, reviewed_proposal
 
 from baibai_engine.research.proposal_query import get_investment_proposal, preview_current_terms
 from baibai_engine.research.proposal_service import InvestmentProposalService
@@ -148,3 +149,34 @@ def test_preview_does_not_require_active_operation_or_compare_current_progress(t
         ).status
         == "unchanged"
     )
+
+
+@pytest.mark.parametrize("with_remaining_reward", [False, True])
+def test_preview_checks_saved_remaining_reward_after_valuation_becomes_old(
+    tmp_path, with_remaining_reward
+):
+    case = backend_case(tmp_path, holding=True)
+    proposal = reviewed_proposal(case, action="hold")
+    if with_remaining_reward:
+        raw = proposal.payload()
+        raw["items"][0]["remaining_reward"] = {
+            "status": "sufficient",
+            "reason": "同日起点で残存見返りが十分と確認した。",
+        }
+        proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
+    InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
+        proposal
+    )
+    before = _snapshot(case.app)
+    preview = preview_current_terms(
+        proposal_id=proposal.proposal_id,
+        db_path=case.app,
+        sqlite_path=case.market,
+        now=PUBLISHED + timedelta(days=1),
+    )
+    assert preview.status == ("blocked" if with_remaining_reward else "changed")
+    reason_codes = {reason.code for reason in preview.change_reasons}
+    assert ("valuation_basis_requires_refresh" in reason_codes) == with_remaining_reward
+    assert preview.items[0]["current_quote_calculation"]["current_price_projection"] is None
+    assert get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == proposal
+    assert _snapshot(case.app) == before

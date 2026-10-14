@@ -120,6 +120,53 @@ def test_hold_case_intact_can_use_old_valuation_without_same_day_return_claim(tm
     )
 
 
+@pytest.mark.parametrize(
+    ("assessment_as_of", "valuation_unresolved", "blocker_code"),
+    [
+        ("2026-10-13", False, "valuation_basis_requires_refresh"),
+        ("2026-10-14", True, "valuation_unresolved"),
+    ],
+)
+def test_intact_hold_with_sufficient_reward_still_requires_current_resolved_arithmetic(
+    tmp_path, assessment_as_of, valuation_unresolved, blocker_code
+):
+    case = backend_case(
+        tmp_path,
+        holding=True,
+        assessment_as_of=assessment_as_of,
+        valuation_unresolved=valuation_unresolved,
+    )
+    raw = reviewed_proposal(case, action="hold").payload()
+    raw["items"][0]["remaining_reward"] = {
+        "status": "sufficient",
+        "reason": "合成の残存見返りは十分と判断した。",
+    }
+    proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
+    service = InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    validation = service.check(proposal)
+    assert not validation.valid
+    assert blocker_code in {reason.code for reason in validation.blockers}
+    before = case.app.read_bytes()
+    with pytest.raises(ProposalError, match="同日起点 valuation と現在算術が必要"):
+        service.publish(proposal)
+    assert case.app.read_bytes() == before
+
+
+@pytest.mark.parametrize("holding_basis", ["investment_case_intact", "sufficient_remaining_reward"])
+def test_same_day_sufficient_reward_is_verified_for_each_hold_basis(tmp_path, holding_basis):
+    case = backend_case(tmp_path, holding=True)
+    raw = reviewed_proposal(case, action="hold").payload()
+    raw["items"][0]["holding_basis"] = holding_basis
+    raw["items"][0]["remaining_reward"] = {
+        "status": "sufficient",
+        "reason": "同日起点の価値と現在quoteから残存見返りを確認した。",
+    }
+    proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
+    service = InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    assert service.check(proposal).valid
+    assert service.publish(proposal).items[0].holding_basis == holding_basis
+
+
 def test_inputs_reject_future_ledger_meta_or_events(tmp_path):
     case = backend_case(tmp_path)
     with pytest.raises(ProposalError, match="ledger contains facts after"):
@@ -177,9 +224,17 @@ def test_partial_buy_uses_saved_hope_ceiling_cash_and_never_creates_binding(tmp_
     assert not service.check(too_expensive).valid
 
 
-@pytest.mark.parametrize("before_assessment_publication", [False, True])
-def test_original_reason_requires_original_pair_before_first_buy(
-    tmp_path, before_assessment_publication
+@pytest.mark.parametrize(
+    ("reservation_at", "execution_at", "unavailable_reason"),
+    [
+        ("2026-10-15T09:00:00+09:00", "2026-10-15T09:01:00+09:00", None),
+        ("2026-10-14T09:00:00+09:00", "2026-10-14T09:01:00+09:00", "評価公開は買付より後"),
+        ("2026-10-14T16:09:00+09:00", "2026-10-14T16:10:00+09:00", "提案公開は買付より後"),
+        ("2026-10-14T16:19:00+09:00", "2026-10-14T07:20:00Z", None),
+    ],
+)
+def test_original_reason_requires_both_pair_and_proposal_before_first_buy(
+    tmp_path, reservation_at, execution_at, unavailable_reason
 ):
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
@@ -191,14 +246,13 @@ def test_original_reason_requires_original_pair_before_first_buy(
 
     store = LedgerStoreService(case.app)
     ledger, head = store.load_with_head()
-    reported_day = "2026-10-14" if before_assessment_publication else "2026-10-15"
     reservation = ReservationEvent.model_validate(
         {
             "type": "reservation",
             "event_id": "next-real-order",
             "reservation_id": "next-real-reservation",
             "order_id": "next-broker-order",
-            "occurred_at": f"{reported_day}T09:00:00+09:00",
+            "occurred_at": reservation_at,
             "ticker": "1234",
             "side": "buy",
             "sector": "情報・通信業",
@@ -214,7 +268,7 @@ def test_original_reason_requires_original_pair_before_first_buy(
             "type": "execution",
             "event_id": "next-real-fill",
             "execution_id": "next-broker-fill",
-            "occurred_at": f"{reported_day}T09:01:00+09:00",
+            "occurred_at": execution_at,
             "ticker": "1234",
             "side": "buy",
             "reservation_id": reservation.reservation_id,
@@ -235,9 +289,9 @@ def test_original_reason_requires_original_pair_before_first_buy(
     seed_daily_bars(case.market, [("1234", "2026-10-15", 900.0, 1.0)])
     inputs = _collect(case, now=PUBLISHED + timedelta(days=1))
     assert inputs.prior_buy_execution_references == (execution.execution_id,)
-    if before_assessment_publication:
+    if unavailable_reason is not None:
         assert inputs.positions[0].original_assessment_ref is None
-        assert "評価公開は買付より後" in inputs.positions[0].original_reason_unavailable_reason
+        assert unavailable_reason in inputs.positions[0].original_reason_unavailable_reason
     else:
         assert inputs.positions[0].original_assessment_ref == proposal.items[0].assessment_ref
         assert inputs.positions[0].original_reason_unavailable_reason is None

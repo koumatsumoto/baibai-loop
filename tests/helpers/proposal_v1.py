@@ -36,6 +36,7 @@ def backend_case(
     broken=False,
     cash_yen=300000,
     assessment_as_of="2026-10-14",
+    valuation_unresolved=False,
     tickers=("1234",),
 ):
     """実writerでA選定/OperationとCpairを作る。新Operation行のSQL seedはしない。"""
@@ -130,6 +131,19 @@ def backend_case(
         document["investment_case"]["status"] = "broken"
         document["investment_case"]["status_reason"] = "一次資料で恒常的な収益源の消失を確認。"
         document["conclusion"]["stance"] = "unsupported"
+        update_review_hash(document, review)
+    if valuation_unresolved:
+        document["valuation"] = dict(
+            status="unresolved",
+            market_price_fact_id=None,
+            horizon_months=None,
+            required_annual_return_pct=None,
+            base=None,
+            downside=None,
+            unresolved_reason="合成借換条件を未確認のため将来価値を確定できない。",
+        )
+        document["conclusion"]["stance"] = "uncertain"
+        review["recalculated_projections"] = []
         update_review_hash(document, review)
     pair = AssessmentStoreService(
         app, clock=lambda: datetime.fromisoformat(f"{assessment_as_of}T16:06:00+09:00")
