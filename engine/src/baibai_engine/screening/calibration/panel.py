@@ -61,6 +61,7 @@ from ..screening_run_serializer import security_analysis_payload
 from ..security_analysis_builder import build_security_analysis, expected_return_inputs
 from ..universe import (
     POLICY_EXCLUSION_REASONS,
+    UNIVERSE_SCOPE_REVISION,
     build_universe,
     candidate_comparison_population,
 )
@@ -115,6 +116,7 @@ def rules_content_hash(
             rules.candidate_discovery,
             required_jpx_flags=rules.universe.required_jpx_flags,
         ),
+        universe_scope_revision=UNIVERSE_SCOPE_REVISION,
         valuation_calculation_revision=VALUATION_CALCULATION_REVISION,
         variant=policy.variant,
         valuation_history_sessions=policy.valuation_history_sessions,

@@ -543,6 +543,12 @@ def test_candidate_discovery_hash_binds_the_required_jpx_flag_set() -> None:
     )
 
 
+def test_candidate_discovery_hash_binds_price_scope_revision(monkeypatch) -> None:
+    current = candidate_discovery_method_hash(RULES, required_jpx_flags=REQUIRED_JPX_FLAGS)
+    monkeypatch.setattr(review_set_module, "UNIVERSE_SCOPE_REVISION", "twenty-bar-v1")
+    assert current != candidate_discovery_method_hash(RULES, required_jpx_flags=REQUIRED_JPX_FLAGS)
+
+
 def test_candidate_discovery_hash_binds_v2_sector_and_median_policy(monkeypatch) -> None:
     baseline = candidate_discovery_method_hash(
         RULES,

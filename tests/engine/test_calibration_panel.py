@@ -47,8 +47,11 @@ from baibai_engine.screening.calibration.store import (
     read_forward,
     read_panel,
 )
+from baibai_engine.screening.discovery.review_set import candidate_discovery_method_hash
 from baibai_engine.screening.metrics.snapshot import BARS_INPUT_WINDOW_DAYS
 from baibai_engine.screening.rule_config import load_screening_rules
+from baibai_engine.screening.rules_identity import production_rules_contract_hash
+from baibai_engine.screening.universe import UNIVERSE_SCOPE_REVISION
 from baibai_engine.storage.observations.reader import ReportedShortMetric
 from baibai_engine.storage.observations.readiness import unreadable_store_reason
 from baibai_engine.storage.observations.schema import open_connection
@@ -321,6 +324,33 @@ class CalibrationPanelTest(unittest.TestCase):
         )
 
         self.assertEqual(actual, sha256(expected_contract.encode("utf-8")).hexdigest()[:16])
+
+    def test_price_scope_revision_separates_saved_run_and_panel_identity(self) -> None:
+        rules = load_screening_rules()
+        rules_json = rules.model_dump_json()
+        old_run_hash = rules_contract_hash(
+            rules_json,
+            valuation_calculation_revision=VALUATION_CALCULATION_REVISION,
+            variant="production",
+            valuation_history_sessions=VALUATION_HISTORY_SESSIONS,
+            bars_input_window_days=BARS_INPUT_WINDOW_DAYS,
+            production_authority=True,
+        )
+        unrevisioned_panel_hash = rules_contract_hash(
+            rules_json,
+            candidate_discovery_method_hash=candidate_discovery_method_hash(
+                rules.candidate_discovery,
+                required_jpx_flags=rules.universe.required_jpx_flags,
+            ),
+            valuation_calculation_revision=VALUATION_CALCULATION_REVISION,
+            variant="production",
+            valuation_history_sessions=VALUATION_HISTORY_SESSIONS,
+            bars_input_window_days=BARS_INPUT_WINDOW_DAYS,
+            production_authority=True,
+        )
+        self.assertTrue(UNIVERSE_SCOPE_REVISION)
+        self.assertNotEqual(production_rules_contract_hash(rules_json), old_run_hash)
+        self.assertNotEqual(rules_content_hash(rules), unrevisioned_panel_hash)
 
     def test_panel_records_complete_and_incomplete_jpx_method_inputs(self) -> None:
         rules = load_screening_rules()
@@ -914,7 +944,7 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertEqual(diagnostics.priced_master_without_universe_count, 0)
             self.assertEqual(diagnostics.entry_resolution_lag_days, STALE_PRICE_MAX_LAG_DAYS)
 
-    def test_panel_marks_priced_master_member_that_cannot_enter_the_universe(self) -> None:
+    def test_panel_evaluates_priced_short_history_without_filling_capital(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             build_calibration_fixture_sqlite(sqlite_path)
@@ -940,8 +970,13 @@ class CalibrationPanelTest(unittest.TestCase):
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             row = next(row for row in result.rows if row.ticker == "9003")
 
-            self.assertEqual(row.population_coverage_status, "priced_master_without_universe")
-            self.assertEqual(result.diagnostics.priced_master_without_universe_count, 1)
+            self.assertEqual(row.population_coverage_status, "evaluated")
+            self.assertEqual(row.close, 100.0)
+            self.assertIsNone(row.market_cap_oku)
+            self.assertIsNone(row.avg_turnover_oku)
+            self.assertIsNotNone(row.price_history_coverage_750d)
+            self.assertFalse(row.in_population)
+            self.assertEqual(result.diagnostics.priced_master_without_universe_count, 0)
 
     def test_pre2019_variant_is_degraded_and_has_distinct_provenance(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

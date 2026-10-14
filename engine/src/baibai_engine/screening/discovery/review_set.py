@@ -19,6 +19,7 @@ from baibai_engine.screening.discovery.contracts import (
     ReviewSetEntry,
 )
 from baibai_engine.screening.rule_config import CandidateDiscoveryRules
+from baibai_engine.screening.universe import UNIVERSE_SCOPE_REVISION
 from baibai_engine.storage.application.json import canonical_json
 from baibai_engine.valuation.metrics.relative import (
     MIN_SECTOR_MEDIAN_POPULATION,
@@ -62,6 +63,7 @@ def candidate_discovery_method_hash(
 ) -> str:
     representation = {
         "method_id": rules.method_id,
+        "universe_scope_revision": UNIVERSE_SCOPE_REVISION,
         "nomination_depth": rules.nomination_depth,
         "normalized_sector_median_min_population": MIN_SECTOR_MEDIAN_POPULATION,
         "common_eligibility": rules.common_eligibility.model_dump(mode="json"),

@@ -282,10 +282,12 @@ Historical P/S と EV/EBITDA は、各日の raw close を `adjustment_factor` �
 - `price_history_coverage_750d`: 上記 / 当日 scope 内の最大値(最も密な銘柄が取引カレンダーの近似)
 
 `short_history_flag`(上場 750 暦日未満)は新規上場を扱い、本 fact は「上場は古いが履歴が疎」な銘柄を扱う。
+Security Analysisへの入力は有効価格1本から許すが、履歴を要する指標を埋めない。`avg_turnover_oku`は20本、1/5/20/60営業日騰落率はそれぞれ2/6/21/61本、自己価格中央値anchorは100本を必要とし、足りなければnullを保つ。1本だけの自己レンジ位置や52週安値gapは算術上0になり得るが、長期の割安さを示すものではない。`price_history_coverage_750d`は当日のscope内の相対密度なので、小さなfixtureでは1本でも1.0になり得る。必ず観測本数と期間proxyを合わせて読む。
 
 ### 9.1 `adjustment_close` の中身（dividend / 配当の扱い）
 
 Screeningの自己レンジと騰落率は、[`asof_basis_closes()`](../../engine/src/baibai_engine/market/bars.py)でraw `close`と`adjustment_factor`からas-of基準へ揃えた価格系列を使う。保存済み`adjustment_close`をこの計算経路には使わない。factorは価格日より後・as-of以前のものを適用し、権利落ち日当日のfactorを当日価格へ重ねて掛けない。
+source factor `0` と `1` は分割イベントとして採らず、`0`を分割basis未確定の証拠と読み替えない。
 
 この系列は現金配当を加算しないprice-onlyであり、配当込みのtotal returnとは別である。配当を含む評価との区別は[見積り較正](./estimate-calibration.md)に従う。
 
