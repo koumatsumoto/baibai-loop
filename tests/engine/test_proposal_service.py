@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import timedelta
+from datetime import UTC, timedelta
 
 import pytest
 from tests.helpers.proposal_v1 import PUBLISHED, backend_case, bind_review, reviewed_proposal
@@ -166,6 +166,43 @@ def test_same_instant_utc_and_decimal_equivalent_facts_publish(case):
         ).publish(proposal)
         == proposal
     )
+
+
+@pytest.mark.parametrize(
+    ("checked_at", "blocker_code", "message"),
+    [
+        ("2026-10-14T16:19:00+09:00", "proposal_inputs_after_review", "独立Review以前"),
+        ("2026-10-14T15:20:00+09:00", "quote_observed_after_inputs", "保存入力の収集時刻以前"),
+    ],
+)
+def test_saved_input_and_quote_times_must_precede_their_reviewed_cutoffs(
+    case, checked_at, blocker_code, message
+):
+    raw = reviewed_proposal(case).payload()
+    raw["inputs"]["checked_at"] = checked_at
+    proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
+    service = InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    validation = service.check(proposal)
+    assert not validation.valid
+    assert blocker_code in {reason.code for reason in validation.blockers}
+    before = case.app.read_bytes()
+    with pytest.raises(ProposalError, match=message):
+        service.publish(proposal)
+    assert case.app.read_bytes() == before
+
+
+@pytest.mark.parametrize("checked_at", ["2026-10-14T07:15:00Z", "2026-10-14T06:30:00Z"])
+def test_saved_input_review_and_quote_boundaries_accept_the_same_utc_instant(case, checked_at):
+    raw = reviewed_proposal(case).payload()
+    raw["inputs"]["checked_at"] = checked_at
+    raw["inputs"]["quotes"][0]["observed_at"] = "2026-10-14T06:30:00Z"
+    proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
+    service = InvestmentProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED.astimezone(UTC)
+    )
+    assert proposal.inputs.checked_at <= proposal.review.reviewed_at < PUBLISHED
+    assert service.check(proposal).valid
+    assert service.publish(proposal).review == proposal.review
 
 
 def test_review_binds_conditions_cash_scope_and_projection(case):
