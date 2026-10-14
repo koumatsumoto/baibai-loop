@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
 from baibai_engine.market_context.indicators.providers import jquants_options
 from baibai_engine.market_context.indicators.providers.base import (
+    FetchContext,
     HttpSession,
     IndicatorsProviderError,
 )
@@ -767,6 +768,7 @@ class OptionProviderTest(unittest.TestCase):
         with (
             mock.patch.object(jquants_options, "jquants_read_client", return_value=client),
             mock.patch.object(jquants_options, "_read_api_key", return_value="k"),
+            FetchContext() as context,
         ):
             for provider_series_id in ("n225_iv_30d", "n225_iv_skew", "n225_iv_term"):
                 provider.fetch(
@@ -774,6 +776,7 @@ class OptionProviderTest(unittest.TestCase):
                     start=date(2026, 7, 27),
                     end=date(2026, 7, 29),
                     session=cast(HttpSession, None),
+                    context=context,
                 )
 
         self.assertEqual(len(fetched), 3)  # three weekdays, not nine

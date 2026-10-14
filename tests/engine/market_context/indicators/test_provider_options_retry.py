@@ -529,3 +529,18 @@ def test_failed_options_keep_stored_observations_and_another_series_can_commit(
         conn.close()
     assert len(wire.calls) == 1
     assert wire.waits == []
+
+
+@pytest.mark.parametrize("initially_empty", [False, True])
+def test_new_pass_refreshes_successful_and_empty_chain_results(wire, initially_empty):
+    wire.reply = lambda url: success(rows=[] if initially_empty else chain())
+    for series_id in READINGS:
+        assert len(wire.fetch(series_id)) == (0 if initially_empty else 1)
+    assert len(wire.calls) == 1
+
+    wire.context.close()
+    wire.context = FetchContext()
+    wire.reply = lambda url: success(rows=chain() if initially_empty else [])
+    for series_id in READINGS:
+        assert len(wire.fetch(series_id)) == (1 if initially_empty else 0)
+    assert len(wire.calls) == 2
