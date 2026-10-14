@@ -8,8 +8,10 @@ on:
     # history, so a late firing of its own costs nothing: the evaluated window is
     # anchored to when it runs, not to when it was due.
     #
-    # No business-day calendar is needed. `cloud-daily-batch` completes a
-    # non-business day as a green skip run, which counts as success here.
+    # No separate business-day calendar is needed here. The daily workflow skips
+    # Screening on non-business days while indicators and export continue; their
+    # independent failures can still produce a degraded or failed result. The
+    # watchdog reads the workflow outcome and actual target date from its notice.
     - cron: "0 12 * * 1-5"
   workflow_dispatch:
     inputs:
