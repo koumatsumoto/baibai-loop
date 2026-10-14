@@ -4,6 +4,7 @@ import io
 import json
 import sqlite3
 from collections.abc import Mapping, Sequence
+from contextlib import closing
 from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -51,7 +52,7 @@ if TYPE_CHECKING:
 
 
 def _prune_store_rows(database: Path) -> dict[str, tuple[tuple[object, ...], ...]]:
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection:
         return {
             table: tuple(sorted(connection.execute(f"SELECT * FROM {table}").fetchall(), key=repr))
             for table in ("series", "aliases", "observations", "provider_runs", "registry_state")
