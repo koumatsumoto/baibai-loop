@@ -33,6 +33,7 @@ from tools.cutover.assessment_proposal_v1 import (
     legacy_caa,
     position_reason_source,
     retained_buy_binding,
+    retained_ledger_buy_binding,
     verify_alternative_source,
 )
 
@@ -303,6 +304,8 @@ def _material_plan(
                 source = position_reason_source(snapshot, identifier)
                 raw = source["source_document"]
                 assessments.add(source["source_thesis_id"])
+                if source["source_candidate_thesis_id"] is not None:
+                    assessments.add(source["source_candidate_thesis_id"])
             else:
                 raise ValueError(f"missing old proposal source: {identifier}")
             drafts.append(
@@ -321,6 +324,8 @@ def _material_plan(
             source = position_reason_source(snapshot, identifier)
             drafts.append(source)
             assessments.add(source["source_thesis_id"])
+            if source["source_candidate_thesis_id"] is not None:
+                assessments.add(source["source_candidate_thesis_id"])
         except (ValueError, TypeError, KeyError) as error:
             blocked.append(str(error))
     for identifier in sorted(assessments):
@@ -329,27 +334,26 @@ def _material_plan(
         except (ValueError, TypeError, KeyError) as error:
             blocked.append(str(error))
     references = set(manifest.retained_buy_references)
-    ledger_refs: dict[str, set[str]] = {}
+    ledger_refs: dict[str, list[dict[str, Any]]] = {}
     for row in snapshot["ledger_event"]:
         raw = json.loads(row["payload"])
         reference = raw.get("decision_reference")
         side = raw.get("side", "buy" if raw.get("type") == "reservation" else None)
         if raw.get("type") in {"execution", "reservation"} and side == "buy" and reference:
             references.add(reference)
-            ledger_refs.setdefault(reference, set()).add(raw.get("ticker"))
+            ledger_refs.setdefault(reference, []).append(row)
     for identifier in sorted(references):
         try:
             row = caas.get(identifier)
-            if row is None:
+            if identifier in ledger_refs:
+                binding = retained_ledger_buy_binding(identifier, ledger_refs[identifier], row)
+            elif row is None:
                 raise ValueError(
                     f"missing original old buy reference: {identifier}; "
                     "no ticker is inferred from a Fill"
                 )
-            binding = retained_buy_binding(row)
-            if identifier in ledger_refs and ledger_refs[identifier] != {binding["ticker"]}:
-                raise ValueError(
-                    f"old buy reference ticker differs from ledger facts: {identifier}"
-                )
+            else:
+                binding = retained_buy_binding(row)
             bindings.append(binding)
         except (ValueError, TypeError, KeyError) as error:
             blocked.append(str(error))
