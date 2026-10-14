@@ -152,8 +152,8 @@ export interface CandidateReasonView {
 /**
  * What changed between the latest machine run and the one before it.
  *
- * Every field is an observation or a comparison of observations. The view names no
- * cause and carries no recommendation: it tells the reader where to look, and the
+ * The view compares observations, derived metrics, and machine estimates without
+ * turning them into causal claims or recommendations. It shows where to look; the
  * decision to start new-stock or holding research stays human.
  *
  * ``unavailable`` lists the sections no store could answer, so an empty section is

@@ -11,9 +11,10 @@ the JSON Schema in between checked in as the reviewable artifact. A drift gate
 regenerates both and refuses a difference, which turns a rename into a red gate; the
 UI's own type check is what then names every place that read the old field.
 
-The emitted schema is a narrow subset — objects, arrays, unions, literals and the
-scalar formats Pydantic produces for `date` / `datetime` — so the renderer here reads
-that subset exactly and refuses anything outside it rather than guessing.
+The TypeScript renderer supports the type shapes emitted by these models: objects,
+arrays, unions, literals, and scalar/date fields. Unsupported type shapes fail rather
+than being guessed. Numeric bounds and other runtime validation constraints remain
+in the JSON Schema and models; TypeScript types do not enforce those constraints.
 """
 
 from __future__ import annotations
