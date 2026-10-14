@@ -155,7 +155,9 @@ class CalibrationCacheVersionTest(unittest.TestCase):
             root = Path(tmp)
             publish_panel(root, "2020-01-31", [{"ticker": "7203"}])
             with (
-                closing(sqlite3.connect(root / calibration_store.CURRENT_SNAPSHOT_NAME)) as connection,
+                closing(
+                    sqlite3.connect(root / calibration_store.CURRENT_SNAPSHOT_NAME)
+                ) as connection,
                 connection,
             ):
                 connection.execute("UPDATE snapshot_meta SET contract_version = ?", ("0" * 16,))
