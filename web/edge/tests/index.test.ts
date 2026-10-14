@@ -95,7 +95,8 @@ describe('view routing', () => {
     ['/api/screening/latest', 'views/screening_latest.json'],
     ['/api/screening/history/2026-07-23', 'history/candidate-views/2026-07-23.json'],
     ['/api/operations', 'views/operations.json'],
-    ['/api/capital-allocation-assessments', 'views/capital-allocation-assessments.json'],
+    ['/api/stock-assessments', 'views/stock-assessments.json'],
+    ['/api/investment-proposals', 'views/investment-proposals.json'],
     ['/api/meta', 'views/meta.json'],
     ['/api/market-context', 'views/market-context.json'],
     ['/api/market-context/indicators/us.10y', 'views/indicator-series--us.10y.json'],
@@ -109,11 +110,12 @@ describe('view routing', () => {
     ],
     ['/api/securities/7203', 'views/security--7203.json'],
     [
-      '/api/capital-allocation-assessments/capital-allocation-assessment-20260728-example',
-      'views/capital-allocation-assessment--capital-allocation-assessment-20260728-example.json',
+      '/api/investment-proposals/investment-proposal-00000000-0000-4000-8000-000000000001',
+      'views/investment-proposal--investment-proposal-00000000-0000-4000-8000-000000000001.json',
     ],
   ])('maps %s to the fixed key %s', async (path, expectedKey) => {
-    const get = vi.fn().mockResolvedValue(objectBody())
+    const body = path === '/api/stock-assessments' ? '{"assessments":[]}' : path === '/api/investment-proposals' ? '{"proposals":[]}' : '{"ok":true}'
+    const get = vi.fn().mockResolvedValue(objectBody(body))
     const response = await handleRequest(request(path), environment(get))
 
     expect(response.status).toBe(200)
@@ -129,8 +131,13 @@ describe('view routing', () => {
     '/api/market-context/assessments/nested/id',
     '/api/market-context/indicators/bad!id',
     '/api/market-context/indicators/nested/id',
-    '/api/capital-allocation-assessments/bad!id',
-    '/api/capital-allocation-assessments/nested/id',
+    '/api/stock-assessments/bad!id',
+    '/api/investment-proposals/bad!id',
+    '/api/stock-assessments/nested/id',
+    '/api/investment-proposals/nested/id',
+    '/api/investment-proposals/investment-proposal-00000000-0000-4000-8000-000000000001/current-preview/extra',
+    '/api/capital-allocation-assessments',
+    '/api/capital-allocation-assessments/retired',
     '/api/research-triages/bad!id',
     '/api/research-triages/nested/id',
     '/api/unknown',
@@ -438,5 +445,50 @@ describe('Parquet download identity', () => {
       expect(response.status).toBe(200)
       expect(response.headers.get('Content-Disposition')).toBe('attachment; filename="____name.parquet"')
     } finally { fetchMock.mockRestore() }
+  })
+})
+
+describe('immutable research views and paginated indexes', () => {
+  const proposalId = 'investment-proposal-00000000-0000-4000-8000-000000000001'
+  const assessmentId = 'stock-assessment-00000000-0000-4000-8000-000000000001'
+
+  it.each([
+    [`/api/stock-assessments/${assessmentId}`, `views/stock-assessment--${assessmentId}.json`],
+    [`/api/investment-proposals/${proposalId}/current-preview`, `views/investment-proposal-preview--${proposalId}.json`],
+  ])('routes %s without replacing a saved view', async (path, key) => {
+    const get = vi.fn().mockResolvedValue(objectBody())
+    expect((await handleRequest(request(path), environment(get))).status).toBe(200)
+    expect(get).toHaveBeenCalledWith(key)
+  })
+
+  it('filters ticker/scope before paging and validates the cursor in that result', async () => {
+    const rows = [
+      { proposal_id: 'p3', tickers: ['2331'], request_scope: 'specified_stocks' },
+      { proposal_id: 'p2', tickers: ['7203'], request_scope: 'specified_stocks' },
+      { proposal_id: 'p1', tickers: ['2331'], request_scope: 'specified_stocks' },
+      { proposal_id: 'p0', tickers: ['2331'], request_scope: 'review_positions' },
+    ]
+    const get = vi.fn().mockImplementation(async () => objectBody(JSON.stringify({ proposals: rows, next_cursor: null })))
+    const env = environment(get)
+    const first = await handleRequest(request('/api/investment-proposals?ticker=2331&scope=specified_stocks&limit=1'), env)
+    expect(await first.json()).toEqual({ proposals: [rows[0]], next_cursor: 'p3' })
+    const last = await handleRequest(request('/api/investment-proposals?ticker=2331&scope=specified_stocks&limit=1&cursor=p3'), env)
+    expect(await last.json()).toEqual({ proposals: [rows[2]], next_cursor: null })
+    expect((await handleRequest(request('/api/investment-proposals?ticker=2331&cursor=p2'), env)).status).toBe(400)
+    expect(rows).toHaveLength(4)
+  })
+
+  it('applies the same ticker and default maximum page to assessments', async () => {
+    const rows = Array.from({ length: 101 }, (_, index) => ({ assessment_id: `a${index}`, ticker: '2331' }))
+    const get = vi.fn().mockImplementation(async () => objectBody(JSON.stringify({ assessments: rows })))
+    const response = await handleRequest(request('/api/stock-assessments?ticker=2331'), environment(get))
+    const payload = await response.json() as { assessments: unknown[]; next_cursor: string }
+    expect(payload.assessments).toHaveLength(100)
+    expect(payload.next_cursor).toBe('a99')
+  })
+
+  it.each(['0', '101', '-1', 'nan'])('rejects invalid limit %s', async limit => {
+    const get = vi.fn().mockImplementation(async () => objectBody('{"assessments":[]}'))
+    expect((await handleRequest(request(`/api/stock-assessments?limit=${limit}`), environment(get))).status).toBe(422)
   })
 })

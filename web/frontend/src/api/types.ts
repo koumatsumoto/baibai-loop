@@ -543,6 +543,7 @@ export interface InvestmentProposalSummaryView {
   request_scope: string
   headline: string
   item_count: number
+  tickers: string[]
   actions: string[]
   research_operation_id: string
 }

@@ -3043,6 +3043,13 @@
           "title": "Item Count",
           "type": "integer"
         },
+        "tickers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tickers",
+          "type": "array"
+        },
         "actions": {
           "items": {
             "type": "string"
@@ -3062,6 +3069,7 @@
         "request_scope",
         "headline",
         "item_count",
+        "tickers",
         "actions",
         "research_operation_id"
       ],

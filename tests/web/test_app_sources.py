@@ -61,7 +61,7 @@ class TestDbResearchSource:
         assert revisions[0].ticker == "2331"
         assert revisions[0].review_id
         assert detail.revision == revisions[0]
-        assert detail.projection["status"] == "ready"
+        assert detail.projection["status"] == "resolved"
         assert detail.document["schema_version"] == 1
         assert detail.document["permanent_loss_risks"]
         assert detail.review["review_id"] == revisions[0].review_id

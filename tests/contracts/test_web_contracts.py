@@ -87,7 +87,16 @@ def test_static_edge_routes_map_to_the_exact_contract_keys() -> None:
         assert isinstance(route, str)
         assert isinstance(key, str)
         filename = key.removeprefix("views/")
-        if key.startswith("views/"):
+        collections = {
+            "/api/stock-assessments": "assessments",
+            "/api/investment-proposals": "proposals",
+        }
+        if route in collections:
+            expected = (
+                rf"case '{re.escape(route)}':\s+return {{\s*kind: 'research-index',\s*"
+                rf"key: '{re.escape(key)}',\s*collection: '{collections[route]}'\s*}}"
+            )
+        elif key.startswith("views/"):
             expected = rf"case '{re.escape(route)}':\s+return view\('{re.escape(filename)}'\)"
         else:
             expected = (
@@ -95,6 +104,10 @@ def test_static_edge_routes_map_to_the_exact_contract_keys() -> None:
                 rf"return {{ kind: 'view', key: '{re.escape(key)}' }}"
             )
         assert re.search(expected, edge_source), f"edge route/key drift: {route} -> {key}"
+    assert re.search(
+        r"if \(route.kind === 'research-index'\)\s*return researchIndex\(object, route.collection, url\)",
+        edge_source,
+    )
 
 
 def test_dynamic_routes_map_to_exact_edge_keys_and_materializer_outputs() -> None:
@@ -157,7 +170,11 @@ def test_dynamic_routes_map_to_exact_edge_keys_and_materializer_outputs() -> Non
         next_function = re.search(r"\n(?:async )?function ", edge_source[start + 1 :])
         end = len(edge_source) if next_function is None else start + 1 + next_function.start()
         resolver_source = edge_source[start:end]
-        assert edge_key in resolver_source, f"edge dynamic route/key drift: {route}"
+        # Local variable names are implementation details; keep the exact object
+        # namespace and one interpolated identifier in the routing contract.
+        normalized_key = re.sub(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}", "{identifier}", edge_key)
+        normalized_source = re.sub(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}", "{identifier}", resolver_source)
+        assert normalized_key in normalized_source, f"edge dynamic route/key drift: {route}"
         assert writer_marker in materializer_source, f"materializer output drift: {patterns[route]}"
 
 

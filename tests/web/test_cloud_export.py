@@ -521,6 +521,7 @@ WORKER_SOURCE = REPO_ROOT / "web/edge/src/index.ts"
 EXPORTER_SOURCE = REPO_ROOT / "web/backend/src/baibai_web/materialize.py"
 # `view('x.json')` / `view(`x--${id}.json`)` — the Worker's whole `views/` surface.
 _WORKER_VIEW = re.compile(r"view\([`']([^`']+)[`']\)")
+_WORKER_RESEARCH_INDEX = re.compile(r"kind: 'research-index',\s*key: 'views/([^']+)'")
 # `views_dir / "x.json"` and `views_dir / f"x--{...}.json"` in the exporter.
 _EXPORTED_VIEW = re.compile(r'views_dir / f?"([^"]+)"')
 
@@ -543,7 +544,10 @@ def test_every_worker_view_route_is_produced_by_the_exporter() -> None:
     """
 
     source = WORKER_SOURCE.read_text(encoding="utf-8")
-    worker_views = {_view_shape(match) for match in _WORKER_VIEW.findall(source)}
+    worker_views = {
+        _view_shape(match)
+        for match in [*_WORKER_VIEW.findall(source), *_WORKER_RESEARCH_INDEX.findall(source)]
+    }
 
     assert worker_views, "the Worker route table must map at least one view"
     assert worker_views <= _exported_views(), sorted(worker_views - _exported_views())

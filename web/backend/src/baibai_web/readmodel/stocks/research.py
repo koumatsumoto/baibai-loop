@@ -145,6 +145,7 @@ def _proposal_summary_view(raw: Mapping[str, object]) -> InvestmentProposalSumma
         request_scope=str(raw["request_scope"]),
         headline=str(raw["headline"]),
         item_count=len(items),
+        tickers=[str(item["ticker"]) for item in items],
         actions=[str(item["action"]) for item in items],
         research_operation_id=str(_mapping_optional(raw["research_scope"])["operation_id"]),
     )

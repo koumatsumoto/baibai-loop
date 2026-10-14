@@ -15,37 +15,22 @@ from tests.engine.test_research_progression import (
 )
 from tests.helpers.assessment_v1 import (
     assessment_id,
-    create_assessment_tables,
     pair_payload,
     update_review_hash,
 )
-from tests.helpers.proposal_v1 import create_proposal_tables
 
 from baibai_engine.research.assessment_store import (
     latest_assessment_id,
     publish_reviewed_assessment,
 )
-from baibai_engine.storage.application.write import connect_rw
+from baibai_engine.storage.application.write import connect_rw, initialize_database
 from baibai_web.api.server import create_app
 from baibai_web.materialize import export_read_models
 
 
-def _ensure_research_tables(db):
-    # Fixture-only while the root coordinates the final schema. Runtime has no fallback.
-    with connect_rw(db) as connection:
-        tables = {
-            row[0]
-            for row in connection.execute("SELECT name FROM sqlite_schema WHERE type='table'")
-        }
-        if "stock_assessment" not in tables:
-            create_assessment_tables(connection)
-        if "investment_proposal" not in tables:
-            create_proposal_tables(connection)
-
-
 def seed_web_assessment(root, *, ticker="1234", number=101, as_of=None, value=1100):
     db = root / "stores/application/baibai.sqlite"
-    _ensure_research_tables(db)
+    initialize_database(db)
     as_of = as_of or NOW.date().isoformat()
     document, review = pair_payload(ticker=ticker, as_of=as_of, review_number=number + 100)
     document["valuation"]["base"]["terminal_value_per_share_yen"] = value
@@ -163,7 +148,7 @@ def test_preview_is_read_only_and_separate_from_saved_conditions(app_method_root
 
 
 def test_new_routes_return_missing_ids_and_remove_old_caa_urls(app_method_root):
-    _ensure_research_tables(app_method_root / "stores/application/baibai.sqlite")
+    initialize_database(app_method_root / "stores/application/baibai.sqlite")
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         for path in (
             "/api/stock-assessments/stock-assessment-00000000-0000-4000-8000-00000000ffff",
@@ -185,7 +170,7 @@ def test_new_routes_return_missing_ids_and_remove_old_caa_urls(app_method_root):
 def test_source_inconsistency_is_a_structured_error_instead_of_an_old_revision_fallback(
     app_method_root, mocker, kind
 ):
-    _ensure_research_tables(app_method_root / "stores/application/baibai.sqlite")
+    initialize_database(app_method_root / "stores/application/baibai.sqlite")
     method = "assessment_detail" if kind == "assessment" else "proposal"
     mocker.patch(
         f"baibai_web.sources.db_sources.DbResearchSource.{method}",

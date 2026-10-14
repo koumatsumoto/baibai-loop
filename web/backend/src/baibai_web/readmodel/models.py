@@ -905,6 +905,7 @@ class InvestmentProposalSummaryView(BaseModel):
     request_scope: str
     headline: str
     item_count: int
+    tickers: list[str]
     actions: list[str]
     research_operation_id: str
 

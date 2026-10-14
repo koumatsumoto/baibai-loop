@@ -231,7 +231,9 @@ class DbResearchSource:
             ticker=str(publication["ticker"]),
             company_name=str(snapshot["company_name"]),
             sector=str(snapshot["sector"]),
-            summary=str(_mapping(payload["conclusion"], label="Assessment conclusion")["summary"]),
+            summary=str(
+                _mapping(payload["findings"], label="Assessment findings")["value_gap_explanation"]
+            ),
             as_of=date.fromisoformat(str(publication["as_of"])),
             published_at=datetime.fromisoformat(str(publication["published_at"])),
             assessment_id=str(publication["assessment_id"]),
