@@ -135,6 +135,32 @@ def test_reader_preserves_method_identity_reasons(tmp_path: Path) -> None:
     assert model.unavailable_reason == "er_model_identity_mismatch"
 
 
+def test_pre_one_bar_scope_context_keeps_provenance_but_is_not_current(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from baibai_engine.screening.rule_config import load_screening_rules
+    from baibai_engine.screening.rules_identity import production_rules_contract_hash
+
+    rules_json = load_screening_rules().model_dump_json()
+    old_hash = production_rules_contract_hash(rules_json, universe_scope_revision="")
+    current_hash = production_rules_contract_hash(rules_json)
+    assert old_hash != current_hash
+    payload = context_artifact(rules_hash=old_hash)
+    path = tmp_path / "old-scope-context.yaml"
+    _write(path, payload)
+    monkeypatch.setattr(check_er_calibration_context, "_CONTEXT", path)
+    assert not check_er_calibration_context.check()
+    assert (
+        load_er_calibration_context(
+            path,
+            expected_rules_hash=current_hash,
+            expected_er_model_version=str(payload["er_model_version"]),
+            as_of=date.fromisoformat(str(payload["generated_at"])[:10]),
+        ).unavailable_reason
+        == "rules_identity_mismatch"
+    )
+
+
 def test_retained_context_is_withheld_from_new_population_without_relabeling(
     tmp_path, monkeypatch
 ) -> None:

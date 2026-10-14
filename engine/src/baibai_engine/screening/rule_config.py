@@ -40,7 +40,7 @@ class QualityRules(BaseModel):
 class CommonEligibilityRules(BaseModel):
     """Analysis-layer scope parameters applied when ranking research candidates.
 
-    The screen evaluates every common stock with enough bar history. This
+    The screen evaluates every common stock with a usable price bar. This
     predicate shares valid scope facts and configured exclusions between
     Candidate Discovery and its comparison population.
     """
