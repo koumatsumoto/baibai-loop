@@ -8,36 +8,28 @@ from datetime import date, datetime
 
 @dataclass(frozen=True, slots=True)
 class ResearchRevision:
-    """Summary of one persisted thesis revision."""
+    """公開済み Stock Assessment pair 一版の固定要約。"""
 
     ticker: str
     company_name: str
     sector: str
+    summary: str
     as_of: date
-    thesis_id: str
-    disposition: str
-    pmax_raw_yen: float | None
-    review_id: str | None
+    published_at: datetime
+    assessment_id: str
+    stance: str
+    pmax_original_yen: float | None
+    review_id: str
     status: str
 
 
 @dataclass(frozen=True, slots=True)
-class ThesisDetail:
+class StockAssessmentDetail:
     revision: ResearchRevision
+    document: dict[str, object]
+    review: dict[str, object]
+    core_sha256: str
     projection: dict[str, object]
-
-
-@dataclass(frozen=True, slots=True)
-class PositionReviewSummary:
-    """Summary of one published position-review revision."""
-
-    position_review_id: str
-    ticker: str
-    as_of: date
-    thesis_id: str
-    action: str | None
-    note: str | None
-    null_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

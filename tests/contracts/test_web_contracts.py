@@ -119,10 +119,20 @@ def test_dynamic_routes_map_to_exact_edge_keys_and_materializer_outputs() -> Non
             "`indicator-series--${seriesId}.json`",
             'f"indicator-series--{series_id}.json"',
         ),
-        "/api/capital-allocation-assessments/{capital_allocation_assessment_id}": (
-            "resolveAssessment",
-            "`capital-allocation-assessment--${assessmentId}.json`",
-            'f"capital-allocation-assessment--{assessment_id}.json"',
+        "/api/stock-assessments/{assessment_id}": (
+            "resolveStockAssessment",
+            "`stock-assessment--${assessmentId}.json`",
+            'f"stock-assessment--{assessment_id}.json"',
+        ),
+        "/api/investment-proposals/{proposal_id}": (
+            "resolveInvestmentProposal",
+            "`investment-proposal--${proposalId}.json`",
+            'f"investment-proposal--{proposal_id}.json"',
+        ),
+        "/api/investment-proposals/{proposal_id}/current-preview": (
+            "resolveInvestmentProposalPreview",
+            "`investment-proposal-preview--${proposalId}.json`",
+            'f"investment-proposal-preview--{proposal_id}.json"',
         ),
         "/api/securities/{ticker}": (
             "resolveSecurity",
@@ -135,7 +145,9 @@ def test_dynamic_routes_map_to_exact_edge_keys_and_materializer_outputs() -> Non
         "/api/screening/history/{as_of}": "history/candidate-views/{as_of}.json",
         "/api/market-context/assessments/{context_id}": "views/market-context-assessment--{context_id}.json",
         "/api/market-context/indicators/{series_id}": "views/indicator-series--{series_id}.json",
-        "/api/capital-allocation-assessments/{capital_allocation_assessment_id}": "views/capital-allocation-assessment--{capital_allocation_assessment_id}.json",
+        "/api/stock-assessments/{assessment_id}": "views/stock-assessment--{assessment_id}.json",
+        "/api/investment-proposals/{proposal_id}": "views/investment-proposal--{proposal_id}.json",
+        "/api/investment-proposals/{proposal_id}/current-preview": "views/investment-proposal-preview--{proposal_id}.json",
         "/api/securities/{ticker}": "views/security--{ticker}.json",
     }
     assert patterns == expected_contract_keys
@@ -168,13 +180,9 @@ def test_every_frontend_api_route_is_in_the_contract_inventory() -> None:
     normalized = {
         route.replace("${value}", "{as_of}")
         .replace("${encodeURIComponent(contextId)}", "{context_id}")
-        .replace("${encodeURIComponent(assessmentId)}", "{capital_allocation_assessment_id}")
-        .replace(
-            "${encodeURIComponent(capitalAllocationAssessmentId)}",
-            "{capital_allocation_assessment_id}",
-        )
+        .replace("${encodeURIComponent(assessmentId)}", "{assessment_id}")
+        .replace("${encodeURIComponent(proposalId)}", "{proposal_id}")
         .replace("${encodeURIComponent(ticker)}", "{ticker}")
-        .replace("${encodeURIComponent(researchTriageId)}", "{research_triage_id}")
         .replace("${encodeURIComponent(openSeriesId)}", "{series_id}")
         .replace("${encodeURIComponent(seriesId)}", "{series_id}")
         .replace("${query}", "period={period}&granularity={granularity}")

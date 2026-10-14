@@ -14,8 +14,8 @@ function holding(ticker: string): HoldingView {
     deployed_cost_yen: 100_000, market_price_yen: '1100',
     market_price_as_of: '2026-09-24', market_value_yen: 110_000,
     unrealized_pnl_yen: 10_000, unrealized_pnl_pct: 10,
-    pmax_raw_yen: null, pmax_gap_pct: null, latest_thesis_id: null,
-    disposition: null, next_earnings_date: null,
+    pmax_raw_yen: null, pmax_gap_pct: null, latest_assessment_id: null,
+    stance: null, next_earnings_date: null,
   }
 }
 

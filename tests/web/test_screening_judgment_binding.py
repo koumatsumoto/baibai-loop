@@ -127,7 +127,7 @@ def _dependencies(mocker):
     research = mocker.Mock()
     research.revisions.return_value = []
     research.research_triages.return_value = []
-    research.assessments.return_value = []
+    research.proposals.return_value = []
     return ledger, research
 
 

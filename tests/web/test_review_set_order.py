@@ -151,7 +151,7 @@ def test_list_and_detail_bind_to_the_same_fallback_run_and_fv(tmp_path: Path, mo
     )
     source = DbScreeningSource(path)
     ledger, research = _dependencies(mocker)
-    research.position_reviews.return_value = []
+    research.proposals.return_value = []
     market = mocker.Mock()
     market.security_market_context.return_value = None
 
@@ -192,7 +192,7 @@ def test_non_candidate_anchor_appears_in_list_detail_and_history(tmp_path, mocke
     )
     source = DbScreeningSource(path)
     ledger, research = _dependencies(mocker)
-    research.position_reviews.return_value = []
+    research.proposals.return_value = []
     listing = build_screening(source, ledger, research)
     market = mocker.Mock()
     market.security_market_context.return_value = None

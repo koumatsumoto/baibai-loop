@@ -13,8 +13,8 @@ import { Badge } from '../components/ui/badge'
 import { formatJstDate, formatJstDateShort, formatJstDateTime, formatJstStamp } from '../lib/format'
 
 const OPERATION_KIND_LABEL: Record<string, string> = {
-  'capital-allocation': '資本配分評価',
-  'position-review': 'ポジション評価',
+  'capital-allocation': '新規購入の調査',
+  'position-review': '保有の見直し',
 }
 
 const STATUS_LABEL: Record<string, string> = { active: '進行中', completed: '完了' }

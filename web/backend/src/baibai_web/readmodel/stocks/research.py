@@ -1,157 +1,184 @@
-"""企業評価・独立Review・CAAを表示する。"""
+"""保存評価pairと提案条件を投影し、現在previewを別viewで返す。"""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import date, datetime
+from pathlib import Path
 
-from baibai_web.readmodel.builders.presentation import number, text
 from baibai_web.readmodel.models import (
-    AllocationAlternativeView,
-    AssessmentReviewView,
-    CapitalAllocationAssessmentSummaryView,
-    CapitalAllocationAssessmentsView,
-    CapitalAllocationAssessmentView,
+    InvestmentProposalItemView,
+    InvestmentProposalPreviewView,
+    InvestmentProposalSummaryView,
+    InvestmentProposalsView,
+    InvestmentProposalView,
     ResearchRevisionView,
-    ThesisDetailView,
+    StockAssessmentDetailView,
+    StockAssessmentsView,
     UnfinishedResearchView,
 )
-from baibai_web.readmodel.stocks.presentation import (
-    _mapping_items_optional,
-    _mapping_optional,
-)
-from baibai_web.sources.protocols import (
-    ResearchSource,
-)
-from baibai_web.sources.types import (
-    ResearchRevision,
-    ThesisDetail,
-)
+from baibai_web.readmodel.stocks.presentation import _mapping_items, _mapping_optional
+from baibai_web.sources.protocols import ResearchSource
+from baibai_web.sources.types import ResearchRevision, StockAssessmentDetail
 
 
-def build_assessment_detail(
+class PublicationCursorError(ValueError):
+    pass
+
+
+def _page[T](
+    rows: list[T], *, ids: list[str], limit: int | None, cursor: str | None
+) -> tuple[list[T], str | None]:
+    if limit is not None and not 1 <= limit <= 100:
+        raise ValueError("limit must be between 1 and 100")
+    offset = 0
+    if cursor is not None:
+        if cursor not in ids:
+            raise PublicationCursorError("cursor does not identify a publication in this result")
+        offset = ids.index(cursor) + 1
+    size = len(rows) if limit is None else limit
+    result = rows[offset : offset + size]
+    next_cursor = ids[offset + size - 1] if result and offset + size < len(rows) else None
+    return result, next_cursor
+
+
+def build_stock_assessment_list(
     research: ResearchSource,
     *,
-    capital_allocation_assessment_id: str,
-) -> CapitalAllocationAssessmentView | None:
-    """Build one published capital-allocation assessment for the detail page."""
+    ticker: str | None = None,
+    limit: int | None = None,
+    cursor: str | None = None,
+) -> StockAssessmentsView:
+    revisions = [item for item in research.revisions() if ticker is None or item.ticker == ticker]
+    rows, next_cursor = _page(
+        revisions, ids=[item.assessment_id for item in revisions], limit=limit, cursor=cursor
+    )
+    return StockAssessmentsView(
+        assessments=[_research_revision_view(item) for item in rows], next_cursor=next_cursor
+    )
 
-    raw = research.assessment(capital_allocation_assessment_id)
+
+def build_stock_assessment_detail(
+    research: ResearchSource, *, assessment_id: str
+) -> StockAssessmentDetailView | None:
+    detail = research.assessment_detail(assessment_id)
+    return None if detail is None else _assessment_detail_view(detail)
+
+
+def build_proposal_list(
+    research: ResearchSource,
+    *,
+    scope: str | None = None,
+    ticker: str | None = None,
+    limit: int | None = None,
+    cursor: str | None = None,
+) -> InvestmentProposalsView:
+    rows = [
+        row
+        for row in research.proposals()
+        if (scope is None or row["request_scope"] == scope)
+        and (
+            ticker is None or any(item["ticker"] == ticker for item in _mapping_items(row["items"]))
+        )
+    ]
+    selected, next_cursor = _page(
+        rows, ids=[str(item["proposal_id"]) for item in rows], limit=limit, cursor=cursor
+    )
+    return InvestmentProposalsView(
+        proposals=[_proposal_summary_view(item) for item in selected], next_cursor=next_cursor
+    )
+
+
+def build_proposal_detail(
+    research: ResearchSource, *, proposal_id: str
+) -> InvestmentProposalView | None:
+    raw = research.proposal(proposal_id)
     if raw is None:
         return None
-    return _assessment_view(raw)
-
-
-def build_assessment_list(research: ResearchSource) -> CapitalAllocationAssessmentsView:
-    """List saved assessments independently of the current Screening publication."""
-    return CapitalAllocationAssessmentsView(
-        assessments=[_assessment_summary_view(item) for item in research.assessments()]
+    scope = _mapping_optional(raw["research_scope"])
+    review = _mapping_optional(raw["review"])
+    return InvestmentProposalView.model_validate(
+        {
+            "proposal_id": raw["proposal_id"],
+            "as_of": raw["as_of"],
+            "prepared_at": raw["prepared_at"],
+            "published_at": raw["published_at"],
+            "request_scope": raw["request_scope"],
+            "headline": raw["headline"],
+            "comparison": raw["comparison"],
+            "forgone": raw["forgone"],
+            "market_context_assessment_id": raw.get("market_context_assessment_id"),
+            "research_scope": scope,
+            "saved_inputs": raw["inputs"],
+            "items": [_proposal_item_view(item) for item in _mapping_items(raw["items"])],
+            "review": review,
+            "draft_sha256": raw.get("draft_sha256", review["draft_sha256"]),
+            "liquidity_context": raw["liquidity_context"],
+            "warnings": raw["warnings"],
+            "portfolio_exposure": raw["portfolio_exposure"],
+            "unfinished_research": [
+                UnfinishedResearchView.model_validate(item)
+                for item in _mapping_items(scope["outcomes"])
+                if item["status"] == "unfinished"
+            ],
+        }
     )
 
 
-def _assessment_summary_view(raw: Mapping[str, object]) -> CapitalAllocationAssessmentSummaryView:
-    alternatives = _mapping_items_optional(raw.get("alternatives"))
-    allocated = next(
-        (
-            str(alternative["ticker"])
-            for alternative in alternatives
-            if alternative.get("disposition") == "allocate"
-        ),
-        None,
-    )
-    return CapitalAllocationAssessmentSummaryView(
-        research_operation_id=text(
-            _mapping_optional(raw.get("research_scope")).get("operation_id")
-        ),
-        capital_allocation_assessment_id=str(raw["capital_allocation_assessment_id"]),
+def build_proposal_preview(
+    research: ResearchSource,
+    *,
+    proposal_id: str,
+    sqlite_path: Path,
+    now: datetime,
+) -> InvestmentProposalPreviewView | None:
+    preview = research.proposal_preview(proposal_id, sqlite_path=sqlite_path, now=now)
+    return None if preview is None else InvestmentProposalPreviewView.model_validate(preview)
+
+
+def _proposal_summary_view(raw: Mapping[str, object]) -> InvestmentProposalSummaryView:
+    items = _mapping_items(raw["items"])
+    return InvestmentProposalSummaryView(
+        proposal_id=str(raw["proposal_id"]),
         as_of=date.fromisoformat(str(raw["as_of"])),
         published_at=datetime.fromisoformat(str(raw["published_at"])),
-        decision=str(raw["result"]),
+        request_scope=str(raw["request_scope"]),
         headline=str(raw["headline"]),
-        research_triage_id=text(raw.get("research_triage_id")),
-        alternative_count=len(alternatives),
-        allocated_ticker=allocated,
+        item_count=len(items),
+        actions=[str(item["action"]) for item in items],
+        research_operation_id=str(_mapping_optional(raw["research_scope"])["operation_id"]),
     )
 
 
-def _assessment_view(
-    raw: Mapping[str, object],
-) -> CapitalAllocationAssessmentView:
-    scope = raw.get("research_scope")
-    scope = scope if isinstance(scope, Mapping) else {}
-    selected = scope.get("targets")
-    unfinished = [
-        item
-        for item in _mapping_items_optional(scope.get("outcomes"))
-        if item.get("status") == "unfinished"
-    ]
-    unfinished_views = []
-    for item in unfinished:
-        references = item.get("references")
-        unfinished_views.append(
-            UnfinishedResearchView(
-                ticker=str(item["ticker"]),
-                reason=str(item["reason"]),
-                references=[str(ref) for ref in references] if isinstance(references, list) else [],
-            )
-        )
-    return CapitalAllocationAssessmentView(
-        research_operation_id=text(scope.get("operation_id")),
-        selected_new_target_count=len(selected) if isinstance(selected, list) else None,
-        unfinished_research=unfinished_views,
-        capital_allocation_assessment_id=str(raw["capital_allocation_assessment_id"]),
-        as_of=date.fromisoformat(str(raw["as_of"])),
-        published_at=datetime.fromisoformat(str(raw["published_at"])),
-        decision=str(raw["result"]),
-        headline=str(raw["headline"]),
-        research_triage_id=text(raw.get("research_triage_id")),
-        market_context_assessment_id=text(raw.get("market_context_assessment_id")),
-        comparison=str(raw["comparison"]),
-        foregone_alternatives=str(raw["forgone"]),
-        alternatives=[
-            _allocation_alternative_view(item)
-            for item in _mapping_items_optional(raw.get("alternatives"))
-        ],
-        content_review=AssessmentReviewView.model_validate(raw["review"]),
-    )
-
-
-def _allocation_alternative_view(raw: Mapping[str, object]) -> AllocationAlternativeView:
-    projection = raw.get("thesis_projection")
-    machine_values = projection if isinstance(projection, Mapping) else {}
-    return AllocationAlternativeView(
-        ticker=str(raw["ticker"]),
-        disposition=str(raw["disposition"]),
-        rationale=str(raw["rationale"]),
-        thesis_id=str(raw["thesis_id"]),
-        thesis_review_id=text(raw.get("thesis_review_id")),
-        case_status=text(_mapping_optional(machine_values.get("investment_case")).get("status")),
-        base_annualized_return_pct=number(
-            _mapping_optional(_mapping_optional(machine_values.get("projections")).get("base")).get(
-                "annualized_return_pct"
-            )
-        ),
-        pmax_raw_yen=number(machine_values.get("pmax_raw_yen")),
-        valuation_as_of=text(machine_values.get("as_of")),
-        thesis_projection=dict(machine_values),
-        thesis_review=(
-            dict(review) if isinstance(review := raw.get("thesis_review"), Mapping) else None
-        ),
-    )
+def _proposal_item_view(raw: Mapping[str, object]) -> InvestmentProposalItemView:
+    action = raw["action"]
+    readiness = "not_applicable"
+    if action in {"buy", "sell"}:
+        readiness = "ready" if raw.get("terms") is not None else "needs_terms"
+    return InvestmentProposalItemView.model_validate({**raw, "order_readiness": readiness})
 
 
 def _research_revision_view(revision: ResearchRevision) -> ResearchRevisionView:
     return ResearchRevisionView(
+        ticker=revision.ticker,
+        company_name=revision.company_name,
+        sector=revision.sector,
+        summary=revision.summary,
         as_of=revision.as_of,
-        thesis_id=revision.thesis_id,
-        disposition=revision.disposition,
-        pmax_raw_yen=revision.pmax_raw_yen,
+        published_at=revision.published_at,
+        assessment_id=revision.assessment_id,
+        stance=revision.stance,
+        pmax_original_yen=revision.pmax_original_yen,
         review_id=revision.review_id,
         status=revision.status,
     )
 
 
-def _thesis_detail_view(detail: ThesisDetail) -> ThesisDetailView:
-    return ThesisDetailView(
-        revision=_research_revision_view(detail.revision), projection=detail.projection
+def _assessment_detail_view(detail: StockAssessmentDetail) -> StockAssessmentDetailView:
+    return StockAssessmentDetailView(
+        revision=_research_revision_view(detail.revision),
+        document=detail.document,
+        review=detail.review,
+        core_sha256=detail.core_sha256,
+        projection=detail.projection,
     )

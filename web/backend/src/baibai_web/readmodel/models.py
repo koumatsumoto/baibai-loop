@@ -36,8 +36,8 @@ class HoldingView(BaseModel):
     unrealized_pnl_pct: float | None
     pmax_raw_yen: float | None
     pmax_gap_pct: float | None
-    latest_thesis_id: str | None
-    disposition: str | None
+    latest_assessment_id: str | None
+    stance: str | None
     next_earnings_date: str | None = None
 
 
@@ -124,20 +124,22 @@ class TasksView(BaseModel):
     ledger_error: str | None
 
 
+class AssessmentRefView(BaseModel):
+    assessment_id: str
+    core_sha256: str
+    review_id: str
+
+
 class OperationResearchTargetView(BaseModel):
     selection_rationale: str | None = None
     research_question: str | None = None
     key_risk: str | None = None
     ticker: str
     purpose: Literal["new", "holding"]
-    outcome_status: Literal["reviewed", "proposal", "unfinished"] | None
-    thesis_id: str | None
-    thesis_review_id: str | None
+    outcome_status: Literal["reviewed", "unfinished"] | None
+    assessment_ref: AssessmentRefView | None
     unfinished_reason: str | None
     references: list[str]
-    checked_at: datetime | None
-    holding_proposal: dict[str, object] | None
-    holding_proposal_null_reason: str | None = None
 
 
 class OperationResearchView(BaseModel):
@@ -146,7 +148,8 @@ class OperationResearchView(BaseModel):
     max_deep_research_targets: int | None = None
     request: str
     targets: list[OperationResearchTargetView]
-    capital_allocation_assessment_id: str | None
+    proposal_id: str | None
+    proposal_draft_sha256: str | None
     source_run_revision_id: str | None = None
     source_analysis_as_of: date | None = None
 
@@ -329,7 +332,7 @@ class ScreeningView(BaseModel):
     )
     external_assessment_cutoff: datetime | None = None
     review_sets: list[ReviewSetView]
-    capital_allocation_assessments: list[CapitalAllocationAssessmentSummaryView]
+    investment_proposals: list[InvestmentProposalSummaryView]
     er_level_calibration: ErLevelCalibrationContextView | None = None
 
 
@@ -459,25 +462,30 @@ class ReviewSetView(BaseModel):
 
 
 class ResearchRevisionView(BaseModel):
+    ticker: str
+    company_name: str
+    sector: str
+    summary: str
     as_of: date
-    thesis_id: str
-    disposition: str
-    pmax_raw_yen: float | None
-    review_id: str | None
+    published_at: datetime
+    assessment_id: str
+    stance: str
+    pmax_original_yen: float | None
+    review_id: str
     status: str
 
 
-class ThesisDetailView(BaseModel):
+class StockAssessmentDetailView(BaseModel):
     revision: ResearchRevisionView
-    projection: dict[str, object]
+    document: dict[str, Any]
+    review: dict[str, Any]
+    core_sha256: str
+    projection: dict[str, Any]
 
 
-class PositionReviewView(BaseModel):
-    position_review_id: str
-    as_of: date
-    thesis_id: str
-    action: str | None
-    note: str | None
+class StockAssessmentsView(BaseModel):
+    assessments: list[ResearchRevisionView]
+    next_cursor: str | None = None
 
 
 class MarketPointView(BaseModel):
@@ -585,8 +593,8 @@ class SecurityDetailView(BaseModel):
     sector: str | None
     holding: HoldingView | None
     revisions: list[ResearchRevisionView]
-    latest_thesis: ThesisDetailView | None
-    position_reviews: list[PositionReviewView]
+    latest_assessment: StockAssessmentDetailView | None
+    investment_proposals: list[InvestmentProposalSummaryView]
     security_analysis: SecurityAnalysisRowView | None
     screening_run: ScreeningRunView | None
 
@@ -907,65 +915,105 @@ class MarketContextView(BaseModel):
     groups: list[IndicatorGroupView]
 
 
-class AllocationAlternativeView(BaseModel):
+class GateReasonView(BaseModel):
+    code: str
+    message: str
+
+
+class LimitTermsView(BaseModel):
+    """保存当時の具体条件。現在条件、注文受理、約定を推定しない。"""
+
+    side: Literal["buy", "sell"]
+    limit_price_yen: str
+    quantity: int
+    notional_yen: str
+    target_session: date
+    expires_at: datetime
+    valuation_as_of: date
+    maximum_entry_price_yen: str | None
+    price_grid_rule_id: str
+    conditions: list[str]
+    warnings: list[str]
+
+
+class InvestmentProposalItemView(BaseModel):
     ticker: str
-    disposition: str
+    action: Literal["buy", "hold", "sell", "no_action", "defer"]
     rationale: str
-    thesis_id: str
-    thesis_review_id: str | None
-    case_status: str | None
-    base_annualized_return_pct: float | None
-    pmax_raw_yen: float | None
-    valuation_as_of: str | None
-    thesis_projection: dict[str, Any] = Field(default_factory=dict)
-    thesis_review: dict[str, Any] | None = None
+    review_conditions: list[str]
+    assessment_ref: AssessmentRefView | None = None
+    timing: str | None = None
+    proposed_limit_yen: str | None = None
+    terms: LimitTermsView | None = None
+    terms_unavailable_reasons: list[GateReasonView] = Field(default_factory=list)
+    order_readiness: Literal["ready", "needs_terms", "not_applicable"]
+    position: dict[str, Any] | None = None
+    holding_basis: str | None = None
+    case_reassessment_reason: str | None = None
+    remaining_reward: dict[str, Any] | None = None
+    return_calculation_unavailable_reason: str | None = None
+    reason_code: str | None = None
+    blockers: list[GateReasonView] = Field(default_factory=list)
+    resume_conditions: list[str] = Field(default_factory=list)
+    assessment_projection: dict[str, Any] | None = None
+    assessment_review: dict[str, Any] | None = None
 
 
-class AssessmentReviewView(BaseModel):
-    attempt: int
-    reviewer_identity: str
-    reviewed_at: datetime
-    conclusion: str
-    open_findings: list[str]
-
-
-class CapitalAllocationAssessmentSummaryView(BaseModel):
-    capital_allocation_assessment_id: str
+class InvestmentProposalSummaryView(BaseModel):
+    proposal_id: str
     as_of: date
     published_at: datetime
-    decision: str
+    request_scope: str
     headline: str
-    research_triage_id: str | None
-    alternative_count: int
-    allocated_ticker: str | None
-    research_operation_id: str | None = None
+    item_count: int
+    actions: list[str]
+    research_operation_id: str
 
 
-class CapitalAllocationAssessmentsView(BaseModel):
-    assessments: list[CapitalAllocationAssessmentSummaryView]
+class InvestmentProposalsView(BaseModel):
+    proposals: list[InvestmentProposalSummaryView]
+    next_cursor: str | None = None
 
 
 class UnfinishedResearchView(BaseModel):
     ticker: str
-    reason: str
+    purpose: Literal["new", "holding"]
+    unfinished_reason: str
     references: list[str]
 
 
-class CapitalAllocationAssessmentView(BaseModel):
-    capital_allocation_assessment_id: str
+class InvestmentProposalView(BaseModel):
+    proposal_id: str
     as_of: date
+    prepared_at: datetime
     published_at: datetime
-    decision: str
+    request_scope: str
     headline: str
-    research_triage_id: str | None
-    market_context_assessment_id: str | None
     comparison: str
-    foregone_alternatives: str
-    research_operation_id: str | None = None
-    selected_new_target_count: int | None = None
-    unfinished_research: list[UnfinishedResearchView] = Field(default_factory=list)
-    alternatives: list[AllocationAlternativeView]
-    content_review: AssessmentReviewView
+    forgone: str
+    market_context_assessment_id: str | None
+    research_scope: dict[str, Any]
+    saved_inputs: dict[str, Any]
+    items: list[InvestmentProposalItemView]
+    review: dict[str, Any]
+    draft_sha256: str
+    liquidity_context: list[dict[str, Any]]
+    warnings: list[str]
+    portfolio_exposure: dict[str, Any]
+    unfinished_research: list[UnfinishedResearchView]
+
+
+class InvestmentProposalPreviewView(BaseModel):
+    """取得時刻付きの現在再試算。保存Proposal/termsとは独立したread-only結果。"""
+
+    saved_proposal_id: str
+    previewed_at: datetime
+    status: Literal["unchanged", "changed", "blocked"]
+    current_inputs: dict[str, Any] | None
+    items: list[dict[str, Any]]
+    change_reasons: list[GateReasonView]
+    warnings: list[str] = Field(default_factory=list)
+    portfolio_exposure: dict[str, Any] | None = None
 
 
 type DeltaUnavailable = Literal[

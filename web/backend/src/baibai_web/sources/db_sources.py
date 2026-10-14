@@ -13,33 +13,32 @@ from baibai_engine.read_api import (
     IndicatorGranularity,
     PortfolioSnapshot,
     application_db_updated_at,
-    capital_allocation_assessment_payload,
     close_change_since,
     current_portfolio,
     indicator_fetch_health,
     indicator_latest_observed_at,
     indicator_series,
+    investment_proposal_payload,
     latest_disclosure_dates_after,
     latest_unadjusted_closes,
-    list_capital_allocation_assessment_payloads,
+    list_assessment_review_publications,
+    list_investment_proposal_payloads,
     list_operation_sessions,
     list_portfolio_outcome_payloads,
-    list_position_review_publications,
+    list_stock_assessment_publications,
     list_task_payloads,
-    list_thesis_publications,
-    list_thesis_review_publications,
     market_master_snapshot,
     next_earnings_dates,
     portfolio_ledger_document,
-    position_review_null_reason,
+    preview_current_proposal_terms,
     previous_business_day,
-    reviewed_thesis_projection,
+    reviewed_assessment_projection,
     safe_load,
     screening_review_set_payloads,
     screening_run_asof_dates,
     screening_run_payload,
+    stock_assessment_publication,
     task_store_exists,
-    thesis_publication,
 )
 from baibai_engine.read_api.external_assessment import (
     ExternalAssessment,
@@ -62,11 +61,10 @@ from baibai_web.sources.screening_selection import operative_screening_run
 from baibai_web.sources.types import (
     IndicatorGroupConfig,
     IndicatorSeriesConfig,
-    PositionReviewSummary,
     ResearchRevision,
     ScreeningRunRecord,
+    StockAssessmentDetail,
     TaskRecord,
-    ThesisDetail,
 )
 
 
@@ -169,9 +167,6 @@ class DbOperationsSource:
     def operations(self) -> list[dict[str, object]]:
         return list_operation_sessions(self._path)
 
-    def position_review_null_reason(self, payload: Mapping[str, object]) -> str | None:
-        return position_review_null_reason(self._path, payload)
-
     def outcomes(self) -> list[dict[str, object]]:
         return list_portfolio_outcome_payloads(self._path)
 
@@ -182,98 +177,70 @@ class DbResearchSource:
         self._load_errors: list[str] = []
 
     def revisions(self) -> list[ResearchRevision]:
-        reviews = _latest_review_ids(list_thesis_review_publications(self._path))
-        result: list[ResearchRevision] = []
-        errors: list[str] = []
-        for publication in list_thesis_publications(self._path):
-            thesis_id = str(publication["thesis_id"])
-            try:
-                result.append(self._revision(publication, review_id=reviews.get(thesis_id)))
-            except (KeyError, TypeError, ValueError):
-                errors.append(thesis_id)
-        self._load_errors = errors
-        return result
+        # A malformed newer pair is a source error. Never expose an older supported
+        # assessment by silently dropping that revision from the current index.
+        return [self._revision(item) for item in list_stock_assessment_publications(self._path)]
 
-    def thesis_detail(self, thesis_id: str) -> ThesisDetail:
-        publication = thesis_publication(self._path, thesis_id=thesis_id)
+    def assessment_detail(self, assessment_id: str) -> StockAssessmentDetail | None:
+        publication = stock_assessment_publication(self._path, assessment_id=assessment_id)
         if publication is None:
-            raise ValueError(f"unknown thesis_id: {thesis_id}")
-        reviews = list_thesis_review_publications(self._path, thesis_id=thesis_id)
-        revision = self._revision(
-            publication,
-            review_id=_latest_review_ids(reviews).get(thesis_id),
-        )
-        return ThesisDetail(
-            revision=revision,
-            projection=reviewed_thesis_projection(self._path, thesis_id=thesis_id),
+            return None
+        reviews = list_assessment_review_publications(self._path, assessment_id=assessment_id)
+        if len(reviews) != 1:
+            raise ValueError("Stock Assessment requires exactly one independent Review")
+        projection = reviewed_assessment_projection(self._path, assessment_id=assessment_id)
+        return StockAssessmentDetail(
+            revision=self._revision(publication, projection=projection),
+            document=dict(_mapping(publication["payload"], label="Stock Assessment")),
+            review=dict(_mapping(reviews[0]["payload"], label="Assessment Review")),
+            core_sha256=str(publication["core_sha256"]),
+            projection=projection,
         )
 
-    def position_reviews(self, *, ticker: str | None = None) -> list[PositionReviewSummary]:
-        result: list[PositionReviewSummary] = []
-        publications = list_position_review_publications(self._path, ticker=ticker)
-        if not publications:
-            return result
-        for publication in publications:
-            payload = _mapping(publication["payload"], label="Position Review")
-            reward = payload.get("remaining_reward")
-            reward_reason = reward.get("reason") if isinstance(reward, Mapping) else None
-            action = _optional_text(payload.get("action"))
-            result.append(
-                PositionReviewSummary(
-                    position_review_id=str(publication["position_review_id"]),
-                    ticker=str(publication["ticker"]),
-                    as_of=date.fromisoformat(str(publication["as_of"])),
-                    thesis_id=str(publication["thesis_id"]),
-                    action=action,
-                    note=_optional_text(
-                        reward_reason or payload.get("unresolved_reason") or payload.get("note")
-                    ),
-                    null_reason=position_review_null_reason(self._path, payload)
-                    if action is None
-                    else None,
-                )
-            )
-        return result
+    def proposals(self) -> list[dict[str, object]]:
+        return list_investment_proposal_payloads(self._path)
+
+    def proposal(self, proposal_id: str) -> dict[str, object] | None:
+        return investment_proposal_payload(self._path, proposal_id=proposal_id)
+
+    def proposal_preview(
+        self, proposal_id: str, *, sqlite_path: Path, now: datetime
+    ) -> dict[str, object] | None:
+        return preview_current_proposal_terms(
+            self._path, proposal_id=proposal_id, sqlite_path=sqlite_path, now=now
+        )
 
     def load_errors(self) -> list[str]:
         return list(self._load_errors)
-
-    def assessments(self) -> list[dict[str, object]]:
-        return list_capital_allocation_assessment_payloads(self._path)
-
-    def assessment(self, capital_allocation_assessment_id: str) -> dict[str, object] | None:
-        return capital_allocation_assessment_payload(
-            self._path, capital_allocation_assessment_id=capital_allocation_assessment_id
-        )
 
     def _revision(
         self,
         publication: dict[str, object],
         *,
-        review_id: str | None,
+        projection: dict[str, object] | None = None,
     ) -> ResearchRevision:
-        payload = _mapping(publication["payload"], label="research thesis")
-        snapshot = _mapping(payload["input_snapshot"], label="thesis input snapshot")
-        projection = reviewed_thesis_projection(self._path, thesis_id=str(publication["thesis_id"]))
+        payload = _mapping(publication["payload"], label="Stock Assessment")
+        snapshot = _mapping(payload["input_snapshot"], label="Assessment input snapshot")
+        current = (
+            projection
+            if projection is not None
+            else reviewed_assessment_projection(
+                self._path, assessment_id=str(publication["assessment_id"])
+            )
+        )
         return ResearchRevision(
             ticker=str(publication["ticker"]),
             company_name=str(snapshot["company_name"]),
             sector=str(snapshot["sector"]),
+            summary=str(_mapping(payload["conclusion"], label="Assessment conclusion")["summary"]),
             as_of=date.fromisoformat(str(publication["as_of"])),
-            thesis_id=str(publication["thesis_id"]),
-            disposition=str(projection.get("disposition", "requires_reassessment")),
-            pmax_raw_yen=_optional_float(projection.get("pmax_raw_yen")),
-            review_id=review_id,
-            status=str(projection["status"]),
+            published_at=datetime.fromisoformat(str(publication["published_at"])),
+            assessment_id=str(publication["assessment_id"]),
+            stance=str(current["stance"]),
+            pmax_original_yen=_optional_float(current.get("pmax_original_yen")),
+            review_id=str(current["review_id"]),
+            status=str(current["status"]),
         )
-
-
-def _latest_review_ids(reviews: list[dict[str, object]]) -> dict[str, str]:
-    """The reader supplies reviewed_at DESC, review_id DESC; retain the first row."""
-    latest: dict[str, str] = {}
-    for review in reviews:
-        latest.setdefault(str(review["thesis_id"]), str(review["review_id"]))
-    return latest
 
 
 class DbTaskSource:

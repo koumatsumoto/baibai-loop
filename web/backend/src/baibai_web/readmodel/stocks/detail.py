@@ -9,16 +9,19 @@ from datetime import date, datetime
 from baibai_engine.read_api import HoldingSnapshot
 from baibai_web.readmodel.builders.presentation import (
     holding_view,
-    position_review_reason_text,
     text,
 )
 from baibai_web.readmodel.models import (
-    PositionReviewView,
+    InvestmentProposalSummaryView,
     SecurityDetailView,
     SecurityMarketContextView,
 )
 from baibai_web.readmodel.stocks.presentation import _safe_snapshot
-from baibai_web.readmodel.stocks.research import _research_revision_view, _thesis_detail_view
+from baibai_web.readmodel.stocks.research import (
+    _assessment_detail_view,
+    _proposal_summary_view,
+    _research_revision_view,
+)
 from baibai_web.readmodel.stocks.screening import (
     _JST,
     _operative_run,
@@ -33,18 +36,9 @@ from baibai_web.sources.protocols import (
     ScreeningSource,
 )
 from baibai_web.sources.types import (
-    PositionReviewSummary,
     ResearchRevision,
     ScreeningRunRecord,
 )
-
-
-def _position_review_note(item: PositionReviewSummary) -> str | None:
-    if item.action is not None or item.null_reason is None:
-        return item.note
-    reason = position_review_reason_text(item.null_reason)
-    assert reason is not None
-    return reason if not item.note or item.note == reason else f"{reason}。{item.note}"
 
 
 @dataclass(frozen=True)
@@ -56,6 +50,7 @@ class PreparedSecurityInputs:
     run: ScreeningRunRecord | None
     rows: Mapping[str, Mapping[str, object]]
     revisions: Mapping[str, list[ResearchRevision]]
+    proposals: Mapping[str, list[InvestmentProposalSummaryView]]
     holdings: Mapping[str, HoldingSnapshot]
     reserved: set[str]
 
@@ -70,6 +65,16 @@ def prepare_security_inputs(
     revisions: dict[str, list[ResearchRevision]] = {}
     for revision in research.revisions():
         revisions.setdefault(revision.ticker, []).append(revision)
+    proposals: dict[str, list[InvestmentProposalSummaryView]] = {}
+    for proposal in research.proposals():
+        summary = _proposal_summary_view(proposal)
+        items = proposal.get("items")
+        if not isinstance(items, list):
+            raise ValueError("investment proposal items must be an array")
+        for item in items:
+            if not isinstance(item, Mapping):
+                raise ValueError("investment proposal item must be an object")
+            proposals.setdefault(str(item["ticker"]), []).append(summary)
     run, _review_sets = _operative_run(screening)
     rows: dict[str, Mapping[str, object]] = {}
     if run is not None:
@@ -82,6 +87,7 @@ def prepare_security_inputs(
         run=run,
         rows=rows,
         revisions=revisions,
+        proposals=proposals,
         holdings={} if snapshot is None else {item.ticker: item for item in snapshot.holdings},
         reserved=set()
         if snapshot is None
@@ -107,6 +113,7 @@ def build_security_detail(
     today = inputs.today
     revisions = inputs.revisions.get(ticker, [])
     latest_revision = revisions[0] if revisions else None
+    proposals = inputs.proposals.get(ticker, [])
     run = inputs.run
     raw_security_analysis = inputs.rows.get(ticker)
     holding_snapshot = inputs.holdings.get(ticker)
@@ -129,6 +136,7 @@ def build_security_detail(
         and latest_revision is None
         and raw_security_analysis is None
         and not has_external
+        and not proposals
     ):
         return None
 
@@ -152,10 +160,13 @@ def build_security_detail(
         if holding_snapshot is not None
         else None
     )
-    latest_thesis = (
-        _thesis_detail_view(research.thesis_detail(latest_revision.thesis_id))
+    assessment_detail = (
+        research.assessment_detail(latest_revision.assessment_id)
         if latest_revision is not None
         else None
+    )
+    latest_assessment = (
+        _assessment_detail_view(assessment_detail) if assessment_detail is not None else None
     )
     reserved_here = {ticker} if ticker in inputs.reserved else set()
     security_analysis = (
@@ -187,17 +198,8 @@ def build_security_detail(
         ),
         holding=holding,
         revisions=[_research_revision_view(item) for item in revisions],
-        latest_thesis=latest_thesis,
-        position_reviews=[
-            PositionReviewView(
-                position_review_id=item.position_review_id,
-                as_of=item.as_of,
-                thesis_id=item.thesis_id,
-                action=item.action,
-                note=_position_review_note(item),
-            )
-            for item in research.position_reviews(ticker=ticker)
-        ],
+        latest_assessment=latest_assessment,
+        investment_proposals=proposals,
         security_analysis=security_analysis,
         screening_run=(_screening_run_view(run, today=today) if run is not None else None),
     )

@@ -131,7 +131,7 @@ def test_every_exported_view_carries_exactly_the_keys_the_schema_requires(
         failures.extend(_check_value(schema, _definition(schema, reference), payload, relative))
 
     assert failures == []
-    # The fixture publishes a run, a thesis and a ledger, so the export is not one file.
+    # The fixture publishes a run, a Stock Assessment and a ledger, so the export is not one file.
     assert checked > 10
 
 

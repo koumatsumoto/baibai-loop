@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 from tests.helpers.assessment_history import historical_context_payload, seed_history
 from tests.helpers.screening_sqlite import market_store_with_fetch_claim
+from tests.web.test_research_assessment_views import seed_web_proposal
 
 from baibai_engine.market_context.assessment.models import StoredAssessment
 from baibai_engine.market_context.indicators.db import insert_observations, open_connection
@@ -31,9 +32,9 @@ from baibai_web.materialize import main
 from baibai_web.readmodel.builders import build_meta
 from baibai_web.readmodel.models import (
     AssessmentPublicationView,
-    CapitalAllocationAssessmentsView,
-    CapitalAllocationAssessmentView,
     DashboardView,
+    InvestmentProposalsView,
+    InvestmentProposalView,
     MarketContextView,
     MetaView,
     OperationsView,
@@ -41,7 +42,7 @@ from baibai_web.readmodel.models import (
     SecurityDetailView,
     TasksView,
 )
-from baibai_web.sources.db_sources import DbMetaSource
+from baibai_web.sources.db_sources import DbMetaSource, DbResearchSource
 
 JST = ZoneInfo("Asia/Tokyo")
 
@@ -52,59 +53,6 @@ def _meta_source(root: Path) -> DbMetaSource:
         root / "stores/screening/runs.sqlite",
         root / "stores/market_context/indicators.sqlite",
     )
-
-
-def _publish_assessment(root: Path, *, assessment_id: str, research_triage_id: str) -> None:
-    """Seed historical CAA bytes; current services do not execute old Thesis models."""
-    with sqlite3.connect(root / "stores/application/baibai.sqlite") as connection:
-        thesis_id, core = connection.execute(
-            "SELECT thesis_id, core_sha256 FROM thesis LIMIT 1"
-        ).fetchone()
-        review_id = connection.execute(
-            "SELECT review_id FROM thesis_review WHERE thesis_id=?", (thesis_id,)
-        ).fetchone()[0]
-        payload = {
-            "schema_version": 2,
-            "kind": "capital_allocation_assessment",
-            "capital_allocation_assessment_id": assessment_id,
-            "as_of": "2026-07-09",
-            "published_at": "2026-07-09T12:00:00+09:00",
-            "result": "no_allocation",
-            "headline": "現金維持",
-            "research_triage_id": research_triage_id,
-            "market_context_assessment_id": None,
-            "comparison": "当時の比較",
-            "forgone": "見送り",
-            "alternatives": [
-                {
-                    "ticker": "2331",
-                    "thesis_id": thesis_id,
-                    "thesis_core_sha256": core,
-                    "thesis_review_id": review_id,
-                    "disposition": "decline",
-                    "rationale": "当時の判断",
-                }
-            ],
-            "review": {
-                "attempt": 1,
-                "reviewer_identity": "historical",
-                "reviewed_at": "2026-07-09T12:00:00+09:00",
-                "conclusion": "pass",
-                "draft_sha256": "1" * 64,
-                "open_findings": [],
-            },
-        }
-        connection.execute(
-            "INSERT INTO capital_allocation_assessment VALUES (?,?,?,?,?,?)",
-            (
-                assessment_id,
-                payload["as_of"],
-                payload["published_at"],
-                payload["result"],
-                research_triage_id,
-                canonical_json(payload),
-            ),
-        )
 
 
 def _insert_review_set(root: Path, *, review_set_id: str) -> str:
@@ -315,7 +263,9 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
         "market-context.json",
         "screening_latest.json",
         "operations.json",
-        "capital-allocation-assessments.json",
+        "stock-assessments.json",
+        "investment-proposals.json",
+        f"stock-assessment--{DbResearchSource(app_method_root / 'stores/application/baibai.sqlite').revisions()[0].assessment_id}.json",
         "tasks.json",
         "meta.json",
         "security--0001.json",
@@ -385,42 +335,33 @@ def test_export_writes_market_context_assessment_detail_views(
     assert overview.reports == []
 
 
-def test_export_keeps_historical_assessment_detail_outside_current_screening_index(
+def test_export_keeps_saved_proposal_detail_independent_of_current_screening(
     app_method_root: Path, tmp_path: Path
 ) -> None:
     (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
     _insert_review_set(app_method_root, review_set_id="review-set-current")
-    assessment_id = "capital-allocation-assessment-20260709-historical"
-    _publish_assessment(
-        app_method_root,
-        assessment_id=assessment_id,
-        research_triage_id="research-triage-historical",
-    )
+    _, _, _, proposal = seed_web_proposal(app_method_root)
+    proposal_id = proposal.proposal_id
     output_dir = tmp_path / "export"
-
     assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 0
-
     screening = ScreeningView.model_validate_json(
         (output_dir / "views/screening_latest.json").read_text(encoding="utf-8")
     )
-    assert (
-        screening.capital_allocation_assessments[0].capital_allocation_assessment_id
-        == assessment_id
-    )
-    detail_path = output_dir / "views" / f"capital-allocation-assessment--{assessment_id}.json"
-    detail = CapitalAllocationAssessmentView.model_validate_json(
-        detail_path.read_text(encoding="utf-8")
-    )
-    assert detail.capital_allocation_assessment_id == assessment_id
-    index_path = output_dir / "views/capital-allocation-assessments.json"
-    index = CapitalAllocationAssessmentsView.model_validate_json(index_path.read_text())
-    assert [item.capital_allocation_assessment_id for item in index.assessments] == [assessment_id]
+    assert screening.investment_proposals[0].proposal_id == proposal_id
+    detail_path = output_dir / "views" / f"investment-proposal--{proposal_id}.json"
+    detail = InvestmentProposalView.model_validate_json(detail_path.read_text())
+    assert detail.proposal_id == proposal_id
+    assert detail.research_scope == proposal.research_scope.model_dump(mode="json")
+    index_path = output_dir / "views/investment-proposals.json"
+    index = InvestmentProposalsView.model_validate_json(index_path.read_text())
+    assert [item.proposal_id for item in index.proposals] == [proposal_id]
+    assert (output_dir / f"views/investment-proposal-preview--{proposal_id}.json").is_file()
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
-        api_detail = client.get(f"/api/capital-allocation-assessments/{assessment_id}")
-        api_index = client.get("/api/capital-allocation-assessments")
-        assert client.get("/api/research-triages/missing").status_code == 404
+        api_detail = client.get(f"/api/investment-proposals/{proposal_id}")
+        api_index = client.get("/api/investment-proposals")
+        assert client.get("/api/capital-allocation-assessments").status_code == 404
     assert api_detail.status_code == 200
-    assert json.loads(detail_path.read_text(encoding="utf-8")) == api_detail.json()
+    assert json.loads(detail_path.read_text()) == api_detail.json()
     assert json.loads(index_path.read_text()) == api_index.json()
 
 
@@ -656,7 +597,7 @@ def test_export_reuses_research_history_and_ledger_per_export(
     )
     prepare = mocker.spy(export_module, "prepare_security_inputs")
     convert = mocker.spy(stocks, "_machine_review_set_view")
-    read = mocker.spy(db_sources, "list_thesis_publications")
+    read = mocker.spy(db_sources, "list_stock_assessment_publications")
     replay = mocker.spy(db_sources, "current_portfolio")
     mocker.patch.object(
         export_module,

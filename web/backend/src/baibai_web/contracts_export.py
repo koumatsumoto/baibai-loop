@@ -29,11 +29,12 @@ from pydantic.json_schema import models_json_schema
 
 from baibai_web.readmodel.models import (
     AssessmentPublicationView,
-    CapitalAllocationAssessmentsView,
-    CapitalAllocationAssessmentView,
     DailyDeltaView,
     DashboardView,
     IndicatorSeriesView,
+    InvestmentProposalPreviewView,
+    InvestmentProposalsView,
+    InvestmentProposalView,
     MarketContextView,
     MetaView,
     OperationsView,
@@ -41,23 +42,26 @@ from baibai_web.readmodel.models import (
     ScreeningHistoryView,
     ScreeningView,
     SecurityDetailView,
+    StockAssessmentDetailView,
+    StockAssessmentsView,
     TasksView,
 )
 
 SCHEMA_PATH = Path("web/contracts/read-model.schema.json")
 TYPES_PATH = Path("web/frontend/src/api/types.ts")
-CONTRACT_SCHEMA_VERSION = 3
+CONTRACT_SCHEMA_VERSION = 4
 
 # Every artifact the UI reads through `/api`, and the model that writes it. The keys are
 # the serving paths `web/contracts/routes.json` maps those routes to, and a test pins
 # the two against each other so a route added there without a model here is caught.
 ROOT_VIEWS: Mapping[str, type[BaseModel]] = {
     "history/candidate-views/{as_of}.json": ScreeningHistoryRunView,
-    (
-        "views/capital-allocation-assessment--{capital_allocation_assessment_id}.json"
-    ): CapitalAllocationAssessmentView,
+    "views/stock-assessment--{assessment_id}.json": StockAssessmentDetailView,
+    "views/investment-proposal--{proposal_id}.json": InvestmentProposalView,
+    "views/investment-proposal-preview--{proposal_id}.json": InvestmentProposalPreviewView,
     "views/daily-delta.json": DailyDeltaView,
-    "views/capital-allocation-assessments.json": CapitalAllocationAssessmentsView,
+    "views/stock-assessments.json": StockAssessmentsView,
+    "views/investment-proposals.json": InvestmentProposalsView,
     "views/dashboard.json": DashboardView,
     "views/market-context.json": MarketContextView,
     "views/market-context-assessment--{context_id}.json": AssessmentPublicationView,

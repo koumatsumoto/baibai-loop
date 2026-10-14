@@ -14,23 +14,6 @@ from baibai_web.readmodel.models import (
 )
 from baibai_web.sources.types import ResearchRevision, ScreeningRunRecord
 
-_POSITION_REVIEW_NULL_REASONS = {
-    "investment_case_uncertain": "投資仮説の成立が未確認です",
-    "primary_evidence_requires_verification": "投資仮説の一次根拠が未確認です",
-    "valuation_unresolved": "企業価値の算定が未確定です",
-    "valuation_basis_requires_refresh": "企業評価の基準日が判断日と異なります",
-    "quote_missing": "対象日の株価がありません",
-    "quote_stale": "株価が鮮度上限を超えています",
-    "quote_after_judgment": "株価の日付が判断日より後です",
-    "quantity_basis_unconfirmed": "株式単位・権利変化が未確認です",
-    "remaining_reward_requires_confirmation": "残存見返りの判断が未確認です",
-}
-
-
-def position_review_reason_text(reason: str | None) -> str | None:
-    return None if reason is None else _POSITION_REVIEW_NULL_REASONS.get(reason, reason)
-
-
 _EVENT_WINDOW_DAYS = 14
 
 _EVENT_KIND_ORDER = {"earnings": 0, "reservation_expiry": 1}
@@ -71,7 +54,7 @@ def holding_view(
     market_value = holding.market_value_yen
     price_as_of = holding.market_price_observed_at
     pnl = None if market_value is None else market_value - holding.deployed_cost_yen
-    fair_value = revision.pmax_raw_yen if revision is not None else None
+    fair_value = revision.pmax_original_yen if revision is not None else None
     fv_gap = (
         round((fair_value - price_value) / price_value * 100, 1)
         if fair_value is not None and price_value is not None and price_value != 0
@@ -90,8 +73,8 @@ def holding_view(
         unrealized_pnl_pct=percentage(pnl, holding.deployed_cost_yen, digits=2),
         pmax_raw_yen=fair_value,
         pmax_gap_pct=fv_gap,
-        latest_thesis_id=revision.thesis_id if revision is not None else None,
-        disposition=revision.disposition if revision is not None else None,
+        latest_assessment_id=revision.assessment_id if revision is not None else None,
+        stance=revision.stance if revision is not None else None,
         next_earnings_date=(
             next_earnings_date.isoformat() if next_earnings_date is not None else None
         ),
