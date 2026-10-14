@@ -3,22 +3,23 @@
 ``hydrate_market_store`` consumes objects in one fixed order — dataset by dataset,
 partition by partition — and each object passes through ``LakeObjectCache.materialize``,
 where its digest is verified and its bytes are installed under the mirror. Read
-sequentially, the network wait and the SQLite insert take turns; measured on the
-production release, three quarters of a cold fill is that network wait. This module
-removes only the taking of turns: workers fetch upcoming objects into a bounded
-in-memory buffer, and the cache's read comes out of that buffer instead of the network.
+sequentially, network waits and SQLite inserts take turns. Workers fetch upcoming
+objects into a bounded in-memory buffer; planned cache reads use that buffer rather
+than fetching on the consuming thread.
 
 What deliberately does not move off the consuming thread: verification, installation,
 and transfer accounting all still happen inside ``materialize``. A worker that returns
 damaged bytes is refused by the same digest check that refuses a damaged network read,
-and ``fetched_objects`` still counts exactly the objects whose bytes crossed the
-network this run.
+and ``fetched_objects`` counts verified objects consumed through the cache. It does
+not measure all network traffic: failed, discarded, or duplicate prefetches are not
+included in that materialization count.
 
 Failure never widens: any worker-side error marks the remaining plan as skipped, a
 skipped key is simply read from the base source on the consuming thread, and a wait
 that outlives one fetch by a wide margin walks away to that same base read — the exact
-sequential behaviour this module exists to overlap. Prefetching can therefore only be
-faster or equal, never a new way for a fill to fail or to hang.
+sequential behaviour this module exists to overlap. Falling back can add the worker
+wait and repeat a download; it is not a guarantee of equal or faster completion.
+Worker waits and joins are bounded separately from the base source's own timeouts.
 
 Each worker owns its own source. For R2 that means its own DuckDB session, because a
 ``LakeSession`` holds one connection and one connection must not serve two threads.
@@ -45,8 +46,8 @@ from baibai_engine.storage.lake.reader import FixedRelease, selected_partitions
 
 _PREFETCH_WORKERS = 8
 # Fetched-but-unconsumed payloads the buffer may hold, workers' in-flight fetches
-# included. Monthly partition objects run from kilobytes to a few megabytes, so this
-# bound is what caps peak memory rather than the object count.
+# included. This bounds the number of buffered objects, not their total bytes;
+# peak memory also depends on the sizes of the selected Parquet objects.
 _PREFETCH_BUFFER = 16
 # A consumer's wait is one in-flight fetch (the reservation discipline in `_work`
 # keeps the key it needs inside the taken window), which completes in seconds. A wait

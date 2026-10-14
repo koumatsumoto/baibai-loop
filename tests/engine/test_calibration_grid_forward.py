@@ -783,14 +783,10 @@ class ControlEventExitTest(unittest.TestCase):
 
 
 class AdjustmentFactorGuardTest(unittest.TestCase):
-    """The factor guard has never fired on the stored bars, so it is exercised here.
+    """Unknown factors must not produce a resolved dividend or offer-price conversion.
 
-    Every stored bar carries an adjustment factor, which makes `adjustment_factor_coverage`
-    read `complete` on every row the store has ever produced. A check that has only ever
-    been observed passing is not a check that has been shown to work: what it refuses has
-    to be demonstrated, because the quantities behind it — a dividend carried to the final
-    share basis, an offer price placed on the entry's basis — are wrong rather than absent
-    when the factors are unknown.
+    Exercise both missing-factor rejection and complete-factor resolution without
+    assuming that production data always has complete adjustment coverage.
     """
 
     ASOF = date(2020, 1, 31)
@@ -866,12 +862,10 @@ class AdjustmentFactorGuardTest(unittest.TestCase):
 
 
 class FailureExitTest(unittest.TestCase):
-    """A window ended by a failure delisting is a realized loss, not a missing observation.
+    """A qualifying failure delisting uses the last traded close as its exit observation.
 
-    Dropping it removes the left tail from every measured return: at 3y the 516 windows
-    that fall here have a median of -85.7% and a 20% win rate, against +36.6% mean for the
-    windows that resolved. The capital is gone, so no reinvestment convention is needed to
-    price it — the last close the market printed is what the position was worth.
+    This is a market-price convention, not proof of final recovery or a zero terminal
+    value. Dates outside the window and later trading must not be overwritten.
     """
 
     ASOF = date(2025, 1, 31)

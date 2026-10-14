@@ -1,4 +1,4 @@
-"""Calendar-aware, fail-visible price-return forward observations."""
+"""Calendar-aware, fail-visible price and total-return forward observations."""
 
 from __future__ import annotations
 
@@ -103,12 +103,9 @@ BENCHMARK_TICKERS: tuple[str, ...] = (TOPIX_ETF_PROXY,)
 # reports/studies/2026-08-11-capital-control-exit-values/.
 CONTROL_EVENT_EXIT_STATUS = "resolved_control_event_exit"
 
-# A window that ended when the exchange removed a failing company is resolved by the last
-# price the market printed. No reinvestment convention is needed for these: the holding is
-# either extinguished or left unlisted, so nothing comes back to redeploy and the last
-# quote is the last value the market put on it. The status stays separate from `resolved`
-# so a reader can tell a window the market closed on its own target date from one closed
-# by a delisting.
+# A qualifying failure delisting uses the last traded close as its exit observation.
+# This is not proof of a final cash recovery or a worthless unlisted holding. Keep the
+# status separate so readers can distinguish this convention from a target-date close.
 FAILURE_EXIT_STATUS = "resolved_failure_exit"
 RESOLVED_STATUSES = frozenset({"resolved", CONTROL_EVENT_EXIT_STATUS, FAILURE_EXIT_STATUS})
 
@@ -149,7 +146,7 @@ _ACQUISITION_REASON_PHRASES = (
 
 
 def is_failure_delisting(reason: str) -> bool:
-    """Whether this delisting reason is a failure whose last close is the realized exit."""
+    """Whether the reason qualifies for the last-traded-close exit convention."""
     if any(phrase in reason for phrase in _ACQUISITION_REASON_PHRASES):
         return False
     return any(phrase in reason for phrase in _FAILURE_REASON_PHRASES)
@@ -585,9 +582,9 @@ def _failure_exit_row(
     the exchange removed from one that merely stopped trading: a name that traded again
     afterwards is left unresolved rather than priced at a close that was not its last.
 
-    A company suspended long before the exchange removed it is priced at the last close it
-    printed, which understates the loss rather than overstating it. That is the same
-    direction the omission this replaces already had, and a smaller amount of it.
+    A long suspension can leave this close far from final recoverable value. The row
+    records a market-price convention, not a cash settlement; the bias direction and
+    size are not established by the delisting reason alone.
     """
     if failure_exit is None or entry_date is None or entry_close <= 0:
         return None
@@ -610,7 +607,7 @@ def _failure_exit_row(
         adjustment_coverage=adjustment_coverage,
     )
     # `stale_price` stays false, as it does for an offer price. It marks a price the
-    # tolerance rejected, and this one is not rejected but definitive; `exit_date` already
+    # tolerance rejected, and this exit convention accepts the last close; `exit_date`
     # says exactly when the window ended, and `failure_exit_count` is where these are
     # counted.
     return replace(
