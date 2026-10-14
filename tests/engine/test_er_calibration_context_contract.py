@@ -17,6 +17,7 @@ from baibai_engine.valuation.calibration.query import load_er_calibration_contex
 
 _ROOT = Path(__file__).resolve().parents[2]
 _PUBLISHED = _ROOT / "reports/published/er-level-calibration-latest.yaml"
+_RETAINED = _ROOT / "reports/studies/2026-10-14-er-context-v26/retained-schema2-context.yaml"
 
 
 def _artifact() -> dict[str, Any]:
@@ -36,14 +37,27 @@ def _load(path: Path, payload: dict[str, Any], *, as_of: date | None = None):
     )
 
 
-def test_retained_schema_2_is_not_reinterpreted_even_for_its_original_method() -> None:
-    raw = safe_load(_PUBLISHED.read_text(encoding="utf-8"))
+def test_retained_schema_2_is_not_reinterpreted_even_for_its_original_method(monkeypatch) -> None:
+    raw = safe_load(_RETAINED.read_text(encoding="utf-8"))
     assert isinstance(raw, dict)
     assert raw["schema_version"] == 2
-    original = _PUBLISHED.read_bytes()
-    assert _load(_PUBLISHED, raw).unavailable_reason == "invalid_artifact"
+    original = _RETAINED.read_bytes()
+    assert _load(_RETAINED, raw).unavailable_reason == "invalid_artifact"
+    monkeypatch.setattr(check_er_calibration_context, "_CONTEXT", _RETAINED)
     assert not check_er_calibration_context.check()
-    assert _PUBLISHED.read_bytes() == original
+    assert _RETAINED.read_bytes() == original
+
+
+def test_published_context_matches_its_method_and_preserves_formal_evidence() -> None:
+    raw = safe_load(_PUBLISHED.read_text(encoding="utf-8"))
+    result = _load(_PUBLISHED, raw)
+    assert result.unavailable_reason is None
+    assert result.artifact is not None
+    assert result.artifact.schema_version == 4
+    assert len(result.artifact.required_asofs) == len(raw["required_asofs"])
+    assert result.artifact.evidence_complete is raw["evidence_complete"]
+    assert list(result.artifact.evidence_blocking_reasons) == raw["evidence_blocking_reasons"]
+    assert not check_er_calibration_context.check()
 
 
 def test_schema_4_fixed_band_contract_is_accepted() -> None:
@@ -102,7 +116,7 @@ def test_shared_prediction_bands_allow_different_horizon_outcome_coverage(tmp_pa
 
 
 def test_retained_schema_2_bytes_cannot_be_relabelled_or_modified(tmp_path, monkeypatch) -> None:
-    raw = safe_load(_PUBLISHED.read_text(encoding="utf-8"))
+    raw = safe_load(_RETAINED.read_text(encoding="utf-8"))
     assert isinstance(raw, dict)
     raw["horizons"][0]["bands"][0]["median_n"] += 1
     path = tmp_path / "changed-schema-2.yaml"
