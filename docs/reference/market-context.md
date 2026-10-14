@@ -42,7 +42,7 @@ Market Contextは経済、市場全体、業種と個別株の相対状態を扱
 
 個別対業種の`relative_return_20d`は個別の価格騰落－peer中央値で、ratioの差（0.1＝10 percentage points）である。`comparison_start_date / comparison_end_date / master_snapshot_date`を併記し、peer数と比較基準を示す。市場・業種が上昇し個別が下落しても、乖離だけから割安と認定しない。財務・利益・企業価値の算術はValuationが所有する。
 
-Security Analysisの業種順位は業種平均の相対騰落を並べた順位で、同値の業種は名前順で異なるpercentileを持つ。これは現在の決定的な並べ方であり、同値間の経済的な優劣を示さない。
+Security Analysisの業種順位は業種平均の相対騰落を並べた順位だが、現行実装は同値の業種にも名前順で異なるpercentileを付ける。これは確認済みの意味の不整合であり、同値処理の修正は[#1509](https://github.com/koumatsumoto/baibai-loop/issues/1509)で扱う。
 
 masterはrequested cutoff以下の最新の一つのsnapshotを集合ごと選ぶ。そのsnapshotにいないtickerを古いsnapshotから復活させず、未来分類を使わない。価格はcutoff以下のraw closeを保存済み分割factorの後方累積で揃え、closeがnullの分割eventも落とさない。現金配当込みreturnではない。価格の観測日、requested cutoff、master snapshotの日は同一とは限らないため、各基準日を見て読む。
 
