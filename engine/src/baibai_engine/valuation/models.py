@@ -1,4 +1,4 @@
-"""Thesis が内包する企業固有の評価前提。統合成果物や Review は Research が所有する。"""
+"""Stock Assessment が内包する企業固有の評価前提。統合成果物や Review は Research が所有する。"""
 
 from __future__ import annotations
 

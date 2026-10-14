@@ -25,7 +25,7 @@ Valuation・Market Context・External Assessmentの意味は[domain-language](./
 | 市場環境判断を作る | [Market Context assessment](../.agents/skills/market-context-assessment/SKILL.md) |
 | batch・storeを運用する | [Ops Maintenance](../.agents/skills/ops-maintenance/SKILL.md) |
 | 保存済み情報を表示・照会する | [Web](../web/README.md)・[固定lake release読取](./reference/market-lake.md#fixed-release-read) |
-| 保存済みの機械評価と企業固有評価を読む | [Valuation metrics](./reference/valuation-metrics.md#machine-valuation)・[Thesis](./reference/thesis.md#scenario-arithmetic) |
+| 保存済みの機械評価と企業固有評価を読む | [Valuation metrics](./reference/valuation-metrics.md#machine-valuation)・[Stock Assessment](./reference/stock-assessment.md#scenario-arithmetic) |
 | 見積り方法・保存済みER較正文脈を確認する | [Estimate calibration](./reference/estimate-calibration.md) |
 | 条件・閾値の目的と根拠を確認する | [判断条件の見取り図](#判断条件の見取り図)から各責務の正本へ辿る |
 | PC・クラウドで開発する、Actionsとの分担を確認する | [AGENTS](../AGENTS.md)・[Python foundation](./reference/python-foundation.md#cloud-development-boundary) |
@@ -39,9 +39,9 @@ Valuation・Market Context・External Assessmentの意味は[domain-language](./
 | --- | --- | --- |
 | 計算入力から候補集合・候補一覧まで | [指標と欠測](./reference/valuation-metrics.md)、[Screeningの資格・順位・品質](./reference/screening-runtime.md#rule-purpose) | [`CommonEligibilityRules.matches`](../engine/src/baibai_engine/screening/rule_config.py)、[候補文脈](../engine/src/baibai_engine/screening/discovery/candidates.py)、[回帰](../tests/engine/test_candidate_discovery.py) |
 | 機械E[r]の参考値と較正 | [機械見積り](./reference/valuation-metrics.md#machine-valuation)、[較正文脈](./reference/estimate-calibration.md#estimator-vs-decision) | [文脈読取](../engine/src/baibai_engine/valuation/calibration/query.py)、[回帰](../tests/engine/test_er_calibration_context_contract.py) |
-| 明示Researchと企業固有の評価 | [有限対象と進行](./reference/analysis-operations.md)、[Thesisと独立Review](./reference/thesis.md) | [対象と進捗](../engine/src/baibai_engine/research/operation/progress.py)、[回帰](../tests/engine/test_research_progression.py) |
-| 候補比較と新規購入 | [CAA](./reference/capital-allocation-assessment.md)、[資本方針](./portfolio-management.md) | [`evaluate_entry`](../engine/src/baibai_engine/research/entry_policy.py)、[回帰](../tests/engine/test_investment_judgment_v4.py) |
-| 保有継続・回収と確認済み取引 | [Position Review](./reference/position-review.md)、[Portfolio Ledger](./reference/portfolio-ledger.md) | [保有判断](../engine/src/baibai_engine/research/position_review.py)、[台帳回帰](../tests/engine/test_portfolio_ledger.py) |
+| 明示Researchと企業固有の評価 | [有限対象と進行](./reference/analysis-operations.md)、[Stock Assessmentと独立Review](./reference/stock-assessment.md) | [対象と進捗](../engine/src/baibai_engine/research/operation/progress.py)、[回帰](../tests/engine/test_research_progression.py) |
+| 候補比較と新規購入 | [Investment Proposal](./reference/investment-proposal.md)、[資本方針](./portfolio-management.md) | [`evaluate_buy_terms`](../engine/src/baibai_engine/research/entry_policy.py)、[回帰](../tests/engine/test_conditional_buy_terms.py) |
+| 保有継続・回収と確認済み取引 | [保有提案](./reference/investment-proposal.md#holding)、[Portfolio Ledger](./reference/portfolio-ledger.md) | [保有判断](../engine/src/baibai_engine/research/holding_policy.py)、[台帳回帰](../tests/engine/test_portfolio_ledger.py) |
 
 ## 文書の役割
 

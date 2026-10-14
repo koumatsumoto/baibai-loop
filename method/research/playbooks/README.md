@@ -9,7 +9,7 @@ Valuation ApproachからFundamental Researchへ渡す、人間向けresearch che
 | 入口 | `method/research/playbooks/<directory-slug>/YYYY-MM-DDTHHMMSS+0900.md` |
 | 依存境界 | 各revisionは`research_playbook_id`とnon-emptyな`applies_to_valuation_approach_ids`を持つ。slugによるimplicit mappingは禁止 |
 | 変更先 | mappingを含む変更は既存dated methodを編集せず、新しいtimestamp版を作る |
-| 正本・test | [research skill](../../../.agents/skills/research/SKILL.md)、[Thesis](../../../docs/reference/thesis.md)、[playbook contract test](../../../tests/contracts/test_research_playbook_contract.py) |
+| 正本・test | [research skill](../../../.agents/skills/research/SKILL.md)、[Thesis](../../../docs/reference/stock-assessment.md)、[playbook contract test](../../../tests/contracts/test_research_playbook_contract.py) |
 
 <a id="work-state"></a>
 

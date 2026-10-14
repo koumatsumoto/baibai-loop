@@ -98,7 +98,7 @@ Market Context Assessmentでは、取得できなかったTier 1 URLを`status: 
 
 ## 保有見直しの価格と欠測
 
-Position Reviewの機械quoteはmarket storeのJ-Quantsから読む。欠損は未評価とし、公開quoteをledgerへ転記して補完しない。公開quoteをThesisの補助資料に使う場合は評価日・取得時点・price basisを示し、機械入力とは区別する。欠測の扱いは[Position Review](./position-review.md)を参照する。
+保有提案の機械quoteはmarket storeのJ-Quantsから読む。欠損は未評価とし、公開quoteをledgerへ転記して補完しない。公開quoteをStock Assessmentの補助資料に使う場合は評価日・取得時点・price basisを示し、機械入力とは区別する。欠測の扱いは[保有提案](./investment-proposal.md#holding)を参照する。
 
 ## Portfolio outcome benchmark
 
@@ -140,7 +140,7 @@ EDINET metricの`extractor_revision`は明示的な抽出意味revisionであり
 
 External Assessmentは媒体が提示した値・出所・尺度・時点を参照する。掲載先と原評価元を区別し、同じIFIS由来の目標値/ratingを独立した賛成票として数えない。原評価元が不明な系列の独立性は推測しない。外部モデル価格・アナリスト予測/rating・Quants scoreは別の型・結果であり、正規化した多数決点や独自FVへ統合しない。
 
-同じ配信元の受領間を、確認できた同じorigin・単位・株式基準・対象期間または尺度で比較する。欠測の回復・人数変更・同値の再観測は数値改善の主張と区別する。既存の企業固有評価は[Thesis](./thesis.md)が所有する。型と比較規則は`external_assessment/models.py`・`analysis.py`、cutoffと選択・保存契約は[market lake](./market-lake.md#external-assessment-query)を参照する。
+同じ配信元の受領間を、確認できた同じorigin・単位・株式基準・対象期間または尺度で比較する。欠測の回復・人数変更・同値の再観測は数値改善の主張と区別する。既存の企業固有評価は[Stock Assessment](./stock-assessment.md)が所有する。型と比較規則は`external_assessment/models.py`・`analysis.py`、cutoffと選択・保存契約は[market lake](./market-lake.md#external-assessment-query)を参照する。
 
 取得・観測の状態は運用上の利用可能性を示す。[ルールの目的区分](./screening-runtime.md#rule-purpose)にある投資上の資格・判断や、その経済的最適性の根拠にはしない。
 

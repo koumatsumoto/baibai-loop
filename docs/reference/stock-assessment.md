@@ -215,4 +215,4 @@ uv run baibai-engine research assessment-promote --workspace <WORKSPACE> --ticke
 uv run baibai-engine research status --workspace <WORKSPACE>
 ```
 
-scaffoldの--outは同caseのcanonical draft pathを指定する。出力衝突は--forceの明示なしに上書きしない。作成・独立Review・公開・提案への順序は[Research skill](../../.agents/skills/research/SKILL.md#company-research)が所有する。
+scaffoldの--outは任意FILEへの追加exportを指定でき、同じpayloadをworkspaceのcanonical draftにも生成する。公開はworkspace側の本文と固定IDを使う。別exportを編集した場合はworkspace側へ明示的にコピーするかworkspace側を直接編集し、exportの変更を黙って採用しない。出力衝突は--forceの明示なしに上書きしない。作成・独立Review・公開・提案への順序は[Research skill](../../.agents/skills/research/SKILL.md#company-research)が所有する。

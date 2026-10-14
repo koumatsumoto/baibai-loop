@@ -11,9 +11,9 @@ Baibai Loop スクリーニングで使う valuation 指標の算出仕様とデ
 
 Candidate Discoveryのprimary authorityは4 Valuation Approachesのnative eligibility / orderである。機械E[r]はvaluation reversionとcarryをまとめたsecondary return priorで、候補一覧 membership、global rank、AI research priorityを所有しない。
 
-Researchの判断見積りは[ThesisのBase/Downsideと共通算術](./stock-assessment.md#scenario-arithmetic)に従う。銘柄とシナリオに対応する比較期間について、sourceに基づく価値・累積分配・returnを計算し、[独立Review](./stock-assessment.md#independent-second-pass)で反証する。
+Researchの判断見積りは[Stock AssessmentのBase/Downsideと共通算術](./stock-assessment.md#scenario-arithmetic)に従う。銘柄とシナリオに対応する比較期間について、sourceに基づく価値・累積分配・returnを計算し、[独立Review](./stock-assessment.md#independent-second-pass)で反証する。
 
-screening時点のE[r] / FV anchorは候補比較の文脈として表示・参照し、[Thesis payloadへ重複転記しない](./stock-assessment.md#input-snapshot-and-lineage)。機械E[r]の5年priorと3y/5y calibrationは個別判断の期間を固定しない。保存済み較正文脈の意味・解釈はValuationが所有し、生成とevidenceの条件は[見積り較正](./estimate-calibration.md#判断面へ渡す較正文脈)を参照する。
+screening時点のE[r] / FV anchorは候補比較の文脈として表示・参照し、[Stock Assessment payloadへ重複転記しない](./stock-assessment.md#input-snapshot-and-lineage)。機械E[r]の5年priorと3y/5y calibrationは個別判断の期間を固定しない。保存済み較正文脈の意味・解釈はValuationが所有し、生成とevidenceの条件は[見積り較正](./estimate-calibration.md#判断面へ渡す較正文脈)を参照する。
 
 財務・倍率計算の正本は[valuation/metrics](../../engine/src/baibai_engine/valuation/metrics/)にある。`models`がFinancialSnapshot/4項目TTMRules/配当basisを所有し、`financial_snapshot`が生成本体、`periods`が会計期間/TTM、`capital`が株式/普通株自己資本basis、`dividends`が配当/還元、`profit`が利益、`history`が価格感応倍率履歴、`relative`が値で渡された業種/市場母集団と自己レンジの倍率比較を所有する。価格騰落・標本volatility・出来高・安値乖離・信用需給は`market_context/{history,margin}`、共有split算術は`market/bars`、対象/母集団選択とStock Analysis向けの結果組立は`screening/metrics/snapshot`が所有する。ScreeningRulesはTTMRulesを構成して計算へ渡し、計算領域へ設定読込や母集団選択を持ち込まない。本書は指標の意味と、異なるbasisを混ぜないための理由を扱う。
 
@@ -59,7 +59,7 @@ ERは年率ratio（0.1＝10%/年）の機械priorで、モデル・単位・成�
 | Asset-backed ratio | (Net cash + 投資有価証券) / 時価総額 | EDINET CSV-derived cash / debt / 投資有価証券、時価総額 |
 | FCF yield | (営業 CF - 設備投資支出) / 時価総額 | EDINET CSV-derived CFO / capex、時価総額 |
 
-`normalized_per_3fy`は連続3FYの実績EPS平均に基づく保存名であり、一時損益・景気循環を調整した正常利益ではない。企業固有の代表利益は一次資料と仮定から[Thesis](./stock-assessment.md#scenario-arithmetic)で構成する。Current/Normalized Earningsの探索は業種gapとPERを優先し、CFは同順位時の補助であり、CF品質の選別済みとは扱わない。
+`normalized_per_3fy`は連続3FYの実績EPS平均に基づく保存名であり、一時損益・景気循環を調整した正常利益ではない。企業固有の代表利益は一次資料と仮定から[Stock Assessment](./stock-assessment.md#scenario-arithmetic)で構成する。Current/Normalized Earningsの探索は業種gapとPERを優先し、CFは同順位時の補助であり、CF品質の選別済みとは扱わない。
 
 ### Researchへ渡すCF文脈
 

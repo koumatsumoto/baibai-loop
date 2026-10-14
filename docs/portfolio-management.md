@@ -7,21 +7,21 @@ related_docs:
   - "./doctrine.md"
   - "../AGENTS.md"
   - "./reference/portfolio-ledger.md"
-  - "./reference/position-review.md"
+  - "./reference/investment-proposal.md#holding"
 ---
 
 # Portfolio management
 
-[投資目的とリスク許容](./doctrine.md#investment-strategy)に従い、資本判断はresearch、確認済みcash・数量・注文・約定はpositionが所有する。企業評価は[Reviewed Thesis](./reference/thesis.md)、候補比較は[CAA](./reference/capital-allocation-assessment.md)、保有継続・回収は[Position Review](./reference/position-review.md)を参照する。
+[投資目的とリスク許容](./doctrine.md#investment-strategy)に従い、資本判断はresearch、確認済みcash・数量・注文・約定はpositionが所有する。企業評価は[Reviewed Assessment](./reference/stock-assessment.md)、行動と具体条件は[Investment Proposal](./reference/investment-proposal.md)、保有継続・回収も[同じ提案契約](./reference/investment-proposal.md#holding)を参照する。
 
 <a id="required-return-policy"></a>
 ## 要求年率
 
 通常購入の最低要求年率と、新しい通常評価の出発点は暫定6%とする。数値の正本は[`PORTFOLIO_POLICY.valuation.minimum_required_annual_return_pct`](../engine/src/baibai_engine/position/policy.py)。既存8.5%の根拠と機会損失を見直した政策上の調整であり、最適値、株主資本コスト、確率加重期待収益の推定ではない。採用理由と検証は[#1464](https://github.com/koumatsumoto/baibai-loop/issues/1464)に記録する。
 
-作者は新評価の要求率をThesisへ明記する。個別に高くする場合は独立した経済的理由を既存のcalculationへ記し、利益・倍率・要求率へ同じリスクを説明なく重複上乗せしない。数値条件を満たしても、重大な事実不足や永久的な企業価値毀損を免除しない。
+作者は新評価の要求率をStock Assessmentへ明記する。個別に高くする場合は独立した経済的理由を既存のcalculationへ記し、利益・倍率・要求率へ同じリスクを説明なく重複上乗せしない。数値条件を満たしても、重大な事実不足や永久的な企業価値毀損を免除しない。
 
-CAAとPlanningは現在のfloorと、記録済み要求率によるPmaxを確認する。policy変更だけで既存Thesis・Review・Pmax・CAA・ledgerを書き換えない。機械E[r]の固定較正帯と保有exit判断は、この新規購入floorから分離する。
+buy提案は現在のfloorと、記録済み要求率によるPmaxを確認する。policy変更だけで既存Stock Assessment・Review・Pmax・Proposal・ledgerを書き換えない。機械E[r]の固定較正帯と保有sell判断は、この新規購入floorから分離する。
 
 <a id="capital-guidance"></a>
 ## 資金目安
@@ -30,7 +30,7 @@ CAAとPlanningは現在のfloorと、記録済み要求率によるPmaxを確認
 
 通常5〜8%程度は目安で、NAVによる自動sizingはしない。現在の1回20〜30万円guideは500万円の4〜6%に相当する。数量はguide上限と確認済みavailable cashの両方から100株単位で算出する。1単元がguideを超えてもcash内ならwarning付き候補となる。cashで1単元を買えなければ0/defer。下限を満たすためだけに増やさない。
 
-通常経路で既保有tickerやactive買い予約のあるtickerへの追加購入を提案しない。同CAAの約定後は全売却済みでも再利用せず、新しいResearch/CAAで判断する。企業評価を別IDにすることでこの条件を迂回しない。既保有への追加禁止は[#1242](https://github.com/koumatsumoto/baibai-loop/issues/1242)の現行方針として維持する。新規候補と同じ限界資本で比較する合成例には見送り得る追加機会があるが、実データでの経済効果と禁止の最適性は未実証であり、追加を許すResearch/CAA発行経路も採用していない。
+通常経路で既保有tickerやactive買い予約のあるtickerへの追加購入を提案しない。同Proposalの約定後は全売却済みでも再利用せず、新しいResearch/Proposalで判断する。企業評価を別IDにすることでこの条件を迂回しない。既保有への追加禁止は[#1242](https://github.com/koumatsumoto/baibai-loop/issues/1242)の現行方針として維持する。新規候補と同じ限界資本で比較する合成例には見送り得る追加機会があるが、実データでの経済効果と禁止の最適性は未実証であり、追加を許すResearch/Proposal発行経路も採用していない。
 
 <a id="reservation-and-warnings"></a>
 ## 予約とwarning
@@ -39,12 +39,12 @@ reservationは数量×price guardをcashから拘束し、partial fill後は残�
 
 ticker10%、sector40%、common-factor35%、ADV5%などの集中・執行warningは人間へ示す。数量・資金はevent replay、時価はmarket quoteと現在保有episodeの権利basisから読む。台帳への価格転記は不要である。全保有のquote・権利basisを確認できなければNAVと比率は未評価とし、架空の分母を作らない。cash20%はwarningであり投資率ノルマや自動数量縮小の理由ではない。warning受容にはledgerの既存人間overrideを使い、企業根拠の不足を小口購入のoverrideで通さない。
 
-完了した新規対象をCAAで比較し、一度に一銘柄を提案する。L3完了後の採否・注文は外部アクターの工程である。後続配分では新しい明示開始と最新cash・予約で再判断する。比較対象が変わるCandidate Discovery method改訂後は、新しい候補集合でCAAを比較し直し、旧CAAを新しい集合の判断として使わない。企業固有の事実・仮定がなお有効なReviewed Thesisは引き継ぎ、全面再調査を前提にしない。過去のCAA・約定記録は変更しない。一括予約や予定入金を仮定しない。
+完了した新規対象をProposalで比較し、一度に一銘柄を提案する。L3完了後の採否・注文は外部アクターの工程である。後続配分では新しい明示開始と最新cash・予約で再判断する。比較対象が変わるCandidate Discovery method改訂後は、新しい候補集合でProposalを比較し直し、旧Proposalを新しい集合の判断として使わない。企業固有の事実・仮定がなお有効なReviewed Assessmentは引き継ぎ、全面再調査を前提にしない。過去のProposal・約定記録は変更しない。一括予約や予定入金を仮定しない。
 
 <a id="holding-discipline"></a>
 ## 保有規律
 
-保有提案は`hold / exit`。重大な経済的投資理由の不成立なら価格やvaluationが不明でもexit候補となる。成立していて残存見返りが十分ならhold、不十分ならexit、不確実ならnullで必要な確認を示す。
+保有提案は`hold / sell / defer`。重大な投資理由の不成立なら価格やvaluationが不明でもsell判断を残す。仮説維持を今回確認したholdと、同日起点の残存見返りが十分であるholdを分ける。旧valuation・quote不足だけでは仮説維持のholdを拒否しないが、十分な当日収益を主張しない。確認済みの残存見返りが不十分ならsell、仮説や必要判断が不確実ならdeferで確認事項を示す。
 
 残存見返りにはこれから持ち続けることで得る分配だけを含める。受取済み配当と、権利確定済みで今売っても受け取れる未入金配当を再算入しない。旧horizonを残日数で割り直して年率を水増ししない。売却税・費用・遅延・下振れで結論が変わり得るならuncertainとする。
 
@@ -52,7 +52,7 @@ Target到達・価格下落・経過期間・新規買いfloor未達・集中war
 
 ## 人間が確認した取引事実
 
-brokerの事実を現在の投資条件で再審査しない。旧注文のpartial/late/release、未記録予約の遅延報告、部分売却・方針外追加購入も、既存identity、人間確認、cash/数量の整合確認により記録する。他tickerのquote欠損を事実記録の停止理由にしない。proposalのexitを実際の全売却と推定しない。
+brokerの事実を現在の投資条件で再審査しない。旧注文のpartial/late/release、未記録予約の遅延報告、部分売却・方針外追加購入も、既存identity、人間確認、cash/数量の整合確認により記録する。他tickerのquote欠損を事実記録の停止理由にしない。proposalのsellを実際の全売却と推定しない。
 
 記録手順は[Ledger Record](../.agents/skills/ledger-record/SKILL.md)、event・replay・未評価の意味は[Portfolio Ledger](./reference/portfolio-ledger.md)が所有する。
 

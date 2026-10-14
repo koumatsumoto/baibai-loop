@@ -2,11 +2,11 @@
 
 TDnet and company IR distribute earnings releases as AES-encrypted PDFs with an empty
 owner password, so the reader needs `pypdf[crypto]`. A 短信 runs 20-30 pages while a
-thesis needs a handful of figures, so keyword search with surrounding context is the
+assessment needs a handful of figures, so keyword search with surrounding context is the
 mode that gets used; whole-page output is there for reading a section end to end.
 
 The file must already be on disk — this tool does not fetch URLs, so the retrieval step
-stays visible in the session that recorded `retrieved_at` for the thesis source.
+stays visible in the session that recorded `retrieved_at` for the assessment source.
 
     uv run python -m baibai_engine.research.pdf_reader <pdf> --pages 1-3
     uv run python -m baibai_engine.research.pdf_reader <pdf> --search 減価償却費 自己株式の取得
@@ -69,7 +69,7 @@ def find_keyword_contexts(
     are skipped: a 短信 repeats a term several times inside one paragraph, and printing
     that paragraph once per occurrence buries the other pages. Separate mentions on the
     same page still come through, because a figure quoted in the summary and in the
-    statements are two different readings and which one a thesis cites matters.
+    statements are two different readings and which one an assessment cites matters.
     """
 
     hits: list[KeywordHit] = []
