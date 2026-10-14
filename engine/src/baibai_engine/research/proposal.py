@@ -122,7 +122,7 @@ class ReservationInput(_ProposalValue):
     reservation_id: NonEmptyStr
     ticker: Ticker
     reserved_yen: Money
-    decision_reference: NonEmptyStr
+    decision_reference: NonEmptyStr | None
     sector: NonEmptyStr
     common_factors: JsonTuple[NonEmptyStr]
 
@@ -281,6 +281,7 @@ class BuyItem(_ProposalItem):
     assessment_ref: AssessmentRef
     timing: Literal["at_current_limit", "wait_limit"]
     terms: LimitTerms | None
+    proposed_limit_yen: PositiveMoney | None = None
     terms_unavailable_reasons: JsonTuple[GateReason] = ()
 
     @model_validator(mode="after")
@@ -288,6 +289,13 @@ class BuyItem(_ProposalItem):
         _validate_terms_availability(self.terms, self.terms_unavailable_reasons)
         if self.terms is not None and self.terms.side != "buy":
             raise ValueError("buy item requires buy terms")
+        if self.terms is None and self.proposed_limit_yen is None:
+            raise ValueError("buy without terms requires its proposed limit ceiling")
+        if self.terms is not None and self.proposed_limit_yen not in (
+            None,
+            self.terms.limit_price_yen,
+        ):
+            raise ValueError("proposed limit ceiling must match any confirmed buy terms")
         allowed = {"price_grid_rule_unavailable", "security_classification_unavailable"}
         if any(reason.code not in allowed for reason in self.terms_unavailable_reasons):
             raise ValueError("buy terms may be unavailable only for price grid or classification")
@@ -462,6 +470,7 @@ class InvestmentProposal(_ProposalValue):
             raise ValueError("proposal items must exactly cover research scope")
         positions = {position.ticker: position for position in self.inputs.positions}
         buy_notional = Decimal(0)
+        has_buy_terms = False
         for item in self.items:
             outcome = outcomes[item.ticker]
             if outcome.status == "unfinished":
@@ -477,13 +486,23 @@ class InvestmentProposal(_ProposalValue):
                 raise ValueError("holding scope cannot carry buy or no_action")
             if purpose == "new" and item.action in {"hold", "sell"}:
                 raise ValueError("new scope cannot carry hold or sell")
+            if item.action == "buy" and item.terms is None:
+                quote = next((row for row in self.inputs.quotes if row.ticker == item.ticker), None)
+                ceiling = item.proposed_limit_yen
+                assert ceiling is not None
+                if quote is not None and (
+                    (item.timing == "wait_limit" and ceiling >= quote.price_yen)
+                    or (item.timing == "at_current_limit" and ceiling > quote.price_yen)
+                ):
+                    raise ValueError("proposed limit ceiling contradicts the actual quote timing")
             if item.action in {"hold", "sell"} and positions.get(item.ticker) != item.position:
                 raise ValueError("item position differs from the saved current position")
             if item.action in {"buy", "sell"} and item.terms is not None:
                 self._validate_item_terms(item)
                 if item.action == "buy":
+                    has_buy_terms = True
                     buy_notional += item.terms.notional_yen
-        if buy_notional > self.inputs.available_cash_yen:
+        if has_buy_terms and buy_notional > self.inputs.available_cash_yen:
             raise ValueError("combined buy notional cannot exceed available cash")
         liquidity_tickers = [context.ticker for context in self.liquidity_context]
         if len(set(liquidity_tickers)) != len(liquidity_tickers):

@@ -15,6 +15,7 @@ from baibai_engine.research.proposal import (
     proposal_draft_sha256,
 )
 from baibai_engine.research.proposal_policy import validate_proposal_policy
+from baibai_engine.research.selection import ResearchSelection, selection_sha256, selection_targets
 
 
 @pytest.fixture
@@ -43,7 +44,7 @@ def _holding_payload(payload, *, action="hold"):
     payload["research_scope"]["outcomes"][0]["purpose"] = "holding"
     payload["inputs"]["positions"] = [_position()]
     item = payload["items"][0]
-    for name in ("timing", "terms", "terms_unavailable_reasons"):
+    for name in ("timing", "terms", "proposed_limit_yen", "terms_unavailable_reasons"):
         item.pop(name)
     item.update(
         action=action,
@@ -79,10 +80,29 @@ def test_appendix_parses_with_exact_typed_review_hash(payload):
     validate_proposal_policy(proposal)
 
 
+def test_scope_hash_binds_the_formal_a_selection_fixture():
+    path = Path(__file__).parents[1] / "fixtures/domain-assessment-proposal-synthetic.json"
+    fixture = json.loads(path.read_text())
+    selected = ResearchSelection.model_validate(fixture["research_selection"])
+    proposal = InvestmentProposal.model_validate(fixture["investment_proposal"])
+    assert proposal.research_scope.selection_sha256 == selection_sha256(selected)
+    assert proposal.research_scope.targets == selection_targets(selected)
+    assert proposal.request_scope == selected.request.scope
+    assert proposal.as_of == selected.research_as_of
+    assert selected.inputs.analysis.run_revision_id is None
+    assert proposal.liquidity_context[0].run_revision_id is None
+    assert proposal.liquidity_context[0].analysis_as_of is None
+    assert proposal.liquidity_context[0].unavailable_reason == selected.inputs.input_gaps[0].reason
+
+
 @pytest.mark.parametrize("adv", ["0", "-1"])
 def test_liquidity_keeps_actual_nonpositive_value_for_policy_to_diagnose(payload, adv):
     payload["liquidity_context"][0]["adv_yen"] = adv
     payload["liquidity_context"][0]["unavailable_reason"] = None
+    payload["liquidity_context"][0]["run_revision_id"] = (
+        "run-revision-00000000000040008000000000000006"
+    )
+    payload["liquidity_context"][0]["analysis_as_of"] = "2026-10-14"
     proposal = InvestmentProposal.model_validate(payload)
     assert proposal.liquidity_context[0].adv_yen == Decimal(adv)
 
@@ -185,7 +205,7 @@ def test_unfinished_target_is_defer_and_keeps_its_references(payload):
 
 def test_no_action_requires_completed_assessment_but_no_buy_cash_gate(payload):
     item = payload["items"][0]
-    for name in ("timing", "terms", "terms_unavailable_reasons"):
+    for name in ("timing", "terms", "proposed_limit_yen", "terms_unavailable_reasons"):
         item.pop(name)
     item["action"] = "no_action"
     payload["inputs"]["available_cash_yen"] = "0"
@@ -222,12 +242,36 @@ def test_two_buys_parse_but_current_write_policy_rejects(payload):
 )
 def test_buy_economic_judgment_can_have_only_classification_or_grid_terms_gap(payload, code):
     payload["items"][0]["terms"] = None
+    payload["items"][0]["proposed_limit_yen"] = "1000"
     payload["items"][0]["terms_unavailable_reasons"] = [{"code": code, "message": "条件未確定"}]
     proposal = InvestmentProposal.model_validate(payload)
     assert order_readiness(proposal.items[0]) == "needs_terms"
     payload["items"][0]["terms_unavailable_reasons"][0]["code"] = "order_session_unknown"
     with pytest.raises(ValidationError, match="only for price grid or classification"):
         InvestmentProposal.model_validate(payload)
+
+
+def test_terms_missing_buy_requires_an_explicit_price_ceiling(payload):
+    item = payload["items"][0]
+    item["terms"] = None
+    item["terms_unavailable_reasons"] = [
+        {"code": "security_classification_unavailable", "message": "分類確認未了"}
+    ]
+    with pytest.raises(ValidationError, match="requires its proposed limit ceiling"):
+        InvestmentProposal.model_validate(payload)
+    item["proposed_limit_yen"] = "900"
+    assert InvestmentProposal.model_validate(payload).items[0].proposed_limit_yen == Decimal(900)
+    item["proposed_limit_yen"] = "1100"
+    with pytest.raises(ValidationError, match="actual quote timing"):
+        InvestmentProposal.model_validate(payload)
+
+
+def test_optional_price_ceiling_cannot_disagree_with_ready_terms(payload):
+    payload["items"][0]["proposed_limit_yen"] = "900"
+    with pytest.raises(ValidationError, match="match any confirmed buy terms"):
+        InvestmentProposal.model_validate(payload)
+    payload["items"][0]["proposed_limit_yen"] = "1000"
+    assert InvestmentProposal.model_validate(payload).items[0].proposed_limit_yen == Decimal(1000)
 
 
 @pytest.mark.parametrize(
@@ -337,6 +381,31 @@ def test_economic_sell_without_price_or_quantity_basis_keeps_sell_judgment(paylo
     proposal = InvestmentProposal.model_validate(payload)
     assert proposal.items[0].action == "sell"
     assert order_readiness(proposal.items[0]) == "needs_terms"
+
+
+@pytest.mark.parametrize("action", ["hold", "sell"])
+def test_holding_judgment_preserves_negative_cash_without_a_buy_gate(payload, action):
+    _holding_payload(payload, action=action)
+    payload["inputs"]["available_cash_yen"] = "-1"
+    proposal = InvestmentProposal.model_validate(payload)
+    assert proposal.items[0].action == action
+    assert proposal.inputs.available_cash_yen == Decimal(-1)
+
+
+def test_discovery_defer_preserves_negative_cash_as_the_input_fact(payload):
+    payload["request_scope"] = "discover_new"
+    payload["inputs"]["available_cash_yen"] = "-1"
+    item = payload["items"][0]
+    for name in ("timing", "terms", "proposed_limit_yen", "terms_unavailable_reasons"):
+        item.pop(name)
+    item.update(
+        action="defer",
+        blockers=[{"code": "available_cash_below_board_lot", "message": "現在資金が不足する"}],
+        resume_conditions=["資金の確認後に新しい提案を作る"],
+    )
+    proposal = InvestmentProposal.model_validate(payload)
+    assert proposal.items[0].action == "defer"
+    assert proposal.inputs.available_cash_yen == Decimal(-1)
 
 
 def test_sell_full_holding_and_no_buy_maximum(payload):

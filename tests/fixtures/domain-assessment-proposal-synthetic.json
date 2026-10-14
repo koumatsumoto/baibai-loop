@@ -1,5 +1,5 @@
 {
-  "fixture_notice": "全て架空。#1533付録由来の完全field合成例。Operationとrun IDは正式namespaceへ修正。selection_sha256は説明値であり実Operation bindingの検証成功を主張しない。source URLは実資料ではない。",
+  "fixture_notice": "全て架空。#1533付録由来の完全field合成例。正式AのResearchSelection型とhashを使用し、機械run無しのInputGapとADV不足を保存。実Operation行・ledger/providerのseedや発行検証の成功は主張しない。source URLは実資料ではない。",
   "assessment_publication": {
     "assessment_id": "stock-assessment-00000000-0000-4000-8000-000000000001",
     "published_at": "2026-10-14T16:06:00+09:00",
@@ -235,7 +235,7 @@
     "request_scope": "specified_stocks",
     "research_scope": {
       "operation_id": "research-op-00000000000040008000000000000004",
-      "selection_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "selection_sha256": "d545904a1e3c64d4b8d4ef4a0fd040ee757c67a7b8e5fbff8302ecc394ede88d",
       "targets": [
         {
           "ticker": "1234",
@@ -295,11 +295,11 @@
     "liquidity_context": [
       {
         "ticker": "1234",
-        "run_revision_id": "run-revision-00000000000040008000000000000006",
-        "analysis_as_of": "2026-10-14",
+        "run_revision_id": null,
+        "analysis_as_of": null,
         "rules_hash": null,
         "adv_yen": null,
-        "unavailable_reason": "合成fixtureのADV未入力"
+        "unavailable_reason": "合成機械入力なし"
       }
     ],
     "items": [
@@ -337,7 +337,8 @@
         "terms_unavailable_reasons": [],
         "review_conditions": [
           "投資仮説の反証時は再調査"
-        ]
+        ],
+        "proposed_limit_yen": null
       }
     ],
     "review": {
@@ -346,7 +347,7 @@
       "reviewer_identity": "synthetic-independent-reviewer",
       "reviewed_at": "2026-10-14T16:15:00+09:00",
       "conclusion": "pass",
-      "draft_sha256": "8724436992c7965c6baff444a814027dfd5d63e8fd664ffdc6507a0c99a3e9c3",
+      "draft_sha256": "77c287a8cbd18286ccf2c2f80fce44ed6b12e96dadf5d3fc4821e89deae4d100",
       "open_findings": []
     },
     "warnings": [],
@@ -370,6 +371,68 @@
         }
       ],
       "common_factor_unclassified_tickers": []
+    }
+  },
+  "research_selection": {
+    "kind": "research_selection",
+    "schema_version": 2,
+    "request": {
+      "text": "合成例：投資提案して",
+      "scope": "specified_stocks",
+      "requested_tickers": [
+        "1234"
+      ],
+      "trigger": "user_request"
+    },
+    "research_as_of": "2026-10-14",
+    "input_known_at": "2026-10-14T16:09:00+09:00",
+    "selection_summary": "合成例：今回の対象と未調査範囲を示す",
+    "targets": [
+      {
+        "ticker": "1234",
+        "purpose": "new",
+        "rationale": "合成例：根拠を比較した",
+        "research_question": "正常利益を確認できるか",
+        "key_risk": "一時利益の誤認"
+      }
+    ],
+    "capacity": {
+      "policy_id": "research-capacity-v1",
+      "max_deep_research_targets": 3
+    },
+    "inputs": {
+      "analysis": {
+        "schema_version": 1,
+        "run_revision_id": null,
+        "analysis_as_of": null,
+        "run_at": null,
+        "screening_rules_hash": null,
+        "er_model_version": null,
+        "analyses": {},
+        "unavailable": {
+          "1234": "合成機械入力なし"
+        }
+      },
+      "market_context": {
+        "market": null,
+        "reading": null,
+        "saved_market_context_assessment": null
+      },
+      "securities_context": {
+        "1234": {
+          "market_context": null,
+          "external_assessment": null
+        }
+      },
+      "input_gaps": [
+        {
+          "ticker": "1234",
+          "reason": "合成機械入力なし",
+          "attempted_sources": [
+            "synthetic source"
+          ]
+        }
+      ]
     }
   }
 }
