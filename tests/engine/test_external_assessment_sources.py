@@ -70,7 +70,7 @@ def rakuten_no_estimates_html():
 
 def parse_monex(html=None, **kwargs):
     return monex.parse_html(
-        html or monex_html(),
+        monex_html() if html is None else html,
         ticker="7203",
         source_url=monex.public_url("7203"),
         fetched_at_utc=RECEIVED,
@@ -80,7 +80,7 @@ def parse_monex(html=None, **kwargs):
 
 def parse_rakuten(html=None):
     return rakuten.parse_html(
-        html or rakuten_html(),
+        rakuten_html() if html is None else html,
         ticker="7203",
         source_url=rakuten.IFRAME_BASE + rakuten.IFRAME_PARAMETER + "7203.T",
         fetched_at_utc=RECEIVED,
@@ -336,3 +336,9 @@ def test_monex_distinct_series_are_mapped_to_matching_labels():
     assert observed.per_company_forecast == 222
     assert observed.per_consensus == 333
     assert observed.pbr == 444
+
+
+@pytest.mark.parametrize("parser", [parse_monex, parse_rakuten])
+def test_empty_html_is_not_replaced_by_a_successful_fixture(parser):
+    with pytest.raises(ParseError):
+        parser("")

@@ -106,17 +106,21 @@ def test_golden_preserves_frozen_membership_ranks_gaps_and_identities() -> None:
     assert result.common_eligible_count == GOLDEN["common_eligible_count"]
     assert result.candidate_counts_by_approach == GOLDEN["counts"]
     assert result.candidate_count == GOLDEN["candidate_count"]
-    assert (
-        production_rules_contract_hash(SCREENING_RULES.model_dump_json())
-        == GOLDEN["production_rules_hash"]
+    # Retain the original fixture provenance; unchanged discovery membership does
+    # not make its earlier valuation calculation or forward cache current.
+    assert GOLDEN["production_rules_hash"] == "920cf1ddbab0b7a9"
+    assert GOLDEN["production_rules_hash"] != production_rules_contract_hash(
+        SCREENING_RULES.model_dump_json()
     )
-    assert rules_content_hash(SCREENING_RULES) == GOLDEN["panel_rules_hash"]
+    assert GOLDEN["panel_rules_hash"] == "89c457e17efac7dd"
+    assert GOLDEN["panel_rules_hash"] != rules_content_hash(SCREENING_RULES)
     # Candidate membership is unchanged; the old forward cache predates document-time
     # dividend selection and must not be accepted as a measurement under the new rules.
     assert GOLDEN["cache_schema_version"] == "e85d374e84ce09e0"
     assert GOLDEN["cache_schema_version"] != CACHE_SCHEMA_VERSION
     assert GOLDEN["er_model_version"] == EXPECTED_RETURN_MODEL_VERSION
-    assert GOLDEN["valuation_calculation_revision"] == VALUATION_CALCULATION_REVISION
+    assert GOLDEN["valuation_calculation_revision"] == "document-period-forecasts-v27"
+    assert GOLDEN["valuation_calculation_revision"] != VALUATION_CALCULATION_REVISION
 
 
 @pytest.mark.parametrize("approach", APPROACH_IDS)

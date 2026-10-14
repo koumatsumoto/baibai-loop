@@ -1,12 +1,14 @@
 ---
 title: "株主還元の変化軸の計測結果"
-summary: "低 PER 帯の還元変化 composite は事前登録条件を満たしたが、安定した独立軸はグロス株数減少に限られるため production 採用は追加長期検証へ分離する。"
+summary: "低 PER 帯の還元変化 composite は事前登録条件を満たしたが、連続軸で3窓とも正だったのはグロス株数減少に限られるため production 採用は追加長期検証へ分離する。"
 doc_type: report
 status: historical
 date: 2026-08-02
 ---
 
 # 株主還元の変化軸の計測結果
+
+本書は固定した当時の計算・採否条件による履歴で、現行実装や運用指示ではない。特に以下の開示日間の係数・400日 fallback による DPS 換算は旧方式であり、現行の会計期間・支払単位の調整や相殺する分割・併合の扱いを説明するものではない。数値は再計測しておらず、現在の revision に付け替えて利用しない。
 
 価値tier: T1 — 低 valuation 候補のうち還元が改善している銘柄を識別し、バリュートラップ率を下げる。
 
@@ -83,7 +85,7 @@ composite はtrue側が広く、hard gateにすると差別化より母集団の
 | `avg_turnover_oku` | 38 / 1,257 | +5.96pt / −6.59pt | 18 / 317 | +7.47pt / −9.92pt |
 | `price_change_60d` | 38 / 1,258 | +6.01pt / −6.13pt | 18 / 313 | +5.46pt / −9.04pt |
 
-1y design / confirm の全controlが採否条件を通過した。3y designは採否条件外の診断として5 controlでmedian正だったが、`price_change_60d` 層別だけ −1.86ptだった。長期効果をmomentum/reversalから完全に分離できたとは主張しない。
+1y design / confirm の全controlが当時の採否条件を通過した。各属性を別々に二分した比較であり、同時調整や因果効果の識別ではない。3y designは採否条件外の診断として5 controlでmedian正だったが、`price_change_60d` 層別だけ −1.86ptだった。長期効果をmomentum/reversalから完全に分離できたとは主張しない。
 
 ## 5. 連続軸と個別成分
 

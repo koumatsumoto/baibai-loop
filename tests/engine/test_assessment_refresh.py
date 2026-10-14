@@ -1,6 +1,7 @@
 """A refresh reuses exact evidence and requires newly authored period/distribution checks."""
 
 import sqlite3
+from contextlib import closing
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -50,7 +51,7 @@ def prior(connection):
 
 @pytest.fixture
 def connection():
-    with sqlite3.connect(":memory:") as connection:
+    with closing(sqlite3.connect(":memory:")) as connection, connection:
         connection.execute("PRAGMA foreign_keys = ON")
         connection.executescript(SCHEMA_SQL)
         yield connection

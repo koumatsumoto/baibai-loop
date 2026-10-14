@@ -1,6 +1,7 @@
 """保存済み外部値だけで候補外の銘柄detailとserving exportへ到達できる。"""
 
 import json
+from contextlib import closing
 from datetime import UTC, datetime
 
 import pytest
@@ -163,7 +164,9 @@ def test_rakuten_missingness_survives_checkpoint_store_api_export_and_research(
         )
         assert earlier.analyst_ratings[0].comparison.state == "not_observed"
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
-        detail = client.get("/api/securities/9999").json()["external_assessment"]
+        response = client.get("/api/securities/9999")
+        assert response.status_code == 200
+        detail = response.json()["external_assessment"]
     out = tmp_path / "export"
     export_read_models(app_method_root, out)
     saved = json.loads((out / "views/security--9999.json").read_text())["external_assessment"]
@@ -228,7 +231,7 @@ def test_all_external_sources_are_searchable_without_machine_analysis(
         ],
     )
     tv_row(market, received, ticker="3333", status="unresolved")
-    with open_connection(market) as conn:
+    with closing(open_connection(market)) as conn, conn:
         conn.executemany(
             "INSERT INTO jquants_master_snapshots(snapshot_date,ticker,name,sector_33) "
             "VALUES (?,?,?,?)",

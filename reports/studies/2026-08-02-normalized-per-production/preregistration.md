@@ -8,6 +8,8 @@ date: 2026-08-02
 
 # 3 FY正規化PERのproduction判断面に関する事前登録
 
+本書は当時の FV・candidate・shortlist 構成に対する履歴であり、現行ドメインやCLIの仕様ではない。各 control 内の比較は属性の同時調整ではなく、独立した予測力や因果効果を証明しない。全損・中立代入も指定したケースの感度確認で、未知 return の全範囲に対する保証ではない。
+
 価値tier: T1 — 当期利益で割安に見えるtrapを一次research前に識別し、誤ったFV/E[r]分母へ接続せず候補判断を改善する。
 
 本書は #740 の5y outcomeと新しいanchor replayを読む前に、surface候補、固定cohort、統計量、authority、採否条件を固定する。#721の1y/3y結果は親evidenceとして既知である。同じ結果を再採点せず、追加の3y/5y production scopeだけで権限を判断する。
@@ -93,7 +95,7 @@ aggregateは4cohortの単純平均、median deltaが正のcohort share、group�
 4. PBR、規模、業種controlも両horizonですべてmedian正、trap deltaが0以下。
 5. 4 as-of平均の正規化PER coverageが60%以上。
 
-raw annotationは候補を除外・推薦しないため、current PER axisへの優越は要求しない。現在倍率から独立した方向とtrap非悪化を要求する。
+raw annotationは候補を除外・推薦しないため、current PER axisへの優越は要求しない。現在倍率で層別した比較における方向とtrap非悪化を要求する。独立性の証明とはしない。
 
 ### H-A normalized sector FV anchor
 
