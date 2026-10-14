@@ -15,20 +15,37 @@ from baibai_web.sources.calibration_context import load_er_level_calibration_con
 
 _ROOT = Path(__file__).resolve().parents[2]
 _PUBLISHED = _ROOT / "reports/published/er-level-calibration-latest.yaml"
+_RETAINED = _ROOT / "reports/studies/2026-10-14-er-context-v26/retained-schema2-context.yaml"
 
 
 def test_retained_schema_2_is_withheld_even_for_matching_historical_identity() -> None:
-    raw = safe_load(_PUBLISHED.read_text(encoding="utf-8"))
+    raw = safe_load(_RETAINED.read_text(encoding="utf-8"))
     assert isinstance(raw, dict)
     identity = (str(raw["screening_rules_hash"]), str(raw["er_model_version"]))
 
     context = load_er_level_calibration_context(
-        _PUBLISHED,
+        _RETAINED,
         expected_method_identity=identity,
         today=date.fromisoformat(str(raw["generated_at"])[:10]),
     )
 
     assert context is None
+
+
+def test_published_context_reaches_web_with_formal_evidence_and_basis_coverage() -> None:
+    raw = safe_load(_PUBLISHED.read_text(encoding="utf-8"))
+    context = load_er_level_calibration_context(
+        _PUBLISHED,
+        expected_method_identity=(raw["screening_rules_hash"], raw["er_model_version"]),
+        today=date.fromisoformat(str(raw["generated_at"])[:10]),
+    )
+    assert context is not None
+    assert context.evidence_complete is raw["evidence_complete"]
+    assert list(context.evidence_blocking_reasons) == raw["evidence_blocking_reasons"]
+    for horizon, stored in zip(context.horizons, raw["horizons"], strict=True):
+        for band, stored_band in zip(horizon.bands, stored["bands"], strict=True):
+            for basis, stored_basis in zip(band.bases, stored_band["bases"], strict=True):
+                assert basis.coverage.model_dump() == stored_basis["coverage"]
 
 
 def test_schema_4_context_reaches_web_for_matching_identity(tmp_path) -> None:
