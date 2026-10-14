@@ -1,5 +1,7 @@
 # Capacity-native universe replay preregistration
 
+この記録は 2026-08-11 の旧 rules・panel・FY 配当近似による履歴であり、「現行」や floor 維持は当時の判断を指す。現行の Candidate Discovery、流動性・上場期間条件、E[r] hurdle の仕様には読み替えない。p20 出来高と固定参加率から得る capacity days は容量の仮定計算で、将来の約定や退出日数を保証しない。欠損を無出来として扱うのは当時の保守的な計算規則であり、欠損が実際の無取引だった証拠ではない。全損・中立代入は固定ケース感度で、未知対価の全範囲の上下限ではない。
+
 価値tier: T1 — 実注文容量で投資可能な銘柄へ現行E[r]を広げても、長期after-cost価値と退出可能性が維持されるかを判定する。
 
 ## 1. Blindness と固定順序
