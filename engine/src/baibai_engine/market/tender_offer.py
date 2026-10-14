@@ -38,11 +38,10 @@ from baibai_engine.market.valuation_catalysts import (
 )
 from baibai_engine.storage.observations.schema import connect_current, open_connection
 
-# JPX names the mechanism in the delisting reason. Only a reason that names a tender
-# offer can be priced from a tender-offer filing; a share consolidation or a demand for
-# sale of shares with no tender offer behind it settles at a price this module never
-# sees, and stays bracketed.
-TENDER_OFFER_DELISTING_MARKER = "公開買付"
+# JPX may name the squeeze-out mechanism rather than its preceding tender offer.
+# These reasons select cases to investigate; only the filing evidence below can
+# establish a completed cash offer and its ordinary-share price (#1481).
+TENDER_OFFER_CANDIDATE_MARKERS = ("公開買付", "株式の併合", "株式併合", "株式等売渡請求")
 
 _PRICE_BLOCK_SUFFIX = "PriceOfPurchaseEtcTextBlock"
 _SUCCESS_BLOCK_SUFFIX = "SuccessOrFailureOfTenderOfferTextBlock"
@@ -106,7 +105,7 @@ class TenderOfferExitValue:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TenderOfferExitSummary:
     delisting_count: int
-    tender_offer_delisting_count: int
+    candidate_delisting_count: int
     resolved_count: int
     downloaded_document_count: int
     rejection_reason_counts: Mapping[str, int]
@@ -232,7 +231,7 @@ def build_tender_offer_exit_values(
     provider: TenderOfferDocumentSource,
     asof: date,
 ) -> tuple[tuple[TenderOfferExitValue, ...], TenderOfferExitSummary]:
-    """Resolve every delisting JPX attributes to a tender offer that the index can price."""
+    """Investigate candidate mechanisms and resolve only documented cash offers."""
     connection = connect_current(sqlite_path)
     if connection is None:
         raise TenderOfferError(f"market store is not readable: {sqlite_path}")
@@ -242,13 +241,17 @@ def build_tender_offer_exit_values(
     finally:
         connection.close()
     delistings = [row for row in read_jpx_delistings(sqlite_path) if row.delisted_on <= asof]
-    priceable = [row for row in delistings if TENDER_OFFER_DELISTING_MARKER in row.reason]
+    candidates = [
+        row
+        for row in delistings
+        if any(marker in row.reason for marker in TENDER_OFFER_CANDIDATE_MARKERS)
+    ]
     by_target = _filings_by_target_ticker(filings, ticker_by_code)
 
     exits: list[TenderOfferExitValue] = []
     reasons: dict[str, int] = {}
     downloads = 0
-    for delisting in priceable:
+    for delisting in candidates:
         case, reason = _select_case(by_target.get(delisting.ticker, ()), delisting=delisting)
         if case is None:
             reasons[reason] = reasons.get(reason, 0) + 1
@@ -268,7 +271,7 @@ def build_tender_offer_exit_values(
     return tuple(sorted(exits, key=lambda value: (value.ticker, value.delisted_on))), (
         TenderOfferExitSummary(
             delisting_count=len(delistings),
-            tender_offer_delisting_count=len(priceable),
+            candidate_delisting_count=len(candidates),
             resolved_count=len(exits),
             downloaded_document_count=downloads,
             rejection_reason_counts=dict(sorted(reasons.items())),
@@ -510,7 +513,7 @@ def _block(blocks: Mapping[str, str], suffix: str) -> str:
 
 
 __all__ = (
-    "TENDER_OFFER_DELISTING_MARKER",
+    "TENDER_OFFER_CANDIDATE_MARKERS",
     "TenderOfferError",
     "TenderOfferExitSummary",
     "TenderOfferExitValue",
