@@ -336,6 +336,101 @@ def test_ledger_buy_reference_closure_does_not_invent_old_terms_from_fill(tmp_pa
     assert material_files(tmp_path) == []
 
 
+def bind_ledger_reference(source, reference, *, ticker="2331"):
+    with sqlite3.connect(source) as connection:
+        rows = connection.execute(
+            "SELECT append_seq,payload FROM ledger_event WHERE ticker=? AND event_type IN ('execution','reservation')",
+            (ticker,),
+        ).fetchall()
+        for append_seq, payload in rows:
+            raw = json.loads(payload)
+            if raw.get("side", "buy") != "buy":
+                continue
+            raw["decision_reference"] = reference
+            connection.execute(
+                "UPDATE ledger_event SET decision_reference=?,payload=? WHERE append_seq=?",
+                (reference, canonical_json(raw), append_seq),
+            )
+
+
+@pytest.mark.parametrize("caa_present", [False, True])
+def test_explicit_buy_ledger_identity_survives_missing_caa_or_late_review(tmp_path, caa_present):
+    source = source22(tmp_path)
+    reference = CAA_ID if caa_present else "https://example.invalid/issues/413#comment-synthetic"
+    if caa_present:
+        raw = caa_payload(ticker="2331")
+        raw["review"]["reviewed_at"] = "2026-10-14T16:22:16.617072+09:00"
+        insert_caa(source, raw)
+    bind_ledger_reference(source, reference)
+    before_bytes = source.read_bytes()
+    with sqlite3.connect(source) as original:
+        original.row_factory = sqlite3.Row
+        original_rows = [
+            dict(row) for row in original.execute("SELECT * FROM ledger_event ORDER BY append_seq")
+        ]
+        original_document = load_ledger_document(original)
+    assert original_document is not None
+    report = execute(tmp_path, source)
+    assert report.blocked == ()
+    assert report.retained_buy_references == (reference,)
+    assert source.read_bytes() == before_bytes
+    assert resolve_buy_reference(reference, db_path=tmp_path / "final.sqlite") == "2331"
+    with connect_read_only(tmp_path / "final.sqlite") as final:
+        copied_rows = [
+            dict(row) for row in final.execute("SELECT * FROM ledger_event ORDER BY append_seq")
+        ]
+        assert copied_rows == original_rows
+        binding = dict(final.execute("SELECT * FROM position_decision_reference").fetchone())
+        evidence = [row for row in original_rows if row["decision_reference"] == reference]
+        assert binding == dict(
+            reference=reference,
+            ticker="2331",
+            side="buy",
+            origin="retained_reference",
+            proposal_id=None,
+            source_id=f"ledger-event:{evidence[0]['event_id']}",
+            source_digest=hashlib.sha256(canonical_json(evidence).encode()).hexdigest(),
+        )
+        assert final.execute("SELECT count(*) FROM investment_proposal").fetchone()[0] == 0
+        copied_document = load_ledger_document(final)
+    assert copied_document is not None
+    assert copied_document == original_document
+    assert replay_events_through(
+        copied_document.events, copied_document.as_of
+    ) == replay_events_through(original_document.events, original_document.as_of)
+    assert material_files(tmp_path) == []
+
+
+@pytest.mark.parametrize("fault", ["multiple_tickers", "caa_ticker", "ledger_header"])
+def test_explicit_buy_ledger_identity_rejects_conflicting_saved_facts(tmp_path, fault):
+    source = source22(tmp_path)
+    bind_ledger_reference(source, CAA_ID)
+    if fault == "multiple_tickers":
+        bind_ledger_reference(source, CAA_ID, ticker="8929")
+    elif fault == "caa_ticker":
+        insert_caa(source, caa_payload(ticker="1234"))
+    else:
+        with sqlite3.connect(source) as connection:
+            connection.execute(
+                "UPDATE ledger_event SET ticker='1234' WHERE decision_reference=?", (CAA_ID,)
+            )
+    before = source.read_bytes()
+    report = execute(tmp_path, source)
+    assert report.blocked
+    assert not (tmp_path / "final.sqlite").exists()
+    assert source.read_bytes() == before
+
+
+def test_late_caa_review_is_not_new_approval_for_unreferenced_material(tmp_path):
+    source = source22(tmp_path)
+    raw = caa_payload()
+    raw["review"]["reviewed_at"] = "2026-10-14T16:22:16.617072+09:00"
+    insert_caa(source, raw)
+    report = execute(tmp_path, source, manifest=KeepManifest(retained_buy_references=(CAA_ID,)))
+    assert any("review time" in reason for reason in report.blocked)
+    assert not (tmp_path / "final.sqlite").exists()
+
+
 @pytest.mark.parametrize(
     "fault", ["missing", "multi_allocate", "hash", "no_allocate", "ledger_ticker"]
 )
@@ -1023,7 +1118,7 @@ def test_old_thesis3_recorded_hash_header_and_review_references_are_checked(tmp_
     raw, _digest = install_v3_source(source)
     with sqlite3.connect(source) as connection:
         if fault == "hash":
-            connection.execute("UPDATE thesis SET core_sha256=?", ("0" * 64,))
+            connection.execute("UPDATE thesis SET core_sha256=?", ("not-sha256",))
         elif fault == "header":
             connection.execute("UPDATE thesis SET ticker='5678'")
         else:
@@ -1040,6 +1135,171 @@ def test_old_thesis3_recorded_hash_header_and_review_references_are_checked(tmp_
     report = execute(tmp_path, source, manifest=KeepManifest(keep_assessment_sources=(OLD_ID,)))
     assert report.blocked
     assert not (tmp_path / "final.sqlite").exists()
+
+
+def install_historical_v3_pair(source, *, review_ref="2026-10-14-1234-decision-review.yaml"):
+    """A frozen published identity predates decimal-string and optional-field changes."""
+    from tools.cutover.assessment_proposal_v1 import _legacy3_core_hash, _Legacy3ThesisDocument
+
+    raw = old_v3_document()
+    raw["independent_review_ref"] = review_ref
+    raw.pop("human_evidence_override", None)
+    for source_item in raw["input_snapshot"]["sources"]:
+        for optional in ("ref", "provider", "dataset"):
+            if source_item.get(optional) is None:
+                source_item.pop(optional, None)
+    for fact in raw["input_snapshot"]["facts"]:
+        for optional in ("observed_at", "price_basis"):
+            if fact.get(optional) is None:
+                fact.pop(optional, None)
+    raw["estimates"]["entry_price_basis_yen"] = 1100.0
+    raw["estimates"]["current_fair_value_yen"] = 1200.0
+    for scenario in raw["estimates"]["scenarios"]:
+        for key, value in scenario.items():
+            if key.endswith("_yen") or key in {
+                "starting_share_count",
+                "terminal_valuation_multiple",
+                "claimed_terminal_share_count",
+            }:
+                scenario[key] = float(value)
+    digest = hashlib.sha256(canonical_json(raw).encode()).hexdigest()
+    assert digest != _legacy3_core_hash(_Legacy3ThesisDocument.model_validate(raw))
+    review = {
+        "review_id": "synthetic-review-row-id",
+        "reviewer_role": "independent_second_pass",
+        "reviewer_identity": "synthetic-independent",
+        "reviewer_run_id": "synthetic-review-run",
+        "reviewed_at": "2026-10-14T16:05:00+09:00",
+        "reviewed_thesis_sha256": digest,
+        "primary_source_check": "verified",
+        "checked_source_ids": ["annual", "price"],
+        "recalculated_scenarios": [
+            dict(horizon_years=horizon, name=name, total_return_cagr_pct=0.0)
+            for horizon in (3, 5)
+            for name in ("bear", "base", "bull")
+        ],
+        "strongest_countercase": "架空の独立反証",
+        "alternative_candidate_check": "unavailable",
+        "proposal_changed": False,
+        "change_rationale": None,
+    }
+    with sqlite3.connect(source) as connection:
+        connection.execute("DROP TRIGGER thesis_payload_immutable")
+        connection.execute("DELETE FROM thesis_review")
+        connection.execute(
+            "UPDATE thesis SET recommendation='buy',published_at=?,payload=?,core_sha256=?",
+            (raw["judgment"]["proposed_at"], canonical_json(raw), digest),
+        )
+        connection.execute(
+            "INSERT INTO thesis_review VALUES (?,?,?,?)",
+            (
+                review["review_id"],
+                OLD_ID,
+                review["reviewed_at"],
+                canonical_json(review),
+            ),
+        )
+    return raw, review, digest
+
+
+@pytest.mark.parametrize(
+    "review_ref", ["2026-10-14-1234-decision-review.yaml", "reviews/custom-name.yaml"]
+)
+def test_published_thesis3_keeps_saved_identity_and_filename_with_review_after_proposed_at(
+    tmp_path, review_ref
+):
+    source = source22(tmp_path)
+    raw, review, digest = install_historical_v3_pair(source, review_ref=review_ref)
+    before = source.read_bytes()
+    report = execute(tmp_path, source, manifest=KeepManifest(keep_assessment_sources=(OLD_ID,)))
+    assert report.blocked == ()
+    material = material_files(tmp_path)[0]
+    assert material["source_document"] == raw
+    assert material["source_payload"] == canonical_json(raw)
+    assert material["source_core_sha256"] == digest
+    assert material["source_review"] == review
+    assert material["source_review_payload"] == canonical_json(review)
+    assert material["source_published_at"] == raw["judgment"]["proposed_at"]
+    assert raw["independent_review_ref"] != review["review_id"]
+    assert material["new_review_required"] is True
+    assert material["assessment_draft"]["valuation"] is None
+    assert source.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "fault", ["saved_hash", "review_id", "review_time", "source_reference"]
+)
+def test_published_thesis3_still_rejects_saved_binding_and_source_contradictions(tmp_path, fault):
+    source = source22(tmp_path)
+    raw, _review, _digest = install_historical_v3_pair(source)
+    with sqlite3.connect(source) as connection:
+        if fault == "saved_hash":
+            connection.execute("UPDATE thesis SET core_sha256=?", ("0" * 64,))
+        elif fault == "review_id":
+            connection.execute("UPDATE thesis_review SET review_id='different-id'")
+        elif fault == "review_time":
+            connection.execute("UPDATE thesis_review SET reviewed_at='2026-10-14T16:06:00+09:00'")
+        else:
+            raw["estimates"]["entry_price_source_ids"] = ["missing-source"]
+            connection.execute("UPDATE thesis SET payload=?", (canonical_json(raw),))
+    report = execute(tmp_path, source, manifest=KeepManifest(keep_assessment_sources=(OLD_ID,)))
+    assert report.blocked
+    assert not (tmp_path / "final.sqlite").exists()
+
+
+@pytest.mark.parametrize(
+    "fault", [None, "ticker", "as_of", "holding_source", "ledger_source", "candidate_source"]
+)
+def test_old_position_review2_binds_by_saved_row_and_sources_not_invented_root_ids(tmp_path, fault):
+    source = source22(tmp_path)
+    install_historical_v3_pair(source)
+    raw = json.loads(
+        Path("tests/fixtures/application/position-review-v2-synthetic.json").read_text()
+    )
+    if fault == "ticker":
+        raw["ticker"] = "5678"
+    elif fault == "as_of":
+        raw["as_of"] = "2026-10-13"
+    elif fault == "holding_source":
+        raw["sources"]["holding_thesis"]["entity_id"] = "missing-thesis"
+    elif fault == "ledger_source":
+        raw["sources"]["ledger"]["entity_id"] = "other-ledger"
+    elif fault == "candidate_source":
+        raw["sources"]["candidate_thesis"] = {"entity_id": "missing-candidate"}
+    identifier = "synthetic-old-position-review2"
+    with sqlite3.connect(source) as connection:
+        connection.execute(
+            "INSERT INTO position_review VALUES (?,?,?,?,?,?)",
+            (
+                identifier,
+                "1234",
+                "2026-10-14",
+                OLD_ID,
+                None,
+                canonical_json(raw),
+            ),
+        )
+    before = source.read_bytes()
+    report = execute(
+        tmp_path, source, manifest=KeepManifest(keep_position_reason_sources=(identifier,))
+    )
+    assert source.read_bytes() == before
+    if fault:
+        assert report.blocked
+        assert not (tmp_path / "final.sqlite").exists()
+        return
+    assert report.blocked == ()
+    material = next(
+        item for item in material_files(tmp_path) if item["kind"] == "position_reason_source_draft"
+    )
+    assert "position_review_id" not in raw
+    assert "thesis_id" not in raw
+    assert material["source_id"] == identifier
+    assert material["source_thesis_id"] == OLD_ID
+    assert material["source_document"] == raw
+    assert material["adoption_history"] is None
+    assert material["original_investment_reason"] is None
+    assert material["new_proposal_required"] is True
 
 
 def test_old_position_review_current_case_is_not_fabricated_as_original_buy_reason(tmp_path):

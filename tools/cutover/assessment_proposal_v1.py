@@ -780,6 +780,64 @@ def retained_buy_binding(row: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def retained_ledger_buy_binding(
+    reference: str,
+    events: list[dict[str, Any]],
+    caa: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Keep an explicit historical identity, without approving the old proposal.
+
+    The digest covers the original SQL rows (including their exact payload text),
+    ordered by append_seq. source_id identifies the first row in that group.
+    """
+    ordered = sorted(events, key=lambda row: row["append_seq"])
+    tickers = set()
+    for row in ordered:
+        raw = _object(json.loads(row["payload"]), "old buy ledger fact")
+        ticker = _text(raw.get("ticker"), "old buy ledger ticker")
+        if (
+            re.fullmatch(_TICKER, ticker) is None
+            or raw.get("type") not in {"execution", "reservation"}
+            or raw.get("side", "buy") != "buy"
+            or raw.get("decision_reference") != reference
+            or (row["event_id"], row["event_type"], row["ticker"], row["decision_reference"])
+            != (raw.get("event_id"), raw.get("type"), ticker, reference)
+        ):
+            raise ValueError(f"old buy reference ledger identity differs: {reference}")
+        tickers.add(ticker)
+    if len(tickers) != 1:
+        raise ValueError(f"old buy reference must have one ledger ticker: {reference}")
+    ticker = next(iter(tickers))
+    if caa is not None:
+        raw = _object(json.loads(caa["payload"]), "old CAA identity")
+        if (
+            type(raw.get("schema_version")) is not int
+            or raw.get("schema_version") not in {1, 2}
+            or raw.get("kind") != "capital_allocation_assessment"
+            or raw.get("capital_allocation_assessment_id") != reference
+            or caa["capital_allocation_assessment_id"] != reference
+            or raw.get("result") != "allocate"
+            or caa["result"] != "allocate"
+        ):
+            raise ValueError(f"old buy reference CAA identity differs: {reference}")
+        alternatives = raw.get("alternatives")
+        if not isinstance(alternatives, list):
+            raise ValueError(f"old buy reference CAA alternatives are missing: {reference}")
+        parsed = [_object(item, "old CAA alternative") for item in alternatives]
+        allocated = [item for item in parsed if item.get("disposition") == "allocate"]
+        if len(allocated) != 1 or allocated[0].get("ticker") != ticker:
+            raise ValueError(f"old buy reference ticker differs from ledger facts: {reference}")
+    return {
+        "reference": reference,
+        "ticker": ticker,
+        "side": "buy",
+        "origin": "retained_reference",
+        "proposal_id": None,
+        "source_id": f"ledger-event:{ordered[0]['event_id']}",
+        "source_digest": hashlib.sha256(canonical_json(ordered).encode()).hexdigest(),
+    }
+
+
 def position_reason_source(
     snapshot: Mapping[str, list[dict[str, Any]]], identifier: str
 ) -> dict[str, Any]:
@@ -792,6 +850,7 @@ def position_reason_source(
         ),
         None,
     )
+    candidate_id = None
     if caa is not None:
         raw = legacy_caa(caa, require_allocate=True)
         selected = next(item for item in raw["alternatives"] if item["disposition"] == "allocate")
@@ -805,17 +864,57 @@ def position_reason_source(
         if row is None:
             raise ValueError(f"missing old position reason source: {identifier}")
         raw = _object(json.loads(row["payload"]), "old Position Review")
-        if (
-            raw.get("schema_version") != 3
-            or raw.get("position_review_id") != identifier
-            or raw.get("ticker") != row["ticker"]
-            or raw.get("thesis_id") != row["thesis_id"]
-        ):
+        if raw.get("ticker") != row["ticker"] or raw.get("as_of") != row["as_of"]:
             raise ValueError("old Position Review source identity differs")
-        thesis_id, ticker = (
-            _text(raw.get("thesis_id"), "old position assessment ID"),
-            _text(raw.get("ticker"), "old position ticker"),
-        )
+        if raw.get("schema_version") == 2:
+            sources = _object(raw.get("sources"), "old Position Review sources")
+            holding = _object(sources.get("holding_thesis"), "old holding Thesis source")
+            ledger = _object(sources.get("ledger"), "old Position Review ledger source")
+            head = ledger.get("append_head")
+            if (
+                holding.get("entity_id") != row["thesis_id"]
+                or ledger.get("entity_id") != "portfolio-ledger"
+                or type(head) is not int
+                or not 0
+                <= head
+                <= max((event["append_seq"] for event in snapshot["ledger_event"]), default=0)
+            ):
+                raise ValueError("old Position Review canonical source identity differs")
+            candidate = sources.get("candidate_thesis")
+            candidate_id = row["candidate_thesis_id"]
+            if (candidate is None) != (candidate_id is None) or (
+                candidate is not None
+                and _object(candidate, "old candidate Thesis source").get("entity_id")
+                != candidate_id
+            ):
+                raise ValueError("old Position Review candidate source identity differs")
+            if candidate_id is not None:
+                candidate_source = next(
+                    (item for item in snapshot["thesis"] if item["thesis_id"] == candidate_id),
+                    None,
+                )
+                replacement = _object(
+                    raw.get("replacement_comparison"), "old replacement comparison"
+                )
+                candidate_terms = _object(replacement.get("candidate"), "old replacement candidate")
+                if (
+                    candidate_source is None
+                    or replacement.get("status") != "evaluated"
+                    or candidate_terms.get("ticker") != candidate_source["ticker"]
+                ):
+                    raise ValueError("old Position Review replacement ticker/source differs")
+                # Validate the referenced historical material, without adopting its terms.
+                assessment_source_draft(snapshot, candidate_id)
+            thesis_id = _text(holding.get("entity_id"), "old position assessment ID")
+        elif (
+            raw.get("schema_version") == 3
+            and raw.get("position_review_id") == identifier
+            and raw.get("thesis_id") == row["thesis_id"]
+        ):
+            thesis_id = _text(raw.get("thesis_id"), "old position assessment ID")
+        else:
+            raise ValueError("old Position Review source identity differs")
+        ticker = _text(raw.get("ticker"), "old position ticker")
     source = next((row for row in snapshot["thesis"] if row["thesis_id"] == thesis_id), None)
     if source is None:
         raise ValueError(f"missing old position assessment source: {thesis_id}")
@@ -831,11 +930,14 @@ def position_reason_source(
         )
     if source_ticker != ticker:
         raise ValueError("old position reason source ticker differs from its assessment")
+    if caa is None and date.fromisoformat(raw["as_of"]) < date.fromisoformat(source["as_of"]):
+        raise ValueError("old Position Review predates its assessment source")
     return {
         "kind": "position_reason_source_draft",
         "source_id": identifier,
         "ticker": ticker,
         "source_thesis_id": thesis_id,
+        "source_candidate_thesis_id": candidate_id,
         "source_core_sha256": source["core_sha256"],
         "source_case_explanation": explanation,
         "original_investment_reason": explanation if caa is not None else None,
@@ -1135,7 +1237,7 @@ _Legacy3ThesisDocument.model_rebuild()
 
 
 def _legacy3_core_hash(document: _Legacy3ThesisDocument) -> str:
-    # The old identity excluded the optional human override; preserve that preimage.
+    # Draft-only derivation for frozen-contract fixtures, never a published identity.
     payload = document.model_dump(mode="json", exclude={"human_evidence_override"})
     return hashlib.sha256(canonical_json(payload).encode()).hexdigest()
 
@@ -1147,7 +1249,8 @@ def _legacy3_pair(
     if source is None:
         raise ValueError(f"missing old assessment source: {identifier}")
     document = _Legacy3ThesisDocument.model_validate_json(str(source["payload"]))
-    identity = _legacy3_core_hash(document)
+    # Published identity belongs to the saved row, not today's draft model dump.
+    identity = source["core_sha256"]
     sources = {item.source_id for item in document.input_snapshot.sources}
     facts = {item.fact_id for item in document.input_snapshot.facts}
     if len(sources) != len(document.input_snapshot.sources) or len(facts) != len(
@@ -1191,8 +1294,8 @@ def _legacy3_pair(
     limits = ["旧Thesis3の価値見積りは新契約の期間・分配へ自動変換せず、通常Researchで再作成"]
     if source["core_sha256"] is None:
         limits.append("旧記録core hash未保存。構造を確認した材料であり、旧公開identityは未検証")
-    elif source["core_sha256"] != identity:
-        raise ValueError("old Thesis3 recorded core hash differs")
+    elif not isinstance(identity, str) or re.fullmatch(r"[0-9a-f]{64}", identity) is None:
+        raise ValueError("old Thesis3 recorded core hash is invalid")
     published = datetime.fromisoformat(str(source["published_at"]))
     if published.utcoffset() is None or document.judgment.proposed_at > published:
         raise ValueError("old Thesis3 source publication time is invalid")
@@ -1207,14 +1310,11 @@ def _legacy3_pair(
     else:
         review = _Legacy3ThesisReview.model_validate_json(str(review_row["payload"]))
         if (
-            review.reviewed_thesis_sha256 != identity
+            identity is None
+            or review.reviewed_thesis_sha256 != identity
             or review.review_id != review_row["review_id"]
             or review.reviewed_at != datetime.fromisoformat(str(review_row["reviewed_at"]))
-            or not document.judgment.proposed_at <= review.reviewed_at <= published
-            or (
-                document.independent_review_ref is not None
-                and document.independent_review_ref != review.review_id
-            )
+            or review.reviewed_at < document.judgment.proposed_at
             or not set(review.checked_source_ids) <= sources
         ):
             raise ValueError("old Thesis3 Review reference/hash differs")
