@@ -476,7 +476,7 @@ receiptが現在世代へ書き直される。次の`pull-machine`でreceipt一�
 
 ### 日次 workflow を手動実行する
 
-**前提**: 原因調査には使わず、ローカルで修正とgateを完了した後の最終確認に限定する。`asof`省略時は当日JSTを
+**前提**: 取得・再計算・公開が必要な対象を確認して実行する。原因調査だけのために繰り返しdispatchしない。code修正が必要な場合は最新HEADのCI成功とmainへの反映を確認する。`asof`省略時は当日JSTを
 market calendarで判定し、非営業日はScreeningだけをskipして指標更新と単一公開を進める。過去日を指定するとScreeningの営業日gateをskipする。
 
 **実行**:
