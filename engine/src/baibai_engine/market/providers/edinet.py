@@ -25,9 +25,9 @@ from baibai_engine.market.edinet_decode import (
     text_or_none,
 )
 from baibai_engine.market.edinet_models import (
+    EdinetMetricRecord,
     EDINETProviderError,
     EDINETRateLimitError,
-    EdinetMetricRecord,
 )
 from baibai_engine.market.ticker import normalize_ticker
 

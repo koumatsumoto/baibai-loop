@@ -126,10 +126,12 @@ def invalidate_coverage_command(
     `source_coverage` gates read-through re-fetching: a complete window is never
     re-fetched. A migration that cannot backfill existing rows needs those rows
     re-pulled, so this removes the coverage bookkeeping (the cache is rebuildable)
-    and the next `bootstrap-cache --asof` repopulates it. With `--start`/`--end`
+    and the next `bootstrap-cache --asof` requests it again. Success still depends
+    on provider retention, the active plan, and availability. With `--start`/`--end`
     only windows overlapping that range are removed; without them the whole source
-    is invalidated. The target row count is printed before the delete; no confirm
-    prompt, because the cache can always be rebuilt.
+    is invalidated. The target row count is printed before the delete. This command removes
+    coverage only, not stored observations; it does not guarantee that historical
+    observations can be downloaded again.
     """
     out = stdout if stdout is not None else sys.stdout
     if (start is None) != (end is None):

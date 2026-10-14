@@ -12,7 +12,7 @@ from typing import TextIO
 from baibai_engine.foundation.date_utils import weekday_distance
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
-from baibai_engine.market.edinet_models import EDINETProviderError, EdinetMetricRecord
+from baibai_engine.market.edinet_models import EdinetMetricRecord, EDINETProviderError
 from baibai_engine.market.jpx_models import JPXEarningsCalendarEntry, JPXProviderError
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.metric_quality import TTMQuality
@@ -334,7 +334,7 @@ def run_command(
         if ticker in median_population
     ]
     population_size = len(median_population)
-    required_ttm_non_exact = _required_ttm_non_exact_count(population_financials, rules)
+    required_ttm_non_exact = _required_ttm_non_exact_count(population_financials)
     population_yoy_missing = sum(
         1
         for snapshot in population_financials
@@ -355,7 +355,7 @@ def run_command(
         fallback_lines.append(f"ttm_quality 非 exact 件数: {approx_total}")
     if required_ttm_non_exact:
         fallback_lines.append(
-            "有効Valuation Approach必須TTM metric非exact件数(common eligible母集団): "
+            "OCF・売上TTM metric非exact件数(common eligible母集団): "
             f"{required_ttm_non_exact}"
         )
     if population_yoy_missing:
@@ -483,17 +483,14 @@ def run_command(
     return 2 if partial_warning else 0
 
 
-def _required_ttm_non_exact_count(
-    financials: Iterable[FinancialSnapshot],
-    _rules: ScreeningRules,
-) -> int:
-    snapshots = tuple(financials)
-    required_qualities = [
-        quality
-        for snapshot in snapshots
+def _required_ttm_non_exact_count(financials: Iterable[FinancialSnapshot]) -> int:
+    """Count non-exact OCF/sales metric values, not distinct affected tickers."""
+    return sum(
+        1
+        for snapshot in financials
         for quality in (snapshot.ttm_quality_ocf_yield, snapshot.ttm_quality_p_s)
-    ]
-    return sum(1 for quality in required_qualities if quality != TTMQuality.EXACT)
+        if quality != TTMQuality.EXACT
+    )
 
 
 def _index_next_earnings(

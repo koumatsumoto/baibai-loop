@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from datetime import date
 from typing import Any
 
-from baibai_engine.market.edinet_models import EDINETProviderError, EdinetMetricRecord
+from baibai_engine.market.edinet_models import EdinetMetricRecord, EDINETProviderError
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.ticker import normalize_ticker
 

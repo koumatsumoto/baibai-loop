@@ -22,9 +22,9 @@ from baibai_engine.market.edinet_metrics import service as edinet_extraction
 from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
 from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
 from baibai_engine.market.edinet_models import (
+    EdinetMetricRecord,
     EDINETProviderError,
     EDINETRateLimitError,
-    EdinetMetricRecord,
 )
 from baibai_engine.market.jpx_models import (
     JPXEarningsCalendarEntry,
