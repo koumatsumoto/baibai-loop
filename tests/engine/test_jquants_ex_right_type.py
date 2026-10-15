@@ -43,7 +43,9 @@ def test_ex_right_type_survives_source_and_sqlite_roundtrip(tmp_path, kind, fact
     assert "ex_right_type" in JQUANTS_DAILY_BARS.arrow_schema.names
 
 
-@pytest.mark.parametrize(("raw_value", "expected"), [("54775.0", 54775.0), ("", None), (None, None)])
+@pytest.mark.parametrize(
+    ("raw_value", "expected"), [("54775.0", 54775.0), ("", None), (None, None)]
+)
 def test_provider_market_cap_survives_sqlite_and_lake_without_price(tmp_path, raw_value, expected):
     day = date(2026, 10, 14)
     database = tmp_path / "market.sqlite"
