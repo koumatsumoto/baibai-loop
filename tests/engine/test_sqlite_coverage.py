@@ -919,29 +919,13 @@ class SQLiteCoverageTests(unittest.TestCase):
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
             with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                source_sql = conn.execute(
+                    "SELECT sql FROM sqlite_master WHERE name = 'jquants_daily_bars'"
+                ).fetchone()[0]
+                without_primary_key = source_sql.replace(",\n  PRIMARY KEY (ticker, traded_at)", "")
+                self.assertNotEqual(source_sql, without_primary_key)
                 conn.execute("DROP TABLE jquants_daily_bars")
-                conn.execute(
-                    """
-                    CREATE TABLE jquants_daily_bars(
-                      ticker TEXT NOT NULL,
-                      traded_at TEXT NOT NULL,
-                      open REAL,
-                      high REAL,
-                      low REAL,
-                      close REAL,
-                      volume REAL,
-                      turnover_value REAL,
-                      adjustment_open REAL,
-                      adjustment_high REAL,
-                      adjustment_low REAL,
-                      adjustment_close REAL,
-                      adjustment_volume REAL,
-                      adjustment_factor REAL,
-                      upper_limit TEXT,
-                      lower_limit TEXT
-                    )
-                    """
-                )
+                conn.execute(without_primary_key)
                 conn.commit()
 
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
