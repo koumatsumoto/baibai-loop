@@ -25,7 +25,7 @@ from baibai_engine.market_context.indicators.providers.base import (
     ProviderFetchStoppedError,
 )
 from baibai_engine.market_context.indicators.providers.option_iv import (
-    fear_readings,
+    option_iv_readings,
     quotes_from_records,
 )
 from baibai_engine.market_context.indicators.providers.read_retry import read_deadline
@@ -129,7 +129,7 @@ def test_same_get_has_initial_plus_five_retries_and_keeps_success_value(wire, fa
             wire.fetch()
     else:
         records = wire.fetch()
-        expected = fear_readings(quotes_from_records(_chain_records()), ASOF).iv_30d
+        expected = option_iv_readings(quotes_from_records(_chain_records()), ASOF).iv_30d
         assert len(records) == 1
         assert records[0].value == expected
     assert len(wire.calls) == min(failures + 1, 6)
@@ -426,7 +426,7 @@ def test_separate_pages_have_separate_get_budgets_and_the_same_calculation(wire)
     wire.reply = reply
     for series_id, field in zip(READINGS, ("iv_30d", "iv_skew", "iv_term"), strict=True):
         records = wire.fetch(series_id)
-        expected = getattr(fear_readings(quotes_from_records(_chain_records()), ASOF), field)
+        expected = getattr(option_iv_readings(quotes_from_records(_chain_records()), ASOF), field)
         assert len(records) == 1
         assert records[0].value == expected
     assert counts == {"first": 6, "second": 6}

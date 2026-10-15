@@ -5,7 +5,6 @@ import json
 import zipfile
 from datetime import date
 from typing import cast
-from unittest.mock import patch
 
 from tests.engine.market_context.indicators.indicator_fixtures import (
     _DASHBOARD_INDICATOR,

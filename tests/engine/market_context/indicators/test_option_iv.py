@@ -19,10 +19,10 @@ from baibai_engine.market_context.indicators.providers.option_iv import (
     CALL,
     PUT,
     SETTLEMENT_SNAPSHOT,
-    FearReadings,
+    OptionIvReadings,
     OptionQuote,
     as_date,
-    fear_readings,
+    option_iv_readings,
     quotes_from_records,
 )
 from baibai_engine.market_context.indicators.providers.read_retry import ReadDeadline
@@ -60,7 +60,7 @@ def _registered(series_id: str) -> SeriesDefinition:
 
 
 class _FakeFrame:
-    """Only the two members the provider reads off a DataFrame."""
+    """The DataFrame record conversion used by the provider."""
 
     def __init__(self, records: list[dict[str, object]]) -> None:
         self._records = records
@@ -79,8 +79,7 @@ def _records(
     """Quotes in the shape the provider payload carries them.
 
     `Date` is the day the chain answers for, and the provider checks it, so every
-    fixture carries it — a payload without it would exercise only the branch that
-    has nothing to compare. `snapshot` builds the second copy an emergency-margin
+    fixture carries it. Missing dates are a separate invalid-payload case. `snapshot` builds the second copy an emergency-margin
     session carries, which is the one shape that puts two rows on one contract.
     """
     return [
@@ -141,17 +140,15 @@ def _chain(
     return quotes
 
 
-class FearReadingsTest(unittest.TestCase):
+class OptionIvReadingsTest(unittest.TestCase):
     def test_the_atm_average_is_where_it_was_when_the_sides_disagree(self) -> None:
-        # Each side carries its own directional bias, so the average is closer to what
-        # the market charges for movement rather than for direction — and it is also
-        # what survives the source's own inconsistency, since at the money a wrong
-        # reference price pushes the two sides apart by a like amount.
-        clean = fear_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
+        # Equal opposite offsets cancel in this synthetic fixture. This does not
+        # establish the error structure of actual quotes or immunity to source errors.
+        clean = option_iv_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
 
         for gap in (4.0, 11.0):
             with self.subTest(gap=gap):
-                readings = fear_readings(
+                readings = option_iv_readings(
                     [*_chain(NEAR, basis_gap=gap), *_chain(FAR, basis_gap=gap)], ASOF
                 )
 
@@ -163,9 +160,9 @@ class FearReadingsTest(unittest.TestCase):
     def test_a_disagreement_carried_by_one_side_would_move_the_average(self) -> None:
         # Contrast symmetric and one-sided synthetic errors. Passing the symmetric
         # case alone would not establish robustness to the one-sided case.
-        clean = fear_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
-        split = fear_readings([*_chain(NEAR, basis_gap=8.0), *_chain(FAR, basis_gap=8.0)], ASOF)
-        lopsided = fear_readings(
+        clean = option_iv_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
+        split = option_iv_readings([*_chain(NEAR, basis_gap=8.0), *_chain(FAR, basis_gap=8.0)], ASOF)
+        lopsided = option_iv_readings(
             [
                 *_chain(NEAR, basis_gap=8.0, one_sided=True),
                 *_chain(FAR, basis_gap=8.0, one_sided=True),
@@ -180,9 +177,8 @@ class FearReadingsTest(unittest.TestCase):
         self.assertAlmostEqual(lopsided.iv_30d - clean.iv_30d, 4.0, places=9)
 
     def test_the_at_the_money_average_reaches_for_a_strike_quoting_both_sides(self) -> None:
-        # The average is the whole reason the level survives the source's
-        # disagreement, so a chain missing one side at the nearest strike has to be
-        # read one strike further rather than reported from a single side.
+        # The level requires both sides at one strike. If the nearest strike lacks
+        # a call, select the nearest paired strike rather than a put-only value.
         unpaired = {UNDERLYING, UNDERLYING * 1.025}
         half_quoted = [
             quote
@@ -190,8 +186,8 @@ class FearReadingsTest(unittest.TestCase):
             if not (quote.strike in unpaired and quote.put_call == CALL)
         ]
 
-        readings = fear_readings([*half_quoted, *_chain(FAR)], ASOF)
-        put_only = fear_readings(
+        readings = option_iv_readings([*half_quoted, *_chain(FAR)], ASOF)
+        put_only = option_iv_readings(
             [quote for quote in (*_chain(NEAR), *_chain(FAR)) if quote.put_call == PUT], ASOF
         )
 
@@ -201,10 +197,10 @@ class FearReadingsTest(unittest.TestCase):
         expected = (weight * _LADDER[0.975] ** 2 + (1 - weight) * _LADDER[1.00] ** 2) ** 0.5
         assert readings.iv_30d is not None
         self.assertAlmostEqual(readings.iv_30d, expected, places=9)
-        self.assertEqual(put_only, FearReadings())
+        self.assertEqual(put_only, OptionIvReadings())
 
     def test_the_skew_is_the_downside_put_minus_the_at_the_money_put(self) -> None:
-        readings = fear_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
+        readings = option_iv_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
 
         self.assertEqual(readings.iv_skew, 10.0)
 
@@ -212,18 +208,17 @@ class FearReadingsTest(unittest.TestCase):
         # Both legs come from the put side, so a disagreement of the same size at every
         # strike lifts them equally and leaves the difference alone. A leg taken off
         # the call side would instead carry the whole of it.
-        clean = fear_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
-        skewed = fear_readings([*_chain(NEAR, basis_gap=10.0), *_chain(FAR, basis_gap=10.0)], ASOF)
+        clean = option_iv_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
+        skewed = option_iv_readings([*_chain(NEAR, basis_gap=10.0), *_chain(FAR, basis_gap=10.0)], ASOF)
 
         self.assertEqual(skewed.iv_skew, clean.iv_skew)
 
     def test_a_disagreement_that_differs_across_strikes_does_move_the_skew(self) -> None:
-        # This is why the skew is gated at all: the price the source quoted against
-        # also picks which strikes the two legs land on, so an uneven error separates
-        # them. Below the bound the movement is smaller than the reading's own noise.
+        # A strike-specific offset changes the skew even when the median basis
+        # check passes. The bound is not a guarantee that the remaining error is small.
         uneven = {0.95: 8.0}
-        clean = fear_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
-        skewed = fear_readings([*_chain(NEAR, gaps=uneven), *_chain(FAR, gaps=uneven)], ASOF)
+        clean = option_iv_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
+        skewed = option_iv_readings([*_chain(NEAR, gaps=uneven), *_chain(FAR, gaps=uneven)], ASOF)
 
         assert clean.iv_skew is not None
         assert skewed.iv_skew is not None
@@ -234,7 +229,7 @@ class FearReadingsTest(unittest.TestCase):
         # retained; only this symmetric fixture guarantees cancellation.
         ladder = {0.90: 50.0, 0.95: 46.0, 0.975: 42.0, 1.00: 40.0, 1.025: 38.0, 1.05: 36.0}
 
-        readings = fear_readings(
+        readings = option_iv_readings(
             [
                 *_chain(NEAR, ladder=ladder, basis_gap=25.0),
                 *_chain(FAR, ladder=ladder, basis_gap=25.0),
@@ -247,11 +242,11 @@ class FearReadingsTest(unittest.TestCase):
         self.assertIsNotNone(readings.iv_30d)
 
     def test_a_gap_inside_the_bound_leaves_the_readings_alone(self) -> None:
-        # Small disagreements are routine in the source; refusing them would empty
-        # the series for a condition that changes nothing.
+        # This fixture falls inside the chosen tolerance and keeps the difference
+        # readings available. Availability does not prove the numbers are unchanged.
         ladder = {0.90: 50.0, 0.95: 46.0, 0.975: 42.0, 1.00: 40.0, 1.025: 38.0, 1.05: 36.0}
 
-        readings = fear_readings(
+        readings = option_iv_readings(
             [
                 *_chain(NEAR, ladder=ladder, basis_gap=11.0),
                 *_chain(FAR, ladder=ladder, basis_gap=11.0),
@@ -268,7 +263,7 @@ class FearReadingsTest(unittest.TestCase):
         ladder = {0.90: 50.0, 0.95: 46.0, 0.975: 42.0, 1.00: 40.0, 1.025: 38.0, 1.05: 36.0}
         around = {0.95: 25.0, 0.975: 25.0, 1.025: 25.0, 1.05: 25.0}
 
-        readings = fear_readings(
+        readings = option_iv_readings(
             [
                 *_chain(NEAR, ladder=ladder, gaps=around),
                 *_chain(FAR, ladder=ladder, gaps=around),
@@ -294,7 +289,7 @@ class FearReadingsTest(unittest.TestCase):
         }
         wings = {0.80: 25.0, 0.85: 25.0, 1.15: 25.0, 1.20: 25.0}
 
-        readings = fear_readings(
+        readings = option_iv_readings(
             [
                 *_chain(NEAR, ladder=ladder, gaps=wings),
                 *_chain(FAR, ladder=ladder, gaps=wings),
@@ -310,7 +305,7 @@ class FearReadingsTest(unittest.TestCase):
         ladder = {0.90: 50.0, 0.95: 46.0, 0.975: 42.0, 1.00: 40.0, 1.025: 38.0, 1.05: 36.0}
         inverted = {0.95: -25.0, 0.975: -25.0, 1.025: -25.0, 1.05: -25.0}
 
-        readings = fear_readings(
+        readings = option_iv_readings(
             [
                 *_chain(NEAR, ladder=ladder, gaps=inverted),
                 *_chain(FAR, ladder=ladder, gaps=inverted),
@@ -335,9 +330,9 @@ class FearReadingsTest(unittest.TestCase):
             for side in (PUT, CALL)
             for expiry in (NEAR, FAR)
         ]
-        without = fear_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
+        without = option_iv_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
 
-        readings = fear_readings([*placeholders, *_chain(NEAR), *_chain(FAR)], ASOF)
+        readings = option_iv_readings([*placeholders, *_chain(NEAR), *_chain(FAR)], ASOF)
 
         self.assertEqual(readings, without)
 
@@ -347,7 +342,7 @@ class FearReadingsTest(unittest.TestCase):
         puts = [quote for quote in _chain(NEAR) if quote.put_call == PUT]
         far = [quote for quote in _chain(FAR) if quote.put_call == PUT]
 
-        readings = fear_readings([*puts, *far], ASOF)
+        readings = option_iv_readings([*puts, *far], ASOF)
 
         self.assertIsNone(readings.iv_skew)
         self.assertIsNone(readings.iv_term)
@@ -355,7 +350,7 @@ class FearReadingsTest(unittest.TestCase):
     def test_the_downside_leg_sits_five_percent_below_the_money(self) -> None:
         # 0.90 would read 34.0 and 1.00 would read 20.0 off the same ladder, so a
         # different distance cannot produce this number.
-        readings = fear_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
+        readings = option_iv_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
 
         self.assertEqual(readings.iv_skew, _LADDER[0.95] - _LADDER[1.00])
 
@@ -365,14 +360,14 @@ class FearReadingsTest(unittest.TestCase):
         inverted = dict(_LADDER)
         inverted[0.95] = 15.0
 
-        readings = fear_readings(
+        readings = option_iv_readings(
             [*_chain(NEAR, ladder=inverted), *_chain(FAR, ladder=inverted)], ASOF
         )
 
         self.assertEqual(readings.iv_skew, -5.0)
 
     def test_the_term_reading_is_the_second_month_minus_the_first(self) -> None:
-        readings = fear_readings([*_chain(NEAR), *_chain(FAR, level=9.0)], ASOF)
+        readings = option_iv_readings([*_chain(NEAR), *_chain(FAR, level=9.0)], ASOF)
 
         self.assertEqual(readings.iv_term, 9.0)
 
@@ -383,7 +378,7 @@ class FearReadingsTest(unittest.TestCase):
         # wrong side of the bracket lands on a different number.
         self.assertNotEqual((NEAR - ASOF).days + (WIDE - ASOF).days, 2 * 30)
 
-        readings = fear_readings([*_chain(NEAR), *_chain(WIDE, level=20.0)], ASOF)
+        readings = option_iv_readings([*_chain(NEAR), *_chain(WIDE, level=20.0)], ASOF)
 
         assert readings.iv_30d is not None
         weight = (58 - 30) / (58 - 16)
@@ -395,21 +390,20 @@ class FearReadingsTest(unittest.TestCase):
     def test_the_term_reading_uses_the_next_expiry_not_the_last_one(self) -> None:
         # A chain carries two dozen expiries, so reaching past the second one would
         # quote a contract months away as if it were next month.
-        readings = fear_readings(
+        readings = option_iv_readings(
             [*_chain(NEAR), *_chain(FAR, level=9.0), *_chain(WIDE, level=25.0)], ASOF
         )
 
         self.assertEqual(readings.iv_term, 9.0)
 
     def test_the_expiry_cutoff_admits_a_week_out_and_nothing_closer(self) -> None:
-        # A contract days from settlement prices the SQ auction, not the month. Each
-        # expiry around the cutoff carries its own level, so moving the cutoff either
-        # way puts a different pair into the term reading.
+        # Fix the chosen seven-day cutoff independently of the implementation.
+        # Different levels make an off-by-one error change the selected pair.
         six_days, seven_days = date(2026, 8, 4), date(2026, 8, 5)
         self.assertEqual((six_days - ASOF).days, 6)
         self.assertEqual((seven_days - ASOF).days, 7)
 
-        readings = fear_readings(
+        readings = option_iv_readings(
             [
                 *_chain(six_days, level=50.0),
                 *_chain(seven_days, level=30.0),
@@ -427,7 +421,7 @@ class FearReadingsTest(unittest.TestCase):
         # would quote a maturity the chain never priced.
         self.assertLess((MID - ASOF).days, 30)
 
-        readings = fear_readings([*_chain(NEAR), *_chain(MID, level=2.0)], ASOF)
+        readings = option_iv_readings([*_chain(NEAR), *_chain(MID, level=2.0)], ASOF)
 
         self.assertIsNone(readings.iv_30d)
         self.assertEqual(readings.iv_term, 2.0)
@@ -449,7 +443,7 @@ class FearReadingsTest(unittest.TestCase):
             for expiry in (NEAR, FAR)
         ]
 
-        readings = fear_readings(
+        readings = option_iv_readings(
             [*unquoted, *_chain(NEAR, ladder=quoted), *_chain(FAR, ladder=quoted)], ASOF
         )
 
@@ -463,7 +457,7 @@ class FearReadingsTest(unittest.TestCase):
         # bracketing from the wrong side, or in the wrong direction, lands elsewhere.
         self.assertEqual(((NEAR - ASOF).days, (WIDE - ASOF).days), (16, 58))
 
-        readings = fear_readings([*_chain(NEAR, ladder=_STEEP), *_chain(WIDE, ladder=_FLAT)], ASOF)
+        readings = option_iv_readings([*_chain(NEAR, ladder=_STEEP), *_chain(WIDE, ladder=_FLAT)], ASOF)
 
         weight = (30**-0.5 - 58**-0.5) / (16**-0.5 - 58**-0.5)
         assert readings.iv_skew is not None
@@ -476,10 +470,10 @@ class FearReadingsTest(unittest.TestCase):
         # all, which is the one case where the reading is the contract's own number.
         self.assertEqual((ON_TARGET - ASOF).days, 30)
 
-        leading = fear_readings(
+        leading = option_iv_readings(
             [*_chain(ON_TARGET, ladder=_STEEP), *_chain(FAR, ladder=_FLAT)], ASOF
         )
-        trailing = fear_readings(
+        trailing = option_iv_readings(
             [*_chain(NEAR, ladder=_STEEP), *_chain(ON_TARGET, ladder=_FLAT)], ASOF
         )
 
@@ -491,13 +485,13 @@ class FearReadingsTest(unittest.TestCase):
         # level because one expiry past the target would have to be reported as a
         # 30-day contract the chain never priced. Reaching for a second expiry that is
         # not there must decline rather than fail the whole day.
-        far_out = fear_readings(list(_chain(WIDE)), ASOF)
-        on_target = fear_readings(list(_chain(ON_TARGET)), ASOF)
-        too_near = fear_readings(list(_chain(NEAR)), ASOF)
+        far_out = option_iv_readings(list(_chain(WIDE)), ASOF)
+        on_target = option_iv_readings(list(_chain(ON_TARGET)), ASOF)
+        too_near = option_iv_readings(list(_chain(NEAR)), ASOF)
 
-        self.assertEqual(far_out, FearReadings())
-        self.assertEqual(on_target, FearReadings())
-        self.assertEqual(too_near, FearReadings())
+        self.assertEqual(far_out, OptionIvReadings())
+        self.assertEqual(on_target, OptionIvReadings())
+        self.assertEqual(too_near, OptionIvReadings())
 
     def test_the_basis_check_reaches_the_second_expiry_the_differences_read(self) -> None:
         # Both differences are built from the second expiry as well as the first, so a
@@ -505,10 +499,10 @@ class FearReadingsTest(unittest.TestCase):
         # broken one — and a term reading built on it can invert its own sign.
         ladder = {0.90: 50.0, 0.95: 46.0, 0.975: 42.0, 1.00: 40.0, 1.025: 38.0, 1.05: 36.0}
 
-        clean = fear_readings(
+        clean = option_iv_readings(
             [*_chain(NEAR, ladder=ladder), *_chain(FAR, ladder=ladder, level=4.0)], ASOF
         )
-        far_broken = fear_readings(
+        far_broken = option_iv_readings(
             [
                 *_chain(NEAR, ladder=ladder),
                 *_chain(FAR, ladder=ladder, level=4.0, basis_gap=30.0),
@@ -535,20 +529,19 @@ class FearReadingsTest(unittest.TestCase):
             for side in (PUT, CALL)
             for expiry in (NEAR, FAR)
         ]
-        clean = fear_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
+        clean = option_iv_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
 
-        readings = fear_readings([*slipped, *_chain(NEAR), *_chain(FAR)], ASOF)
+        readings = option_iv_readings([*slipped, *_chain(NEAR), *_chain(FAR)], ASOF)
 
         self.assertEqual(readings, clean)
 
     def test_the_basis_bound_admits_the_gap_it_names_and_refuses_the_next_one(self) -> None:
-        # The bound sits above the range the source's own behaviour covers, so a
-        # chain landing on it is still that behaviour. Moving it either way changes
-        # which sessions keep their differences.
+        # Fix the inclusive operational threshold, not a guarantee about future
+        # source behaviour or the accuracy of an admitted observation.
         ladder = {0.90: 50.0, 0.95: 46.0, 0.975: 42.0, 1.00: 40.0, 1.025: 38.0, 1.05: 36.0}
 
-        def readings_at(gap: float) -> FearReadings:
-            return fear_readings(
+        def readings_at(gap: float) -> OptionIvReadings:
+            return option_iv_readings(
                 [
                     *_chain(NEAR, ladder=ladder, basis_gap=gap),
                     *_chain(FAR, ladder=ladder, basis_gap=gap),
@@ -567,7 +560,7 @@ class FearReadingsTest(unittest.TestCase):
         ladder = {0.80: 70.0, 0.90: 80.0, 0.95: 70.0, 1.00: 65.0, 1.10: 75.0, 1.20: 70.0}
         edges = {0.90: 60.0, 1.10: 60.0}
 
-        readings = fear_readings(
+        readings = option_iv_readings(
             [*_chain(NEAR, ladder=ladder, gaps=edges), *_chain(FAR, ladder=ladder, gaps=edges)],
             ASOF,
         )
@@ -581,8 +574,8 @@ class FearReadingsTest(unittest.TestCase):
         four = {0.90: 50.0, 0.95: 46.0, 1.00: 40.0, 1.05: 36.0}
         five = {0.90: 50.0, 0.95: 46.0, 0.975: 43.0, 1.00: 40.0, 1.05: 36.0}
 
-        def readings_for(ladder: dict[float, float], gaps: dict[float, float]) -> FearReadings:
-            return fear_readings(
+        def readings_for(ladder: dict[float, float], gaps: dict[float, float]) -> OptionIvReadings:
+            return option_iv_readings(
                 [*_chain(NEAR, ladder=ladder, gaps=gaps), *_chain(FAR, ladder=ladder, gaps=gaps)],
                 ASOF,
             )
@@ -608,14 +601,14 @@ class FearReadingsTest(unittest.TestCase):
             for side in (PUT, CALL)
             for expiry in (NEAR, FAR)
         ]
-        clean = fear_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
+        clean = option_iv_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
 
-        readings = fear_readings([*broken, *_chain(NEAR), *_chain(FAR)], ASOF)
+        readings = option_iv_readings([*broken, *_chain(NEAR), *_chain(FAR)], ASOF)
 
         self.assertEqual(readings, clean)
 
     def test_an_empty_chain_reads_nothing(self) -> None:
-        readings = fear_readings([], ASOF)
+        readings = option_iv_readings([], ASOF)
 
         self.assertIsNone(readings.iv_30d)
         self.assertIsNone(readings.iv_skew)
@@ -647,8 +640,8 @@ class QuoteParsingTest(unittest.TestCase):
         self.assertEqual([quote.underlying for quote in quotes], [40000.0])
 
     def test_rows_the_reader_cannot_believe_are_dropped(self) -> None:
-        # One unusable row shape per case. Each is a value the source really sends,
-        # and each would land in an average as a number nobody quoted.
+        # Synthetic missing, unsupported and non-finite values must not become
+        # numeric quotes. This fixture is not evidence of live source frequencies.
         cases: tuple[tuple[str, list[dict[str, object]]], ...] = (
             (
                 # Keeping unmarked rows would restore the snapshot mixing as soon as
@@ -701,28 +694,10 @@ class QuoteParsingTest(unittest.TestCase):
 class OptionProviderTest(unittest.TestCase):
     """The provider's defences, which nothing else exercises."""
 
-    def _series(self, provider_series_id: str) -> SeriesDefinition:
-        return SeriesDefinition(
-            series_id=f"jp.{provider_series_id}",
-            name=provider_series_id,
-            category="volatility",
-            geography="japan",
-            frequency="daily",
-            unit="percent",
-            provider="jquants_options",
-            provider_series_id=provider_series_id,
-            source_id=f"test-{provider_series_id}",
-            source_url="https://example.invalid/",
-            notes="test",
-        )
-
     def test_the_registry_bands_hold_every_reading_and_catch_an_inflated_one(self) -> None:
-        # The service refuses observations outside the registry's plausible range for
-        # every provider, so what this provider owes is bands that fit: wide enough
-        # that 8.5 years of readings sit inside with room for a deeper crash, narrow
-        # enough that a value inflated by a scale mistake lands outside. A band that
-        # spans zero cannot catch the opposite mistake, and the two difference series
-        # need one that does — their sign is the reading.
+        # Retained historical sample extrema fit the configured bands, while the
+        # illustrated 100x scale errors do not. These checks do not guarantee that
+        # future observations or every scaling error are classified correctly.
         for series_id, sampled_low, sampled_high in (
             ("jp.n225_iv_30d", 11.51, 65.95),
             ("jp.n225_iv_skew", 0.24, 6.73),
@@ -760,7 +735,7 @@ class OptionProviderTest(unittest.TestCase):
         ):
             for provider_series_id in ("n225_iv_30d", "n225_iv_skew", "n225_iv_term"):
                 provider.fetch(
-                    self._series(provider_series_id),
+                    _registered(f"jp.{provider_series_id}"),
                     start=date(2026, 7, 27),
                     end=date(2026, 7, 29),
                     session=cast(HttpSession, None),
@@ -813,8 +788,8 @@ class OptionProviderTest(unittest.TestCase):
     def test_an_emergency_margin_session_is_read_rather_than_refused(self) -> None:
         # The source answers such a session with two full copies of the chain, one row
         # per contract each. Refusing it would end a multi-year range on a day the
-        # source is behaving as documented — 2016-08-02 is the second weekday of the
-        # ten-year floor, so the whole rebuild would stop there.
+        # source carries distinct marked snapshots. The historical motivating day
+        # was 2016-08-02, not a permanent boundary of the rolling retrieval window.
         settled = _chain_records()
         intervention = _records(
             [*_chain(NEAR, underlying=39_000.0), *_chain(FAR, underlying=39_000.0, level=1.0)],
@@ -829,12 +804,12 @@ class OptionProviderTest(unittest.TestCase):
             client, ASOF, api_key="k", deadline=ReadDeadline("jquants_options")
         )
 
-        self.assertEqual(both, fear_readings(quotes_from_records(settled), ASOF))
+        self.assertEqual(both, option_iv_readings(quotes_from_records(settled), ASOF))
         self.assertIsNotNone(both.iv_30d)
 
     def test_a_chain_answering_for_another_day_is_refused(self) -> None:
         # The observation is stamped with the requested date, so a session served the
-        # previous day's chain would carry the previous day's fear under today's date.
+        # previous day's chain would carry the previous day's IV readings under today's date.
         provider = jquants_options.JQuantsOptionsProvider()
         stale = SimpleNamespace(
             get_drv_bars_daily_opt_225=lambda **_: _FakeFrame(_chain_records(ASOF - timedelta(1)))
@@ -845,7 +820,7 @@ class OptionProviderTest(unittest.TestCase):
             self.assertRaises(IndicatorsProviderError) as caught,
         ):
             provider.fetch(
-                self._series("n225_iv_30d"),
+                _registered("jp.n225_iv_30d"),
                 start=ASOF,
                 end=ASOF,
                 session=cast(HttpSession, None),
@@ -906,7 +881,7 @@ class OptionProviderTest(unittest.TestCase):
                 provider_series_id: [
                     record.observed_at
                     for record in provider.fetch(
-                        self._series(provider_series_id),
+                        _registered(f"jp.{provider_series_id}"),
                         start=closed,
                         end=full,
                         session=cast(HttpSession, None),

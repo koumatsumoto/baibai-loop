@@ -1,13 +1,8 @@
-"""Reduce a day's Nikkei 225 option chain to the three fear readings.
+"""Compute IV level, put skew and term difference from a Nikkei 225 option chain.
 
-The chain is ten thousand rows a day and none of it is read directly, so it is
-summarised at fetch time and only the summary is stored. Everything here is a
-pure function over already-fetched rows: what the numbers mean has to be
-checkable without a network call.
-
-The readings answer "how expensive is protection, and how lopsided", which is a
-different question from what the index level says. They are observations for a
-human assessing the market context, not inputs to a mechanical timing rule.
+These pure functions consume provider rows without fetching or storing data.
+The outputs are volatility points, not monetary insurance premiums or a direct
+measurement of investor fear. They support interpretation, not trading signals.
 """
 
 from __future__ import annotations
@@ -16,8 +11,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 
-# A contract inside its last week prices the SQ auction rather than the market's
-# view of the next month, so the near expiry is skipped once it gets that close.
+# Chosen maturity policy: exclude contracts with fewer than seven days left.
+# This limits near-expiry exposure; it does not prove all settlement effects vanish.
 MIN_DAYS_TO_EXPIRY = 7
 # The constant-maturity target the readings are quoted at.
 TARGET_DAYS = 30
@@ -63,7 +58,7 @@ class OptionQuote:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class FearReadings:
+class OptionIvReadings:
     """One day's readings, in volatility points. None where the chain cannot say."""
 
     iv_30d: float | None = None
@@ -71,7 +66,7 @@ class FearReadings:
     iv_term: float | None = None
 
 
-def fear_readings(quotes: Sequence[OptionQuote], asof: date) -> FearReadings:
+def option_iv_readings(quotes: Sequence[OptionQuote], asof: date) -> OptionIvReadings:
     """Summarise the two nearest usable, paired expiries.
 
     Level and skew require a bracket around 30 days. Skew also requires usable put
@@ -84,12 +79,12 @@ def fear_readings(quotes: Sequence[OptionQuote], asof: date) -> FearReadings:
     """
     by_expiry = usable_expiries(quotes, asof)
     if not by_expiry:
-        return FearReadings()
+        return OptionIvReadings()
     expiries = sorted(by_expiry)
     atm = {expiry: _atm_volatility(by_expiry[expiry]) for expiry in expiries}
     priced = [expiry for expiry in expiries if atm[expiry] is not None]
     if not priced:
-        return FearReadings()
+        return OptionIvReadings()
     front = priced[0]
     front_volatility = atm[front]
     assert front_volatility is not None  # `priced` holds only the expiries it priced
@@ -103,7 +98,7 @@ def fear_readings(quotes: Sequence[OptionQuote], asof: date) -> FearReadings:
     consistent = _basis_is_consistent(by_expiry[front]) and (
         second is None or _basis_is_consistent(by_expiry[second])
     )
-    return FearReadings(
+    return OptionIvReadings(
         iv_30d=_constant_maturity(
             near_days=near_days,
             near_volatility=front_volatility,

@@ -17,9 +17,9 @@ from .base import (
     record_observation,
 )
 from .option_iv import (
-    FearReadings,
+    OptionIvReadings,
     as_date,
-    fear_readings,
+    option_iv_readings,
     quotes_from_records,
     settlement_rows,
 )
@@ -28,7 +28,7 @@ from .read_retry import ReadDeadline, jquants_read_client, read_deadline
 # jquants_flows / jquants_indices と同じ資格情報。indicators 用に secret を増やさない。
 _API_KEY_ENV = "JQUANTS_API_KEY"
 
-# provider_series_id -> FearReadings の属性名。registry に series を持つ読みだけを
+# provider_series_id -> OptionIvReadings の属性名。registry に series を持つ読みだけを
 # 登録する。読む経路のない値を store に入れないため、この表が取得対象を決める。
 _READING_FIELDS: Mapping[str, str] = {
     "n225_iv_30d": "iv_30d",
@@ -38,7 +38,7 @@ _READING_FIELDS: Mapping[str, str] = {
 
 
 class JQuantsOptionsProvider:
-    """日経225オプションのチェーンを恐怖の読みへ集計して返す。
+    """日経225オプションのチェーンからIVの水準・スキュー・期間差を返す。
 
     endpoint は 1 日 1 断面しか返さないので、range 取得は日次ループになる。
     チェーン自体 (1 日 1 万行) は保存せず、集計後の系列だけを observation にする。
@@ -56,7 +56,7 @@ class JQuantsOptionsProvider:
         # Share each day's chain across the three readings within one fetch pass.
         # Clear successful and empty results on the next pass: historical data can
         # be corrected, and an empty response does not prove permanent absence.
-        self._readings: dict[date, FearReadings | None] = {}
+        self._readings: dict[date, OptionIvReadings | None] = {}
         self._fetch_context: FetchContext | None = None
         # A failed chain is also one shared result: another reading must not reset
         # that day's HTTP retry budget. Failures last only for this fetch pass.
@@ -95,7 +95,7 @@ class JQuantsOptionsProvider:
 
     def _day_reading(
         self, client: object, day: date, *, api_key: str, deadline: ReadDeadline
-    ) -> FearReadings | None:
+    ) -> OptionIvReadings | None:
         if day in self._readings:
             return self._readings[day]
         if day in self._failures:
@@ -112,8 +112,8 @@ class JQuantsOptionsProvider:
         return reading
 
 
-def _reading(rows: Sequence[Mapping[str, object]], day: date) -> FearReadings:
-    return fear_readings(quotes_from_records(rows), day)
+def _reading(rows: Sequence[Mapping[str, object]], day: date) -> OptionIvReadings:
+    return option_iv_readings(quotes_from_records(rows), day)
 
 
 def _reading_field(provider_series_id: str) -> str:
@@ -196,7 +196,7 @@ def _require_requested_day(rows: Sequence[Mapping[str, object]], day: date) -> N
     """Refuse a chain that answers for a day other than the one asked for.
 
     The observation is stamped with the requested date, so a session served the
-    previous day's chain would carry the previous day's fear under today's date with
+    previous day's chain would carry the previous day's IV readings under today's date with
     nothing to show for it. The payload names the day it belongs to; reading it costs
     one comparison and turns a silent re-dating into a failure.
     """
