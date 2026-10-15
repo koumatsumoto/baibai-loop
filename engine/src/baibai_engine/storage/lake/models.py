@@ -531,7 +531,7 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset="jquants.market_calendar",
             required=True,
-            accepted_contract_versions=(1,),
+            accepted_contract_versions=(2,),
             carries_history=True,
             minimum_rows=3_524,
             require_complete_coverage=True,
