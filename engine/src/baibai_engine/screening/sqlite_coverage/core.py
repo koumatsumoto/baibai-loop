@@ -98,8 +98,8 @@ def verify_screening_sqlite_coverage(
             if schema_shape_issue is not None:
                 return (schema_shape_issue,)
             _append_master_snapshot_issues(conn, issues, asof_date=asof_date)
-            # daily_bars completeness is derived from the actual rows. The
-            # quality / density checks below run regardless of the coverage gate
+            # Daily-bars fetch reuse checks stored-date spans and gaps, not full
+            # cross-section completeness. Quality / density checks run regardless
             # so a grossly incomplete cache reports both the missing window and
             # the specific density problem, rather than only the first failure.
             bars_window_covered = daily_bars_covered_by_data(conn, bars_start, asof_date)
