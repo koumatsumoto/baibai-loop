@@ -157,6 +157,31 @@ def share_unit_factor(event: JQuantsAdjustmentFactorEvent | JQuantsDailyBar) -> 
     return None
 
 
+def cumulative_share_unit_factor_after(
+    ticker_bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
+    after: date,
+    asof_date: date,
+    *,
+    include_boundary_day: bool = False,
+) -> float | None:
+    """Accumulate only known share-unit changes in the requested interval.
+
+    Rights-issue price factors do not scale shares or cash DPS. Unknown action
+    kinds leave the unit basis unresolved. Disclosure-day inclusion follows the
+    existing boundary convention; it does not prove a filing's share basis.
+    """
+    factor = 1.0
+    for bar in ticker_bars:
+        before_start = bar.traded_at < after if include_boundary_day else bar.traded_at <= after
+        if before_start or bar.traded_at > asof_date:
+            continue
+        adjustment = share_unit_factor(bar)
+        if adjustment is None:
+            return None
+        factor *= adjustment
+    return factor
+
+
 @dataclass(frozen=True, slots=True, config=MODEL_CONFIG)
 class JQuantsMarketCalendarDay:
     day: date

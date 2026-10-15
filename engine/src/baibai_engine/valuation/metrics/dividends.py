@@ -12,6 +12,7 @@ from baibai_engine.foundation.date_utils import add_months_clamped
 from baibai_engine.market.bars import (
     JQuantsAdjustmentFactorEvent,
     JQuantsDailyBar,
+    cumulative_share_unit_factor_after,
     share_unit_factor,
 )
 from baibai_engine.market.financial_documents import (
@@ -23,7 +24,6 @@ from baibai_engine.market.financial_documents import (
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.valuation.metrics.capital import (
     SHARE_COUNT_ANCHOR_TOLERANCE,
-    _cumulative_share_unit_factor_after,
     _normalize_summaries_to_asof_basis,
     _shares_excluding_treasury,
 )
@@ -235,7 +235,7 @@ def _asof_basis_dividend(
     # 掛けてから比べる。境界も揃える — 片方だけが換算する、あるいは片方だけが開示日当日の
     # 権利落ちを数えると、比は必ず換算係数の逆数になり、その年度を「明細が欠けている」と
     # して捨てる。捨てた年度は増配判定ごと消える。
-    disclosure_factor = _cumulative_share_unit_factor_after(
+    disclosure_factor = cumulative_share_unit_factor_after(
         ticker_bars, row.disclosed_at, asof_date, include_boundary_day=True
     )
     if disclosure_factor is None:
@@ -259,7 +259,7 @@ def _asof_basis_dividend(
     for value, record_date in payments:
         if not value:
             continue
-        factor = _cumulative_share_unit_factor_after(ticker_bars, record_date, asof_date)
+        factor = cumulative_share_unit_factor_after(ticker_bars, record_date, asof_date)
         if factor is None:
             return None
         resolved += value * factor
@@ -310,7 +310,7 @@ def _resolve_dividend_carry(
             ticker_bars, accrual_start=accrual_start, disclosed_at=latest_actual.disclosed_at
         )
         if requires_resolution:
-            basis_factor = _cumulative_share_unit_factor_after(
+            basis_factor = cumulative_share_unit_factor_after(
                 ticker_bars, accrual_start, latest_actual.disclosed_at
             )
             actual_annual = _asof_basis_dividend(latest_actual, ticker_bars, asof_date=asof_date)

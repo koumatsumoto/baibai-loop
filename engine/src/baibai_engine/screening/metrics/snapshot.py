@@ -16,18 +16,15 @@ from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.models import SecurityMaster
 from baibai_engine.market_context.history import (
-    AVG_VOLUME_SESSIONS,
     PRICE_HISTORY_WINDOW_DAYS,
     avg_daily_volume,
     gap_from_low,
-    has_share_basis_warning,
     latest_bar_on_or_before,
     price_change,
     realized_volatility,
     turnover_spike,
 )
 from baibai_engine.market_context.margin import (
-    MARGIN_DELTA_SESSIONS,
     MarginBalance,
     margin_supply_demand,
 )
@@ -257,20 +254,12 @@ def build_metrics(
                 margin_supply_demand(
                     latest=(margin_latest or {}).get(ticker),
                     prior_26w=(margin_prior_26w or {}).get(ticker),
-                    avg_daily_volume_shares=avg_daily_volume(ticker_bars, asof_date),
+                    avg_daily_volume_shares=avg_daily_volume(
+                        ticker_bars, asof_date, adjustment_events=adjustment_events
+                    ),
                     shares_outstanding=snapshot.shares_outstanding,
-                    adv_basis_warning=has_share_basis_warning(
-                        ticker_bars,
-                        asof_date,
-                        AVG_VOLUME_SESSIONS,
-                        adjustment_events=adjustment_events,
-                    ),
-                    delta_basis_warning=has_share_basis_warning(
-                        ticker_bars,
-                        asof_date,
-                        MARGIN_DELTA_SESSIONS,
-                        adjustment_events=adjustment_events,
-                    ),
+                    asof_date=asof_date,
+                    adjustment_events=adjustment_events,
                 )
             ),
             price_history_sessions_750d=price_history_sessions[ticker],

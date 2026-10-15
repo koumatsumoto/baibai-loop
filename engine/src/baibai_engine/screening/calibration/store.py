@@ -17,6 +17,7 @@ from tempfile import TemporaryDirectory
 from typing import cast
 
 from baibai_engine.foundation.repository_layout import CALIBRATION_DIR
+from baibai_engine.market_context.margin import MARKET_CONTEXT_CALCULATION_REVISION
 from baibai_engine.storage.application.json import canonical_json
 from baibai_engine.valuation.metrics.financial_snapshot import VALUATION_CALCULATION_REVISION
 
@@ -53,6 +54,7 @@ def _derive_cache_schema_version() -> str:
         ",".join(DIAGNOSTIC_FIELD_NAMES),
         ",".join(FORWARD_FIELD_NAMES),
         VALUATION_CALCULATION_REVISION,
+        MARKET_CONTEXT_CALCULATION_REVISION,
         FORWARD_CALCULATION_REVISION,
         repr(RELAXED),
     )

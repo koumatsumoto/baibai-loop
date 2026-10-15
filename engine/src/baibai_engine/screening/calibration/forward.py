@@ -15,6 +15,7 @@ from baibai_engine.market.bars import (
     JQuantsDailyBar,
     asof_basis_closes,
     asof_basis_prices,
+    cumulative_share_unit_factor_after,
     share_unit_factor,
 )
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
@@ -23,10 +24,7 @@ from baibai_engine.storage.observations.reader import read_financial_documents
 
 # 配当・株数の基準はValuationのcarryと同じにする。較正と本番が異なる量を扱わないよう、
 # 規約の定数は計算を所有するValuationから読み、ここへ重複定義しない。
-from baibai_engine.valuation.metrics.capital import (
-    SHARE_COUNT_ANCHOR_TOLERANCE,
-    _cumulative_share_unit_factor_after,
-)
+from baibai_engine.valuation.metrics.capital import SHARE_COUNT_ANCHOR_TOLERANCE
 from baibai_engine.valuation.metrics.dividends import (
     DIVIDEND_RECORD_DATE_GUARD_DAYS,
     DIVIDEND_ROUTE_TOLERANCE,
@@ -827,7 +825,7 @@ def _asof_basis_dividend(
     if reported == 0:
         return 0.0
     window_start = observation.period_start or add_months_clamped(observation.fiscal_year_end, -12)
-    disclosure_factor = _cumulative_share_unit_factor_after(
+    disclosure_factor = cumulative_share_unit_factor_after(
         bars, after=observation.disclosed_at, asof_date=basis_date
     )
     if disclosure_factor is None:
@@ -869,7 +867,7 @@ def _asof_basis_dividend(
     for value, record_date in payments:
         if not value:
             continue
-        factor = _cumulative_share_unit_factor_after(bars, after=record_date, asof_date=basis_date)
+        factor = cumulative_share_unit_factor_after(bars, after=record_date, asof_date=basis_date)
         if factor is None:
             return None
         resolved += value * factor

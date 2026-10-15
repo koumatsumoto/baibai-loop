@@ -40,6 +40,7 @@ def _axes(**overrides: object) -> MarginSupplyDemand:
         "prior_26w": _margin(long_vol=1500.0),
         "avg_daily_volume_shares": 500.0,
         "shares_outstanding": 100_000.0,
+        "asof_date": WEEK,
     }
     values.update(overrides)
     return margin_supply_demand(**values)  # type: ignore[arg-type]
@@ -72,18 +73,6 @@ class MarginSupplyDemandTest(unittest.TestCase):
         self.assertIsNone(axes.margin_long_share)
         self.assertIsNone(axes.margin_short_to_adv)
         self.assertIsNotNone(axes.margin_long_to_adv)
-
-    def test_a_split_inside_a_window_declines_that_axis(self) -> None:
-        # Balances are reported on the balance date's share basis and are not
-        # restated, so a split inside the window compares two different bases.
-        adv = _axes(adv_basis_warning=True)
-        delta = _axes(delta_basis_warning=True)
-
-        self.assertIsNone(adv.margin_long_to_adv)
-        self.assertIsNone(adv.margin_short_to_adv)
-        self.assertIsNotNone(adv.margin_long_delta_26w)
-        self.assertIsNone(delta.margin_long_delta_26w)
-        self.assertIsNotNone(delta.margin_long_to_adv)
 
     def test_a_zero_long_balance_is_no_overhang_but_not_a_zero_share(self) -> None:
         axes = _axes(latest=_margin(long_vol=0.0, long_std_vol=0.0))
@@ -370,8 +359,8 @@ class MarginPublicationSeamTest(unittest.TestCase):
             self.assertEqual(daily_dates(date(2026, 9, 29)), [date(2026, 9, 25)])
             self.assertEqual(daily_dates(date(2026, 9, 30)), [date(2026, 9, 25), date(2026, 9, 28)])
 
-    def test_the_delta_keeps_reaching_back_half_a_year_once_the_cadence_changes(self) -> None:
-        """26 rows back into a daily column would be five weeks, not half a year."""
+    def test_the_delta_uses_weekly_steps_across_the_cadence_change(self) -> None:
+        """In this continuous fixture, 26 observed weekly steps span about half a year."""
         from baibai_engine.screening.margin_inputs import read_margin_supply_demand_inputs
 
         with tempfile.TemporaryDirectory() as tmp:

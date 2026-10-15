@@ -11,6 +11,7 @@ from math import exp, log
 from baibai_engine.market.bars import (
     JQuantsAdjustmentFactorEvent,
     JQuantsDailyBar,
+    cumulative_share_unit_factor_after,
     share_unit_factor,
 )
 from baibai_engine.market.edinet_models import EdinetMetricRecord
@@ -41,31 +42,6 @@ class _NormalizedSummaryResult:
 
     summaries: Sequence[JQuantsFinancialSummary]
     capital_basis_barrier: _AccountingObservationKey | None
-
-
-def _cumulative_share_unit_factor_after(
-    ticker_bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
-    after: date,
-    asof_date: date,
-    *,
-    include_boundary_day: bool = False,
-) -> float | None:
-    """Accumulate only known share-unit changes in the requested interval.
-
-    Rights-issue price factors do not scale shares or cash DPS. Unknown action
-    kinds leave the unit basis unresolved. Disclosure-day inclusion follows the
-    existing boundary convention; it does not prove a filing's share basis.
-    """
-    factor = 1.0
-    for bar in ticker_bars:
-        before_start = bar.traded_at < after if include_boundary_day else bar.traded_at <= after
-        if before_start or bar.traded_at > asof_date:
-            continue
-        adjustment = share_unit_factor(bar)
-        if adjustment is None:
-            return None
-        factor *= adjustment
-    return factor
 
 
 class _ShareBasis(Enum):
@@ -177,7 +153,7 @@ def _interim_split_basis(
         # 現在行の期末基準ではない。先に同じ基準へ移さないと、連続した分割・併合をすべて
         # 今回の interim action の差と誤認する。開示日当日の権利落ちは開示行の正規化と同じ
         # 契約で数える。
-        previous_to_period_end = _cumulative_share_unit_factor_after(
+        previous_to_period_end = cumulative_share_unit_factor_after(
             ticker_bars,
             previous_row.disclosed_at,
             period_end,
@@ -250,7 +226,7 @@ def _normalize_summaries_with_status(
     normalized: list[JQuantsFinancialSummary] = []
     capital_basis_barrier: _AccountingObservationKey | None = None
     for index, summary in enumerate(summaries):
-        factor = _cumulative_share_unit_factor_after(
+        factor = cumulative_share_unit_factor_after(
             ticker_bars, summary.disclosed_at, asof_date, include_boundary_day=True
         )
         interim, basis = _interim_split_basis(summaries, index, ticker_bars)

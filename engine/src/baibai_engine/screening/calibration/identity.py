@@ -11,14 +11,14 @@ def rules_contract_hash(
     candidate_discovery_method_hash: str = "",
     universe_scope_revision: str = "",
     valuation_calculation_revision: str,
+    market_context_calculation_revision: str,
     variant: str,
     valuation_history_sessions: int,
     bars_input_window_days: int,
     production_authority: bool,
 ) -> str:
-    # Production run identity predates Candidate Discovery replay fidelity. Keep
-    # the original byte contract when callers omit the scope revision, so retained
-    # artifacts can still be identified without treating them as current.
+    # Replay identity includes the candidate method; both paths include domain
+    # calculation revisions. Retained artifacts keep their stored identifiers.
     if candidate_discovery_method_hash:
         contract = (
             f"{rules_json}|{candidate_discovery_method_hash}|{valuation_calculation_revision}|"
@@ -32,4 +32,5 @@ def rules_contract_hash(
         )
     if universe_scope_revision:
         contract = f"{contract}|{universe_scope_revision}"
+    contract = f"{contract}|{market_context_calculation_revision}"
     return sha256(contract.encode("utf-8")).hexdigest()[:16]

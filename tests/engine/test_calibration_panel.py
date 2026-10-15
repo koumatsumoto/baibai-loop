@@ -24,6 +24,7 @@ from tests.helpers.screening_sqlite import (
 )
 
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
+from baibai_engine.market_context.margin import MARKET_CONTEXT_CALCULATION_REVISION
 from baibai_engine.screening.calibration.cli import (
     calibration_build_command,
     calibration_evaluate_command,
@@ -288,6 +289,7 @@ class CalibrationPanelTest(unittest.TestCase):
         previous_identity = rules_contract_hash(
             rules.model_dump_json(),
             valuation_calculation_revision="gross-shares-capital-v0",
+            market_context_calculation_revision=MARKET_CONTEXT_CALCULATION_REVISION,
             variant="production",
             valuation_history_sessions=VALUATION_HISTORY_SESSIONS,
             bars_input_window_days=BARS_INPUT_WINDOW_DAYS,
@@ -338,12 +340,14 @@ class CalibrationPanelTest(unittest.TestCase):
         rules_json = rules.model_dump_json()
         expected_contract = (
             f"{rules_json}|{VALUATION_CALCULATION_REVISION}|production|"
-            f"{VALUATION_HISTORY_SESSIONS}|{BARS_INPUT_WINDOW_DAYS}|True"
+            f"{VALUATION_HISTORY_SESSIONS}|{BARS_INPUT_WINDOW_DAYS}|True|"
+            f"{MARKET_CONTEXT_CALCULATION_REVISION}"
         )
 
         actual = rules_contract_hash(
             rules_json,
             valuation_calculation_revision=VALUATION_CALCULATION_REVISION,
+            market_context_calculation_revision=MARKET_CONTEXT_CALCULATION_REVISION,
             variant="production",
             valuation_history_sessions=VALUATION_HISTORY_SESSIONS,
             bars_input_window_days=BARS_INPUT_WINDOW_DAYS,
@@ -358,6 +362,7 @@ class CalibrationPanelTest(unittest.TestCase):
         old_run_hash = rules_contract_hash(
             rules_json,
             valuation_calculation_revision=VALUATION_CALCULATION_REVISION,
+            market_context_calculation_revision=MARKET_CONTEXT_CALCULATION_REVISION,
             variant="production",
             valuation_history_sessions=VALUATION_HISTORY_SESSIONS,
             bars_input_window_days=BARS_INPUT_WINDOW_DAYS,
@@ -370,6 +375,7 @@ class CalibrationPanelTest(unittest.TestCase):
                 required_jpx_flags=rules.universe.required_jpx_flags,
             ),
             valuation_calculation_revision=VALUATION_CALCULATION_REVISION,
+            market_context_calculation_revision=MARKET_CONTEXT_CALCULATION_REVISION,
             variant="production",
             valuation_history_sessions=VALUATION_HISTORY_SESSIONS,
             bars_input_window_days=BARS_INPUT_WINDOW_DAYS,

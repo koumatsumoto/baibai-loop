@@ -21,6 +21,7 @@ from typing import Literal
 from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.store import read_adjustment_factor_bars, read_daily_bars
+from baibai_engine.market_context.margin import MARKET_CONTEXT_CALCULATION_REVISION
 from baibai_engine.screening.margin_inputs import read_margin_supply_demand_inputs
 from baibai_engine.screening.metrics.snapshot import (
     BARS_INPUT_WINDOW_DAYS,
@@ -114,6 +115,7 @@ def rules_content_hash(
         ),
         universe_scope_revision=UNIVERSE_SCOPE_REVISION,
         valuation_calculation_revision=VALUATION_CALCULATION_REVISION,
+        market_context_calculation_revision=MARKET_CONTEXT_CALCULATION_REVISION,
         variant=policy.variant,
         valuation_history_sessions=policy.valuation_history_sessions,
         bars_input_window_days=policy.bars_input_window_days,
