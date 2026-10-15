@@ -115,11 +115,6 @@ def missing_keywords(keywords: Sequence[str], hits: Sequence[KeywordHit]) -> tup
     return tuple(keyword for keyword in keywords if keyword not in found)
 
 
-def _page_texts(path: Path) -> tuple[str, ...]:
-    reader = PdfReader(path)
-    return tuple(page.extract_text() or "" for page in reader.pages)
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m baibai_engine.research.pdf_reader", description=__doc__
@@ -147,10 +142,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not args.pdf.is_file():
         print(f"no such PDF: {args.pdf}", file=sys.stderr)
         return 2
-    pages = _page_texts(args.pdf)
-    print(f"{args.pdf} — {len(pages)} page(s)")
+    reader = PdfReader(args.pdf)
+    page_count = len(reader.pages)
+    print(f"{args.pdf} — {page_count} page(s)")
 
     if args.search:
+        pages = tuple(page.extract_text() or "" for page in reader.pages)
         hits = find_keyword_contexts(pages, args.search, context_chars=args.context)
         missing = missing_keywords(args.search, hits)
         if missing:
@@ -162,10 +159,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(hit.context)
         return 0
 
-    selection = parse_page_selection(args.pages, len(pages)) if args.pages else (1,)
+    selection = parse_page_selection(args.pages, page_count) if args.pages else (1,)
     for page_number in selection:
         print(f"=== page {page_number}")
-        print(pages[page_number - 1])
+        print(reader.pages[page_number - 1].extract_text() or "")
     return 0
 
 
