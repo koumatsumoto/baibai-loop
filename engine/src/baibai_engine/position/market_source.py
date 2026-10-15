@@ -4,11 +4,9 @@ The read-only market runtime copy supplies both the previous business-day close
 for a judgment instant and same-date holding-basis closes.
 
 Portfolio/Position owns this quote and share-basis reader; Research consumes it
-without making Portfolio/Position depend on Research. It declares the expected
-market SQLite schema version and queries full-universe ``jquants_daily_bars``
-through read-only SQL instead of importing acquisition or screening services.
-Schema version mismatches and SQL errors degrade to ``None``; a coupling test
-detects version drift in CI.
+without making Portfolio/Position depend on Research. Storage observations owns
+the physical schema version; these read-only queries use that contract directly.
+Schema mismatches and SQL errors return no usable observation.
 
 For target-session planning, the resolved price is the raw/unadjusted ``close`` on the full-universe
 daily bars' latest observed market-wide date eligible at that instant (today after
@@ -29,14 +27,7 @@ from math import isfinite
 from pathlib import Path
 
 from baibai_engine.foundation.time import JST
-
-# market SQLite の破壊的変更は version bump + rebuild で行われる。
-# この reader は列名を境界越しに複製するため、想定 version を宣言し、実 store の
-# PRAGMA user_version と突き合わせて drift を検出する。定数が market 側の
-# SQLITE_SCHEMA_VERSION を追随することは coupling test が CI で保証し、version bump を
-# 「silent degradation」ではなく赤い CI にする。実行時に不一致な store は no-coverage
-# (None) へ degrade し、古い schema literal で誤読しない。
-_EXPECTED_MARKET_SCHEMA_VERSION = 32
+from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,7 +65,7 @@ def read_unadjusted_close(
             return None
     try:
         version_row = conn.execute("PRAGMA user_version").fetchone()
-        if version_row is None or int(version_row[0]) != _EXPECTED_MARKET_SCHEMA_VERSION:
+        if version_row is None or int(version_row[0]) != SQLITE_SCHEMA_VERSION:
             return None
         market_session_row = conn.execute(
             "SELECT MAX(traded_at) FROM jquants_daily_bars WHERE traded_at < ?",
@@ -145,7 +136,7 @@ def quantity_basis_is_confirmed(
             return False
     try:
         version_row = conn.execute("PRAGMA user_version").fetchone()
-        if version_row is None or int(version_row[0]) != _EXPECTED_MARKET_SCHEMA_VERSION:
+        if version_row is None or int(version_row[0]) != SQLITE_SCHEMA_VERSION:
             return False
         session_rows = conn.execute(
             "SELECT DISTINCT traded_at FROM jquants_daily_bars "

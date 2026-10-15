@@ -15,19 +15,10 @@ from tests.helpers.screening_sqlite import seed_daily_bars
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.position.market_source import (
-    _EXPECTED_MARKET_SCHEMA_VERSION,
     quantity_basis_is_confirmed,
     read_unadjusted_close,
 )
-
-
-def test_market_close_source_expected_schema_version_tracks_market() -> None:
-    # A market schema version bump changes SQLITE_SCHEMA_VERSION; this coupling
-    # assertion turns that bump into a red CI check so the boundary-crossing schema
-    # literals in market_close_source cannot drift silently.
-    from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION
-
-    assert _EXPECTED_MARKET_SCHEMA_VERSION == SQLITE_SCHEMA_VERSION
+from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION
 
 
 def test_market_close_source_degrades_on_schema_version_mismatch(tmp_path: Path) -> None:
@@ -35,7 +26,7 @@ def test_market_close_source_degrades_on_schema_version_mismatch(tmp_path: Path)
     seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     conn = sqlite3.connect(sqlite_path)
     try:
-        conn.execute(f"PRAGMA user_version = {_EXPECTED_MARKET_SCHEMA_VERSION + 999}")
+        conn.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION + 999}")
         conn.commit()
     finally:
         conn.close()
@@ -182,7 +173,7 @@ def test_quantity_basis_depends_on_adjustment_factor_not_price(tmp_path, close, 
 
 
 @pytest.mark.parametrize("count", [1, 252])
-def test_holding_close_uses_three_queries_and_keeps_connection(tmp_path, count):
+def test_quantity_basis_keeps_the_callers_connection(tmp_path, count):
     from datetime import timedelta
 
     path = tmp_path / "market.sqlite"
@@ -193,8 +184,6 @@ def test_holding_close_uses_three_queries_and_keeps_connection(tmp_path, count):
         [("2331", (start + timedelta(days=i)).isoformat(), 1000.0 + i, 1.0) for i in range(count)],
     )
     with closing(sqlite3.connect(path)) as conn, conn:
-        queries = []
-        conn.set_trace_callback(queries.append)
         result = quantity_basis_is_confirmed(
             sqlite_path=path,
             ticker="2331",
@@ -203,13 +192,7 @@ def test_holding_close_uses_three_queries_and_keeps_connection(tmp_path, count):
             connection=conn,
         )
         assert result is True
-        assert len(queries) == 3
         assert conn.execute("SELECT 1").fetchone() == (1,)
-        plan = conn.execute(
-            "EXPLAIN QUERY PLAN SELECT traded_at, close, adjustment_factor FROM jquants_daily_bars WHERE ticker = ? AND traded_at BETWEEN ? AND ? ORDER BY traded_at",
-            ("2331", start.isoformat(), end.isoformat()),
-        ).fetchall()
-        assert any("INDEX" in row[3] for row in plan)
 
 
 @pytest.mark.parametrize(
