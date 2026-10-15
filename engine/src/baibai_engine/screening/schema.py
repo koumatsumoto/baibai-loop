@@ -123,6 +123,8 @@ class DerivedMetrics:
 
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
 class FreshnessWarning:
+    """Retained warning claims in saved Stock Analyses, not a current title scanner."""
+
     source_family: NonEmptyString
     stale_metric: NonEmptyString
     reason: NonEmptyString

@@ -115,7 +115,6 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 financial = result.financials["130A"]
                 payload = build_stock_analysis_metrics(
                     financial,
-                    freshness_warning_count=0,
                     derived=result.derived["130A"],
                 )
                 self.assertIs(financial.operating_profit_source, source)

@@ -44,11 +44,13 @@ uv run baibai-engine screening candidates show --run-revision-id run-revision-01
 
 Stock Analysisは`observed / derived / estimate`を混同しない。欠損を0へ補完せず、解釈・因果・売買判断を書かない。field・table・schema versionはengine modelとDB schemaが所有する。
 
+任意のローカルJSONの題名からEDINET指標の陳腐化を推測する旧scanは行わない。現行取得処理に入力producerがなく、題名の単語だけでは指標への影響を確認できないためである。実際のEDINET文書・抽出値・取得失敗と、予定日/財務開示日のcontextは引き続き保持する。保存済みStock Analysisの`freshness_warnings`は当時の主張として読めるが、新規runの現行検査や検証済みの因果関係を表さない。
+
 ## Candidate Discovery
 
 <a id="input-scope"></a>
 
-Stock Analysisは普通株・対象市場・as-of以前の有効価格barが1本以上ある銘柄を評価対象とする。価格barが0本、最新終値またはas-of基準の最新価格が非正・非有限な入力は評価対象にしない。sourceの分割factor `0` はイベントなしを示し、終値以前・当日・以後のどの位置でも銘柄除外の理由にしない。factorを適用するのは価格日より後・as-of以前のイベントだけである。平均売買代金は20barすべての売買代金が揃う場合だけ計算し、足りなければnullにする。株数・現在価格・分割basisの欠測を補完して候補にしない。`listing_span_days`は最初の利用可能barからの期間proxyであり正式な上場日ではない。`price_history_sessions_750d`と`price_history_coverage_750d`は短い履歴・疎な履歴の品質contextとして残す。資本判定は評価計算の会計期間・文書revision・株式basis resolverが所有し、同日の別文書から発行済と自己株を合成しない。計算上の欠測を原本の未取得とみなして再取得しない。cache coverageのbar・財務密度は、as-of masterの対象市場かつ東証33業種の普通株を母集団とし、価格・財務が欠けた普通株も分母に残す。対象市場の未知業種は分類を更新するまで停止する。各指標の入力期間・TTM・株式basisは[Valuation metrics](./valuation-metrics.md)に従い、productionと較正replayで共有する。入力不足はnullや品質contextとして残し、実績・予測・観測期間を混ぜて穴埋めしない。
+Stock Analysisは普通株・対象市場・as-of以前の有効価格barが1本以上ある銘柄を評価対象とする。価格barが0本、最新終値またはas-of基準の最新価格が非正・非有限な入力は評価対象にしない。価格調整factorは価格日より後・as-of以前の換算にだけ適用し、使う係数は正の有限値を要求する。原本の`0`を「イベントなし」へ読み替えない。最新価格の換算に必要な係数が不正なら、そのas-of価格は評価できない。平均売買代金は20barすべての売買代金が揃う場合だけ計算し、足りなければnullにする。株数・現在価格・分割basisの欠測を補完して候補にしない。`listing_span_days`は最初の利用可能barからの期間proxyであり正式な上場日ではない。`price_history_sessions_750d`と`price_history_coverage_750d`は短い履歴・疎な履歴の品質contextとして残す。資本判定は評価計算の会計期間・文書revision・株式basis resolverが所有し、同日の別文書から発行済と自己株を合成しない。計算上の欠測を原本の未取得とみなして再取得しない。cache coverageのbar・財務密度は、as-of masterの対象市場かつ東証33業種の普通株を母集団とし、価格・財務が欠けた普通株も分母に残す。対象市場の未知業種は分類を更新するまで停止する。各指標の入力期間・TTM・株式basisは[Valuation metrics](./valuation-metrics.md)に従い、productionと較正replayで共有する。入力不足はnullや品質contextとして残し、実績・予測・観測期間を混ぜて穴埋めしない。
 
 <a id="history-context"></a>
 

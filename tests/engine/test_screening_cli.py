@@ -279,24 +279,6 @@ def build_output_path(asof_date: date) -> Path:
     )
 
 
-class _FreshnessWarningEDINETProvider(FakeEDINETProvider):
-    def load_metric_records(self, asof_date: date) -> dict[str, EdinetMetricRecord]:
-        del asof_date
-        return {
-            "130A": EdinetMetricRecord(
-                ticker="130A",
-                debt=20_000_000_000.0,
-                cash=150_000_000_000.0,
-                net_cash=130_000_000_000.0,
-                ebitda_ttm=30_000_000_000.0,
-                ttm_quality_net_cash=TTMQuality.EXACT,
-                ttm_quality_ev_ebitda=TTMQuality.EXACT,
-                source_doc_id="S100TEST",
-                source_submit_datetime="2025-10-15 12:00",
-            )
-        }
-
-
 class _FailingEDINETProvider(FakeEDINETProvider):
     def load_metric_records(self, asof_date: date) -> dict[str, EdinetMetricRecord]:
         del asof_date
@@ -589,119 +571,6 @@ class ScreeningCliTests(unittest.TestCase):
             finally:
                 os.chdir(cwd)
 
-    def test_run_command_emits_edinet_freshness_warnings_from_disclosure_cache(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cwd = Path.cwd()
-            try:
-                os_path = Path(tmpdir)
-                os.chdir(os_path)
-                cache_dir = Path(".cache/screening")
-                disclosure_path = cache_dir / "disclosures" / "tdnet.json"
-                disclosure_path.parent.mkdir(parents=True)
-                disclosure_path.write_text(
-                    json.dumps(
-                        [
-                            {
-                                "Code": "130A0",
-                                "Date": "2026-03-03",
-                                "Title": "資金の借入に関するお知らせ",
-                                "Source": "tdnet",
-                            }
-                        ]
-                    ),
-                    encoding="utf-8",
-                )
-                config = ScreeningConfig("token", "key", cache_dir=cache_dir)
-                providers = ProviderBundle(
-                    jquants=FakeJQuantsProvider(),
-                    edinet=_FreshnessWarningEDINETProvider(),
-                    jpx=FakeJPXProvider(),
-                )
-
-                exit_code = run_command(
-                    date(2026, 4, 24),
-                    config,
-                    providers,
-                    now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
-                    output_path=build_output_path(date(2026, 4, 24)),
-                )
-
-                self.assertEqual(exit_code, 2)
-                payload = safe_load(
-                    build_output_path(date(2026, 4, 24)).read_text(encoding="utf-8")
-                )
-                self.assertIn("disclosure-title-events", payload["data_sources"])
-                self.assertIn(
-                    "Disclosure title material-event scan: 1 events from 1 files "
-                    "(skipped=0, unsupported=0, errors=0)",
-                    payload["provider_status_lines"],
-                )
-                warnings = payload["stock_analyses"][0]["freshness_warnings"]
-                self.assertEqual(warnings[0]["event_kind"], "borrowing")
-                self.assertEqual(warnings[0]["stale_metric"], "edinet_metrics")
-                self.assertEqual(
-                    payload["stock_analyses"][0]["metrics"]["edinet_freshness_warning_count"], 1
-                )
-            finally:
-                os.chdir(cwd)
-
-    def test_run_command_reports_disclosure_scan_coverage_issues(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cwd = Path.cwd()
-            try:
-                os_path = Path(tmpdir)
-                os.chdir(os_path)
-                cache_dir = Path(".cache/screening")
-                disclosure_dir = cache_dir / "disclosures"
-                disclosure_dir.mkdir(parents=True)
-                (disclosure_dir / "broken.json").write_text("{", encoding="utf-8")
-                (disclosure_dir / "mixed.json").write_text(
-                    json.dumps(
-                        {
-                            "events": [
-                                {"Code": "130A0", "Date": "2026-03-03"},
-                                "not-a-record",
-                            ]
-                        }
-                    ),
-                    encoding="utf-8",
-                )
-                config = ScreeningConfig("token", "key", cache_dir=cache_dir)
-                providers = ProviderBundle(
-                    jquants=FakeJQuantsProvider(),
-                    edinet=_FreshnessWarningEDINETProvider(),
-                    jpx=FakeJPXProvider(),
-                )
-
-                exit_code = run_command(
-                    date(2026, 4, 24),
-                    config,
-                    providers,
-                    now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
-                    output_path=build_output_path(date(2026, 4, 24)),
-                )
-
-                self.assertEqual(exit_code, 2)
-                payload = safe_load(
-                    build_output_path(date(2026, 4, 24)).read_text(encoding="utf-8")
-                )
-                self.assertIn(
-                    "Disclosure title material-event scan: 0 events from 2 files "
-                    "(skipped=1, unsupported=1, errors=1)",
-                    payload["provider_status_lines"],
-                )
-                self.assertIn("Disclosure title scan 読み込み失敗: 1 件", payload["fallback_lines"])
-                self.assertIn(
-                    "Disclosure title scan 必須 key 欠損/不正 record: 1 件",
-                    payload["fallback_lines"],
-                )
-                self.assertIn(
-                    "Disclosure title scan 未対応 record/layout: 1 件",
-                    payload["fallback_lines"],
-                )
-            finally:
-                os.chdir(cwd)
-
     def test_run_command_prints_notices_for_non_partial_fallback_lines(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             cwd = Path.cwd()
@@ -709,16 +578,10 @@ class ScreeningCliTests(unittest.TestCase):
                 os_path = Path(tmpdir)
                 os.chdir(os_path)
                 cache_dir = Path(".cache/screening")
-                disclosure_dir = cache_dir / "disclosures"
-                disclosure_dir.mkdir(parents=True)
-                (disclosure_dir / "mixed.json").write_text(
-                    json.dumps({"events": [{"Code": "130A0", "Date": "2026-03-03"}]}),
-                    encoding="utf-8",
-                )
                 config = ScreeningConfig("token", "key", cache_dir=cache_dir)
                 providers = ProviderBundle(
                     jquants=FakeJQuantsProvider(),
-                    edinet=_FreshnessWarningEDINETProvider(),
+                    edinet=FakeEDINETProvider(),
                     jpx=FakeJPXProvider(),
                 )
                 rules = load_screening_rules(config.rules_path)

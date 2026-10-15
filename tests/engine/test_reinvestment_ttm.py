@@ -74,7 +74,6 @@ def _analysis_from_source(rows, *, preserve_source_equity=False):
     row["metrics"] = dict(
         build_stock_analysis_metrics(
             financial,
-            freshness_warning_count=0,
             derived=DerivedMetrics(sector_median_gap={"p_s": -0.4}),
         )
     )

@@ -126,7 +126,6 @@ class DerivedMetricsCarriesEveryAxisTest(unittest.TestCase):
                 sales_ttm=None,
                 ocf_ttm=None,
             ),
-            freshness_warning_count=0,
             derived=DerivedMetrics(margin_week_end=WEEK, margin_short_to_adv=0.5),
         )
 

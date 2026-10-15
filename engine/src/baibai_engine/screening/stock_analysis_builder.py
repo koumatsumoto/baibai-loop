@@ -14,7 +14,6 @@ from baibai_engine.market.models import SecurityMaster
 from baibai_engine.market.valuation_catalysts import ValuationCatalystContext
 from baibai_engine.screening.schema import (
     DerivedMetrics,
-    FreshnessWarning,
     StockAnalysis,
     UniverseSnapshot,
 )
@@ -39,7 +38,6 @@ def build_stock_analysis(
     financial: FinancialSnapshot,
     derived: DerivedMetrics,
     universe_snapshot: UniverseSnapshot,
-    freshness_warnings: tuple[FreshnessWarning, ...] = (),
     next_earnings_date: date | None = None,
     earnings_lag: EarningsLag | None = None,
     normalized_per_3fy: float | None = None,
@@ -85,7 +83,6 @@ def build_stock_analysis(
         metrics=build_stock_analysis_metrics(
             financial,
             derived=derived,
-            freshness_warning_count=len(freshness_warnings),
             estimate=estimate_expected_return(
                 expected_return_inputs(financial, derived, close=_close_from_snapshot(financial))
             ),
@@ -94,14 +91,12 @@ def build_stock_analysis(
             valuation_catalyst_context=valuation_catalyst_context,
         ),
         next_earnings_date=next_earnings_date,
-        freshness_warnings=freshness_warnings,
     )
 
 
 def build_stock_analysis_metrics(
     financial: FinancialSnapshot,
     *,
-    freshness_warning_count: int,
     derived: DerivedMetrics,
     estimate: ExpectedReturnEstimate | None = None,
     normalized_per_3fy: float | None = None,
@@ -196,7 +191,6 @@ def build_stock_analysis_metrics(
         ),
         "next_earnings_status": None if earnings_lag is None else earnings_lag.next_earnings_status,
         "stale_fin_flag": None if earnings_lag is None else earnings_lag.stale_fin_flag,
-        "edinet_freshness_warning_count": freshness_warning_count,
         # 機械 E[r] はannual_ratio (0.08 = 8%/年)。成分と前提は valuation/estimates.py。
         "er_annual": estimate.er_annual if estimate else None,
         "er_reversion_annual": estimate.reversion_annual if estimate else None,

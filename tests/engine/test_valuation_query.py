@@ -190,7 +190,7 @@ def test_saved_carry_inputs_reach_valuation_candidates_and_research_without_chan
         per_forward=financial.per_forward,
         pbr=financial.pbr,
         metrics=build_stock_analysis_metrics(
-            financial, derived=derived, freshness_warning_count=0, estimate=estimate
+            financial, derived=derived, estimate=estimate
         ),
     )
     path = tmp_path / "runs.sqlite"
