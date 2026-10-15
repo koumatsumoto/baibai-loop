@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import date
 from enum import Enum
-from math import exp, isclose, log
+from math import exp, log
 
 from baibai_engine.market.bars import (
     JQuantsAdjustmentFactorEvent,
@@ -309,34 +309,6 @@ def _normalize_summaries_with_status(
     )
 
 
-def _issued_matches_average_alias(
-    summary: JQuantsFinancialSummary,
-    treasury: float,
-    summaries: Sequence[JQuantsFinancialSummary],
-) -> bool:
-    """Identify a stored AvgSh fallback only when an earlier gross issue count proves it."""
-
-    issued = summary.shares_outstanding
-    average = summary.average_shares
-    if issued is None or average is None or treasury <= 0:
-        return False
-    if not isclose(issued, average, rel_tol=1e-12, abs_tol=1e-6):
-        return False
-    reconstructed_gross = issued + treasury
-    source_key = _accounting_observation_key(summary)
-    return any(
-        row.shares_outstanding is not None
-        and _accounting_observation_key(row) < source_key
-        and isclose(
-            reconstructed_gross,
-            row.shares_outstanding,
-            rel_tol=1e-12,
-            abs_tol=1e-6,
-        )
-        for row in summaries
-    )
-
-
 def _resolve_capital_basis(
     summaries: Sequence[JQuantsFinancialSummary],
     *,
@@ -350,10 +322,9 @@ def _resolve_capital_basis(
     観測するまで旧正値をcarryせずfail closedにする。自己株式0株は二重控除を起こさない
     ため、明示的な0観測は通常どおりcarryできる。
 
-    `AvgSh` は EPS の期中平均株式数であり、発行済株式総数ではない。発行済と期中平均が
-    同値で、さらに自己株式を足すと過去に観測した gross issued へ戻る場合、入力の発行済欄へ
-    期中平均がfallbackしたと識別できるので答えない。単なる同値は1Qの正常行にもあるため
-    failureにはしない。ingestも`ShOutFY`だけを発行済株式総数として保存する。
+    `AvgSh` は EPS の期中平均株式数であり、発行済株式総数の代替には使わない。
+    数値の一致や過去の株数との恒等式だけでは誤転記を証明できないため、報告された
+    `ShOutFY`をそのまま発行済株式総数として扱う。
     """
 
     actual_rows = _actual_rows(summaries)
@@ -446,14 +417,6 @@ def _resolve_capital_basis(
                     ),
                 )
 
-        if _issued_matches_average_alias(issued_row, treasury, capital_rows):
-            return _CapitalBasisResolution(
-                issued=issued,
-                treasury=treasury,
-                shares_ex_treasury=None,
-                failure_reason="issued_matches_average_with_positive_treasury",
-            )
-
     return _CapitalBasisResolution(
         issued=issued,
         treasury=treasury,
@@ -478,8 +441,7 @@ def build_shares_outstanding_index(
     `FinancialSnapshot.market_cap` と同じ株数で作らないと、同じ「時価総額」という語が
     2 つの値を指す。株数と自己株式数は BS 系 fact なので四半期開示に載らないことが多く、
     直近の非 null 行から carry-forward する。ただし正の自己株式より後に発行済だけを
-    再観測した状態や、期中平均株式数と区別できない発行済は同じ資本状態と確認できないため、
-    時価総額を答えない。
+    再観測した状態では同じ資本状態と確認できないため、時価総額を答えない。
     """
     shares: dict[str, float | None] = {}
     for ticker, summaries in summaries_by_ticker.items():

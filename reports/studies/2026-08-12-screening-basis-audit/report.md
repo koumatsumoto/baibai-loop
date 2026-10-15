@@ -76,6 +76,8 @@ current断面では20銘柄がこのreasonで停止し、全件がpopulation外�
 
 ### 3.2 `AvgSh`とgross issued
 
+現在の解釈（2026-10-15）: 以下の数値パターンは当時の除外規則と集計の記録であり、誤保存の証明ではない。再取得した提供元原本との照合では、対象期間内の138行すべてに同じ3株数の文書が存在した。例示した4167も、[発行体の当該決算短信第2ページ](https://contents.xj-storage.jp/xcontents/AS09509/45c08ca4/a03a/4f04/87ad/8d62f82d775a/140120240813570713.pdf#page=2)に同じ当1Q値が記載され、7,916,230株は前期末比較列だった。現在の原本との一致から当時の保存経路や発行体の報告値の正しさまでは断定しない。現行規則は[valuation metrics](../../../docs/reference/valuation-metrics.md)を正本とし、数値の一致からAvgShの誤転記を推測して除外しない。
+
 全182,314 summaryで`shares_outstanding == average_shares`は2,743行、さらに正の自己株があるものは137行だった。等値だけでは発行済が動かなかった正常1Qも止めるため、既存cacheでは`issued == average`、正の自己株、`issued + treasury == 過去gross issued`の隣接恒等式が揃う場合だけfail closedにする。direct / SQLite writerから`AvgSh` fallbackを除き、将来行はgross issuedへ期中平均を保存しない。
 
 4167では保存値7,563,857株と自己株352,373株の和7,916,230株が前後のgross issuedと会社開示に一致する。単純な`ShOutFY == AvgSh` guardは正常行を過剰除外したため採用しなかった。

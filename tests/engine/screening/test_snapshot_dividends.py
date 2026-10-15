@@ -186,7 +186,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
         self.assertIsNone(result.share_count_reduction_streak)
         self.assertIsNone(result.shareholder_return_change)
 
-    def test_shareholder_return_change_rejects_proven_average_shares_alias(self) -> None:
+    def test_share_reduction_uses_reported_issued_despite_average_equality(self) -> None:
         asof = date(2026, 6, 30)
         summaries = [
             _summary(
@@ -216,8 +216,8 @@ class ScreeningMetricsTests(SnapshotFixtures):
 
         result = build_shareholder_return_change_signals(summaries, (), asof)
 
-        self.assertIsNone(result.share_count_reduction_streak)
-        self.assertIsNone(result.shareholder_return_change)
+        self.assertEqual(result.share_count_reduction_streak, 1)
+        self.assertTrue(result.shareholder_return_change)
 
     def test_shareholder_return_change_normalizes_splits_across_fiscal_years(self) -> None:
         asof = date(2026, 6, 30)

@@ -24,7 +24,6 @@ from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.valuation.metrics.capital import (
     SHARE_COUNT_ANCHOR_TOLERANCE,
     _cumulative_share_unit_factor_after,
-    _issued_matches_average_alias,
     _normalize_summaries_to_asof_basis,
     _shares_excluding_treasury,
 )
@@ -440,10 +439,6 @@ def build_shareholder_return_change_signals(
         if row.fiscal_year_end is not None
         and row.shares_outstanding is not None
         and row.shares_outstanding > 0
-        and not (
-            row.treasury_shares is not None
-            and _issued_matches_average_alias(row, row.treasury_shares, normalized)
-        )
     }
     latest_share_three = _latest_consecutive_values(fy_rows, share_values, count=3)
     share_count_reduction_streak: int | None = None

@@ -626,8 +626,8 @@ class ScreeningMetricsTests(SnapshotFixtures):
         self.assertEqual(snapshot.shares_ex_treasury, 900.0)
         self.assertIsNone(snapshot.capital_basis_failure_reason)
 
-    def test_average_share_alias_shape_has_no_market_cap(self) -> None:
-        """期中平均+自己株が過去grossへ戻る既存行から自己株を二重控除しない。"""
+    def test_reported_issued_is_not_reclassified_from_numeric_coincidence(self) -> None:
+        """期中平均との一致や過去grossへの和だけでは誤転記と断定しない。"""
         asof = date(2026, 7, 1)
         bars = _daily_bars("130A", asof, 40)
         prior = _summary(
@@ -638,7 +638,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             average_shares=900.0,
             treasury_shares=100.0,
         )
-        contaminated = _summary(
+        reported = _summary(
             "130A",
             asof - timedelta(days=20),
             fiscal_period="1Q",
@@ -647,7 +647,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             treasury_shares=100.0,
         )
 
-        summaries = [prior, contaminated]
+        summaries = [prior, reported]
         index = build_shares_outstanding_index({"130A": summaries}, {"130A": bars}, asof)
         snapshot = build_metrics(
             asof_date=asof,
@@ -657,12 +657,10 @@ class ScreeningMetricsTests(SnapshotFixtures):
             edinet_by_ticker={},
         ).financials["130A"]
 
-        self.assertIsNone(index["130A"])
-        self.assertIsNone(snapshot.market_cap)
-        self.assertEqual(
-            snapshot.capital_basis_failure_reason,
-            "issued_matches_average_with_positive_treasury",
-        )
+        self.assertEqual(index["130A"], 800.0)
+        self.assertEqual(snapshot.shares_ex_treasury, 800.0)
+        self.assertIsNotNone(snapshot.market_cap)
+        self.assertIsNone(snapshot.capital_basis_failure_reason)
 
     def test_invalid_capital_values_have_no_market_cap(self) -> None:
         """負の自己株や発行済以上の自己株を有効な株式数へ変換しない。"""
