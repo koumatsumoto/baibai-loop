@@ -701,152 +701,68 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
             [(date(2026, 5, 1), 993.0), (date(2026, 6, 1), 1021.0)],
         )
 
-    def test_parse_tsr_bankruptcies_json_refuses_a_listing_it_cannot_read_a_history_from(
-        self,
-    ) -> None:
-        # One damaged TSR listing per row. The provider reads a monthly count out of
-        # press-release titles, so a title it cannot parse, a month it never saw, and a
-        # history that does not reach the floor are all silent holes unless refused.
+    def test_parse_tsr_bankruptcies_json_rejects_unreadable_or_conflicting_months(self) -> None:
         series = _series("tsr_bankruptcies", "jp_bankruptcies_tsr", unit="count")
-        refusals: tuple[tuple[str, str, date, date, str], ...] = (
+        for rows, reason in (
+            ([{"period_division": "月次", "title": "月次の全国企業倒産状況"}], "cannot parse"),
             (
-                "unparseable_monthly_entry",
-                json.dumps(
-                    [
-                        {
-                            "period_division": "月次",
-                            "title": "月次の全国企業倒産状況",
-                            "free_word": [],
-                        }
-                    ]
-                ),
-                date(2003, 1, 1),
-                date(2026, 6, 1),
-                "cannot parse monthly entry",
+                [
+                    {"period_division": "月次", "title": "2026年6月の全国企業倒産100件"},
+                    {"period_division": "月次", "title": "2026年6月の全国企業倒産200件"},
+                ],
+                "conflicting values",
             ),
-            (
-                "history_gap",
-                json.dumps(
-                    [
-                        {"period_division": "月次", "title": "2026年4月の全国企業倒産990件"},
-                        {"period_division": "月次", "title": "2026年6月の全国企業倒産1,021件"},
-                    ]
-                ),
-                date(2026, 4, 1),
-                date(2026, 6, 1),
-                "missing monthly entries",
-            ),
-            (
-                "missing_history_floor",
-                json.dumps(
-                    [{"period_division": "月次", "title": "2026年6月の全国企業倒産1,021件"}]
-                ),
-                date(2003, 1, 1),
-                date(2026, 7, 20),
-                "must start at 2003-01-01",
-            ),
-        )
-
-        for name, text, start, end, reason in refusals:
+        ):
             with (
-                self.subTest(case=name),
+                self.subTest(reason=reason),
                 self.assertRaisesRegex(IndicatorsProviderError, reason),
             ):
-                parse_tsr_bankruptcies_json(series, text, start=start, end=end)
+                parse_tsr_bankruptcies_json(
+                    series, json.dumps(rows), start=date(2003, 1, 1), end=date(2026, 12, 31)
+                )
 
-    def test_parse_tsr_bankruptcies_json_rejects_missing_latest_release(self) -> None:
+    def test_tsr_keeps_available_months_without_inventing_missing_history(self) -> None:
         series = _series("tsr_bankruptcies", "jp_bankruptcies_tsr", unit="count")
-        rows = []
-        current = date(2003, 1, 1)
-        while current <= date(2026, 5, 1):
-            rows.append(
-                {
-                    "period_division": "月次",
-                    "title": f"{current.year}年{current.month}月の全国企業倒産1,000件",
-                }
-            )
-            current = (
-                date(current.year + 1, 1, 1)
-                if current.month == 12
-                else date(current.year, current.month + 1, 1)
-            )
+        rows = [
+            {"period_division": "月次", "title": "2026年4月の全国企業倒産990件"},
+            {"period_division": "月次", "title": "2026年6月の全国企業倒産1,021件"},
+        ]
+        result = parse_tsr_bankruptcies_json(
+            series, json.dumps(rows), start=date(2003, 1, 1), end=date(2027, 1, 1)
+        )
+        self.assertEqual(
+            [(item.observed_at, item.value) for item in result],
+            [(date(2026, 4, 1), 990.0), (date(2026, 6, 1), 1021.0)],
+        )
 
-        with (
-            patch(
-                "baibai_engine.market_context.indicators.providers.tsr_bankruptcies._today_jst",
-                return_value=date(2026, 7, 28),
-            ),
-            self.assertRaisesRegex(IndicatorsProviderError, "latest expected release"),
-        ):
-            parse_tsr_bankruptcies_json(
-                series,
-                json.dumps(rows),
-                start=date(2003, 1, 1),
-                end=date(2026, 7, 28),
-            )
+    def test_tsr_partial_history_is_visible_as_stale_and_insufficient_in_reading(self) -> None:
+        from tests.helpers.indicator_store import store_reader
 
-    def test_parse_tsr_bankruptcies_json_ignores_future_end_for_latest_release(
-        self,
-    ) -> None:
-        series = _series("tsr_bankruptcies", "jp_bankruptcies_tsr", unit="count")
-        rows = []
-        current = date(2003, 1, 1)
-        while current <= date(2026, 6, 1):
-            rows.append(
-                {
-                    "period_division": "月次",
-                    "title": f"{current.year}年{current.month}月の全国企業倒産1,000件",
-                }
-            )
-            current = (
-                date(current.year + 1, 1, 1)
-                if current.month == 12
-                else date(current.year, current.month + 1, 1)
-            )
+        from baibai_engine.market_context.indicators.definitions import load_definitions
+        from baibai_engine.market_context.reading.compute import compute_reading
+        from baibai_engine.market_context.reading.rules import load_reading_rules
 
-        with patch(
-            "baibai_engine.market_context.indicators.providers.tsr_bankruptcies._today_jst",
-            return_value=date(2026, 7, 24),
-        ):
-            observations = parse_tsr_bankruptcies_json(
-                series,
-                json.dumps(rows),
-                start=date(2003, 1, 1),
-                end=date(2026, 12, 31),
-            )
-
-        self.assertEqual(len(observations), 282)
-        self.assertEqual(observations[-1].observed_at, date(2026, 6, 1))
-
-    def test_parse_tsr_bankruptcies_json_allows_prepublication_tail(self) -> None:
-        series = _series("tsr_bankruptcies", "jp_bankruptcies_tsr", unit="count")
-        rows = []
-        current = date(2003, 1, 1)
-        while current <= date(2026, 5, 1):
-            rows.append(
-                {
-                    "period_division": "月次",
-                    "title": f"{current.year}年{current.month}月の全国企業倒産1,000件",
-                }
-            )
-            current = (
-                date(current.year + 1, 1, 1)
-                if current.month == 12
-                else date(current.year, current.month + 1, 1)
-            )
-
-        with patch(
-            "baibai_engine.market_context.indicators.providers.tsr_bankruptcies._today_jst",
-            return_value=date(2026, 7, 5),
-        ):
-            observations = parse_tsr_bankruptcies_json(
-                series,
-                json.dumps(rows),
-                start=date(2003, 1, 1),
-                end=date(2026, 7, 5),
-            )
-
-        self.assertEqual(observations[-1].observed_at, date(2026, 5, 1))
+        series = load_definitions().by_id()["jp.bankruptcies"]
+        result = parse_tsr_bankruptcies_json(
+            series,
+            json.dumps([{"period_division": "月次", "title": "2026年6月の全国企業倒産1,021件"}]),
+            start=date(2003, 1, 1),
+            end=date(2027, 1, 1),
+        )
+        snapshot = compute_reading(
+            series=[series],
+            reader=store_reader(result),
+            rules=load_reading_rules(),
+            rules_revision="test",
+            asof=date(2027, 1, 1),
+        )
+        reading = snapshot.series[0]
+        self.assertEqual(reading.latest_value, 1021.0)
+        self.assertEqual(reading.observed_at, date(2026, 6, 1))
+        self.assertTrue(reading.stale)
+        self.assertTrue(reading.insufficient_history)
+        self.assertIsNone(reading.percentile)
+        self.assertIsNone(reading.z_score)
 
     def test_parse_boj_timeseries_json_filters_range_and_nulls(self) -> None:
         series = _series("boj_timeseries", "FM01:STRDCLUCON", unit="percent")

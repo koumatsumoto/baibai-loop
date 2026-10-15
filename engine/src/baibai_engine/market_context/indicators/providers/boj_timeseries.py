@@ -127,10 +127,11 @@ def _require_mapping(node: object, label: str) -> Mapping[str, object]:
 
 
 def _parse_survey_date(raw: object, frequency: str) -> date:
-    # The BOJ time-series API encodes the survey date by frequency: daily as
-    # YYYYMMDD, monthly as YYYYMM, and quarterly as YYYY0Q (Q1..Q4 -> the last
-    # month of the quarter). YYYYMM and YYYY0Q are both six digits, so the
-    # registered frequency disambiguates them.
+    # BOJ SURVEY_DATES labels a data period: daily YYYYMMDD, monthly YYYYMM,
+    # quarterly YYYYQQ (01..04). Frequency disambiguates the six-digit forms.
+    # Month-start and the last-quarter-month start are our representative dates,
+    # not provider-stated observation days or publication/availability timestamps.
+    # BOJ documents the quarter-to-month display convention, but no day=01 rule.
     if isinstance(raw, bool) or not isinstance(raw, (int, str)):
         raise IndicatorsProviderError(f"BOJ response has invalid survey date: {raw!r}")
     text = str(raw)

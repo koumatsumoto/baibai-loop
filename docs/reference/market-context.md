@@ -110,9 +110,9 @@ registryのband変更時は、Git管理外のstoreをread-only validatorで全�
 | `jquants_flows` | 海外投資家フロー | screeningと同じcredential。購読窓内を取得し、集計週末をobservation、公表日をvintage、原典の千円を単位として保持する |
 | `jquants_options` | 日経225のIV・スキュー・期間構造 | rate limit、式変更、購読窓、緊急取引証拠金日は[専用手順](#jquants-options-provider)を参照する |
 | `boj` | マネタリーベース・実質輸出・消費活動 | xlsxの値列とheader・基準年・単位を照合する。隣列のmetadataで代用しない |
-| `boj_timeseries` | 無担保コールO/N | BOJ時系列統計の公表に従う |
+| `boj_timeseries` | 日銀の時系列統計 | `SURVEY_DATES`は対象期間。月次は月初、四半期は最終月の月初を内部の代表日とするが、実際の観測日や公表日時とは扱わない（[公式API仕様](https://www.stat-search.boj.or.jp/info/api_manual_en.pdf)） |
 | `mof_jgb` | 日本国債金利 | 公表CSVの和暦・文字コードを正規化する |
-| `tsr_bankruptcies` | 日本の企業倒産 | 公表ページが参照する月次履歴を取得する |
+| `tsr_bankruptcies` | 日本の企業倒産 | 公表ページが参照する月次履歴の既知値を取得する。欠月を補間せず、履歴の短さや古さはReadingで表示する。未解釈・矛盾する月次値は取得失敗とする |
 | `spglobal_pmi` | 日本・米国の製造業/サービスPMI | 公式PDFを読む。release manifest更新は[下記](#pmi-release-manifestの更新)。遮断時だけbrowserを使う |
 | `umich_sca` | 米消費者態度 | 公表元の月次表を直読する。読めない行をskipして短い履歴として扱わない |
 | `yahoo` | 金属先物・MOVE・Russell2000・SOX等 | providerが要求するbrowser UAを使う |
