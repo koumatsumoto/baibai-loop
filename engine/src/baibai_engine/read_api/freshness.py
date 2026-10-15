@@ -41,10 +41,8 @@ def indicator_latest_observed_at(path: Path) -> date | None:
     rows = read_rows(
         path,
         (
-            # A retracted date is not an observation any consumer reads, so it must not
-            # be what the freshness badge dates the store by. Asking whether a newer
-            # retraction exists costs a third of resolving the newest vintage outright,
-            # and retractions are rare enough that the check almost always short-circuits.
+            # A later retraction hides this observation. An even later successful
+            # vintage remains eligible, matching the series reader's semantics.
             "SELECT o.series_id, max(o.observed_at) FROM observations o "
             "WHERE o.fetch_status = 'ok' AND NOT EXISTS ("
             "SELECT 1 FROM observations r "
@@ -61,20 +59,16 @@ def indicator_latest_observed_at(path: Path) -> date | None:
 
 
 def application_db_updated_at(path: Path) -> datetime | None:
-    """Return the newest write instant recorded inside the application database.
+    """Return the latest recorded business timestamp as a freshness proxy.
 
-    The value is the max over application business-record and judgment write instants:
-    ledger events, Stock Assessments, Assessment Reviews, Investment Proposals,
-    Market Context Assessments, tasks (created and closed), and
-    operation sessions (started and completed). Nullable decision timestamps are
-    excluded until set. Saved offsets are retained; naive timestamps and date-only
-    columns are read at JST. All values compare as aware instants without dropping
-    microseconds or choosing a textual maximum first.
+    This is not the database's last write time: ledger occurrence dates can be
+    reported later, task edits and active-session checkpoints have no write-time
+    column, and quote updates are not represented here. No additional audit state
+    is created for this display value. Saved offsets compare as aware instants;
+    date-only and naive values use JST.
     """
 
-    # One query per source, not one UNION: an unwritten store can be missing a table.
-    # Reading each source on its own keeps the answer at the newest write the store can
-    # actually show instead of blanking the freshness badge during initialization.
+    # Read each known source without creating an unwritten store.
     latest: datetime | None = None
     for table, column in _WRITE_INSTANT_COLUMNS:
         rows = read_application_rows(
@@ -88,8 +82,8 @@ def application_db_updated_at(path: Path) -> datetime | None:
     return latest
 
 
-# Every judgment-layer write instant, as (table, column). Nullable decision timestamps
-# are excluded while NULL, so they contribute only once set.
+# Business-record timestamp sources, not an exhaustive write log.
+# Nullable timestamps contribute only once set.
 _WRITE_INSTANT_COLUMNS: tuple[tuple[str, str], ...] = (
     ("ledger_event", "occurred_at"),
     ("stock_assessment", "published_at"),
