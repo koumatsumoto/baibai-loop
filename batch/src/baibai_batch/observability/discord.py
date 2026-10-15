@@ -174,7 +174,10 @@ def prepare_webhook_url(raw_url: str) -> str:
         raise DeliveryError("webhook URL is not configured")
     if _FORBIDDEN_URL_CHARS.search(url):
         raise DeliveryError("webhook URL contains a control character or space")
-    parsed = urllib.parse.urlparse(url)
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except ValueError:
+        raise DeliveryError("webhook URL is malformed") from None
     if parsed.scheme != "https":
         raise DeliveryError("webhook URL must use https")
     if parsed.hostname not in _DISCORD_HOSTS:

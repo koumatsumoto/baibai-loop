@@ -83,7 +83,7 @@ def test_metadata_order_and_exclusive_writer():
         assert f'"{field}"' in target["run"]
 
 
-def test_committed_partial_rows_publish_before_failed_cooldown_and_survive_next_pull(tmp_path):
+def test_partial_publication_precedes_failed_cooldown_and_preserves_simulated_pull(tmp_path):
     from tests.engine.test_tradingview_collector import DAY, NOW, payload, store, stored
 
     from baibai_engine.external_assessment.tradingview.collector import collect
@@ -128,7 +128,7 @@ def test_committed_partial_rows_publish_before_failed_cooldown_and_survive_next_
     }
     outcomes = {}
     failed = False
-    # Execute the workflow's own scripts and order, with only remote writes stubbed.
+    # Execute the workflow scripts and order; publication, cooldown and lease are stubbed.
     # A condition without a status function has GitHub's implicit success() gate.
     for step in workflow()["jobs"]["snapshot"]["steps"]:
         if step.get("id") not in {"publish-lake", "cooldown-save", "lease-release"}:
@@ -149,7 +149,7 @@ def test_committed_partial_rows_publish_before_failed_cooldown_and_survive_next_
         "lease-release": "success",
     }
     assert calls.read_text().splitlines() == ["publish-lake", "cooldown-save", "lease-release"]
-    # The next fresh canonical pull retains every originally committed column/time.
+    # A simulated next pull retains every originally committed column/time.
     shutil.copyfile(published, local)
     assert stored(local) == expected
 
@@ -360,6 +360,7 @@ def test_acquisition_shell_parses_only_known_success_status(tmp_path, status):
         '{"status":"unknown"}',
         '{"status":[]}',
         '{"status":"partial","rows_added":0,"rows":50,"expected_universe":51,"remaining":1,"unresolved":0}',
+        '{"status":"partial","rows_added":1,"rows":50,"expected_universe":49,"remaining":-1,"unresolved":0}',
     ],
 )
 def test_acquisition_rejects_unrecognized_success_output(tmp_path, body):

@@ -156,33 +156,6 @@ def test_the_durable_record_waits_for_the_store_and_the_views(
     assert steps_by_id["publish-serving"]["if"] == "steps.upload-stores.outcome == 'success'"
 
 
-@pytest.mark.parametrize(
-    ("machine_exit", "views_exit"),
-    [(1, 0), (0, 1), (1, 1)],
-)
-def test_a_failed_upload_is_incompatible_with_the_declared_tail_gate(
-    tmp_path: Path, steps_by_id: dict[str, dict], machine_exit: int, views_exit: int
-) -> None:
-    """Exercise the upload shell and check its outcome against the declared gate.
-
-    This is not a GitHub expression-engine or remote publication integration test.
-    """
-    code, _outputs, _recorded = _run_upload_step(
-        tmp_path, steps_by_id, machine_exit=machine_exit, views_exit=views_exit
-    )
-    assert code != 0
-
-    # GitHub ANDs an implicit success() into a condition with no status function,
-    # so a non-zero step is enough to hold the tail back. Simulate that decision
-    # and confirm the tail command is the one it withholds.
-    condition = steps_by_id["publish-serving"]["if"]
-    tail_runs = condition == "steps.upload-stores.outcome == 'success'" and code == 0
-
-    assert tail_runs is False
-    assert "publish-serving-tail" in steps_by_id["publish-serving"]["run"]
-    assert "publish-serving-tail" not in steps_by_id["upload-stores"]["run"]
-
-
 def _run_upload_step(
     tmp_path: Path, steps_by_id: dict[str, dict], *, machine_exit: int, views_exit: int
 ) -> tuple[int, dict[str, str], list[tuple[str, float, float]]]:
@@ -271,7 +244,7 @@ def test_the_mirror_starts_only_after_the_store_push_finished(
         (1, 1, {"machine": "failure", "views": "skipped"}, 1),
     ],
 )
-def test_a_failed_store_push_fails_the_step_and_leaves_the_mirror_untouched(
+def test_failed_upload_reports_completed_and_skipped_stages(
     tmp_path: Path,
     steps_by_id: dict[str, dict],
     machine_exit: int,
@@ -288,6 +261,11 @@ def test_a_failed_store_push_fails_the_step_and_leaves_the_mirror_untouched(
     assert code != 0
     assert outputs == expected
     assert len(recorded) == sides_run
+    # This executes the upload shell, not GitHub's expression engine. The declared
+    # tail gate only permits a successful upload step, so these failures hold it back.
+    assert steps_by_id["publish-serving"]["if"] == "steps.upload-stores.outcome == 'success'"
+    assert "publish-serving-tail" in steps_by_id["publish-serving"]["run"]
+    assert "publish-serving-tail" not in steps_by_id["upload-stores"]["run"]
 
 
 def test_notify_is_the_single_notification_point_running_on_every_terminal_state(
