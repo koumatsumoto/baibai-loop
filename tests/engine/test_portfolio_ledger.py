@@ -9,6 +9,7 @@ import pytest
 import yaml
 from hypothesis import given
 from hypothesis import strategies as st
+from pydantic import ValidationError
 from tests.helpers.ledger import load_portfolio_ledger, portfolio_snapshot
 
 from baibai_engine.foundation.yaml_io import safe_load
@@ -607,7 +608,7 @@ def test_loader_rejects_untyped_float_yen(tmp_path: Path) -> None:
     path = tmp_path / "portfolio-ledger.yaml"
     path.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
 
-    with pytest.raises(PortfolioLedgerError, match="valid integer"):
+    with pytest.raises(ValidationError, match="valid integer"):
         load_portfolio_ledger(path)
 
 

@@ -2,28 +2,18 @@
 
 from __future__ import annotations
 
-import hashlib
 import re
 from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from pathlib import Path
 from typing import Annotated, Literal, cast
 
 import yaml
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    ValidationError,
-    field_validator,
-    model_validator,
-)
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from baibai_engine.foundation.time import JST
-from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.policy import PORTFOLIO_POLICY, PolicyConfig
 
 _MODEL_CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid")
@@ -470,24 +460,6 @@ class ReplayedPortfolioValue:
     holdings_market_value_yen: int
     total_capital_yen: int
     holdings: tuple[HoldingSnapshot, ...]
-
-
-def load_portfolio_ledger_with_sha256(path: Path) -> tuple[PortfolioLedgerDocument, str]:
-    """Parse a ledger and hash the exact same bytes used for that parse."""
-
-    try:
-        source = path.read_bytes()
-        text = source.decode("utf-8")
-        raw = safe_load(text)
-    except (OSError, UnicodeDecodeError, yaml.YAMLError) as error:
-        raise PortfolioLedgerError(f"failed to read ledger: {error}") from error
-    if not isinstance(raw, Mapping):
-        raise PortfolioLedgerError("portfolio ledger root must be a mapping")
-    try:
-        document = PortfolioLedgerDocument.model_validate(raw)
-    except ValidationError as error:
-        raise PortfolioLedgerError(str(error)) from error
-    return document, hashlib.sha256(source).hexdigest()
 
 
 def replay_events_through(
