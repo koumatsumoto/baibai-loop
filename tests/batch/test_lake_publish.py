@@ -1206,3 +1206,19 @@ def test_a_one_month_correction_moves_only_that_month(tmp_path: Path) -> None:
     read_back = [key for key in store.get_keys[before:] if key.endswith(".parquet")]
     assert len(read_back) == 1
     assert second.transfers.downloaded_bytes < closure_bytes
+
+
+def test_low_level_cli_requires_mirror_before_constructing_store(monkeypatch):
+    def unexpected_store(**kwargs):
+        pytest.fail("missing CLI input must not construct the remote store")
+
+    monkeypatch.setattr(lake_publish_module, "Boto3R2Store", unexpected_store)
+    with pytest.raises(SystemExit) as error:
+        lake_publish_module.main(["--release-manifest", "release.json"])
+    assert error.value.code == 2
+
+
+def test_low_level_cli_reports_configuration_failure_without_traceback(monkeypatch, capsys):
+    monkeypatch.delenv("R2_ACCOUNT_ID", raising=False)
+    assert lake_publish_module.main(["--mirror", ".", "--release-manifest", "release.json"]) == 1
+    assert "required environment variable is missing: R2_ACCOUNT_ID" in capsys.readouterr().err

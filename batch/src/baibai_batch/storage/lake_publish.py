@@ -823,7 +823,7 @@ def _raise_r2_error(operation: str, error: ClientError) -> Never:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mirror", type=Path)
+    parser.add_argument("--mirror", type=Path, required=True)
     parser.add_argument("--release-manifest", type=Path, required=True)
     parser.add_argument("--bucket", default="baibai-stores")
 
@@ -833,10 +833,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.mirror is None:
-        parser.error("--mirror is required for publication")
-    store = Boto3R2Store(bucket=args.bucket)
     try:
+        store = Boto3R2Store(bucket=args.bucket)
         payload = args.release_manifest.read_bytes()
         release = load_lake_model_json(payload, LakeReleaseManifest)
         release_sha256 = hashlib.sha256(payload).hexdigest()

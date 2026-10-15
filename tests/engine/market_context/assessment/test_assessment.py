@@ -190,8 +190,8 @@ def test_input_time_and_evidence_resolution():
     projection = assessment_projection(
         stored(MarketContextAssessment.model_validate(payload)), as_of=date(2026, 7, 17)
     )
-    assert projection["counter_evidence"][0]["summary"] == "相反する材料"
-    assert projection["uncertainties"][0]["summary"] == "観測が限られる"
+    assert projection["counter_evidence"] == payload["counter_evidence"]
+    assert projection["uncertainties"] == payload["uncertainties"]
     payload["changes"] = [{"summary": "変化", "source_ids": ["unknown"]}]
     with pytest.raises(ValueError, match="unknown input"):
         MarketContextAssessment.model_validate(payload)
@@ -248,3 +248,25 @@ def test_compact_meaning_survives_history_projection_and_web(version):
         )
         == record
     )
+
+
+def test_historical_synthesis_keeps_the_claim_counter_evidence_and_interactions():
+    original = historical_payload()
+    projection = assessment_projection(
+        StoredAssessment.from_payload(original), as_of=date(2026, 7, 19)
+    )
+    synthesis = projection["synthesis"]
+    assert synthesis["interactions"] == original["synthesis"]["interactions"]
+    assert {force["force_id"] for force in synthesis["dominant_forces"]} == {
+        "rates-repricing",
+        "fx-extreme",
+    }
+    for quoted, source in zip(
+        synthesis["dominant_forces"], original["synthesis"]["dominant_forces"], strict=True
+    ):
+        for field in ("summary", "transmission", "confidence", "counter_evidence", "source_ids"):
+            assert quoted[field] == source[field]
+        assert any(
+            item["summary"] == source["counter_evidence"]
+            for item in projection["counter_evidence"]
+        )
