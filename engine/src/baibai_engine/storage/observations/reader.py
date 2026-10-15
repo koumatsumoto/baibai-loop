@@ -50,6 +50,7 @@ from baibai_engine.storage.observations.jquants_contract import (
     weekly_margin_coverage_key,
 )
 from baibai_engine.storage.observations.schema import connect_current
+from baibai_engine.storage.observations.snapshot_coverage import date_covered
 
 SHORT_SALE_REPORT_DATASET_FLOOR = date(2013, 11, 7)
 SHORT_SALE_REPORTING_THRESHOLD = 0.005
@@ -1023,8 +1024,6 @@ def read_jpx_earnings_calendar_snapshot(
             return None
         if actual_start != recorded_start or actual_end != recorded_end or actual_end < asof_date:
             return None
-    except sqlite3.OperationalError:
-        return None
     finally:
         conn.close()
     try:
@@ -1055,7 +1054,7 @@ def read_jpx_regulations(sqlite_path: Path, asof_date: date) -> JPXRegulationSna
     if conn is None:
         return None
     try:
-        if not _date_imported(conn, "jpx_regulation_flags", asof_date):
+        if not date_covered(conn, "jpx_regulation_flags", asof_date):
             return None
         rows = conn.execute(
             "SELECT source_name, ticker, flag FROM jpx_regulation_flags "
@@ -1067,8 +1066,6 @@ def read_jpx_regulations(sqlite_path: Path, asof_date: date) -> JPXRegulationSna
             "WHERE asof_date = ? ORDER BY source_name",
             (asof_date.isoformat(),),
         ).fetchall()
-    except sqlite3.OperationalError:
-        return None
     finally:
         conn.close()
 
@@ -1097,20 +1094,7 @@ def has_jpx_regulation_data(sqlite_path: Path, asof_date: date) -> bool:
     if conn is None:
         return False
     try:
-        return _date_imported(conn, "jpx_regulation_flags", asof_date)
+        return date_covered(conn, "jpx_regulation_flags", asof_date)
     finally:
         conn.close()
 
-
-def _date_imported(conn: sqlite3.Connection, source: str, on_date: date) -> bool:
-    """True when `source_coverage` records `source` for `on_date`."""
-    iso = on_date.isoformat()
-    try:
-        cur = conn.execute(
-            "SELECT 1 FROM source_coverage WHERE source = ? "
-            "AND coverage_start <= ? AND coverage_end >= ? AND status = 'ok' LIMIT 1",
-            (source, iso, iso),
-        )
-    except sqlite3.OperationalError:
-        return False
-    return cur.fetchone() is not None

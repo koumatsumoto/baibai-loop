@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from baibai_engine.market.edinet_metrics import store as edinet_store
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.store import read_daily_bars, read_daily_bars_for_tickers
 from baibai_engine.screening.calibration.grid import days_with_bars, month_end_asof_grid
@@ -17,6 +18,7 @@ from baibai_engine.screening.sqlite_coverage.required_fields import (
     plan_required_field_repair,
     read_required_field_coverage,
 )
+from baibai_engine.storage.observations import reader as observation_reader
 from baibai_engine.storage.observations.readiness import unreadable_store_reason
 from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
 from baibai_engine.tasks.earnings_schedule import read_published_earnings_dates
@@ -105,3 +107,40 @@ def test_bar_readers_share_decoding_and_corrupt_row_behavior(tmp_path, scoped, c
         if not scoped:
             expected.append(("1302", 202.0, 20.0))
         assert [(row.ticker, row.close, row.volume) for row in rows] == expected
+
+
+@pytest.mark.parametrize("missing_coverage", [False, True])
+@pytest.mark.parametrize(
+    ("module", "reader_name", "source"),
+    [
+        (edinet_store, "read_edinet_documents", "edinet_documents"),
+        (edinet_store, "read_edinet_metrics", "edinet_metrics"),
+        (observation_reader, "read_jpx_regulations", "jpx_regulation_flags"),
+        (observation_reader, "read_jpx_earnings_calendar_snapshot", "jpx_earnings_calendar"),
+    ],
+)
+def test_snapshot_query_failure_is_not_a_cache_miss(
+    tmp_path, monkeypatch, module, reader_name, source, missing_coverage
+):
+    path = tmp_path / "existing.sqlite"
+    path.touch()
+    conn = sqlite3.connect(":memory:")
+    if not missing_coverage:
+        conn.execute(
+            "CREATE TABLE source_coverage(source, coverage_key, coverage_start, coverage_end, "
+            "fetched_at_utc, record_count, status)"
+        )
+        conn.execute(
+            "INSERT INTO source_coverage VALUES (?, ?, ?, ?, ?, 1, 'ok')",
+            (
+                source,
+                "get_earnings_calendar_snapshot:current",
+                "2026-10-15",
+                "2026-10-15",
+                "2026-10-15T00:00:00+00:00",
+            ),
+        )
+    # Inject a query failure after schema connection, for both coverage and data reads.
+    monkeypatch.setattr(module, "connect_current", lambda path: conn)
+    with pytest.raises(sqlite3.OperationalError, match="no such table"):
+        getattr(module, reader_name)(path, date(2026, 10, 15))

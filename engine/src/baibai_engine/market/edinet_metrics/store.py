@@ -156,8 +156,9 @@ def read_edinet_metric_baseline(
 
 
 def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, Any]] | None:
-    """Return raw EDINET document records for `on_date` from SQLite, or
-    `None` if the cache cannot serve the date.
+    """Read the stored document view, not the original provider response.
+
+    Missing coverage returns None; database query failures propagate.
     """
     if not sqlite_path.exists():
         return None
@@ -175,8 +176,6 @@ def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, An
             "FROM edinet_documents WHERE doc_date = ? ORDER BY sequence_number",
             (on_date.isoformat(),),
         ).fetchall()
-    except sqlite3.OperationalError:
-        return None
     finally:
         conn.close()
     return [
@@ -263,8 +262,6 @@ def read_edinet_metrics(
             _METRIC_SELECT + " FROM edinet_metrics WHERE asof_date = ?",
             (asof_date.isoformat(),),
         ).fetchall()
-    except sqlite3.OperationalError:
-        return None
     finally:
         conn.close()
 
