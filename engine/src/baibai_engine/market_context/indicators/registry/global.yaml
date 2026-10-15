@@ -97,7 +97,7 @@ series:
     provider_series_id: ECBDFR
     source_id: fred-ecbdfr
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=ECBDFR
-    notes: ECB預金ファシリティ金利(現行ECBの主要政策金利)。Fed・BOJと並べてグローバル中銀の同期スタンス(同時引き締め/緩和)を読む。FRED系列は廃止がありlive確認必須
+    notes: ECB預金ファシリティ金利(日次・percent)。政策金利の設定値であり、市場で成立した翌日物実効金利とは区別する。
     aliases: [ECB金利, ECB政策金利, ECB deposit rate, ECBDFR, 欧州中銀金利, ユーロ圏金利]
   - series_id: silver
     name: 銀先物(COMEX, USD/oz)
