@@ -142,6 +142,8 @@ EDINETの抽出意味revisionを更新する場合は、[再抽出・反映手�
 
 GitHubの`cloud-publish` queueはGitHub内の順序だけを守る。GitHubとローカルの共通発行にはR2の`coordination/publication-lease.json`を使う。TTLは固定120分。`publish-lake` / `push-machine` / `push-market` / `push-indicators`をローカルから行う際は、長い取得・準備を済ませてから、production read / merge / publishを次の同一lease内で実行する。`r2_transfer.sh`の低レベルcommandはleaseを暗黙取得しない。`push-app`、`publish.sh`、初回`seed-all`は対象外。
 
+`seed-all` は各 key の不存在を条件に新規作成し、既存 key を上書きしない。4 key は一括transactionではないため、途中失敗後は到達点を確認し、初回seedを既存データの復旧・置換に使わない。
+
 ```bash
 with_publication_lease() (
   handle="$(mktemp "${TMPDIR:-/tmp}/baibai-publication-lease.XXXXXX.json")"

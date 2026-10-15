@@ -564,7 +564,9 @@ _push_keys() {
   local index=0
   for key in "$@"; do
     started="${SECONDS}"
-    backup_remote_key "${key}" "${expected_version}"
+    if [[ -n "${expected_version}" ]]; then
+      backup_remote_key "${key}" "${expected_version}"
+    fi
     local backup_elapsed=$((SECONDS - started))
     started="${SECONDS}"
     if [[ -n "${expected_version}" ]]; then
@@ -589,7 +591,14 @@ _push_keys() {
         record_pulled_version "${key}" "${uploaded_version}"
       fi
     else
-      aws_s3 cp "${transfer_staging}/${key}" "s3://${stores_bucket}/${key}"
+      # Seed is create-only even if another writer appears after the existence check.
+      aws s3api put-object \
+        --bucket "${stores_bucket}" \
+        --key "${key}" \
+        --body "${transfer_staging}/${key}" \
+        --if-none-match '*' \
+        --endpoint-url "${endpoint}" \
+        >/dev/null
     fi
     printf 'store push: key=%s bytes=%s snapshot=%ss backup=%ss upload=%ss\n' \
       "${key}" \
@@ -601,10 +610,6 @@ _push_keys() {
   done
   cleanup_staging
   transfer_staging=""
-}
-
-push_keys() {
-  _push_keys "" "$@"
 }
 
 push_key_if_version() {
@@ -654,7 +659,7 @@ seed_keys() {
       return 2
     fi
   done
-  push_keys "$@"
+  _push_keys "" "$@"
 }
 
 require_complete_export() {

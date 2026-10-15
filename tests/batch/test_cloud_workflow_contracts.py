@@ -251,15 +251,15 @@ def test_only_manual_main_runs_can_reach_production() -> None:
     )
 
 
-def test_web_trigger_covers_every_tree_the_job_publishes() -> None:
+def test_web_trigger_covers_published_trees_and_shared_contracts() -> None:
     """Editing this workflow is gated before merge but never publishes by itself.
 
-    On `push` the filter checks the frontend/edge trees; on `pull_request` the
+    On `push` the filter checks the frontend/edge trees and shared contracts; on PRs the
     workflow file is included so its own change passes the job it defines.
     """
     triggers = _workflow("web.yml")["on"]
     assert isinstance(triggers, dict)
-    published = ["web/frontend/**", "web/edge/**"]
+    inputs = ["web/frontend/**", "web/edge/**", "web/contracts/**"]
 
     for event in ("pull_request", "push"):
         scope = triggers[event]
@@ -269,20 +269,16 @@ def test_web_trigger_covers_every_tree_the_job_publishes() -> None:
     push = triggers["push"]
     assert isinstance(pull_request, dict)
     assert isinstance(push, dict)
-    assert pull_request["paths"] == [*published, ".github/workflows/web.yml"]
-    assert push["paths"] == published
+    assert pull_request["paths"] == [*inputs, ".github/workflows/web.yml"]
+    assert push["paths"] == inputs
 
 
 def test_the_generated_ui_types_sit_inside_the_web_trigger() -> None:
-    """The read models reach the UI gates through the file they generate.
+    """Generated types and shared schemas are web quality inputs.
 
-    `tools/quality/drift/check_readmodel_contract.py` already turns a model change with
-    stale artifacts red in the Python job, so the only state the UI gates have to see is
-    a regenerated one — and regenerating rewrites `web/frontend/src/api/types.ts`, which
-    the existing filter matches. Widening the filter to `web/backend/**` would run the
-    npm install, the build and the Worker dry-run on every backend pull request without
-    catching a state the Python gate lets through. Moving the generated file out of that
-    tree is what would open the gap, so it is pinned here rather than left implicit.
+    The Python drift gate rejects stale generated artifacts. Cover their destinations
+    directly instead of running npm for every backend-only implementation change.
+    A JSON Schema edit need not change the TypeScript text, so both trees are gated.
     """
     from baibai_web.contracts_export import TYPES_PATH
 
@@ -356,10 +352,14 @@ def test_docs_only_advance_keeps_web_target_current(tmp_path: Path) -> None:
     assert output == "current=true\n"
 
 
-def test_later_web_change_marks_old_target_stale(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "changed_path",
+    ["web/frontend/index.ts", "web/edge/index.ts", "web/contracts/read-model.schema.json"],
+)
+def test_later_web_change_marks_old_target_stale(tmp_path: Path, changed_path: str) -> None:
     repo, _baseline = _web_history_repo(tmp_path)
-    target = _commit(repo, "web/frontend/index.ts", "export const version = 1;\n", "web target")
-    _commit(repo, "web/frontend/index.ts", "export const version = 2;\n", "newer web target")
+    target = _commit(repo, changed_path, "version one\n", "web target")
+    _commit(repo, changed_path, "version two\n", "newer web target")
 
     code, output = _run_deploy_target(repo, target=target)
 

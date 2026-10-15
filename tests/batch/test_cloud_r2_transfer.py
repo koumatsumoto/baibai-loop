@@ -698,7 +698,9 @@ def test_initial_seed_uploads_all_stores_when_contract_keys_are_absent(tmp_path:
 
     assert completed.returncode == 0
     commands = _transfer_commands(log)
-    assert len([command for command in commands if "s3 cp" in command]) == 4
+    uploads = [command for command in commands if command.startswith("s3api put-object ")]
+    assert len(uploads) == 4
+    assert all("--if-none-match *" in command for command in uploads)
     # Nothing is being replaced, so no generation is kept.
     assert all(".bak" not in command for command in commands)
 
@@ -721,7 +723,9 @@ def test_initial_seed_ignores_a_kept_generation_of_an_absent_store(tmp_path: Pat
 
     assert completed.returncode == 0
     commands = _transfer_commands(log)
-    assert len([command for command in commands if "s3 cp" in command]) == 4
+    uploads = [command for command in commands if command.startswith("s3api put-object ")]
+    assert len(uploads) == 4
+    assert all("--if-none-match *" in command for command in uploads)
 
 
 @pytest.mark.parametrize("github_actions", [False, True])
@@ -1795,3 +1799,31 @@ def test_machine_receipt_temporary_file_is_cleaned_on_success_or_failure(
     assert any("--key machine-manifest.json" in line for line in _transfer_commands(log))
     assert not list(root.glob(".r2-transfer.*"))
     assert not list(scratch.iterdir())
+
+
+def test_initial_seed_refuses_a_race_after_the_absence_check(tmp_path: Path) -> None:
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["AWS_FAKE_REJECT_CONDITIONAL_PUT"] = "1"
+    remote = Path(env["AWS_FAKE_STATE"]) / "put-market.sqlite"
+    remote.write_bytes(b"created by another writer after preflight")
+
+    result = subprocess.run(
+        [root / "batch/scripts/r2_transfer.sh", "seed-all"],
+        cwd=tmp_path,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "PreconditionFailed" in result.stderr
+    commands = _transfer_commands(log)
+    uploads = [command for command in commands if command.startswith("s3api put-object ")]
+    assert len(uploads) == 1
+    assert "--if-none-match *" in uploads[0]
+    assert not any(command.startswith(("s3 cp ", "s3api copy-object ")) for command in commands)
+    assert remote.read_bytes() == b"created by another writer after preflight"
+    assert not list(root.glob(".r2-transfer.*"))

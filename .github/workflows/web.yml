@@ -15,12 +15,14 @@ on:
     paths:
       - web/frontend/**
       - web/edge/**
+      - web/contracts/**
       - .github/workflows/web.yml
   push:
     branches: [main]
     paths:
       - web/frontend/**
       - web/edge/**
+      - web/contracts/**
   workflow_dispatch:
 
 permissions:
@@ -101,7 +103,7 @@ jobs:
           git fetch --no-tags --depth=1 origin main
           current_sha="$(git rev-parse FETCH_HEAD)"
           current=false
-          if git diff --quiet "$TARGET_SHA" "$current_sha" -- web/frontend web/edge; then
+          if git diff --quiet "$TARGET_SHA" "$current_sha" -- web/frontend web/edge web/contracts; then
             current=true
           else
             diff_status=$?
