@@ -21,10 +21,7 @@ from baibai_engine.market_context.indicators.providers.base import (
     HttpSession,
 )
 from baibai_engine.market_context.indicators.providers.derived import DerivedProvider
-from baibai_engine.market_context.indicators.providers.formulas import (
-    FORMULAS,
-    DerivedComputationError,
-)
+from baibai_engine.market_context.indicators.providers.formulas import FORMULAS
 
 
 class IndicatorsProviderParserTests(SnapshotFixtures):
@@ -33,7 +30,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         self.assertEqual(definitions["us.fed_assets"].unit, "usd-million")
         self.assertEqual(definitions["us.tga"].unit, "usd-million")
         self.assertEqual(definitions["us.reverse_repo"].unit, "usd-billion")
-        value = FORMULAS["us.net_liquidity"].evaluate(
+        value = FORMULAS["us.net_liquidity"].compute(
             {"us.fed_assets": 8_000_000.0, "us.reverse_repo": 1_000.0, "us.tga": 500_000.0}
         )
 
@@ -42,20 +39,20 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         self.assertEqual(value, 6500.0)
 
     def test_derived_rate_diff_formula(self) -> None:
-        value = FORMULAS["rate_diff.us_jp_10y"].evaluate({"us.10y": 4.55, "jp.10y": 2.715})
+        value = FORMULAS["rate_diff.us_jp_10y"].compute({"us.10y": 4.55, "jp.10y": 2.715})
 
         self.assertAlmostEqual(value, 1.835, places=3)
 
     def test_derived_policy_path_gap_formulas(self) -> None:
         """Compute the yield-policy spread, without identifying pure policy expectations."""
 
-        tightening = FORMULAS["us.policy_path_gap"].evaluate(
+        tightening = FORMULAS["us.policy_path_gap"].compute(
             {"us.2y": 4.37, "us.fed_funds.upper": 3.75, "us.fed_funds.lower": 3.5}
         )
-        easing = FORMULAS["us.policy_path_gap"].evaluate(
+        easing = FORMULAS["us.policy_path_gap"].compute(
             {"us.2y": 3.88, "us.fed_funds.upper": 4.5, "us.fed_funds.lower": 4.25}
         )
-        normalization = FORMULAS["jp.policy_path_gap"].evaluate(
+        normalization = FORMULAS["jp.policy_path_gap"].compute(
             {"jp.2y": 1.45, "jp.policy_rate": 0.978}
         )
 
@@ -66,12 +63,8 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         self.assertAlmostEqual(easing, -0.495, places=3)
         self.assertAlmostEqual(normalization, 0.472, places=3)
 
-    def test_derived_policy_path_gap_rejects_a_spread_outside_configured_bounds(self) -> None:
-        with self.assertRaisesRegex(DerivedComputationError, "outside plausible range"):
-            FORMULAS["jp.policy_path_gap"].evaluate({"jp.2y": 12.0, "jp.policy_rate": 0.0})
-
     def test_derived_terms_of_trade_formula(self) -> None:
-        value = FORMULAS["jp.terms_of_trade"].evaluate(
+        value = FORMULAS["jp.terms_of_trade"].compute(
             {"jp.export_price_index": 162.6, "jp.import_price_index": 196.6}
         )
 
@@ -80,18 +73,14 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         self.assertAlmostEqual(value, 0.8271, places=4)
 
     def test_derived_jp_erp_formula(self) -> None:
-        value = FORMULAS["jp.erp"].evaluate({"jp.nikkei_per": 17.82, "jp.10y": 1.7})
+        value = FORMULAS["jp.erp"].compute({"jp.nikkei_per": 17.82, "jp.10y": 1.7})
 
         # 100 / 17.82 - 1.7 = 3.9117: Nikkei earnings yield minus the 10Y JGB
         assert value is not None
         self.assertAlmostEqual(value, 3.9117, places=3)
 
-    def test_derived_formula_rejects_out_of_range(self) -> None:
-        with self.assertRaisesRegex(DerivedComputationError, "outside plausible range"):
-            FORMULAS["us.erp"].evaluate({"us.sp500_earnings_yield": 99.0, "us.10y": 4.0})
-
     def test_derived_gold_copper_skips_zero_divisor(self) -> None:
-        self.assertIsNone(FORMULAS["gold_copper_ratio"].evaluate({"gold": 3000.0, "copper": 0.0}))
+        self.assertIsNone(FORMULAS["gold_copper_ratio"].compute({"gold": 3000.0, "copper": 0.0}))
 
     def test_derived_provider_aligns_inputs_and_skips_partial_dates(self) -> None:
         series = _series("derived", "rate_diff.us_jp_10y", unit="percent")
@@ -129,7 +118,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
             )
 
     def test_derived_real_10y_proxy_formula(self) -> None:
-        value = FORMULAS["jp.real_10y_proxy"].evaluate({"jp.10y": 1.62, "jp.cpi.core_yoy": 1.6})
+        value = FORMULAS["jp.real_10y_proxy"].compute({"jp.10y": 1.62, "jp.cpi.core_yoy": 1.6})
 
         # 1.62 - 1.6 = 0.02: the nominal 10Y JGB barely clears core inflation
         assert value is not None

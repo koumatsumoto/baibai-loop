@@ -51,6 +51,37 @@ from baibai_engine.market_context.indicators.service import (
 
 
 class IndicatorsServiceTests(unittest.TestCase):
+    def test_derived_values_use_the_registry_bounds_at_the_store_boundary(self) -> None:
+        for series_id, inputs in (
+            ("jp.policy_path_gap", {"jp.2y": 12.0, "jp.policy_rate": 0.0}),
+            ("us.erp", {"us.sp500_earnings_yield": 99.0, "us.10y": 4.0}),
+        ):
+            with self.subTest(series_id=series_id), tempfile.TemporaryDirectory() as tmp:
+                database = Path(tmp) / "indicators.sqlite"
+                with closing(initialize_database(database)) as conn:
+                    insert_observations(
+                        conn,
+                        [
+                            observation(input_id, date(2026, 7, 1), value)
+                            for input_id, value in inputs.items()
+                        ],
+                    )
+                    conn.commit()
+
+                with self.assertRaisesRegex(IndicatorsProviderError, "outside plausible range"):
+                    IndicatorsService(database).get_range(
+                        series_id,
+                        start=date(2026, 7, 1),
+                        end=date(2026, 7, 31),
+                        refresh=True,
+                    )
+
+                with closing(sqlite3.connect(database)) as conn:
+                    stored = conn.execute(
+                        "SELECT COUNT(*) FROM observations WHERE series_id = ?", (series_id,)
+                    ).fetchone()[0]
+                self.assertEqual(stored, 0)
+
     def test_refresh_rejects_observation_for_another_registered_series(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"

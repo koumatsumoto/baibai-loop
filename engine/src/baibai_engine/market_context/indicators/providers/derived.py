@@ -15,7 +15,6 @@ from .base import (
 )
 from .formulas import (
     FORMULAS,
-    DerivedComputationError,
     DerivedFormula,
     MonthlyObservationDate,
 )
@@ -88,14 +87,9 @@ class DerivedProvider:
             # yields a half-computed value.
             if len(aligned) != len(formula.inputs):
                 continue
-            try:
-                value = formula.evaluate(
-                    {input_id: observation.value for input_id, observation in aligned.items()}
-                )
-            except DerivedComputationError as exc:
-                raise IndicatorsProviderError(
-                    f"derived series {series.series_id} {observed_at}: {exc}"
-                ) from exc
+            value = formula.compute(
+                {input_id: observation.value for input_id, observation in aligned.items()}
+            )
             if value is None:
                 continue
             results.append(record_observation(series, observed_at=observed_at, value=value))
