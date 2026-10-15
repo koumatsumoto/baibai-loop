@@ -664,7 +664,7 @@ def _load_ticker_adjustment_events(
 ) -> list[JQuantsAdjustmentFactorEvent]:
     rows = conn.execute(
         "SELECT traded_at, adjustment_factor, ex_right_type FROM jquants_daily_bars "
-        "WHERE ticker = ? AND traded_at >= ? AND adjustment_factor != 0.0 "
+        "WHERE ticker = ? AND traded_at >= ? "
         "AND (adjustment_factor != 1.0 OR ex_right_type IS NOT NULL) ORDER BY traded_at",
         (ticker, start.isoformat()),
     ).fetchall()

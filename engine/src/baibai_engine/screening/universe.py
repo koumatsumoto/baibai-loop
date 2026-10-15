@@ -148,13 +148,15 @@ def build_universe(
             if adjustment_events_by_ticker is not None
             else history
         )
-        # Only events after the latest close change its as-of share basis.
-        # Source factor 0 is the no-event sentinel and must not reject a stock.
-        latest_price = (
-            asof_basis_closes([latest], adjustment_events, asof_date=asof_date)[0]
-            if latest.close > 0
-            else None
-        )
+        # Only events after the latest close change its as-of price basis.
+        try:
+            latest_price = (
+                asof_basis_closes([latest], adjustment_events, asof_date=asof_date)[0]
+                if latest.close > 0
+                else None
+            )
+        except ValueError:
+            latest_price = None
         if latest_price is None or not isfinite(latest_price) or latest_price <= 0:
             exclusion_flags[security.ticker] = ("invalid_price_basis",)
             exclusion_counts["invalid_price_basis"] = (

@@ -63,7 +63,7 @@ def normalize_adjustment_factor_event(
         return None
     factor = to_float(record.get("AdjFactor"))
     kind = normalize_ex_right_type(record.get("ExRT"))
-    if factor in (None, 0.0) or (factor == 1.0 and kind is None):
+    if factor is None or (factor == 1.0 and kind is None):
         return None
     assert factor is not None
     return JQuantsAdjustmentFactorEvent(

@@ -207,7 +207,7 @@ def _read_price_observations(
                     adjustment_factor=None if factor is None else float(factor),
                 )
             )
-        if factor not in (None, 0.0, 1.0):
+        if factor not in (None, 1.0):
             events.setdefault(str(ticker), []).append(
                 JQuantsAdjustmentFactorEvent(
                     ticker=str(ticker),

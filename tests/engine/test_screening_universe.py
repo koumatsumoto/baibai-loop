@@ -331,51 +331,29 @@ class ScreeningUniverseTests(unittest.TestCase):
                 self.assertNotIn("400A", result.snapshots)
                 self.assertEqual(result.exclusion_flags["400A"], ("invalid_price_basis",))
 
-    def test_no_event_factor_zero_does_not_exclude_at_any_price_boundary(self) -> None:
-        security = SecurityMaster("400A", "Factor Zero", "Growth", "情報・通信業", True)
+    def test_invalid_factor_only_excludes_when_needed_for_price_basis(self) -> None:
+        security = SecurityMaster("400A", "Invalid Factor", "Growth", "情報・通信業", True)
         asof = date(2026, 4, 24)
         price_day = asof - timedelta(days=1)
         latest = JQuantsDailyBar("400A", price_day, 100.0, 300_000_000.0)
-
-        for event_day in (price_day - timedelta(days=1), price_day, asof):
-            with self.subTest(event_day=event_day):
-                event = JQuantsDailyBar(
-                    "400A", event_day, 100.0, 300_000_000.0, adjustment_factor=0.0
-                )
-                result = build_universe(
-                    asof,
-                    [security],
-                    {"400A": [latest]},
-                    {"400A": 400_000_000.0},
-                    {},
-                    adjustment_events_by_ticker={"400A": [event]},
-                )
-                self.assertEqual(result.snapshots["400A"].market_cap_oku, 400)
-
-        source_bar = JQuantsDailyBar("400A", price_day, 100.0, 300_000_000.0, adjustment_factor=0.0)
-        source_result = build_universe(
-            asof, [security], {"400A": [source_bar]}, {"400A": 400_000_000.0}, {}
-        )
-        self.assertEqual(source_result.snapshots["400A"].market_cap_oku, 400)
-
-        # A malformed negative factor matters only when it would adjust this close.
-        for event_day in (price_day - timedelta(days=1), price_day, asof):
-            with self.subTest(negative_event_day=event_day):
-                invalid = JQuantsDailyBar(
-                    "400A", event_day, 100.0, 300_000_000.0, adjustment_factor=-1.0
-                )
-                result = build_universe(
-                    asof,
-                    [security],
-                    {"400A": [latest]},
-                    {"400A": 400_000_000.0},
-                    {},
-                    adjustment_events_by_ticker={"400A": [invalid]},
-                )
-                if event_day > price_day:
-                    self.assertEqual(result.exclusion_flags["400A"], ("invalid_price_basis",))
-                else:
-                    self.assertEqual(result.snapshots["400A"].market_cap_oku, 400)
+        for factor in (0.0, -1.0):
+            for event_day in (price_day - timedelta(days=1), price_day, asof):
+                with self.subTest(factor=factor, event_day=event_day):
+                    event = JQuantsDailyBar(
+                        "400A", event_day, 100.0, 300_000_000.0, adjustment_factor=factor
+                    )
+                    result = build_universe(
+                        asof,
+                        [security],
+                        {"400A": [latest]},
+                        {"400A": 400_000_000.0},
+                        {},
+                        adjustment_events_by_ticker={"400A": [event]},
+                    )
+                    if event_day > price_day:
+                        self.assertEqual(result.exclusion_flags["400A"], ("invalid_price_basis",))
+                    else:
+                        self.assertEqual(result.snapshots["400A"].market_cap_oku, 400)
 
     def test_short_history_keeps_financial_analysis_and_approach(self) -> None:
         security = SecurityMaster(

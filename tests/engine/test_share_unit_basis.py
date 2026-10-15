@@ -125,3 +125,21 @@ def test_rights_after_exit_do_not_change_an_already_completed_total_return():
     assert count == 1
     assert total == pytest.approx(0.18)
     assert status == "resolved"
+
+
+@pytest.mark.parametrize("factor", [0.0, -1.0, float("inf"), float("nan")])
+def test_price_basis_rejects_invalid_applied_factor(factor):
+    before, action = date(2026, 8, 1), date(2026, 9, 1)
+    with pytest.raises(ValueError, match="finite and positive"):
+        asof_basis_prices([(before, 100.0)], [(action, factor)], asof_date=action)
+    # A factor on or before the first price does not adjust that price.
+    assert asof_basis_prices([(action, 100.0)], [(action, factor)], asof_date=action) == [100.0]
+
+
+def test_price_basis_applies_same_day_event_only_to_earlier_prices():
+    before, action, after = date(2026, 8, 1), date(2026, 9, 1), date(2026, 10, 1)
+    assert asof_basis_prices(
+        [(before, 100.0), (action, 50.0), (after, 55.0)],
+        [(action, 0.5)],
+        asof_date=after,
+    ) == [50.0, 50.0, 55.0]

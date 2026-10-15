@@ -57,6 +57,7 @@ def asof_basis_prices(
 
     callerはasof以下の価格を日付昇順で渡す。出力はその価格列と同じ順序になる。
     factor側の日付制限と整列はこの関数が行う。
+    価格換算に使う係数は有限の正数でなければならない。0を調整なしとは扱わない。
     """
     if not prices:
         return []
@@ -64,7 +65,7 @@ def asof_basis_prices(
         (
             event
             for event in adjustment_events
-            if event[1] not in (None, 0.0, 1.0) and event[0] <= asof_date
+            if event[1] not in (None, 1.0) and prices[0][0] < event[0] <= asof_date
         ),
         key=lambda event: event[0],
     )
@@ -76,14 +77,11 @@ def asof_basis_prices(
         while event_index >= 0 and events[event_index][0] > traded_at:
             adjustment = events[event_index][1]
             assert adjustment is not None
+            if not isfinite(adjustment) or adjustment <= 0:
+                raise ValueError("price adjustment factor must be finite and positive")
             factor *= adjustment
             event_index -= 1
         result[index] = close * factor
-        while event_index >= 0 and events[event_index][0] == traded_at:
-            adjustment = events[event_index][1]
-            assert adjustment is not None
-            factor *= adjustment
-            event_index -= 1
     return result
 
 

@@ -8,10 +8,13 @@ import pyarrow.parquet as pq
 import pytest
 
 from baibai_engine.market.jquants_decode import (
+    JQuantsProviderError,
     normalize_adjustment_factor_event,
     normalize_daily_bar,
 )
 from baibai_engine.market.store import read_adjustment_factor_bars, read_daily_bars
+from baibai_engine.market_context.prices import close_change_since
+from baibai_engine.screening.calibration.forward import _load_ticker_adjustment_events
 from baibai_engine.storage.lake.datasets import JQUANTS_DAILY_BARS
 from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.observations.jquants import store_jquants_daily_bars
@@ -83,3 +86,26 @@ def test_provider_market_cap_survives_sqlite_and_lake_without_price(tmp_path, ra
     assert len(rows) == 1
     assert rows[0]["market_cap_million_yen"] == expected
     assert rows[0]["close"] is None
+
+
+@pytest.mark.parametrize("factor", [0.0, -1.0])
+@pytest.mark.parametrize("close", [None, 100.0])
+def test_invalid_factor_is_retained_but_not_hidden_from_calculation(tmp_path, factor, close):
+    start, day = date(2026, 10, 13), date(2026, 10, 14)
+    prior = {"Code": "13010", "Date": start.isoformat(), "C": 110.0, "AdjFactor": 1.0}
+    raw = {"Code": "13010", "Date": day.isoformat(), "C": close, "AdjFactor": factor}
+    with pytest.raises(ValueError, match="positive"):
+        normalize_adjustment_factor_event(raw)
+    database = tmp_path / "market.sqlite"
+    store_jquants_daily_bars(database, [prior, raw], requested_start=start, requested_end=day)
+    with closing(sqlite3.connect(database)) as connection:
+        assert connection.execute(
+            "SELECT adjustment_factor FROM jquants_daily_bars WHERE traded_at = ?",
+            (day.isoformat(),),
+        ).fetchone() == (factor,)
+        with pytest.raises(ValueError, match="positive"):
+            _load_ticker_adjustment_events(connection, "1301", start=start)
+    with pytest.raises(JQuantsProviderError, match="positive"):
+        read_adjustment_factor_bars(database, start, day)
+    with pytest.raises(ValueError, match="positive"):
+        close_change_since(database, ["1301"], since=start)

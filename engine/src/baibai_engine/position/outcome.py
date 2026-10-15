@@ -163,8 +163,8 @@ def compute_portfolio_outcome(
             bar = bars_by_ticker_day.get((ticker, valuation_day))
             if bar is None:
                 return _unresolved(benchmark, "missing_market_price")
-            # Source factor 0 denotes no split event; None means the factor is unknown.
-            if bar.adjustment_factor not in (0.0, 1.0):
+            # Only an explicit neutral factor establishes an unchanged price basis.
+            if bar.adjustment_factor != 1.0:
                 return _unresolved(benchmark, "corporate_action_unresolved")
             prices[ticker] = MarketPrice.model_validate(
                 {

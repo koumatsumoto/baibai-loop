@@ -181,7 +181,7 @@ def test_portfolio_outcome_rejects_unresolved_corporate_action(factor) -> None:
     assert result.reason == "corporate_action_unresolved"
 
 
-def test_portfolio_outcome_keeps_source_zero_factor_as_no_event() -> None:
+def test_portfolio_outcome_does_not_assume_zero_factor_is_neutral() -> None:
     result = compute_portfolio_outcome(
         _ledger(),
         _benchmark(),
@@ -191,8 +191,8 @@ def test_portfolio_outcome_keeps_source_zero_factor_as_no_event() -> None:
             JQuantsDailyBar("1234", date(2026, 1, 6), 6.0, None, adjustment_factor=0.0),
         ),
     )
-    assert result.status == "resolved"
-    assert result.portfolio_twr_pct == pytest.approx((1208 / 1100 - 1) * 100)
+    assert result.status == "unresolved"
+    assert result.reason == "corporate_action_unresolved"
 
 
 @pytest.mark.parametrize("tax_rate", [None, 2000])
