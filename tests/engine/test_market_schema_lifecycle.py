@@ -35,3 +35,58 @@ def test_connect_current_accepts_uri_sensitive_path_characters(tmp_path):
     connection = schema.connect_current(path)
     assert connection is not None
     connection.close()
+
+
+@pytest.mark.parametrize(
+    ("extra_ddl", "message"),
+    [
+        ("CREATE TABLE contract_probe(value TEXT);", "missing tables: contract_probe"),
+        (
+            "ALTER TABLE jpx_earnings_calendar ADD COLUMN contract_probe TEXT;",
+            "missing columns in jpx_earnings_calendar: contract_probe",
+        ),
+    ],
+)
+def test_schema_validation_derives_tables_and_columns_from_ddl(
+    tmp_path, monkeypatch, extra_ddl, message
+):
+    path = tmp_path / "market.sqlite"
+    schema.open_connection(path).close()
+    before = path.read_bytes()
+    monkeypatch.setattr(schema, "_SCHEMA_SQL", schema._SCHEMA_SQL + "\n" + extra_ddl)
+    with (
+        closing(sqlite3.connect(path)) as conn,
+        pytest.raises(schema.SQLiteSchemaError, match=message),
+    ):
+        schema.validate_current_schema(conn)
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("opener", [schema.open_connection, schema.connect_current])
+@pytest.mark.parametrize("failure", [RuntimeError, KeyboardInterrupt])
+def test_schema_validation_failure_closes_the_owned_connection(
+    tmp_path, monkeypatch, opener, failure
+):
+    path = tmp_path / "market.sqlite"
+    schema.open_connection(path).close()
+    before = path.read_bytes()
+    connect = sqlite3.connect
+    opened = []
+
+    def track(*args, **kwargs):
+        connection = connect(*args, **kwargs)
+        opened.append(connection)
+        return connection
+
+    def fail(connection):
+        raise failure("interrupted validation")
+
+    monkeypatch.setattr(sqlite3, "connect", track)
+    monkeypatch.setattr(schema, "validate_current_schema", fail)
+    with pytest.raises(failure, match="interrupted validation"):
+        opener(path)
+    assert opened
+    for connection in opened:
+        with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+            connection.execute("SELECT 1")
+    assert path.read_bytes() == before

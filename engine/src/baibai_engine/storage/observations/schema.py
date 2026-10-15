@@ -13,23 +13,14 @@ readers never interpret or migrate an older shape.
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Mapping
 from pathlib import Path
 
 from baibai_engine.external_assessment.observations.contract import (
-    ANALYST_RATING_COLUMNS,
     ANALYST_RATING_DDL,
-    ANALYST_RATING_TABLE,
-    MODEL_VALUATION_COLUMNS,
     MODEL_VALUATION_DDL,
-    MODEL_VALUATION_TABLE,
-    QUANTS_SCORE_COLUMNS,
     QUANTS_SCORE_DDL,
-    QUANTS_SCORE_TABLE,
 )
-from baibai_engine.external_assessment.tradingview.contract import COLUMNS as TV_COLUMNS
 from baibai_engine.external_assessment.tradingview.contract import DDL as TV_DDL
-from baibai_engine.external_assessment.tradingview.contract import TABLE as TV_TABLE
 
 SQLITE_SCHEMA_VERSION = 32
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
@@ -42,9 +33,9 @@ SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 # no securities code and no parent, so a null there is not by itself evidence of expiry.
 # The company, form, timestamp and title a filing carried do not stop being true when
 # they stop being served, so a store that once observed them keeps them — the ingest
-# refuses to blank a stored value on a later list, and the merge fills a null from
-# whichever copy read the day while it was still served. Two populated values that
-# disagree still refuse the merge, which is what makes a genuine corruption visible.
+# preserves it when the later response is null and the same document occupies the same
+# list position. A new non-null provider value replaces the stored value. These document
+# facts travel through L1; the machine-store merge does not merge document rows.
 EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS: tuple[str, ...] = (
     "sec_code",
     "doc_type_code",
@@ -70,8 +61,8 @@ EDINET_DOCUMENT_RETAINED_COLUMNS: tuple[str, ...] = (
 # What EDINET currently does with the filing rather than what the filing says: whether
 # the inspection period is running, whether the document files are still downloadable,
 # and whether the filing has been withdrawn. Two stores that read the same day at
-# different moments differ here by construction and the later read is the accurate one,
-# so the ingest always takes the new answer and the merge does not compare them.
+# different moments can differ here, so ingest takes the new response rather than
+# preserving a previous lifecycle value when a field becomes null.
 EDINET_DOCUMENT_LIFECYCLE_COLUMNS: tuple[str, ...] = (
     "legal_status",
     "withdrawal_status",
@@ -79,321 +70,12 @@ EDINET_DOCUMENT_LIFECYCLE_COLUMNS: tuple[str, ...] = (
     "xbrl_flag",
 )
 
-_REQUIRED_TABLES = (
-    MODEL_VALUATION_TABLE,
-    ANALYST_RATING_TABLE,
-    QUANTS_SCORE_TABLE,
-    TV_TABLE,
-    "jquants_daily_bars",
-    "jquants_fin_summaries",
-    "jquants_master_snapshots",
-    "jpx_earnings_calendar",
-    "jquants_market_calendar",
-    "jquants_weekly_margin",
-    "jquants_margin_alerts",
-    "jquants_all_issues_daily_margin",
-    "jquants_short_sale_reports",
-    "edinet_documents",
-    "edinet_document_lists",
-    "edinet_segment_facts",
-    "edinet_debt_schedule",
-    "edinet_metrics",
-    "tse_capital_policy_snapshots",
-    "jpx_delistings",
-    "tender_offer_exit_values",
-    "jpx_regulation_flags",
-    "jpx_regulation_sources",
-    "source_coverage",
-    "lake_store_origin",
+# These two indexes are part of the required read contract. Other indexes remain
+# performance choices in the DDL; do not broaden the acceptance contract implicitly.
+_REQUIRED_INDEX_NAMES = (
+    "idx_jquants_daily_bars_traded_at",
+    "idx_source_coverage_source_window",
 )
-_REQUIRED_COLUMNS: Mapping[str, tuple[str, ...]] = {
-    MODEL_VALUATION_TABLE: tuple(column[0] for column in MODEL_VALUATION_COLUMNS),
-    ANALYST_RATING_TABLE: tuple(column[0] for column in ANALYST_RATING_COLUMNS),
-    QUANTS_SCORE_TABLE: tuple(column[0] for column in QUANTS_SCORE_COLUMNS),
-    TV_TABLE: tuple(column[0] for column in TV_COLUMNS),
-    "jquants_daily_bars": (
-        "ticker",
-        "traded_at",
-        "open",
-        "high",
-        "low",
-        "close",
-        "volume",
-        "turnover_value",
-        "adjustment_open",
-        "adjustment_high",
-        "adjustment_low",
-        "adjustment_close",
-        "adjustment_volume",
-        "adjustment_factor",
-        "upper_limit",
-        "lower_limit",
-    ),
-    "jquants_fin_summaries": (
-        "ticker",
-        "disclosed_at",
-        "forecast_eps",
-        "eps_ttm",
-        "bps",
-        "shares_outstanding",
-        "sales",
-        "cfo",
-        "cash_eq",
-        "total_assets",
-        "equity",
-        "operating_profit",
-        "ordinary_profit",
-        "profit",
-        "forecast_profit",
-        "forecast_ordinary_profit",
-        "fiscal_period",
-        "fiscal_year_end",
-        "period_start",
-        "period_end",
-        "dps_actual_annual",
-        "dps_forecast_annual",
-        "treasury_shares",
-        "equity_to_asset_ratio",
-        "dividend_q1",
-        "dividend_interim",
-        "dividend_q3",
-        "dividend_year_end",
-        "dividend_total_annual",
-        "average_shares",
-        "record_key",
-        "disclosure_number",
-        "disclosed_time",
-        "document_type",
-        "document_payload",
-    ),
-    "jquants_master_snapshots": (
-        "snapshot_date",
-        "ticker",
-        "name",
-        "market",
-        "sector_33",
-        "is_common_stock",
-    ),
-    "jpx_earnings_calendar": ("announcement_date", "ticker"),
-    "jquants_market_calendar": ("day", "is_business_day"),
-    "jquants_weekly_margin": (
-        "week_end",
-        "ticker",
-        "long_vol",
-        "short_vol",
-        "long_std_vol",
-        "long_neg_vol",
-        "short_std_vol",
-        "short_neg_vol",
-        "issue_type",
-    ),
-    "jquants_margin_alerts": (
-        "publication_date",
-        "ticker",
-        "applied_date",
-        "publication_reason",
-        "short_outstanding",
-        "short_change",
-        "short_ratio",
-        "long_outstanding",
-        "long_change",
-        "long_ratio",
-        "short_long_ratio",
-        "short_negotiable_outstanding",
-        "short_negotiable_change",
-        "short_standard_outstanding",
-        "short_standard_change",
-        "long_negotiable_outstanding",
-        "long_negotiable_change",
-        "long_standard_outstanding",
-        "long_standard_change",
-        "tse_margin_regulation_classification",
-    ),
-    "jquants_all_issues_daily_margin": (
-        "balance_date",
-        "ticker",
-        "long_vol",
-        "short_vol",
-        "long_std_vol",
-        "long_neg_vol",
-        "short_std_vol",
-        "short_neg_vol",
-        "issue_type",
-    ),
-    "jquants_short_sale_reports": (
-        "disclosed_at",
-        "source_ordinal",
-        "calculated_at",
-        "ticker",
-        "short_seller_name",
-        "discretionary_investment_contractor_name",
-        "investment_fund_name",
-        "short_ratio",
-        "short_shares",
-        "short_trading_units",
-        "previous_reported_at",
-        "previous_short_ratio",
-        "is_cancellation",
-        "notes",
-    ),
-    "edinet_documents": (
-        "doc_date",
-        "sequence_number",
-        "doc_id",
-        "sec_code",
-        "doc_type_code",
-        "csv_flag",
-        "xbrl_flag",
-        "legal_status",
-        "disclosure_status",
-        "withdrawal_status",
-        "doc_info_edit_status",
-        "parent_doc_id",
-        "operation_datetime",
-        "submit_datetime",
-        "doc_description",
-        "period_start",
-        "period_end",
-        "edinet_code",
-        "issuer_edinet_code",
-        "subject_edinet_code",
-    ),
-    "edinet_document_lists": (
-        "doc_date",
-        "process_datetime",
-        "result_count",
-        "fetched_at_utc",
-        "is_final",
-    ),
-    "edinet_segment_facts": (
-        "ticker",
-        "source_doc_id",
-        "source_submit_datetime",
-        "disclosed_on",
-        "source_element",
-        "source_context",
-        "issuer_id",
-        "period_start",
-        "period_end",
-        "consolidation_basis",
-        "segment_axis",
-        "segment_key",
-        "segment_name",
-        "segment_kind",
-        "metric",
-        "profit_basis",
-        "value",
-        "currency",
-        "source_locator",
-    ),
-    "edinet_debt_schedule": (
-        "ticker",
-        "source_doc_id",
-        "source_submit_datetime",
-        "disclosed_on",
-        "source_element",
-        "source_context",
-        "issuer_id",
-        "balance_sheet_date",
-        "consolidation_basis",
-        "debt_category",
-        "due_from_months",
-        "due_to_months",
-        "principal",
-        "currency",
-        "source_locator",
-    ),
-    "edinet_metrics": (
-        "asof_date",
-        "ticker",
-        "sales_ttm",
-        "ocf_ttm",
-        "debt",
-        "cash",
-        "ebitda_ttm",
-        "consolidation_basis",
-        "ttm_quality_ev_ebitda",
-        "ttm_quality_p_s",
-        "ttm_quality_pcfr",
-        "operating_profit_ttm",
-        "depreciation_and_amortization_ttm",
-        "capex_ttm",
-        "fcf_ttm",
-        "net_cash",
-        "equity",
-        "total_assets",
-        "ttm_quality_fcf",
-        "ttm_quality_net_cash",
-        "source_doc_id",
-        "document_type",
-        "source_submit_datetime",
-        "source_period_start",
-        "source_period_end",
-        "capex_source",
-        "failure_reasons",
-        "extractor_revision",
-        "source_document_revision",
-        "investment_securities",
-        "ocf_receivables_cash_effect",
-        "ocf_inventories_cash_effect",
-        "ocf_payables_cash_effect",
-        "ocf_contract_liabilities_cash_effect",
-        "ocf_advances_received_cash_effect",
-        "ocf_other_payables_cash_effect",
-        "capex_ppe_reported",
-        "capex_intangible_reported",
-    ),
-    "jpx_regulation_flags": (
-        "asof_date",
-        "source_name",
-        "ticker",
-        "flag",
-        "fetched_at_utc",
-    ),
-    "jpx_regulation_sources": ("asof_date", "source_name", "fetched_at_utc"),
-    "tse_capital_policy_snapshots": (
-        "snapshot_month_end",
-        "ticker",
-        "status",
-        "status_change",
-        "updated_on",
-        "contact_requested",
-        "first_disclosed_month_end",
-        "first_disclosure_left_censored",
-    ),
-    "jpx_delistings": ("delisted_on", "ticker", "name", "market", "reason"),
-    "tender_offer_exit_values": (
-        "ticker",
-        "delisted_on",
-        "offer_price_yen",
-        "offer_doc_id",
-        "result_doc_id",
-        "filed_on",
-    ),
-    "source_coverage": (
-        "source",
-        "coverage_key",
-        "coverage_start",
-        "coverage_end",
-        "fetched_at_utc",
-        "record_count",
-        "status",
-        "error",
-    ),
-    "lake_store_origin": (
-        "singleton",
-        "release_id",
-        "release_manifest_sha256",
-    ),
-}
-_EXPLICIT_INDEXES: Mapping[str, tuple[str, tuple[str, ...], bool]] = {
-    "idx_jquants_daily_bars_traded_at": ("jquants_daily_bars", ("traded_at",), False),
-    "idx_source_coverage_source_window": (
-        "source_coverage",
-        ("source", "coverage_start", "coverage_end"),
-        False,
-    ),
-}
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS jquants_daily_bars(
@@ -800,7 +482,7 @@ def open_connection(db_path: Path) -> sqlite3.Connection:
             )
         conn.commit()
         return conn
-    except Exception:
+    except BaseException:
         conn.close()
         raise
 
@@ -816,10 +498,12 @@ def connect_current(sqlite_path: Path) -> sqlite3.Connection | None:
     try:
         conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=rw", uri=True)
         validate_current_schema(conn)
-    except (SQLiteSchemaError, sqlite3.Error):
+    except BaseException as exc:
         if conn is not None:
             conn.close()
-        return None
+        if isinstance(exc, (SQLiteSchemaError, sqlite3.Error)):
+            return None
+        raise
     return conn
 
 
@@ -836,23 +520,23 @@ def _validate_current_schema(conn: sqlite3.Connection, tables: set[str]) -> None
             "obsolete market SQLite schema; replace it with a current local build "
             f"(found user_version={user_version}, expected={SQLITE_SCHEMA_VERSION})"
         )
-    missing = sorted(set(_REQUIRED_TABLES) - tables)
+    expected_tables, expected_indexes = _expected_schema_shape()
+    missing = sorted(set(expected_tables) - tables)
     if missing:
         raise SQLiteSchemaError(
             "market SQLite schema is incomplete; replace it with a current local build "
             f"(missing tables: {', '.join(missing)})"
         )
-    expected_tables, expected_indexes = _expected_schema_shape()
-    for table, required_columns in _REQUIRED_COLUMNS.items():
+    for table, expected_info in expected_tables.items():
         existing_info = _table_info(conn, table)
         existing_columns = {column[0] for column in existing_info}
-        missing_columns = sorted(set(required_columns) - existing_columns)
+        missing_columns = sorted({column[0] for column in expected_info} - existing_columns)
         if missing_columns:
             raise SQLiteSchemaError(
                 "market SQLite schema is incomplete; replace it with a current local build "
                 f"(missing columns in {table}: {', '.join(missing_columns)})"
             )
-        if existing_info != expected_tables[table]:
+        if existing_info != expected_info:
             raise SQLiteSchemaError(
                 "market SQLite schema is incomplete; replace it with a current local build "
                 f"(table shape mismatch: {table})"
@@ -878,10 +562,18 @@ def _expected_schema_shape() -> tuple[
     expected = sqlite3.connect(":memory:")
     try:
         expected.executescript(_SCHEMA_SQL)
-        tables = {table: _table_info(expected, table) for table in _REQUIRED_TABLES}
+        tables = {
+            table: _table_info(expected, table)
+            for table in sorted(_existing_tables(expected))
+            if not table.startswith("sqlite_")
+        }
         indexes: dict[str, tuple[str, tuple[str, ...], bool]] = {}
-        for index_name, (table, _, _) in _EXPLICIT_INDEXES.items():
-            index_info = _index_info(expected, table, index_name)
+        for index_name in _REQUIRED_INDEX_NAMES:
+            row = expected.execute(
+                "SELECT tbl_name FROM sqlite_master WHERE type = 'index' AND name = ?",
+                (index_name,),
+            ).fetchone()
+            index_info = None if row is None else _index_info(expected, str(row[0]), index_name)
             if index_info is None:
                 raise SQLiteSchemaError(f"internal schema definition is missing {index_name}")
             indexes[index_name] = index_info
