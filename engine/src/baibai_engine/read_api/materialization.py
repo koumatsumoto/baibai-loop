@@ -52,16 +52,15 @@ def validate_market_store_hydration(path: Path) -> None:
     were emptied: the rows live in the L1 release and a reader fills them back before
     reading it. Emptying keeps the tables, so every query still answers — with nothing —
     and `source_coverage`, which the lake does not own, travels with the copy still
-    claiming the fetches. An export from that copy therefore writes valuations, daily
-    deltas and security views that carry no market price at all and read as complete,
-    while the ledger-observed fallbacks make them look merely a few days stale.
+    claiming the fetches. Exporting that copy would mistake an unhydrated store for
+    genuine missing market observations. Stop before writing views; ledger prices are
+    not a substitute for the current market source.
 
     The comparison is the merge's, one-directional (see `batch/OPERATIONS.md`,
     "merge が検査するもの"): a claim is only ever raised to the rows a store holds and
     never lowered, so an empty table under a positive claim is the unfilled state, while
     a table holding more than its windows claim is ordinary. Totals are deliberately not
-    compared — coverage windows overlap, and on the working store the daily-bars claim
-    exceeds the rows by 4.9M for that reason alone.
+    compared because coverage windows overlap and can count the same row repeatedly.
     """
 
     if not path.is_file():
