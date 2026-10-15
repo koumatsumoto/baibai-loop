@@ -8,7 +8,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
-from tests.helpers.screening_sqlite import add_source_coverage
+from tests.helpers.screening_sqlite import add_source_coverage, insert_financial_record
 
 from baibai_engine.market.edinet_metrics.store import (
     EDINETMetricBaselineError,
@@ -164,34 +164,31 @@ class ReadFinSummariesTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             with closing(open_connection(db)) as conn, conn:
-                conn.execute(
-                    "INSERT INTO jquants_fin_summaries("
-                    "ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding, "
-                    "sales, operating_profit, ordinary_profit, profit, "
-                    "fiscal_period, fiscal_year_end, period_start, period_end"
-                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        "3447",
-                        "2025-09-29",
-                        None,
-                        50.0,
-                        None,
-                        1_000_000.0,
-                        5_000_000.0,
-                        1_000_000.0,
-                        950_000.0,
-                        700_000.0,
-                        "2Q",
-                        "2026-03-31",
-                        "2025-04-01",
-                        "2025-09-30",
-                    ),
+                insert_financial_record(
+                    conn,
+                    {
+                        "Code": "34470",
+                        "DiscDate": "2025-10-01",
+                        "DiscTime": "15:00:00",
+                        "DiscNo": "half-year-statement",
+                        "DocType": "2QFinancialStatements_Consolidated_JP",
+                        "EPS": 50.0,
+                        "ShOutFY": 1_000_000.0,
+                        "Sales": 5_000_000.0,
+                        "OP": 1_000_000.0,
+                        "OdP": 950_000.0,
+                        "NP": 700_000.0,
+                        "CurPerType": "2Q",
+                        "CurFYSt": "2025-04-01",
+                        "CurFYEn": "2026-03-31",
+                        "CurPerSt": "2025-04-01",
+                        "CurPerEn": "2025-09-30",
+                    },
                 )
                 add_source_coverage(
                     conn,
                     source="jquants_fin_summaries",
-                    coverage_key=".cache/screening/raw/jquants/"
-                    "get_fin_summary_range-end_dt-2025-10-28-start_dt-2025-09-28.json",
+                    coverage_key="get_fin_summary_range:2025-09-28..2025-10-28",
                     record_count=1,
                     min_date="2025-09-28",
                     max_date="2025-10-28",
@@ -211,8 +208,7 @@ class ReadFinSummariesTests(unittest.TestCase):
                 add_source_coverage(
                     conn,
                     source="jquants_fin_summaries",
-                    coverage_key=".cache/screening/raw/jquants/"
-                    "get_fin_summary_range-end_dt-2025-10-28-start_dt-2025-09-28.json",
+                    coverage_key="get_fin_summary_range:2025-09-28..2025-10-28",
                     record_count=0,
                     min_date=None,
                     max_date=None,

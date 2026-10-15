@@ -9,15 +9,13 @@ from pathlib import Path
 
 import pytest
 
+from tests.helpers.screening_sqlite import insert_financial_record
+
 from baibai_engine.market.edinet_metrics import store as edinet_store
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.store import read_daily_bars, read_daily_bars_for_tickers
 from baibai_engine.screening.calibration.grid import days_with_bars, month_end_asof_grid
 from baibai_engine.screening.calibration.panel import _coverage_floors
-from baibai_engine.screening.sqlite_coverage.required_fields import (
-    plan_required_field_repair,
-    read_required_field_coverage,
-)
 from baibai_engine.storage.observations import reader as observation_reader
 from baibai_engine.storage.observations.readiness import unreadable_store_reason
 from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
@@ -34,8 +32,8 @@ def test_readers_use_the_exact_filesystem_path(tmp_path: Path, filename: str) ->
             "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES ('1301', ?, 100)",
             [("2026-01-30",), ("2026-02-02",)],
         )
-        conn.execute(
-            "INSERT INTO jquants_fin_summaries(ticker, disclosed_at) VALUES ('1301', '2026-01-30')"
+        insert_financial_record(
+            conn, {"Code": "13010", "DiscDate": "2026-01-30", "DiscNo": "statement"}
         )
         conn.execute("INSERT INTO jpx_earnings_calendar VALUES ('2026-02-03', '1301')")
     before = path.read_bytes()
@@ -46,10 +44,6 @@ def test_readers_use_the_exact_filesystem_path(tmp_path: Path, filename: str) ->
     assert _coverage_floors(path, end) == (date(2026, 1, 30), date(2026, 1, 30))
     assert read_published_earnings_dates(path, end) == {"1301": date(2026, 2, 3)}
     assert unreadable_store_reason(path) is None
-    coverage = read_required_field_coverage(path, start=start, asof=end)
-    repair = plan_required_field_repair(path, start=start, asof=end)
-    assert coverage is not None
-    assert repair is not None
     assert path.read_bytes() == before
 
     with closing(sqlite3.connect(path)) as conn, conn:
@@ -57,24 +51,6 @@ def test_readers_use_the_exact_filesystem_path(tmp_path: Path, filename: str) ->
     reason = unreadable_store_reason(path)
     assert reason is not None
     assert f"user_version {SQLITE_SCHEMA_VERSION - 1}," in reason
-
-
-@pytest.mark.parametrize("reader", [read_required_field_coverage, plan_required_field_repair])
-def test_missing_field_coverage_store_remains_uncreated(tmp_path: Path, reader) -> None:
-    path = tmp_path / "missing.sqlite"
-    assert reader(path, start=date(2026, 1, 1), asof=date(2026, 2, 2)) is None
-    assert not path.exists()
-
-
-@pytest.mark.parametrize("reader", [read_required_field_coverage, plan_required_field_repair])
-def test_field_coverage_query_failure_is_not_reported_as_missing(tmp_path: Path, reader) -> None:
-    path = tmp_path / "broken.sqlite"
-    with closing(open_connection(path)) as conn, conn:
-        conn.execute("DROP TABLE jquants_master_snapshots")
-    before = path.read_bytes()
-    with pytest.raises(sqlite3.OperationalError, match="no such table"):
-        reader(path, start=date(2026, 1, 1), asof=date(2026, 2, 2))
-    assert path.read_bytes() == before
 
 
 @pytest.mark.parametrize("scoped", [False, True])

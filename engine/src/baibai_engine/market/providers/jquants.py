@@ -767,7 +767,6 @@ class JQuantsProvider(_JQuantsTransport):
         end: date,
         *,
         revision_overlap_days: int,
-        repair_ranges: Sequence[tuple[date, date]] = (),
         progress: Callable[[int, int, date, date], None] | None = None,
     ) -> int:
         """Bring the summaries store current for `[start, end]` and count what it holds.
@@ -775,7 +774,7 @@ class JQuantsProvider(_JQuantsTransport):
         Two things are fetched: what the coverage says is missing, and the trailing
         ``revision_overlap_days`` regardless of coverage. The overlap is the only
         way this refresh discovers a late publication for an already covered date
-        within that trailing window. Older corrections require explicit repair ranges;
+        within that trailing window. Older corrections require refreshing their window;
         acquisition coverage alone does not prove that no later revision exists.
 
         The two are merged before anything is requested, so a stop longer than the
@@ -798,7 +797,6 @@ class JQuantsProvider(_JQuantsTransport):
             [
                 *self._missing_subranges("get_fin_summary_range", start, end),
                 (overlap_start, end),
-                *repair_ranges,
             ]
         )
         self._fetch_ranges_paced(

@@ -130,12 +130,7 @@ uv run baibai-engine screening ticker-profile --ticker TICKER
 **成功確認**: `verify-cache-coverage`が対象日の必要入力を満たし、個別確認では
 `ticker-profile`が対象tickerを返すことを確認する。
 
-**停止と復旧**: `verify-cache-coverage` が `required-field:<name>@<asof>` を返した場合は、同じas-ofで
-`screening bootstrap-cache` を再実行する。bootstrapは表示された`resume_from`と
-`remaining_ranges`に従い、欠損tickerの既知開示日だけをchunk補修する。既存の広い
-`jquants_fin_summaries` coverageを`invalidate-coverage`で外すと正常な履歴まで再取得対象に
-なるため、required-field補修には使わない。補修後は同じverify commandで
-`market_cap_required_fields`と`valuation_required_fields`がminimum以上であることを確認する。
+**停止と復旧**: 取得範囲の欠落は同じas-ofの`screening bootstrap-cache`で補完し、commit済みのchunkを再利用する。財務は未取得範囲と末尾の訂正確認窓を取得する。提供元recordに元から無い数値や、L2で計算不能な値を取得失敗と混同しない。数値が一定割合以上埋まるまで過去の開示日を自動再取得する処理は持たない。元recordの訂正が必要なら対象期間を明示して修復し、raw保存からL2を再計算する。通常の欠測を理由に広いcoverageを無効化したり、全DBを組み戻したりしない。
 
 ### ローカルからクラウドを更新する
 
@@ -587,7 +582,7 @@ uv run python -m baibai_web.materialize --output-dir <dir> [--batch daily|manual
 
 ## 日次機械工程 — baibai-batch daily
 
-Screeningのcalendar判定、独立した市場/財務/EDINET/JPX取得、必要入力のcoverage検証、全Stock Analysisと候補文脈のrunの一つのtransaction、独立した指標refresh、全viewsの単一exportへ進む。各取得は既存provider/cacheを再利用し、後半HTTP失敗でも検証してcommitしたL1 chunkを保持する。required-field不足を取得済み全観測の無効化へ置き換えず、source復元や全DB組戻しは行わない。Screeningの失敗は指標更新を止めない。
+Screeningのcalendar判定、独立した市場/財務/EDINET/JPX取得、必要入力のcoverage検証、全Stock Analysisと候補文脈のrunの一つのtransaction、独立した指標refresh、全viewsの単一exportへ進む。各取得は既存provider/cacheを再利用し、後半HTTP失敗でも検証してcommitしたL1 chunkを保持する。個別値の欠測を取得済み全観測の無効化へ置き換えず、source復元や全DB組戻しは行わない。Screeningの失敗は指標更新を止めない。
 
 以下は用途別の選択肢であり、続けて全件を実行しない。`.cache/daily-serving`はlocalの生成先である。
 

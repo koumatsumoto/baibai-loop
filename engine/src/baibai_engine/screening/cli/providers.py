@@ -49,7 +49,6 @@ class JQuantsAdapter(Protocol):
         end: date,
         *,
         revision_overlap_days: int,
-        repair_ranges: Sequence[tuple[date, date]] = (),
         progress: Callable[[int, int, date, date], None] | None = None,
     ) -> int: ...
 

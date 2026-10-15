@@ -50,9 +50,11 @@ dataset追加時は次を同じ変更で揃える。
 4. export・resolve・hydrateのpositive/negative test
 5. `data-sources.md`のsource意味
 
-`jquants.fin_summaries`はcontract version 2、market SQLiteはschema 32で、主キーは`ticker / disclosed_at / record_key`である。同日文書を保持し、DocNo・開示時刻・DocType・全文document payloadを保存する。DocNo未取得のsourceはpayload digestで識別し、date-only既存行は`legacy`とする。digestやDocNoをrevision順序に使わない。既存actual列とlegacyのcollapsed forecast列は維持し、新文書の予想はpayloadから共通純粋投影で解決する。予想の意味は[Valuation metrics](./valuation-metrics.md#21-採用ソース)に従う。
+`jquants.fin_summaries`はcontract version 3で、主キーは`ticker / disclosed_at / record_key`である。索引用の3列と、提供元recordの全fieldを保持する必須`document_payload`だけを保存する。APIからdecodeしたrecordやBulk CSVから読んだrecordをJSON化したものであり、原HTTPレスポンスやCSV bytesそのものとは呼ばない。空欄・当期/翌期slot・未使用fieldも保持し、財務数値の展開列を別の正本にしない。
 
-旧contract 1 releaseは元codeと組み合わせて保持する。現行の財務文書store/releaseへの切替は完了しており、runtimeの旧schema読替え・自動移行は行わない。通常の取得・発行・復旧は[batch運用](../../batch/OPERATIONS.md)に従う。
+DocNoがある文書はその番号、未取得ならpayload digestで識別する。同じidentityの同一recordは一度だけ保存し、内容が異なる場合は入力順で選ばず拒否する。digestやDocNoはrevision順序ではない。型変換・当期/翌期予想の選択・財務計算は読込後の共通純粋投影で行う。予想の意味は[Valuation metrics](./valuation-metrics.md#21-採用ソース)、物理schemaは[観測store](../../engine/src/baibai_engine/storage/observations/schema.py)を正本とする。
+
+旧contractのreleaseは対応codeと組み合わせて保持し、runtimeの旧schema読替え・自動移行は行わない。原本を欠く旧flattened行を原本recordに見せかけて変換しない。schema変更時の再構築・検証・明示切替と、通常の取得・発行・復旧を分ける。運用は[batch運用](../../batch/OPERATIONS.md)に従う。
 
 個別dataset専用の移行runnerは作らない。現行storeからreleaseを再構築し、hydrateで現行schemaへ満たす。
 

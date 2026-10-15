@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -214,7 +215,7 @@ class SQLiteCacheTest(unittest.TestCase):
                     {
                         "Code": "72030",
                         "DisclosedDate": "2026-05-08",
-                        "NetSales": 101,
+                        "NetSales": 100,
                         "DiscNo": "synthetic-document",
                     },
                 ],
@@ -254,19 +255,21 @@ class SQLiteCacheTest(unittest.TestCase):
             conn = sqlite3.connect(db)
             try:
                 row = conn.execute(
-                    "SELECT shares_outstanding, average_shares, treasury_shares "
-                    "FROM jquants_fin_summaries"
+                    "SELECT document_payload FROM jquants_fin_summaries"
                 ).fetchone()
             finally:
                 conn.close()
 
-            self.assertEqual(row, (None, 7_563_857.0, 352_373.0))
+            raw = json.loads(row[0])
+            self.assertNotIn("ShOutFY", raw)
+            self.assertEqual((raw["AvgSh"], raw["TrShFY"]), ("7563857", "352373"))
+            summaries = read_fin_summaries(db, date(2024, 8, 14), date(2024, 8, 14))
+            assert summaries is not None
+            self.assertIsNone(summaries[0].shares_outstanding)
+            self.assertEqual(summaries[0].average_shares, 7_563_857.0)
 
-    def test_fin_summaries_forecast_eps_uses_short_keys_with_next_year_fallback(self) -> None:
-        # ClientV2 fin-summary payloads use short keys: FEPS (current-FY forecast) is
-        # empty on full-year disclosures, where guidance moves to NxFEPS. The stored
-        # forecast_eps (the per_forward basis) must take NxFEPS on FY rows and keep
-        # FEPS on interim rows.
+    def test_fin_summaries_retain_both_forecast_slots_without_selecting(self) -> None:
+        # Period selection belongs to L2; storage keeps both provider slots intact.
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             store_jquants_fin_summaries(
@@ -292,13 +295,14 @@ class SQLiteCacheTest(unittest.TestCase):
             try:
                 stored = dict(
                     conn.execute(
-                        "SELECT ticker, forecast_eps FROM jquants_fin_summaries"
+                        "SELECT ticker, document_payload FROM jquants_fin_summaries"
                     ).fetchall()
                 )
             finally:
                 conn.close()
-            self.assertEqual(stored["9715"], 360.26)
-            self.assertEqual(stored["7203"], 306.89)
+            first, second = json.loads(stored["9715"]), json.loads(stored["7203"])
+            self.assertEqual((first["FEPS"], first["NxFEPS"]), ("", "360.26"))
+            self.assertEqual((second["FEPS"], second["NxFEPS"]), ("306.89", ""))
 
     def test_non_finite_current_forecasts_do_not_cross_into_next_period(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

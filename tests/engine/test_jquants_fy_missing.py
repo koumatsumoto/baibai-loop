@@ -16,10 +16,11 @@ def test_fy_provider_retains_latest_year_without_eps(tmp_path, cached):
     records = [
         {
             "Code": "13010",
-            "DisclosedDate": f"{year}-05-15",
-            "TypeOfCurrentPeriod": "FY",
-            "CurrentFiscalYearEndDate": f"{year}-03-31",
-            "EarningsPerShare": 10.0 if year < 2026 else None,
+            "DiscDate": f"{year}-05-15",
+            "DiscNo": f"statement-{year}",
+            "CurPerType": "FY",
+            "CurFYEn": f"{year}-03-31",
+            "EPS": 10.0 if year < 2026 else None,
         }
         for year in range(2021, 2027)
     ]

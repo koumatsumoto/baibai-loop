@@ -12,14 +12,15 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from tests.helpers.screening_sqlite import add_source_coverage as _add_source_coverage
+from tests.helpers.screening_sqlite import (
+    add_source_coverage as _add_source_coverage,
+    insert_financial_record,
+)
 
 from baibai_engine.screening.cli.cache import verify_cache_coverage_command
 from baibai_engine.screening.sqlite_coverage import core as coverage_core
 from baibai_engine.screening.sqlite_coverage import jquants as jquants_coverage
 from baibai_engine.screening.sqlite_coverage import (
-    plan_required_field_repair,
-    read_required_field_coverage,
     verify_screening_sqlite_coverage,
 )
 from baibai_engine.storage.observations.schema import open_connection
@@ -97,12 +98,19 @@ def _seed_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
         min_date=bars_start.isoformat(),
         max_date=asof.isoformat(),
     )
-    conn.executemany(
-        "INSERT OR REPLACE INTO jquants_fin_summaries("
-        "ticker, disclosed_at, eps_ttm, shares_outstanding, treasury_shares, "
-        "equity_to_asset_ratio) VALUES (?, ?, ?, ?, ?, ?)",
-        [(ticker, asof.isoformat(), 100.0, 10_000_000.0, 1_000_000.0, 0.5) for ticker in tickers],
-    )
+    for ticker in tickers:
+        insert_financial_record(
+            conn,
+            {
+                "Code": str(ticker) + "0",
+                "DiscDate": asof.isoformat(),
+                "EPS": 100.0,
+                "ShOutFY": 10000000.0,
+                "TrShFY": 1000000.0,
+                "EqAR": 0.5,
+                "DiscNo": asof.isoformat(),
+            },
+        )
     _add_source_coverage(
         conn,
         source="jquants_fin_summaries",
@@ -491,314 +499,16 @@ class SQLiteCoverageTests(unittest.TestCase):
 
             self.assertEqual(issues, ())
 
-    def test_issue_866_null_fields_block_before_market_cap_candidate_wipeout(self) -> None:
-        """A migrated column is not usable merely because the old rows still cover the date."""
-        asof = _COMMON_COVERAGE_ASOF
+    def test_reported_missing_values_are_not_acquisition_gaps(self) -> None:
         with _complete_coverage_database() as sqlite_path:
             with closing(sqlite3.connect(sqlite_path)) as conn, conn:
                 conn.execute(
-                    "UPDATE jquants_fin_summaries SET shares_outstanding = NULL, "
-                    "treasury_shares = NULL, equity_to_asset_ratio = NULL"
+                    "UPDATE jquants_fin_summaries SET document_payload = json_set("
+                    "document_payload, '$.ShOutFY', NULL, '$.TrShFY', NULL, '$.EqAR', NULL)"
                 )
-                conn.commit()
-
-            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
-            coverage = read_required_field_coverage(
-                sqlite_path,
-                start=asof - timedelta(days=730),
-                asof=asof,
-            )
-
-            self.assertIsNotNone(coverage)
-            assert coverage is not None
-            self.assertEqual(coverage.summary_tickers, 100)
-            self.assertEqual(coverage.market_cap_required_fields_tickers, 0)
-            self.assertIn("market_cap_required_fields=0", coverage.summary_line())
-            self.assertIn("valuation_required_fields=0", coverage.summary_line())
-            requirements = {issue.requirement for issue in issues}
-            self.assertIn(f"required-field:shares_outstanding@{asof.isoformat()}", requirements)
-            self.assertIn(f"required-field:treasury_shares@{asof.isoformat()}", requirements)
-            self.assertIn(f"required-field:equity_to_asset_ratio@{asof.isoformat()}", requirements)
-            self.assertIn(
-                f"required-field:market_cap_required_fields@{asof.isoformat()}", requirements
-            )
-            self.assertIn(
-                f"required-field:valuation_required_fields@{asof.isoformat()}", requirements
-            )
-
-    def test_required_field_population_threshold_blocks_74_percent_and_accepts_75(self) -> None:
-        asof = _COMMON_COVERAGE_ASOF
-        start = asof - timedelta(days=730)
-        with _complete_coverage_database() as sqlite_path:
-            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
-                conn.execute(
-                    "UPDATE jquants_fin_summaries SET shares_outstanding = NULL, "
-                    "treasury_shares = NULL, equity_to_asset_ratio = NULL"
-                )
-                conn.execute(
-                    "UPDATE jquants_fin_summaries SET shares_outstanding = 10000000, "
-                    "treasury_shares = 1000000, equity_to_asset_ratio = 0.5 "
-                    "WHERE ticker IN (SELECT ticker FROM jquants_fin_summaries "
-                    "ORDER BY ticker LIMIT 74)"
-                )
-                conn.commit()
-
-            below = read_required_field_coverage(sqlite_path, start=start, asof=asof)
-            self.assertIsNotNone(below)
-            assert below is not None
-            self.assertEqual(below.minimum_tickers, 75)
-            self.assertIn("market_cap_required_fields", below.blocking_fields)
-            self.assertIn("valuation_required_fields", below.blocking_fields)
-
-            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
-                conn.execute(
-                    "UPDATE jquants_fin_summaries SET shares_outstanding = 10000000, "
-                    "treasury_shares = 1000000, equity_to_asset_ratio = 0.5 "
-                    "WHERE ticker = (SELECT ticker FROM jquants_fin_summaries "
-                    "ORDER BY ticker LIMIT 1 OFFSET 74)"
-                )
-                conn.commit()
-
-            at_threshold = read_required_field_coverage(sqlite_path, start=start, asof=asof)
-            self.assertIsNotNone(at_threshold)
-            assert at_threshold is not None
-            self.assertEqual(at_threshold.blocking_fields, ())
-
-    def test_non_common_rows_do_not_enter_field_population_or_repair(self) -> None:
-        asof = _COMMON_COVERAGE_ASOF
-        start = asof - timedelta(days=730)
-        with _complete_coverage_database() as sqlite_path:
-            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
-                conn.executemany(
-                    "INSERT INTO jquants_master_snapshots("
-                    "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-                    ") VALUES (?, ?, ?, ?, ?, ?)",
-                    [
-                        (asof.isoformat(), f"9{index:03d}", "Fund", "Prime", "その他", 1)
-                        for index in range(40)
-                    ]
-                    + [
-                        (
-                            asof.isoformat(),
-                            f"8{index:03d}",
-                            "Other market",
-                            "TOKYO PRO MARKET",
-                            "機械",
-                            1,
-                        )
-                        for index in range(20)
-                    ],
-                )
-                conn.commit()
-
-            coverage = read_required_field_coverage(sqlite_path, start=start, asof=asof)
-            plan = plan_required_field_repair(sqlite_path, start=start, asof=asof)
-
-            self.assertIsNotNone(coverage)
-            assert coverage is not None
-            self.assertEqual(coverage.population_tickers, 100)
-            self.assertEqual(coverage.minimum_tickers, 75)
-            self.assertEqual(coverage.valuation_required_fields_tickers, 100)
-            self.assertEqual(coverage.blocking_fields, ())
-            self.assertIsNotNone(plan)
-            assert plan is not None
-            self.assertEqual(plan.ranges, ())
-
-    def test_missing_common_financials_remain_in_field_population(self) -> None:
-        asof = _COMMON_COVERAGE_ASOF
-        with _complete_coverage_database() as sqlite_path:
-            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
-                conn.executemany(
-                    "INSERT INTO jquants_master_snapshots("
-                    "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-                    ") VALUES (?, ?, ?, ?, ?, ?)",
-                    [
-                        (asof.isoformat(), f"8{index:03d}", "Stock", "Prime", "機械", 1)
-                        for index in range(40)
-                    ],
-                )
-                conn.commit()
-
-            coverage = read_required_field_coverage(
-                sqlite_path, start=asof - timedelta(days=730), asof=asof
-            )
-
-            self.assertIsNotNone(coverage)
-            assert coverage is not None
-            self.assertEqual(coverage.population_tickers, 140)
-            self.assertEqual(coverage.minimum_tickers, 105)
-            self.assertEqual(coverage.summary_tickers, 100)
-            self.assertIn("summary_rows", coverage.blocking_fields)
-
-    def test_valuation_field_intersection_is_checked_not_only_each_column(self) -> None:
-        asof = _COMMON_COVERAGE_ASOF
-        start = asof - timedelta(days=730)
-        with _complete_coverage_database() as sqlite_path:
-            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
-                conn.execute(
-                    "UPDATE jquants_fin_summaries SET shares_outstanding = NULL, "
-                    "treasury_shares = NULL, equity_to_asset_ratio = NULL"
-                )
-                conn.execute(
-                    "UPDATE jquants_fin_summaries SET shares_outstanding = 10000000, "
-                    "treasury_shares = 1000000 WHERE ticker IN "
-                    "(SELECT ticker FROM jquants_fin_summaries ORDER BY ticker LIMIT 80)"
-                )
-                conn.execute(
-                    "UPDATE jquants_fin_summaries SET equity_to_asset_ratio = 0.5 WHERE ticker IN "
-                    "(SELECT ticker FROM jquants_fin_summaries ORDER BY ticker LIMIT 80 OFFSET 20)"
-                )
-                conn.commit()
-
-            coverage = read_required_field_coverage(sqlite_path, start=start, asof=asof)
-
-            self.assertIsNotNone(coverage)
-            assert coverage is not None
-            self.assertEqual(coverage.shares_outstanding_tickers, 80)
-            self.assertEqual(coverage.treasury_shares_tickers, 80)
-            self.assertEqual(coverage.equity_to_asset_ratio_tickers, 80)
-            self.assertEqual(coverage.market_cap_required_fields_tickers, 80)
-            self.assertEqual(coverage.valuation_required_fields_tickers, 60)
-            self.assertEqual(coverage.blocking_fields, ("valuation_required_fields",))
-
-    def test_non_null_share_fields_that_produce_no_market_cap_are_blocked(self) -> None:
-        asof = _COMMON_COVERAGE_ASOF
-        start = asof - timedelta(days=730)
-        with _complete_coverage_database() as sqlite_path:
-            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
-                conn.execute(
-                    "UPDATE jquants_fin_summaries SET shares_outstanding = 1000000, "
-                    "treasury_shares = 1000000"
-                )
-                conn.commit()
-
-            coverage = read_required_field_coverage(sqlite_path, start=start, asof=asof)
-            plan = plan_required_field_repair(sqlite_path, start=start, asof=asof)
-
-            self.assertIsNotNone(coverage)
-            assert coverage is not None
-            self.assertEqual(coverage.shares_outstanding_tickers, 100)
-            self.assertEqual(coverage.treasury_shares_tickers, 100)
-            self.assertEqual(coverage.market_cap_required_fields_tickers, 0)
-            self.assertEqual(coverage.valuation_required_fields_tickers, 0)
             self.assertEqual(
-                coverage.blocking_fields,
-                ("market_cap_required_fields", "valuation_required_fields"),
+                _verify_screening_sqlite_coverage(sqlite_path, _COMMON_COVERAGE_ASOF), ()
             )
-            self.assertIsNotNone(plan)
-            assert plan is not None
-            self.assertEqual(plan.ranges, ((asof, asof),))
-
-    def test_cross_date_share_fields_use_the_same_split_basis_as_market_cap(self) -> None:
-        asof = _COMMON_COVERAGE_ASOF
-        start = asof - timedelta(days=730)
-        prior = asof - timedelta(days=30)
-        with _complete_coverage_database() as sqlite_path:
-            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
-                tickers = [
-                    str(row[0])
-                    for row in conn.execute(
-                        "SELECT ticker FROM jquants_fin_summaries ORDER BY ticker"
-                    ).fetchall()
-                ]
-                conn.execute(
-                    "UPDATE jquants_fin_summaries SET shares_outstanding = NULL, "
-                    "treasury_shares = 1500000"
-                )
-                conn.executemany(
-                    "INSERT INTO jquants_fin_summaries("
-                    "ticker, disclosed_at, shares_outstanding, treasury_shares) "
-                    "VALUES (?, ?, ?, ?)",
-                    [(ticker, prior.isoformat(), 1_000_000.0, None) for ticker in tickers],
-                )
-                conn.commit()
-
-            coverage = read_required_field_coverage(sqlite_path, start=start, asof=asof)
-
-            self.assertIsNotNone(coverage)
-            assert coverage is not None
-            self.assertEqual(coverage.shares_outstanding_tickers, 100)
-            self.assertEqual(coverage.treasury_shares_tickers, 100)
-            self.assertEqual(coverage.market_cap_required_fields_tickers, 0)
-            self.assertIn("market_cap_required_fields", coverage.blocking_fields)
-
-            split_day = prior + timedelta(days=1)
-            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
-                conn.execute(
-                    "UPDATE jquants_daily_bars SET adjustment_factor = 0.5, "
-                    "ex_right_type = '1' WHERE traded_at = ?",
-                    (split_day.isoformat(),),
-                )
-                conn.commit()
-
-            split_adjusted = read_required_field_coverage(sqlite_path, start=start, asof=asof)
-            self.assertIsNotNone(split_adjusted)
-            assert split_adjusted is not None
-            # Split normalization can align the numbers, but the later treasury row
-            # has no issued basis of its own. The production resolver fails this state
-            # closed, so the coverage gate must not certify it as usable.
-            self.assertEqual(split_adjusted.market_cap_required_fields_tickers, 0)
-            self.assertEqual(
-                split_adjusted.blocking_fields,
-                ("market_cap_required_fields", "valuation_required_fields"),
-            )
-
-    def test_old_cross_section_repair_resumes_at_only_the_unfinished_disclosure_date(
-        self,
-    ) -> None:
-        """Completed repair dates are inferred from rows, without erasing broad coverage."""
-        asof = _COMMON_COVERAGE_ASOF
-        start = asof - timedelta(days=730)
-        first_date = asof - timedelta(days=400)
-        second_date = asof - timedelta(days=200)
-        with _complete_coverage_database() as sqlite_path:
-            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
-                conn.execute(
-                    "UPDATE jquants_fin_summaries SET disclosed_at = ?, shares_outstanding = NULL, "
-                    "treasury_shares = NULL, equity_to_asset_ratio = NULL "
-                    "WHERE ticker >= '1321' AND ticker <= '1360'",
-                    (first_date.isoformat(),),
-                )
-                conn.execute(
-                    "UPDATE jquants_fin_summaries SET disclosed_at = ?, shares_outstanding = NULL, "
-                    "treasury_shares = NULL, equity_to_asset_ratio = NULL "
-                    "WHERE ticker >= '1361'",
-                    (second_date.isoformat(),),
-                )
-                original_coverage = conn.execute(
-                    "SELECT coverage_key, coverage_start, coverage_end FROM source_coverage "
-                    "WHERE source = 'jquants_fin_summaries'"
-                ).fetchall()
-                conn.commit()
-
-            initial = plan_required_field_repair(sqlite_path, start=start, asof=asof)
-            self.assertIsNotNone(initial)
-            assert initial is not None
-            self.assertEqual(
-                initial.ranges,
-                ((first_date, first_date), (second_date, second_date)),
-            )
-
-            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
-                conn.execute(
-                    "UPDATE jquants_fin_summaries SET shares_outstanding = 10000000, "
-                    "treasury_shares = 1000000, equity_to_asset_ratio = 0.5 "
-                    "WHERE disclosed_at = ?",
-                    (first_date.isoformat(),),
-                )
-                conn.commit()
-
-            resumed = plan_required_field_repair(sqlite_path, start=start, asof=asof)
-            self.assertIsNotNone(resumed)
-            assert resumed is not None
-            self.assertEqual(resumed.ranges, ((second_date, second_date),))
-
-            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
-                preserved_coverage = conn.execute(
-                    "SELECT coverage_key, coverage_start, coverage_end FROM source_coverage "
-                    "WHERE source = 'jquants_fin_summaries'"
-                ).fetchall()
-            self.assertEqual(preserved_coverage, original_coverage)
 
     def test_current_bar_window_cannot_satisfy_normalized_split_basis(self) -> None:
         asof = date(2026, 5, 8)
@@ -1115,10 +825,14 @@ class SQLiteCoverageTests(unittest.TestCase):
                     "DELETE FROM jquants_fin_summaries WHERE ticker = ? AND disclosed_at = ?",
                     ("1301", asof.isoformat()),
                 )
-                conn.execute(
-                    "INSERT INTO jquants_fin_summaries(ticker, disclosed_at, eps_ttm) "
-                    "VALUES (?, ?, ?)",
-                    ("9999", (asof + timedelta(days=1)).isoformat(), 100.0),
+                insert_financial_record(
+                    conn,
+                    {
+                        "Code": "99990",
+                        "DiscDate": (asof + timedelta(days=1)).isoformat(),
+                        "EPS": 100.0,
+                        "DiscNo": (asof + timedelta(days=1)).isoformat(),
+                    },
                 )
                 conn.commit()
 
@@ -1337,10 +1051,15 @@ class SQLiteCoverageTests(unittest.TestCase):
                     [(f"9{index:03d}", asof.isoformat(), 100.0) for index in range(60)],
                 )
                 conn.execute("DELETE FROM jquants_fin_summaries WHERE ticker >= '1341'")
-                conn.executemany(
-                    "INSERT INTO jquants_fin_summaries(ticker, disclosed_at) VALUES (?, ?)",
-                    [(f"9{index:03d}", asof.isoformat()) for index in range(60)],
-                )
+                for index in range(60):
+                    insert_financial_record(
+                        conn,
+                        {
+                            "Code": str(f"9{index:03d}") + "0",
+                            "DiscDate": asof.isoformat(),
+                            "DiscNo": asof.isoformat(),
+                        },
+                    )
                 conn.commit()
                 issues: list[jquants_coverage.CacheCoverageIssue] = []
                 with patch(

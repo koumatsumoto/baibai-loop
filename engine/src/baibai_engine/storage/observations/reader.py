@@ -10,6 +10,7 @@ earnings calendar / JPX. EDINET reads belong to market.edinet_metrics.store.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from bisect import bisect_right
 from dataclasses import dataclass
@@ -20,7 +21,10 @@ from typing import Any, Literal
 from baibai_engine.foundation.date_utils import weekday_distance
 from baibai_engine.foundation.time import JST
 from baibai_engine.market import master_snapshot as master_contract
-from baibai_engine.market.financial_documents import project_financial_documents
+from baibai_engine.market.financial_documents import (
+    normalize_financial_summary,
+    project_financial_documents,
+)
 from baibai_engine.market.jpx_models import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
@@ -953,23 +957,23 @@ def read_financial_documents(
 ) -> list[JQuantsFinancialSummary]:
     """Read stored documents without asserting provider acquisition coverage."""
     cursor = conn.execute(
-        "SELECT * FROM jquants_fin_summaries WHERE disclosed_at BETWEEN ? AND ? "
-        "AND (? IS NULL OR ticker = ?) ORDER BY ticker, disclosed_at, disclosed_time",
+        "SELECT document_payload FROM jquants_fin_summaries "
+        "WHERE disclosed_at BETWEEN ? AND ? AND (? IS NULL OR ticker = ?) "
+        "ORDER BY ticker, disclosed_at, record_key",
         (start.isoformat(), end.isoformat(), ticker, ticker),
     )
-    columns = [item[0] for item in cursor.description]
     summaries: list[JQuantsFinancialSummary] = []
-    date_fields = {"disclosed_at", "fiscal_year_end", "period_start", "period_end"}
-    for row in cursor.fetchall():
-        values = dict(zip(columns, row, strict=True))
+    for (payload,) in cursor:
         try:
-            for field in date_fields:
-                values[field] = optional_date(values[field])
-            summaries.append(JQuantsFinancialSummary(**values))
+            record = json.loads(payload)
+            if not isinstance(record, dict):
+                raise ValueError("financial document must be a provider record")
+            summary = normalize_financial_summary(record)
+            if summary is None:
+                raise ValueError("financial document is not an eligible security")
+            summaries.append(summary)
         except (TypeError, ValueError) as exc:
-            raise JQuantsProviderError(
-                f"corrupt financial document for {values['ticker']}: {exc}"
-            ) from exc
+            raise JQuantsProviderError(f"corrupt financial document: {exc}") from exc
     return project_financial_documents(summaries, end)
 
 

@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.helpers.screening_sqlite import insert_financial_record
+
 from baibai_engine.market import store as market_store
 from baibai_engine.position.market_source import (
     next_order_session,
@@ -229,14 +231,15 @@ def test_latest_disclosure_dates_after_excludes_the_boundary_day(tmp_path: Path)
     database = tmp_path / "market.sqlite"
     connection = open_connection(database)
     try:
-        connection.executemany(
-            "INSERT INTO jquants_fin_summaries(ticker, disclosed_at) VALUES (?, ?)",
-            [
-                ("2331", "2026-07-28"),
-                ("2331", "2026-07-29"),
-                ("4432", "2026-07-28"),
-            ],
-        )
+        for ticker, day in (
+            ("2331", "2026-07-28"),
+            ("2331", "2026-07-29"),
+            ("4432", "2026-07-28"),
+        ):
+            insert_financial_record(
+                connection,
+                {"Code": f"{ticker}0", "DiscDate": day, "DiscNo": f"{ticker}-{day}"},
+            )
         connection.commit()
     finally:
         connection.close()

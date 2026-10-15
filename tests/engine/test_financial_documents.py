@@ -19,7 +19,6 @@ from baibai_engine.market.financial_documents import (
 )
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.screening.rule_config import load_screening_rules
-from baibai_engine.screening.sqlite_coverage.required_fields import required_field_coverage
 from baibai_engine.storage.observations.ingest.jquants import store_jquants_fin_summaries
 from baibai_engine.storage.observations.reader import read_fin_summaries, read_financial_documents
 from baibai_engine.storage.observations.schema import open_connection
@@ -125,10 +124,12 @@ def test_document_streams_keep_zero_and_income_source(tmp_path: Path) -> None:
     assert stored[0].eps_ttm == 33.3
     assert db.read_bytes() == before
     with closing(sqlite3.connect(db)) as conn, conn:
-        values = conn.execute(
-            "SELECT forecast_eps, forecast_profit, forecast_ordinary_profit, dps_forecast_annual FROM jquants_fin_summaries"
-        ).fetchall()
-    assert values == [(None, None, None, None)] * 4
+        values = conn.execute("SELECT document_payload FROM jquants_fin_summaries").fetchall()
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(jquants_fin_summaries)")}
+    assert columns == {"ticker", "disclosed_at", "record_key", "document_payload"}
+    assert {json.loads(row[0])["DiscNo"]: json.loads(row[0]) for row in values} == {
+        record["DiscNo"]: record for record in records
+    }
 
 
 def test_asof_excludes_later_revision() -> None:
@@ -282,15 +283,8 @@ def test_same_time_different_docs_cannot_supply_capital_pair(tmp_path: Path) -> 
     store_jquants_fin_summaries(db, records, requested_start=date(2026, 9, 14), requested_end=ASOF)
     conn = open_connection(db)
     try:
-        conn.execute(
-            "INSERT INTO jquants_master_snapshots(snapshot_date,ticker,name,market,sector_33,is_common_stock) VALUES (?,?,?,?,?,?)",
-            (ASOF.isoformat(), "9999", "constructed", "STANDARD", "情報・通信業", 1),
-        )
         rows = read_financial_documents(conn, start=date(2026, 9, 14), end=ASOF)
         assert _resolve_capital_basis(rows).shares_ex_treasury is None
-        coverage = required_field_coverage(conn, start=date(2026, 9, 14), asof=ASOF)
-        assert coverage.population_tickers == 1
-        assert coverage.market_cap_required_fields_tickers == 0
     finally:
         conn.close()
 
@@ -328,7 +322,7 @@ def test_financial_lake_contract_roundtrip_preserves_documents(
             producer_git_commit="a" * 40,
             created_at=datetime(2026, 10, 14, tzinfo=UTC),
         )
-    assert exported.manifest.contract_version == 2
+    assert exported.manifest.contract_version == 3
     validate_snapshot_parity(sqlite_path=db, mirror_root=mirror, manifest=exported.manifest)
     release_path, manifest = create_l1_release(
         dataset_manifest_paths=[exported.manifest_path],
@@ -341,7 +335,7 @@ def test_financial_lake_contract_roundtrip_preserves_documents(
         source, manifest.release_id, manifest_sha256=sha256(release_path.read_bytes()).hexdigest()
     )
     destination = tmp_path / "arrived.sqlite"
-    # Hydration fills typed rows; source coverage belongs to the store skeleton.
+    # Hydration preserves source records; coverage belongs to the store skeleton.
     source_conn = sqlite3.connect(db)
     destination_conn = sqlite3.connect(destination)
     try:
@@ -772,3 +766,42 @@ def test_reversed_financial_range_does_not_create_store(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="start must not follow end"):
         store_jquants_fin_summaries(db, [], requested_start=ASOF, requested_end=date(2026, 8, 10))
     assert not db.exists()
+
+
+def test_financial_store_keeps_uninterpreted_provider_fields(tmp_path: Path) -> None:
+    db = tmp_path / "market.sqlite"
+    record = document(
+        "all-fields",
+        EPS="not-a-number",
+        ShOutFY="",
+        FEPS="0",
+        NxFEPS="20",
+        ProviderExtraField="uninterpreted",
+    )
+    store_jquants_fin_summaries(
+        db, [record], requested_start=date(2026, 9, 14), requested_end=ASOF
+    )
+    with closing(sqlite3.connect(db)) as conn:
+        payload = conn.execute("SELECT document_payload FROM jquants_fin_summaries").fetchone()[0]
+    assert json.loads(payload) == record
+    rows = read_fin_summaries(db, date(2026, 9, 14), ASOF)
+    assert rows is not None
+    assert rows[0].eps_ttm is None
+    assert rows[0].shares_outstanding is None
+    assert rows[0].forecast_eps == 0
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_conflicting_same_document_identity_preserves_store(tmp_path, reverse):
+    db = tmp_path / "market.sqlite"
+    start = date(2026, 9, 14)
+    store_jquants_fin_summaries(
+        db, [document("held", FEPS="10")], requested_start=start, requested_end=ASOF
+    )
+    before = db.read_bytes()
+    records = [document("duplicate", FEPS="20"), document("duplicate", FEPS="30")]
+    if reverse:
+        records.reverse()
+    with pytest.raises(ValueError, match="conflicting financial document identity"):
+        store_jquants_fin_summaries(db, records, requested_start=start, requested_end=ASOF)
+    assert db.read_bytes() == before

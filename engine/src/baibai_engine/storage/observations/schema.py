@@ -23,7 +23,7 @@ from baibai_engine.external_assessment.observations.contract import (
 )
 from baibai_engine.external_assessment.tradingview.contract import DDL as TV_DDL
 
-SQLITE_SCHEMA_VERSION = 33
+SQLITE_SCHEMA_VERSION = 34
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
 # EDINET serves a filing's descriptive columns only while its public-inspection period
@@ -101,50 +101,8 @@ CREATE INDEX IF NOT EXISTS idx_jquants_daily_bars_traded_at
 CREATE TABLE IF NOT EXISTS jquants_fin_summaries(
   ticker TEXT NOT NULL,
   disclosed_at TEXT NOT NULL,
-  forecast_eps REAL,
-  eps_ttm REAL,
-  bps REAL,
-  shares_outstanding REAL,
-  sales REAL,
-  cfo REAL,
-  cash_eq REAL,
-  total_assets REAL,
-  equity REAL,
-  operating_profit REAL,
-  ordinary_profit REAL,
-  profit REAL,
-  forecast_profit REAL,
-  forecast_ordinary_profit REAL,
-  fiscal_period TEXT,
-  fiscal_year_end TEXT,
-  period_start TEXT,
-  period_end TEXT,
-  dps_actual_annual REAL,
-  dps_forecast_annual REAL,
-  -- 期末自己株式数と、開示された自己資本比率。`shares_outstanding` は自己株式を含む
-  -- 発行済株式総数、`equity` は非支配株主持分を含む純資産なので、時価総額と自己資本
-  -- 比率をそれぞれ正しい分母で作るには両方が要る。
-  treasury_shares REAL,
-  equity_to_asset_ratio REAL,
-  -- 支払ごとの 1 株当たり配当と、通期に支払った配当の総額 (円)。年間 DPS は中間・期末
-  -- それぞれの基準日時点の株式基準で記載されるので、分割・併合を跨いだ年度は株価と同じ
-  -- 基準か言えない。支払ごとに持てば、各支払の基準日 (四半期末) より後の調整だけを掛けて
-  -- as-of 基準へ寄せられる。総額は円なので株式基準を持たず、自己株式を除いた株式数で
-  -- 割った値がその換算の独立した照合になる。
-  dividend_q1 REAL,
-  dividend_interim REAL,
-  dividend_q3 REAL,
-  dividend_year_end REAL,
-  dividend_total_annual REAL,
-  -- 期中平均株式数。提出者が EPS を出すのに使った株数そのもので、期末発行済と自己株から
-  -- 引いた株数が壊れていないかを同じ行の中で照合できる。`shares_outstanding` は期末の
-  -- 発行済総数で、両者は別の量なので独立した列で持つ。
-  average_shares REAL,
-  record_key TEXT NOT NULL DEFAULT 'legacy',
-  disclosure_number TEXT,
-  disclosed_time TEXT,
-  document_type TEXT,
-  document_payload TEXT,
+  record_key TEXT NOT NULL,
+  document_payload TEXT NOT NULL,
   PRIMARY KEY (ticker, disclosed_at, record_key)
 );
 

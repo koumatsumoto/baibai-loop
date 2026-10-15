@@ -8,7 +8,7 @@ from datetime import date
 from pathlib import Path
 
 import pytest
-from tests.helpers.screening_sqlite import add_source_coverage
+from tests.helpers.screening_sqlite import add_source_coverage, insert_financial_record
 
 from baibai_batch.storage.merge_market_store import (
     ALL_TABLES,
@@ -69,9 +69,14 @@ def _add_coverage(
 def _add_fin_summary(path: Path, *, ticker: str = "1301", disclosed_at: str = "2020-02-07") -> None:
     conn = open_connection(path)
     try:
-        conn.execute(
-            "INSERT INTO jquants_fin_summaries(ticker, disclosed_at, sales) VALUES (?, ?, 100.0)",
-            (ticker, disclosed_at),
+        insert_financial_record(
+            conn,
+            {
+                "Code": f"{ticker}0",
+                "DiscDate": disclosed_at,
+                "DiscNo": f"{ticker}-{disclosed_at}",
+                "Sales": 100.0,
+            },
         )
         conn.commit()
     finally:

@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
-from tests.helpers.screening_sqlite import make_master_records
+from tests.helpers.screening_sqlite import insert_financial_record, make_master_records
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.market.jquants_decode import JQuantsProviderError
@@ -65,10 +65,9 @@ class _BootstrapJQuants:
         end: date,
         *,
         revision_overlap_days: int,
-        repair_ranges=(),
         progress=None,
     ) -> int:
-        del start, revision_overlap_days, repair_ranges
+        del start, revision_overlap_days
         with closing(open_connection(self.sqlite_path)) as conn, conn:
             tickers = [
                 str(row[0])
@@ -78,12 +77,18 @@ class _BootstrapJQuants:
                     (end.isoformat(),),
                 )
             ]
-            conn.executemany(
-                "INSERT OR REPLACE INTO jquants_fin_summaries("
-                "ticker, disclosed_at, shares_outstanding, treasury_shares, "
-                "equity_to_asset_ratio) VALUES (?, ?, ?, ?, ?)",
-                [(ticker, end.isoformat(), 10_000_000.0, 1_000_000.0, 0.5) for ticker in tickers],
-            )
+            for ticker in tickers:
+                insert_financial_record(
+                    conn,
+                    {
+                        "Code": f"{ticker}0",
+                        "DiscDate": end.isoformat(),
+                        "DiscNo": f"{ticker}-{end.isoformat()}",
+                        "ShOutFY": 10_000_000.0,
+                        "TrShFY": 1_000_000.0,
+                        "EqAR": 0.5,
+                    },
+                )
             conn.commit()
         if progress is not None:
             progress(1, 1, end, end)

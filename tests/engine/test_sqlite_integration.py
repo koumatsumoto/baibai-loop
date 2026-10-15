@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 
-from tests.helpers.screening_sqlite import add_source_coverage
+from tests.helpers.screening_sqlite import add_source_coverage, insert_financial_record
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.market.providers.edinet import EDINETProvider
@@ -108,68 +108,47 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
             max_date=history_end.isoformat(),
         )
 
-        # Fin summaries: current rows plus three consecutive FY rows for normalized PER.
+        # Construct source documents, not precomputed financial columns.
         fin_rows = [
-            *[
-                (
-                    ticker,
-                    (asof - timedelta(days=365 * years_ago - 30)).isoformat(),
-                    None,
-                    eps,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    "FY",
-                    date(asof.year - years_ago, 3, 31).isoformat(),
-                    None,
-                    None,
-                )
-                for years_ago, eps in ((3, 10.0), (2, 20.0), (1, 30.0))
-            ],
-            (
-                ticker,
-                (asof - timedelta(days=120)).isoformat(),
-                20.0,
-                15.0,
-                120.0,
-                400_000_000.0,
-                1000.0,
-                100.0,
-                None,
-                None,
-                "Q4",
-                None,
-                None,
-                None,
-            ),
-            (
-                ticker,
-                (asof - timedelta(days=15)).isoformat(),
-                22.0,
-                18.0,
-                130.0,
-                400_000_000.0,
-                1100.0,
-                110.0,
-                None,
-                None,
-                "Q1",
-                None,
-                None,
-                None,
-            ),
+            {
+                "Code": f"{ticker}0",
+                "DiscDate": (asof - timedelta(days=365 * years_ago - 30)).isoformat(),
+                "DiscNo": f"fy-{asof.year - years_ago}",
+                "DiscTime": "15:00:00",
+                "DocType": "FYFinancialStatements_Consolidated_JP",
+                "CurPerType": "FY",
+                "CurFYSt": date(asof.year - years_ago - 1, 4, 1).isoformat(),
+                "CurFYEn": date(asof.year - years_ago, 3, 31).isoformat(),
+                "CurPerSt": date(asof.year - years_ago - 1, 4, 1).isoformat(),
+                "CurPerEn": date(asof.year - years_ago, 3, 31).isoformat(),
+                "EPS": eps,
+            }
+            for years_ago, eps in ((3, 10.0), (2, 20.0), (1, 30.0))
         ]
-        conn.executemany(
-            "INSERT INTO jquants_fin_summaries("
-            "ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding, "
-            "sales, operating_profit, ordinary_profit, profit, "
-            "fiscal_period, fiscal_year_end, period_start, period_end"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            fin_rows,
+        fin_rows.append(
+            {
+                "Code": f"{ticker}0",
+                "DiscDate": (asof - timedelta(days=15)).isoformat(),
+                "DiscNo": "current-fy",
+                "DiscTime": "15:00:00",
+                "DocType": "FYFinancialStatements_Consolidated_JP",
+                "CurPerType": "FY",
+                "CurFYSt": date(asof.year - 1, 4, 1).isoformat(),
+                "CurFYEn": date(asof.year, 3, 31).isoformat(),
+                "CurPerSt": date(asof.year - 1, 4, 1).isoformat(),
+                "CurPerEn": date(asof.year, 3, 31).isoformat(),
+                "NxtFYSt": date(asof.year, 4, 1).isoformat(),
+                "NxtFYEn": date(asof.year + 1, 3, 31).isoformat(),
+                "EPS": 18.0,
+                "BPS": 130.0,
+                "ShOutFY": 400_000_000.0,
+                "Sales": 1100.0,
+                "OP": 110.0,
+                "NxFEPS": 22.0,
+            }
         )
+        for record in fin_rows:
+            insert_financial_record(conn, record)
         add_source_coverage(
             conn,
             source="jquants_fin_summaries",
@@ -283,7 +262,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
 
 
 class ScreeningRunOverSqliteTests(unittest.TestCase):
-    def test_run_command_succeeds_using_only_sqlite_cache(self) -> None:
+    def test_run_command_publishes_using_only_sqlite_cache(self) -> None:
         asof = date(2026, 4, 24)
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace = Path(tmpdir)

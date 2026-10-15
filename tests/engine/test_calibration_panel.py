@@ -16,6 +16,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 
 from tests.helpers.screening_sqlite import (
+    insert_financial_record,
     CALIBRATION_FIXTURE_ASOF,
     add_source_coverage,
     build_calibration_fixture_sqlite,
@@ -77,11 +78,15 @@ class CalibrationPanelTest(unittest.TestCase):
             build_calibration_fixture_sqlite(sqlite_path)
             conn = open_connection(sqlite_path)
             try:
-                conn.execute(
-                    "INSERT OR REPLACE INTO jquants_fin_summaries("
-                    "ticker, disclosed_at, eps_ttm, fiscal_period"
-                    ") VALUES (?, ?, ?, ?)",
-                    ("9001", "2016-08-01", 1.0, "FY"),
+                insert_financial_record(
+                    conn,
+                    {
+                        "Code": "90010",
+                        "DiscDate": "2016-08-01",
+                        "EPS": 1.0,
+                        "CurPerType": "FY",
+                        "DiscNo": "2016-08-01",
+                    },
                 )
                 conn.commit()
             finally:
@@ -480,36 +485,33 @@ class CalibrationPanelTest(unittest.TestCase):
             build_calibration_fixture_sqlite(sqlite_path)
             conn = open_connection(sqlite_path)
             try:
-                conn.executemany(
-                    "INSERT INTO jquants_fin_summaries("
-                    "ticker, disclosed_at, shares_outstanding, fiscal_period, fiscal_year_end, "
-                    "period_start, period_end, dps_actual_annual, dps_forecast_annual"
-                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    [
-                        (
-                            "9001",
-                            "2024-05-10",
-                            102_000_000.0,
-                            "FY",
-                            "2024-03-31",
-                            "2023-04-01",
-                            "2024-03-31",
-                            3.0,
-                            3.0,
-                        ),
-                        (
-                            "9001",
-                            "2025-05-10",
-                            101_000_000.0,
-                            "FY",
-                            "2025-03-31",
-                            "2024-04-01",
-                            "2025-03-31",
-                            3.5,
-                            3.5,
-                        ),
-                    ],
-                )
+                for record in [
+                    {
+                        "Code": "90010",
+                        "DiscDate": "2024-05-10",
+                        "ShOutFY": 102000000.0,
+                        "CurPerType": "FY",
+                        "CurFYEn": "2024-03-31",
+                        "CurPerSt": "2023-04-01",
+                        "CurPerEn": "2024-03-31",
+                        "DivAnn": 3.0,
+                        "FDivAnn": 3.0,
+                        "DiscNo": "2024-05-10",
+                    },
+                    {
+                        "Code": "90010",
+                        "DiscDate": "2025-05-10",
+                        "ShOutFY": 101000000.0,
+                        "CurPerType": "FY",
+                        "CurFYEn": "2025-03-31",
+                        "CurPerSt": "2024-04-01",
+                        "CurPerEn": "2025-03-31",
+                        "DivAnn": 3.5,
+                        "FDivAnn": 3.5,
+                        "DiscNo": "2025-05-10",
+                    },
+                ]:
+                    insert_financial_record(conn, record)
                 add_source_coverage(
                     conn,
                     source="jquants_fin_summaries",
@@ -557,44 +559,42 @@ class CalibrationPanelTest(unittest.TestCase):
                     ") VALUES (?, ?, ?, ?, ?, ?)",
                     ("2026-06-01", "9003", "併合銘柄", "スタンダード", "サービス業", 1),
                 )
-                conn.executemany(
-                    "INSERT OR REPLACE INTO jquants_fin_summaries("
-                    "ticker, disclosed_at, shares_outstanding, treasury_shares, fiscal_period, "
-                    "fiscal_year_end, period_start, period_end"
-                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    [
-                        (
-                            "9003",
-                            "2024-05-10",
-                            100_000_000.0,
-                            0.0,
-                            "FY",
-                            "2024-03-31",
-                            "2023-04-01",
-                            "2024-03-31",
-                        ),
-                        (
-                            "9003",
-                            "2025-05-10",
-                            100_000_000.0,
-                            0.0,
-                            "FY",
-                            "2025-03-31",
-                            "2024-04-01",
-                            "2025-03-31",
-                        ),
-                        (
-                            "9003",
-                            "2026-05-10",
-                            1_000_000.0,
-                            0.0,
-                            "FY",
-                            "2026-03-31",
-                            "2025-04-01",
-                            "2026-03-31",
-                        ),
-                    ],
-                )
+                for record in [
+                    {
+                        "Code": "90030",
+                        "DiscDate": "2024-05-10",
+                        "ShOutFY": 100000000.0,
+                        "TrShFY": 0.0,
+                        "CurPerType": "FY",
+                        "CurFYEn": "2024-03-31",
+                        "CurPerSt": "2023-04-01",
+                        "CurPerEn": "2024-03-31",
+                        "DiscNo": "2024-05-10",
+                    },
+                    {
+                        "Code": "90030",
+                        "DiscDate": "2025-05-10",
+                        "ShOutFY": 100000000.0,
+                        "TrShFY": 0.0,
+                        "CurPerType": "FY",
+                        "CurFYEn": "2025-03-31",
+                        "CurPerSt": "2024-04-01",
+                        "CurPerEn": "2025-03-31",
+                        "DiscNo": "2025-05-10",
+                    },
+                    {
+                        "Code": "90030",
+                        "DiscDate": "2026-05-10",
+                        "ShOutFY": 1000000.0,
+                        "TrShFY": 0.0,
+                        "CurPerType": "FY",
+                        "CurFYEn": "2026-03-31",
+                        "CurPerSt": "2025-04-01",
+                        "CurPerEn": "2026-03-31",
+                        "DiscNo": "2026-05-10",
+                    },
+                ]:
+                    insert_financial_record(conn, record)
                 add_source_coverage(
                     conn,
                     source="jquants_fin_summaries",
@@ -660,24 +660,20 @@ class CalibrationPanelTest(unittest.TestCase):
             )
             conn = open_connection(sqlite_path)
             try:
-                conn.executemany(
-                    "INSERT INTO jquants_fin_summaries("
-                    "ticker, disclosed_at, eps_ttm, fiscal_period, fiscal_year_end, "
-                    "period_start, period_end"
-                    ") VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    [
-                        (
-                            "9001",
-                            f"{year}-05-10",
-                            eps,
-                            "FY",
-                            f"{year}-03-31",
-                            f"{year - 1}-04-01",
-                            f"{year}-03-31",
-                        )
-                        for year, eps in ((2022, 40.0), (2023, 20.0), (2024, 20.0), (2025, 20.0))
-                    ],
-                )
+                for (year, eps) in ((2022, 40.0), (2023, 20.0), (2024, 20.0), (2025, 20.0)):
+                    insert_financial_record(
+                        conn,
+                        {
+                            "Code": "90010",
+                            "DiscDate": f"{year}-05-10",
+                            "EPS": eps,
+                            "CurPerType": "FY",
+                            "CurFYEn": f"{year}-03-31",
+                            "CurPerSt": f"{year - 1}-04-01",
+                            "CurPerEn": f"{year}-03-31",
+                            "DiscNo": f"{year}-05-10",
+                        },
+                    )
                 conn.executemany(
                     "INSERT OR REPLACE INTO jquants_daily_bars("
                     "ticker, traded_at, close, adjustment_factor, ex_right_type"

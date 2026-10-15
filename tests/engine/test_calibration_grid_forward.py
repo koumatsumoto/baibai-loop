@@ -9,6 +9,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
+from tests.helpers.screening_sqlite import insert_financial_record
+
 from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 from baibai_engine.screening.calibration.forward import (
@@ -259,21 +261,19 @@ class ForwardReturnTest(unittest.TestCase):
                         ("1000", "2021-02-01", 100.0, 1.0, None),
                     ],
                 )
-                conn.execute(
-                    "INSERT INTO jquants_fin_summaries("
-                    "ticker, disclosed_at, fiscal_period, fiscal_year_end, period_start, "
-                    "dps_actual_annual, dividend_q1, dividend_interim"
-                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        "1000",
-                        "2020-05-12",
-                        "FY",
-                        "2020-03-31",
-                        "2019-04-01",
-                        75.0,
-                        50.0,
-                        25.0,
-                    ),
+                insert_financial_record(
+                    conn,
+                    {
+                        "Code": "10000",
+                        "DiscNo": "dividends-2020",
+                        "DiscDate": "2020-05-12",
+                        "CurPerType": "FY",
+                        "CurFYEn": "2020-03-31",
+                        "CurPerSt": "2019-04-01",
+                        "DivAnn": 75.0,
+                        "Div1Q": 50.0,
+                        "Div2Q": 25.0,
+                    },
                 )
                 conn.commit()
             finally:
@@ -338,11 +338,16 @@ class ForwardReturnTest(unittest.TestCase):
                         ("1000", "2026-02-02", 1000.0, 1.0, None),
                     ],
                 )
-                conn.execute(
-                    "INSERT INTO jquants_fin_summaries("
-                    "ticker, disclosed_at, fiscal_period, fiscal_year_end, dps_actual_annual"
-                    ") VALUES (?, ?, ?, ?, ?)",
-                    ("1000", "2025-05-15", "FY", "2025-02-28", 60.0),
+                insert_financial_record(
+                    conn,
+                    {
+                        "Code": "10000",
+                        "DiscNo": "dividends-2025",
+                        "DiscDate": "2025-05-15",
+                        "CurPerType": "FY",
+                        "CurFYEn": "2025-02-28",
+                        "DivAnn": 60.0,
+                    },
                 )
                 conn.commit()
             finally:
@@ -387,13 +392,19 @@ class ForwardReturnTest(unittest.TestCase):
                         ]
                         if reverse:
                             records.reverse()
-                        conn.executemany(
-                            "INSERT INTO jquants_fin_summaries("
-                            "ticker, record_key, disclosed_at, disclosed_time, fiscal_period, "
-                            "fiscal_year_end, dps_actual_annual"
-                            ") VALUES ('1000', ?, '2025-05-15', ?, 'FY', '2025-03-31', ?)",
-                            records,
-                        )
+                        for number, disclosed_time, dps in records:
+                            insert_financial_record(
+                                conn,
+                                {
+                                    "Code": "10000",
+                                    "DiscNo": number,
+                                    "DiscDate": "2025-05-15",
+                                    "DiscTime": disclosed_time,
+                                    "CurPerType": "FY",
+                                    "CurFYEn": "2025-03-31",
+                                    "DivAnn": dps,
+                                },
+                            )
                         observations = _load_fy_dividends(conn, "1000", cutoff=date(2025, 5, 15))
                         self.assertEqual(len(observations), 1)
                         self.assertEqual(observations[0].dps_actual_annual, expected)

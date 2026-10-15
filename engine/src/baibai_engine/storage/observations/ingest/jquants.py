@@ -8,7 +8,10 @@ from math import isfinite
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.market.financial_documents import normalize_financial_summary
+from baibai_engine.market.financial_documents import (
+    financial_document_key,
+    financial_document_payload,
+)
 from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.margin_publication import (
     require_all_issues_daily_balance_date,
@@ -91,21 +94,9 @@ def store_jquants_fin_summaries(
         if rows:
             conn.executemany(
                 """
-                INSERT OR REPLACE INTO jquants_fin_summaries(
-                  ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding,
-                  sales, cfo, cash_eq, total_assets, equity, operating_profit, ordinary_profit,
-                  profit, forecast_profit, forecast_ordinary_profit,
-                  fiscal_period, fiscal_year_end, period_start, period_end,
-                  dps_actual_annual, dps_forecast_annual,
-                  treasury_shares, equity_to_asset_ratio,
-                  dividend_q1, dividend_interim, dividend_q3, dividend_year_end,
-                  dividend_total_annual, average_shares, record_key, disclosure_number,
-                  disclosed_time,
-                  document_type, document_payload
-                ) VALUES (
-                  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-                )
+                INSERT INTO jquants_fin_summaries(
+                  ticker, disclosed_at, record_key, document_payload
+                ) VALUES (?, ?, ?, ?)
                 """,
                 rows,
             )
@@ -787,6 +778,7 @@ def store_jquants_master(
 
 def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> NormalizedRows:
     rows: list[tuple[Any, ...]] = []
+    seen: dict[tuple[str, str, str], str] = {}
     rejected_count = 0
     excluded_count = 0
     for record in records:
@@ -803,50 +795,15 @@ def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> Norm
         if ticker is None or disclosed_at is None:
             rejected_count += 1
             continue
-        summary = normalize_financial_summary(record)
-        if summary is None:
-            excluded_count += 1
+        disclosed_at = date.fromisoformat(disclosed_at).isoformat()
+        # Store provider fields, not selected forecasts or a second numeric truth.
+        # Source record JSON is not the original HTTP response or Bulk CSV bytes.
+        key = (ticker, disclosed_at, financial_document_key(record))
+        payload = financial_document_payload(record)
+        if key in seen:
+            if seen[key] != payload:
+                raise ValueError(f"conflicting financial document identity: {key}")
             continue
-        columns = (
-            "ticker",
-            "disclosed_at",
-            "forecast_eps",
-            "eps_ttm",
-            "bps",
-            "shares_outstanding",
-            "sales",
-            "cfo",
-            "cash_eq",
-            "total_assets",
-            "equity",
-            "operating_profit",
-            "ordinary_profit",
-            "profit",
-            "forecast_profit",
-            "forecast_ordinary_profit",
-            "fiscal_period",
-            "fiscal_year_end",
-            "period_start",
-            "period_end",
-            "dps_actual_annual",
-            "dps_forecast_annual",
-            "treasury_shares",
-            "equity_to_asset_ratio",
-            "dividend_q1",
-            "dividend_interim",
-            "dividend_q3",
-            "dividend_year_end",
-            "dividend_total_annual",
-            "average_shares",
-            "record_key",
-            "disclosure_number",
-            "disclosed_time",
-            "document_type",
-            "document_payload",
-        )
-        values = []
-        for column in columns:
-            value = getattr(summary, column)
-            values.append(value.isoformat() if isinstance(value, date) else value)
-        rows.append(tuple(values))
+        seen[key] = payload
+        rows.append((*key, payload))
     return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
