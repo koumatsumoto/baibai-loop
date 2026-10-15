@@ -360,3 +360,41 @@ def test_outcome_cli_requires_an_imported_application_db_ledger(
 
     assert main(["outcome", "--root", str(tmp_path), "--benchmark-observation", "topix.yaml"]) == 2
     assert "ledger has not been imported" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("replay_time", ["00:00:00", "16:00:00", "23:59:59"])
+def test_date_only_outcome_is_independent_of_internal_replay_time(replay_time: str) -> None:
+    raw = _ledger().model_dump(mode="json")
+    for event in raw["events"]:
+        day = event["occurred_at"][:10]
+        event["occurred_on"] = day
+        event["occurred_at"] = f"{day}T{replay_time}+09:00"
+    raw["as_of"] = "2026-01-06T23:59:59+09:00"
+    ledger = PortfolioLedgerDocument.model_validate(raw)
+    days = (date(2025, 1, 6), date(2026, 1, 6))
+    bars = (
+        JQuantsDailyBar("1234", days[0], 5.0, None, adjustment_factor=1.0),
+        JQuantsDailyBar("1234", days[1], 6.0, None, adjustment_factor=1.0),
+    )
+    expected = compute_portfolio_outcome(_ledger(), _benchmark(), business_days=days, bars=bars)
+    actual = compute_portfolio_outcome(ledger, _benchmark(), business_days=days, bars=bars)
+    assert actual == expected
+    assert actual.status == "resolved"
+    assert actual.confirmed_income_yen == 20
+    assert actual.confirmed_cost_yen == 10
+    assert actual.confirmed_tax_yen == 2
+
+
+def test_date_only_release_uses_reported_day_even_with_evening_replay_key() -> None:
+    raw = _lapsed_reservation_ledger().model_dump(mode="json")
+    raw["events"][-1]["occurred_on"] = "2026-01-06"
+    result = compute_portfolio_outcome(
+        PortfolioLedgerDocument.model_validate(raw),
+        _benchmark(),
+        business_days=(date(2025, 1, 6), date(2026, 1, 5), date(2026, 1, 6)),
+        bars=(),
+    )
+    assert result.status == "resolved"
+    assert result.portfolio_twr_pct == pytest.approx(0)
+    assert result.ending_cash_yen == 1_000_000
+    assert result.ending_reserved_cash_yen == 0

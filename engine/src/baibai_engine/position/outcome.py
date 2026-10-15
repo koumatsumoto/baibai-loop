@@ -128,12 +128,16 @@ def compute_portfolio_outcome(
     opening = next(
         (event for event in ledger.events if isinstance(event, OpeningBalanceEvent)), None
     )
-    if opening is None or opening.occurred_at > _close_instant(start):
+    if opening is None or (
+        opening.occurred_on > start
+        if opening.occurred_on is not None
+        else opening.occurred_at > _close_instant(start)
+    ):
         return _unresolved(benchmark, "insufficient_portfolio_history")
 
     bars_by_ticker_day = {(bar.ticker, bar.traded_at): bar for bar in bars}
     effective_event_dates = tuple(
-        _effective_date_for_period(event.occurred_at, business_days, start=start, end=end)
+        _effective_date_for_period(event, business_days, start=start, end=end)
         for event in ledger.events
     )
     navs: list[DailyNav] = []
@@ -147,7 +151,11 @@ def compute_portfolio_outcome(
         # No expiry check here: this prefix ends wherever the valuation day falls, so a
         # reservation lapsing that session with its release reported that evening is the
         # ordinary shape of the ledger at this instant, not a ledger awaiting a human.
-        state = replay_events_through(selected, _close_instant(valuation_day))
+        # Date-only facts are selected by their reported day. Their internal ordering
+        # keys may be after the close and must not impose a second clock-time filter.
+        state = replay_events_through(
+            selected, datetime.combine(valuation_day, time.max, tzinfo=_TOKYO)
+        )
         prices: dict[str, MarketPrice] = {}
         for ticker, lots in state.lots.items():
             if not any(lot.quantity > 0 for lot in lots):
@@ -285,28 +293,30 @@ def _unresolved(benchmark: BenchmarkObservation, reason: str) -> PortfolioOutcom
     )
 
 
-def _effective_date(instant: datetime, business_days: tuple[date, ...]) -> date | None:
-    local = instant.astimezone(_TOKYO)
-    event_day = local.date()
-    if event_day in business_days and local.time() > _JPX_CLOSE:
+def _effective_date(event: LedgerEvent, business_days: tuple[date, ...]) -> date | None:
+    local = event.occurred_at.astimezone(_TOKYO)
+    event_day = event.occurred_on or local.date()
+    if event.occurred_on is None and event_day in business_days and local.time() > _JPX_CLOSE:
         event_day = event_day.fromordinal(event_day.toordinal() + 1)
     return next((day for day in business_days if day >= event_day), None)
 
 
 def _effective_date_for_period(
-    instant: datetime, business_days: tuple[date, ...], *, start: date, end: date
+    event: LedgerEvent, business_days: tuple[date, ...], *, start: date, end: date
 ) -> date | None:
     """Map only in-period events to JPX BOD; keep prior state distinct.
 
+    Reported dates do not inherit a close cutoff from their internal ordering keys.
+    Exact-time facts after close still roll to the next business day.
     Events before the requested start remain part of opening NAV but cannot be
     misclassified as a start-date cash flow or confirmed period cashflow. Events
     that roll beyond period end are intentionally omitted from this outcome.
     """
 
-    local = instant.astimezone(_TOKYO)
-    if local.date() < start:
-        return local.date()
-    effective = _effective_date(instant, business_days)
+    event_day = event.occurred_on or event.occurred_at.astimezone(_TOKYO).date()
+    if event_day < start:
+        return event_day
+    effective = _effective_date(event, business_days)
     return effective if effective is not None and effective <= end else None
 
 

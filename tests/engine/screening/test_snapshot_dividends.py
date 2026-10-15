@@ -47,9 +47,9 @@ class ScreeningMetricsTests(SnapshotFixtures):
         ]
         result = build_shareholder_return_change_signals(rows, (), date(2026, 6, 24))
         self.assertIs(result.dps_guidance_up, True)
-        # as-of後の同年度訂正は6月のsignalへ混ぜず、公表後は鮮度下限を更新する。
+        # 未来の実績訂正は混ぜない。公表後も前年度の訂正で当年度予想は撤回されない。
         revised = build_shareholder_return_change_signals(rows, (), date(2026, 8, 14))
-        self.assertIsNone(revised.dps_guidance_up)
+        self.assertIs(revised.dps_guidance_up, True)
 
     def test_shareholder_return_change_builds_preregistered_components(self) -> None:
         asof = date(2026, 6, 30)
