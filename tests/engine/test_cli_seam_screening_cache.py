@@ -283,3 +283,4 @@ def test_main_invalidate_coverage_deletes_only_the_rows_overlapping_the_argv_win
         conn.close()
     assert [row[0] for row in remaining] == ["2025-01"]
     assert "invalidate-coverage: removing 1 source_coverage row(s)" in result.stdout
+    assert "stored observations unchanged" in result.stdout

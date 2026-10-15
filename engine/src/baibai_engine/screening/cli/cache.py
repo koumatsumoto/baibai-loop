@@ -109,17 +109,13 @@ def invalidate_coverage_command(
     end: date | None = None,
     stdout: TextIO | None = None,
 ) -> int:
-    """Delete a source's coverage rows so the next bootstrap-cache refetches it.
+    """Invalidate fetch coverage without deleting the stored observations.
 
-    `source_coverage` gates read-through re-fetching: a complete window is never
-    re-fetched. A migration that cannot backfill existing rows needs those rows
-    re-pulled, so this removes the coverage bookkeeping (the cache is rebuildable)
-    and the next `bootstrap-cache --asof` requests it again. Success still depends
-    on provider retention, the active plan, and availability. With `--start`/`--end`
-    only windows overlapping that range are removed; without them the whole source
-    is invalidated. The target row count is printed before the delete. This command removes
-    coverage only, not stored observations; it does not guarantee that historical
-    observations can be downloaded again.
+    Sources governed by coverage windows will be fetched again when required.
+    Sources that reuse actual observations, including daily bars, can still use
+    those observations; this command is not a forced refresh. With start/end,
+    only overlapping coverage windows are removed. Source retention, the active
+    plan and availability determine whether a later fetch can succeed.
     """
     out = stdout if stdout is not None else sys.stdout
     if (start is None) != (end is None):
@@ -167,7 +163,7 @@ def invalidate_coverage_command(
     finally:
         conn.close()
     print(
-        "invalidate-coverage done; run `bootstrap-cache --asof` to refetch the source",
+        "invalidate-coverage done; stored observations unchanged",
         file=out,
     )
     return 0

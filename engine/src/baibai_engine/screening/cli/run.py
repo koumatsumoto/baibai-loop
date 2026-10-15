@@ -91,7 +91,7 @@ def run_command(
     ):
         print(
             "JPX regulation cache is missing for a stale backfill; "
-            "rerun with --allow-stale-jpx to fetch the latest JPX snapshot explicitly",
+            "populate the cache first; --allow-stale-jpx only relaxes freshness checks",
             file=sys.stderr,
         )
         return 1

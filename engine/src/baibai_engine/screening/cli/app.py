@@ -246,7 +246,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     invalidate_parser = subparsers.add_parser(
         "invalidate-coverage",
-        help="delete source_coverage rows so the next bootstrap-cache refetches a source",
+        help="invalidate fetch coverage without deleting stored observations",
     )
     invalidate_parser.add_argument(
         "--source",
@@ -376,7 +376,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "resolve forward windows from market closes alone, leaving delisted names to "
-            "the imputation bracket; regenerates the comparison baseline"
+            "sensitivity scenarios; regenerates the comparison baseline"
         ),
     )
     calibration_build_parser.add_argument(
