@@ -21,7 +21,7 @@ def read_master_snapshot(path: Path, *, as_of: date) -> MasterSnapshot | None:
         "SELECT snapshot_date, ticker, name, market, sector_33, is_common_stock "
         "FROM jquants_master_snapshots WHERE snapshot_date = ("
         "SELECT MAX(snapshot_date) FROM jquants_master_snapshots "
-        "WHERE snapshot_date != 'unknown' AND snapshot_date <= ?) ORDER BY ticker",
+        "WHERE snapshot_date <= ?) ORDER BY ticker",
         (as_of.isoformat(),),
     )
     if not rows:
