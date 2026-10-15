@@ -20,7 +20,7 @@ import io
 import re
 import sqlite3
 import zipfile
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -108,6 +108,7 @@ class TenderOfferExitSummary:
     delisting_count: int
     candidate_delisting_count: int
     resolved_count: int
+    # Provider payloads received, including archives that cannot be decoded.
     downloaded_document_count: int
     rejection_reason_counts: Mapping[str, int]
 
@@ -255,17 +256,23 @@ def build_tender_offer_exit_values(
     exits: list[TenderOfferExitValue] = []
     reasons: dict[str, int] = {}
     downloads = 0
+
+    def download_blocks(doc_id: str) -> Mapping[str, str]:
+        nonlocal downloads
+        content = provider.download_csv_zip(doc_id)
+        downloads += 1
+        return read_document_blocks(content)
+
     for delisting in candidates:
         case, reason = _select_case(by_target.get(delisting.ticker, ()), delisting=delisting)
         if case is None:
             reasons[reason] = reasons.get(reason, 0) + 1
             continue
         try:
-            value, used_downloads = _realize_case(case, delisting=delisting, provider=provider)
+            value = _realize_case(case, delisting=delisting, read_blocks=download_blocks)
         except TenderOfferError:
             reasons["document_unreadable"] = reasons.get("document_unreadable", 0) + 1
             continue
-        downloads += used_downloads
         if value is None:
             reasons["price_or_outcome_unreadable"] = (
                 reasons.get("price_or_outcome_unreadable", 0) + 1
@@ -289,10 +296,9 @@ def store_tender_offer_exit_values(
     """Replace the derived table wholesale: it is a function of the two sources.
 
     A derivation that established nothing does not clear a table that already holds
-    values. It reads the same as a real emptying, but the way it actually happens is a
-    run against a store whose EDINET identity columns are not filled in yet, and the
-    published copy cannot restore what it erases — the merge treats this table as owned
-    by whichever store derived it last.
+    values. Missing identities or unreadable filings can produce an empty result;
+    neither proves that every stored exit value should be retracted. This table is
+    published through L1, not merged back from the machine-store copy.
     """
     connection = open_connection(sqlite_path)
     try:
@@ -304,7 +310,7 @@ def store_tender_offer_exit_values(
             if stored:
                 raise TenderOfferError(
                     f"refusing to replace {stored} exit values with an empty derivation; "
-                    "run `screening backfill-edinet-identity` and retry"
+                    "check source coverage, identity mapping and rejected documents before retrying"
                 )
         connection.execute("DELETE FROM tender_offer_exit_values")
         connection.executemany(
@@ -494,26 +500,27 @@ def _latest_offer_round(
 
 
 def _realize_case(
-    case: _Case, *, delisting: DelistingRecord, provider: TenderOfferDocumentSource
-) -> tuple[TenderOfferExitValue | None, int]:
+    case: _Case,
+    *,
+    delisting: DelistingRecord,
+    read_blocks: Callable[[str], Mapping[str, str]],
+) -> TenderOfferExitValue | None:
     """Read the final price state and the reported outcome out of the filings."""
-    downloads = 0
     outcome: bool | None = None
     result_doc_id = ""
     # A correction supersedes the result it corrects, and a correction that leaves the
     # outcome alone omits the block, so the newest document that states an outcome at
     # all is the one that holds. A present but unreadable revision blocks fallback.
     for filing in (case.result_document, *case.result_corrections)[::-1]:
-        blocks = read_document_blocks(provider.download_csv_zip(filing.doc_id))
-        downloads += 1
+        blocks = read_blocks(filing.doc_id)
         outcome = read_tender_offer_outcome(blocks)
         if outcome is not None:
             result_doc_id = filing.doc_id
             break
         if _block(blocks, _SUCCESS_BLOCK_SUFFIX) is not None:
-            return None, downloads
+            return None
     if outcome is not True:
-        return None, downloads
+        return None
 
     priced: list[tuple[float, TenderOfferFiling]] = []
     for chain in case.offers:
@@ -524,18 +531,17 @@ def _realize_case(
         cash_only: bool | None = None
         priced_filing: tuple[float, TenderOfferFiling] | None = None
         for filing in chain[::-1]:
-            blocks = read_document_blocks(provider.download_csv_zip(filing.doc_id))
-            downloads += 1
+            blocks = read_blocks(filing.doc_id)
             if cash_only is None:
                 cash_only = pays_in_cash_only(blocks)
                 if cash_only is None and _block(blocks, _FUNDING_BLOCK_SUFFIX) is not None:
-                    return None, downloads
+                    return None
             if priced_filing is None:
                 price = parse_ordinary_share_offer_price(blocks)
                 if price is not None:
                     priced_filing = (price, filing)
                 elif _block(blocks, _PRICE_BLOCK_SUFFIX) is not None:
-                    return None, downloads
+                    return None
             if priced_filing is not None and cash_only is not None:
                 break
         if priced_filing is None or cash_only is not True:
@@ -543,21 +549,18 @@ def _realize_case(
             # happen. Dropping it would let a second tier — the one whose funding names
             # a non-cash leg, or whose price the table does not state — disappear, and
             # the remaining tier would then look like the single price of the case.
-            return None, downloads
+            return None
         priced.append(priced_filing)
     if len({price for price, _ in priced}) != 1:
-        return None, downloads
+        return None
     price, filing = priced[0]
-    return (
-        TenderOfferExitValue(
-            ticker=delisting.ticker,
-            delisted_on=delisting.delisted_on,
-            offer_price_yen=price,
-            offer_doc_id=filing.doc_id,
-            result_doc_id=result_doc_id,
-            filed_on=filing.doc_date,
-        ),
-        downloads,
+    return TenderOfferExitValue(
+        ticker=delisting.ticker,
+        delisted_on=delisting.delisted_on,
+        offer_price_yen=price,
+        offer_doc_id=filing.doc_id,
+        result_doc_id=result_doc_id,
+        filed_on=filing.doc_date,
     )
 
 

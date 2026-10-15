@@ -212,6 +212,24 @@ class ControlEventExitBuildTest(unittest.TestCase):
             self.assertEqual(values[0].offer_price_yen, 1060.0)
             self.assertEqual(values[0].delisted_on, self.DELISTED_ON)
 
+    def test_download_count_survives_an_unreadable_archive(self) -> None:
+        for bad_document, expected_count in (("RES", 1), ("REG", 2)):
+            with self.subTest(bad_document=bad_document), TemporaryDirectory() as tmp:
+                sqlite_path = self._store(tmp, self._registration_and_result(), reason="公開買付け")
+                archives = {
+                    "REG": _archive({_PRICE: "株券１株につき金1,060円", _FUNDING: _CASH_ONLY}),
+                    "RES": _archive({_OUTCOME: _SUCCESS}),
+                }
+                archives[bad_document] = b"not a ZIP archive"
+                provider = _Provider(archives)
+                values, summary = build_tender_offer_exit_values(
+                    sqlite_path, provider=provider, asof=self.ASOF
+                )
+                self.assertEqual(values, ())
+                self.assertEqual(summary.rejection_reason_counts, {"document_unreadable": 1})
+                self.assertEqual(summary.downloaded_document_count, expected_count)
+                self.assertEqual(summary.downloaded_document_count, len(provider.requested))
+
     def test_a_non_candidate_delisting_mechanism_is_skipped(self) -> None:
         with TemporaryDirectory() as tmp:
             sqlite_path = self._store(tmp, self._registration_and_result(), reason="吸収合併")
@@ -858,10 +876,6 @@ class DocumentBlocksTest(unittest.TestCase):
         self.assertEqual(blocks[_OUTCOME], "成否")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class CashConsiderationTest(unittest.TestCase):
     def test_a_dash_in_the_non_cash_row_reads_as_cash_only(self) -> None:
         self.assertIs(pays_in_cash_only({_FUNDING: _CASH_ONLY}), True)
@@ -873,3 +887,7 @@ class CashConsiderationTest(unittest.TestCase):
     def test_a_funding_table_that_does_not_answer_is_unknown(self) -> None:
         self.assertIsNone(pays_in_cash_only({_FUNDING: "買付代金(円)(a)1,000"}))
         self.assertIsNone(pays_in_cash_only({}))
+
+
+if __name__ == "__main__":
+    unittest.main()

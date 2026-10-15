@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from calendar import monthrange
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -576,8 +577,10 @@ def _excel_date(value: object) -> date | None:
 
 
 def _calendar_month_end(year: int, month: int) -> date:
-    first_next = date(year + int(month == 12), month % 12 + 1, 1)
-    return first_next - timedelta(days=1)
+    try:
+        return date(year, month, monthrange(year, month)[1])
+    except ValueError as exc:
+        raise ValuationCatalystError(f"invalid TSE snapshot month: {year}-{month}") from exc
 
 
 def _cell(values: Sequence[object], index: int) -> object | None:

@@ -225,6 +225,38 @@ class TSECapitalPolicyWorkbookTest(unittest.TestCase):
         self.assertIsNone(earlier.first_disclosed_month_end)
         self.assertFalse(earlier.first_disclosure_left_censored)
 
+    def test_invalid_month_is_not_normalized_into_another_month(self) -> None:
+        for month in (0, 13):
+            with self.subTest(month=month):
+                content = _workbook(
+                    [
+                        (
+                            f"開示企業一覧（2026年{month}月末時点）",
+                            _GROUP_2026,
+                            _DETAIL_2026,
+                            [_row_2026(1301, "開示済")],
+                        )
+                    ]
+                )
+                with self.assertRaisesRegex(ValuationCatalystError, "invalid TSE snapshot month"):
+                    parse_tse_capital_policy_workbook(content)
+
+    def test_month_end_handles_leap_year_and_december(self) -> None:
+        for expected in (date(2024, 2, 29), date(2026, 12, 31)):
+            with self.subTest(expected=expected):
+                content = _workbook(
+                    [
+                        (
+                            f"開示企業一覧（{expected.year}年{expected.month}月末時点）",
+                            _GROUP_2026,
+                            _DETAIL_2026,
+                            [_row_2026(1301, "開示済")],
+                        )
+                    ]
+                )
+                (row,) = parse_tse_capital_policy_workbook(content)
+                self.assertEqual(row.snapshot_month_end, expected)
+
     def test_an_unknown_status_word_is_refused_rather_than_guessed(self) -> None:
         content = _workbook(
             [
