@@ -206,7 +206,8 @@ def test_unusable_latest_ratio_is_not_inferred_as_zero(tmp_path, ratio, notes) -
     )
     before = read_reported_short_metrics(path, date(2019, 1, 10))
     after = read_reported_short_metrics(path, date(2019, 1, 31))
-    assert before is not None and before["7203"] is not None
+    assert before is not None
+    assert before["7203"] is not None
     assert before["7203"].ratio == pytest.approx(0.006)
     assert after is not None
     assert after["7203"] is None
