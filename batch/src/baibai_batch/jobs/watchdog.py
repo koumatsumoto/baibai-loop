@@ -38,6 +38,7 @@ from baibai_batch.observability.discord import (
     Transport,
     _urllib_transport,
     deliver,
+    run_url,
     sanitize_one_line,
 )
 
@@ -332,7 +333,7 @@ def render_alert(
         if len(verdict.runs_in_window) > RUNS_SHOWN:
             lines.append(f"- +{len(verdict.runs_in_window) - RUNS_SHOWN} more")
     else:
-        lines.append("runs in window: none (the schedule did not fire)")
+        lines.append("runs in window: none")
     lines.append(f"watchdog: {sanitize_one_line(watchdog_run_url)}")
     message = "\n".join(lines)
     if len(message) > MESSAGE_MAX_CHARS:
@@ -356,14 +357,6 @@ def resolve_window_end(check_date: str, *, now: datetime) -> datetime:
     if parsed.isoformat() != check_date:
         raise WatchdogInputError("check date must use YYYY-MM-DD")
     return datetime.combine(parsed, SCHEDULED_FIRE_TIME)
-
-
-def _watchdog_run_url(env: Mapping[str, str]) -> str:
-    server = env.get("GITHUB_SERVER_URL", "https://github.com")
-    repository = env.get("GITHUB_REPOSITORY", "local/local")
-    run_id = env.get("GITHUB_RUN_ID", "0")
-    attempt = env.get("GITHUB_RUN_ATTEMPT", "1")
-    return f"{server}/{repository}/actions/runs/{run_id}/attempts/{attempt}"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -415,7 +408,7 @@ def main(
     message = render_alert(
         verdict,
         repository=env.get("GITHUB_REPOSITORY", "local/local"),
-        watchdog_run_url=_watchdog_run_url(env),
+        watchdog_run_url=run_url(env),
     )
     failure = deliver(
         env.get(WEBHOOK_ENV_VAR, ""), message, timeout=args.timeout, transport=transport

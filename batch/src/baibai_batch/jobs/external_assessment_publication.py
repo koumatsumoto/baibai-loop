@@ -17,7 +17,7 @@ from baibai_batch.storage.external_assessment_staging import (
     read_private,
     read_stages,
     read_terminal,
-    terminal_status,
+    terminal_result,
 )
 from baibai_batch.storage.lake_publish import LakePublishError, ObjectStore
 from baibai_batch.storage.publication_lease import PublicationLeaseHandle, verify_held
@@ -70,16 +70,17 @@ def receipt_date_coverage(
 def unchanged_objects(
     release: LakeFixedRelease, changed: set[tuple[str, int, int]]
 ) -> dict[str, object]:
+    changed_datasets = {name for name, _, _ in changed}
     return {
         name: [
             obj.model_dump()
             for part in manifest.partitions
-            if name not in {item[0] for item in changed}
+            if name not in changed_datasets
             or (name, part.values["year"], part.values["month"]) not in changed
             for obj in part.objects
         ]
         for name, manifest in release.dataset_manifests.items()
-        if name not in {item[0] for item in changed}
+        if name not in changed_datasets
         or any(
             (name, part.values["year"], part.values["month"]) not in changed
             for part in manifest.partitions
@@ -100,15 +101,7 @@ def publish_and_verify(
     """New publication requires the lease; sealed batches return their original receipt."""
     saved_terminal = read_terminal(store, plan)
     if saved_terminal is not None:
-        return {
-            **saved_terminal,
-            "status": terminal_status(saved_terminal),
-            "readback": "previously_verified",
-            "rows_added": 0,
-            "uploaded_bytes": 0,
-            "uploaded_objects": 0,
-            "publication_transfers": None,
-        }
+        return terminal_result(saved_terminal)
     verify_held(store, handle)
     stages = read_stages(store, plan)
     results = [stage.result for stage, _ in stages.values()]
