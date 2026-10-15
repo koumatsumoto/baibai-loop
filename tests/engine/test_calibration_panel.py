@@ -617,9 +617,9 @@ class CalibrationPanelTest(unittest.TestCase):
             try:
                 conn.execute(
                     "INSERT OR REPLACE INTO jquants_daily_bars("
-                    "ticker, traded_at, close, adjustment_factor"
-                    ") VALUES (?, ?, ?, ?)",
-                    ("9003", "2025-06-02", None, 100.0),
+                    "ticker, traded_at, close, adjustment_factor, ex_right_type"
+                    ") VALUES (?, ?, ?, ?, ?)",
+                    ("9003", "2025-06-02", None, 100.0, "2"),
                 )
                 conn.commit()
             finally:
@@ -631,7 +631,7 @@ class CalibrationPanelTest(unittest.TestCase):
             conn = open_connection(sqlite_path)
             try:
                 conn.execute(
-                    "UPDATE jquants_daily_bars SET adjustment_factor = 1 "
+                    "UPDATE jquants_daily_bars SET adjustment_factor = 1, ex_right_type = NULL "
                     "WHERE ticker = ? AND traded_at = ?",
                     ("9003", "2025-06-02"),
                 )
@@ -680,11 +680,11 @@ class CalibrationPanelTest(unittest.TestCase):
                 )
                 conn.executemany(
                     "INSERT OR REPLACE INTO jquants_daily_bars("
-                    "ticker, traded_at, close, adjustment_close, adjustment_factor"
-                    ") VALUES (?, ?, ?, ?, ?)",
+                    "ticker, traded_at, close, adjustment_close, adjustment_factor, ex_right_type"
+                    ") VALUES (?, ?, ?, ?, ?, ?)",
                     [
-                        ("9001", "2022-05-10", 50.0, 50.0, 1.0),
-                        ("9001", "2022-10-03", 50.0, 100.0, 0.5),
+                        ("9001", "2022-05-10", 50.0, 50.0, 1.0, None),
+                        ("9001", "2022-10-03", 50.0, 100.0, 0.5, "1"),
                     ],
                 )
                 add_source_coverage(

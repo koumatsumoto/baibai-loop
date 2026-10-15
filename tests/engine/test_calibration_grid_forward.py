@@ -191,12 +191,12 @@ class ForwardReturnTest(unittest.TestCase):
             try:
                 conn.executemany(
                     "INSERT INTO jquants_daily_bars("
-                    "ticker, traded_at, close, adjustment_factor"
-                    ") VALUES (?, ?, ?, ?)",
+                    "ticker, traded_at, close, adjustment_factor, ex_right_type"
+                    ") VALUES (?, ?, ?, ?, ?)",
                     [
-                        ("1000", "2025-01-31", 1.0, 1.0),
-                        ("1000", "2025-03-03", None, 100.0),
-                        ("1000", "2025-04-30", 100.0, 1.0),
+                        ("1000", "2025-01-31", 1.0, 1.0, None),
+                        ("1000", "2025-03-03", None, 100.0, "2"),
+                        ("1000", "2025-04-30", 100.0, 1.0, None),
                     ],
                 )
                 conn.commit()
@@ -218,7 +218,7 @@ class ForwardReturnTest(unittest.TestCase):
             conn = open_connection(sqlite_path)
             try:
                 conn.execute(
-                    "UPDATE jquants_daily_bars SET adjustment_factor = 1 "
+                    "UPDATE jquants_daily_bars SET adjustment_factor = 1, ex_right_type = NULL "
                     "WHERE ticker = ? AND traded_at = ?",
                     ("1000", "2025-03-03"),
                 )
@@ -250,13 +250,13 @@ class ForwardReturnTest(unittest.TestCase):
             try:
                 conn.executemany(
                     "INSERT INTO jquants_daily_bars("
-                    "ticker, traded_at, close, adjustment_factor"
-                    ") VALUES (?, ?, ?, ?)",
+                    "ticker, traded_at, close, adjustment_factor, ex_right_type"
+                    ") VALUES (?, ?, ?, ?, ?)",
                     [
-                        ("1000", "2019-08-01", None, 0.5),
-                        ("1000", "2020-01-31", 100.0, 1.0),
-                        ("1000", "2021-01-29", 100.0, 1.0),
-                        ("1000", "2021-02-01", 100.0, 1.0),
+                        ("1000", "2019-08-01", None, 0.5, "1"),
+                        ("1000", "2020-01-31", 100.0, 1.0, None),
+                        ("1000", "2021-01-29", 100.0, 1.0, None),
+                        ("1000", "2021-02-01", 100.0, 1.0, None),
                     ],
                 )
                 conn.execute(
@@ -294,7 +294,7 @@ class ForwardReturnTest(unittest.TestCase):
             conn = open_connection(sqlite_path)
             try:
                 conn.execute(
-                    "UPDATE jquants_daily_bars SET adjustment_factor = 1 "
+                    "UPDATE jquants_daily_bars SET adjustment_factor = 1, ex_right_type = NULL "
                     "WHERE ticker = ? AND traded_at = ?",
                     ("1000", "2019-08-01"),
                 )
@@ -329,13 +329,13 @@ class ForwardReturnTest(unittest.TestCase):
             try:
                 conn.executemany(
                     "INSERT INTO jquants_daily_bars("
-                    "ticker, traded_at, close, adjustment_factor"
-                    ") VALUES (?, ?, ?, ?)",
+                    "ticker, traded_at, close, adjustment_factor, ex_right_type"
+                    ") VALUES (?, ?, ?, ?, ?)",
                     [
-                        ("1000", "2024-02-29", None, 0.5),
-                        ("1000", "2025-01-31", 1000.0, 1.0),
-                        ("1000", "2026-01-30", 1000.0, 1.0),
-                        ("1000", "2026-02-02", 1000.0, 1.0),
+                        ("1000", "2024-02-29", None, 0.5, "1"),
+                        ("1000", "2025-01-31", 1000.0, 1.0, None),
+                        ("1000", "2026-01-30", 1000.0, 1.0, None),
+                        ("1000", "2026-02-02", 1000.0, 1.0, None),
                     ],
                 )
                 conn.execute(
