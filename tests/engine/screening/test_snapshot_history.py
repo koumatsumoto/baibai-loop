@@ -195,5 +195,3 @@ class ScreeningMetricsTests(SnapshotFixtures):
         # Without adjustment-aware change calc, this would be (50-100)/100 = -0.5
         # which would falsely trip the -15% screening threshold.
         self.assertEqual(derived.price_change_60d, 0.0)
-
-
