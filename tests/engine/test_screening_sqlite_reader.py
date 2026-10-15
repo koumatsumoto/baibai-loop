@@ -7,6 +7,7 @@ from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+import pytest
 from tests.helpers.screening_sqlite import add_source_coverage
 
 from baibai_engine.market.edinet_metrics.store import (
@@ -522,7 +523,8 @@ def test_edinet_readers_preserve_named_values_and_provenance(tmp_path):
     )
     records = read_edinet_metrics(db, asof)
     baseline = read_edinet_metric_baseline(db, asof)
-    assert records is not None and baseline is not None
+    assert records is not None
+    assert baseline is not None
     record = records["7203"]
     assert baseline.rows["7203"].record == record
     for field, expected in {**numeric_values, **provenance}.items():
@@ -534,6 +536,26 @@ def test_edinet_readers_preserve_named_values_and_provenance(tmp_path):
     assert record.failure_reasons == ("tag_not_found:example",)
     assert baseline.rows["7203"].extractor_revision == "extractor-test"
     assert baseline.rows["7203"].source_document_revision == "document-test"
+
+
+def test_unfinalized_edinet_query_failure_is_not_an_empty_worklist(tmp_path, monkeypatch):
+    from baibai_engine.market.edinet_metrics import store
+
+    db = tmp_path / "market.sqlite"
+    db.touch()
+    closed = []
+
+    class BrokenConnection:
+        def execute(self, *args):
+            raise sqlite3.OperationalError("read failed")
+
+        def close(self):
+            closed.append(True)
+
+    monkeypatch.setattr(store, "connect_current", lambda path: BrokenConnection())
+    with pytest.raises(sqlite3.OperationalError, match="read failed"):
+        store.read_unfinalized_edinet_document_dates(db, before=date(2026, 5, 8))
+    assert closed == [True]
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -239,8 +239,6 @@ def read_unfinalized_edinet_document_dates(sqlite_path: Path, *, before: date) -
             "WHERE is_final = 0 AND doc_date < ? ORDER BY doc_date",
             (before.isoformat(),),
         ).fetchall()
-    except sqlite3.OperationalError:
-        return ()
     finally:
         conn.close()
     return tuple(date.fromisoformat(str(row[0])) for row in rows)

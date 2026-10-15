@@ -8,6 +8,8 @@ date: 2026-08-02
 
 # EDINET歴史point-in-time抽出のfeasibility probe
 
+本書は2026-08-02時点のselector・parser・保存配置と採否判断の履歴である。本文の「現行」とパスは当時のものを指し、現在の抽出仕様や運用手順ではない。
+
 価値tier: T2 — hidden-assets axisの歴史入力が現行抽出方法で成立するかを実測し、成立しないbackfillへの投資を止める。
 
 ## 結論
