@@ -252,13 +252,14 @@ JQUANTS_FIN_SUMMARIES = LakeDataset(
 
 JQUANTS_MARKET_CALENDAR = LakeDataset(
     name="jquants.market_calendar",
+    contract_version=2,
     sqlite_table="jquants_market_calendar",
     date_column="day",
     partition_grain="year",
     population_column=None,
     columns=(
         LakeColumn("day", "TEXT", _TEXT, True, 1),
-        LakeColumn("is_business_day", "INTEGER", _INTEGER, False),
+        LakeColumn("holiday_division", "TEXT", _TEXT, False),
     ),
 )
 

@@ -234,7 +234,7 @@ def read_market_calendar(
         if not range_covered(conn, "jquants_market_calendar", start, end):
             return None
         rows = conn.execute(
-            "SELECT day, is_business_day FROM jquants_market_calendar "
+            "SELECT day, holiday_division IN ('1', '2') FROM jquants_market_calendar "
             "WHERE day BETWEEN ? AND ? ORDER BY day",
             (start.isoformat(), end.isoformat()),
         ).fetchall()

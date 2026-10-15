@@ -76,8 +76,8 @@ def test_optional_release_roundtrip_preserves_received_history_and_other_dataset
     store_jquants_market_calendar(
         path,
         [
-            {"Date": "2026-09-30", "HolidayDivision": "1"},
-            {"Date": "2026-10-01", "HolidayDivision": "1"},
+            {"Date": "2026-09-30", "HolDiv": "1"},
+            {"Date": "2026-10-01", "HolDiv": "1"},
         ],
         requested_start=date(2026, 9, 30),
         requested_end=date(2026, 10, 1),

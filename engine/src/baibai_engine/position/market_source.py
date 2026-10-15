@@ -179,7 +179,7 @@ def next_order_session(*, sqlite_path: Path, now: datetime) -> date | None:
             sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
         ) as connection:
             rows = connection.execute(
-                "SELECT day,is_business_day FROM jquants_market_calendar "
+                "SELECT day,holiday_division IN ('1', '2') FROM jquants_market_calendar "
                 "WHERE day>=? ORDER BY day LIMIT 14",
                 (start.isoformat(),),
             ).fetchall()

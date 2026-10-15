@@ -12,7 +12,6 @@ from baibai_engine.storage.observations.convert import (
     NormalizedRows,
     code_quality,
     date_iso,
-    first,
     to_float,
     to_str_or_none,
 )
@@ -93,7 +92,7 @@ def store_jquants_market_calendar(
         )
         if rows:
             conn.executemany(
-                "INSERT OR REPLACE INTO jquants_market_calendar(day, is_business_day) "
+                "INSERT OR REPLACE INTO jquants_market_calendar(day, holiday_division) "
                 "VALUES (?, ?)",
                 rows,
             )
@@ -154,20 +153,11 @@ def _market_calendar_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> 
     rows: list[tuple[Any, ...]] = []
     rejected_count = 0
     for record in records:
-        day = date_iso(first(record, "Date", "date"))
-        if day is None:
+        day = date_iso(record.get("Date"))
+        division = to_str_or_none(record.get("HolDiv"))
+        if day is None or division is None:
             rejected_count += 1
             continue
-        # Mirror normalize_market_calendar: HolidayDivision "1" (営業日) and "2"
-        # (半日営業: 大納会など) both count as business days.
-        division = to_str_or_none(
-            first(record, "HolidayDivision", "holiday_division", "HolDiv", "hol_div")
-        )
-        is_business_day = 1 if division in {"1", "2"} else 0
-        rows.append(
-            (
-                day,
-                is_business_day,
-            )
-        )
+        # Retain the source category; cash-equity session selection belongs to readers.
+        rows.append((day, division))
     return NormalizedRows(rows=rows, rejected_count=rejected_count)

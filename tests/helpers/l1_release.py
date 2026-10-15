@@ -228,7 +228,7 @@ def lake(tmp_path, monkeypatch):
     database = market_store(tmp_path / "market.sqlite")
     connection = open_connection(database)
     connection.executemany(
-        "INSERT INTO jquants_market_calendar(day,is_business_day) VALUES (?,?)",
+        "INSERT INTO jquants_market_calendar(day,holiday_division) VALUES (?,?)",
         [("2025-01-05", 0), ("2026-01-05", 1), ("2026-01-20", 1)],
     )
     connection.commit()

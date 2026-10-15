@@ -29,7 +29,7 @@ def market_calendar_business_day(path: Path, day: date) -> bool | None:
 
     with closing(connect_read_only(path)) as connection:
         row = connection.execute(
-            "SELECT is_business_day FROM jquants_market_calendar WHERE day = ?",
+            "SELECT holiday_division IN ('1', '2') FROM jquants_market_calendar WHERE day = ?",
             (day.isoformat(),),
         ).fetchone()
     return None if row is None else bool(row[0])
@@ -92,7 +92,7 @@ def previous_business_day(path: Path, day: date, *, max_lookback: int = 10) -> d
         path,
         """
             SELECT day FROM jquants_market_calendar
-            WHERE day < ? AND day >= ? AND is_business_day = 1
+            WHERE day < ? AND day >= ? AND holiday_division IN ('1', '2')
             ORDER BY day DESC LIMIT 1
         """,
         (day.isoformat(), (day - timedelta(days=max_lookback)).isoformat()),

@@ -65,10 +65,10 @@ def test_l1_only_publish_restores_snapshot_without_market_push(
     store_jquants_market_calendar(
         path,
         [
-            {"Date": "2026-09-18", "HolidayDivision": "1"},
-            {"Date": "2026-09-19", "HolidayDivision": "0"},
-            {"Date": "2026-09-20", "HolidayDivision": "0"},
-            {"Date": "2026-09-21", "HolidayDivision": "1"},
+            {"Date": "2026-09-18", "HolDiv": "1"},
+            {"Date": "2026-09-19", "HolDiv": "0"},
+            {"Date": "2026-09-20", "HolDiv": "0"},
+            {"Date": "2026-09-21", "HolDiv": "1"},
         ],
         requested_start=DAY,
         requested_end=date(2026, 9, 21),

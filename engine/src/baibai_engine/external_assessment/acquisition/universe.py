@@ -107,7 +107,8 @@ def calendar_master_asof(
         paths = materialize_partitions(cache, dataset=dataset, partitions=partitions)
         try:
             rows = session.connection.execute(
-                "SELECT day,is_business_day FROM read_parquet($files,union_by_name=false) "
+                "SELECT day,holiday_division IN ('1', '2') "
+                "FROM read_parquet($files,union_by_name=false) "
                 "WHERE day<=$day ORDER BY day DESC",
                 {"files": [str(path) for path in paths], "day": expected.isoformat()},
             ).fetchall()

@@ -212,7 +212,7 @@ def test_order_session_uses_calendar_and_unexpired_market_close(tmp_path, instan
 
     path = tmp_path / "market.sqlite"
     with closing(sqlite3.connect(path)) as connection, connection:
-        connection.execute("CREATE TABLE jquants_market_calendar(day TEXT,is_business_day INT)")
+        connection.execute("CREATE TABLE jquants_market_calendar(day TEXT,holiday_division TEXT)")
         connection.executemany(
             "INSERT INTO jquants_market_calendar VALUES (?,?)",
             [

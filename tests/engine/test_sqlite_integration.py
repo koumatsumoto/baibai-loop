@@ -187,7 +187,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
             for index in range(history_days)
         ]
         conn.executemany(
-            "INSERT INTO jquants_market_calendar(day, is_business_day) VALUES (?, ?)",
+            "INSERT INTO jquants_market_calendar(day, holiday_division) VALUES (?, ?)",
             calendar_rows,
         )
         add_source_coverage(

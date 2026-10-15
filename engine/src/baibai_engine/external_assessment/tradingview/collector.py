@@ -117,7 +117,8 @@ def _snapshot_state(
     now: datetime | None = None,
 ) -> tuple[list[str] | None, dict[str, object]]:
     calendar = conn.execute(
-        "SELECT is_business_day FROM jquants_market_calendar WHERE day=?", (day.isoformat(),)
+        "SELECT holiday_division IN ('1', '2') FROM jquants_market_calendar WHERE day=?",
+        (day.isoformat(),)
     ).fetchone()
     if calendar is None:
         raise SourceDataError("Exact-date trading calendar is unavailable")
@@ -126,7 +127,8 @@ def _snapshot_state(
         basis = day
     else:
         previous = conn.execute(
-            "SELECT MAX(day) FROM jquants_market_calendar WHERE day<? AND is_business_day=1",
+            "SELECT MAX(day) FROM jquants_market_calendar "
+            "WHERE day<? AND holiday_division IN ('1', '2')",
             (day.isoformat(),),
         ).fetchone()[0]
         if previous is None:

@@ -692,8 +692,8 @@ class SQLiteCacheTest(unittest.TestCase):
                 store_jquants_market_calendar(
                     db,
                     [
-                        {"Date": "2026-05-08", "HolidayDivision": "1"},
-                        {"Date": "2026-05-08", "HolidayDivision": "0"},
+                        {"Date": "2026-05-08", "HolDiv": "1"},
+                        {"Date": "2026-05-08", "HolDiv": "0"},
                     ],
                     requested_start=date(2026, 5, 8),
                     requested_end=date(2026, 5, 8),
@@ -907,7 +907,7 @@ class SQLiteCacheTest(unittest.TestCase):
             store_jpx_earnings_calendar_snapshot(db, _earnings_snapshot())
             store_jquants_market_calendar(
                 db,
-                [{"Date": "2026-05-08", "HolidayDivision": "1"}],
+                [{"Date": "2026-05-08", "HolDiv": "1"}],
                 requested_start=date(2026, 5, 8),
                 requested_end=date(2026, 5, 8),
             )
@@ -1078,7 +1078,7 @@ class EmptyPayloadReplacementTest(unittest.TestCase):
             window = (date(2020, 12, 1), date(2020, 12, 31))
             store_jquants_market_calendar(
                 db,
-                [{"Date": "2020-12-30", "HolidayDivision": "1"}],
+                [{"Date": "2020-12-30", "HolDiv": "1"}],
                 requested_start=window[0],
                 requested_end=window[1],
             )

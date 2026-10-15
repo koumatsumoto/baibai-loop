@@ -202,7 +202,7 @@ class TestDbMarketPriceSource:
         connection = open_connection(path)
         try:
             connection.executemany(
-                "INSERT OR REPLACE INTO jquants_market_calendar(day, is_business_day) "
+                "INSERT OR REPLACE INTO jquants_market_calendar(day, holiday_division) "
                 "VALUES (?, ?)",
                 [("2026-07-28", 1), ("2026-07-29", 1)],
             )

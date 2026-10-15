@@ -1288,7 +1288,7 @@ class ScreeningProviderTests(unittest.TestCase):
                 provider.download_csv_zip("S100TEST")
 
     def test_normalize_market_calendar_business_day(self) -> None:
-        calendar_day = normalize_market_calendar({"Date": "2026-04-24", "HolidayDivision": "1"})
+        calendar_day = normalize_market_calendar({"Date": "2026-04-24", "HolDiv": "1"})
         self.assertTrue(calendar_day.is_business_day)
 
     def test_normalize_market_calendar_supports_client_v2_short_key(self) -> None:
@@ -1296,7 +1296,7 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertTrue(calendar_day.is_business_day)
 
     def test_normalize_market_calendar_treats_half_day_as_business(self) -> None:
-        # HolidayDivision="2" は半日営業 (大納会など取引あり) で、business_day 扱いすべき。
+        # HolDiv="2" は半日営業 (大納会など取引あり) で、business_day 扱いすべき。
         calendar_day = normalize_market_calendar({"Date": "2026-12-30", "HolDiv": "2"})
         self.assertTrue(calendar_day.is_business_day)
 

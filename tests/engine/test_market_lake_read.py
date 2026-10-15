@@ -1630,7 +1630,7 @@ class TestDehydrate:
         shutil.copyfile(lake.sqlite_path, store)
         connection = sqlite3.connect(store)
         connection.execute(
-            "INSERT INTO jquants_market_calendar(day, is_business_day) VALUES ('2026-03-02', 1)"
+            "INSERT INTO jquants_market_calendar(day, holiday_division) VALUES ('2026-03-02', 1)"
         )
         connection.commit()
         connection.close()

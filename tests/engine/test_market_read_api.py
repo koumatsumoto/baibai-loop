@@ -134,7 +134,7 @@ def _seed_calendar(path: Path, rows: list[tuple[str, int]]) -> None:
     connection = open_connection(path)
     try:
         connection.executemany(
-            "INSERT INTO jquants_market_calendar(day, is_business_day) VALUES (?, ?)", rows
+            "INSERT INTO jquants_market_calendar(day, holiday_division) VALUES (?, ?)", rows
         )
         connection.commit()
     finally:

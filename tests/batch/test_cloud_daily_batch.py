@@ -211,7 +211,7 @@ def _seed_calendar(root: Path, rows: dict[date, str]) -> None:
     days = sorted(rows)
     store_jquants_market_calendar(
         db,
-        [{"Date": day.isoformat(), "HolidayDivision": division} for day, division in rows.items()],
+        [{"Date": day.isoformat(), "HolDiv": division} for day, division in rows.items()],
         requested_start=days[0],
         requested_end=days[-1],
     )
@@ -1150,11 +1150,12 @@ def test_committed_market_chunk_survives_bootstrap_failure_and_requests_lake_pub
     assert _load_notice(notice_path)["market_updated"] is True
     with closing(sqlite3.connect(market)) as connection:
         assert connection.execute(
-            "SELECT is_business_day FROM jquants_market_calendar WHERE day = ?",
+            "SELECT holiday_division IN ('1', '2') FROM jquants_market_calendar WHERE day = ?",
             (next_day.isoformat(),),
         ).fetchone() == (1,)
         assert connection.execute(
-            "SELECT is_business_day FROM jquants_market_calendar WHERE day = ?", (ASOF.isoformat(),)
+            "SELECT holiday_division IN ('1', '2') FROM jquants_market_calendar WHERE day = ?",
+            (ASOF.isoformat(),)
         ).fetchone() == (1,)
     assert "screening run" not in runner.call_keys()
     assert (

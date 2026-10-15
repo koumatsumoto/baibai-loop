@@ -143,7 +143,7 @@ def _seed_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
         (f"{asof.isoformat()}T00:00:00+09:00", "jpx_earnings_calendar"),
     )
     conn.execute(
-        "INSERT OR REPLACE INTO jquants_market_calendar(day, is_business_day) VALUES (?, ?)",
+        "INSERT OR REPLACE INTO jquants_market_calendar(day, holiday_division) VALUES (?, ?)",
         (asof.isoformat(), 1),
     )
     _add_source_coverage(

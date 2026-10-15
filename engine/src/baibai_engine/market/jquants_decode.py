@@ -80,21 +80,10 @@ def normalize_ex_right_type(value: Any) -> str | None:
 
 
 def normalize_market_calendar(record: Mapping[str, Any]) -> JQuantsMarketCalendarDay:
+    """Project the source calendar to cash-equity sessions, not derivatives sessions."""
     return JQuantsMarketCalendarDay(
-        day=parse_date(first_value(record, "Date", "date")),
-        is_business_day=bool(
-            record.get("is_business_day")
-            if "is_business_day" in record
-            # "1"=営業日、"2"=半日営業 (大納会など取引あり)。両方を営業扱い。
-            else str(
-                record.get("HolidayDivision")
-                or record.get("holiday_division")
-                or record.get("HolDiv")
-                or record.get("hol_div")
-                or ""
-            ).lower()
-            in {"1", "2", "business_day", "trading_day", "half_day"}
-        ),
+        day=parse_date(record.get("Date")),
+        is_business_day=str(record["HolDiv"]) in {"1", "2"},
     )
 
 

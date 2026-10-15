@@ -125,7 +125,7 @@ CREATE TABLE IF NOT EXISTS jpx_earnings_calendar(
 
 CREATE TABLE IF NOT EXISTS jquants_market_calendar(
   day TEXT PRIMARY KEY,
-  is_business_day INTEGER NOT NULL
+  holiday_division TEXT NOT NULL
 );
 
 -- Margin balances the exchange publishes once a week, as of that week's balance

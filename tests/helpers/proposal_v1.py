@@ -118,7 +118,7 @@ def backend_case(
             [("2026-10-14", ticker, "合成企業", "Prime", "情報・通信業", 1) for ticker in tickers],
         )
         connection.executemany(
-            "INSERT INTO jquants_market_calendar(day,is_business_day) VALUES (?,?)",
+            "INSERT INTO jquants_market_calendar(day,holiday_division) VALUES (?,?)",
             [
                 (
                     (PREPARED.date() + timedelta(days=offset)).isoformat(),
