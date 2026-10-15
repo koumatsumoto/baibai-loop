@@ -557,7 +557,9 @@ def validate_current_schema(conn: sqlite3.Connection) -> None:
 
 
 @lru_cache(maxsize=1)
-def _expected_schema_shape(schema_sql: str) -> tuple[
+def _expected_schema_shape(
+    schema_sql: str,
+) -> tuple[
     dict[str, tuple[tuple[str, str, int, int], ...]],
     dict[str, tuple[str, tuple[str, ...], bool]],
 ]:

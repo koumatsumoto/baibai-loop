@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -75,13 +77,16 @@ def _publication(*, status: str = "resolved") -> PortfolioOutcomePublication:
 
 
 def test_outcome_publication_is_create_only_and_queryable(tmp_path: Path) -> None:
-    store = PortfolioOutcomeStore(tmp_path / "app.sqlite")
+    path = tmp_path / "app.sqlite"
+    store = PortfolioOutcomeStore(path)
     publication = _publication()
 
     assert store.publish(publication)
     assert not store.publish(publication)
+    before = path.read_bytes()
     assert store.list()[0]["outcome_id"] == publication.outcome_id
     assert store.list()[0]["benchmark_observation"]["cumulative_return_pct"] == 8.2  # type: ignore[index]
+    assert path.read_bytes() == before
 
 
 def test_outcome_conflict_rolls_back(tmp_path: Path) -> None:
@@ -163,3 +168,28 @@ def test_outcome_rejects_invalid_embedded_benchmark_without_write(tmp_path: Path
         PortfolioOutcomeStore(path).publish(invalid)
 
     assert PortfolioOutcomeStore(path).list() == ()
+    assert not path.exists()
+
+
+@pytest.mark.parametrize("unwritten", [False, True])
+def test_outcome_list_does_not_initialize_an_absent_or_unwritten_store(tmp_path, unwritten):
+    path = tmp_path / "app.sqlite"
+    if unwritten:
+        path.touch()
+    assert PortfolioOutcomeStore(path).list() == ()
+    assert path.exists() == unwritten
+    if unwritten:
+        assert path.read_bytes() == b""
+
+
+def test_outcome_list_does_not_repair_a_missing_table(tmp_path):
+    path = tmp_path / "app.sqlite"
+    store = PortfolioOutcomeStore(path)
+    store.publish(_publication())
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute("DROP TABLE portfolio_outcome")
+        connection.commit()
+    before = path.read_bytes()
+    with pytest.raises(sqlite3.OperationalError, match="portfolio_outcome"):
+        store.list()
+    assert path.read_bytes() == before

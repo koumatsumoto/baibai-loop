@@ -9,7 +9,10 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from baibai_engine.foundation.sqlite_read import read_rows
 from baibai_engine.storage.application.json import canonical_json
+from baibai_engine.storage.application.paths import database_path
+from baibai_engine.storage.application.read import connect_read_only
 from baibai_engine.storage.application.write import connect_rw, initialize_database
 
 from .outcome_models import PortfolioOutcomePayload as PortfolioOutcomePayload
@@ -74,12 +77,12 @@ class PortfolioOutcomeStore:
                 raise
 
     def list(self) -> tuple[Mapping[str, object], ...]:
-        initialize_database(self._db_path)
-        with closing(connect_rw(self._db_path)) as connection:
-            rows = connection.execute(
-                "SELECT outcome_id, payload FROM portfolio_outcome "
-                "ORDER BY period_end_date DESC, outcome_id DESC"
-            ).fetchall()
+        rows = read_rows(
+            database_path(self._db_path),
+            "SELECT outcome_id, payload FROM portfolio_outcome "
+            "ORDER BY period_end_date DESC, outcome_id DESC",
+            connector=connect_read_only,
+        )
         return tuple(
             {"outcome_id": str(row["outcome_id"]), **json.loads(str(row["payload"]))}
             for row in rows
