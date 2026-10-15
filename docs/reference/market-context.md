@@ -90,7 +90,7 @@ local derivedの式の出典は現行配置の固定commit URLで示す。出典
 
 registryは系列定義の正本である。通常のopenでは登録外のfactsを削除せず、現行系列を指定した明示的なrefreshが退役系列をpruneする。storeが新世代、または同世代でmembershipが異なる場合は拒否する。退役・改名は[registry修正手順](../../batch/OPERATIONS.md#指標観測とregistryの修正)に従い、過去の発行済みContextを書き換えない。
 
-全providerの観測は系列identity・単位・有限値・系列固有のbandを満たす必要がある。bandは明白な列・桁・単位ずれを検出するもので、景気急変を前回値との差だけで拒否する条件ではない。band内に収まるscale変更はprovider固有のheader・metadata照合で守る。例えば`jp.foreign_flows`は原典の千円単位を保持する。検証違反はそのseriesの取得失敗とし、部分取り込みしない。DB境界でも同じ制約を守り、schemaやtriggerの不整合を拒否する。厳密な条件は[service](../../engine/src/baibai_engine/market_context/indicators/service.py)・[DB](../../engine/src/baibai_engine/market_context/indicators/db.py)・[schema](../../engine/src/baibai_engine/market_context/indicators/schema.sql)が所有する。storeは空・直前schemaからの一段移行・現行schemaだけを受け付け、複数世代のmigrationは持たない。
+全providerの観測は系列identity・単位・有限値・系列固有のbandを満たす必要がある。bandは明白な列・桁・単位ずれを検出するもので、景気急変を前回値との差だけで拒否する条件ではない。band内に収まるscale変更はprovider固有のheader・metadata照合で守る。例えば`jp.foreign_flows`は原典の千円単位を保持する。検証違反はそのseriesの取得失敗とし、部分取り込みしない。DB境界でも同じ制約を守り、schemaやtriggerの不整合を拒否する。厳密な条件は[service](../../engine/src/baibai_engine/market_context/indicators/service.py)・[DB](../../engine/src/baibai_engine/market_context/indicators/db.py)・[schema](../../engine/src/baibai_engine/market_context/indicators/schema.sql)が所有する。storeは空または現行schemaだけを受け付ける。schema変更は明示的な一回切替で行い、通常のopenやtransferに旧schemaの移行処理を残さない。
 
 registryのband変更時は、Git管理外のstoreをread-only validatorで全履歴・全vintage検査する。CIのfixtureだけでは既存観測との整合を証明できない。検査はstoreを書き換えず、観測とcanonical trigger契約の違反を報告する。
 

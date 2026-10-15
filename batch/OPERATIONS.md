@@ -550,10 +550,10 @@ machine `.bak`を手動復元する場合は、対応する発行を停止して
 **停止条件**: store全体を古いsnapshotへ戻さない。storeは毎営業日伸びるため、過去schemaのcopyへの交換は
 それ以降の事実を失う。
 
-**実行**: application / market / run storeはruntime migrationを持たない。schema変更PRが保持しているtemporary
+**実行**: application / market / run / indicator storeはruntime migrationを持たない。schema変更PRが保持しているtemporary
 one-shot toolを修正し、cutover前のlocal copyへ再実行してcurrent schemaの別fileを作る。toolがcleanup済みなら、
 過去commandを推測せず、修正issueでexact source version・変換・検証を固定したtemporary toolを再構築する。
-indicator storeだけは実在する直前schemaからの一段migrationをstaging copyへ適用する。
+通常のtransferではdownloadしたstoreのschemaを変更しない。indicatorも現行schema同士をmergeする。
 
 **成功確認と復旧**: sourceと出力のintegrity・foreign key・必須table・保持対象row/headを照合してからmainへ入れ、
 同じ作業でstoreを反映する。直前のpush自体が壊れた場合だけ、上の「R2 transferの安全境界」に従って`<key>.bak`の1世代を使う。

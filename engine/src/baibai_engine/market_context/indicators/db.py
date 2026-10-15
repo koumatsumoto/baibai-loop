@@ -782,27 +782,11 @@ def _connect(db_path: Path) -> sqlite3.Connection:
 
 
 def _ensure_schema(conn: sqlite3.Connection) -> None:
-    """Create, migrate one known predecessor, confirm, or refuse the store.
-
-    Only the predecessor occupied by the canonical store gets a migration. Older paths
-    are refused rather than accumulated as permanent compatibility machinery.
-    """
+    """Create an empty store or require the current schema without changing old stores."""
 
     version = int(conn.execute("PRAGMA user_version").fetchone()[0])
     if version == SQLITE_SCHEMA_VERSION:
         validate_current_schema(conn)
-        return
-    if version == 6:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            conn.execute("DROP TRIGGER IF EXISTS protect_series_from_implicit_prune")
-            conn.execute("DROP TABLE IF EXISTS registry_prune_authorizations")
-            conn.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION}")
-            validate_current_schema(conn)
-            conn.commit()
-        except BaseException:
-            conn.rollback()
-            raise
         return
     if version != 0:
         raise IndicatorsSchemaError(

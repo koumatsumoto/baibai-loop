@@ -170,19 +170,6 @@ merge_indicator_store() {
   merge_store baibai_batch.storage.merge_indicator_store "$1" "$2"
 }
 
-# Move the downloaded copy to the schema this code writes, so the merge's source and
-# target agree. This helper is used for the downloaded indicator merge copy, not
-# as a general market/application migration or a daily-batch migration fallback.
-# The copy lives in transfer staging, so migrating it does not change the R2 object.
-migrate_downloaded_indicator_store() {
-  local path="$1"
-  (
-    cd "${repo_root}" || exit 1
-    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-      uv run python -m baibai_batch.storage.migrate_store --path "${path}"
-  )
-}
-
 merge_market_store() {
   merge_store baibai_batch.storage.merge_market_store "$1" "$2"
 }
@@ -786,7 +773,6 @@ case "${1:-}" in
     indicator_version="$(remote_version indicators.sqlite)"
     aws_s3 cp "s3://${stores_bucket}/indicators.sqlite" "${transfer_staging}/indicators.sqlite"
     check_sqlite "${transfer_staging}/indicators.sqlite"
-    migrate_downloaded_indicator_store "${transfer_staging}/indicators.sqlite"
     merge_indicator_store "${transfer_staging}/indicators.sqlite" "$(store_path indicators.sqlite)"
     cleanup_staging
     transfer_staging=""

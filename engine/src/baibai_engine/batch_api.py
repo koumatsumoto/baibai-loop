@@ -129,9 +129,6 @@ from baibai_engine.market_context.indicators.db import (
     IndicatorsSchemaError,
 )
 from baibai_engine.market_context.indicators.db import (
-    open_connection as open_indicator_store,
-)
-from baibai_engine.market_context.indicators.db import (
     validate_current_schema as validate_indicator_schema,
 )
 from baibai_engine.market_context.indicators.definitions import (
@@ -266,7 +263,6 @@ __all__ = [
     "lake_verified_git_commit",
     "load_definitions",
     "load_lake_model_json",
-    "open_indicator_store",
     "open_market_store",
     "parse_refresh_failure_count",
     "read_lake_store_origin",

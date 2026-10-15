@@ -239,7 +239,6 @@ for argument in "$@"; do
     baibai_batch.storage.sqlite_snapshot) script=snapshot ;;
     baibai_batch.storage.merge_indicator_store) script=merge ;;
     baibai_batch.storage.merge_market_store) script=merge ;;
-    baibai_batch.storage.migrate_store) script=migrate ;;
     baibai_batch.validation.repository_layout) script=layout ;;
     baibai_batch.storage.publish_market_lake) script=publish ;;
   esac
@@ -290,10 +289,6 @@ case "${script}" in
   merge)
     printf 'merge %s\\n' "$*" >> "$AWS_LOG"
     exit "${MERGE_FAKE_EXIT:-0}"
-    ;;
-  migrate)
-    printf 'migrate %s\\n' "$*" >> "$AWS_LOG"
-    exit "${MIGRATE_FAKE_EXIT:-0}"
     ;;
   layout)
     exit "${LAYOUT_FAKE_EXIT:-0}"
@@ -1362,13 +1357,10 @@ def test_indicator_push_merges_the_cloud_store_before_uploading(tmp_path: Path) 
         for index, command in enumerate(commands)
         if command.startswith("s3api put-object ") and "--key indicators.sqlite" in command
     ]
-    migrations = [index for index, command in enumerate(commands) if command.startswith("migrate ")]
     assert len(downloads) == 1
-    assert len(migrations) == 1
     assert len(merges) == 1
     assert len(uploads) == 1
-    assert downloads[0] < migrations[0] < merges[0] < uploads[0]
-    assert "--store" not in commands[migrations[0]]
+    assert downloads[0] < merges[0] < uploads[0]
     assert "--target" in commands[merges[0]]
     assert "stores/market_context/indicators.sqlite" in commands[merges[0]]
     assert '--if-match "etag-stable"' in commands[uploads[0]]

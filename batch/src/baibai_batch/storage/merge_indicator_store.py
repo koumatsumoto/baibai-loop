@@ -15,8 +15,8 @@ report absent source series as skipped retirement instead of reviving them.
 
 Facts are keyed, so the merge is an ``INSERT OR IGNORE`` per table after proving that every
 shared key has the same full payload. A row only the source has is then added verbatim with
-its vintage. Both stores must be on the schema this code writes; the transfer script moves
-the downloaded copy there before the merge sees it.
+its vintage. Both stores must already use the schema this code writes. A schema change
+requires an explicit cutover; an ordinary transfer never migrates the downloaded source.
 """
 
 from __future__ import annotations

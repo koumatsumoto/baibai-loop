@@ -94,74 +94,21 @@ class IndicatorsDBTests(unittest.TestCase):
             self.assertEqual((series.plausible_min, series.plausible_max), (-20.0, 30.0))
             self.assertGreater(alias_count, 0)
 
-    def test_the_immediately_previous_schema_is_migrated(self) -> None:
+    def test_unsupported_schemas_are_refused_without_mutating_the_store(self) -> None:
+        for version in (5, 6):
+            with self.subTest(version=version), tempfile.TemporaryDirectory() as tmp:
+                database = Path(tmp) / "indicators.sqlite"
+                initialize_database(database).close()
+                with closing(sqlite3.connect(database)) as connection, connection:
+                    connection.execute(f"PRAGMA user_version = {version}")
+                original = database.read_bytes()
 
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            initialize_database(database).close()
-            with closing(sqlite3.connect(database)) as connection, connection:
-                connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
+                with self.assertRaisesRegex(
+                    IndicatorsSchemaError, f"unsupported indicator SQLite schema: {version}"
+                ):
+                    open_connection(database)
 
-            connection = open_connection(database)
-            try:
-                version = connection.execute("PRAGMA user_version").fetchone()[0]
-            finally:
-                connection.close()
-            self.assertEqual(version, SQLITE_SCHEMA_VERSION)
-
-    def test_a_failed_previous_schema_migration_rolls_back(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            initialize_database(database).close()
-            with closing(sqlite3.connect(database)) as connection, connection:
-                connection.executescript(
-                    """
-                    CREATE TABLE registry_prune_authorizations(
-                      series_id TEXT PRIMARY KEY REFERENCES series(series_id) ON DELETE CASCADE
-                    );
-                    CREATE TRIGGER protect_series_from_implicit_prune
-                    BEFORE DELETE ON series
-                    WHEN NOT EXISTS(
-                      SELECT 1 FROM registry_prune_authorizations
-                      WHERE series_id = OLD.series_id
-                    )
-                    BEGIN
-                      SELECT RAISE(ABORT, 'explicit registry prune authorization required');
-                    END;
-                    CREATE TRIGGER unexpected_migration_trigger
-                    BEFORE INSERT ON aliases
-                    BEGIN
-                      SELECT RAISE(ABORT, 'unexpected');
-                    END;
-                    """
-                )
-                connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
-
-            with self.assertRaisesRegex(IndicatorsSchemaError, "trigger contract mismatch"):
-                open_connection(database)
-
-            with closing(sqlite3.connect(database)) as connection, connection:
-                version = connection.execute("PRAGMA user_version").fetchone()[0]
-                retired_objects = connection.execute(
-                    "SELECT count(*) FROM sqlite_master WHERE name IN "
-                    "('registry_prune_authorizations', "
-                    "'protect_series_from_implicit_prune')"
-                ).fetchone()[0]
-            self.assertEqual(version, SQLITE_SCHEMA_VERSION - 1)
-            self.assertEqual(retired_objects, 2)
-
-    def test_an_unsupported_older_schema_is_refused(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            initialize_database(database).close()
-            with closing(sqlite3.connect(database)) as connection, connection:
-                connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 2}")
-
-            with self.assertRaisesRegex(
-                IndicatorsSchemaError,
-                f"unsupported indicator SQLite schema: {SQLITE_SCHEMA_VERSION - 2}",
-            ):
-                open_connection(database)
+                self.assertEqual(database.read_bytes(), original)
 
     def test_open_connection_preserves_series_removed_from_registry(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
