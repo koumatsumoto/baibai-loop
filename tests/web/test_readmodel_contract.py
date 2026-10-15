@@ -192,7 +192,11 @@ def test_candidate_delta_retains_every_entry_in_ticker_order(count, er):
         for i in reversed(range(count))
     }
     entered, exited, moves, total = _candidate_deltas(
-        current, earlier, market=None, previous_as_of=date(2026, 9, 1)
+        current,
+        earlier,
+        market=None,
+        previous_as_of=date(2026, 9, 1),
+        current_as_of=date(2026, 9, 2),
     )
     assert [entry.ticker for entry in entered] == sorted(current)
     assert [entry.ticker for entry in exited] == sorted(earlier)
