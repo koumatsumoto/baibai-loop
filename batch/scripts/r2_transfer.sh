@@ -302,7 +302,8 @@ write_machine_manifest() {
   # it merely stale — which the next bundle pull refuses. Values carried forward from
   # the pushes would instead let it claim a generation nobody ever observed together.
   local key version file first=1
-  file="$(mktemp "${TMPDIR:-/tmp}/baibai-machine-manifest.XXXXXX")"
+  transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
+  file="${transfer_staging}/machine-manifest.json"
   {
     printf '{\n'
     printf '  "schema_version": 1,\n'
@@ -324,7 +325,8 @@ write_machine_manifest() {
     --body "${file}" \
     --endpoint-url "${endpoint}" \
     >/dev/null
-  rm -f -- "${file}"
+  cleanup_staging
+  transfer_staging=""
   printf 'machine bundle receipt written: %s\n' "${machine_manifest_key}"
 }
 
