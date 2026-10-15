@@ -42,7 +42,7 @@ _HEADER_PREFIXES = ('"Time Period"', "Time Period,")
 
 
 class FrbH15Provider:
-    """Federal Reserve H.15 package CSV. Single series or a left-right spread."""
+    """Federal Reserve H.15 source yields, without local spread calculations."""
 
     spec = ProviderSpec(name="frb_h15", all_history_start=date(1962, 1, 1))
     name = spec.name
@@ -207,11 +207,9 @@ def parse_h15_csv(
     reader = csv.DictReader(lines[header_index:])
     fieldnames = set(reader.fieldnames or ())
     observations: list[ObservationRecord] = []
-    left_id, right_id = _split_provider_series_id(series.provider_series_id)
-    if left_id not in fieldnames:
-        raise IndicatorsProviderError(f"FRB H.15 CSV missing column {left_id}")
-    if right_id is not None and right_id not in fieldnames:
-        raise IndicatorsProviderError(f"FRB H.15 CSV missing column {right_id}")
+    column = series.provider_series_id
+    if column not in fieldnames:
+        raise IndicatorsProviderError(f"FRB H.15 CSV missing column {column}")
     for row in reader:
         observed_at_raw = row.get("Time Period")
         if not observed_at_raw:
@@ -219,22 +217,8 @@ def parse_h15_csv(
         observed_at = date.fromisoformat(observed_at_raw)
         if not start <= observed_at <= end:
             continue
-        left_value = parse_optional_float(row.get(left_id))
-        if left_value is None:
+        value = parse_optional_float(row.get(column))
+        if value is None:
             continue
-        if right_id is None:
-            value = left_value
-        else:
-            right_value = parse_optional_float(row.get(right_id))
-            if right_value is None:
-                continue
-            value = (left_value - right_value) * 100.0
         observations.append(record_observation(series, observed_at=observed_at, value=value))
     return observations
-
-
-def _split_provider_series_id(provider_series_id: str) -> tuple[str, str | None]:
-    if "-" not in provider_series_id:
-        return provider_series_id, None
-    left, right = provider_series_id.split("-", maxsplit=1)
-    return left, right

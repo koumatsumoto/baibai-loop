@@ -40,6 +40,11 @@ class DerivedFormula:
 
 # provider_series_id -> formula. provider_series_id equals the derived series_id.
 FORMULAS: Mapping[str, DerivedFormula] = {
+    "us.10y_2y_spread": DerivedFormula(
+        inputs=("us.10y", "us.2y"),
+        unit="bp",
+        compute=lambda v: (v["us.10y"] - v["us.2y"]) * 100.0,
+    ),
     "us.net_liquidity": DerivedFormula(
         inputs=("us.fed_assets", "us.reverse_repo", "us.tga"),
         unit="usd-billion",

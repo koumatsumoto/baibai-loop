@@ -73,13 +73,13 @@ uv run baibai-engine market-context indicators get jp.policy_rate --latest
 
 `refresh --all-history` は外部providerごとの取得可能な先頭日から強制再取得する。FREDは現在の `fredgraph.csv` が返す先頭日を再現可能な境界とし、それ以前の観測を残さない。外部source訂正では再取得期間・vintageの条件に該当する旧sourceの観測をcacheから除く。契約期間や公表archiveが履歴を制限する場合は、実際の取得範囲を運用記録へ残す。
 
-`derived`の10系列は[Readingの純粋な数式](../../engine/src/baibai_engine/market_context/reading/formulas.py)で保存済み入力から読む都度計算する。独立した観測・取得履歴として書き込まず、日次取得の対象にも含めない。これらの`get`・`refresh`は入力を再取得せず、base系列の同期後に現在の値を読む。欠測や未定義の計算を古い派生値で補完せず、以前保存した派生cacheは読みや鮮度表示に使わない。保存済みの判断本文は変更しない。
+`derived`系列は[Readingの純粋な数式](../../engine/src/baibai_engine/market_context/reading/formulas.py)で保存済み入力から読む都度計算する。米10Y−2YスプレッドもH.15で取得した2つの利回りからL2で計算し、取得処理では差分を保存しない。独立した観測・取得履歴として書き込まず、日次取得の対象にも含めない。これらの`get`・`refresh`は入力を再取得せず、base系列の同期後に現在の値を読む。欠測や未定義の計算を古い派生値で補完せず、以前保存した派生cacheは読みや鮮度表示に使わない。保存済みの判断本文は変更しない。
 
 月次整列は月内の各入力の最終観測を使い、出力日は数式ごとの期間代表日または採用入力の最終日とする。これを実公表時刻や歴史的なAPI利用可能性の保証とみなさない。計算値のvintageは全入力に時点がある場合の最も遅い入力vintageであり、読んだ時刻を新しい公表として作らない。L2の数式変更に派生履歴の退役・再取得・置換を要求しない。オプションチェーン由来の別providerについては、現行の再構築手順を別途確認する。
 
 同内容の再取得ではobservationのvintageを増やさず、provider runに取得記録を残す。値・単位・期間・取得状態・sourceが変わるrevisionや、変化後に同じ値へ戻るrevisionは保持する。日次batchはrolling窓を引き直すため窓内の取得断は次回成功時に埋まるが、窓外の欠落は[指標履歴の復旧](../../batch/OPERATIONS.md#指標履歴)が必要になる。保存・重複排除は[indicator DB](../../engine/src/baibai_engine/market_context/indicators/db.py)を参照する。
 
-誤って入った observation は削除では消えない。cloudとのmergeは双方のfactを戻すno-loss契約なので、localで消しても次のpushで復活する。撤回は対象日の最新vintageをCASで名指しし、その下の状態を新しいvintageとして記録する。同じ撤回を繰り返すと意図しない旧値を戻し得るため、期待vintageが変われば拒否する。派生10系列は入力の撤回・訂正を次回読取で反映するため、派生値を先に撤回する操作は不要である。操作順と失敗時の行き先は[運用手順](../../batch/OPERATIONS.md#指標観測とregistryの修正)に従う。
+誤って入った observation は削除では消えない。cloudとのmergeは双方のfactを戻すno-loss契約なので、localで消しても次のpushで復活する。撤回は対象日の最新vintageをCASで名指しし、その下の状態を新しいvintageとして記録する。同じ撤回を繰り返すと意図しない旧値を戻し得るため、期待vintageが変われば拒否する。派生系列は入力の撤回・訂正を次回読取で反映するため、派生値を先に撤回する操作は不要である。操作順と失敗時の行き先は[運用手順](../../batch/OPERATIONS.md#指標観測とregistryの修正)に従う。
 
 - 下に正しい観測があれば **その観測が再び読まれる**（誤った writer が正しい値の上に別の値を刻んだ場合。撤回のたびに 1 つずつ vintage を遡る）
 - 下に何も無い、または下も撤回済みなら `fetch_status='retracted'` を書き、その日は reading / chart / freshness のすべてから外れる

@@ -142,3 +142,17 @@ series:
     source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/engine/src/baibai_engine/market_context/reading/formulas.py
     notes: 月末10Y JGB利回り − 実績コアCPI前年比。負は名目利回りが実績物価上昇率を下回ることを示す。期待インフレを控除した実質金利ではない
     aliases: [日本実質金利, JP real 10Y, 実質長期金利, real yield proxy]
+  - series_id: us.10y_2y_spread
+    name: 10Y-2Yスプレッド
+    category: rates
+    geography: us
+    frequency: daily
+    unit: bp
+    plausible_min: -1000
+    plausible_max: 3000
+    provider: derived
+    provider_series_id: us.10y_2y_spread
+    source_id: derived-us-10y-2y
+    source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/engine/src/baibai_engine/market_context/reading/formulas.py
+    notes: FRB H.15の10年物と2年物の利回り差をbp換算。取得した原系列からL2で計算する
+    aliases: [10Y-2Yスプレッド, 米10Y-2Yスプレッド, yield spread]

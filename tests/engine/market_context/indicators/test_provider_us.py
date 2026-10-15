@@ -98,28 +98,6 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         with self.assertRaisesRegex(IndicatorsProviderError, "missing column ICS_ALL"):
             parse_umich_table(series, text, start=date(2026, 1, 1), end=date(2026, 7, 1))
 
-    def test_parse_h15_csv_computes_spread_bp(self) -> None:
-        series = _series("frb_h15", "RIFLGFCY10_N.B-RIFLGFCY02_N.B", unit="bp")
-        text = "\n".join(
-            [
-                '"Series Description","2Y","10Y"',
-                '"Time Period","RIFLGFCY02_N.B","RIFLGFCY10_N.B"',
-                "2026-05-01,3.88,4.39",
-                "2026-05-04,3.95,4.45",
-            ]
-        )
-
-        observations = parse_h15_csv(
-            series,
-            text,
-            start=date(2026, 5, 1),
-            end=date(2026, 5, 4),
-        )
-
-        self.assertEqual(len(observations), 2)
-        self.assertAlmostEqual(observations[0].value, 51.0)
-        self.assertAlmostEqual(observations[1].value, 50.0)
-
     def test_parse_h15_csv_rejects_missing_required_column(self) -> None:
         series = _series("frb_h15", "RIFLGFCY10_N.B")
         text = '"Time Period",OTHER\n2026-05-01,4.39\n'

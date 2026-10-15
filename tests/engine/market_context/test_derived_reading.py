@@ -30,6 +30,30 @@ class DerivedReadingTests(TestCase):
         # (8,000,000 - 500,000) / 1000 - 1,000 = 6,500 billion.
         self.assertEqual(value, 6500.0)
 
+    def test_treasury_spread_uses_source_yields_and_converts_to_bp(self) -> None:
+        series = load_definitions().by_id()["us.10y_2y_spread"]
+        self.assertEqual(series.provider, "derived")
+        rows = derive_series(
+            series,
+            {
+                "us.10y": (
+                    observation("us.10y", date(2026, 5, 1), 4.39),
+                    observation("us.10y", date(2026, 5, 4), 3.45),
+                    observation("us.10y", date(2026, 5, 5), 3.50),
+                ),
+                "us.2y": (
+                    observation("us.2y", date(2026, 5, 1), 3.88),
+                    observation("us.2y", date(2026, 5, 4), 3.95),
+                ),
+            },
+            start=date(2026, 5, 1),
+            end=date(2026, 5, 5),
+        )
+        self.assertEqual(
+            [(row.observed_at, round(row.value, 6), row.unit) for row in rows],
+            [(date(2026, 5, 1), 51.0, "bp"), (date(2026, 5, 4), -50.0, "bp")],
+        )
+
     def test_derived_rate_diff_formula(self) -> None:
         value = FORMULAS["rate_diff.us_jp_10y"].compute({"us.10y": 4.55, "jp.10y": 2.715})
 

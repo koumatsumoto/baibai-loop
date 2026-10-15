@@ -27,19 +27,6 @@ series:
     source_url: https://www.federalreserve.gov/datadownload/Output.aspx
     tradingview_symbol: TVC:US02Y
     aliases: [米2Y利回り, 米2Y, US 2Y, DGS2]
-  - series_id: us.10y_2y_spread
-    name: 10Y-2Yスプレッド
-    category: rates
-    geography: us
-    frequency: daily
-    unit: bp
-    plausible_min: -1000
-    plausible_max: 3000
-    provider: frb_h15
-    provider_series_id: RIFLGFCY10_N.B-RIFLGFCY02_N.B
-    source_id: fed-h15
-    source_url: https://www.federalreserve.gov/datadownload/Output.aspx
-    aliases: [10Y-2Yスプレッド, 米10Y-2Yスプレッド, yield spread]
   - series_id: us.fed_funds.upper
     name: FF目標レンジ上限
     category: policy
