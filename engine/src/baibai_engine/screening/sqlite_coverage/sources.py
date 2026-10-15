@@ -5,6 +5,8 @@ from __future__ import annotations
 import sqlite3
 from datetime import date
 
+from baibai_engine.storage.observations.coverage import covered_intervals
+
 from .shared import CacheCoverageIssue
 
 _REQUIRED_DATE_ROWS_SQL = {
@@ -63,18 +65,33 @@ def _append_source_coverage_quality_issues(
 ) -> None:
     if start is not None and end is not None:
         rows = conn.execute(
-            "SELECT coverage_key, status, error FROM source_coverage WHERE source = ? "
+            "SELECT coverage_key, status, error, coverage_start, coverage_end "
+            "FROM source_coverage WHERE source = ? "
             "AND (coverage_start IS NULL OR coverage_end IS NULL "
             "OR NOT (coverage_end < ? OR coverage_start > ?))",
             (source, start.isoformat(), end.isoformat()),
         ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT coverage_key, status, error FROM source_coverage WHERE source = ?",
+            "SELECT coverage_key, status, error, coverage_start, coverage_end "
+            "FROM source_coverage WHERE source = ?",
             (source,),
         ).fetchall()
-    for coverage_key, status, error in rows:
+    # Range writers trim successful coverage when a later fetch fails. A successful
+    # partial re-fetch can therefore clear the inspected part of an older, wider
+    # complaint without claiming that the unrepaired remainder is sound.
+    successful = covered_intervals(conn, source) if source in _WINDOW_COUNT_SOURCES else ()
+    for coverage_key, status, error, coverage_start, coverage_end in rows:
         if status != "ok":
+            if coverage_start is not None and coverage_end is not None:
+                low = date.fromisoformat(coverage_start)
+                high = date.fromisoformat(coverage_end)
+                if start is not None:
+                    low = max(low, start)
+                if end is not None:
+                    high = min(high, end)
+                if low <= high and any(a <= low and high <= b for a, b in successful):
+                    continue
             suffix = f": {error}" if error else ""
             issues.append(
                 CacheCoverageIssue(
