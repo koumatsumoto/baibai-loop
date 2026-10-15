@@ -161,7 +161,9 @@ class OptionIvReadingsTest(unittest.TestCase):
         # Contrast symmetric and one-sided synthetic errors. Passing the symmetric
         # case alone would not establish robustness to the one-sided case.
         clean = option_iv_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
-        split = option_iv_readings([*_chain(NEAR, basis_gap=8.0), *_chain(FAR, basis_gap=8.0)], ASOF)
+        split = option_iv_readings(
+            [*_chain(NEAR, basis_gap=8.0), *_chain(FAR, basis_gap=8.0)], ASOF
+        )
         lopsided = option_iv_readings(
             [
                 *_chain(NEAR, basis_gap=8.0, one_sided=True),
@@ -209,7 +211,9 @@ class OptionIvReadingsTest(unittest.TestCase):
         # strike lifts them equally and leaves the difference alone. A leg taken off
         # the call side would instead carry the whole of it.
         clean = option_iv_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
-        skewed = option_iv_readings([*_chain(NEAR, basis_gap=10.0), *_chain(FAR, basis_gap=10.0)], ASOF)
+        skewed = option_iv_readings(
+            [*_chain(NEAR, basis_gap=10.0), *_chain(FAR, basis_gap=10.0)], ASOF
+        )
 
         self.assertEqual(skewed.iv_skew, clean.iv_skew)
 
@@ -457,7 +461,9 @@ class OptionIvReadingsTest(unittest.TestCase):
         # bracketing from the wrong side, or in the wrong direction, lands elsewhere.
         self.assertEqual(((NEAR - ASOF).days, (WIDE - ASOF).days), (16, 58))
 
-        readings = option_iv_readings([*_chain(NEAR, ladder=_STEEP), *_chain(WIDE, ladder=_FLAT)], ASOF)
+        readings = option_iv_readings(
+            [*_chain(NEAR, ladder=_STEEP), *_chain(WIDE, ladder=_FLAT)], ASOF
+        )
 
         weight = (30**-0.5 - 58**-0.5) / (16**-0.5 - 58**-0.5)
         assert readings.iv_skew is not None

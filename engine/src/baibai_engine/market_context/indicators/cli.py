@@ -268,14 +268,14 @@ def _print_series_json(series: Iterable[SeriesDefinition]) -> None:
 
 
 def _print_observations(result: QueryResult) -> None:
-    source = "cache" if result.cache_hit else "provider"
+    query = "cached" if result.cache_hit else "refreshed"
     print(
-        "series_id\tobserved_at\tvalue\tunit\tprovider\tsource",
+        "series_id\tobserved_at\tvalue\tunit\tprovider\tquery",
     )
     for item in result.observations:
         print(
             f"{result.series.series_id}\t{item.observed_at.isoformat()}\t{item.value:g}\t"
-            f"{item.unit}\t{result.series.provider}\t{source}"
+            f"{item.unit}\t{result.series.provider}\t{query}"
         )
 
 

@@ -231,18 +231,14 @@ class IndicatorsService:
         point_in_time = spec.point_in_time_vintage
         cache_hit = (not refresh) and db.has_ok_coverage(conn, series_id, start, end)
         if not cache_hit:
-            observations = self._fetch_and_store(
-                conn, series, start=start, end=end, context=context
-            )
-        else:
-            observations = list(
-                db.observations_in_range(conn, series_id, start, end, point_in_time=point_in_time)
-            )
-        # Providers return observations in source order (ECB FX is newest-first);
-        # normalize to ascending observed_at so callers get a stable chronology
-        # regardless of cache-hit vs provider-fetch path.
-        ordered = sorted(observations, key=lambda item: item.observed_at)
-        return QueryResult(series, tuple(ordered), cache_hit=cache_hit)
+            self._fetch_and_store(conn, series, start=start, end=end, context=context)
+        # Fetch and cache paths expose the same selected store view. A provider may
+        # return several publication vintages for one date; those are source facts,
+        # not several current values or an excuse to return the first old revision.
+        observations = db.observations_in_range(
+            conn, series_id, start, end, point_in_time=point_in_time
+        )
+        return QueryResult(series, observations, cache_hit=cache_hit)
 
     def _refresh_all_history(
         self,
@@ -267,7 +263,7 @@ class IndicatorsService:
             raise IndicatorsProviderError(
                 f"all-history start is not configured for provider {series.provider}"
             )
-        observations = self._fetch_and_store(
+        self._fetch_and_store(
             conn,
             series,
             start=start,
@@ -280,8 +276,10 @@ class IndicatorsService:
             range_replacement=spec.range_replacement_for(series),
             require_observations=True,
         )
-        ordered = sorted(observations, key=lambda item: item.observed_at)
-        return QueryResult(series, tuple(ordered), cache_hit=False)
+        observations = db.observations_in_range(
+            conn, series_id, start, end, point_in_time=spec.point_in_time_vintage
+        )
+        return QueryResult(series, observations, cache_hit=False)
 
     def get_latest(self, series_id: str, *, refresh: bool = False) -> QueryResult:
         end = _today_jst()
@@ -334,7 +332,7 @@ class IndicatorsService:
         remove_other_sources: bool = False,
         range_replacement: RangeReplacementPolicy = "none",
         require_observations: bool = False,
-    ) -> list[ObservationRecord]:
+    ) -> None:
         started_at = datetime.now(UTC)
         try:
             observations = _fetch_observations_with_retry(
@@ -436,7 +434,6 @@ class IndicatorsService:
                 record_count=len(observations),
             )
             conn.commit()
-            return observations
         except Exception as exc:
             conn.rollback()
             db.record_provider_run(
