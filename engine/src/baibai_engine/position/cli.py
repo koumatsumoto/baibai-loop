@@ -284,17 +284,9 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     if args.command == "meta-draft":
         return _run_meta_draft(args)
     if args.command == "outcome":
-        benchmark_path = (
-            args.benchmark_observation
-            if args.benchmark_observation.is_absolute()
-            else args.root / args.benchmark_observation
-        )
-        sqlite_path = args.sqlite if args.sqlite.is_absolute() else args.root / args.sqlite
-        out_path = (
-            None
-            if args.out is None
-            else (args.out if args.out.is_absolute() else args.root / args.out)
-        )
+        benchmark_path = _root_path(args.root, args.benchmark_observation)
+        sqlite_path = _root_path(args.root, args.sqlite)
+        out_path = None if args.out is None else _root_path(args.root, args.out)
         return _run_outcome(
             benchmark_path,
             sqlite_path,
@@ -580,7 +572,7 @@ def _run_record_broker_fact(args: argparse.Namespace, *, now: datetime | None) -
             now=now,
         )
         if draft is not None:
-            output_path = _draft_output_path(args.root, args.out, label="ledger draft")
+            output_path = _root_path(args.root, args.out)
             write_draft(output_path, draft)
         else:
             output_path = None
@@ -639,9 +631,7 @@ def _run_sell_execution_draft(args: argparse.Namespace) -> int:
             execution_id=args.execution_id,
         )
         if draft is not None:
-            output_path = _draft_output_path(
-                args.root, args.out, label="sell execution ledger draft"
-            )
+            output_path = _root_path(args.root, args.out)
             source_event_ids = {event.event_id for event in draft.source.events}
             write_draft(output_path, draft)
         else:
@@ -672,28 +662,9 @@ def _run_sell_execution_draft(args: argparse.Namespace) -> int:
     return 0
 
 
-def _draft_output_path(root: Path, output: Path, *, label: str) -> Path:
-    """Resolve a new draft below root without following repository symlinks."""
-
-    if output.is_absolute() or ".." in output.parts:
-        raise ValueError(f"{label} --out must be a relative path below --root")
-    resolved_root = root.resolve()
-    if not resolved_root.is_dir():
-        raise ValueError(f"--root is not a directory: {root}")
-    candidate = resolved_root / output
-    current = resolved_root
-    for part in output.parts:
-        current = current / part
-        if current.is_symlink():
-            raise ValueError(f"{label} --out must not traverse a symlink: {output}")
-    resolved = candidate.resolve()
-    try:
-        resolved.relative_to(resolved_root)
-    except ValueError as error:
-        raise ValueError(f"{label} --out escapes --root: {output}") from error
-    if resolved.exists():
-        raise ValueError(f"refusing to overwrite existing {label}: {resolved}")
-    return resolved
+def _root_path(root: Path, path: Path) -> Path:
+    """Resolve explicit CLI paths consistently; writers own overwrite protection."""
+    return path if path.is_absolute() else root / path
 
 
 if __name__ == "__main__":

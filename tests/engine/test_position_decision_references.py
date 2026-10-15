@@ -232,3 +232,23 @@ def test_old_saved_draft_requests_reprepare(tmp_path: Path) -> None:
     path.write_text("schema_version: 1\n")
     with pytest.raises(ValueError, match="prepare a new draft"):
         load_draft(path)
+
+
+@pytest.mark.parametrize("absolute", [False, True])
+def test_draft_output_path_accepts_explicit_paths_without_overwriting(
+    tmp_path: Path, absolute: bool
+) -> None:
+    from baibai_engine.position.cli import _root_path
+
+    service, _ = _service(tmp_path)
+    draft = _draft(service)
+    relative = Path("drafts") / "buy.yaml"
+    supplied = tmp_path / relative if absolute else relative
+    output = _root_path(tmp_path, supplied)
+    assert output == tmp_path / relative
+    write_draft(output, draft)
+    assert load_draft(output) == draft
+    before = output.read_bytes()
+    with pytest.raises(FileExistsError):
+        write_draft(output, draft)
+    assert output.read_bytes() == before
