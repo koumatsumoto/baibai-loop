@@ -587,7 +587,9 @@ class TestFixedRelease:
             dataset_manifests={**release.dataset_manifests, "jquants.daily_bars": next_contract},
         )
 
-        with pytest.raises(LakeReadError, match=f"this reader accepts only v{manifest.contract_version}"):
+        with pytest.raises(
+            LakeReadError, match=f"this reader accepts only v{manifest.contract_version}"
+        ):
             accepted_dataset(future, "jquants.daily_bars")
 
     def test_a_dataset_the_release_does_not_publish_is_not_readable(self, lake: Lake) -> None:

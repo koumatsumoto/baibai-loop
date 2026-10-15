@@ -13,7 +13,7 @@ from baibai_engine.storage.lake.datasets import JQUANTS_DAILY_BARS
 from baibai_engine.storage.observations.jquants import store_jquants_daily_bars
 
 
-@pytest.mark.parametrize(("kind", "factor"), [("1", 0.5), ("2", 2.0), ("3", 0.8)])
+@pytest.mark.parametrize(("kind", "factor"), [("1", 0.5), ("2", 2.0), ("3", 0.8), ("3", 1.0)])
 @pytest.mark.parametrize("close", [None, 100.0])
 def test_ex_right_type_survives_source_and_sqlite_roundtrip(tmp_path, kind, factor, close):
     day = date(2026, 10, 14)

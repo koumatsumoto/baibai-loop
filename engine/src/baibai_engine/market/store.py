@@ -103,7 +103,8 @@ def read_adjustment_factor_bars(
         rows = conn.execute(
             "SELECT ticker, traded_at, adjustment_factor, ex_right_type "
             "FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ? "
-            "AND adjustment_factor IS NOT NULL AND adjustment_factor NOT IN (0.0, 1.0) "
+            "AND adjustment_factor > 0 "
+            "AND (adjustment_factor != 1.0 OR ex_right_type IS NOT NULL) "
             "ORDER BY ticker, traded_at",
             (start.isoformat(), end.isoformat()),
         ).fetchall()

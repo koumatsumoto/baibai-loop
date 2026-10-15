@@ -76,20 +76,21 @@ def normalize_daily_bar(record: Mapping[str, Any]) -> JQuantsDailyBar | None:
 def normalize_adjustment_factor_event(
     record: Mapping[str, Any],
 ) -> JQuantsAdjustmentFactorEvent | None:
-    """Decode a split/reverse-split event without requiring a close price."""
+    """Decode a corporate action without requiring a close or a non-unit factor."""
 
     ticker, common_code = parse_jquants_code_parts(first_value(record, "Code", "code"))
     if not common_code:
         return None
     factor = to_float(coalesce_field(record, "AdjustmentFactor", "adjustment_factor", "AdjFactor"))
-    if factor in (None, 0.0, 1.0):
+    kind = normalize_ex_right_type(record.get("ExRT"))
+    if factor in (None, 0.0) or (factor == 1.0 and kind is None):
         return None
     assert factor is not None
     return JQuantsAdjustmentFactorEvent(
         ticker=ticker,
         traded_at=parse_date(first_value(record, "Date", "date", "TradedAt", "traded_at")),
         adjustment_factor=factor,
-        ex_right_type=normalize_ex_right_type(record.get("ExRT")),
+        ex_right_type=kind,
     )
 
 
