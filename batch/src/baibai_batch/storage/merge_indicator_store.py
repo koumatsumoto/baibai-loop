@@ -61,6 +61,10 @@ FACT_KEYS: Mapping[str, tuple[str, ...]] = {
     "observations": ("series_id", "observed_at", "vintage_at"),
     "provider_runs": ("run_id",),
 }
+# Native inputs belong to their source, not a particular current reading registry.
+NATIVE_FACT_KEYS: Mapping[str, tuple[str, ...]] = {
+    "jquants_option_chains": ("trade_date", "fetched_at"),
+}
 # The tables the registry owns: the target's version is the only one.
 REGISTRY_TABLES: tuple[str, ...] = (
     "series",
@@ -104,7 +108,7 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
         connection.execute("ATTACH DATABASE ? AS source", (f"{source.resolve().as_uri()}?mode=ro",))
         try:
             _require_schema(connection, path=source, schema="source")
-            require_identical_columns(connection, (*FACT_KEYS, *REGISTRY_TABLES))
+            require_identical_columns(connection, (*FACT_KEYS, *NATIVE_FACT_KEYS, *REGISTRY_TABLES))
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("BEGIN IMMEDIATE")
             try:
@@ -125,7 +129,10 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
                 _validate_observations(connection, schema="main")
                 _validate_observations(connection, schema="source")
                 retired = _retired_series(connection)
-                tables = merge_fact_tables(connection, FACT_KEYS, eligible=_REGISTERED)
+                tables = (
+                    *merge_fact_tables(connection, FACT_KEYS, eligible=_REGISTERED),
+                    *merge_fact_tables(connection, NATIVE_FACT_KEYS),
+                )
                 connection.commit()
                 return IndicatorMergeReport(tables=tables, retired_series=retired)
             except BaseException:

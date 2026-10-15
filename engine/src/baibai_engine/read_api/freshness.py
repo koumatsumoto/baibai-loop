@@ -35,11 +35,11 @@ def indicator_latest_observed_at(path: Path) -> date | None:
 
     if not path.is_file():
         return None
+    definitions = load_definitions().series
     registered = {
-        series.series_id for series in load_definitions().series if series.provider != "derived"
+        series.series_id for series in definitions
+        if series.provider not in {"derived", "jquants_options"}
     }
-    if not registered:
-        return None
     rows = read_rows(
         path,
         (
@@ -57,6 +57,17 @@ def indicator_latest_observed_at(path: Path) -> date | None:
         (str(row[1]) for row in rows if str(row[0]) in registered and row[1] is not None),
         default=None,
     )
+    if any(series.provider == "jquants_options" for series in definitions):
+        native = read_rows(
+            path,
+            "SELECT max(c.trade_date) FROM jquants_option_chains c "
+            "WHERE c.record_count > 0 AND c.fetched_at = ("
+            "SELECT max(n.fetched_at) FROM jquants_option_chains n "
+            "WHERE n.trade_date = c.trade_date)",
+        )
+        if native and native[0][0] is not None:
+            native_date = str(native[0][0])
+            latest = max(latest, native_date) if latest is not None else native_date
     return None if latest is None else date.fromisoformat(latest)
 
 

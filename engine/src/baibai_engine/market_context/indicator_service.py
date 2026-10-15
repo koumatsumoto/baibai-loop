@@ -6,7 +6,7 @@ import math
 import sqlite3
 import time
 from collections.abc import Sequence
-from contextlib import suppress
+from contextlib import closing, suppress
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -26,6 +26,8 @@ from .indicators.providers import (
     provider_spec,
 )
 from .indicators.providers.base import ProviderFetchStoppedError, StoreReader
+from .option_acquisition import OptionAcquisition
+from .reading.options import OptionSeriesReader
 from .reading.reader import build_store_observation_reader
 from .reading.rules import load_reading_rules
 
@@ -105,12 +107,21 @@ class IndicatorsService:
             raise KeyError(f"unknown indicator series: {series_id}")
         conn = db.open_connection(self.db_path, definitions=definitions)
         try:
-            with FetchContext(
-                store_reader=_store_reader(conn),
-                purpose="refresh" if refresh else "read",
-            ) as context:
+            with (
+                FetchContext(
+                    store_reader=_store_reader(conn),
+                    purpose="refresh" if refresh else "read",
+                ) as context,
+                closing(OptionAcquisition(conn, context)) as options,
+            ):
                 return self._get_range(
-                    conn, series_id, start=start, end=end, refresh=refresh, context=context
+                    conn,
+                    series_id,
+                    start=start,
+                    end=end,
+                    refresh=refresh,
+                    context=context,
+                    options=options,
                 )
         finally:
             conn.close()
@@ -125,9 +136,9 @@ class IndicatorsService:
         definitions = load_definitions()
         if series_id not in definitions.by_id():
             raise KeyError(f"unknown indicator series: {series_id}")
-        if definitions.by_id()[series_id].provider == "derived":
+        if definitions.by_id()[series_id].provider in {"derived", "jquants_options"}:
             raise ValueError(
-                "derived series has no stored observation to retract; retract its input"
+                "computed series has no stored observation to retract; correct its input"
             )
         conn = db.open_connection(self.db_path, definitions=definitions)
         try:
@@ -153,8 +164,13 @@ class IndicatorsService:
         conn = db.open_connection(self.db_path, definitions=definitions)
         try:
             _prune_registry_for_refresh(conn, definitions)
-            with FetchContext(store_reader=_store_reader(conn), purpose="rebuild") as context:
-                return self._refresh_all_history(conn, series_id, end=end, context=context)
+            with (
+                FetchContext(store_reader=_store_reader(conn), purpose="rebuild") as context,
+                closing(OptionAcquisition(conn, context)) as options,
+            ):
+                return self._refresh_all_history(
+                    conn, series_id, end=end, context=context, options=options,
+                )
         finally:
             conn.close()
 
@@ -189,14 +205,19 @@ class IndicatorsService:
         conn = db.open_connection(self.db_path, definitions=definitions)
         try:
             _prune_registry_for_refresh(conn, definitions)
-            with FetchContext(
-                store_reader=_store_reader(conn),
-                purpose="rebuild" if start is None else "refresh",
-            ) as context:
+            with (
+                FetchContext(
+                    store_reader=_store_reader(conn),
+                    purpose="rebuild" if start is None else "refresh",
+                ) as context,
+                closing(OptionAcquisition(conn, context)) as options,
+            ):
                 for series_id in series_ids:
                     try:
                         result = (
-                            self._refresh_all_history(conn, series_id, end=end, context=context)
+                            self._refresh_all_history(
+                                conn, series_id, end=end, context=context, options=options
+                            )
                             if start is None
                             else self._get_range(
                                 conn,
@@ -205,6 +226,7 @@ class IndicatorsService:
                                 end=end,
                                 refresh=True,
                                 context=context,
+                                options=options,
                             )
                         )
                     except (sqlite3.Error, IndicatorsSchemaError):
@@ -230,10 +252,14 @@ class IndicatorsService:
         end: date,
         refresh: bool,
         context: FetchContext,
+        options: OptionAcquisition,
     ) -> QueryResult:
         series = db.get_series(conn, series_id)
         if series.provider == "derived":
             return _derived_range(conn, series, start=start, end=end)
+        if series.provider == "jquants_options":
+            observations, cache_hit = options.query(series, start=start, end=end, refresh=refresh)
+            return QueryResult(series, observations, cache_hit=cache_hit)
         spec = provider_spec(series.provider)
         point_in_time = spec.point_in_time_vintage
         cache_hit = (not refresh) and db.has_ok_coverage(conn, series_id, start, end)
@@ -254,6 +280,7 @@ class IndicatorsService:
         *,
         end: date,
         context: FetchContext,
+        options: OptionAcquisition,
     ) -> QueryResult:
         series = db.get_series(conn, series_id)
         if series.provider == "derived":
@@ -272,6 +299,11 @@ class IndicatorsService:
             raise IndicatorsProviderError(
                 f"all-history start is not configured for provider {series.provider}"
             )
+        if series.provider == "jquants_options":
+            observations, cache_hit = options.query(
+                series, start=start, end=end, refresh=True, require_observations=True
+            )
+            return QueryResult(series, observations, cache_hit=cache_hit)
         self._fetch_and_store(
             conn,
             series,
@@ -301,9 +333,15 @@ class IndicatorsService:
                 result = _derived_range(conn, series, start=date(1970, 1, 1), end=end)
                 return QueryResult(series, result.observations[-1:], cache_hit=True)
             spec = provider_spec(series.provider)
-            cached_latest = db.latest_observation(
-                conn, series_id, on_or_before=end, point_in_time=spec.point_in_time_vintage
-            )
+            if series.provider == "jquants_options":
+                recent = OptionSeriesReader(conn).read(
+                    series, start=end - timedelta(days=14), end=end
+                )
+                cached_latest = recent[-1] if recent else None
+            else:
+                cached_latest = db.latest_observation(
+                    conn, series_id, on_or_before=end, point_in_time=spec.point_in_time_vintage
+                )
             if (
                 not refresh
                 and cached_latest is not None
@@ -320,7 +358,9 @@ class IndicatorsService:
             series_id,
             start=start,
             end=end,
-            refresh=refresh or cached_latest is not None,
+            # An empty native day may precede publication; latest must ask again
+            # when no fresh reading exists, not freeze that early empty response.
+            refresh=refresh or cached_latest is not None or series.provider == "jquants_options",
         )
         if not result.observations:
             return result

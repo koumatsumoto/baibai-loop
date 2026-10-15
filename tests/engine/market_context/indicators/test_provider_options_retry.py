@@ -22,7 +22,6 @@ from baibai_engine.market_context.indicator_service import (
     IndicatorsService,
     RefreshFailure,
     RefreshSuccess,
-    _fetch_observations_with_retry,
 )
 from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
 from baibai_engine.market_context.indicators.providers import jquants_options, registry
@@ -30,11 +29,12 @@ from baibai_engine.market_context.indicators.providers.base import (
     FetchContext,
     ProviderFetchStoppedError,
 )
-from baibai_engine.market_context.indicators.providers.option_iv import (
+from baibai_engine.market_context.reading.option_iv import (
     option_iv_readings,
     quotes_from_records,
 )
 from baibai_engine.market_context.indicators.providers.read_retry import read_deadline
+from baibai_engine.market_context.option_acquisition import OptionAcquisition
 
 BASE = datetime(2026, 10, 13, tzinfo=UTC).timestamp()
 READINGS = ("jp.n225_iv_30d", "jp.n225_iv_skew", "jp.n225_iv_term")
@@ -46,7 +46,7 @@ class BodyTimeout(io.BytesIO):
 
 
 @pytest.fixture
-def wire(monkeypatch):
+def wire(monkeypatch, tmp_path):
     class Wire:
         elapsed = 0.0
         calls = []
@@ -79,12 +79,21 @@ def wire(monkeypatch):
             )
 
         def fetch(self, series_id=READINGS[0], *, start=ASOF, end=ASOF):
-            return _fetch_observations_with_retry(
-                _registered(series_id), start=start, end=end, context=self.context
+            if self.acquisition_context is not self.context:
+                if self.acquisition is not None:
+                    self.acquisition.close()
+                self.acquisition = OptionAcquisition(self.connection, self.context)
+                self.acquisition_context = self.context
+            observations, _ = self.acquisition.query(
+                _registered(series_id), start=start, end=end, refresh=True
             )
+            return observations
 
     wire = Wire()
     wire.context = FetchContext()
+    wire.connection = initialize_database(tmp_path / "wire.sqlite")
+    wire.acquisition_context = None
+    wire.acquisition = None
     monkeypatch.setenv("NO_PROXY", "*")
     monkeypatch.setenv("no_proxy", "*")
     monkeypatch.setattr(jquantsapi.ClientV2, "_load_config", lambda self: {})
@@ -104,10 +113,11 @@ def wire(monkeypatch):
         pytest.fail("offline SDK transport must never connect")
 
     monkeypatch.setattr("socket.socket.connect", no_socket)
-    wire.provider = jquants_options.JQuantsOptionsProvider()
-    monkeypatch.setitem(registry._PROVIDERS, "jquants_options", wire.provider)
     yield wire
+    if wire.acquisition is not None:
+        wire.acquisition.close()
     wire.context.close()
+    wire.connection.close()
 
 
 def chain(day=ASOF):
@@ -341,13 +351,11 @@ def test_days_share_one_deadline_and_completed_day_stays_readable(wire):
     assert wire.waits == [900]
 
 
-def test_terminal_day_failure_is_not_carried_into_a_new_provider_process(wire, monkeypatch):
+def test_terminal_day_failure_is_not_carried_into_a_new_acquisition(wire):
     wire.reply = lambda url: (403, {}, {})
     with pytest.raises(ProviderFetchStoppedError):
         wire.fetch()
-    monkeypatch.setitem(
-        registry._PROVIDERS, "jquants_options", jquants_options.JQuantsOptionsProvider()
-    )
+    wire.acquisition_context = None
     wire.reply = lambda url: success()
     assert len(wire.fetch()) == 1
     assert len(wire.calls) == 2
@@ -558,10 +566,7 @@ def test_malformed_native_page_is_not_a_successful_empty_day(wire, payload):
 def test_native_pages_keep_all_fields_and_source_date_strings(wire):
     rows = [{**row, "EO": "", "extra_source_field": None} for row in chain()]
     wire.reply = lambda url: success(rows=rows)
-    client = jquants_options.jquants_read_client(
-        "synthetic-key", deadline=read_deadline("jquants_options", wire.context)
-    )
-    result = jquants_options._fetch_chain(client, ASOF, api_key="synthetic-key")
+    result = jquants_options.OptionChainSource(wire.context).fetch(ASOF)
     assert result == rows
     assert isinstance(result[0]["Date"], str)
     assert result[0]["EO"] == ""

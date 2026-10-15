@@ -14,6 +14,12 @@ from .provider_specs import ProviderSpec
 
 DERIVED_SPEC = ProviderSpec(name="derived", kind="local", all_history_start=date(1970, 1, 1))
 
+JQUANTS_OPTIONS_SPEC = ProviderSpec(
+    name="jquants_options",
+    all_history_rolling_years=10,
+    required_env=("JQUANTS_API_KEY",),
+)
+
 JQUANTS_FLOWS_SPEC = ProviderSpec(
     name="jquants_flows",
     all_history_rolling_years=10,
@@ -34,5 +40,6 @@ def point_in_time_providers() -> frozenset[str]:
 __all__ = [
     "DERIVED_SPEC",
     "JQUANTS_FLOWS_SPEC",
+    "JQUANTS_OPTIONS_SPEC",
     "point_in_time_providers",
 ]

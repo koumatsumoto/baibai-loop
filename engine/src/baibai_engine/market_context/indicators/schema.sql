@@ -113,4 +113,14 @@ CREATE TABLE IF NOT EXISTS provider_runs(
 CREATE INDEX IF NOT EXISTS idx_provider_runs_series_range
   ON provider_runs(series_id, range_start, range_end, status);
 
-PRAGMA user_version = 7;
+-- Source records are independent of the three current indicator definitions.
+-- Preserve empty complete responses and later corrections; L2 selects one vintage.
+CREATE TABLE IF NOT EXISTS jquants_option_chains(
+  trade_date TEXT NOT NULL,
+  fetched_at TEXT NOT NULL,
+  record_count INTEGER NOT NULL CHECK(record_count >= 0),
+  payload BLOB NOT NULL,
+  PRIMARY KEY(trade_date, fetched_at)
+);
+
+PRAGMA user_version = 8;

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import assert_never
@@ -11,6 +10,7 @@ from baibai_engine.market_context.indicators.definitions import SeriesDefinition
 from baibai_engine.market_context.indicators.observations import ObservationRecord
 
 from .formulas import FORMULAS, DerivedFormula, MonthlyObservationDate
+from .observations import reading_observation
 
 
 def derive_series(
@@ -37,23 +37,13 @@ def derive_series(
         value = formula.compute({key: row.value for key, row in aligned.items()})
         if value is None:
             continue
-        if not math.isfinite(value):
-            raise ValueError(f"derived series {series.series_id} has a non-finite result")
-        if (series.plausible_min is not None and value < series.plausible_min) or (
-            series.plausible_max is not None and value > series.plausible_max
-        ):
-            raise ValueError(f"derived series {series.series_id} is outside plausible range")
         vintages = [row.vintage_at for row in aligned.values()]
         vintage = max(v for v in vintages if v is not None) if all(vintages) else None
         results.append(
-            ObservationRecord(
-                series_id=series.series_id,
+            reading_observation(
+                series,
                 observed_at=observed_at,
                 value=value,
-                unit=series.unit,
-                source_url=series.source_url,
-                period_start=observed_at,
-                period_end=observed_at,
                 vintage_at=vintage,
             )
         )

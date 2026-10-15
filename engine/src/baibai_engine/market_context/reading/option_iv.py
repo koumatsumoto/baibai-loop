@@ -308,6 +308,7 @@ def quotes_from_records(records: Sequence[Mapping[str, object]]) -> list[OptionQ
     and a day is still readable without them.
     """
     quotes: list[OptionQuote] = []
+    seen: set[tuple[date, float, str]] = set()
     for record in settlement_rows(records):
         expiry = as_date(record.get("SQD"))
         strike = _as_float(record.get("Strike"))
@@ -318,6 +319,12 @@ def quotes_from_records(records: Sequence[Mapping[str, object]]) -> list[OptionQ
             continue
         if put_call not in {PUT, CALL}:
             continue
+        key = (expiry, strike, put_call)
+        if key in seen:
+            raise ValueError(
+                f"duplicate settlement option contract: {expiry}, {strike:g}, {put_call}"
+            )
+        seen.add(key)
         quotes.append(
             OptionQuote(
                 put_call=put_call,

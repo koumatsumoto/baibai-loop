@@ -4,7 +4,7 @@ from datetime import date
 
 from ..definitions import SeriesDefinition
 from ..observations import ObservationRecord
-from ..read_contracts import DERIVED_SPEC
+from ..read_contracts import DERIVED_SPEC, JQUANTS_OPTIONS_SPEC
 from .base import (
     FetchContext,
     HttpSession,
@@ -22,7 +22,6 @@ from .frb_h15 import FrbH15Provider
 from .fred import FredProvider
 from .jquants_flows import JQuantsFlowsProvider
 from .jquants_indices import JQuantsIndicesProvider
-from .jquants_options import JQuantsOptionsProvider
 from .mof_jgb import MofJgbProvider
 from .multpl import MultplProvider
 from .nikkei_indexes import NikkeiIndexesProvider
@@ -31,10 +30,8 @@ from .tsr_bankruptcies import TsrBankruptciesProvider
 from .umich_sca import UmichScaProvider
 from .yahoo import YahooChartProvider
 
-# External acquisition registration. Virtual derived metadata has no fetch object.
-# Adding a provider means importing its class and
-# adding one line here; the service and store read capabilities from each
-# provider's ProviderSpec, never from a name branch.
+# Scalar external acquisitions. Native option chains have their own source boundary;
+# application orchestration persists them before L2 computes the registered readings.
 _PROVIDERS: dict[str, IndicatorDataProvider] = {
     provider.name: provider
     for provider in (
@@ -48,7 +45,6 @@ _PROVIDERS: dict[str, IndicatorDataProvider] = {
         EStatDashboardProvider(),
         JQuantsFlowsProvider(),
         JQuantsIndicesProvider(),
-        JQuantsOptionsProvider(),
         MofJgbProvider(),
         MultplProvider(),
         NikkeiIndexesProvider(),
@@ -91,8 +87,16 @@ def resolve_provider(name: str) -> IndicatorDataProvider:
 
 
 def provider_spec(name: str) -> ProviderSpec:
-    return DERIVED_SPEC if name == "derived" else resolve_provider(name).spec
+    if name == "derived":
+        return DERIVED_SPEC
+    if name == "jquants_options":
+        return JQUANTS_OPTIONS_SPEC
+    return resolve_provider(name).spec
 
 
 def registered_specs() -> tuple[ProviderSpec, ...]:
-    return (*tuple(provider.spec for provider in _PROVIDERS.values()), DERIVED_SPEC)
+    return (
+        *tuple(provider.spec for provider in _PROVIDERS.values()),
+        DERIVED_SPEC,
+        JQUANTS_OPTIONS_SPEC,
+    )

@@ -356,7 +356,7 @@ ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。�
 
 vintage・retraction・generation・no-lossの意味は[Market Context reference](../docs/reference/market-context.md#①-データindicator-series-を引く)を参照する。
 
-**観測の撤回**: `market-context indicators retract <series_id> --observed-at <date> --expected-vintage <ts>`で確認した最新vintageを名指す。`derived`系列は読取時の計算値なので撤回対象ではない。元の観測を訂正・撤回すると次回読取に反映する。CAS拒否なら現在vintageを読み直す。成功後は正しい下位観測、または当日の非表示を確認する。localの直接DELETEや同じCASの反復で復旧しない。
+**観測の撤回**: `market-context indicators retract <series_id> --observed-at <date> --expected-vintage <ts>`で確認した最新vintageを名指す。`derived`と`jquants_options`の系列は読取時の計算値なのでscalar観測の撤回対象ではない。元の観測を訂正・撤回すると次回読取に反映する。CAS拒否なら現在vintageを読み直す。成功後は正しい下位観測、または当日の非表示を確認する。localの直接DELETEや同じCASの反復で復旧しない。
 
 **系列の追加・退役・改名**:
 
@@ -365,7 +365,9 @@ vintage・retraction・generation・no-lossの意味は[Market Context reference
 3. 変更codeをmainへ反映し、同じcodeのlocalで現行系列を1件以上指定して明示的な`market-context indicators refresh`を実行する。退役IDだけの指定ではpruneへ進めない。base観測の同期後、派生値はReadingで再計算されるため別のrefreshは不要である。
 4. validator・Reading・意図した退役結果を確認後、`push-indicators`を実行する。件数表示はcommit後の補助出力であり、ログの組合せをcommit条件にしない。発行済みContextの退役系列warningは確認するが本文を書き換えない。
 
-**公開済みoptionsの集計式を変える場合**: `jp.n225_iv_30d`・`jp.n225_iv_skew`・`jp.n225_iv_term`は2段に分ける。まず3系列を退役し、generationを進めて上の手順でcloudへ反映する。そのpush成功後に新式と3系列を戻し、元digestの既存generation値を退役段階よりさらに大きい値へ更新する。再びcodeをmainへ反映してから必要範囲の全履歴を取得し、新式で値が出ない日に旧式の観測が残らないことを確認してpushする。長い取得窓はproviderの契約に従って分割する。日次batch待ち・localだけの削除・2段の一括化はしない。
+**optionsの集計式変更**: `jp.n225_iv_30d`・`jp.n225_iv_skew`・`jp.n225_iv_term`は原本からL2で再計算する。式変更だけなら系列退役や再導入、API履歴の取り直しは行わない。原本が不足する日だけ補い、Readingと公開結果を確認する。旧scalar行は履歴として残っていても現行の読取には使わない。取得・再開の契約は[optionsの取得と復旧](../docs/reference/market-context.md#jquants-options-provider)を参照する。
+
+**schema7から8への一回切替**: 通常のopen・pull・mergeに旧schema互換を追加しない。マージ後の作業では、実行中writerがいない切替窓を確保し、最新cloud copyから別のcandidateを作る。既存のregistry・観測・取得履歴を保ったまま現行schemaのnative chain表を追加し、取得済み原本の再利用と不足日だけの取得を行う。旧scalarからchainを復元できたとは扱わない。candidateと元copyの既存fact保持、raw日付・件数、Reading、公開結果を確認してからcodeとstoreの世代を合わせて切り替える。schema7のcloud copyをschema8の通常mergeへ渡しても切替にはならず、拒否される。切替時の最新cloud世代に対する条件付き書込みとbundle receiptの整合は通常公開と同様に守る。具体的な対象世代・原本不足範囲・candidate確認結果は切替実行時に確定し、PRのコード変更だけで本番切替済みとしない。
 
 **停止と復旧**: DB拒否・意図しない退役・provider取得失敗・merge/CAS失敗では後続公開へ進まない。provider失敗がcommit済みpruneを巻き戻すとは扱わない。誤った内容をcloudへ反映した場合は次のpushを止め、[R2 transferの安全境界](#r2-transferの安全境界)の前世代復元へ進む。部分pushによるreceipt不一致だけは[部分pushからの復旧](#部分-push-からの復旧)で扱う。
 

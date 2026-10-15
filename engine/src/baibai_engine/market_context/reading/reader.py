@@ -21,6 +21,7 @@ from baibai_engine.market_context.indicators.read_contracts import point_in_time
 from .derived import derive_series
 from .formulas import FORMULAS
 from .models import ObservationReader
+from .options import OptionSeriesReader
 
 
 def build_store_observation_reader(
@@ -39,6 +40,7 @@ def build_store_observation_reader(
 
     definitions = {item.series_id: item for item in series}
     point_in_time = point_in_time_providers()
+    options = OptionSeriesReader(connection)
 
     def read(series_id: str, start: date, end: date) -> tuple[ObservationRecord, ...]:
         definition = definitions.get(series_id)
@@ -49,6 +51,8 @@ def build_store_observation_reader(
             input_start = start.replace(day=1) if formula.alignment == "monthly" else start
             inputs = {key: read(key, input_start, end) for key in formula.inputs}
             return derive_series(definition, inputs, start=start, end=end)
+        if definition.provider == "jquants_options":
+            return options.read(definition, start=start, end=end)
         return indicators_db.observations_in_range(
             connection,
             series_id,

@@ -1,143 +1,37 @@
+"""Acquire complete native daily option chains; do not calculate indicator values."""
+
 from __future__ import annotations
 
 import os
 from collections.abc import Mapping, Sequence
 from contextlib import closing
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
 
 from baibai_engine.foundation.env import load_project_env
 
-from ..definitions import SeriesDefinition
-from ..observations import ObservationRecord
-from .base import (
-    FetchContext,
-    HttpSession,
-    IndicatorsProviderError,
-    ProviderFetchStoppedError,
-    ProviderSpec,
-    record_observation,
-)
-from .option_iv import (
-    OptionIvReadings,
-    as_date,
-    option_iv_readings,
-    quotes_from_records,
-    settlement_rows,
-)
-from .read_retry import ReadDeadline, jquants_read_client, read_deadline
+from .base import FetchContext, ProviderFetchStoppedError
+from .read_retry import jquants_read_client, read_deadline
 
-# jquants_flows / jquants_indices と同じ資格情報。indicators 用に secret を増やさない。
 _API_KEY_ENV = "JQUANTS_API_KEY"
 
-# provider_series_id -> OptionIvReadings の属性名。registry に series を持つ読みだけを
-# 登録する。読む経路のない値を store に入れないため、この表が取得対象を決める。
-_READING_FIELDS: Mapping[str, str] = {
-    "n225_iv_30d": "iv_30d",
-    "n225_iv_skew": "iv_skew",
-    "n225_iv_term": "iv_term",
-}
 
+class OptionChainSource:
+    """One authenticated transport and deadline for an application acquisition pass."""
 
-class JQuantsOptionsProvider:
-    """日経225オプションのチェーンからIVの水準・スキュー・期間差を返す。
+    def __init__(self, context: FetchContext) -> None:
+        self._deadline = read_deadline("jquants_options", context)
+        self._api_key = _read_api_key()
+        self._client = jquants_read_client(self._api_key, deadline=self._deadline)
 
-    endpoint は 1 日 1 断面しか返さないので、range 取得は日次ループになる。
-    チェーン自体 (1 日 1 万行) は保存せず、集計後の系列だけを observation にする。
-    fetch は認証と取得だけを行い、集計は純粋関数 option_iv に委譲する。
-    """
+    def fetch(self, day: date) -> list[Mapping[str, object]]:
+        self._deadline.check()
+        records = _call(self._client, day, api_key=self._api_key)
+        _require_requested_day(records, day)
+        return records
 
-    spec = ProviderSpec(
-        name="jquants_options",
-        all_history_rolling_years=10,
-        required_env=(_API_KEY_ENV,),
-    )
-    name = spec.name
-
-    def __init__(self) -> None:
-        # Share each day's chain across the three readings within one fetch pass.
-        # Clear successful and empty results on the next pass: historical data can
-        # be corrected, and an empty response does not prove permanent absence.
-        self._readings: dict[date, OptionIvReadings | None] = {}
-        self._fetch_context: FetchContext | None = None
-        # A failed chain is also one shared result: another reading must not reset
-        # that day's HTTP retry budget. Failures last only for this fetch pass.
-        self._failures: dict[date, str] = {}
-
-    def fetch(
-        self,
-        series: SeriesDefinition,
-        *,
-        start: date,
-        end: date,
-        session: HttpSession,
-        context: FetchContext | None = None,
-    ) -> list[ObservationRecord]:
-        del session
-        if context is None or context is not self._fetch_context:
-            self._readings.clear()
-            self._failures.clear()
-            self._fetch_context = context
-        deadline = read_deadline(self.name, context)
-        field = _reading_field(series.provider_series_id)
-        api_key = _read_api_key()
-        client = jquants_read_client(api_key, deadline=deadline)
-        observations: list[ObservationRecord] = []
-        for day in _days(start, end):
-            reading = self._day_reading(client, day, api_key=api_key, deadline=deadline)
-            if reading is None:
-                # No chain was returned for this pass. Do not invent a point;
-                # a later pass will fetch again, including after late publication.
-                continue
-            value = getattr(reading, field)
-            if value is None:
-                continue
-            observations.append(record_observation(series, observed_at=day, value=value))
-        return observations
-
-    def _day_reading(
-        self, client: Any, day: date, *, api_key: str, deadline: ReadDeadline
-    ) -> OptionIvReadings | None:
-        if day in self._readings:
-            return self._readings[day]
-        if day in self._failures:
-            raise ProviderFetchStoppedError(self._failures[day]) from None
-        try:
-            deadline.check()
-            rows = _fetch_chain(client, day, api_key=api_key)
-            reading = _reading(rows, day) if rows else None
-        except IndicatorsProviderError as exc:
-            message = _redact(str(exc), api_key)
-            self._failures[day] = message
-            raise ProviderFetchStoppedError(message) from None
-        self._readings[day] = reading
-        return reading
-
-
-def _reading(rows: Sequence[Mapping[str, object]], day: date) -> OptionIvReadings:
-    return option_iv_readings(quotes_from_records(rows), day)
-
-
-def _reading_field(provider_series_id: str) -> str:
-    field = _READING_FIELDS.get(provider_series_id)
-    if field is None:
-        supported = ", ".join(sorted(_READING_FIELDS))
-        raise ProviderFetchStoppedError(
-            f"unsupported jquants_options series {provider_series_id!r}; supported: {supported}"
-        )
-    return field
-
-
-def _days(start: date, end: date) -> list[date]:
-    if start > end:
-        return []
-    # Weekends never carry a chain, so skipping them removes two empty calls in
-    # seven from a multi-year backfill without needing a holiday calendar.
-    return [
-        day
-        for offset in range((end - start).days + 1)
-        if (day := start + timedelta(days=offset)).weekday() < 5
-    ]
+    def close(self) -> None:
+        self._client._request_session().close()
 
 
 def _read_api_key() -> str:
@@ -150,38 +44,6 @@ def _read_api_key() -> str:
     return token
 
 
-def _fetch_chain(client: Any, day: date, *, api_key: str) -> list[Mapping[str, object]]:
-    rows = _call(client, day, api_key=api_key)
-    _require_requested_day(rows, day)
-    # The duplicate check speaks about the snapshot the readings use. Run against the
-    # raw payload it would instead refuse every session the exchange called emergency
-    # margin on, where a second full copy of the chain is the documented answer.
-    _require_one_row_per_contract(settlement_rows(rows), day)
-    return rows
-
-
-def _require_one_row_per_contract(rows: Sequence[Mapping[str, object]], day: date) -> None:
-    """Refuse a chain that carries a contract twice within one snapshot.
-
-    Every reading resolves a strike to one volatility by writing into a dict, so a
-    second row for the same contract wins on arrival order and nothing downstream can
-    see it happened — the basis check takes a median and a single duplicated strike
-    does not move it. The one repetition the source is known to produce is the second
-    snapshot of an emergency-margin session, which is separated before this runs; a
-    contract repeated inside the settlement snapshot is the source doing something this
-    code has not been shown, and guessing which row to keep is worse than stopping.
-    """
-    seen: set[tuple[str, str, str]] = set()
-    for row in rows:
-        key = (str(row.get("SQD")), str(row.get("Strike")), str(row.get("PCDiv")))
-        if key in seen:
-            raise ProviderFetchStoppedError(
-                f"jquants_options returned {day.isoformat()} twice for the same contract "
-                f"(expiry {key[0]}, strike {key[1]}, side {key[2]})"
-            )
-        seen.add(key)
-
-
 def _require_requested_day(rows: Sequence[Mapping[str, object]], day: date) -> None:
     """Refuse a chain that answers for a day other than the one asked for.
 
@@ -192,7 +54,11 @@ def _require_requested_day(rows: Sequence[Mapping[str, object]], day: date) -> N
     """
     answered: set[date] = set()
     for row in rows:
-        parsed = as_date(row.get("Date"))
+        value = row.get("Date")
+        try:
+            parsed = date.fromisoformat(value) if isinstance(value, str) else None
+        except ValueError:
+            parsed = None
         if parsed is None:
             raise ProviderFetchStoppedError(
                 f"jquants_options has a missing or invalid observation date for {day.isoformat()}"

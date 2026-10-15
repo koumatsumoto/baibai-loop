@@ -32,6 +32,7 @@ from baibai_engine.market_context.indicators.definitions import (
     load_definitions,
 )
 from baibai_engine.market_context.indicators.observations import ObservationRecord
+from baibai_engine.market_context.indicators.option_chains import store_chain
 
 STARTED_AT = datetime(2026, 7, 24, 11, 47, tzinfo=UTC)
 # Every observation carries an explicit vintage so a row present in both stores collides on
@@ -682,3 +683,33 @@ def test_retracted_rows_keep_the_storage_contract(tmp_path, side, value):
             (value, "retracted")
         ]
         assert _read_range(target) == ()
+
+def test_native_option_facts_merge_independently_of_registered_readings(tmp_path: Path) -> None:
+    source, target = tmp_path / "source.sqlite", tmp_path / "target.sqlite"
+    for path in (source, target):
+        _build_store(path, series_ids=("us.10y",), observations=())
+    with closing(sqlite3.connect(source)) as conn, conn:
+        store_chain(conn, trade_date=date(2026, 7, 20), fetched_at=VINTAGE, records=[{"Date": "2026-07-20", "unused": None}])
+    with closing(sqlite3.connect(target)) as conn, conn:
+        store_chain(conn, trade_date=date(2026, 7, 21), fetched_at=VINTAGE, records=[])
+    report = merge_stores(source, target)
+    raw = next(table for table in report.tables if table.table == "jquants_option_chains")
+    assert raw.inserted == 1
+    assert raw.skipped == 0
+    assert raw.target_rows_after == 2
+    assert merge_stores(source, target).inserted == 0
+    assert _rows(source, "SELECT * FROM jquants_option_chains") == _rows(target, "SELECT * FROM jquants_option_chains WHERE trade_date = '2026-07-20'")
+
+
+def test_raw_payload_conflict_rolls_back_scalar_rows_in_the_same_merge(tmp_path: Path) -> None:
+    source, target = tmp_path / "source.sqlite", tmp_path / "target.sqlite"
+    _build_store(source, series_ids=("us.10y",), observations=(_observation("us.10y", date(2026, 7, 20), 4.0),))
+    _build_store(target, series_ids=("us.10y",), observations=())
+    for path, rows in ((source, [{"Date": "2026-07-20", "IV": 20}]), (target, [])):
+        with closing(sqlite3.connect(path)) as conn, conn:
+            store_chain(conn, trade_date=date(2026, 7, 20), fetched_at=VINTAGE, records=rows)
+    before = _rows(target, "SELECT * FROM jquants_option_chains")
+    with pytest.raises(MergeError, match="jquants_option_chains payload disagrees"):
+        merge_stores(source, target)
+    assert _observations(target) == set()
+    assert _rows(target, "SELECT * FROM jquants_option_chains") == before

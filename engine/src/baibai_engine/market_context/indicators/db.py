@@ -14,7 +14,7 @@ from baibai_engine.foundation.repository_layout import INDICATORS_DB_PATH
 from .definitions import IndicatorDefinitions, SeriesDefinition, load_definitions
 from .observations import ObservationRecord
 
-SQLITE_SCHEMA_VERSION = 7
+SQLITE_SCHEMA_VERSION = 8
 # The acquisition outcome that says "this observation is withdrawn from the reads".
 RETRACTED_STATUS = "retracted"
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
@@ -24,13 +24,14 @@ _ROW_COUNT_SQL = {
     "aliases": "SELECT COUNT(*) FROM aliases",
     "observations": "SELECT COUNT(*) FROM observations",
     "provider_runs": "SELECT COUNT(*) FROM provider_runs",
+    "jquants_option_chains": "SELECT COUNT(*) FROM jquants_option_chains",
 }
 _SCHEMA_VALIDATION_SQL = {
     "main": {
         "user_version": "PRAGMA main.user_version",
-        "registry_tables": (
+        "contract_tables": (
             "SELECT name, sql FROM main.sqlite_master "
-            "WHERE type = 'table' AND name = 'registry_state'"
+            "WHERE type = 'table' AND name IN ('registry_state', 'jquants_option_chains')"
         ),
         "registry_state": (
             "SELECT singleton, generation, typeof(singleton), typeof(generation) "
@@ -40,9 +41,9 @@ _SCHEMA_VALIDATION_SQL = {
     },
     "source": {
         "user_version": "PRAGMA source.user_version",
-        "registry_tables": (
+        "contract_tables": (
             "SELECT name, sql FROM source.sqlite_master "
-            "WHERE type = 'table' AND name = 'registry_state'"
+            "WHERE type = 'table' AND name IN ('registry_state', 'jquants_option_chains')"
         ),
         "registry_state": (
             "SELECT singleton, generation, typeof(singleton), typeof(generation) "
@@ -128,16 +129,16 @@ def validate_current_schema(
         raise IndicatorsSchemaError(
             f"unsupported indicator SQLite schema: {version}; expected {SQLITE_SCHEMA_VERSION}"
         )
-    _validate_registry_state_contract(conn, schema=schema)
+    _validate_table_and_registry_contract(conn, schema=schema)
     _validate_trigger_contract(conn, schema=schema)
 
 
-def _validate_registry_state_contract(conn: sqlite3.Connection, *, schema: str) -> None:
+def _validate_table_and_registry_contract(conn: sqlite3.Connection, *, schema: str) -> None:
     queries = _SCHEMA_VALIDATION_SQL[schema]
-    expected = _canonical_registry_table_sql()
+    expected = _canonical_contract_table_sql()
     actual = {
         str(row[0]): _normalize_schema_sql(str(row[1]))
-        for row in conn.execute(queries["registry_tables"])
+        for row in conn.execute(queries["contract_tables"])
     }
     missing = sorted(set(expected) - set(actual))
     changed = sorted(name for name in set(expected) & set(actual) if actual[name] != expected[name])
@@ -148,7 +149,7 @@ def _validate_registry_state_contract(conn: sqlite3.Connection, *, schema: str) 
         if changed:
             details.append(f"changed: {', '.join(changed)}")
         raise IndicatorsSchemaError(
-            f"indicator SQLite registry table contract mismatch in {schema} ({'; '.join(details)})"
+            f"indicator SQLite table contract mismatch in {schema} ({'; '.join(details)})"
         )
 
     rows = conn.execute(queries["registry_state"]).fetchall()
@@ -203,7 +204,7 @@ def _canonical_trigger_sql() -> dict[str, str]:
 
 
 @cache
-def _canonical_registry_table_sql() -> dict[str, str]:
+def _canonical_contract_table_sql() -> dict[str, str]:
     connection = sqlite3.connect(":memory:")
     try:
         connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
@@ -211,7 +212,7 @@ def _canonical_registry_table_sql() -> dict[str, str]:
             str(row[0]): _normalize_schema_sql(str(row[1]))
             for row in connection.execute(
                 "SELECT name, sql FROM sqlite_master "
-                "WHERE type = 'table' AND name = 'registry_state'"
+                "WHERE type = 'table' AND name IN ('registry_state', 'jquants_option_chains')"
             )
         }
     finally:

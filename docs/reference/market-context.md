@@ -17,7 +17,7 @@ Market Contextの`indicators`はL1のregistry・取得・DB adapter、`reading`�
 
 `indicators`はL1の取得/registry/観測DB、`reading/query.py`は保存観測からのL2読取、`assessment`は明示判断と保存履歴を所有する。Web/batchの公開読取は`read_api/market_context.py`へ統合し、旧moduleを転送する入口は置かない。Webの現在の内容は`AssessmentContent`、過去の章・確率・主張・引用は歴史的本文の表示であり、新writerの必須構造ではない。
 
-runtimeの指標DBは`stores/market_context/indicators.sqlite`/R2 `indicators.sqlite`（schema7）、判断はapplication schema24の`market_context_assessment / market_context_assessment_head`に保存する。新規判断はschema6・`market-context-assessment-*` identityを使う。旧`macro-context-*` ID・JSON・引用・hashは変更せず、新しい`/api/market-context/assessments/{context_id}`から直接読む。schema5/6は同じコンパクト意味、旧3/4は保存された章立て履歴であり、新writerの構造とは分ける。Researchは保存された市場判断を固定入力へ取り込み、Investment Proposalがmarket_context_assessment_idへ束縛する。旧ResearchのTriage/CAAは通常runtimeで利用・再開せず、一回切替で必要な執筆材料と判断参照を退避する。保存名の切替は完了しており、通常の取得・反映・復旧は[運用手順](../../batch/OPERATIONS.md#store-identity-recovery)に従う。
+runtimeの指標DBは`stores/market_context/indicators.sqlite`/R2 `indicators.sqlite`（schema8）、判断はapplication schema24の`market_context_assessment / market_context_assessment_head`に保存する。新規判断はschema6・`market-context-assessment-*` identityを使う。旧`macro-context-*` ID・JSON・引用・hashは変更せず、新しい`/api/market-context/assessments/{context_id}`から直接読む。schema5/6は同じコンパクト意味、旧3/4は保存された章立て履歴であり、新writerの構造とは分ける。Researchは保存された市場判断を固定入力へ取り込み、Investment Proposalがmarket_context_assessment_idへ束縛する。旧ResearchのTriage/CAAは通常runtimeで利用・再開せず、一回切替で必要な執筆材料と判断参照を退避する。保存名の切替は完了しており、通常の取得・反映・復旧は[運用手順](../../batch/OPERATIONS.md#store-identity-recovery)に従う。
 
 Readingは`READING_RULES_PATH`が選ぶ一つのdated fileを使う。保存判断が引用する`method/macro/reading/2026-08-01T100000+0900.yaml`は元bytes/pathのまま保全し、別のcurrent copyを作らない。規則のidentityはdated stemであり、単なる配置整理で値・revision・schemaを変えない。
 
@@ -77,7 +77,7 @@ uv run baibai-engine market-context indicators get jp.policy_rate --latest
 
 ネット流動性の入力単位は[WALCL](https://fred.stlouisfed.org/series/WALCL)・[WTREGEN](https://fred.stlouisfed.org/series/WTREGEN)が百万USD、[RRPONTSYD](https://fred.stlouisfed.org/series/RRPONTSYD)が10億USDなので、`(assets - tga) / 1000 - rrp`とする。RRPを再度1,000で割らない。WALCLは水曜時点、WTREGENは水曜を期末とする週平均、RRPは日次であり、この組合せは近似指標であって同時点の厳密な残高や投資可能資金の測定ではない。
 
-月次整列は月内の各入力の最終観測を使い、出力日は数式ごとの期間代表日または採用入力の最終日とする。これを実公表時刻や歴史的なAPI利用可能性の保証とみなさない。計算値のvintageは全入力に時点がある場合の最も遅い入力vintageであり、読んだ時刻を新しい公表として作らない。L2の数式変更に派生履歴の退役・再取得・置換を要求しない。オプションチェーン由来の別providerについては、現行の再構築手順を別途確認する。取得は固定SDKの認証・再試行付きGETを使い、各ページのnative JSON recordをDataFrame化せず読む。空のdata配列と、dataの欠落・不正形状・途中ページ失敗を区別する。これは入力型の保持であり、チェーン原本の永続保存が済んだことを意味しない。
+月次整列は月内の各入力の最終観測を使い、出力日は数式ごとの期間代表日または採用入力の最終日とする。これを実公表時刻や歴史的なAPI利用可能性の保証とみなさない。計算値のvintageは全入力に時点がある場合の最も遅い入力vintageであり、読んだ時刻を新しい公表として作らない。L2の数式変更に派生履歴の退役・再取得・置換を要求しない。オプションの3系列も保存済み原本をL2で計算する。取得は固定SDKの認証・再試行付きGETを使い、各ページのnative JSON recordをDataFrame化せず読む。空のdata配列と、dataの欠落・不正形状・途中ページ失敗を区別する。日次chainの全項目・欠測・識別子をgzip JSONとして保持し、現在の3指標が使わない項目も残す。HTTPの元bytesを保存する契約ではない。
 
 同内容の再取得ではobservationのvintageを増やさず、provider runに取得記録を残す。値・単位・期間・取得状態・sourceが変わるrevisionや、変化後に同じ値へ戻るrevisionは保持する。日次batchはrolling窓を引き直すため窓内の取得断は次回成功時に埋まるが、窓外の欠落は[指標履歴の復旧](../../batch/OPERATIONS.md#指標履歴)が必要になる。保存・重複排除は[indicator DB](../../engine/src/baibai_engine/market_context/indicators/db.py)を参照する。
 
@@ -134,27 +134,27 @@ serviceが1回再試行するのは、停止を表す`ProviderFetchStoppedError`
 
 #### 取得とrate limit
 
-`jquants_options`は1営業日につき1回呼び出すため、10年の`--all-history`は約2,600回の逐次取得になる。1日最大約1万行のchainは保存せず、取得時に3系列へ集計する。
+`jquants_options`は営業日ごとのnative chainを取得し、`jquants_option_chains`へ取得時刻付きで保存する。空の正常応答も取得済み日であり、解析不能・途中ページ失敗は正常な空日にしない。原本は系列registryから独立したsource factで、同じ日・取得時刻のpayloadが異なるmergeは拒否する。応答内容が直前と同一なら重複payloadを増やさない。
 
-GETの回数・待機は上の共通契約に従う。全営業日・3系列で同じpassの予算を共有し、同じ営業日の失敗も3系列で共有する。失敗を正常nullへ変えず、次passには失敗memoを引き継がない。取得済み日の読みは従来どおり再利用する。
-
-全営業日の取得後に1回だけstoreへ書く。途中で再試行しない失敗が起きた場合は、そのpassの取得結果をすべて破棄する。長い窓は年単位に分けて取得する。
+GETの回数・待機は上の共通契約に従う。同じpassの全営業日・3系列で予算と日ごとの取得成否を共有する。完了した日はその都度commitし、後日の取得停止やL2計算失敗で取り消さない。`--all-history`は保存済みの古い日を再利用し、直近14日と不足日を取得する。古い日の訂正を取り直す場合は開始・終了を指定する。現行購読窓より古い原本も削除しない。通常のrange読取は完了した空日を含め再利用し、最新値の取得は新しい読みに不足する場合に再照会する。
 
 #### 集計式の変更
 
-新式が値を出さない日に旧式の観測が残り、`--all-history`でも定義が混在し得る。公開済み系列のlocal削除はno-loss mergeで戻るため、[registry修正手順](../../batch/OPERATIONS.md#指標観測とregistryの修正)の退役→cloud反映→新式再導入で切り替える。日次batch待ちや大量の日別retractで代行しない。
+L2は各日の最新の取得原本から3系列を計算する。新しい原本が空、または新式が値を出せない場合、過去の原本や旧scalar観測へフォールバックしない。式変更だけのための系列退役・generation変更・API再取得は不要である。入力不足がある場合だけ原本を補う。取得時刻は改訂の選択に使い、過去時点でのAPI公開可能性を保証しない。
+
+同じread snapshot/passでは日ごとの小さな計算結果を共有する。全期間の展開済みJSONや永続的な計算cacheは持たない。L1は緊急証拠金時の別snapshotも含め保存し、どのsnapshot・満期・価格を計算に使うかはL2が決める。計算不能な原本自体を書き換えない。
 
 `iv_30d`と`iv_skew`はSQ直後に構造的に数日欠ける。鮮度判定はreading rulesを正本とし、過去studyの実測値を現行閾値として固定しない。
 
 #### 購読窓と緊急取引証拠金日
 
-購読窓は運用日から10年rollingで、窓外の要求はHTTP 400になる。`--all-history`の始点は窓の境界に置かず、数日内側から年単位で取得する。
+購読窓は運用日から10年rollingで、窓外の要求はHTTP 400になる。`--all-history`は運用日の10年前から未取得日を調べる。境界日が提供されない場合は開始日を明示して提供可能日から取得し、窓外を取得できたとは記録しない。
 
 緊急取引証拠金が発動した日はchainが2部返る。発動時の部は前営業日の原資産と平坦なIVを持つため、`EmMrgnTrgDiv`が名指す清算値算出時の部だけを読む。このfieldを持たない行は読まない。
 
 ### Providerの追加
 
-新ソース追加＝provider モジュールを 1 つ足して（`providers/` に 1 ファイル）`providers/registry.py` に 1 行登録し、series を registry（`indicators/registry/` の region 別 yaml）へ 1 entry 加える。provider の取得能力（all-history 起点・store 書き換え方針・refresh 可否・point-in-time vintage・必要 env）は各 provider の `ProviderSpec` が宣言し、service / store reader は provider 名で分岐しない。point-in-time replay を提供する provider の spec は fetch 実装を import しない read-safe module に置き、provider 実装と reader が同じ spec を参照する。registered provider との drift は test で検出する。1 series_id = 1 provider を厳守する。取得の再試行と停止は[GETの再試行](#getの再試行)の境界に従う。
+新ソース追加＝provider モジュールを 1 つ足して（`providers/` に 1 ファイル）`providers/registry.py` に 1 行登録し、series を registry（`indicators/registry/` の region 別 yaml）へ 1 entry 加える。provider の取得能力（all-history 起点・store 書き換え方針・refresh 可否・point-in-time vintage・必要 env）は各 provider の `ProviderSpec` が宣言し、scalar providerには共通取得契約を使う。native option chainは別の保存境界を持ち、applicationが取得とL2読取をつなぐ。point-in-time replay を提供する provider の spec は fetch 実装を import しない read-safe module に置き、provider 実装と reader が同じ spec を参照する。registered provider との drift は test で検出する。1 series_id = 1 provider を厳守する。取得の再試行と停止は[GETの再試行](#getの再試行)の境界に従う。
 
 `market-context indicators refresh` は複数 series を 1 pass で取得し、1 series の失敗は他 series を止めない。失敗した series は最後にまとめて stderr へ列挙し、exit code は非 0 になる（1 つの壊れたソースが同一グループの残り全系列を stale にしない）。1 pass は 1 つの fetch context を共有するので、複数 series が同じ bulk ファイルを参照しても download は 1 回、browser fallback を要する provider の起動も 1 回で済む。取得値は store へ入る前に有限値であることを検証し、NaN / ±inf は取得失敗として扱う（派生計算・percentile・export を汚染させない）。`provider_runs`は取得の成否と`record_count`を記録する。
 
