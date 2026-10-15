@@ -93,12 +93,10 @@ def validate_store(
         validate_indicator_schema(connection)
         observations = 0
         for row in connection.execute(
-            # A withdrawn row is not a claim about a value, so the registry band does not
-            # apply to it. Checking it anyway would make "retract an outlier, then tighten
-            # the band" impossible: the retraction itself would fail the scan, and it
-            # cannot be deleted because the merge restores it.
+            # Retraction changes visibility, not the stored unit/value contract.
+            # Both SQLite constraints and merge validate every retained row.
             "SELECT series_id, observed_at, vintage_at, value, unit "
-            "FROM observations WHERE fetch_status != 'retracted' "
+            "FROM observations "
             "ORDER BY series_id, observed_at, vintage_at"
         ):
             observations += 1

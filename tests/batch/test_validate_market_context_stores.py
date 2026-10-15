@@ -304,3 +304,24 @@ def test_main_skips_the_report_check_without_an_application_store(
     captured = capsys.readouterr()
     assert exit_code == 0
     assert "skip: no application store" in captured.out
+
+
+@pytest.mark.parametrize("maximum", [20.0, 4.0])
+def test_retracted_values_still_follow_the_storage_and_merge_contract(tmp_path, maximum):
+    database = tmp_path / "indicators.sqlite"
+    _build_store(database, _definition())
+    with closing(sqlite3.connect(database)) as connection, connection:
+        connection.execute("UPDATE observations SET fetch_status='retracted'")
+    before = database.read_bytes()
+
+    report = validate_store(
+        database,
+        definitions=IndicatorDefinitions(series=(_definition(maximum=maximum),)),
+    )
+
+    assert report.observations == 1
+    assert report.valid is (maximum >= 4.2)
+    if not report.valid:
+        assert report.violation_count == 1
+        assert "value 4.2 outside plausible range" in report.violations[0]
+    assert database.read_bytes() == before
