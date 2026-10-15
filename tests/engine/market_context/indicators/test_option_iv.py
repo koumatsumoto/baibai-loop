@@ -24,6 +24,7 @@ from baibai_engine.market_context.indicators.providers.option_iv import (
     as_date,
     option_iv_readings,
     quotes_from_records,
+    usable_expiries,
 )
 from baibai_engine.market_context.indicators.providers.read_retry import ReadDeadline
 
@@ -319,26 +320,22 @@ class OptionIvReadingsTest(unittest.TestCase):
 
         self.assertIsNone(readings.iv_skew)
 
-    def test_a_contract_the_source_left_unquoted_is_not_read_as_one_percent(self) -> None:
-        # The source writes a placeholder volatility rather than a blank on contracts
-        # deep enough in the money to carry no time value. Reading it as a real 1%
-        # would drag the at-the-money average and the basis gap it entered.
-        placeholders = [
-            OptionQuote(
-                put_call=side,
-                strike=UNDERLYING,
-                expiry=expiry,
-                implied_volatility=1.0,
-                underlying=UNDERLYING,
-            )
-            for side in (PUT, CALL)
-            for expiry in (NEAR, FAR)
+    def test_low_iv_filter_is_calculation_policy_not_missing_source_data(self) -> None:
+        records = [
+            {
+                "EmMrgnTrgDiv": "002",
+                "PCDiv": PUT,
+                "SQD": NEAR.isoformat(),
+                "Strike": UNDERLYING,
+                "IV": value,
+                "UnderPx": UNDERLYING,
+            }
+            for value in (0.5, 1.0, 1.01)
         ]
-        without = option_iv_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
-
-        readings = option_iv_readings([*placeholders, *_chain(NEAR), *_chain(FAR)], ASOF)
-
-        self.assertEqual(readings, without)
+        quotes = quotes_from_records(records)
+        self.assertEqual([quote.implied_volatility for quote in quotes], [0.5, 1.0, 1.01])
+        selected = usable_expiries(quotes, ASOF)
+        self.assertEqual([quote.implied_volatility for quote in selected[NEAR]], [1.01])
 
     def test_a_chain_quoting_only_puts_withholds_the_differences(self) -> None:
         # With nothing to compare the sides against, the basis is unknown rather

@@ -31,9 +31,10 @@ MAX_BASIS_GAP = 12.0
 # the verdict; the chains seen here carry twenty or more, and a day that does not is
 # not a chain this check can speak about.
 MIN_BASIS_PAIRS = 3
-# Values at or below the source's observed 1% placeholder are excluded.
-# This is a provider-specific cleaning rule, not a universal market lower bound.
-PLACEHOLDER_VOLATILITY = 1.0
+# Existing calculation policy, not a documented provider missing-value sentinel.
+# A concentration at 1.0 does not prove missingness. Keep this threshold explicit
+# until its effect is evaluated from retained originals; parsing preserves the value.
+MIN_USABLE_VOLATILITY = 1.0
 PUT = "1"
 CALL = "2"
 # The chain can carry a whole second copy of itself. On a session where the exchange
@@ -196,7 +197,7 @@ def usable_expiries(quotes: Sequence[OptionQuote], asof: date) -> dict[date, lis
     for quote in quotes:
         if (quote.expiry - asof).days < MIN_DAYS_TO_EXPIRY:
             continue
-        if quote.implied_volatility <= PLACEHOLDER_VOLATILITY:
+        if quote.implied_volatility <= MIN_USABLE_VOLATILITY:
             continue
         # The underlying is repeated on every row and every reading is a position
         # relative to it, so one row carrying nothing would put the basis band at
