@@ -73,7 +73,7 @@ def _release(tmp_path: Path) -> tuple[Path, Path]:
     sqlite_path = market_store(
         tmp_path / "market.sqlite",
         daily_bars=(("1301", "2026-01-05", 1.0, 1.0),),
-        short_sale_reports=(("2026-01-06", 0, "2026-01-05", "7203", "Fund", None, None, None, 0),),
+        short_sale_reports=(("2026-01-06", 0, "2026-01-05", "7203", "Fund", None, None, None),),
         short_sale_coverage=(
             "test:pilot",
             "2026-01-01",
@@ -1131,8 +1131,8 @@ def _two_month_release(tmp_path: Path) -> tuple[Path, Path, Path]:
     connection.executemany(
         """INSERT INTO jquants_short_sale_reports(
              disclosed_at, source_ordinal, calculated_at, ticker, short_seller_name,
-             discretionary_investment_contractor_name, investment_fund_name, is_cancellation
-           ) VALUES (?, 0, ?, '7203', 'Fund', '', '', 0)""",
+             discretionary_investment_contractor_name, investment_fund_name
+           ) VALUES (?, 0, ?, '7203', 'Fund', '', '')""",
         [("2026-01-29", "2026-01-28"), ("2026-02-05", "2026-02-04")],
     )
     connection.execute(

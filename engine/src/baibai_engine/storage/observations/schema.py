@@ -23,7 +23,7 @@ from baibai_engine.external_assessment.observations.contract import (
 )
 from baibai_engine.external_assessment.tradingview.contract import DDL as TV_DDL
 
-SQLITE_SCHEMA_VERSION = 35
+SQLITE_SCHEMA_VERSION = 36
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
 # EDINET serves a filing's descriptive columns only while its public-inspection period
@@ -224,8 +224,9 @@ CREATE TABLE IF NOT EXISTS jquants_short_sale_reports(
   short_trading_units INTEGER,
   previous_reported_at TEXT,
   previous_short_ratio REAL,
-  is_cancellation INTEGER NOT NULL,
   notes TEXT,
+  short_seller_address TEXT,
+  discretionary_investment_contractor_address TEXT,
   PRIMARY KEY (disclosed_at, source_ordinal)
 );
 

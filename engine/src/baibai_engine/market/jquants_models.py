@@ -88,7 +88,8 @@ class JQuantsShortSaleReport:
     short_trading_units: int | None = None
     previous_reported_at: date | None = None
     previous_short_ratio: float | None = None
-    is_cancellation: bool = False
+    short_seller_address: str | None = None
+    discretionary_investment_contractor_address: str | None = None
     notes: str | None = None
     source_ordinal: int = 0
 

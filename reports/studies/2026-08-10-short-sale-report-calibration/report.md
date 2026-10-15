@@ -1,5 +1,7 @@
 ---
 title: "空売り残高報告 L1 backfill と outcome-free sufficiency 判定"
+
+> 2026-10-15 訂正: 以下は当時の実装記録。ratio 欠測と Notes の存在だけから取消やゼロ残高を推定する処理、および旧項目名の互換読込は廃止した。現行仕様は [estimate-calibration](../../../docs/reference/estimate-calibration.md) を参照する。過去の検証結果を現在の仕様の保証として扱わない。
 summary: "取得可能な10年をPIT sourceへ保存したが、公式dataset floorからの連続coverageを満たさないためforward outcomeを読まずinsufficientと判定した。"
 doc_type: measurement-record
 status: historical

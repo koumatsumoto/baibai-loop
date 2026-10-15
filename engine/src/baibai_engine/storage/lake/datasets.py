@@ -164,6 +164,7 @@ JQUANTS_DAILY_BARS = LakeDataset(
 
 JQUANTS_SHORT_SALE_REPORTS = LakeDataset(
     name="jquants.short_sale_reports",
+    contract_version=2,
     sqlite_table="jquants_short_sale_reports",
     date_column="disclosed_at",
     columns=(
@@ -179,8 +180,9 @@ JQUANTS_SHORT_SALE_REPORTS = LakeDataset(
         LakeColumn("short_trading_units", "INTEGER", _INTEGER, True),
         LakeColumn("previous_reported_at", "TEXT", _TEXT, True),
         LakeColumn("previous_short_ratio", "REAL", _REAL, True),
-        LakeColumn("is_cancellation", "INTEGER", _INTEGER, False),
         LakeColumn("notes", "TEXT", _TEXT, True),
+        LakeColumn("short_seller_address", "TEXT", _TEXT, True),
+        LakeColumn("discretionary_investment_contractor_address", "TEXT", _TEXT, True),
     ),
 )
 

@@ -27,14 +27,14 @@ def _report(
         "DiscDate": disclosed_at,
         "CalcDate": calculated_at,
         "Code": code,
-        "ShortSellerName": reporter,
-        "DiscretionaryInvestmentContractorName": "",
-        "InvestmentFundName": "",
-        "ShortPositionsToSharesOutstandingRatio": ratio,
-        "ShortPositionsInSharesNumber": 600_000,
-        "ShortPositionsInTradingUnitsNumber": 6_000,
+        "SSName": reporter,
+        "DICName": "",
+        "FundName": "",
+        "ShrtPosToSO": ratio,
+        "ShrtPosShares": 0 if ratio == 0 else 600_000,
+        "ShrtPosUnits": 0 if ratio == 0 else 6_000,
         "PrevRptDate": None,
-        "ShortPositionsInPreviousReportingRatio": None,
+        "PrevRptRatio": None,
         "Notes": notes,
     }
 
@@ -46,8 +46,8 @@ def test_reported_short_metrics_are_point_in_time_latest_reporter_states(tmp_pat
         _report(
             disclosed_at="2019-02-10",
             calculated_at="2019-02-08",
-            ratio=None,
-            notes="previous report cancelled",
+            ratio=0.0,
+            notes="corrected report: no position",
         ),
         _report(
             disclosed_at="2019-02-15",
@@ -169,8 +169,8 @@ def test_provider_nan_values_are_normalized_as_missing(tmp_path) -> None:
     record = _report(disclosed_at="2019-01-10", calculated_at="2019-01-08")
     record.update(
         {
-            "DiscretionaryInvestmentContractorName": float("nan"),
-            "InvestmentFundName": float("nan"),
+            "DICName": float("nan"),
+            "FundName": float("nan"),
             "PrevRptDate": float("nan"),
         }
     )
@@ -187,3 +187,60 @@ def test_provider_nan_values_are_normalized_as_missing(tmp_path) -> None:
     assert rows[0].discretionary_investment_contractor_name == ""
     assert rows[0].investment_fund_name == ""
     assert rows[0].previous_reported_at is None
+
+
+@pytest.mark.parametrize("ratio", [None, -0.001])
+@pytest.mark.parametrize("notes", [None, "corrected report"])
+def test_unusable_latest_ratio_is_not_inferred_as_zero(tmp_path, ratio, notes) -> None:
+    path = tmp_path / "market.sqlite"
+    records = [
+        _report(disclosed_at="2019-01-10", calculated_at="2019-01-08"),
+        _report(disclosed_at="2019-01-12", calculated_at="2019-01-11", ratio=ratio, notes=notes),
+        _report(disclosed_at="2019-01-12", calculated_at="2019-01-11", code="67580"),
+    ]
+    store_jquants_short_sale_reports(
+        path,
+        records,
+        requested_start=SHORT_SALE_REPORT_DATASET_FLOOR,
+        requested_end=date(2019, 1, 31),
+    )
+    before = read_reported_short_metrics(path, date(2019, 1, 10))
+    after = read_reported_short_metrics(path, date(2019, 1, 31))
+    assert before is not None and before["7203"] is not None
+    assert before["7203"].ratio == pytest.approx(0.006)
+    assert after is not None
+    assert after["7203"] is None
+    assert after["6758"] is not None
+    stored = read_short_sale_reports(path, date(2019, 1, 12), date(2019, 1, 12))
+    assert stored is not None
+    row = next(row for row in stored if row.ticker == "7203")
+    assert row.short_ratio == ratio
+    assert row.notes == notes
+
+
+@pytest.mark.parametrize("ratio", [0.0, 0.003, 0.007])
+def test_numeric_correction_uses_reported_value_not_notes(tmp_path, ratio) -> None:
+    path = tmp_path / "market.sqlite"
+    records = [
+        _report(disclosed_at="2019-01-10", calculated_at="2019-01-08"),
+        _report(
+            disclosed_at="2019-01-12",
+            calculated_at="2019-01-08",
+            ratio=ratio,
+            notes="correction of the earlier report",
+        ),
+    ]
+    store_jquants_short_sale_reports(
+        path,
+        records,
+        requested_start=SHORT_SALE_REPORT_DATASET_FLOOR,
+        requested_end=date(2019, 1, 31),
+    )
+    metrics = read_reported_short_metrics(path, date(2019, 1, 31))
+    assert metrics is not None
+    if ratio < 0.005:
+        assert "7203" not in metrics
+    else:
+        assert metrics["7203"] is not None
+        assert metrics["7203"].ratio == pytest.approx(ratio)
+        assert metrics["7203"].latest_disclosed_at == date(2019, 1, 12)

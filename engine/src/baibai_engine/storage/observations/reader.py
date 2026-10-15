@@ -83,7 +83,8 @@ def read_short_sale_reports(
             "SELECT disclosed_at, source_ordinal, calculated_at, ticker, short_seller_name, "
             "discretionary_investment_contractor_name, investment_fund_name, "
             "short_ratio, short_shares, short_trading_units, previous_reported_at, "
-            "previous_short_ratio, is_cancellation, notes "
+            "previous_short_ratio, notes, short_seller_address, "
+            "discretionary_investment_contractor_address "
             "FROM jquants_short_sale_reports "
             "WHERE disclosed_at BETWEEN ? AND ? "
             "ORDER BY disclosed_at, source_ordinal",
@@ -105,8 +106,11 @@ def read_short_sale_reports(
             short_trading_units=int(row[9]) if row[9] is not None else None,
             previous_reported_at=optional_date(row[10]),
             previous_short_ratio=optional_float(row[11]),
-            is_cancellation=bool(row[12]),
-            notes=str(row[13]) if row[13] is not None else None,
+            notes=str(row[12]) if row[12] is not None else None,
+            short_seller_address=str(row[13]) if row[13] is not None else None,
+            discretionary_investment_contractor_address=(
+                str(row[14]) if row[14] is not None else None
+            ),
         )
         for row in rows
     ]
@@ -119,7 +123,8 @@ def read_reported_short_metrics(
 
     ``None`` means the source cannot prove continuous coverage from the official
     dataset floor. A mapping means coverage is complete; a ticker absent from it
-    is therefore an explicit below-threshold/no-report observation.
+    is therefore an explicit below-threshold/no-report observation. A latest
+    missing/invalid ratio makes that ticker unresolved, even when Notes is present.
     """
     if not sqlite_path.exists() or asof < SHORT_SALE_REPORT_DATASET_FLOOR:
         return None
@@ -127,14 +132,15 @@ def read_reported_short_metrics(
     if conn is None:
         return None
     try:
+        conn.execute("BEGIN")
         if not range_covered(conn, SHORT_SALE_REPORT_SOURCE, SHORT_SALE_REPORT_DATASET_FLOOR, asof):
             return None
-        ambiguous_rows = conn.execute(
+        rows = conn.execute(
             """
             WITH dated AS (
               SELECT ticker, short_seller_name,
-                     discretionary_investment_contractor_name,
-                     investment_fund_name,
+                     discretionary_investment_contractor_name, investment_fund_name,
+                     short_ratio, disclosed_at,
                      DENSE_RANK() OVER (
                        PARTITION BY ticker, short_seller_name,
                                     discretionary_investment_contractor_name,
@@ -143,52 +149,41 @@ def read_reported_short_metrics(
                      ) AS recency
               FROM jquants_short_sale_reports
               WHERE disclosed_at <= ? AND calculated_at <= ?
+            ), latest_reporters AS (
+              SELECT ticker, MAX(short_ratio) AS short_ratio,
+                     MAX(disclosed_at) AS disclosed_at,
+                     (COUNT(*) != 1 OR COUNT(short_ratio) != 1 OR MIN(short_ratio) < 0) AS unresolved
+              FROM dated WHERE recency = 1
+              GROUP BY ticker, short_seller_name,
+                       discretionary_investment_contractor_name, investment_fund_name
             )
-            SELECT ticker
-            FROM dated
-            WHERE recency = 1
-            GROUP BY ticker, short_seller_name,
-                     discretionary_investment_contractor_name,
-                     investment_fund_name
-            HAVING COUNT(*) > 1
+            SELECT ticker,
+                   SUM(CASE WHEN short_ratio >= ? THEN short_ratio END),
+                   SUM(CASE WHEN short_ratio >= ? THEN 1 ELSE 0 END),
+                   MAX(CASE WHEN short_ratio >= ? THEN disclosed_at END),
+                   MAX(unresolved)
+            FROM latest_reporters GROUP BY ticker ORDER BY ticker
             """,
-            (asof.isoformat(), asof.isoformat()),
-        ).fetchall()
-        rows = conn.execute(
-            """
-            WITH ranked AS (
-              SELECT ticker, short_seller_name,
-                     discretionary_investment_contractor_name,
-                     investment_fund_name, short_ratio, disclosed_at,
-                     ROW_NUMBER() OVER (
-                       PARTITION BY ticker, short_seller_name,
-                                    discretionary_investment_contractor_name,
-                                    investment_fund_name
-                       ORDER BY calculated_at DESC, disclosed_at DESC, source_ordinal DESC
-                     ) AS recency
-              FROM jquants_short_sale_reports
-              WHERE disclosed_at <= ? AND calculated_at <= ?
-            )
-            SELECT ticker, SUM(short_ratio), COUNT(*), MAX(disclosed_at)
-            FROM ranked
-            WHERE recency = 1 AND short_ratio >= ?
-            GROUP BY ticker
-            ORDER BY ticker
-            """,
-            (asof.isoformat(), asof.isoformat(), SHORT_SALE_REPORTING_THRESHOLD),
+            (
+                asof.isoformat(),
+                asof.isoformat(),
+                SHORT_SALE_REPORTING_THRESHOLD,
+                SHORT_SALE_REPORTING_THRESHOLD,
+                SHORT_SALE_REPORTING_THRESHOLD,
+            ),
         ).fetchall()
     finally:
         conn.close()
-    metrics: dict[str, ReportedShortMetric | None] = {
-        str(row[0]): ReportedShortMetric(
-            ratio=float(row[1]),
-            breadth=int(row[2]),
-            latest_disclosed_at=date.fromisoformat(str(row[3])),
-        )
-        for row in rows
-    }
-    for (ticker,) in ambiguous_rows:
-        metrics[str(ticker)] = None
+    metrics: dict[str, ReportedShortMetric | None] = {}
+    for ticker, ratio, breadth, disclosed_at, unresolved in rows:
+        if unresolved:
+            metrics[str(ticker)] = None
+        elif breadth:
+            metrics[str(ticker)] = ReportedShortMetric(
+                ratio=float(ratio),
+                breadth=int(breadth),
+                latest_disclosed_at=date.fromisoformat(str(disclosed_at)),
+            )
     return metrics
 
 

@@ -354,8 +354,9 @@ def store_jquants_short_sale_reports(
                       disclosed_at, source_ordinal, calculated_at, ticker, short_seller_name,
                       discretionary_investment_contractor_name, investment_fund_name,
                       short_ratio, short_shares, short_trading_units,
-                      previous_reported_at, previous_short_ratio, is_cancellation, notes
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      previous_reported_at, previous_short_ratio, notes,
+                      short_seller_address, discretionary_investment_contractor_address
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     day_rows,
                 )
@@ -395,108 +396,41 @@ def _short_sale_report_rows_with_quality(
     excluded_count = 0
     next_ordinal_by_date: dict[str, int] = {}
     for record in records:
-        ticker, quality = code_quality(first(record, "Code", "code"))
+        ticker, quality = code_quality(record.get("Code"))
         if quality == "rejected":
             rejected_count += 1
             continue
         if quality == "excluded" or ticker is None:
             excluded_count += 1
             continue
-        disclosed_at = date_iso(
-            first(record, "DiscDate", "DisclosedDate", "disclosed_at", "disc_date")
-        )
-        calculated_at = date_iso(
-            first(record, "CalcDate", "CalculatedDate", "calculated_at", "calc_date")
-        )
-        short_ratio = to_float(
-            first(
-                record,
-                "ShortPositionsToSharesOutstandingRatio",
-                "ShortPosRatio",
-                "ShrtPosToSO",
-                "short_ratio",
-            )
-        )
-        short_seller_name = _text_or_empty(
-            first(record, "ShortSellerName", "SSName", "short_seller_name")
-        )
-        contractor_name = _text_or_empty(
-            first(
-                record,
-                "DiscretionaryInvestmentContractorName",
-                "DICName",
-                "discretionary_investment_contractor_name",
-            )
-        )
-        fund_name = _text_or_empty(
-            first(record, "InvestmentFundName", "FundName", "investment_fund_name")
-        )
-        notes = to_str_or_none(first(record, "Notes", "notes"))
-        is_cancellation = short_ratio is None and bool(notes and notes.strip())
-        if (
-            disclosed_at is None
-            or calculated_at is None
-            or (short_ratio is None and not is_cancellation)
-            or (short_ratio is not None and short_ratio < 0.0)
-            or not any((short_seller_name, contractor_name, fund_name))
-        ):
+        disclosed_at = date_iso(record.get("DiscDate"))
+        calculated_at = date_iso(record.get("CalcDate"))
+        names = tuple(_text_or_empty(record.get(key)) for key in ("SSName", "DICName", "FundName"))
+        if disclosed_at is None or calculated_at is None or not any(names):
             rejected_count += 1
             continue
         source_ordinal = next_ordinal_by_date.get(disclosed_at, 0)
         next_ordinal_by_date[disclosed_at] = source_ordinal + 1
-        row = (
-            disclosed_at,
-            source_ordinal,
-            calculated_at,
-            ticker,
-            short_seller_name,
-            contractor_name,
-            fund_name,
-            short_ratio,
-            _to_int_or_none(
-                first(
-                    record,
-                    "ShortPositionsInSharesNumber",
-                    "ShortPosShares",
-                    "ShrtPosShares",
-                    "short_shares",
-                )
-            ),
-            _to_int_or_none(
-                first(
-                    record,
-                    "ShortPositionsInTradingUnitsNumber",
-                    "ShortPosTradingUnits",
-                    "ShrtPosUnits",
-                    "short_trading_units",
-                )
-            ),
-            date_iso(
-                first(
-                    record,
-                    "PrevRptDate",
-                    "CalculationInPreviousReportingDate",
-                    "previous_reported_at",
-                )
-            ),
-            to_float(
-                first(
-                    record,
-                    "ShortPositionsInPreviousReportingRatio",
-                    "PrevShortPosRatio",
-                    "PrevRptRatio",
-                    "previous_short_ratio",
-                )
-            ),
-            int(is_cancellation),
-            notes,
+        # Notes is free text, not a cancellation flag. Preserve missing/invalid
+        # ratios as source evidence; the L2 state reader decides usability.
+        rows.append(
+            (
+                disclosed_at,
+                source_ordinal,
+                calculated_at,
+                ticker,
+                *names,
+                to_float(record.get("ShrtPosToSO")),
+                _to_int_or_none(record.get("ShrtPosShares")),
+                _to_int_or_none(record.get("ShrtPosUnits")),
+                date_iso(record.get("PrevRptDate")),
+                to_float(record.get("PrevRptRatio")),
+                to_str_or_none(record.get("Notes")),
+                to_str_or_none(record.get("SSAddr")),
+                to_str_or_none(record.get("DICAddr")),
+            )
         )
-        rows.append(row)
-    return NormalizedRows(
-        rows=rows,
-        rejected_count=rejected_count,
-        excluded_count=excluded_count,
-    )
+    return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
 
 
 def _to_int_or_none(value: Any) -> int | None:

@@ -137,7 +137,7 @@ def _tiny_market(path: Path) -> Path:
     return market_store(
         path,
         daily_bars=(("1301", "2026-01-05", 100.0, 1000.0),),
-        short_sale_reports=(("2026-01-06", 0, "2026-01-05", "1301", "Fund", 0.006, 600, 6, 0),),
+        short_sale_reports=(("2026-01-06", 0, "2026-01-05", "1301", "Fund", 0.006, 600, 6),),
         short_sale_coverage=(
             "acceptance",
             "2026-01-01",

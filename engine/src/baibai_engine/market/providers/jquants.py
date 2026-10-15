@@ -1024,84 +1024,28 @@ def normalize_margin_alert(record: Mapping[str, Any]) -> JQuantsMarginAlert | No
 def normalize_short_sale_report(
     record: Mapping[str, Any],
 ) -> JQuantsShortSaleReport | None:
-    ticker, common_code = parse_jquants_code_parts(first_value(record, "Code", "code"))
+    """Read native V2 fields; a missing ratio or a note does not establish cancellation."""
+    ticker, common_code = parse_jquants_code_parts(record.get("Code"))
     if not common_code:
         return None
-    names = (
-        _optional_text(coalesce_field(record, "ShortSellerName", "SSName", "short_seller_name")),
-        _optional_text(
-            coalesce_field(
-                record,
-                "DiscretionaryInvestmentContractorName",
-                "DICName",
-                "discretionary_investment_contractor_name",
-            )
-        ),
-        _optional_text(
-            coalesce_field(record, "InvestmentFundName", "FundName", "investment_fund_name") or ""
-        ),
-    )
-    ratio = to_float(
-        coalesce_field(
-            record,
-            "ShortPositionsToSharesOutstandingRatio",
-            "ShortPosRatio",
-            "ShrtPosToSO",
-            "short_ratio",
-        )
-    )
-    notes_value = coalesce_field(record, "Notes", "notes")
-    notes = _optional_text(notes_value) or None
-    is_cancellation = ratio is None and bool(notes)
-    if not any(names) or (ratio is None and not is_cancellation) or (ratio or 0.0) < 0.0:
+    names = tuple(_optional_text(record.get(key)) for key in ("SSName", "DICName", "FundName"))
+    if not any(names):
         return None
     return JQuantsShortSaleReport(
-        disclosed_at=parse_date(first_value(record, "DiscDate", "DisclosedDate", "disclosed_at")),
-        calculated_at=parse_date(
-            first_value(record, "CalcDate", "CalculatedDate", "calculated_at")
-        ),
+        disclosed_at=parse_date(record.get("DiscDate")),
+        calculated_at=parse_date(record.get("CalcDate")),
         ticker=ticker,
         short_seller_name=names[0],
         discretionary_investment_contractor_name=names[1],
         investment_fund_name=names[2],
-        short_ratio=ratio,
-        short_shares=_optional_int(
-            coalesce_field(
-                record,
-                "ShortPositionsInSharesNumber",
-                "ShortPosShares",
-                "ShrtPosShares",
-                "short_shares",
-            )
-        ),
-        short_trading_units=_optional_int(
-            coalesce_field(
-                record,
-                "ShortPositionsInTradingUnitsNumber",
-                "ShortPosTradingUnits",
-                "ShrtPosUnits",
-                "short_trading_units",
-            )
-        ),
-        previous_reported_at=parse_optional_date(
-            coalesce_field(
-                record,
-                "PrevRptDate",
-                "CalculationInPreviousReportingDate",
-                "previous_reported_at",
-            )
-        ),
-        previous_short_ratio=to_float(
-            coalesce_field(
-                record,
-                "ShortPositionsInPreviousReportingRatio",
-                "PrevShortPosRatio",
-                "PrevRptRatio",
-                "previous_short_ratio",
-            )
-        ),
-        is_cancellation=is_cancellation,
-        notes=notes,
+        short_ratio=to_float(record.get("ShrtPosToSO")),
+        short_shares=_optional_int(record.get("ShrtPosShares")),
+        short_trading_units=_optional_int(record.get("ShrtPosUnits")),
+        previous_reported_at=parse_optional_date(record.get("PrevRptDate")),
+        previous_short_ratio=to_float(record.get("PrevRptRatio")),
+        notes=_optional_text(record.get("Notes")) or None,
+        short_seller_address=_optional_text(record.get("SSAddr")) or None,
+        discretionary_investment_contractor_address=_optional_text(record.get("DICAddr")) or None,
     )
 
 

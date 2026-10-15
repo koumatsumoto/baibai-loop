@@ -146,10 +146,10 @@ _DEFAULT_DAILY_BARS: tuple[tuple[str, str, float, float], ...] = (
     ("1301", "2026-02-02", 110.0, 1200.0),
 )
 _DEFAULT_SHORT_SALE_REPORTS: tuple[
-    tuple[str, int, str, str, str, float | None, int | None, int | None, int], ...
+    tuple[str, int, str, str, str, float | None, int | None, int | None], ...
 ] = (
-    ("2026-01-06", 0, "2026-01-05", "7203", "Fund A", 0.006, 600, 6, 0),
-    ("2026-02-03", 0, "2026-02-02", "6758", "Fund B", None, None, None, 1),
+    ("2026-01-06", 0, "2026-01-05", "7203", "Fund A", 0.006, 600, 6),
+    ("2026-02-03", 0, "2026-02-02", "6758", "Fund B", None, None, None),
 )
 
 
@@ -158,7 +158,7 @@ def market_store(
     *,
     daily_bars: Sequence[tuple[str, str, float, float]] = _DEFAULT_DAILY_BARS,
     short_sale_reports: Sequence[
-        tuple[str, int, str, str, str, float | None, int | None, int | None, int]
+        tuple[str, int, str, str, str, float | None, int | None, int | None]
     ] = _DEFAULT_SHORT_SALE_REPORTS,
     short_sale_coverage: tuple[str, str, str, str, int] = (
         "test:pilot",
@@ -184,8 +184,8 @@ def market_store(
         """INSERT INTO jquants_short_sale_reports(
              disclosed_at, source_ordinal, calculated_at, ticker, short_seller_name,
              discretionary_investment_contractor_name, investment_fund_name,
-             short_ratio, short_shares, short_trading_units, is_cancellation
-           ) VALUES (?, ?, ?, ?, ?, '', '', ?, ?, ?, ?)""",
+             short_ratio, short_shares, short_trading_units
+           ) VALUES (?, ?, ?, ?, ?, '', '', ?, ?, ?)""",
         list(short_sale_reports),
     )
     connection.execute(
