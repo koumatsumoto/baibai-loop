@@ -536,3 +536,37 @@ def test_initialization_failure_rolls_back_run_schema_and_can_retry(tmp_path, mo
         assert connection.execute("SELECT name FROM sqlite_schema").fetchall() == []
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 0
     assert initialize_run_store(path) == RUN_STORE_SCHEMA_VERSION
+
+
+@pytest.mark.parametrize("mutation", ["rank", "count"])
+def test_paged_read_uses_the_same_run_invariants_before_empty_filter(
+    tmp_path: Path, mutation: str
+) -> None:
+    path = tmp_path / "runs.sqlite"
+    _publish(path, revision="run-a")
+    with closing(sqlite3.connect(path)) as connection, connection:
+        if mutation == "rank":
+            connection.execute(
+                "UPDATE stock_analysis SET payload="
+                "json_set(payload, '$.candidate.reasons[0].rank', 2)"
+            )
+        else:
+            connection.execute(
+                "UPDATE screening_run SET payload="
+                "json_set(payload, '$.candidate_discovery.diagnostics.candidate_count', 0)"
+            )
+    message = "ranks must be contiguous" if mutation == "rank" else "diagnostics differ"
+    with (
+        closing(connect_read_only(path)) as connection,
+        connection,
+        pytest.raises(ValueError, match=message),
+    ):
+        stored_run_page(
+            connection,
+            kind="stock_analysis",
+            filters={"run_revision_id": "run-a", "ticker": "9999"},
+            after=None,
+            limit=1,
+        )
+    with pytest.raises(ValueError, match=message):
+        ScreeningRunReader(path).get_run("run-a")
