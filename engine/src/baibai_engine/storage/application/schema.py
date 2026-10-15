@@ -4,7 +4,7 @@ Runtime code creates the current shape or rejects a different version; semantic
 cutovers are explicit operator work against a verified backup.
 """
 
-APPLICATION_SCHEMA_VERSION = 23
+APPLICATION_SCHEMA_VERSION = 24
 
 SCHEMA_SQL = """
 CREATE TABLE task (
@@ -36,55 +36,81 @@ CREATE TABLE market_context_assessment_head (
 CREATE INDEX market_context_assessment_asof_idx
     ON market_context_assessment(as_of, published_at, context_id);
 
-CREATE TABLE thesis (
-    thesis_id TEXT PRIMARY KEY,
+CREATE TABLE stock_assessment (
+    assessment_id TEXT PRIMARY KEY,
     ticker TEXT NOT NULL,
     as_of TEXT NOT NULL,
-    recommendation TEXT NOT NULL,
+    stance TEXT NOT NULL CHECK (stance IN ('supported', 'uncertain', 'unsupported')),
     published_at TEXT NOT NULL,
-    supersedes_id TEXT REFERENCES thesis(thesis_id),
+    supersedes_id TEXT REFERENCES stock_assessment(assessment_id),
     payload TEXT NOT NULL CHECK (json_valid(payload)),
-    core_sha256 TEXT,
-    CHECK (supersedes_id IS NULL OR supersedes_id <> thesis_id)
+    core_sha256 TEXT NOT NULL,
+    CHECK (supersedes_id IS NULL OR supersedes_id <> assessment_id)
 ) STRICT;
-CREATE INDEX thesis_ticker_idx ON thesis(ticker, as_of, published_at, thesis_id);
-CREATE TRIGGER thesis_payload_immutable
-BEFORE UPDATE OF payload ON thesis
-WHEN OLD.payload <> NEW.payload
+CREATE INDEX stock_assessment_latest_idx
+ON stock_assessment(ticker, as_of, published_at, assessment_id);
+CREATE TRIGGER stock_assessment_immutable
+BEFORE UPDATE ON stock_assessment
 BEGIN
-    SELECT RAISE(ABORT, 'published thesis payload is immutable');
+    SELECT RAISE(ABORT, 'published Stock Assessment is immutable');
 END;
 
-CREATE TABLE thesis_review (
+CREATE TABLE stock_assessment_review (
     review_id TEXT PRIMARY KEY,
-    thesis_id TEXT NOT NULL REFERENCES thesis(thesis_id),
+    assessment_id TEXT UNIQUE NOT NULL REFERENCES stock_assessment(assessment_id),
     reviewed_at TEXT NOT NULL,
     payload TEXT NOT NULL CHECK (json_valid(payload))
 ) STRICT;
-CREATE INDEX thesis_review_thesis_idx ON thesis_review(thesis_id, reviewed_at, review_id);
+CREATE TRIGGER stock_assessment_review_immutable
+BEFORE UPDATE ON stock_assessment_review
+BEGIN
+    SELECT RAISE(ABORT, 'published Assessment Review is immutable');
+END;
 
-CREATE TABLE position_review (
-    position_review_id TEXT PRIMARY KEY,
-    ticker TEXT NOT NULL,
+CREATE TABLE investment_proposal (
+    proposal_id TEXT PRIMARY KEY,
     as_of TEXT NOT NULL,
-    thesis_id TEXT NOT NULL REFERENCES thesis(thesis_id),
-    candidate_thesis_id TEXT REFERENCES thesis(thesis_id),
-    payload TEXT NOT NULL CHECK (json_valid(payload)),
-    CHECK (candidate_thesis_id IS NULL OR candidate_thesis_id <> thesis_id)
-) STRICT;
-CREATE INDEX position_review_ticker_idx ON position_review(ticker, as_of, position_review_id);
-CREATE INDEX position_review_thesis_idx ON position_review(thesis_id);
-
-CREATE TABLE capital_allocation_assessment (
-    capital_allocation_assessment_id TEXT PRIMARY KEY,
-    as_of TEXT NOT NULL,
+    prepared_at TEXT NOT NULL,
     published_at TEXT NOT NULL,
-    result TEXT NOT NULL CHECK (result IN ('allocate', 'no_allocation', 'defer')),
-    research_triage_id TEXT,
-    payload TEXT NOT NULL CHECK (json_valid(payload))
+    request_scope TEXT NOT NULL CHECK (
+        request_scope IN ('discover_new', 'specified_stocks', 'review_positions')
+    ),
+    payload TEXT NOT NULL CHECK (json_valid(payload)),
+    draft_sha256 TEXT NOT NULL
 ) STRICT;
-CREATE INDEX capital_allocation_assessment_asof_idx
-ON capital_allocation_assessment(as_of, published_at, capital_allocation_assessment_id);
+CREATE INDEX investment_proposal_asof_idx
+ON investment_proposal(as_of, published_at, proposal_id);
+CREATE TRIGGER investment_proposal_immutable
+BEFORE UPDATE ON investment_proposal
+BEGIN
+    SELECT RAISE(ABORT, 'published Investment Proposal is immutable');
+END;
+
+CREATE TABLE investment_proposal_item (
+    proposal_id TEXT NOT NULL REFERENCES investment_proposal(proposal_id),
+    item_index INTEGER NOT NULL CHECK (item_index >= 0),
+    ticker TEXT NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('buy', 'hold', 'sell', 'no_action', 'defer')),
+    assessment_id TEXT REFERENCES stock_assessment(assessment_id),
+    PRIMARY KEY (proposal_id, item_index),
+    UNIQUE (proposal_id, ticker)
+) STRICT;
+CREATE INDEX investment_proposal_item_ticker_idx
+ON investment_proposal_item(ticker, proposal_id);
+
+CREATE TABLE position_decision_reference (
+    reference TEXT PRIMARY KEY,
+    ticker TEXT NOT NULL,
+    side TEXT NOT NULL CHECK (side = 'buy'),
+    origin TEXT NOT NULL CHECK (origin IN ('proposal', 'retained_reference', 'manual_fact')),
+    proposal_id TEXT REFERENCES investment_proposal(proposal_id),
+    source_id TEXT NOT NULL,
+    source_digest TEXT,
+    CHECK ((origin = 'proposal' AND proposal_id IS NOT NULL)
+           OR (origin IN ('retained_reference', 'manual_fact') AND proposal_id IS NULL))
+) STRICT;
+CREATE INDEX position_decision_reference_proposal_idx
+ON position_decision_reference(proposal_id) WHERE proposal_id IS NOT NULL;
 
 CREATE TABLE operation_session (
     operation_id TEXT PRIMARY KEY,

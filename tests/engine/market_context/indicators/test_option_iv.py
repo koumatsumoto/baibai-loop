@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
 from baibai_engine.market_context.indicators.providers import jquants_options
 from baibai_engine.market_context.indicators.providers.base import (
+    FetchContext,
     HttpSession,
     IndicatorsProviderError,
 )
@@ -110,21 +111,12 @@ def _chain(
     ladder: dict[float, float] | None = None,
     one_sided: bool = False,
 ) -> list[OptionQuote]:
-    """One expiry's quotes.
+    """Build synthetic quotes with controlled level and put/call disagreement.
 
-    `level` shifts the whole smile, so a test can tell two expiries apart. The gap
-    reproduces a chain whose two sides were not put on one footing, and it is split
-    between them rather than applied to one: the source's disagreement is two-sided,
-    the sampled session with a 20-point gap reading 46.5 on the put against 28.0 on
-    the call while their average stayed with its neighbours. A one-sided gap would
-    move that average by half the gap and make every reading built on it look fragile
-    for a reason the source does not produce. `gaps` sets it per moneyness so a test
-    can put the disagreement where it wants it; `basis_gap` applies one everywhere.
-
-    `one_sided` puts the whole gap on the put instead of splitting it. That is not the
-    shape the source produces, and a suite that could only build the split form would
-    be checking its own fixture rather than the readings — so both are available and
-    the difference between them is asserted.
+    By default the gap is split symmetrically across the two sides. With
+    one_sided=True it moves only the put. These fixtures test the calculation's
+    response to each assumption; they do not establish which error structure
+    an actual provider has. Per-strike gaps can also change the skew.
     """
     rungs = _LADDER if ladder is None else ladder
     quotes: list[OptionQuote] = []
@@ -169,11 +161,8 @@ class FearReadingsTest(unittest.TestCase):
                 self.assertAlmostEqual(readings.iv_30d, _LADDER[1.00], places=9)
 
     def test_a_disagreement_carried_by_one_side_would_move_the_average(self) -> None:
-        # The reading survives the source's disagreement because that disagreement is
-        # two-sided — measured over 437 sessions, a departure regressed on the signed
-        # gap has slope +0.04 where one-sidedness predicts 0.5. A suite that could only
-        # build the two-sided form would prove nothing about which shape it survives,
-        # so the other shape is built here and the difference is what is asserted.
+        # Contrast symmetric and one-sided synthetic errors. Passing the symmetric
+        # case alone would not establish robustness to the one-sided case.
         clean = fear_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
         split = fear_readings([*_chain(NEAR, basis_gap=8.0), *_chain(FAR, basis_gap=8.0)], ASOF)
         lopsided = fear_readings(
@@ -241,8 +230,8 @@ class FearReadingsTest(unittest.TestCase):
         self.assertAlmostEqual(skewed.iv_skew - clean.iv_skew, 4.0, places=9)
 
     def test_sides_that_disagree_beyond_the_bound_withhold_the_differences(self) -> None:
-        # Past the bound the chain cannot be trusted to subtract one volatility from
-        # another, but the level still averages the error away and is kept.
+        # Above the operational bound the differences are withheld. The level is
+        # retained; only this symmetric fixture guarantees cancellation.
         ladder = {0.90: 50.0, 0.95: 46.0, 0.975: 42.0, 1.00: 40.0, 1.025: 38.0, 1.05: 36.0}
 
         readings = fear_readings(
@@ -388,8 +377,8 @@ class FearReadingsTest(unittest.TestCase):
         self.assertEqual(readings.iv_term, 9.0)
 
     def test_the_constant_maturity_interpolates_in_variance(self) -> None:
-        # Interpolating volatility directly would understate the reading whenever
-        # the two expiries disagree, which is exactly when the market is scared.
+        # The chosen squared-level interpolation differs from linear volatility;
+        # this test verifies the convention, not a market state or forecasting claim.
         # The two expiries straddle the target unevenly, so a weight that reads the
         # wrong side of the bracket lands on a different number.
         self.assertNotEqual((NEAR - ASOF).days + (WIDE - ASOF).days, 2 * 30)
@@ -767,6 +756,7 @@ class OptionProviderTest(unittest.TestCase):
         with (
             mock.patch.object(jquants_options, "jquants_read_client", return_value=client),
             mock.patch.object(jquants_options, "_read_api_key", return_value="k"),
+            FetchContext() as context,
         ):
             for provider_series_id in ("n225_iv_30d", "n225_iv_skew", "n225_iv_term"):
                 provider.fetch(
@@ -774,6 +764,7 @@ class OptionProviderTest(unittest.TestCase):
                     start=date(2026, 7, 27),
                     end=date(2026, 7, 29),
                     session=cast(HttpSession, None),
+                    context=context,
                 )
 
         self.assertEqual(len(fetched), 3)  # three weekdays, not nine

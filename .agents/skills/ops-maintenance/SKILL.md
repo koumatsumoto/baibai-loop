@@ -30,7 +30,7 @@ description: batch・store・servingの操作を選び、既存runbookに従っ�
 - TSE capital policy・JPX delistingは翌月15日以降に既存のrefresh/build commandで更新し、[batch運用](../../../batch/OPERATIONS.md)のlake公開・store反映へ進む。
 - lake全履歴監査を定例作業に追加しない。不要になった既存の監査taskは終了し、通常の公開・利用時検証だけを維持する。
 
-注文報告だけを理由に全体計測を起動しない。注文結果の計測が依頼された場合は`tools.experiments.measure_limit_outcomes`の契約を参照する。
+注文報告だけを理由に全体計測を起動しない。注文結果の計測が依頼された場合は`tools.experiments.measure_limit_outcomes`の契約を参照する。対象は報告済みの買付予約で、価格差を逸失利益や指値規律の因果効果と扱わず、件数だけで方針変更の適格性を判定しない。
 
 ## 運用task
 

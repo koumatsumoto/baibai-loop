@@ -2,11 +2,13 @@
 title: "信用需給 gate・空売り残・規模内混雑の計測結果"
 summary: "制度信用期日偏重gateはtrapを改善せず不採用、空売り残/ADVは追加長期検証候補、規模帯内の信用買い残は不採用と判定した。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-02
 ---
 
 # 信用需給 gate・空売り残・規模内混雑の計測結果
+
+本書は旧 selection / shortlist と当時の週次信用残による検証履歴である。以下の UI 完了・列存続・CLI は当時の状態で、現行画面や日次取得仕様の説明ではない。short は対象データの信用売残であり、市場全体の空売り残や機関投資家の報告残高とは同一でない。「制度期日偏重」は制度信用比率の旧表示名で、個別建玉の返済期限集中を測ってはいない。
 
 価値tier: T1 — 建玉 overhang と informed short の候補を selection 前に識別し、一次リサーチ枠へ入るバリュートラップを減らす。
 
@@ -21,7 +23,7 @@ H-1の不採用は、`margin_std_long_share` と将来returnの関連を否定�
 
 ## 1. 事前登録と実行契約
 
-入力境界、列、方向、時間窓、control、採否条件は、forward outcome計測前のcommit `5673a56` と [`2026-08-02-margin-supply-demand-adoption-preregistration.md`](.../2026-08-02-margin-supply-demand-adoption/preregistration/report.md) で固定した。計測実装とUI配線は outcome計測前のcommit `1f6b455` で固定し、authority sensitivityを同じ採否条件へ揃える修正はcommit `ad5c266` で固定してから全artifactを再生成した。
+入力境界、列、方向、時間窓、control、採否条件は、forward outcome計測前のcommit `5673a56` と [`2026-08-02-margin-supply-demand-adoption-preregistration.md`](../2026-08-02-margin-supply-demand-adoption/preregistration.md) で固定した。計測実装とUI配線は outcome計測前のcommit `1f6b455` で固定し、authority sensitivityを同じ採否条件へ揃える修正はcommit `ad5c266` で固定してから全artifactを再生成した。
 
 実行コマンド:
 

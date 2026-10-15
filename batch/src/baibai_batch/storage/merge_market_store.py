@@ -1,44 +1,14 @@
-"""Merge the market store's own tables from one copy into another, losing no row.
+"""Merge source coverage while retaining target-owned derived and origin tables.
 
-The market store has two writers. The daily batch extends it forward in the cloud, and
-an operator extends it backward locally. Most of what they write is no longer decided
-here: the fetch-derived tables are published to the L1 lake, and the object this
-merge runs against is the copy that carries only what the lake does not own. Their
-reconciliation is the release's, not this file's — ``publish_market_lake`` refuses to
-build on a release the lake has moved past, and ``lake dehydrate`` refuses to empty a
-store whose rows the release does not account for. What is left here is the two data
-tables that stay canonical in SQLite plus the store-local publication marker.
+The source may be dehydrated; its lake-owned facts are not copied by this merge.
+General coverage rows are unioned with matching payloads except fetch timestamps.
+Financial-summary counts are validated against hydrated target rows and may only
+be raised. Overlapping clean and failed/partial ranges are rejected.
 
-``source_coverage`` is the ledger of what was fetched, and both writers keep their own.
-Its rows describe lake-owned facts but are not facts themselves: a claim carries a status
-and an error the lake does not represent, and it is what decides whether a range gets
-fetched again. Clean financial-summary ranges state a row count, and a count is only
-provable where the rows are — in a hydrated store, never in the emptied copy that
-travels. So the source's counts are taken as claims, and this target's are only ever
-lifted to the rows it holds, never lowered to them.
-
-Only the financial-summary windows are lifted and proved. Daily-bar windows carry their
-claim verbatim, and that is the safer half of the asymmetry rather than an omission: the
-wedge above comes from writing a *smaller* number, and nothing here writes one. A bar
-window that outruns this store is left standing, `verify-cache-coverage` refuses the
-operator's own screening run until they fill from the serving release, and the fill makes
-the two agree.
-
-The ledger is not append-only. A failed re-fetch cuts its range out of the overlapping
-``ok`` windows and rewrites the survivors under new keys, so that the gap is visible
-where the fetch failed. A union by key can therefore reinstate a wide window a later
-fetch retracted, and the merge refuses that rather than repairing it: an ``ok`` window
-overlapping a ``failed`` or ``partial`` one for the same source is a ledger no fetcher
-would write.
-
-The other data table is a function of other tables rather than an accumulation of fetched
-records. Only the operator derives it, so the copy that ran the derivation last holds the
-answer and the target is kept whole. The publication marker also stays with the target
-generation and is never merged from the source.
-
-Both stores must carry the current schema. An older cloud copy is not migrated here —
-code and a locally validated current-schema store must be cut over together; opening
-a store never runs a migration.
+Short-sale coverage is selected by success status and then fetch time. Imported
+EDINET document claims require recheck; target document claims remain authoritative.
+Target-derived capital-policy snapshots and the lake-origin marker are not merged.
+Both files must already satisfy the current schema; this is not a migration.
 """
 
 from __future__ import annotations
@@ -77,14 +47,8 @@ FACT_KEYS: Mapping[str, tuple[str, ...]] = {
     "source_coverage": ("source", "coverage_key"),
 }
 
-# Tables that are a function of other tables rather than an accumulation of fetched
-# records. Only the operator derives them, so the store that ran the derivation last
-# holds the answer and the target is kept whole. Merging them by key would do two wrong
-# things: a row a later derivation retracted — an offer that turned out to have a second
-# bidder, a company the exchange removed from its list — would be reinserted from the
-# older copy, and a corrected value would read as two stores disagreeing and refuse the
-# whole publish. Both are silent, and the first one puts a price into the calibration
-# forward that the current rules say cannot be established.
+# Derived snapshots belong to the target generation. Unioning them could restore
+# source rows that a later derivation removed or reject an intentional correction.
 DERIVED_KEYS: Mapping[str, tuple[str, ...]] = {
     "tse_capital_policy_snapshots": ("snapshot_month_end", "ticker"),
 }
@@ -143,14 +107,14 @@ class _ShortCoverageClaim:
 
 
 def merge_stores(source: Path, target: Path) -> MergeReport:
-    """Insert every source row the target lacks, and verify none is left behind."""
+    """Reconcile eligible coverage and keep target-owned tables in one transaction."""
 
     for path in (source, target):
         if not path.is_file():
             raise MergeError(f"market store does not exist: {path}")
     _require_schema(source)
     _require_schema(target)
-    uri = f"{target.resolve().as_uri()}"
+    uri = target.resolve().as_uri()
     with closing(sqlite3.connect(uri, uri=True, isolation_level=None)) as connection:
         connection.execute("ATTACH DATABASE ? AS source", (f"{source.resolve().as_uri()}?mode=ro",))
         try:
@@ -570,9 +534,9 @@ def _require_schema(path: Path) -> None:
 def _require_attached_version(connection: sqlite3.Connection, *, path: Path, schema: str) -> None:
     """Re-read the version through the attachment the merge will actually write from.
 
-    The shape was checked on a separate connection, so this is what ties that check to
-    this one: a path that resolved to a different file between the two opens shows up
-    here as a version that no longer matches.
+    The shape was checked on a separate connection. This catches a changed version,
+    but does not prove file identity or detect replacement by another same-version
+    file. Callers must keep their staged inputs stable throughout the merge.
     """
 
     version = count(connection, f"PRAGMA {schema_name(schema)}.user_version")

@@ -14,12 +14,14 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
+from tests.helpers.proposal_v1 import PUBLISHED, backend_case, reviewed_proposal
 
 import baibai_engine.read_api as read_api
 from baibai_engine.market_context.indicators.db import (
     initialize_database as initialize_indicator_database,
 )
 from baibai_engine.read_api.sqlite import read_rows
+from baibai_engine.research.proposal_service import InvestmentProposalService
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.run_store import initialize_run_store
 from baibai_engine.screening.run_store.schema import RUN_STORE_SCHEMA_VERSION
@@ -38,8 +40,8 @@ _NOT_STORE_READERS = frozenset(
 # A caller asking for one identity that is absent is told so; that is not a degrade.
 _RAISES_FOR_UNKNOWN_ID = frozenset({"assessment_payload"})
 # The rule is "readers that answer what has been published degrade; readers that gate a
-# write raise". These two gate the daily batch, which must stop and name the fault
-# rather than skip a run that looked like a holiday.
+# write raise". These two supply required Screening/prior-run inputs; their faults
+# must be diagnosed rather than mistaken for a confirmed non-business day.
 _WRITE_GATES = frozenset({"market_calendar_business_day", "previous_run_revision_id"})
 # Public callables the sweep cannot drive: they read no store, or they take a value this
 # file would have to invent. Anything not listed here must be reachable by the sweep.
@@ -65,7 +67,6 @@ _DECLARED_OUTSIDE_THE_SWEEP = frozenset(
         "safe_load",  # a YAML helper re-exported for callers
         "screening_calibration_method_identity",  # reads Git-managed method config
         "prepare_market_context_inputs",  # requires an explicit shared master; covered by prepared-context tests
-        "position_review_null_reason",  # requires an exact saved review; covered by web read-model tests
     }
 )
 
@@ -74,11 +75,15 @@ _ARGUMENTS: dict[str, object] = {
     "cutoff": datetime(2026, 7, 29, tzinfo=UTC),
     "evaluated_at": datetime(2026, 7, 29, tzinfo=UTC),
     "after": date(2026, 7, 28),
+    "from_date": date(2026, 7, 28),
+    "through_date": date(2026, 7, 29),
     "as_of": date(2026, 7, 29),
     "asof": date(2026, 7, 29),
     "asof_date": date(2026, 7, 29),
     "self_range_window_bars": 750,
-    "capital_allocation_assessment_id": "assessment-20260729-a",
+    "assessment_id": "stock-assessment-00000000-0000-4000-8000-000000000001",
+    "proposal_id": "investment-proposal-00000000-0000-4000-8000-000000000001",
+    "now": datetime(2026, 7, 29, tzinfo=UTC),
     "context_id": "macro-context-2026-07-29-a",
     "day": date(2026, 7, 29),
     "end": date(2026, 7, 29),
@@ -89,13 +94,23 @@ _ARGUMENTS: dict[str, object] = {
     "series_id": "jp.cpi",
     "since": date(2026, 7, 28),
     "start": date(2026, 7, 1),
-    "thesis_id": "thesis-20260729-1234-r1",
     "ticker": "1234",
     "tickers": ["1234"],
 }
 
 
 _STORE_PARAMETERS = ("path", "db_path", "indicators_db_path", "sqlite_path")
+_RESEARCH_READERS = frozenset(
+    {
+        "list_stock_assessment_publications",
+        "stock_assessment_publication",
+        "list_assessment_review_publications",
+        "reviewed_assessment_projection",
+        "list_investment_proposal_payloads",
+        "investment_proposal_payload",
+        "preview_current_proposal_terms",
+    }
+)
 
 
 def _published_callables() -> dict[str, object]:
@@ -295,14 +310,14 @@ def test_every_table_read_api_reads_exists_in_a_migrated_store(tmp_path: Path) -
 def test_read_rows_still_raises_for_a_broken_query(tmp_path: Path) -> None:
     store = tmp_path / "store.sqlite"
     with sqlite3.connect(store) as connection:
-        connection.execute("CREATE TABLE research_triage (payload TEXT)")
+        connection.execute("CREATE TABLE example_payload (payload TEXT)")
 
     with pytest.raises(sqlite3.OperationalError, match="no such table"):
         read_rows(store, "SELECT payload FROM absent_table")
     with pytest.raises(sqlite3.OperationalError, match="no such column"):
-        read_rows(store, "SELECT absent_column FROM research_triage")
+        read_rows(store, "SELECT absent_column FROM example_payload")
     with pytest.raises(sqlite3.OperationalError, match="syntax error"):
-        read_rows(store, "SELEKT payload FROM research_triage")
+        read_rows(store, "SELEKT payload FROM example_payload")
 
 
 def test_application_reader_rejects_an_obsolete_store_before_querying(tmp_path: Path) -> None:
@@ -315,6 +330,21 @@ def test_application_reader_rejects_an_obsolete_store_before_querying(tmp_path: 
         read_api.list_operation_sessions(store)
 
 
+def test_all_research_readers_reject_an_obsolete_application_store(tmp_path: Path) -> None:
+    store = tmp_path / "obsolete.sqlite"
+    initialize_database(store)
+    with sqlite3.connect(store) as connection:
+        connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION - 1}")
+    original = store.read_bytes()
+    readers = [entry for entry in _store_readers() if entry[0] in _RESEARCH_READERS]
+    assert {name for name, _, _ in readers} == _RESEARCH_READERS
+    for _, function, arguments in readers:
+        call = {key: (store if value is None else value) for key, value in arguments.items()}
+        with pytest.raises(RuntimeError, match="obsolete application database schema"):
+            function(**call)
+    assert store.read_bytes() == original
+
+
 def test_market_reader_rejects_an_obsolete_store_instead_of_degrading(tmp_path: Path) -> None:
     store = tmp_path / "market-v24.sqlite"
     with sqlite3.connect(store) as connection:
@@ -325,57 +355,82 @@ def test_market_reader_rejects_an_obsolete_store_instead_of_degrading(tmp_path: 
         read_api.next_earnings_dates(store, ["2331"], asof=date(2026, 8, 30))
 
 
-def test_assessment_reader_rejects_retired_lane_payload(tmp_path: Path) -> None:
-    schema_version = 2
-    store = tmp_path / "app.sqlite"
-    with sqlite3.connect(store) as connection:
-        connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION}")
-        connection.execute(
-            "CREATE TABLE capital_allocation_assessment (capital_allocation_assessment_id TEXT, as_of TEXT, "
-            "published_at TEXT, payload TEXT)"
+@pytest.mark.parametrize("kind", ["assessment", "proposal"])
+@pytest.mark.parametrize("version", [2, 99, True, 1.0, "1"])
+def test_research_readers_reject_noncurrent_or_nonstrict_payload_versions(
+    tmp_path: Path, kind: str, version: object
+) -> None:
+    case = backend_case(tmp_path)
+    proposal = reviewed_proposal(case)
+    InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
+        proposal
+    )
+    table = "stock_assessment" if kind == "assessment" else "investment_proposal"
+    raw = case.pair.document.model_dump(mode="json") if kind == "assessment" else proposal.payload()
+    raw["schema_version"] = version
+    with sqlite3.connect(case.app) as connection:
+        connection.execute(f"DROP TRIGGER {table}_immutable")
+        connection.execute(f"UPDATE {table} SET payload=?", (json.dumps(raw),))
+    original = case.app.read_bytes()
+    readers = (
+        (
+            lambda: read_api.list_stock_assessment_publications(case.app),
+            lambda: read_api.stock_assessment_publication(
+                case.app, assessment_id=case.pair.assessment_id
+            ),
+            lambda: read_api.list_assessment_review_publications(case.app),
         )
-        connection.execute(
-            "INSERT INTO capital_allocation_assessment VALUES (?, ?, ?, ?)",
-            (
-                f"assessment-legacy-v{schema_version}",
-                "2026-07-01",
-                "2026-07-01T14:00:00+09:00",
-                json.dumps(
-                    {
-                        "schema_version": schema_version,
-                        "capital_allocation_assessment_id": f"assessment-legacy-v{schema_version}",
-                        "lanes": [{"ticker": "2331"}],
-                    }
-                ),
+        if kind == "assessment"
+        else (
+            lambda: read_api.list_investment_proposal_payloads(case.app),
+            lambda: read_api.investment_proposal_payload(
+                case.app, proposal_id=proposal.proposal_id
+            ),
+            lambda: read_api.preview_current_proposal_terms(
+                case.app, proposal_id=proposal.proposal_id, sqlite_path=case.market, now=PUBLISHED
             ),
         )
+    )
+    for reader in readers:
+        with pytest.raises(ValueError, match="schema_version"):
+            reader()
+    assert case.app.read_bytes() == original
 
-    with pytest.raises(ValueError, match="capital allocation alternatives must be a list"):
-        read_api.list_capital_allocation_assessment_payloads(store)
 
-
-def test_assessment_reader_rejects_an_unknown_version(tmp_path: Path) -> None:
-    store = tmp_path / "app.sqlite"
-    with sqlite3.connect(store) as connection:
-        connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION}")
-        connection.execute(
-            "CREATE TABLE capital_allocation_assessment (capital_allocation_assessment_id TEXT, as_of TEXT, "
-            "published_at TEXT, payload TEXT)"
-        )
-        connection.execute(
-            "INSERT INTO capital_allocation_assessment VALUES (?, ?, ?, ?)",
-            (
-                "assessment-unknown",
-                "2026-07-01",
-                "2026-07-01T14:00:00+09:00",
-                json.dumps(
-                    {"schema_version": 99, "capital_allocation_assessment_id": "assessment-unknown"}
-                ),
-            ),
-        )
-
-    with pytest.raises(ValueError, match="unsupported capital allocation schema_version"):
-        read_api.list_capital_allocation_assessment_payloads(store)
+@pytest.mark.parametrize(
+    "mutation", ["corrupt-payload", "core-hash", "review-hash", "missing-review"]
+)
+def test_assessment_publications_never_degrade_a_corrupt_saved_pair(
+    tmp_path: Path, mutation: str
+) -> None:
+    case = backend_case(tmp_path)
+    with sqlite3.connect(case.app) as connection:
+        if mutation == "missing-review":
+            connection.execute("DELETE FROM stock_assessment_review")
+        elif mutation == "review-hash":
+            raw = case.pair.review.model_dump(mode="json")
+            raw["reviewed_assessment_sha256"] = "0" * 64
+            connection.execute("DROP TRIGGER stock_assessment_review_immutable")
+            connection.execute("UPDATE stock_assessment_review SET payload=?", (json.dumps(raw),))
+        else:
+            connection.execute("DROP TRIGGER stock_assessment_immutable")
+            if mutation == "corrupt-payload":
+                connection.execute("UPDATE stock_assessment SET payload='{}'")
+            else:
+                connection.execute("UPDATE stock_assessment SET core_sha256=?", ("0" * 64,))
+    original = case.app.read_bytes()
+    for reader in (
+        lambda: read_api.list_stock_assessment_publications(case.app),
+        lambda: read_api.stock_assessment_publication(
+            case.app, assessment_id=case.pair.assessment_id
+        ),
+        lambda: read_api.reviewed_assessment_projection(
+            case.app, assessment_id=case.pair.assessment_id
+        ),
+    ):
+        with pytest.raises(ValueError, match="要再評価"):
+            reader()
+    assert case.app.read_bytes() == original
 
 
 @pytest.mark.parametrize("mutation", ["missing-table", "missing-column"])

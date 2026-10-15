@@ -179,8 +179,8 @@ def parse_dashboard_json(
         observations.append(record_observation(series, observed_at=observed_at, value=value))
     if preliminary:
         _LOGGER.warning(
-            "e-Stat dashboard has only a preliminary print for %s: %s left unwritten "
-            "until the final print",
+            "e-Stat dashboard skipped preliminary rows for %s: %s; "
+            "final rows, when present, are processed separately",
             series.series_id,
             ", ".join(month.isoformat() for month in sorted(preliminary)),
         )

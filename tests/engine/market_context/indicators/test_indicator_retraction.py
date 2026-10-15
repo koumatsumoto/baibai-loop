@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tests.helpers.indicator_store import (
-    downgrade_to_previous_schema,
+    downgrade_to_pre_retraction_schema,
     observation,
 )
 
@@ -581,7 +581,7 @@ class RetractionVintageTests(unittest.TestCase):
                 conn.commit()
             finally:
                 conn.close()
-            downgrade_to_previous_schema(database)
+            downgrade_to_pre_retraction_schema(database)
 
             legacy = sqlite3.connect(database)
             legacy.row_factory = sqlite3.Row

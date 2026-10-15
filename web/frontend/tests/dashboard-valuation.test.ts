@@ -14,8 +14,8 @@ function holding(ticker: string): HoldingView {
     deployed_cost_yen: 100_000, market_price_yen: '1100',
     market_price_as_of: '2026-09-24', market_value_yen: 110_000,
     unrealized_pnl_yen: 10_000, unrealized_pnl_pct: 10,
-    pmax_raw_yen: null, pmax_gap_pct: null, latest_thesis_id: null,
-    disposition: null, next_earnings_date: null,
+    pmax_raw_yen: null, pmax_gap_pct: null, latest_assessment_id: null,
+    stance: null, next_earnings_date: null,
   }
 }
 
@@ -29,7 +29,7 @@ function dashboard(overrides: Partial<DashboardView> = {}): DashboardView {
     realized_gross_pnl_yen: 136_100,
     deployed_cost_yen: 100_000, cash_pct: 47.62, reserved_pct: 0,
     deployed_pct: 52.38, holdings: [holding('8255')],
-    reservations: [], warnings: [], research_load_errors: [],
+    reservations: [], warnings: [],
     ...overrides,
   }
 }
@@ -167,5 +167,18 @@ describe('Dashboard valuation display', () => {
     expect(html).toContain('09/24 20:42')
     expect(html).not.toContain('00:00')
     expect(html).not.toContain('データ更新')
+  })
+
+  it('keeps the original Pmax and explains why a share-unit comparison has no gap', () => {
+    const html = renderToStaticMarkup(createElement(TooltipProvider, null,
+      createElement(MemoryRouter, null, createElement(HoldingsTable, {
+        holdings: [{ ...holding('1234'), market_price_yen: '1000', pmax_raw_yen: 2000,
+          pmax_gap_pct: null, pmax_gap_unavailable_reason: '原評価から現在株価までの株式単位を確認できません。' }],
+        warnings: [],
+      })),
+    ))
+    expect(html).toContain('￥2,000')
+    expect(html).toContain('原評価から現在株価までの株式単位を確認できません。')
+    expect(html).not.toContain('+100.0%')
   })
 })

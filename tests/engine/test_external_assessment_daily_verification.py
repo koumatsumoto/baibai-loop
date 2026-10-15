@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from contextlib import closing
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -90,7 +91,7 @@ def build_master_lake(
     )
     database = tmp_path / "market.sqlite"
     seed_database(database, snapshot=snapshot, count=count)
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         connection.executemany(
             "INSERT INTO jquants_master_snapshots VALUES (?,?,?,?,?,?)",
             [
@@ -193,7 +194,7 @@ def test_lake_master_only_keeps_all_sectors_alpha_and_exact_release_binding(tmp_
             binding,
         )
         assert tuple(store.get_keys) == first_reads
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         write_lake_store_origin(
             connection, LakeStoreOrigin(release.release_id, release.manifest_sha256)
         )
@@ -376,7 +377,7 @@ def rating(at=RECEIVED, **kwargs):
 
 
 def other_dataset_digest(path):
-    with sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True) as connection:
+    with closing(sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)) as connection:
         rows = {
             table: connection.execute(f'SELECT * FROM "{table}" ORDER BY 1,2').fetchall()
             for table in ("jquants_master_snapshots", "source_coverage", "lake_store_origin")
@@ -389,7 +390,7 @@ def test_exact_saved_universe_uses_market_and_all_33_sectors_keeps_alpha_and_fix
 ):
     database = tmp_path / "market.sqlite"
     base = seed_database(database)
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         connection.executemany(
             "INSERT INTO jquants_master_snapshots VALUES (?,?,?,?,?,?)",
             [
@@ -411,9 +412,9 @@ def test_exact_saved_universe_uses_market_and_all_33_sectors_keeps_alpha_and_fix
         "tickers_sha256": hashlib.sha256("\n".join(tickers).encode()).hexdigest(),
     }
     assert hashlib.sha256(database.read_bytes()).hexdigest() == before
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         assert (
-            connection.execute("PRAGMA user_version").fetchone()[0] == SQLITE_SCHEMA_VERSION == 31
+            connection.execute("PRAGMA user_version").fetchone()[0] == SQLITE_SCHEMA_VERSION == 32
         )
 
 
@@ -457,7 +458,7 @@ def test_non_common_or_excluded_market_rows_cannot_fill_the_common_stock_floor(
 ):
     database = tmp_path / "market.sqlite"
     seed_database(database)
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         if classification == "その他":
             connection.execute(
                 "UPDATE jquants_master_snapshots SET sector_33='その他' WHERE ticker <> '1000'"
@@ -473,7 +474,7 @@ def test_non_common_or_excluded_market_rows_cannot_fill_the_common_stock_floor(
 def test_unknown_sector_cannot_be_silently_excluded(tmp_path):
     database = tmp_path / "market.sqlite"
     seed_database(database)
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute(
             "UPDATE jquants_master_snapshots SET sector_33='未知の新業種' WHERE ticker='1000'"
         )
@@ -485,7 +486,7 @@ def test_unknown_sector_cannot_be_silently_excluded(tmp_path):
 def test_invalid_saved_ticker_cannot_enter_frozen_universe(tmp_path, ticker):
     database = tmp_path / "market.sqlite"
     seed_database(database)
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute(
             "UPDATE jquants_master_snapshots SET ticker=? WHERE ticker='1000'", (ticker,)
         )
@@ -499,12 +500,12 @@ def test_frozen_binding_changes_with_selected_membership_and_exact_lake_origin(t
     database = tmp_path / "market.sqlite"
     seed_database(database)
     initial_tickers, initial_binding = frozen_universe(database, ASOF)
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute("UPDATE jquants_master_snapshots SET ticker='130A' WHERE ticker='1000'")
     changed_tickers, changed_binding = frozen_universe(database, ASOF)
     assert changed_tickers != initial_tickers
     assert changed_binding != initial_binding
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         write_lake_store_origin(connection, LakeStoreOrigin("synthetic-new-release", "b" * 64))
     final_tickers, final_binding = frozen_universe(database, ASOF)
     assert final_tickers == changed_tickers
@@ -578,7 +579,7 @@ def test_history_digests_cover_both_tables_and_old_rows_without_mutating_other_t
     later = history_digests(database)
     assert later[MODEL_VALUATION_TABLE] != initial[MODEL_VALUATION_TABLE]
     assert later[ANALYST_RATING_TABLE] == initial[ANALYST_RATING_TABLE]
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         updated = connection.execute(
             "UPDATE external_assessment_model_valuation_observations SET per_consensus_origin='changed-old-row' WHERE fetched_at_utc=?",
             (RECEIVED.isoformat(timespec="microseconds"),),

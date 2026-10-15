@@ -2,16 +2,18 @@
 title: "実現 FY 配当を使った E[r] 絶対水準較正"
 summary: "FY 実績配当の近似 total-return 座標を構築し、11 cohort の 3y/5y production evidence で 0.10→0.14 候補を検証したが、horizon 方向不一致と誤差非改善により不採用とした。"
 doc_type: measurement-record
-status: active
+status: historical
 ---
 
 # 実現 FY 配当を使った E[r] 絶対水準較正
+
+これは旧 schema v5・固定 commit による測定履歴である。以下の「最新 non-null」選択や年間 DPS の一括換算を現行仕様として使わない。現行の訂正時刻・欠測・会計期間内の株式基準処理とは異なり、元の計測値・artifact を新 revision へ付け替えない。近似 FY 配当は実際の権利・支払日を再現する cash-flow 記録ではない。
 
 価値tier: T1 — E[r] の絶対年率を実現 total return と同じ座標で検証し、research・保有見直し・cash 判断に使う期待利回りの系統誤差を減らす。
 
 ## 1. 測定契約
 
-集計規則、field、required scope、候補係数の推定式、採否条件は commit `e4dfe7e` と [`2026-08-01-er-level-calibration-preregistration.md`](.../2026-08-01-er-level-calibration/preregistration/report.md) で結果計測前に固定した。
+集計規則、field、required scope、候補係数の推定式、採否条件は commit `e4dfe7e` と [`2026-08-01-er-level-calibration-preregistration.md`](../2026-08-01-er-level-calibration/preregistration.md) で結果計測前に固定した。
 
 実現配当は `entry_date < fiscal_year_end <= exit_date` の FY 行から、同一 FY の最新 non-null `DivAnn` を一度だけ採る。各 DPS を forward store 最終 bar の株式基準へ adjustment factor で揃え、`price_return + ΣDPS / adjusted entry close` を total return とする。FY 行なし、DPS 欠損、factor 不完全は 0 円へ補完しない。端の FY は月割りしない。
 
@@ -41,7 +43,7 @@ schema v5 は forward row に `realized_dividend_sum`、`realized_dividend_fy_co
 
 ## 3. quintile 水準表
 
-各値は required 11 cohort における cohort-level median の中央値。単位は年率、`n` だけ銘柄数である。
+各値は required 11 cohort における cohort-level median の中央値。単位は年率、`n` だけ銘柄数である。error や配当差もそれぞれの差を集約した値なので、別々に集約した表の中央値同士の単純な差とは一致しない。
 
 ### 1y diagnostic
 

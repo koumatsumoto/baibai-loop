@@ -1,5 +1,7 @@
 # OP3 判断コホートの baseline — 選定 / 非選定 / 機械上位の突き合わせ（#667）
 
+この report は 2026-07-30 の旧 shortlist / OP3 運用の測定記録である。「現在」「今日」・CLI・保存先・監視日程は当時の記述であり、現行の Research Selection の仕様や新しい監視指示ではない。元の観測値は保持する。
+
 価値tier: T1 — research 枠の配分を決める最上流の判断（OP3）に計測経路を与え、選定の系統誤差を特定できる状態にする。
 
 改善ループ §0「現状計測の確認」にあたる観測記録。**この計測で選定手順・深度契約・screening rules は変更しない**。
@@ -50,7 +52,7 @@ machine cohort を selected と同数にするのは、両者が同じ問いに�
 
 - 全 60 観測が `unresolved_future_horizon`、すなわち **満期前**である。値付けの失敗でも上場廃止でもない。
 - `estimate_missing` の 2 件は焼き込み前に publish された shortlist で、束縛 run が既に prune されている。2026-07-29 の shortlist は束縛 run が生存しているため fallback で estimate を得ている（`judgment_estimate`）。**焼き込み後に publish される shortlist は run の寿命に依存しない。**
-- `unpriced_exit` は 0。窓中に市場から消えた銘柄はまだ無い。買収・上場廃止は selected 側に起きやすい良い結末なので、この件数は今後も毎回確認する。
+- `unpriced_exit` は 0。窓中に市場から消えた銘柄はまだ無い。買収・上場廃止の偏りや対価はこの標本から判断できないため、未価格 exit の件数・理由・対価を区別して確認する。
 
 ## 4. 現時点で観測できるもの（永久損失カテゴリ別ドローダウン）
 
@@ -79,7 +81,7 @@ machine cohort を selected と同数にするのは、両者が同じ問いに�
 ## 6. 誠実性の限定（毎回併記する）
 
 - **非ランダム割当**: selected と rejected の割当は E[r]・耐性・開示スキャンと相関しており、無作為化されていない。したがってこれは因果効果ではなく記述比較である。payload も `comparison_basis: descriptive_non_random_assignment` を持つ。
-- **自己参照**: benchmark は母集団の中央値で、selected はその母集団の一部（20 件中 8 件）である。selected の超過は「pool 全体に対する相対」であって独立母集団に対する超過ではない。selected が pool の 4 割を占めるので、構成上、超過の絶対値は独立 benchmark に対するそれより小さく出る。
+- **自己参照**: benchmark は母集団の中央値で、selected はその母集団の一部（20 件中 8 件）である。selected の超過は「pool 全体に対する相対」であって独立母集団に対する超過ではない。selected が pool の 4 割を占めるため benchmark と評価対象が依存する。ただし中央値に対する超過の絶対値が、別の独立 benchmark より必ず小さくなるとはいえない。
 - **窓の重複と少数標本**: cohort の forward 窓は重なり、独立でない。3 cohort・60 判断では効果量も勝率も主張しない。
 - **price-only**: 配当を含まない。較正リプレイと同じ basis（`metric_basis: price_return_only`）。
 - **ploss の range restriction**: selected の ploss は「低 / 中低 / 中 / 要精査」に偏り、「高」は選定されないので観測されない。判別できるのは選定された範囲内の序列だけで、スケール全体の較正ではない。
@@ -95,6 +97,6 @@ machine cohort を selected と同数にするのは、両者が同じ問いに�
 ## 8. 監視事項
 
 - **2026-10-17 以前の最終取引日**に最初の 3m cohort（2026-07-17 shortlist）が満期を迎える。その時点で再実行し、selected / rejected / machine の中央超過と coverage 内訳を記録する。
-- `machine_basis` が `estimate_missing` の 2 cohort は焼き込み前の publish なので恒久的に機械比較ができない。焼き込み後の shortlist が 8 件たまるまで machine 比較の母数は増えない。
-- `unpriced_exit` の件数を毎回確認する。窓が伸びるほど買収・上場廃止が入り、selected 側に偏って母集団から消える経路になる。
+- `machine_basis` が `estimate_missing` の 2 cohort は焼き込み前の publish なのでこの記録で保持・確認できた入力だけでは機械比較ができない。焼き込み後の shortlist が 8 件たまるまで machine 比較の母数は増えない。
+- `unpriced_exit` の件数を毎回確認する。窓が伸びると買収・上場廃止が入る可能性がある。selected / rejected のどちらに偏るかは実際の件数と対価で確かめる。
 - ドローダウン表は窓が伸びるたびに更新し、ploss の順序と実現下落の序列を突き合わせる。

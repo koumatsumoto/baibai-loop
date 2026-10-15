@@ -94,8 +94,8 @@ def build_metrics(
     margin balance produces.
 
     ``median_population`` restricts the comparison population for sector / market
-    medians and sector relative strength to the given tickers (the investable,
-    liquid set), while metrics are still computed for every ticker in
+    medians and sector relative strength to the common-eligible comparison population.
+    Metrics are still computed for every ticker in
     ``securities_by_ticker``. This keeps relative-valuation judgments anchored
     to investable comparables even though the screen covers all common stocks;
     ``None`` uses the full scope as the population.

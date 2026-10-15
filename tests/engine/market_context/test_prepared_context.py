@@ -1,5 +1,6 @@
 """生成内共有でもsplit、exact端点、自己除外、欠測の意味を変えない。"""
 
+from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -30,7 +31,7 @@ def context_store(tmp_path: Path) -> Path:
         insert_daily_bars_from_closes(
             path, ticker, [100 + index for index in range(count)], end_date=end
         )
-    with open_connection(path) as connection:
+    with closing(open_connection(path)) as connection:
         connection.executemany(
             "INSERT INTO jquants_master_snapshots "
             "(snapshot_date,ticker,name,market,sector_33,is_common_stock) "

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 from collections.abc import Callable
 from datetime import datetime, timedelta
@@ -15,6 +14,7 @@ from tests.helpers.ledger import load_portfolio_ledger, portfolio_snapshot
 
 from baibai_engine.position.broker_fact_recording import BrokerFactRecordingError
 from baibai_engine.position.cli import main
+from baibai_engine.position.decision_references import resolve_buy_reference
 from baibai_engine.position.drafts import (
     apply_draft,
     build_broker_fact_draft,
@@ -22,64 +22,35 @@ from baibai_engine.position.drafts import (
     load_draft,
 )
 from baibai_engine.position.store import LedgerStoreService
-from baibai_engine.research.capital_allocation_query import historical_allocated_ticker
 from baibai_engine.storage.application.write import initialize_database
 
 ROOT = Path(__file__).parents[2]
 LEDGER = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
 ORDERED_AT = datetime.fromisoformat("2026-07-30T09:00:00+09:00")
 EXPIRES_AT = datetime.fromisoformat("2026-07-31T15:30:00+09:00")
-ASSESSMENT_ID = "capital-allocation-assessment-20260730-2331"
+RETAINED_BUY_REFERENCE = "capital-allocation-assessment-20260730-2331"
 
 
 def _services(
-    tmp_path: Path, *, result: str = "allocate"
+    tmp_path: Path, *, retain_buy_reference: bool = True
 ) -> tuple[LedgerStoreService, Callable[[str], str]]:
     db = tmp_path / "app.sqlite"
     initialize_database(db)
-    payload = {
-        "schema_version": 2,
-        "kind": "capital_allocation_assessment",
-        "capital_allocation_assessment_id": ASSESSMENT_ID,
-        "as_of": "2026-07-30",
-        "published_at": "2026-07-30T08:30:00+09:00",
-        "result": result,
-        "headline": "2331 へ配分" if result == "allocate" else "配分しない",
-        "research_triage_id": "research_triage-20260730-test",
-        "market_context_assessment_id": None,
-        "comparison": "要求利回りと永久損失を比較した",
-        "forgone": "次回決算で再評価する",
-        "alternatives": [
-            {
-                "ticker": "2331",
-                "thesis_id": "thesis-20260730-2331-r1",
-                "thesis_core_sha256": "a" * 64,
-                "thesis_review_id": ("review-20260730-2331-r1" if result == "allocate" else None),
-                "disposition": "allocate" if result == "allocate" else "decline",
-                "rationale": "要求利回りと永久損失を比較した",
-            }
-        ],
-        "review": {
-            "attempt": 1,
-            "reviewer_identity": "independent-reviewer",
-            "reviewed_at": "2026-07-30T08:20:00+09:00",
-            "conclusion": "pass",
-            "draft_sha256": "b" * 64,
-            "open_findings": [],
-        },
-    }
+    # 切替で保全された旧IDを現行reference表へseedする。旧CAA writerは使わない。
     with sqlite3.connect(db) as connection:
-        connection.execute(
-            "INSERT INTO capital_allocation_assessment VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                ASSESSMENT_ID,
-                "2026-07-30",
-                "2026-07-30T08:30:00+09:00",
-                result,
-                "research_triage-20260730-test",
-                json.dumps(payload, ensure_ascii=False),
-            ),
-        )
+        if retain_buy_reference:
+            connection.execute(
+                "INSERT INTO position_decision_reference VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    RETAINED_BUY_REFERENCE,
+                    "2331",
+                    "buy",
+                    "retained_reference",
+                    None,
+                    RETAINED_BUY_REFERENCE,
+                    "a" * 64,
+                ),
+            )
     original = load_portfolio_ledger(LEDGER)
     source = original.model_copy(
         update={
@@ -91,19 +62,19 @@ def _services(
         }
     )
     seed_ledger(db, source)
-    return LedgerStoreService(db), partial(historical_allocated_ticker, db_path=db)
+    return LedgerStoreService(db), partial(resolve_buy_reference, db_path=db)
 
 
 def _open_draft(
     ledger: LedgerStoreService,
-    assessments: Callable[[str], str],
+    resolve_reference: Callable[[str], str],
     *,
     expires_at: datetime = EXPIRES_AT,
 ):
     return build_broker_fact_draft(
         ledger,
-        assessments,
-        decision_reference=ASSESSMENT_ID,
+        resolve_reference,
+        decision_reference=RETAINED_BUY_REFERENCE,
         status="open",
         occurred_at=ORDERED_AT,
         ticker="2331",
@@ -115,9 +86,9 @@ def _open_draft(
     )
 
 
-def test_allocated_assessment_builds_and_persists_bound_open_result(tmp_path: Path) -> None:
-    ledger, assessments = _services(tmp_path)
-    draft, event_ids = _open_draft(ledger, assessments)
+def test_retained_buy_reference_builds_and_persists_bound_open_result(tmp_path: Path) -> None:
+    ledger, resolve_reference = _services(tmp_path)
+    draft, event_ids = _open_draft(ledger, resolve_reference)
 
     assert draft is not None
     apply_draft(ledger, draft, human_confirmed=True)
@@ -125,19 +96,19 @@ def test_allocated_assessment_builds_and_persists_bound_open_result(tmp_path: Pa
         row = connection.execute(
             "SELECT decision_reference FROM ledger_event WHERE event_id = ?", event_ids
         ).fetchone()
-    assert row == (ASSESSMENT_ID,)
+    assert row == (RETAINED_BUY_REFERENCE,)
 
 
 def test_human_sell_order_persists_without_allocation_or_cash_change(tmp_path: Path) -> None:
     ledger, _ = _services(tmp_path)
     before, _ = ledger.load_with_head()
 
-    def no_allocation_lookup(_reference: str) -> str:
-        raise AssertionError("sell order must not become a buy allocation")
+    def unexpected_buy_reference_lookup(_reference: str) -> str:
+        raise AssertionError("sell order must not resolve a buy reference")
 
     draft, event_ids = build_broker_fact_draft(
         ledger,
-        no_allocation_lookup,
+        unexpected_buy_reference_lookup,
         decision_reference="human-reported-sell-2331",
         status="open",
         side="sell",
@@ -186,8 +157,8 @@ def test_human_sell_order_persists_without_allocation_or_cash_change(tmp_path: P
 def test_same_day_reserved_buy_fill_uses_reported_date_without_claiming_fill_time(
     tmp_path: Path,
 ) -> None:
-    ledger, assessments = _services(tmp_path)
-    opened, _ = _open_draft(ledger, assessments)
+    ledger, resolve_reference = _services(tmp_path)
+    opened, _ = _open_draft(ledger, resolve_reference)
     assert opened is not None
     apply_draft(ledger, opened, human_confirmed=True)
     before, _ = ledger.load_with_head()
@@ -198,8 +169,8 @@ def test_same_day_reserved_buy_fill_uses_reported_date_without_claiming_fill_tim
 
     draft, event_ids = build_broker_fact_draft(
         ledger,
-        assessments,
-        decision_reference=ASSESSMENT_ID,
+        resolve_reference,
+        decision_reference=RETAINED_BUY_REFERENCE,
         status="filled",
         occurred_on=ORDERED_AT.date(),
         ticker="2331",
@@ -220,8 +191,8 @@ def test_same_day_reserved_buy_fill_uses_reported_date_without_claiming_fill_tim
     assert state.reserved_cash_yen == before_state.reserved_cash_yen - 210_000
     again, repeated_ids = build_broker_fact_draft(
         ledger,
-        assessments,
-        decision_reference=ASSESSMENT_ID,
+        resolve_reference,
+        decision_reference=RETAINED_BUY_REFERENCE,
         status="filled",
         occurred_on=ORDERED_AT.date(),
         ticker="2331",
@@ -236,8 +207,8 @@ def test_same_day_reserved_buy_fill_uses_reported_date_without_claiming_fill_tim
     with pytest.raises(BrokerFactRecordingError, match="conflicting human report"):
         build_broker_fact_draft(
             ledger,
-            assessments,
-            decision_reference=ASSESSMENT_ID,
+            resolve_reference,
+            decision_reference=RETAINED_BUY_REFERENCE,
             status="filled",
             occurred_on=ORDERED_AT.date(),
             ticker="2331",
@@ -285,13 +256,13 @@ def test_same_day_reserved_sell_date_only_replays_after_order(tmp_path: Path) ->
 def test_distinct_date_only_buy_execution_ids_consume_one_order_and_retry_after_full(
     tmp_path: Path,
 ) -> None:
-    ledger, assessments = _services(tmp_path)
-    opened, _ = _open_draft(ledger, assessments)
+    ledger, resolve_reference = _services(tmp_path)
+    opened, _ = _open_draft(ledger, resolve_reference)
     assert opened is not None
     apply_draft(ledger, opened, human_confirmed=True)
     reservation_id = opened.replacement.events[-1].reservation_id
     reported = dict(
-        decision_reference=ASSESSMENT_ID,
+        decision_reference=RETAINED_BUY_REFERENCE,
         status="filled",
         occurred_on=ORDERED_AT.date(),
         ticker="2331",
@@ -302,7 +273,7 @@ def test_distinct_date_only_buy_execution_ids_consume_one_order_and_retry_after_
     )
 
     first, _ = build_broker_fact_draft(
-        ledger, assessments, **reported, execution_id="broker-order-a/fill-1"
+        ledger, resolve_reference, **reported, execution_id="broker-order-a/fill-1"
     )
     assert first is not None
     assert first.replacement.events[-1].execution_id == "broker-order-a/fill-1"
@@ -317,7 +288,7 @@ def test_distinct_date_only_buy_execution_ids_consume_one_order_and_retry_after_
     )
 
     second, _ = build_broker_fact_draft(
-        ledger, assessments, **reported, execution_id="broker-order-a/fill-2"
+        ledger, resolve_reference, **reported, execution_id="broker-order-a/fill-2"
     )
     assert second is not None
     apply_draft(ledger, second, human_confirmed=True)
@@ -327,7 +298,7 @@ def test_distinct_date_only_buy_execution_ids_consume_one_order_and_retry_after_
     db_before_retry = (tmp_path / "app.sqlite").read_bytes()
 
     def unavailable_history(_reference: str) -> str:
-        pytest.fail("known execution retry must not need the historical assessment")
+        pytest.fail("known execution retry must not need the retained buy reference")
 
     assert build_broker_fact_draft(
         ledger, unavailable_history, **reported, execution_id="broker-order-a/fill-2"
@@ -341,7 +312,7 @@ def test_distinct_date_only_buy_execution_ids_consume_one_order_and_retry_after_
             execution_id="broker-order-a/fill-2",
         )
     with pytest.raises(BrokerFactRecordingError, match="execution_id"):
-        build_broker_fact_draft(ledger, assessments, **reported)
+        build_broker_fact_draft(ledger, resolve_reference, **reported)
 
 
 def test_distinct_date_only_sell_execution_ids_and_costs_retry_after_full(tmp_path: Path) -> None:
@@ -449,8 +420,8 @@ def test_date_only_sell_without_id_rejects_changed_second_fill(tmp_path: Path) -
 def test_broker_fact_cli_passes_execution_id_and_reports_retry_as_no_change(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    ledger, assessments = _services(tmp_path)
-    opened, _ = _open_draft(ledger, assessments)
+    ledger, resolve_reference = _services(tmp_path)
+    opened, _ = _open_draft(ledger, resolve_reference)
     assert opened is not None
     apply_draft(ledger, opened, human_confirmed=True)
     reservation_id = opened.replacement.events[-1].reservation_id
@@ -461,7 +432,7 @@ def test_broker_fact_cli_passes_execution_id_and_reports_retry_as_no_change(
         "--db",
         str(tmp_path / "app.sqlite"),
         "--decision-reference",
-        ASSESSMENT_ID,
+        RETAINED_BUY_REFERENCE,
         "--status",
         "filled",
         "--occurred-on",
@@ -487,17 +458,17 @@ def test_broker_fact_cli_passes_execution_id_and_reports_retry_as_no_change(
     assert not (tmp_path / "retry.yaml").exists()
 
 
-def test_non_allocation_assessment_and_ticker_mismatch_are_rejected(tmp_path: Path) -> None:
-    ledger, assessments = _services(tmp_path, result="no_allocation")
-    with pytest.raises(ValueError, match="not an allocate decision"):
-        _open_draft(ledger, assessments)
+def test_unavailable_buy_reference_and_ticker_mismatch_are_rejected(tmp_path: Path) -> None:
+    ledger, resolve_reference = _services(tmp_path, retain_buy_reference=False)
+    with pytest.raises(ValueError, match="buy decision reference is unavailable"):
+        _open_draft(ledger, resolve_reference)
 
-    ledger, assessments = _services(tmp_path / "other")
+    ledger, resolve_reference = _services(tmp_path / "other")
     with pytest.raises(ValueError, match="ticker does not match"):
         build_broker_fact_draft(
             ledger,
-            assessments,
-            decision_reference=ASSESSMENT_ID,
+            resolve_reference,
+            decision_reference=RETAINED_BUY_REFERENCE,
             status="open",
             occurred_at=ORDERED_AT,
             ticker="9999",
@@ -510,16 +481,16 @@ def test_non_allocation_assessment_and_ticker_mismatch_are_rejected(tmp_path: Pa
 
 
 def test_open_fill_cancel_and_idempotency_follow_active_reservation(tmp_path: Path) -> None:
-    ledger, assessments = _services(tmp_path)
-    open_draft, _ = _open_draft(ledger, assessments)
+    ledger, resolve_reference = _services(tmp_path)
+    open_draft, _ = _open_draft(ledger, resolve_reference)
     assert open_draft is not None
     apply_draft(ledger, open_draft, human_confirmed=True)
     reservation = open_draft.replacement.events[-1]
 
     fill, fill_ids = build_broker_fact_draft(
         ledger,
-        assessments,
-        decision_reference=ASSESSMENT_ID,
+        resolve_reference,
+        decision_reference=RETAINED_BUY_REFERENCE,
         status="filled",
         occurred_at=ORDERED_AT + timedelta(hours=1),
         ticker="2331",
@@ -532,8 +503,8 @@ def test_open_fill_cancel_and_idempotency_follow_active_reservation(tmp_path: Pa
     apply_draft(ledger, fill, human_confirmed=True)
     repeated, repeated_ids = build_broker_fact_draft(
         ledger,
-        assessments,
-        decision_reference=ASSESSMENT_ID,
+        resolve_reference,
+        decision_reference=RETAINED_BUY_REFERENCE,
         status="filled",
         occurred_at=ORDERED_AT + timedelta(hours=1),
         ticker="2331",
@@ -548,8 +519,8 @@ def test_open_fill_cancel_and_idempotency_follow_active_reservation(tmp_path: Pa
 
     cancelled, _ = build_broker_fact_draft(
         ledger,
-        assessments,
-        decision_reference=ASSESSMENT_ID,
+        resolve_reference,
+        decision_reference=RETAINED_BUY_REFERENCE,
         status="cancelled",
         occurred_at=ORDERED_AT + timedelta(hours=3),
         reservation_id=reservation.reservation_id,
@@ -569,7 +540,7 @@ def test_record_broker_fact_cli_uses_decision_reference_without_writing_before_a
         "--db",
         str(tmp_path / "app.sqlite"),
         "--decision-reference",
-        ASSESSMENT_ID,
+        RETAINED_BUY_REFERENCE,
         "--status",
         "open",
         "--occurred-at",
@@ -590,19 +561,19 @@ def test_record_broker_fact_cli_uses_decision_reference_without_writing_before_a
 
     assert main(args, now=ORDERED_AT + timedelta(minutes=1)) == 0
     output = yaml.safe_load(capsys.readouterr().out)
-    assert output["decision_reference"] == ASSESSMENT_ID
+    assert output["decision_reference"] == RETAINED_BUY_REFERENCE
     assert ledger.append_head() == load_draft(tmp_path / "draft.yaml").expected_head
 
 
 def test_unbound_reservation_is_not_a_runtime_compatibility_path(tmp_path: Path) -> None:
-    ledger, assessments = _services(tmp_path)
+    ledger, resolve_reference = _services(tmp_path)
     expiry = datetime.fromisoformat("2026-07-31T15:30:00+09:00")
 
     with pytest.raises(ValueError, match="no canonical decision binding"):
         build_broker_fact_draft(
             ledger,
-            assessments,
-            decision_reference=ASSESSMENT_ID,
+            resolve_reference,
+            decision_reference=RETAINED_BUY_REFERENCE,
             status="expired",
             occurred_at=expiry,
             reservation_id="reservation-8929-pending",
@@ -613,8 +584,8 @@ def test_unbound_reservation_is_not_a_runtime_compatibility_path(tmp_path: Path)
 def test_broker_draft_keeps_the_snapshot_head_when_another_write_intervenes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    ledger, assessments = _services(tmp_path)
-    intervening, _ = _open_draft(ledger, assessments)
+    ledger, resolve_reference = _services(tmp_path)
+    intervening, _ = _open_draft(ledger, resolve_reference)
     assert intervening is not None
     load_snapshot = ledger.load_with_head
 
@@ -624,7 +595,7 @@ def test_broker_draft_keeps_the_snapshot_head_when_another_write_intervenes(
         return snapshot
 
     monkeypatch.setattr(ledger, "load_with_head", load_then_write)
-    draft, _ = _open_draft(ledger, assessments)
+    draft, _ = _open_draft(ledger, resolve_reference)
     monkeypatch.setattr(ledger, "load_with_head", load_snapshot)
     assert draft is not None
     assert draft.expected_head == intervening.expected_head
@@ -634,7 +605,7 @@ def test_broker_draft_keeps_the_snapshot_head_when_another_write_intervenes(
 
 
 @pytest.mark.parametrize("terminal_status", ["cancelled", "expired"])
-def test_active_and_known_terminal_retries_do_not_resolve_historical_caa(
+def test_active_and_known_terminal_retries_do_not_resolve_buy_binding(
     tmp_path: Path, monkeypatch, capsys, terminal_status: str
 ) -> None:
     ledger, resolve = _services(tmp_path)
@@ -646,19 +617,19 @@ def test_active_and_known_terminal_retries_do_not_resolve_historical_caa(
 
     draft, _ = _open_draft(ledger, resolve_initial, expires_at=ORDERED_AT + timedelta(hours=2))
     assert draft is not None
-    assert references == [ASSESSMENT_ID]
+    assert references == [RETAINED_BUY_REFERENCE]
     apply_draft(ledger, draft, human_confirmed=True)
     reservation = draft.replacement.events[-1]
 
     def unavailable_history(_reference: str, **_kwargs) -> str:
-        pytest.fail("active or known terminal report resolved historical CAA")
+        pytest.fail("active or known terminal report resolved retained buy reference")
 
     db = tmp_path / "app.sqlite"
     with sqlite3.connect(db) as connection:
-        connection.execute("DELETE FROM capital_allocation_assessment")
+        connection.execute("DELETE FROM position_decision_reference")
     before = db.read_bytes()
     fill_args = dict(
-        decision_reference=ASSESSMENT_ID,
+        decision_reference=RETAINED_BUY_REFERENCE,
         status="filled",
         occurred_at=ORDERED_AT + timedelta(minutes=30),
         ticker="2331",
@@ -673,7 +644,7 @@ def test_active_and_known_terminal_retries_do_not_resolve_historical_caa(
     apply_draft(ledger, fill, human_confirmed=True)
     assert build_broker_fact_draft(ledger, unavailable_history, **fill_args) == (None, ())
     terminal_args = dict(
-        decision_reference=ASSESSMENT_ID,
+        decision_reference=RETAINED_BUY_REFERENCE,
         status=terminal_status,
         occurred_at=ORDERED_AT + timedelta(hours=1 if terminal_status == "cancelled" else 3),
         reservation_id=reservation.reservation_id,
@@ -684,10 +655,8 @@ def test_active_and_known_terminal_retries_do_not_resolve_historical_caa(
     apply_draft(ledger, terminal, human_confirmed=True)
     assert build_broker_fact_draft(ledger, unavailable_history, **terminal_args) == (None, ())
 
-    # CLIもcallableを渡すだけにし、予約済み再試行の前にCAAを先読みしない。
-    monkeypatch.setattr(
-        "baibai_engine.position.cli.historical_allocated_ticker", unavailable_history
-    )
+    # CLIもcallableを渡すだけにし、予約済み再試行の前にbindingを先読みしない。
+    monkeypatch.setattr("baibai_engine.position.cli.resolve_buy_reference", unavailable_history)
     before = db.read_bytes()
     assert (
         main(
@@ -698,7 +667,7 @@ def test_active_and_known_terminal_retries_do_not_resolve_historical_caa(
                 "--db",
                 str(db),
                 "--decision-reference",
-                ASSESSMENT_ID,
+                RETAINED_BUY_REFERENCE,
                 "--status",
                 terminal_status,
                 "--occurred-at",
@@ -717,7 +686,7 @@ def test_active_and_known_terminal_retries_do_not_resolve_historical_caa(
     assert db.read_bytes() == before
 
 
-def test_historical_allocation_query_does_not_write_or_replay_current_eligibility(
+def test_retained_buy_reference_does_not_write_or_replay_current_eligibility(
     tmp_path: Path, monkeypatch
 ) -> None:
     _services(tmp_path)
@@ -725,15 +694,15 @@ def test_historical_allocation_query_does_not_write_or_replay_current_eligibilit
     before = db.read_bytes()
 
     def reject_current_check(*_args, **_kwargs):
-        pytest.fail("historical identity entered current allocation publication check")
+        pytest.fail("historical identity entered current Proposal publication check")
 
     monkeypatch.setattr(
-        "baibai_engine.research.capital_allocation_service.CapitalAllocationAssessmentService.check",
+        "baibai_engine.research.entry_policy.evaluate_buy_terms",
         reject_current_check,
     )
-    assert historical_allocated_ticker(ASSESSMENT_ID, db_path=db) == "2331"
+    assert resolve_buy_reference(RETAINED_BUY_REFERENCE, db_path=db) == "2331"
     assert db.read_bytes() == before
     missing = tmp_path / "missing.sqlite"
     with pytest.raises(ValueError, match="application database is unavailable"):
-        historical_allocated_ticker(ASSESSMENT_ID, db_path=missing)
+        resolve_buy_reference(RETAINED_BUY_REFERENCE, db_path=missing)
     assert not missing.exists()

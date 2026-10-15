@@ -1,6 +1,5 @@
-// Single source for how the UI renders values. Every timestamp is JST market
-// data, so all datetime rendering is anchored to Asia/Tokyo and never depends on the
-// viewer's browser timezone.
+// Single source for how the UI renders values. Saved timestamps may use different
+// offsets; datetime display is anchored to Asia/Tokyo rather than the browser timezone.
 
 export const EMPTY = '—'
 
@@ -12,7 +11,7 @@ function isDateOnly(value: string): boolean {
   return DATE_ONLY.test(value)
 }
 
-// Persisted stamps carry an explicit +09:00 offset from the writer. A date carries no
+// Persisted stamps retain their explicit offset, including UTC. A date carries no
 // time at all and means midnight JST; an offset-less stamp is read as JST wall-clock
 // rather than the viewer's local time. Appending an offset to a bare date would build
 // `2026-07-29+09:00`, which is not a parseable ISO string.
@@ -99,8 +98,8 @@ const dateKeyFormatter = new Intl.DateTimeFormat('sv-SE', {
 })
 
 /**
- * True when the value is `days` or more JST calendar days behind today. Freshness is a
- * question about market days, so it compares dates rather than elapsed hours — and it
+ * True when the value is `days` or more JST calendar days behind today. This helper counts
+ * calendar days, not trading sessions, and compares dates rather than elapsed hours — and it
  * goes through the shared parser, so an offset-less stamp is not read in the viewer's
  * timezone.
  */

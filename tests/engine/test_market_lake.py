@@ -662,8 +662,8 @@ def test_every_lake_dataset_states_a_release_policy() -> None:
     lake 側の定義だけを足して policy を忘れると、その dataset は「検査を通った」ではなく
     「検査の対象ですらない」状態で publish される。どの build log にも現れない差である。
 
-    `required` は dataset ごとに違ってよい。公表制度の開始を待つ `all_issues_daily_margin`
-    は False である。ここが要求するのは policy が存在することだけである。
+    `required` は dataset ごとに違ってよい。`all_issues_daily_margin` は False である。
+    ここが要求するのは policy が存在することだけであり、公表開始前かどうかではない。
     """
 
     from baibai_engine.storage.lake.datasets import LAKE_DATASETS
@@ -700,7 +700,8 @@ def test_only_a_replaced_table_is_exempt_from_the_history_floor() -> None:
     最古の行も件数も source が今公表している範囲そのものになる。日付で絞った delete は
     冪等な upsert で、行は蓄積するので 観測の 0.95 倍という床は時間とともに余裕が広がる。
 
-    将来 snapshot 型の dataset が増えたとき、履歴の床を付けたまま入ると年に一度止まる。
+    将来 snapshot 型の dataset が増えたときも、過去 snapshot の履歴開始日を要求しない。
+    この検査は現在の SQL リテラル表記を対象とし、動的 SQL の全経路を解析するものではない。
     """
 
     import re
@@ -757,7 +758,7 @@ def test_the_seasonal_calendar_floor_clears_its_measured_trough() -> None:
 def test_a_forward_only_calendar_uses_its_policy_floor_not_the_previous_snapshot(
     monkeypatch: pytest.MonkeyPatch, rows: int, accepted: bool
 ) -> None:
-    """免除は宣言だけでなく、publish が実際に通るところまで成立していなければならない。
+    """免除は宣言だけでなく、release policy の検証が通ることを確認する。
 
     先だけを持つ calendar の最古の行は今日より後ろにある。2026-08-17 の日次バッチは
     `coverage starts 2026-07-03, later than the profile boundary 2026-06-19` で止まり、

@@ -104,7 +104,7 @@ def maximum_entry_price(
 def required_total_value(
     *, price_yen: Decimal, horizon_months: int, required_annual_return_pct: Decimal
 ) -> Decimal:
-    """Value needed at a price, using the requirement recorded in the Thesis."""
+    """Value needed at a price, using the requirement recorded in the Stock Assessment."""
     with localcontext() as context:
         context.prec = 50
         price = _positive(price_yen, "price_yen")

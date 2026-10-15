@@ -134,7 +134,7 @@ def test_a_withdrawal_observed_on_a_later_list_replaces_the_stored_status(
 def test_a_served_response_fills_a_row_first_stored_after_its_period_ended(
     tmp_path: Path,
 ) -> None:
-    """A store that first read the day late holds nulls no fetch can fill later."""
+    """A retained served response can fill a copy that only observed expired fields."""
 
     store = _empty_store(tmp_path / "market.sqlite")
     store_edinet_documents(store, _DAY, [_EXPIRED])
@@ -239,7 +239,7 @@ def test_two_positions_sharing_a_document_id_expire_without_mixing(tmp_path: Pat
 def test_a_column_outside_the_two_classifications_takes_the_new_answer(
     tmp_path: Path,
 ) -> None:
-    """Only the five columns EDINET withdraws on expiry survive a blanking response."""
+    """Only the retained descriptive and identity columns survive a blanking response."""
 
     store = _empty_store(tmp_path / "market.sqlite")
     store_edinet_documents(store, _DAY, [{**_SERVED, "opeDateTime": "2026-05-01 15:50"}])

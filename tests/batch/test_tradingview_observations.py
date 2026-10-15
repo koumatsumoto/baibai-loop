@@ -27,7 +27,7 @@ WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/cloud-tradin
 
 
 def event_file(tmp_path, value=None):
-    raw = json.dumps(value or document(), sort_keys=True, separators=(",", ":"))
+    raw = json.dumps(document() if value is None else value, sort_keys=True, separators=(",", ":"))
     event = tmp_path / "event.json"
     event.write_text(
         json.dumps(
@@ -191,3 +191,9 @@ def test_fresh_hydrate_publish_and_remote_readback_preserve_history_and_other_da
     assert report2["status"] == "already_recorded"
     assert publisher._serving_pointer(remote).pointer == old_pointer
     assert len(remote.put_keys) == old_put_count
+
+
+def test_empty_observation_document_is_not_replaced_by_fixture_defaults(tmp_path, capsys):
+    event = event_file(tmp_path, {})
+    assert main(["stage", "--event", str(event), "--directory", str(tmp_path / "stage")]) == 1
+    assert capsys.readouterr().out == ""

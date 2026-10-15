@@ -1,23 +1,17 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-
 from tests.helpers.screening_sqlite import add_source_coverage
 
 from baibai_engine.market.edinet_metrics.store import read_edinet_documents, read_edinet_metrics
+from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.jpx_models import JPXProviderError
-from baibai_engine.market.providers.edinet import (
-    EDINETProvider,
-    EDINETProviderError,
-    select_document_candidates,
-)
+from baibai_engine.market.providers.edinet import EDINETProvider, select_document_candidates
 from baibai_engine.market.providers.jpx import JPXProvider
 from baibai_engine.storage.observations.ingest.edinet import store_edinet_documents
 from baibai_engine.storage.observations.ingest.jpx import store_jpx_regulations
@@ -342,7 +336,6 @@ class EDINETProviderReadThroughTests(unittest.TestCase):
 class JPXProviderReadThroughTests(unittest.TestCase):
     def test_get_regulation_snapshot_uses_sqlite_when_available(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             conn = open_connection(sqlite_path)
             conn.execute(
@@ -355,7 +348,7 @@ class JPXProviderReadThroughTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            provider = JPXProvider(cache_dir, sqlite_path=sqlite_path)
+            provider = JPXProvider(sqlite_path=sqlite_path)
 
             snapshot = provider.get_regulation_snapshot(date(2026, 4, 24))
 
@@ -363,7 +356,6 @@ class JPXProviderReadThroughTests(unittest.TestCase):
 
     def test_has_regulation_cache_true_when_sqlite_has_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             store_jpx_regulations(
                 sqlite_path,
@@ -372,38 +364,29 @@ class JPXProviderReadThroughTests(unittest.TestCase):
                 source_names=["取引停止"],
             )
 
-            provider = JPXProvider(cache_dir, sqlite_path=sqlite_path)
+            provider = JPXProvider(sqlite_path=sqlite_path)
 
             self.assertTrue(provider.has_regulation_cache(date(2026, 4, 24)))
 
-    def test_get_regulation_snapshot_falls_back_to_json_when_sqlite_empty(self) -> None:
+    def test_get_regulation_snapshot_requires_source_when_sqlite_empty(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             conn = open_connection(sqlite_path)
             conn.commit()
             conn.close()
 
-            provider = JPXProvider(cache_dir, sqlite_path=sqlite_path)
+            provider = JPXProvider(sqlite_path=sqlite_path)
 
             with self.assertRaises(JPXProviderError):
                 provider.get_regulation_snapshot(date(2026, 4, 24))
 
-    def test_cache_only_ignores_json_regulation_cache_when_sqlite_empty(self) -> None:
+    def test_cache_only_requires_sqlite_regulation_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             conn = open_connection(sqlite_path)
             conn.commit()
             conn.close()
-            cache_path = cache_dir / "jpx" / "regulations" / "2026-04-24.json"
-            cache_path.parent.mkdir(parents=True)
-            cache_path.write_text(
-                json.dumps({"flags_by_ticker": {"1301": ["取引停止"]}, "source_names": []}),
-                encoding="utf-8",
-            )
-
-            provider = JPXProvider(cache_dir, sqlite_path=sqlite_path, cache_only=True)
+            provider = JPXProvider(sqlite_path=sqlite_path, cache_only=True)
 
             self.assertFalse(provider.has_regulation_cache(date(2026, 4, 24)))
             with self.assertRaisesRegex(JPXProviderError, "SQLite cache incomplete"):

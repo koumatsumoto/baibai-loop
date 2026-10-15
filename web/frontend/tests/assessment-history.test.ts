@@ -164,6 +164,7 @@ describe('macro report render contract', () => {
   it('renders the judgment-first order and keeps rebuttal, lineage and scorecard evidence reachable', () => {
     const markup = renderToStaticMarkup(createElement(HistoricalReportContent, { data: report() }))
     const headings = ['現局面', '支配的な力', '日本株の調査・見積りへの含意', 'シナリオと見方を変える条件', '詳細な経済チャネルと証拠']
+    for (const heading of headings) expect(markup).toContain(heading)
     for (let index = 1; index < headings.length; index += 1) {
       expect(markup.indexOf(headings[index - 1])).toBeLessThan(markup.indexOf(headings[index]))
     }
@@ -193,7 +194,8 @@ describe('macro report render contract', () => {
   it('keeps risk-environment lineage when an old revision has no falsifiers', () => {
     const data = report()
     const risk = data.core.find((section) => section.section_id === 'risk_environment')
-    if (risk?.risk_environment) risk.risk_environment.falsifiers = []
+    expect(risk?.risk_environment).toBeDefined()
+    risk!.risk_environment!.falsifiers = []
     const markup = renderToStaticMarkup(createElement(HistoricalReportContent, { data }))
     expect(markup).toContain('明示された反証条件はありません。')
     expect(markup.match(/source\.risk/g)).toHaveLength(1)

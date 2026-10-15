@@ -70,16 +70,10 @@ def store_edinet_documents(
         record_source_coverage(
             conn,
             source="edinet_documents",
-            operation="documents",
             coverage_key=on_date.isoformat(),
             coverage_start=on_date.isoformat(),
             coverage_end=on_date.isoformat(),
-            requested_start=on_date.isoformat(),
-            requested_end=on_date.isoformat(),
-            params={"date": on_date.isoformat(), "type": 2},
             record_count=persisted_count,
-            raw_record_count=len(records_list),
-            skipped_record_count=0,
             status="ok",
             error=None,
         )
@@ -144,16 +138,10 @@ def store_edinet_metrics(
         record_source_coverage(
             conn,
             source="edinet_metrics",
-            operation="metrics",
             coverage_key=asof_date.isoformat(),
             coverage_start=asof_date.isoformat(),
             coverage_end=asof_date.isoformat(),
-            requested_start=asof_date.isoformat(),
-            requested_end=asof_date.isoformat(),
-            params={"asof_date": asof_date.isoformat()},
             record_count=persisted_count,
-            raw_record_count=len(records_list),
-            skipped_record_count=skipped_count,
             status=stored_status,
             error=stored_error,
         )

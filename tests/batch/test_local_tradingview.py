@@ -127,7 +127,7 @@ def test_acquire_failure_does_not_read_or_release(runtime, code):
     assert calls == ["acquire"]
 
 
-@pytest.mark.parametrize("status", ["already_saved", "non_trading_day", "skipped_historical_asof"])
+@pytest.mark.parametrize("status", ["already_saved", "skipped_historical_asof"])
 def test_preflight_noop_avoids_master_oauth_and_publish(runtime, status):
     state, calls, settings = runtime
     settings["preflight"] = {"status": status}

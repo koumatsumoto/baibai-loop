@@ -29,7 +29,7 @@ import { Badge } from '../components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '../components/ui/chart'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
-import { EMPTY, formatJstDateShort, formatPct, formatYen } from '../lib/format'
+import { EMPTY, formatJstDateShort, formatNumber, formatPct, formatYen } from '../lib/format'
 import { totalUnrealizedPnl } from '../lib/portfolio'
 import { cn } from '../lib/utils'
 
@@ -37,8 +37,8 @@ import { cn } from '../lib/utils'
 // repeats what the numbers already say.
 const HINT = {
   allocation: '台帳で未予約の現金と、これまでの判断が実際に効いているかを 1 か所で確かめる。売却代金は約定時に計上し、受渡済み資金や証券会社の発注可能額とは照合していない。配分は判断材料であり、比率を目安へ近づけること自体は目的ではない。',
-  delta: '前回の機械実行と比べた候補プールへの出入り、機械 E[r] の変化、FV に達した保有を並べる。市場環境の判断と指標は専用画面で読む。売買の指示ではなく、次にどこを見るかを決める材料。答えられなかった区分は明示するので、空欄と「計測できなかった」を混同しない。',
-  holdings: '保有中の各銘柄の取得原価・現値・FV との乖離。売買判断そのものではなく、どの銘柄を次に見直すかを決めるための現状。',
+  delta: '前回の機械実行と比べた候補プールへの出入り、機械 E[r] の変化、価格変動の大きい保有を並べる。市場環境の判断と指標は専用画面で読む。売買の指示ではなく、次にどこを見るかを決める材料。答えられなかった区分は明示するので、空欄と「計測できなかった」を混同しない。',
+  holdings: '保有中の各銘柄の取得原価・現値・原評価のPmax（新規買付上限）との乖離。売買判断そのものではなく、どの銘柄を次に見直すかを決めるための現状。',
   reservations: '報告済みの未約定注文。買付だけ資金を予約し、売付の見込代金は現金に加えません。約定・取消・失効は次の明示報告で更新します。',
   outcomes: '記録済みの税・費用を反映した return を、同じ期間の配当込み TOPIX と比べた結果。未報告の税・費用は含まない。短期の数字で方針を変えるためではなく、見積りが実現と合っているかを年単位で確かめるために置いている。',
 } as const
@@ -281,8 +281,9 @@ export function HoldingsTable({ holdings, warnings, ledgerAsOf = null }: { holdi
                 <TableCell className="text-right">
                   <YenAmount value={holding.pmax_raw_yen} />
                   <PctBadge className="mt-1 block text-xs" value={holding.pmax_gap_pct} />
+                  {holding.pmax_gap_unavailable_reason && <p className="mt-1 text-xs text-muted-foreground">{holding.pmax_gap_unavailable_reason}</p>}
                 </TableCell>
-                <TableCell><Badge className="font-mono text-[10px] uppercase" variant="outline">{holding.disposition ?? '—'}</Badge></TableCell>
+                <TableCell><Badge className="font-mono text-[10px] uppercase" variant="outline">{holding.stance ?? '—'}</Badge></TableCell>
                 <TableCell className="pr-5 text-right sm:pr-6"><TradingViewButton ticker={holding.ticker} /></TableCell>
               </TableRow>
             )
@@ -361,7 +362,7 @@ export function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null
     >
       {delta === null ? (
         <p className="py-8 text-center text-sm text-muted-foreground">
-          {failed ? '変化を読み込めませんでした。変化がないことを意味しません。' : '変化の観測がまだありません。'}
+          {failed ? '変化を読み込めませんでした。変化がないことを意味しません。' : '変化を読み込んでいます。'}
         </p>
       ) : (
         <div className="divide-y">
@@ -407,7 +408,7 @@ export function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null
                 {' → '}
                 {item.er_annual_pct === null ? EMPTY : formatPct(item.er_annual_pct)}
               </span>
-              <PctBadge value={item.change_pp} />
+              <span className="font-mono text-sm tabular-nums">{item.change_pp > 0 ? '+' : ''}{formatNumber(item.change_pp, 1)}pt</span>
             </DeltaRow>
           ))}
           {delta.er_moves_total > delta.er_moves.length && (
@@ -544,9 +545,6 @@ export function DashboardPage() {
     <PageShell title="Dashboard">
       {data.ledger_error && (
         <Alert variant="destructive"><CircleAlert /><AlertTitle>Ledger error</AlertTitle><AlertDescription>{data.ledger_error}</AlertDescription></Alert>
-      )}
-      {data.research_load_errors.length > 0 && (
-        <Alert variant="destructive"><CircleAlert /><AlertTitle>Research read error</AlertTitle><AlertDescription>{data.research_load_errors.join(' / ')}</AlertDescription></Alert>
       )}
 
       <PortfolioAllocationCard data={data} />

@@ -185,7 +185,8 @@ def forward_row(asof: str, ticker: str, horizon: str, **overrides: Any) -> Forwa
     }
     if total_status == "resolved":
         price = float(payload["price_return"] or 0.0)
-        total = float(overrides.get("total_return") or price)
+        raw_total = overrides.get("total_return")
+        total = price if raw_total is None else float(raw_total)
         payload["realized_dividend_sum"] = max(0.0, total - price)
         payload["realized_dividend_fy_count"] = 1
         payload["total_return"] = total
@@ -211,11 +212,10 @@ def calibration_root(tmp_path: Path) -> Path:
 
 
 def liquid_panel_row(ticker: str, asof: str, **overrides: Any) -> dict[str, Any]:
-    """A panel row that clears every liquidity floor a measurement applies.
+    """A fixture dictionary with typical liquid-security metrics.
 
-    Measurement tools drop illiquid names before they group anything, so a fixture row
-    that means "included" has to state all four of those fields. What a test varies is
-    what it passes.
+    Publication fills in_population=True unless overridden. Measurement readers use
+    that stored membership rather than applying liquidity thresholds again.
     """
 
     row: dict[str, Any] = {
@@ -235,32 +235,6 @@ def liquid_panel_row(ticker: str, asof: str, **overrides: Any) -> dict[str, Any]
     }
     row.update(overrides)
     return row
-
-
-def store_panel(root: Path, asof: date, *args: Any, **kwargs: Any) -> None:
-    """`write_panel` with the source and cutoff every fixture cohort declares.
-
-    A cohort that names no source is one the store refuses to read back, so the two
-    arguments no test varies are filled here rather than at each call.
-    """
-
-    write_panel(
-        root,
-        asof,
-        *args,
-        **kwargs,
-    )
-
-
-def store_forward(root: Path, asof: date, *args: Any, **kwargs: Any) -> None:
-    """`write_forward` with the source and cutoff every fixture cohort declares."""
-
-    write_forward(
-        root,
-        asof,
-        *args,
-        **kwargs,
-    )
 
 
 def publish_panel(

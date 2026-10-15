@@ -68,7 +68,6 @@ def _evaluate_candidate_discovery(
 def _candidate_discovery_fidelity(
     panel: Sequence[PanelRow],
     excess: Mapping[str, float],
-    candidate_discovery: Mapping[str, object],
     *,
     candidate_discovery_rules: CandidateDiscoveryRules,
     jpx_input_status: str,

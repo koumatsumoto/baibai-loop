@@ -39,9 +39,9 @@ def build_daily_delta(
 
     The view exists so that a change does not wait for someone to go looking. It
     reports observations only: which tickers entered or left the candidate list, which
-    machine estimates moved, and which holdings stand at or above their recorded fair
-    value. Whether any of that is worth a research cycle or a Position Review is the
-    reader's call. Assessments and readings belong to the dedicated Market Context view.
+    machine estimates moved, and which holdings had a material observed price move.
+    Whether any of that is worth new-stock or holding research is the reader's call.
+    Assessments and readings belong to the dedicated Market Context view.
 
     Sections degrade independently. A store that cannot answer is named in
     ``unavailable`` rather than reported as an empty result, because "no store" and

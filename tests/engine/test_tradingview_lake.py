@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import shutil
 import sqlite3
+from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -72,7 +73,7 @@ def test_l1_only_publish_restores_snapshot_without_market_push(
         requested_start=DAY,
         requested_end=date(2026, 9, 21),
     )
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute(
             "INSERT INTO jquants_daily_bars(ticker,traded_at,close) VALUES (?,?,?)",
             ("1000", DAY.isoformat(), 100),
@@ -148,7 +149,7 @@ def test_l1_only_publish_restores_snapshot_without_market_push(
     assert current.data_as_of == DAY
 
     # The remote market object remains the prior dehydrated copy: only L1 advanced.
-    with sqlite3.connect(remote) as conn:
+    with closing(sqlite3.connect(remote)) as conn:
         assert (
             conn.execute("SELECT COUNT(*) FROM tradingview_forecast_snapshots").fetchone()[0] == 0
         )
@@ -226,7 +227,7 @@ def test_month_partition_fixed_query_and_hydrate_roundtrip(
 
     asyncio.run(collect(path, DAY, fetch, clock=lambda: NOW))
     next_day = date(2026, 10, 1)
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute("UPDATE jquants_master_snapshots SET snapshot_date=?", (next_day.isoformat(),))
         conn.execute("UPDATE jquants_market_calendar SET day=?", (next_day.isoformat(),))
     asyncio.run(collect(path, next_day, fetch, clock=lambda: datetime(2026, 10, 1, 7, tzinfo=UTC)))

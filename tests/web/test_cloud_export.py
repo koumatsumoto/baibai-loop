@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from contextlib import closing
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -12,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 from tests.helpers.assessment_history import historical_context_payload, seed_history
 from tests.helpers.screening_sqlite import market_store_with_fetch_claim
+from tests.web.test_research_assessment_views import seed_web_proposal
 
 from baibai_engine.market_context.assessment.models import StoredAssessment
 from baibai_engine.market_context.indicators.db import insert_observations, open_connection
@@ -31,9 +33,9 @@ from baibai_web.materialize import main
 from baibai_web.readmodel.builders import build_meta
 from baibai_web.readmodel.models import (
     AssessmentPublicationView,
-    CapitalAllocationAssessmentsView,
-    CapitalAllocationAssessmentView,
     DashboardView,
+    InvestmentProposalsView,
+    InvestmentProposalView,
     MarketContextView,
     MetaView,
     OperationsView,
@@ -41,7 +43,7 @@ from baibai_web.readmodel.models import (
     SecurityDetailView,
     TasksView,
 )
-from baibai_web.sources.db_sources import DbMetaSource
+from baibai_web.sources.db_sources import DbMetaSource, DbResearchSource
 
 JST = ZoneInfo("Asia/Tokyo")
 
@@ -52,59 +54,6 @@ def _meta_source(root: Path) -> DbMetaSource:
         root / "stores/screening/runs.sqlite",
         root / "stores/market_context/indicators.sqlite",
     )
-
-
-def _publish_assessment(root: Path, *, assessment_id: str, research_triage_id: str) -> None:
-    """Seed historical CAA bytes; current services do not execute old Thesis models."""
-    with sqlite3.connect(root / "stores/application/baibai.sqlite") as connection:
-        thesis_id, core = connection.execute(
-            "SELECT thesis_id, core_sha256 FROM thesis LIMIT 1"
-        ).fetchone()
-        review_id = connection.execute(
-            "SELECT review_id FROM thesis_review WHERE thesis_id=?", (thesis_id,)
-        ).fetchone()[0]
-        payload = {
-            "schema_version": 2,
-            "kind": "capital_allocation_assessment",
-            "capital_allocation_assessment_id": assessment_id,
-            "as_of": "2026-07-09",
-            "published_at": "2026-07-09T12:00:00+09:00",
-            "result": "no_allocation",
-            "headline": "現金維持",
-            "research_triage_id": research_triage_id,
-            "market_context_assessment_id": None,
-            "comparison": "当時の比較",
-            "forgone": "見送り",
-            "alternatives": [
-                {
-                    "ticker": "2331",
-                    "thesis_id": thesis_id,
-                    "thesis_core_sha256": core,
-                    "thesis_review_id": review_id,
-                    "disposition": "decline",
-                    "rationale": "当時の判断",
-                }
-            ],
-            "review": {
-                "attempt": 1,
-                "reviewer_identity": "historical",
-                "reviewed_at": "2026-07-09T12:00:00+09:00",
-                "conclusion": "pass",
-                "draft_sha256": "1" * 64,
-                "open_findings": [],
-            },
-        }
-        connection.execute(
-            "INSERT INTO capital_allocation_assessment VALUES (?,?,?,?,?,?)",
-            (
-                assessment_id,
-                payload["as_of"],
-                payload["published_at"],
-                payload["result"],
-                research_triage_id,
-                canonical_json(payload),
-            ),
-        )
 
 
 def _seed_indicator_observations(root: Path) -> None:
@@ -224,7 +173,8 @@ def test_build_meta_reflects_a_newly_written_operation_session(
 ) -> None:
     # A judgment write in a table beyond ledger/research/market-context must move freshness.
     started_at = datetime(2026, 8, 1, 9, 30, tzinfo=JST)
-    with sqlite3.connect(app_method_root / "stores/application/baibai.sqlite") as connection:
+    database = app_method_root / "stores/application/baibai.sqlite"
+    with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute(
             """
             INSERT INTO operation_session(
@@ -244,6 +194,38 @@ def test_build_meta_reflects_a_newly_written_operation_session(
 
     assert view.app_db_updated_at == started_at
     assert view.data_updated_at == started_at
+
+
+@pytest.mark.parametrize(
+    ("older", "newer"),
+    [
+        ("2026-10-14T18:00:00+09:00", "2026-10-14T10:00:00+00:00"),
+        ("2026-10-14T19:00:00.123000+09:00", "2026-10-14T10:00:00.123001+00:00"),
+        ("2026-10-14T10:00:00Z", "2026-10-14T10:00:00.000001+00:00"),
+        ("2026-10-14", "2026-10-14T00:00:00.000001"),
+    ],
+)
+def test_application_freshness_compares_instants_within_the_same_table_without_writes(
+    app_method_root: Path, older: str, newer: str
+) -> None:
+    database = app_method_root / "stores/application/baibai.sqlite"
+    with closing(sqlite3.connect(database)) as connection, connection:
+        connection.executemany(
+            "INSERT INTO stock_assessment("
+            "assessment_id, ticker, as_of, stance, published_at, payload, core_sha256"
+            ") VALUES (?, '1234', '2026-10-14', 'uncertain', ?, '{}', 'synthetic')",
+            [("older-assessment", older), ("newer-assessment", newer)],
+        )
+    before = database.read_bytes()
+
+    view = build_meta(_meta_source(app_method_root))
+
+    expected = datetime.fromisoformat(newer)
+    if expected.tzinfo is None:
+        expected = expected.replace(tzinfo=JST)
+    assert view.app_db_updated_at == expected
+    assert view.data_updated_at == expected
+    assert database.read_bytes() == before
 
 
 def test_build_meta_returns_none_for_missing_stores(tmp_path: Path) -> None:
@@ -281,7 +263,9 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
         "market-context.json",
         "screening_latest.json",
         "operations.json",
-        "capital-allocation-assessments.json",
+        "stock-assessments.json",
+        "investment-proposals.json",
+        f"stock-assessment--{DbResearchSource(app_method_root / 'stores/application/baibai.sqlite').revisions()[0].assessment_id}.json",
         "tasks.json",
         "meta.json",
         "security--0001.json",
@@ -351,42 +335,59 @@ def test_export_writes_market_context_assessment_detail_views(
     assert overview.reports == []
 
 
-def test_export_keeps_historical_assessment_detail_outside_current_screening_index(
+@pytest.mark.parametrize("failure", ["detail", "identity"])
+def test_export_fails_when_an_indexed_market_context_history_detail_is_unavailable(
+    app_method_root: Path, tmp_path: Path, mocker, failure
+) -> None:
+    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    document = StoredAssessment.from_payload(historical_context_payload())
+    seed_history(app_method_root / "stores/application/baibai.sqlite", document.document)
+    if failure == "detail":
+        mocker.patch.object(
+            export_module,
+            "build_market_context_assessment_detail",
+            side_effect=ValueError("synthetic indexed history is corrupt"),
+        )
+    else:
+        mocker.patch(
+            "baibai_web.sources.db_sources.DbMarketContextSource.assessment_history",
+            return_value=[{**document.document, "context_id": "../invalid"}],
+        )
+    output = tmp_path / "export"
+
+    with pytest.raises(ValueError, match=r"indexed.*(corrupt|unexpected format)"):
+        main(["--output-dir", str(output), "--repo-root", str(app_method_root)])
+
+    assert not (output / "views/meta.json").exists()
+
+
+def test_export_keeps_saved_proposal_detail_independent_of_current_screening(
     app_method_root: Path, tmp_path: Path
 ) -> None:
     (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
-    assessment_id = "capital-allocation-assessment-20260709-historical"
-    _publish_assessment(
-        app_method_root,
-        assessment_id=assessment_id,
-        research_triage_id="research-triage-historical",
-    )
+    _, _, _, proposal = seed_web_proposal(app_method_root)
+    proposal_id = proposal.proposal_id
     output_dir = tmp_path / "export"
-
     assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 0
-
     screening = ScreeningView.model_validate_json(
         (output_dir / "views/screening_latest.json").read_text(encoding="utf-8")
     )
-    assert (
-        screening.capital_allocation_assessments[0].capital_allocation_assessment_id
-        == assessment_id
-    )
-    detail_path = output_dir / "views" / f"capital-allocation-assessment--{assessment_id}.json"
-    detail = CapitalAllocationAssessmentView.model_validate_json(
-        detail_path.read_text(encoding="utf-8")
-    )
-    assert detail.capital_allocation_assessment_id == assessment_id
-    index_path = output_dir / "views/capital-allocation-assessments.json"
-    index = CapitalAllocationAssessmentsView.model_validate_json(index_path.read_text())
-    assert [item.capital_allocation_assessment_id for item in index.assessments] == [assessment_id]
+    assert screening.investment_proposals[0].proposal_id == proposal_id
+    detail_path = output_dir / "views" / f"investment-proposal--{proposal_id}.json"
+    detail = InvestmentProposalView.model_validate_json(detail_path.read_text(encoding="utf-8"))
+    assert detail.proposal_id == proposal_id
+    assert detail.research_scope == proposal.research_scope.model_dump(mode="json")
+    index_path = output_dir / "views/investment-proposals.json"
+    index = InvestmentProposalsView.model_validate_json(index_path.read_text(encoding="utf-8"))
+    assert [item.proposal_id for item in index.proposals] == [proposal_id]
+    assert (output_dir / f"views/investment-proposal-preview--{proposal_id}.json").is_file()
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
-        api_detail = client.get(f"/api/capital-allocation-assessments/{assessment_id}")
-        api_index = client.get("/api/capital-allocation-assessments")
-        assert client.get("/api/research-triages/missing").status_code == 404
+        api_detail = client.get(f"/api/investment-proposals/{proposal_id}")
+        api_index = client.get("/api/investment-proposals")
+        assert client.get("/api/capital-allocation-assessments").status_code == 404
     assert api_detail.status_code == 200
     assert json.loads(detail_path.read_text(encoding="utf-8")) == api_detail.json()
-    assert json.loads(index_path.read_text()) == api_index.json()
+    assert json.loads(index_path.read_text(encoding="utf-8")) == api_index.json()
 
 
 def test_export_fails_before_writing_when_reading_rules_are_absent(
@@ -453,7 +454,7 @@ def test_exported_views_match_api_responses(app_method_root: Path, tmp_path: Pat
         ticker="2331",
         quantity=100,
         price_yen=Decimal("1100"),
-        decision_reference="position-review-20260711-2331-position-2331",
+        decision_reference="synthetic-human-sale-note",
     )
     apply_draft(service, draft, human_confirmed=True)
     output_dir = tmp_path / "export"
@@ -546,7 +547,8 @@ def test_export_refuses_an_app_store_on_a_different_schema(
     app_method_root: Path, tmp_path: Path, capsys
 ) -> None:
     (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
-    with sqlite3.connect(app_method_root / "stores/application/baibai.sqlite") as connection:
+    database = app_method_root / "stores/application/baibai.sqlite"
+    with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute(f"PRAGMA user_version = {LATEST_VERSION - 1}")
     output_dir = tmp_path / "export"
 
@@ -580,6 +582,7 @@ WORKER_SOURCE = REPO_ROOT / "web/edge/src/index.ts"
 EXPORTER_SOURCE = REPO_ROOT / "web/backend/src/baibai_web/materialize.py"
 # `view('x.json')` / `view(`x--${id}.json`)` — the Worker's whole `views/` surface.
 _WORKER_VIEW = re.compile(r"view\([`']([^`']+)[`']\)")
+_WORKER_RESEARCH_INDEX = re.compile(r"kind: 'research-index',\s*key: 'views/([^']+)'")
 # `views_dir / "x.json"` and `views_dir / f"x--{...}.json"` in the exporter.
 _EXPORTED_VIEW = re.compile(r'views_dir / f?"([^"]+)"')
 
@@ -597,12 +600,15 @@ def _exported_views() -> set[str]:
 def test_every_worker_view_route_is_produced_by_the_exporter() -> None:
     """A route whose view the export never writes is a permanent 404 in production.
 
-    The two files are the only places the `views/` key space is written down, and
-    neither imports the other, so nothing else notices when one of them moves.
+    Workerが直接参照するviewとresearch indexのkeyがexporterの生成宣言に存在することを確認する。
+    静的なkeyの対応検証であり、全分岐の実行やR2への公開成功を証明するものではない。
     """
 
     source = WORKER_SOURCE.read_text(encoding="utf-8")
-    worker_views = {_view_shape(match) for match in _WORKER_VIEW.findall(source)}
+    worker_views = {
+        _view_shape(match)
+        for match in [*_WORKER_VIEW.findall(source), *_WORKER_RESEARCH_INDEX.findall(source)]
+    }
 
     assert worker_views, "the Worker route table must map at least one view"
     assert worker_views <= _exported_views(), sorted(worker_views - _exported_views())
@@ -621,7 +627,7 @@ def test_export_reuses_research_history_and_ledger_per_export(
     )
     prepare = mocker.spy(export_module, "prepare_security_inputs")
     convert = mocker.spy(stocks, "_candidate_summary")
-    read = mocker.spy(db_sources, "list_thesis_publications")
+    read = mocker.spy(db_sources, "list_stock_assessment_publications")
     replay = mocker.spy(db_sources, "current_portfolio")
     mocker.patch.object(
         export_module,
@@ -642,7 +648,9 @@ def test_export_reuses_research_history_and_ledger_per_export(
     assert convert.call_count == 2 * conversions
     first = tmp_path / "first/views/security--2331.json"
     second = tmp_path / "second/views/security--2331.json"
-    assert json.loads(first.read_text()) == json.loads(second.read_text())
+    assert json.loads(first.read_text(encoding="utf-8")) == json.loads(
+        second.read_text(encoding="utf-8")
+    )
 
 
 def test_indicator_only_export_keeps_retained_history_bytes_and_screening_clock(
@@ -655,7 +663,9 @@ def test_indicator_only_export_keeps_retained_history_bytes_and_screening_clock(
         p.relative_to(output): p.read_bytes() for p in (output / "history").rglob("*.json")
     }
     assert history_before
-    screening_before = json.loads((output / "views/screening_latest.json").read_text())
+    screening_before = json.loads(
+        (output / "views/screening_latest.json").read_text(encoding="utf-8")
+    )
     _seed_indicator_observations(app_method_root)
     assert (
         main(["--output-dir", str(output), "--repo-root", str(app_method_root), "--skip-history"])
@@ -664,7 +674,9 @@ def test_indicator_only_export_keeps_retained_history_bytes_and_screening_clock(
     assert {
         p.relative_to(output): p.read_bytes() for p in (output / "history").rglob("*.json")
     } == history_before
-    screening_after = json.loads((output / "views/screening_latest.json").read_text())
+    screening_after = json.loads(
+        (output / "views/screening_latest.json").read_text(encoding="utf-8")
+    )
     assert screening_after["run"] == screening_before["run"]
     fresh_output = tmp_path / "indicator-only"
     assert (

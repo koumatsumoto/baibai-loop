@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import sqlite3
+from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -27,14 +28,12 @@ NOW = datetime(2026, 9, 18, 7, tzinfo=UTC)
 
 
 def store(path: Path, count: int = 51) -> Path:
-    conn = open_connection(path)
-    with conn:
+    with closing(open_connection(path)) as conn, conn:
         conn.execute("INSERT INTO jquants_market_calendar VALUES (?,1)", (DAY.isoformat(),))
         conn.executemany(
             "INSERT INTO jquants_master_snapshots VALUES (?,?,?,'プライム','機械',1)",
             [(DAY.isoformat(), str(1000 + i), "IPO") for i in range(count)],
         )
-    conn.close()
     return path
 
 
@@ -52,7 +51,7 @@ def payload(symbols: list[str], *, missing: list[str] | None = None) -> dict:
 
 
 def stored(path: Path) -> list:
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         return conn.execute(
             "SELECT * FROM tradingview_forecast_snapshots ORDER BY ticker"
         ).fetchall()
@@ -106,7 +105,7 @@ def test_full_universe_batches_and_same_day_immutability(tmp_path: Path) -> None
     assert state["requests_attempted"] == 0
     assert state["unresolved"] == 1
     assert state["first_fetched_at_utc"] == NOW.isoformat()
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         assert conn.execute(
             "SELECT fetch_status, eps_forecast_next_fy, fetched_at_utc, estimate_currency "
             "FROM tradingview_forecast_snapshots WHERE ticker='1000'"
@@ -124,12 +123,12 @@ def test_preflight_is_read_only_and_resumes_partial_rows(tmp_path: Path) -> None
     assert not missing.exists()
     path = store(tmp_path / "market.sqlite", 2)
     assert preflight_snapshot(path, DAY)["needs_master"] is False
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute(
             "DELETE FROM jquants_master_snapshots WHERE snapshot_date=?", (DAY.isoformat(),)
         )
     assert preflight_snapshot(path, DAY)["needs_master"] is True
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         conn.executemany(
             "INSERT INTO jquants_master_snapshots VALUES (?,?,?,'プライム','機械',1)",
             [(DAY.isoformat(), str(1000 + i), "IPO") for i in range(2)],
@@ -139,7 +138,7 @@ def test_preflight_is_read_only_and_resumes_partial_rows(tmp_path: Path) -> None
         return payload(symbols)
 
     asyncio.run(collect(path, DAY, healthy, interval=0, clock=lambda: NOW))
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute("DELETE FROM tradingview_forecast_snapshots WHERE ticker='1001'")
     assert preflight_snapshot(path, DAY)["remaining"] == 1
 
@@ -281,7 +280,7 @@ def test_unknown_stored_ticker_blocks_preflight_and_provider(tmp_path: Path) -> 
         return payload(symbols)
 
     asyncio.run(collect(path, DAY, healthy, clock=lambda: NOW))
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute("UPDATE tradingview_forecast_snapshots SET ticker='9999' WHERE ticker='1001'")
     with pytest.raises(SourceDataError, match="outside"):
         preflight_snapshot(path, DAY)
@@ -427,7 +426,7 @@ def test_universe_excludes_secondary_instruments_without_bar_history(tmp_path: P
 
 def test_exact_date_master_and_calendar_are_required(tmp_path: Path) -> None:
     path = store(tmp_path / "market.sqlite", 1)
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute("DELETE FROM jquants_master_snapshots")
 
     async def forbidden(symbols):
@@ -494,7 +493,7 @@ def test_progress_and_durations_with_batch_commits(tmp_path, failure):
 
     path = store(tmp_path / "market.sqlite")
     if failure == "store":
-        with sqlite3.connect(path) as conn:
+        with closing(sqlite3.connect(path)) as conn, conn:
             conn.execute(
                 "CREATE TRIGGER fail_insert BEFORE INSERT ON tradingview_forecast_snapshots "
                 "WHEN NEW.ticker='1050' BEGIN SELECT RAISE(ABORT, 'private-token'); END"

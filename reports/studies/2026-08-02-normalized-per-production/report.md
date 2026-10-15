@@ -2,7 +2,7 @@
 title: "3 FY正規化PERのproduction判断"
 summary: "raw annotationは採用候補、sector FV anchorは不採用とする長期authority評価。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-02
 ---
 

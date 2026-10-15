@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
 
 import type { StockAnalysisRowView } from '../src/api/types'
+import { ScreeningMetrics } from '../src/pages/SecurityDetailPage'
 import { CandidateSection } from '../src/pages/stocks/CandidateSection'
 import { stockAnalysisRow, stockRun, candidateMethod } from './helpers/stock-analysis'
 
@@ -103,4 +104,13 @@ describe('earnings calendar annotation', () => {
       expect(html).not.toContain('>announced<')
     },
   )
+})
+
+
+it("信用残は日次移行後も基準日として表示する", () => {
+  const row = stockAnalysisRow({ margin_week_end: "2026-09-25" })
+  const markup = renderToStaticMarkup(createElement(ScreeningMetrics, { row }))
+  expect(markup).toContain("信用残の基準日")
+  expect(markup).toContain("2026-09-25")
+  expect(markup).not.toContain("信用残の観測週")
 })

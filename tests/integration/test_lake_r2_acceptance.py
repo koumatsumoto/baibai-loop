@@ -7,6 +7,7 @@ import os
 import sqlite3
 import uuid
 from collections.abc import Iterator
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -59,16 +60,14 @@ def _emptied_market(source: Path, destination: Path) -> Path:
     """A copy of the market store shaped like the object R2 holds: no lake-owned row."""
 
     destination.write_bytes(source.read_bytes())
-    connection = sqlite3.connect(destination)
-    for dataset in LAKE_DATASETS.values():
-        connection.execute(f"DELETE FROM {dataset.sqlite_table}")  # nosec B608
-    connection.commit()
-    connection.close()
+    with closing(sqlite3.connect(destination)) as connection, connection:
+        for dataset in LAKE_DATASETS.values():
+            connection.execute(f"DELETE FROM {dataset.sqlite_table}")  # nosec B608
     return destination
 
 
 def _lake_table_contents(path: Path) -> dict[str, list[tuple[object, ...]]]:
-    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    connection = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         return {
             dataset.sqlite_table: [
@@ -131,8 +130,8 @@ def _exclusive_bucket_lifecycle() -> Iterator[None]:
 def _tiny_market(path: Path) -> Path:
     """The smallest store that still satisfies the narrowed release profile.
 
-    Every extra row is an extra object this acceptance run uploads to and deletes
-    from real R2, so the seed stays at one row per dataset.
+    Extra rows can enlarge partition objects uploaded to real R2. Keep the seed
+    small; rows do not map one-to-one to remote objects.
     """
 
     return market_store(
@@ -173,7 +172,7 @@ def test_actual_r2_conditional_writes_refuse_a_stale_generation(tmp_path: Path) 
     `--if-none-match` when it read nothing, and rollback no longer exists to undo a
     pointer that the wrong writer won. Two things can only be observed against a real
     bucket: that R2 enforces the precondition at all rather than accepting the write,
-    and that the CLI's refusal is recognised as a conflict rather than a generic
+    and that the SDK response is recognised as a conflict rather than a generic
     failure. Neither is visible to a fake store, which raises the conflict by
     construction. A throwaway key carries the same object semantics as a pointer key
     without making one run's serving state depend on another's.
@@ -257,7 +256,7 @@ def test_actual_r2_l1_publish_and_read_back_into_a_market_store(
             dataset_names=tuple(sorted(build.datasets)),
         )
     assert mirrored.release_id == fixed.release_id
-    with sqlite3.connect(mirrored_store) as connection:
+    with closing(sqlite3.connect(mirrored_store)) as connection:
         assert connection.execute("PRAGMA quick_check").fetchone() == ("ok",)
 
     # The reader path production uses: objects resolved out of the bucket through

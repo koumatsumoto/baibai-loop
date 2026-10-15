@@ -33,7 +33,7 @@ DB constraint、`baibai_engine.position`のmodel、application serviceのwrite-t
 | `cost` | 確認済み費用をavailableから引く |
 | `tax_confirmed` | 確認済み税額をavailableから引く |
 
-event ID、reservation ID、order identity、execution IDは再利用しない。新しいbuyのbroker factはcanonical buy assessment IDへ束縛する。buy executionはactive reservation、同じticker、remaining以下、guard以下、expiry以前を必須とする。releaseは明示eventであり自動生成しない。
+event ID、reservation ID、order identity、execution IDは再利用しない。新しいbuyのbroker factは具体buy条件を公開したInvestment Proposal ID、または明示した直接取引のmanual-fact参照へ束縛する。buy executionはactive reservation、同じticker、remaining以下、guard以下、expiry以前を必須とする。releaseは明示eventであり自動生成しない。
 
 event rowはappend-onlyで、late reportも新規rowとして保存する。replay順は`(occurred_at, same_instant_order)`である。同時刻の既存eventの順序とIDを変更しない。
 約定日だけが報告された場合は買付・売付とも`occurred_on`に日付を保存する。`occurred_at`はreplay順・日付検索のための内部キーであり、実際の約定時刻を表さない。同日に記録済みの注文へ束縛する場合は、注文の記録時点をreplayキーにして注文より前に約定を再生しない。注文に束縛されない売付は日本時間00:00をキーにする。
@@ -50,7 +50,7 @@ cash_before_reservations =
     + sell_proceeds - buy_payments
     + confirmed_income - confirmed_costs - confirmed_tax
 
-reserved_cash = sum(active remaining_quantity * price_guard_yen)
+reserved_cash = sum(active buy remaining_quantity * price_guard_yen)
 available_cash = cash_before_reservations - reserved_cash
 deployed_cost = sum(open FIFO lot quantity * execution price)
 realized_gross_pnl = sum(sell proceeds - consumed FIFO cost)
@@ -90,7 +90,7 @@ applyは1 transactionでsource head、event replay / payload、price/meta expect
 
 明示報告がない場合の扱いと確認する範囲は[Ledger Recordの売買報告の扱い](../../.agents/skills/ledger-record/SKILL.md#売買報告の扱い)に従う。
 
-`position/drafts`がdraft組立と予約束縛を所有し、active予約・既知terminalに束縛されない報告ではCLIから渡された過去CAA銘柄の読取を呼ぶ。allocate以外の判断や銘柄不一致はdraft作成時に拒否する。active予約と既知terminal（cancel / expire）の再試行は予約の束縛を使い、過去CAAが読めなくても完全一致の報告を再試行できる。
+`position/drafts.py`がdraft組立と予約束縛を所有する。active予約・既知terminalに束縛されないbuy報告は`position_decision_reference`の保存bindingからtickerを解決する。現在の評価・提案適格性を再審査せず、buy以外の参照や銘柄不一致を拒否する。提案なしの買付は`--direct-fact`で明示し、draftに固定したmanual-fact参照をledgerと同じtransactionで保存する。旧判断のbindingも取引識別として保全し、旧payloadを新規評価として読む互換経路は持たない。active予約と既知terminal（cancel / expire）の再試行は既存の束縛を使う。実売却の判断参照は任意であり、提案やPosition Review artifactを作成することを事実記録の前提にしない。
 
 `broker-fact-draft`は人間の`open / filled / cancelled / expired`報告だけを入力にする。active reservationをIDなしで推定しない。partial fillはremainingがある間だけ後続broker factを受理する。full fill / cancel / expire後の完全一致broker fact reportはno-change、矛盾broker fact reportはhard errorとする。`expired`は人間が未約定を確認し、`occurred_at >= expires_at`の場合だけreleaseを作る。同時刻に複数reservationがterminalになる場合は`--reservation-id`の反復指定を1 transactionで検証・適用する。対象の一部が不正なら全件を拒否する。active reservationの後続broker factは同じ`decision_reference`、reservation ID、order IDへ束縛する。
 

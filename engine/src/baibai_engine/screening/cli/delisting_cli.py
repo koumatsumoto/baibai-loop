@@ -13,7 +13,7 @@ from baibai_engine.market.delistings import (
     download_jpx_delistings,
     store_jpx_delistings,
 )
-from baibai_engine.market.providers.edinet import EDINETProviderError
+from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.tender_offer import (
     TenderOfferError,
     build_tender_offer_exit_values,

@@ -1,5 +1,7 @@
 # 3y/5y production evidence の成立条件 — 現状計測（#665）
 
+これは 2026-07-30 の旧 store・旧 plan・旧 authority 契約に対する診断記録である。現在の availability、必要な課金や人間の対応事項を示すものではない。取得・修復の経緯と元の測定値は保持し、後続の解消状況とは分ける。
+
 価値tier: T1 — E[r] 実現率・selection 手法の実証改訂を止めている関門を計数で特定し、残る外部前提を人間が判断できる形にする。
 
 改善ループ §0「現状計測の確認」にあたる観測記録。**この計測で production 変更は行わず**、rules・E[r]・selection・authority 契約の数値は変更していない。
@@ -11,10 +13,10 @@ production_change_allowed: false
 eligible_3y_cohorts: 0
 eligible_5y_cohorts: 0
 remaining_prerequisites: 3
-blocking_reason_classes: 5
+blocking_reason_classes: 6
 ```
 
-3y/5y evidence は 5 つの独立した理由で成立しない。**待てば成立するものは 1 つも無い。** うち 2 つ（断面 master の不在と survivorship）は本 PR の `backfill-master` を実行して解消済み（§5.1）。1 つは本 PR で直した entry 解決の欠陥で、既存 cache の再構築を待つ。残る 2 つは外部前提で、bars の入力窓は J-Quants plan、廃止 exit value は外部 source を要する。
+§4 の表には 6 種類の blocker がある（従来の要約の 5 種類という記述を訂正）。理由間には依存があり、独立した問題数ではない。**当時の全 blocker は待つだけでは解消しない。** 入力窓を満たす cohort の満期自体は §3 の日付まで待てば到来するが、source・coverage の問題は別に残る。 そのうち 2 つ（断面 master の不在と survivorship）は本 PR の `backfill-master` を実行して解消済み（§5.1）。1 つは本 PR で直した entry 解決の欠陥で、既存 cache の再構築を待つ。bars の入力窓と廃止 exit value の外部前提に加え、priced_master_without_universe の入力欠落も §5.1 のとおり残る。
 
 ## 1. 再現手順
 
@@ -90,7 +92,7 @@ bars 非 clamp となる最小 asof = 2021-08-02 + 1200 日 = 2024-11-14
 
 `compute_forward_returns` は bar を `min(asofs)` 以降からしか読み込まないため、entry の 15 日許容が機能していなかった。asof 当日に約定しなかった銘柄（薄商いでは通常のこと）は、前営業日に値が付いていても「entry なし」と扱われる。panel は 1200 日窓から asof 以下の最終 bar を取るので価格を持っており、**panel は価格を持つのに forward は entry を持たない**という不整合が残っていた。
 
-実例: ticker 1764 は 2021-08-02 から連続して bar を持つが 2022-09-30 の close が NULL（当日約定なし）で、panel は前営業日 2022-09-29 の 2,152 円を採っている。forward は 2022-10-03 が最初の bar になり entry なしと判定していた。
+実例: ticker 1764 は 2021-08-02 から連続して bar を持つが 2022-09-30 の close が NULL（当日の終値が未観測であり、約定なしと source 欠落は保存値だけでは断定しない）で、panel は前営業日 2022-09-29 の 2,152 円を採っている。forward は 2022-10-03 が最初の bar になり entry なしと判定していた。
 
 ```bash
 sqlite3 'file:stores/market/market.sqlite?mode=ro' \
@@ -108,7 +110,7 @@ sqlite3 'file:stores/market/market.sqlite?mode=ro' \
 | `entry_not_listed` | 308 | 308 |
 | `unpriced_exit` | 1 | 1 |
 
-resolved が 64 件（1.9%）増える。落ちていたのは薄商いの銘柄であり、割安 screen が候補を見つける側の母集団なので、この取りこぼしは計測に系統的に効く。既存の 46 cohort は forward cache を再構築するまで旧観測を持つため `entry_price_gap` が blocker として残る（再構築は §6 の制約により #670 の後になる）。
+resolved が 64 件（1.9%）増える。当日 close が無い銘柄を取りこぼしており、除外が特定の銘柄特性に偏る可能性がある。薄商いが原因か、割安群へどの程度偏るかは、この件数だけでは断定できない。既存の 46 cohort は forward cache を再構築するまで旧観測を持つため `entry_price_gap` が blocker として残る（再構築は §6 の制約により #670 の後になる）。
 
 ## 5. survivorship の実測
 
@@ -182,5 +184,5 @@ calibration build: 2025-08-29 failed: fin summaries are not covered for 2023-08-
 
 ## 9. 監視事項
 
-- 断面 master の保存は 2026-07-15 以降の営業日しかないため、grid 上の月末（2026-05-29 / 2026-06-30）は `backfill-master` を実行しない限り exact-date にならない。日次バッチが月末を跨いだ後の cohort（2026-07-31 以降）では自然に exact-date になるので、次回計測で `master_snapshot` blocker が消えることを確認する。
-- `unpriced_exit` の件数は cohort の窓が伸びるほど増える（2023-06-30 cohort で 18 件）。廃止 exit value source の必要性はこの数列で追う。
+- §5.1 の取得前には過去月末の exact-date master が不足していたが、同節で grid 46 cohort を取得済みである。残る確認対象は再構築後の coverage と、今後の月末 snapshot の保存であり、取得済みの 2026-05-29 / 2026-06-30 を未取得と扱わない。
+- `unpriced_exit` は同じ cohort でも観測・対価取得により増減し得る。異なる cohort の 1〜18 件という並びだけから、窓の長さに対する単調増加を断定しない。固定 cohort/horizon ごとに件数と理由を追う。

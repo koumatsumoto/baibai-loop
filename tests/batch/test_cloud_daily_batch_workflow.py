@@ -88,7 +88,7 @@ def test_smoke_check_runs_before_setup_python_on_system_python(
     ids = [step.get("id") for step in steps]
     assert ids.index("smoke") < ids.index("setup")
     smoke_run = steps_by_id["smoke"]["run"]
-    # The import is what guarantees the stdlib-only contract.
+    # Pin the smoke import; this textual check alone does not prove stdlib-only use.
     assert "import baibai_batch.observability.discord" in smoke_run
 
 
@@ -160,14 +160,12 @@ def test_the_durable_record_waits_for_the_store_and_the_views(
     ("machine_exit", "views_exit"),
     [(1, 0), (0, 1), (1, 1)],
 )
-def test_a_failed_upload_publishes_no_durable_record(
+def test_a_failed_upload_is_incompatible_with_the_declared_tail_gate(
     tmp_path: Path, steps_by_id: dict[str, dict], machine_exit: int, views_exit: int
 ) -> None:
-    """The gating condition has to actually keep the tail stage from running.
+    """Exercise the upload shell and check its outcome against the declared gate.
 
-    A string comparison against the `if:` expression says nothing about what
-    reaches R2, and this is the property that keeps a run the store never received
-    from leaving a permanent record behind.
+    This is not a GitHub expression-engine or remote publication integration test.
     """
     code, _outputs, _recorded = _run_upload_step(
         tmp_path, steps_by_id, machine_exit=machine_exit, views_exit=views_exit
@@ -408,14 +406,8 @@ def test_notify_step_does_not_interpolate_dispatch_input_into_the_run_block(
     assert "${{ inputs." not in notify_run
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 def test_daily_keeps_1643_schedule_without_tradingview_step_or_notice() -> None:
-    import yaml
-
-    workflow = yaml.load(WORKFLOW_PATH.read_text(), Loader=yaml.BaseLoader)
+    workflow = yaml.load(WORKFLOW_PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
     assert workflow["on"]["schedule"] == [{"cron": "43 7 * * 1-5"}]
     steps = workflow["jobs"]["daily"]["steps"]
     assert "tradingview" not in {step.get("id") for step in steps}
@@ -525,3 +517,7 @@ def test_daily_notice_only_explicit_false_skips_actual_lake_command(
     assert recorded.exists() is expected_publish
     if expected_publish:
         assert recorded.read_text().splitlines() == ["publish-lake"]
+
+
+if __name__ == "__main__":
+    unittest.main()

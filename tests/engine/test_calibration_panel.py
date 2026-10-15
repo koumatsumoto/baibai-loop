@@ -6,7 +6,7 @@ import sqlite3
 import tempfile
 import unittest
 from collections.abc import Callable
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, closing
 from dataclasses import asdict, replace
 from datetime import date, timedelta
 from hashlib import sha256
@@ -15,7 +15,6 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 
-from tests.helpers.calibration_store import store_forward, store_panel
 from tests.helpers.screening_sqlite import (
     CALIBRATION_FIXTURE_ASOF,
     add_source_coverage,
@@ -46,6 +45,8 @@ from baibai_engine.screening.calibration.store import (
     panel_row_from_mapping,
     read_forward,
     read_panel,
+    write_forward,
+    write_panel,
 )
 from baibai_engine.screening.discovery.candidates import candidate_discovery_method_hash
 from baibai_engine.screening.metrics.snapshot import BARS_INPUT_WINDOW_DAYS
@@ -259,7 +260,7 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertAlmostEqual(by_ticker["9001"].asset_turnover or 0.0, 5e9 / 3e10)
 
             store_dir = Path(tmp) / "calibration"
-            store_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
             restored = {row.ticker: row for row in read_panel(store_dir, ASOF)}
             self.assertEqual(
                 restored["9001"].operating_profit_to_assets,
@@ -274,7 +275,7 @@ class CalibrationPanelTest(unittest.TestCase):
                 operating_margin=-0.10,
                 asset_turnover=-0.50,
             )
-            store_panel(store_dir, ASOF, (negative_sales_row,), result.diagnostics)
+            write_panel(store_dir, ASOF, (negative_sales_row,), result.diagnostics)
             self.assertEqual(read_panel(store_dir, ASOF), [negative_sales_row])
 
     def test_valuation_calculation_revision_is_part_of_method_identity(self) -> None:
@@ -712,7 +713,7 @@ class CalibrationPanelTest(unittest.TestCase):
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=rules)
 
             store_dir = Path(tmp) / "calibration"
-            store_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
             loaded = read_panel(store_dir, ASOF)
             self.assertEqual(list(result.rows), loaded)
             self.assertEqual(result.rows[0].realized_volatility_60d, 0.0)
@@ -734,7 +735,7 @@ class CalibrationPanelTest(unittest.TestCase):
                     total_return_status="resolved",
                 )
             ]
-            store_forward(store_dir, ASOF, forward_rows)
+            write_forward(store_dir, ASOF, forward_rows)
             self.assertEqual(read_forward(store_dir, ASOF), forward_rows)
 
     def test_store_accepts_ratio_built_from_exact_market_cap_behind_rounded_oku(self) -> None:
@@ -751,7 +752,7 @@ class CalibrationPanelTest(unittest.TestCase):
             )
             store_dir = Path(tmp) / "calibration"
 
-            store_panel(store_dir, ASOF, (rounded_row,), result.diagnostics)
+            write_panel(store_dir, ASOF, (rounded_row,), result.diagnostics)
 
             self.assertEqual(read_panel(store_dir, ASOF), [rounded_row])
 
@@ -770,7 +771,7 @@ class CalibrationPanelTest(unittest.TestCase):
             )
             store_dir = Path(tmp) / "calibration"
 
-            store_panel(store_dir, ASOF, (excluded_row,), result.diagnostics)
+            write_panel(store_dir, ASOF, (excluded_row,), result.diagnostics)
 
             self.assertEqual(read_panel(store_dir, ASOF), [excluded_row])
 
@@ -865,8 +866,8 @@ class CalibrationPanelTest(unittest.TestCase):
             build_calibration_fixture_sqlite(sqlite_path)
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             store_dir = Path(tmp) / "calibration"
-            store_panel(store_dir, ASOF, result.rows, result.diagnostics)
-            with sqlite3.connect(store_dir / "current.sqlite") as connection:
+            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            with closing(sqlite3.connect(store_dir / "current.sqlite")) as connection, connection:
                 connection.execute("UPDATE snapshot_meta SET contract_version = ?", ("tampered",))
 
             with self.assertRaisesRegex(CalibrationCacheError, "contract changed"):
@@ -878,8 +879,8 @@ class CalibrationPanelTest(unittest.TestCase):
             build_calibration_fixture_sqlite(sqlite_path)
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             store_dir = Path(tmp) / "calibration"
-            store_panel(store_dir, ASOF, result.rows, result.diagnostics)
-            with sqlite3.connect(store_dir / "current.sqlite") as connection:
+            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            with closing(sqlite3.connect(store_dir / "current.sqlite")) as connection, connection:
                 connection.execute("UPDATE snapshot_meta SET contract_version = ?", ("obsolete",))
 
             with patch(
@@ -913,7 +914,7 @@ class CalibrationPanelTest(unittest.TestCase):
             build_calibration_fixture_sqlite(sqlite_path)
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             store_dir = Path(tmp) / "calibration"
-            store_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
             with self.assertRaisesRegex(CalibrationCacheError, "snapshot is partial"):
                 read_forward(store_dir, ASOF)
 
@@ -1077,13 +1078,13 @@ class CalibrationPanelTest(unittest.TestCase):
                 policy=PRE2019_SELF_RANGE_POLICY,
             )
             store_dir = Path(tmp) / "calibration-pre2019"
-            store_panel(
+            write_panel(
                 store_dir,
                 ASOF,
                 result.rows,
                 replace(result.diagnostics, production_authority=True),
             )
-            store_forward(store_dir, ASOF, [])
+            write_forward(store_dir, ASOF, [])
             errors = io.StringIO()
 
             with contextlib.redirect_stderr(errors):
@@ -1109,8 +1110,8 @@ class CalibrationPanelTest(unittest.TestCase):
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             degraded_rows = (replace(result.rows[0], self_range_degraded=True), *result.rows[1:])
             store_dir = Path(tmp) / "calibration"
-            store_panel(store_dir, ASOF, degraded_rows, result.diagnostics)
-            store_forward(store_dir, ASOF, [])
+            write_panel(store_dir, ASOF, degraded_rows, result.diagnostics)
+            write_forward(store_dir, ASOF, [])
             errors = io.StringIO()
 
             with contextlib.redirect_stderr(errors):
@@ -1132,9 +1133,8 @@ class CalibrationPanelTest(unittest.TestCase):
     def test_missing_master_snapshot_becomes_unresolved_panel(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            conn.commit()
-            conn.close()
+            with closing(open_connection(sqlite_path)):
+                pass
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             self.assertEqual(result.rows, ())
             self.assertEqual(result.diagnostics.master_snapshot_status, "unavailable")
@@ -1187,7 +1187,7 @@ class CalibrationPanelTest(unittest.TestCase):
 
 
 class DerivedCacheIdentityTests(unittest.TestCase):
-    """互換性を決める入力が動けば版も動く。手で進める判断を残さないための検査。"""
+    """列や宣言済み計算 revision の変更がキャッシュ版へ反映されることを確認する。"""
 
     def test_the_identity_follows_every_input_that_decides_compatibility(self) -> None:
         from baibai_engine.screening.calibration import evaluation
@@ -1249,14 +1249,14 @@ class DerivedCacheIdentityTests(unittest.TestCase):
         )
 
 
-def test_complete_panel_values_match_pre_refactor_commit(tmp_path: Path) -> None:
+def test_complete_panel_values_match_committed_baseline(tmp_path: Path) -> None:
     from baibai_engine.storage.application.json import canonical_json
 
     sqlite_path = tmp_path / "market.sqlite"
     build_calibration_fixture_sqlite(sqlite_path)
     result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
     golden = ROOT / "tests/fixtures/screening/calibration-panel-golden.json"
-    assert canonical_json(asdict(result)) + "\n" == golden.read_text()
+    assert canonical_json(asdict(result)) + "\n" == golden.read_text(encoding="utf-8")
 
 
 if __name__ == "__main__":

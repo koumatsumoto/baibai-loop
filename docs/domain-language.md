@@ -43,23 +43,23 @@ Valuationの機械ER/FV anchorは倍率・自己価格レンジとcarryの推計
 | Valuation Approach | method component | Valuation内で価値機会を発見する探索観点 |
 | External Assessment | source-bound context | 外部媒体の提示値と出所別の機械比較。企業の独自FV・採否判断と別結果 |
 | Machine Valuation | rebuildable estimate | 保存済みStock Analysisの機械ER・業種中央値/自己レンジanchor |
-| Projection | conditional valuation | 調査で置いた期間内累積分配と分配後残余価値。Thesisが内包する |
+| Projection | conditional valuation | 調査で置いた期間内累積分配と分配後残余価値。Stock Assessmentが内包する |
 | Screening Run | artifact | ある`as_of`に対するscreening一回分 |
 | Stock Analysis | artifact entry | 一銘柄のobserved / derived / estimateと、同runで確定する候補文脈 |
 | CandidateReason | value | 候補になったValuation Approach / MethodとそのApproach内のrank |
 | StockCandidateContext | value | common eligibility、候補理由、候補母集団内のnormalized gap |
 | 候補一覧 | read projection | 同runの`candidate.reasons`が空でないStock Analysisのticker昇順投影 |
-| Research Set | pipeline state | 明示開始時に固定する新規調査集合。[三入口のResearch選定](./reference/analysis-operations.md#明示開始と固定対象)で選び、保存capacityに従い0件も扱う |
-| Thesis | artifact / judgment | 一銘柄の投資仮説、valuation、risk、evidence |
-| Thesis Review | artifact / judgment | Thesisへの独立second pass |
-| Capital Allocation Assessment | artifact / judgment | reviewed Thesis群をportfolio全体に照らした配分判断 |
-| Planning Limit | ephemeral input | broker操作前のprice / quantity / expiry guard |
+| Research Set | pipeline state | 明示開始時に固定する新規または保有の有限対象。[三入口のResearch選定](./reference/analysis-operations.md#明示開始と固定対象)で選び、保存capacityに従い0件も扱う |
+| Stock Assessment | artifact / judgment | 一銘柄の投資仮説、valuation、risk、evidence |
+| Assessment Review | artifact / judgment | Stock Assessmentへの独立second pass |
+| Investment Proposal | artifact / judgment | 評価を価格・cash・保有に適用した行動と保存条件、全対象の比較 |
+| Limit Terms | proposal value | 提案に保存するprice / quantity / expiry / session / conditions |
 | broker fact | human-confirmed fact | 人間がbroker画面等から確認して報告したorder / fill fact |
 | Portfolio Ledger | artifact | human-confirmed event ledger |
-| Reservation | ledger state / event | 買付余力を拘束する状態またはevent |
+| Reservation | ledger state / event | 買付資金または売付可能な保有数量を拘束する注文状態・event |
 | Execution | business fact | 約定事実 |
 | Holding | derived state | Ledger replayから得る保有状態 |
-| Position Review | artifact / judgment | Holdingの`hold / exit / null`再評価 |
+| Position Review | activity | Researchの保有scopeでhold / sell / deferの提案を作る見直し |
 | Portfolio Outcome | artifact | portfolio-wide TWR / benchmark comparison publication |
 | Market Snapshot | rebuildable state | benchmarkの週次方向、観測日を揃えたbreadthと業種中央値 |
 | Security Market Context | rebuildable state | 指定銘柄の価格状態と同一端点での対benchmark/同業相対値 |
@@ -90,14 +90,14 @@ Research Setはpipeline stateである。storeごとのauthorityは
              -> candidate.reasonsがある同じStock Analysisの候補一覧
 Stock Analysis / 候補一覧 -> Research selection (新規探索)
 指定銘柄 -> Research selection (候補外も可)
-保存済みStock Analysis + ユーザー明示指定 -> 新規admission
-新規admission / Holding -> 明示開始・新規/保有合算最大三対象の固定選択
-           -> 三領域の保存済み入力による有限Research -> Thesis + Thesis Review
-reviewed Thesis群 -> Capital Allocation Assessment -> Planning Limit
-                  -> 一銘柄ずつの新規買付/見送り提案
-                  -> 人間の採用・broker操作・報告 -> Portfolio Ledger -> Holding
-Holding -> 同じ有限選択の保有調査 -> Position Reviewのhold/exit/null提案
-       -> 人間確認と入力再検証 -> 確認済みPosition Review
+Holding -> Research selection (保有見直し)
+各入口 -> 明示開始・単一scopeと保存capacityによる固定選択
+           -> 三領域の保存済み入力による有限Research -> Stock Assessment + Assessment Review
+reviewed Stock Assessment群 + 現在価格/cash/保有 -> Investment Proposal
+                 -> buy / hold / sell / no_action / defer + 条件付きterms
+                 -> 人間の採否・broker操作・報告 -> Portfolio Ledger -> Holding
+Holding -> 同じ有限Researchの保有scope -> Stock Assessment + Assessment Review
+        -> 仮説維持と当日算術を分けたInvestment Proposal
 Portfolio Ledger -> Portfolio Outcome
 実現結果 -> Calibration -> 次のmethod改善
 
@@ -109,7 +109,7 @@ Portfolio Ledger -> Portfolio Outcome
 Market Context Assessment -> Research・資本判断の補助入力
 ```
 
-新規探索・指定銘柄・保有見直しの三入口を同じResearchで選定し、scopeごとに有限対象を固定する。保有は現在ledgerと照合し、候補所属を要求しない。新規提案はCAA/Planning、保有提案はPosition Reviewの成果に含む。共通の新しいTrade Proposal永続artifactを追加したという意味ではない。
+新規探索・指定銘柄・保有見直しの三入口を同じResearchで選定し、scopeごとに有限対象を固定する。保有は現在ledgerと照合し、候補所属を要求しない。新規と保有の行動は共通のInvestment Proposalへ保存し、評価と行動、保存条件と現在previewを分ける。Proposal公開・Operation完了を人間の採用や確認済み注文・約定へ変換しない。
 
 これは成果物の関係であり、毎回すべてを実行する手順ではない。0件・部分完了・未完了は調査進行の結果として残し、AI完了を人間の採用や取引事実と混同しない。操作ごとの開始条件と人間確認は[各skill](../.agents/skills/)を参照する。
 
@@ -120,7 +120,7 @@ Market Context Assessmentの実モデルは`market_context/assessment/models.py`
 ## Naming grammar
 
 - `Candidate`はpipeline role / stateを指す場合だけ使う。Stock Analysis、候補一覧 Entry、
-  replacement Thesisを指すsurfaceでは具体名を使う。
+  Stock Assessmentのrevisionを指すsurfaceでは具体名を使う。
 - `candidate_discovery_method`と`CandidateDiscoveryRules`はcanonical namingである。
   identity objectは`CandidateDiscoveryMethodIdentity`、persisted fieldは
   `candidate_discovery_method_id`、identity digestは`method_hash`とする。

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from contextlib import suppress
+from contextlib import closing, suppress
 from datetime import UTC, date, datetime
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Literal, Protocol
@@ -242,42 +242,43 @@ def fetch_bytes(
         response = session.get(
             url, params=params, headers=headers, timeout=HTTP_TIMEOUT_SECONDS, stream=True
         )
-        _raise_for_response(response, url)
-        content_length = response.headers.get("Content-Length")
-        if content_length is not None:
-            try:
-                parsed_length = int(content_length)
-            except ValueError:
-                parsed_length = None
-            if parsed_length is not None and parsed_length > max_bytes:
-                raise IndicatorsProviderError(
-                    f"indicator response too large: {parsed_length} bytes"
-                )
-        chunks: list[bytes] = []
-        total = 0
-        for chunk in response.iter_content(chunk_size=64 * 1024):
-            if not chunk:
-                continue
-            total += len(chunk)
-            if total > max_bytes:
-                raise IndicatorsProviderError(f"indicator response too large: {total} bytes")
-            chunks.append(chunk)
-        content = b"".join(chunks)
-        # A source can answer 2xx with no body at all: federalreserve.gov's edge
-        # does this to datacenter IPs instead of serving the CSV. No parser has a
-        # reading for zero bytes, so failing here keeps a blocked fetch from being
-        # reported as a format change, keeps the empty body out of the cache every
-        # series sharing the URL reads, and makes the fetch retryable. The status
-        # and content type name what the source actually answered with.
-        _guard_response(
-            content,
-            url=url,
-            max_bytes=max_bytes,
-            detail=(
-                f" (status {response.status_code}, "
-                f"content-type {response.headers.get('Content-Type')!r})"
-            ),
-        )
+        with closing(response):
+            _raise_for_response(response, url)
+            content_length = response.headers.get("Content-Length")
+            if content_length is not None:
+                try:
+                    parsed_length = int(content_length)
+                except ValueError:
+                    parsed_length = None
+                if parsed_length is not None and parsed_length > max_bytes:
+                    raise IndicatorsProviderError(
+                        f"indicator response too large: {parsed_length} bytes"
+                    )
+            chunks: list[bytes] = []
+            total = 0
+            for chunk in response.iter_content(chunk_size=64 * 1024):
+                if not chunk:
+                    continue
+                total += len(chunk)
+                if total > max_bytes:
+                    raise IndicatorsProviderError(f"indicator response too large: {total} bytes")
+                chunks.append(chunk)
+            content = b"".join(chunks)
+            # A source can answer 2xx with no body at all: federalreserve.gov's edge
+            # does this to datacenter IPs instead of serving the CSV. No parser has a
+            # reading for zero bytes, so failing here keeps a blocked fetch from being
+            # reported as a format change, keeps the empty body out of the cache every
+            # series sharing the URL reads, and makes the fetch retryable. The status
+            # and content type name what the source actually answered with.
+            _guard_response(
+                content,
+                url=url,
+                max_bytes=max_bytes,
+                detail=(
+                    f" (status {response.status_code}, "
+                    f"content-type {response.headers.get('Content-Type')!r})"
+                ),
+            )
     except requests.RequestException as exc:
         raise IndicatorsProviderError(f"failed to fetch {url}: {exc}") from exc
     if context is not None:

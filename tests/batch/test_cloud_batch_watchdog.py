@@ -141,8 +141,8 @@ def test_a_batch_still_running_when_the_watchdog_fires_is_not_a_gap() -> None:
     """A late start is not a missing run, and alerting on it would be the false alarm.
 
     The schedule queue can push the 07:43 UTC batch past the watchdog's 12:00 UTC
-    firing. That run still reports its own outcome when it finishes — including
-    `[CANCELLED]` if it hits the job timeout — so the watchdog has nothing to add.
+    firing. This watchdog defers to the in-flight run; this test does not prove
+    that a later timeout or cancellation notification will be delivered.
     """
     runs = parse_runs(
         _listing(
@@ -356,8 +356,8 @@ def test_yesterdays_successful_run_falls_outside_the_window() -> None:
 def test_a_late_watchdog_firing_still_sees_the_days_batch() -> None:
     """The front edge absorbs the watchdog's own schedule delay.
 
-    GitHub's schedule queue adds about two hours at the median; the window has to
-    hold the day's 07:43 UTC batch even when the watchdog fires far later than due,
+    The schedule queue can delay execution; the window has to hold the day's
+    07:43 UTC batch even when the watchdog fires far later than due,
     otherwise the delay itself becomes the false alarm.
     """
     batch = FIRED_AT.replace(hour=7, minute=43)
@@ -467,8 +467,9 @@ def test_a_dispatch_whose_run_name_cannot_be_read_answers_for_no_day() -> None:
 
 
 def test_the_day_a_run_answers_for_is_anchored_on_the_batch_cron_not_on_midnight() -> None:
-    """Both this watchdog and the batch are fired late by GitHub's queue — about two
-    hours at the median. A firing that slips past midnight JST must keep asking about
+    """Both workflows can be delayed by GitHub's queue.
+
+    A firing that slips past midnight JST must keep asking about
     the same day rather than about one whose batch is not due yet."""
 
     # 15:30 UTC on 2026-08-03 is 00:30 JST on 08-04, past JST midnight.
@@ -724,7 +725,7 @@ def test_the_watchdog_stays_out_of_the_publish_queue_it_watches() -> None:
     assert workflow["concurrency"]["group"] == "cloud-batch-watchdog"
 
 
-def test_the_watchdog_installs_nothing_so_an_alert_never_waits_on_a_toolchain() -> None:
+def test_the_watchdog_uses_only_checkout_as_an_external_action() -> None:
     steps = _watchdog_job()["steps"]
     assert isinstance(steps, list)
 

@@ -54,7 +54,7 @@ def previous_run_revision_id(path: Path, asof: date) -> str | None:
     with closing(connect_run_store_read_only(path)) as connection:
         row = connection.execute(
             "SELECT run_revision_id FROM screening_run WHERE asof_date < ? "
-            "ORDER BY asof_date DESC, julianday(run_at) DESC, run_revision_id DESC LIMIT 1",
+            "ORDER BY asof_date DESC, run_clock(run_at) DESC, run_revision_id DESC LIMIT 1",
             (asof.isoformat(),),
         ).fetchone()
     return None if row is None else str(row[0])

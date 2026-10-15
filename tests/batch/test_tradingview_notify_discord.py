@@ -130,7 +130,6 @@ def test_cooldown_failure_reports_both_failure_and_persisted_snapshot(monkeypatc
     [
         ("--target-outcome", "success"),
         ("--eligible", "true", "--preflight-status", "already_saved"),
-        ("--eligible", "true", "--preflight-status", "non_trading_day"),
         ("--eligible", "true", "--preflight-status", "before_close"),
         ("--eligible", "true", "--preflight-status", "before_observation"),
         ("--eligible", "true", "--snapshot-status", "skipped_historical_asof"),
@@ -140,9 +139,7 @@ def test_noop_has_no_transport(monkeypatch, args):
     assert invoke(monkeypatch, *args) == []
 
 
-@pytest.mark.parametrize(
-    "snapshot_status", ["already_saved", "non_trading_day", "skipped_historical_asof"]
-)
+@pytest.mark.parametrize("snapshot_status", ["already_saved", "skipped_historical_asof"])
 def test_successful_acquisition_noop_status_does_not_notify(monkeypatch, snapshot_status):
     assert (
         invoke(

@@ -78,6 +78,17 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
 
                 self.assertEqual(value, expected)
 
+    def test_composite_names_cannot_replace_the_sector_headline(self) -> None:
+        for name in ("Composite PMI", "Composite Index", "Composite Output Index"):
+            with self.subTest(name=name):
+                value = extract_pmi_value(
+                    f"The headline {name} posted 55.0 in June. "
+                    "The Manufacturing PMI posted 48.0 in June.",
+                    expected_observed_at=date(2026, 6, 1),
+                    release_observed_at=date(2026, 6, 1),
+                )
+                self.assertEqual(value, 48.0)
+
     def test_extract_pdf_text_rejects_non_pdf(self) -> None:
         with self.assertRaisesRegex(IndicatorsProviderError, "not a PDF"):
             extract_pdf_text(b"<html>blocked</html>")

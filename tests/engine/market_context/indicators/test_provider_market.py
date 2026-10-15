@@ -613,3 +613,10 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         self.assertEqual(observations[0].observed_at, date(2026, 6, 26))
         self.assertEqual(observations[0].period_start, date(2026, 6, 22))
         self.assertEqual(observations[0].vintage_at, datetime(2026, 7, 2, tzinfo=UTC))
+
+    def test_parse_trades_spec_does_not_invent_publication_from_period_end(self) -> None:
+        series = _series("jquants_flows", "foreigners_net_value", unit="jpy-thousand")
+        rows = [{"EnDate": "2026-05-08", "FrgnBal": 500}]
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "publication date"):
+            parse_trades_spec(series, rows, start=date(2026, 5, 1), end=date(2026, 5, 15))

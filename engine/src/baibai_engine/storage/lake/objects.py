@@ -27,8 +27,8 @@ import duckdb
 from baibai_engine.storage.lake.duck import LakeSession, R2ReadCredentials, lake_session, r2_uri
 from baibai_engine.storage.lake.keys import validate_lake_object_key
 from baibai_engine.storage.lake.models import LakeObject
+from baibai_engine.storage.lake.sources import sha256_file
 
-_READ_CHUNK = 8 * 1024 * 1024
 _GLOB_METACHARACTERS = frozenset("*?[]{}")
 
 
@@ -221,14 +221,6 @@ def _install(path: Path, payload: bytes) -> None:
         temporary.replace(path)
     finally:
         temporary.unlink(missing_ok=True)
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        for chunk in iter(lambda: source.read(_READ_CHUNK), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def sha256_bytes(payload: bytes) -> str:

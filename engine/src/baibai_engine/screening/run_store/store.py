@@ -30,10 +30,6 @@ class RunStoreConflictError(ValueError):
     """Raised when immutable publication identity is reused with different content."""
 
 
-class RunStoreNotFoundError(ValueError):
-    """Raised when a publication refers to an unknown parent."""
-
-
 class RunStoreAmbiguousError(ValueError):
     """Raised when a convenience query cannot identify one immutable revision."""
 
@@ -65,8 +61,18 @@ def connect_rw(path: Path | None = None) -> sqlite3.Connection:
     resolved.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(resolved, isolation_level=None)
     connection.row_factory = sqlite3.Row
+    register_run_clock(connection)
     connection.execute("PRAGMA foreign_keys = ON")
     return connection
+
+
+def run_clock(value: str) -> str:
+    """Compare saved aware clocks as fixed-width UTC text at full microsecond precision."""
+    return datetime.fromisoformat(value).astimezone(UTC).isoformat(timespec="microseconds")
+
+
+def register_run_clock(connection: sqlite3.Connection) -> None:
+    connection.create_function("run_clock", 1, run_clock, deterministic=True)
 
 
 def initialize_run_store(path: Path | None = None) -> int:
@@ -82,8 +88,13 @@ def initialize_run_store(path: Path | None = None) -> int:
                 "screening run cache uses an obsolete schema; rebuild it "
                 f"(found user_version={current}, expected={RUN_STORE_SCHEMA_VERSION})"
             )
-        connection.executescript(SCHEMA_SQL)
-        connection.execute(f"PRAGMA user_version = {RUN_STORE_SCHEMA_VERSION}")
+        try:
+            connection.executescript("BEGIN IMMEDIATE;\n" + SCHEMA_SQL)
+            connection.execute(f"PRAGMA user_version = {RUN_STORE_SCHEMA_VERSION}")
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
         return RUN_STORE_SCHEMA_VERSION
 
 
@@ -133,7 +144,7 @@ class ScreeningRunStore:
                 ordered = connection.execute(
                     """
                     SELECT run_revision_id FROM screening_run
-                    ORDER BY asof_date DESC, julianday(run_at) DESC, run_revision_id DESC
+                    ORDER BY asof_date DESC, run_clock(run_at) DESC, run_revision_id DESC
                     """
                 ).fetchall()
                 deleted_ids = [str(row[0]) for row in ordered[keep:]]
@@ -429,7 +440,6 @@ __all__ = [
     "PublicationResult",
     "RunStoreAmbiguousError",
     "RunStoreConflictError",
-    "RunStoreNotFoundError",
     "ScreeningRunStore",
     "connect_rw",
     "decode_payload",

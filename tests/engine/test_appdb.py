@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
@@ -20,7 +21,7 @@ def test_initialize_creates_only_the_current_application_schema(tmp_path: Path) 
     assert initialize_database(path) == LATEST_VERSION
     assert initialize_database(path) == LATEST_VERSION
 
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == LATEST_VERSION
         tables = {
             row[0]
@@ -38,7 +39,7 @@ def test_initialize_creates_only_the_current_application_schema(tmp_path: Path) 
 
 def test_obsolete_database_requires_an_explicit_cutover(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute("CREATE TABLE old_state (value TEXT)")
         connection.execute(f"PRAGMA user_version = {LATEST_VERSION - 1}")
 
@@ -49,7 +50,7 @@ def test_obsolete_database_requires_an_explicit_cutover(tmp_path: Path) -> None:
 def test_backup_captures_current_rows(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
     initialize_database(path)
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute(
             "INSERT INTO ledger_meta "
             "(singleton, schema_version, portfolio_scope, as_of, payload) "
@@ -63,7 +64,7 @@ def test_backup_captures_current_rows(tmp_path: Path) -> None:
     )
 
     assert backup is not None
-    with sqlite3.connect(backup) as connection:
+    with closing(sqlite3.connect(backup)) as connection:
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert connection.execute("SELECT count(*) FROM ledger_meta").fetchone()[0] == 1
 

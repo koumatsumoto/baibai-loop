@@ -22,7 +22,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess  # nosec B404 - fixed read-only gh API command
+
+# fixed read-only gh API command
+import subprocess  # nosec B404
 import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -214,7 +216,8 @@ JobsReader = Callable[[str, int, int], object]
 def _read_attempt_jobs(repository: str, run_id: int, attempt: int) -> object:
     """Read step results from the listed attempt, never from another rerun."""
     try:
-        result = subprocess.run(  # nosec B603 B607 - fixed gh read with validated integer ids
+        # fixed gh read with validated integer ids
+        result = subprocess.run(  # nosec B603 B607
             [
                 "gh",
                 "api",

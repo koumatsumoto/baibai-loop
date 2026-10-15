@@ -1,5 +1,7 @@
 # 3y / 5y production evidence の blocked 解消可能性調査（#400）
 
+本稿は 2026-07-14 時点の調査記録であり、schema v2、旧 CLI、master の全件置換、および follow-up 案は当時の状態を記述する。以下の「現行」「現在」と料金・取得範囲は同日基準で、現在の仕様・未完了作業・購入判断には用いない。現行の評価条件は [estimate-calibration](../../../docs/reference/estimate-calibration.md) を参照する。数値・hash は元の調査記録として保持する。
+
 ## 0. 目的と authority 維持
 
 本調査の目的は、estimate calibration の 3y / 5y production decision evidence を block する
@@ -240,7 +242,7 @@ follow-up Aでは仕様revision / URL、client version、repository commit、che
 | delisting | JPX「上場廃止銘柄一覧」 | 過去11年 | HTML + archive | 無料 | 廃止日、コード、市場、理由を取得できる。TOB、合併、維持基準不適合等を区別できる |
 | split / consolidation / ex-rights | JPX統計月報 18「新株落・権利落等一覧」 | 公開archiveは2016年以降 | 月次PDF | 無料 | 権利落日、確定日、分割・併合比率を取得できる。全event completenessの定義が必要 |
 | comprehensive corporate action | J-Quants Pro Corporate Action | 配当は2013-02-20以降、その他は2015-05-08以降 | API / SFTP CSV / Snowflake | 法人限定。単一法人300,000円/月、系列法人450,000円/月、税別 | 10年以上・全上場会社を機械取得できる。coverageは強いが費用が大きい |
-| JPX Corporate Action Data Service web | 通常eventは過去2年、属性変更は過去10年 | Web検索 / CSV | 一般利用者「その他」の日本語web単一法人90,000円/月、税別 | 通常eventの2年制限により単独backfill sourceには不足 |
+| corporate action / attributes | JPX Corporate Action Data Service web | 通常eventは過去2年、属性変更は過去10年 | Web検索 / CSV | 一般利用者「その他」の日本語web単一法人90,000円/月、税別 | 通常eventの2年制限により単独backfill sourceには不足 |
 
 一次source:
 

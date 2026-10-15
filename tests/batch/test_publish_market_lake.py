@@ -12,21 +12,10 @@ import pytest
 import baibai_batch.storage.publish_market_lake as publish_module
 from baibai_batch.storage.lake_publish import LakePublishError
 from baibai_engine.batch_api import (
-    L1ReleasePointer,
     LakeBuildError,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-_RELEASE_ID = "20260817T085308Z-70f77913-da700a8e825e"
-
-
-def _pointer(*, release_id: str = _RELEASE_ID, manifest_sha256: str = "f" * 64) -> L1ReleasePointer:
-    return L1ReleasePointer(
-        pointer_version=1,
-        release_id=release_id,
-        manifest_key=f"lake/manifests/releases/l1/{release_id}.json",
-        manifest_sha256=manifest_sha256,
-    )
 
 
 class _UnusedStore:

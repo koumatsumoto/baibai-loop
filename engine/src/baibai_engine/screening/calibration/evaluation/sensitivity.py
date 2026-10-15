@@ -71,7 +71,6 @@ def _margin_short_to_adv_adoption_sign(value: object) -> float | None:
 
 def _direction_signs(
     context: _CohortExcessContext,
-    panel: Sequence[PanelRow],
     *,
     horizon: str,
     candidate_discovery_rules: CandidateDiscoveryRules,
@@ -135,7 +134,6 @@ def _signs_for_returns(
         return dict.fromkeys(_ALL_SENSITIVITY_METRICS)
     return _direction_signs(
         context,
-        panel,
         horizon=horizon,
         candidate_discovery_rules=candidate_discovery_rules,
     )
@@ -176,7 +174,10 @@ def delisting_exclusion_sensitivity(
             "imputations": {},
         }
 
-    neutral = median(price_returns.values()) if price_returns else 0.0
+    population_returns = [
+        value for ticker, value in price_returns.items() if ticker in in_population
+    ]
+    neutral = median(population_returns) if population_returns else 0.0
     as_reported = _signs_for_returns(
         panel,
         price_returns,

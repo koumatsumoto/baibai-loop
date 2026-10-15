@@ -2,7 +2,7 @@
 title: "株式併合・売渡請求から現金公開買付けの資料確認へ進む"
 summary: "6881の通常EDINET取得から600円の現金exitを検証し、JPX理由による候補の取り落としを修正する。"
 doc_type: measurement-record
-status: active
+status: historical
 ---
 
 # 退出資料の候補範囲（#1481 H3）

@@ -80,9 +80,7 @@ def evaluate_cohorts(
             "evidence_role": require_horizon(horizon).evidence_role,
             "cohorts": cohort_results,
             "observation_dependence": _observation_dependence(cohort_results, horizon=horizon),
-            "aggregate": _aggregate(
-                cohort_results, candidate_discovery_rules=candidate_discovery_rules
-            ),
+            "aggregate": _aggregate(cohort_results),
         }
     return per_horizon
 
@@ -191,7 +189,6 @@ def _evaluate_cohort(
         fidelity = _candidate_discovery_fidelity(
             panel,
             {},
-            {},
             candidate_discovery_rules=candidate_discovery_rules,
             jpx_input_status=candidate_discovery_jpx_input_status,
         )
@@ -229,7 +226,6 @@ def _evaluate_cohort(
     candidate_discovery_fidelity = _candidate_discovery_fidelity(
         panel,
         excess,
-        candidate_discovery,
         candidate_discovery_rules=candidate_discovery_rules,
         jpx_input_status=candidate_discovery_jpx_input_status,
     )

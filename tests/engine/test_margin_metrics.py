@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from dataclasses import asdict, fields
 from datetime import date, timedelta
 from pathlib import Path
@@ -153,7 +154,12 @@ class CalibrationCacheVersionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             publish_panel(root, "2020-01-31", [{"ticker": "7203"}])
-            with sqlite3.connect(root / calibration_store.CURRENT_SNAPSHOT_NAME) as connection:
+            with (
+                closing(
+                    sqlite3.connect(root / calibration_store.CURRENT_SNAPSHOT_NAME)
+                ) as connection,
+                connection,
+            ):
                 connection.execute("UPDATE snapshot_meta SET contract_version = ?", ("0" * 16,))
             with self.assertRaises(CalibrationCacheError) as caught:
                 read_panel(root, date(2020, 1, 31))

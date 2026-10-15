@@ -1,4 +1,4 @@
-"""The Macro indicator panel maps every registered series exactly once, and its view
+"""The Market Context indicator panel maps every registered series exactly once, and its view
 tolerates a store that has not caught up with the registry."""
 
 from __future__ import annotations

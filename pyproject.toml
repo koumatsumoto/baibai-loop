@@ -322,14 +322,7 @@ source_modules = [
   "baibai_engine.position",
 ]
 forbidden_modules = ["baibai_engine.research"]
-ignore_imports = [
-  # The public CLI is the repository composition boundary for building a
-  # Position Review from research and position artifacts. Position domain modules
-  # remain independent of research.
-  "baibai_engine.position.cli -> baibai_engine.research.capital_allocation_query",
-  "baibai_engine.position.cli -> baibai_engine.research.position_review_service",
-  "baibai_engine.position.cli -> baibai_engine.research.position_review",
-]
+ignore_imports = []
 
 [[tool.importlinter.contracts]]
 name = "research composes explicit domain reads and portfolio judgments"
@@ -349,6 +342,9 @@ ignore_imports = [
   "baibai_engine.research.selection_query -> baibai_engine.screening.run_store.read",
   "baibai_engine.research.selection_query -> baibai_engine.screening.discovery.projection",
   "baibai_engine.research.selection -> baibai_engine.market.ticker",
+  "baibai_engine.research.assessment -> baibai_engine.market.ticker",
+  "baibai_engine.research.proposal -> baibai_engine.market.ticker",
+  "baibai_engine.research.proposal_conditions -> baibai_engine.market.universe",
 ]
 
 [[tool.importlinter.contracts]]
@@ -426,15 +422,23 @@ allow_indirect_imports = true
 [[tool.importlinter.contracts]]
 name = "read_api cannot reach writer or CLI modules"
 type = "forbidden"
-# thesis_store owns the canonical pair reader; this call receives a query-only connection.
-ignore_imports = ["baibai_engine.read_api.research -> baibai_engine.research.thesis_store"]
+# Exact pair readers receive query-only connections. Preview uses read-only
+# condition evaluation, not the publication service; its pair type is annotation-only.
+ignore_imports = [
+  "baibai_engine.read_api.research -> baibai_engine.research.assessment_store",
+  "baibai_engine.read_api.proposals -> baibai_engine.research.assessment_store",
+  "baibai_engine.research.proposal_query -> baibai_engine.research.assessment_store",
+  "baibai_engine.research.proposal_inputs -> baibai_engine.research.assessment_store",
+  "baibai_engine.research.proposal_conditions -> baibai_engine.research.assessment_store",
+]
 source_modules = ["baibai_engine.read_api"]
 forbidden_modules = [
   "baibai_engine.storage.application.write",
   "baibai_engine.cli",
   "baibai_engine.market_context.indicators.providers",
   "baibai_engine.position.cli",
-  "baibai_engine.research.thesis_evaluation_cli",
+  "baibai_engine.research.proposal_service",
+  "baibai_engine.research.assessment_evaluation_cli",
   "baibai_engine.research.workspace_cli",
   "baibai_engine.screening.cli",
 ]
@@ -442,14 +446,30 @@ forbidden_modules = [
 [[tool.importlinter.contracts]]
 name = "enterprise valuation is pure"
 type = "forbidden"
-source_modules = ["baibai_engine.valuation", "baibai_engine.research.thesis", "baibai_engine.research.entry_policy", "baibai_engine.research.position_review"]
-forbidden_modules = ["baibai_engine.storage", "baibai_engine.position", "baibai_engine.market.providers", "baibai_engine.market.store", "baibai_engine.market.edinet_metrics", "baibai_engine.market.edinet_facts", "baibai_engine.research.workspace", "baibai_engine.research.planning", "baibai_engine.research.thesis_store"]
+source_modules = [
+  "baibai_engine.valuation", "baibai_engine.research.assessment",
+  "baibai_engine.research.proposal", "baibai_engine.research.entry_policy",
+  "baibai_engine.research.holding_policy",
+]
+forbidden_modules = [
+  "baibai_engine.storage", "baibai_engine.position", "baibai_engine.market.providers",
+  "baibai_engine.market.store", "baibai_engine.market.edinet_metrics",
+  "baibai_engine.market.edinet_facts", "baibai_engine.research.workspace",
+  "baibai_engine.research.assessment_store", "baibai_engine.research.proposal_service",
+]
+# Canonical JSON and the common-stock grid are pure technical/domain helpers.
+ignore_imports = [
+  "baibai_engine.research.assessment -> baibai_engine.storage.application.json",
+  "baibai_engine.research.proposal -> baibai_engine.storage.application.json",
+  "baibai_engine.research.selection -> baibai_engine.storage.application.json",
+  "baibai_engine.research.proposal -> baibai_engine.position.price_grid",
+]
 
 [[tool.importlinter.contracts]]
-name = "Reviewed Thesis storage does not depend on judgment composition"
+name = "Reviewed Assessment storage does not depend on proposal composition"
 type = "forbidden"
-source_modules = ["baibai_engine.research.thesis_store"]
-forbidden_modules = ["baibai_engine.research.capital_allocation_service", "baibai_engine.research.position_review_service", "baibai_engine.research.workspace", "baibai_engine.research.operation"]
+source_modules = ["baibai_engine.research.assessment_store"]
+forbidden_modules = ["baibai_engine.research.proposal_service", "baibai_engine.research.proposal_inputs", "baibai_engine.research.workspace", "baibai_engine.research.operation"]
 
 [[tool.importlinter.contracts]]
 name = "external assessment observation contracts stay independent of services"
@@ -559,7 +579,7 @@ forbidden_modules = [
   "baibai_engine.position", "baibai_engine.tasks", "baibai_engine.read_api", "baibai_engine.batch_api",
   "baibai_engine.screening.discovery.candidates", "baibai_engine.screening.metrics",
   "baibai_engine.screening.rule_config", "baibai_engine.screening.run_store", "baibai_engine.screening.cli",
-  "baibai_engine.research.workspace", "baibai_engine.research.operation", "baibai_engine.research.thesis_store",
+  "baibai_engine.research.workspace", "baibai_engine.research.operation", "baibai_engine.research.assessment_store",
 ]
 
 [[tool.importlinter.contracts]]
@@ -625,14 +645,10 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "historical allocation identity query does not publish or recheck eligibility"
+name = "position decision references do not recheck research eligibility"
 type = "forbidden"
-source_modules = ["baibai_engine.research.capital_allocation_query"]
-forbidden_modules = [
-  "baibai_engine.storage.application.write", "baibai_engine.research.capital_allocation_service",
-  "baibai_engine.research.capital_inputs", "baibai_engine.research.workspace",
-  "baibai_engine.research.thesis_store",
-]
+source_modules = ["baibai_engine.position.decision_references"]
+forbidden_modules = ["baibai_engine.storage.application.write", "baibai_engine.research"]
 
 [[tool.importlinter.contracts]]
 name = "economic observation contracts and reading arithmetic are pure"

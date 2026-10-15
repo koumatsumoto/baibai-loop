@@ -47,11 +47,7 @@ def workspace_selection(
         raise ResearchWorkspaceConflictError(
             "workspace differs from the Operation's fixed selection"
         )
-    purpose = (
-        "position_review"
-        if selection.request.scope == "review_positions"
-        else "fundamental_research"
-    )
+    purpose = "holding" if selection.request.scope == "review_positions" else "fundamental_research"
     if manifest.get("purpose") != purpose:
         raise ResearchWorkspaceConflictError("workspace purpose differs from the fixed selection")
     holding = manifest.get("holding_ticker")
@@ -69,7 +65,7 @@ def _require_primary_research_ticker(
 ) -> None:
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
     selection = workspace_selection(manifest, db_path=db_path, active=True)
-    purpose = "holding" if manifest.get("purpose") == "position_review" else "new"
+    purpose = "holding" if manifest.get("purpose") == "holding" else "new"
     if purpose == "holding" and manifest.get("holding_ticker") is None:
         raise ResearchWorkspaceConflictError(
             "author holding research in its holdings/<ticker> child workspace"

@@ -12,11 +12,11 @@ status: active
 | 調べたいこと | 正本 |
 | --- | --- |
 | 判断文書の編集と意味保全 | [judgment-writing](./judgment-writing.md) |
-| Thesis、Base/Downside、独立Review、Planning | [thesis](./thesis.md) |
-| 候補の比較と資本配分 | [capital-allocation-assessment](./capital-allocation-assessment.md) |
+| Stock Assessment、Base/Downside、独立Review | [stock-assessment](./stock-assessment.md) |
+| 候補の比較と資本配分 | [investment-proposal](./investment-proposal.md) |
 | 事業モデル別の調査 | [business-model-research](./business-model-research.md) |
 | cash、取引事実、replay、portfolio outcome | [portfolio-ledger](./portfolio-ledger.md) |
-| hold・exit・未確定と残存見返り | [position-review](./position-review.md) |
+| hold・sell・deferと残存見返り | [保有提案](./investment-proposal.md#holding) |
 
 ## 機械出力と入力の解釈
 

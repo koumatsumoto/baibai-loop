@@ -3,20 +3,16 @@
 import json
 import socket
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 import yaml
+from tests.helpers.assessment_v1 import assessment_id, pair_payload
 from tests.helpers.research_selection import draft_for, selected_target, selection
-from tests.helpers.research_v4 import pair_payload
 
-from baibai_engine.research.capital_allocation import (
-    CapitalAllocationAssessment,
-    capital_allocation_draft_sha256,
-)
-from baibai_engine.research.capital_allocation_scaffold import scaffold_capital_allocation
-from baibai_engine.research.capital_allocation_service import CapitalAllocationAssessmentService
 from baibai_engine.research.operation.progress import selection_binding
 from baibai_engine.research.operation.service import OperationService
+from baibai_engine.research.proposal import InvestmentProposal, proposal_draft_sha256
 from baibai_engine.research.workspace import (
     ResearchWorkspaceConflictError,
     compute_status,
@@ -68,7 +64,7 @@ def test_commit_file_failure_recovers_same_operation_without_reading_source(tmp_
     assert repaired.status == "resumed"
     assert repaired.operation_id == saved.operation_id
     first = (tmp_path / "workspace/domain-inputs.yaml").read_bytes()
-    authored = tmp_path / "workspace/1234/thesis-draft.yaml"
+    authored = tmp_path / "workspace/1234/assessment-draft.yaml"
     authored.parent.mkdir()
     authored.write_text("authored draft remains")
     (tmp_path / "workspace/domain-inputs.yaml").unlink()
@@ -175,55 +171,140 @@ def test_completed_retry_and_real_same_text_request_have_different_identities(tm
 
 
 @pytest.mark.parametrize("scope", ["discover_new", "specified_stocks"])
-def test_selected_promote_caa_and_completion_use_current_scope(tmp_path, scope, monkeypatch):
+def test_selected_promote_proposal_and_completion_use_current_scope(
+    tmp_path, scope, monkeypatch, capsys
+):
+    from tests.helpers.db_seed import seed_ledger
+
+    from baibai_engine.position.ledger import PortfolioLedgerDocument
+    from baibai_engine.research.operation.cli import main as operation_main
+
     monkeypatch.setattr(socket, "socket", lambda *_a, **_kw: pytest.fail("Research called network"))
+    seed_ledger(
+        tmp_path / "app",
+        PortfolioLedgerDocument.model_validate(
+            {
+                "schema_version": 2,
+                "portfolio_scope": "repository_only",
+                "as_of": NOW.isoformat(),
+                "events": [
+                    {
+                        "type": "opening_balance",
+                        "event_id": "synthetic-opening",
+                        "occurred_at": (NOW - timedelta(hours=1)).isoformat(),
+                        "amount_yen": 300000,
+                    }
+                ],
+                "market_prices": [],
+            }
+        ),
+    )
     value = selection(now=NOW, tickers=("1234",), scope=scope, runs=tmp_path / "runs")
     prepared = prepare(tmp_path, value=value)
     workspace = prepared.workspace
     assert not (workspace / "research-workspace.yaml").exists()
     directory = workspace / "1234"
     directory.mkdir()
-    thesis, review = pair_payload(ticker="1234")
-    (directory / "thesis-draft.yaml").write_text(yaml.safe_dump(thesis))
-    (directory / "2026-09-07-1234-decision-review.yaml").write_text(yaml.safe_dump(review))
+    assessment, review = pair_payload(ticker="1234", as_of="2026-09-07")
+    (directory / "assessment-draft.yaml").write_text(yaml.safe_dump(assessment))
+    (directory / "assessment-review.yaml").write_text(yaml.safe_dump(review))
+    (directory / "assessment-publication.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "assessment_id": assessment_id(),
+                "supersedes_id": None,
+            }
+        )
+    )
     before = (workspace / "domain-inputs.yaml").read_bytes()
     published = promote(
         workspace=workspace,
         ticker="1234",
         db_path=tmp_path / "app",
-        thesis_id="thesis-selected",
+        assessment_id=assessment_id(),
         supersedes_id=None,
         now=NOW,
     )
-    assert published.thesis_id == "thesis-selected"
+    assert published.assessment_id == assessment_id()
     assert compute_status(workspace, db_path=tmp_path / "app", now=NOW)["request_scope"] == scope
-    raw = scaffold_capital_allocation(
-        db_path=tmp_path / "app",
-        capital_allocation_assessment_id="capital-allocation-assessment-20260907-selected",
-        operation_id=prepared.operation_id,
-        as_of=NOW.date(),
-        published_at=NOW,
+    proposal_id = "investment-proposal-00000000-0000-4000-8000-000000000003"
+    common_args = [
+        "--db",
+        str(tmp_path / "app"),
+        "--sqlite-path",
+        str(tmp_path / "absent-market"),
+    ]
+    assert (
+        main(["proposal-context", "--operation-id", prepared.operation_id, *common_args], now=NOW)
+        == 0
     )
-    raw.update(
-        headline="合成見送り",
-        comparison="合成比較",
-        forgone="cash",
+    context = json.loads(capsys.readouterr().out)
+    assert context["research_scope"]["operation_id"] == prepared.operation_id
+    draft_path = tmp_path / "proposal-draft.yaml"
+    assert (
+        main(
+            [
+                "proposal-scaffold",
+                "--operation-id",
+                prepared.operation_id,
+                "--proposal-id",
+                proposal_id,
+                "--out",
+                str(draft_path),
+                *common_args,
+            ],
+            now=NOW,
+        )
+        == 0
     )
-    raw["alternatives"][0]["rationale"] = "合成比較の結論"
+    assert yaml.safe_load(capsys.readouterr().out)["proposal_id"] == proposal_id
+    raw = yaml.safe_load(draft_path.read_text())
+    raw.update(headline="合成見送り", comparison="合成比較", forgone="cash")
+    raw["items"][0]["action"] = "no_action"
+    raw["items"][0].pop("blockers")
+    raw["items"][0].pop("resume_conditions")
+    raw["items"][0]["rationale"] = "合成比較の経済的見送り"
     raw["review"]["reviewer_identity"] = "independent"
-    draft = CapitalAllocationAssessment.model_validate(raw)
+    raw["review"]["reviewed_at"] = NOW.isoformat()
+    draft_path.write_text(yaml.safe_dump(raw))
+    unchanged = draft_path.read_bytes(), (workspace / "domain-inputs.yaml").read_bytes()
+    assert main(["proposal-check", str(draft_path), *common_args], now=NOW) == 0
+    checked = yaml.safe_load(capsys.readouterr().out)
+    assert checked["valid"] is True
+    assert checked["review_binding"] == "stale"
+    assert unchanged == (draft_path.read_bytes(), (workspace / "domain-inputs.yaml").read_bytes())
+    draft = InvestmentProposal.model_validate(raw)
     draft = draft.model_copy(
         update={
             "review": draft.review.model_copy(
-                update={"draft_sha256": capital_allocation_draft_sha256(draft)}
+                update={
+                    "draft_sha256": proposal_draft_sha256(draft),
+                }
             )
         }
     )
-    assessment = CapitalAllocationAssessmentService(tmp_path / "app", clock=lambda: NOW).publish(
-        draft
-    )
-    assert assessment.research_triage_id is None
+    draft_path.write_text(yaml.safe_dump(draft.model_dump(mode="json")))
+    assert main(["proposal-publish", str(draft_path), *common_args], now=NOW) == 0
+    proposal = InvestmentProposal.model_validate(yaml.safe_load(capsys.readouterr().out))
+    assert proposal.request_scope == scope
     service = OperationService(tmp_path / "app")
+    assert (
+        operation_main(
+            [
+                "--db",
+                str(tmp_path / "app"),
+                "--format",
+                "json",
+                "record-proposal",
+                prepared.operation_id,
+                "--proposal-id",
+                proposal.proposal_id,
+            ],
+            now=NOW,
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["operation_id"] == prepared.operation_id
     operation = service.get(prepared.operation_id)
     complete = service.complete(
         prepared.operation_id,
@@ -232,8 +313,8 @@ def test_selected_promote_caa_and_completion_use_current_scope(tmp_path, scope, 
                 "artifacts": (
                     *operation.payload.artifacts,
                     {
-                        "kind": "capital_allocation_assessment",
-                        "ref": assessment.capital_allocation_assessment_id,
+                        "kind": "investment_proposal",
+                        "ref": proposal.proposal_id,
                     },
                 ),
                 "result": "proposal complete",
@@ -243,6 +324,11 @@ def test_selected_promote_caa_and_completion_use_current_scope(tmp_path, scope, 
         completed_at=NOW,
     )
     assert complete.payload.human_confirmation is None
+    assert main(["proposal-preview", "--proposal-id", proposal_id, *common_args], now=NOW) == 0
+    preview = json.loads(capsys.readouterr().out)
+    assert preview["saved_proposal_id"] == proposal_id
+    assert preview["status"] == "unchanged"
+    assert preview["items"][0]["saved_terms"] is None
     assert before == (workspace / "domain-inputs.yaml").read_bytes()
 
 
@@ -268,7 +354,7 @@ def test_cli_inputs_required_and_old_flags_are_removed(tmp_path, capsys):
     assert not (tmp_path / "workspace").exists()
 
 
-def test_previous_analysis_day_current_research_and_formal_thesis_are_separate(tmp_path):
+def test_previous_analysis_day_current_research_and_formal_assessment_are_separate(tmp_path):
     from tests.helpers.screening_run import screening_run_payload, stock_analysis
 
     from baibai_engine.research.inputs import project_research_inputs
@@ -282,10 +368,10 @@ def test_previous_analysis_day_current_research_and_formal_thesis_are_separate(t
     )
     payload.pop("er_model_version")
     ScreeningRunStore(runs).publish_run(
-        payload, run_revision_id="previous-analysis", rules=load_screening_rules()
+        payload, run_revision_id="run-revision-" + "a" * 32, rules=load_screening_rules()
     )
     analysis = load_analysis_snapshot(
-        run_revision_id="previous-analysis",
+        run_revision_id="run-revision-" + "a" * 32,
         research_as_of=NOW.date(),
         tickers=("1234",),
         gaps=(),
@@ -309,19 +395,27 @@ def test_previous_analysis_day_current_research_and_formal_thesis_are_separate(t
     assert projected["securities"]["1234"]["machine_valuation"]["as_of"] == "2026-09-06"
     directory = prepared.workspace / "1234"
     directory.mkdir()
-    thesis, review = pair_payload(ticker="1234")
-    (directory / "thesis-draft.yaml").write_text(yaml.safe_dump(thesis))
-    (directory / "2026-09-07-1234-decision-review.yaml").write_text(yaml.safe_dump(review))
+    assessment, review = pair_payload(ticker="1234", as_of="2026-09-07")
+    (directory / "assessment-draft.yaml").write_text(yaml.safe_dump(assessment))
+    (directory / "assessment-review.yaml").write_text(yaml.safe_dump(review))
+    (directory / "assessment-publication.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "assessment_id": assessment_id(),
+                "supersedes_id": None,
+            }
+        )
+    )
     assert (
         promote(
             workspace=prepared.workspace,
             ticker="1234",
             db_path=tmp_path / "app",
-            thesis_id="current-formal",
+            assessment_id=assessment_id(),
             supersedes_id=None,
             now=NOW,
-        ).thesis_id
-        == "current-formal"
+        ).assessment_id
+        == assessment_id()
     )
     assert OperationService(tmp_path / "app").get(prepared.operation_id).as_of == NOW.date()
 
@@ -402,4 +496,13 @@ def test_tampered_projection_and_manifest_are_rejected_and_force_keeps_authored_
         )
 
 
-pytest_plugins = ["tests.engine.test_position_review_v3"]
+@pytest.fixture
+def holding_case(tmp_path):
+    from tests.helpers.db_seed import seed_ledger
+    from tests.helpers.ledger import load_portfolio_ledger
+
+    db = tmp_path / "holding-app"
+    ledger = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
+    ledger = ledger.model_copy(update={"market_prices": ()})
+    seed_ledger(db, ledger)
+    return db, tmp_path / "absent-market", ledger

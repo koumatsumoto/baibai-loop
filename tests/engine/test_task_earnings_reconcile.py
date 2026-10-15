@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import sqlite3
 import unittest
+from contextlib import closing
 from datetime import date, timedelta
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from baibai_engine.tasks.earnings_reconcile import (
     reconcile_earnings_dates,
 )
+from baibai_engine.tasks.earnings_schedule import read_published_earnings_dates
 from baibai_engine.tasks.models import Task
 
 TODAY = date(2026, 7, 31)
@@ -173,6 +178,23 @@ class ReconcileEarningsDatesTest(unittest.TestCase):
 
         self.assertEqual(results[0].outcome, "update")
         self.assertIsNone(results[0].drift_days)
+
+
+class PublishedEarningsDatesTest(unittest.TestCase):
+    def test_invalid_stored_date_is_not_silently_removed_from_the_schedule(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "market.sqlite"
+            with closing(sqlite3.connect(path)) as connection:
+                connection.execute(
+                    "CREATE TABLE jpx_earnings_calendar(ticker TEXT, announcement_date TEXT)"
+                )
+                connection.executemany(
+                    "INSERT INTO jpx_earnings_calendar VALUES (?, ?)",
+                    [("4716", "2026-09-18"), ("3608", "2026-99-99")],
+                )
+                connection.commit()
+            with self.assertRaisesRegex(ValueError, "invalid earnings date for 3608"):
+                read_published_earnings_dates(path, TODAY)
 
 
 if __name__ == "__main__":

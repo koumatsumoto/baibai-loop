@@ -126,7 +126,7 @@ series:
     provider_series_id: "097741"
     source_id: cftc-cot-jpy
     source_url: https://publicreporting.cftc.gov/resource/6dca-aqww.json
-    notes: CFTC COT legacy futures-only の非商業ネット(long-short)。円。負=ネット売り越し(carry)
+    notes: CFTC COT legacy futures-only の非商業ネット(long-short)。円。負=ネット売り越し。ネット玉だけで取引目的やキャリー取引の全体量は判定しない
     aliases: [円ポジション, JPY spec net, CFTC yen net]
   - series_id: positioning.ust10y_noncomm_net
     name: 米10Y投機筋ネット玉
@@ -157,7 +157,7 @@ series:
     notes: CFTC COT legacy futures-only の非商業ネット(long-short)。E-MINI S&P 500(CME)
     aliases: [S&P500ポジション, SP500 spec net]
   - series_id: ecb.balance_sheet
-    name: ECB総資産
+    name: ユーロシステム総資産
     category: monetary
     geography: euro
     frequency: weekly
@@ -168,7 +168,7 @@ series:
     provider_series_id: ECBASSETSW
     source_id: fred-ecbassetsw
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=ECBASSETSW
-    notes: ユーロ圏中銀の総資産(週次・百万ユーロ)。Fed・BOJのバランスシートと並べてグローバル流動性の三極化(縮小/拡大の非同期)を読む
+    notes: ユーロシステムの総資産(週次・百万ユーロ。ECB単体とは区別)。Fed・BOJのバランスシートと並べてグローバル流動性の三極化(縮小/拡大の非同期)を読む
     aliases: [ECB総資産, ECBバランスシート, ECB balance sheet, ECBASSETSW, 欧州中銀資産]
   - series_id: de.10y
     name: ドイツ10Y国債利回り
@@ -182,7 +182,7 @@ series:
     provider_series_id: IRLTLT01DEM156N
     source_id: fred-irltlt01dem156n
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=IRLTLT01DEM156N
-    notes: ドイツ10年国債利回り(月次・OECD)。ユーロ圏の無リスク金利アンカー。米独金利差でドル・ユーロの綱引きを読む。日次配信はBundesbank/ECBが持つが、日本株の判断で使うのは米独金利差の水準と向きであり、月内の日次変動は判断を変えない。provider追加に見合わないので月次を保つ
+    notes: ドイツ10年国債利回り(月次・OECD)。ユーロ圏の無リスク金利アンカー。米独金利差でドル・ユーロの綱引きを読む。日次配信はBundesbank/ECBが持つが、本系列は月次であり、月内の日次変動は観測できない
     aliases: [独10Y, ドイツ国債, bund 10y, German 10Y, IRLTLT01DEM156N, ブンズ]
   - series_id: usd_cny
     name: USD/CNY
@@ -198,7 +198,7 @@ series:
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DEXCHUS
     tradingview_symbol: FX_IDC:USDCNY
     notes: 人民元の対ドル相場(日次・元/ドル)。中国減速・元切り下げtailの観測点。上昇=元安。日本の対中輸出感応度と接続して読む
-    aliases: [ドル人民元, USD/CNY, 人民元, DEXCHUS, オフショア人民元]
+    aliases: [ドル人民元, USD/CNY, 人民元, DEXCHUS]
   - series_id: natgas
     name: 天然ガス(Henry Hub)
     category: energy
@@ -212,7 +212,7 @@ series:
     source_id: fred-dhhngsp
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DHHNGSP
     tradingview_symbol: NYMEX:NG1!
-    notes: Henry Hub天然ガススポット価格(日次・ドル/百万BTU)。原油以外のエネルギーコスト。電力・化学の投入価格として輸入国のコスト経路に効く
+    notes: Henry Hub天然ガススポット価格(日次・ドル/百万BTU)。米国のガス価格の観測点。日本のLNG輸入価格や個別企業の調達単価そのものではない
     aliases: [天然ガス, ナットガス, natural gas, Henry Hub, DHHNGSP, natgas]
   - series_id: world.acwi_ex_us
     name: 世界株ex-US(ACWX ETF)

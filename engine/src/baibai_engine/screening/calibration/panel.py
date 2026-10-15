@@ -4,7 +4,7 @@
 `build_candidate_contexts`) をそのまま呼ぶことで、リプレイと本番のロジック一致を
 実装の単一性で担保する。相違点は入力の中立化だけ:
 
-- market_context_assessment=None (市場環境判断はannotation であり順位に使わない)
+- 市場環境判断は候補順位の入力にしない
 - 過去の候補集合や判断を過去cohortの順位へ混入させない
 - JPX 規制 flag は保存済みの同日snapshotだけを使い、source不足はdiagnosticsへ残す
 """
@@ -179,7 +179,7 @@ class PanelRow:
     reported_short_latest_disclosed_at: str | None
     # Supply/demand from the exchange's published all-issues margin balances, joined
     # at the publication lag of whichever series published the balance date (see
-    # `sqlite_reader.published_margin_balance_dates`). Axes that use the daily
+    # `storage.observations.reader.published_margin_balance_dates`). Axes that use the daily
     # series' frequency rather than its balances must use separately named
     # calibration fields. Carried on the panel so the axes can be measured against
     # forward returns before any of them is allowed to change a rule.
@@ -192,6 +192,7 @@ class PanelRow:
     margin_long_share: float | None
     margin_long_delta_26w: float | None
     margin_std_long_share: float | None
+    # 保存済み較正panelのwire名。意味はCandidate Discoveryのnomination union所属。
     in_review_set: bool
     valuation_approaches: str
     valuation_approach_ranks: str
@@ -213,9 +214,10 @@ class PanelRow:
     asset_turnover: float | None = None
     # `smg_*` のうち、業種の母数が足りず市場中央値から作られた軸を `|` で並べる。
     # 薄い業種は市場より低倍率へ寄るので、この素性が無いと gap の符号を業種の割安と
-    # 読むか業種構成と読むかを分けられない。metric 名は `metrics.VALUATION_METRICS`
-    # と同じ語彙。空文字は「自業種から答えた」と「そもそも軸を評価していない」の
-    # 両方を取るので、素性は対応する `smg_*` が非 null の行でだけ意味を持つ。
+    # 読むか業種構成と読むかを分けられない。metric 名は
+    # `valuation.metrics.relative.VALUATION_METRICS` と同じ語彙。
+    # 空文字は「自業種から答えた」と「そもそも軸を評価していない」の両方を取る。
+    # 素性は対応する `smg_*` が非 null の行でだけ意味を持つ。
     smg_market_fallback: str = ""
 
 
@@ -228,6 +230,7 @@ class PanelDiagnostics:
     rules_hash: str
     universe_size: int
     population_size: int
+    # 保存済みdiagnosticsのwire名。現行Stock Analysisの件数。
     security_analyses: int
     nominated_candidates: int
     bars_tickers_not_in_master: int

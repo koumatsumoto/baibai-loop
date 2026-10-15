@@ -2,9 +2,9 @@
 
 This is the single physical store (`market.sqlite`): the market price/calendar
 tables and the screening fundamentals/regulation tables share one file, one
-schema version, and one connection path. Market owns the schema so the
-price-data layer can open and validate the store without importing screening,
-while screening reuses the same DDL for its fundamentals tables.
+schema version, and one connection path. Storage observations owns the physical
+schema; market and screening readers share it without importing each other's
+composition or acquisition services.
 
 The cache is rebuilt or replaced explicitly when this contract changes. Runtime
 readers never interpret or migrate an older shape.
@@ -31,7 +31,7 @@ from baibai_engine.external_assessment.tradingview.contract import COLUMNS as TV
 from baibai_engine.external_assessment.tradingview.contract import DDL as TV_DDL
 from baibai_engine.external_assessment.tradingview.contract import TABLE as TV_TABLE
 
-SQLITE_SCHEMA_VERSION = 31
+SQLITE_SCHEMA_VERSION = 32
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
 # EDINET serves a filing's descriptive columns only while its public-inspection period
@@ -160,6 +160,11 @@ _REQUIRED_COLUMNS: Mapping[str, tuple[str, ...]] = {
         "dividend_year_end",
         "dividend_total_annual",
         "average_shares",
+        "record_key",
+        "disclosure_number",
+        "disclosed_time",
+        "document_type",
+        "document_payload",
     ),
     "jquants_master_snapshots": (
         "snapshot_date",
@@ -456,7 +461,12 @@ CREATE TABLE IF NOT EXISTS jquants_fin_summaries(
   -- 引いた株数が壊れていないかを同じ行の中で照合できる。`shares_outstanding` は期末の
   -- 発行済総数で、両者は別の量なので独立した列で持つ。
   average_shares REAL,
-  PRIMARY KEY (ticker, disclosed_at)
+  record_key TEXT NOT NULL DEFAULT 'legacy',
+  disclosure_number TEXT,
+  disclosed_time TEXT,
+  document_type TEXT,
+  document_payload TEXT,
+  PRIMARY KEY (ticker, disclosed_at, record_key)
 );
 
 CREATE TABLE IF NOT EXISTS jquants_master_snapshots(
@@ -781,11 +791,13 @@ def open_connection(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     try:
         if _existing_tables(conn):
-            _upgrade_existing_store(conn)
             validate_current_schema(conn)
         else:
-            conn.executescript(_SCHEMA_SQL)
-            conn.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION}")
+            conn.executescript(
+                "BEGIN IMMEDIATE;\n"
+                + _SCHEMA_SQL
+                + f"\nPRAGMA user_version = {SQLITE_SCHEMA_VERSION};\nCOMMIT;"
+            )
         conn.commit()
         return conn
     except Exception:
@@ -793,27 +805,16 @@ def open_connection(db_path: Path) -> sqlite3.Connection:
         raise
 
 
-def _upgrade_existing_store(conn: sqlite3.Connection) -> None:
-    """Accept only the current store contract."""
-    current = int(conn.execute("PRAGMA user_version").fetchone()[0] or 0)
-    if current == SQLITE_SCHEMA_VERSION:
-        return
-    raise SQLiteSchemaError(
-        "obsolete market SQLite schema; replace it with a current local build "
-        f"(found user_version={current}, expected={SQLITE_SCHEMA_VERSION})"
-    )
-
-
 def connect_current(sqlite_path: Path) -> sqlite3.Connection | None:
     """Open an existing store only when it already matches the current schema.
 
     Returns `None` for a missing/legacy/corrupt file so read helpers degrade to
-    "cache cannot serve this" rather than raising, letting bootstrap/fetch
-    commands populate the missing coverage.
+    "cache cannot serve this" rather than raising. Missing files are never created;
+    initialization or replacement belongs to the explicit writer path.
     """
     conn: sqlite3.Connection | None = None
     try:
-        conn = sqlite3.connect(sqlite_path)
+        conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=rw", uri=True)
         validate_current_schema(conn)
     except (SQLiteSchemaError, sqlite3.Error):
         if conn is not None:

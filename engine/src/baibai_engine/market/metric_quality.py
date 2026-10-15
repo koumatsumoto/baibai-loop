@@ -1,10 +1,7 @@
-"""Quality and provenance labels carried by a derived screening metric.
+"""EDINET metricとStock Analysisで共有する品質・provenanceの語彙。
 
-These values are stored inside EDINET metric rows, so the EDINET extractor's revision
-manifest has to contain whatever defines them. They are also part of Security Analysis,
-which the extraction never reads. Keeping them in a module of their own lets the
-manifest hold the definition without holding the whole analysis model, so an unrelated
-Security Analysis change does not invalidate every stored EDINET metric.
+抽出はStock Analysis modelへ依存しない。保存値の意味を変える場合は
+edinet_metrics/revision.pyの明示的な抽出意味revisionを更新する。
 """
 
 from __future__ import annotations

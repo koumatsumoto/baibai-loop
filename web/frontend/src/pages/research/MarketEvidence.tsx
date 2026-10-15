@@ -38,8 +38,8 @@ export function SecurityMarketContextSection({ context }: { context: SecurityMar
   const peer = relative?.sector
   return <SectionCard padded title="株価と市場・同業との比較" description={`読取の要求日 ${context.as_of}`}>
     <div className="grid gap-5">
-      {price ? <><p className="text-sm">観測日 {price.resolved_date} · 調整値優先の参考終値 <span className="font-mono">{formatNumber(price.close, 2)}円</span></p>
-        <p className="text-xs text-muted-foreground">株式分割調整値を優先した価格騰落で、配当を含みません。Thesis・Pmax・注文の未調整価格とは基準が異なります。</p>
+      {price ? <><p className="text-sm">観測日 {price.resolved_date} · 分割調整済みの参考終値 <span className="font-mono">{formatNumber(price.close, 2)}円</span></p>
+        <p className="text-xs text-muted-foreground">未調整終値に独立した分割係数を適用した価格騰落で、配当を含みません。Stock Assessment・Pmax・注文の未調整価格とは基準が異なります。</p>
         <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4"><Metric label="1日価格騰落" value={pct(price.return_1d)} /><Metric label="5日価格騰落" value={pct(price.return_5d)} /><Metric label="20日価格騰落" value={pct(price.return_20d)} /><Metric label="60日価格騰落" value={pct(price.return_60d)} /></dl>
         <details><summary className="cursor-pointer text-sm">自己範囲・変動・売買代金</summary><dl className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3"><Metric label={`過去${price.self_range_window_bars}本内の位置`} value={pct(price.self_range_percentile)} /><Metric label="52週安値からの乖離" value={pct(price.gap_from_52w_low)} /><Metric label="52週高値からの乖離" value={pct(price.gap_from_52w_high)} /><Metric label="20日実現変動率（年率）" value={pct(price.realized_vol_20d)} /><Metric label="20日平均売買代金" value={price.avg_turnover_20d_oku === null ? '未算出' : `${formatNumber(price.avg_turnover_20d_oku, 2)}億円`} /></dl><p className="mt-3 text-xs text-muted-foreground">株価basis {price.price_basis} · 保存した価格 {price.bar_count}本</p></details>
       </> : <p className="text-sm text-muted-foreground">価格の保存観測はありません。</p>}

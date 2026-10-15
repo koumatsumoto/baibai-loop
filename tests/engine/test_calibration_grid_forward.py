@@ -17,6 +17,7 @@ from baibai_engine.screening.calibration.forward import (
     FailureExit,
     ForwardReturnRow,
     _FYDividendObservation,
+    _load_fy_dividends,
     _ticker_forward_rows,
     compute_forward_returns,
     is_failure_delisting,
@@ -362,6 +363,61 @@ class ForwardReturnTest(unittest.TestCase):
             self.assertEqual(row.total_return_status, "resolved")
             self.assertEqual(row.realized_dividend_sum, 60.0)
             self.assertEqual(row.total_return, 0.06)
+
+    def test_fy_reader_resolves_document_times_and_rejects_ambiguous_corrections(self) -> None:
+        cases = (
+            ("15:00", "16:00", 40.0, 50.0, 50.0),
+            ("16:00", "16:00", 40.0, 50.0, None),
+            (None, "16:00", 40.0, 50.0, None),
+            ("16:00", "16:00", 50.0, 50.0, 50.0),
+            ("15:00", "16:00", 40.0, None, 40.0),
+        )
+        for first_time, second_time, first_dps, second_dps, expected in cases:
+            for reverse in (False, True):
+                with (
+                    self.subTest(times=(first_time, second_time), reverse=reverse),
+                    tempfile.TemporaryDirectory() as tmp,
+                ):
+                    conn = open_connection(Path(tmp) / "market.sqlite")
+                    try:
+                        records = [
+                            ("first", first_time, first_dps),
+                            ("second", second_time, second_dps),
+                        ]
+                        if reverse:
+                            records.reverse()
+                        conn.executemany(
+                            "INSERT INTO jquants_fin_summaries("
+                            "ticker, record_key, disclosed_at, disclosed_time, fiscal_period, "
+                            "fiscal_year_end, dps_actual_annual"
+                            ") VALUES ('1000', ?, '2025-05-15', ?, 'FY', '2025-03-31', ?)",
+                            records,
+                        )
+                        observations = _load_fy_dividends(conn, "1000", cutoff=date(2025, 5, 15))
+                        self.assertEqual(len(observations), 1)
+                        self.assertEqual(observations[0].dps_actual_annual, expected)
+                        self.assertEqual(
+                            _load_fy_dividends(conn, "1000", cutoff=date(2025, 5, 14)), []
+                        )
+                        row = _ticker_forward_rows(
+                            "1000",
+                            [
+                                _bar(date(2025, 1, 31), 1000.0, 1.0),
+                                _bar(date(2026, 1, 31), 1000.0, 1.0),
+                            ],
+                            fy_dividends=observations,
+                            asofs=[date(2025, 1, 31)],
+                            horizons=(HORIZONS["1y"],),
+                            eval_cap=date(2026, 2, 1),
+                        )[0]
+                        self.assertTrue(row.resolved)
+                        self.assertEqual(row.realized_dividend_sum, expected)
+                        self.assertEqual(
+                            row.total_return_status,
+                            "resolved" if expected is not None else "unresolved_missing_dividend",
+                        )
+                    finally:
+                        conn.close()
 
     def test_forward_return_unresolved_beyond_eval_cap(self) -> None:
         bars = [_bar(date(2025, 1, 31), 100.0), _bar(date(2025, 3, 31), 110.0)]
@@ -727,14 +783,10 @@ class ControlEventExitTest(unittest.TestCase):
 
 
 class AdjustmentFactorGuardTest(unittest.TestCase):
-    """The factor guard has never fired on the stored bars, so it is exercised here.
+    """Unknown factors must not produce a resolved dividend or offer-price conversion.
 
-    Every stored bar carries an adjustment factor, which makes `adjustment_factor_coverage`
-    read `complete` on every row the store has ever produced. A check that has only ever
-    been observed passing is not a check that has been shown to work: what it refuses has
-    to be demonstrated, because the quantities behind it — a dividend carried to the final
-    share basis, an offer price placed on the entry's basis — are wrong rather than absent
-    when the factors are unknown.
+    Exercise both missing-factor rejection and complete-factor resolution without
+    assuming that production data always has complete adjustment coverage.
     """
 
     ASOF = date(2020, 1, 31)
@@ -810,12 +862,10 @@ class AdjustmentFactorGuardTest(unittest.TestCase):
 
 
 class FailureExitTest(unittest.TestCase):
-    """A window ended by a failure delisting is a realized loss, not a missing observation.
+    """A qualifying failure delisting uses the last traded close as its exit observation.
 
-    Dropping it removes the left tail from every measured return: at 3y the 516 windows
-    that fall here have a median of -85.7% and a 20% win rate, against +36.6% mean for the
-    windows that resolved. The capital is gone, so no reinvestment convention is needed to
-    price it — the last close the market printed is what the position was worth.
+    This is a market-price convention, not proof of final recovery or a zero terminal
+    value. Dates outside the window and later trading must not be overwritten.
     """
 
     ASOF = date(2025, 1, 31)

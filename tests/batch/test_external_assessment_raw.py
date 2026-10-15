@@ -177,7 +177,7 @@ def test_local_raw_failure_cannot_discard_typed_success(connect, monkeypatch, ca
     assert "private secret" not in error
 
 
-def test_raw_upload_is_outside_typed_deadline_and_never_downloads_per_body(connect, monkeypatch):
+def test_raw_upload_follows_typed_checkpoint_and_never_downloads_per_body(connect, monkeypatch):
     connect(Session([(200, monex_html().encode(), "utf-8")]))
     p, store = plan(), FakeObjectStore()
     original = store.put_file
@@ -185,7 +185,6 @@ def test_raw_upload_is_outside_typed_deadline_and_never_downloads_per_body(conne
     def put(key, path, **kwargs):
         if key.startswith(external_assessment_raw.RAW_PREFIX):
             assert stage(store, p).result.entries[0].state == "success"
-            assert collection.time.monotonic() >= 0
         return original(key, path, **kwargs)
 
     monkeypatch.setattr(store, "put_file", put)

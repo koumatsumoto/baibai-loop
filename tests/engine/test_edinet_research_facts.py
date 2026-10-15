@@ -16,7 +16,7 @@ from baibai_engine.market.edinet_facts.extract import extract_facts
 from baibai_engine.market.edinet_facts.service import annual_documents, extract_edinet_facts_command
 from baibai_engine.market.edinet_facts.store import extraction_status, store_facts
 from baibai_engine.market.edinet_facts.xbrl import SourceFormatError, xml_root
-from baibai_engine.market.providers.edinet import EDINETProviderError
+from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.providers.edinet_facts import EDINETFactsProvider
 from baibai_engine.storage.observations.schema import open_connection
 

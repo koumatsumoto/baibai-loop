@@ -50,8 +50,8 @@ class LakeReadError(RuntimeError):
     """The lake graph does not resolve to one internally consistent release."""
 
 
-# How many rows are converted into Python objects at once. Peak memory follows this
-# number, not the dataset: a decade of daily bars is eight figures of rows.
+# Bound the Python rows converted per fetch. DuckDB's query and sort use additional
+# memory independently of this batch size.
 ROW_BATCH_SIZE = 20_000
 
 type Month = tuple[int, ...]
@@ -118,14 +118,12 @@ def _read_current_pointer(source: LakeObjectSource) -> L1ReleasePointer:
     try:
         payload = source.read_bytes(current_l1_pointer_key())
     except Exception as exc:
-        # The pointer is written by publication, so a mirror that has never published
-        # does not have one. Reporting that as an unreadable object sends the reader
-        # looking for a corrupt file that was never there — and it is the first thing a
-        # local build hits, because a release created locally is named explicitly until
-        # it is published.
+        # A missing pointer is only one cause: access and transport failures also
+        # arrive here. Do not tell an operator to publish over an existing pointer.
         raise LakeReadError(
-            "L1 current pointer is absent; publish a release, or name one with "
-            "--release and --manifest-sha256"
+            "L1 current pointer could not be read; check availability and access. "
+            "If no release has been published, publish one or name a fixed release "
+            "with --release and --manifest-sha256"
         ) from exc
     try:
         pointer = load_lake_model_json(payload, L1ReleasePointer)
@@ -328,8 +326,8 @@ def iter_partition_rows(
     Rows arrive in batches because a dataset here is a decade of daily bars. Turning
     a whole partition set into Python objects at once costs on the order of a
     kilobyte per row and would exhaust memory long before a build finished. DuckDB
-    keeps the result in its own columnar form and ``fetchmany`` converts one batch at
-    a time, so peak memory follows ``batch_size`` rather than the dataset size.
+    executes the query and sort under its own memory limits; ``fetchmany`` bounds
+    the Python row batch, not the query's total memory usage.
     """
 
     if not paths:

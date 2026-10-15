@@ -7,7 +7,6 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 PLAYBOOK_ROOT = ROOT / "method/research/playbooks"
 RESEARCH_SKILL = ROOT / ".agents/skills/research/SKILL.md"
-RESEARCH_TRIAGE_SKILL = ROOT / ".agents/skills/research-triage/SKILL.md"
 
 EXPECTED_ACTIVE_MAPPINGS = {
     "current-earnings-power": "current-earnings-power-research-v1",
@@ -29,6 +28,7 @@ def test_active_research_playbooks_map_explicitly_to_valuation_approaches() -> N
     for path in PLAYBOOK_ROOT.glob("*/*.md"):
         metadata = _frontmatter(path)
         if metadata.get("status") == "active":
+            assert path.parent.name not in active, f"multiple active playbooks: {path.parent}"
             active[path.parent.name] = metadata
 
     assert set(active) == set(EXPECTED_ACTIVE_MAPPINGS)
@@ -44,7 +44,7 @@ def test_research_skill_consumes_only_explicit_approach_applicability() -> None:
     assert "明示mappingされたplaybook" in text
 
 
-def test_research_skill_continues_the_capital_allocation_session() -> None:
+def test_research_skill_completes_the_investment_proposal_session() -> None:
     text = RESEARCH_SKILL.read_text(encoding="utf-8")
     assert "analysis-operations.md#明示開始と固定対象" in text
     assert "--request" in text
@@ -53,5 +53,5 @@ def test_research_skill_continues_the_capital_allocation_session() -> None:
     assert "--operation-id" in text
     assert "record-unfinished" in text
     assert "operation complete --payload" in text
-    assert "人間の採否を完了条件にしない" in text
+    assert "人間の採否・broker操作・実約定を完了条件へ補完しない" in text
     assert "開始時のresearch_triage artifact・exact ref・Research Setを保ったpayload" not in text

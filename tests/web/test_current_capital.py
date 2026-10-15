@@ -1,13 +1,15 @@
 """Reported quantities remain visible without ledger price transcriptions."""
 
 import sqlite3
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
-from tests.engine.test_position_review_v3 import NOW
-from tests.engine.test_position_review_v3 import holding_case as holding_case
+from tests.helpers.db_seed import seed_ledger
+from tests.helpers.ledger import load_portfolio_ledger
+from tests.helpers.screening_sqlite import seed_daily_bars
 
 from baibai_engine.position.drafts import apply_draft, build_sell_execution_draft
 from baibai_engine.position.store import LedgerStoreService
@@ -19,6 +21,26 @@ from baibai_web.sources.db_sources import (
     DbResearchSource,
     DbScreeningSource,
 )
+
+NOW = datetime.fromisoformat("2026-09-07T18:00:00+09:00")
+
+
+@pytest.fixture
+def holding_case(tmp_path):
+    """台帳/市場だけの合成保有fixture。旧評価publicationへ依存しない。"""
+    db, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
+    ledger = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
+    ledger = ledger.model_copy(update={"market_prices": ()})
+    seed_ledger(db, ledger)
+    seed_daily_bars(
+        market,
+        [
+            ("2331", (date(2026, 6, 3) + timedelta(days=i)).isoformat(), 1000.0, 1.0)
+            for i in range(94)
+            if (date(2026, 6, 3) + timedelta(days=i)).weekday() < 5
+        ],
+    )
+    return db, market, ledger
 
 
 @pytest.mark.parametrize("missing", [False, True])
@@ -71,7 +93,7 @@ def test_dashboard_retains_realized_pnl_when_market_price_is_missing(
         ticker="2331",
         quantity=100,
         price_yen=Decimal("1100"),
-        decision_reference="position-review-20260711-2331-position-2331",
+        decision_reference="synthetic-human-sale-note",
     )
     apply_draft(service, draft, human_confirmed=True)
     if missing:

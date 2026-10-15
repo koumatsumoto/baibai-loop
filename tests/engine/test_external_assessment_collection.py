@@ -4,6 +4,7 @@ import json
 import signal
 import stat
 import time
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -322,11 +323,11 @@ def test_cli_import_rejects_missing_or_unmigrated_db_without_bootstrap(
     assert not missing.exists()
     assert json.loads(capsys.readouterr().err)["category"] == "storage_failure"
     old = tmp_path / "old.sqlite"
-    with sqlite3.connect(old) as conn:
+    with closing(sqlite3.connect(old)) as conn, conn:
         conn.execute("CREATE TABLE old_store (value INTEGER)")
     assert cli.main(["import", "--input", str(stage), "--db", str(old)]) == 1
     assert json.loads(capsys.readouterr().err)["category"] == "schema_failure"
-    with sqlite3.connect(old) as conn:
+    with closing(sqlite3.connect(old)) as conn, conn:
         assert conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall() == [
             ("old_store",)
         ]

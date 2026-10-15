@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
 
@@ -117,22 +118,6 @@ def _active_payload(checkpoint: str = "source review") -> OperationPayload:
     )
 
 
-def _complete_payload(kind: SessionKind) -> OperationPayload:
-    values: dict[str, object] = {
-        "checkpoint": "final",
-        "result": "trigger work completed",
-        "next": "wait for the next trigger",
-    }
-    values["human_confirmation"] = {
-        "request": "confirm",
-        "result": "human confirmed",
-    }
-    values["artifacts"] = ({"kind": "review", "summary": "reviewed"},)
-    if kind == "position-review":
-        values["canonical_refs"] = ("position-review-test",)
-    return OperationPayload.model_validate(values)
-
-
 def test_all_kinds_share_one_active_slot_and_no_checkpoint_history(tmp_path: Path) -> None:
     db = tmp_path / "app.sqlite"
     service = OperationService(db)
@@ -153,7 +138,7 @@ def test_all_kinds_share_one_active_slot_and_no_checkpoint_history(tmp_path: Pat
         )
 
     service.checkpoint(operation.operation_id, _active_payload("two"))
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection, connection:
         row = connection.execute(
             "SELECT count(*), json_extract(payload, '$.checkpoint') FROM operation_session"
         ).fetchone()
@@ -227,7 +212,7 @@ def test_no_research_is_readable_history_but_rejected_by_all_writers(
                 invoke()
             assert service.get(operation.operation_id) == operation
     # Seed an already completed row exactly as it was persisted before writer retirement.
-    with connect_rw(db) as connection:
+    with closing(connect_rw(db)) as connection, connection:
         connection.execute(
             "UPDATE operation_session SET status='completed', completed_at=?, payload=? "
             "WHERE operation_id=?",

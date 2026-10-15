@@ -6,6 +6,7 @@ import json
 import sqlite3
 import subprocess
 import sys
+from contextlib import closing
 from datetime import date
 from hashlib import sha256
 
@@ -30,6 +31,9 @@ def test_financial_snapshot_keeps_pre_move_default_json() -> None:
         ocf_ttm=None,
     )
     payload = TypeAdapter(FinancialSnapshot).dump_python(snapshot, mode="json")
+    # v27 adds optional source traces; the previous fields/defaults stay identical.
+    assert payload.pop("earnings_forecast_source") is None
+    assert payload.pop("dividend_forecast_source") is None
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     # 同じ入力からmain 537477c2の元schemaで取得した全field/defaultのJSON。
     assert sha256(encoded.encode()).hexdigest() == (
@@ -74,7 +78,7 @@ def test_market_context_calculation_cold_import_does_not_load_composition_or_io(
 
 def test_price_reader_keeps_nontraded_action_without_inventing_a_price(tmp_path) -> None:
     path = tmp_path / "market.sqlite"
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute(
             "CREATE TABLE jquants_daily_bars "
             "(ticker TEXT, traded_at TEXT, close REAL, adjustment_factor REAL, turnover_value REAL)"

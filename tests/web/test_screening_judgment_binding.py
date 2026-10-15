@@ -105,7 +105,7 @@ def _frozen_entry() -> dict[str, object]:
 
 
 def _source(tmp_path, mocker) -> DbScreeningSource:
-    source = DbScreeningSource(tmp_path / "runs.sqlite")
+    source = DbScreeningSource(tmp_path / "research.sqlite")
     mocker.patch.object(source, "latest_run", return_value=_run())
     return source
 
@@ -115,7 +115,7 @@ def _dependencies(mocker):
     ledger.exists.return_value = False
     research = mocker.Mock()
     research.revisions.return_value = []
-    research.assessments.return_value = []
+    research.proposals.return_value = []
     return ledger, research
 
 

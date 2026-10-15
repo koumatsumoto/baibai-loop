@@ -95,12 +95,12 @@ class ScreeningMetricsTests(SnapshotFixtures):
         financial = result.financials["130A"]
         self_median = result.derived["130A"].self_range_median
 
-        self.assertAlmostEqual(self_median["p_s"] or 0.0, financial.p_s or 0.0, places=6)
-        self.assertAlmostEqual(
-            self_median["ev_ebitda"] or 0.0,
-            financial.ev_ebitda or 0.0,
-            places=6,
-        )
+        assert self_median["p_s"] is not None
+        assert financial.p_s is not None
+        assert self_median["ev_ebitda"] is not None
+        assert financial.ev_ebitda is not None
+        self.assertAlmostEqual(self_median["p_s"], financial.p_s, places=6)
+        self.assertAlmostEqual(self_median["ev_ebitda"], financial.ev_ebitda, places=6)
 
     def test_build_metrics_uses_bars_span_for_short_history_when_established(self) -> None:
         """An established listing (800 days of bars) must not be flagged as short_history."""
@@ -148,8 +148,8 @@ class ScreeningMetricsTests(SnapshotFixtures):
 
     def test_build_metrics_price_change_uses_adjusted_close_across_splits(self) -> None:
         # 2-for-1 split between the 60d-prior date and today:
-        # raw close drops 100 -> 50, but adjustment_close stays 50 on both
-        # ends, so price_change_60d should not register a synthetic decline.
+        # raw close drops 100 -> 50, but the split factor normalizes both
+        # ends to 50, so price_change_60d should not register a synthetic decline.
         asof = date(2026, 4, 24)
         bars = []
         # 分割前 70 sessions は raw=100。adjustment_close はわざと stale

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable, Iterable, Sequence
+from contextlib import closing
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -20,14 +21,14 @@ _CONTRACT_TRIGGERS = (
 )
 
 
-def downgrade_to_previous_schema(database: Path) -> None:
+def downgrade_to_pre_retraction_schema(database: Path) -> None:
     """Rebuild `observations` under the fetch_status domain that preceded 'retracted'.
 
-    Both the merge rollout tests and the store tests need a store one version behind, and
-    a copy in each would have to be edited in step with every schema move.
+    This models schema 5 specifically, not the immediate predecessor of the current
+    schema. Merge rejection and retraction tests share this historical fixture.
     """
 
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         trigger_sql = tuple(
             str(row[0])
             for row in connection.execute(
@@ -196,7 +197,7 @@ def seed_store(path: Path, *records: ObservationRecord) -> None:
 
 __all__ = [
     "SOURCE_URL",
-    "downgrade_to_previous_schema",
+    "downgrade_to_pre_retraction_schema",
     "observation",
     "observations",
     "seed_store",

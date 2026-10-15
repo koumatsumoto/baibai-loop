@@ -58,9 +58,11 @@ class MedianPopulationTests(unittest.TestCase):
             for code in [f"11{i:02d}" for i in range(12)]
         }
         bars_by = {code: bars(code, close=100.0) for code in securities}
-        # Liquid population PERs are all 10 (eps 10); the out-of-population
-        # ticker has PER 100 (eps 1) and would distort the median if included.
-        summaries = {code: [summary(code, eps=10.0)] for code in securities}
+        # Liquid population PERs range from 5 to 15 (median 10). Including
+        # the outsider at PER 100 changes the median to 10.5.
+        summaries = {
+            code: [summary(code, eps=100.0 / (5 + index))] for index, code in enumerate(securities)
+        }
         summaries["1111"] = [summary("1111", eps=1.0)]
         population = frozenset(code for code in securities if code != "1111")
 

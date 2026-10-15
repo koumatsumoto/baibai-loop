@@ -23,7 +23,7 @@ def test_zero_candidate_latest_run_never_falls_back(tmp_path: Path, mocker):
     assert run.run_revision_id == "new"
     assert candidate_rows(run.rows) == ()
     ledger, research = _dependencies(mocker)
-    research.position_reviews.return_value = []
+    research.proposals.return_value = []
     market = mocker.Mock()
     market.security_market_context.return_value = None
     listing = build_screening(source, ledger, research)

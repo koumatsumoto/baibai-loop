@@ -80,3 +80,33 @@ def test_missing_convertible_debt_is_not_reported_zero(cb):
     assert record.ttm_quality_net_cash is (
         TTMQuality.UNAVAILABLE if cb is None else TTMQuality.EXACT
     )
+
+
+@pytest.mark.parametrize("basis", ["個別", "非連結", "non_consolidated"])
+def test_non_consolidated_basis_is_not_matched_as_consolidated(basis):
+    rows = [
+        ("jppfs_cor:CashAndDeposits", "CurrentYearInstant", "連結", "1000"),
+        (_CB, "CurrentYearInstant", "連結", "100"),
+        ("jppfs_cor:CashAndDeposits", "CurrentYearInstant", basis, "9999"),
+        (_CB, "CurrentYearInstant", basis, "900"),
+    ]
+    record = parse_csv_zip_metric_record(
+        ticker="0000", doc_id="S100TEST", doc_type_code="120", content=_csv_zip(rows)
+    )
+    assert record.consolidation_basis == "consolidated"
+    assert record.cash == 1000.0
+    assert record.debt == 100.0
+
+
+@pytest.mark.parametrize("basis", ["個別", "非連結", "non_consolidated"])
+def test_only_non_consolidated_rows_keep_fallback_identity(basis):
+    rows = [
+        ("jppfs_cor:CashAndDeposits", "CurrentYearInstant", basis, "1000"),
+        (_CB, "CurrentYearInstant", basis, "100"),
+    ]
+    record = parse_csv_zip_metric_record(
+        ticker="0000", doc_id="S100TEST", doc_type_code="120", content=_csv_zip(rows)
+    )
+    assert record.consolidation_basis == "non_consolidated"
+    assert record.net_cash == 900.0
+    assert "non_consolidated_fallback" in record.failure_reasons

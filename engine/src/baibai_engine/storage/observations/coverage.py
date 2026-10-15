@@ -6,7 +6,6 @@ import sqlite3
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from itertools import pairwise
-from typing import Any
 
 _DELETE_DATE_RANGE_SQL = {
     ("jquants_daily_bars", "traded_at"): (
@@ -363,7 +362,6 @@ def record_source_coverage(
     error: str | None = None,
     fetched_at_utc: str | None = None,
     replace: bool = True,
-    **_: Any,
 ) -> None:
     """Record the minimal provider coverage needed for preflight checks."""
     conflict_action = "REPLACE" if replace else "IGNORE"
@@ -459,9 +457,10 @@ def range_covered(conn: sqlite3.Connection, source: str, start: date, end: date)
 
     Used for fetch-provenance sources (financial summaries, market calendar)
     whose completeness cannot be re-derived from row presence: a missing filing
-    is indistinguishable from "no filing was due". jquants_daily_bars is instead
-    checked by `daily_bars_covered_by_data`, because every trading day must carry
-    a full-market row set, so its completeness IS observable from the data.
+    is indistinguishable from "no filing was due". jquants_daily_bars uses
+    `daily_bars_covered_by_data` instead: that heuristic
+    checks the span and gaps of dates present, not completeness of each trading
+    day or of every security within a date.
     """
     return any(
         interval_start <= start and interval_end >= end
@@ -498,11 +497,11 @@ def missing_intervals(
     return tuple(gaps)
 
 
-# daily_bars completeness is derived from the actual rows (the single source of
-# truth), not source_coverage. Every trading day carries a full-market row set,
-# so a genuinely missing window shows up as a gap between present dates, while an
-# interrupted fetch that left source_coverage holes but already wrote the rows
-# must not trigger a re-fetch of data we hold. The natural gaps are weekends, the
+# daily_bars fetch reuse is based on distinct stored dates, not source_coverage.
+# This detects long gaps but cannot prove every expected trading day or ticker is
+# present: a short missing run can fit inside the tolerances below. Reusing dates
+# avoids re-fetching a broad history solely because its bookkeeping is missing.
+# The natural gaps are weekends, the
 # Golden Week / New Year closures, and the ten consecutive closed days of the 2019
 # imperial transition, which puts eleven days between two trading days.
 #
@@ -521,10 +520,10 @@ _DAILY_BARS_COVERAGE_QUERY = (
 
 
 def daily_bars_covered_by_data(conn: sqlite3.Connection, start: date, end: date) -> bool:
-    """True when the daily_bars rows themselves span `[start, end]`.
+    """Whether stored dates satisfy the daily-bars fetch-reuse heuristic.
 
-    Aggregates the actual table rather than consulting source_coverage, so data
-    already saved is never re-fetched even when its bookkeeping row is missing.
+    Aggregates distinct dates rather than consulting source_coverage. A positive
+    result avoids a broad re-fetch; it is not evidence of full-market row coverage.
     Covered means present trading dates reach both ends (within an edge
     tolerance) with no internal gap wider than a market holiday run.
     """

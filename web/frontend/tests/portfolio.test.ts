@@ -17,8 +17,8 @@ function holding(overrides: Partial<HoldingView>): HoldingView {
     unrealized_pnl_pct: 10,
     pmax_raw_yen: null,
     pmax_gap_pct: null,
-    latest_thesis_id: null,
-    disposition: null,
+    latest_assessment_id: null,
+    stance: null,
     next_earnings_date: null,
     ...overrides,
   }

@@ -44,13 +44,18 @@ from baibai_web.readmodel.builders import (
 from baibai_web.readmodel.market_context import build_indicator_series, build_market_context
 from baibai_web.readmodel.models import DashboardView, MetaBatch, ScreeningView
 from baibai_web.readmodel.stocks import (
-    build_assessment_detail,
     build_screening,
     build_screening_history_run,
     build_security_detail,
     prepare_security_inputs,
 )
-from baibai_web.readmodel.stocks.research import build_assessment_list
+from baibai_web.readmodel.stocks.research import (
+    build_proposal_detail,
+    build_proposal_list,
+    build_proposal_preview,
+    build_stock_assessment_detail,
+    build_stock_assessment_list,
+)
 from baibai_web.sources.db_sources import DbLedgerSource, DbResearchSource, DbScreeningSource
 from baibai_web.sources.factory import build_sources
 from baibai_web.sources.protocols import LedgerSource, ResearchSource
@@ -155,9 +160,12 @@ def export_read_models(
 
     written.append(
         _write_model(
-            views_dir / "capital-allocation-assessments.json",
-            build_assessment_list(stores.research),
+            views_dir / "stock-assessments.json",
+            build_stock_assessment_list(stores.research),
         )
+    )
+    written.append(
+        _write_model(views_dir / "investment-proposals.json", build_proposal_list(stores.research))
     )
     known_at = datetime.now(_JST)
     as_of = prepared_security.today
@@ -180,52 +188,58 @@ def export_read_models(
     for context in stores.market_context.assessment_history():
         context_id = str(context["context_id"])
         if _MARKET_CONTEXT_ASSESSMENT_ID_FORMAT.fullmatch(context_id) is None:
-            _warn(f"assessment context_id has an unexpected format: {context_id!r}; view skipped")
-            continue
-        try:
-            detail = build_market_context_assessment_detail(
-                stores.market_context, context_id=context_id, as_of=as_of
+            raise ValueError(
+                f"indexed assessment context_id has an unexpected format: {context_id!r}"
             )
-        except ValueError as error:
-            # A not-yet-eligible (future as_of) revision is 404 on the API too; skip it
-            # rather than fail the whole batch.
-            _warn(f"assessment view skipped for {context_id!r}: {error}")
-            continue
+        # Exact-ID history is independent of the current analytical cutoff. Every
+        # indexed publication must remain readable for this export to be complete.
+        detail = build_market_context_assessment_detail(
+            stores.market_context, context_id=context_id, as_of=as_of
+        )
         written.append(
             _write_model(views_dir / f"market-context-assessment--{context_id}.json", detail)
         )
 
-    # The screening index is deliberately current-only, but the detail API accepts
-    # every immutable assessment ID. Export from the canonical assessment store so a
-    # completed cycle stays addressable after a newer screening run becomes current.
-    for raw_assessment in stores.research.assessments():
-        capital_allocation_assessment_id = str(raw_assessment["capital_allocation_assessment_id"])
-        if _ASSESSMENT_ID_FORMAT.fullmatch(capital_allocation_assessment_id) is None:
-            _warn(
-                "capital_allocation_assessment_id has an unexpected format: "
-                f"{capital_allocation_assessment_id!r}; view skipped"
-            )
-            continue
-        assessment = build_assessment_detail(
-            stores.research, capital_allocation_assessment_id=capital_allocation_assessment_id
-        )
-        if assessment is None:  # pragma: no cover - the index comes from the same store
-            _warn(
-                "capital allocation assessment view is unavailable for "
-                f"{capital_allocation_assessment_id!r}; skipped"
-            )
-            continue
-        assessment_id = capital_allocation_assessment_id
+    # Immutable exact publications remain addressable after the current analysis or
+    # assessment revision changes. Current calculations get their own timestamped view.
+    for revision in stores.research.revisions():
+        assessment_id = revision.assessment_id
+        if _ASSESSMENT_ID_FORMAT.fullmatch(assessment_id) is None:
+            raise ValueError(f"assessment_id has an unexpected format: {assessment_id!r}")
+        stock_detail = build_stock_assessment_detail(stores.research, assessment_id=assessment_id)
+        if stock_detail is None:
+            raise ValueError(f"indexed Stock Assessment is unavailable: {assessment_id}")
         written.append(
-            _write_model(
-                views_dir / f"capital-allocation-assessment--{assessment_id}.json",
-                assessment,
-            )
+            _write_model(views_dir / f"stock-assessment--{assessment_id}.json", stock_detail)
+        )
+
+    for publication in stores.research.proposals():
+        proposal_id = str(publication["proposal_id"])
+        if _ASSESSMENT_ID_FORMAT.fullmatch(proposal_id) is None:
+            raise ValueError(f"proposal_id has an unexpected format: {proposal_id!r}")
+        proposal = build_proposal_detail(stores.research, proposal_id=proposal_id)
+        if proposal is None:
+            raise ValueError(f"indexed Investment Proposal is unavailable: {proposal_id}")
+        written.append(
+            _write_model(views_dir / f"investment-proposal--{proposal_id}.json", proposal)
+        )
+        preview = build_proposal_preview(
+            stores.research,
+            proposal_id=proposal_id,
+            sqlite_path=stores.market_db_path,
+            now=known_at,
+        )
+        if preview is None:
+            raise ValueError(f"indexed Investment Proposal preview is unavailable: {proposal_id}")
+        written.append(
+            _write_model(views_dir / f"investment-proposal-preview--{proposal_id}.json", preview)
         )
 
     tickers = sorted(
         set(_security_tickers(dashboard, screening))
         | {item.ticker for item in screening.external_assessment_securities}
+        | set(prepared_security.revisions)
+        | set(prepared_security.proposals)
     )
     for ticker in tickers:
         if _TICKER_FORMAT.fullmatch(ticker) is None:
@@ -284,15 +298,15 @@ class _CachedResearchSource(DbResearchSource):
         return self._revisions
 
     @cached_property
-    def _assessments(self) -> list[dict[str, object]]:
-        return super().assessments()
+    def _proposals(self) -> list[dict[str, object]]:
+        return super().proposals()
 
-    def assessments(self) -> list[dict[str, object]]:
-        return self._assessments
+    def proposals(self) -> list[dict[str, object]]:
+        return self._proposals
 
 
 def _security_tickers(dashboard: DashboardView, screening: ScreeningView) -> list[str]:
-    """Enumerate holdings, latest-run analyses, and Research Triage tickers."""
+    """Enumerate holdings and latest-run analyses; published Research is added by caller."""
 
     tickers = {holding.ticker for holding in dashboard.holdings}
     tickers.update(row.ticker for row in screening.stock_analyses)
@@ -319,8 +333,8 @@ def _write_history(
             research,
             as_of=screening_as_of,
         )
-        if history is None:  # pragma: no cover - date index and exact lookup share one store
-            continue
+        if history is None:
+            raise ValueError(f"indexed Screening history is unavailable: {screening_as_of}")
         written.append(
             _write_model(
                 output_dir / "history/candidate-views" / f"{screening_as_of.isoformat()}.json",

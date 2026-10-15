@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -111,7 +112,7 @@ def test_validate_store_rejects_invalid_registry_generation_state(
     database = tmp_path / "indicators.sqlite"
     definition = _definition()
     _build_store(database, definition)
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute(mutation)
 
     with pytest.raises(IndicatorsSchemaError, match=message):
@@ -165,6 +166,7 @@ def test_validate_store_reads_without_modifying_or_creating_sidecars(
     definition = _definition()
     _build_store(database, definition)
     before = database.stat()
+    before_bytes = database.read_bytes()
 
     report = validate_store(
         database,
@@ -176,6 +178,7 @@ def test_validate_store_reads_without_modifying_or_creating_sidecars(
     assert report.schema_version == SQLITE_SCHEMA_VERSION
     assert report.observations == 1
     assert (after.st_size, after.st_mtime_ns) == (before.st_size, before.st_mtime_ns)
+    assert database.read_bytes() == before_bytes
     assert not Path(f"{database}-wal").exists()
     assert not Path(f"{database}-shm").exists()
     assert not Path(f"{database}-journal").exists()
@@ -185,7 +188,7 @@ def test_validate_store_refuses_a_store_on_another_schema(tmp_path: Path) -> Non
     database = tmp_path / "indicators.sqlite"
     definition = _definition()
     _build_store(database, definition)
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
 
     with pytest.raises(IndicatorsSchemaError, match="unsupported indicator SQLite schema"):
@@ -194,7 +197,7 @@ def test_validate_store_refuses_a_store_on_another_schema(tmp_path: Path) -> Non
 
 def _publish_report(path: Path) -> StoredAssessment:
     document = StoredAssessment.from_payload(historical_context_payload())
-    seed_history(path, (document).document, supersedes=None)
+    seed_history(path, document.document, supersedes=None)
     return document
 
 
@@ -236,7 +239,7 @@ def test_validate_published_contexts_fails_when_a_stored_revision_cannot_be_read
     initialize_application_database(application_db)
     payload = historical_context_payload()
     del payload["summary"]
-    with sqlite3.connect(application_db) as connection:
+    with closing(sqlite3.connect(application_db)) as connection, connection:
         connection.execute(
             "INSERT INTO market_context_assessment (context_id, schema_version, as_of, published_at, "
             "supersedes_id, payload) VALUES (?, ?, ?, ?, NULL, ?)",
@@ -266,7 +269,7 @@ def test_main_reports_both_stores_and_fails_on_an_unreadable_revision(
     initialize_application_database(application_db)
     payload = historical_context_payload()
     payload["summary"] = "  "
-    with sqlite3.connect(application_db) as connection:
+    with closing(sqlite3.connect(application_db)) as connection, connection:
         connection.execute(
             "INSERT INTO market_context_assessment (context_id, schema_version, as_of, published_at, "
             "supersedes_id, payload) VALUES (?, ?, ?, ?, NULL, ?)",

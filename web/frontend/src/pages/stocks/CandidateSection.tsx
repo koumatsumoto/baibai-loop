@@ -21,8 +21,7 @@ function percent(value: number | null): string {
 function earningsStatusLabel(status: string | null): string | null {
   switch (status) {
     case 'scheduled': return '決算予定'
-    case 'scheduled_date_reached':
-    case 'announced': return '予定日到来・経過（発表未確認）'
+    case 'scheduled_date_reached': return '予定日到来・経過（発表未確認）'
     case 'estimated': return '次回予定推定'
     case 'unknown': return '予定未確認'
     case null: return null
@@ -31,16 +30,14 @@ function earningsStatusLabel(status: string | null): string | null {
 }
 
 function entryNotes(entry: StockAnalysisRowView) {
-  const quality = entry
-  const context = entry
   const flags = [
-    quality.stale_fin_flag === true ? '予定日到来・財務未照合' : null,
-    quality.bs_carry_forward_fields,
-    quality.edinet_failure_reasons,
-    earningsStatusLabel(context.next_earnings_status),
-    context.tse_capital_policy_status,
-    context.large_holding_filing_within_lookback === true ? 'large_holding_filing' : null,
-    context.tender_offer_filing_within_lookback === true ? 'tender_offer_filing' : null,
+    entry.stale_fin_flag === true ? '予定日到来・財務未照合' : null,
+    entry.bs_carry_forward_fields,
+    entry.edinet_failure_reasons,
+    earningsStatusLabel(entry.next_earnings_status),
+    entry.tse_capital_policy_status,
+    entry.large_holding_filing_within_lookback === true ? 'large_holding_filing' : null,
+    entry.tender_offer_filing_within_lookback === true ? 'tender_offer_filing' : null,
   ].filter((item): item is string => item !== null && item !== '')
   return flags.length === 0 ? <span className="text-muted-foreground">{EMPTY}</span> : (
     <div className="flex max-w-72 flex-wrap gap-1">
@@ -61,60 +58,51 @@ function FrozenGroup({ title, fields }: { title: string; fields: readonly (reado
 }
 
 function FrozenAnalysis({ analysis }: { analysis: StockAnalysisRowView }) {
-  const identity = analysis
-  const valuation = analysis
-  const current = analysis
-  const normalized = analysis
-  const asset = analysis
-  const reinvestment = analysis
-  const expected = analysis
-  const quality = analysis
-  const context = analysis
   return (
     <div className="grid gap-5 py-3">
       <FrozenGroup fields={[
-        ['market cap', `${number(identity.market_cap_oku)} 億円`], ['ADV (context)', `${number(identity.avg_turnover_oku)} 億円`],
-        ['listing span', `${number(identity.listing_span_days, 0)} 日`], ['JPX flags', identity.jpx_flags?.join(', ') || EMPTY],
+        ['market cap', `${number(analysis.market_cap_oku)} 億円`], ['ADV (context)', `${number(analysis.avg_turnover_oku)} 億円`],
+        ['listing span', `${number(analysis.listing_span_days, 0)} 日`], ['JPX flags', analysis.jpx_flags?.join(', ') || EMPTY],
       ]} title="Identity / liquidity" />
       <FrozenGroup fields={[
-        ['PER forward', number(valuation.per_forward)], ['PER trailing', number(valuation.per_trailing)], ['PBR', number(valuation.pbr)],
-        ['EV/EBITDA', number(valuation.ev_ebitda)], ['P/S', number(valuation.p_s)], ['PCFR', number(valuation.pcfr)],
+        ['PER forward', number(analysis.per_forward)], ['PER trailing', number(analysis.per_trailing)], ['PBR', number(analysis.pbr)],
+        ['EV/EBITDA', number(analysis.ev_ebitda)], ['P/S', number(analysis.p_s)], ['PCFR', number(analysis.pcfr)],
       ]} title="Valuation" />
       <FrozenGroup fields={[
-        ['FCF yield', percent(current.fcf_yield)], ['OCF yield', percent(current.ocf_yield)],
-        ['special gain flag', String(current.forecast_special_gain_flag ?? EMPTY)], ['full-year loss flag', String(current.forecast_full_year_loss_flag ?? EMPTY)],
+        ['FCF yield', percent(analysis.fcf_yield)], ['OCF yield', percent(analysis.ocf_yield)],
+        ['special gain flag', String(analysis.forecast_special_gain_flag ?? EMPTY)], ['full-year loss flag', String(analysis.forecast_full_year_loss_flag ?? EMPTY)],
       ]} title="Current earnings" />
       <FrozenGroup fields={[
-        ['3FY平均EPSベースPER', number(normalized.normalized_per_3fy)], ['sector gap', number(normalized.candidate.normalized_per_3fy_sector_gap)],
+        ['3FY平均EPSベースPER', number(analysis.normalized_per_3fy)], ['sector gap', number(analysis.candidate.normalized_per_3fy_sector_gap)],
       ]} title="3FY平均EPS" />
       <FrozenGroup fields={[
-        ['asset-backed ratio', percent(asset.asset_backed_ratio)], ['Net cash / MC', percent(asset.net_cash_to_market_cap)],
-        ['investment securities', number(asset.investment_securities)], ['equity ratio', percent(asset.equity_ratio)],
+        ['asset-backed ratio', percent(analysis.asset_backed_ratio)], ['Net cash / MC', percent(analysis.net_cash_to_market_cap)],
+        ['investment securities', number(analysis.investment_securities)], ['equity ratio', percent(analysis.equity_ratio)],
       ]} title="Asset value" />
       <FrozenGroup fields={[
-        ['P/S sector gap', number(reinvestment.p_s_sector_gap)], ['capital return proxy', percent(reinvestment.operating_return_on_capital_proxy)],
-        ['sales YoY', percent(reinvestment.sales_yoy)], ['operating margin', percent(reinvestment.operating_margin)], ['FCF yield', percent(reinvestment.fcf_yield)],
+        ['P/S sector gap', number(analysis.p_s_sector_gap)], ['capital return proxy', percent(analysis.operating_return_on_capital_proxy)],
+        ['sales YoY', percent(analysis.sales_yoy)], ['operating margin', percent(analysis.operating_margin)], ['FCF yield', percent(analysis.fcf_yield)],
       ]} title="Reinvestment" />
       <FrozenGroup fields={[
-        ['machine E[r] annual', percent(expected.er_annual)], ['reversion', percent(expected.er_reversion_annual)], ['carry', percent(expected.er_carry_annual)],
-        ['配当利回り入力', expected.dividend_yield == null ? '未観測・未記録' : percent(expected.dividend_yield)],
-        ['配当basis', expected.dividend_basis ?? '未記録'],
-        ['発行済株式数YoY入力', expected.net_share_change_yoy == null ? '未観測・未記録' : percent(expected.net_share_change_yoy)],
-        ['carryの欠測', expected.carry_missing_assumption == null ? 'この保存snapshotには仮定の記録がありません。' : '欠測の成分は計算上0寄与。無配・株数不変の確認ではありません。'],
-        ['機械・業種中央値 anchor', `${number(expected.fv_sector_median_yen, 0)} 円`], ['機械・自己レンジ anchor', `${number(expected.fv_self_range_yen, 0)} 円`],
-        ['origin', expected.er_origin ?? EMPTY], ['model', expected.er_model_version ?? EMPTY], ['unit', expected.er_unit ?? EMPTY], ['assumptions', expected.er_assumptions ?? EMPTY],
+        ['machine E[r] annual', percent(analysis.er_annual)], ['reversion', percent(analysis.er_reversion_annual)], ['carry', percent(analysis.er_carry_annual)],
+        ['配当利回り入力', analysis.dividend_yield == null ? '未観測・未記録' : percent(analysis.dividend_yield)],
+        ['配当basis', analysis.dividend_basis ?? '未記録'],
+        ['発行済株式数YoY入力', analysis.net_share_change_yoy == null ? '未観測・未記録' : percent(analysis.net_share_change_yoy)],
+        ['carryの欠測', analysis.carry_missing_assumption == null ? 'この保存snapshotには仮定の記録がありません。' : '欠測の成分は計算上0寄与。無配・株数不変の確認ではありません。'],
+        ['機械・業種中央値 anchor', `${number(analysis.fv_sector_median_yen, 0)} 円`], ['機械・自己レンジ anchor', `${number(analysis.fv_self_range_yen, 0)} 円`],
+        ['origin', analysis.er_origin ?? EMPTY], ['model', analysis.er_model_version ?? EMPTY], ['unit', analysis.er_unit ?? EMPTY], ['assumptions', analysis.er_assumptions ?? EMPTY],
       ]} title="Machine return prior (secondary context)" />
       <FrozenGroup fields={[
-        ['BS carry fields', quality.bs_carry_forward_fields ?? EMPTY], ['BS carry lag', `${number(quality.bs_carry_forward_lag_days, 0)} 日`],
-        ['EDINET failures', quality.edinet_failure_reasons ?? EMPTY], ['予定日到来・財務未照合', String(quality.stale_fin_flag ?? EMPTY)],
-        ...(quality.ttm_quality_ev_ebitda && quality.ttm_quality_ev_ebitda !== 'exact' ? [['EV/EBITDA TTM', quality.ttm_quality_ev_ebitda] as const] : []),
-        ...(quality.ttm_quality_fcf && quality.ttm_quality_fcf !== 'exact' ? [['FCF TTM', quality.ttm_quality_fcf] as const] : []),
+        ['BS carry fields', analysis.bs_carry_forward_fields ?? EMPTY], ['BS carry lag', `${number(analysis.bs_carry_forward_lag_days, 0)} 日`],
+        ['EDINET failures', analysis.edinet_failure_reasons ?? EMPTY], ['予定日到来・財務未照合', String(analysis.stale_fin_flag ?? EMPTY)],
+        ...(analysis.ttm_quality_ev_ebitda && analysis.ttm_quality_ev_ebitda !== 'exact' ? [['EV/EBITDA TTM', analysis.ttm_quality_ev_ebitda] as const] : []),
+        ...(analysis.ttm_quality_fcf && analysis.ttm_quality_fcf !== 'exact' ? [['FCF TTM', analysis.ttm_quality_fcf] as const] : []),
       ]} title="Data quality" />
       <FrozenGroup fields={[
-        ['決算予定の状態', earningsStatusLabel(context.next_earnings_status) ?? EMPTY], ['次回予定推定日', context.next_earnings_estimated_date ?? EMPTY],
-        ['margin short / ADV', number(context.margin_short_to_adv)], ['TSE capital policy', context.tse_capital_policy_status ?? EMPTY],
-        ['large holding filing', String(context.large_holding_filing_within_lookback ?? EMPTY)],
-        ['tender offer filing', String(context.tender_offer_filing_within_lookback ?? EMPTY)],
+        ['決算予定の状態', earningsStatusLabel(analysis.next_earnings_status) ?? EMPTY], ['次回予定推定日', analysis.next_earnings_estimated_date ?? EMPTY],
+        ['margin short / ADV', number(analysis.margin_short_to_adv)], ['TSE capital policy', analysis.tse_capital_policy_status ?? EMPTY],
+        ['large holding filing', String(analysis.large_holding_filing_within_lookback ?? EMPTY)],
+        ['tender offer filing', String(analysis.tender_offer_filing_within_lookback ?? EMPTY)],
       ]} title="Context" />
     </div>
   )

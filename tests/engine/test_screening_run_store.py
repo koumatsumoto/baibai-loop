@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from dataclasses import asdict
 from datetime import date, datetime
 from pathlib import Path
@@ -10,6 +11,7 @@ import pytest
 import yaml
 from tests.engine.test_candidate_discovery import GOLDEN, _analysis
 
+from baibai_engine.read_api.screening import previous_run_revision_id
 from baibai_engine.screening.discovery.contracts import APPROACH_IDS
 from baibai_engine.screening.discovery.projection import candidate_rows
 from baibai_engine.screening.rule_config import load_screening_rules
@@ -22,6 +24,7 @@ from baibai_engine.screening.run_store import (
     connect_read_only,
     initialize_run_store,
 )
+from baibai_engine.screening.run_store import store as run_store
 from baibai_engine.screening.run_store.read import stored_run_page
 from baibai_engine.screening.run_store.schema import RUN_STORE_SCHEMA_VERSION
 from baibai_engine.screening.schema import ScreeningRunDocument, StockAnalysis
@@ -445,3 +448,91 @@ def test_research_cutoff_compares_offset_equivalent_timestamps(tmp_path: Path) -
     run = reader.analysis_run(as_of=date(2026, 10, 14), known_at=known_at)
     assert run is not None
     assert run.run_revision_id == "zz-utc"
+
+
+@pytest.fixture
+def precise_clock_runs(tmp_path):
+    path = tmp_path / "runs.sqlite"
+    revisions = [
+        "run-revision-ffffffff-ffff-4fff-bfff-ffffffffffff",
+        "run-revision-00000000-0000-4000-8000-000000000001",
+        "run-revision-00000000-0000-4000-8000-000000000000",
+    ]
+    clocks = [
+        "2026-10-14T12:00:00.000400+09:00",
+        "2026-10-14T03:00:00.000401+00:00",
+        "2026-10-14T12:00:00.000402+09:00",
+    ]
+    for revision, clock in zip(revisions, clocks, strict=True):
+        _publish(path, _run(at=clock), revision=revision)
+    return path, revisions, clocks
+
+
+@pytest.mark.parametrize(
+    "query", ["latest_run", "latest_run_on", "valuation_run", "analysis_run", "list_runs"]
+)
+def test_run_readers_use_the_same_exact_instant_order(precise_clock_runs, query):
+    path, revisions, clocks = precise_clock_runs
+    reader = ScreeningRunReader(path)
+    before = path.read_bytes()
+    arguments = {}
+    if query in {"latest_run_on", "valuation_run", "analysis_run"}:
+        arguments["as_of"] = date(2026, 10, 14)
+    if query == "analysis_run":
+        arguments["known_at"] = datetime.fromisoformat(clocks[-1])
+    result = getattr(reader, query)(**arguments)
+    if query == "list_runs":
+        assert [run.run_revision_id for run in result] == list(reversed(revisions))
+        assert [run.run_at for run in result] == list(reversed(clocks))
+    else:
+        assert result.run_revision_id == revisions[-1]
+        assert result.run_at == clocks[-1]
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("full", [False, True])
+def test_run_cursor_pages_preserve_exact_instant_order(precise_clock_runs, full):
+    path, revisions, clocks = precise_clock_runs
+    before = path.read_bytes()
+    rows, cursor = [], None
+    with connect_read_only(path) as connection:
+        for _ in range(4):
+            page = stored_run_page(
+                connection, kind="screening_run", filters={}, after=cursor, limit=1, full=full
+            )
+            if not page:
+                break
+            rows.extend(page)
+            last = page[-1]
+            cursor = [last["asof_date"], last["page_time"], last["run_revision_id"]]
+    assert [row["run_revision_id"] for row in rows] == revisions
+    assert [row["run_at"] for row in rows] == clocks
+    assert path.read_bytes() == before
+
+
+def test_prune_keeps_the_exact_latest_instants_without_rewriting_clocks(precise_clock_runs):
+    path, revisions, clocks = precise_clock_runs
+    result = ScreeningRunStore(path).prune(keep=2)
+    assert result.deleted_runs == result.deleted_stock_analyses == 1
+    with sqlite3.connect(path) as connection:
+        retained = dict(connection.execute("SELECT run_revision_id, run_at FROM screening_run"))
+    assert retained == dict(zip(revisions[1:], clocks[1:], strict=True))
+
+
+def test_previous_run_facade_preserves_exact_instant_order(precise_clock_runs):
+    path, revisions, _ = precise_clock_runs
+    before = path.read_bytes()
+    assert previous_run_revision_id(path, date(2026, 10, 15)) == revisions[-1]
+    assert path.read_bytes() == before
+
+
+def test_initialization_failure_rolls_back_run_schema_and_can_retry(tmp_path, monkeypatch):
+    path = tmp_path / "runs.sqlite"
+    with monkeypatch.context() as patch:
+        patch.setattr(run_store, "SCHEMA_SQL", run_store.SCHEMA_SQL + "\nINVALID SQL;")
+        with pytest.raises(sqlite3.OperationalError):
+            initialize_run_store(path)
+    with closing(sqlite3.connect(path)) as connection:
+        assert connection.execute("SELECT name FROM sqlite_schema").fetchall() == []
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 0
+    assert initialize_run_store(path) == RUN_STORE_SCHEMA_VERSION

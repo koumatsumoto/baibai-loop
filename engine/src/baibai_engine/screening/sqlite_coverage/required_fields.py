@@ -14,46 +14,72 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
+from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent
+from baibai_engine.market.jquants_models import JQuantsFinancialSummary
+from baibai_engine.storage.observations.reader import read_financial_documents
+from baibai_engine.valuation.metrics.capital import (
+    _normalize_summaries_with_status,
+    _resolve_capital_basis,
+)
+from baibai_engine.valuation.metrics.periods import _latest_non_null_row
+
 from .common_stock import COMMON_STOCK_SNAPSHOT_SQL, scope_parameters
 from .shared import CacheCoverageIssue
 
 REQUIRED_FIELD_MIN_POPULATION_RATIO = 0.75
 
-_REQUIRED_FIELD_VALUES_CTE = (
-    f"WITH p AS ({COMMON_STOCK_SNAPSHOT_SQL}), x AS ("  # nosec B608
-    "SELECT p.ticker, "
-    "EXISTS (SELECT 1 FROM jquants_fin_summaries s WHERE s.ticker = p.ticker "
-    "AND s.disclosed_at BETWEEN :start AND :end) AS has_summary, "
-    "(SELECT s.shares_outstanding FROM jquants_fin_summaries s "
-    "WHERE s.ticker = p.ticker AND s.disclosed_at BETWEEN :start AND :end "
-    "AND s.shares_outstanding IS NOT NULL ORDER BY s.disclosed_at DESC LIMIT 1) AS shares, "
-    "(SELECT s.disclosed_at FROM jquants_fin_summaries s "
-    "WHERE s.ticker = p.ticker AND s.disclosed_at BETWEEN :start AND :end "
-    "AND s.shares_outstanding IS NOT NULL ORDER BY s.disclosed_at DESC LIMIT 1) AS shares_date, "
-    "(SELECT s.treasury_shares FROM jquants_fin_summaries s "
-    "WHERE s.ticker = p.ticker AND s.disclosed_at BETWEEN :start AND :end "
-    "AND s.treasury_shares IS NOT NULL ORDER BY s.disclosed_at DESC LIMIT 1) AS treasury, "
-    "(SELECT s.disclosed_at FROM jquants_fin_summaries s "
-    "WHERE s.ticker = p.ticker AND s.disclosed_at BETWEEN :start AND :end "
-    "AND s.treasury_shares IS NOT NULL ORDER BY s.disclosed_at DESC LIMIT 1) AS treasury_date, "
-    "(SELECT s.equity_to_asset_ratio FROM jquants_fin_summaries s "
-    "WHERE s.ticker = p.ticker AND s.disclosed_at BETWEEN :start AND :end "
-    "AND s.equity_to_asset_ratio IS NOT NULL ORDER BY s.disclosed_at DESC LIMIT 1) "
-    "AS equity_ratio FROM p), y AS (SELECT x.*, "
-    "shares / COALESCE((SELECT EXP(SUM(LN(b.adjustment_factor))) "
-    "FROM jquants_daily_bars b WHERE b.ticker = x.ticker "
-    "AND b.traded_at > x.shares_date AND b.traded_at <= :asof "
-    "AND b.adjustment_factor NOT IN (0.0, 1.0)), 1.0) AS shares_asof, "
-    "treasury / COALESCE((SELECT EXP(SUM(LN(b.adjustment_factor))) "
-    "FROM jquants_daily_bars b WHERE b.ticker = x.ticker "
-    "AND b.traded_at > x.treasury_date AND b.traded_at <= :asof "
-    "AND b.adjustment_factor NOT IN (0.0, 1.0)), 1.0) AS treasury_asof FROM x) "
-)
 
-_MARKET_CAP_FIELDS_USABLE = (
-    "shares_asof IS NOT NULL AND treasury_asof IS NOT NULL AND shares_asof > treasury_asof "
-    "AND (treasury_asof = 0 OR shares_date = treasury_date)"
-)
+@dataclass(frozen=True, slots=True)
+class _RequiredFieldValues:
+    has_summary: bool
+    shares: bool
+    treasury: bool
+    equity_ratio: bool
+    market_cap: bool
+    dates: tuple[date, ...]
+
+
+def _required_field_values(
+    conn: sqlite3.Connection, *, start: date, asof: date
+) -> dict[str, _RequiredFieldValues]:
+    population = {
+        str(row[0]) for row in conn.execute(COMMON_STOCK_SNAPSHOT_SQL, scope_parameters(asof))
+    }
+    summaries: dict[str, list[JQuantsFinancialSummary]] = {}
+    for row in read_financial_documents(conn, start=start, end=asof):
+        if row.ticker in population:
+            summaries.setdefault(row.ticker, []).append(row)
+    events: dict[str, list[JQuantsAdjustmentFactorEvent]] = {}
+    for ticker, traded_at, factor in conn.execute(
+        "SELECT ticker, traded_at, adjustment_factor FROM jquants_daily_bars "
+        "WHERE traded_at BETWEEN ? AND ? AND adjustment_factor NOT IN (0.0, 1.0)",
+        (start.isoformat(), asof.isoformat()),
+    ):
+        if ticker in population:
+            events.setdefault(ticker, []).append(
+                JQuantsAdjustmentFactorEvent(
+                    ticker=ticker,
+                    traded_at=date.fromisoformat(traded_at),
+                    adjustment_factor=factor,
+                )
+            )
+    result = {}
+    for ticker in population:
+        rows = summaries.get(ticker, [])
+        normalized = _normalize_summaries_with_status(rows, events.get(ticker, []), asof)
+        capital = _resolve_capital_basis(
+            normalized.summaries, capital_basis_barrier=normalized.capital_basis_barrier
+        )
+        ratio_row = _latest_non_null_row(normalized.summaries, "equity_to_asset_ratio")
+        result[ticker] = _RequiredFieldValues(
+            has_summary=bool(rows),
+            shares=capital.issued is not None,
+            treasury=capital.treasury is not None,
+            equity_ratio=ratio_row is not None,
+            market_cap=capital.shares_ex_treasury is not None,
+            dates=tuple(sorted({row.disclosed_at for row in rows})),
+        )
+    return result
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -156,35 +182,26 @@ def plan_required_field_repair(
             return RequiredFieldRepairPlan(coverage=coverage, ranges=())
         if "summary_rows" in coverage.blocking_fields:
             return RequiredFieldRepairPlan(coverage=coverage, ranges=((start, asof),))
-        missing_predicates: list[str] = []
         blocking = set(coverage.blocking_fields)
-        if "shares_outstanding" in blocking:
-            missing_predicates.append("shares IS NULL")
-        if "treasury_shares" in blocking:
-            missing_predicates.append("treasury IS NULL")
-        if "equity_to_asset_ratio" in blocking:
-            missing_predicates.append("equity_ratio IS NULL")
-        if "market_cap_required_fields" in blocking:
-            missing_predicates.append(f"NOT ({_MARKET_CAP_FIELDS_USABLE})")
-        if "valuation_required_fields" in blocking:
-            missing_predicates.append(f"NOT ({_MARKET_CAP_FIELDS_USABLE}) OR equity_ratio IS NULL")
-        predicate = " OR ".join(missing_predicates)
-        rows = connection.execute(
-            _REQUIRED_FIELD_VALUES_CTE + " , missing AS ("
-            f"SELECT ticker FROM y WHERE {predicate}) "  # nosec B608
-            "SELECT DISTINCT s.disclosed_at FROM jquants_fin_summaries s "
-            "JOIN missing m ON m.ticker = s.ticker "
-            "WHERE s.disclosed_at BETWEEN :repair_start AND :repair_end "
-            "ORDER BY s.disclosed_at",
-            {
-                **scope_parameters(asof),
-                "start": start.isoformat(),
-                "end": asof.isoformat(),
-                "repair_start": start.isoformat(),
-                "repair_end": asof.isoformat(),
-            },
-        ).fetchall()
-        dates = tuple(date.fromisoformat(str(row[0])) for row in rows)
+        dates = tuple(
+            sorted(
+                {
+                    day
+                    for value in _required_field_values(connection, start=start, asof=asof).values()
+                    if (
+                        ("shares_outstanding" in blocking and not value.shares)
+                        or ("treasury_shares" in blocking and not value.treasury)
+                        or ("equity_to_asset_ratio" in blocking and not value.equity_ratio)
+                        or ("market_cap_required_fields" in blocking and not value.market_cap)
+                        or (
+                            "valuation_required_fields" in blocking
+                            and not (value.market_cap and value.equity_ratio)
+                        )
+                    )
+                    for day in value.dates
+                }
+            )
+        )
         ranges = _consecutive_date_ranges(dates) or ((start, asof),)
         return RequiredFieldRepairPlan(coverage=coverage, ranges=ranges)
     except sqlite3.OperationalError:
@@ -196,35 +213,21 @@ def plan_required_field_repair(
 def required_field_coverage(
     conn: sqlite3.Connection, *, start: date, asof: date
 ) -> RequiredFieldCoverage:
-    params = {
-        **scope_parameters(asof),
-        "start": start.isoformat(),
-        "end": asof.isoformat(),
-    }
-    # Every SQL fragment is module-owned; dates remain bound parameters.
-    row = conn.execute(
-        _REQUIRED_FIELD_VALUES_CTE + "SELECT COUNT(*), COALESCE(SUM(has_summary), 0), "  # nosec B608
-        "COALESCE(SUM(shares IS NOT NULL), 0), "
-        "COALESCE(SUM(treasury IS NOT NULL), 0), "
-        "COALESCE(SUM(equity_ratio IS NOT NULL), 0), "
-        f"COALESCE(SUM({_MARKET_CAP_FIELDS_USABLE}), 0), "
-        f"COALESCE(SUM(({_MARKET_CAP_FIELDS_USABLE}) AND equity_ratio IS NOT NULL), 0) "
-        "FROM y",
-        params,
-    ).fetchone()
-    population = int(row[0] or 0)
-    minimum = math.ceil(population * REQUIRED_FIELD_MIN_POPULATION_RATIO)
+    values = tuple(_required_field_values(conn, start=start, asof=asof).values())
+    population = len(values)
     return RequiredFieldCoverage(
         asof=asof,
         start=start,
         population_tickers=population,
-        minimum_tickers=minimum,
-        summary_tickers=int(row[1] or 0),
-        shares_outstanding_tickers=int(row[2] or 0),
-        treasury_shares_tickers=int(row[3] or 0),
-        equity_to_asset_ratio_tickers=int(row[4] or 0),
-        market_cap_required_fields_tickers=int(row[5] or 0),
-        valuation_required_fields_tickers=int(row[6] or 0),
+        minimum_tickers=math.ceil(population * REQUIRED_FIELD_MIN_POPULATION_RATIO),
+        summary_tickers=sum(value.has_summary for value in values),
+        shares_outstanding_tickers=sum(value.shares for value in values),
+        treasury_shares_tickers=sum(value.treasury for value in values),
+        equity_to_asset_ratio_tickers=sum(value.equity_ratio for value in values),
+        market_cap_required_fields_tickers=sum(value.market_cap for value in values),
+        valuation_required_fields_tickers=sum(
+            value.market_cap and value.equity_ratio for value in values
+        ),
     )
 
 

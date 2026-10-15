@@ -7,18 +7,18 @@ from copy import deepcopy
 from datetime import datetime
 
 import pytest
-from tests.helpers.research_v4 import pair_payload
+from tests.helpers.assessment_v1 import pair_payload
 
 from baibai_engine.research import workspace_cli
+from baibai_engine.research.assessment import (
+    AssessmentReview,
+    StockAssessmentDocument,
+    UnpublishedAssessment,
+    assessment_core_hash,
+    evaluate_assessment,
+)
 from baibai_engine.research.calculation import CalculationInput, calculate
 from baibai_engine.research.calculation_cli import main
-from baibai_engine.research.thesis import (
-    ThesisDocument,
-    ThesisReview,
-    UnpublishedThesis,
-    evaluate_thesis,
-    thesis_core_hash,
-)
 
 NOW = datetime.fromisoformat("2026-09-07T18:00:00+09:00")
 
@@ -33,8 +33,9 @@ def forbid_database_and_network(monkeypatch):
 
 
 def inputs_payload(*, numerator=1, denominator=3, numerator_unit="JPY", denominator_unit="JPY"):
-    thesis, _ = pair_payload()
-    payload = {key: deepcopy(thesis[key]) for key in ("input_snapshot", "valuation")}
+    assessment, _ = pair_payload(as_of="2026-09-07", quote_as_of="2026-09-04")
+    assessment["input_snapshot"]["facts"][0]["value"] = 1000
+    payload = {key: deepcopy(assessment[key]) for key in ("input_snapshot", "valuation")}
     for name, value, unit in (
         ("numerator", numerator, numerator_unit),
         ("denominator", denominator, denominator_unit),
@@ -46,7 +47,7 @@ def inputs_payload(*, numerator=1, denominator=3, numerator_unit="JPY", denomina
                 value=value,
                 unit=unit,
                 as_of="2026-09-04",
-                source_ids=["ir"],
+                source_ids=["annual"],
             )
         )
     payload["derived"] = {
@@ -59,21 +60,21 @@ def inputs_payload(*, numerator=1, denominator=3, numerator_unit="JPY", denomina
                 as_of="2026-09-04",
                 input_fact_ids=["numerator", "denominator"],
                 assumption="同じ期間・株式basisの一次資料から独立確認",
-                source_ids=["ir"],
+                source_ids=["annual"],
             )
         ]
     }
     return payload
 
 
-def evaluated_pair(thesis, review):
-    document = ThesisDocument.model_validate(thesis)
+def evaluated_pair(assessment, review):
+    document = StockAssessmentDocument.model_validate(assessment)
     review = deepcopy(review)
-    review["reviewed_thesis_sha256"] = thesis_core_hash(document)
-    return evaluate_thesis(
+    review["reviewed_assessment_sha256"] = assessment_core_hash(document)
+    return evaluate_assessment(
         document,
-        review=ThesisReview.model_validate(review),
-        identity=UnpublishedThesis.DRAFT,
+        review=AssessmentReview.model_validate(review),
+        identity=UnpublishedAssessment.DRAFT,
         now=NOW,
     )
 
@@ -92,16 +93,16 @@ def test_cli_generates_ratio_compatible_with_existing_tolerance_without_writes(t
     assert metric["value"] == 0.3333333333333333
     assert metric["formula"] == "ratio"
     assert metric["formula_version"] == "ratio-v1"
-    thesis, review = pair_payload()
-    thesis.update(
+    assessment, review = pair_payload(as_of="2026-09-07", quote_as_of="2026-09-04")
+    assessment.update(
         input_snapshot=payload["input_snapshot"],
         derived=result["derived"],
         valuation=result["valuation"],
     )
     review["recalculated_projections"] = result["recalculated_projections"]
-    assert evaluated_pair(thesis, review).decision_readiness == "ready"
-    thesis["derived"]["metrics"][0]["value"] = 0.3333
-    assert any("value mismatch" in error for error in evaluated_pair(thesis, review).errors)
+    assert evaluated_pair(assessment, review).assessment_readiness == "ready"
+    assessment["derived"]["metrics"][0]["value"] = 0.3333
+    assert any("value mismatch" in error for error in evaluated_pair(assessment, review).errors)
     assert path.read_bytes() == before
     assert set(tmp_path.rglob("*")) == paths_before
 
@@ -248,33 +249,33 @@ def test_missing_valuation_has_no_manufactured_projection(unresolved):
 
 
 def test_calculation_keeps_saved_core_and_independent_review_semantics():
-    thesis, review = pair_payload()
-    before = deepcopy((thesis, review))
-    original_hash = thesis_core_hash(ThesisDocument.model_validate(thesis))
-    author_inputs = {key: deepcopy(thesis[key]) for key in ("input_snapshot", "valuation")}
+    assessment, review = pair_payload(as_of="2026-09-07", quote_as_of="2026-09-04")
+    before = deepcopy((assessment, review))
+    original_hash = assessment_core_hash(StockAssessmentDocument.model_validate(assessment))
+    author_inputs = {key: deepcopy(assessment[key]) for key in ("input_snapshot", "valuation")}
     author = calculate(CalculationInput.model_validate(author_inputs))
     # Equivalent numeric serialization must retain the existing canonical core/hash.
-    thesis["valuation"] = author["valuation"]
+    assessment["valuation"] = author["valuation"]
     review["recalculated_projections"] = author["recalculated_projections"]
-    assert thesis_core_hash(ThesisDocument.model_validate(thesis)) == original_hash
-    assert evaluated_pair(thesis, review).decision_readiness == "ready"
+    assert assessment_core_hash(StockAssessmentDocument.model_validate(assessment)) == original_hash
+    assert evaluated_pair(assessment, review).assessment_readiness == "ready"
     reviewer_inputs = deepcopy(author_inputs)
     reviewer_inputs["valuation"]["base"]["terminal_value_per_share_yen"] = 1260
     reviewer = calculate(CalculationInput.model_validate(reviewer_inputs))
     review["recalculated_projections"] = reviewer["recalculated_projections"]
-    assert any("terminal" in error for error in evaluated_pair(thesis, review).errors)
+    assert any("terminal" in error for error in evaluated_pair(assessment, review).errors)
     assert author_inputs == {key: before[0][key] for key in ("input_snapshot", "valuation")}
     # No prose parser: the same incorrect terminal from both passes still agrees.
-    thesis["valuation"] = reviewer["valuation"]
-    assert evaluated_pair(thesis, review).decision_readiness == "ready"
+    assessment["valuation"] = reviewer["valuation"]
+    assert evaluated_pair(assessment, review).assessment_readiness == "ready"
 
 
-def test_legacy_ratio_reports_unit_and_value_errors_together():
+def test_assessment_ratio_reports_unit_and_value_errors_together():
     payload = inputs_payload()
     result = calculate(CalculationInput.model_validate(payload))
-    thesis, review = pair_payload()
-    thesis.update(input_snapshot=payload["input_snapshot"], derived=result["derived"])
-    thesis["derived"]["metrics"][0].update(unit="percent", value=0.3333)
-    errors = evaluated_pair(thesis, review).errors
+    assessment, review = pair_payload(as_of="2026-09-07", quote_as_of="2026-09-04")
+    assessment.update(input_snapshot=payload["input_snapshot"], derived=result["derived"])
+    assessment["derived"]["metrics"][0].update(unit="percent", value=0.3333)
+    errors = evaluated_pair(assessment, review).errors
     assert any("unit mismatch" in error for error in errors)
     assert any("value mismatch" in error for error in errors)

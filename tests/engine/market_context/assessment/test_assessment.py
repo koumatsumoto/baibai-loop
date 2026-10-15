@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from datetime import UTC, date, datetime
 
 import pytest
@@ -58,14 +59,14 @@ def test_writer_preserves_old_payload_and_head_across_schemas(tmp_path):
     db = tmp_path / "app.sqlite"
     old = historical_payload(context_id="macro-context-2026-07-16-history", as_of="2026-07-16")
     seed_history(db, old)
-    with sqlite3.connect(db) as conn:
+    with closing(sqlite3.connect(db)) as conn, conn:
         before = conn.execute("select payload from market_context_assessment").fetchone()[0]
     service = AssessmentService(db)
     assert service.head_id() == old["context_id"]
     new = document()
     service.publish(new, expected_head=old["context_id"])
     service.publish(new, expected_head=old["context_id"])
-    with sqlite3.connect(db) as conn:
+    with closing(sqlite3.connect(db)) as conn, conn:
         assert (
             conn.execute(
                 "select payload from market_context_assessment where context_id=?",

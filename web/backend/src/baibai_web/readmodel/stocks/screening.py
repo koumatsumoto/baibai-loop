@@ -36,7 +36,7 @@ from baibai_web.readmodel.stocks.presentation import (
     _held_and_reserved_tickers,
     _portfolio_state,
 )
-from baibai_web.readmodel.stocks.research import _assessment_summary_view
+from baibai_web.readmodel.stocks.research import _proposal_summary_view
 from baibai_web.sources.db_sources import DbScreeningSource
 from baibai_web.sources.protocols import (
     ExternalAssessmentSource,
@@ -132,13 +132,13 @@ def build_screening(
         if ticker not in analyzed
     ]
     applicable_calibration = _calibration_for_run(run, er_level_calibration)
-    assessments = [_assessment_summary_view(item) for item in research.assessments()]
+    proposals = [_proposal_summary_view(item) for item in research.proposals()]
     if run is None:
         return ScreeningView(
             run=None,
             stock_analyses=[],
             candidate_discovery=None,
-            capital_allocation_assessments=assessments,
+            investment_proposals=proposals,
             er_level_calibration=None,
             external_assessment_securities=external_securities,
             external_assessment_cutoff=cutoff if external_securities else None,
@@ -157,7 +157,7 @@ def build_screening(
             for row in run.rows
         ],
         candidate_discovery=_candidate_summary(run),
-        capital_allocation_assessments=assessments,
+        investment_proposals=proposals,
         er_level_calibration=_er_level_calibration_view(applicable_calibration),
         external_assessment_securities=external_securities,
         external_assessment_cutoff=cutoff if external_securities else None,

@@ -2,7 +2,7 @@
 title: "急落ディスロケーション lens の事前登録"
 summary: "低 PER 帯を急落・財務品質で層別し、一時的な売られすぎを機械で識別できるかを 1y/3y forward excess で検定する。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-02
 ---
 

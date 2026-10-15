@@ -14,7 +14,6 @@ import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Never, Protocol
 
@@ -41,7 +40,6 @@ from baibai_engine.batch_api import (
 
 _R2_ACCOUNT_ID = re.compile(r"^[0-9a-f]{32}$")
 _MAX_POINTER_BYTES = 64 * 1024
-_MAX_SMALL_OBJECT_BYTES = 16 * 1024 * 1024
 # A per-attempt read timeout that is shorter than the transfer it guards turns a
 # slow object into an avoidable retry. The floor covers control-plane latency; the
 # transfer term is derived from the object's own size at a throughput well below
@@ -179,7 +177,6 @@ class _RemotePublication:
     store: ObjectStore
     verified_readback_root: Path | None = None
     verified: dict[str, tuple[str, int, str]] = field(default_factory=dict)
-    manifest_payloads: dict[str, bytes] = field(default_factory=dict)
     uploaded_objects: int = 0
     reused_objects: int = 0
     uploaded_bytes: int = 0
@@ -310,36 +307,6 @@ class _RemotePublication:
         self.head_requests += 1
         return result
 
-    def require_small_object(self, *, key: str, expected_sha256: str, content_type: str) -> bytes:
-        """Read one manifest-sized object once, proving its identity from its bytes.
-
-        Manifests and pointers are read for their content anyway, so their identity is
-        proved from the bytes that were read rather than from a second stream.
-        """
-
-        cached = self.manifest_payloads.get(key)
-        if cached is not None:
-            if hashlib.sha256(cached).hexdigest() != expected_sha256:
-                raise LakePublishError(f"remote graph has conflicting identities: {key}")
-            return cached
-        remote = self.head(key)
-        if remote is None:
-            raise LakePublishError(f"remote object is missing: {key}")
-        if remote.size > _MAX_SMALL_OBJECT_BYTES:
-            raise LakePublishError(f"remote graph node exceeds its size limit: {key}")
-        payload = self.get_bytes(key)
-        if len(payload) != remote.size or hashlib.sha256(payload).hexdigest() != expected_sha256:
-            raise LakePublishError(f"remote object bytes postcondition failed: {key}")
-        self.accept_existing(
-            remote,
-            key=key,
-            expected_sha256=expected_sha256,
-            expected_size=len(payload),
-            content_type=content_type,
-        )
-        self.manifest_payloads[key] = payload
-        return payload
-
     def read_pointer(self, key: str, remote: RemoteObject) -> bytes:
         """Read the one mutable object, proving its bytes against its own identity."""
 
@@ -364,27 +331,6 @@ class _RemotePublication:
             raise LakePublishError(f"remote pointer is missing after its switch: {key}")
         if self.read_pointer(key, remote) != expected:
             raise LakePublishError(f"remote pointer bytes postcondition failed: {key}")
-
-    def require_present_identity(
-        self, *, key: str, expected_sha256: str, content_type: str
-    ) -> None:
-        """Prove one object whose size the manifest does not fix still holds its digest."""
-
-        stored = self.verified.get(key)
-        if stored is not None:
-            if (stored[0], stored[2]) != (expected_sha256, content_type):
-                raise LakePublishError(f"remote graph has conflicting identities: {key}")
-            return
-        remote = self.head(key)
-        if remote is None:
-            raise LakePublishError(f"remote object is missing: {key}")
-        self.accept_existing(
-            remote,
-            key=key,
-            expected_sha256=expected_sha256,
-            expected_size=remote.size,
-            content_type=content_type,
-        )
 
     def _require_bytes(self, *, key: str, expected_sha256: str, expected_size: int) -> None:
         destination = (
@@ -940,10 +886,6 @@ def _required(env: Mapping[str, str], name: str) -> str:
     return value
 
 
-def _utc_now() -> datetime:
-    return datetime.now(UTC)
-
-
 def _mirror_path(mirror_root: Path, key: str) -> Path:
     root = mirror_root.resolve()
     path = (root / key).resolve()
@@ -958,7 +900,7 @@ def _mirror_path(mirror_root: Path, key: str) -> Path:
 def _sealed_upload(path: Path) -> Iterator[tuple[Path, str, str, int]]:
     """Capture one stable local byte sequence for hash, upload, and verification."""
     digest = hashlib.sha256()
-    transport_digest = hashlib.md5(usedforsecurity=False)  # nosec B324
+    transport_digest = hashlib.md5(usedforsecurity=False)
     size = 0
     temporary_path: Path | None = None
     try:
@@ -1003,7 +945,8 @@ def _sha256(path: Path) -> str:
 
 def _content_md5(path: Path) -> str:
     """Return base64 Content-MD5 for R2 transport validation, not logical identity."""
-    digest = hashlib.md5(usedforsecurity=False)  # nosec B324 - transport checksum only.
+    # transport checksum only.
+    digest = hashlib.md5(usedforsecurity=False)
     with path.open("rb") as source:
         for chunk in iter(lambda: source.read(8 * 1024 * 1024), b""):
             digest.update(chunk)

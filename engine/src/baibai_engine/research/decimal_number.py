@@ -1,4 +1,4 @@
-"""Render a Decimal as the narrowest JSON number that keeps its value."""
+"""Render whole Decimals as ints and fractional Decimals as approximate floats."""
 
 from __future__ import annotations
 

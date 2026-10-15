@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from contextlib import closing
 from datetime import date
 from pathlib import Path
 
@@ -25,7 +26,7 @@ def _seed_market(root: Path) -> Path:
         insert_daily_bars_from_closes(
             path, ticker, [100 + index for index in range(120)], end_date=date(2026, 7, 27)
         )
-    with open_connection(path) as connection:
+    with closing(open_connection(path)) as connection:
         connection.executemany(
             "INSERT INTO jquants_master_snapshots "
             "(snapshot_date,ticker,name,market,sector_33,is_common_stock) "

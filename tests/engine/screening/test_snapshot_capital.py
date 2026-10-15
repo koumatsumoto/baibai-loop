@@ -153,7 +153,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
         self.assertIsNone(financial.per_forward)
 
     def test_market_cap_excludes_treasury_shares(self) -> None:
-        """時価総額の分母は市場が値付けできる株数 (発行済 - 自己株式) である。"""
+        """この valuation の時価総額は株価 x 自己株控除後株数である。"""
         # 自己株 100 株 (10%)、非支配株主持分 200 (自己資本 800 / 純資産 1,000)。
         snapshot = self._capital_snapshot(
             shares_outstanding=1_000.0,
@@ -924,7 +924,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
         assert financial.eps_yoy is not None
         self.assertAlmostEqual(financial.eps_yoy, 27.33 / normalized_prior_q1 - 1.0, places=4)
         # 分割は希薄化ではない: 正規化後の前年株数は 206.07M x 3 = 618.20M 相当で、
-        # 変化は実際の微増資分 (+0.057%) だけになる (正規化なしだと +200% の偽希薄化)。
+        # 変化は調整後株数の微増 (+0.057%) になる。増加の原因まではこの入力で特定しない。
         assert financial.net_share_change_yoy is not None
         self.assertAlmostEqual(
             financial.net_share_change_yoy,
@@ -938,7 +938,8 @@ class ScreeningMetricsTests(SnapshotFixtures):
         4502 型の再現: 買収の新株発行で株数が 783M -> 961M (期中平均) -> 1,556M と動いた
         3 期。1 株当たりで合成すると各項の分母が違うため
         21.32 + 113.50 - 161.76 = -26.94 となり、黒字の会社が赤字に見えて収益 anchor を
-        失う。円で合成すれば分母は 1 つで、実際の TTM 純利益が出る。
+        失う。この fixture は各期の円利益を明示的に構成し、TTM 合成を検証する。
+        実データの期末株数 x EPS が純利益と一致するという意味ではない。
         """
         asof = date(2019, 11, 15)
         security = _security()
@@ -1056,8 +1057,8 @@ class ScreeningMetricsTests(SnapshotFixtures):
         self.assertIsNotNone(financial.per_trailing)
 
     def test_edinet_values_survive_when_the_balance_sheets_agree(self) -> None:
-        # 同じ実体を指す行は素通しする。単体基準でも、総資産が一致すれば連結財務諸表を
-        # 持たない会社であって取り違えではない。
+        # 総資産の規模が許容範囲なら、この整合性 gate は通過する。
+        # 総資産の近さだけで連結範囲が同一だと証明するテストではない。
         for basis in ("consolidated", "non_consolidated"):
             with self.subTest(basis=basis):
                 financial = self._entity_scale_snapshot(

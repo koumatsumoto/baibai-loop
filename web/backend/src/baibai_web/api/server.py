@@ -5,10 +5,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -31,11 +31,12 @@ from baibai_web.readmodel.builders import (
 from baibai_web.readmodel.market_context import build_indicator_series, build_market_context
 from baibai_web.readmodel.models import (
     AssessmentPublicationView,
-    CapitalAllocationAssessmentsView,
-    CapitalAllocationAssessmentView,
     DailyDeltaView,
     DashboardView,
     IndicatorSeriesView,
+    InvestmentProposalPreviewView,
+    InvestmentProposalsView,
+    InvestmentProposalView,
     MarketContextView,
     MetaView,
     OperationsView,
@@ -43,15 +44,23 @@ from baibai_web.readmodel.models import (
     ScreeningHistoryView,
     ScreeningView,
     SecurityDetailView,
+    StockAssessmentDetailView,
+    StockAssessmentsView,
     TasksView,
 )
 from baibai_web.readmodel.stocks import (
-    build_assessment_detail,
     build_screening,
     build_screening_history_run,
     build_security_detail,
 )
-from baibai_web.readmodel.stocks.research import build_assessment_list
+from baibai_web.readmodel.stocks.research import (
+    PublicationCursorError,
+    build_proposal_detail,
+    build_proposal_list,
+    build_proposal_preview,
+    build_stock_assessment_detail,
+    build_stock_assessment_list,
+)
 from baibai_web.sources.factory import Sources, build_sources, load_indicator_groups
 
 # Vite copies `web/frontend/public/` into the build as-is, but this app answers only the files named
@@ -66,6 +75,10 @@ PUBLIC_ASSETS = (
 )
 
 _JST = ZoneInfo("Asia/Tokyo")
+
+
+def _research_source_error(error: ValueError) -> HTTPException:
+    return HTTPException(status_code=500, detail={"code": "invalid_source", "message": str(error)})
 
 
 def create_app(
@@ -157,22 +170,83 @@ def create_app(
             raise HTTPException(status_code=404, detail="screening history not found")
         return view
 
-    @app.get("/api/capital-allocation-assessments", response_model=CapitalAllocationAssessmentsView)
-    def assessments(sources: _SourceDependency) -> CapitalAllocationAssessmentsView:
-        return build_assessment_list(sources.research)
+    @app.get("/api/stock-assessments", response_model=StockAssessmentsView)
+    def stock_assessments(
+        sources: _SourceDependency,
+        ticker: str | None = None,
+        limit: int = Query(default=100, ge=1, le=100),
+        cursor: str | None = None,
+    ) -> StockAssessmentsView:
+        try:
+            return build_stock_assessment_list(
+                sources.research, ticker=ticker, limit=limit, cursor=cursor
+            )
+        except PublicationCursorError as error:
+            raise HTTPException(
+                status_code=400, detail={"code": "invalid_cursor", "message": str(error)}
+            ) from error
+        except ValueError as error:
+            raise _research_source_error(error) from error
+
+    @app.get("/api/stock-assessments/{assessment_id}", response_model=StockAssessmentDetailView)
+    def stock_assessment(
+        assessment_id: str, sources: _SourceDependency
+    ) -> StockAssessmentDetailView:
+        try:
+            view = build_stock_assessment_detail(sources.research, assessment_id=assessment_id)
+        except ValueError as error:
+            raise _research_source_error(error) from error
+        if view is None:
+            raise HTTPException(status_code=404, detail="stock assessment not found")
+        return view
+
+    @app.get("/api/investment-proposals", response_model=InvestmentProposalsView)
+    def investment_proposals(
+        sources: _SourceDependency,
+        scope: Literal["discover_new", "specified_stocks", "review_positions"] | None = None,
+        ticker: str | None = None,
+        limit: int = Query(default=100, ge=1, le=100),
+        cursor: str | None = None,
+    ) -> InvestmentProposalsView:
+        try:
+            return build_proposal_list(
+                sources.research, scope=scope, ticker=ticker, limit=limit, cursor=cursor
+            )
+        except PublicationCursorError as error:
+            raise HTTPException(
+                status_code=400, detail={"code": "invalid_cursor", "message": str(error)}
+            ) from error
+        except ValueError as error:
+            raise _research_source_error(error) from error
+
+    @app.get("/api/investment-proposals/{proposal_id}", response_model=InvestmentProposalView)
+    def investment_proposal(proposal_id: str, sources: _SourceDependency) -> InvestmentProposalView:
+        try:
+            view = build_proposal_detail(sources.research, proposal_id=proposal_id)
+        except ValueError as error:
+            raise _research_source_error(error) from error
+        if view is None:
+            raise HTTPException(status_code=404, detail="investment proposal not found")
+        return view
 
     @app.get(
-        "/api/capital-allocation-assessments/{capital_allocation_assessment_id}",
-        response_model=CapitalAllocationAssessmentView,
+        "/api/investment-proposals/{proposal_id}/current-preview",
+        response_model=InvestmentProposalPreviewView,
     )
-    def assessment(
-        capital_allocation_assessment_id: str, sources: _SourceDependency
-    ) -> CapitalAllocationAssessmentView:
-        view = build_assessment_detail(
-            sources.research, capital_allocation_assessment_id=capital_allocation_assessment_id
-        )
+    def investment_proposal_preview(
+        proposal_id: str, sources: _SourceDependency
+    ) -> InvestmentProposalPreviewView:
+        try:
+            view = build_proposal_preview(
+                sources.research,
+                proposal_id=proposal_id,
+                sqlite_path=sources.market_db_path,
+                now=datetime.now(_JST),
+            )
+        except ValueError as error:
+            raise _research_source_error(error) from error
         if view is None:
-            raise HTTPException(status_code=404, detail="capital allocation assessment not found")
+            raise HTTPException(status_code=404, detail="investment proposal not found")
         return view
 
     @app.get("/api/market-context", response_model=MarketContextView)
@@ -219,8 +293,8 @@ def create_app(
                 as_of=as_of or datetime.now(_JST).date(),
             )
         except ValueError as error:
-            # Unknown id and not-yet-eligible (future as_of) contexts are both "not found"
-            # from the reader's perspective; the message distinguishes them for logs.
+            # An arbitrary ID may have no readable history. The analytical as_of
+            # only supplies age metadata; it does not exclude a saved exact ID.
             raise HTTPException(status_code=404, detail=str(error)) from error
 
     @app.get("/api/operations", response_model=OperationsView)

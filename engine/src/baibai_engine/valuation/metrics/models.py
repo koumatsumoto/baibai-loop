@@ -12,6 +12,7 @@ from baibai_engine.market.metric_quality import OperatingProfitSource, TTMQualit
 
 _MODEL_CONFIG = ConfigDict(strict=True, arbitrary_types_allowed=False, validate_assignment=False)
 UNRESOLVED_DIVIDEND_BASIS = "unresolved_split_basis"
+UNRESOLVED_ACTUAL_DIVIDEND_BASIS = "unresolved_actual_dividend"
 
 
 class TTMRules(BaseModel):
@@ -58,6 +59,8 @@ class FinancialSnapshot:
     # 掛け直せない年度は利回りを出さず (unresolved_split_basis)、E[r] も付けない。
     # dividend_split_factor は既存の配当計算窓の累積 factor が 1 以外なら記録し、
     # 1 なら None。全splitの有無を表すflagではない。
+    earnings_forecast_source: dict[str, str | None] | None = None
+    dividend_forecast_source: dict[str, str | None] | None = None
     dps_actual_annual: float | None = None
     dps_forecast_annual: float | None = None
     dividend_yield: float | None = None
@@ -75,8 +78,8 @@ class FinancialSnapshot:
     # Reinvestment用。最新のcomplete actual rowのTAとEqARの積であり、PBRのBPS fallbackは使わない。
     same_state_equity_yen: float | None = None
     # 最後の raw close を as-of の株式基準へ換算した screening 参考価格。時価総額・E[r]・
-    # Review Set表示は同じ基準の株数と組み合わせる。約定価格ではなく、plan-limit は SQLite
-    # の raw/unadjusted close を再取得する。
+    # Stock Analysis表示は同じ基準の株数と組み合わせる。約定価格ではなく、
+    # Research の価格 fact は SQLite の raw/unadjusted close を取得する。
     market_price_yen: float | None = None
     # 市場が値付けする株式数 (発行済 - 自己株式)。valuation history も現在倍率と同じ
     # 資本分母で組み、自己株比率の変化ではなく価格変化だけを自己レンジへ反映する。
@@ -126,7 +129,7 @@ class FinancialSnapshot:
     ttm_quality_fcf_yield: TTMQuality | None = None
     ttm_quality_net_cash: TTMQuality = TTMQuality.UNAVAILABLE
     shares_outstanding: float | None = None
-    # accruals_to_assets = (eps_ttm * shares - cfo_ttm) / average total assets — Sloan
+    # accruals_to_assets = (profit_ttm - cfo_ttm) / average total assets — Sloan
     # 1996. High positive accruals are an earnings-quality flag (reported NI
     # not converting to cash). None if any input is missing.
     accruals_to_assets: float | None = None

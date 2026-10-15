@@ -9,6 +9,7 @@ tree to observe one comparison.
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -36,13 +37,13 @@ def test_current_application_and_market_schemas_are_accepted(tmp_path: Path) -> 
 
 
 def test_obsolete_application_and_market_schemas_are_rejected(tmp_path: Path) -> None:
-    application = tmp_path / "application-v16.sqlite"
+    application = tmp_path / "application-obsolete.sqlite"
     initialize_database(application)
-    with sqlite3.connect(application) as connection:
+    with closing(sqlite3.connect(application)) as connection, connection:
         connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION - 1}")
-    market = tmp_path / "market-v24.sqlite"
+    market = tmp_path / "market-obsolete.sqlite"
     open_connection(market).close()
-    with sqlite3.connect(market) as connection:
+    with closing(sqlite3.connect(market)) as connection, connection:
         connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
 
     with pytest.raises(MaterializationPreconditionError, match="obsolete application"):
@@ -53,7 +54,7 @@ def test_obsolete_application_and_market_schemas_are_rejected(tmp_path: Path) ->
 
 def test_versioned_market_store_without_tables_is_rejected(tmp_path: Path) -> None:
     incomplete = tmp_path / "market-incomplete.sqlite"
-    with sqlite3.connect(incomplete) as connection:
+    with closing(sqlite3.connect(incomplete)) as connection, connection:
         connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION}")
 
     with pytest.raises(MaterializationPreconditionError, match="missing tables"):
@@ -77,7 +78,7 @@ def test_an_emptied_table_under_a_positive_claim_is_refused(tmp_path: Path) -> N
 
 def test_a_store_holding_fewer_rows_than_its_windows_claim_is_accepted(tmp_path: Path) -> None:
     """Overlapping coverage windows make the claim exceed the rows on a healthy store
-    — on the working store by 4.9M — so only an empty table may stop the export."""
+    — this guard detects an emptied table, not every form of incomplete hydration."""
 
     path = market_store_with_fetch_claim(tmp_path, claimed_rows=15_052_807, held_rows=1)
 

@@ -1,132 +1,27 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Baibai Loop read model",
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "roots": {
     "/api/screening/history": "#/$defs/ScreeningHistoryView",
     "history/candidate-views/{as_of}.json": "#/$defs/ScreeningHistoryRunView",
-    "views/capital-allocation-assessment--{capital_allocation_assessment_id}.json": "#/$defs/CapitalAllocationAssessmentView",
-    "views/capital-allocation-assessments.json": "#/$defs/CapitalAllocationAssessmentsView",
     "views/daily-delta.json": "#/$defs/DailyDeltaView",
     "views/dashboard.json": "#/$defs/DashboardView",
     "views/indicator-series--{series_id}.json": "#/$defs/IndicatorSeriesView",
+    "views/investment-proposal--{proposal_id}.json": "#/$defs/InvestmentProposalView",
+    "views/investment-proposal-preview--{proposal_id}.json": "#/$defs/InvestmentProposalPreviewView",
+    "views/investment-proposals.json": "#/$defs/InvestmentProposalsView",
     "views/market-context-assessment--{context_id}.json": "#/$defs/AssessmentPublicationView",
     "views/market-context.json": "#/$defs/MarketContextView",
     "views/meta.json": "#/$defs/MetaView",
     "views/operations.json": "#/$defs/OperationsView",
     "views/screening_latest.json": "#/$defs/ScreeningView",
     "views/security--{ticker}.json": "#/$defs/SecurityDetailView",
+    "views/stock-assessment--{assessment_id}.json": "#/$defs/StockAssessmentDetailView",
+    "views/stock-assessments.json": "#/$defs/StockAssessmentsView",
     "views/tasks.json": "#/$defs/TasksView"
   },
   "$defs": {
-    "AllocationAlternativeView": {
-      "properties": {
-        "ticker": {
-          "title": "Ticker",
-          "type": "string"
-        },
-        "disposition": {
-          "title": "Disposition",
-          "type": "string"
-        },
-        "rationale": {
-          "title": "Rationale",
-          "type": "string"
-        },
-        "thesis_id": {
-          "title": "Thesis Id",
-          "type": "string"
-        },
-        "thesis_review_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Thesis Review Id"
-        },
-        "case_status": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Case Status"
-        },
-        "base_annualized_return_pct": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Base Annualized Return Pct"
-        },
-        "pmax_raw_yen": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Pmax Raw Yen"
-        },
-        "valuation_as_of": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Valuation As Of"
-        },
-        "thesis_projection": {
-          "additionalProperties": true,
-          "title": "Thesis Projection",
-          "type": "object"
-        },
-        "thesis_review": {
-          "anyOf": [
-            {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Thesis Review"
-        }
-      },
-      "required": [
-        "ticker",
-        "disposition",
-        "rationale",
-        "thesis_id",
-        "thesis_review_id",
-        "case_status",
-        "base_annualized_return_pct",
-        "pmax_raw_yen",
-        "valuation_as_of",
-        "thesis_projection",
-        "thesis_review"
-      ],
-      "title": "AllocationAlternativeView",
-      "type": "object"
-    },
     "AnalystRatingAssessment": {
       "additionalProperties": false,
       "properties": {
@@ -658,41 +553,27 @@
       "title": "AssessmentPublicationView",
       "type": "object"
     },
-    "AssessmentReviewView": {
+    "AssessmentRefView": {
       "properties": {
-        "attempt": {
-          "title": "Attempt",
-          "type": "integer"
-        },
-        "reviewer_identity": {
-          "title": "Reviewer Identity",
+        "assessment_id": {
+          "title": "Assessment Id",
           "type": "string"
         },
-        "reviewed_at": {
-          "format": "date-time",
-          "title": "Reviewed At",
+        "core_sha256": {
+          "title": "Core Sha256",
           "type": "string"
         },
-        "conclusion": {
-          "title": "Conclusion",
+        "review_id": {
+          "title": "Review Id",
           "type": "string"
-        },
-        "open_findings": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Open Findings",
-          "type": "array"
         }
       },
       "required": [
-        "attempt",
-        "reviewer_identity",
-        "reviewed_at",
-        "conclusion",
-        "open_findings"
+        "assessment_id",
+        "core_sha256",
+        "review_id"
       ],
-      "title": "AssessmentReviewView",
+      "title": "AssessmentRefView",
       "type": "object"
     },
     "AssessmentRevisionView": {
@@ -994,216 +875,8 @@
       "title": "CandidateReasonView",
       "type": "object"
     },
-    "CapitalAllocationAssessmentSummaryView": {
-      "properties": {
-        "capital_allocation_assessment_id": {
-          "title": "Capital Allocation Assessment Id",
-          "type": "string"
-        },
-        "as_of": {
-          "format": "date",
-          "title": "As Of",
-          "type": "string"
-        },
-        "published_at": {
-          "format": "date-time",
-          "title": "Published At",
-          "type": "string"
-        },
-        "decision": {
-          "title": "Decision",
-          "type": "string"
-        },
-        "headline": {
-          "title": "Headline",
-          "type": "string"
-        },
-        "research_triage_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Research Triage Id"
-        },
-        "alternative_count": {
-          "title": "Alternative Count",
-          "type": "integer"
-        },
-        "allocated_ticker": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Allocated Ticker"
-        },
-        "research_operation_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Research Operation Id"
-        }
-      },
-      "required": [
-        "capital_allocation_assessment_id",
-        "as_of",
-        "published_at",
-        "decision",
-        "headline",
-        "research_triage_id",
-        "alternative_count",
-        "allocated_ticker",
-        "research_operation_id"
-      ],
-      "title": "CapitalAllocationAssessmentSummaryView",
-      "type": "object"
-    },
-    "CapitalAllocationAssessmentView": {
-      "properties": {
-        "capital_allocation_assessment_id": {
-          "title": "Capital Allocation Assessment Id",
-          "type": "string"
-        },
-        "as_of": {
-          "format": "date",
-          "title": "As Of",
-          "type": "string"
-        },
-        "published_at": {
-          "format": "date-time",
-          "title": "Published At",
-          "type": "string"
-        },
-        "decision": {
-          "title": "Decision",
-          "type": "string"
-        },
-        "headline": {
-          "title": "Headline",
-          "type": "string"
-        },
-        "research_triage_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Research Triage Id"
-        },
-        "market_context_assessment_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Market Context Assessment Id"
-        },
-        "comparison": {
-          "title": "Comparison",
-          "type": "string"
-        },
-        "foregone_alternatives": {
-          "title": "Foregone Alternatives",
-          "type": "string"
-        },
-        "research_operation_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Research Operation Id"
-        },
-        "selected_new_target_count": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Selected New Target Count"
-        },
-        "unfinished_research": {
-          "items": {
-            "$ref": "#/$defs/UnfinishedResearchView"
-          },
-          "title": "Unfinished Research",
-          "type": "array"
-        },
-        "alternatives": {
-          "items": {
-            "$ref": "#/$defs/AllocationAlternativeView"
-          },
-          "title": "Alternatives",
-          "type": "array"
-        },
-        "content_review": {
-          "$ref": "#/$defs/AssessmentReviewView"
-        }
-      },
-      "required": [
-        "capital_allocation_assessment_id",
-        "as_of",
-        "published_at",
-        "decision",
-        "headline",
-        "research_triage_id",
-        "market_context_assessment_id",
-        "comparison",
-        "foregone_alternatives",
-        "research_operation_id",
-        "selected_new_target_count",
-        "unfinished_research",
-        "alternatives",
-        "content_review"
-      ],
-      "title": "CapitalAllocationAssessmentView",
-      "type": "object"
-    },
-    "CapitalAllocationAssessmentsView": {
-      "properties": {
-        "assessments": {
-          "items": {
-            "$ref": "#/$defs/CapitalAllocationAssessmentSummaryView"
-          },
-          "title": "Assessments",
-          "type": "array"
-        }
-      },
-      "required": [
-        "assessments"
-      ],
-      "title": "CapitalAllocationAssessmentsView",
-      "type": "object"
-    },
     "DailyDeltaView": {
-      "description": "What changed between the latest machine run and the one before it.\n\nEvery field is an observation or a comparison of observations. The view names no\ncause and carries no recommendation: it tells the reader where to look, and the\ndecision to start a research cycle or a Position Review stays human.\n\n``unavailable`` lists the sections no store could answer, so an empty section is\nnever read as \"nothing changed\". ``method_changed`` marks different screening or\nCandidate Discovery method hashes, so no 候補 deltas are reported. Missing\nmethod identity makes 候補 comparison unavailable. An E[r]-only model\nchange keeps membership deltas but makes\n``candidate_estimate`` unavailable and suppresses estimate movers.\nMissing E[r] on either side of a shared ticker also marks that section unavailable,\nwhile comparable tickers retain their movers.\nHoldings that cannot be compared are counts rather than rows: repeating the same\nlist every day would bury the day's actual changes. ``er_moves_total`` says how\nmany names cleared the threshold before the row cap, so a capped list does not\nhide its own remainder.",
+      "description": "What changed between the latest machine run and the one before it.\n\nThe view compares observations, derived metrics, and machine estimates without\nturning them into causal claims or recommendations. It shows where to look; the\ndecision to start new-stock or holding research stays human.\n\n``unavailable`` lists the sections no store could answer, so an empty section is\nnever read as \"nothing changed\". ``method_changed`` marks different screening or\nCandidate Discovery method hashes, so no 候補 deltas are reported. Missing\nmethod identity makes 候補 comparison unavailable. An E[r]-only model\nchange keeps membership deltas but makes\n``candidate_estimate`` unavailable and suppresses estimate movers.\nMissing E[r] on either side of a shared ticker also marks that section unavailable,\nwhile comparable tickers retain their movers.\nHoldings that cannot be compared are counts rather than rows: repeating the same\nlist every day would bury the day's actual changes. ``er_moves_total`` says how\nmany names cleared the threshold before the row cap, so a capped list does not\nhide its own remainder.",
       "properties": {
         "generated_at": {
           "format": "date-time",
@@ -1472,13 +1145,6 @@
           },
           "title": "Warnings",
           "type": "array"
-        },
-        "research_load_errors": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Research Load Errors",
-          "type": "array"
         }
       },
       "required": [
@@ -1500,8 +1166,7 @@
         "deployed_pct",
         "holdings",
         "reservations",
-        "warnings",
-        "research_load_errors"
+        "warnings"
       ],
       "title": "DashboardView",
       "type": "object"
@@ -1943,6 +1608,24 @@
         "has_research"
       ],
       "title": "ExternalAssessmentSecurityView",
+      "type": "object"
+    },
+    "GateReasonView": {
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "GateReasonView",
       "type": "object"
     },
     "HistoricalConnectionSectionView": {
@@ -2672,7 +2355,7 @@
       "type": "object"
     },
     "HoldingDeltaView": {
-      "description": "Observed holding price movement; holding decisions belong to Position Review.",
+      "description": "Observed holding price movement; holding decisions belong to Investment Proposal.",
       "properties": {
         "ticker": {
           "title": "Ticker",
@@ -2828,7 +2511,7 @@
           ],
           "title": "Pmax Gap Pct"
         },
-        "latest_thesis_id": {
+        "pmax_gap_unavailable_reason": {
           "anyOf": [
             {
               "type": "string"
@@ -2837,9 +2520,10 @@
               "type": "null"
             }
           ],
-          "title": "Latest Thesis Id"
+          "default": null,
+          "title": "Pmax Gap Unavailable Reason"
         },
-        "disposition": {
+        "latest_assessment_id": {
           "anyOf": [
             {
               "type": "string"
@@ -2848,7 +2532,18 @@
               "type": "null"
             }
           ],
-          "title": "Disposition"
+          "title": "Latest Assessment Id"
+        },
+        "stance": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Stance"
         },
         "next_earnings_date": {
           "anyOf": [
@@ -2876,8 +2571,9 @@
         "unrealized_pnl_pct",
         "pmax_raw_yen",
         "pmax_gap_pct",
-        "latest_thesis_id",
-        "disposition",
+        "pmax_gap_unavailable_reason",
+        "latest_assessment_id",
+        "stance",
         "next_earnings_date"
       ],
       "title": "HoldingView",
@@ -3010,6 +2706,617 @@
         "points"
       ],
       "title": "IndicatorSeriesView",
+      "type": "object"
+    },
+    "InvestmentProposalItemView": {
+      "properties": {
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "action": {
+          "enum": [
+            "buy",
+            "hold",
+            "sell",
+            "no_action",
+            "defer"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "review_conditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Review Conditions",
+          "type": "array"
+        },
+        "assessment_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AssessmentRefView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "timing": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timing"
+        },
+        "proposed_limit_yen": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Proposed Limit Yen"
+        },
+        "terms": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LimitTermsView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "terms_unavailable_reasons": {
+          "items": {
+            "$ref": "#/$defs/GateReasonView"
+          },
+          "title": "Terms Unavailable Reasons",
+          "type": "array"
+        },
+        "order_readiness": {
+          "enum": [
+            "ready",
+            "needs_terms",
+            "not_applicable"
+          ],
+          "title": "Order Readiness",
+          "type": "string"
+        },
+        "position": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Position"
+        },
+        "holding_basis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Holding Basis"
+        },
+        "case_reassessment_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Case Reassessment Reason"
+        },
+        "remaining_reward": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Remaining Reward"
+        },
+        "return_calculation_unavailable_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Return Calculation Unavailable Reason"
+        },
+        "reason_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason Code"
+        },
+        "blockers": {
+          "items": {
+            "$ref": "#/$defs/GateReasonView"
+          },
+          "title": "Blockers",
+          "type": "array"
+        },
+        "resume_conditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Resume Conditions",
+          "type": "array"
+        },
+        "assessment_projection": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assessment Projection"
+        },
+        "assessment_review": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assessment Review"
+        }
+      },
+      "required": [
+        "ticker",
+        "action",
+        "rationale",
+        "review_conditions",
+        "assessment_ref",
+        "timing",
+        "proposed_limit_yen",
+        "terms",
+        "terms_unavailable_reasons",
+        "order_readiness",
+        "position",
+        "holding_basis",
+        "case_reassessment_reason",
+        "remaining_reward",
+        "return_calculation_unavailable_reason",
+        "reason_code",
+        "blockers",
+        "resume_conditions",
+        "assessment_projection",
+        "assessment_review"
+      ],
+      "title": "InvestmentProposalItemView",
+      "type": "object"
+    },
+    "InvestmentProposalPreviewView": {
+      "description": "取得時刻付きの現在再試算。保存Proposal/termsとは独立したread-only結果。",
+      "properties": {
+        "saved_proposal_id": {
+          "title": "Saved Proposal Id",
+          "type": "string"
+        },
+        "previewed_at": {
+          "format": "date-time",
+          "title": "Previewed At",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "unchanged",
+            "changed",
+            "blocked"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "current_inputs": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Current Inputs"
+        },
+        "items": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "change_reasons": {
+          "items": {
+            "$ref": "#/$defs/GateReasonView"
+          },
+          "title": "Change Reasons",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        },
+        "portfolio_exposure": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Portfolio Exposure"
+        }
+      },
+      "required": [
+        "saved_proposal_id",
+        "previewed_at",
+        "status",
+        "current_inputs",
+        "items",
+        "change_reasons",
+        "warnings",
+        "portfolio_exposure"
+      ],
+      "title": "InvestmentProposalPreviewView",
+      "type": "object"
+    },
+    "InvestmentProposalSummaryView": {
+      "properties": {
+        "proposal_id": {
+          "title": "Proposal Id",
+          "type": "string"
+        },
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "published_at": {
+          "format": "date-time",
+          "title": "Published At",
+          "type": "string"
+        },
+        "request_scope": {
+          "title": "Request Scope",
+          "type": "string"
+        },
+        "headline": {
+          "title": "Headline",
+          "type": "string"
+        },
+        "item_count": {
+          "title": "Item Count",
+          "type": "integer"
+        },
+        "tickers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tickers",
+          "type": "array"
+        },
+        "actions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Actions",
+          "type": "array"
+        },
+        "research_operation_id": {
+          "title": "Research Operation Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "proposal_id",
+        "as_of",
+        "published_at",
+        "request_scope",
+        "headline",
+        "item_count",
+        "tickers",
+        "actions",
+        "research_operation_id"
+      ],
+      "title": "InvestmentProposalSummaryView",
+      "type": "object"
+    },
+    "InvestmentProposalView": {
+      "properties": {
+        "proposal_id": {
+          "title": "Proposal Id",
+          "type": "string"
+        },
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "prepared_at": {
+          "format": "date-time",
+          "title": "Prepared At",
+          "type": "string"
+        },
+        "published_at": {
+          "format": "date-time",
+          "title": "Published At",
+          "type": "string"
+        },
+        "request_scope": {
+          "title": "Request Scope",
+          "type": "string"
+        },
+        "headline": {
+          "title": "Headline",
+          "type": "string"
+        },
+        "comparison": {
+          "title": "Comparison",
+          "type": "string"
+        },
+        "forgone": {
+          "title": "Forgone",
+          "type": "string"
+        },
+        "market_context_assessment_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Market Context Assessment Id"
+        },
+        "research_scope": {
+          "additionalProperties": true,
+          "title": "Research Scope",
+          "type": "object"
+        },
+        "saved_inputs": {
+          "additionalProperties": true,
+          "title": "Saved Inputs",
+          "type": "object"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/InvestmentProposalItemView"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "review": {
+          "additionalProperties": true,
+          "title": "Review",
+          "type": "object"
+        },
+        "draft_sha256": {
+          "title": "Draft Sha256",
+          "type": "string"
+        },
+        "liquidity_context": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Liquidity Context",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        },
+        "portfolio_exposure": {
+          "additionalProperties": true,
+          "title": "Portfolio Exposure",
+          "type": "object"
+        },
+        "unfinished_research": {
+          "items": {
+            "$ref": "#/$defs/UnfinishedResearchView"
+          },
+          "title": "Unfinished Research",
+          "type": "array"
+        }
+      },
+      "required": [
+        "proposal_id",
+        "as_of",
+        "prepared_at",
+        "published_at",
+        "request_scope",
+        "headline",
+        "comparison",
+        "forgone",
+        "market_context_assessment_id",
+        "research_scope",
+        "saved_inputs",
+        "items",
+        "review",
+        "draft_sha256",
+        "liquidity_context",
+        "warnings",
+        "portfolio_exposure",
+        "unfinished_research"
+      ],
+      "title": "InvestmentProposalView",
+      "type": "object"
+    },
+    "InvestmentProposalsView": {
+      "properties": {
+        "proposals": {
+          "items": {
+            "$ref": "#/$defs/InvestmentProposalSummaryView"
+          },
+          "title": "Proposals",
+          "type": "array"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Cursor"
+        }
+      },
+      "required": [
+        "proposals",
+        "next_cursor"
+      ],
+      "title": "InvestmentProposalsView",
+      "type": "object"
+    },
+    "LimitTermsView": {
+      "description": "保存当時の具体条件。現在条件、注文受理、約定を推定しない。",
+      "properties": {
+        "side": {
+          "enum": [
+            "buy",
+            "sell"
+          ],
+          "title": "Side",
+          "type": "string"
+        },
+        "limit_price_yen": {
+          "title": "Limit Price Yen",
+          "type": "string"
+        },
+        "quantity": {
+          "title": "Quantity",
+          "type": "integer"
+        },
+        "notional_yen": {
+          "title": "Notional Yen",
+          "type": "string"
+        },
+        "target_session": {
+          "format": "date",
+          "title": "Target Session",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "valuation_as_of": {
+          "format": "date",
+          "title": "Valuation As Of",
+          "type": "string"
+        },
+        "maximum_entry_price_yen": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Maximum Entry Price Yen"
+        },
+        "price_grid_rule_id": {
+          "title": "Price Grid Rule Id",
+          "type": "string"
+        },
+        "conditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Conditions",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "side",
+        "limit_price_yen",
+        "quantity",
+        "notional_yen",
+        "target_session",
+        "expires_at",
+        "valuation_as_of",
+        "maximum_entry_price_yen",
+        "price_grid_rule_id",
+        "conditions",
+        "warnings"
+      ],
+      "title": "LimitTermsView",
       "type": "object"
     },
     "MarketContextView": {
@@ -3988,7 +4295,6 @@
             {
               "enum": [
                 "reviewed",
-                "proposal",
                 "unfinished"
               ],
               "type": "string"
@@ -3999,27 +4305,15 @@
           ],
           "title": "Outcome Status"
         },
-        "thesis_id": {
+        "assessment_ref": {
           "anyOf": [
             {
-              "type": "string"
+              "$ref": "#/$defs/AssessmentRefView"
             },
             {
               "type": "null"
             }
-          ],
-          "title": "Thesis Id"
-        },
-        "thesis_review_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Thesis Review Id"
+          ]
         },
         "unfinished_reason": {
           "anyOf": [
@@ -4038,42 +4332,6 @@
           },
           "title": "References",
           "type": "array"
-        },
-        "checked_at": {
-          "anyOf": [
-            {
-              "format": "date-time",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Checked At"
-        },
-        "holding_proposal": {
-          "anyOf": [
-            {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Holding Proposal"
-        },
-        "holding_proposal_null_reason": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Holding Proposal Null Reason"
         }
       },
       "required": [
@@ -4083,13 +4341,9 @@
         "ticker",
         "purpose",
         "outcome_status",
-        "thesis_id",
-        "thesis_review_id",
+        "assessment_ref",
         "unfinished_reason",
-        "references",
-        "checked_at",
-        "holding_proposal",
-        "holding_proposal_null_reason"
+        "references"
       ],
       "title": "OperationResearchTargetView",
       "type": "object"
@@ -4143,7 +4397,7 @@
           "title": "Targets",
           "type": "array"
         },
-        "capital_allocation_assessment_id": {
+        "proposal_id": {
           "anyOf": [
             {
               "type": "string"
@@ -4152,7 +4406,18 @@
               "type": "null"
             }
           ],
-          "title": "Capital Allocation Assessment Id"
+          "title": "Proposal Id"
+        },
+        "proposal_draft_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Proposal Draft Sha256"
         },
         "source_run_revision_id": {
           "anyOf": [
@@ -4186,7 +4451,8 @@
         "max_deep_research_targets",
         "request",
         "targets",
-        "capital_allocation_assessment_id",
+        "proposal_id",
+        "proposal_draft_sha256",
         "source_run_revision_id",
         "source_analysis_as_of"
       ],
@@ -4435,54 +4701,6 @@
         "held_and_reserved"
       ],
       "type": "string"
-    },
-    "PositionReviewView": {
-      "properties": {
-        "position_review_id": {
-          "title": "Position Review Id",
-          "type": "string"
-        },
-        "as_of": {
-          "format": "date",
-          "title": "As Of",
-          "type": "string"
-        },
-        "thesis_id": {
-          "title": "Thesis Id",
-          "type": "string"
-        },
-        "action": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Action"
-        },
-        "note": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Note"
-        }
-      },
-      "required": [
-        "position_review_id",
-        "as_of",
-        "thesis_id",
-        "action",
-        "note"
-      ],
-      "title": "PositionReviewView",
-      "type": "object"
     },
     "QuantsScoreAssessment": {
       "additionalProperties": false,
@@ -5047,20 +5265,41 @@
     },
     "ResearchRevisionView": {
       "properties": {
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "company_name": {
+          "title": "Company Name",
+          "type": "string"
+        },
+        "sector": {
+          "title": "Sector",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
         "as_of": {
           "format": "date",
           "title": "As Of",
           "type": "string"
         },
-        "thesis_id": {
-          "title": "Thesis Id",
+        "published_at": {
+          "format": "date-time",
+          "title": "Published At",
           "type": "string"
         },
-        "disposition": {
-          "title": "Disposition",
+        "assessment_id": {
+          "title": "Assessment Id",
           "type": "string"
         },
-        "pmax_raw_yen": {
+        "stance": {
+          "title": "Stance",
+          "type": "string"
+        },
+        "pmax_original_yen": {
           "anyOf": [
             {
               "type": "number"
@@ -5069,18 +5308,11 @@
               "type": "null"
             }
           ],
-          "title": "Pmax Raw Yen"
+          "title": "Pmax Original Yen"
         },
         "review_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Review Id"
+          "title": "Review Id",
+          "type": "string"
         },
         "status": {
           "title": "Status",
@@ -5088,10 +5320,15 @@
         }
       },
       "required": [
+        "ticker",
+        "company_name",
+        "sector",
+        "summary",
         "as_of",
-        "thesis_id",
-        "disposition",
-        "pmax_raw_yen",
+        "published_at",
+        "assessment_id",
+        "stance",
+        "pmax_original_yen",
         "review_id",
         "status"
       ],
@@ -5307,11 +5544,11 @@
             }
           ]
         },
-        "capital_allocation_assessments": {
+        "investment_proposals": {
           "items": {
-            "$ref": "#/$defs/CapitalAllocationAssessmentSummaryView"
+            "$ref": "#/$defs/InvestmentProposalSummaryView"
           },
-          "title": "Capital Allocation Assessments",
+          "title": "Investment Proposals",
           "type": "array"
         },
         "er_level_calibration": {
@@ -5332,7 +5569,7 @@
         "external_assessment_securities",
         "external_assessment_cutoff",
         "candidate_discovery",
-        "capital_allocation_assessments",
+        "investment_proposals",
         "er_level_calibration"
       ],
       "title": "ScreeningView",
@@ -5405,21 +5642,21 @@
           "title": "Revisions",
           "type": "array"
         },
-        "latest_thesis": {
+        "latest_assessment": {
           "anyOf": [
             {
-              "$ref": "#/$defs/ThesisDetailView"
+              "$ref": "#/$defs/StockAssessmentDetailView"
             },
             {
               "type": "null"
             }
           ]
         },
-        "position_reviews": {
+        "investment_proposals": {
           "items": {
-            "$ref": "#/$defs/PositionReviewView"
+            "$ref": "#/$defs/InvestmentProposalSummaryView"
           },
-          "title": "Position Reviews",
+          "title": "Investment Proposals",
           "type": "array"
         },
         "stock_analysis": {
@@ -5451,8 +5688,8 @@
         "sector",
         "holding",
         "revisions",
-        "latest_thesis",
-        "position_reviews",
+        "latest_assessment",
+        "investment_proposals",
         "stock_analysis",
         "screening_run"
       ],
@@ -5630,7 +5867,7 @@
           "type": "number"
         },
         "price_basis": {
-          "const": "adjusted_close_preferred",
+          "const": "split_adjusted_close",
           "title": "Price Basis",
           "type": "string"
         },
@@ -6689,6 +6926,70 @@
       "title": "StockAnalysisRowView",
       "type": "object"
     },
+    "StockAssessmentDetailView": {
+      "properties": {
+        "revision": {
+          "$ref": "#/$defs/ResearchRevisionView"
+        },
+        "document": {
+          "additionalProperties": true,
+          "title": "Document",
+          "type": "object"
+        },
+        "review": {
+          "additionalProperties": true,
+          "title": "Review",
+          "type": "object"
+        },
+        "core_sha256": {
+          "title": "Core Sha256",
+          "type": "string"
+        },
+        "projection": {
+          "additionalProperties": true,
+          "title": "Projection",
+          "type": "object"
+        }
+      },
+      "required": [
+        "revision",
+        "document",
+        "review",
+        "core_sha256",
+        "projection"
+      ],
+      "title": "StockAssessmentDetailView",
+      "type": "object"
+    },
+    "StockAssessmentsView": {
+      "properties": {
+        "assessments": {
+          "items": {
+            "$ref": "#/$defs/ResearchRevisionView"
+          },
+          "title": "Assessments",
+          "type": "array"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Cursor"
+        }
+      },
+      "required": [
+        "assessments",
+        "next_cursor"
+      ],
+      "title": "StockAssessmentsView",
+      "type": "object"
+    },
     "StockCandidateContextView": {
       "properties": {
         "common_eligible": {
@@ -6918,24 +7219,6 @@
         "ledger_error"
       ],
       "title": "TasksView",
-      "type": "object"
-    },
-    "ThesisDetailView": {
-      "properties": {
-        "revision": {
-          "$ref": "#/$defs/ResearchRevisionView"
-        },
-        "projection": {
-          "additionalProperties": true,
-          "title": "Projection",
-          "type": "object"
-        }
-      },
-      "required": [
-        "revision",
-        "projection"
-      ],
-      "title": "ThesisDetailView",
       "type": "object"
     },
     "TradingViewAssessment": {
@@ -7371,8 +7654,16 @@
           "title": "Ticker",
           "type": "string"
         },
-        "reason": {
-          "title": "Reason",
+        "purpose": {
+          "enum": [
+            "new",
+            "holding"
+          ],
+          "title": "Purpose",
+          "type": "string"
+        },
+        "unfinished_reason": {
+          "title": "Unfinished Reason",
           "type": "string"
         },
         "references": {
@@ -7385,7 +7676,8 @@
       },
       "required": [
         "ticker",
-        "reason",
+        "purpose",
+        "unfinished_reason",
         "references"
       ],
       "title": "UnfinishedResearchView",

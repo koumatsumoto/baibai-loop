@@ -117,7 +117,6 @@ from baibai_engine.market_context.assessment.models import (
 from baibai_engine.market_context.assessment.projection import (
     assessment_projection,
     assessment_series_ids,
-    legacy_context_projection,
 )
 from baibai_engine.market_context.indicators.cli import parse_refresh_failure_count
 from baibai_engine.market_context.indicators.db import (
@@ -261,7 +260,6 @@ __all__ = [
     "lake_release_manifest_key",
     "lake_session",
     "lake_verified_git_commit",
-    "legacy_context_projection",
     "load_definitions",
     "load_lake_model_json",
     "open_indicator_store",

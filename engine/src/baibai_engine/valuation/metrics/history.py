@@ -96,7 +96,7 @@ def _historical_ev_ebitda(
     market cap varies with the (adjusted) historical close.
 
     Negative EV or non-positive EBITDA is outside the valuation multiple
-    domain and is handled by cash / net-cash Valuation Approachs, not by EV/EBITDA mean
+    domain and is handled by cash / net-cash Valuation Approaches, not by EV/EBITDA mean
     reversion.
     """
     shares_ex_treasury = snapshot.shares_ex_treasury

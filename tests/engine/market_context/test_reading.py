@@ -58,8 +58,8 @@ def _expects_growth_statistic(definition: SeriesDefinition) -> bool:
     if definition.category == "inflation" and definition.unit == "index":
         return True
     if definition.category == "monetary":
-        # A monetary aggregate is a stock whose level only sets records, but a
-        # series the publisher already states as a change carries its own scale.
+        # Trending monetary levels can obscure changes in growth. A series the
+        # publisher already states as a change carries its own scale.
         return definition.unit != "percent"
     if definition.category == "labor":
         return definition.unit == "index" or definition.unit.endswith(("persons", "-per-hour"))
@@ -109,10 +109,9 @@ def _daily_points(count: int, *, end: date, step: float) -> list[tuple[date, flo
 def test_a_percentile_needs_eight_observations_in_its_window() -> None:
     """Below the floor the reading is withheld, not ranked against a handful of points.
 
-    A percentile is read as "where this sits in its own history", so ranking against
-    seven points reports the shape of the sample rather than of the series — and the
-    number reaches a human as a position in a distribution either way. The counts are
-    literal: derived from the constant they would move with it and pin nothing.
+    Eight is the configured display floor, not proof that the sample represents
+    the population. Literal counts keep a changed constant from silently changing
+    the boundary this test checks.
     """
 
     definition = series_definition(frequency="daily")
@@ -377,7 +376,7 @@ _STALENESS_CASES: tuple[tuple[str, int, int], ...] = (
     _STALENESS_CASES,
     ids=[case[0] for case in _STALENESS_CASES],
 )
-def test_staleness_warns_only_once_a_publication_has_been_missed(
+def test_staleness_warns_after_the_estimated_publication_window(
     series_id: str, waiting_days: int, stopped_days: int
 ) -> None:
     definition = load_definitions().by_id()[series_id]
@@ -398,12 +397,11 @@ def test_staleness_warns_only_once_a_publication_has_been_missed(
     assert reading_at(stopped_days), "a missed publication must warn"
 
 
-def test_japanese_cpi_stays_settleable_through_the_day_its_next_print_lands() -> None:
-    """A scorecard settles an expired condition only from data the rules call fresh.
+def test_japanese_cpi_stays_fresh_through_the_day_its_next_print_lands() -> None:
+    """Reading freshness permits the source's normal publication wait.
 
-    e-Stat posts the March CPI late in April, so a February observation is the newest
-    one a condition with an April deadline can be settled from. Calling it stale would
-    turn the normal publication wait into an unscorable condition.
+    e-Stat posts the March CPI late in April, so February remains the newest
+    observation before that release. The scheduled wait must not imply a stalled source.
     """
 
     rule = load_reading_rules(DEFAULT_RULES_PATH).resolve(
@@ -951,8 +949,8 @@ def test_reading_declines_statistics_for_a_window_with_half_its_periods_missing(
 def test_reading_does_not_hold_a_daily_series_to_an_implied_period_count() -> None:
     """How many days a market trades is not a property of the frequency.
 
-    A daily series only ever holds business days, so an implied 252-per-year count would
-    declare every healthy daily series insufficient.
+    Daily series can use exchange sessions or calendar days. The frequency alone
+    cannot supply an exact expected count or certify that observations are complete.
     """
 
     definition = series_definition("test.business_days", frequency="daily")

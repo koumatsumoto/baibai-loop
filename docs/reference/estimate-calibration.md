@@ -95,7 +95,7 @@ cache が対象 row を同定できない、diagnostics 件数と row 数が一�
 | 代入 | 値 |
 | --- | --- |
 | 全損 | `price_return = -1.0` |
-| 中立 | 同 cohort の resolved 銘柄の中央値 |
+| 中立 | 同 cohort の resolved common eligible母集団の中央値。benchmarkや母集団外の銘柄は含めない |
 
 報告値を比較に含めるのは、それが evidence readiness の読む値そのものだからである。両方の代入で向きが揃っても報告値だけが逆を向くなら、その結論は除外が作ったものになる。向きは`review_set_all`がNomination union全体の`median_excess`の符号、`er_calibration`が最上位 quintile の`median_realized_price_excess` − 最下位 quintile の同値の符号で定める。いずれかの場合で値が算出できず他の場合で算出できるときも、除外が「cohort が何か言えるかどうか」を決めているので不安定として扱う。
 
@@ -133,7 +133,7 @@ cohort比較は`--basis price|total`を取り、母集団は保存された`Pane
 
 ### E[r]絶対水準
 
-`er_level_calibration` は E[r] 合計の絶対年率と、実績 FY 配当を加えた実現 total return の絶対年率を `er_annual` quintile ごとに比較する。実現配当は `entry_date < fiscal_year_end <= exit_date` の FY 行を対象に、同じ FY の最新 non-null `DivAnn` を forward store の最終 bar 株式基準へ正規化して合算する。対象 FY 行なし、`DivAnn` 欠損、adjustment factor 不完全は 0 円とせず total-return 側を unresolved にする。明示された `DivAnn == 0` は観測済み無配である。端の FY は月割りしないため、この座標は実際の中間・期末配当の権利落ち日を再現する cash-flow ledger ではない。
+`er_level_calibration` は E[r] 合計の絶対年率と、実績 FY 配当を加えた実現 total return の絶対年率を `er_annual` quintile ごとに比較する。実現配当は `entry_date < fiscal_year_end <= exit_date` の FY 行を対象に、同じ FY の最新 non-null `DivAnn` を forward store の最終 bar 株式基準へ正規化して合算する。同日開示は開示時刻まで比較し、時刻不明を新旧の根拠にしない。同じ最新revisionの配当・換算に使う株数等が矛盾する場合も未解決に残す。対象 FY 行なし、`DivAnn` 欠損、adjustment factor 不完全は 0 円とせず total-return 側を unresolved にする。明示された `DivAnn == 0` は観測済み無配である。端の FY は月割りしないため、この座標は実際の中間・期末配当の権利落ち日を再現する cash-flow ledger ではない。
 
 ## 判断面へ渡す較正文脈
 
@@ -173,7 +173,7 @@ forward row は price-only の `price_return` / `status` と、`realized_dividen
 
 `normalized_per_3fy`がcalibrationのsubject mandatory metricではないことは、Candidate Discoveryで未使用という意味ではない。Normalized Earnings Powerのnative eligibility/orderには使い、FV/E[r] estimator入力には使わない。
 
-Bの候補正本統合後も、`PanelRow.in_review_set`、`valuation_approaches`、`valuation_approach_ranks`、PanelDiagnosticsの`security_analyses`/`nominated_candidates`、evidenceの`candidate_discovery_nomination_union`等は測定wireとして保持する。これらは独立publicationではなく候補集合membershipの測定値である。productionと較正は同じ丸め済みStock Analysisへ`build_candidate_contexts`を一度適用し、理由から測定値を導出する。cohort/forward/ER artifactをrun cacheの切替で消したり、現在identityへ書換えたりしない。
+候補正本の統合後も、`PanelRow.in_review_set`、`valuation_approaches`、`valuation_approach_ranks`、PanelDiagnosticsの`security_analyses`/`nominated_candidates`、evidenceの`candidate_discovery_nomination_union`等は測定wireとして保持する。これらは独立publicationではなく候補集合membershipの測定値である。productionと較正は同じ丸め済みStock Analysisへ`build_candidate_contexts`を一度適用し、理由から測定値を導出する。cohort/forward/ER artifactをrun cacheの切替で消したり、現在identityへ書換えたりしない。
 
 cache schema versionは[store実装](../../engine/src/baibai_engine/screening/calibration/store.py)がfieldと計算revision等から導出する。計算の意味変更は`VALUATION_CALCULATION_REVISION`を明示更新する。市場storeの整数`user_version`とは別契約である。panelは、productionの730日財務入力を変えずに補助履歴から、3 FYのsplit-safe DPS、DPS YoY・予想増配・配当開始、グロス株数減少streakと還元変化composite、赤字を含む連続3/5 FYのsplit-safe平均EPSによる正規化PER、PIT-TTMの`operating_profit_to_assets`・`operating_margin`・`asset_turnover`を記録する。これらのpanel列と`ProfitabilityLevelSignals`はcalibration専用で、productionへ渡さない。production ReinvestmentはStock Analysisから別途収益性を計算し、[native eligibility/order](./screening-runtime.md#candidate-discovery)に使う。グロス株数減少は自己株取得の事実ではなく、消却・発行等の純変化proxyである。`rules_hash`はrules・variant・入力窓・valuation calculation revision・Candidate Discovery method hashを含む。valuationの式・資本分母・価格基準またはCandidate Discoveryのeligibility・order・Nomination union contractが異なるpanelは、method identityとcache schemaの不一致でfail closedにする。
 
@@ -217,7 +217,7 @@ uv run baibai-engine screening calibration-build \
   --start <YYYY-MM-DD> --end <YYYY-MM-DD> --force
 ```
 
-`--force`では指定範囲だけから新snapshotを作る。入力coverage不足は再構築だけでは解消しない。説明文・commentだけの変更では、method revisionを進めず再生成しない。
+`--force`では指定範囲だけから新snapshotを作る。入力coverage不足は再構築だけでは解消しない。説明文・commentだけの変更では、method revisionを進めず再生成しない。forwardの計算規約は`FORWARD_CALCULATION_REVISION`でcache identityに含める。開示時刻・同時開示の矛盾判定へ切り替える前のsnapshotを新規約の結果として再利用せず、必要なscopeを再構築する。公開済みのhistorical artifactは改訂前の測定記録として保ち、自動で書き換えない。
 
 <a id="commands"></a>
 
@@ -278,7 +278,7 @@ E[r]水準parameterを判断する事前登録済みrunだけ`--required-metric 
 | 機械 E[r]・FV アンカー | `engine/src/baibai_engine/valuation/estimates.py` | 較正リプレイ（er 軸 IC / decile / 予測 vs 実現） |
 | valuation 指標の算出 | metrics 系 + [`valuation-metrics.md`](./valuation-metrics.md) | 算術・期間・単位・株式basisの回帰。methodの優劣を主張する変更は較正リプレイ |
 | マクロ判断の手順・レンズ | [Market Context](./market-context.md)・skill `market-context-assessment` | 保存した判断と後続の観測の照合 |
-| research の見積り手順 | [`thesis.md`](./thesis.md) + skill `research` | portfolio outcome と長期 horizon calibration |
+| research の見積り手順 | [`stock-assessment.md`](./stock-assessment.md) + skill `research` | portfolio outcome と長期 horizon calibration |
 | 資本・cap・sizing | [`portfolio-management.md`](../portfolio-management.md) + `position/policy.py` | 保有 outcome |
 | Researchの選定 | `research/selection_policy.py` | 保存分析・候補から深掘り対象までの実運用の検証 |
 
@@ -309,7 +309,9 @@ matched 比較の被覆率・membership 数・集中度など、forward outcome 
 
 ### 判断コホートの集計
 
-Research Set の ticker の research FV と screening FV の bridge は、有効観測（同一 thesis 再実行・scaffold-only・未 review・遡及記入を除く）が 5 件以上になったら乖離率の中央値・範囲・要因件数・coverage を記述集計する。この集計だけで screening 式を変えず、変更仮説は別 issue で事前登録して design/confirm へ進める。
+Research Setの対象について、[Stock Assessment](./stock-assessment.md#scenario-arithmetic)の期間別終価・今後分配・要求年率で割り引いた現在価値と、[機械anchor](./valuation-metrics.md#machine-valuation)は異なる評価座標である。数値差や乖離率を比較するのは、同一基準日、株式単位、対象期間、分配の扱い、valuation methodが比較可能で、終価・分配込み価値・現在価値のどれを比較するか明示できる場合に限る。現在fundamentalsを固定した倍率anchorを将来終価や分配込み現在価値と同一視しない。条件が異なる場合は差の数値比較を避け、期間・分配・評価方法などの方法差として説明する。
+
+比較可能な有効観測（同じStock Assessmentの再利用・scaffold-only・未Review・遡及記入を除く）が5件以上になったら、保存済み評価と機械anchorを読み、乖離率の中央値・範囲・要因件数・coverageを記述する。比較不能な対象は理由とともにcoverageへ区別する。この記述だけでscreening式を変えず、変更仮説は別Issueで事前登録してdesign/confirmへ進める。
 
 ### 支配権イベントの実現 exit 値
 
@@ -319,11 +321,11 @@ JPX理由の「公開買付」「株式の併合 / 株式併合」「株式等�
 
 ### 破綻型の実現 exit 値
 
-上場維持基準への不適合・破産・民事再生・会社更生・債務超過・内部管理体制・開示義務違反による上場廃止は、市場が最後に付けた終値で解決する（`resolved_failure_exit`）。資金が消えた退出には再投資の問いが立たないので、買収型と違い対価の規約を決めずに実値化できる。
+上場維持基準への不適合・破産・民事再生・会社更生・債務超過・内部管理体制・開示義務違反による上場廃止は、市場が最後に付けた終値で解決する（`resolved_failure_exit`）。これは最終市場価格を使う測定規約であり、実際の換金額・最終回収額や株式価値ゼロを確認したものではない。この分類に含まれる上場廃止理由だけで倒産や無価値を認定しない。
 
 破綻型の分類はJPXの廃止理由に基づき、買収と区別できない場合は未解決に残す。買収を破綻型と誤読するとプレミアムを失う一方、分類不能を未解決に残せば既存の欠落として開示できるためである。語句と除外条件の完全な定義は[forward](../../engine/src/baibai_engine/screening/calibration/forward.py)を参照する。`株式の併合`だけでは破綻と判定しない。
 
-価格は entry と同じ調整系列の終値どうしなので、買付価格と違い基準の突合を要さない。調整 factor の被覆は `resolved` と同じく行に記録し gate はしない。退出日が上場廃止日より後の銘柄（廃止後に再び取引された系列）と、1 窓に破綻型の廃止が 2 件入る銘柄は実値化せず unresolved に残す。廃止のかなり前に売買停止された銘柄は停止前の終値で評価されるため損失を過小に測るが、これは行ごと落とす現状と同じ向きで、より小さい。
+価格は entry と同じ調整系列の終値どうしなので、買付価格と違い基準の突合を要さない。調整 factor の被覆は `resolved` と同じく行に記録し gate はしない。退出日が上場廃止日より後の銘柄（廃止後に再び取引された系列）と、1 窓に破綻型の廃止が 2 件入る銘柄は実値化せず unresolved に残す。長期売買停止では最終終値と最終回収価値が乖離し得る。乖離の方向・大きさは廃止理由だけでは確定できず、この価格を実際の売却代金として扱わない。
 
 ### 誠実性の規律
 

@@ -34,9 +34,9 @@ from baibai_engine.valuation.metrics.periods import _actual_rows, _ttm_value
 class ShareBasisOnTheDisclosureDateTests(unittest.TestCase):
     """開示日当日に権利落ちがある行の株式基準。
 
-    財務開示行が申告する株数の基準は期末であって開示日ではない。権利落ちが開示日当日に
-    来た行は分割前基準のまま公表されるので、当日の adjustment_factor を数えないと株数だけ
-    分割前・価格だけ分割後になり、時価総額が分割比のぶん過少になる。
+    この fixture は期末の分割前株数を申告する。開示日当日の adjustment_factor を
+    除外すると株数だけ分割前・価格だけ分割後になる。実際の開示が常に未調整である
+    ことを保証するテストではなく、遡及調整済みの基準は別の fixture で検証する。
     """
 
     @staticmethod
@@ -88,8 +88,8 @@ class ShareBasisOnTheDisclosureDateTests(unittest.TestCase):
 class CarriedCommonEquityTests(unittest.TestCase):
     """円経路を採るかは突き合わせ行の中で決め、carry 後の乖離では決めない。
 
-    乖離はほとんどが実際の資本変動なので、倍率で切ると減損や大幅増資で自己資本が動いた
-    会社の新しい値を捨てて古い `bps` を採ることになり、割安側へ大きくずれる。
+    行内の整合と、後続行での値の変化を区別する。carry 後の差だけで古い BPS へ
+    戻らないことを確認し、差の原因が資本変動だと識別できたとは主張しない。
     """
 
     @staticmethod
@@ -139,7 +139,7 @@ class CarriedCommonEquityTests(unittest.TestCase):
         self.assertAlmostEqual(equity or 0.0, 1e7, places=0)
 
     def test_a_row_that_disagrees_uses_the_common_share_basis(self) -> None:
-        """行内で 2 経路が食い違う会社は資本構成の違いなので、普通株基準の `bps` を採る。"""
+        """行内の不一致では普通株基準の BPS 経路を採る。原因はこのテストでは特定しない。"""
 
         summaries = [self._row(bps=100.0, shares=1_000_000.0, total_assets=4e8, ratio=0.5)]
 
@@ -644,19 +644,17 @@ class MissingCloseAdjustmentEventTests(unittest.TestCase):
 
         self.assertEqual(financial.shares_ex_treasury, 1_000_000.0)
         self.assertEqual(financial.market_cap, 100_000_000.0)
-        self.assertAlmostEqual(derived.price_change_60d or 0.0, 0.0, places=12)
-        self.assertAlmostEqual(derived.gap_from_52w_low or 0.0, 0.0, places=12)
+        self.assertIsNotNone(derived.price_change_60d)
+        self.assertIsNotNone(derived.gap_from_52w_low)
+        self.assertAlmostEqual(derived.price_change_60d, 0.0, places=12)
+        self.assertAlmostEqual(derived.gap_from_52w_low, 0.0, places=12)
         self.assertTrue(derived.split_adjustment_flag)
 
 
 def test_the_share_count_anchor_admits_a_double_and_refuses_past_it() -> None:
-    """The filer's own average-share count is what says whether the end-of-period count
-    can be a per-share denominator.
+    """Pin the configured average/end-share plausibility band with literal boundaries.
 
-    A ratio inside the band is an ordinary buyback or issuance during the year; outside
-    it, the two numbers are counting different things and dividing by the wrong one puts
-    a per-share figure into a valuation. Both ends are written out, because a band
-    derived from the constant moves with it and pins nothing.
+    Passing the band does not identify a buyback or issuance, nor prove matching bases.
     """
 
     def resolved(average_shares: float) -> float | None:
@@ -678,13 +676,10 @@ def test_the_share_count_anchor_admits_a_double_and_refuses_past_it() -> None:
 
 
 def test_the_edinet_balance_sheet_must_be_within_a_double_of_the_statement() -> None:
-    """Total assets are the one figure both sides publish, so they decide identity.
+    """Pin the total-assets ratio filter, not proof of entity or consolidation identity.
 
-    The extractor reads one filing on either a consolidated or a parent-only basis, and
-    a parent-only read of a consolidated company reports the parent's debt and cash
-    against a market cap taken from the consolidated statement. Measured, those rows are
-    off by orders of magnitude, so a factor of two is far outside ordinary revision and
-    a row past it is not the same balance sheet. Both ends are literal.
+    Similar total assets can belong to different accounting scopes; rejection outside
+    this heuristic band also does not establish the cause of the discrepancy.
     """
 
     def same_entity(edinet_total_assets: float) -> bool:
@@ -699,13 +694,10 @@ def test_the_edinet_balance_sheet_must_be_within_a_double_of_the_statement() -> 
 
 
 def test_the_common_equity_routes_must_agree_within_five_percent() -> None:
-    """`total assets x equity ratio` is fresher; `bps x shares` is on the common basis.
+    """Pin the route-selection tolerance using a row with comparable inputs.
 
-    Where the two agree the company's yen route is also common-basis, so the fresher one
-    is kept. Where they disagree the difference is the capital structure — preferred
-    stock or a non-controlling interest sitting inside the yen route — and taking the
-    fresh number would put non-common equity into a per-share book value. Measured, that
-    is 677 rows. Both ends are literal.
+    Agreement within five percent permits the yen route under the policy; it does not
+    prove accounting identity. Disagreement alone does not identify capital structure.
     """
 
     def equity(ratio: float) -> float | None:

@@ -2,7 +2,7 @@
 title: "完結した過去TOBを非上場化案件へ混入させない"
 summary: "3990・8890の新旧原資料を照合し、全履歴集約による誤った価格競合・買付者競合を修正する。"
 doc_type: measurement-record
-status: active
+status: historical
 ---
 
 # 案件照合（refs #1481）

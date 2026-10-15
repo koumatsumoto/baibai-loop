@@ -4,6 +4,7 @@ import argparse
 import io
 import tempfile
 import unittest
+from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -102,19 +103,18 @@ class BuildTickerProfileTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             sqlite_path = root / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            conn.execute(
-                "INSERT INTO jpx_earnings_calendar(announcement_date, ticker) "
-                "VALUES ('2026-06-10', 'AAAA')"
-            )
-            conn.execute(
-                "INSERT INTO source_coverage(source, coverage_key, coverage_start, "
-                "coverage_end, fetched_at_utc, record_count, status) "
-                "VALUES ('jpx_earnings_calendar', 'legacy', '2026-05-29', "
-                "'2026-08-27', '2026-05-29T00:00:00+09:00', 1, 'ok')"
-            )
-            conn.commit()
-            conn.close()
+            with closing(open_connection(sqlite_path)) as conn, conn:
+                conn.execute(
+                    "INSERT INTO jpx_earnings_calendar(announcement_date, ticker) "
+                    "VALUES ('2026-06-10', 'AAAA')"
+                )
+                conn.execute(
+                    "INSERT INTO source_coverage(source, coverage_key, coverage_start, "
+                    "coverage_end, fetched_at_utc, record_count, status) "
+                    "VALUES ('jpx_earnings_calendar', 'legacy', '2026-05-29', "
+                    "'2026-08-27', '2026-05-29T00:00:00+09:00', 1, 'ok')"
+                )
+                conn.commit()
 
             profile = self._build(root, "AAAA")
 
@@ -370,10 +370,6 @@ class TickerProfileCliTests(unittest.TestCase):
             self.assertEqual(price["bar_count"], 30)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class PortfolioBlockTests(unittest.TestCase):
     def test_portfolio_block_reports_sector_concentration(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -598,3 +594,7 @@ def test_profile_declares_the_independent_ledger_date(tmp_path):
     assert profile["asof"] == "2026-05-28"
     assert profile["portfolio"]["ledger_as_of"] == "2026-05-29T15:30:00+09:00"
     assert profile["portfolio"]["open_position_count"] == 1
+
+
+if __name__ == "__main__":
+    unittest.main()

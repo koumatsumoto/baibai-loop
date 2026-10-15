@@ -15,16 +15,17 @@ from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
-from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.market.edinet_metrics import service as edinet_extraction
-
-ROOT = Path(__file__).resolve().parents[2]
-
 from baibai_engine.foundation.time import JST
+from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.bars import JQuantsDailyBar, JQuantsMarketCalendarDay
+from baibai_engine.market.edinet_metrics import service as edinet_extraction
 from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
 from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
-from baibai_engine.market.edinet_models import EdinetMetricRecord
+from baibai_engine.market.edinet_models import (
+    EdinetMetricRecord,
+    EDINETProviderError,
+    EDINETRateLimitError,
+)
 from baibai_engine.market.jpx_models import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
@@ -38,7 +39,6 @@ from baibai_engine.market.jquants_models import (
 )
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.models import SecurityMaster
-from baibai_engine.market.providers.edinet import EDINETProviderError, EDINETRateLimitError
 from baibai_engine.market.providers.jquants import JQuantsProvider
 from baibai_engine.screening import cli as screening_cli
 from baibai_engine.screening.cli import (
@@ -442,8 +442,6 @@ class ScreeningCliTests(unittest.TestCase):
             cwd = Path.cwd()
             try:
                 os_path = Path(tmpdir)
-                import os
-
                 os.chdir(os_path)
                 config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
                 providers = ProviderBundle(
@@ -485,8 +483,6 @@ class ScreeningCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             cwd = Path.cwd()
             try:
-                import os
-
                 os.chdir(Path(tmpdir))
                 config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
                 providers = ProviderBundle(
@@ -515,13 +511,11 @@ class ScreeningCliTests(unittest.TestCase):
             finally:
                 os.chdir(cwd)
 
-    def test_run_command_does_not_write_universe_snapshot_for_scratch_output(self) -> None:
+    def test_run_command_writes_to_absolute_scratch_output_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             cwd = Path.cwd()
             try:
                 os_path = Path(tmpdir)
-                import os
-
                 os.chdir(os_path)
                 config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
                 providers = ProviderBundle(
@@ -551,8 +545,6 @@ class ScreeningCliTests(unittest.TestCase):
             cwd = Path.cwd()
             try:
                 os_path = Path(tmpdir)
-                import os
-
                 os.chdir(os_path)
                 config = ScreeningConfig("token", None, cache_dir=Path(".cache/screening"))
                 providers = ProviderBundle(
@@ -579,8 +571,6 @@ class ScreeningCliTests(unittest.TestCase):
             cwd = Path.cwd()
             try:
                 os_path = Path(tmpdir)
-                import os
-
                 os.chdir(os_path)
                 config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
                 providers = ProviderBundle(
@@ -607,8 +597,6 @@ class ScreeningCliTests(unittest.TestCase):
             cwd = Path.cwd()
             try:
                 os_path = Path(tmpdir)
-                import os
-
                 os.chdir(os_path)
                 cache_dir = Path(".cache/screening")
                 disclosure_path = cache_dir / "disclosures" / "tdnet.json"
@@ -642,7 +630,9 @@ class ScreeningCliTests(unittest.TestCase):
                 )
 
                 self.assertEqual(exit_code, 2)
-                payload = safe_load(build_output_path(date(2026, 4, 24)).read_text())
+                payload = safe_load(
+                    build_output_path(date(2026, 4, 24)).read_text(encoding="utf-8")
+                )
                 self.assertIn("disclosure-title-events", payload["data_sources"])
                 self.assertIn(
                     "Disclosure title material-event scan: 1 events from 1 files "
@@ -663,8 +653,6 @@ class ScreeningCliTests(unittest.TestCase):
             cwd = Path.cwd()
             try:
                 os_path = Path(tmpdir)
-                import os
-
                 os.chdir(os_path)
                 cache_dir = Path(".cache/screening")
                 disclosure_dir = cache_dir / "disclosures"
@@ -697,7 +685,9 @@ class ScreeningCliTests(unittest.TestCase):
                 )
 
                 self.assertEqual(exit_code, 2)
-                payload = safe_load(build_output_path(date(2026, 4, 24)).read_text())
+                payload = safe_load(
+                    build_output_path(date(2026, 4, 24)).read_text(encoding="utf-8")
+                )
                 self.assertIn(
                     "Disclosure title material-event scan: 0 events from 2 files "
                     "(skipped=1, unsupported=1, errors=1)",
@@ -720,8 +710,6 @@ class ScreeningCliTests(unittest.TestCase):
             cwd = Path.cwd()
             try:
                 os_path = Path(tmpdir)
-                import os
-
                 os.chdir(os_path)
                 cache_dir = Path(".cache/screening")
                 disclosure_dir = cache_dir / "disclosures"
@@ -770,8 +758,6 @@ class ScreeningCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             cwd = Path.cwd()
             try:
-                import os
-
                 os.chdir(tmpdir)
                 config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
                 providers = ProviderBundle(
@@ -788,8 +774,6 @@ class ScreeningCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             cwd = Path.cwd()
             try:
-                import os
-
                 os.chdir(tmpdir)
                 config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
                 jpx = FakeJPXProvider(cache_exists=False)
@@ -816,8 +800,6 @@ class ScreeningCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             cwd = Path.cwd()
             try:
-                import os
-
                 os.chdir(tmpdir)
                 config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
                 jpx = FakeJPXProvider(cache_exists=False)
@@ -844,8 +826,6 @@ class ScreeningCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             cwd = Path.cwd()
             try:
-                import os
-
                 os.chdir(tmpdir)
                 config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
                 jpx = FakeJPXProvider(cache_exists=False)
@@ -872,8 +852,6 @@ class ScreeningCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             cwd = Path.cwd()
             try:
-                import os
-
                 os.chdir(tmpdir)
                 config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
                 jpx = FakeJPXProvider(cache_exists=False)
@@ -897,8 +875,6 @@ class ScreeningCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             cwd = Path.cwd()
             try:
-                import os
-
                 os.chdir(tmpdir)
                 config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
                 providers = ProviderBundle(
@@ -1343,10 +1319,8 @@ class ScreeningCliTests(unittest.TestCase):
     def test_recording_a_failure_keeps_the_snapshot_when_the_store_cannot_be_read(
         self,
     ) -> None:
-        # Recording a failure deletes the day's rows, and the check that is supposed to
-        # stop that reads through a path which answers "no snapshot" for a store behind
-        # the current schema. The write path would then migrate the store and delete a
-        # snapshot that was there all along.
+        # An unreadable schema is not evidence that the day's snapshot is absent.
+        # Failure recording must preserve those rows rather than attempt a replacement.
         with tempfile.TemporaryDirectory() as tmpdir:
             sqlite_path = Path(tmpdir) / "market.sqlite"
             store_edinet_metrics(
@@ -1575,14 +1549,11 @@ class ScreeningCliTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 1)
             self.assertIn("no EDINET filings selected", stderr.getvalue())
-            row = (
-                sqlite3.connect(sqlite_path)
-                .execute(
+            with contextlib.closing(sqlite3.connect(sqlite_path)) as connection:
+                row = connection.execute(
                     "SELECT status, error FROM source_coverage WHERE source = ?",
                     ("edinet_metrics",),
-                )
-                .fetchone()
-            )
+                ).fetchone()
             self.assertEqual(row[0], "failed")
             self.assertIn("no EDINET filings selected", row[1])
 
@@ -1620,15 +1591,12 @@ class ScreeningCliTests(unittest.TestCase):
             self.assertEqual(exit_code, 1)
             self.assertIn("EDINET document listing failed", stderr.getvalue())
             self.assertIsNotNone(read_edinet_metrics(sqlite_path, asof))
-            row = (
-                sqlite3.connect(sqlite_path)
-                .execute(
+            with contextlib.closing(sqlite3.connect(sqlite_path)) as connection:
+                row = connection.execute(
                     "SELECT status, error FROM source_coverage WHERE source = ? "
                     "AND coverage_key = ?",
                     ("edinet_metrics", asof.isoformat()),
-                )
-                .fetchone()
-            )
+                ).fetchone()
             self.assertEqual(row, ("ok", None))
 
     def test_extract_edinet_metrics_command_fails_on_invalid_document_shape(self) -> None:
@@ -1672,15 +1640,12 @@ class ScreeningCliTests(unittest.TestCase):
             self.assertEqual(exit_code, 1)
             self.assertIn("invalid EDINET secCode", stderr.getvalue())
             self.assertIsNotNone(read_edinet_metrics(sqlite_path, asof))
-            row = (
-                sqlite3.connect(sqlite_path)
-                .execute(
+            with contextlib.closing(sqlite3.connect(sqlite_path)) as connection:
+                row = connection.execute(
                     "SELECT status, error FROM source_coverage WHERE source = ? "
                     "AND coverage_key = ?",
                     ("edinet_metrics", asof.isoformat()),
-                )
-                .fetchone()
-            )
+                ).fetchone()
             self.assertEqual(row, ("ok", None))
 
     def test_extract_edinet_metrics_command_fails_closed_on_csv_rate_limit(self) -> None:
@@ -1728,15 +1693,12 @@ class ScreeningCliTests(unittest.TestCase):
             self.assertEqual(exit_code, 1)
             self.assertIn("EDINET CSV download rate limited", stderr.getvalue())
             self.assertIsNotNone(read_edinet_metrics(sqlite_path, asof))
-            row = (
-                sqlite3.connect(sqlite_path)
-                .execute(
+            with contextlib.closing(sqlite3.connect(sqlite_path)) as connection:
+                row = connection.execute(
                     "SELECT status, error FROM source_coverage WHERE source = ? "
                     "AND coverage_key = ?",
                     ("edinet_metrics", asof.isoformat()),
-                )
-                .fetchone()
-            )
+                ).fetchone()
             self.assertEqual(row, ("ok", None))
 
     def test_extract_edinet_metrics_reuses_cross_asof_and_same_asof(self) -> None:
@@ -2032,7 +1994,7 @@ class ScreeningCliTests(unittest.TestCase):
                 sqlite_path=sqlite_path,
                 stdout=io.StringIO(),
             )
-            with sqlite3.connect(sqlite_path) as connection:
+            with contextlib.closing(sqlite3.connect(sqlite_path)) as connection, connection:
                 connection.execute(
                     "UPDATE source_coverage SET record_count = 2 "
                     "WHERE source = 'edinet_metrics' AND coverage_key = '2026-04-24'"
@@ -2067,7 +2029,7 @@ class ScreeningCliTests(unittest.TestCase):
                 sqlite_path=sqlite_path,
                 stdout=io.StringIO(),
             )
-            with sqlite3.connect(sqlite_path) as connection:
+            with contextlib.closing(sqlite3.connect(sqlite_path)) as connection, connection:
                 connection.execute(
                     "UPDATE edinet_metrics SET extractor_revision = ?",
                     ("0" * 64,),
@@ -2089,7 +2051,7 @@ class ScreeningCliTests(unittest.TestCase):
             )
             self.assertEqual(second.download_calls, ["S100BASE"])
             self.assertIn("full_rebuild_reason=incompatible_revision", output.getvalue())
-            with sqlite3.connect(sqlite_path) as connection:
+            with contextlib.closing(sqlite3.connect(sqlite_path)) as connection, connection:
                 revision = connection.execute(
                     "SELECT extractor_revision FROM edinet_metrics WHERE asof_date = '2026-04-25'"
                 ).fetchone()[0]
@@ -2176,8 +2138,6 @@ def _edinet_document(
 
 def _seed_trading_days(sqlite_path: Path, start: date, end: date) -> None:
     """Weekday rows so the weekly-margin candidates have a calendar to derive from."""
-    from baibai_engine.storage.observations.schema import open_connection
-
     conn = open_connection(sqlite_path)
     try:
         day = start

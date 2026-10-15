@@ -242,7 +242,7 @@ def test_unresolved_nonfinite_price_is_corrupt_not_normal_missing(value):
         build(evaluation, panels, forwards)
 
 
-def test_research_receives_both_basis_coverage_and_the_limit(tmp_path, monkeypatch):
+def test_candidate_context_keeps_both_basis_coverage_and_the_limit(tmp_path):
     from datetime import date
 
     import yaml

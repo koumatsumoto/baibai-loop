@@ -43,7 +43,6 @@ class FakeTransport:
 def _notice(path: Path, **overrides: object) -> Path:
     payload: dict[str, object] = {
         "asof": "2026-08-26",
-        "skipped": False,
         "failed_stage": None,
         "delta_measured": True,
         "delta_unmeasured_reason": "",
@@ -176,25 +175,22 @@ def test_derive_failed_step_treats_a_cancelled_step_as_where_to_look() -> None:
 
 
 @pytest.mark.parametrize(
-    ("exit_code", "failed_step", "cancelled", "skipped", "expected"),
+    ("exit_code", "failed_step", "cancelled", "expected"),
     [
-        ("0", "", False, False, "ok"),
-        ("0", "", False, True, "skipped"),
-        ("3", "", False, False, "degraded"),
-        ("1", "screening-run", False, False, "failed"),
-        ("0", "upload-stores", False, False, "failed"),
-        ("3", "publish-serving", False, False, "failed"),
-        ("", "pre-batch", False, False, "failed"),
-        ("0", "", True, False, "cancelled"),
+        ("0", "", False, "ok"),
+        ("3", "", False, "degraded"),
+        ("1", "screening-run", False, "failed"),
+        ("0", "upload-stores", False, "failed"),
+        ("3", "publish-serving", False, "failed"),
+        ("", "pre-batch", False, "failed"),
+        ("0", "", True, "cancelled"),
     ],
 )
 def test_decide_outcome_table(
-    exit_code: str, failed_step: str, cancelled: bool, skipped: bool, expected: str
+    exit_code: str, failed_step: str, cancelled: bool, expected: str
 ) -> None:
     assert (
-        decide_outcome(
-            batch_exit_code=exit_code, failed_step=failed_step, cancelled=cancelled, skipped=skipped
-        )
+        decide_outcome(batch_exit_code=exit_code, failed_step=failed_step, cancelled=cancelled)
         == expected
     )
 
@@ -263,17 +259,12 @@ def test_render_message_separates_an_unmeasured_delta_from_an_empty_one(tmp_path
     )
 
 
-def test_render_message_has_no_delta_lines_on_a_skipped_day_or_without_a_notice(
-    tmp_path: Path,
-) -> None:
-    skipped = load_notice(_notice(tmp_path / "skipped.json", skipped=True))
-
-    assert "longlist" not in render_message(
-        outcome="skipped", asof="2026-08-26", failed_step="", notice=skipped, url=RUN_URL
-    )
-    assert "longlist" not in render_message(
+def test_render_message_has_no_delta_lines_without_a_notice() -> None:
+    message = render_message(
         outcome="failed", asof="", failed_step="pre-batch", notice={}, url=RUN_URL
     )
+    assert "候補入り" not in message
+    assert "候補退出" not in message
 
 
 def test_render_message_caps_the_named_tickers_and_says_how_many_are_left(tmp_path: Path) -> None:
@@ -449,7 +440,7 @@ def test_main_exits_0_without_a_webhook_and_never_calls_the_transport(
 
 
 @pytest.mark.parametrize("status", ["failed", "skipped_non_business_day"])
-def test_notice_does_not_repeat_old_review_set_delta_when_screening_did_not_update(
+def test_notice_does_not_repeat_previous_candidate_delta_when_screening_did_not_update(
     status: str,
 ) -> None:
     from baibai_batch.observability.discord import render_delta
@@ -457,7 +448,6 @@ def test_notice_does_not_repeat_old_review_set_delta_when_screening_did_not_upda
     lines = render_delta(
         {
             "screening_status": status,
-            "skipped": False,
             "delta_measured": True,
             "entered": ["old-entry"],
             "exited": [],

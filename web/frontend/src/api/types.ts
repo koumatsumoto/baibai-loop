@@ -2,20 +2,6 @@
 // Run `uv run python -m baibai_web.contracts_export` after changing those models;
 // `tools/quality/drift/check_readmodel_contract.py` refuses a stale copy.
 
-export interface AllocationAlternativeView {
-  ticker: string
-  disposition: string
-  rationale: string
-  thesis_id: string
-  thesis_review_id: string | null
-  case_status: string | null
-  base_annualized_return_pct: number | null
-  pmax_raw_yen: number | null
-  valuation_as_of: string | null
-  thesis_projection: Record<string, unknown>
-  thesis_review: Record<string, unknown> | null
-}
-
 export interface AnalystRatingAssessment {
   distributor: string
   inputs: AnalystRatingHistory
@@ -95,12 +81,10 @@ export interface AssessmentPublicationView {
   historical_payload: Record<string, unknown> | null
 }
 
-export interface AssessmentReviewView {
-  attempt: number
-  reviewer_identity: string
-  reviewed_at: string
-  conclusion: string
-  open_findings: string[]
+export interface AssessmentRefView {
+  assessment_id: string
+  core_sha256: string
+  review_id: string
 }
 
 export interface AssessmentRevisionView {
@@ -165,45 +149,12 @@ export interface CandidateReasonView {
   rank: number
 }
 
-export interface CapitalAllocationAssessmentSummaryView {
-  capital_allocation_assessment_id: string
-  as_of: string
-  published_at: string
-  decision: string
-  headline: string
-  research_triage_id: string | null
-  alternative_count: number
-  allocated_ticker: string | null
-  research_operation_id: string | null
-}
-
-export interface CapitalAllocationAssessmentView {
-  capital_allocation_assessment_id: string
-  as_of: string
-  published_at: string
-  decision: string
-  headline: string
-  research_triage_id: string | null
-  market_context_assessment_id: string | null
-  comparison: string
-  foregone_alternatives: string
-  research_operation_id: string | null
-  selected_new_target_count: number | null
-  unfinished_research: UnfinishedResearchView[]
-  alternatives: AllocationAlternativeView[]
-  content_review: AssessmentReviewView
-}
-
-export interface CapitalAllocationAssessmentsView {
-  assessments: CapitalAllocationAssessmentSummaryView[]
-}
-
 /**
  * What changed between the latest machine run and the one before it.
  *
- * Every field is an observation or a comparison of observations. The view names no
- * cause and carries no recommendation: it tells the reader where to look, and the
- * decision to start a research cycle or a Position Review stays human.
+ * The view compares observations, derived metrics, and machine estimates without
+ * turning them into causal claims or recommendations. It shows where to look; the
+ * decision to start new-stock or holding research stays human.
  *
  * ``unavailable`` lists the sections no store could answer, so an empty section is
  * never read as "nothing changed". ``method_changed`` marks different screening or
@@ -255,7 +206,6 @@ export interface DashboardView {
   holdings: HoldingView[]
   reservations: ReservationView[]
   warnings: WarningView[]
-  research_load_errors: string[]
 }
 
 export type DeltaUnavailable = 'screening_run' | 'previous_screening_run' | 'candidates' | 'candidate_estimate' | 'holdings' | 'market'
@@ -337,6 +287,11 @@ export interface ExternalAssessmentSecurityView {
   sector_33: string | null
   portfolio_state: PortfolioState
   has_research: boolean
+}
+
+export interface GateReasonView {
+  code: string
+  message: string
 }
 
 export interface HistoricalConnectionSectionView {
@@ -486,7 +441,7 @@ export interface HistoricalSynthesisView {
 }
 
 /**
- * Observed holding price movement; holding decisions belong to Position Review.
+ * Observed holding price movement; holding decisions belong to Investment Proposal.
  */
 export interface HoldingDeltaView {
   ticker: string
@@ -508,8 +463,9 @@ export interface HoldingView {
   unrealized_pnl_pct: number | null
   pmax_raw_yen: number | null
   pmax_gap_pct: number | null
-  latest_thesis_id: string | null
-  disposition: string | null
+  pmax_gap_unavailable_reason: string | null
+  latest_assessment_id: string | null
+  stance: string | null
   next_earnings_date: string | null
 }
 
@@ -541,6 +497,98 @@ export interface IndicatorSeriesView {
   unit: string
   tradingview_symbol: string | null
   points: IndicatorPointView[]
+}
+
+export interface InvestmentProposalItemView {
+  ticker: string
+  action: 'buy' | 'hold' | 'sell' | 'no_action' | 'defer'
+  rationale: string
+  review_conditions: string[]
+  assessment_ref: AssessmentRefView | null
+  timing: string | null
+  proposed_limit_yen: string | null
+  terms: LimitTermsView | null
+  terms_unavailable_reasons: GateReasonView[]
+  order_readiness: 'ready' | 'needs_terms' | 'not_applicable'
+  position: Record<string, unknown> | null
+  holding_basis: string | null
+  case_reassessment_reason: string | null
+  remaining_reward: Record<string, unknown> | null
+  return_calculation_unavailable_reason: string | null
+  reason_code: string | null
+  blockers: GateReasonView[]
+  resume_conditions: string[]
+  assessment_projection: Record<string, unknown> | null
+  assessment_review: Record<string, unknown> | null
+}
+
+/**
+ * 取得時刻付きの現在再試算。保存Proposal/termsとは独立したread-only結果。
+ */
+export interface InvestmentProposalPreviewView {
+  saved_proposal_id: string
+  previewed_at: string
+  status: 'unchanged' | 'changed' | 'blocked'
+  current_inputs: Record<string, unknown> | null
+  items: Record<string, unknown>[]
+  change_reasons: GateReasonView[]
+  warnings: string[]
+  portfolio_exposure: Record<string, unknown> | null
+}
+
+export interface InvestmentProposalSummaryView {
+  proposal_id: string
+  as_of: string
+  published_at: string
+  request_scope: string
+  headline: string
+  item_count: number
+  tickers: string[]
+  actions: string[]
+  research_operation_id: string
+}
+
+export interface InvestmentProposalView {
+  proposal_id: string
+  as_of: string
+  prepared_at: string
+  published_at: string
+  request_scope: string
+  headline: string
+  comparison: string
+  forgone: string
+  market_context_assessment_id: string | null
+  research_scope: Record<string, unknown>
+  saved_inputs: Record<string, unknown>
+  items: InvestmentProposalItemView[]
+  review: Record<string, unknown>
+  draft_sha256: string
+  liquidity_context: Record<string, unknown>[]
+  warnings: string[]
+  portfolio_exposure: Record<string, unknown>
+  unfinished_research: UnfinishedResearchView[]
+}
+
+export interface InvestmentProposalsView {
+  proposals: InvestmentProposalSummaryView[]
+  next_cursor: string | null
+}
+
+/**
+ * 保存当時の具体条件。現在条件、注文受理、約定を推定しない。
+ */
+export interface LimitTermsView {
+  side: 'buy' | 'sell'
+  limit_price_yen: string
+  quantity: number
+  notional_yen: string
+  target_session: string
+  expires_at: string
+  valuation_as_of: string
+  maximum_entry_price_yen: string | null
+  price_grid_rule_id: string
+  conditions: string[]
+  warnings: string[]
 }
 
 /**
@@ -662,14 +710,10 @@ export interface OperationResearchTargetView {
   key_risk: string | null
   ticker: string
   purpose: 'new' | 'holding'
-  outcome_status: 'reviewed' | 'proposal' | 'unfinished' | null
-  thesis_id: string | null
-  thesis_review_id: string | null
+  outcome_status: 'reviewed' | 'unfinished' | null
+  assessment_ref: AssessmentRefView | null
   unfinished_reason: string | null
   references: string[]
-  checked_at: string | null
-  holding_proposal: Record<string, unknown> | null
-  holding_proposal_null_reason: string | null
 }
 
 export interface OperationResearchView {
@@ -678,7 +722,8 @@ export interface OperationResearchView {
   max_deep_research_targets: number | null
   request: string
   targets: OperationResearchTargetView[]
-  capital_allocation_assessment_id: string | null
+  proposal_id: string | null
+  proposal_draft_sha256: string | null
   source_run_revision_id: string | null
   source_analysis_as_of: string | null
 }
@@ -728,14 +773,6 @@ export interface PortfolioOutcomeView {
 }
 
 export type PortfolioState = 'unheld' | 'held' | 'reserved' | 'held_and_reserved'
-
-export interface PositionReviewView {
-  position_review_id: string
-  as_of: string
-  thesis_id: string
-  action: string | null
-  note: string | null
-}
 
 export interface QuantsScoreAssessment {
   inputs: QuantsScoreHistory
@@ -826,11 +863,16 @@ export interface ReadingView {
 }
 
 export interface ResearchRevisionView {
+  ticker: string
+  company_name: string
+  sector: string
+  summary: string
   as_of: string
-  thesis_id: string
-  disposition: string
-  pmax_raw_yen: number | null
-  review_id: string | null
+  published_at: string
+  assessment_id: string
+  stance: string
+  pmax_original_yen: number | null
+  review_id: string
   status: string
 }
 
@@ -875,7 +917,7 @@ export interface ScreeningView {
   external_assessment_securities: ExternalAssessmentSecurityView[]
   external_assessment_cutoff: string | null
   candidate_discovery: CandidateDiscoverySummaryView | null
-  capital_allocation_assessments: CapitalAllocationAssessmentSummaryView[]
+  investment_proposals: InvestmentProposalSummaryView[]
   er_level_calibration: ErLevelCalibrationContextView | null
 }
 
@@ -887,8 +929,8 @@ export interface SecurityDetailView {
   sector: string | null
   holding: HoldingView | null
   revisions: ResearchRevisionView[]
-  latest_thesis: ThesisDetailView | null
-  position_reviews: PositionReviewView[]
+  latest_assessment: StockAssessmentDetailView | null
+  investment_proposals: InvestmentProposalSummaryView[]
   stock_analysis: StockAnalysisRowView | null
   screening_run: ScreeningRunView | null
 }
@@ -923,7 +965,7 @@ export interface SecurityPeerContextView {
 export interface SecurityPriceContextView {
   resolved_date: string
   close: number
-  price_basis: 'adjusted_close_preferred'
+  price_basis: 'split_adjusted_close'
   return_1d: number | null
   return_5d: number | null
   return_20d: number | null
@@ -1022,6 +1064,19 @@ export interface StockAnalysisRowView {
   er_meets_8_5pct_band: boolean
 }
 
+export interface StockAssessmentDetailView {
+  revision: ResearchRevisionView
+  document: Record<string, unknown>
+  review: Record<string, unknown>
+  core_sha256: string
+  projection: Record<string, unknown>
+}
+
+export interface StockAssessmentsView {
+  assessments: ResearchRevisionView[]
+  next_cursor: string | null
+}
+
 export interface StockCandidateContextView {
   common_eligible: boolean
   reasons: CandidateReasonView[]
@@ -1062,11 +1117,6 @@ export interface TasksView {
   next_task: TaskView | null
   upcoming_events: UpcomingEventView[]
   ledger_error: string | null
-}
-
-export interface ThesisDetailView {
-  revision: ResearchRevisionView
-  projection: Record<string, unknown>
 }
 
 export interface TradingViewAssessment {
@@ -1115,7 +1165,8 @@ export interface TradingViewObservation {
 
 export interface UnfinishedResearchView {
   ticker: string
-  reason: string
+  purpose: 'new' | 'holding'
+  unfinished_reason: string
   references: string[]
 }
 

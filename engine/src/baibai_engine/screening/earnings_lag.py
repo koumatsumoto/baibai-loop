@@ -8,12 +8,11 @@
   「もう出た」が区別できない。
 - ``jquants_fin_summaries`` — 実際に開示された数字。機械行の財務はここから作られる。
 
-この 2 つを突き合わせられる場所は 1 つしかないので、状態の判定はすべてここで行い、
-表示層は転記だけをする。ranking にも gate にも E[r] にも入らない。
+状態の判定はここへ集約し、表示層は転記する。ranking・gate・E[r] には入らない。
 
-**historical backfill では読めない**: カレンダーは単一 snapshot で fetch 日を持たないため、
-過去 as-of の run は「今日の予定表」を読む。その run の annotation は as-of 時点の状態では
-ないので、過去 run の `next_earnings_status` と `stale_fin_flag` を解釈しない。
+**過去時点の予定表を再現しない**: カレンダーは単一 snapshot で、取得時刻は coverage に
+保存されるが、過去時点別の予定表を保持しない。historical backfill が現在の snapshot を
+読む場合、その `next_earnings_status` と `stale_fin_flag` は当時の状態の証拠にはならない。
 """
 
 from __future__ import annotations
@@ -45,7 +44,7 @@ class EarningsLag:
     next_earnings_estimated_date: date | None
     next_earnings_status: NextEarningsStatus
     # None = 判定材料が無い: 予定日が未来 / カレンダー行が無い / 行に財務が無い。
-    # False は「予定日と財務行の日付が許容幅内」であり、発表確認ではない。
+    # False は「財務開示日が予定日の14日前以降」であり、同じ決算の発表確認ではない。
     stale_fin_flag: bool | None
 
 

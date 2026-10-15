@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -29,11 +30,11 @@ def _version(path: Path) -> int:
 def test_a_copy_already_current_is_reported_and_left_alone(tmp_path: Path) -> None:
     """Every push runs this, including the ones where R2 is already up to date."""
     store = _store(tmp_path / "indicators.sqlite")
-    with sqlite3.connect(store) as connection:
+    with closing(sqlite3.connect(store)) as connection:
         before = connection.execute("SELECT count(*) FROM series").fetchone()[0]
 
     assert migrate_indicator_store(store) == SQLITE_SCHEMA_VERSION
-    with sqlite3.connect(store) as connection:
+    with closing(sqlite3.connect(store)) as connection:
         assert connection.execute("SELECT count(*) FROM series").fetchone()[0] == before
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
 

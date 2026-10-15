@@ -9,11 +9,8 @@ from pydantic import JsonValue
 
 from baibai_engine.storage.lake.keys import validate_lake_object_key
 
-# One capacity policy, split by what each class is for, so a class that grows for a
-# design reason is visible against the objective that class was sized against. A single
-# figure cannot do that: provider originals that cannot be re-fetched need a budget two
-# orders of magnitude above the published graph, and reporting only the larger one lets
-# the published graph grow past its objective without anything saying so.
+# Report published objects and build workspaces separately so abandoned staging
+# cannot hide growth of the canonical publication graph.
 SOFT_BUDGET_BYTES = {
     # Published objects and in-flight staging have separate soft budgets so staging
     # leaks cannot hide growth of the canonical publication graph.
@@ -46,8 +43,6 @@ def _area(key: str) -> str:
     parts = key.split("/")
     if parts[:3] == ["lake", "l1", "canonical"] and len(parts) >= 4:
         return "/".join(parts[:4])
-    if parts[:2] == ["lake", "l2"] and len(parts) >= 3:
-        return "/".join(parts[:3])
     if parts[:2] == ["lake", "manifests"] and len(parts) >= 3:
         return "/".join(parts[:3])
     if parts[:2] == ["lake", "pointers"] and len(parts) >= 3:

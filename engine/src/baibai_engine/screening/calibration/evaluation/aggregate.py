@@ -18,7 +18,6 @@ from baibai_engine.screening.calibration.evaluation.policy import (
     RETURN_CHANGE_CONTROL_FIELDS,
     SECTOR_MEDIAN_AXES,
 )
-from baibai_engine.screening.rule_config import CandidateDiscoveryRules
 
 
 @dataclass(slots=True)
@@ -38,11 +37,7 @@ class _ComponentAccumulator:
     false_n: int = 0
 
 
-def _aggregate(
-    cohorts: Sequence[dict[str, object]],
-    *,
-    candidate_discovery_rules: CandidateDiscoveryRules,
-) -> dict[str, object]:
+def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
     """cohort 横断の集計: 効果量の平均と cohort 勝率 (有意性は主張しない) 。"""
     if not cohorts:
         return {"cohort_count": 0}
@@ -256,9 +251,8 @@ def _aggregate_gates(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
 def _aggregate_sector_median_basis(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
     """Cross-cohort effect of each sector-gap axis, kept apart by baseline.
 
-    `axis_effect` は群の中を軸値で割った差なので、両側とも同じ構成を持つ。これが軸の
-    効きを表す量で、`group_median_excess` の側は群の決まり方が持ち込む業種構成である。
-    2 つを別の名前で並べ、構成を効きとして読めないようにする。
+    `axis_effect` は群内を軸値で分割した記述的な差で、業種等の交絡を除いた因果効果ではない。
+    群全体の水準 `group_median_excess` と区別し、標本数とcohort間のばらつきを併記する。
     """
     result: dict[str, object] = {}
     for axis_name in SECTOR_MEDIAN_AXES:
@@ -293,8 +287,7 @@ def _aggregate_sector_median_basis(cohorts: Sequence[dict[str, object]]) -> dict
                 trap = group.get("trap_rate")
                 if isinstance(trap, int | float):
                     traps.append(float(trap))
-                # The market side never fills a decile, so the spread joins the report
-                # only where a cohort had the sample; the half split carries both sides.
+                # Report a decile spread only when this cohort has enough observations.
                 spread = group.get("decile_spread_median")
                 if isinstance(spread, int | float):
                     spreads.append(float(spread))
@@ -307,9 +300,7 @@ def _aggregate_sector_median_basis(cohorts: Sequence[dict[str, object]]) -> dict
                 "mean_group_median_excess": (
                     round(fmean(group_medians), 6) if group_medians else None
                 ),
-                # 軸の効き。群内を割安 / 割高で割った差。ばらつきを平均と並べるのは、
-                # 月末 as-of の窓が大きく重なり、cohort 数だけ独立観測があるように
-                # 見えるため。市場側は 1 cohort 50 行前後なので特に効く。
+                # 群内分割の差。業種構成を揃えた比較ではなく、月次窓も独立ではない。
                 "effect_cohorts": len(effects),
                 "mean_axis_effect": round(fmean(effects), 6) if effects else None,
                 "stdev_axis_effect": round(stdev(effects), 6) if len(effects) > 1 else None,

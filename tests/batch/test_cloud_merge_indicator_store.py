@@ -1,14 +1,15 @@
-"""The indicator-store merge must lose no row from either side."""
+"""Merge preserves compatible facts and rejects conflicts; retired series stay excluded."""
 
 from __future__ import annotations
 
 import sqlite3
 from collections.abc import Sequence
+from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
-from tests.helpers.indicator_store import downgrade_to_previous_schema, observation
+from tests.helpers.indicator_store import downgrade_to_pre_retraction_schema, observation
 
 from baibai_batch.storage.merge_indicator_store import (
     MergeError,
@@ -136,9 +137,9 @@ def test_merge_rejects_different_payload_for_the_same_provider_run_key(
         ") VALUES ('shared-run', 'fred_csv', 'us.10y', '2026-07-01', '2026-07-24', "
         "'2026-07-24T00:00:00+00:00', '2026-07-24T00:00:01+00:00', 'ok', ?, NULL)"
     )
-    with sqlite3.connect(source) as connection:
+    with closing(sqlite3.connect(source)) as connection, connection:
         connection.execute(insert_sql, (1,))
-    with sqlite3.connect(target) as connection:
+    with closing(sqlite3.connect(target)) as connection, connection:
         connection.execute(insert_sql, (2,))
 
     with pytest.raises(
@@ -228,7 +229,7 @@ def test_merge_refuses_a_source_behind_the_target(tmp_path: Path) -> None:
     observation = _observation("jp.10y", date(2026, 7, 23), 1.62)
     _build_store(source, series_ids=("jp.10y",), observations=(observation,))
     _build_store(target, series_ids=("jp.10y",), observations=())
-    downgrade_to_previous_schema(source)
+    downgrade_to_pre_retraction_schema(source)
 
     with pytest.raises(MergeError, match=r"schema is \d+ but this code expects"):
         merge_stores(source, target)
@@ -371,7 +372,7 @@ def test_merge_uses_retained_target_metadata_after_stale_registry_open(tmp_path:
     )
     registry = load_definitions().by_id()
     stale_definitions = IndicatorDefinitions(series=(registry["us.10y"],))
-    with sqlite3.connect(local) as connection:
+    with closing(sqlite3.connect(local)) as connection, connection:
         seed_definitions(connection, stale_definitions)
         connection.commit()
 
@@ -425,7 +426,7 @@ def test_merge_leaves_the_registry_owned_tables_to_the_target(tmp_path: Path) ->
         observations=(_observation("us.10y", date(2016, 7, 20), 1.55),),
     )
     # An alias the registry no longer generates, left in the cloud copy by an earlier publish.
-    with sqlite3.connect(cloud) as connection:
+    with closing(sqlite3.connect(cloud)) as connection, connection:
         connection.execute("INSERT INTO aliases(alias, series_id) VALUES ('JGB 10Y', 'us.10y')")
 
     merge_stores(cloud, local)
@@ -446,7 +447,7 @@ def test_merge_refuses_a_store_on_a_different_schema(tmp_path: Path) -> None:
         series_ids=("us.10y",),
         observations=(_observation("us.10y", date(2016, 7, 20), 1.55),),
     )
-    with sqlite3.connect(cloud) as connection:
+    with closing(sqlite3.connect(cloud)) as connection, connection:
         connection.execute("PRAGMA user_version = 99")
 
     with pytest.raises(MergeError, match="schema is 99"):
@@ -542,7 +543,7 @@ def test_merge_rejects_an_incomplete_active_target_band(tmp_path: Path) -> None:
         series_ids=("us.10y",),
         observations=(_observation("us.10y", date(2016, 7, 20), 1.55),),
     )
-    with sqlite3.connect(local) as connection:
+    with closing(sqlite3.connect(local)) as connection, connection:
         connection.execute(
             "UPDATE series SET plausible_min = NULL, plausible_max = NULL "
             "WHERE series_id = 'us.10y'"
@@ -559,7 +560,7 @@ def test_merge_rejects_a_store_with_a_missing_contract_trigger(tmp_path: Path) -
     local = tmp_path / "local.sqlite"
     _build_store(cloud, series_ids=("us.10y",), observations=())
     _build_store(local, series_ids=("us.10y",), observations=())
-    with sqlite3.connect(local) as connection:
+    with closing(sqlite3.connect(local)) as connection, connection:
         connection.execute("DROP TRIGGER validate_observation_plausibility_before_insert")
 
     with pytest.raises(MergeError, match=r"trigger contract mismatch.*missing"):
@@ -581,7 +582,7 @@ def test_merge_rejects_an_unexpected_target_trigger_before_it_can_delete_history
         series_ids=("us.10y",),
         observations=(_observation("us.10y", date(2016, 7, 20), 1.55),),
     )
-    with sqlite3.connect(local) as connection:
+    with closing(sqlite3.connect(local)) as connection, connection:
         connection.execute(
             "CREATE TRIGGER unexpected_history_delete AFTER INSERT ON observations "
             "BEGIN DELETE FROM observations WHERE observed_at < NEW.observed_at; END"
@@ -608,7 +609,7 @@ def test_merge_rejects_a_store_column_name_that_is_not_an_identifier(tmp_path: P
         series_ids=("us.10y",),
         observations=(_observation("us.10y", date(2016, 7, 20), 1.55),),
     )
-    with sqlite3.connect(local) as connection:
+    with closing(sqlite3.connect(local)) as connection, connection:
         connection.execute('ALTER TABLE observations ADD COLUMN "value"" , 1 AS x" TEXT')
 
     with pytest.raises(MergeError, match=r"column name is not a plain identifier"):
@@ -643,22 +644,8 @@ def test_main_reports_a_missing_store(tmp_path: Path, capsys) -> None:
 def _inject_source_observation(path: Path, observation: ObservationRecord) -> None:
     """Model a source produced by an older or faulty writer for merge preflight tests."""
 
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute("DROP TRIGGER validate_observation_plausibility_before_insert")
         insert_observations(connection, [observation], deduplicate_unchanged=False)
         connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
         connection.commit()
-
-
-def _contract_trigger_sql(connection: sqlite3.Connection) -> tuple[str, ...]:
-    return tuple(
-        str(row[0])
-        for row in connection.execute(
-            "SELECT sql FROM sqlite_master WHERE type = 'trigger' "
-            "AND name IN ("
-            "'validate_observation_plausibility_before_insert', "
-            "'validate_observation_plausibility_before_update', "
-            "'validate_series_contract_before_update'"
-            ") ORDER BY name"
-        )
-    )

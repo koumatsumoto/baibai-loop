@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import unittest
-from contextlib import redirect_stderr
+from contextlib import closing, redirect_stderr
 from dataclasses import replace
 from datetime import date, datetime
 from io import StringIO
@@ -17,8 +17,6 @@ from tests.helpers.calibration_store import (
     forward_row,
     panel_diagnostics,
     panel_row,
-    store_forward,
-    store_panel,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -55,12 +53,14 @@ from baibai_engine.screening.calibration.evidence import (
     candidate_discovery_approach_fidelity_metric,
 )
 from baibai_engine.screening.calibration.forward import ForwardReturnRow
+from baibai_engine.screening.calibration.horizons import require_horizon
 from baibai_engine.screening.calibration.panel import (
     PRODUCTION_PANEL_POLICY,
     PanelDiagnostics,
     PanelRow,
     rules_content_hash,
 )
+from baibai_engine.screening.calibration.store import write_forward, write_panel
 from baibai_engine.screening.rule_config import ScreeningRules, load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.valuation.calibration.contracts import ErCalibrationContextArtifact
@@ -92,7 +92,7 @@ def calibration_evaluate_command(*, rules: ScreeningRules = _RULES, **kwargs: ob
 
 
 def _panel_row(ticker: str, *, rank: int | None = None, **overrides: object) -> PanelRow:
-    """A row for this file's one cohort: liquid enough to be eligible, dated `_ASOF`.
+    """A row for this file's one cohort: eligible under common criteria, dated `_ASOF`.
 
     Everything else comes from `tests.helpers.calibration_store.panel_row`, so a new
     panel field lands there once instead of in a second copy of the row shape.
@@ -102,14 +102,14 @@ def _panel_row(ticker: str, *, rank: int | None = None, **overrides: object) -> 
         # This file's cohort is one where every ranked name also passed, which is what
         # its evaluation cases are about; the panel does not require that in general.
         overrides.setdefault("in_review_set", True)
-    liquid: dict[str, object] = {
+    context: dict[str, object] = {
         "market_cap_oku": 500.0,
         "avg_turnover_oku": 5.0,
         "listing_span_days": 1200,
         "close": 1000.0,
         "price_history_coverage_750d": 1.0,
     }
-    return panel_row(_ASOF, ticker, **(liquid | overrides))
+    return panel_row(_ASOF, ticker, **(context | overrides))
 
 
 def _forward_row(
@@ -119,16 +119,17 @@ def _forward_row(
     total_return: float | None = None,
     horizon: str = "6m",
 ) -> ForwardReturnRow:
-    """One resolved forward observation for this file's cohort."""
+    """One resolved forward observation for this file's cohort and requested horizon."""
 
+    target = require_horizon(horizon).target_date(date.fromisoformat(_ASOF)).isoformat()
     return forward_row(
         _ASOF,
         ticker,
         horizon,
-        target_date="2025-12-29",
+        target_date=target,
         price_return=price_return,
         entry_date=_ASOF,
-        exit_date="2025-12-29",
+        exit_date=target,
         total_return=total_return,
         total_return_status=(
             "resolved" if total_return is not None else "unresolved_missing_dividend"
@@ -306,9 +307,9 @@ class SectorMedianBasisThinSideTest(unittest.TestCase):
         """A level the group carries is not an effect the axis produced.
 
         Falling back is decided per sector, so the market side is whole sectors and its
-        level is that mix. Splitting the same group on the axis puts the same sectors on
-        both sides, so a group the axis does not order has to come back at zero however
-        far the group sits from the population.
+        level may reflect that mix. This fixture gives every fallback row the same
+        return, so its within-group split is zero however far the group sits from the
+        population. The split does not control sector composition or identify causality.
         """
         panel = []
         forwards = []
@@ -581,8 +582,8 @@ class EvaluateCohortsTest(unittest.TestCase):
                 errors = StringIO()
                 with TemporaryDirectory() as temp_dir, redirect_stderr(errors):
                     root = Path(temp_dir)
-                    store_panel(root, date(2025, 6, 30), panel, _panel_diagnostics())
-                    store_forward(root, date(2025, 6, 30), forwards)
+                    write_panel(root, date(2025, 6, 30), panel, _panel_diagnostics())
+                    write_forward(root, date(2025, 6, 30), forwards)
                     output_path = root / "evaluation.yaml"
 
                     exit_code = calibration_evaluate_command(
@@ -609,13 +610,13 @@ class EvaluateCohortsTest(unittest.TestCase):
         errors = StringIO()
         with TemporaryDirectory() as temp_dir, redirect_stderr(errors):
             root = Path(temp_dir)
-            store_panel(
+            write_panel(
                 root,
                 date(2025, 6, 30),
                 [_panel_row("1111")],
                 replace(_panel_diagnostics(), rules_hash=old_hash),
             )
-            store_forward(root, date(2025, 6, 30), [_forward_row("1111", 0.1)])
+            write_forward(root, date(2025, 6, 30), [_forward_row("1111", 0.1)])
             original = (root / "current.sqlite").read_bytes()
             output = root / "evaluation.yaml"
             code = calibration_evaluate_command(
@@ -635,8 +636,8 @@ class EvaluateCohortsTest(unittest.TestCase):
         with TemporaryDirectory() as temp_dir, redirect_stderr(errors):
             root = Path(temp_dir)
             diagnostics = replace(_panel_diagnostics(), panel_variant="unknown")  # type: ignore[arg-type]
-            store_panel(root, date(2025, 6, 30), [_panel_row("1111")], diagnostics)
-            store_forward(root, date(2025, 6, 30), [_forward_row("1111", 0.1)])
+            write_panel(root, date(2025, 6, 30), [_panel_row("1111")], diagnostics)
+            write_forward(root, date(2025, 6, 30), [_forward_row("1111", 0.1)])
 
             exit_code = calibration_evaluate_command(
                 calibration_dir=root,
@@ -651,9 +652,9 @@ class EvaluateCohortsTest(unittest.TestCase):
         errors = StringIO()
         with TemporaryDirectory() as temp_dir, redirect_stderr(errors):
             root = Path(temp_dir)
-            store_panel(root, date(2025, 6, 30), [_panel_row("1111")], _panel_diagnostics())
-            store_forward(root, date(2025, 6, 30), [_forward_row("1111", 0.1)])
-            with sqlite3.connect(root / "current.sqlite") as connection:
+            write_panel(root, date(2025, 6, 30), [_panel_row("1111")], _panel_diagnostics())
+            write_forward(root, date(2025, 6, 30), [_forward_row("1111", 0.1)])
+            with closing(sqlite3.connect(root / "current.sqlite")) as connection, connection:
                 raw = connection.execute("SELECT diagnostics FROM cohort").fetchone()[0]
                 diagnostics = json.loads(raw)
                 diagnostics["candidate_discovery_jpx_input_status"] = "claimed"
@@ -675,17 +676,17 @@ class EvaluateCohortsTest(unittest.TestCase):
         errors = StringIO()
         with TemporaryDirectory() as temp_dir, redirect_stderr(errors):
             root = Path(temp_dir)
-            store_panel(root, date(2025, 6, 30), [_panel_row("1111")], _panel_diagnostics())
-            store_forward(root, date(2025, 6, 30), [_forward_row("1111", 0.1)])
+            write_panel(root, date(2025, 6, 30), [_panel_row("1111")], _panel_diagnostics())
+            write_forward(root, date(2025, 6, 30), [_forward_row("1111", 0.1)])
             later = date(2025, 7, 31)
-            store_panel(
+            write_panel(
                 root,
                 later,
                 [replace(_panel_row("2222"), asof=later.isoformat())],
                 replace(_panel_diagnostics(), asof=later.isoformat()),
             )
-            store_forward(root, later, [])
-            with sqlite3.connect(root / "current.sqlite") as connection:
+            write_forward(root, later, [])
+            with closing(sqlite3.connect(root / "current.sqlite")) as connection, connection:
                 raw_diagnostics = connection.execute(
                     "SELECT diagnostics FROM cohort WHERE asof = ?", (later.isoformat(),)
                 ).fetchone()[0]
@@ -1018,10 +1019,8 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         self.assertEqual(aggregate_interaction["no_change_n"], 50)
         self.assertEqual(aggregate_interaction["mean_median_excess_delta"], 0.4)
 
-    def test_er_ranked_virtual_replay_orders_by_er_within_screen_passers(self) -> None:
-        # screen 通過 20 銘柄に er_annual を 0.01..0.20 で与え、er と forward return を
-        # 逆相関にする → pure_er_top5 は er 上位 = 低リターン側を選ぶので
-        # pure_er_top5 と一致し、excess は選抜どおりの値になる。
+    def test_er_ranked_replay_is_independent_of_nomination_union(self) -> None:
+        # E[r] diagnostic uses the population; nomination membership only changes overlap.
         panel: list[PanelRow] = []
         forwards: list[ForwardReturnRow] = []
         n = 120
@@ -1046,10 +1045,18 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         median_excess = er_top5["median_excess"]
         assert isinstance(median_excess, float)
         self.assertLess(median_excess, 0.0)
-        # er_population は in_review_set に依らないが、er 順は同じ i=0..4。
-        pop_top5 = candidate_discovery["pure_er_top5"]
-        assert isinstance(pop_top5, dict)
-        self.assertEqual(pop_top5["median_excess"], er_top5["median_excess"])
+        changed = evaluate_cohorts(
+            {_ASOF: [replace(row, in_review_set=index >= 100) for index, row in enumerate(panel)]},
+            {_ASOF: forwards},
+            horizons=["6m"],
+        )["6m"]
+        self.assertEqual(changed["cohorts"][0]["candidate_discovery"]["pure_er_top5"], er_top5)
+        self.assertEqual(
+            changed["aggregate"]["candidate_discovery"]["nomination_union_vs_er_top5"][
+                "mean_overlap_n"
+            ],
+            0.0,
+        )
         aggregate = horizon["aggregate"]["candidate_discovery"]
         self.assertEqual(aggregate["nomination_union_vs_er_top5"]["cohorts"], 1)
         self.assertEqual(aggregate["nomination_union_vs_er_top5"]["mean_overlap_n"], 5.0)
@@ -1431,11 +1438,10 @@ class MarginSizeNormalizationTest(unittest.TestCase):
             )
         return exit_code, errors.getvalue()
 
-    def test_an_unregistered_required_metric_is_named_rather_than_blamed_on_the_core_three(
+    def test_an_unregistered_required_metric_is_named_with_required_metrics_present(
         self,
     ) -> None:
-        # This operator passed all three core metrics, so telling them to add the
-        # core three names nothing they can act on.
+        # Required subject metrics are present; report the actual unknown metric.
         exit_code, message = self._rejected_metrics_message(
             [*ESTIMATOR_POLICY_MANDATORY_METRICS, "not_a_registered_metric"]
         )
@@ -1504,13 +1510,13 @@ class MarginSizeNormalizationTest(unittest.TestCase):
 
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            store_panel(
+            write_panel(
                 root,
                 date(2025, 6, 30),
                 tuple(panel),
                 _panel_diagnostics(),
             )
-            store_forward(
+            write_forward(
                 root,
                 date(2025, 6, 30),
                 forwards,
@@ -1588,7 +1594,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
     ) -> tuple[dict[str, int], dict[str, object]]:
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            store_panel(
+            write_panel(
                 root,
                 date(2025, 6, 30),
                 tuple(panel),
@@ -1597,7 +1603,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
                     priced_master_without_universe_count=priced_master_without_universe_count,
                 ),
             )
-            store_forward(
+            write_forward(
                 root,
                 date(2025, 6, 30),
                 forwards,
@@ -1839,7 +1845,7 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         cohort = result["6m"]["cohorts"][0]  # type: ignore[index]
         return cohort["coverage"]["delisting_exclusion"]  # type: ignore[index]
 
-    def test_a_conclusion_that_survives_both_ends_is_not_produced_by_the_exclusion(self) -> None:
+    def test_a_conclusion_stays_stable_under_both_specified_imputations(self) -> None:
         # The delisted name is not in the selected rank window, so that
         # group stays ahead whichever value the delisting is given.
         panel, forwards = self._cohort(delisted_ranks=())
@@ -1921,6 +1927,21 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         self.assertLess(imputations["total_loss"]["review_set_all"], 0)
         self.assertEqual(imputations["neutral"]["review_set_all"], 0.0)
         self.assertFalse(sensitivity["direction_stable"])
+
+    def test_delisting_neutral_uses_only_the_reported_eligible_population(self) -> None:
+        panel, forwards = self._cohort(delisted_ranks=(3,))
+        for index in range(MIN_AXIS_SAMPLE * 2):
+            ticker = f"7{index:03d}"
+            panel.append(_panel_row(ticker, in_population=False))
+            forwards.append(_forward_row(ticker, 100.0))
+        # A benchmark or other forward-only ticker is not an eligible company either.
+        forwards.append(_forward_row("1306", 100.0))
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
+        sensitivity = result["6m"]["cohorts"][0]["coverage"][  # type: ignore[index]
+            "delisting_exclusion"
+        ]
+        self.assertEqual(sensitivity["excluded_count"], 1)
+        self.assertEqual(sensitivity["neutral_return"], 0.0)
 
     def test_a_cohort_without_delistings_needs_no_imputation(self) -> None:
         sensitivity = self._sensitivity(delisted_ranks=())
@@ -2014,8 +2035,8 @@ class PricedMasterWithoutUniverseSensitivityTests(unittest.TestCase):
 def test_a_stratum_needs_five_names_on_each_side_before_it_is_matched() -> None:
     """A stratum with fewer names on one side is skipped, not matched at whatever it has.
 
-    Stratifying is what keeps the comparison about the axis rather than about how the
-    two groups differ in quality. A stratum matched on two names against two carries
+    Stratifying compares rows within coarse bands of the named quality variable;
+    it does not isolate a causal axis effect. A stratum matched on two names against two carries
     the noise of four rows into a figure the reader treats as a controlled difference,
     so the stratum is dropped and its weight leaves the answer. The counts are literal:
     derived from the constant they would move with it and pin nothing.
@@ -2061,8 +2082,8 @@ def test_a_stratum_needs_five_names_on_each_side_before_it_is_matched() -> None:
 def test_the_half_split_needs_thirty_pairs_before_it_reports_a_difference() -> None:
     """Below the floor the split is not measured, and says so rather than answering.
 
-    Splitting a group by its own axis value is what separates the axis's effect from
-    how the group was formed, but a split of a dozen rows reports the noise of six
+    Splitting a group by its own axis value measures a within-group association,
+    not an effect isolated from group composition. A split of a dozen rows compares six
     against six. The market-fallback groups run 50-80 rows per cohort, which is why the
     floor sits where it does. The counts are literal: derived from the constant they
     would move with it and pin nothing.

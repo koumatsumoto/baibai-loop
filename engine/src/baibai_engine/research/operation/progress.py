@@ -1,53 +1,46 @@
-"""Operationが所有する有限対象と成果。判断・取引事実の第二正本を作らない。"""
+"""Operationの有限対象と評価/提案への参照。本文の第二正本を作らない。"""
 
 from __future__ import annotations
 
 from typing import Annotated, Literal, Self
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from baibai_engine.research.operation.models import OperationPayload
-from baibai_engine.research.position_review import PositionReviewDocument
+from baibai_engine.research.proposal import (
+    ProposalResearchScope,
+    ReviewedOutcome,
+    UnfinishedOutcome,
+)
 from baibai_engine.research.selection import (
     ResearchSelection,
     ResearchTarget,
     parse_selection,
+    selection_sha256,
     selection_targets,
 )
 
 
-class ReviewedTarget(ResearchTarget):
-    purpose: Literal["new"] = "new"
+class ReviewedTarget(ReviewedOutcome):
+    """新規/保有に共通の公開済み評価pairへの正確な参照。"""
+
     status: Literal["reviewed"] = "reviewed"
-    thesis_id: str = Field(min_length=1)
-    thesis_core_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    thesis_review_id: str = Field(min_length=1)
 
 
-class HoldingProposal(ResearchTarget):
-    purpose: Literal["holding"] = "holding"
-    status: Literal["proposal"] = "proposal"
-    draft: PositionReviewDocument
-    checked_at: AwareDatetime | None = None
-    thesis_core_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    thesis_review_id: str = Field(min_length=1)
-
-
-class UnfinishedTarget(ResearchTarget):
+class UnfinishedTarget(UnfinishedOutcome):
     status: Literal["unfinished"] = "unfinished"
-    reason: str = Field(min_length=1, pattern=r"\S")
-    references: tuple[str, ...] = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def references_present(self) -> Self:
-        if any(not value.strip() for value in self.references):
-            raise ValueError("unfinished references must be non-empty")
-        return self
 
 
-type ResearchOutcome = Annotated[
-    ReviewedTarget | HoldingProposal | UnfinishedTarget, Field(discriminator="status")
-]
+type ResearchOutcome = Annotated[ReviewedTarget | UnfinishedTarget, Field(discriminator="status")]
+
+
+class ProposalRef(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    proposal_id: str = Field(
+        pattern=r"^investment-proposal-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )
+    draft_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class ResearchProgress(BaseModel):
@@ -55,28 +48,12 @@ class ResearchProgress(BaseModel):
 
     kind: Literal["research_progress"] = "research_progress"
     outcomes: tuple[ResearchOutcome, ...] = ()
+    proposal_ref: ProposalRef | None = None
 
     @model_validator(mode="after")
     def unique_subjects(self) -> Self:
         if len({item.ticker for item in self.outcomes}) != len(self.outcomes):
-            raise ValueError("a target must have exactly one completed or unfinished outcome")
-        return self
-
-
-class ResearchComparisonScope(BaseModel):
-    """CAAに固定する新規完了・未完了の範囲。保有提案は比較へ混ぜない。"""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    operation_id: str
-    targets: tuple[ResearchTarget, ...]
-    outcomes: tuple[ResearchOutcome, ...]
-
-    @model_validator(mode="after")
-    def exact_cover(self) -> Self:
-        if any(item.purpose != "new" for item in (*self.targets, *self.outcomes)):
-            raise ValueError("CAA scope contains only new research targets")
-        require_coverage(self.targets, self.outcomes, complete=True)
+            raise ValueError("a target must have exactly one reviewed or unfinished outcome")
         return self
 
 
@@ -104,18 +81,22 @@ def require_coverage(
     if len(actual) != len(outcomes) or not actual <= selected:
         raise ValueError("research outcomes contain duplicate or unselected ticker/purpose")
     if complete and actual != selected:
-        raise ValueError("selected targets must be covered by completed and unfinished outcomes")
+        raise ValueError("selected targets must be covered by reviewed and unfinished outcomes")
 
 
-def comparison_scope(operation_id: str, payload: OperationPayload) -> ResearchComparisonScope:
+def proposal_scope(operation_id: str, payload: OperationPayload) -> ProposalResearchScope:
     selection = selection_binding(payload)
     if selection is None:
         raise ValueError("fixed research_selection is required")
     progress = progress_binding(payload)
-    return ResearchComparisonScope(
-        operation_id=operation_id,
-        targets=tuple(item for item in selection_targets(selection) if item.purpose == "new"),
-        outcomes=tuple(item for item in progress.outcomes if item.purpose == "new"),
+    require_coverage(selection_targets(selection), progress.outcomes, complete=True)
+    return ProposalResearchScope.model_validate(
+        {
+            "operation_id": operation_id,
+            "selection_sha256": selection_sha256(selection),
+            "targets": [item.model_dump(mode="json") for item in selection_targets(selection)],
+            "outcomes": [item.model_dump(mode="json") for item in progress.outcomes],
+        }
     )
 
 

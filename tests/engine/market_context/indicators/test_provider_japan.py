@@ -462,8 +462,8 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
 
         A request narrow enough to come back empty would make a mis-pinned series
         read as a quiet one, so every request asks from the floor, where a
-        registered series always has observations. The stored window is still the
-        requested one.
+        configured series is expected to have history. This does not guarantee API
+        availability. The stored window is still the requested one.
         """
 
         session = _RecordingSession(
@@ -523,8 +523,8 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
                     _parse_dashboard([row])
 
     def test_parse_dashboard_json_leaves_a_preliminary_month_unwritten(self) -> None:
-        # The declared publication lag belongs to the final print, so a month that
-        # has only a preliminary print is not due yet rather than missing.
+        # Preliminary rows are excluded from this final-value series. Their presence
+        # alone does not establish whether the final release is already overdue.
         preliminary = _dashboard_row("20260600", "2.9")
         preliminary["VALUE"]["@isProvisional"] = "1"
 

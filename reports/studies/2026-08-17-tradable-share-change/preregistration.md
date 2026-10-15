@@ -2,7 +2,7 @@
 title: "carry の株数項を自己株控除後で測り直す — 事前登録"
 summary: "発行済株数の前年比と自己株控除後株数の前年比のどちらが forward 実現をよく説明するかを、結果を見る前に固定した母集団・窓・閾値で比べる。"
 doc_type: measurement-record
-status: active
+status: historical
 date: 2026-08-17
 ---
 

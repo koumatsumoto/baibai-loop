@@ -7,21 +7,19 @@ from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
 
-from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
-from baibai_engine.research.thesis import (
-    ThesisDocument,
-    ThesisReview,
-    thesis_core_hash,
+from baibai_engine.research.assessment import (
+    AssessmentReview,
+    StockAssessmentDocument,
+    assessment_core_hash,
 )
-from baibai_engine.research.thesis_store import (
-    load_reviewed_thesis,
+from baibai_engine.research.assessment_store import (
+    load_reviewed_assessment,
 )
 from baibai_engine.research.workspace.admission import (
     workspace_selection,
 )
 from baibai_engine.research.workspace.files import (
-    _dump_yaml,
     _load_mapping,
     _parse_date,
 )
@@ -29,7 +27,6 @@ from baibai_engine.research.workspace.validation import (
     _case_eligibility,
     _read_case,
     _validate_editable_drafts,
-    _verify_external_inputs,
 )
 from baibai_engine.storage.application.paths import database_path
 from baibai_engine.storage.application.read import connect_read_only
@@ -39,22 +36,16 @@ from baibai_engine.storage.application.read import connect_read_only
 # --------------------------------------------------------------------------- #
 
 
-def _write_status(workspace: Path, *, db_path: Path | None) -> dict[str, object]:
-    status = compute_status(workspace, db_path=db_path)
-    write_text_atomic(workspace / "status.yaml", _dump_yaml(status))
-    return status
-
-
 def compute_status(
     workspace: Path, *, db_path: Path | None = None, now: datetime | None = None
 ) -> dict[str, object]:
     """Read per-case publication and current remaining work without canonical writes.
 
-    Research Triage binds the subject. Ledger annotations and calibration context
-    describe prepare time; Position Review rechecks its current ledger subject.
+    The Operation's fixed selection and inputs bind the subject. Current holdings
+    gate new authored work; they do not change an exact saved publication's status.
     """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
-    gate = _verify_external_inputs(manifest, db_path=db_path)
+    gate = workspace_selection(manifest, db_path=db_path)
     _validate_editable_drafts(workspace, manifest, gate=gate)
     status = _draft_status(workspace, manifest, db_path=db_path, now=now or datetime.now(JST))
     selection = gate
@@ -93,59 +84,60 @@ def _case_status(
     workspace: Path, ticker: str, asof: date, *, db_path: Path | None, now: datetime
 ) -> dict[str, object]:
     case = _read_case(workspace, ticker, asof)
-    thesis_id = None
-    if not case.thesis_errors and not case.review_errors:
-        assert case.thesis is not None
+    assessment_id = None
+    if not case.assessment_errors and not case.review_errors:
+        assert case.assessment is not None
         assert case.review is not None
-        thesis_id = _published_case(case.thesis, case.review, db_path=db_path)
+        assessment_id = _published_case(case.assessment, case.review, db_path=db_path)
     # Publication is a historical fact; current eligibility only guides unpublished work.
-    thesis_errors, review_errors = (
-        (case.thesis_errors, case.review_errors)
-        if thesis_id is not None
+    assessment_errors, review_errors = (
+        (case.assessment_errors, case.review_errors)
+        if assessment_id is not None
         else _case_eligibility(case, now=now)
     )
     status = (
         "incomplete"
-        if thesis_errors
+        if assessment_errors
         else "ready_for_review"
         if review_errors
         else "ready_for_promotion"
     )
-    if thesis_id is not None:
+    if assessment_id is not None:
         status = "published"
     return {
         "ticker": ticker,
         "status": status,
-        "thesis_id": thesis_id,
-        "thesis_validation_errors": thesis_errors,
+        "assessment_id": assessment_id,
+        "assessment_validation_errors": assessment_errors,
         "review_validation_errors": review_errors,
         "next_action": None if status == "published" else _next_action(status, ticker),
     }
 
 
 def _published_case(
-    thesis: ThesisDocument, review: ThesisReview, *, db_path: Path | None
+    assessment: StockAssessmentDocument, review: AssessmentReview, *, db_path: Path | None
 ) -> str | None:
-    """Show Research publication only for this exact thesis core and authored review."""
+    """Show Research publication only for this exact assessment core and authored review."""
     with closing(connect_read_only(database_path(db_path))) as connection:
         connection.execute("BEGIN")
         rows = connection.execute(
-            "SELECT t.thesis_id FROM thesis t JOIN thesis_review r ON r.thesis_id=t.thesis_id "
+            "SELECT t.assessment_id FROM stock_assessment t "
+            "JOIN stock_assessment_review r ON r.assessment_id=t.assessment_id "
             "WHERE t.core_sha256=? AND r.review_id=?",
-            (thesis_core_hash(thesis), review.review_id),
+            (assessment_core_hash(assessment), review.review_id),
         ).fetchall()
         for row in rows:
-            pair = load_reviewed_thesis(connection, str(row["thesis_id"]))
-            if pair.document == thesis and pair.review == review:
-                return pair.thesis_id
+            pair = load_reviewed_assessment(connection, str(row["assessment_id"]))
+            if pair.document == assessment and pair.review == review:
+                return pair.assessment_id
     return None
 
 
 def _next_action(workspace_status: str, ticker: str) -> str:
     match workspace_status:
         case "incomplete":
-            return f"{ticker}: complete the thesis"
+            return f"{ticker}: complete the assessment"
         case "ready_for_review":
-            return f"{ticker}: complete an independent Thesis Review for the current thesis"
+            return f"{ticker}: complete an independent Assessment Review for the current assessment"
         case _:
-            return f"{ticker}: publish the reviewed thesis with research promote"
+            return f"{ticker}: publish the reviewed assessment with research assessment-promote"

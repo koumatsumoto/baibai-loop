@@ -1,12 +1,14 @@
 # 事前登録: selection ranking の carry 偏重再評価 — reversion 順 vs E[r] 順（#480）
 
+これは 2026-07-20 の旧 ranking / carry 算式に対する診断記録である。「本番」「現行」、旧 sort key・画面・CLI は当時を指し、現行 Candidate Discovery の仕様ではない。future_snapshot 近似による生存者選択は view 間比較でも自動的に相殺されず、採否はこの偏った標本内の点推定に限る。自社株買い利回りの表記は純株式数変化の proxy であり、実際の買付金額を観測したものではない。
+
 E[r] 合計降順の本番 ranking が carry（配当+自社株買い利回り）主導の銘柄を上位に出し、reversion（価格の割安解消）主導の dislocation 候補を沈める懸念（#480、運用テスト op-20260717-opportunity-1 で実測: audit pool 上位 20 中 12 銘柄が reversion 負〜ゼロ）を、improvement-loop の規律で検証する記録。構造的な背景: E[r] の reversion 成分は realization 0.10 × clip(upside, ±0.50) で年率 ±5% に制限される一方、carry 成分（配当利回り + clip(自社株買い, ±5%)）は 10% を超え得るため、合計順では carry が順位を支配できる。
 
 計測基盤は #483 修正（snapshot 開始日以前の cohort を最古 snapshot へ fallback）後に `--force` 再構築した calibration store。
 
 ## 0. 採否基準（検証実行前に固定・本節を先に commit）
 
-**判定の一般則**は #291 WU4 検証（`reports/2026-07-04-preregistered-ranking-validation.md`）と同じ: design（cohort asof ≤ 2024-06-30）/ confirm（> 2024-06-30）の時間分割で、両方同方向なら「支持」、片側のみ「不確定」、両側逆は「棄却」。有意性は主張しない（cohort 窓重複のため）。効果量・cohort 勝率・trap 率のみで判定する。primary horizon は 6m、1y は補助確認。
+**判定の一般則**は #291 WU4 検証（[2026-07-04 の検証記録](../2026-07-04-preregistered-ranking-validation/report.md)）と同じ: design（cohort asof ≤ 2024-06-30）/ confirm（> 2024-06-30）の時間分割で、両方同方向なら「支持」、片側のみ「不確定」、両側逆は「棄却」。有意性は主張しない（cohort 窓重複のため）。効果量・cohort 勝率・trap 率のみで判定する。primary horizon は 6m、1y は補助確認。
 
 **盲検性の限定（正直な位置づけ）**: (a) `er_reversion_annual` の軸 rank IC が全窓で正であることは WU3/WU4 レポートで既知。未知なのは **reversion を順位付けに使った場合の top-N replay 超過**と **carry 軸単独の IC/decile**（本計測で初めて算出）。(b) 動機となった 2026-07-17 断面（carry 型が上位優占）は既知だが、これは現時点の並びであり forward return の情報を含まない。(c) 本 store は future_snapshot fallback による近似 universe（現存 membership）で、#291 計測時の「現在 master 固定」と実質同等の基盤。survivorship / delisting coverage は `not_assessed` のままで、絶対水準より view 間の相対比較を重視する。
 
