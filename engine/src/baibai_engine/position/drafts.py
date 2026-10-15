@@ -522,7 +522,6 @@ def build_sell_execution_draft(
             "quantity": quantity,
             "price_yen": str(price_yen),
             "decision_reference": decision_reference,
-            **({"occurred_on": occurred_on.isoformat()} if occurred_on is not None else {}),
         }
     ]
     if fees_yen is not None:
@@ -547,6 +546,9 @@ def build_sell_execution_draft(
                 "amount_yen": tax_yen,
             }
         )
+    if occurred_on is not None:
+        for addition in additions:
+            addition["occurred_on"] = occurred_on.isoformat()
     raw = source.model_dump(mode="json")
     raw["events"] = sorted(
         [*raw["events"], *additions],

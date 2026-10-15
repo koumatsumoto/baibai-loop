@@ -166,6 +166,10 @@ def test_date_only_sell_keeps_reported_date_without_claiming_fill_time(tmp_path:
                 "100",
                 "--price-yen",
                 "1100",
+                "--fees-yen",
+                "100",
+                "--tax-yen",
+                "200",
                 "--occurred-on",
                 "2026-07-12",
                 "--decision-reference",
@@ -177,21 +181,21 @@ def test_date_only_sell_keeps_reported_date_without_claiming_fill_time(tmp_path:
         == 0
     )
     draft = load_draft(tmp_path / "date-only-sell.yaml")
-    addition = next(
-        event
-        for event in draft.replacement.events
-        if event.event_id not in {item.event_id for item in draft.source.events}
+    source_ids = {item.event_id for item in draft.source.events}
+    additions = [event for event in draft.replacement.events if event.event_id not in source_ids]
+    assert {event.type for event in additions} == {"execution", "cost", "tax_confirmed"}
+    assert all(event.occurred_on == date(2026, 7, 12) for event in additions)
+    assert all(
+        event.occurred_at.isoformat() == "2026-07-12T00:00:00+09:00" for event in additions
     )
-    assert addition.occurred_on == date(2026, 7, 12)
-    assert addition.occurred_at.isoformat() == "2026-07-12T00:00:00+09:00"
     assert (
         main(["apply-draft", str(tmp_path / "date-only-sell.yaml"), "--db", str(db), "--confirmed"])
         == 0
     )
-    saved = next(event for event in service.load().events if event.event_id == addition.event_id)
-    assert saved.occurred_on == date(2026, 7, 12)
+    saved = [event for event in service.load().events if event.event_id not in source_ids]
+    assert all(event.occurred_on == date(2026, 7, 12) for event in saved)
     assert (
-        portfolio_snapshot(service.load()).available_cash_yen == before.available_cash_yen + 110_000
+        portfolio_snapshot(service.load()).available_cash_yen == before.available_cash_yen + 109_700
     )
     assert portfolio_snapshot(service.load()).realized_gross_pnl_yen == 6_000
 
