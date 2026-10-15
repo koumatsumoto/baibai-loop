@@ -100,10 +100,9 @@ TOTAL_RETURN_STATUSES = frozenset(
 
 BENCHMARK_TICKERS: tuple[str, ...] = (TOPIX_ETF_PROXY,)
 
-# A window that ended in a completed cash tender offer is resolved by the price that
-# offer paid, not by the last close before the target date. The status is separate from
-# `resolved` so that a reader can always tell an observed market close from a settled
-# takeover; the rules that produce these values are pre-registered in
+# A delisted window may use the verified cash offer price as an analytical exit proxy.
+# Keep a distinct status: this is neither a target-date market close nor proof of an
+# individual shareholder's cash receipt. Historical rules and measurements are in
 # reports/studies/2026-08-11-capital-control-exit-values/.
 CONTROL_EVENT_EXIT_STATUS = "resolved_control_event_exit"
 
@@ -186,7 +185,7 @@ class ForwardReturnRow:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ControlEventExit:
-    """The cash a completed tender offer paid, and the day trading stopped."""
+    """The offer-price proxy and delisting date, not confirmed payment facts."""
 
     delisted_on: date
     offer_price_yen: float
@@ -249,7 +248,7 @@ def read_control_event_exits(sqlite_path: Path) -> dict[str, tuple[ControlEventE
 def read_failure_exits(sqlite_path: Path) -> dict[str, tuple[FailureExit, ...]]:
     """Load the delistings that removed a failing company, keyed by ticker.
 
-    The reason is carried through so a row can say which phrase realized it, and so a
+    The reason is carried through so a row can show its classification, and so a
     later reading of the same store can tell a reclassification from a data change.
     """
     # No fallback to an empty mapping, for the same reason `read_control_event_exits`
@@ -480,7 +479,7 @@ def _ticker_forward_rows(
 def _matching_control_event_exit(
     exits: Sequence[ControlEventExit], *, entry_date: date | None, target: date
 ) -> ControlEventExit | None:
-    """The one settled offer that ended trading inside this window, if exactly one did."""
+    """The one offer-price proxy whose delisting falls inside this window."""
     if entry_date is None:
         return None
     matching = [

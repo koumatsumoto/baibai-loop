@@ -88,28 +88,14 @@ def normalize_market_calendar(record: Mapping[str, Any]) -> JQuantsMarketCalenda
 
 
 def _payload_to_records(payload: Any) -> list[dict[str, Any]]:
-    if hasattr(payload, "to_dict"):
-        try:
-            return _ensure_list(payload.to_dict(orient="records"))
-        except TypeError:
-            converted = payload.to_dict()
-            return _ensure_list(converted)
-    if isinstance(payload, Mapping):
-        for key in ("data", "items", "info", "daily_quotes", "fin_summary", "calendar"):
-            if key in payload and isinstance(payload[key], Sequence):
-                return [dict(item) for item in payload[key]]
-        return [dict(payload)]
-    if isinstance(payload, Sequence) and not isinstance(payload, (str, bytes, bytearray)):
-        return [dict(item) if isinstance(item, Mapping) else {"value": item} for item in payload]
-    raise JQuantsProviderError("unsupported J-Quants payload shape")
-
-
-def _ensure_list(value: Any) -> list[dict[str, Any]]:
-    if isinstance(value, list):
-        return [dict(item) if isinstance(item, Mapping) else {"value": item} for item in value]
-    if isinstance(value, Mapping):
-        return [dict(value)]
-    raise JQuantsProviderError("cached payload is not a list-like mapping")
+    """Read ClientV2 record rows without guessing obsolete envelope shapes."""
+    to_dict = getattr(payload, "to_dict", None)
+    records = to_dict(orient="records") if callable(to_dict) else payload
+    if not isinstance(records, Sequence) or isinstance(records, (str, bytes, bytearray)):
+        raise JQuantsProviderError("J-Quants payload must contain record rows")
+    if any(not isinstance(row, Mapping) for row in records):
+        raise JQuantsProviderError("J-Quants payload contains a non-record row")
+    return [dict(row) for row in records]
 
 
 def _stringify_dates(params: Mapping[str, Any]) -> dict[str, Any]:
