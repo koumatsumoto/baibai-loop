@@ -488,7 +488,7 @@ class TestFixedRelease:
             )
         )
         payload["release_id"] = "release-drifted"
-        payload["datasets"]["jquants.daily_bars"]["contract_version"] = 2
+        payload["datasets"]["jquants.daily_bars"]["contract_version"] += 1
         (lake.mirror / release_manifest_key(release_id="release-drifted")).write_text(
             json.dumps(payload), encoding="utf-8"
         )
@@ -509,7 +509,7 @@ class TestFixedRelease:
         build_id = release.dataset_manifest("jquants.daily_bars").build_id
         key = f"lake/manifests/datasets/jquants.daily_bars/{build_id}.json"
         payload = json.loads((lake.mirror / key).read_text(encoding="utf-8"))
-        payload["contract_version"] = 2
+        payload["contract_version"] += 1
         broken = json.dumps(payload).encode()
         (lake.mirror / key).write_bytes(broken)
         release_payload = json.loads(
@@ -518,7 +518,9 @@ class TestFixedRelease:
             )
         )
         release_payload["release_id"] = "release-broken"
-        release_payload["datasets"]["jquants.daily_bars"]["contract_version"] = 2
+        release_payload["datasets"]["jquants.daily_bars"]["contract_version"] = payload[
+            "contract_version"
+        ]
         release_payload["datasets"]["jquants.daily_bars"]["manifest_sha256"] = hashlib.sha256(
             broken
         ).hexdigest()
@@ -577,13 +579,15 @@ class TestFixedRelease:
     ) -> None:
         release = resolve_current_release(LocalMirrorSource(lake.mirror))
         manifest = release.dataset_manifest("jquants.daily_bars")
-        next_contract = replace_manifest_contract(manifest, contract_version=2)
+        next_contract = replace_manifest_contract(
+            manifest, contract_version=manifest.contract_version + 1
+        )
         future = replace(
             release,
             dataset_manifests={**release.dataset_manifests, "jquants.daily_bars": next_contract},
         )
 
-        with pytest.raises(LakeReadError, match="this reader accepts only v1"):
+        with pytest.raises(LakeReadError, match=f"this reader accepts only v{manifest.contract_version}"):
             accepted_dataset(future, "jquants.daily_bars")
 
     def test_a_dataset_the_release_does_not_publish_is_not_readable(self, lake: Lake) -> None:
