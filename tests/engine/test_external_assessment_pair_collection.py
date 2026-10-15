@@ -106,6 +106,21 @@ def test_response_callback_delay_preserves_receipt_and_jst_date(clock, monkeypat
     assert result.last_response_finished_at_utc == finishes[-1]
 
 
+def test_pair_keeps_the_observation_already_validated_by_its_source(clock, monkeypatch):
+    parsed = []
+    parse = monex.parse_html
+
+    def capture(*args, **kwargs):
+        observation = parse(*args, **kwargs)
+        parsed.append(observation)
+        return observation
+
+    monkeypatch.setattr(monex, "parse_html", capture)
+    result = pair(Session([(200, monex_html())], clock=clock))
+    assert result.observations[0] is parsed[0]
+    assert result.observations[0].fetched_at_utc == result.last_response_finished_at_utc
+
+
 def test_initial_pacing_deadline_is_zero_requests(clock):
     client = Session([], clock=clock)
     result = pair(client, time_limit_seconds=1)
