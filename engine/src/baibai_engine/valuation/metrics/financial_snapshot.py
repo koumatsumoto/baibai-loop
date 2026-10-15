@@ -194,21 +194,9 @@ def build_financial_snapshot(
     # `株価 / eps == per_trailing` が厳密に成立し、同じ語が 2 つの値を指さない。
     per_trailing = _safe_positive_ratio(latest_market_cap, profit_ttm)
     eps_ttm = _safe_ratio(profit_ttm, shares_ex_treasury)
-    # 純資産倍率も円で組む。自己資本は `総資産 x 開示自己資本比率` で出せるので 1 株当たり
-    # 純資産を経由せずに済み、`bps` が四半期開示に載らないことによる古さを避けられる
-    # (実測: 両方を持つ 4,032 銘柄で bps 経路の齢が中央値 90 日、円経路は 11 日、円経路が
-    # 古い銘柄は 0)。
-    #
-    # **ただし 2 経路は同じ量とは限らない。** 自己資本比率の分子は優先株・非支配株主持分を
-    # 含みうる一方、`bps` は普通株主に帰属する 1 株当たり純資産である。実測では通期行
-    # 40,477 のうち 97.2% が 1% 以内で一致するが、447 行は円経路が 20% 以上大きく、155 行は
-    # 2 倍を超える。円経路をそのまま使うと、その銘柄の PBR だけが割安側へ倒れる。
-    #
-    # 差は会社の資本構成から来るので銘柄ごとに判定できる。両方を持つ直近の行で突き合わせ、
-    # 一致する会社だけ円経路の鮮度を使い、食い違う会社は普通株基準の `bps` を使う。
-    # `total_assets` と `equity_to_asset_ratio` は同じ資本状態の組である。一方だけを新しい
-    # 開示から採ると、資産変動率をそのまま自己資本へ混入させるため、両方を観測した最新行
-    # から円経路を組む。個別の carry 値は表示・staleness fact として引き続き保持する。
+    # 同じ開示行のTAとEqARから円経路を作り、普通株BPS経路との照合と鮮度で選ぶ。
+    # 別開示日の値を掛け合わせたり、carry後の差だけで古いBPSへ戻したりしない。
+    # 行内の近さは経路選択の条件であり、差の経済的な原因を確定するものではない。
     common_equity_row = _latest_complete_row(summaries, ("total_assets", "equity_to_asset_ratio"))
     same_state_equity_yen = None
     if common_equity_row is not None:

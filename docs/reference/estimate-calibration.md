@@ -113,7 +113,7 @@ cohort比較は`--basis price|total`を取り、母集団は保存された`Pane
 
 ### 自己株式取得枠
 
-自己株取得を含む資本配分は、選ばれた銘柄のresearchで一次開示を読む。production rankingが使う`net_share_change_yoy`は過去の株数変化・希薄化signalであり、将来のbuyback cashや未消化枠とは呼ばない。
+自己株取得を含む資本配分は、選ばれた銘柄のresearchで一次開示を読む。機械E[r]のcarryが使う`net_share_change_yoy`は過去の株数変化・希薄化signalであり、将来のbuyback cashや未消化枠とは呼ばない。
 
 <a id="diagnostic-thresholds"></a>
 
@@ -125,7 +125,7 @@ cohort比較は`--basis price|total`を取り、母集団は保存された`Pane
 
 ### 業種中央値basis
 
-`sector_median_basis` 座標は `smg_*` 軸を、業種中央値から作られた行と市場中央値へ落ちた行に分けて測る。素性は `PanelRow.smg_market_fallback` が持つ。落ちる業種は構造的に低倍率へ寄る側に集中するため、分けないと業種の割安と業種構成が同じ数字に混ざる。
+`sector_median_basis` 座標は `smg_*` 軸を、業種中央値から作られた行と市場中央値へ落ちた行に分けて測る。素性は `PanelRow.smg_market_fallback` が持つ。fallbackでは比較基準の業種構成が変わるため、分けないと同業比較と市場比較を同じ数字として読んでしまう。どの業種・倍率に偏るかは対象断面で確認する。
 
 `group_median_excess`は群の構成も反映し、`axis_effect.median_excess_delta`は群の中を軸値で分割した差を測る。構成の違う二群の平均値だけで軸の優劣を決めない。
 

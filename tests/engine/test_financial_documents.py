@@ -508,7 +508,10 @@ def test_new_raw_unknown_time_forecasts_compare_each_field(reverse: bool) -> Non
 
 
 @pytest.mark.parametrize("reverse", [False, True])
-def test_conflicting_pre_split_reference_cannot_choose_share_basis(reverse: bool) -> None:
+@pytest.mark.parametrize("with_older_reference", [False, True])
+def test_conflicting_pre_split_reference_cannot_choose_share_basis(
+    reverse: bool, with_older_reference: bool
+) -> None:
     from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent
     from baibai_engine.valuation.metrics.capital import _normalize_summaries_with_status
 
@@ -516,6 +519,9 @@ def test_conflicting_pre_split_reference_cannot_choose_share_basis(reverse: bool
         [actual_document("before-a", ShOutFY="1000"), actual_document("before-b", ShOutFY="500")]
     )
     rows = [replace(row, disclosed_at=date(2026, 7, 10)) for row in rows]
+    if with_older_reference:
+        older = decode([actual_document("older", ShOutFY="1000")])[0]
+        rows.insert(0, replace(older, disclosed_at=date(2026, 7, 1)))
     if reverse:
         rows.reverse()
     rows.extend(decode([actual_document("correction", ShOutFY="1000", TrShFY="0")]))

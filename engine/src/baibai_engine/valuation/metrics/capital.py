@@ -158,8 +158,10 @@ def _interim_split_basis(
                 row
                 for row in summaries
                 if row.disclosed_at < first_ex
-                and getattr(row, field_name) is not None
-                and getattr(row, field_name) > 0
+                and (
+                    field_name in row.unresolved_actual_fields
+                    or (getattr(row, field_name) is not None and getattr(row, field_name) > 0)
+                )
             ],
             field_name,
         )
@@ -527,8 +529,7 @@ def _edinet_passes_entity_scale_check(
     return edinet.consolidation_basis == CONSOLIDATED_BASIS
 
 
-# 円経路の自己資本を普通株基準として採るために要求する一致幅。実測では通期行の 97.2% が
-# 1% 以内に収まり、外れる 677 行は優先株・非支配株主持分を含む資本構成である。
+# 円経路とBPS経路を比較する許容幅。通過や不一致だけでは資本構成の原因を特定しない。
 _COMMON_EQUITY_BASIS_TOLERANCE = 0.05
 
 _EQUITY_RATIO_REPORTING_HALF_UNIT = 0.0005
@@ -560,19 +561,16 @@ def _common_equity_yen(
     bps: float | None,
     shares_ex_treasury: float | None,
 ) -> float | None:
-    """普通株主に帰属する自己資本 (円)。
+    """Choose the yen or BPS equity route under the comparable-row policy.
 
-    `総資産 x 自己資本比率` は四半期行にも載るので新しいが、分子が普通株主の持分とは
-    限らない。`bps x 自己株控除後株数` は普通株基準だが古い。両方を持つ直近の行で 2 つが
-    一致するなら、その会社では円経路も普通株基準なので鮮度を採る。食い違う会社は基準の
-    違いなので `bps` 側を採る。どちらか一方しか無ければそれを使う。
+    When both routes are available, compare the newest eligible row's TA/EqAR
+    product with its BPS/share product. Agreement within tolerance or reporting
+    precision permits the yen route; otherwise use BPS. The comparison does not
+    establish the economic cause of a discrepancy or prove accounting identity.
+    A later carried-value difference is not a second rejection test.
 
-    判定は突き合わせ行の中で行い、carry 後の 2 値が離れていることは理由にしない。乖離は
-    ほとんどが実際の資本変動だからである — as-of 2026-07-31 で 1.5 倍を超えた 55 社のうち、
-    未適用の分割で説明できるのは 1 社だけで、残り 54 社は `bps` の出所行から as-of まで
-    調整係数を 1 つも持たない。倍率で切ると、減損や大幅増資で自己資本が実際に動いた会社の
-    新しい値を捨てて古い `bps` を採ることになり、7069 (自己資本比率 0.441 -> 0.062) の
-    PBR は 36.3 から 3.08 へ、割安側へ 12 倍ずれる。
+    If only one route is available, use it. With both routes but no comparable row,
+    prefer BPS. The caller separately resolves capital basis and relative freshness.
     """
     yen_equity = (
         total_assets * equity_to_asset_ratio

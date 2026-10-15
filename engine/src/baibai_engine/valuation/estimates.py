@@ -31,7 +31,7 @@ _EARNINGS_METRICS = ("per_forward", "per_trailing")
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ExpectedReturnEstimate:
-    """成分分解付きの E[r]。すべて年率の比率 (0.1 = 10%/年)。"""
+    """E[r]の年率成分、期間年率化前のupside比率、円建て価格anchor。"""
 
     er_annual: float
     reversion_annual: float
@@ -69,11 +69,11 @@ class ExpectedReturnInputs:
 
 
 def estimate_expected_return(inputs: ExpectedReturnInputs) -> ExpectedReturnEstimate | None:
-    """E[r] と FV アンカーを見積もる。anchor 倍率が 1 軸も取れなければ None。
+    """Estimate annual return and price anchors from available valuation axes.
 
-    配当の株式基準が確定できない行も None にする。carry は `dividend_yield or 0.0` で
-    組むので、利回りを出さないことが下流では「無配」の主張になり、実際に配当を払って
-    いる銘柄の見返りを過小評価する。未解決の株式基準を無配とみなさず、見積りを返さない。
+    No usable anchor or an unresolved dividend basis produces no estimate.
+    Ordinary missing carry components contribute zero by convention, not as an
+    observation of zero payouts or unchanged shares; readers expose that assumption.
     """
     if not inputs.dividend_basis_resolved:
         return None

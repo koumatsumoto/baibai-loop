@@ -91,8 +91,8 @@ def _historical_ev_ebitda(
     """Return the EV/EBITDA value for one historical price.
 
     Caller must ensure ``shares_ex_treasury`` / ``debt`` / ``cash`` are not
-    None and ``ebitda_ttm`` is positive. v1 has only the latest balance sheet
-    and TTM EBITDA, so those are held constant across price history while
+    None and ``ebitda_ttm`` is positive. The current snapshot inputs
+    are held constant across price history while
     market cap varies with the (adjusted) historical close.
 
     Negative EV or non-positive EBITDA is outside the valuation multiple
