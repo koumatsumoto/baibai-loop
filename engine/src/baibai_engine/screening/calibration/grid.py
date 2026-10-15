@@ -24,17 +24,18 @@ def month_end_asof_grid(
     end: date,
     min_tickers: int = DEFAULT_MIN_TICKERS,
 ) -> list[date]:
-    """Return the last full trading day of each **complete** month in ``[start, end]``.
+    """Return each closed month's last observed day meeting the ticker-count floor.
 
-    月の完全性は「翌月の営業日が data に存在するか」で判定する。窓を end+40 日まで
-    引いて真の月末を確認し、(a) end が月の途中で切れた月と (b) cache 最終月
+    「後続月にも閾値以上の bars がある」月だけを採用する。これは cache からの推定であり、
+    全営業日・全銘柄の取得完了を証明しない。窓を end+40 日まで引き、
+    (a) end が月の途中で切れた月と (b) cache 最終月
     (完全性を確認できない) を cohort から落とす。月中日を「月末営業日」と誤認した
     panel が永続化されると、forward 窓が ~96% 重複する重複 cohort として集計を
     二重計上するため。
     """
     # Read-only so that a mistyped cache path fails instead of creating an empty
     # store that the next writer would migrate into a schema-valid empty cache.
-    conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+    conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         rows = conn.execute(
             "SELECT traded_at, COUNT(*) FROM jquants_daily_bars "
@@ -55,12 +56,12 @@ def days_with_bars(
     The market calendar is fetched around recent as-of dates only, so it cannot
     answer for historical dates. The bar store can: a day the whole market
     priced carries thousands of rows, so the same ticker floor the cohort grid
-    uses separates a trading day from a holiday or a partially ingested day.
+    uses rejects low-count days. Passing the floor is not proof of complete ingestion.
     """
     if not days or not sqlite_path.exists():
         return set()
     requested = set(days)
-    conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+    conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         rows = conn.execute(
             "SELECT traded_at, COUNT(*) FROM jquants_daily_bars "

@@ -29,8 +29,9 @@ def unreadable_store_reason(sqlite_path: Path) -> str | None:
     if conn is not None:
         conn.close()
         return None
+    uri = f"{sqlite_path.resolve().as_uri()}?mode=ro"
     try:
-        with closing(sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)) as probe:
+        with closing(sqlite3.connect(uri, uri=True)) as probe:
             version = str(probe.execute("PRAGMA user_version").fetchone()[0])
     except sqlite3.Error as exc:
         version = f"unreadable ({type(exc).__name__})"

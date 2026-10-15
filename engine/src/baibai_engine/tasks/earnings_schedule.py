@@ -28,8 +28,9 @@ def read_published_earnings_dates(sqlite_path: Path, today: date) -> dict[str, d
     """
     if not sqlite_path.exists():
         return None
+    uri = f"{sqlite_path.resolve().as_uri()}?mode=ro"
     try:
-        with closing(sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)) as conn:
+        with closing(sqlite3.connect(uri, uri=True)) as conn:
             rows = conn.execute(_SCHEDULE_QUERY, (today.isoformat(),)).fetchall()
     except sqlite3.Error:
         return None

@@ -259,18 +259,17 @@ class PanelDiagnostics:
     # observation, so it is measured here. The bar store keeps rows for every
     # ticker that traded, including ones that have since left the market, so the
     # set priced on ``asof`` is observable independently of the master snapshot
-    # and can be compared against it. Only the ``asof`` session counts: a name
-    # whose last trade was earlier had already left the market, and an exact-date
-    # master is right to omit it. Widening this to the entry tolerance would
-    # count correctly-omitted names as coverage holes, which no master could
-    # then satisfy.
+    # and can be compared against it. This diagnostic deliberately counts only names
+    # priced on the ``asof`` session. An earlier last trade does not prove delisting:
+    # suspension, illiquidity and missing data can also explain it. This count alone
+    # therefore does not establish coverage of every listed security.
     #
     # ``asof_population_mismatch_count`` counts tickers priced on ``asof`` that
     # the master read does not contain. A later master misses names that were
     # listed then and have since delisted (the survivorship hole); an earlier one
     # misses names listed after it. Either way the panel cross-section is not the
-    # investable universe of ``asof``. An exact-date master drives the count to
-    # zero, because a name that traded that session was listed that session.
+    # investable universe of ``asof``. Zero is expected for aligned exact-date sources,
+    # but does not prove source completeness or explain every mismatch.
     #
     # ``priced_master_without_universe_count`` counts the opposite direction: a
     # name priced on ``asof`` and present in the master that the panel still
@@ -790,7 +789,7 @@ def _coverage_floors(sqlite_path: Path, asof_date: date) -> tuple[date, date]:
     the rows it leaves behind stay unread rather than entering a cohort through a
     window the store no longer stands behind.
     """
-    conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+    conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         bars_min = conn.execute("SELECT MIN(traded_at) FROM jquants_daily_bars").fetchone()[0]
         fin_min = conn.execute("SELECT MIN(disclosed_at) FROM jquants_fin_summaries").fetchone()[0]

@@ -171,19 +171,18 @@ def _validate_observations(
     # The statement below reads `attached`, never the argument, so deleting this line breaks
     # the query rather than quietly letting an unchecked name through.
     attached = _schema_name(schema)
-    # A withdrawn row carries the value it withdrew, not a claim about one, so the
-    # registry band does not apply to it on either side of the merge. The inner join
-    # selects retained series; target bands were already checked to be complete/finite.
+    # Retraction changes read visibility, not the stored value/unit contract: the
+    # insertion trigger validates retracted rows too. The inner join selects retained
+    # series; target bands were already checked to be complete and finite.
     row = connection.execute(
         f"""
         SELECT o.series_id, o.observed_at, o.value, o.unit,
                s.unit, s.plausible_min, s.plausible_max
         FROM {attached}.observations o
         JOIN main.series s ON s.series_id = o.series_id
-        WHERE o.fetch_status != 'retracted'
-          AND (o.unit != s.unit
+        WHERE o.unit != s.unit
            OR o.value < s.plausible_min
-           OR o.value > s.plausible_max)
+           OR o.value > s.plausible_max
         ORDER BY o.series_id, o.observed_at, o.vintage_at
         LIMIT 1
         """  # nosec B608

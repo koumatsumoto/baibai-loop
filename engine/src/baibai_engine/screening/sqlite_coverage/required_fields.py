@@ -159,13 +159,12 @@ def append_required_field_coverage_issues(
 def read_required_field_coverage(
     sqlite_path: Path, *, start: date, asof: date
 ) -> RequiredFieldCoverage | None:
+    # Missing is a normal pre-bootstrap state; errors in an existing store are not.
     if not sqlite_path.exists():
         return None
-    connection = sqlite3.connect(f"file:{sqlite_path.as_posix()}?mode=ro", uri=True)
+    connection = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         return required_field_coverage(connection, start=start, asof=asof)
-    except sqlite3.OperationalError:
-        return None
     finally:
         connection.close()
 
@@ -173,9 +172,10 @@ def read_required_field_coverage(
 def plan_required_field_repair(
     sqlite_path: Path, *, start: date, asof: date
 ) -> RequiredFieldRepairPlan | None:
+    # Missing is a normal pre-bootstrap state; errors in an existing store are not.
     if not sqlite_path.exists():
         return None
-    connection = sqlite3.connect(f"file:{sqlite_path.as_posix()}?mode=ro", uri=True)
+    connection = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         coverage = required_field_coverage(connection, start=start, asof=asof)
         if not coverage.blocking_fields:
@@ -204,8 +204,6 @@ def plan_required_field_repair(
         )
         ranges = _consecutive_date_ranges(dates) or ((start, asof),)
         return RequiredFieldRepairPlan(coverage=coverage, ranges=ranges)
-    except sqlite3.OperationalError:
-        return None
     finally:
         connection.close()
 

@@ -652,7 +652,8 @@ def _inject_source_observation(path: Path, observation: ObservationRecord) -> No
 
 
 @pytest.mark.parametrize("side", ["source", "target"])
-def test_retracted_values_do_not_need_to_fit_the_active_band(tmp_path, side):
+@pytest.mark.parametrize("value", [1.62, 999.0])
+def test_retracted_rows_keep_the_storage_contract(tmp_path, side, value):
     source = tmp_path / "source.sqlite"
     target = tmp_path / "target.sqlite"
     for path in (source, target):
@@ -662,7 +663,7 @@ def test_retracted_values_do_not_need_to_fit_the_active_band(tmp_path, side):
         ObservationRecord(
             series_id="jp.10y",
             observed_at=date(2026, 7, 23),
-            value=999.0,
+            value=value,
             unit="percent",
             source_url="https://example.com/series",
             vintage_at=VINTAGE,
@@ -670,7 +671,12 @@ def test_retracted_values_do_not_need_to_fit_the_active_band(tmp_path, side):
         ),
     )
 
-    merge_stores(source, target)
-
-    assert _rows(target, "SELECT value, fetch_status FROM observations") == [(999.0, "retracted")]
-    assert _read_range(target) == ()
+    before = target.read_bytes()
+    if value == 999.0:
+        with pytest.raises(MergeError, match="outside target plausible range"):
+            merge_stores(source, target)
+        assert target.read_bytes() == before
+    else:
+        merge_stores(source, target)
+        assert _rows(target, "SELECT value, fetch_status FROM observations") == [(value, "retracted")]
+        assert _read_range(target) == ()
