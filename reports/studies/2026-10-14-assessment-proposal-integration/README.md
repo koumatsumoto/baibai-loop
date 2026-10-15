@@ -38,7 +38,7 @@ broken/primary verifiedのeconomic sellは現在quote無しでも判断を保持
 
 ## 一回移行
 
-[domain_v1](../../../tools/cutover/domain_v1.py)は本番application22から最終24へ一度で移す。
+[当時のdomain_v1](https://github.com/koumatsumoto/baibai-loop/blob/5ac69d04c1fb99cbdc80e3f43673e18068971307/tools/cutover/domain_v1.py)は本番application22から最終24へ一度で移す。
 中間開発23の自動互換移行は行わない。全台帳事実・非対象tableはpayloadとreplayを保持し、
 必要な旧買付参照は最小bindingにする。旧価格・数量・期限をFillから捏造しない。
 
