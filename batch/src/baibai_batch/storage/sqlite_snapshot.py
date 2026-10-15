@@ -16,7 +16,7 @@ def validate_database(path: Path) -> None:
 
     if not path.is_file():
         raise FileNotFoundError(f"SQLite file does not exist: {path}")
-    uri = f"file:{path.resolve().as_posix()}?mode=ro"
+    uri = f"{path.resolve().as_uri()}?mode=ro"
     with closing(sqlite3.connect(uri, uri=True)) as connection:
         result = connection.execute("PRAGMA quick_check").fetchone()
         if result is None or result[0] != "ok":
@@ -27,7 +27,7 @@ def database_schema_version(path: Path) -> int:
     """Return ``PRAGMA user_version`` without opening the store for writes."""
     if not path.is_file():
         raise FileNotFoundError(f"SQLite file does not exist: {path}")
-    uri = f"file:{path.resolve().as_posix()}?mode=ro"
+    uri = f"{path.resolve().as_uri()}?mode=ro"
     with closing(sqlite3.connect(uri, uri=True)) as connection:
         row = connection.execute("PRAGMA user_version").fetchone()
     if row is None:

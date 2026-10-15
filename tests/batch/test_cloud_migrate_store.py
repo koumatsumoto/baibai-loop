@@ -20,7 +20,7 @@ def _store(path: Path) -> Path:
 
 
 def _version(path: Path) -> int:
-    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    connection = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         return int(connection.execute("PRAGMA user_version").fetchone()[0])
     finally:
@@ -60,6 +60,12 @@ def test_a_path_that_is_not_a_store_is_named_rather_than_creating_one(tmp_path: 
     absent = tmp_path / "absent.sqlite"
 
     with pytest.raises(FileNotFoundError, match="does not exist"):
-        main(["--store", "indicators", "--path", str(absent)])
+        main(["--path", str(absent)])
 
     assert not absent.exists()
+
+
+def test_cli_migrates_the_indicator_copy_without_a_redundant_store_selector(tmp_path, capsys):
+    store = _store(tmp_path / "indicators.sqlite")
+    assert main(["--path", str(store)]) == 0
+    assert f"migrated indicator copy to schema {SQLITE_SCHEMA_VERSION}" in capsys.readouterr().out

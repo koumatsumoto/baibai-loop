@@ -1364,7 +1364,7 @@ def test_indicator_push_merges_the_cloud_store_before_uploading(tmp_path: Path) 
     assert len(merges) == 1
     assert len(uploads) == 1
     assert downloads[0] < migrations[0] < merges[0] < uploads[0]
-    assert "--store indicators" in commands[migrations[0]]
+    assert "--store" not in commands[migrations[0]]
     assert "--target" in commands[merges[0]]
     assert "stores/market_context/indicators.sqlite" in commands[merges[0]]
     assert '--if-match "etag-stable"' in commands[uploads[0]]
