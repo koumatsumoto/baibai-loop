@@ -103,3 +103,25 @@ def test_connect_current_cannot_write_to_the_market_store(tmp_path):
         with pytest.raises(sqlite3.OperationalError, match="readonly"):
             conn.execute("INSERT INTO jquants_market_calendar VALUES ('2026-10-15', 1)")
     assert path.read_bytes() == before
+
+
+def test_schema_reuses_static_expectation_but_checks_database_changes(tmp_path, monkeypatch):
+    path = tmp_path / "market.sqlite"
+    with closing(schema.open_connection(path)) as connection:
+        schema._expected_schema_shape.cache_clear()
+        connect = sqlite3.connect
+        derivations = []
+
+        def track(database, *args, **kwargs):
+            if database == ":memory:":
+                derivations.append(database)
+            return connect(database, *args, **kwargs)
+
+        monkeypatch.setattr(sqlite3, "connect", track)
+        schema.validate_current_schema(connection)
+        schema.validate_current_schema(connection)
+        assert derivations == [":memory:"]
+        connection.execute("DROP TABLE jpx_earnings_calendar")
+        with pytest.raises(schema.SQLiteSchemaError, match="missing tables: jpx_earnings_calendar"):
+            schema.validate_current_schema(connection)
+        assert derivations == [":memory:"]

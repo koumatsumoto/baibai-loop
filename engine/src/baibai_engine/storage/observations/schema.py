@@ -13,6 +13,7 @@ readers never interpret or migrate an older shape.
 from __future__ import annotations
 
 import sqlite3
+from functools import lru_cache
 from pathlib import Path
 
 from baibai_engine.external_assessment.observations.contract import (
@@ -520,7 +521,7 @@ def _validate_current_schema(conn: sqlite3.Connection, tables: set[str]) -> None
             "obsolete market SQLite schema; replace it with a current local build "
             f"(found user_version={user_version}, expected={SQLITE_SCHEMA_VERSION})"
         )
-    expected_tables, expected_indexes = _expected_schema_shape()
+    expected_tables, expected_indexes = _expected_schema_shape(_SCHEMA_SQL)
     missing = sorted(set(expected_tables) - tables)
     if missing:
         raise SQLiteSchemaError(
@@ -555,13 +556,16 @@ def validate_current_schema(conn: sqlite3.Connection) -> None:
     _validate_current_schema(conn, _existing_tables(conn))
 
 
-def _expected_schema_shape() -> tuple[
+@lru_cache(maxsize=1)
+def _expected_schema_shape(schema_sql: str) -> tuple[
     dict[str, tuple[tuple[str, str, int, int], ...]],
     dict[str, tuple[str, tuple[str, ...], bool]],
 ]:
+    # Only the static DDL-derived expectation is reused. Every real connection is
+    # still inspected, so changing a database cannot reuse a prior acceptance.
     expected = sqlite3.connect(":memory:")
     try:
-        expected.executescript(_SCHEMA_SQL)
+        expected.executescript(schema_sql)
         tables = {
             table: _table_info(expected, table)
             for table in sorted(_existing_tables(expected))
