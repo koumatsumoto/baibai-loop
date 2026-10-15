@@ -1661,6 +1661,32 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         assert isinstance(coverage, dict)
         return counts, coverage
 
+    def test_reason_histogram_only_counts_requested_cohorts(self) -> None:
+        panel, forwards = self._long_horizon_cohort([])
+        outside = date(2025, 5, 30)
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for day, master_status in ((date.fromisoformat(_ASOF), "exact_date"), (outside, "unavailable")):
+                target = require_horizon("3y").target_date(day).isoformat()
+                write_panel(
+                    root, day,
+                    tuple(replace(row, asof=day.isoformat()) for row in panel),
+                    replace(_panel_diagnostics(master_snapshot_status=master_status), asof=day.isoformat()),
+                )
+                write_forward(
+                    root, day,
+                    [replace(row, asof=day.isoformat(), entry_date=day.isoformat(), target_date=target, exit_date=target) for row in forwards],
+                )
+            output = root / "evaluation.yaml"
+            self.assertEqual(calibration_evaluate_command(
+                calibration_dir=root, horizons=["3y"], required_asofs=[_ASOF],
+                output_path=output, stdout=StringIO(),
+            ), 0)
+            payload = yaml.safe_load(output.read_text(encoding="utf-8"))
+        outside_result = next(item for item in payload["cohort_integrity"] if item["asof"] == outside.isoformat())
+        self.assertIn("master_snapshot", outside_result["blocking_reasons"])
+        self.assertNotIn("master_snapshot", payload["evidence_coverage"]["reason_counts"])
+
     def test_unpriced_entry_is_disclosed_without_blocking_the_cohort(self) -> None:
         # panelに価格がなくproductionの有効価格scope外。未上場と断定せず、
         # forward欠測とは分けて件数を残す。
