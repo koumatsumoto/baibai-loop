@@ -91,8 +91,8 @@ def parse_trades_spec(
             metric=series.provider_series_id,
         )
         if start <= published_at <= end:
-            # period_start は読み値に影響しないので、欠けたら 1 日期間として保守的に置く。
-            period_start = _optional_row_date(row, "StDate") or period_end
+            # An unknown start does not turn an aggregate into a one-day observation.
+            period_start = _optional_row_date(row, "StDate")
             if not start <= period_end <= end:
                 continue
             observation = ObservationRecord(

@@ -581,6 +581,8 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
 
         self.assertEqual(len(observations), 1)
         self.assertEqual(observations[0].value, 500.0)
+        self.assertIsNone(observations[0].period_start)
+        self.assertEqual(observations[0].period_end, date(2026, 5, 8))
 
     def test_parse_trades_spec_keeps_each_period_for_duplicate_publication_date(
         self,
