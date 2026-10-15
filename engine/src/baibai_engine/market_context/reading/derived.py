@@ -75,6 +75,7 @@ def _align(
         case _:  # pragma: no cover - exhaustiveness guard over the Alignment literal
             assert_never(formula.alignment)
 
+
 def _align_exact(
     inputs: Mapping[str, Sequence[ObservationRecord]],
 ) -> dict[date, dict[str, ObservationRecord]]:
@@ -83,6 +84,7 @@ def _align_exact(
         for observation in observations:
             by_date.setdefault(observation.observed_at, {})[input_id] = observation
     return by_date
+
 
 def _align_monthly(
     inputs: Mapping[str, Sequence[ObservationRecord]],

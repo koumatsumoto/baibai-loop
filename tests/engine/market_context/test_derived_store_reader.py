@@ -48,9 +48,7 @@ def test_read_only_derived_values_follow_source_corrections_not_old_cache(tmp_pa
     corrected_at = datetime(2026, 2, 2, tzinfo=UTC)
     with closing(sqlite3.connect(path)) as writer:
         writer.row_factory = sqlite3.Row
-        insert_observations(
-            writer, [observation(registry["us.10y"], day, 3.5, corrected_at)]
-        )
+        insert_observations(writer, [observation(registry["us.10y"], day, 3.5, corrected_at)])
         writer.commit()
     with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as reader:
         reader.row_factory = sqlite3.Row

@@ -97,9 +97,7 @@ class DerivedReadingTests(TestCase):
 
     def test_missing_inputs_produce_no_derived_value(self) -> None:
         series = _series("derived", "rate_diff.us_jp_10y", unit="percent")
-        observations = derive_series(
-            series, {}, start=date(2026, 7, 1), end=date(2026, 7, 31)
-        )
+        observations = derive_series(series, {}, start=date(2026, 7, 1), end=date(2026, 7, 31))
         self.assertEqual(observations, ())
 
     def test_derived_real_10y_proxy_formula(self) -> None:
