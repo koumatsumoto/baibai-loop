@@ -129,7 +129,7 @@ def _signs_for_returns(
     stale_count: int,
     candidate_discovery_rules: CandidateDiscoveryRules,
 ) -> dict[str, float | None]:
-    context = _context_from_returns(panel, price_returns, horizon=horizon, stale_count=stale_count)
+    context = _context_from_returns(panel, price_returns, stale_count=stale_count)
     if context is None:
         return dict.fromkeys(_ALL_SENSITIVITY_METRICS)
     return _direction_signs(

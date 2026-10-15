@@ -17,7 +17,6 @@ from baibai_engine.screening.calibration.evaluation.policy import (
 from baibai_engine.screening.calibration.forward import (
     ForwardReturnRow,
 )
-from baibai_engine.screening.calibration.horizons import require_horizon
 from baibai_engine.screening.calibration.panel import PanelRow
 
 
@@ -28,8 +27,6 @@ class _CohortExcessContext:
     population_median_return: float
     benchmark_price_return: float | None
     stale_price_count: int
-    dividend_yield_coverage: int
-    horizon_years: float
 
 
 def _status_counts(statuses: Iterable[str]) -> dict[str, int]:
@@ -57,13 +54,11 @@ def _context_from_returns(
     panel: Sequence[PanelRow],
     price_returns: Mapping[str, float],
     *,
-    horizon: str,
     stale_count: int,
 ) -> _CohortExcessContext | None:
     population = [row for row in panel if row.in_population and row.ticker in price_returns]
     if len(population) < MIN_AXIS_SAMPLE:
         return None
-    years = require_horizon(horizon).months / 12
     returns = {row.ticker: price_returns[row.ticker] for row in population}
     population_median_return = median(returns[row.ticker] for row in population)
     excess = {row.ticker: returns[row.ticker] - population_median_return for row in population}
@@ -74,8 +69,6 @@ def _context_from_returns(
         population_median_return=population_median_return,
         benchmark_price_return=benchmark_return,
         stale_price_count=stale_count,
-        dividend_yield_coverage=0,
-        horizon_years=years,
     )
 
 
@@ -86,7 +79,7 @@ def _cohort_excess_context(
     horizon: str,
 ) -> _CohortExcessContext | None:
     price_returns, stale_count = _resolved_price_returns(forward_rows, horizon=horizon)
-    return _context_from_returns(panel, price_returns, horizon=horizon, stale_count=stale_count)
+    return _context_from_returns(panel, price_returns, stale_count=stale_count)
 
 
 def _weighted_mean(values: Sequence[tuple[float, int]]) -> float | None:
