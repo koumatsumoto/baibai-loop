@@ -488,7 +488,7 @@ def open_connection(db_path: Path) -> sqlite3.Connection:
 
 
 def connect_current(sqlite_path: Path) -> sqlite3.Connection | None:
-    """Open an existing store only when it already matches the current schema.
+    """Open an existing current-schema store read-only.
 
     Returns `None` for a missing/legacy/corrupt file so read helpers degrade to
     "cache cannot serve this" rather than raising. Missing files are never created;
@@ -496,7 +496,7 @@ def connect_current(sqlite_path: Path) -> sqlite3.Connection | None:
     """
     conn: sqlite3.Connection | None = None
     try:
-        conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=rw", uri=True)
+        conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
         validate_current_schema(conn)
     except BaseException as exc:
         if conn is not None:

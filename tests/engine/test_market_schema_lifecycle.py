@@ -90,3 +90,16 @@ def test_schema_validation_failure_closes_the_owned_connection(
         with pytest.raises(sqlite3.ProgrammingError, match="closed"):
             connection.execute("SELECT 1")
     assert path.read_bytes() == before
+
+
+def test_connect_current_cannot_write_to_the_market_store(tmp_path):
+    path = tmp_path / "market.sqlite"
+    schema.open_connection(path).close()
+    before = path.read_bytes()
+    connection = schema.connect_current(path)
+    assert connection is not None
+    with closing(connection) as conn:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == schema.SQLITE_SCHEMA_VERSION
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            conn.execute("INSERT INTO jquants_market_calendar VALUES ('2026-10-15', 1)")
+    assert path.read_bytes() == before
