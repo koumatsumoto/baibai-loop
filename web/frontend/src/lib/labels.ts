@@ -6,5 +6,5 @@ export const LABEL = {
   published: '公表',
   run: '実行',
   updated: '更新',
-  earningsTbd: '未定（JPX未公表）',
+  earningsUnavailable: '日付未確認',
 } as const

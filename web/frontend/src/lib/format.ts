@@ -12,8 +12,9 @@ function isDateOnly(value: string): boolean {
 }
 
 // Persisted stamps retain their explicit offset, including UTC. A date carries no
-// time at all and means midnight JST; an offset-less stamp is read as JST wall-clock
-// rather than the viewer's local time. Appending an offset to a bare date would build
+// time at all; midnight JST is only its formatting anchor. An offset-less stamp
+// is read as JST wall-clock rather than the viewer's local time. Appending an offset
+// to a bare date would build
 // `2026-07-29+09:00`, which is not a parseable ISO string.
 function toInstant(value: string): Date {
   if (isDateOnly(value)) return new Date(`${value}T00:00:00+09:00`)
@@ -42,10 +43,11 @@ function jstParts(value: string) {
   }
 }
 
-/** Full JST timestamp as `YYYY-MM-DD HH:mm` (publish / run / execution stamps). */
+/** JST timestamp as `YYYY-MM-DD HH:mm`, preserving date-only input as `YYYY-MM-DD`. */
 export function formatJstDateTime(value: string): string {
   const parts = jstParts(value)
-  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`
+  const day = `${parts.year}-${parts.month}-${parts.day}`
+  return isDateOnly(value) ? day : `${day} ${parts.hour}:${parts.minute}`
 }
 
 /**

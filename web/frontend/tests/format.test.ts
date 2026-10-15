@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   EMPTY,
@@ -25,10 +25,8 @@ describe('formatJstDateTime', () => {
     expect(formatJstDateTime('2026-07-19T12:00:00')).toBe('2026-07-19 12:00')
   })
 
-  // A bare date is JST midnight, not UTC midnight — reading it as UTC would land the
-  // same calendar day at 09:00 and go unnoticed everywhere the time is not shown.
-  it('reads a bare date as JST midnight', () => {
-    expect(formatJstDateTime('2026-07-19')).toBe('2026-07-19 00:00')
+  it('does not invent an execution time for a date-only record', () => {
+    expect(formatJstDateTime('2026-07-19')).toBe('2026-07-19')
   })
 
   it('keeps the same instant across a non-JST offset', () => {
@@ -77,12 +75,13 @@ describe('formatJstDateShort', () => {
 })
 
 describe('isOlderThanDays', () => {
-  const today = new Intl.DateTimeFormat('sv-SE', {
-    timeZone: 'Asia/Tokyo',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date())
+  // Fix the instant just after JST midnight, still the previous UTC date.
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-19T15:01:00Z'))
+  })
+  afterEach(() => vi.useRealTimers())
+  const today = '2026-07-20'
   const daysAgo = (days: number) =>
     new Date(Date.parse(`${today}T00:00:00Z`) - days * 86_400_000).toISOString().slice(0, 10)
 
