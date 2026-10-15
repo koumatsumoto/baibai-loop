@@ -243,8 +243,10 @@ def test_latest_disclosure_dates_after_excludes_the_boundary_day(tmp_path: Path)
     finally:
         connection.close()
 
-    # Strictly after: a disclosure on the earlier as-of was already known then.
-    result = latest_disclosure_dates_after(database, ["2331", "4432"], after=date(2026, 7, 28))
+    # The comparison excludes the earlier date and includes the later date.
+    result = latest_disclosure_dates_after(
+        database, ["2331", "4432"], after=date(2026, 7, 28), through_date=date(2026, 7, 29)
+    )
 
     assert result == {"2331": date(2026, 7, 29)}
 
