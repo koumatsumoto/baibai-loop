@@ -18,7 +18,7 @@ from baibai_engine.market.metric_quality import OperatingProfitSource, TTMQualit
 from .capital import (
     ENTITY_SCALE_MISMATCH,
     _common_equity_yen,
-    _edinet_describes_same_entity,
+    _edinet_passes_entity_scale_check,
     _normalize_summaries_with_status,
     _resolve_capital_basis,
     _shares_excluding_treasury,
@@ -165,9 +165,10 @@ def build_financial_snapshot(
     ocf_ttm, ocf_quality = _ttm_value(summaries, "cfo", ttm_rules)
     # EDINET の値は 1 つの書類を連結・単体のどちらかの基準で読んだもので、時価総額と
     # TTM 系列は短信由来である。連結財務諸表を持つ会社の書類を単体基準で読むと、比率の
-    # 分子と分母が別の会社を指す。両側が総資産を持つので実体の一致は直接確かめられる。
-    entity_matches = _edinet_describes_same_entity(edinet, total_assets)
-    edinet_metrics = edinet if entity_matches else None
+    # 分子と分母の範囲がずれ得る。総資産の倍率で大きな規模差を検出するが、
+    # 通過しても同一時点・連結範囲の一致を証明するものではない。
+    edinet_usable = _edinet_passes_entity_scale_check(edinet, total_assets)
+    edinet_metrics = edinet if edinet_usable else None
     edinet_ocf_ttm = edinet_metrics.ocf_ttm if edinet_metrics else None
     debt = edinet_metrics.debt if edinet_metrics else None
     cash = edinet_metrics.cash if edinet_metrics else None
@@ -176,7 +177,7 @@ def build_financial_snapshot(
     net_cash = edinet_metrics.net_cash if edinet_metrics else None
     investment_securities = edinet_metrics.investment_securities if edinet_metrics else None
     edinet_failure_reasons = (
-        ",".join((*edinet.failure_reasons, *(() if entity_matches else (ENTITY_SCALE_MISMATCH,))))
+        ",".join((*edinet.failure_reasons, *(() if edinet_usable else (ENTITY_SCALE_MISMATCH,))))
         if edinet
         else None
     )

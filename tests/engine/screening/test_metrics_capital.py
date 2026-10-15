@@ -18,7 +18,7 @@ from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.valuation.metrics.capital import (
     _closer_share_basis,
     _common_equity_yen,
-    _edinet_describes_same_entity,
+    _edinet_passes_entity_scale_check,
     _normalize_summaries_to_asof_basis,
     _normalize_summaries_with_status,
     _resolve_capital_basis,
@@ -682,15 +682,15 @@ def test_the_edinet_balance_sheet_must_be_within_a_double_of_the_statement() -> 
     this heuristic band also does not establish the cause of the discrepancy.
     """
 
-    def same_entity(edinet_total_assets: float) -> bool:
-        return _edinet_describes_same_entity(
+    def passes_scale_check(edinet_total_assets: float) -> bool:
+        return _edinet_passes_entity_scale_check(
             _edinet_metric_record(total_assets=edinet_total_assets), 1_000.0
         )
 
-    assert same_entity(2_000.0)
-    assert same_entity(500.0)
-    assert not same_entity(2_001.0)
-    assert not same_entity(499.0)
+    assert passes_scale_check(2_000.0)
+    assert passes_scale_check(500.0)
+    assert not passes_scale_check(2_001.0)
+    assert not passes_scale_check(499.0)
 
 
 def test_the_common_equity_routes_must_agree_within_five_percent() -> None:

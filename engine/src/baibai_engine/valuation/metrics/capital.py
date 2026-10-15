@@ -513,20 +513,16 @@ CONSOLIDATED_BASIS = "consolidated"
 ENTITY_SCALE_MISMATCH = "entity_scale_mismatch"
 
 
-def _edinet_describes_same_entity(
+def _edinet_passes_entity_scale_check(
     edinet: EdinetMetricRecord | None,
     total_assets: float | None,
 ) -> bool:
-    """EDINET の記録が短信と同じ実体を指しているか。
+    """Apply the total-assets scale heuristic, not a proof of accounting identity.
 
-    抽出器は 1 つの書類を連結・単体のどちらかの基準で読む。連結財務諸表を持つ会社の
-    書類を単体基準で読むと、負債・現金・EBITDA が親会社単独の値になる。時価総額と TTM
-    系列は短信由来なので、比率の分子と分母が別の会社を指す (実測では総資産が 1/1000 に
-    なる行がある)。両側が総資産を持つので、実体の一致は直接確かめられる。
-
-    連結基準で読めた行は照合できた 3,117 行すべてで一致するため、総資産を持たない
-    連結行はそのまま通す。単体基準・基準不明の行はその母集団の 17.6% が桁でずれており、
-    どれがずれているかを他の field では言えないので、照合できなければ答えない。
+    Positive total assets on both sides must lie within the configured ratio band.
+    If either amount is unavailable, only a consolidated EDINET row is accepted.
+    Passing does not establish matching dates or consolidation scope; rejection does
+    not identify whether scope, timing, or another source discrepancy caused it.
     """
     if edinet is None:
         return True

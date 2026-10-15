@@ -347,12 +347,7 @@ def _ttm_value(
         else []
     )
     latest = _latest_actual_row(cohort, field_names=(field,))
-    if (
-        latest is None
-        or getattr(latest, field) is None
-        or latest.period_start is None
-        or latest.period_end is None
-    ):
+    if latest is None or latest.period_start is None or latest.period_end is None:
         return None, TTMQuality.UNAVAILABLE
     latest_value = getattr(latest, field)
     if latest_value is None:
