@@ -658,15 +658,10 @@ def test_inventory_reports_every_class_against_its_own_budget(tmp_path: Path) ->
 
 
 def test_every_lake_dataset_states_a_release_policy() -> None:
-    """policy を持たない dataset は、床も鮮度も無いまま production release へ入る。
+    """Every current dataset must state its publication policy.
 
-    `ReleaseDatasetPolicy` は release が dataset を受け入れる条件 — 最小行数・履歴の床・
-    公表からの経過 — を述べる唯一の場所で、名前が挙がっていない dataset には何も課されない。
-    lake 側の定義だけを足して policy を忘れると、その dataset は「検査を通った」ではなく
-    「検査の対象ですらない」状態で publish される。どの build log にも現れない差である。
-
-    `required` は dataset ごとに違ってよい。`all_issues_daily_margin` は False である。
-    ここが要求するのは policy が存在することだけであり、公表開始前かどうかではない。
+    Unknown datasets are rejected; this catches omissions in the declared inventory.
+    Freshness is evaluated by consumers, not by the release policy.
     """
 
     from baibai_engine.storage.lake.datasets import LAKE_DATASETS
@@ -885,3 +880,20 @@ def test_optional_published_history_cannot_disappear(monkeypatch, carries_histor
     validate_release_policy(
         with_tv, {bars.dataset: bars, dataset: tv}, published_coverage_start=previous
     )
+
+
+def test_release_requires_the_current_dataset_contract(monkeypatch) -> None:
+    narrow_release_policy(monkeypatch, datasets=("jquants.daily_bars",))
+    manifest = _load_dataset(_dataset_payload())
+    payload = _release_payload()
+    datasets = payload["datasets"]
+    assert isinstance(datasets, dict)
+    datasets[manifest.dataset]["manifest_sha256"] = hashlib.sha256(
+        canonical_lake_model_bytes(manifest)
+    ).hexdigest()
+    release = load_lake_model_json(json.dumps(payload), ReleaseManifest)
+    validate_release_policy(release, {manifest.dataset: manifest})
+
+    other_version = manifest.model_copy(update={"contract_version": manifest.contract_version + 1})
+    with pytest.raises(ValueError, match="does not match current contract"):
+        validate_release_policy(release, {manifest.dataset: other_version})

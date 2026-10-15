@@ -1,6 +1,6 @@
 """合成fixtureが作るdatasetだけへrelease policyを限定する。
 
-本番releaseはregistryの全datasetを満たす必要がある。個別境界のテストは
+本番releaseはprofileの必須datasetと、含めた任意datasetの条件を満たす。個別境界のテストは
 対象datasetだけを作り、完全性や最低件数そのものの試験では制約を緩めない。
 """
 

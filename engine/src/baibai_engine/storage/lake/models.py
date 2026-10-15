@@ -384,7 +384,6 @@ class ReleaseDatasetPolicy(BaseModel):
 
     dataset: str
     required: bool
-    accepted_contract_versions: tuple[int, ...] = Field(min_length=1)
     carries_history: bool
     """Whether this dataset accumulates an archive, so its start must never move forward.
 
@@ -418,15 +417,6 @@ class ReleaseDatasetPolicy(BaseModel):
     def validate_dataset(cls, value: str) -> str:
         return validate_dataset_name(value)
 
-    @field_validator("accepted_contract_versions")
-    @classmethod
-    def validate_versions(cls, values: tuple[int, ...]) -> tuple[int, ...]:
-        if any(isinstance(value, bool) or value < 1 for value in values):
-            raise ValueError("accepted contract versions must be positive integers")
-        if len(values) != len(set(values)):
-            raise ValueError("accepted contract versions cannot contain duplicates")
-        return values
-
 
 class ReleasePolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
@@ -454,7 +444,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset=QUANTS_SCORE_DATASET,
             required=False,
-            accepted_contract_versions=(1,),
             carries_history=True,
             minimum_rows=1,
             require_complete_coverage=False,
@@ -462,7 +451,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset=MODEL_VALUATION_DATASET,
             required=False,
-            accepted_contract_versions=(1,),
             carries_history=True,
             minimum_rows=1,
             require_complete_coverage=False,
@@ -470,7 +458,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset=ANALYST_RATING_DATASET,
             required=False,
-            accepted_contract_versions=(1,),
             carries_history=True,
             minimum_rows=1,
             require_complete_coverage=False,
@@ -478,7 +465,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset="tradingview.forecast_snapshots",
             required=False,
-            accepted_contract_versions=(1,),
             carries_history=True,
             minimum_rows=1,
             require_complete_coverage=False,
@@ -486,7 +472,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset="jquants.daily_bars",
             required=True,
-            accepted_contract_versions=(2,),
             carries_history=True,
             minimum_rows=9_634_243,
             minimum_population_count=5_097,
@@ -495,7 +480,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset="jquants.short_sale_reports",
             required=True,
-            accepted_contract_versions=(1,),
             carries_history=True,
             minimum_rows=1_342_362,
             minimum_population_count=3_907,
@@ -504,7 +488,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset="jquants.weekly_margin",
             required=True,
-            accepted_contract_versions=(1,),
             carries_history=True,
             minimum_rows=1_960_849,
             minimum_population_count=4_866,
@@ -513,7 +496,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset="jquants.master_snapshots",
             required=True,
-            accepted_contract_versions=(1,),
             carries_history=True,
             minimum_rows=548_341,
             minimum_population_count=5_073,
@@ -522,7 +504,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset="jquants.fin_summaries",
             required=True,
-            accepted_contract_versions=(3,),
             carries_history=True,
             minimum_rows=173_198,
             minimum_population_count=4_425,
@@ -531,7 +512,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset="jquants.market_calendar",
             required=True,
-            accepted_contract_versions=(2,),
             carries_history=True,
             minimum_rows=3_524,
             require_complete_coverage=True,
@@ -539,7 +519,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset="jpx.earnings_calendar",
             required=True,
-            accepted_contract_versions=(1,),
             # Replaced by every snapshot fetch, so its earliest row is whatever the
             # exchange still publishes rather than a history this release keeps.
             carries_history=False,
@@ -560,7 +539,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset="jquants.margin_alerts",
             required=True,
-            accepted_contract_versions=(1,),
             carries_history=True,
             minimum_rows=1_657,
             minimum_population_count=214,
@@ -569,7 +547,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset="jquants.all_issues_daily_margin",
             required=False,
-            accepted_contract_versions=(1,),
             carries_history=True,
             minimum_rows=1,
             require_complete_coverage=False,
@@ -577,7 +554,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset="edinet.documents",
             required=True,
-            accepted_contract_versions=(1,),
             carries_history=True,
             minimum_rows=160_990,
             require_complete_coverage=True,
@@ -585,7 +561,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset="edinet.segment_facts",
             required=False,
-            accepted_contract_versions=(1,),
             carries_history=True,
             minimum_rows=1,
             require_complete_coverage=False,
@@ -593,7 +568,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset="edinet.debt_schedule",
             required=False,
-            accepted_contract_versions=(1,),
             carries_history=True,
             minimum_rows=1,
             require_complete_coverage=False,
@@ -601,7 +575,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset="edinet.metrics",
             required=True,
-            accepted_contract_versions=(2,),
             carries_history=True,
             minimum_rows=131_909,
             minimum_population_count=3_788,
@@ -610,7 +583,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset="edinet.document_lists",
             required=True,
-            accepted_contract_versions=(1,),
             carries_history=True,
             minimum_rows=706,
             require_complete_coverage=False,
@@ -618,7 +590,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset="jpx.regulation_flags",
             required=True,
-            accepted_contract_versions=(1,),
             carries_history=True,
             minimum_rows=4_534,
             minimum_population_count=141,
@@ -627,7 +598,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset="jpx.delistings",
             required=True,
-            accepted_contract_versions=(1,),
             # Accumulating by construction: the store keeps a delisting that JPX's
             # archive page has since dropped, so its earliest row does not move.
             carries_history=True,
@@ -642,7 +612,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset="edinet.tender_offer_exit_values",
             required=True,
-            accepted_contract_versions=(1,),
             # Replaced wholesale by each derivation, so a reclassified offer moves the
             # earliest row. Pinning a start date would refuse exactly the correction the
             # derivation exists to make.
@@ -655,7 +624,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset="jpx.regulation_sources",
             required=True,
-            accepted_contract_versions=(1,),
             carries_history=True,
             minimum_rows=133,
             require_complete_coverage=False,
@@ -805,10 +773,11 @@ def validate_release_policy(
             raise ValueError(f"{dataset}: release accepts matching L1 dataset manifests only")
         if manifest.created_at > release.created_at:
             raise ValueError(f"{dataset}: release cannot predate a referenced dataset manifest")
-        if manifest.contract_version not in dataset_policy.accepted_contract_versions:
+        current_version = LAKE_DATASETS[dataset].contract_version
+        if manifest.contract_version != current_version:
             raise ValueError(
-                f"{dataset}: contract v{manifest.contract_version} is not accepted by its "
-                f"profile {dataset_policy.accepted_contract_versions}"
+                f"{dataset}: contract v{manifest.contract_version} does not match "
+                f"current contract v{current_version}"
             )
         manifest_bytes = canonical_lake_model_bytes(manifest)
         if release_dataset.manifest_sha256 != sha256(manifest_bytes).hexdigest():
