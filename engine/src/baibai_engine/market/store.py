@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
@@ -68,12 +67,10 @@ def daily_bars_covered(sqlite_path: Path, start: date, end: date) -> bool:
 
 
 def count_daily_bars(sqlite_path: Path, start: date, end: date) -> int:
-    """Count usable bar rows in `[start, end]`; 0 when the store cannot be read.
+    """Count non-null closes; return 0 for an unavailable or incompatible store.
 
-    Rows without a close are excluded, which is the same set `read_daily_bars`
-    yields. Counting every row instead would inflate the reported number by the
-    rows the screen cannot price from — on the production window, by 141,098 of
-    3,509,554 — and make one run's log incomparable with the last.
+    This does not validate individual values or prove acquisition coverage.
+    Query errors propagate; model validation belongs to the row reader.
     """
     if not sqlite_path.exists():
         return 0
@@ -140,9 +137,9 @@ def read_daily_bars_for_tickers(
     """Read only the requested instruments over a covered range.
 
     Portfolio outcome can span five years, but it must never load the full
-    exchange universe merely to value the repository's own holdings. Missing
-    ticker-day rows are deliberately returned to the caller; the outcome engine
-    classifies them as unresolved instead of inventing a close.
+    exchange universe merely to value the repository's own holdings. Only
+    observed rows with a close are returned; absent ticker-days are not filled.
+    The outcome engine detects those gaps rather than inventing a close.
     """
 
     if not tickers:
@@ -173,9 +170,8 @@ def read_daily_bars_for_tickers(
 def latest_stored_daily_bar_date(sqlite_path: Path) -> date | None:
     """Return the most recent ``traded_at`` anywhere in the store, or None.
 
-    Separates "this window ends before what the store already knows" from "this
-    window reaches the present". Only the second can hold days the provider has
-    published since the last fetch, so only the second is worth a live tail read.
+    The fetch planner uses this to avoid implicitly refreshing accepted historical
+    windows. It is a reuse policy, not proof that older dates cannot be revised.
     """
     if not sqlite_path.exists():
         return None
@@ -240,8 +236,6 @@ def read_market_calendar(
             "WHERE day BETWEEN ? AND ? ORDER BY day",
             (start.isoformat(), end.isoformat()),
         ).fetchall()
-    except sqlite3.OperationalError:
-        return None
     finally:
         conn.close()
     return [

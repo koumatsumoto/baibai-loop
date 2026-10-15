@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from baibai_engine.market import store as market_store
 from baibai_engine.position.market_source import (
     next_order_session,
     quantity_basis_is_confirmed,
@@ -322,3 +323,19 @@ def test_price_comparisons_share_scope_without_changing_the_store(tmp_path: Path
     assert close_change_since(missing, [], since=date(2026, 7, 28)) == {}
     assert worst_close_drawdown(missing, [], start=date(2026, 7, 28), end=date(2026, 7, 30)) == {}
     assert not missing.exists()
+
+
+def test_calendar_query_failure_is_not_reported_as_missing_data(tmp_path, monkeypatch):
+    database = tmp_path / "market.sqlite"
+    _seed_calendar(database, [("2026-07-28", 1)])
+    connection = sqlite3.connect(database)
+    monkeypatch.setattr(market_store, "connect_current", lambda _: connection)
+
+    def failed_coverage_query(conn, *_args):
+        return conn.execute("SELECT * FROM missing_coverage_table").fetchone()
+
+    monkeypatch.setattr(market_store, "range_covered", failed_coverage_query)
+    with pytest.raises(sqlite3.OperationalError, match="missing_coverage_table"):
+        market_store.read_market_calendar(database, date(2026, 7, 28), date(2026, 7, 28))
+    with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+        connection.execute("SELECT 1")
