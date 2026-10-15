@@ -39,7 +39,10 @@ from baibai_engine.screening.calibration.evaluation.axes import (
     _half_split_effect,
     _stratified_quality_control,
 )
-from baibai_engine.screening.calibration.evaluation.discovery import _observation_dependence
+from baibai_engine.screening.calibration.evaluation.discovery import (
+    _evaluate_candidate_discovery,
+    _observation_dependence,
+)
 from baibai_engine.screening.calibration.evaluation.sensitivity import (
     _margin_short_to_adv_adoption_sign,
     _metric_direction_stability,
@@ -469,6 +472,26 @@ class EvaluateCohortsTest(unittest.TestCase):
         assert isinstance(cohort, dict)
         current_top20 = cohort["candidate_discovery"]["approach_current_earnings_power_top20"]
         self.assertEqual(current_top20["n"], 0)
+
+    def test_nomination_outcome_uses_configured_depth_not_fixed_top20(self) -> None:
+        rules = _RULES.candidate_discovery.model_copy(update={"nomination_depth": 25})
+        panel = [
+            _panel_row(
+                f"2{index:03d}", rank=index + 1,
+                valuation_approach_ranks=f"current-earnings-power:{index + 1}",
+            )
+            for index in range(25)
+        ]
+        excess = {row.ticker: (0.0 if index < 20 else 1.0) for index, row in enumerate(panel)}
+        result = _evaluate_candidate_discovery(panel, excess, candidate_discovery_rules=rules)
+        complete = result["approach_current_earnings_power_nominations"]
+        diagnostic = result["approach_current_earnings_power_top20"]
+        assert isinstance(complete, dict)
+        assert isinstance(diagnostic, dict)
+        self.assertEqual(complete["n"], 25)
+        self.assertEqual(complete["mean_excess"], 0.2)
+        self.assertEqual(diagnostic["n"], 20)
+        self.assertEqual(diagnostic["mean_excess"], 0.0)
 
     def test_full_candidate_discovery_fidelity_requires_complete_input_and_outcomes(
         self,

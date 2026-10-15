@@ -9,7 +9,7 @@ from baibai_engine.screening.calibration.evidence import (
     CohortIntegrity,
     EvaluationScope,
     candidate_discovery_approach_fidelity_metric,
-    candidate_discovery_approach_top20_metric,
+    candidate_discovery_approach_nomination_metric,
     effective_required_metrics,
     evaluate_evidence_readiness,
 )
@@ -106,7 +106,7 @@ def test_approach_mandatory_metrics_include_direct_and_union_outcomes() -> None:
     assert effective_required_metrics(scope) == (
         "review_set_all",
         CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC,
-        candidate_discovery_approach_top20_metric(approach),
+        candidate_discovery_approach_nomination_metric(approach),
         candidate_discovery_approach_fidelity_metric(approach),
     )
     assert evaluate_evidence_readiness(scope, _cohorts(scope)).evidence_complete is True

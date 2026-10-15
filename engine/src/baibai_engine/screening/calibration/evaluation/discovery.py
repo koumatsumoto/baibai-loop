@@ -8,6 +8,9 @@ from datetime import date
 from baibai_engine.foundation.date_utils import add_months_clamped
 from baibai_engine.screening.calibration.evaluation.policy import COMPARISON_TOP_NS
 from baibai_engine.screening.calibration.evaluation.statistics import _group_stats
+from baibai_engine.screening.calibration.evidence import (
+    candidate_discovery_approach_nomination_metric,
+)
 from baibai_engine.screening.calibration.horizons import require_horizon
 from baibai_engine.screening.calibration.panel import PanelRow
 from baibai_engine.screening.discovery.contracts import APPROACH_IDS
@@ -34,6 +37,9 @@ def _evaluate_candidate_discovery(
     }
     for approach in APPROACH_IDS:
         slug = approach.replace("-", "_")
+        result[candidate_discovery_approach_nomination_metric(approach)] = _group_stats(
+            [excess[row.ticker] for row in population if approach in approach_ranks[row.ticker]]
+        )
         for top_n in COMPARISON_TOP_NS:
             result[f"approach_{slug}_top{top_n}"] = _group_stats(
                 [
@@ -49,12 +55,10 @@ def _evaluate_candidate_discovery(
         (row for row in population if row.er_annual is not None),
         key=lambda row: (-(row.er_annual or 0.0), row.ticker),
     )
+    review_tickers = {row.ticker for row in review_set_rows}
     for top_n in COMPARISON_TOP_NS:
         er_rows = population_by_er[:top_n]
-        result[f"pure_er_top{top_n}"] = _group_stats(
-            [excess[row.ticker] for row in population_by_er[:top_n]]
-        )
-        review_tickers = {row.ticker for row in review_set_rows}
+        result[f"pure_er_top{top_n}"] = _group_stats([excess[row.ticker] for row in er_rows])
         er_tickers = {row.ticker for row in er_rows}
         result[f"nomination_union_vs_er_top{top_n}"] = {
             "review_set_n": len(review_tickers),
@@ -72,7 +76,7 @@ def _candidate_discovery_fidelity(
     candidate_discovery_rules: CandidateDiscoveryRules,
     jpx_input_status: str,
 ) -> dict[str, object]:
-    """Prove which production method roles one cohort actually replayed."""
+    """Report input coverage and outcome resolution against nomination policy."""
     input_complete = jpx_input_status == "complete"
     approach_ranks = {
         row.ticker: _valuation_approach_rank_map(
