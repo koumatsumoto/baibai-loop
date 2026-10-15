@@ -37,6 +37,7 @@ from .sources import (
     _append_required_date_rows_issue,
     _append_source_coverage_quality_issues,
     _append_table_consistency_issues,
+    _append_window_consistency_issues,
     _source_coverage_covers_date,
 )
 
@@ -138,14 +139,12 @@ def verify_screening_sqlite_coverage(
                 start=normalized_start,
                 end=asof_date,
             )
-            _append_table_consistency_issues(
+            _append_window_consistency_issues(
                 conn,
                 issues,
                 source="jquants_daily_bars",
-                table="jquants_daily_bars",
-                requirement=f"{bars_start.isoformat()}..{asof_date.isoformat()}",
-                require_rows=True,
-                enforce_record_count=True,
+                start=normalized_start,
+                end=asof_date,
             )
             _append_source_coverage_quality_issues(
                 conn,
@@ -173,14 +172,12 @@ def verify_screening_sqlite_coverage(
                     end=asof_date,
                     requirement=f"{fin_start.isoformat()}..{asof_date.isoformat()}",
                 )
-                _append_table_consistency_issues(
+                _append_window_consistency_issues(
                     conn,
                     issues,
                     source="jquants_fin_summaries",
-                    table="jquants_fin_summaries",
-                    requirement=f"{fin_start.isoformat()}..{asof_date.isoformat()}",
-                    require_rows=True,
-                    enforce_record_count=True,
+                    start=normalized_start,
+                    end=asof_date,
                 )
                 _append_fin_summary_density_issue(
                     conn,

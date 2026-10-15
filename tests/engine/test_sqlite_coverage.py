@@ -721,6 +721,38 @@ class SQLiteCoverageTests(unittest.TestCase):
                 )
             )
 
+    def test_unrelated_receipt_windows_do_not_block_the_requested_run(self) -> None:
+        asof = date(2026, 5, 8)
+        with _complete_coverage_database() as sqlite_path:
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                for source in ("jquants_daily_bars", "jquants_fin_summaries"):
+                    for day in (asof - timedelta(days=2300), asof + timedelta(days=30)):
+                        _add_source_coverage(
+                            conn, source=source, coverage_key=f"outside:{day}",
+                            record_count=999, min_date=day.isoformat(), max_date=day.isoformat(),
+                        )
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
+        self.assertFalse(any(
+            issue.requirement.startswith("outside:") and "row count" in issue.reason
+            for issue in issues
+        ))
+
+    def test_normalization_history_receipts_remain_in_scope(self) -> None:
+        asof = date(2026, 5, 8)
+        older_input = asof - timedelta(days=2000)
+        with _complete_coverage_database() as sqlite_path:
+            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
+                for source in ("jquants_daily_bars", "jquants_fin_summaries"):
+                    _add_source_coverage(
+                        conn, source=source, coverage_key="normalization-input",
+                        record_count=999999, min_date=older_input.isoformat(), max_date=older_input.isoformat(),
+                    )
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
+        self.assertEqual(
+            {issue.source for issue in issues if issue.requirement == "normalization-input" and "row count" in issue.reason},
+            {"jquants_daily_bars", "jquants_fin_summaries"},
+        )
+
     def test_daily_bar_required_window_count_mismatch_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:

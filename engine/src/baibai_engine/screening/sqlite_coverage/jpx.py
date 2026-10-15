@@ -10,7 +10,7 @@ from baibai_engine.foundation.time import JST
 
 from .shared import CacheCoverageIssue
 
-_JPX_MAX_FETCH_AGE_BUSINESS_DAYS = 7
+_JPX_MAX_FETCH_AGE_WEEKDAYS = 7
 
 
 def _jpx_source_names(conn: sqlite3.Connection, asof_date: date) -> set[str]:
@@ -58,7 +58,7 @@ def _append_jpx_freshness_issues(
         fetched_date = fetched_at.astimezone(JST).date()
         if (
             not allow_stale_jpx
-            and weekday_distance(asof_date, fetched_date) > _JPX_MAX_FETCH_AGE_BUSINESS_DAYS
+            and weekday_distance(asof_date, fetched_date) > _JPX_MAX_FETCH_AGE_WEEKDAYS
         ):
             stale_values.append(str(fetched_at_text))
     if missing_values:
@@ -148,7 +148,7 @@ def _append_jpx_earnings_calendar_issues(
                 source=source,
                 requirement=requirement,
                 reason=(
-                    f"compatibility table row count ({table_count}) does not match "
+                    f"stored calendar row count ({table_count}) does not match "
                     f"snapshot record_count ({int(record_count or 0)})"
                 ),
             )
