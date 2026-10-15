@@ -36,15 +36,15 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     """Evaluate a Stock Assessment and print its domain evaluation.
 
-    ``now`` fixes the instant evidence and overrides are judged against, so a
+    ``now`` fixes the instant evidence and review timestamps are checked against, so a
     caller reproducing a dated situation gets the same verdict whenever it runs.
     """
     args = build_parser().parse_args(argv)
     try:
         assessment = load_assessment(args.assessment)
         review_path = args.review
-        # The assessment scaffold reserves a stable review ref before that file exists.
-        # Assessment evaluation is useful first; promotion still requires the review.
+        # Evaluate authored content before an independent review file is available.
+        # Publication still requires that review; a missing path is not an approval.
         review = (
             load_assessment_review(review_path)
             if review_path is not None and review_path.is_file()

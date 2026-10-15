@@ -8,7 +8,7 @@ __all__ = ["decimal_to_number"]
 
 
 def decimal_to_number(value: Decimal) -> float | int:
-    """Emit an int for a whole yen amount so payloads do not carry a stray ``.0``."""
+    """Emit integral values as ints without changing the quantity's unit."""
 
     if value == value.to_integral_value():
         return int(value)
