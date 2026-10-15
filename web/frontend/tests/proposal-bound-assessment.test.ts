@@ -77,4 +77,19 @@ describe('保存した提案と評価', () => {
     expect(JSON.stringify(item)).toBe(original)
     expect(render(ProposalItemContent)).toContain('300株')
   })
+  it('再計算不能の保有判断では理由を示し、未確認の収益率を計算結果に見せない', () => {
+    const preview = { saved_proposal_id: 'original', previewed_at: '2026-10-14T18:00:00+09:00', status: 'changed', current_inputs: {}, change_reasons: [], items: [{ ticker: '1234', saved_action: 'hold', current_quote_calculation: { action: 'hold', current_price_projection: null, return_calculation_unavailable_reason: 'valuation_basis_requires_refresh' }, saved_limit_revalidation: null, blockers: [] }], warnings: [], portfolio_exposure: null } as InvestmentProposalPreviewView
+    const html = renderToStaticMarkup(createElement(CurrentPreviewContent, { preview }))
+    expect(html).toContain('再試算できません。期間と今後分配を当日起点で再確認する必要があります')
+    expect(html).not.toContain('試算価格')
+    expect(html).not.toContain('Base')
+  })
+  it('売却条件の再検証数量を現在資金からの再計算数量と説明しない', () => {
+    const preview = { saved_proposal_id: 'original', previewed_at: '2026-10-14T18:00:00+09:00', status: 'blocked', current_inputs: {}, change_reasons: [], items: [{ ticker: '1234', saved_action: 'sell', current_quote_calculation: null, saved_limit_revalidation: { limit_price_yen: '1000', quantity: 300 }, blockers: [{ code: 'quantity_basis_unconfirmed', message: '保存売却数量は現在の全保有数量へ一致しません。' }] }], warnings: [], portfolio_exposure: null } as InvestmentProposalPreviewView
+    const html = renderToStaticMarkup(createElement(CurrentPreviewContent, { preview }))
+    expect(html).toContain('保存した売却数量 300株')
+    expect(html).toContain('保存売却数量は現在の全保有数量へ一致しません')
+    expect(html).not.toContain('現在資金等での試算数量')
+  })
+
 })

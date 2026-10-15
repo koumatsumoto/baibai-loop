@@ -82,12 +82,13 @@ export function CurrentPreviewContent({ preview }: { preview: InvestmentProposal
       const current = record(item.current_quote_calculation)
       const revalidation = record(item.saved_limit_revalidation)
       const projection = item.saved_action === 'no_action' ? current : record(current.current_price_projection)
+      const unavailableReason = current.return_calculation_unavailable_reason
       const base = record(projection.base)
       const downside = record(projection.downside)
       const blockers = Array.isArray(item.blockers) ? item.blockers.map(record) : []
       return <article className="grid gap-2 rounded border p-3" key={`${item.ticker}-${index}`}><p className="font-mono text-sm">{text(item.ticker)}</p>
-        <div className="grid gap-3 sm:grid-cols-2"><div><p className="text-sm font-medium">現在 quote での再試算</p>{Object.keys(current).length === 0 ? <p className="text-sm">再試算できません。</p> : <><p className="text-sm">試算価格 {text(current.calculation_price_yen ?? projection.price_yen)}円</p><p className="text-xs">Base {text(base.total_return_pct)}% · Downside {text(downside.total_return_pct)}%</p></>}</div>
-        <div><p className="text-sm font-medium">保存 limit の再検証</p>{Object.keys(revalidation).length === 0 ? <p className="text-sm">対象なし、または条件未確定。</p> : <p className="text-sm">現在資金等での試算数量 {text(revalidation.quantity)}株</p>}</div></div>
+        <div className="grid gap-3 sm:grid-cols-2"><div><p className="text-sm font-medium">現在 quote での再試算</p>{Object.keys(projection).length === 0 ? <p className="text-sm">再試算できません。{typeof unavailableReason === 'string' && (RETURN_UNAVAILABLE_LABELS[unavailableReason] ?? unavailableReason)}</p> : <><p className="text-sm">試算価格 {text(current.calculation_price_yen ?? projection.price_yen)}円</p><p className="text-xs">Base {text(base.total_return_pct)}% · Downside {text(downside.total_return_pct)}%</p></>}</div>
+        <div><p className="text-sm font-medium">保存 limit の再検証</p>{Object.keys(revalidation).length === 0 ? <p className="text-sm">対象なし、または条件未確定。</p> : <p className="text-sm">{item.saved_action === 'sell' ? '保存した売却数量' : '現在資金等での試算数量'} {text(revalidation.quantity)}株</p>}</div></div>
         {blockers.map((reason, i) => <p className="text-sm" key={i}>{text(reason.message)}</p>)}
       </article>
     })}
