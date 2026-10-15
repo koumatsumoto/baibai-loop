@@ -482,3 +482,26 @@ def test_cli_binds_uvicorn_to_loopback(app_method_root: Path, mocker) -> None:
 
     assert run.call_count == 1
     assert run.call_args.kwargs == {"host": "127.0.0.1", "port": 9012}
+
+
+@pytest.mark.parametrize(
+    "known_at",
+    ["2026-07-18T15:00:00+00:00", "2026-07-19T00:00:00+09:00", "2026-07-18T08:00:00-07:00"],
+)
+@pytest.mark.parametrize("as_of", [None, "2026-07-17"])
+def test_market_context_default_date_uses_jst_for_the_same_instant(
+    app_method_root: Path, known_at: str, as_of: str | None
+) -> None:
+    parameters = {"known_at": known_at}
+    if as_of is not None:
+        parameters["as_of"] = as_of
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
+        response = client.get("/api/market-context", params=parameters)
+    assert response.status_code == 200
+    assert response.json()["reading"]["as_of"] == (as_of or "2026-07-19")
+
+
+def test_market_context_rejects_a_cutoff_without_timezone(app_method_root: Path) -> None:
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
+        response = client.get("/api/market-context", params={"known_at": "2026-07-19T00:00:00"})
+    assert response.status_code == 422
