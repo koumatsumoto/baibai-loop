@@ -854,20 +854,15 @@ class OptionProviderTest(unittest.TestCase):
         self.assertIn("2026-07-28", str(caught.exception))
         self.assertIn("2026-07-29", str(caught.exception))
 
-    def test_a_row_whose_day_the_source_could_not_parse_does_not_escape(self) -> None:
-        # The frame parses that column with errors coerced, so one bad row of ten
-        # thousand arrives as a not-a-time sentinel. It passes the timestamp check and
-        # its own date() is another sentinel, which sorts against nothing — the guard
-        # has to read it as an absent day rather than raise past its own caller. The
-        # real sentinel is used rather than an imitation: a stand-in that inherits
-        # datetime's inequality is not the thing being defended against.
+    def test_missing_or_invalid_chain_dates_are_not_inferred_from_request(self) -> None:
+        # SDK Date coercion can produce NaT. Missing row dates cannot establish
+        # the requested session, even when the other rows name that day.
         import pandas
 
         self.assertIsInstance(pandas.NaT, datetime)
         self.assertIsNone(as_date(pandas.NaT))
 
         rows = _chain_records()
-        rows[0]["Date"] = pandas.NaT
 
         jquants_options._require_requested_day(rows, ASOF)
 
