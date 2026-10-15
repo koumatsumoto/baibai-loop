@@ -91,8 +91,9 @@ def close_change_since(path: Path, tickers: Sequence[str], *, since: date) -> di
     unadjusted and provider-adjusted prices mix vintages across incremental acquisition, so
     a split between the two dates would otherwise read as a price move of the split
     ratio — a 1:2 split as a 50% fall. The correction uses the stored
-    ``adjustment_factor``. It may describe a price-only rights adjustment rather
-    than a share-unit change, and the provider may correct it later.
+    ``adjustment_factor``. The coefficient and the ex-rights event kind are distinct;
+    the coefficient alone does not establish a share-unit change. Provider corrections
+    can change previously acquired coefficients.
 
     A ticker with no close at or before ``since`` yields no entry: there is nothing to
     compare against, which is different from having not moved.
