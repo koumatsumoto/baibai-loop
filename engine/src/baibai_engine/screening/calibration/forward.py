@@ -751,8 +751,7 @@ def _resolve_total_return(
         return None, 0, None, "unresolved_adjustment_factor"
     events = bars if adjustment_events is None else adjustment_events
     if any(
-        entry_date < event.traded_at <= exit_date and event.ex_right_type == "3"
-        for event in events
+        entry_date < event.traded_at <= exit_date and event.ex_right_type == "3" for event in events
     ):
         # Price adjustment alone does not reveal proceeds from selling rights or
         # the capital paid to exercise them. Do not call that a realized total return.

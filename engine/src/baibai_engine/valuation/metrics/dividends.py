@@ -263,8 +263,7 @@ def _asof_basis_dividend(
     adjustments = [
         bar
         for bar in ticker_bars
-        if window_start < bar.traded_at <= row.disclosed_at
-        and share_unit_factor(bar) != 1.0
+        if window_start < bar.traded_at <= row.disclosed_at and share_unit_factor(bar) != 1.0
     ]
     guard = timedelta(days=DIVIDEND_RECORD_DATE_GUARD_DAYS)
     for value, record_date in payments:

@@ -243,9 +243,7 @@ def _normalize_summaries_with_status(
 
     summaries = resolve_actual_conflicts(summaries)
     has_adjustment = any(
-        share_unit_factor(bar) != 1.0
-        for bar in ticker_bars
-        if bar.traded_at <= asof_date
+        share_unit_factor(bar) != 1.0 for bar in ticker_bars if bar.traded_at <= asof_date
     )
     if not has_adjustment:
         return _NormalizedSummaryResult(summaries=summaries, capital_basis_barrier=None)
