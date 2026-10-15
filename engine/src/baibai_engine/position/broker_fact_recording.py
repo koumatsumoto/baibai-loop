@@ -161,9 +161,11 @@ def record_broker_fact(
     resolved_common_factors = (
         common_factors if common_factors else (holding_metadata[1] if holding_metadata else ())
     )
+    # A ticker alone cannot identify which order produced a confirmed fill.
+    # The draft builder resolves a reported broker order ID to its reservation.
     reservation = (
         None
-        if status == "open"
+        if status == "open" or (status == "filled" and reservation_id is None)
         else _select_reservation(
             reservation_snapshots(state),
             reservation_id=reservation_id,
