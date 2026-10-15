@@ -59,7 +59,6 @@ class _AssessmentPublication:
 
 @dataclass(frozen=True, slots=True)
 class _RawBar:
-    traded_at: date
     close: float | None
     adjustment_factor: float | None
 
@@ -82,7 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m baibai_engine.research_watch",
         description=(
-            "Emit a read-only YAML watch for the latest promoted research assessment of every "
+            "Emit a read-only YAML watch for the latest published research assessment of every "
             "ticker, with supported, uncertain, or unsupported stance. "
             "This command never "
             "proposes an order or updates canonical records."
@@ -131,11 +130,9 @@ def build_watch(
     sqlite_path: Path,
     asof: date,
 ) -> dict[str, object]:
-    latest, raw_latest = _load_latest_promoted_assessments(app_db_path, asof=asof)
-    watched = dict(latest)
-
     with closing(connect_read_only(app_db_path)) as connection:
         connection.execute("BEGIN")
+        latest, raw_latest = _load_latest_assessments(connection, asof=asof)
         ledger, _ = load_ledger_in_transaction(connection)
     state = replay_events_through(ledger.events, ledger.as_of)
     held_tickers = {
@@ -146,7 +143,7 @@ def build_watch(
 
     observations = _read_market_observations(
         sqlite_path,
-        assessments=watched,
+        assessments=latest,
         asof=asof,
     )
     rows = [
@@ -159,7 +156,7 @@ def build_watch(
             reserved=ticker in reserved_tickers,
             history=reservation_history.get(ticker, []),
         )
-        for ticker, publication in watched.items()
+        for ticker, publication in latest.items()
     ]
     resolved = sorted(
         (row for row in rows if row["status"] == "resolved"),
@@ -189,7 +186,7 @@ def build_watch(
         "rows": resolved + unresolved,
         "coverage": {
             "assessment_tickers": sorted(all_assessment_tickers),
-            "watched_tickers": sorted(watched),
+            "watched_tickers": sorted(latest),
             "reservation_history_tickers": sorted(reservation_tickers),
             "ledger_only_tickers": sorted(reservation_tickers - all_assessment_tickers),
             "resolved_count": len(resolved),
@@ -204,8 +201,8 @@ def build_watch(
     }
 
 
-def _load_latest_promoted_assessments(
-    app_db_path: Path, *, asof: date
+def _load_latest_assessments(
+    connection: sqlite3.Connection, *, asof: date
 ) -> tuple[dict[str, _AssessmentPublication], dict[str, dict[str, object]]]:
     from baibai_engine.research.assessment_store import (
         latest_assessment_id,
@@ -214,26 +211,24 @@ def _load_latest_promoted_assessments(
 
     latest: dict[str, _AssessmentPublication] = {}
     headers: dict[str, dict[str, object]] = {}
-    with closing(connect_read_only(app_db_path)) as connection:
-        connection.execute("BEGIN")
-        for row in connection.execute("SELECT DISTINCT ticker FROM stock_assessment").fetchall():
-            ticker = str(row[0])
-            identity = latest_assessment_id(connection, ticker)
-            assert identity is not None
-            header = connection.execute(
-                "SELECT as_of FROM stock_assessment WHERE assessment_id=?", (identity,)
-            ).fetchone()
-            if date.fromisoformat(str(header[0])) > asof:
-                raise ResearchPriceWatchError("future assessment cannot be used in watch")
-            headers[ticker] = {"assessment_id": identity, "as_of": str(header[0])}
-            try:
-                pair = load_reviewed_assessment(connection, identity)
-            except ResearchValidationError:
-                continue
-            latest[ticker] = _AssessmentPublication(
-                assessment_id=pair.assessment_id,
-                document=pair.document,
-            )
+    for row in connection.execute("SELECT DISTINCT ticker FROM stock_assessment").fetchall():
+        ticker = str(row[0])
+        identity = latest_assessment_id(connection, ticker)
+        assert identity is not None
+        header = connection.execute(
+            "SELECT as_of FROM stock_assessment WHERE assessment_id=?", (identity,)
+        ).fetchone()
+        if date.fromisoformat(str(header[0])) > asof:
+            raise ResearchPriceWatchError("future assessment cannot be used in watch")
+        headers[ticker] = {"assessment_id": identity, "as_of": str(header[0])}
+        try:
+            pair = load_reviewed_assessment(connection, identity)
+        except ResearchValidationError:
+            continue
+        latest[ticker] = _AssessmentPublication(
+            assessment_id=pair.assessment_id,
+            document=pair.document,
+        )
     return latest, headers
 
 
@@ -249,7 +244,8 @@ def _reservation_history(
         history[event.ticker].append(
             {
                 "reservation_id": event.reservation_id,
-                "occurred_at": event.occurred_at.isoformat(),
+                "occurred_on": None if event.occurred_on is None else event.occurred_on.isoformat(),
+                "occurred_at": event.occurred_at.isoformat() if event.occurred_on is None else None,
                 "quantity": event.quantity,
                 "price_guard_yen": decimal_to_number(event.price_guard_yen),
                 "expires_at": event.expires_at.isoformat()
@@ -266,6 +262,8 @@ def _read_market_observations(
     assessments: dict[str, _AssessmentPublication],
     asof: date,
 ) -> dict[str, _MarketObservation]:
+    if not assessments:
+        return {}
     if not sqlite_path.is_file():
         raise ResearchPriceWatchError(f"market SQLite does not exist: {sqlite_path}")
     conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
@@ -274,7 +272,8 @@ def _read_market_observations(
         conn.execute("BEGIN")
         validate_current_schema(conn)
         start = min(
-            (_price_basis_date(publication.document) for publication in assessments.values()),
+            (min(asof, _price_basis_date(publication.document) + timedelta(days=1))
+             for publication in assessments.values()),
             default=asof,
         )
         if not range_covered(conn, "jquants_market_calendar", start, asof):
@@ -299,10 +298,6 @@ def _read_market_observations(
                 "market calendar has missing row: "
                 + ", ".join(day.isoformat() for day in missing_calendar_days)
             )
-        if asof not in calendar:
-            raise ResearchPriceWatchError(
-                f"market calendar has no exact row for asof {asof.isoformat()}"
-            )
         if not calendar[asof]:
             raise ResearchPriceWatchError(f"asof is not a business day: {asof.isoformat()}")
         bars_by_ticker: dict[str, dict[date, _RawBar]] = defaultdict(dict)
@@ -319,7 +314,6 @@ def _read_market_observations(
             for ticker, traded_at, close, factor in bar_rows:
                 day = date.fromisoformat(str(traded_at))
                 bars_by_ticker[str(ticker)][day] = _RawBar(
-                    traded_at=day,
                     close=optional_float(close),
                     adjustment_factor=optional_float(factor),
                 )
@@ -359,23 +353,23 @@ def _observe_ticker(
     calendar: dict[date, bool],
     bars: dict[date, _RawBar],
 ) -> _MarketObservation:
-    expected_sessions = [
-        day
-        for day, is_business_day in calendar.items()
-        if is_business_day and _price_basis_date(assessment) <= day <= asof
-    ]
+    basis_date = _price_basis_date(assessment)
     current_bar = bars.get(asof)
-    current_close = _valid_close(current_bar.close) if current_bar is not None else None
-    close_as_of = asof if current_close is not None else None
-    for session in expected_sessions:
-        if session not in bars:
+    if current_bar is None:
+        return _MarketObservation(None, None, f"missing_raw_bar:{asof}")
+    current_close = _valid_close(current_bar.close)
+    if current_close is None:
+        reason = "missing_raw_close" if current_bar.close is None else "invalid_raw_close"
+        return _MarketObservation(None, None, f"{reason}:{asof}")
+    close_as_of = asof
+    # The original quote already uses its own day's basis. Only later sessions
+    # can change that basis; intermediate close values are not inputs to this gap.
+    for session, is_business_day in calendar.items():
+        if not is_business_day or not basis_date < session <= asof:
+            continue
+        bar = bars.get(session)
+        if bar is None:
             return _MarketObservation(current_close, close_as_of, f"missing_raw_bar:{session}")
-    for session in expected_sessions:
-        bar = bars[session]
-        if bar.close is None:
-            return _MarketObservation(current_close, close_as_of, f"missing_raw_close:{session}")
-        if _valid_close(bar.close) is None:
-            return _MarketObservation(current_close, close_as_of, f"invalid_raw_close:{session}")
         if bar.adjustment_factor is None:
             return _MarketObservation(
                 current_close,
@@ -405,7 +399,7 @@ def _valid_close(value: float | None) -> float | None:
 def _watch_row(
     *,
     ticker: str,
-    assessment_id: str | Path,
+    assessment_id: str,
     assessment: StockAssessmentDocument,
     observation: _MarketObservation,
     held: bool,
@@ -445,7 +439,7 @@ def _watch_row(
         else observation.close_as_of.isoformat(),
         "pmax_raw_yen": None if maximum is None else decimal_to_number(maximum),
         "pmax_gap_pct": gap,
-        "assessment_id": str(assessment_id),
+        "assessment_id": assessment_id,
         "assessment_stance": assessment.conclusion.stance,
         "assessment_as_of": assessment.input_snapshot.as_of.isoformat(),
         "horizon_months": valuation.horizon_months,
