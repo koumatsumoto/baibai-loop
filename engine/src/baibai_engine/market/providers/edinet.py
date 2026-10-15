@@ -467,6 +467,7 @@ def _canonicalize_document_events(
     _validate_parent_graph(origins)
 
     quarantined: set[QuarantinedDocumentEvent] = set()
+    withdrawn_by_event: set[str] = set()
     for event in events:
         doc_id = parse_doc_id(coalesce_field(event, "docID", "doc_id"))
         edit_status = text_or_none(
@@ -490,7 +491,9 @@ def _canonicalize_document_events(
                     )
                 )
                 continue
-            _tombstone_document_tree(parent, origins=origins, children=children)
+            withdrawn_by_event.update(
+                _tombstone_document_tree(parent, origins=origins, children=children)
+            )
             continue
         current = origins.get(doc_id)
         if current is None:
@@ -504,8 +507,13 @@ def _canonicalize_document_events(
                 )
             )
             continue
-        if text_or_none(coalesce_field(current, "withdrawalStatus", "withdrawal_status")) == "2":
+        if doc_id in withdrawn_by_event:
             raise EDINETProviderError(f"EDINET event follows withdrawal: {doc_id}")
+        # Refreshed origin flags describe current state, not the time of an older
+        # immutable operation row. Apply its metadata without reviving a tombstone.
+        was_withdrawn = (
+            text_or_none(coalesce_field(current, "withdrawalStatus", "withdrawal_status")) == "2"
+        )
         origin_date = current.get("doc_date")
         old_parent = text_or_none(coalesce_field(current, "parentDocID", "parent_doc_id"))
         current.update({key: value for key, value in event.items() if value is not None})
@@ -517,6 +525,9 @@ def _canonicalize_document_events(
                 children.setdefault(new_parent, set()).add(doc_id)
         if origin_date is not None:
             current["doc_date"] = origin_date
+        if was_withdrawn:
+            current["withdrawalStatus"] = "2"
+            current["legalStatus"] = "0"
         if edit_status == "1":
             current["docInfoEditStatus"] = "2"
         if disclosure_status == "1":
@@ -591,7 +602,7 @@ def _tombstone_document_tree(
     *,
     origins: dict[str, dict[str, Any]],
     children: Mapping[str, set[str]],
-) -> None:
+) -> set[str]:
     pending = [root]
     seen: set[str] = set()
     while pending:
@@ -604,6 +615,7 @@ def _tombstone_document_tree(
             origin["withdrawalStatus"] = "2"
             origin["legalStatus"] = "0"
         pending.extend(children.get(doc_id, ()))
+    return seen
 
 
 def _validate_document_statuses(document: Mapping[str, Any]) -> None:

@@ -432,3 +432,32 @@ def test_withdrawal_uses_parent_links_after_operation_metadata_edits():
     assert by_id["S100NEW1"]["withdrawalStatus"] == "2"
     assert by_id["S100CORR"]["withdrawalStatus"] == "2"
     assert by_id["S100TEST"]["withdrawalStatus"] == "0"
+
+
+@pytest.mark.parametrize("include_withdrawal", [False, True])
+def test_refreshed_tombstone_allows_earlier_metadata_without_reviving_document(
+    include_withdrawal,
+):
+    from baibai_engine.market.providers.edinet import _canonicalize_document_events
+
+    original = document()
+    original.update(withdrawalStatus="2", legalStatus="0", docInfoEditStatus="2")
+    edit = document()
+    edit.update(
+        doc_date="2026-07-01",
+        docInfoEditStatus="1",
+        opeDateTime="2026-07-01 10:00",
+        periodEnd="2026-04-30",
+    )
+    withdrawal = document("S100WTHD", "2026-07-02 10:00", parentDocID="S100TEST")
+    withdrawal.update(docTypeCode="350", withdrawalStatus="1")
+    inputs = [original, edit, *([withdrawal] if include_withdrawal else [])]
+
+    folded, quarantined = _canonicalize_document_events(inputs, origin_start=None)
+
+    assert not quarantined
+    assert len(folded) == 1
+    assert folded[0]["periodEnd"] == "2026-04-30"
+    assert folded[0]["withdrawalStatus"] == "2"
+    assert folded[0]["legalStatus"] == "0"
+    assert original["periodEnd"] == "2026-03-31"
