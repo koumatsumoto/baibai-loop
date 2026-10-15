@@ -107,7 +107,8 @@ def test_screening_assembles_margin_and_volume_on_one_basis():
 
     from baibai_engine.screening.metrics.snapshot import build_metrics
 
-    start, end = date(2026, 1, 1), date(2026, 1, 20)
+    start, action, end = date(2026, 1, 1), date(2026, 1, 20), date(2026, 1, 21)
+    # Publish the share count after the action, not on an ambiguous disclosure boundary.
     bars = [
         JQuantsDailyBar(
             "1111",
@@ -131,7 +132,9 @@ def test_screening_assembles_margin_and_volume_on_one_basis():
             )
         },
         margin_prior_26w={"1111": MarginBalance(balance_date=date(2025, 7, 1), long_vol=1500.0)},
-        adjustment_events_by_ticker={"1111": [JQuantsAdjustmentFactorEvent("1111", end, 0.5, "1")]},
+        adjustment_events_by_ticker={
+            "1111": [JQuantsAdjustmentFactorEvent("1111", action, 0.5, "1")]
+        },
     )
     axes = result.derived["1111"]
     assert axes.margin_long_to_adv == 10.0
