@@ -735,7 +735,7 @@ def test_daily_batch_writes_the_notice_with_asof_and_an_unmeasured_delta(tmp_pat
     assert _load_notice(notice_path) == {
         "asof": "2026-07-21",
         "screening_status": "published",
-        "market_updated": False,
+        "market_updated": None,
         "failed_stage": None,
         "delta_measured": False,
         "delta_unmeasured_reason": "view_unreadable",
@@ -857,6 +857,7 @@ def test_daily_delta_drops_unreadable_entered_rows_without_failing(
             _entry("3002", "Boolish", True),
             _entry("3003", "Multi\nline {name}", 3.0),
             _entry("3004", "x" * 200, 2.0),
+            _entry("3005", "Overflow", 10**400),
         ],
     )
 
@@ -866,15 +867,23 @@ def test_daily_delta_drops_unreadable_entered_rows_without_failing(
 
     assert isinstance(labels, list)
     # A row that cannot be identified by ticker is dropped; a value the renderer
-    # cannot use (NaN, bool) costs only that field, not the row.
-    assert labels[2:] == ["3003 Multi line name E[r]+3.0%", "3004 " + "x" * 24 + " E[r]+2.0%"]
+    # cannot use (NaN, bool, overflow) costs only that field, not the row.
+    assert labels[2:] == [
+        "3003 Multi line name E[r]+3.0%",
+        "3004 " + "x" * 24 + " E[r]+2.0%",
+        "3005 Overflow",
+    ]
     assert labels[:2] == ["3001 Broken", "3002 Boolish"]
     assert all("\n" not in label and len(label) <= 48 for label in labels)
 
 
-def test_daily_delta_names_nothing_when_the_view_cannot_be_read(tmp_path: Path) -> None:
+@pytest.mark.parametrize("content", [None, b"not json", b"\xff"])
+def test_daily_delta_names_nothing_when_the_view_cannot_be_read(tmp_path: Path, content) -> None:
+    path = tmp_path / "delta.json"
+    if content is not None:
+        path.write_bytes(content)
     notice = _Notice()
-    _read_daily_delta(tmp_path / "missing.json", notice)
+    _read_daily_delta(path, notice)
 
     assert notice.delta_measured is False
     assert notice.delta_unmeasured_reason == "view_unreadable"
@@ -1246,3 +1255,52 @@ def test_run_export_counts_match_stock_rows_without_review_publication_id(tmp_pa
     assert view.universe_size == 3800
     assert view.analyzed_count == 2
     assert view.candidate_count == 1
+
+
+@pytest.mark.parametrize("failure", ["connect", "before", "after"])
+def test_unreadable_change_probe_does_not_stop_batch_or_claim_no_change(
+    tmp_path, monkeypatch, failure
+):
+    import sqlite3
+
+    market = tmp_path / "stores/market/market.sqlite"
+    market.parent.mkdir(parents=True)
+    market.touch()
+    reads = []
+    closed = []
+
+    class Probe:
+        def execute(self, query):
+            assert query == "PRAGMA data_version"
+            reads.append(query)
+            if failure == "before" or (failure == "after" and len(reads) == 2):
+                raise sqlite3.OperationalError("probe unavailable")
+            return self
+
+        def fetchone(self):
+            return (1,)
+
+        def close(self):
+            closed.append(True)
+
+    def connect(*args, **kwargs):
+        if failure == "connect":
+            raise sqlite3.OperationalError("probe unavailable")
+        return Probe()
+
+    monkeypatch.setattr("baibai_batch.jobs.daily.sqlite3.connect", connect)
+    runner = _notice_runner()
+    notice_path = tmp_path / "notice.json"
+    result = run_daily_batch_structured(
+        root=tmp_path,
+        output_dir=tmp_path / "serving",
+        asof=ASOF,
+        runner=runner,
+        notice_output=notice_path,
+    )
+    assert result.exit_code == 0
+    assert result.market_updated is None
+    assert _load_notice(notice_path)["market_updated"] is None
+    assert "market-context indicators refresh" in runner.call_keys()
+    assert "export" in runner.call_keys()
+    assert closed == ([] if failure == "connect" else [True])

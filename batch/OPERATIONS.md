@@ -619,7 +619,7 @@ read -r -p '対象日 YYYY-MM-DD: ' asof &&
 | 1 | store検査/export等の致命的失敗。今回の結果を公開へ進めない |
 | 3 | 全views export完了だが、Screening取得/計算、指標refresh、prune等で失敗。新Screeningの有無はrun_revision_idとscreening_statusで確認 |
 
-クラウド公開はこの後に既存L1 release、machine store、serving views、history/freshnessの順で一度進む。読み取り専用connectionの`PRAGMA data_version`でmarket storeのcommit変化を確認し、正常に読めるnoticeの明示的`market_updated=false`の時だけ既存L1 releaseを保持する。noticeの欠落・読取不能・不正JSON・field不正は詳細を含まないwarningで示し、既存L1公開経路へ進む。これは値のbyte比較ではなく、commit済みstore変更の検出である。Screening未更新なら`--skip-history`でhistoryを生成せず、workflowの新しい出力先にはhistoryを含めないため再uploadしない。run pruneも省き、旧値・ID・実計算時刻を保持する。local exportの有無を示す既存output名`published`を、R2公開成功と読み替えない。workflowが失敗しても一部反映が済んでいる場合がある。
+クラウド公開はこの後に既存L1 release、machine store、serving views、history/freshnessの順で一度進む。読み取り専用connectionの`PRAGMA data_version`でmarket storeのcommit変化を確認し、正常に読めるnoticeの明示的`market_updated=false`の時だけ既存L1 releaseを保持する。比較用connectionや変更前後の読み取りに失敗した場合は`market_updated=null`（不明）とし、未変更とは扱わない。noticeの欠落・読取不能・不正JSON・field不正は詳細を含まないwarningで示し、既存L1公開経路へ進む。これは値のbyte比較ではなく、commit済みstore変更の検出である。Screening未更新なら`--skip-history`でhistoryを生成せず、workflowの新しい出力先にはhistoryを含めないため再uploadしない。run pruneも省き、旧値・ID・実計算時刻を保持する。local exportの完了を示すoutput名`export_ready`を、R2公開成功と読み替えない。workflowが失敗しても一部反映が済んでいる場合がある。
 
 機械結果の`screening_status`は`published / failed / skipped_non_business_day`を区別する。Screeningが未更新でも指標・全viewsを更新し、画面生成時刻を旧Screeningの実計算時刻へ上書きしない。store schema/hydration検査と全views exportの失敗はfatalである。詳細なstepとoptionはpublic `--help`と実run logを確認する。
 

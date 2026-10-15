@@ -5,8 +5,8 @@ independent of Market Context indicator refresh. A Japan holiday skips only
 Screening. Validated L1 chunks remain committed after a later source failure.
 The complete serving image is materialized once; unchanged Screening history
 is retained. Domain failures are reported with exit 3 after the export, while an
-unsafe/unreadable store or failed export remains fatal. Run exit 2 is a published
-run with partial-quality warnings.
+unsafe/unreadable store or failed export remains fatal. Screening CLI exit 2 means a
+published run with partial-quality warnings; the daily chain continues.
 """
 
 from __future__ import annotations
@@ -131,7 +131,7 @@ class DailyBatchResult:
     deferred_failure_count: int = 0
     steps: tuple[StepResult, ...] = ()
     screening_status: str = "published"
-    market_updated: bool = False
+    market_updated: bool | None = None
 
     def to_json(self) -> dict[str, object]:
         return {
@@ -248,7 +248,11 @@ def _finite_number(value: object) -> float | None:
 
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    return float(value) if math.isfinite(value) else None
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return number if math.isfinite(number) else None
 
 
 def _delta_ticker_labels(rows: object) -> list[str]:
@@ -292,7 +296,7 @@ def _read_daily_delta(path: Path, notice: _Notice) -> None:
 
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return
     if not isinstance(payload, dict):
         return
@@ -490,7 +494,7 @@ class _Notice:
 
     asof: str = ""
     screening_status: str = "pending"
-    market_updated: bool = False
+    market_updated: bool | None = None
     failed_stage: str | None = None
     delta_measured: bool = False
     delta_unmeasured_reason: str = "view_unreadable"
@@ -563,13 +567,16 @@ def run_daily_batch_structured(
 
     # Observe commits without opening a read transaction, copying the store or
     # inventing a source recovery ledger. This reader never writes to the store.
+    # Unknown stays null, so the workflow cannot mistake an unreadable comparison
+    # for an explicit no-change result and skip publication.
     market_path = (root / _MARKET_DB_RELPATH).resolve()
-    connection_context = (
-        closing(sqlite3.connect(f"{market_path.as_uri()}?mode=ro", uri=True, isolation_level=None))
-        if market_path.is_file()
-        else nullcontext(None)
-    )
-    with connection_context as connection:
+    connection = None
+    if market_path.is_file():
+        with suppress(sqlite3.Error):
+            connection = sqlite3.connect(
+                f"{market_path.as_uri()}?mode=ro", uri=True, isolation_level=None
+            )
+    with closing(connection) if connection is not None else nullcontext():
         version = None
         if connection is not None:
             # The gate/export report an unreadable store; this diagnostic
@@ -593,9 +600,10 @@ def run_daily_batch_structured(
             _write_notice(notice_output, notice)
             raise
         if connection is not None and version is not None:
-            notice.market_updated = (
-                connection.execute("PRAGMA data_version").fetchone()[0] != version
-            )
+            with suppress(sqlite3.Error):
+                notice.market_updated = (
+                    connection.execute("PRAGMA data_version").fetchone()[0] != version
+                )
     _write_notice(notice_output, notice)
     return DailyBatchResult(
         status=result.status,

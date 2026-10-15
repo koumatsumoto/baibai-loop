@@ -432,6 +432,7 @@ def test_indicator_only_publication_keeps_the_existing_l1_release(
         ("unreadable", True, True),
         ("invalid_json", True, True),
         ("invalid_field", True, True),
+        ("unknown_change", True, True),
         ("false", False, False),
         ("true", True, False),
         ("invalid_asof", False, False),
@@ -454,6 +455,8 @@ def test_daily_notice_only_explicit_false_skips_actual_lake_command(
         notice.write_text(private_marker)
     elif notice_case == "invalid_field":
         notice.write_text('{"market_updated":"false","private":"' + private_marker + '"}')
+    elif notice_case == "unknown_change":
+        notice.write_text(json.dumps({"market_updated": None}))
     elif notice_case in {"false", "true"}:
         notice.write_text(
             json.dumps({"market_updated": notice_case == "true", "asof": "2026-10-14"})
