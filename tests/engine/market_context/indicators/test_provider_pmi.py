@@ -287,9 +287,7 @@ class IndicatorsProviderParserTests(TestCase):
         ):
             with self.subTest(text=text):
                 self.assertIsNone(
-                    extract_pmi_value(
-                        text, expected_observed_at=expected, release_observed_at=None
-                    )
+                    extract_pmi_value(text, expected_observed_at=expected, release_observed_at=None)
                 )
         self.assertEqual(
             extract_pmi_value(
