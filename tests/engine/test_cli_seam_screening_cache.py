@@ -35,7 +35,6 @@ from tests.engine.test_screening_cli import (
 from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
 
 from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
-from baibai_engine.screening import cli as screening_cli
 from baibai_engine.screening.cli import app
 from baibai_engine.screening.cli.cache import FIN_SUMMARY_REVISION_OVERLAP_DAYS
 from baibai_engine.screening.metrics.snapshot import BARS_INPUT_WINDOW_DAYS, FIN_INPUT_WINDOW_DAYS
@@ -89,7 +88,7 @@ def _run_cli(
         contextlib.redirect_stdout(stdout),
         contextlib.redirect_stderr(stderr),
     ):
-        exit_code = screening_cli.main(argv)
+        exit_code = app.main(argv)
     return _CliResult(exit_code=exit_code, stdout=stdout.getvalue(), stderr=stderr.getvalue())
 
 
@@ -164,7 +163,7 @@ def test_main_bootstrap_cache_uses_fixed_jpx_urls_despite_stale_env() -> None:
         patch.object(app, "EDINETProvider", return_value=_SeamEDINETProvider()),
         patch.object(app, "JPXProvider", return_value=FakeJPXProvider()) as jpx_factory,
     ):
-        assert screening_cli.main(["bootstrap-cache", "--asof", "2026-05-08"]) == 0
+        assert app.main(["bootstrap-cache", "--asof", "2026-05-08"]) == 0
 
     assert jpx_factory.call_args.kwargs["regulation_urls"] == {
         "特別注意銘柄": "https://www.jpx.co.jp/listing/measures/alert/index.html",

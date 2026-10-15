@@ -20,6 +20,7 @@ from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.bars import JQuantsDailyBar, JQuantsMarketCalendarDay
 from baibai_engine.market.edinet_metrics import service as edinet_extraction
 from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
+from baibai_engine.market.edinet_metrics.service import extract_edinet_metrics_command
 from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
 from baibai_engine.market.edinet_models import (
     EdinetMetricRecord,
@@ -40,17 +41,14 @@ from baibai_engine.market.jquants_models import (
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.models import SecurityMaster
 from baibai_engine.market.providers.jquants import JQuantsProvider
-from baibai_engine.screening import cli as screening_cli
-from baibai_engine.screening.cli import (
-    ProviderBundle,
+from baibai_engine.screening.cli import app as screening_app
+from baibai_engine.screening.cli.cache import (
     backfill_history_command,
     backfill_master_command,
     bootstrap_cache_command,
-    extract_edinet_metrics_command,
-    run_command,
 )
-from baibai_engine.screening.cli import app as screening_app
-from baibai_engine.screening.cli.run import _index_next_earnings
+from baibai_engine.screening.cli.providers import ProviderBundle
+from baibai_engine.screening.cli.run import _index_next_earnings, run_command
 from baibai_engine.screening.config import ScreeningConfig
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.run_store import ScreeningRunReader
@@ -371,7 +369,7 @@ class ScreeningCliTests(unittest.TestCase):
                     ),
                     contextlib.redirect_stderr(stderr),
                 ):
-                    exit_code = screening_cli.main(["run", "--asof", "2026-05-08"])
+                    exit_code = screening_app.main(["run", "--asof", "2026-05-08"])
             finally:
                 os.chdir(cwd)
 
@@ -1123,7 +1121,7 @@ class ScreeningCliTests(unittest.TestCase):
                     ),
                     contextlib.redirect_stderr(stderr),
                 ):
-                    exit_code = screening_cli.main(["backfill-master", *argv])
+                    exit_code = screening_app.main(["backfill-master", *argv])
             finally:
                 os.chdir(cwd)
         return exit_code, stderr.getvalue()

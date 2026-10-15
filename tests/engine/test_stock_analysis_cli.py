@@ -16,8 +16,8 @@ from tests.engine.test_screening_cli import (
 )
 from tests.engine.test_screening_run_store import RULES, _publish, _run
 
-from baibai_engine.screening.cli import main as screening_main
 from baibai_engine.screening.cli import run as run_module
+from baibai_engine.screening.cli.app import main as screening_main
 from baibai_engine.screening.cli.providers import ProviderBundle
 from baibai_engine.screening.config import ScreeningConfig
 from baibai_engine.screening.run_store import ScreeningRunReader
