@@ -972,18 +972,6 @@ def read_financial_documents(
     return project_financial_documents(summaries, end)
 
 
-def read_fy_summaries(
-    sqlite_path: Path, start: date, end: date
-) -> list[JQuantsFinancialSummary] | None:
-    """Read actual FY documents, retaining revision identity and capital anchors."""
-    rows = read_fin_summaries(sqlite_path, start, end)
-    return (
-        None
-        if rows is None
-        else [row for row in rows if row.fiscal_period == "FY" and row.eps_ttm is not None]
-    )
-
-
 def read_jpx_earnings_calendar_snapshot(
     sqlite_path: Path,
     asof_date: date,

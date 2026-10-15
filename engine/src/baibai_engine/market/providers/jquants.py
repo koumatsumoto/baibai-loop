@@ -754,31 +754,11 @@ class JQuantsProvider(_JQuantsTransport):
         )
 
     def get_fy_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]:
-        """Return only FY rows while still proving the full summary range is covered."""
-        if self._sqlite_path is not None:
-            from baibai_engine.storage.observations.reader import read_fy_summaries
-
-            cached = read_fy_summaries(self._sqlite_path, start, end)
-            if cached is not None:
-                return cached
-        self._raise_if_cache_only(
-            "jquants_fin_summaries", f"{start.isoformat()}..{end.isoformat()}"
-        )
-        if self._sqlite_path is not None:
-            self._fetch_missing_range_chunks("get_fin_summary_range", start, end)
-            cached = read_fy_summaries(self._sqlite_path, start, end)
-            if cached is not None:
-                return cached
-            raise JQuantsProviderError(
-                "SQLite cache remained incomplete after fetching normalized-profit summaries "
-                f"for {start.isoformat()}..{end.isoformat()}"
-            )
-        records = self._load_or_fetch_range("get_fin_summary_range", start, end)
+        """Retain every FY document, including missing EPS and unresolved revisions."""
         return [
             summary
-            for record in records
-            if (summary := normalize_financial_summary(record)) is not None
-            and summary.fiscal_period == "FY"
+            for summary in self.get_fin_summary_range(start, end)
+            if summary.fiscal_period == "FY"
         ]
 
     def refresh_fin_summary_range(
