@@ -514,9 +514,7 @@ def _period_rows(
 def _validate_sqlite_contract(connection: sqlite3.Connection, dataset: LakeDataset) -> None:
     version = int(connection.execute("PRAGMA user_version").fetchone()[0])
     if version != SQLITE_SCHEMA_VERSION:
-        raise LakeBuildError(
-            f"market SQLite schema is {version}; expected {SQLITE_SCHEMA_VERSION}"
-        )
+        raise LakeBuildError(f"market SQLite schema is {version}; expected {SQLITE_SCHEMA_VERSION}")
     actual = tuple(connection.execute(f"PRAGMA table_info({dataset.sqlite_table})"))
     expected = tuple(
         (
