@@ -260,8 +260,8 @@ def _print_series_json(series: Iterable[SeriesDefinition]) -> None:
             "frequency": item.frequency,
             "unit": item.unit,
             "provider": item.provider,
-            # "http" fetches externally; "local" is a derived series the batch
-            # must refresh after its base inputs.
+            # "http" fetches externally; "local" is computed on read from
+            # stored inputs and is excluded from acquisition batches.
             "kind": provider_spec(item.provider).kind,
         }
         for item in series

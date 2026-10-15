@@ -18,13 +18,13 @@ from urllib3.exceptions import ReadTimeoutError
 from urllib3.response import HTTPResponse
 
 from baibai_batch.validation.market_context_stores import main as validate_stores
-from baibai_engine.market_context.indicators import db
 from baibai_engine.market_context.indicator_service import (
     IndicatorsService,
     RefreshFailure,
     RefreshSuccess,
     _fetch_observations_with_retry,
 )
+from baibai_engine.market_context.indicators import db
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.indicators.providers import registry
 from baibai_engine.market_context.indicators.providers.base import (
