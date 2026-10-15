@@ -11,10 +11,7 @@ from tests.helpers.ledger import load_portfolio_ledger
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.cli import main as position_main
 from baibai_engine.position.drafts import LedgerDraft, apply_draft, build_event_draft
-from baibai_engine.position.ledger import (
-    ContributionEvent,
-    PortfolioLedgerError,
-)
+from baibai_engine.position.ledger import ContributionEvent
 from baibai_engine.position.ledger_read import LedgerConflictError
 from baibai_engine.position.store import LedgerStoreService
 
@@ -73,7 +70,7 @@ def test_event_draft_requires_confirmation_and_rejects_stale_apply(tmp_path: Pat
         apply_draft(service, second, human_confirmed=True)
 
 
-def test_record_broker_fact_apply_still_rejects_an_unreleased_expired_reservation(
+def test_record_broker_fact_apply_preserves_unreported_expired_order(
     tmp_path: Path,
 ) -> None:
     db = _seeded_db(tmp_path)
@@ -88,8 +85,9 @@ def test_record_broker_fact_apply_still_rejects_an_unreleased_expired_reservatio
         ),
     )
 
-    with pytest.raises(PortfolioLedgerError, match="expired reservations require"):
-        apply_draft(service, draft, human_confirmed=True)
+    apply_draft(service, draft, human_confirmed=True)
+    assert service.load().events == source.events
+    assert service.load().as_of == draft.replacement.as_of
 
 
 @pytest.mark.parametrize(

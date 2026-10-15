@@ -174,14 +174,16 @@ def test_confirmed_buy_execution_is_not_rejected_by_order_expiry() -> None:
     assert next(item for item in snapshot.holdings if item.ticker == "2331").quantity == 200
 
 
-def test_release_after_expiry_requires_expired_reason() -> None:
+def test_reported_cancellation_is_not_relabelled_from_expiry_time() -> None:
     raw = _raw()
     events = raw["events"]
     assert isinstance(events, list)
     events[4]["reason"] = "cancelled"
-
-    with pytest.raises(PortfolioLedgerError, match="must use expired reason"):
-        portfolio_snapshot(_document(raw))
+    snapshot = portfolio_snapshot(_document(raw))
+    assert all(
+        item.reservation_id != "reservation-2331-first"
+        for item in snapshot.active_reservations
+    )
 
 
 def test_reservation_quantity_must_match_board_lot() -> None:

@@ -179,8 +179,6 @@ def record_broker_fact(
         assert ticker is not None
         if price_guard_yen is None:
             raise BrokerFactRecordingError("open requires price_guard_yen")
-        if expires_at is not None and expires_at <= occurred_at:
-            raise BrokerFactRecordingError("open expires_at must be after occurred_at")
         suffix = _event_suffix(
             decision_reference,
             f"sell-{status}" if side == "sell" else status,
@@ -389,12 +387,6 @@ def _release_addition(
         raise BrokerFactRecordingError(
             f"{status} decision_reference does not match the active reservation"
         )
-    if (
-        status == "expired"
-        and reservation.expires_at is not None
-        and occurred_at < reservation.expires_at
-    ):
-        raise BrokerFactRecordingError("expired occurred_at must be at or after expires_at")
     suffix = _event_suffix(decision_reference, status, event_identity, occurred_at, occurred_on)
     prefix = "human-cancel" if status == "cancelled" else "human-expire"
     return {

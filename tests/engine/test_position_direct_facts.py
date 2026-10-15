@@ -278,3 +278,24 @@ def test_date_only_order_without_expiry_can_be_cancelled_and_retried(tmp_path):
     assert build_broker_fact_draft(service, unavailable, **report) == (None, ())
     stored = service.load()
     assert not replay_events_through(stored.events, stored.as_of).active_reservations
+
+
+def test_date_only_expiry_report_does_not_require_exact_expiry_clock_time(tmp_path):
+    service, _ = _service(tmp_path)
+    opened, _ = open_direct(service, expires_at=NOW + timedelta(hours=5))
+    apply_draft(service, opened, human_confirmed=True)
+    order = opened.replacement.events[-1]
+    expired, _ = build_broker_fact_draft(
+        service,
+        unavailable,
+        decision_reference=order.decision_reference,
+        status="expired",
+        occurred_on=NOW.date(),
+        reservation_id=order.reservation_id,
+        now=NOW + timedelta(hours=6),
+    )
+    assert expired is not None
+    assert expired.replacement.events[-1].occurred_on == NOW.date()
+    apply_draft(service, expired, human_confirmed=True)
+    stored = service.load()
+    assert not replay_events_through(stored.events, stored.as_of).active_reservations

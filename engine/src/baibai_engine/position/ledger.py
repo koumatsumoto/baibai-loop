@@ -154,8 +154,14 @@ class ReservationEvent(_EventBase):
 
     @model_validator(mode="after")
     def _expiry_follows_reservation(self) -> ReservationEvent:
-        if self.expires_at is not None and self.expires_at <= self.occurred_at:
-            raise ValueError("expires_at must be after occurred_at")
+        if self.expires_at is not None:
+            invalid_expiry = (
+                self.expires_at.astimezone(JST).date() < self.occurred_on
+                if self.occurred_on is not None
+                else self.expires_at <= self.occurred_at
+            )
+            if invalid_expiry:
+                raise ValueError("expires_at must not precede the reported order")
         if len(set(self.common_factors)) != len(self.common_factors):
             raise ValueError("common_factors must not contain duplicates")
         if self.common_factors != tuple(sorted(self.common_factors)):
@@ -584,23 +590,16 @@ def replay_events_through(
                     raise PortfolioLedgerError(
                         f"release references no active reservation: {event.reservation_id}"
                     )
-                if (
-                    event.reason == "expired"
-                    and reservation.expires_at is not None
-                    and event.occurred_at < reservation.expires_at
-                ):
-                    raise PortfolioLedgerError(
-                        f"expired release predates expires_at: {event.reservation_id}"
+                if event.reason == "expired" and reservation.expires_at is not None:
+                    before_expiry = (
+                        event.occurred_on < reservation.expires_at.astimezone(JST).date()
+                        if event.occurred_on is not None
+                        else event.occurred_at < reservation.expires_at
                     )
-                if (
-                    reservation.expires_at is not None
-                    and event.occurred_at >= reservation.expires_at
-                    and event.reason != "expired"
-                ):
-                    raise PortfolioLedgerError(
-                        "release at or after expires_at must use expired reason: "
-                        f"{event.reservation_id}"
-                    )
+                    if before_expiry:
+                        raise PortfolioLedgerError(
+                            f"expired release predates expires_at: {event.reservation_id}"
+                        )
                 released = _yen_notional(
                     reservation.remaining_quantity,
                     reservation.price_guard_yen,

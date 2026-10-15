@@ -1,7 +1,7 @@
 """Seam coverage for the writer commands a human types by hand.
 
 Every test here drives ``main([...])`` with a real argv list. The layer under
-test is the one between argparse and the store: ``--ordered-at`` /
+test is the one between argparse and the store: date-only /
 ``--expires-at`` / ``--as-of`` arrive as text and reach the model as
 ``datetime`` or ``date``, and ``--estimated-exit-tax-rate-bps`` reaches it as
 ``int``. A test that constructs those values itself never crosses that layer, so

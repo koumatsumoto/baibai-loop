@@ -37,7 +37,6 @@ from baibai_engine.position.ledger import (
     WithdrawalEvent,
     active_human_overrides,
     replay_events_through,
-    require_resolved_expiries,
     reservation_snapshots,
 )
 from baibai_engine.position.store import LedgerApplyResult, LedgerStoreService
@@ -651,9 +650,7 @@ def apply_draft(
     if not draft.confirmation_required:
         raise ValueError("ledger draft is not eligible for explicit apply")
     active_human_overrides(draft.replacement.overrides, as_of=draft.replacement.as_of)
-    state = replay_events_through(draft.replacement.events, draft.replacement.as_of)
-    if draft.kind == "broker-fact":
-        require_resolved_expiries(state)
+    replay_events_through(draft.replacement.events, draft.replacement.as_of)
     return service.apply_document(
         expected_head=draft.expected_head,
         expected_document=draft.source,

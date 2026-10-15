@@ -230,7 +230,7 @@ def test_expired_report_requires_expiry_and_is_idempotent() -> None:
     ledger = load_portfolio_ledger(FIXTURE)
     expiry = datetime(2026, 7, 31, 15, 30, tzinfo=JST)
     now = datetime(2026, 8, 1, 12, 0, tzinfo=JST)
-    with pytest.raises(BrokerFactRecordingError, match="at or after expires_at"):
+    with pytest.raises(BrokerFactRecordingError, match="predates expires_at"):
         record_broker_fact(
             ledger,
             decision_reference=PROPOSAL,
@@ -332,16 +332,16 @@ def test_expired_report_releases_only_remaining_partial_fill_quantity() -> None:
     assert sum(lot.quantity for lot in state.lots["1234"]) == 100
 
 
-def test_cancelled_report_at_expiry_must_use_expired_status() -> None:
-    with pytest.raises(BrokerFactRecordingError, match="must use expired reason"):
-        record_broker_fact(
-            load_portfolio_ledger(FIXTURE),
-            decision_reference=PROPOSAL,
-            status="cancelled",
-            occurred_at=datetime(2026, 7, 31, 15, 30, tzinfo=JST),
-            reservation_id="reservation-8929-pending",
-            now=datetime(2026, 8, 1, 12, 0, tzinfo=JST),
-        )
+def test_cancelled_report_keeps_human_status_even_after_recorded_expiry() -> None:
+    result = record_broker_fact(
+        load_portfolio_ledger(FIXTURE),
+        decision_reference=PROPOSAL,
+        status="cancelled",
+        occurred_at=datetime(2026, 7, 31, 15, 30, tzinfo=JST),
+        reservation_id="reservation-8929-pending",
+        now=datetime(2026, 8, 1, 12, 0, tzinfo=JST),
+    )
+    assert result.document.events[-1].reason == "cancelled"
 
 
 def test_filled_without_reservation_records_only_the_confirmed_execution() -> None:
