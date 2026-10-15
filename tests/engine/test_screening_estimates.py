@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
-
-from baibai_engine.screening.stock_analysis_builder import expected_return_inputs
-
-ROOT = Path(__file__).resolve().parents[2]
 
 from baibai_engine.screening.schema import DerivedMetrics
-from baibai_engine.screening.stock_analysis_builder import _close_from_snapshot
+from baibai_engine.screening.stock_analysis_builder import (
+    _close_from_snapshot,
+    expected_return_inputs,
+)
 from baibai_engine.valuation.estimates import (
     REALIZATION_RATE_ANNUAL,
     SHARE_COUNT_CLIP,
@@ -102,8 +100,7 @@ class EstimateExpectedReturnTest(unittest.TestCase):
         self.assertAlmostEqual(estimate.fv_self_range_yen, 1250.0)
 
     def test_no_estimate_when_the_dividend_share_basis_is_unresolved(self) -> None:
-        # carry は `dividend_yield or 0.0` で組むので、利回りを出さないことが下流では
-        # 「無配」の主張になる。未解決の株式基準を無配とみなして見返りを過小評価しない。
+        # 株式基準未解決は通常の未観測とは区別し、carryを0寄与で補う対象にしない。
         derived = _derived(
             sector_median_value={"pbr": 1.2, "per_forward": 15.0},
             self_range_median={"pbr": 1.0},

@@ -150,8 +150,19 @@ def test_unknown_fields_are_rejected_at_every_owned_level(location: str) -> None
         lambda payload: payload["horizons"][0]["bands"][1].update(lower_er_annual=-999.0),
         lambda payload: payload["horizons"][0]["bands"][0]["bases"].reverse(),
         lambda payload: payload.update(valid_through="2099-01-01"),
+        lambda payload: payload["common_window"].update(cohort_count=0),
+        lambda payload: payload["common_window"].update(asof_start="2019-01-31"),
+        lambda payload: payload["common_window"].update(horizons=[]),
     ],
-    ids=["band-order", "band-gap", "basis-order", "ttl"],
+    ids=[
+        "band-order",
+        "band-gap",
+        "basis-order",
+        "ttl",
+        "common-count",
+        "common-date",
+        "common-horizons",
+    ],
 )
 def test_invalid_structural_contract_is_rejected(mutate: Any) -> None:
     payload = deepcopy(_artifact())
