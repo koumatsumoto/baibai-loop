@@ -51,7 +51,9 @@ _METRIC_SELECT = (
 def _normalize_edinet_metric_sql_row(row: sqlite3.Row) -> EdinetMetricRecord:
     """Decode named SQL columns without a parallel positional field mapping."""
     payload = dict(row)
-    payload["failure_reasons"] = json.loads(row["failure_reasons"]) if row["failure_reasons"] else []
+    payload["failure_reasons"] = (
+        json.loads(row["failure_reasons"]) if row["failure_reasons"] else []
+    )
     return normalize_metric_record(payload)
 
 
@@ -106,8 +108,7 @@ def read_edinet_metric_baseline(
                     f"EDINET metric baseline coverage is inconsistent for {key}"
                 )
             rows = conn.execute(
-                _METRIC_SELECT
-                + ", extractor_revision, source_document_revision "
+                _METRIC_SELECT + ", extractor_revision, source_document_revision "
                 "FROM edinet_metrics WHERE asof_date = ? ORDER BY ticker",
                 (key,),
             ).fetchall()
