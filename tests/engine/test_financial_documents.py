@@ -786,3 +786,77 @@ def test_conflicting_same_document_identity_preserves_store(tmp_path, reverse):
     with pytest.raises(ValueError, match="conflicting financial document identity"):
         store_jquants_fin_summaries(db, records, requested_start=start, requested_end=ASOF)
     assert db.read_bytes() == before
+
+
+def test_expired_dividend_guidance_cannot_replace_current_zero_actual() -> None:
+    records = [
+        document(
+            "old-guidance",
+            day="2024-09-18",
+            CurFYSt="2023-10-01",
+            CurFYEn="2024-09-30",
+            FDivAnn="17.5",
+        ),
+        document(
+            "zero-actual",
+            day="2025-11-27",
+            DocType="FYFinancialStatements_Consolidated_JP",
+            CurFYSt="2024-10-01",
+            CurFYEn="2025-09-30",
+            CurPerSt="2024-10-01",
+            CurPerEn="2025-09-30",
+            NxtFYSt="2025-10-01",
+            NxtFYEn="2026-09-30",
+            DivAnn="0",
+            NxFDivAnn="",
+        ),
+        document(
+            "current-quarter",
+            day="2026-02-13",
+            DocType="1QFinancialStatements_Consolidated_JP",
+            CurFYSt="2025-10-01",
+            CurFYEn="2026-09-30",
+            CurPerSt="2025-10-01",
+            CurPerEn="2025-12-31",
+            FDivAnn="",
+        ),
+    ]
+    rules = load_screening_rules()
+    result = build_financial_snapshot(
+        130, decode(records), None, rules.ttm, adjustment_events=(), asof_date=date(2026, 8, 11)
+    )
+    assert result.dps_forecast_annual is None
+    assert result.dps_actual_annual == 0
+    assert result.dividend_yield == 0
+
+
+def test_actual_correction_does_not_withdraw_a_different_period_forecast() -> None:
+    records = [
+        document(
+            "current-guidance",
+            day="2026-05-15",
+            CurFYSt="2026-04-01",
+            CurFYEn="2027-03-31",
+            FDivAnn="40",
+        ),
+        document(
+            "prior-actual-correction",
+            day="2026-05-20",
+            DocType="FYFinancialStatements_Consolidated_JP",
+            CurFYSt="2025-04-01",
+            CurFYEn="2026-03-31",
+            CurPerSt="2025-04-01",
+            CurPerEn="2026-03-31",
+            NxtFYSt="2026-04-01",
+            NxtFYEn="2027-03-31",
+            DivAnn="0",
+            NxFDivAnn="",
+        ),
+    ]
+    rules = load_screening_rules()
+    result = build_financial_snapshot(
+        1000, decode(records), None, rules.ttm, adjustment_events=(), asof_date=date(2026, 5, 20)
+    )
+    assert result.dps_actual_annual == 0
+    assert result.dps_forecast_annual == 40
+    assert result.dividend_yield == 0.04

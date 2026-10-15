@@ -175,27 +175,8 @@ class DividendCarryResolverTests(unittest.TestCase):
         assert carry.dividend_yield is not None
         self.assertAlmostEqual(carry.dividend_yield, 90.0 / 1000.0, places=9)
 
-    def test_a_withdrawn_forecast_does_not_outrank_a_newer_actual(self) -> None:
-        """8798 型の再現: 無配化した会社に、取り下げ前の予想の利回りを付けない。
-
-        2024-09 に予想 17.5 を出したあと 4 期連続赤字で無配になり、2025-11 の通期実績は
-        0.0、以降の提出に予想は無い。予想を無制限に遡ると 130 円の株に 13.46%/年の carry
-        が付き、reversion 上限 (5%/年) を単独で超えて見返りを過大評価する。
-        """
-        summaries = [
-            _summary("8798", date(2024, 9, 18), dps_forecast_annual=17.5),
-            _summary("8798", date(2025, 11, 27), dps_actual_annual=0.0),
-            _summary("8798", date(2026, 2, 13)),
-        ]
-        carry = _resolve_dividend_carry(
-            summaries, [], latest_price=130.0, asof_date=date(2026, 8, 11)
-        )
-        self.assertEqual(carry.dividend_yield, 0.0)
-        self.assertIsNone(carry.dps_forecast_annual)
-        self.assertEqual(carry.basis, "actual_reported")
-
     def test_a_forecast_newer_than_the_actual_still_answers(self) -> None:
-        # 鮮度境界は予想を弱めない。実績より後に出た予想はそのまま carry になる。
+        # 対象期が解決済みの予想は、無配実績があっても配当再開として計算できる。
         summaries = [
             _summary("8798", date(2025, 11, 27), dps_actual_annual=0.0),
             _summary("8798", date(2026, 2, 13), dps_forecast_annual=6.0),
@@ -254,43 +235,6 @@ class DividendCarryResolverTests(unittest.TestCase):
                 self.assertEqual(carry.dps_forecast_annual, 19.19)
                 self.assertAlmostEqual(carry.dividend_yield or 0.0, 0.01919)
 
-    def test_same_period_actual_revision_invalidates_earlier_guidance(self) -> None:
-        summaries = [
-            _summary(
-                "130A",
-                date(2026, 5, 10),
-                fiscal_period="FY",
-                fiscal_year_end=date(2026, 3, 31),
-                dps_actual_annual=30.0,
-            ),
-            _summary("130A", date(2026, 5, 15), dps_forecast_annual=40.0),
-            _summary(
-                "130A",
-                date(2026, 5, 20),
-                fiscal_period="FY",
-                fiscal_year_end=date(2026, 3, 31),
-                dps_actual_annual=0.0,
-            ),
-        ]
-        carry = _resolve_dividend_carry(summaries, [], 1000.0, date(2026, 5, 20))
-        self.assertEqual(carry.basis, "actual_reported")
-        self.assertEqual(carry.dps_actual_annual, 0.0)
-        self.assertIsNone(carry.dps_forecast_annual)
-        self.assertEqual(carry.dividend_yield, 0.0)
-
-        # 同日公表の新予想は、訂正実績と共存できる。
-        summaries[-1] = _summary(
-            "130A",
-            date(2026, 5, 20),
-            fiscal_period="FY",
-            fiscal_year_end=date(2026, 3, 31),
-            dps_actual_annual=0.0,
-            dps_forecast_annual=10.0,
-        )
-        carry = _resolve_dividend_carry(summaries, [], 1000.0, date(2026, 5, 20))
-        self.assertEqual(carry.basis, "forecast_annual")
-        self.assertEqual(carry.dividend_yield, 0.01)
-
     def test_null_dps_does_not_establish_a_withdrawal(self) -> None:
         summaries = [
             _summary(
@@ -304,7 +248,7 @@ class DividendCarryResolverTests(unittest.TestCase):
         ]
         for period, year_end in (("FY", date(2026, 3, 31)), ("1Q", date(2027, 3, 31))):
             with self.subTest(period=period):
-                # 同年度のnull訂正も、異種文書の項目欠測もsourceから識別できない。
+                # 配当予想が記載されていない文書は、既存の対象期予想を撤回しない。
                 null_row = _summary(
                     "130A",
                     date(2026, 5, 20),
