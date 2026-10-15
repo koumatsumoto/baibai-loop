@@ -580,7 +580,7 @@ def test_service_owns_and_commits_short_transaction_with_current_schema(tmp_path
     document, review = pair_payload()
     service = AssessmentStoreService(db, clock=lambda: NOW)
     pair = service.publish_reviewed_assessment(assessment_id(), document, review)
-    with connect_read_only(db) as db_connection:
+    with closing(connect_read_only(db)) as db_connection, db_connection:
         assert load_reviewed_assessment(db_connection, pair.assessment_id) == pair
     assert service.publish_reviewed_assessment(assessment_id(), document, review) == pair
 

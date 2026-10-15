@@ -1,5 +1,6 @@
 """F01/F02/F03/F06/F08: valuation and atomic Reviewed Assessment publication owners."""
 
+from contextlib import closing
 from copy import deepcopy
 from datetime import datetime
 from decimal import Decimal
@@ -120,7 +121,7 @@ def test_atomic_pair_retry_and_latest_unresolved(tmp_path):
         assessment_id(3), unresolved, second_review, supersedes_id=assessment_id()
     )
     service.publish_reviewed_assessment(assessment_id(), assessment, review)
-    with connect_read_only(db) as connection:
+    with closing(connect_read_only(db)) as connection, connection:
         latest = load_latest_reviewed_assessment(connection, "1234")
         assert latest.assessment_id == assessment_id(3)
         assert latest.document.valuation.status == "unresolved"
@@ -154,7 +155,7 @@ def test_invalid_pair_never_publishes(tmp_path, fault):
         AssessmentStoreService(db, clock=lambda: NOW).publish_reviewed_assessment(
             assessment_id(), assessment, review
         )
-    with connect_read_only(db) as connection:
+    with closing(connect_read_only(db)) as connection, connection:
         assert connection.execute("SELECT count(*) FROM stock_assessment").fetchone()[0] == 0
         assert connection.execute("SELECT count(*) FROM stock_assessment_review").fetchone()[0] == 0
 
@@ -168,7 +169,7 @@ def test_review_insert_failure_rolls_back_assessment_in_caller_transaction(tmp_p
     db = tmp_path / "app.sqlite"
     initialize_database(db)
     assessment, review = pair_payload()
-    with connect_rw(db) as connection:
+    with closing(connect_rw(db)) as connection, connection:
         connection.execute(
             "CREATE TRIGGER fail_review BEFORE INSERT ON stock_assessment_review BEGIN SELECT RAISE(ABORT, 'review insert failed'); END"
         )

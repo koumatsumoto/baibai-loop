@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import UTC, timedelta
 
 import pytest
@@ -18,7 +19,7 @@ def case(tmp_path):
 
 
 def _counts(path):
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         return {
             table: connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
             for table in (
@@ -32,7 +33,7 @@ def _counts(path):
 
 
 def _ledger_snapshot(path):
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         return {
             table: connection.execute(f"SELECT * FROM {table}").fetchall()
             for table in ("ledger_event", "ledger_meta", "ledger_market_price")
@@ -59,7 +60,7 @@ def test_real_selection_pair_scope_publish_atomic_and_ledger_unchanged(case):
         == after["position_decision_reference"]
         == 1
     )
-    with sqlite3.connect(case.app) as connection:
+    with closing(sqlite3.connect(case.app)) as connection, connection:
         binding = connection.execute(
             "SELECT ticker,origin,source_digest FROM position_decision_reference"
         ).fetchone()
@@ -85,7 +86,7 @@ def test_same_id_retry_reads_immutable_before_current_clock_latest_or_quote_gate
     proposal = reviewed_proposal(case)
     service = InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     published = service.publish(proposal)
-    with sqlite3.connect(case.market) as connection:
+    with closing(sqlite3.connect(case.market)) as connection, connection:
         connection.execute("UPDATE jquants_daily_bars SET close=900")
     later = InvestmentProposalService(
         case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(days=20)
@@ -137,7 +138,7 @@ def test_actual_input_fact_change_requires_new_snapshot_and_review(case, change)
             replacement=ledger.model_copy(update={"as_of": ledger.as_of + timedelta(minutes=1)}),
         )
     elif change in {"quote", "basis"}:
-        with sqlite3.connect(case.market) as connection:
+        with closing(sqlite3.connect(case.market)) as connection, connection:
             connection.execute(
                 "UPDATE jquants_daily_bars SET "
                 + ("close=1099" if change == "quote" else "adjustment_factor=0.5")

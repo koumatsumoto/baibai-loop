@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+from contextlib import closing
 from datetime import timedelta
 
 import pytest
@@ -61,7 +62,7 @@ def test_proposal_readers_reject_corrupt_saved_identity_and_reference_closure(tm
     InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
         proposal
     )
-    with sqlite3.connect(case.app) as connection:
+    with closing(sqlite3.connect(case.app)) as connection, connection:
         if mutation == "item-index":
             connection.execute("UPDATE investment_proposal_item SET action='no_action'")
         elif mutation == "buy-binding":
@@ -111,7 +112,7 @@ def test_invalid_latest_publication_is_not_hidden_by_a_valid_old_pair(tmp_path):
     ).publish_reviewed_assessment(
         assessment_id(90), document, review, supersedes_id=case.pair.assessment_id
     )
-    with sqlite3.connect(case.app) as connection:
+    with closing(sqlite3.connect(case.app)) as connection, connection:
         connection.execute("DROP TRIGGER stock_assessment_immutable")
         connection.execute(
             "UPDATE stock_assessment SET payload='{}' WHERE assessment_id=?",

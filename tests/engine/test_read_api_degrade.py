@@ -243,7 +243,7 @@ def test_screening_read_helpers_reject_an_obsolete_run_store(
 ) -> None:
     obsolete = tmp_path / "runs.sqlite"
     initialize_run_store(obsolete)
-    with sqlite3.connect(obsolete) as connection:
+    with closing(sqlite3.connect(obsolete)) as connection, connection:
         connection.execute(f"PRAGMA user_version = {RUN_STORE_SCHEMA_VERSION - 1}")
 
     with pytest.raises(
@@ -309,7 +309,7 @@ def test_every_table_read_api_reads_exists_in_a_migrated_store(tmp_path: Path) -
 
 def test_read_rows_still_raises_for_a_broken_query(tmp_path: Path) -> None:
     store = tmp_path / "store.sqlite"
-    with sqlite3.connect(store) as connection:
+    with closing(sqlite3.connect(store)) as connection, connection:
         connection.execute("CREATE TABLE example_payload (payload TEXT)")
 
     with pytest.raises(sqlite3.OperationalError, match="no such table"):
@@ -323,7 +323,7 @@ def test_read_rows_still_raises_for_a_broken_query(tmp_path: Path) -> None:
 def test_application_reader_rejects_an_obsolete_store_before_querying(tmp_path: Path) -> None:
     store = tmp_path / "application-v16.sqlite"
     initialize_database(store)
-    with sqlite3.connect(store) as connection:
+    with closing(sqlite3.connect(store)) as connection, connection:
         connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION - 1}")
 
     with pytest.raises(RuntimeError, match="obsolete application database schema"):
@@ -333,7 +333,7 @@ def test_application_reader_rejects_an_obsolete_store_before_querying(tmp_path: 
 def test_all_research_readers_reject_an_obsolete_application_store(tmp_path: Path) -> None:
     store = tmp_path / "obsolete.sqlite"
     initialize_database(store)
-    with sqlite3.connect(store) as connection:
+    with closing(sqlite3.connect(store)) as connection, connection:
         connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION - 1}")
     original = store.read_bytes()
     readers = [entry for entry in _store_readers() if entry[0] in _RESEARCH_READERS]
@@ -347,7 +347,7 @@ def test_all_research_readers_reject_an_obsolete_application_store(tmp_path: Pat
 
 def test_market_reader_rejects_an_obsolete_store_instead_of_degrading(tmp_path: Path) -> None:
     store = tmp_path / "market-v24.sqlite"
-    with sqlite3.connect(store) as connection:
+    with closing(sqlite3.connect(store)) as connection, connection:
         connection.executescript(MARKET_SCHEMA_SQL)
         connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
 
@@ -368,7 +368,7 @@ def test_research_readers_reject_noncurrent_or_nonstrict_payload_versions(
     table = "stock_assessment" if kind == "assessment" else "investment_proposal"
     raw = case.pair.document.model_dump(mode="json") if kind == "assessment" else proposal.payload()
     raw["schema_version"] = version
-    with sqlite3.connect(case.app) as connection:
+    with closing(sqlite3.connect(case.app)) as connection, connection:
         connection.execute(f"DROP TRIGGER {table}_immutable")
         connection.execute(f"UPDATE {table} SET payload=?", (json.dumps(raw),))
     original = case.app.read_bytes()
@@ -404,7 +404,7 @@ def test_assessment_publications_never_degrade_a_corrupt_saved_pair(
     tmp_path: Path, mutation: str
 ) -> None:
     case = backend_case(tmp_path)
-    with sqlite3.connect(case.app) as connection:
+    with closing(sqlite3.connect(case.app)) as connection, connection:
         if mutation == "missing-review":
             connection.execute("DELETE FROM stock_assessment_review")
         elif mutation == "review-hash":
@@ -448,7 +448,7 @@ def test_indicator_partial_store_is_not_unpublished(tmp_path: Path, mutation: st
     ]
     assert all(isinstance(reader(), dict) for reader in readers)
     assert read_api.indicator_series(path, series_id="unknown") is None
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         connection.execute("DROP TABLE observations")
         if mutation == "missing-column":
@@ -463,7 +463,7 @@ def test_indicator_partial_store_is_not_unpublished(tmp_path: Path, mutation: st
         ):
             reader()
     assert path.read_bytes() == original
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == version
 
 
@@ -480,12 +480,12 @@ def test_run_payload_partial_store_is_not_an_absent_id(tmp_path: Path) -> None:
     )
     assert isinstance(read_api.screening_run_payload(path, run_revision_id="run-test"), dict)
     assert read_api.screening_run_payload(path, run_revision_id="absent") is None
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         connection.execute("DROP TABLE stock_analysis")
     original = path.read_bytes()
     with pytest.raises(sqlite3.OperationalError, match="no such table: stock_analysis"):
         read_api.screening_run_payload(path, run_revision_id="run-test")
     assert path.read_bytes() == original
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == version

@@ -113,7 +113,7 @@ class TestDbResearchSource:
     ) -> None:
         pair = seed_web_assessment(app_method_root, ticker="2331")
         db = app_method_root / "stores/application/baibai.sqlite"
-        with connect_rw(db) as connection:
+        with closing(connect_rw(db)) as connection, connection:
             connection.execute(
                 "DELETE FROM stock_assessment_review WHERE assessment_id=?", (pair.assessment_id,)
             )

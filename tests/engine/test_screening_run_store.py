@@ -67,7 +67,7 @@ def test_schema6_contains_single_header_and_stock_rows(tmp_path: Path) -> None:
     result = _publish(path)
     assert result.inserted
     assert result.publication_id.startswith("run-revision-")
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         tables = {
             row[0]
             for row in connection.execute("SELECT name FROM sqlite_schema WHERE type='table'")
@@ -120,14 +120,14 @@ def test_immutable_idempotency_includes_header_all_rows_and_candidate_context(
 def test_child_insert_failure_rolls_back_header_and_all_children(tmp_path: Path) -> None:
     path = tmp_path / "runs.sqlite"
     initialize_run_store(path)
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute(
             "CREATE TRIGGER fail_second BEFORE INSERT ON stock_analysis "
             "WHEN NEW.ticker='2222' BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END"
         )
     with pytest.raises(sqlite3.IntegrityError, match="synthetic failure"):
         _publish(path, _run(rows=[_analysis("1111"), _analysis("2222")]))
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         assert connection.execute("SELECT count(*) FROM screening_run").fetchone()[0] == 0
         assert connection.execute("SELECT count(*) FROM stock_analysis").fetchone()[0] == 0
 
@@ -225,12 +225,12 @@ def test_paged_read_checks_whole_run_before_filters(
         _run(rows=[_analysis("1111"), {**_analysis("2222"), "market_cap_oku": None}]),
         revision="run-a",
     )
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute(
             "UPDATE stock_analysis SET payload=json_set(payload,'$.candidate',json(?)) WHERE ticker=?",
             (json.dumps(candidate), damaged_ticker),
         )
-    with connect_read_only(path) as connection:
+    with closing(connect_read_only(path)) as connection, connection:
         connection.execute("BEGIN")
         filters = {"run_revision_id": "run-a", "candidates_only": candidates_only}
         if ticker is not None:
@@ -266,7 +266,7 @@ def test_paged_read_checks_whole_run_before_filters(
 def test_saved_candidate_shape_drift_is_invalid_not_empty(tmp_path: Path, mutation) -> None:
     path = tmp_path / "runs.sqlite"
     _publish(path, revision="run-a")
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         raw = json.loads(connection.execute("SELECT payload FROM stock_analysis").fetchone()[0])
         candidate = raw["candidate"]
         if mutation == "missing":
@@ -290,7 +290,7 @@ def test_saved_candidate_shape_drift_is_invalid_not_empty(tmp_path: Path, mutati
                 "UPDATE screening_run SET payload=json_remove(payload,'$.candidate_discovery')"
             )
         connection.execute("UPDATE stock_analysis SET payload=?", (json.dumps(raw),))
-    with connect_read_only(path) as connection:
+    with closing(connect_read_only(path)) as connection, connection:
         connection.execute("BEGIN")
         with pytest.raises(
             ValueError,
@@ -318,7 +318,7 @@ def test_pagination_preserves_ordinal_with_revision_and_candidates_filter(tmp_pa
         ),
         revision="run-a",
     )
-    with connect_read_only(path) as connection:
+    with closing(connect_read_only(path)) as connection, connection:
         connection.execute("BEGIN")
         filters = {"run_revision_id": "run-a", "candidates_only": True}
         first = stored_run_page(
@@ -346,7 +346,7 @@ def test_prune_and_old_schema_require_explicit_cutover(tmp_path: Path) -> None:
     assert not hasattr(pruned, "deleted_review_sets")
     assert len(ScreeningRunReader(path).list_runs()) == 1
     legacy = tmp_path / "old.sqlite"
-    with sqlite3.connect(legacy) as connection:
+    with closing(sqlite3.connect(legacy)) as connection, connection:
         connection.execute("CREATE TABLE old_cache(value TEXT)")
         connection.execute("PRAGMA user_version=5")
     with pytest.raises(RuntimeError, match="rebuild"):
@@ -495,7 +495,7 @@ def test_run_cursor_pages_preserve_exact_instant_order(precise_clock_runs, full)
     path, revisions, clocks = precise_clock_runs
     before = path.read_bytes()
     rows, cursor = [], None
-    with connect_read_only(path) as connection:
+    with closing(connect_read_only(path)) as connection, connection:
         for _ in range(4):
             page = stored_run_page(
                 connection, kind="screening_run", filters={}, after=cursor, limit=1, full=full
@@ -514,7 +514,7 @@ def test_prune_keeps_the_exact_latest_instants_without_rewriting_clocks(precise_
     path, revisions, clocks = precise_clock_runs
     result = ScreeningRunStore(path).prune(keep=2)
     assert result.deleted_runs == result.deleted_stock_analyses == 1
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         retained = dict(connection.execute("SELECT run_revision_id, run_at FROM screening_run"))
     assert retained == dict(zip(revisions[1:], clocks[1:], strict=True))
 

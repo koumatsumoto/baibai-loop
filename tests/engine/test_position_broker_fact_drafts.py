@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable
+from contextlib import closing
 from datetime import datetime, timedelta
 from decimal import Decimal
 from functools import partial
@@ -37,7 +38,7 @@ def _services(
     db = tmp_path / "app.sqlite"
     initialize_database(db)
     # 切替で保全された旧IDを現行reference表へseedする。旧CAA writerは使わない。
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection, connection:
         if retain_buy_reference:
             connection.execute(
                 "INSERT INTO position_decision_reference VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -92,7 +93,7 @@ def test_retained_buy_reference_builds_and_persists_bound_open_result(tmp_path: 
 
     assert draft is not None
     apply_draft(ledger, draft, human_confirmed=True)
-    with sqlite3.connect(tmp_path / "app.sqlite") as connection:
+    with closing(sqlite3.connect(tmp_path / "app.sqlite")) as connection, connection:
         row = connection.execute(
             "SELECT decision_reference FROM ledger_event WHERE event_id = ?", event_ids
         ).fetchone()
@@ -625,7 +626,7 @@ def test_active_and_known_terminal_retries_do_not_resolve_buy_binding(
         pytest.fail("active or known terminal report resolved retained buy reference")
 
     db = tmp_path / "app.sqlite"
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection, connection:
         connection.execute("DELETE FROM position_decision_reference")
     before = db.read_bytes()
     fill_args = dict(

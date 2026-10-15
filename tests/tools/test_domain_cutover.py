@@ -189,7 +189,7 @@ def refresh_caa_hash(raw):
 
 def insert_caa(source, raw=None):
     raw = raw or caa_payload()
-    with sqlite3.connect(source) as connection:
+    with closing(sqlite3.connect(source)) as connection, connection:
         connection.execute(
             "INSERT INTO capital_allocation_assessment VALUES (?,?,?,?,?,?)",
             (
@@ -244,7 +244,12 @@ def test_source22_to_final24_preserves_every_fact_and_non_target_payload(tmp_pat
     assert report.output_version == APPLICATION_SCHEMA_VERSION == 24
     assert report.research_recreation_required is True
     assert source.read_bytes() == before
-    with connect_read_only(tmp_path / "final.sqlite") as final, sqlite3.connect(source) as old:
+    with (
+        closing(connect_read_only(tmp_path / "final.sqlite")) as final,
+        final,
+        closing(sqlite3.connect(source)) as old,
+        old,
+    ):
         tables = {
             row[0] for row in final.execute("SELECT name FROM sqlite_schema WHERE type='table'")
         }
@@ -294,7 +299,7 @@ def test_unreported_old_allocate_creates_only_minimal_buy_reference(tmp_path, ve
     assert report.blocked == ()
     assert report.retained_buy_references == (CAA_ID,)
     assert resolve_buy_reference(CAA_ID, db_path=tmp_path / "final.sqlite") == "1234"
-    with connect_read_only(tmp_path / "final.sqlite") as final:
+    with closing(connect_read_only(tmp_path / "final.sqlite")) as final, final:
         binding = dict(final.execute("SELECT * FROM position_decision_reference").fetchone())
         assert binding == dict(
             reference=CAA_ID,
@@ -314,7 +319,7 @@ def test_unreported_old_allocate_creates_only_minimal_buy_reference(tmp_path, ve
 def test_ledger_buy_reference_closure_does_not_invent_old_terms_from_fill(tmp_path):
     source = source22(tmp_path)
     insert_caa(source, caa_payload(ticker="2331"))
-    with sqlite3.connect(source) as connection:
+    with closing(sqlite3.connect(source)) as connection, connection:
         rows = connection.execute(
             "SELECT append_seq,payload FROM ledger_event WHERE ticker='2331' AND event_type IN ('execution','reservation')"
         ).fetchall()
@@ -328,7 +333,7 @@ def test_ledger_buy_reference_closure_does_not_invent_old_terms_from_fill(tmp_pa
     report = execute(tmp_path, source)
     assert report.blocked == ()
     assert report.retained_buy_references == (CAA_ID,)
-    with connect_read_only(tmp_path / "final.sqlite") as final:
+    with closing(connect_read_only(tmp_path / "final.sqlite")) as final, final:
         assert final.execute(
             "SELECT count(*) FROM ledger_event WHERE decision_reference=?", (CAA_ID,)
         ).fetchone()[0] == len(rows)
@@ -337,7 +342,7 @@ def test_ledger_buy_reference_closure_does_not_invent_old_terms_from_fill(tmp_pa
 
 
 def bind_ledger_reference(source, reference, *, ticker="2331"):
-    with sqlite3.connect(source) as connection:
+    with closing(sqlite3.connect(source)) as connection, connection:
         rows = connection.execute(
             "SELECT append_seq,payload FROM ledger_event WHERE ticker=? AND event_type IN ('execution','reservation')",
             (ticker,),
@@ -366,13 +371,13 @@ def test_explicit_buy_ledger_identity_survives_missing_caa_or_late_review(
         insert_caa(source, raw)
     bind_ledger_reference(source, reference)
     if missing_index_reference:
-        with sqlite3.connect(source) as connection:
+        with closing(sqlite3.connect(source)) as connection, connection:
             connection.execute(
                 "UPDATE ledger_event SET decision_reference=NULL WHERE decision_reference=?",
                 (reference,),
             )
     before_bytes = source.read_bytes()
-    with sqlite3.connect(source) as original:
+    with closing(sqlite3.connect(source)) as original, original:
         original.row_factory = sqlite3.Row
         original_rows = [
             dict(row) for row in original.execute("SELECT * FROM ledger_event ORDER BY append_seq")
@@ -384,7 +389,7 @@ def test_explicit_buy_ledger_identity_survives_missing_caa_or_late_review(
     assert report.retained_buy_references == (reference,)
     assert source.read_bytes() == before_bytes
     assert resolve_buy_reference(reference, db_path=tmp_path / "final.sqlite") == "2331"
-    with connect_read_only(tmp_path / "final.sqlite") as final:
+    with closing(connect_read_only(tmp_path / "final.sqlite")) as final, final:
         copied_rows = [
             dict(row) for row in final.execute("SELECT * FROM ledger_event ORDER BY append_seq")
         ]
@@ -425,14 +430,14 @@ def test_explicit_buy_ledger_identity_rejects_conflicting_saved_facts(tmp_path, 
     elif fault == "caa_ticker":
         insert_caa(source, caa_payload(ticker="1234"))
     elif fault == "reference_header":
-        with sqlite3.connect(source) as connection:
+        with closing(sqlite3.connect(source)) as connection, connection:
             connection.execute(
                 "UPDATE ledger_event SET decision_reference='other-reference' "
                 "WHERE decision_reference=?",
                 (CAA_ID,),
             )
     else:
-        with sqlite3.connect(source) as connection:
+        with closing(sqlite3.connect(source)) as connection, connection:
             connection.execute(
                 "UPDATE ledger_event SET ticker='1234' WHERE decision_reference=?", (CAA_ID,)
             )
@@ -468,7 +473,7 @@ def test_unresolved_old_buy_reference_stops_before_any_output(tmp_path, fault):
         elif fault == "hash":
             raw["comparison"] = "different raw content after Review"
         elif fault == "ledger_ticker":
-            with sqlite3.connect(source) as connection:
+            with closing(sqlite3.connect(source)) as connection, connection:
                 payload = json.loads(
                     connection.execute(
                         "SELECT payload FROM ledger_event WHERE event_type='execution' LIMIT 1"
@@ -524,7 +529,7 @@ def test_missing_old_assessment_closure_stops_all_writes_and_check_cli_reports(t
 @pytest.mark.parametrize("fault", ["review_hash", "source_ref", "arithmetic"])
 def test_invalid_old_assessment_cannot_be_automatically_approved(tmp_path, fault):
     source = source22(tmp_path)
-    with sqlite3.connect(source) as connection:
+    with closing(sqlite3.connect(source)) as connection, connection:
         document = json.loads(connection.execute("SELECT payload FROM thesis").fetchone()[0])
         review = json.loads(connection.execute("SELECT payload FROM thesis_review").fetchone()[0])
         if fault == "review_hash":
@@ -558,7 +563,7 @@ def active_source(source, *, explicit=None, triage_id=None):
         selection["research_triage_id"] = triage_id
     payload = {"checkpoint": "synthetic active draft", "artifacts": [selection]}
     identifier = "op-20261014-capital-allocation-1"
-    with sqlite3.connect(source) as connection:
+    with closing(sqlite3.connect(source)) as connection, connection:
         connection.execute(
             "INSERT INTO operation_session VALUES (?,?,?,?,?,?,?,?)",
             (
@@ -725,7 +730,7 @@ def test_source_recheck_uses_new_transaction_and_real_concurrent_change_stops_ou
         nonlocal calls
         calls += 1
         if calls == 2:
-            with sqlite3.connect(source) as writer:
+            with closing(sqlite3.connect(source)) as writer, writer:
                 writer.execute(
                     "UPDATE task SET payload=? WHERE task_id='synthetic-task'",
                     ('{"new":"concurrent writer"}',),
@@ -743,7 +748,7 @@ def test_source_recheck_uses_new_transaction_and_real_concurrent_change_stops_ou
 
 def old_run_cache(tmp_path):
     path = tmp_path / "old-runs.sqlite"
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         connection.executescript(Path("tests/fixtures/application/run-v5-schema.sql").read_text())
         connection.execute(
             "INSERT INTO screening_run VALUES (?,?,?,?,?,?,?,?,?)",
@@ -811,7 +816,7 @@ def test_old_run_raw_closure_is_preserved_and_new_cache_starts_empty(tmp_path):
     assert material["source_header"]["asof_date"] == "2026-10-13"
     assert material["source_analysis"]["metrics"]["unknown"] is None
     assert "candidate" not in material["source_analysis"]
-    with sqlite3.connect(tmp_path / "new-runs.sqlite") as connection:
+    with closing(sqlite3.connect(tmp_path / "new-runs.sqlite")) as connection, connection:
         assert connection.execute("SELECT count(*) FROM screening_run").fetchone()[0] == 0
         assert connection.execute("SELECT count(*) FROM stock_analysis").fetchone()[0] == 0
         assert (
@@ -895,7 +900,7 @@ def test_existing_outputs_and_development_schema23_are_rejected(tmp_path):
         execute(tmp_path, source)
     assert existing.read_text() == "preserve me"
     existing.unlink()
-    with sqlite3.connect(source) as connection:
+    with closing(sqlite3.connect(source)) as connection, connection:
         connection.execute("PRAGMA user_version=23")
     with pytest.raises(ValueError, match="schema22"):
         execute(tmp_path, source)
@@ -933,7 +938,7 @@ def test_tool_imports_do_not_retain_runtime_legacy_readers():
 
 def insert_bound_caa(source):
     raw = caa_payload()
-    with sqlite3.connect(source) as connection:
+    with closing(sqlite3.connect(source)) as connection, connection:
         digest, review_id = connection.execute(
             "SELECT t.core_sha256,r.review_id FROM thesis t JOIN thesis_review r USING(thesis_id) WHERE thesis_id=?",
             (OLD_ID,),
@@ -954,7 +959,7 @@ def test_useful_old_caa_material_requires_exact_assessment_and_review_references
         "thesis_review_id": "different-review",
     }[field]
     refresh_caa_hash(raw)
-    with sqlite3.connect(source) as connection:
+    with closing(sqlite3.connect(source)) as connection, connection:
         connection.execute(
             "UPDATE capital_allocation_assessment SET payload=?", (canonical_json(raw),)
         )
@@ -978,14 +983,14 @@ def test_useful_old_caa_material_keeps_its_prose_and_closes_actual_assessment_so
     )
     assert old_proposal["source_document"] == raw
     assert old_proposal["saved_proposal_terms"] is None
-    with connect_read_only(tmp_path / "final.sqlite") as connection:
+    with closing(connect_read_only(tmp_path / "final.sqlite")) as connection, connection:
         assert connection.execute("SELECT count(*) FROM investment_proposal").fetchone()[0] == 0
 
 
 @pytest.mark.parametrize("fault", ["asof", "public_id", "revision", "rules_ref"])
 def test_old_run_header_and_rules_reference_mismatches_stop_copy(tmp_path, fault):
     source, runs = source22(tmp_path), old_run_cache(tmp_path)
-    with sqlite3.connect(runs) as connection:
+    with closing(sqlite3.connect(runs)) as connection, connection:
         header = json.loads(connection.execute("SELECT payload FROM screening_run").fetchone()[0])
         if fault == "asof":
             header["asof_date"] = "2026-10-12"
@@ -1100,7 +1105,7 @@ def install_v3_source(source, *, missing_hash=False):
 
     raw = old_v3_document()
     digest = _legacy3_core_hash(_Legacy3ThesisDocument.model_validate(raw))
-    with sqlite3.connect(source) as connection:
+    with closing(sqlite3.connect(source)) as connection, connection:
         connection.execute("DROP TRIGGER thesis_payload_immutable")
         connection.execute("DELETE FROM thesis_review")
         connection.execute(
@@ -1130,7 +1135,7 @@ def test_old_thesis3_is_preserved_as_material_with_explicit_limits_and_no_curren
     assert "通常Researchで再作成" in " ".join(report.material_limitations)
     if missing_hash:
         assert "core hash未保存" in " ".join(report.material_limitations)
-    with connect_read_only(tmp_path / "final.sqlite") as connection:
+    with closing(connect_read_only(tmp_path / "final.sqlite")) as connection, connection:
         assert connection.execute("SELECT count(*) FROM stock_assessment").fetchone()[0] == 0
 
 
@@ -1138,7 +1143,7 @@ def test_old_thesis3_is_preserved_as_material_with_explicit_limits_and_no_curren
 def test_old_thesis3_recorded_hash_header_and_review_references_are_checked(tmp_path, fault):
     source = source22(tmp_path)
     raw, _digest = install_v3_source(source)
-    with sqlite3.connect(source) as connection:
+    with closing(sqlite3.connect(source)) as connection, connection:
         if fault == "hash":
             connection.execute("UPDATE thesis SET core_sha256=?", ("not-sha256",))
         elif fault == "header":
@@ -1205,7 +1210,7 @@ def install_historical_v3_pair(source, *, review_ref="2026-10-14-1234-decision-r
         "proposal_changed": False,
         "change_rationale": None,
     }
-    with sqlite3.connect(source) as connection:
+    with closing(sqlite3.connect(source)) as connection, connection:
         connection.execute("DROP TRIGGER thesis_payload_immutable")
         connection.execute("DELETE FROM thesis_review")
         connection.execute(
@@ -1252,7 +1257,7 @@ def test_published_thesis3_keeps_saved_identity_and_filename_with_review_after_p
 def test_published_thesis3_still_rejects_saved_binding_and_source_contradictions(tmp_path, fault):
     source = source22(tmp_path)
     raw, _review, _digest = install_historical_v3_pair(source)
-    with sqlite3.connect(source) as connection:
+    with closing(sqlite3.connect(source)) as connection, connection:
         if fault == "saved_hash":
             connection.execute("UPDATE thesis SET core_sha256=?", ("0" * 64,))
         elif fault == "review_id":
@@ -1287,7 +1292,7 @@ def test_old_position_review2_binds_by_saved_row_and_sources_not_invented_root_i
     elif fault == "candidate_source":
         raw["sources"]["candidate_thesis"] = {"entity_id": "missing-candidate"}
     identifier = "synthetic-old-position-review2"
-    with sqlite3.connect(source) as connection:
+    with closing(sqlite3.connect(source)) as connection, connection:
         connection.execute(
             "INSERT INTO position_review VALUES (?,?,?,?,?,?)",
             (
@@ -1400,7 +1405,7 @@ def test_old_position_review_current_case_is_not_fabricated_as_original_buy_reas
         "action": "hold",
         "unresolved_reason": None,
     }
-    with sqlite3.connect(source) as connection:
+    with closing(sqlite3.connect(source)) as connection, connection:
         connection.execute(
             "INSERT INTO position_review VALUES (?,?,?,?,?,?)",
             (identifier, "1234", "2026-10-14", OLD_ID, None, canonical_json(raw)),
@@ -1423,7 +1428,7 @@ def test_last_source_recheck_after_material_copy_catches_late_writer_and_cleans_
     tmp_path, monkeypatch
 ):
     source = source22(tmp_path)
-    with sqlite3.connect(source) as connection:
+    with closing(sqlite3.connect(source)) as connection, connection:
         connection.execute("PRAGMA journal_mode=WAL")
     original = tool.write_text_atomic
     changed = False
@@ -1433,7 +1438,7 @@ def test_last_source_recheck_after_material_copy_catches_late_writer_and_cleans_
         original(path, content)
         if not changed:
             changed = True
-            with sqlite3.connect(source) as writer:
+            with closing(sqlite3.connect(source)) as writer, writer:
                 writer.execute(
                     "UPDATE task SET payload=? WHERE task_id='synthetic-task'",
                     ('{"late":"writer after draft copy"}',),
@@ -1446,7 +1451,7 @@ def test_last_source_recheck_after_material_copy_catches_late_writer_and_cleans_
     assert source.exists()
     assert not (tmp_path / "final.sqlite").exists()
     assert not (tmp_path / "drafts").exists()
-    with sqlite3.connect(source) as connection:
+    with closing(sqlite3.connect(source)) as connection, connection:
         assert (
             json.loads(
                 connection.execute(
@@ -1468,7 +1473,7 @@ def test_thesis3_core_hash_matches_independently_checked_original_f52c1403_preim
 
 def test_last_old_cache_fingerprint_recheck_catches_late_run_writer(tmp_path, monkeypatch):
     source, runs = source22(tmp_path), old_run_cache(tmp_path)
-    with sqlite3.connect(runs) as connection:
+    with closing(sqlite3.connect(runs)) as connection, connection:
         connection.execute("PRAGMA journal_mode=WAL")
     original = tool.write_text_atomic
     changed = False
@@ -1478,7 +1483,7 @@ def test_last_old_cache_fingerprint_recheck_catches_late_run_writer(tmp_path, mo
         original(path, content)
         if not changed:
             changed = True
-            with sqlite3.connect(runs) as writer:
+            with closing(sqlite3.connect(runs)) as writer, writer:
                 writer.execute(
                     "UPDATE security_analysis SET payload=? WHERE ticker='1234'",
                     ('{"ticker":"1234","name":"late original source update"}',),
@@ -1562,6 +1567,6 @@ def test_historical_caa_material_preserves_review_after_authored_publication(tmp
     assert material["source_document"] == raw
     assert material["saved_proposal_terms"] is None
     assert material["new_proposal_required"] is True
-    with connect_read_only(tmp_path / "final.sqlite") as final:
+    with closing(connect_read_only(tmp_path / "final.sqlite")) as final, final:
         assert final.execute("SELECT count(*) FROM investment_proposal").fetchone()[0] == 0
         assert final.execute("SELECT count(*) FROM position_decision_reference").fetchone()[0] == 0

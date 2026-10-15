@@ -1,6 +1,7 @@
 """保存提案と正確な評価pairは現在版の進行・価格で書き換わらない。"""
 
 import json
+from contextlib import closing
 from datetime import timedelta
 
 import pytest
@@ -36,7 +37,7 @@ def seed_web_assessment(root, *, ticker="1234", number=101, as_of=None, value=11
     document["valuation"]["base"]["terminal_value_per_share_yen"] = value
     review["recalculated_projections"][0]["terminal_value_per_share_yen"] = value
     update_review_hash(document, review)
-    with connect_rw(db) as connection:
+    with closing(connect_rw(db)) as connection, connection:
         connection.execute("BEGIN IMMEDIATE")
         prior = latest_assessment_id(connection, ticker)
         return publish_reviewed_assessment(

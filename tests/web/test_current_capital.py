@@ -1,6 +1,7 @@
 """Reported quantities remain visible without ledger price transcriptions."""
 
 import sqlite3
+from contextlib import closing
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -55,7 +56,7 @@ def test_dashboard_reads_market_without_ledger_quotes_and_retains_unknowns(
             return NOW if tz is None else NOW.astimezone(tz)
 
     monkeypatch.setattr(db_sources, "datetime", Clock)
-    with sqlite3.connect(market) as connection:
+    with closing(sqlite3.connect(market)) as connection, connection:
         connection.execute("UPDATE jquants_daily_bars SET close=NULL WHERE traded_at='2026-07-01'")
         if missing:
             connection.execute(
@@ -97,7 +98,7 @@ def test_dashboard_retains_realized_pnl_when_market_price_is_missing(
     )
     apply_draft(service, draft, human_confirmed=True)
     if missing:
-        with sqlite3.connect(market) as connection:
+        with closing(sqlite3.connect(market)) as connection, connection:
             connection.execute(
                 "UPDATE jquants_daily_bars SET close=NULL WHERE traded_at='2026-09-04'"
             )

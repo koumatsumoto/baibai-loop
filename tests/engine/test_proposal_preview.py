@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import timedelta
 from decimal import Decimal
 
@@ -12,7 +13,7 @@ from baibai_engine.research.proposal_service import InvestmentProposalService
 
 
 def _snapshot(path):
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         return {
             table: connection.execute(f"SELECT * FROM {table}").fetchall()
             for table in (
@@ -53,7 +54,7 @@ def test_current_quote_change_does_not_change_saved_terms_hash_or_fixed_adv(tmp_
         proposal
     )
     before = _snapshot(case.app)
-    with sqlite3.connect(case.market) as connection:
+    with closing(sqlite3.connect(case.market)) as connection, connection:
         connection.execute("UPDATE jquants_daily_bars SET close=900")
     preview = preview_current_terms(
         proposal_id=proposal.proposal_id,

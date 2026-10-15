@@ -1,6 +1,7 @@
 """価格非依存の台帳事実、override、株式basis、現在NAVの回帰。"""
 
 import sqlite3
+from contextlib import closing
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -114,7 +115,7 @@ def test_override_constraints_are_price_independent_and_expiry_uses_valuation_in
     apply_draft(service, valid, human_confirmed=True)
     with pytest.raises(PortfolioLedgerError, match="multiple active overrides"):
         build_override_draft(service, accepted.model_copy(update={"override_id": "duplicate"}))
-    with sqlite3.connect(market) as connection:
+    with closing(sqlite3.connect(market)) as connection, connection:
         connection.execute("UPDATE jquants_daily_bars SET close=10000 WHERE traded_at='2026-09-04'")
     snapshot = current_portfolio(service.load(), sqlite_path=market, now=NOW)
     warning = next(

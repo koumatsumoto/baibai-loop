@@ -1,6 +1,7 @@
 """固定選定、企業評価と独立Review、immutable公開・再開のworkspace結合。"""
 
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -188,7 +189,7 @@ def test_promote_records_exact_assessment_for_new_target_and_retry_preserves_id(
     assert status["cases"][0]["assessment_id"] == first.assessment_id
     assert status["cases"][0]["status"] == "published"
     assert (workspace / "domain-inputs.yaml").read_bytes() == inputs
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection, connection:
         assert connection.execute("SELECT COUNT(*) FROM stock_assessment").fetchone()[0] == 1
         assert connection.execute("SELECT COUNT(*) FROM ledger_event").fetchone()[0] == 0
 
@@ -313,7 +314,7 @@ def test_refresh_from_old_material_supersedes_latest_and_publishes_new_reviewed_
     assert promoted.assessment_id == result["assessment_id"]
     from baibai_engine.storage.application.read import connect_read_only
 
-    with connect_read_only(db) as connection:
+    with closing(connect_read_only(db)) as connection, connection:
         pair = load_reviewed_assessment(connection, promoted.assessment_id)
         header = connection.execute(
             "SELECT supersedes_id,published_at FROM stock_assessment WHERE assessment_id=?",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 
 import pytest
@@ -87,7 +88,7 @@ def test_facts_export_fixed_read_and_hydrate(tmp_path, monkeypatch):
             dataset_names=names,
         )
     assert report.rows == {"edinet.segment_facts": 40, "edinet.debt_schedule": 11}
-    with sqlite3.connect(target) as conn:
+    with closing(sqlite3.connect(target)) as conn, conn:
         assert (
             conn.execute(
                 "select count(*) from edinet_segment_facts where value is null"

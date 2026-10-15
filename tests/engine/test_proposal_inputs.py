@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import timedelta
 from decimal import Decimal
 
@@ -24,7 +25,7 @@ from baibai_engine.storage.application.read import connect_read_only
 
 
 def _collect(case, *, now=PREPARED, proposal_id=PROPOSAL_ID):
-    with connect_read_only(case.app) as connection:
+    with closing(connect_read_only(case.app)) as connection, connection:
         connection.execute("BEGIN")
         return collect_proposal_inputs(
             connection,
@@ -85,7 +86,7 @@ def test_null_sell_reference_all_active_and_no_unexecuted_sell_proceeds(tmp_path
 
 def test_missing_quote_keeps_quantity_cost_and_unknown_nav(tmp_path):
     case = backend_case(tmp_path, holding=True, broken=True)
-    with sqlite3.connect(case.market) as connection:
+    with closing(sqlite3.connect(case.market)) as connection, connection:
         connection.execute("UPDATE jquants_daily_bars SET close=NULL")
     inputs = _collect(case)
     assert inputs.quotes == ()
@@ -183,7 +184,7 @@ def test_expired_active_sell_reservation_is_retained(tmp_path):
 
 def test_partial_buy_uses_saved_hope_ceiling_cash_and_never_creates_binding(tmp_path):
     case = backend_case(tmp_path, cash_yen=95000)
-    with sqlite3.connect(case.market) as connection:
+    with closing(sqlite3.connect(case.market)) as connection, connection:
         connection.execute("DELETE FROM jquants_master_snapshots")
     raw = scaffold_proposal(
         operation_id=case.operation.operation_id,
@@ -213,7 +214,7 @@ def test_partial_buy_uses_saved_hope_ceiling_cash_and_never_creates_binding(tmp_
     service = InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     assert service.check(proposal).valid
     assert service.publish(proposal).items[0].proposed_limit_yen == Decimal(900)
-    with sqlite3.connect(case.app) as connection:
+    with closing(sqlite3.connect(case.app)) as connection, connection:
         assert (
             connection.execute("SELECT count(*) FROM position_decision_reference").fetchone()[0]
             == 0
