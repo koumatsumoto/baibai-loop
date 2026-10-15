@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import sys
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import TextIO
 
@@ -28,6 +28,16 @@ from baibai_engine.storage.application.paths import database_path
 from .common import _NoAliasDumper, _parse_iso_date
 
 
+def _query_asof(asof: str | None, sqlite_path: Path) -> date | None:
+    if asof is not None:
+        return _parse_iso_date(asof)
+    today = datetime.now(JST).date()
+    resolved = latest_daily_bar_date(sqlite_path, today - timedelta(days=30), today)
+    if resolved is None:
+        print(f"no cached daily bars found to resolve --asof: {sqlite_path}", file=sys.stderr)
+    return resolved
+
+
 def ticker_profile_command(
     *,
     ticker: str,
@@ -44,18 +54,9 @@ def ticker_profile_command(
     except (ValueError, sqlite3.Error) as exc:
         print(str(exc), file=sys.stderr)
         return 1
-    if asof is not None:
-        asof_date = _parse_iso_date(asof)
-    else:
-        today = datetime.now(JST).date()
-        resolved = latest_daily_bar_date(sqlite_path, today - timedelta(days=30), today)
-        if resolved is None:
-            print(
-                f"no cached daily bars found to resolve --asof: {sqlite_path}",
-                file=sys.stderr,
-            )
-            return 1
-        asof_date = resolved
+    asof_date = _query_asof(asof, sqlite_path)
+    if asof_date is None:
+        return 1
     try:
         payload = build_ticker_profile(
             sqlite_path=sqlite_path,
@@ -84,18 +85,9 @@ def market_snapshot_command(
     if weeks < 1:
         print("--weeks must be greater than zero", file=sys.stderr)
         return 1
-    if asof is not None:
-        asof_date = _parse_iso_date(asof)
-    else:
-        today = datetime.now(JST).date()
-        resolved = latest_daily_bar_date(sqlite_path, today - timedelta(days=30), today)
-        if resolved is None:
-            print(
-                f"no cached daily bars found to resolve --asof: {sqlite_path}",
-                file=sys.stderr,
-            )
-            return 1
-        asof_date = resolved
+    asof_date = _query_asof(asof, sqlite_path)
+    if asof_date is None:
+        return 1
     payload = build_market_snapshot(
         sqlite_path=sqlite_path,
         asof_date=asof_date,
