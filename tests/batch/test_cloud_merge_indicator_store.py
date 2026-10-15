@@ -678,5 +678,7 @@ def test_retracted_rows_keep_the_storage_contract(tmp_path, side, value):
         assert target.read_bytes() == before
     else:
         merge_stores(source, target)
-        assert _rows(target, "SELECT value, fetch_status FROM observations") == [(value, "retracted")]
+        assert _rows(target, "SELECT value, fetch_status FROM observations") == [
+            (value, "retracted")
+        ]
         assert _read_range(target) == ()
