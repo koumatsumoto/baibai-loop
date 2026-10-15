@@ -11,7 +11,7 @@ from .base import (
 )
 from .boj import parse_boj_xlsx
 from .boj_timeseries import parse_boj_timeseries_json
-from .ecb_fx import parse_ecb_fx_csv
+from .ecb_fx import parse_ecb_reference_csv
 from .estat import parse_estat_json
 from .frb_h15 import parse_h15_csv
 from .fred import parse_fred_csv
@@ -37,7 +37,7 @@ __all__ = [
     "fetch_observations",
     "parse_boj_timeseries_json",
     "parse_boj_xlsx",
-    "parse_ecb_fx_csv",
+    "parse_ecb_reference_csv",
     "parse_estat_json",
     "parse_fred_csv",
     "parse_h15_csv",

@@ -257,3 +257,12 @@ uv run baibai-engine market-context assessment history
 uv run baibai-engine market-context assessment show --context-id macro-context-2026-07-17-example
 uv run baibai-engine market-context assessment latest --asof 2026-07-17 --known-at 2026-07-18T13:00:00+09:00
 ```
+
+
+### CFTC・ECBのnative入力
+
+CFTCは要求contractのAPI record全項目、ECB FXはCSVの全通貨列を、source単位の日次native snapshotに保持する。CFTCの非商業long−short、ECBのJPY/USD・JPY/AUDはL2で同じ原本行から計算する。原値の片脚を独立に改訂したり、旧scalar cacheから計算結果を復活させたりしない。
+
+正常なbulk responseは要求期間の全日を調べた結果として保存し、行のない日も空snapshotを残す。訂正で行が消えた日は新しい空snapshotが以前の値を隠す。取得時刻は取得・改訂の順序であり、当時の公表可能時刻の証明ではない。計算不能でも取得済みnative記録は残す。提供元record JSONであり、HTTP bytesそのものの保管を意味しない。
+
+旧net値やcross値だけから元のlong/short・各通貨レートは復元できない。不足するnative履歴はマージ後に取得し、L2再計算と公開を確認する。実際の保存済み判断は書き換えない。

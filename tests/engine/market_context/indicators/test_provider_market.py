@@ -20,13 +20,13 @@ from baibai_engine.market_context.indicators.providers import (
     parse_trades_spec,
     parse_yahoo_chart,
 )
-from baibai_engine.market_context.indicators.providers.cftc import parse_cftc_json
+from baibai_engine.market_context.indicators.providers.cftc import parse_cftc_records
 from baibai_engine.market_context.indicators.providers.jquants_indices import parse_index_bars
 from baibai_engine.market_context.indicators.providers.nikkei_indexes import parse_nikkei_valuation
 
 
 class IndicatorsProviderParserTests(TestCase):
-    def test_parse_cftc_json_computes_noncomm_net(self) -> None:
+    def test_parse_cftc_records_retains_both_native_position_legs(self) -> None:
         series = _series("cftc", "097741", unit="contracts")
         text = json.dumps(
             [
@@ -39,13 +39,14 @@ class IndicatorsProviderParserTests(TestCase):
             ]
         )
 
-        observations = parse_cftc_json(series, text, start=date(2026, 7, 1), end=date(2026, 7, 31))
+        observations = parse_cftc_records(series, text, start=date(2026, 7, 1), end=date(2026, 7, 31))
 
         self.assertEqual(len(observations), 1)
-        self.assertEqual(observations[0].observed_at, date(2026, 7, 14))
-        self.assertEqual(observations[0].value, -122663.0)
+        row = observations[date(2026, 7, 14)][0]
+        self.assertEqual(row["noncomm_positions_long_all"], "115965")
+        self.assertEqual(row["noncomm_positions_short_all"], "238628")
 
-    def test_parse_cftc_json_rejects_mismatched_contract_code(self) -> None:
+    def test_parse_cftc_records_rejects_mismatched_contract_code(self) -> None:
         series = _series("cftc", "097741", unit="contracts")
         text = json.dumps(
             [
@@ -59,9 +60,9 @@ class IndicatorsProviderParserTests(TestCase):
         )
 
         with self.assertRaisesRegex(IndicatorsProviderError, "does not match requested"):
-            parse_cftc_json(series, text, start=date(2026, 7, 1), end=date(2026, 7, 31))
+            parse_cftc_records(series, text, start=date(2026, 7, 1), end=date(2026, 7, 31))
 
-    def test_parse_cftc_json_leaves_range_policy_to_storage(self) -> None:
+    def test_parse_cftc_records_leaves_range_policy_to_storage(self) -> None:
         series = _series("cftc", "097741", unit="contracts")
         text = json.dumps(
             [
@@ -74,8 +75,8 @@ class IndicatorsProviderParserTests(TestCase):
             ]
         )
 
-        observations = parse_cftc_json(series, text, start=date(2026, 7, 1), end=date(2026, 7, 31))
-        self.assertEqual(observations[0].value, 8999999.0)
+        observations = parse_cftc_records(series, text, start=date(2026, 7, 1), end=date(2026, 7, 31))
+        self.assertEqual(observations[date(2026, 7, 14)][0]["noncomm_positions_long_all"], "9000000")
 
     def test_parse_index_bars_extracts_close_and_filters_range(self) -> None:
         series = _series("jquants_indices", "topix", unit="index")

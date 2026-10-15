@@ -16,11 +16,15 @@ from datetime import date
 from baibai_engine.market_context.indicators import db as indicators_db
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition
 from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.read_contracts import point_in_time_providers
+from baibai_engine.market_context.indicators.read_contracts import (
+    NATIVE_BULK_PROVIDERS,
+    point_in_time_providers,
+)
 
 from .derived import derive_series
 from .formulas import FORMULAS
 from .models import ObservationReader
+from .native import read_native_series
 from .options import OptionSeriesReader
 
 
@@ -51,6 +55,8 @@ def build_store_observation_reader(
             input_start = start.replace(day=1) if formula.alignment == "monthly" else start
             inputs = {key: read(key, input_start, end) for key in formula.inputs}
             return derive_series(definition, inputs, start=start, end=end)
+        if definition.provider in NATIVE_BULK_PROVIDERS:
+            return read_native_series(connection, definition, start=start, end=end)
         if definition.provider == "jquants_options":
             return options.read(definition, start=start, end=end)
         return indicators_db.observations_in_range(

@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import sqlite3
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import closing, suppress
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -26,6 +26,10 @@ from .indicators.providers import (
     provider_spec,
 )
 from .indicators.providers.base import ProviderFetchStoppedError, StoreReader
+from .indicators.providers.native import fetch_native_records
+from .indicators.read_contracts import NATIVE_BULK_PROVIDERS, NATIVE_PROVIDERS, native_source_key
+from .indicators.source_snapshots import store_snapshot, stored_days
+from .reading.native import read_native_series
 from .option_acquisition import OptionAcquisition
 from .reading.options import OptionSeriesReader
 from .reading.reader import build_store_observation_reader
@@ -136,7 +140,7 @@ class IndicatorsService:
         definitions = load_definitions()
         if series_id not in definitions.by_id():
             raise KeyError(f"unknown indicator series: {series_id}")
-        if definitions.by_id()[series_id].provider in {"derived", "jquants_options"}:
+        if definitions.by_id()[series_id].provider in ({"derived"} | NATIVE_PROVIDERS):
             raise ValueError(
                 "computed series has no stored observation to retract; correct its input"
             )
@@ -257,6 +261,8 @@ class IndicatorsService:
         series = db.get_series(conn, series_id)
         if series.provider == "derived":
             return _derived_range(conn, series, start=start, end=end)
+        if series.provider in NATIVE_BULK_PROVIDERS:
+            return self._native_range(conn, series, start=start, end=end, refresh=refresh, context=context)
         if series.provider == "jquants_options":
             observations, cache_hit = options.query(series, start=start, end=end, refresh=refresh)
             return QueryResult(series, observations, cache_hit=cache_hit)
@@ -299,6 +305,11 @@ class IndicatorsService:
             raise IndicatorsProviderError(
                 f"all-history start is not configured for provider {series.provider}"
             )
+        if series.provider in NATIVE_BULK_PROVIDERS:
+            return self._native_range(
+                conn, series, start=start, end=end, refresh=True, context=context,
+                require_observations=True,
+            )
         if series.provider == "jquants_options":
             observations, cache_hit = options.query(
                 series, start=start, end=end, refresh=True, require_observations=True
@@ -333,7 +344,11 @@ class IndicatorsService:
                 result = _derived_range(conn, series, start=date(1970, 1, 1), end=end)
                 return QueryResult(series, result.observations[-1:], cache_hit=True)
             spec = provider_spec(series.provider)
-            if series.provider == "jquants_options":
+            if series.provider in NATIVE_BULK_PROVIDERS:
+                lookback = LATEST_FETCH_LOOKBACK_DAYS.get(series.frequency, DEFAULT_LATEST_LOOKBACK_DAYS)
+                recent = read_native_series(conn, series, start=end - timedelta(days=lookback), end=end)
+                cached_latest = recent[-1] if recent else None
+            elif series.provider == "jquants_options":
                 recent = OptionSeriesReader(conn).read(
                     series, start=end - timedelta(days=14), end=end
                 )
@@ -360,7 +375,7 @@ class IndicatorsService:
             end=end,
             # An empty native day may precede publication; latest must ask again
             # when no fresh reading exists, not freeze that early empty response.
-            refresh=refresh or cached_latest is not None or series.provider == "jquants_options",
+            refresh=refresh or cached_latest is not None or series.provider in NATIVE_PROVIDERS,
         )
         if not result.observations:
             return result
@@ -369,6 +384,63 @@ class IndicatorsService:
             (max(result.observations, key=lambda item: item.observed_at),),
             cache_hit=result.cache_hit,
         )
+
+    def _native_range(
+        self,
+        conn: sqlite3.Connection,
+        series: SeriesDefinition,
+        *,
+        start: date,
+        end: date,
+        refresh: bool,
+        context: FetchContext,
+        require_observations: bool = False,
+    ) -> QueryResult:
+        source_key = native_source_key(series)
+        known = stored_days(conn, start, end, source_key=source_key)
+        cache_hit = not refresh and len(known) == (end - start).days + 1
+        started_at = datetime.now(UTC)
+        try:
+            if not cache_hit:
+                records = _fetch_with_retry(
+                    lambda: fetch_native_records(series, start=start, end=end, context=context),
+                    context=context,
+                )
+                fetched_at = datetime.now(UTC)
+                # One complete bulk response owns this window. Empty days are source
+                # facts too, so removed observations cannot resurrect from old vintages.
+                with conn:
+                    for offset in range((end - start).days + 1):
+                        day = start + timedelta(days=offset)
+                        store_snapshot(
+                            conn, source_key=source_key, observed_at=day,
+                            fetched_at=fetched_at, records=records.get(day, ()),
+                        )
+            # Persist source records before calculation. An unusable L2 result does
+            # not destroy the native fields needed to diagnose or recalculate it.
+            observations = read_native_series(conn, series, start=start, end=end)
+            if require_observations and not observations:
+                raise IndicatorsProviderError(
+                    f"all-history refresh returned no observations for {series.series_id}"
+                )
+        except sqlite3.Error:
+            raise
+        except Exception as error:
+            with conn:
+                db.record_provider_run(
+                    conn, provider=series.provider, series_id=series.series_id,
+                    start=start, end=end, started_at=started_at, status="failed",
+                    record_count=0, error_message=redact_credentials(str(error)),
+                )
+            raise
+        if not cache_hit:
+            with conn:
+                db.record_provider_run(
+                    conn, provider=series.provider, series_id=series.series_id,
+                    start=start, end=end, started_at=started_at, status="ok",
+                    record_count=len(observations),
+                )
+        return QueryResult(series, observations, cache_hit=cache_hit)
 
     def _fetch_and_store(
         self,
@@ -662,9 +734,16 @@ def _fetch_observations_with_retry(
     end: date,
     context: FetchContext | None,
 ) -> list[ObservationRecord]:
+    return _fetch_with_retry(
+        lambda: fetch_observations(series, start=start, end=end, context=context),
+        context=context,
+    )
+
+
+def _fetch_with_retry[T](operation: Callable[[], T], *, context: FetchContext | None) -> T:
     for attempt in range(1, PROVIDER_FETCH_ATTEMPTS + 1):
         try:
-            return fetch_observations(series, start=start, end=end, context=context)
+            return operation()
         except IndicatorsProviderError as exc:
             # The response that produced this failure may be cached (a block page
             # arrives as HTTP 200), so drop the cache before retrying. Otherwise the

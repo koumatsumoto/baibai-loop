@@ -16,7 +16,7 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
 from baibai_engine.market_context.indicators.providers import (
     IndicatorsProviderError,
     fetch_observations,
-    parse_ecb_fx_csv,
+    parse_ecb_reference_csv,
 )
 from baibai_engine.market_context.indicators.providers.base import (
     BrowserUnavailableError,
@@ -270,26 +270,17 @@ class IndicatorsProviderParserTests(TestCase):
         self.assertIs(raised.exception, failure)
         download.assert_called_once_with("https://example.test/release.pdf", max_bytes=1234)
 
-    def test_parse_ecb_fx_csv_computes_cross_rate(self) -> None:
-        series = _series("ecb_fx", "USDJPY", unit="jpy-per-usd")
-        text = "Date,USD,JPY,AUD\n2026-05-08,1.1761,184.37,1.6259\n"
+    def test_parse_ecb_reference_csv_preserves_all_native_currencies(self) -> None:
+        text = "Date,USD,JPY,AUD,CHF\n2026-05-08,1.1761,184.37,1.6259,N/A\n"
+        records = parse_ecb_reference_csv(text, start=date(2026, 5, 8), end=date(2026, 5, 8))
+        self.assertEqual(records[date(2026, 5, 8)][0], {
+            "Date": "2026-05-08", "USD": "1.1761", "JPY": "184.37",
+            "AUD": "1.6259", "CHF": "N/A",
+        })
 
-        observations = parse_ecb_fx_csv(
-            series,
-            text,
-            start=date(2026, 5, 8),
-            end=date(2026, 5, 8),
-        )
-
-        self.assertEqual(len(observations), 1)
-        self.assertAlmostEqual(observations[0].value, 156.76, places=2)
-
-    def test_parse_ecb_fx_csv_rejects_missing_required_column(self) -> None:
-        series = _series("ecb_fx", "USDJPY", unit="jpy-per-usd")
-        text = "Date,JPY\n2026-05-08,184.37\n"
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "missing column"):
-            parse_ecb_fx_csv(series, text, start=date(2026, 5, 8), end=date(2026, 5, 8))
+    def test_parse_ecb_reference_csv_rejects_missing_date_column(self) -> None:
+        with self.assertRaisesRegex(IndicatorsProviderError, "missing Date column"):
+            parse_ecb_reference_csv("JPY\n184.37\n", start=date(2026, 5, 8), end=date(2026, 5, 8))
 
     def test_fetch_observations_wraps_request_exception(self) -> None:
         series = _series("fred_csv", "DGS10")

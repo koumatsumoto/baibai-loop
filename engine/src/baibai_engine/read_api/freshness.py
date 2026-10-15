@@ -12,6 +12,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from baibai_engine.market_context.indicators.definitions import load_definitions
+from baibai_engine.market_context.indicators.read_contracts import NATIVE_PROVIDERS, native_source_key
 
 from .sqlite import read_application_rows, read_rows
 
@@ -38,7 +39,7 @@ def indicator_latest_observed_at(path: Path) -> date | None:
     definitions = load_definitions().series
     registered = {
         series.series_id for series in definitions
-        if series.provider not in {"derived", "jquants_options"}
+        if series.provider not in ({"derived"} | NATIVE_PROVIDERS)
     }
     rows = read_rows(
         path,
@@ -57,17 +58,22 @@ def indicator_latest_observed_at(path: Path) -> date | None:
         (str(row[1]) for row in rows if str(row[0]) in registered and row[1] is not None),
         default=None,
     )
-    if any(series.provider == "jquants_options" for series in definitions):
+    native_keys = {
+        native_source_key(series) for series in definitions if series.provider in NATIVE_PROVIDERS
+    }
+    if native_keys:
         native = read_rows(
             path,
-            "SELECT max(c.observed_at) FROM indicator_source_snapshots c "
-            "WHERE c.source_key = 'jquants_options:n225' AND c.record_count > 0 AND c.fetched_at = ("
+            "SELECT c.source_key, max(c.observed_at) FROM indicator_source_snapshots c "
+            "WHERE c.record_count > 0 AND c.fetched_at = ("
             "SELECT max(n.fetched_at) FROM indicator_source_snapshots n "
-            "WHERE n.source_key = c.source_key AND n.observed_at = c.observed_at)",
+            "WHERE n.source_key = c.source_key AND n.observed_at = c.observed_at) "
+            "GROUP BY c.source_key",
         )
-        if native and native[0][0] is not None:
-            native_date = str(native[0][0])
-            latest = max(latest, native_date) if latest is not None else native_date
+        for source_key, observed_at in native:
+            if source_key in native_keys and observed_at is not None:
+                native_date = str(observed_at)
+                latest = max(latest, native_date) if latest is not None else native_date
     return None if latest is None else date.fromisoformat(latest)
 
 

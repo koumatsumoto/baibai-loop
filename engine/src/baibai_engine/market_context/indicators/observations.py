@@ -6,6 +6,7 @@ L1の観測と、読取中だけ存在するL2の計算値が同じ値形状を�
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 
@@ -21,3 +22,7 @@ class ObservationRecord:
     period_end: date | None = None
     vintage_at: datetime | None = None
     fetch_status: str = "ok"
+
+
+# A complete source response grouped by its native observation dates.
+type NativeRecords = Mapping[date, Sequence[Mapping[str, object]]]

@@ -9,6 +9,7 @@ series:
     plausible_max: 2000
     provider: ecb_fx
     provider_series_id: USDJPY
+    notes: ECBのEUR建て参照レート全通貨列をL1へ保持し、同じ原本行からL2でJPY crossを計算する。市場のリアルタイム約定レートではない。
     source_id: ecb-fx
     source_url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
     tradingview_symbol: FX:USDJPY
@@ -23,6 +24,7 @@ series:
     plausible_max: 2000
     provider: ecb_fx
     provider_series_id: EURJPY
+    notes: ECBのEUR建て参照レート全通貨列をL1へ保持し、同じ原本行からL2でJPY crossを計算する。市場のリアルタイム約定レートではない。
     source_id: ecb-fx
     source_url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
     tradingview_symbol: FX:EURJPY
@@ -37,6 +39,7 @@ series:
     plausible_max: 2000
     provider: ecb_fx
     provider_series_id: AUDJPY
+    notes: ECBのEUR建て参照レート全通貨列をL1へ保持し、同じ原本行からL2でJPY crossを計算する。市場のリアルタイム約定レートではない。
     source_id: ecb-fx
     source_url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
     tradingview_symbol: FX:AUDJPY

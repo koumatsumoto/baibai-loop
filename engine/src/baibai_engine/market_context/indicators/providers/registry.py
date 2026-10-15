@@ -4,7 +4,7 @@ from datetime import date
 
 from ..definitions import SeriesDefinition
 from ..observations import ObservationRecord
-from ..read_contracts import DERIVED_SPEC, JQUANTS_OPTIONS_SPEC
+from ..read_contracts import CFTC_SPEC, DERIVED_SPEC, ECB_FX_SPEC, JQUANTS_OPTIONS_SPEC
 from .base import (
     FetchContext,
     HttpSession,
@@ -14,8 +14,6 @@ from .base import (
 )
 from .boj import BojProvider
 from .boj_timeseries import BojTimeSeriesProvider
-from .cftc import CftcProvider
-from .ecb_fx import EcbFxProvider
 from .estat import EStatProvider
 from .estat_dashboard import EStatDashboardProvider
 from .frb_h15 import FrbH15Provider
@@ -30,17 +28,15 @@ from .tsr_bankruptcies import TsrBankruptciesProvider
 from .umich_sca import UmichScaProvider
 from .yahoo import YahooChartProvider
 
-# Scalar external acquisitions. Native option chains have their own source boundary;
+# Scalar external acquisitions. Native records have their own source boundary;
 # application orchestration persists them before L2 computes the registered readings.
 _PROVIDERS: dict[str, IndicatorDataProvider] = {
     provider.name: provider
     for provider in (
         FredProvider(),
         FrbH15Provider(),
-        EcbFxProvider(),
         BojProvider(),
         BojTimeSeriesProvider(),
-        CftcProvider(),
         EStatProvider(),
         EStatDashboardProvider(),
         JQuantsFlowsProvider(),
@@ -91,6 +87,10 @@ def provider_spec(name: str) -> ProviderSpec:
         return DERIVED_SPEC
     if name == "jquants_options":
         return JQUANTS_OPTIONS_SPEC
+    if name == "cftc":
+        return CFTC_SPEC
+    if name == "ecb_fx":
+        return ECB_FX_SPEC
     return resolve_provider(name).spec
 
 
@@ -99,4 +99,6 @@ def registered_specs() -> tuple[ProviderSpec, ...]:
         *tuple(provider.spec for provider in _PROVIDERS.values()),
         DERIVED_SPEC,
         JQUANTS_OPTIONS_SPEC,
+        CFTC_SPEC,
+        ECB_FX_SPEC,
     )

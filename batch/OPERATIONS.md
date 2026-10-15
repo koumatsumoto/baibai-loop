@@ -1072,3 +1072,6 @@ L1 credentialは新しいbucket-scoped Object Read only tokenを作り、2つの
 旧R2 tokenを失効させます。更新途中のlake 502は全設定が揃ってから再確認します。L1公開自体の撤回は
 `(cd web/edge && npx wrangler secret delete L1_R2_ACCESS_KEY_ID)`でgatewayを503にし、Cloudflare側でもその専用tokenを失効させます。
 既存owner viewとcanonical dataは維持され、secret変更で再deployは不要です。
+
+
+CFTC・ECB FXのnative入力もschema9のsource snapshotへ保存する。従来のscalar観測は原本の代替にせず、切替後に対象履歴を取得して再計算する。再取得はPRマージ後に行い、取得済み原本があれば再利用する。native取得が終わるまでは該当Readingが欠測になることを切替窓の受入で確認する。
