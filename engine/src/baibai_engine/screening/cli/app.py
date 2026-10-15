@@ -231,7 +231,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     exits_parser = subparsers.add_parser(
         "build-tender-offer-exits",
-        help="derive realized tender-offer exit prices for delisted names",
+        help="derive tender-offer-price exit proxies for delisted names",
     )
     exits_parser.add_argument(
         "--asof",

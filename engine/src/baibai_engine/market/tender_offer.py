@@ -1,16 +1,14 @@
-"""Realized cash exit values for names a completed tender offer took off the market.
+"""Tender-offer-price proxies for delisted calibration windows.
 
-A delisted name has no market close to end a forward window with, so the calibration
-authority brackets it between a total loss and what the rest of its cohort returned. A
-takeover can settle above the neutral case, so that bracket is not an upper bound.
-When the offer actually completed in cash, the price it paid is the observed exit
-and no imputation is needed.
+The filings establish the reported cash-offer outcome and its ordinary-share price. They do
+not establish a non-tendering holder's squeeze-out proceeds or payment date. The
+calibration convention uses that offer price at the delisting date as an exit proxy,
+not as a broker execution or a confirmed shareholder cash receipt.
 
-Everything here is fail-closed. A case is realized only when the registration statement,
-its corrections, the absence of a withdrawal and the result statement agree on one
-ordinary-share cash price for one target. Anything else is left to the bracket rather
-than estimated, because a wrong exit price is worse than an acknowledged gap. The rules
-are pre-registered in reports/studies/2026-08-11-capital-control-exit-values/.
+Registration statements, corrections, withdrawal status and result statements must
+agree before the proxy is used. Unresolved cases remain subject to the calibration
+sensitivity cases; those cases do not bound every possible recovery value.
+Historical measurement rules are in reports/studies/2026-08-11-capital-control-exit-values/.
 """
 
 from __future__ import annotations
@@ -93,7 +91,7 @@ class TenderOfferFiling:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TenderOfferExitValue:
-    """One realized cash exit, keyed by the ticker and the day it stopped trading."""
+    """A verified offer price used as an exit proxy on the delisting date."""
 
     ticker: str
     delisted_on: date

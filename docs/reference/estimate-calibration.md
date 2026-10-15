@@ -88,9 +88,9 @@ cache が対象 row を同定できない、diagnostics 件数と row 数が一�
 
 ### 廃止銘柄の除外（`delisting_exclusion`）
 
-窓中に系列が終わる銘柄のうち、成立した現金公開買付けが対価を確定させたものは実値で解決する（後述「支配権イベントの実現 exit 値」）。それ以外は exit value を持たないまま cohort から落ちる。株式の併合・株式等売渡請求だけで完結した廃止、倒産、資料履歴外の廃止がそこに残り、満期済み cohort は例外なくこれを含むので、件数で block すると 3y/5y の evidence は原理的に成立しない。代わりに、その除外が結論を作ったかどうかを cohort ごとに判定する。
+窓中に系列が終わる銘柄のうち、成立した現金公開買付けの価格を確認できたものは、その価格を退出価値の代理値として使う（後述「支配権イベントの exit 代理値」）。対象理由による最終市場終値の規約も後述する。どちらの退出値も確定しない銘柄は unresolved に残す。未解決件数だけから較正不能と決めず、除外対象への固定ケース代入で結論方向が変わるかを cohort ごとに判定する。すべての cohort が未解決銘柄を含むとは仮定しない。
 
-除外された銘柄へ範囲の両端を代入して結論を再計算し、**cohort が報告した値と両方の代入とで向きが一致するときだけ** `direction_stable` を立てる。
+除外された銘柄へ全損・中立の二つのケースを代入して結論を再計算し、**cohort が報告した値と両方の代入とで向きが一致するときだけ** `direction_stable` を立てる。
 
 | 代入 | 値 |
 | --- | --- |
@@ -315,9 +315,9 @@ Research Setの対象について、[Stock Assessment](./stock-assessment.md#sce
 
 比較可能な有効観測（同じStock Assessmentの再利用・scaffold-only・未Review・遡及記入を除く）が5件以上になったら、保存済み評価と機械anchorを読み、乖離率の中央値・範囲・要因件数・coverageを記述する。比較不能な対象は理由とともにcoverageへ区別する。この記述だけでscreening式を変えず、変更仮説は別Issueで事前登録してdesign/confirmへ進める。
 
-### 支配権イベントの実現 exit 値
+### 支配権イベントの exit 代理値
 
-上場廃止で市場終値が無くなった forward 窓は、成立した現金公開買付けの 1 株買付価格で解決する（`resolved_control_event_exit`）。これは効果量を選ぶ仮説ではなく、観測済みの対価へ置き換える correctness 変更である。導出規則・置換規則・比較方法・停止条件は [`reports/studies/2026-08-11-capital-control-exit-values/preregistration.md`](../../reports/studies/2026-08-11-capital-control-exit-values/preregistration.md) に事前登録し、置換前後の較正影響を同ディレクトリの report に固定する。実値化できない上場廃止は従来どおり全損・中立の両側 bracket に残り、`unpriced_exit_flips_direction` の判定材料であり続ける。
+上場廃止で市場終値が無くなった forward 窓は、成立した現金公開買付けの 1 株買付価格を代理値として計算する（`resolved_control_event_exit`）。買付価格と成立報告は観測事実だが、上場廃止日にその価格で退出したという扱いは較正上の測定規約である。非応募株主のスクイーズアウト対価、実際の支払日、個々の受取額を確認したものではない。`resolved` はこの規約で計算できたことを表し、実約定・現金受領の証明とは区別する。[JPXの上場制度FAQ](https://www.jpx.co.jp/faq/stock_listed_company.html)も、非応募株主の後続手続について発行会社の開示確認を案内している。導出規則・置換規則・比較方法・停止条件は [`reports/studies/2026-08-11-capital-control-exit-values/preregistration.md`](../../reports/studies/2026-08-11-capital-control-exit-values/preregistration.md) に事前登録し、置換前後の較正影響を同ディレクトリの report に固定する。代理値を確定できない上場廃止は従来どおり全損・中立の感度ケースに残り、`unpriced_exit_flips_direction` の判定材料であり続ける。
 
 JPX理由の「公開買付」「株式の併合 / 株式併合」「株式等売渡請求」は資料確認へ進む候補条件で、現金対価の証明ではない。株式併合・売渡請求だけの表記でも、先行する現金公開買付けを資料で検証する。対象ticker・届出/訂正・取下げ・成立報告・普通株1株の単一価格・現金のみという既存の証拠条件を保ち、資料なし・撤回・非現金・価格不一致は未解決に残す。CLIの`candidates`は調査候補件数、`resolved`が証拠を満たした件数である。6881の通常資料取得による再現と取得範囲は[測定記録](../../reports/studies/2026-10-14-tender-exit-candidate-coverage/report.md)を参照する。
 

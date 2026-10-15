@@ -42,7 +42,7 @@ def build_tender_offer_exits_command(
     providers: ProviderBundle,
     stdout: TextIO | None = None,
 ) -> int:
-    """Derive realized tender-offer exit values for delisted names."""
+    """Derive tender-offer-price exit proxies for delisted names."""
     out = stdout if stdout is not None else sys.stdout
     if providers.edinet is None:
         print("EDINET provider is not configured", file=sys.stderr)

@@ -219,14 +219,14 @@ FORWARD_FIELD_NAMES: tuple[str, ...] = tuple(field.name for field in fields(Forw
 
 
 def read_control_event_exits(sqlite_path: Path) -> dict[str, tuple[ControlEventExit, ...]]:
-    """Load realized tender-offer exits, keyed by ticker.
+    """Load tender-offer-price exit proxies, keyed by ticker.
 
     A ticker can appear more than once — a name can be taken private, relist and be
     taken private again — so the caller matches the one that falls inside its window
     and leaves the row unresolved when more than one does.
     """
     # No fallback to an empty mapping. A store that cannot answer would produce a build
-    # that is byte-identical to the baseline while presenting itself as the actual-exit
+    # that is byte-identical to the baseline while presenting itself as the offer-price exit
     # contract, and the before/after comparison would then read "nothing was replaced"
     # as a result rather than as a missing input.
     conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
@@ -254,7 +254,7 @@ def read_failure_exits(sqlite_path: Path) -> dict[str, tuple[FailureExit, ...]]:
     """
     # No fallback to an empty mapping, for the same reason `read_control_event_exits`
     # has none: a store that cannot answer would build a byte-identical baseline while
-    # presenting itself as the realized-exit contract.
+    # presenting itself as the delisting-exit contract.
     conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         rows = conn.execute("SELECT ticker, delisted_on, reason FROM jpx_delistings").fetchall()
@@ -503,10 +503,10 @@ def _control_event_row(
 ) -> ForwardReturnRow | None:
     """Price the window with the offer, or decline and leave it to the bracket.
 
-    The offer is quoted per share as of the delisting, while entry closes are carried to
-    the share basis of the final bar. Those two bases agree only when no split or reverse
-    split followed the delisting, so a non-unit cumulative factor after that day means
-    the offer cannot be placed on the same basis and the window is not realized.
+    This convention places the verified offer price at delisting; it does not prove
+    a holder received that amount on that date. Entry closes use the final price basis,
+    so a non-unit cumulative factor after delisting leaves the proxy incomparable.
+    The stored offer evidence does not establish a later share-unit conversion.
     """
     if control_exit is None or entry_date is None or entry_close <= 0 or not bars:
         return None
