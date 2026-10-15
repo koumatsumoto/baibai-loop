@@ -19,6 +19,12 @@ from urllib3.response import HTTPResponse
 
 from baibai_batch.validation.market_context_stores import main as validate_stores
 from baibai_engine.market_context.indicators import db
+from baibai_engine.market_context.indicator_service import (
+    IndicatorsService,
+    RefreshFailure,
+    RefreshSuccess,
+    _fetch_observations_with_retry,
+)
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.indicators.providers import registry
 from baibai_engine.market_context.indicators.providers.base import (
@@ -28,12 +34,6 @@ from baibai_engine.market_context.indicators.providers.base import (
 from baibai_engine.market_context.indicators.providers.fred import parse_fred_csv
 from baibai_engine.market_context.indicators.providers.jquants_flows import parse_trades_spec
 from baibai_engine.market_context.indicators.providers.jquants_indices import parse_index_bars
-from baibai_engine.market_context.indicator_service import (
-    IndicatorsService,
-    RefreshFailure,
-    RefreshSuccess,
-    _fetch_observations_with_retry,
-)
 from baibai_engine.storage.application.write import initialize_database as initialize_application
 
 IDS = ("jp.foreign_flows", "jp.topix", "vix")

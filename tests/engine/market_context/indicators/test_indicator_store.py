@@ -25,6 +25,12 @@ import baibai_engine.market_context.indicators.db as indicators_db
 from baibai_engine.market_context.indicator_cli import (
     main,
 )
+from baibai_engine.market_context.indicator_service import search as catalog_search
+)
+)
+from baibai_engine.market_context.indicators.observations import ObservationRecord
+from baibai_engine.market_context.indicator_service import (
+    IndicatorsService,
 from baibai_engine.market_context.indicators.db import (
     SQLITE_SCHEMA_VERSION,
     IndicatorsSchemaError,
@@ -42,14 +48,8 @@ from baibai_engine.market_context.indicators.db import (
 from baibai_engine.market_context.indicators.definitions import (
     IndicatorDefinitions,
     load_definitions,
-)
-from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicator_service import (
-    IndicatorsService,
     _prune_registry_for_refresh,
-)
 from baibai_engine.market_context.indicator_service import list_series as catalog_list_series
-from baibai_engine.market_context.indicator_service import search as catalog_search
 from baibai_engine.market_context.reading.cli import main as reading_main
 
 

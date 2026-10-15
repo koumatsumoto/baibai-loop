@@ -25,6 +25,11 @@ from baibai_engine.market_context.indicator_cli import (
     main,
     parse_refresh_failure_count,
 )
+from baibai_engine.market_context.indicator_service import (
+    IndicatorsService,
+    RefreshFailure,
+    RefreshSuccess,
+)
 from baibai_engine.market_context.indicators.db import (
     initialize_database,
     insert_observations,
@@ -41,11 +46,6 @@ from baibai_engine.market_context.indicators.providers import (
 )
 from baibai_engine.market_context.indicators.providers.base import (
     FetchContext,
-)
-from baibai_engine.market_context.indicator_service import (
-    IndicatorsService,
-    RefreshFailure,
-    RefreshSuccess,
 )
 
 

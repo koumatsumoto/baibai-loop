@@ -18,6 +18,12 @@ from urllib3.connectionpool import HTTPSConnectionPool
 from urllib3.exceptions import ReadTimeoutError
 from urllib3.response import HTTPResponse
 
+from baibai_engine.market_context.indicator_service import (
+    IndicatorsService,
+    RefreshFailure,
+    RefreshSuccess,
+    _fetch_observations_with_retry,
+)
 from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
 from baibai_engine.market_context.indicators.providers import jquants_options, registry
 from baibai_engine.market_context.indicators.providers.base import (
@@ -29,12 +35,6 @@ from baibai_engine.market_context.indicators.providers.option_iv import (
     quotes_from_records,
 )
 from baibai_engine.market_context.indicators.providers.read_retry import read_deadline
-from baibai_engine.market_context.indicator_service import (
-    IndicatorsService,
-    RefreshFailure,
-    RefreshSuccess,
-    _fetch_observations_with_retry,
-)
 
 BASE = datetime(2026, 10, 13, tzinfo=UTC).timestamp()
 READINGS = ("jp.n225_iv_30d", "jp.n225_iv_skew", "jp.n225_iv_term")

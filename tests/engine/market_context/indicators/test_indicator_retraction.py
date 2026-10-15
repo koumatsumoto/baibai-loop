@@ -18,6 +18,9 @@ from tests.helpers.indicator_store import (
 from baibai_engine.market_context.indicator_cli import (
     main,
 )
+from baibai_engine.market_context.indicator_service import (
+    IndicatorsService,
+)
 from baibai_engine.market_context.indicators.db import (
     RETRACTED_STATUS,
     delete_unchanged_vintages,
@@ -32,9 +35,6 @@ from baibai_engine.market_context.indicators.db import (
 from baibai_engine.market_context.indicators.definitions import (
     IndicatorDefinitions,
     load_definitions,
-)
-from baibai_engine.market_context.indicator_service import (
-    IndicatorsService,
 )
 
 
