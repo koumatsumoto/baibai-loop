@@ -486,7 +486,7 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ReleaseDatasetPolicy(
             dataset="jquants.daily_bars",
             required=True,
-            accepted_contract_versions=(1,),
+            accepted_contract_versions=(2,),
             carries_history=True,
             minimum_rows=9_634_243,
             minimum_population_count=5_097,
