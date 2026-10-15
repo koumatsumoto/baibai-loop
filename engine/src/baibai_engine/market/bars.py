@@ -53,7 +53,11 @@ def asof_basis_prices(
     *,
     asof_date: date,
 ) -> list[float]:
-    """観測価格と独立factorからas-of基準の価格を組む、共有L1算術。"""
+    """観測価格と独立factorからas-of基準の価格を組む、共有L1算術。
+
+    callerはasof以下の価格を日付昇順で渡す。出力はその価格列と同じ順序になる。
+    factor側の日付制限と整列はこの関数が行う。
+    """
     if not prices:
         return []
     events = sorted(

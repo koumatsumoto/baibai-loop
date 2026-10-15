@@ -100,36 +100,8 @@ def close_change_since(path: Path, tickers: Sequence[str], *, since: date) -> di
     if not tickers:
         return {}
     unique = list(dict.fromkeys(tickers))
-    placeholders = ",".join("?" for _ in unique)
-    # The f-string only expands "?" placeholders; every value is parameter-bound.
-    rows = read_rows(
-        path,
-        f"""
-            SELECT ticker, traded_at, close, adjustment_factor
-            FROM jquants_daily_bars
-            WHERE ticker IN ({placeholders})
-              AND close IS NOT NULL
-              AND traded_at >= ?
-            ORDER BY ticker, traded_at
-            """,  # nosec B608
-        [*unique, (since - timedelta(days=_CHANGE_START_LOOKBACK_DAYS)).isoformat()],
-        connector=connect_read_only,
-    )
-    by_ticker: dict[str, list[JQuantsDailyBar]] = {}
-    for ticker, traded_at, close, factor in rows:
-        by_ticker.setdefault(str(ticker), []).append(
-            JQuantsDailyBar(
-                ticker=str(ticker),
-                traded_at=date.fromisoformat(str(traded_at)),
-                close=float(close),
-                turnover_value=None,
-                adjustment_factor=None if factor is None else float(factor),
-            )
-        )
-    events_by_ticker = _adjustment_events_by_ticker(
-        path,
-        unique,
-        start=since - timedelta(days=_CHANGE_START_LOOKBACK_DAYS),
+    by_ticker, events_by_ticker = _read_price_observations(
+        path, unique, start=since - timedelta(days=_CHANGE_START_LOOKBACK_DAYS)
     )
     changes: dict[str, float] = {}
     for ticker, bars in by_ticker.items():
@@ -159,10 +131,10 @@ def worst_close_drawdown(
 ) -> dict[str, float]:
     """Return each ticker's deepest close-to-close fall from ``start`` within the window.
 
-    A permanent-loss judgment is about how far a name can fall while it is held, which
-    the return at a single later date does not show: a name that halved and recovered
-    reads as flat. Both ends are put on the window's latest share basis so a split does
-    not register as a fall.
+    This measures temporary price downside from the entry, not permanent business
+    impairment or peak-to-trough drawdown. A name that halved and recovered reads
+    as flat at the endpoint but still has an entry-relative trough. Both ends use
+    the window's latest share basis so a split does not register as a fall.
 
     The value is a ratio (``-0.3`` for a 30% trough) and is never positive: a name
     that stayed above its entry did not fall. A ticker with no close at or before
@@ -172,42 +144,8 @@ def worst_close_drawdown(
     if not tickers:
         return {}
     unique = list(dict.fromkeys(tickers))
-    placeholders = ",".join("?" for _ in unique)
-    # The f-string only expands "?" placeholders; every value is parameter-bound.
-    rows = read_rows(
-        path,
-        f"""
-            SELECT ticker, traded_at, close, adjustment_factor
-            FROM jquants_daily_bars
-            WHERE ticker IN ({placeholders})
-              AND close IS NOT NULL
-              AND traded_at >= ?
-              AND traded_at <= ?
-            ORDER BY ticker, traded_at
-            """,  # nosec B608
-        [
-            *unique,
-            (start - timedelta(days=_CHANGE_START_LOOKBACK_DAYS)).isoformat(),
-            end.isoformat(),
-        ],
-        connector=connect_read_only,
-    )
-    by_ticker: dict[str, list[JQuantsDailyBar]] = {}
-    for ticker, traded_at, close, factor in rows:
-        by_ticker.setdefault(str(ticker), []).append(
-            JQuantsDailyBar(
-                ticker=str(ticker),
-                traded_at=date.fromisoformat(str(traded_at)),
-                close=float(close),
-                turnover_value=None,
-                adjustment_factor=None if factor is None else float(factor),
-            )
-        )
-    events_by_ticker = _adjustment_events_by_ticker(
-        path,
-        unique,
-        start=start - timedelta(days=_CHANGE_START_LOOKBACK_DAYS),
-        end=end,
+    by_ticker, events_by_ticker = _read_price_observations(
+        path, unique, start=start - timedelta(days=_CHANGE_START_LOOKBACK_DAYS), end=end
     )
     worst: dict[str, float] = {}
     for ticker, bars in by_ticker.items():
@@ -228,17 +166,14 @@ def worst_close_drawdown(
     return worst
 
 
-def _adjustment_events_by_ticker(
+def _read_price_observations(
     path: Path,
     tickers: Sequence[str],
     *,
     start: date,
     end: date | None = None,
-) -> dict[str, list[JQuantsAdjustmentFactorEvent]]:
-    """Read action events independently of close availability."""
-
-    if not tickers:
-        return {}
+) -> tuple[dict[str, list[JQuantsDailyBar]], dict[str, list[JQuantsAdjustmentFactorEvent]]]:
+    """Read valued bars and independent action events from the same SQL snapshot."""
     placeholders = ",".join("?" for _ in tickers)
     end_clause = " AND traded_at <= ?" if end is not None else ""
     parameters: list[object] = [*tickers, start.isoformat()]
@@ -247,25 +182,35 @@ def _adjustment_events_by_ticker(
     rows = read_rows(
         path,
         f"""
-            SELECT ticker, traded_at, adjustment_factor
+            SELECT ticker, traded_at, close, adjustment_factor
             FROM jquants_daily_bars
             WHERE ticker IN ({placeholders})
               AND traded_at >= ?
               {end_clause}
-              AND adjustment_factor IS NOT NULL
-              AND adjustment_factor NOT IN (0.0, 1.0)
             ORDER BY ticker, traded_at
             """,  # nosec B608
         parameters,
         connector=connect_read_only,
     )
-    grouped: dict[str, list[JQuantsAdjustmentFactorEvent]] = {}
-    for ticker, traded_at, factor in rows:
-        grouped.setdefault(str(ticker), []).append(
-            JQuantsAdjustmentFactorEvent(
-                ticker=str(ticker),
-                traded_at=date.fromisoformat(str(traded_at)),
-                adjustment_factor=float(factor),
+    bars: dict[str, list[JQuantsDailyBar]] = {}
+    events: dict[str, list[JQuantsAdjustmentFactorEvent]] = {}
+    for ticker, traded_at, close, factor in rows:
+        if close is not None:
+            bars.setdefault(str(ticker), []).append(
+                JQuantsDailyBar(
+                    ticker=str(ticker),
+                    traded_at=date.fromisoformat(str(traded_at)),
+                    close=float(close),
+                    turnover_value=None,
+                    adjustment_factor=None if factor is None else float(factor),
+                )
             )
-        )
-    return grouped
+        if factor not in (None, 0.0, 1.0):
+            events.setdefault(str(ticker), []).append(
+                JQuantsAdjustmentFactorEvent(
+                    ticker=str(ticker),
+                    traded_at=date.fromisoformat(str(traded_at)),
+                    adjustment_factor=float(factor),
+                )
+            )
+    return bars, events

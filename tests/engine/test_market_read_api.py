@@ -295,3 +295,34 @@ def test_order_session_rejects_naive_instant_before_store_read(tmp_path: Path) -
     with pytest.raises(ValueError, match="timezone"):
         next_order_session(sqlite_path=path, now=naive)
     assert not path.exists()
+
+
+def test_price_comparisons_share_scope_without_changing_the_store(tmp_path: Path) -> None:
+    database = tmp_path / "market.sqlite"
+    _seed_bars_with_factors(
+        database,
+        [
+            ("2331", "2026-07-28", 100.0, 1.0),
+            ("2331", "2026-07-29", 120.0, 1.0),
+            ("2331", "2026-07-30", 90.0, 1.0),
+            ("2331", "2026-07-31", 50.0, 0.5),
+            ("4432", "2026-07-28", 1000.0, 1.0),
+            ("4432", "2026-07-30", 1.0, 1.0),
+        ],
+    )
+    before = database.read_bytes()
+    assert close_change_since(database, ["2331", "2331"], since=date(2026, 7, 28)) == {
+        "2331": 0.0
+    }
+    drawdown = worst_close_drawdown(
+        database, ["2331", "2331"], start=date(2026, 7, 28), end=date(2026, 7, 30)
+    )
+    assert set(drawdown) == {"2331"}
+    assert drawdown["2331"] == pytest.approx(-0.1)
+    assert database.read_bytes() == before
+    missing = tmp_path / "absent.sqlite"
+    assert close_change_since(missing, [], since=date(2026, 7, 28)) == {}
+    assert worst_close_drawdown(
+        missing, [], start=date(2026, 7, 28), end=date(2026, 7, 30)
+    ) == {}
+    assert not missing.exists()
