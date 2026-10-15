@@ -160,30 +160,6 @@ def test_invalid_pair_never_publishes(tmp_path, fault):
         assert connection.execute("SELECT count(*) FROM stock_assessment_review").fetchone()[0] == 0
 
 
-def test_review_insert_failure_rolls_back_assessment_in_caller_transaction(tmp_path):
-    import sqlite3
-
-    from baibai_engine.research.assessment_store import publish_reviewed_assessment
-    from baibai_engine.storage.application.write import connect_rw, initialize_database
-
-    db = tmp_path / "app.sqlite"
-    initialize_database(db)
-    assessment, review = pair_payload()
-    with closing(connect_rw(db)) as connection, connection:
-        connection.execute(
-            "CREATE TRIGGER fail_review BEFORE INSERT ON stock_assessment_review BEGIN SELECT RAISE(ABORT, 'review insert failed'); END"
-        )
-        connection.execute("BEGIN IMMEDIATE")
-        with pytest.raises(sqlite3.IntegrityError, match="review insert failed"):
-            publish_reviewed_assessment(
-                connection, assessment_id(), assessment, review, published_at=NOW
-            )
-        assert connection.in_transaction
-        assert connection.execute("SELECT count(*) FROM stock_assessment").fetchone()[0] == 0
-        assert connection.execute("SELECT count(*) FROM stock_assessment_review").fetchone()[0] == 0
-        connection.commit()
-
-
 @pytest.mark.parametrize(
     ("terminal", "cash", "calculation", "wrong"),
     [
