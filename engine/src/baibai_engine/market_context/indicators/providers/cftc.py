@@ -23,7 +23,6 @@ from .base import (
 # NOTE") so the code, not the name, is the identity. The observation is the
 # non-commercial (speculative) net position = long - short, in contracts.
 _MAX_ROWS = 50_000
-_PLAUSIBLE_ABS = 3_000_000
 
 
 class CftcProvider:
@@ -88,10 +87,6 @@ def parse_cftc_json(
         long_positions = _parse_int(row.get("noncomm_positions_long_all"), "long")
         short_positions = _parse_int(row.get("noncomm_positions_short_all"), "short")
         net = float(long_positions - short_positions)
-        if abs(net) > _PLAUSIBLE_ABS:
-            raise IndicatorsProviderError(
-                f"CFTC net position {net} for {observed_at} exceeds plausible {_PLAUSIBLE_ABS}"
-            )
         if start <= observed_at <= end:
             if observed_at in by_date and by_date[observed_at] != net:
                 raise IndicatorsProviderError(f"CFTC has conflicting values for {observed_at}")

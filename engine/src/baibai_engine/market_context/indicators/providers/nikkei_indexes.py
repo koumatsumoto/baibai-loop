@@ -34,12 +34,7 @@ _DATALOAD_HEADERS = {
     "X-Requested-With": "XMLHttpRequest",
 }
 
-# provider_series_id -> the dataload `list` value and the plausible band of the
-# weighted-average metric. These catch large deviations, not every column/scale error.
-_METRICS: dict[str, tuple[float, float]] = {
-    "per": (5.0, 40.0),
-    "pbr": (0.5, 4.0),
-}
+_METRICS = frozenset({"per", "pbr"})
 
 # Each row carries the date, the weighted-average metric (加重平均, the headline
 # Nikkei figure) and an index-based figure. We take the weighted average.
@@ -54,8 +49,8 @@ class NikkeiIndexesProvider:
     """Nikkei 225 valuation anchors (PER/PBR) from the official index statistics.
 
     provider_series_id selects the metric ("per"/"pbr"). The weighted-average
-    column is the market-quoted Nikkei figure. Range checks reject large deviations,
-    but cannot detect a layout change that produces an in-range wrong value.
+    column is the market-quoted Nikkei figure. Registry policy is applied by the
+    indicator storage boundary, not duplicated in this parser.
     """
 
     spec = ProviderSpec(name="nikkei_indexes", all_history_start=date(2010, 1, 1))
@@ -98,17 +93,12 @@ def parse_nikkei_valuation(
     start: date,
     end: date,
 ) -> list[ObservationRecord]:
-    low, high = _METRICS[series.provider_series_id]
     observations: list[ObservationRecord] = []
     for year, month, day, weighted, _index_based in _ROW_RE.findall(text):
         observed_at = date(int(year), int(month), int(day))
         value = parse_float(weighted)
         if not start <= observed_at <= end:
             continue
-        if not low <= value <= high:
-            raise IndicatorsProviderError(
-                f"nikkei_indexes {series.series_id} value {value} outside plausible [{low}, {high}]"
-            )
         observations.append(record_observation(series, observed_at=observed_at, value=value))
     return observations
 

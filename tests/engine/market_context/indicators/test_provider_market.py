@@ -61,7 +61,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         with self.assertRaisesRegex(IndicatorsProviderError, "does not match requested"):
             parse_cftc_json(series, text, start=date(2026, 7, 1), end=date(2026, 7, 31))
 
-    def test_parse_cftc_json_rejects_implausible_position(self) -> None:
+    def test_parse_cftc_json_leaves_range_policy_to_storage(self) -> None:
         series = _series("cftc", "097741", unit="contracts")
         text = json.dumps(
             [
@@ -74,8 +74,8 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
             ]
         )
 
-        with self.assertRaisesRegex(IndicatorsProviderError, "exceeds plausible"):
-            parse_cftc_json(series, text, start=date(2026, 7, 1), end=date(2026, 7, 31))
+        observations = parse_cftc_json(series, text, start=date(2026, 7, 1), end=date(2026, 7, 31))
+        self.assertEqual(observations[0].value, 8999999.0)
 
     def test_parse_index_bars_extracts_close_and_filters_range(self) -> None:
         series = _series("jquants_indices", "topix", unit="index")
@@ -109,12 +109,12 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
             [(o.observed_at, o.value) for o in observations], [(date(2026, 7, 1), 3990.2)]
         )
 
-    def test_parse_index_bars_rejects_implausible_close(self) -> None:
+    def test_parse_index_bars_leaves_range_policy_to_storage(self) -> None:
         series = _series("jquants_indices", "topix", unit="index")
         rows = [{"Date": datetime(2026, 7, 1, tzinfo=UTC), "C": 99999.0}]
 
-        with self.assertRaisesRegex(IndicatorsProviderError, "outside plausible"):
-            parse_index_bars(series, rows, start=date(2026, 7, 1), end=date(2026, 7, 31))
+        observations = parse_index_bars(series, rows, start=date(2026, 7, 1), end=date(2026, 7, 31))
+        self.assertEqual(observations[0].value, 99999.0)
 
     def test_parse_index_bars_rejects_missing_close_column(self) -> None:
         series = _series("jquants_indices", "topix", unit="index")
@@ -143,15 +143,17 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
             [(o.observed_at, o.value) for o in observations], [(date(2026, 7, 24), 17.82)]
         )
 
-    def test_parse_nikkei_valuation_rejects_implausible_value(self) -> None:
+    def test_parse_nikkei_valuation_leaves_range_policy_to_storage(self) -> None:
         series = _series("nikkei_indexes", "per", unit="ratio")
         html = (
             "<tr><!--daily_changing--><td>2026.07.24</td>"
             "<!--daily_changing--><td>99.90</td><!--daily_changing--><td>120.0</td></tr>"
         )
 
-        with self.assertRaisesRegex(IndicatorsProviderError, "outside plausible"):
-            parse_nikkei_valuation(series, html, start=date(2026, 7, 1), end=date(2026, 7, 31))
+        observations = parse_nikkei_valuation(
+            series, html, start=date(2026, 7, 1), end=date(2026, 7, 31)
+        )
+        self.assertEqual(observations[0].value, 99.9)
 
     def test_parse_yahoo_chart_filters_range_and_skips_null_close(self) -> None:
         series = _series("yahoo", "GC=F", unit="usd-per-oz")

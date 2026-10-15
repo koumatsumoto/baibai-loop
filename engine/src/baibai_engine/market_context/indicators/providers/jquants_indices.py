@@ -30,10 +30,6 @@ _INDEX_METHODS: Mapping[str, str] = {
     "topix": "get_idx_bars_daily_topix",
 }
 
-# index レベルの妥当域。大きな列・単位の誤りを検出するが、範囲内の誤値は判別できない。
-_PLAUSIBLE_MIN = 100.0
-_PLAUSIBLE_MAX = 20000.0
-
 _DATE_KEYS: tuple[str, ...] = ("Date",)
 _CLOSE_KEYS: tuple[str, ...] = ("C", "Close")
 
@@ -89,11 +85,6 @@ def parse_index_bars(
         close = _close_value(row)
         if not start <= observed_at <= end:
             continue
-        if not _PLAUSIBLE_MIN <= close <= _PLAUSIBLE_MAX:
-            raise IndicatorsProviderError(
-                f"jquants_indices {series.series_id} close {close} outside plausible "
-                f"[{_PLAUSIBLE_MIN}, {_PLAUSIBLE_MAX}]"
-            )
         observations_by_date[observed_at] = record_observation(
             series, observed_at=observed_at, value=close
         )
