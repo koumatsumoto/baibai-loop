@@ -14,6 +14,7 @@ from tests.helpers.lake_policy import narrow_release_policy
 from baibai_engine.cli import DOMAINS
 from baibai_engine.storage.lake import models as lake_models
 from baibai_engine.storage.lake.cli import main as lake_main
+from baibai_engine.storage.lake.datasets import LAKE_DATASETS
 from baibai_engine.storage.lake.inventory import inventory
 from baibai_engine.storage.lake.keys import (
     canonical_object_key,
@@ -53,10 +54,11 @@ def _dataset_payload(
     population_count: int = 100,
     rows: int = 456,
 ) -> dict[str, object]:
+    version = LAKE_DATASETS[dataset].contract_version
     key = canonical_object_key(
         layer="l1_canonical",
         dataset=dataset,
-        contract_version=1,
+        contract_version=version,
         partition_values={"month": 8, "year": 2026},
         content_sha256=digest,
     )
@@ -64,7 +66,7 @@ def _dataset_payload(
         "manifest_version": 1,
         "dataset": dataset,
         "layer": "l1_canonical",
-        "contract_version": 1,
+        "contract_version": version,
         "build_id": "20260812T123456Z-58d3057a-build",
         "sources": [],
         "producer_git_commit": "b" * 40,
@@ -120,7 +122,7 @@ def _release_payload() -> dict[str, object]:
         "datasets": {
             "jquants.daily_bars": {
                 "build_id": "20260812T123456Z-58d3057a-build",
-                "contract_version": 1,
+                "contract_version": LAKE_DATASETS["jquants.daily_bars"].contract_version,
                 "manifest_sha256": "d" * 64,
                 "data_as_of": "2026-08-12",
                 "coverage_status": "complete",
@@ -215,7 +217,8 @@ def test_dataset_manifest_requires_coverage_evidence(field: str) -> None:
 def test_pilot_partition_layout_changes_only_with_contract_bump() -> None:
     payload = _dataset_payload()
     digest = "a" * 64
-    payload["contract_version"] = 2
+    next_version = LAKE_DATASETS["jquants.daily_bars"].contract_version + 1
+    payload["contract_version"] = next_version
     payload["partition_by"] = ["date"]
     partitions = payload["partitions"]
     assert isinstance(partitions, list)
@@ -226,7 +229,7 @@ def test_pilot_partition_layout_changes_only_with_contract_bump() -> None:
     objects[0]["key"] = canonical_object_key(
         layer="l1_canonical",
         dataset="jquants.daily_bars",
-        contract_version=2,
+        contract_version=next_version,
         partition_values={"date": "2026-08-12"},
         content_sha256=digest,
         partition_by=("date",),
@@ -234,7 +237,7 @@ def test_pilot_partition_layout_changes_only_with_contract_bump() -> None:
 
     manifest = _load_dataset(payload)
 
-    assert manifest.contract_version == 2
+    assert manifest.contract_version == next_version
     assert manifest.partition_by == ("date",)
 
 
@@ -292,7 +295,7 @@ def test_manifest_nested_mappings_are_immutable(monkeypatch: pytest.MonkeyPatch)
         "datasets": {
             "jquants.daily_bars": {
                 "build_id": "build-1",
-                "contract_version": 1,
+                "contract_version": LAKE_DATASETS["jquants.daily_bars"].contract_version,
                 "manifest_sha256": "d" * 64,
                 "data_as_of": "2026-08-12",
                 "coverage_status": "complete",
