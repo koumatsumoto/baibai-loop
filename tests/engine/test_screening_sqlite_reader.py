@@ -12,6 +12,7 @@ from tests.helpers.screening_sqlite import add_source_coverage
 from baibai_engine.market.edinet_metrics.store import (
     EDINETMetricBaselineError,
     read_edinet_metric_baseline,
+    read_edinet_metrics,
 )
 from baibai_engine.market.jpx_models import JPXEarningsCalendarEntry, JPXEarningsCalendarSnapshot
 from baibai_engine.market.store import read_daily_bars
@@ -460,6 +461,79 @@ class ReadEDINETMetricBaselineTests(unittest.TestCase):
 
                 with self.assertRaises(EDINETMetricBaselineError):
                     read_edinet_metric_baseline(db, date(2026, 5, 8))
+
+
+def test_edinet_readers_preserve_named_values_and_provenance(tmp_path):
+    db = tmp_path / "market.sqlite"
+    asof = date(2026, 5, 8)
+    numeric_values = {
+        "sales_ttm": 101.0,
+        "ocf_ttm": 102.0,
+        "debt": 103.0,
+        "cash": 0.0,
+        "ebitda_ttm": 105.0,
+        "operating_profit_ttm": 106.0,
+        "depreciation_and_amortization_ttm": 107.0,
+        "capex_ttm": 108.0,
+        "fcf_ttm": -109.0,
+        "net_cash": -110.0,
+        "equity": 111.0,
+        "total_assets": 112.0,
+        "investment_securities": 113.0,
+        "ocf_receivables_cash_effect": -114.0,
+        "ocf_inventories_cash_effect": -115.0,
+        "ocf_payables_cash_effect": 116.0,
+        "ocf_contract_liabilities_cash_effect": 117.0,
+        "ocf_advances_received_cash_effect": 118.0,
+        "ocf_other_payables_cash_effect": 119.0,
+        "capex_ppe_reported": 120.0,
+        "capex_intangible_reported": 121.0,
+    }
+    quality_values = {
+        "ttm_quality_ev_ebitda": "exact",
+        "ttm_quality_p_s": "approximated",
+        "ttm_quality_pcfr": "unavailable",
+        "ttm_quality_fcf": "exact",
+        "ttm_quality_net_cash": "approximated",
+    }
+    provenance = {
+        "source_doc_id": "S100TEST",
+        "document_type": "120",
+        "source_submit_datetime": "2026-05-07 12:30",
+        "consolidation_basis": "consolidated",
+        "capex_source": "components",
+    }
+    store_edinet_metrics(
+        db,
+        asof,
+        [
+            {
+                "ticker": "7203",
+                **numeric_values,
+                **provenance,
+                **quality_values,
+                "source_period_start": "2025-04-01",
+                "source_period_end": "2026-03-31",
+                "failure_reasons": ["tag_not_found:example"],
+                "extractor_revision": "extractor-test",
+                "source_document_revision": "document-test",
+            }
+        ],
+    )
+    records = read_edinet_metrics(db, asof)
+    baseline = read_edinet_metric_baseline(db, asof)
+    assert records is not None and baseline is not None
+    record = records["7203"]
+    assert baseline.rows["7203"].record == record
+    for field, expected in {**numeric_values, **provenance}.items():
+        assert getattr(record, field) == expected, field
+    for field, expected in quality_values.items():
+        assert getattr(record, field).value == expected, field
+    assert record.source_period_start == date(2025, 4, 1)
+    assert record.source_period_end == date(2026, 3, 31)
+    assert record.failure_reasons == ("tag_not_found:example",)
+    assert baseline.rows["7203"].extractor_revision == "extractor-test"
+    assert baseline.rows["7203"].source_document_revision == "document-test"
 
 
 if __name__ == "__main__":  # pragma: no cover
