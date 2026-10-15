@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from typing import cast
+from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -11,7 +12,6 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
     _series,
     _StaticSession,
 )
-from tests.engine.market_context.indicators.provider_fixtures import SnapshotFixtures
 
 from baibai_engine.market_context.indicators.providers import (
     IndicatorsProviderError,
@@ -29,7 +29,7 @@ from baibai_engine.market_context.indicators.providers.base import (
 )
 
 
-class IndicatorsProviderParserTests(SnapshotFixtures):
+class IndicatorsProviderParserTests(TestCase):
     def test_fetch_bytes_closes_successful_response_before_returning(self) -> None:
         response = _FakeResponse(b"ok")
         result = fetch_bytes(

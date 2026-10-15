@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, date, datetime
+from unittest import TestCase
 from unittest.mock import patch
 
 from tests.engine.market_context.indicators.indicator_fixtures import (
@@ -10,7 +11,6 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
     _series,
     _StaticSession,
 )
-from tests.engine.market_context.indicators.provider_fixtures import SnapshotFixtures
 
 from baibai_engine.market_context.indicators.providers import (
     IndicatorsProviderError,
@@ -25,7 +25,7 @@ from baibai_engine.market_context.indicators.providers.jquants_indices import pa
 from baibai_engine.market_context.indicators.providers.nikkei_indexes import parse_nikkei_valuation
 
 
-class IndicatorsProviderParserTests(SnapshotFixtures):
+class IndicatorsProviderParserTests(TestCase):
     def test_parse_cftc_json_computes_noncomm_net(self) -> None:
         series = _series("cftc", "097741", unit="contracts")
         text = json.dumps(

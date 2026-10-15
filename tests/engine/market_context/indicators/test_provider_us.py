@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import date
 from typing import cast
+from unittest import TestCase
 
 from tests.engine.market_context.indicators.indicator_fixtures import (
     _context_with_browser,
@@ -12,7 +13,6 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
     _series,
     _StaticSession,
 )
-from tests.engine.market_context.indicators.provider_fixtures import SnapshotFixtures
 
 from baibai_engine.market_context.indicators.providers import (
     IndicatorsProviderError,
@@ -28,7 +28,7 @@ from baibai_engine.market_context.indicators.providers.frb_h15 import FrbH15Prov
 from baibai_engine.market_context.indicators.providers.umich_sca import parse_umich_table
 
 
-class IndicatorsProviderParserTests(SnapshotFixtures):
+class IndicatorsProviderParserTests(TestCase):
     def test_parse_fred_csv_filters_range_and_missing_values(self) -> None:
         series = _series("fred_csv", "DGS10")
         text = "observation_date,DGS10\n2026-05-01,4.39\n2026-05-02,.\n2026-05-04,4.45\n"

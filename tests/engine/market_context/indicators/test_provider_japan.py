@@ -5,6 +5,7 @@ import json
 import zipfile
 from datetime import date
 from typing import cast
+from unittest import TestCase
 
 from tests.engine.market_context.indicators.indicator_fixtures import (
     _DASHBOARD_INDICATOR,
@@ -19,7 +20,6 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
     _RecordingSession,
     _series,
 )
-from tests.engine.market_context.indicators.provider_fixtures import SnapshotFixtures
 
 from baibai_engine.market_context.indicators.definitions import (
     SeriesDefinition,
@@ -39,7 +39,7 @@ from baibai_engine.market_context.indicators.providers.estat_dashboard import (
 )
 
 
-class IndicatorsProviderParserTests(SnapshotFixtures):
+class IndicatorsProviderParserTests(TestCase):
     def test_parse_boj_xlsx_refuses_a_workbook_it_cannot_read_the_named_column_from(
         self,
     ) -> None:

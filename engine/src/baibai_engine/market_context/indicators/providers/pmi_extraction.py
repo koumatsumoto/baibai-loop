@@ -4,12 +4,10 @@ import re
 from collections.abc import Callable, Iterator
 from datetime import date, timedelta
 
-# A S&P Global PMI release states its headline reading once, in its opening
-# statement, surrounded by numbers that are not the reading: the previous month's
-# level, the flash estimate, the 50.0 no-change threshold, the composite index and
-# the sub-indices. Extraction is therefore a matter of proving which number is the
-# reading, and the rules here are built so that an unproven number is dropped rather
-# than guessed:
+# S&P Global PMI releases put their headline reading near other numbers: the
+# previous month's level, flash estimate, 50.0 threshold, composite and sub-indices.
+# These deterministic extraction rules recognize supported phrasings, not arbitrary
+# prose. A missing match stays unknown rather than selecting an unrelated number:
 #
 # * a value is read only inside the opening statement, and only where the release
 #   ties it to the month wanted or introduces it as that month's reading;
@@ -19,8 +17,9 @@ from datetime import date, timedelta
 # * readers run strictest first, and the readers that cannot prove the month from the
 #   text are gated on which month the release reports, so an unanchored reading can
 #   only ever be attributed to that release's own month;
-# * the values a reader finds must agree with each other and sit in the plausible
-#   index range, so a misparse raises instead of entering the store as data.
+# * within the first matching reader/window, candidate values must agree and sit
+#   in the index range. Later windows and lower-priority readers are not a
+#   cross-check; the selected match does not prove the entire PDF is consistent.
 __all__ = ["PmiExtractionError", "extract_pmi_value"]
 
 _PLAUSIBLE_MIN = 0.0
@@ -138,9 +137,9 @@ def extract_pmi_value(
     ``normalized_text`` is the whitespace-collapsed PDF text and
     ``release_observed_at`` is the month the release reports, which is the month
     after ``expected_observed_at`` when a month is taken from the release that
-    restates it. Returns ``None`` when no reader can prove a value for the month, and
-    raises :class:`PmiExtractionError` when readings disagree or a reading lies
-    outside the plausible index range.
+    restates it. Returns ``None`` when no supported pattern matches the month.
+    Raises :class:`PmiExtractionError` when candidates in the selected reader/window
+    disagree or lie outside the index range; it does not compare every PDF statement.
     """
 
     text = _readable_text(normalized_text)
