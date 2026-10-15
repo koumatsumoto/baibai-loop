@@ -67,34 +67,18 @@ class _DividendCarry:
     split_factor: float | None
 
 
-@dataclass(frozen=True, slots=True)
-class _DividendForecast:
-    """One target-period annual dividend forecast and its source document."""
-
-    target_period_end: date
-    source: JQuantsFinancialSummary
-    annual_dps: float | None
-
-
-def _resolve_dividend_forecast(
+def _forecast_annual_dps(
     summaries: Sequence[JQuantsFinancialSummary],
-) -> _DividendForecast | None:
-    """Use the latest accounting-period actual, then its revision, as the freshness floor.
+) -> float | None:
+    """Return applicable-period guidance, using an actual-date floor only for legacy rows.
 
     A later disclosure correcting an older period does not invalidate current guidance.
-    Null DPS alone does not establish a withdrawal and keeps its existing missing-value
-    treatment.
+    Null DPS alone does not establish a withdrawal.
     """
 
     if any(row.dividend_forecast_status != "legacy_unknown" for row in summaries):
         source = latest_forecast_source(summaries, dividend=True)
-        return (
-            _DividendForecast(
-                source.forecast_period_end or date.max, source, source.dps_forecast_annual
-            )
-            if source is not None
-            else None
-        )
+        return source.dps_forecast_annual if source is not None else None
     actual_rows = _actual_dps_rows(summaries)
     threshold = actual_rows[0].disclosed_at if actual_rows else None
     for source in sorted(summaries, key=lambda item: item.disclosed_at, reverse=True):
@@ -102,11 +86,7 @@ def _resolve_dividend_forecast(
             return None
         value = source.dps_forecast_annual
         if value is not None and value >= 0:
-            return _DividendForecast(
-                target_period_end=date.max,
-                source=source,
-                annual_dps=value,
-            )
+            return value
     return None
 
 
@@ -313,24 +293,19 @@ def _resolve_dividend_carry(
     latest_price: float,
     asof_date: date,
 ) -> _DividendCarry:
-    """carry 用の配当利回りと基準を解決する。
+    """Resolve carry from applicable-period guidance and split-safe actual payouts.
 
-    実績 DPS は開示時点の株式基準で記載され、`_normalize_summaries_to_asof_basis` が
-    開示日より後の分割を掛けて asof 基準へ寄せている。残るのは会計期間の中で起きた
-    分割・併合で、報告された年間値は支払ごとに基準が分かれるためそのままでは株価と
-    比べられない。その年度は支払ごとに換算し直し (`_asof_basis_dividend`)、換算できな
-    ければ実績側の利回りを出さない。carry の配当側は予想 DPS または基準を解決できた実績
-    DPS だけで組む。分割を跨ぐ行の正の予想 DPS は基準不明として落とし、明示 0 は残す。
+    Actual annual payouts can mix payment-date share bases. If an action occurred
+    inside their accounting window, resolve payments separately even when multiple
+    factors cancel to one. An explicit zero does not require that resolution.
 
-    予想は実績より優先するが、優先できるのは最新の実績観測と同日以降で、かつ正の実績 DPS の 2 倍
-    以下のときだけである。2 倍を超える跳ねは特別配当か未実現の還元転換かを機械入力から
-    区別できないので、5 年反復する carry には実績を使う。会社が予想を取り下げた後も過去の
-    予想を引き当て続けると、無配化した会社に当時の配当額の利回りが付き、E[r] の reversion
-    上限 (5%/年) を単独で超える carry を作る。
+    Prefer nonnegative guidance from the document-period resolver (or the actual
+    disclosure freshness floor for legacy input). When positive actual DPS exists,
+    guidance over twice that amount falls back to actual for recurring carry.
+    Zero or unavailable actual DPS does not impose that spike ceiling.
     """
     actual_rows = _actual_dps_rows(summaries)
-    forecast_state = _resolve_dividend_forecast(summaries)
-    forecast = forecast_state.annual_dps if forecast_state is not None else None
+    forecast = _forecast_annual_dps(summaries)
     basis_factor: float | None = None
     actual_annual: float | None = None
     actual_unresolved = bool(
@@ -440,8 +415,7 @@ def build_shareholder_return_change_signals(
         latest_actual = dps_values[latest_actual_row.fiscal_year_end]
     else:
         latest_actual = None
-    forecast_state = _resolve_dividend_forecast(normalized)
-    forecast = forecast_state.annual_dps if forecast_state is not None else None
+    forecast = _forecast_annual_dps(normalized)
     dps_guidance_up = (
         forecast > latest_actual if forecast is not None and latest_actual is not None else None
     )

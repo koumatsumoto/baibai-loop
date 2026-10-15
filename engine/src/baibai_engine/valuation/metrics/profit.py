@@ -9,7 +9,6 @@ from math import isfinite
 from statistics import fmean
 
 from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
-from baibai_engine.market.financial_documents import latest_forecast_source
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.metric_quality import OperatingProfitSource
 from baibai_engine.valuation.metrics.capital import _normalize_summaries_to_asof_basis
@@ -105,33 +104,6 @@ def build_normalized_profit_signals(
     )
 
 
-@dataclass(frozen=True, slots=True)
-class _EarningsForecast:
-    """One target-period earnings forecast resolved from ordered source documents."""
-
-    target_period_end: date
-    source: JQuantsFinancialSummary
-    eps: float | None
-    profit: float | None
-    ordinary_profit: float | None
-
-
-def _resolve_earnings_forecast(
-    summaries: Sequence[JQuantsFinancialSummary],
-) -> _EarningsForecast | None:
-    """Resolve an independent earnings stream from projected source documents."""
-    source = latest_forecast_source(summaries)
-    if source is None:
-        return None
-    return _EarningsForecast(
-        target_period_end=source.forecast_period_end or date.max,
-        source=source,
-        eps=source.forecast_eps,
-        profit=source.forecast_profit,
-        ordinary_profit=source.forecast_ordinary_profit,
-    )
-
-
 def _select_operating_profit(
     summary: JQuantsFinancialSummary | None,
 ) -> tuple[float | None, OperatingProfitSource]:
@@ -159,8 +131,8 @@ def _accruals_to_assets(
     figure and a share count: EPS is per average share excluding treasury while the
     issued count includes it, so the product describes neither. The denominator uses
     the average of current and prior-year total assets when both are present,
-    otherwise the current value. Returns None for any missing input or zero
-    denominator.
+    otherwise the current value. Returns None when NI, CFO, or current total assets
+    is missing, or when the resulting denominator is nonpositive.
     """
     if net_income is None or ocf_ttm is None or total_assets is None:
         return None

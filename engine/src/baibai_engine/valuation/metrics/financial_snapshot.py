@@ -39,7 +39,6 @@ from .periods import (
 from .profit import (
     _accruals_to_assets,
     _loss_narrowing,
-    _resolve_earnings_forecast,
     _select_operating_profit,
 )
 from .ratios import _safe_positive_ratio, _safe_ratio, _yoy_ratio
@@ -64,13 +63,13 @@ def build_financial_snapshot(
     summaries = normalization.summaries
     capital_basis_barrier = normalization.capital_basis_barrier
     latest = _latest_summary(summaries)
-    forecast = _resolve_earnings_forecast(summaries)
-    forecast_eps = forecast.eps if forecast is not None else None
+    forecast = latest_forecast_source(summaries)
+    forecast_eps = forecast.forecast_eps if forecast is not None else None
     # 同じ予想期の純利益>経常利益はdata-quality注記。原因・持続性は一次開示で確認する。
     # 純利益/経常は同じ予想期・basis・開示候補から投影する分割不変の絶対額なので、
     # 両方揃うときだけ比較する。flag は warning で per_forward / E[r] / rank を変えない。
-    forecast_profit = forecast.profit if forecast is not None else None
-    forecast_ordinary_profit = forecast.ordinary_profit if forecast is not None else None
+    forecast_profit = forecast.forecast_profit if forecast is not None else None
+    forecast_ordinary_profit = forecast.forecast_ordinary_profit if forecast is not None else None
     forecast_special_gain_flag = (
         forecast_profit is not None
         and forecast_ordinary_profit is not None
@@ -275,7 +274,7 @@ def build_financial_snapshot(
     return FinancialSnapshot(
         latest_financial_disclosure_date=latest.disclosed_at if latest else None,
         per_forward=per_forward,
-        earnings_forecast_source=forecast_source_trace(forecast.source if forecast else None),
+        earnings_forecast_source=forecast_source_trace(forecast),
         dividend_forecast_source=forecast_source_trace(
             latest_forecast_source(summaries, dividend=True), dividend=True
         ),

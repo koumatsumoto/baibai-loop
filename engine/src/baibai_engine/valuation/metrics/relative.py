@@ -48,8 +48,8 @@ def relative_valuation(
         sector_median = median(baseline) if baseline else None
         sector_medians[metric] = sector_median
         # どちらの母集団が答えたかを値と同じ粒度で残す。両者は同じ語で呼ばれるが
-        # 別の量で、薄い業種は市場より低倍率へ寄るため、素性が無いと gap の符号を
-        # 業種の割安と読むか業種構成と読むかを後から分けられない。
+        # 別の量である。市場fallbackには業種構成の違いも入るため、素性が無いと
+        # 同業比較なのか市場比較なのかを後から区別できない。
         # 中央値そのものが出なかった軸には基準が無い。どちらも答えていないのに
         # 「市場へ落ちた」と書くと、EDINET 由来の軸のように母集団全体で値が立たない
         # 軸が全行 fallback として並び、実際に落ちた軸と見分けが付かなくなる。
@@ -68,7 +68,7 @@ def relative_valuation(
         # (直近上場等) の中央値は anchor として不安定なため 100 本を下限にする。
         # `valuation_history` は fundamentals を最新値で固定して価格だけを動かすので、
         # これは倍率の履歴ではなく価格の履歴を倍率の単位で表したものである。価格比例の
-        # 軸では `自己中央値 / 現値` が軸によらず `median(終値) / 現値` に一致する。
+        # 軸では `自己中央値 / 現値` が軸によらず `median(終値) / 現在株価` に一致する。
         self_medians[metric] = median(history_values) if len(history_values) >= 100 else None
         sigma_gaps[metric] = sigma_gap(history_values, current)
 

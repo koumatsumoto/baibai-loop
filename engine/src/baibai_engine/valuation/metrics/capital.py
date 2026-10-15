@@ -217,19 +217,13 @@ def _normalize_summaries_to_asof_basis(
     ticker_bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
     asof_date: date,
 ) -> Sequence[JQuantsFinancialSummary]:
-    """financial summary 行の per-share 値と株数を asof 時点の株式基準へ換算する。
+    """Return rows normalized to the as-of share basis.
 
-    J-Quants の財務開示行は as-reported (分割の遡及調整なし) のため、開示後に
-    分割・併合 (権利落ち bar の adjustment_factor) があると、行同士の比較・合成
-    (TTM 合成・YoY・株数変化) や「開示時点株数 x 権利落ち後価格」の market cap で
-    per-share 基準が混在する (1:2 分割なら時価総額が半分・合成 EPS が過大に見える)。
-    各行の開示日より後・asof 以前の adjustment_factor を累積し、実績系の
-    per-share 値 (eps_ttm / bps) には掛け、株数には割って現在基準へ揃える。
-    実績系と株数は同一行内で開示日基準に揃っている (1899/1911 の実データで確認) が、
-    forecast_eps だけは「会社が分割考慮後の値で開示する」慣行が混在し、開示時点の
-    基準を機械では判別できない。分割を跨ぐ行の forecast_eps は正規化せず None に
-    落とす (偽の per_forward を出さない。split_adjustment_recent risk tag が
-    research の手動検算へ誘導する)。
+    Classify period-end versus disclosure basis when actions intervene, then apply
+    subsequent factors to per-share values and their inverses to share counts.
+    Indeterminate bases lose dependent values; forecasts across a split are not
+    relabelled as split-safe. Callers needing the capital carry barrier use the
+    result-returning variant directly.
     """
     return _normalize_summaries_with_status(summaries, ticker_bars, asof_date).summaries
 
@@ -504,8 +498,8 @@ def build_shares_outstanding_index(
 # この倍率を超えて外れる行は、株数を per-share の分母に使わない。
 SHARE_COUNT_ANCHOR_TOLERANCE = 2.0
 
-# EDINET の総資産が短信の総資産からこの倍率を超えて外れる行は、同じ会社の貸借対照表では
-# ないとみなし、EDINET 由来の値を判断面へ出さない。
+# EDINETと短信の総資産比がこの倍率帯を外れる行は、規模差の検査で不採用にする。
+# 帯内という結果だけでは同じ時点・連結範囲であるとは確定しない。
 ENTITY_SCALE_TOLERANCE = 2.0
 
 CONSOLIDATED_BASIS = "consolidated"
