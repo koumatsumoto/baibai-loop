@@ -123,7 +123,8 @@ def test_override_constraints_are_price_independent_and_expiry_uses_valuation_in
     )
     assert warning.actual_pct > 10
     assert not warning.overridden
-    assert snapshot.as_of == ledger.as_of
+    assert snapshot.as_of == NOW
+    assert service.load().as_of == ledger.as_of
 
 
 @pytest.mark.parametrize("factor", [1.0, 0.5, None])
@@ -229,8 +230,24 @@ def test_current_portfolio_leaves_stale_market_quotes_unvalued(holding_case):
     from baibai_engine.position.valuation import current_portfolio
 
     _, market, ledger = holding_case
-    snapshot = current_portfolio(ledger, sqlite_path=market, now=NOW + timedelta(days=30))
+    valuation_at = NOW + timedelta(days=30)
+    snapshot = current_portfolio(ledger, sqlite_path=market, now=valuation_at)
+    assert snapshot.as_of == valuation_at
     assert snapshot.available_cash_yen == 10080500
     assert snapshot.holdings[0].quantity == 200
     assert snapshot.holdings[0].market_value_yen is None
     assert snapshot.total_capital_yen is None
+
+
+@pytest.mark.parametrize("valuation_at", [NOW - timedelta(days=1), NOW + timedelta(days=1)])
+def test_portfolio_summary_uses_the_replayed_instant(holding_case, valuation_at):
+    from baibai_engine.position.ledger import summarize_portfolio
+
+    _, _, ledger = holding_case
+    recorded_at = ledger.as_of
+    state = replay_events_through(ledger.events, valuation_at)
+    snapshot = summarize_portfolio(ledger, state, {})
+    assert snapshot.as_of == valuation_at
+    assert snapshot.ledger_as_of == recorded_at
+    assert snapshot.available_cash_yen == state.available_cash_yen
+    assert ledger.as_of == recorded_at

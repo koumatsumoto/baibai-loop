@@ -14,7 +14,7 @@ from tests.helpers.screening_sqlite import seed_daily_bars
 
 from baibai_engine.position.drafts import apply_draft, build_sell_execution_draft
 from baibai_engine.position.store import LedgerStoreService
-from baibai_web.readmodel.builders import build_dashboard
+from baibai_web.readmodel.builders import build_dashboard, dashboard
 from baibai_web.sources import db_sources
 from baibai_web.sources.db_sources import (
     DbLedgerSource,
@@ -48,7 +48,7 @@ def holding_case(tmp_path):
 def test_dashboard_reads_market_without_ledger_quotes_and_retains_unknowns(
     holding_case, tmp_path, monkeypatch, missing
 ):
-    db, market, _ = holding_case
+    db, market, ledger = holding_case
 
     class Clock(datetime):
         @classmethod
@@ -56,6 +56,7 @@ def test_dashboard_reads_market_without_ledger_quotes_and_retains_unknowns(
             return NOW if tz is None else NOW.astimezone(tz)
 
     monkeypatch.setattr(db_sources, "datetime", Clock)
+    monkeypatch.setattr(dashboard, "datetime", Clock)
     with closing(sqlite3.connect(market)) as connection, connection:
         connection.execute("UPDATE jquants_daily_bars SET close=NULL WHERE traded_at='2026-07-01'")
         if missing:
@@ -70,6 +71,9 @@ def test_dashboard_reads_market_without_ledger_quotes_and_retains_unknowns(
         DbMarketPriceSource(market),
     )
     assert view.ledger_error is None
+    assert view.ledger_as_of == ledger.as_of
+    assert view.ledger_stale
+    assert view.generated_at == NOW
     assert view.available_cash_yen == 10080500
     assert view.holdings[0].quantity == 200
     assert view.holdings[0].deployed_cost_yen == 203000

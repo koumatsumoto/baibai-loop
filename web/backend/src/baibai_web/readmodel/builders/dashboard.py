@@ -114,8 +114,8 @@ def build_dashboard(
         generated_at=now,
         ledger_exists=True,
         ledger_error=None,
-        ledger_as_of=snapshot.as_of,
-        ledger_stale=snapshot.as_of.date() <= today - timedelta(days=7),
+        ledger_as_of=snapshot.ledger_as_of,
+        ledger_stale=snapshot.ledger_as_of.astimezone(_JST).date() <= today - timedelta(days=7),
         valuation_as_of=valuation_as_of,
         valuation_stale=valuation_as_of is None
         or valuation_as_of.date() <= today - timedelta(days=7),

@@ -387,7 +387,9 @@ class PortfolioWarning:
 
 @dataclass(frozen=True, slots=True)
 class PortfolioSnapshot:
+    # Replay/valuation cutoff and last recorded ledger instant are different facts.
     as_of: datetime
+    ledger_as_of: datetime
     portfolio_scope: Literal["repository_only"]
     available_cash_yen: int
     reserved_cash_yen: int
@@ -782,7 +784,7 @@ def summarize_portfolio(
     *,
     policy: PolicyConfig = PORTFOLIO_POLICY,
 ) -> PortfolioSnapshot:
-    """Show confirmed capital even when some holdings cannot be valued."""
+    """Summarize the replay instant, not the document's last recorded instant."""
     holdings = _holding_snapshots(state.lots, state.metadata, prices)
     deployed_cost = sum(item.deployed_cost_yen for item in holdings)
     market_value = (
@@ -814,7 +816,8 @@ def summarize_portfolio(
         else ()
     )
     return PortfolioSnapshot(
-        as_of=document.as_of,
+        as_of=state.as_of,
+        ledger_as_of=document.as_of,
         portfolio_scope=document.portfolio_scope,
         available_cash_yen=available_cash,
         reserved_cash_yen=reserved_cash,
@@ -841,6 +844,7 @@ def snapshot_to_payload(snapshot: PortfolioSnapshot) -> dict[str, object]:
 
     return {
         "as_of": snapshot.as_of.isoformat(),
+        "ledger_as_of": snapshot.ledger_as_of.isoformat(),
         "portfolio_scope": snapshot.portfolio_scope,
         "available_cash_yen": snapshot.available_cash_yen,
         "reserved_cash_yen": snapshot.reserved_cash_yen,
