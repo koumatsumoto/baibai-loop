@@ -188,10 +188,7 @@ class CalibrationPanelTest(unittest.TestCase):
             )
             self.assertEqual(covered_by_ticker["9002"].reported_short_ratio, 0.0)
             self.assertEqual(covered_by_ticker["9002"].reported_short_breadth, 0)
-            self.assertEqual(
-                covered_by_ticker["9002"].reported_short_latest_disclosed_at,
-                ASOF.isoformat(),
-            )
+            self.assertIsNone(covered_by_ticker["9002"].reported_short_latest_disclosed_at)
 
             with patch(
                 "baibai_engine.screening.calibration.panel.read_reported_short_metrics",

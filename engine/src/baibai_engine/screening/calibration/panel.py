@@ -178,6 +178,8 @@ class PanelRow:
     # active; None means the window is not provably covered.
     reported_short_ratio: float | None
     reported_short_breadth: int | None
+    # Actual latest disclosure among active reporters. Coverage with no active
+    # report establishes zero ratio/breadth, not a disclosure on the cohort date.
     reported_short_latest_disclosed_at: str | None
     # Supply/demand from the exchange's published all-issues margin balances, joined
     # at the publication lag of whichever series published the balance date (see
@@ -519,8 +521,6 @@ def build_panel(
                     short_metric.latest_disclosed_at.isoformat()
                     if short_metric is not None
                     else None
-                    if short_metric_ambiguous
-                    else (asof_date.isoformat() if reported_short is not None else None)
                 ),
                 margin_week_end=(
                     derived.margin_week_end.isoformat() if derived.margin_week_end else None

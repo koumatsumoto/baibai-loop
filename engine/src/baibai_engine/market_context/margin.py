@@ -26,7 +26,7 @@ from baibai_engine.market.bars import (
     cumulative_share_unit_factor_after,
 )
 
-MARKET_CONTEXT_CALCULATION_REVISION = "margin-share-units-and-short-missing-v2"
+MARKET_CONTEXT_CALCULATION_REVISION = "margin-share-units-and-short-disclosure-v3"
 
 # A 信用銘柄 carries no stock lending, so it has no margin short balance to speak
 # of. Its long side cannot be placed on a crowding scale that is defined by the
