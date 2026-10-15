@@ -399,3 +399,36 @@ def test_event_linked_to_old_family_keeps_new_annual_usable(tmp_path):
     assert [d["docID"] for d in annual_documents([old, new, event], retained={"S100TEST"})] == [
         "S100NEW1"
     ]
+
+
+def test_operation_cannot_introduce_a_cycle_before_annual_family_selection():
+    original = document()
+    correction = document("S100CORR", "2026-08-01 10:00", parentDocID="S100TEST")
+    correction["docTypeCode"] = "130"
+    event = {**correction, "doc_date": "2026-08-02", "docInfoEditStatus": "1"}
+    event["parentDocID"] = "S100CORR"
+
+    with pytest.raises(EDINETProviderError, match="parent relation cycle"):
+        annual_documents([original, correction, event])
+
+
+def test_withdrawal_uses_parent_links_after_operation_metadata_edits():
+    from baibai_engine.market.providers.edinet import _canonicalize_document_events
+
+    original = document()
+    newer = document("S100NEW1", "2027-06-24 10:00")
+    correction = document("S100CORR", "2026-08-01 10:00", parentDocID="S100TEST")
+    correction["docTypeCode"] = "130"
+    edit = {**correction, "doc_date": "2027-07-01", "docInfoEditStatus": "1"}
+    edit["parentDocID"] = "S100NEW1"
+    withdrawal = document("S100WTHD", "2027-07-02 10:00", parentDocID="S100NEW1")
+    withdrawal.update(docTypeCode="350", withdrawalStatus="1")
+
+    folded, quarantined = _canonicalize_document_events(
+        [original, newer, correction, edit, withdrawal], origin_start=None
+    )
+    by_id = {row["docID"]: row for row in folded}
+    assert not quarantined
+    assert by_id["S100NEW1"]["withdrawalStatus"] == "2"
+    assert by_id["S100CORR"]["withdrawalStatus"] == "2"
+    assert by_id["S100TEST"]["withdrawalStatus"] == "0"

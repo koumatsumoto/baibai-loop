@@ -178,8 +178,6 @@ class EDINETProvider:
             cached = read_edinet_metrics(self._sqlite_path, asof_date)
             if cached is not None:
                 return dict(cached)
-        if self._cache_only:
-            return {}
         return {}
 
     def bootstrap_cache(self, start: date, end: date) -> dict[str, int]:
@@ -509,7 +507,14 @@ def _canonicalize_document_events(
         if text_or_none(coalesce_field(current, "withdrawalStatus", "withdrawal_status")) == "2":
             raise EDINETProviderError(f"EDINET event follows withdrawal: {doc_id}")
         origin_date = current.get("doc_date")
+        old_parent = text_or_none(coalesce_field(current, "parentDocID", "parent_doc_id"))
         current.update({key: value for key, value in event.items() if value is not None})
+        new_parent = text_or_none(coalesce_field(current, "parentDocID", "parent_doc_id"))
+        if new_parent != old_parent:
+            if old_parent is not None:
+                children[old_parent].discard(doc_id)
+            if new_parent is not None:
+                children.setdefault(new_parent, set()).add(doc_id)
         if origin_date is not None:
             current["doc_date"] = origin_date
         if edit_status == "1":
@@ -518,6 +523,8 @@ def _canonicalize_document_events(
             current["disclosureStatus"] = "2"
         elif disclosure_status == "3":
             current["disclosureStatus"] = "0"
+    # Operation rows can replace parent metadata after the initial graph check.
+    _validate_parent_graph(origins)
     return list(origins.values()), tuple(
         sorted(
             quarantined,
