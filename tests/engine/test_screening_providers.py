@@ -1941,7 +1941,7 @@ class ScreeningProviderTests(unittest.TestCase):
 
         self.assertEqual(snapshot.entries[0].announcement_date, date(2026, 7, 20))
 
-    def test_jpx_earnings_snapshot_warns_when_the_index_layout_breaks_precedence(self) -> None:
+    def test_jpx_earnings_snapshot_warns_when_archive_publication_stamp_is_missing(self) -> None:
         provider = JPXProvider()
         files = (
             self._earnings_file(
@@ -1962,8 +1962,17 @@ class ScreeningProviderTests(unittest.TestCase):
             provider.get_earnings_calendar_snapshot(date(2026, 7, 14))
 
         messages = "\n".join(logs.output)
-        self.assertIn("no rolling `kessan` file", messages)
         self.assertIn("no readable publication stamp", messages)
+
+    def test_jpx_earnings_snapshot_without_daily_file_is_not_a_layout_warning(self) -> None:
+        files = (
+            self._earnings_file(
+                self._earnings_url("09_1009"), date(2026, 10, 8), {"130A": date(2026, 10, 20)}
+            ),
+        )
+        with self.assertNoLogs("baibai_engine.market.providers.jpx", level="WARNING"):
+            snapshot = self._merge_earnings_files(files, date(2026, 10, 15))
+        self.assertEqual(snapshot.entries[0].announcement_date, date(2026, 10, 20))
 
     def test_jpx_earnings_snapshot_warns_when_several_rolling_files_are_listed(self) -> None:
         provider = JPXProvider()

@@ -932,12 +932,8 @@ def _earnings_source_precedence(
 def _warn_on_unexpected_earnings_sources(files: Sequence[_EarningsCalendarFile]) -> None:
     """Say when the JPX layout stopped matching what precedence relies on."""
     rolling = [source.url for source in files if _is_rolling_earnings_file(source.url)]
-    if not rolling:
-        _LOGGER.warning(
-            "JPX earnings calendar index has no rolling `kessan` file; "
-            "cohort archives alone decide the schedule: %s",
-            ", ".join(source.url for source in files),
-        )
+    # JPX omits the daily workbook when no next-business-day disclosure is listed.
+    # Its absence alone is not a layout error; monthly files can still supply dates.
     if len(rolling) > 1:
         _LOGGER.warning(
             "JPX earnings calendar index lists several rolling `kessan` files, "

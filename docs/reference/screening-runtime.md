@@ -111,6 +111,10 @@ read ownerの`analysis_run`はResearch日以下のanalysisと`known_at`以下の
 
 値の意味は[valuation metrics](./valuation-metrics.md)、sourceの選択は[data sources](./data-sources.md)、PIT・coverage・hydrateは[market lake](./market-lake.md)に従う。
 
+<a id="jpx-earnings-calendar"></a>
+
+[JPXの決算予定](https://www.jpx.co.jp/listing/event-schedules/financial-announcement/index.html)は、3月期・9月期決算会社の翌営業日分の日次資料と、期末・四半期末を迎えた月別資料で対象が異なる。日次資料は予定なしならリンクが掲載されないことがあり、欠落だけでlayout障害と判定しない。月別資料は翌月上旬掲載後に更新される。ファイル名の日付、本文の基準日、取得時刻は別であり、現在取得した資料だけで過去時点の完全履歴を再現できるとは扱わない。[予定変更後が未決なら「未定」と登録する](https://faq.jpx.co.jp/disclo/tse/web/knowledge7701.html)ため、未定は単なる不正日付ではない。ファイル間の優先順位はprovider側の解決方針であり、JPX公式の優先規則と説明しない。
+
 JPX決算calendarは銘柄ごとの次回決算日の注記だが、snapshotの取得失敗は現行`run`全体を保存前に止める。個別銘柄にcalendar行がないことと同じ停止条件ではない。予定日当日・経過後の状態は`scheduled_date_reached`であり、発表確認を意味しない。保存済みの旧`announced`もWeb APIの投影とResearch入力では同じ意味として扱い、exact読取と元snapshotは保全する（[#1507](https://github.com/koumatsumoto/baibai-loop/issues/1507)）。EDINETのCSV抽出にhard failureが1件でもあると前処理snapshotを書かず、dailyもScreeningを進めない。いずれも取得・成果物の完全性に関する現行運用境界であり、銘柄の経済的な除外根拠や停止による機会損失の実測ではない。
 
 J-Quantsのread取得は[provider](../../engine/src/baibai_engine/market/providers/jquants.py)が生成するClientV2のHTTPS adapterで再試行を所有する。単一GETは初回＋最大5回で、429と既存の一時HTTP失敗を対象にする。有効な`Retry-After`の秒数／HTTP-dateを優先し、無いか不正なら30・60・120・300・600秒で待つ。認証・403・解析失敗を再試行せず、SDKのページ・日付range全体も再実行しない。従来の成功chunk保存・cacheからの再開を維持する。job残時間をproviderへ渡す経路は現行に無く、残時間による待機前終了は未実装である。永続cooldownや他providerのretryはこの契約に含めない。
