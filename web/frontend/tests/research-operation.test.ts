@@ -12,7 +12,7 @@ function session(targets: OperationResearchTargetView[]): OperationSessionView {
   return {
     operation_id: 'research-op-00000000000040008000000000000001', session_kind: 'capital-allocation', status: 'completed',
     as_of: '2026-10-14', ticker: null, started_at: '2026-10-14T18:00:00+09:00', completed_at: '2026-10-14T19:00:00+09:00',
-    payload: { checkpoint: 'synthetic proposal complete', result: 'synthetic completion', human_confirmation: null },
+    payload: { checkpoint: 'synthetic proposal complete', result: 'synthetic completion' },
     research: { request: 'synthetic explicit request', request_scope: 'discover_new', selection_summary: '合成選定理由', max_deep_research_targets: 3, targets, proposal_id: null, proposal_draft_sha256: null, source_run_revision_id: null, source_analysis_as_of: null },
   }
 }

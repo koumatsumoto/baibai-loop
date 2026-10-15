@@ -237,7 +237,7 @@ def test_empty_selection_ends_with_reason_without_fabricating_proposal_or_confir
     service, operation = start(case)
     completed = service.complete(operation.operation_id, final_payload(operation), completed_at=NOW)
     assert completed.status == "completed"
-    assert completed.payload.human_confirmation is None
+    assert "human_confirmation" not in completed.payload.model_dump()
     assert ledger_rows(db) == before
     with closing(sqlite3.connect(db)) as connection, connection:
         assert connection.execute("SELECT count(*) FROM investment_proposal").fetchone()[0] == 0
@@ -264,7 +264,7 @@ def test_reviewed_a_and_unfinished_b_keep_complete_scope_and_distinct_actions(ca
     seed_proposal(db, proposal)
     before = ledger_rows(db)
     completed = record_and_finish(service, operation, proposal)
-    assert completed.payload.human_confirmation is None
+    assert "human_confirmation" not in completed.payload.model_dump()
     assert (
         progress_binding(completed.payload).proposal_ref.draft_sha256
         == proposal.review.draft_sha256

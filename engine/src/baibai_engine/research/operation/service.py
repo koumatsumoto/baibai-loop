@@ -74,7 +74,6 @@ class OperationService:
         payload: OperationPayload,
         ticker: str | None = None,
     ) -> OperationSession:
-        _require_current_payload(payload)
         if started_at.utcoffset() is None:
             raise OperationConflictError("started_at must include a UTC offset")
         selection = selection_binding(payload)
@@ -171,7 +170,6 @@ class OperationService:
         *,
         completed_at: datetime,
     ) -> OperationSession:
-        _require_current_payload(payload)
         try:
             return self._replace_active(operation_id, payload=payload, completed_at=completed_at)
         except (OperationCompletionError, OperationConflictError):
@@ -191,7 +189,7 @@ class OperationService:
         selected = selection_binding(operation.payload)
         if selected is None:
             raise OperationConflictError(
-                "explicitly bind the historical active selection before research"
+                "fixed research_selection is required"
             )
         by_ticker = {item.ticker: item for item in progress.outcomes}
         by_ticker[outcome.ticker] = outcome
@@ -282,7 +280,7 @@ class OperationService:
     ) -> OperationSession:
         selection = selection_binding(self.get(operation_id).payload)
         if selection is None:
-            raise OperationConflictError("this historical Operation has no fixed selection")
+            raise OperationConflictError("fixed research_selection is required")
         target = next((item for item in selection.targets if item.ticker == ticker), None)
         if target is None:
             raise OperationConflictError("ticker is outside the fixed selection")
@@ -342,7 +340,6 @@ class OperationService:
         checked_at: datetime | None = None,
         expected_payload: OperationPayload | None = None,
     ) -> OperationSession:
-        _require_current_payload(payload)
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -367,7 +364,7 @@ class OperationService:
                 except ValueError as error:
                     raise OperationConflictError(str(error)) from error
                 if selected_before is None:
-                    raise OperationConflictError("historical Operation is read-only")
+                    raise OperationConflictError("fixed research_selection is required")
                 if incoming != selected_before:
                     raise OperationConflictError(
                         "Research selection is immutable; no replacement targets"
@@ -487,14 +484,6 @@ def _validate_complete(session_kind: SessionKind, payload: OperationPayload) -> 
         missing.append("artifacts")
     if missing:
         raise OperationCompletionError(f"{session_kind} completion requires: {', '.join(missing)}")
-
-
-def _require_current_payload(payload: OperationPayload) -> None:
-    if payload.completion_reason is not None:
-        raise OperationCompletionError(
-            "no-research is read-only history; "
-            "current empty selections use explicit research_selection"
-        )
 
 
 def _insert(connection: sqlite3.Connection, operation: OperationSession) -> None:

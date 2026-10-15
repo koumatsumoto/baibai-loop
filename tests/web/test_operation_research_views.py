@@ -29,7 +29,7 @@ def test_operations_preserve_exact_refs_unfinished_and_human_separation(
     assert response.status_code == 200
     view = response.json()["operations"][0]
     assert view["payload"] == completed.payload.model_dump(mode="json")
-    assert view["payload"]["human_confirmation"] is None
+    assert "human_confirmation" not in view["payload"]
     research = view["research"]
     assert research["request_scope"] == scope
     assert research["selection_summary"]
@@ -69,7 +69,7 @@ def test_zero_selection_and_unrecorded_outcome_are_distinct(app_method_root, tmp
     )
     assert view["research"]["targets"] == []
     assert view["research"]["proposal_id"] is None
-    assert view["payload"]["human_confirmation"] is None
+    assert "human_confirmation" not in view["payload"]
     output = tmp_path / "export"
     export_read_models(app_method_root, output)
     assert json.loads((output / "views/operations.json").read_text()) == response.json()

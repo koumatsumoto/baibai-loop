@@ -323,7 +323,7 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
         ),
         completed_at=NOW,
     )
-    assert complete.payload.human_confirmation is None
+    assert "human_confirmation" not in complete.payload.model_dump()
     assert main(["proposal-preview", "--proposal-id", proposal_id, *common_args], now=NOW) == 0
     preview = json.loads(capsys.readouterr().out)
     assert preview["saved_proposal_id"] == proposal_id
