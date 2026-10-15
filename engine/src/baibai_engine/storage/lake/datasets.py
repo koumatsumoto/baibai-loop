@@ -38,12 +38,13 @@ _GRAIN_LAYOUTS: dict[PartitionGrain, tuple[str, ...]] = {
 }
 
 CoverageAuthority = Literal["daily_bars_rows", "source_coverage", "unproven"]
-"""What decides whether a dataset's history is complete rather than merely present.
+"""The dataset-specific evidence used for the operational coverage status.
 
-Completeness is not a property of the rows for most sources: a filing that was never
-made and a filing that was never fetched leave the same absence behind, so the answer
-has to come from the fetch record. Daily bars are the exception — every trading day owes
-a full-market row set, so the rows themselves answer it.
+For most sources, an absent observation cannot distinguish "not published" from
+"not fetched", so range coverage comes from fetch records. Daily bars instead use
+the stored-date fetch-reuse heuristic: endpoint proximity and bounded internal gaps.
+That heuristic does not prove every trading date or the full market's rows are present.
+Release row/population floors are separate checks, not a completeness proof.
 
 `source_coverage` holds two shapes of record and only one of them can answer the
 question. A range claim says a window was fetched, so a span is checkable. A
