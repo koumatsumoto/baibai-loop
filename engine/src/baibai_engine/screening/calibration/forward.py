@@ -14,6 +14,8 @@ from baibai_engine.market.bars import (
     JQuantsAdjustmentFactorEvent,
     JQuantsDailyBar,
     asof_basis_closes,
+    asof_basis_prices,
+    share_unit_factor,
 )
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
@@ -23,12 +25,12 @@ from baibai_engine.storage.observations.reader import read_financial_documents
 # 規約の定数は計算を所有するValuationから読み、ここへ重複定義しない。
 from baibai_engine.valuation.metrics.capital import (
     SHARE_COUNT_ANCHOR_TOLERANCE,
-    _cumulative_adjustment_factor_after,
+    _cumulative_share_unit_factor_after,
 )
 from baibai_engine.valuation.metrics.dividends import (
     DIVIDEND_RECORD_DATE_GUARD_DAYS,
     DIVIDEND_ROUTE_TOLERANCE,
-    _dividend_basis_factor,
+    _dividend_basis_requires_resolution,
 )
 from baibai_engine.valuation.metrics.periods import _latest_consistent_actual
 
@@ -48,7 +50,7 @@ __all__ = (
 )
 
 
-FORWARD_CALCULATION_REVISION = "fy-dividend-document-revisions-v2"
+FORWARD_CALCULATION_REVISION = "price-and-share-unit-bases-v3"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -83,6 +85,7 @@ TOTAL_RETURN_STATUSES = frozenset(
         "resolved",
         "unresolved_price_return",
         "unresolved_adjustment_factor",
+        "unresolved_rights_issue",
         "unresolved_no_fy_observation",
         "unresolved_missing_dividend",
         "unresolved_invalid_dividend",
@@ -511,11 +514,11 @@ def _control_event_row(
         return None
     if price_basis_date is None:
         return None
-    factor = _cumulative_adjustment_factor_after(
-        adjustment_events,
-        after=control_exit.delisted_on,
+    factor = asof_basis_prices(
+        [(control_exit.delisted_on, 1.0)],
+        [(event.traded_at, event.adjustment_factor) for event in adjustment_events],
         asof_date=price_basis_date,
-    )
+    )[0]
     if factor != 1.0:
         return None
     price_return = control_exit.offer_price_yen / entry_close - 1
@@ -661,7 +664,7 @@ def _load_ticker_adjustment_events(
 ) -> list[JQuantsAdjustmentFactorEvent]:
     rows = conn.execute(
         "SELECT traded_at, adjustment_factor, ex_right_type FROM jquants_daily_bars "
-        "WHERE ticker = ? AND traded_at >= ? AND adjustment_factor > 0 "
+        "WHERE ticker = ? AND traded_at >= ? AND adjustment_factor != 0.0 "
         "AND (adjustment_factor != 1.0 OR ex_right_type IS NOT NULL) ORDER BY traded_at",
         (ticker, start.isoformat()),
     ).fetchall()
@@ -746,6 +749,14 @@ def _resolve_total_return(
     """Resolve retrospective FY dividends without treating absent data as zero."""
     if adjustment_coverage != "complete":
         return None, 0, None, "unresolved_adjustment_factor"
+    events = bars if adjustment_events is None else adjustment_events
+    if any(
+        entry_date < event.traded_at <= exit_date and event.ex_right_type == "3"
+        for event in events
+    ):
+        # Price adjustment alone does not reveal proceeds from selling rights or
+        # the capital paid to exercise them. Do not call that a realized total return.
+        return None, 0, None, "unresolved_rights_issue"
     by_fiscal_year_end: dict[date, list[_FYDividendObservation]] = {}
     for observation in observations:
         if entry_date < observation.fiscal_year_end <= exit_date:
@@ -769,13 +780,24 @@ def _resolve_total_return(
         selected.append(latest)
 
     basis_date = price_basis_date or bars[-1].traded_at
-    events = bars if adjustment_events is None else adjustment_events
     dividend_sum = 0.0
     for observation in selected:
         resolved = _asof_basis_dividend(observation, events, basis_date=basis_date)
         if resolved is None:
             return None, 0, None, "unresolved_dividend_split_basis"
         dividend_sum += resolved
+    # A later rights event rescales both prices of an already completed window.
+    # Express its cash component on that same comparison basis, without pretending
+    # the event changed share units or occurred during the holding period.
+    dividend_sum *= asof_basis_prices(
+        [(exit_date, 1.0)],
+        [
+            (event.traded_at, event.adjustment_factor)
+            for event in events
+            if event.ex_right_type == "3"
+        ],
+        asof_date=basis_date,
+    )[0]
     if not isfinite(dividend_sum) or entry_close <= 0:
         return None, 0, None, "unresolved_invalid_dividend"
     total_return = price_return + dividend_sum / entry_close
@@ -807,15 +829,15 @@ def _asof_basis_dividend(
     if reported == 0:
         return 0.0
     window_start = observation.period_start or add_months_clamped(observation.fiscal_year_end, -12)
-    if (
-        _dividend_basis_factor(
-            bars, accrual_start=window_start, disclosed_at=observation.disclosed_at
-        )
-        is None
+    disclosure_factor = _cumulative_share_unit_factor_after(
+        bars, after=observation.disclosed_at, asof_date=basis_date
+    )
+    if disclosure_factor is None:
+        return None
+    if not _dividend_basis_requires_resolution(
+        bars, accrual_start=window_start, disclosed_at=observation.disclosed_at
     ):
-        return reported * _cumulative_adjustment_factor_after(
-            bars, after=observation.disclosed_at, asof_date=basis_date
-        )
+        return reported * disclosure_factor
 
     payments = tuple(
         zip(
@@ -840,25 +862,26 @@ def _asof_basis_dividend(
         bar.traded_at
         for bar in bars
         if window_start < bar.traded_at <= observation.disclosed_at
-        and bar.adjustment_factor not in (None, 0.0, 1.0)
+        and share_unit_factor(bar) != 1.0
     ]
     for value, record_date in payments:
         if value and any(abs(day - record_date) <= guard for day in adjustments):
             return None
-    resolved = sum(
-        (value or 0.0)
-        * _cumulative_adjustment_factor_after(bars, after=record_date, asof_date=basis_date)
-        for value, record_date in payments
-    )
+    resolved = 0.0
+    for value, record_date in payments:
+        if not value:
+            continue
+        factor = _cumulative_share_unit_factor_after(bars, after=record_date, asof_date=basis_date)
+        if factor is None:
+            return None
+        resolved += value * factor
     if resolved <= 0:
         return None
     # 株数は開示日時点の値なので、basis_date 基準の `resolved` と比べる前に同じ基準へ
     # 寄せる。寄せないと開示より後の調整のぶんだけ比がずれ、veto が誤発火する。
     shares = _per_share_denominator(observation)
     if shares is not None:
-        shares /= _cumulative_adjustment_factor_after(
-            bars, after=observation.disclosed_at, asof_date=basis_date
-        )
+        shares /= disclosure_factor
     amount = observation.dividend_total_annual
     if (
         amount is not None

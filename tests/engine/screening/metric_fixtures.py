@@ -152,6 +152,7 @@ def _split_bar(code: str, traded_at: date, factor: float) -> JQuantsDailyBar:
         close=100.0,
         turnover_value=300_000_000.0,
         adjustment_factor=factor,
+        ex_right_type=(None if factor is None or factor == 1.0 else "2" if factor > 1 else "1"),
     )
 
 

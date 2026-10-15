@@ -229,6 +229,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 close=50.0,
                 turnover_value=1_000_000.0,
                 adjustment_factor=0.5,
+                ex_right_type="1",
             )
         ]
         summaries = [
@@ -278,6 +279,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 close=50.0,
                 turnover_value=1_000_000.0,
                 adjustment_factor=0.5,
+                ex_right_type="1",
             )
         ]
         summaries = [
@@ -328,6 +330,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                     close=100.0 if index < 27 else 50.0,
                     turnover_value=300_000_000.0,
                     adjustment_factor=0.5 if index == 27 else 1.0,
+                    ex_right_type="1" if index == 27 else None,
                 )
             )
         summaries = [

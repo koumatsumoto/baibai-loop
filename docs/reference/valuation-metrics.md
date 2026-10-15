@@ -280,7 +280,7 @@ fallback した値も `sector_median_gap` / `sector_median_value` に入るた�
 
 `self_range_percentile`は保存field名であり、意味は自己レンジ内の位置である。式は`(current - min(history)) / (max(history) - min(history))`。履歴なし／現在値欠測は`null`、履歴の最大値と最小値が同じなら`0.0`とし、0〜1へのclipはしない。観測順位に基づく統計的percentileではない。採用・除外条件は[Candidate Discovery](./screening-runtime.md#candidate-discovery)に従う。
 
-Historical P/S と EV/EBITDA は、各日の raw close を `adjustment_factor` から as-of の株式分割基準へ揃え、最新の自己株式控除後株式数（`latest_shares_ex_treasury`）で時価総額だけを変化させる。P/S は `(historical_asof_basis_close * latest_shares_ex_treasury) / latest_sales_ttm`、EV/EBITDA は `(historical_asof_basis_close * latest_shares_ex_treasury + latest_debt - latest_cash) / latest_ebitda_ttm` とする。現在倍率と history の資本分母を揃えることで、自己株比率ではなく価格変化だけを自己レンジへ反映する。自己株式を含む発行済株式数・自己株式数のいずれかが欠損または破損していれば history は `null` とする。EV がゼロ以下、または EBITDA がゼロ以下の場合も `null` とし、`ttm_quality_ev_ebitda = exact` かつ正の EV/EBITDA だけ mechanical 判定に使う。PBR / PER の history も同じ as-of 株式分割基準の price を使うため、株式分割があっても history は連続になる。
+Historical P/S と EV/EBITDA は、各日の raw close を `adjustment_factor` から as-of の価格調整基準へ揃え、最新の自己株式控除後株式数（`latest_shares_ex_treasury`）で時価総額だけを変化させる。P/S は `(historical_asof_basis_close * latest_shares_ex_treasury) / latest_sales_ttm`、EV/EBITDA は `(historical_asof_basis_close * latest_shares_ex_treasury + latest_debt - latest_cash) / latest_ebitda_ttm` とする。現在倍率と history の資本分母を揃えることで、自己株比率ではなく価格変化だけを自己レンジへ反映する。自己株式を含む発行済株式数・自己株式数のいずれかが欠損または破損していれば history は `null` とする。EV がゼロ以下、または EBITDA がゼロ以下の場合も `null` とし、`ttm_quality_ev_ebitda = exact` かつ正の EV/EBITDA だけ mechanical 判定に使う。PBR / PER の history も同じ as-of 価格調整基準の price を使うため、株式分割があっても history は連続になる。
 
 ### 9.0 価格履歴の連続性 fact（`price_history_sessions_750d` / `price_history_coverage_750d`）
 
@@ -294,10 +294,12 @@ Historical P/S と EV/EBITDA は、各日の raw close を `adjustment_factor` �
 `short_history_flag`(上場 750 暦日未満)は新規上場を扱い、本 fact は「上場は古いが履歴が疎」な銘柄を扱う。
 Stock Analysisへの入力は有効価格1本から許すが、履歴を要する指標を埋めない。`avg_turnover_oku`は20本、1/5/20/60営業日騰落率はそれぞれ2/6/21/61本、自己価格中央値anchorは100本を必要とし、足りなければnullを保つ。1本だけの自己レンジ位置や52週安値gapは算術上0になり得るが、長期の割安さを示すものではない。`price_history_coverage_750d`は当日のscope内の相対密度なので、小さなfixtureでは1本でも1.0になり得る。必ず観測本数と期間proxyを合わせて読む。
 
-### 9.1 `adjustment_close` の中身（dividend / 配当の扱い）
+### 9.1 価格調整と株数・配当の単位
 
 Screeningの自己レンジと騰落率は、[`asof_basis_closes()`](../../engine/src/baibai_engine/market/bars.py)でraw `close`と`adjustment_factor`からas-of基準へ揃えた価格系列を使う。保存済み`adjustment_close`をこの計算経路には使わない。factorは価格日より後・as-of以前のものを適用し、権利落ち日当日のfactorを当日価格へ重ねて掛けない。
 現行の価格系列計算はfactor `0` と `1` を分割イベントから除外する。これは実装上の扱いであり、providerが`0`を正常な無イベント値と定義していることを確認した意味ではない。Positionの数量basis確認とは別の利用条件である。
+
+J-Quantsの価格factorには分割・併合だけでなくライツイシューも含まれる。`ExRT` が `1` / `2` のときだけ株数の逆数換算と1株当たり財務値・現金配当の換算に用いる。`3` は価格調整であり、既存株式の単位を変える係数として扱わない。種別を確定できない非1factorは分割と推定せず、影響する株数・per-share値を未解決にする。新株発行後の発行済株式総数を価格factorから推定することもしない。[配信元の調整仕様](https://jpx-jquants.com/en/spec/eq-bars-daily/adj)
 
 この系列は現金配当を加算しないprice-onlyであり、配当込みのtotal returnとは別である。配当を含む評価との区別は[見積り較正](./estimate-calibration.md)に従う。
 

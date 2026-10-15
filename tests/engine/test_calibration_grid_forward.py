@@ -37,6 +37,7 @@ def _bar(
         close=close,
         turnover_value=None,
         adjustment_factor=factor,
+        ex_right_type=(None if factor is None or factor == 1.0 else "2" if factor > 1 else "1"),
     )
 
 
@@ -87,7 +88,7 @@ class ForwardReturnTest(unittest.TestCase):
                 _bar(date(2025, 1, 31), 1000.0, 1.0),
                 _bar(date(2026, 1, 31), 1000.0, 1.0),
             ],
-            adjustment_events=[JQuantsAdjustmentFactorEvent("1000", date(2024, 10, 4), 0.5)],
+            adjustment_events=[JQuantsAdjustmentFactorEvent("1000", date(2024, 10, 4), 0.5, "1")],
             fy_dividends=[
                 _FYDividendObservation(
                     fiscal_year_end=date(2025, 3, 31),
@@ -159,7 +160,7 @@ class ForwardReturnTest(unittest.TestCase):
             _bar(date(2025, 1, 31), 1.0),
             _bar(date(2025, 4, 30), 100.0),
         ]
-        events = [JQuantsAdjustmentFactorEvent("1000", date(2025, 3, 3), 100.0)]
+        events = [JQuantsAdjustmentFactorEvent("1000", date(2025, 3, 3), 100.0, "2")]
 
         fixed = _ticker_forward_rows(
             "1000",
@@ -516,7 +517,7 @@ class ForwardReturnTest(unittest.TestCase):
             _bar(date(2021, 1, 31), 100.0, 1.0, ticker="7203"),
             _bar(date(2022, 1, 31), 120.0, 1.0, ticker="7203"),
         ]
-        events = [JQuantsAdjustmentFactorEvent("7203", date(2022, 3, 1), 0.5)]
+        events = [JQuantsAdjustmentFactorEvent("7203", date(2022, 3, 1), 0.5, "1")]
 
         row = _ticker_forward_rows(
             "7203",

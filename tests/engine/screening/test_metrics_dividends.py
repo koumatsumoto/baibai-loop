@@ -784,6 +784,7 @@ class DividendBasisRouteEquivalenceTests(unittest.TestCase):
             close=1000.0,
             turnover_value=3e8,
             adjustment_factor=factor,
+            ex_right_type=(None if factor is None or factor == 1.0 else "2" if factor > 1 else "1"),
         )
 
     def _both_routes(
@@ -919,6 +920,7 @@ class DividendCrossCheckBoundaryTests(unittest.TestCase):
             close=1000.0,
             turnover_value=3e8,
             adjustment_factor=factor,
+            ex_right_type=(None if factor is None or factor == 1.0 else "2" if factor > 1 else "1"),
         )
 
     def test_a_split_going_ex_on_the_disclosure_date_keeps_the_year(self) -> None:

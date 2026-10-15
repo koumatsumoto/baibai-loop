@@ -47,6 +47,7 @@ class ShareBasisOnTheDisclosureDateTests(unittest.TestCase):
             close=1000.0,
             turnover_value=3e8,
             adjustment_factor=factor,
+            ex_right_type=(None if factor is None or factor == 1.0 else "2" if factor > 1 else "1"),
         )
 
     def test_a_split_going_ex_on_the_disclosure_date_normalizes_that_row(self) -> None:
@@ -191,6 +192,7 @@ class InterimSplitShareBasisTests(unittest.TestCase):
             close=1000.0,
             turnover_value=3e8,
             adjustment_factor=factor,
+            ex_right_type=(None if factor is None or factor == 1.0 else "2" if factor > 1 else "1"),
         )
 
     def _normalized_shares(self, *, reported: float, reference: float) -> float | None:
@@ -268,8 +270,8 @@ class InterimSplitShareBasisTests(unittest.TestCase):
             ),
         ]
         events = [
-            JQuantsAdjustmentFactorEvent("3936", date(2021, 9, 15), 0.2),
-            JQuantsAdjustmentFactorEvent("3936", date(2021, 11, 1), 1.0 / 3.0),
+            JQuantsAdjustmentFactorEvent("3936", date(2021, 9, 15), 0.2, "1"),
+            JQuantsAdjustmentFactorEvent("3936", date(2021, 11, 1), 1.0 / 3.0, "1"),
         ]
 
         normalized = _normalize_summaries_to_asof_basis(
@@ -303,7 +305,7 @@ class InterimSplitShareBasisTests(unittest.TestCase):
                 average_shares=138_793_927.0,
             ),
         ]
-        events = [JQuantsAdjustmentFactorEvent("3350", date(2024, 7, 30), 10.0)]
+        events = [JQuantsAdjustmentFactorEvent("3350", date(2024, 7, 30), 10.0, "2")]
 
         normalized = _normalize_summaries_to_asof_basis(
             summaries,
@@ -337,7 +339,7 @@ class InterimSplitShareBasisTests(unittest.TestCase):
                 average_shares=33_700_601.0,
             ),
         ]
-        events = [JQuantsAdjustmentFactorEvent("6628", date(2020, 7, 20), 5.0)]
+        events = [JQuantsAdjustmentFactorEvent("6628", date(2020, 7, 20), 5.0, "2")]
 
         normalized = _normalize_summaries_to_asof_basis(
             summaries,
@@ -440,7 +442,7 @@ class InterimSplitShareBasisTests(unittest.TestCase):
 
         asof = date(2026, 5, 29)
         bars = [self._bar(date(2026, 5, 15))]
-        events = [JQuantsAdjustmentFactorEvent("1111", date(2026, 4, 20), 0.5)]
+        events = [JQuantsAdjustmentFactorEvent("1111", date(2026, 4, 20), 0.5, "1")]
         summaries = [
             _summary(
                 "1111",
@@ -482,7 +484,7 @@ class InterimSplitShareBasisTests(unittest.TestCase):
 
         asof = date(2026, 5, 29)
         bars = [self._bar(date(2026, 5, 15))]
-        events = [JQuantsAdjustmentFactorEvent("1111", date(2026, 4, 20), 0.5)]
+        events = [JQuantsAdjustmentFactorEvent("1111", date(2026, 4, 20), 0.5, "1")]
         capital = _summary(
             "1111",
             date(2026, 2, 10),
@@ -515,7 +517,7 @@ class InterimSplitShareBasisTests(unittest.TestCase):
         """曖昧行後にissuedとtreasuryを再観測すれば、その状態から再開する。"""
 
         asof = date(2026, 6, 30)
-        events = [JQuantsAdjustmentFactorEvent("1111", date(2026, 4, 20), 0.5)]
+        events = [JQuantsAdjustmentFactorEvent("1111", date(2026, 4, 20), 0.5, "1")]
         summaries = [
             _summary(
                 "1111",
@@ -622,7 +624,7 @@ class MissingCloseAdjustmentEventTests(unittest.TestCase):
             for index in range(90)
             if asof - timedelta(days=89 - index) != event_day
         ]
-        events = [JQuantsAdjustmentFactorEvent("1111", event_day, 100.0)]
+        events = [JQuantsAdjustmentFactorEvent("1111", event_day, 100.0, "2")]
         summary = _summary(
             "1111",
             date(2024, 1, 31),

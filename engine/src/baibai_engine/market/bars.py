@@ -142,6 +142,24 @@ class JQuantsAdjustmentFactorEvent:
         return validated
 
 
+def share_unit_factor(event: JQuantsAdjustmentFactorEvent | JQuantsDailyBar) -> float | None:
+    """Return a share-unit conversion, not the provider's price adjustment.
+
+    ExRT 1/2 identifies splits/reverse splits; 3 is a rights issue and does not
+    rescale an existing share. A nontrivial price factor without a recognized kind
+    cannot establish a share-unit conversion. Missing ordinary observations do not
+    invent an action; completeness remains the source reader's responsibility.
+    """
+    factor = event.adjustment_factor
+    if event.ex_right_type == "3":
+        return 1.0
+    if event.ex_right_type in ("1", "2"):
+        return factor if factor is not None and factor > 0 else None
+    if event.ex_right_type is None and factor in (None, 1.0):
+        return 1.0
+    return None
+
+
 @dataclass(frozen=True, slots=True, config=MODEL_CONFIG)
 class JQuantsMarketCalendarDay:
     day: date

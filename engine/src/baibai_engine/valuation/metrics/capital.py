@@ -8,7 +8,11 @@ from datetime import date
 from enum import Enum
 from math import exp, isclose, log
 
-from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.market.bars import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+    share_unit_factor,
+)
 from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.valuation.metrics.periods import (
@@ -39,30 +43,28 @@ class _NormalizedSummaryResult:
     capital_basis_barrier: _AccountingObservationKey | None
 
 
-def _cumulative_adjustment_factor_after(
+def _cumulative_share_unit_factor_after(
     ticker_bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
     after: date,
     asof_date: date,
     *,
     include_boundary_day: bool = False,
-) -> float:
-    """`after` より後・asof 以前の bar の adjustment_factor の累積を返す。
+) -> float | None:
+    """Accumulate only known share-unit changes in the requested interval.
 
-    `include_boundary_day` は境界日当日の権利落ちも数える。財務開示行が申告する株式基準は
-    期末であって開示日ではないので、開示日当日に権利落ちがあった行は分割前基準のまま公表
-    される (store 全数で該当 3 行、いずれも直前開示行と同じ株数=分割前基準。分割後基準の
-    例は無い)。開示行の正規化はこれを数える。期末と開示日の間に権利落ちがある行は逆に
-    134 行中 103 行が既に分割後基準なので、境界を期末側へ広げると大半を二重換算する。
+    Rights-issue price factors do not scale shares or cash DPS. Unknown action
+    kinds leave the unit basis unresolved. Disclosure-day inclusion follows the
+    existing boundary convention; it does not prove a filing's share basis.
     """
     factor = 1.0
     for bar in ticker_bars:
         before_start = bar.traded_at < after if include_boundary_day else bar.traded_at <= after
         if before_start or bar.traded_at > asof_date:
             continue
-        if bar.adjustment_factor in (None, 0.0, 1.0):
-            continue
-        assert bar.adjustment_factor is not None
-        factor *= bar.adjustment_factor
+        adjustment = share_unit_factor(bar)
+        if adjustment is None:
+            return None
+        factor *= adjustment
     return factor
 
 
@@ -142,10 +144,12 @@ def _interim_split_basis(
     for bar in ticker_bars:
         if not (period_end < bar.traded_at < summary.disclosed_at):
             continue
-        if bar.adjustment_factor in (None, 0.0, 1.0):
+        adjustment = share_unit_factor(bar)
+        if adjustment is None:
+            return 1.0, _ShareBasis.INDETERMINATE
+        if adjustment == 1.0:
             continue
-        assert bar.adjustment_factor is not None
-        interim *= bar.adjustment_factor
+        interim *= adjustment
         if first_ex is None or bar.traded_at < first_ex:
             first_ex = bar.traded_at
     if interim in (0.0, 1.0) or first_ex is None:
@@ -173,13 +177,13 @@ def _interim_split_basis(
         # 現在行の期末基準ではない。先に同じ基準へ移さないと、連続した分割・併合をすべて
         # 今回の interim action の差と誤認する。開示日当日の権利落ちは開示行の正規化と同じ
         # 契約で数える。
-        previous_to_period_end = _cumulative_adjustment_factor_after(
+        previous_to_period_end = _cumulative_share_unit_factor_after(
             ticker_bars,
             previous_row.disclosed_at,
             period_end,
             include_boundary_day=True,
         )
-        if previous_to_period_end <= 0:
+        if previous_to_period_end is None or previous_to_period_end <= 0:
             return _ShareBasis.INDETERMINATE
         previous_on_period_end_basis = previous / previous_to_period_end
         return _closer_share_basis(current / previous_on_period_end_basis, interim)
@@ -239,7 +243,7 @@ def _normalize_summaries_with_status(
 
     summaries = resolve_actual_conflicts(summaries)
     has_adjustment = any(
-        bar.adjustment_factor not in (None, 0.0, 1.0)
+        share_unit_factor(bar) != 1.0
         for bar in ticker_bars
         if bar.traded_at <= asof_date
     )
@@ -248,11 +252,11 @@ def _normalize_summaries_with_status(
     normalized: list[JQuantsFinancialSummary] = []
     capital_basis_barrier: _AccountingObservationKey | None = None
     for index, summary in enumerate(summaries):
-        factor = _cumulative_adjustment_factor_after(
+        factor = _cumulative_share_unit_factor_after(
             ticker_bars, summary.disclosed_at, asof_date, include_boundary_day=True
         )
         interim, basis = _interim_split_basis(summaries, index, ticker_bars)
-        if basis is _ShareBasis.INDETERMINATE:
+        if factor is None or basis is _ShareBasis.INDETERMINATE:
             normalized.append(_without_share_basis(summary))
             observation_key = _accounting_observation_key(summary)
             if (summary.shares_outstanding is not None or summary.treasury_shares is not None) and (

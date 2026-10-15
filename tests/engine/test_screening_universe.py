@@ -51,7 +51,7 @@ class ScreeningUniverseTests(unittest.TestCase):
             is_common_stock=True,
         )
         asof = date(2026, 4, 25)
-        events = [JQuantsAdjustmentFactorEvent("130A", asof, 100.0)]
+        events = [JQuantsAdjustmentFactorEvent("130A", asof, 100.0, "2")]
 
         fixed = build_universe(
             asof_date=asof,
@@ -94,7 +94,9 @@ class ScreeningUniverseTests(unittest.TestCase):
             bars_by_ticker={"130A": [bar]},
             shares_outstanding_by_ticker={"130A": 200_000_000.0},
             jpx_flags_by_ticker={},
-            adjustment_events_by_ticker={"130A": [JQuantsAdjustmentFactorEvent("130A", asof, 0.5)]},
+            adjustment_events_by_ticker={
+                "130A": [JQuantsAdjustmentFactorEvent("130A", asof, 0.5, "1")]
+            },
         )
         self.assertEqual(result.snapshots["130A"].market_cap_oku, 100)
         self.assertIsNone(result.snapshots["130A"].avg_turnover_oku)

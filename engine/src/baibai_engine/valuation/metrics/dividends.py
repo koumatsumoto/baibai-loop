@@ -9,7 +9,11 @@ from itertools import pairwise
 from typing import Any
 
 from baibai_engine.foundation.date_utils import add_months_clamped
-from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.market.bars import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+    share_unit_factor,
+)
 from baibai_engine.market.financial_documents import (
     latest_disclosure_candidates,
     latest_forecast_source,
@@ -19,7 +23,7 @@ from baibai_engine.market.financial_documents import (
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.valuation.metrics.capital import (
     SHARE_COUNT_ANCHOR_TOLERANCE,
-    _cumulative_adjustment_factor_after,
+    _cumulative_share_unit_factor_after,
     _issued_matches_average_alias,
     _normalize_summaries_to_asof_basis,
     _shares_excluding_treasury,
@@ -167,25 +171,21 @@ def _dividend_accrual_start(row: JQuantsFinancialSummary) -> date:
     return row.disclosed_at - timedelta(days=DIVIDEND_ACCRUAL_LOOKBACK_DAYS)
 
 
-def _dividend_basis_factor(
+def _dividend_basis_requires_resolution(
     ticker_bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
     *,
     accrual_start: date,
     disclosed_at: date,
-) -> float | None:
-    """会計期間の調整が無ければ None、あれば相殺して 1.0 でも累積 factor を返す。
+) -> bool:
+    """Whether annual DPS spans a unit change or an unclassified action.
 
-    年間 DPS は中間・期末それぞれの基準日時点の株式基準で記載され、開示日で基準が決まる
-    わけではない。期間内に分割・併合が入ると支払ごとに action の前後が分かれるので、
-    報告された年間値をそのまま株価と比べられない。
+    Opposing splits still require payment-date resolution even if their product
+    is one. A rights issue alone does not change the unit of cash paid per share.
     """
-    if not any(
-        accrual_start < bar.traded_at <= disclosed_at
-        and bar.adjustment_factor not in (None, 0.0, 1.0)
+    return any(
+        accrual_start < bar.traded_at <= disclosed_at and share_unit_factor(bar) != 1.0
         for bar in ticker_bars
-    ):
-        return None
-    return _cumulative_adjustment_factor_after(ticker_bars, accrual_start, disclosed_at)
+    )
 
 
 def _dividend_record_dates(row: JQuantsFinancialSummary) -> tuple[tuple[float | None, date], ...]:
@@ -251,9 +251,12 @@ def _asof_basis_dividend(
     # 掛けてから比べる。境界も揃える — 片方だけが換算する、あるいは片方だけが開示日当日の
     # 権利落ちを数えると、比は必ず換算係数の逆数になり、その年度を「明細が欠けている」と
     # して捨てる。捨てた年度は増配判定ごと消える。
-    detail_sum = sum(value or 0.0 for value, _ in payments) * _cumulative_adjustment_factor_after(
+    disclosure_factor = _cumulative_share_unit_factor_after(
         ticker_bars, row.disclosed_at, asof_date, include_boundary_day=True
     )
+    if disclosure_factor is None:
+        return None
+    detail_sum = sum(value or 0.0 for value, _ in payments) * disclosure_factor
     if abs(detail_sum / reported - 1.0) > DIVIDEND_ROUTE_TOLERANCE:
         return None
     window_start = _dividend_accrual_start(row)
@@ -261,7 +264,7 @@ def _asof_basis_dividend(
         bar
         for bar in ticker_bars
         if window_start < bar.traded_at <= row.disclosed_at
-        and bar.adjustment_factor not in (None, 0.0, 1.0)
+        and share_unit_factor(bar) != 1.0
     ]
     guard = timedelta(days=DIVIDEND_RECORD_DATE_GUARD_DAYS)
     for value, record_date in payments:
@@ -269,10 +272,14 @@ def _asof_basis_dividend(
             continue
         if any(abs(bar.traded_at - record_date) <= guard for bar in adjustments):
             return None
-    resolved = sum(
-        (value or 0.0) * _cumulative_adjustment_factor_after(ticker_bars, record_date, asof_date)
-        for value, record_date in payments
-    )
+    resolved = 0.0
+    for value, record_date in payments:
+        if not value:
+            continue
+        factor = _cumulative_share_unit_factor_after(ticker_bars, record_date, asof_date)
+        if factor is None:
+            return None
+        resolved += value * factor
     if resolved <= 0:
         return None
     amount = row.dividend_total_annual
@@ -307,6 +314,7 @@ def _resolve_dividend_carry(
     actual_rows = _actual_dps_rows(summaries)
     forecast = _forecast_annual_dps(summaries)
     basis_factor: float | None = None
+    requires_resolution = False
     actual_annual: float | None = None
     actual_unresolved = bool(
         actual_rows and "dps_actual_annual" in actual_rows[0].unresolved_actual_fields
@@ -314,15 +322,17 @@ def _resolve_dividend_carry(
     if actual_rows and not actual_unresolved:
         latest_actual = actual_rows[0]
         assert latest_actual.dps_actual_annual is not None
-        basis_factor = _dividend_basis_factor(
-            ticker_bars,
-            accrual_start=_dividend_accrual_start(latest_actual),
-            disclosed_at=latest_actual.disclosed_at,
+        accrual_start = _dividend_accrual_start(latest_actual)
+        requires_resolution = _dividend_basis_requires_resolution(
+            ticker_bars, accrual_start=accrual_start, disclosed_at=latest_actual.disclosed_at
         )
-        if basis_factor is None:
-            actual_annual = latest_actual.dps_actual_annual
-        else:
+        if requires_resolution:
+            basis_factor = _cumulative_share_unit_factor_after(
+                ticker_bars, accrual_start, latest_actual.disclosed_at
+            )
             actual_annual = _asof_basis_dividend(latest_actual, ticker_bars, asof_date=asof_date)
+        else:
+            actual_annual = latest_actual.dps_actual_annual
 
     recorded_factor = basis_factor
 
@@ -353,14 +363,14 @@ def _resolve_dividend_carry(
             dps_forecast_annual=forecast,
             basis=(
                 "actual_reported"
-                if actual_annual == 0 or recorded_factor is None
+                if actual_annual == 0 or not requires_resolution
                 else "actual_record_date_resolved"
             ),
             split_factor=recorded_factor,
         )
     elif actual_unresolved:
         basis = UNRESOLVED_ACTUAL_DIVIDEND_BASIS
-    elif recorded_factor is not None and actual_annual is None:
+    elif requires_resolution and actual_annual is None:
         # 正の実績が解決できなかった年度は無配と区別する。
         basis = UNRESOLVED_DIVIDEND_BASIS
     else:
@@ -554,12 +564,12 @@ def _asof_basis_fy_dps(
         value = row.dps_actual_annual
         if fiscal_year_end is None or value is None or value < 0:
             continue
-        factor = _dividend_basis_factor(
+        requires_resolution = _dividend_basis_requires_resolution(
             ticker_bars,
             accrual_start=_dividend_accrual_start(row),
             disclosed_at=row.disclosed_at,
         )
-        if factor is None:
+        if not requires_resolution:
             values[fiscal_year_end] = value
             continue
         resolved = _asof_basis_dividend(row, ticker_bars, asof_date=asof_date)

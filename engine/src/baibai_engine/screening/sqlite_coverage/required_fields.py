@@ -52,7 +52,7 @@ def _required_field_values(
     events: dict[str, list[JQuantsAdjustmentFactorEvent]] = {}
     for ticker, traded_at, factor, ex_right_type in conn.execute(
         "SELECT ticker, traded_at, adjustment_factor, ex_right_type FROM jquants_daily_bars "
-        "WHERE traded_at BETWEEN ? AND ? AND adjustment_factor > 0 "
+        "WHERE traded_at BETWEEN ? AND ? AND adjustment_factor != 0.0 "
         "AND (adjustment_factor != 1.0 OR ex_right_type IS NOT NULL)",
         (start.isoformat(), asof.isoformat()),
     ):

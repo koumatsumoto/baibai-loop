@@ -68,6 +68,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 close=50.0,
                 turnover_value=1_000_000.0,
                 adjustment_factor=0.5,
+                ex_right_type="1",
             )
         ]
         summaries = [
@@ -125,6 +126,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                     close=100.0 if index < 27 else 50.0,
                     turnover_value=300_000_000.0,
                     adjustment_factor=0.5 if index == 27 else 1.0,
+                    ex_right_type="1" if index == 27 else None,
                 )
             )
         summaries = [
@@ -230,6 +232,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 close=100.0 if index < 27 else 50.0,
                 turnover_value=300_000_000.0,
                 adjustment_factor=0.5 if index == 27 else 1.0,
+                ex_right_type="1" if index == 27 else None,
             )
             for index in range(30)
         ]
@@ -870,6 +873,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                     close=1328.0,
                     turnover_value=300_000_000.0,
                     adjustment_factor=(1.0 / 3.0 if traded_at == date(2025, 6, 27) else 1.0),
+                    ex_right_type="1" if traded_at == date(2025, 6, 27) else None,
                 )
             )
         summaries = [
@@ -1178,6 +1182,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 turnover_value=300_000_000.0,
                 adjustment_close=120.0,
                 adjustment_factor=0.5,
+                ex_right_type="1",
             ),
         ]
         result = build_metrics(

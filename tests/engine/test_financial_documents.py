@@ -545,7 +545,7 @@ def test_conflicting_pre_split_reference_cannot_choose_share_basis(
     rows.extend(decode([actual_document("correction", ShOutFY="1000", TrShFY="0")]))
     events = [
         JQuantsAdjustmentFactorEvent(
-            ticker="9999", traded_at=date(2026, 8, 1), adjustment_factor=0.5
+            ticker="9999", traded_at=date(2026, 8, 1), adjustment_factor=0.5, ex_right_type="1"
         )
     ]
     result = _normalize_summaries_with_status(rows, events, ASOF)
@@ -736,7 +736,7 @@ def test_conflicting_payment_allocations_cannot_select_split_adjustment_by_order
     rows = decode(records)
     events = [
         JQuantsAdjustmentFactorEvent(
-            ticker="9999", traded_at=date(2026, 1, 15), adjustment_factor=0.5
+            ticker="9999", traded_at=date(2026, 1, 15), adjustment_factor=0.5, ex_right_type="1"
         )
     ]
     fy_rows = _latest_fy_revisions(rows)

@@ -725,7 +725,8 @@ class SQLiteCoverageTests(unittest.TestCase):
             split_day = prior + timedelta(days=1)
             with closing(sqlite3.connect(sqlite_path)) as conn, conn:
                 conn.execute(
-                    "UPDATE jquants_daily_bars SET adjustment_factor = 0.5 WHERE traded_at = ?",
+                    "UPDATE jquants_daily_bars SET adjustment_factor = 0.5, "
+                    "ex_right_type = '1' WHERE traded_at = ?",
                     (split_day.isoformat(),),
                 )
                 conn.commit()

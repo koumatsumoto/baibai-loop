@@ -173,6 +173,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 turnover_value=300_000_000.0,
                 adjustment_close=50.0,
                 adjustment_factor=0.5,
+                ex_right_type="1",
             )
         )
         result = build_metrics(
@@ -208,6 +209,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 close=100.0,
                 turnover_value=300_000_000.0,
                 adjustment_factor=0.5 if index == 20 else 1.0,
+                ex_right_type="1" if index == 20 else None,
             )
             for index in range(61)
         ]
