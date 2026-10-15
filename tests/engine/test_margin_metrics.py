@@ -164,7 +164,11 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
         from baibai_engine.storage.observations.schema import open_connection
 
         for week_end in week_ends:
-            store_jquants_weekly_margin(db, [{"Code": "72030", "LongVol": 1.0}], week_end=week_end)
+            store_jquants_weekly_margin(
+                db,
+                [{"Date": week_end.isoformat(), "Code": "72030", "LongVol": 1.0}],
+                week_end=week_end,
+            )
         conn = open_connection(db)
         try:
             conn.executemany(
@@ -299,7 +303,7 @@ class MarginPublicationSeamTest(unittest.TestCase):
         for week_end in sorted(last_of_week.values()):
             store_jquants_weekly_margin(
                 db,
-                [{"Code": "72030", "LongVol": 1000.0, "IssType": "2"}],
+                [{"Date": week_end.isoformat(), "Code": "72030", "LongVol": 1000.0, "IssType": "2"}],
                 week_end=week_end,
             )
         for day in trading:

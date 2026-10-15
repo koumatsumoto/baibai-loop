@@ -1156,6 +1156,7 @@ class WeeklyMarginStoreTest(unittest.TestCase):
     @staticmethod
     def _record(code: str, **overrides: object) -> dict[str, object]:
         record: dict[str, object] = {
+            "Date": "2026-07-24",
             "Code": code,
             "LongVol": 5000.0,
             "ShrtVol": 1000.0,
@@ -1335,10 +1336,26 @@ class WeeklyMarginStoreTest(unittest.TestCase):
             self.assertTrue(final_legacy_week_requires_refresh(db))
             store_jquants_weekly_margin(
                 db,
-                [self._record("72030")],
+                [self._record("72030", Date="2026-09-18")],
                 week_end=date(2026, 9, 18),
             )
             self.assertFalse(final_legacy_week_requires_refresh(db))
+
+    def test_wrong_balance_date_cannot_replace_a_stored_week(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            day = date(2026, 7, 24)
+            store_jquants_weekly_margin(db, [self._record("72030")], week_end=day)
+
+            with self.assertRaises(EmptyRangeReplacementError):
+                store_jquants_weekly_margin(
+                    db, [self._record("72030", Date="2026-07-17")], week_end=day
+                )
+
+            rows = read_weekly_margin(db, day)
+            assert rows is not None
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0].long_vol, 5000.0)
 
 
 class MarginPublicationTransitionStoreTest(unittest.TestCase):
@@ -1572,7 +1589,11 @@ class MarginPublicationLagTest(unittest.TestCase):
     @staticmethod
     def _seed(db: Path, week_ends: list[date], trading_days: list[date]) -> None:
         for week_end in week_ends:
-            store_jquants_weekly_margin(db, [{"Code": "72030", "LongVol": 1.0}], week_end=week_end)
+            store_jquants_weekly_margin(
+                db,
+                [{"Date": week_end.isoformat(), "Code": "72030", "LongVol": 1.0}],
+                week_end=week_end,
+            )
         conn = open_connection(db)
         try:
             conn.executemany(

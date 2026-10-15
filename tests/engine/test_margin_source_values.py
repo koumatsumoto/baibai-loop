@@ -7,8 +7,12 @@ from datetime import date
 import pyarrow.parquet as pq
 import pytest
 
+from baibai_engine.market.providers.jquants import JQuantsProviderError, normalize_weekly_margin
 from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
-from baibai_engine.storage.observations.ingest.jquants import store_jquants_all_issues_daily_margin
+from baibai_engine.storage.observations.ingest.jquants import (
+    store_jquants_all_issues_daily_margin,
+    store_jquants_weekly_margin,
+)
 
 
 @pytest.mark.parametrize("missing", [False, True])
@@ -70,3 +74,28 @@ def test_daily_margin_publication_and_values_survive_sqlite_and_lake(tmp_path, m
     assert tuple(rows[0][column] for column in columns) == expected
     assert rows[0]["balance_date"] == day.isoformat()
     assert rows[0]["long_vol"] == 30.0
+
+
+@pytest.mark.parametrize("source_date", [None, "2026-07-17"])
+def test_weekly_margin_does_not_invent_requested_balance_date(tmp_path, source_date):
+    requested = date(2026, 7, 24)
+    record = {"Date": source_date, "Code": "13010", "LongVol": 30, "ShrtVol": 0}
+    with pytest.raises(JQuantsProviderError):
+        normalize_weekly_margin(record, requested)
+
+    database = tmp_path / "market.sqlite"
+    assert store_jquants_weekly_margin(database, [record], week_end=requested) == 0
+    with closing(sqlite3.connect(database)) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM jquants_weekly_margin").fetchone() == (0,)
+        assert connection.execute(
+            "SELECT status FROM source_coverage WHERE source = 'jquants_weekly_margin'"
+        ).fetchone() == ("partial",)
+
+
+def test_weekly_native_zero_balance_is_not_missing():
+    day = date(2026, 7, 24)
+    record = {"Date": day.isoformat(), "Code": "13010", "LongVol": 30, "ShrtVol": 0}
+    result = normalize_weekly_margin(record, day)
+    assert result is not None
+    assert result.week_end == day
+    assert result.short_vol == 0.0

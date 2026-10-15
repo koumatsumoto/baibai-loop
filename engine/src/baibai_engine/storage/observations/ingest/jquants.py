@@ -26,7 +26,6 @@ from baibai_engine.storage.observations.convert import (
     NormalizedRows,
     code_quality,
     date_iso,
-    first,
     to_float,
     to_str_or_none,
 )
@@ -431,14 +430,14 @@ def _weekly_margin_rows_with_quality(
     excluded_count = 0
     seen: set[str] = set()
     for record in records:
-        ticker, quality = code_quality(first(record, "Code", "code"))
+        ticker, quality = code_quality(record.get("Code"))
         if quality == "rejected":
             rejected_count += 1
             continue
         if quality == "excluded" or ticker is None:
             excluded_count += 1
             continue
-        if ticker in seen:
+        if date_iso(record.get("Date")) != week_end.isoformat() or ticker in seen:
             rejected_count += 1
             continue
         seen.add(ticker)
@@ -446,13 +445,13 @@ def _weekly_margin_rows_with_quality(
             (
                 week_end.isoformat(),
                 ticker,
-                to_float(first(record, "LongVol", "long_vol")),
-                to_float(first(record, "ShrtVol", "shrt_vol")),
-                to_float(first(record, "LongStdVol", "long_std_vol")),
-                to_float(first(record, "LongNegVol", "long_neg_vol")),
-                to_float(first(record, "ShrtStdVol", "shrt_std_vol")),
-                to_float(first(record, "ShrtNegVol", "shrt_neg_vol")),
-                to_str_or_none(first(record, "IssType", "iss_type")),
+                to_float(record.get("LongVol")),
+                to_float(record.get("ShrtVol")),
+                to_float(record.get("LongStdVol")),
+                to_float(record.get("LongNegVol")),
+                to_float(record.get("ShrtStdVol")),
+                to_float(record.get("ShrtNegVol")),
+                to_str_or_none(record.get("IssType")),
             )
         )
     return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
@@ -465,38 +464,38 @@ def _margin_alert_rows_with_quality(
     rejected_count = 0
     excluded_count = 0
     seen: set[tuple[str, str]] = set()
+    required_payload_fields = (
+        "AppDate",
+        "PubReason",
+        "ShrtOut",
+        "ShrtOutChg",
+        "ShrtOutRatio",
+        "LongOut",
+        "LongOutChg",
+        "LongOutRatio",
+        "SLRatio",
+        "ShrtNegOut",
+        "ShrtNegOutChg",
+        "ShrtStdOut",
+        "ShrtStdOutChg",
+        "LongNegOut",
+        "LongNegOutChg",
+        "LongStdOut",
+        "LongStdOutChg",
+        "TSEMrgnRegCls",
+    )
     for record in records:
-        required_payload_fields = (
-            ("AppDate", "ApplicationDate", "applied_date"),
-            ("PubReason", "publication_reason"),
-            ("ShrtOut", "short_outstanding"),
-            ("ShrtOutChg", "short_change"),
-            ("ShrtOutRatio", "short_ratio"),
-            ("LongOut", "long_outstanding"),
-            ("LongOutChg", "long_change"),
-            ("LongOutRatio", "long_ratio"),
-            ("SLRatio", "short_long_ratio"),
-            ("ShrtNegOut", "short_negotiable_outstanding"),
-            ("ShrtNegOutChg", "short_negotiable_change"),
-            ("ShrtStdOut", "short_standard_outstanding"),
-            ("ShrtStdOutChg", "short_standard_change"),
-            ("LongNegOut", "long_negotiable_outstanding"),
-            ("LongNegOutChg", "long_negotiable_change"),
-            ("LongStdOut", "long_standard_outstanding"),
-            ("LongStdOutChg", "long_standard_change"),
-            ("TSEMrgnRegCls", "tse_margin_regulation_classification"),
-        )
-        if any(not any(key in record for key in aliases) for aliases in required_payload_fields):
+        if any(key not in record for key in required_payload_fields):
             rejected_count += 1
             continue
-        ticker, quality = code_quality(first(record, "Code", "code"))
+        ticker, quality = code_quality(record.get("Code"))
         if quality == "rejected":
             rejected_count += 1
             continue
         if quality == "excluded" or ticker is None:
             excluded_count += 1
             continue
-        publication_date = date_iso(first(record, "PubDate", "PublicationDate", "publication_date"))
+        publication_date = date_iso(record.get("PubDate"))
         if publication_date is None:
             rejected_count += 1
             continue
@@ -506,15 +505,15 @@ def _margin_alert_rows_with_quality(
             rejected_count += 1
             continue
         identity = (publication_date, ticker)
-        applied_date = date_iso(first(record, "AppDate", "ApplicationDate", "applied_date"))
-        publication_reason = to_str_or_none(first(record, "PubReason", "publication_reason"))
+        applied_date = date_iso(record.get("AppDate"))
+        publication_reason = to_str_or_none(record.get("PubReason"))
         core_balances = (
-            to_float(first(record, "ShrtOut", "short_outstanding")),
-            to_float(first(record, "LongOut", "long_outstanding")),
-            to_float(first(record, "ShrtNegOut", "short_negotiable_outstanding")),
-            to_float(first(record, "ShrtStdOut", "short_standard_outstanding")),
-            to_float(first(record, "LongNegOut", "long_negotiable_outstanding")),
-            to_float(first(record, "LongStdOut", "long_standard_outstanding")),
+            to_float(record.get("ShrtOut")),
+            to_float(record.get("LongOut")),
+            to_float(record.get("ShrtNegOut")),
+            to_float(record.get("ShrtStdOut")),
+            to_float(record.get("LongNegOut")),
+            to_float(record.get("LongStdOut")),
         )
         if (
             not requested_start <= publication_day <= requested_end
@@ -533,27 +532,21 @@ def _margin_alert_rows_with_quality(
                 applied_date,
                 publication_reason,
                 core_balances[0],
-                to_float(first(record, "ShrtOutChg", "short_change")),
-                to_float(first(record, "ShrtOutRatio", "short_ratio")),
+                to_float(record.get("ShrtOutChg")),
+                to_float(record.get("ShrtOutRatio")),
                 core_balances[1],
-                to_float(first(record, "LongOutChg", "long_change")),
-                to_float(first(record, "LongOutRatio", "long_ratio")),
-                to_float(first(record, "SLRatio", "short_long_ratio")),
+                to_float(record.get("LongOutChg")),
+                to_float(record.get("LongOutRatio")),
+                to_float(record.get("SLRatio")),
                 core_balances[2],
-                to_float(first(record, "ShrtNegOutChg", "short_negotiable_change")),
+                to_float(record.get("ShrtNegOutChg")),
                 core_balances[3],
-                to_float(first(record, "ShrtStdOutChg", "short_standard_change")),
+                to_float(record.get("ShrtStdOutChg")),
                 core_balances[4],
-                to_float(first(record, "LongNegOutChg", "long_negotiable_change")),
+                to_float(record.get("LongNegOutChg")),
                 core_balances[5],
-                to_float(first(record, "LongStdOutChg", "long_standard_change")),
-                to_str_or_none(
-                    first(
-                        record,
-                        "TSEMrgnRegCls",
-                        "tse_margin_regulation_classification",
-                    )
-                ),
+                to_float(record.get("LongStdOutChg")),
+                to_str_or_none(record.get("TSEMrgnRegCls")),
             )
         )
     return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
@@ -567,26 +560,26 @@ def _all_issues_daily_margin_rows_with_quality(
     excluded_count = 0
     seen: set[str] = set()
     for record in records:
-        ticker, quality = code_quality(first(record, "Code", "code"))
+        ticker, quality = code_quality(record.get("Code"))
         if quality == "rejected":
             rejected_count += 1
             continue
         if quality == "excluded" or ticker is None:
             excluded_count += 1
             continue
-        payload_date = date_iso(first(record, "Date", "balance_date"))
+        payload_date = date_iso(record.get("Date"))
         if payload_date != balance_date.isoformat() or ticker in seen:
             rejected_count += 1
             continue
         balances = (
-            to_float(first(record, "LongVol", "long_vol")),
-            to_float(first(record, "ShrtVol", "shrt_vol")),
-            to_float(first(record, "LongStdVol", "long_std_vol")),
-            to_float(first(record, "LongNegVol", "long_neg_vol")),
-            to_float(first(record, "ShrtStdVol", "shrt_std_vol")),
-            to_float(first(record, "ShrtNegVol", "shrt_neg_vol")),
+            to_float(record.get("LongVol")),
+            to_float(record.get("ShrtVol")),
+            to_float(record.get("LongStdVol")),
+            to_float(record.get("LongNegVol")),
+            to_float(record.get("ShrtStdVol")),
+            to_float(record.get("ShrtNegVol")),
         )
-        issue_type = to_str_or_none(first(record, "IssType", "iss_type"))
+        issue_type = to_str_or_none(record.get("IssType"))
         if issue_type is None or any(
             value is None or not isfinite(value) or value < 0.0 for value in balances
         ):
