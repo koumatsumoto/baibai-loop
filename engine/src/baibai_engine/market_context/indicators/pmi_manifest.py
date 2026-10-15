@@ -65,7 +65,7 @@ _LIST_ITEM_RE = re.compile(
 _PUBLISHED_RE = re.compile(r"(?P<month>[A-Za-z]+)\s+(?P<day>\d{1,2})\s+(?P<year>\d{4})")
 # Every release opens with the moment it may be reported, in the publisher's local
 # time zone ("Embargoed until 0930 JST 1 July 2026", "0945 EDT 1 July 2026"). It is
-# the release's own account of when it was published.
+# the release's stated reporting embargo, not proof of when the file became available.
 _EMBARGO_RE = re.compile(
     r"Embargoed until\s+\d{3,4}\s+[A-Z]{2,4}\s+(?P<day>\d{1,2})\s+(?P<month>[A-Za-z]+)\s+"
     r"(?P<year>\d{4})"
@@ -195,11 +195,6 @@ def _previous_month(value: date) -> date:
     return (value.replace(day=1) - timedelta(days=1)).replace(day=1)
 
 
-def _add_months(value: date, months: int) -> date:
-    total = value.month - 1 + months
-    return date(value.year + total // 12, total % 12 + 1, 1)
-
-
 def newest_release_candidate(
     entries: tuple[IndexEntry, ...], *, stream: str
 ) -> ReleaseCandidate | None:
@@ -219,15 +214,11 @@ def newest_release_candidate(
 
 
 def verified_value(release_candidate: ReleaseCandidate, *, context: FetchContext) -> float:
-    """The headline the release_candidate's PDF ties to the month the entry would claim.
+    """Read a month-anchored headline before assigning the candidate's report month.
 
-    This is what makes the append safe to automate, and it only holds if the month is
-    proven from the release text. ``extract_pmi_value`` reads a value the statement
-    introduces without naming a month whenever the month asked for is the month the
-    release reports, which would accept the release's own headline for any month at
-    all. Naming a later month as the reported one leaves only the reader that proves
-    the month from the text, so a release that does not tie its headline to this month
-    yields nothing and the append falls back to being done by hand.
+    The candidate month comes from the index and still needs verification against
+    the PDF text. Passing an unknown report month disables attribution based only
+    on that assumption, without inventing a different date to control extraction.
     """
 
     identity = f"{release_candidate.stream} {release_candidate.observed_at}"
@@ -237,7 +228,7 @@ def verified_value(release_candidate: ReleaseCandidate, *, context: FetchContext
         value = extract_pmi_value(
             text,
             expected_observed_at=release_candidate.observed_at,
-            release_observed_at=_add_months(release_candidate.observed_at, 2),
+            release_observed_at=None,
         )
     except PmiExtractionError as exc:
         raise IndicatorsProviderError(f"{identity}: {exc} ({release_candidate.url})") from exc

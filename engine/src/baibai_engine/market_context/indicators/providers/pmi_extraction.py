@@ -130,14 +130,16 @@ def extract_pmi_value(
     normalized_text: str,
     *,
     expected_observed_at: date,
-    release_observed_at: date,
+    release_observed_at: date | None,
 ) -> float | None:
     """Extract the headline PMI value for ``expected_observed_at`` from release text.
 
     ``normalized_text`` is the whitespace-collapsed PDF text and
     ``release_observed_at`` is the month the release reports, which is the month
     after ``expected_observed_at`` when a month is taken from the release that
-    restates it. Returns ``None`` when no supported pattern matches the month.
+    restates it. If that month is not established, pass ``None`` to accept only
+    month-anchored text, without attributing an unanchored headline or comparison.
+    Returns ``None`` when no supported pattern matches the month.
     Raises :class:`PmiExtractionError` when candidates in the selected reader/window
     disagree or lie outside the index range; it does not compare every PDF statement.
     """
@@ -152,7 +154,7 @@ def extract_pmi_value(
     return None
 
 
-def _readers(*, expected: date, reported: date) -> Iterator[Callable[[str], set[float]]]:
+def _readers(*, expected: date, reported: date | None) -> Iterator[Callable[[str], set[float]]]:
     """The readers that may speak for ``expected``, strictest first.
 
     The month-anchored reader always applies because it proves the month from the
@@ -166,7 +168,7 @@ def _readers(*, expected: date, reported: date) -> Iterator[Callable[[str], set[
     yield lambda window: _month_anchored(window, month=month)
     if expected == reported:
         yield _introduced_reading
-    elif expected == _previous_month(reported):
+    elif reported is not None and expected == _previous_month(reported):
         yield lambda window: _restated_previous(window, reported=_month_pattern(reported))
 
 

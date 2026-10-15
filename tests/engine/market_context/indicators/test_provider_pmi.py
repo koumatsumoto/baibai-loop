@@ -279,6 +279,27 @@ class IndicatorsProviderParserTests(TestCase):
                     release_observed_at=release_at,
                 )
 
+    def test_unknown_report_month_requires_a_month_anchored_value(self) -> None:
+        expected = date(2026, 6, 1)
+        for text in (
+            "The headline PMI posted 54.8, up from 54.5.",
+            "The headline PMI recorded 54.8 in July, up from 54.5.",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(
+                    extract_pmi_value(
+                        text, expected_observed_at=expected, release_observed_at=None
+                    )
+                )
+        self.assertEqual(
+            extract_pmi_value(
+                "The headline PMI posted 54.8 in June, up from 54.5 in May.",
+                expected_observed_at=expected,
+                release_observed_at=None,
+            ),
+            54.8,
+        )
+
     def test_extract_pmi_value_accepts_full_diffusion_index_domain(self) -> None:
         for expected in (0.0, 9.9, 21.5, 70.4, 100.0):
             with self.subTest(expected=expected):

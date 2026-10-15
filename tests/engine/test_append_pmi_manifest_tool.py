@@ -448,7 +448,7 @@ def test_verified_value_refuses_a_release_of_a_different_pmi() -> None:
 
 
 def test_verified_value_refuses_a_release_the_index_dated_in_another_month() -> None:
-    """The release states its own embargo date, which is what it was published on.
+    """The release states an embargo month to compare with the index, not API availability.
 
     An index that dates a release a month early would have the month before it read
     out of the restatement, which is a value the manifest records differently.
