@@ -1393,10 +1393,7 @@ class MarginPublicationTransitionStoreTest(unittest.TestCase):
             trading_days = (date(2026, 9, 25), date(2026, 9, 28), date(2026, 9, 29))
             store_jquants_daily_bars(
                 db,
-                [
-                    {"Date": day.isoformat(), "Code": "72030", "C": 100.0}
-                    for day in trading_days
-                ],
+                [{"Date": day.isoformat(), "Code": "72030", "C": 100.0} for day in trading_days],
                 requested_start=trading_days[0],
                 requested_end=trading_days[-1],
             )
