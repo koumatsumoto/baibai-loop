@@ -410,24 +410,6 @@ def is_usable_filing_status(legal: object, disclosure: object, withdrawal: objec
     )
 
 
-def edinet_filing_counts(sqlite_path: Path, *, through: date) -> dict[str, int]:
-    """Form-code histogram of the stored index, for the source-coverage record."""
-    connection = connect_current(sqlite_path)
-    if connection is None:
-        return {}
-    doc_types = LARGE_HOLDING_DOC_TYPES + TENDER_OFFER_DOC_TYPES
-    try:
-        rows = connection.execute(
-            "SELECT doc_type_code, COUNT(*) FROM edinet_documents "
-            f"WHERE doc_date <= ? AND doc_type_code IN ({_placeholders(doc_types)}) "  # nosec B608
-            "GROUP BY doc_type_code ORDER BY doc_type_code",
-            (through.isoformat(), *doc_types),
-        ).fetchall()
-    finally:
-        connection.close()
-    return {str(code): int(count) for code, count in rows}
-
-
 def _policy_by_ticker(
     connection: sqlite3.Connection, policy_month: object, requested: Sequence[str]
 ) -> dict[str, tuple[CapitalPolicyStatus, date | None]]:
@@ -624,7 +606,6 @@ __all__ = (
     "ValuationCatalystContext",
     "ValuationCatalystError",
     "edinet_code_to_ticker",
-    "edinet_filing_counts",
     "edinet_identity_covered",
     "is_usable_filing_status",
     "parse_tse_capital_policy_workbook",

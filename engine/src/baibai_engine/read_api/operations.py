@@ -13,13 +13,6 @@ from .sqlite import read_application_rows as read_rows
 OperationStatus = Literal["active", "completed"]
 
 
-def operation_session(path: Path, operation_id: str) -> dict[str, object] | None:
-    rows = read_rows(
-        path, "SELECT * FROM operation_session WHERE operation_id = ?", (operation_id,)
-    )
-    return _public(rows[0]) if rows else None
-
-
 def list_operation_sessions(
     path: Path,
     *,
@@ -51,4 +44,4 @@ def _public(row: sqlite3.Row) -> dict[str, object]:
     }
 
 
-__all__ = ["list_operation_sessions", "operation_session"]
+__all__ = ["list_operation_sessions"]
