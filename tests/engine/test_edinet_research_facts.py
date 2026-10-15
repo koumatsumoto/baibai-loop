@@ -461,3 +461,37 @@ def test_refreshed_tombstone_allows_earlier_metadata_without_reviving_document(
     assert folded[0]["withdrawalStatus"] == "2"
     assert folded[0]["legalStatus"] == "0"
     assert original["periodEnd"] == "2026-03-31"
+
+
+@pytest.mark.parametrize("through_sqlite", [False, True])
+def test_metadata_edit_clears_optional_values_in_raw_and_stored_rows(
+    tmp_path, through_sqlite
+):
+    from baibai_engine.market.edinet_metrics.store import read_edinet_documents
+    from baibai_engine.market.providers.edinet import _canonicalize_document_events
+    from baibai_engine.storage.observations.ingest.edinet import store_edinet_documents
+
+    original = document()
+    correction = document("S100CORR", "2026-08-01 10:00", parentDocID="S100TEST")
+    correction["docTypeCode"] = "130"
+    correction["docInfoEditStatus"] = "2"
+    edit = {**correction, "doc_date": "2026-08-02", "docInfoEditStatus": "1"}
+    edit.update(parentDocID=None, periodEnd=None)
+    documents = [original, correction, edit]
+    if through_sqlite:
+        path = tmp_path / "market.sqlite"
+        documents = []
+        for row in (original, correction, edit):
+            day = date.fromisoformat(row["doc_date"])
+            store_edinet_documents(path, day, [{**row, "seqNumber": 1}])
+            stored = read_edinet_documents(path, day)
+            assert stored is not None
+            documents.extend(stored)
+    folded, quarantined = _canonicalize_document_events(documents, origin_start=None)
+    current = next(row for row in folded if row["docID"] == "S100CORR")
+    assert not quarantined
+    assert current["parentDocID"] is None
+    assert current["periodEnd"] is None
+    assert current["docTypeCode"] == "130"
+    assert correction["parentDocID"] == "S100TEST"
+    assert correction["periodEnd"] == "2026-03-31"
