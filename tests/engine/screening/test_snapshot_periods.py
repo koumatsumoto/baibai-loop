@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import date, timedelta
 
+import pytest
 from tests.engine.screening.metric_fixtures import (
     _daily_bars,
     _security,
@@ -353,7 +354,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
         self.assertAlmostEqual(financial.per_trailing, latest_close / expected_eps_ttm, places=5)
         self.assertEqual(financial.ttm_quality_per_trailing.value, "exact")
 
-    def test_nonactual_notices_preserve_ttm_but_not_withdrawn_forecast(self) -> None:
+    def test_nonactual_notices_preserve_ttm_and_keep_missing_forecast(self) -> None:
         asof = date(2026, 9, 7)
         rows = self._ttm_actual_periods()
         rules = load_screening_rules()
@@ -840,3 +841,56 @@ class ScreeningMetricsTests(SnapshotFixtures):
             edinet_by_ticker={},
         )
         self.assertIsNone(result.financials["130A"].eps_yoy)
+
+
+@pytest.mark.parametrize("with_period_dates", [False, True])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_prior_year_conflict_does_not_revive_an_older_revision(with_period_dates, reverse):
+    asof = date(2026, 8, 31)
+    old = _summary(
+        "130A",
+        date(2025, 7, 15),
+        fiscal_year_end=date(2026, 3, 31),
+        period_start=date(2025, 4, 1) if with_period_dates else None,
+        period_end=date(2025, 6, 30) if with_period_dates else None,
+        eps_ttm=80.0,
+        sales=80.0,
+        cfo=80.0,
+        operating_profit=-80.0,
+    )
+    first = replace(
+        old,
+        disclosed_at=date(2025, 8, 1),
+        eps_ttm=100.0,
+        sales=100.0,
+        cfo=100.0,
+        operating_profit=-100.0,
+    )
+    second = replace(first, eps_ttm=120.0, sales=120.0, cfo=120.0, operating_profit=-120.0)
+    current = _summary(
+        "130A",
+        date(2026, 8, 1),
+        fiscal_year_end=date(2027, 3, 31),
+        period_start=date(2026, 4, 1) if with_period_dates else None,
+        period_end=date(2026, 6, 30) if with_period_dates else None,
+        eps_ttm=110.0,
+        sales=110.0,
+        cfo=110.0,
+        operating_profit=-50.0,
+    )
+    rows = [old, first, second, current]
+    result = build_metrics(
+        asof_date=asof,
+        securities_by_ticker={"130A": _security()},
+        bars_by_ticker={"130A": _daily_bars("130A", asof, 60)},
+        summaries_by_ticker={"130A": list(reversed(rows)) if reverse else rows},
+        edinet_by_ticker={},
+    ).financials["130A"]
+    assert result.eps_yoy is None
+    assert result.sales_yoy is None
+    assert result.cfo_yoy is None
+    assert result.operating_profit_yoy is None
+    assert result.operating_profit_loss_narrowing is None
+    assert result.sales == 110.0
+    assert result.cfo == 110.0
+    assert result.operating_profit == -50.0

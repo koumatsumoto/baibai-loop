@@ -310,7 +310,11 @@ def _prior_year_summary(
     candidates = [
         summary
         for summary in _actual_rows(summaries)
-        if field_name is None or getattr(summary, field_name) is not None
+        if (
+            field_name is None
+            or getattr(summary, field_name) is not None
+            or field_name in summary.unresolved_actual_fields
+        )
         if summary.fiscal_period == latest.fiscal_period
         and summary.fiscal_year_end == target_fiscal_year_end
     ]
@@ -411,7 +415,11 @@ def _matched_prior_period_summary(
     max_length_delta = max(1, round(latest_days * ttm_rules.period_length_tolerance_ratio))
     candidates: list[JQuantsFinancialSummary] = []
     for summary in _actual_rows(summaries):
-        if field_name is not None and getattr(summary, field_name) is None:
+        if (
+            field_name is not None
+            and getattr(summary, field_name) is None
+            and field_name not in summary.unresolved_actual_fields
+        ):
             continue
         if summary.period_start is None or summary.period_end is None:
             continue
