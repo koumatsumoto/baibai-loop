@@ -226,11 +226,11 @@ def test_cancelled_report_releases_only_the_reported_reservation() -> None:
     assert repeated.changed is False
 
 
-def test_expired_report_requires_expiry_and_is_idempotent() -> None:
+def test_expired_report_checks_known_expiry_and_is_idempotent() -> None:
     ledger = load_portfolio_ledger(FIXTURE)
     expiry = datetime(2026, 7, 31, 15, 30, tzinfo=JST)
     now = datetime(2026, 8, 1, 12, 0, tzinfo=JST)
-    with pytest.raises(BrokerFactRecordingError, match="at or after expires_at"):
+    with pytest.raises(BrokerFactRecordingError, match="predates expires_at"):
         record_broker_fact(
             ledger,
             decision_reference=PROPOSAL,
@@ -332,30 +332,41 @@ def test_expired_report_releases_only_remaining_partial_fill_quantity() -> None:
     assert sum(lot.quantity for lot in state.lots["1234"]) == 100
 
 
-def test_cancelled_report_at_expiry_must_use_expired_status() -> None:
-    with pytest.raises(BrokerFactRecordingError, match="must use expired reason"):
-        record_broker_fact(
-            load_portfolio_ledger(FIXTURE),
-            decision_reference=PROPOSAL,
-            status="cancelled",
-            occurred_at=datetime(2026, 7, 31, 15, 30, tzinfo=JST),
-            reservation_id="reservation-8929-pending",
-            now=datetime(2026, 8, 1, 12, 0, tzinfo=JST),
-        )
+def test_cancelled_report_keeps_human_status_even_after_recorded_expiry() -> None:
+    result = record_broker_fact(
+        load_portfolio_ledger(FIXTURE),
+        decision_reference=PROPOSAL,
+        status="cancelled",
+        occurred_at=datetime(2026, 7, 31, 15, 30, tzinfo=JST),
+        reservation_id="reservation-8929-pending",
+        now=datetime(2026, 8, 1, 12, 0, tzinfo=JST),
+    )
+    assert result.document.events[-1].reason == "cancelled"
 
 
-def test_filled_without_reservation_lists_missing_human_facts() -> None:
-    with pytest.raises(BrokerFactRecordingError, match="requires ordered_at"):
-        record_broker_fact(
-            load_portfolio_ledger(FIXTURE),
-            decision_reference=PROPOSAL,
-            status="filled",
-            occurred_at=_at(10),
-            ticker="2331",
-            quantity=100,
-            price_yen=Decimal("1090"),
-            now=_at(12),
-        )
+def test_filled_without_reservation_records_only_the_confirmed_execution() -> None:
+    original = load_portfolio_ledger(FIXTURE)
+    result = record_broker_fact(
+        original,
+        decision_reference=PROPOSAL,
+        status="filled",
+        occurred_at=_at(10),
+        ticker="2331",
+        quantity=100,
+        price_yen=Decimal("1090"),
+        now=_at(12),
+    )
+    assert len(result.event_ids) == 1
+    times = [event.occurred_at for event in result.document.events]
+    assert times == sorted(times)
+    event = result.document.events[-1]
+    assert event.type == "execution"
+    assert event.reservation_id is None
+    before = replay_events_through(original.events, original.as_of)
+    after = replay_events_through(result.document.events, result.document.as_of)
+    assert after.available_cash_yen == before.available_cash_yen - 109_000
+    assert after.reserved_cash_yen == before.reserved_cash_yen
+    assert sum(lot.quantity for lot in after.lots["2331"]) == 300
 
 
 def test_result_rejects_an_empty_decision_reference() -> None:
@@ -379,21 +390,6 @@ def test_result_rejects_future_human_times() -> None:
             status="cancelled",
             occurred_at=_at(13),
             reservation_id="reservation-8929-pending",
-            now=_at(12),
-        )
-    with pytest.raises(BrokerFactRecordingError, match="ordered_at must not be in the future"):
-        record_broker_fact(
-            ledger,
-            decision_reference=PROPOSAL,
-            status="filled",
-            occurred_at=_at(11),
-            ticker="1234",
-            quantity=100,
-            price_yen=Decimal("900"),
-            ordered_at=_at(13),
-            price_guard_yen=Decimal("1000"),
-            expires_at=datetime(2026, 7, 20, 15, 30, tzinfo=JST),
-            sector="サービス業",
             now=_at(12),
         )
 
@@ -471,25 +467,3 @@ def test_fill_cannot_replace_the_reservation_decision_reference() -> None:
             reservation_id=reservation_id,
             now=_at(12),
         )
-
-
-def test_direct_fill_inserts_reservation_before_newer_existing_events() -> None:
-    result = record_broker_fact(
-        load_portfolio_ledger(FIXTURE),
-        decision_reference=PROPOSAL,
-        status="filled",
-        occurred_at=_at(10),
-        ticker="2331",
-        quantity=100,
-        price_yen=Decimal("1090"),
-        ordered_at=_at(9),
-        price_guard_yen=Decimal("1100"),
-        expires_at=datetime(2026, 7, 20, 15, 30, tzinfo=JST),
-        now=_at(12),
-    )
-    times = [event.occurred_at for event in result.document.events]
-    assert times == sorted(times)
-    holding = next(
-        item for item in portfolio_snapshot(result.document).holdings if item.ticker == "2331"
-    )
-    assert holding.quantity == 300

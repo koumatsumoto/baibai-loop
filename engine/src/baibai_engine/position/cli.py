@@ -39,6 +39,7 @@ from baibai_engine.position.drafts import (
     build_meta_draft,
     build_override_draft,
     build_sell_execution_draft,
+    date_only_replay_key,
     known_broker_reference,
     load_draft,
     write_draft,
@@ -144,7 +145,7 @@ def build_parser() -> argparse.ArgumentParser:
     broker_occurrence.add_argument(
         "--occurred-on",
         type=_date_argument,
-        help="fill date only; an identical unkeyed same-day report is a retry",
+        help="reported date; no exact order or execution time is required",
     )
     broker_fact_parser.add_argument("--ticker")
     broker_fact_parser.add_argument("--quantity", type=int)
@@ -165,7 +166,6 @@ def build_parser() -> argparse.ArgumentParser:
     broker_fact_parser.add_argument("--expires-at", type=_datetime_argument)
     broker_fact_parser.add_argument("--expiry-label")
     broker_fact_parser.add_argument("--route-label")
-    broker_fact_parser.add_argument("--ordered-at", type=_datetime_argument)
     broker_fact_parser.add_argument("--out", type=Path, required=True)
     sell_parser = subparsers.add_parser(
         "sell-execution-draft",
@@ -207,7 +207,9 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
     )
     event_parser.add_argument("--event-id", required=True)
-    event_parser.add_argument("--occurred-at", type=_datetime_argument, required=True)
+    event_occurrence = event_parser.add_mutually_exclusive_group(required=True)
+    event_occurrence.add_argument("--occurred-at", type=_datetime_argument)
+    event_occurrence.add_argument("--occurred-on", type=_date_argument)
     event_parser.add_argument("--amount-yen", type=int, required=True)
     event_parser.add_argument("--ticker")
     event_parser.add_argument("--kind")
@@ -310,6 +312,10 @@ def _run_event_draft(args: argparse.Namespace) -> int:
         "amount_yen": args.amount_yen,
     }
     try:
+        service = LedgerStoreService(args.db)
+        if args.occurred_on is not None:
+            common["occurred_at"] = date_only_replay_key(service.load(), args.occurred_on, None)
+            common["occurred_on"] = args.occurred_on
         event: HumanEvent
         if args.type == "contribution":
             event = ContributionEvent.model_validate(common)
@@ -327,7 +333,7 @@ def _run_event_draft(args: argparse.Namespace) -> int:
             event = ConfirmedTaxEvent.model_validate(
                 {**common, "ticker": args.ticker, "tax_kind": args.kind}
             )
-        draft = build_event_draft(LedgerStoreService(args.db), event)
+        draft = build_event_draft(service, event)
         write_draft(args.out, draft)
     except (OSError, ValueError, LedgerConflictError, PortfolioLedgerError) as error:
         print(f"error: {error}", file=sys.stderr)
@@ -571,7 +577,6 @@ def _run_record_broker_fact(args: argparse.Namespace, *, now: datetime | None) -
             expires_at=args.expires_at,
             expiry_label=args.expiry_label,
             route_label=args.route_label,
-            ordered_at=args.ordered_at,
             now=now,
         )
         if draft is not None:

@@ -52,7 +52,6 @@ def record_broker_fact(
     expires_at: datetime | None = None,
     expiry_label: str | None = None,
     route_label: str | None = None,
-    ordered_at: datetime | None = None,
     now: datetime | None = None,
 ) -> BrokerFactRecordingResult:
     """Append only facts explicitly supplied by the human operator.
@@ -69,14 +68,7 @@ def record_broker_fact(
         if status != "filled":
             raise BrokerFactRecordingError("execution_id is only valid for a fill")
         _validate_execution_id(execution_id)
-    if occurred_on is not None and status != "filled":
-        raise BrokerFactRecordingError("occurred_on is only valid for a fill")
-    effective_now = _validate_report_time(occurred_at, now=now)
-    if ordered_at is not None:
-        if ordered_at.tzinfo is None:
-            raise BrokerFactRecordingError("ordered_at must include a timezone")
-        if ordered_at > effective_now:
-            raise BrokerFactRecordingError("ordered_at must not be in the future")
+    _validate_report_time(occurred_at, now=now)
     if status == "expired" and reservation_id is None:
         raise BrokerFactRecordingError("expired requires reservation_id")
 
@@ -101,6 +93,7 @@ def record_broker_fact(
                 f"sell-{status}" if side == "sell" else status,
                 ticker,
                 occurred_at,
+                occurred_on,
             )
         )
         prefix = "human-open" if status == "open" else "human-fill"
@@ -156,6 +149,7 @@ def record_broker_fact(
             reason=release_reason,
             decision_reference=decision_reference,
             occurred_at=occurred_at,
+            occurred_on=occurred_on,
         ):
             return BrokerFactRecordingResult(document=document, changed=False, event_ids=())
 
@@ -174,7 +168,7 @@ def record_broker_fact(
             reservation_snapshots(state),
             reservation_id=reservation_id,
             ticker=ticker,
-            required=status in {"cancelled", "expired"},
+            required=status in {"cancelled", "expired"} or reservation_id is not None,
             side=side if status in {"filled"} else None,
         )
     )
@@ -183,12 +177,14 @@ def record_broker_fact(
     if status == "open":
         _require(ticker=ticker, quantity=quantity, sector=resolved_sector)
         assert ticker is not None
-        if price_guard_yen is None or expires_at is None:
-            raise BrokerFactRecordingError("open requires price_guard_yen and expires_at")
-        if expires_at <= occurred_at:
-            raise BrokerFactRecordingError("open expires_at must be after occurred_at")
+        if price_guard_yen is None:
+            raise BrokerFactRecordingError("open requires price_guard_yen")
         suffix = _event_suffix(
-            decision_reference, f"sell-{status}" if side == "sell" else status, ticker, occurred_at
+            decision_reference,
+            f"sell-{status}" if side == "sell" else status,
+            ticker,
+            occurred_at,
+            occurred_on,
         )
         additions.append(
             {
@@ -204,7 +200,7 @@ def record_broker_fact(
                 "decision_reference": decision_reference,
                 "quantity": quantity,
                 "price_guard_yen": str(price_guard_yen),
-                "expires_at": expires_at.isoformat(),
+                "expires_at": expires_at.isoformat() if expires_at is not None else None,
                 "expiry_label": expiry_label,
                 "route_label": route_label,
             }
@@ -217,38 +213,8 @@ def record_broker_fact(
         if side == "sell" and reservation is None:
             raise BrokerFactRecordingError("sell fill requires an active sell order")
         if reservation is None:
-            if (
-                ordered_at is None
-                or price_guard_yen is None
-                or expires_at is None
-                or resolved_sector is None
-            ):
-                raise BrokerFactRecordingError(
-                    "filled without an active reservation requires ordered_at, "
-                    "price_guard_yen, expires_at, and sector"
-                )
-            if not ordered_at < occurred_at < expires_at:
-                raise BrokerFactRecordingError(
-                    "filled requires ordered_at < occurred_at < expires_at"
-                )
-            suffix = _event_suffix(decision_reference, "open", ticker, ordered_at)
-            resolved_reservation_id = reservation_id or f"reservation-{suffix}"
-            additions.append(
-                {
-                    "event_id": f"human-open-{suffix}",
-                    "type": "reservation",
-                    "occurred_at": ordered_at.isoformat(),
-                    "reservation_id": resolved_reservation_id,
-                    "order_id": order_id or f"repository-order-{suffix}",
-                    "ticker": ticker,
-                    "sector": resolved_sector,
-                    "common_factors": sorted(resolved_common_factors),
-                    "decision_reference": decision_reference,
-                    "quantity": quantity,
-                    "price_guard_yen": str(price_guard_yen),
-                    "expires_at": expires_at.isoformat(),
-                }
-            )
+            _require(sector=resolved_sector)
+            resolved_reservation_id = None
         else:
             if ticker != reservation.ticker:
                 raise BrokerFactRecordingError("filled ticker does not match reservation")
@@ -284,7 +250,11 @@ def record_broker_fact(
                 "quantity": quantity,
                 "price_yen": str(price_yen),
                 "decision_reference": decision_reference,
-                **({"occurred_on": occurred_on.isoformat()} if occurred_on is not None else {}),
+                **(
+                    {"sector": resolved_sector, "common_factors": sorted(resolved_common_factors)}
+                    if reservation is None
+                    else {}
+                ),
             }
         )
     else:
@@ -296,9 +266,13 @@ def record_broker_fact(
                 status=status,
                 occurred_at=occurred_at,
                 event_identity=reservation.ticker,
+                occurred_on=occurred_on,
             )
         )
 
+    if occurred_on is not None:
+        for addition in additions:
+            addition["occurred_on"] = occurred_on.isoformat()
     return _patch_document(document, additions=additions, occurred_at=occurred_at)
 
 
@@ -310,6 +284,7 @@ def record_terminal_broker_facts(
     occurred_at: datetime,
     reservation_ids: tuple[str, ...],
     now: datetime | None = None,
+    occurred_on: date | None = None,
 ) -> BrokerFactRecordingResult:
     """Append simultaneous terminal broker facts as one reconciled ledger change."""
 
@@ -331,6 +306,7 @@ def record_terminal_broker_facts(
             reason=status,
             decision_reference=decision_reference,
             occurred_at=occurred_at,
+            occurred_on=occurred_on,
         )
     ]
     if not pending_ids:
@@ -350,6 +326,7 @@ def record_terminal_broker_facts(
                 status=status,
                 occurred_at=occurred_at,
                 event_identity=f"{reservation.ticker}:{reservation.reservation_id}",
+                occurred_on=occurred_on,
             )
         )
 
@@ -374,6 +351,7 @@ def _release_already_recorded(
     reason: Literal["cancelled", "expired"],
     decision_reference: str,
     occurred_at: datetime,
+    occurred_on: date | None = None,
 ) -> bool:
     releases = [
         event
@@ -387,6 +365,7 @@ def _release_already_recorded(
         reason=reason,
         decision_reference=decision_reference,
         occurred_at=occurred_at,
+        occurred_on=occurred_on,
     ):
         raise BrokerFactRecordingError("conflicting human report for released reservation")
     return True
@@ -398,6 +377,7 @@ def _release_addition(
     decision_reference: str,
     status: Literal["cancelled", "expired"],
     occurred_at: datetime,
+    occurred_on: date | None = None,
     event_identity: str,
 ) -> dict[str, object]:
     if (
@@ -407,9 +387,7 @@ def _release_addition(
         raise BrokerFactRecordingError(
             f"{status} decision_reference does not match the active reservation"
         )
-    if status == "expired" and occurred_at < reservation.expires_at:
-        raise BrokerFactRecordingError("expired occurred_at must be at or after expires_at")
-    suffix = _event_suffix(decision_reference, status, event_identity, occurred_at)
+    suffix = _event_suffix(decision_reference, status, event_identity, occurred_at, occurred_on)
     prefix = "human-cancel" if status == "cancelled" else "human-expire"
     return {
         "event_id": f"{prefix}-{suffix}",
@@ -418,6 +396,7 @@ def _release_addition(
         "reservation_id": reservation.reservation_id,
         "reason": status,
         "decision_reference": decision_reference,
+        **({"occurred_on": occurred_on.isoformat()} if occurred_on is not None else {}),
     }
 
 
@@ -435,7 +414,10 @@ def _patch_document(
         if existing is None:
             pending.append(addition)
             continue
-        if existing.model_dump(mode="json") != addition:
+        candidate = type(existing).model_validate(addition)
+        if candidate.occurred_on is not None and candidate.occurred_on == existing.occurred_on:
+            candidate = candidate.model_copy(update={"occurred_at": existing.occurred_at})
+        if existing != candidate:
             raise BrokerFactRecordingError(f"conflicting human report for event {event_id}")
     if not pending:
         return BrokerFactRecordingResult(document=document, changed=False, event_ids=())
@@ -491,8 +473,15 @@ def _require(**values: object) -> None:
         )
 
 
-def _event_suffix(decision_reference: str, status: str, ticker: str, occurred_at: datetime) -> str:
-    raw = f"{decision_reference}|{status}|{ticker}|{occurred_at.isoformat()}"
+def _event_suffix(
+    decision_reference: str,
+    status: str,
+    ticker: str,
+    occurred_at: datetime,
+    occurred_on: date | None = None,
+) -> str:
+    occurrence = f"date:{occurred_on.isoformat()}" if occurred_on else occurred_at.isoformat()
+    raw = f"{decision_reference}|{status}|{ticker}|{occurrence}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
@@ -540,7 +529,7 @@ def _same_fill_report(
 ) -> bool:
     return (
         event.decision_reference == decision_reference
-        and event.occurred_at == occurred_at
+        and (occurred_on is not None or event.occurred_at == occurred_at)
         and event.occurred_on == occurred_on
         and event.ticker == ticker
         and event.side == side
@@ -556,9 +545,11 @@ def _same_release_report(
     reason: Literal["cancelled", "expired"],
     decision_reference: str,
     occurred_at: datetime,
+    occurred_on: date | None = None,
 ) -> bool:
     return (
         event.reason == reason
         and event.decision_reference == decision_reference
-        and event.occurred_at == occurred_at
+        and event.occurred_on == occurred_on
+        and (occurred_on is not None or event.occurred_at == occurred_at)
     )

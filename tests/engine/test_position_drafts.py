@@ -11,10 +11,7 @@ from tests.helpers.ledger import load_portfolio_ledger
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.cli import main as position_main
 from baibai_engine.position.drafts import LedgerDraft, apply_draft, build_event_draft
-from baibai_engine.position.ledger import (
-    ContributionEvent,
-    PortfolioLedgerError,
-)
+from baibai_engine.position.ledger import ContributionEvent, CostEvent, replay_events_through
 from baibai_engine.position.ledger_read import LedgerConflictError
 from baibai_engine.position.store import LedgerStoreService
 
@@ -73,7 +70,7 @@ def test_event_draft_requires_confirmation_and_rejects_stale_apply(tmp_path: Pat
         apply_draft(service, second, human_confirmed=True)
 
 
-def test_record_broker_fact_apply_still_rejects_an_unreleased_expired_reservation(
+def test_record_broker_fact_apply_preserves_unreported_expired_order(
     tmp_path: Path,
 ) -> None:
     db = _seeded_db(tmp_path)
@@ -88,8 +85,9 @@ def test_record_broker_fact_apply_still_rejects_an_unreleased_expired_reservatio
         ),
     )
 
-    with pytest.raises(PortfolioLedgerError, match="expired reservations require"):
-        apply_draft(service, draft, human_confirmed=True)
+    apply_draft(service, draft, human_confirmed=True)
+    assert service.load().events == source.events
+    assert service.load().as_of == draft.replacement.as_of
 
 
 @pytest.mark.parametrize(
@@ -102,11 +100,20 @@ def test_record_broker_fact_apply_still_rejects_an_unreleased_expired_reservatio
         ("tax_confirmed", ["--ticker", "2331", "--kind", "capital_gain"]),
     ],
 )
+@pytest.mark.parametrize(
+    ("occurrence_option", "occurrence"),
+    [
+        ("--occurred-at", "2026-07-18T09:00:00+09:00"),
+        ("--occurred-on", "2026-07-18"),
+    ],
+)
 def test_event_draft_cli_writes_a_draft_for_every_event_type(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     event_type: str,
     extra: list[str],
+    occurrence_option: str,
+    occurrence: str,
 ) -> None:
     """Drive the command, not the model it wraps.
 
@@ -124,8 +131,8 @@ def test_event_draft_cli_writes_a_draft_for_every_event_type(
             event_type,
             "--event-id",
             f"human-{event_type}-cli",
-            "--occurred-at",
-            "2026-07-18T09:00:00+09:00",
+            occurrence_option,
+            occurrence,
             "--amount-yen",
             "10000",
             "--db",
@@ -167,3 +174,31 @@ def test_event_rejects_a_value_that_is_not_an_instant() -> None:
                 "amount_yen": 10_000,
             }
         )
+
+
+def test_confirmed_zero_commission_is_recorded_without_changing_cash(tmp_path: Path) -> None:
+    service = LedgerStoreService(_seeded_db(tmp_path))
+    before = service.load()
+    draft = build_event_draft(
+        service,
+        CostEvent.model_validate(
+            {
+                "event_id": "human-confirmed-zero-commission",
+                "type": "cost",
+                "occurred_at": "2026-07-18T00:00:00+09:00",
+                "occurred_on": "2026-07-18",
+                "ticker": "2331",
+                "cost_kind": "commission",
+                "amount_yen": 0,
+            }
+        ),
+    )
+    apply_draft(service, draft, human_confirmed=True)
+    stored = service.load()
+    assert len(stored.events) == len(before.events) + 1
+    assert stored.events[-1].amount_yen == 0
+    assert stored.events[:-1] == before.events
+    previous = replay_events_through(before.events, before.as_of)
+    current = replay_events_through(stored.events, stored.as_of)
+    assert current.available_cash_yen == previous.available_cash_yen
+    assert current.reserved_cash_yen == previous.reserved_cash_yen

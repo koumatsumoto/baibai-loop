@@ -37,7 +37,6 @@ from baibai_engine.position.ledger import (
     WithdrawalEvent,
     active_human_overrides,
     replay_events_through,
-    require_resolved_expiries,
     reservation_snapshots,
 )
 from baibai_engine.position.store import LedgerApplyResult, LedgerStoreService
@@ -96,7 +95,6 @@ def build_broker_fact_draft(
     expires_at: datetime | None = None,
     expiry_label: str | None = None,
     route_label: str | None = None,
-    ordered_at: datetime | None = None,
     now: datetime | None = None,
 ) -> tuple[LedgerDraft | None, tuple[str, ...]]:
     """Build a draft from a saved buy binding or an explicitly reported direct fact.
@@ -164,9 +162,9 @@ def build_broker_fact_draft(
     if (occurred_at is None) == (occurred_on is None):
         raise ValueError("specify exactly one of occurred_at and occurred_on")
     if occurred_on is not None:
-        if status != "filled" or len(requested_ids) != 1:
-            raise ValueError("date-only broker fact requires one reserved fill")
-        occurred_at = _date_only_execution_key(source, occurred_on, requested_ids[0])
+        occurred_at = date_only_replay_key(
+            source, occurred_on, requested_ids[0] if requested_ids else None
+        )
     assert occurred_at is not None
 
     def record_single_fact() -> BrokerFactRecordingResult:
@@ -189,7 +187,6 @@ def build_broker_fact_draft(
             expires_at=expires_at,
             expiry_label=expiry_label,
             route_label=route_label,
-            ordered_at=ordered_at,
             now=now,
         )
 
@@ -255,6 +252,7 @@ def build_broker_fact_draft(
             occurred_at=occurred_at,
             reservation_ids=requested_ids,
             now=now,
+            occurred_on=occurred_on,
         )
     else:
         result = record_single_fact()
@@ -426,7 +424,7 @@ def build_sell_execution_draft(
         raise ValueError("specify exactly one of occurred_at and occurred_on")
     source, expected_head = service.load_with_head()
     if occurred_on is not None:
-        occurred_at = _date_only_execution_key(source, occurred_on, reservation_id)
+        occurred_at = date_only_replay_key(source, occurred_on, reservation_id)
     assert occurred_at is not None
     if execution_id is not None:
         _validate_execution_id(execution_id)
@@ -470,7 +468,7 @@ def build_sell_execution_draft(
             )
             if not (
                 existing.side == "sell"
-                and existing.occurred_at == occurred_at
+                and (occurred_on is not None or existing.occurred_at == occurred_at)
                 and existing.occurred_on == occurred_on
                 and existing.ticker == ticker
                 and existing.quantity == quantity
@@ -566,28 +564,35 @@ def build_sell_execution_draft(
     )
 
 
-def _date_only_execution_key(
+def date_only_replay_key(
     source: PortfolioLedgerDocument, occurred_on: date, reservation_id: str | None
 ) -> datetime:
     """Choose a replay key after the order without claiming an execution time."""
 
     day_start = datetime.combine(occurred_on, time.min, tzinfo=JST)
-    if reservation_id is None:
-        return day_start
-    order = next(
+    if reservation_id is not None:
+        order = next(
+            (
+                event
+                for event in source.events
+                if isinstance(event, ReservationEvent) and event.reservation_id == reservation_id
+            ),
+            None,
+        )
+        if order is None:
+            raise ValueError("date-only fill requires a saved reservation")
+        if order.occurred_at.astimezone(JST).date() > occurred_on:
+            raise ValueError("date-only fill predates the saved reservation")
+    # Same-day reports append after facts already recorded that day. This is an
+    # ordering key, not a claim about the order or execution's exact clock time.
+    return max(
         (
-            event
+            event.occurred_at
             for event in source.events
-            if isinstance(event, ReservationEvent) and event.reservation_id == reservation_id
+            if event.occurred_at.astimezone(JST).date() == occurred_on
         ),
-        None,
+        default=day_start,
     )
-    if order is None:
-        raise ValueError("date-only fill requires a saved reservation")
-    replay_key = max(day_start, order.occurred_at)
-    if replay_key.astimezone(JST).date() != occurred_on:
-        raise ValueError("date-only fill predates the saved reservation")
-    return replay_key
 
 
 def _sell_event_suffix(
@@ -645,9 +650,7 @@ def apply_draft(
     if not draft.confirmation_required:
         raise ValueError("ledger draft is not eligible for explicit apply")
     active_human_overrides(draft.replacement.overrides, as_of=draft.replacement.as_of)
-    state = replay_events_through(draft.replacement.events, draft.replacement.as_of)
-    if draft.kind == "broker-fact":
-        require_resolved_expiries(state)
+    replay_events_through(draft.replacement.events, draft.replacement.as_of)
     return service.apply_document(
         expected_head=draft.expected_head,
         expected_document=draft.source,
@@ -665,6 +668,7 @@ __all__ = [
     "build_meta_draft",
     "build_override_draft",
     "build_sell_execution_draft",
+    "date_only_replay_key",
     "known_broker_reference",
     "load_draft",
     "write_draft",

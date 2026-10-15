@@ -14,13 +14,14 @@ from baibai_web.sources.types import TaskRecord
 @pytest.mark.parametrize(
     ("expires_at", "last_valid_day"),
     [
+        (None, None),
         ("2026-10-17T00:00:00+09:00", date(2026, 10, 16)),
         ("2026-10-16T15:00:00+00:00", date(2026, 10, 16)),
         ("2026-10-16T16:00:00+00:00", date(2026, 10, 17)),
     ],
 )
 def test_exclusive_order_expiry_is_shown_on_last_valid_jst_day(
-    expires_at: str, last_valid_day: date
+    expires_at: str | None, last_valid_day: date | None
 ) -> None:
     orders = [
         ReservationView(
@@ -31,13 +32,15 @@ def test_exclusive_order_expiry_is_shown_on_last_valid_jst_day(
             remaining_quantity=100,
             price_guard_yen="1140",
             reserved_yen=0,
-            expires_at=datetime.fromisoformat(expires_at),
+            expires_at=datetime.fromisoformat(expires_at) if expires_at is not None else None,
             expiry_label="今週中",
             route_label="取引所（自動振分）",
         )
     ]
     events = upcoming_events(today=date(2026, 10, 14), holdings=[], reservations=orders)
-    assert [event.event_date for event in events] == [last_valid_day]
+    assert [event.event_date for event in events] == (
+        [] if last_valid_day is None else [last_valid_day]
+    )
 
 
 def test_tasks_remain_visible_when_ledger_cannot_build_upcoming_events(mocker) -> None:

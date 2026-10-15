@@ -126,6 +126,8 @@ def upcoming_events(
                 )
             )
     for reservation in reservations:
+        if reservation.expires_at is None:
+            continue
         event_date = (reservation.expires_at.astimezone(_JST) - timedelta(microseconds=1)).date()
         if today <= event_date <= window_end:
             events.append(

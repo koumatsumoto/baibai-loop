@@ -5370,9 +5370,16 @@
           "type": "integer"
         },
         "expires_at": {
-          "format": "date-time",
-          "title": "Expires At",
-          "type": "string"
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expires At"
         },
         "expiry_label": {
           "anyOf": [

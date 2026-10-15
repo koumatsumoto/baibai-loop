@@ -26,14 +26,13 @@ description: 人間が確認した取引・資金の事実を記録し、portfol
 
 ### 提案に対応する買付注文
 
-人間が確認した実注文のticker・数量・guard・期限・発注時刻を使う。以下のplaceholderは報告された値へ置換し、提案条件から注文事実を補完しない。
+人間が確認した実注文のticker・数量・guard・日付を使う。正確な時刻や期限を記録の前提にしない。以下のplaceholderは報告された値へ置換し、提案条件から注文事実を補完しない。
 
 ```bash
 uv run baibai-engine position broker-fact-draft --db stores/application/baibai.sqlite \
   --decision-reference <INVESTMENT_PROPOSAL_ID> --status open \
   --ticker <TICKER> --quantity <QTY> --price-guard-yen <GUARD> \
-  --expires-at <EXPIRY_ISO8601> --occurred-at <CONFIRMED_ISO8601> \
-  --ordered-at <ORDERED_ISO8601> --order-id <BROKER_ORDER_ID> --out <DRAFT>
+  --occurred-on <YYYY-MM-DD> --sector <SECTOR> --out <DRAFT>
 ```
 
 ### 提案なしの実買付
@@ -42,7 +41,15 @@ uv run baibai-engine position broker-fact-draft --db stores/application/baibai.s
 
 ### 約定と後続報告
 
-買付のdate-only約定は保存済みreservationへ束縛する。
+注文未登録の実買付は次の入口で記録できる。業種は銘柄情報から確認する。
+
+```bash
+uv run baibai-engine position broker-fact-draft --db stores/application/baibai.sqlite \
+  --direct-fact --status filled --ticker <TICKER> --quantity <QTY> \
+  --price-yen <PRICE> --sector <SECTOR> --occurred-on <YYYY-MM-DD> --out <DRAFT>
+```
+
+買付約定は日付・銘柄・数量・単価を基本に記録する。対応する保存注文がある場合だけreservationへ束縛し、注文がなければ発注時刻や期限を聞き直したり架空の注文を作らない。
 
 ```bash
 uv run baibai-engine position broker-fact-draft --db stores/application/baibai.sqlite \
@@ -58,6 +65,8 @@ uv run baibai-engine position sell-execution-draft --db stores/application/baiba
 売却が保存注文に対応するなら`--reservation-id`を加える。判断参照を報告できる場合は`--decision-reference`で残すが、新規Position Review artifactを要求しない。売付の未約定注文は`broker-fact-draft --side sell --status open`で記録し、見込代金をcashに入れない。
 
 注文に束縛された約定・取消・失効は同じ参照とreservation IDを使う。約定時刻も報告された場合は`--occurred-on`の代わりに`--occurred-at`を使う。実約定を区別するbroker IDがない場合は推測して作らず、同日別約定を区別できなければ確認する。status等の必須項目は対象commandのpublic `--help`に従う。取引を現在の購入適格性で再審査しないが、報告・参照・数量・cashの整合は検証する。入金やincomeに買付提案を要求しない。
+
+費用も`event-draft --occurred-on <YYYY-MM-DD>`で日付だけを記録できる。手数料0円と明示された場合は、0円のcost eventを残す。未報告を0円と推定しない。
 
 ## draftとapply
 
