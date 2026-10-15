@@ -10,8 +10,10 @@ from baibai_engine.valuation.cash_share_cb import CashShareCBInput, calculate_ca
 
 
 def _case(**overrides):
-    # Public terms: https://www2.jpx.co.jp/disc/69320/140120251031585161.pdf
-    # Earnings multiple and future prices are hypothetical inputs, not a forecast.
+    # Rounding/settlement form: https://www2.jpx.co.jp/disc/69320/140120251031585161.pdf
+    # The publication starts at 2,262 yen. This scenario assumes 2,230.5 yen before
+    # hypothetical dividend adjustments; it does not establish current contract terms.
+    # Equity value and future prices are assumptions, not a forecast.
     payload = {
         "valuation_as_of": "2026-10-13",
         "terminal_as_of": "2028-10-13",
@@ -34,7 +36,7 @@ def _case(**overrides):
     return payload
 
 
-def test_public_contract_shape_adjustment_rounding_and_fixed_point():
+def test_contract_rounding_with_assumed_adjusted_conversion_price():
     result = calculate_cash_share_cb(CashShareCBInput.model_validate(_case()))
     assert result["face_cash_yen"] == "4999960000"
     assert [item["conversion_price_yen"] for item in result["dividend_adjustments"]] == [

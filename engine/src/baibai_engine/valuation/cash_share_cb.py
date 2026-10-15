@@ -309,7 +309,7 @@ def _fixed_point(
 
 
 def calculate_cash_share_cb(inputs: CashShareCBInput) -> dict[str, object]:
-    """Return exact-decimal scenario outputs; no data access or probability model."""
+    """Return 50-digit decimal scenario outputs; no data access or probability model."""
     with localcontext() as context:
         context.prec = 50
         conversion, events = _adjusted_price(
