@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 
 # Chosen maturity policy: exclude contracts with fewer than seven days left.
 # This limits near-expiry exposure; it does not prove all settlement effects vanish.
@@ -341,24 +341,10 @@ def _as_float(value: object) -> float | None:
 
 
 def as_date(value: object) -> date | None:
-    """Reduce whatever the payload carries to a plain date, or None where it carries none.
-
-    A pandas Timestamp passes `isinstance(value, date)` but subtracting a date from
-    one raises, so a payload that typed the column as a timestamp would fail deep in
-    the maturity arithmetic instead of here. Rebuilding the date drops that path.
-
-    The frame's date column is parsed with errors coerced, so a row the source left
-    unparseable arrives as a not-a-time sentinel — which also passes the timestamp
-    check, and whose own `date()` is another sentinel rather than a date. It compares
-    unequal to itself, exactly as a NaN does, and that is what identifies it without
-    naming the library that produced it.
-    """
-    if isinstance(value, datetime):
-        return None if value != value else value.date()
-    if isinstance(value, date):
-        return date(value.year, value.month, value.day)
-    text = str(value or "")[:10]
+    """Read the native JSON date string without DataFrame timestamp coercion."""
+    if not isinstance(value, str):
+        return None
     try:
-        return date.fromisoformat(text)
+        return date.fromisoformat(value)
     except ValueError:
         return None

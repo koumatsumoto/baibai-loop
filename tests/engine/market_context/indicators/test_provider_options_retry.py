@@ -544,3 +544,45 @@ def test_new_pass_refreshes_successful_and_empty_chain_results(wire, initially_e
     for series_id in READINGS:
         assert len(wire.fetch(series_id)) == (1 if initially_empty else 0)
     assert len(wire.calls) == 2
+
+
+@pytest.mark.parametrize("payload", [{}, {"data": None}, {"data": {}}, {"data": [None]}])
+def test_malformed_native_page_is_not_a_successful_empty_day(wire, payload):
+    wire.reply = lambda url: (200, {}, payload)
+    with pytest.raises(ProviderFetchStoppedError, match="data"):
+        wire.fetch()
+    assert len(wire.calls) == 1
+    assert wire.waits == []
+
+
+def test_native_pages_keep_all_fields_and_source_date_strings(wire):
+    rows = [{**row, "EO": "", "extra_source_field": None} for row in chain()]
+    wire.reply = lambda url: success(rows=rows)
+    client = jquants_options.jquants_read_client(
+        "synthetic-key", deadline=read_deadline("jquants_options", wire.context)
+    )
+    result = jquants_options._fetch_chain(client, ASOF, api_key="synthetic-key")
+    assert result == rows
+    assert isinstance(result[0]["Date"], str)
+    assert result[0]["EO"] == ""
+    assert result[0]["extra_source_field"] is None
+
+
+def test_later_malformed_page_does_not_return_a_partial_day(wire):
+    wire.reply = lambda url: (
+        (200, {}, {"data": None})
+        if "pagination_key" in parse_qs(urlsplit(url).query)
+        else success(rows=chain()[:1], next_page="second")
+    )
+    with pytest.raises(ProviderFetchStoppedError, match="data list"):
+        wire.fetch()
+    assert len(wire.calls) == 2
+    assert wire.waits == []
+
+
+def test_repeated_pagination_key_cannot_loop_or_complete_a_day(wire):
+    wire.reply = lambda url: success(rows=[], next_page="same")
+    with pytest.raises(ProviderFetchStoppedError, match="repeated.*pagination_key"):
+        wire.fetch()
+    assert len(wire.calls) == 2
+    assert wire.waits == []

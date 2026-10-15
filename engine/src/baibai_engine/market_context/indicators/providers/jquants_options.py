@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping, Sequence
+from contextlib import closing
 from datetime import date, timedelta
+from typing import Any
 
 from baibai_engine.foundation.env import load_project_env
 
@@ -94,7 +96,7 @@ class JQuantsOptionsProvider:
         return observations
 
     def _day_reading(
-        self, client: object, day: date, *, api_key: str, deadline: ReadDeadline
+        self, client: Any, day: date, *, api_key: str, deadline: ReadDeadline
     ) -> OptionIvReadings | None:
         if day in self._readings:
             return self._readings[day]
@@ -148,20 +150,8 @@ def _read_api_key() -> str:
     return token
 
 
-def _fetch_chain(client: object, day: date, *, api_key: str) -> list[Mapping[str, object]]:
-    method = getattr(client, "get_drv_bars_daily_opt_225", None)
-    if not callable(method):
-        raise ProviderFetchStoppedError(
-            "jquantsapi.ClientV2 has no callable get_drv_bars_daily_opt_225"
-        )
-    frame = _call(method, day, api_key=api_key)
-    to_dict = getattr(frame, "to_dict", None)
-    if not callable(to_dict):
-        raise ProviderFetchStoppedError("unexpected jquants_options payload: not a DataFrame")
-    records = to_dict(orient="records")
-    if not isinstance(records, list):
-        raise ProviderFetchStoppedError("unexpected jquants_options payload: records is not a list")
-    rows = [record for record in records if isinstance(record, Mapping)]
+def _fetch_chain(client: Any, day: date, *, api_key: str) -> list[Mapping[str, object]]:
+    rows = _call(client, day, api_key=api_key)
     _require_requested_day(rows, day)
     # The duplicate check speaks about the snapshot the readings use. Run against the
     # raw payload it would instead refuse every session the exchange called emergency
@@ -215,11 +205,36 @@ def _require_requested_day(rows: Sequence[Mapping[str, object]], day: date) -> N
         )
 
 
-def _call(method: object, day: date, *, api_key: str) -> object:
-    """Call the SDK method once; pagination and HTTP retries belong to the adapter."""
-    assert callable(method)
+def _call(client: Any, day: date, *, api_key: str) -> list[Mapping[str, object]]:
+    """Read native pages through the pinned SDK's authenticated, retry-mounted GET.
+
+    The public DataFrame method coerces dates and infers field types. The SDK's
+    paginator also skips missing/non-list data silently. Keep native records and
+    require each page to be an actual response before declaring the day complete.
+    """
+    url = f"{client.JQUANTS_API_BASE}/derivatives/bars/daily/options/225"
+    params = {"date": day.strftime("%Y%m%d")}
+    rows: list[Mapping[str, object]] = []
+    seen: set[str] = set()
     try:
-        return method(date_yyyymmdd=day.strftime("%Y%m%d"))
+        while True:
+            with closing(client._get(url, params=params)) as response:
+                payload = response.json()
+            if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+                raise ProviderFetchStoppedError("jquants_options page must contain a data list")
+            records = payload["data"]
+            if not all(isinstance(record, dict) for record in records):
+                raise ProviderFetchStoppedError("jquants_options data must contain records")
+            rows.extend(records)
+            key = payload.get("pagination_key")
+            if key is None or key == "":
+                return rows
+            if not isinstance(key, str) or key in seen:
+                raise ProviderFetchStoppedError(
+                    "invalid or repeated jquants_options pagination_key"
+                )
+            seen.add(key)
+            params["pagination_key"] = key
     except Exception as exc:
         sanitized = _redact(str(exc), api_key)
         raise ProviderFetchStoppedError(

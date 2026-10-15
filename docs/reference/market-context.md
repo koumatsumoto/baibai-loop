@@ -77,7 +77,7 @@ uv run baibai-engine market-context indicators get jp.policy_rate --latest
 
 ネット流動性の入力単位は[WALCL](https://fred.stlouisfed.org/series/WALCL)・[WTREGEN](https://fred.stlouisfed.org/series/WTREGEN)が百万USD、[RRPONTSYD](https://fred.stlouisfed.org/series/RRPONTSYD)が10億USDなので、`(assets - tga) / 1000 - rrp`とする。RRPを再度1,000で割らない。WALCLは水曜時点、WTREGENは水曜を期末とする週平均、RRPは日次であり、この組合せは近似指標であって同時点の厳密な残高や投資可能資金の測定ではない。
 
-月次整列は月内の各入力の最終観測を使い、出力日は数式ごとの期間代表日または採用入力の最終日とする。これを実公表時刻や歴史的なAPI利用可能性の保証とみなさない。計算値のvintageは全入力に時点がある場合の最も遅い入力vintageであり、読んだ時刻を新しい公表として作らない。L2の数式変更に派生履歴の退役・再取得・置換を要求しない。オプションチェーン由来の別providerについては、現行の再構築手順を別途確認する。
+月次整列は月内の各入力の最終観測を使い、出力日は数式ごとの期間代表日または採用入力の最終日とする。これを実公表時刻や歴史的なAPI利用可能性の保証とみなさない。計算値のvintageは全入力に時点がある場合の最も遅い入力vintageであり、読んだ時刻を新しい公表として作らない。L2の数式変更に派生履歴の退役・再取得・置換を要求しない。オプションチェーン由来の別providerについては、現行の再構築手順を別途確認する。取得は固定SDKの認証・再試行付きGETを使い、各ページのnative JSON recordをDataFrame化せず読む。空のdata配列と、dataの欠落・不正形状・途中ページ失敗を区別する。これは入力型の保持であり、チェーン原本の永続保存が済んだことを意味しない。
 
 同内容の再取得ではobservationのvintageを増やさず、provider runに取得記録を残す。値・単位・期間・取得状態・sourceが変わるrevisionや、変化後に同じ値へ戻るrevisionは保持する。日次batchはrolling窓を引き直すため窓内の取得断は次回成功時に埋まるが、窓外の欠落は[指標履歴の復旧](../../batch/OPERATIONS.md#指標履歴)が必要になる。保存・重複排除は[indicator DB](../../engine/src/baibai_engine/market_context/indicators/db.py)を参照する。
 

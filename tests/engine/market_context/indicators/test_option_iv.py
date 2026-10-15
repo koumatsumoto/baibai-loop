@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from typing import cast
@@ -60,15 +60,18 @@ def _registered(series_id: str) -> SeriesDefinition:
     return load_definitions().by_id()[series_id]
 
 
-class _FakeFrame:
-    """The DataFrame record conversion used by the provider."""
+class _FakeOptionClient:
+    """Native JSON response seam; the production transport is tested separately."""
 
-    def __init__(self, records: list[dict[str, object]]) -> None:
-        self._records = records
+    JQUANTS_API_BASE = "https://example.test/v2"
 
-    def to_dict(self, orient: str) -> list[dict[str, object]]:
-        assert orient == "records"
-        return list(self._records)
+    def __init__(self, chain: Callable[..., list[dict[str, object]]]) -> None:
+        self.chain = chain
+
+    def _get(self, url: str, params: dict[str, str]) -> SimpleNamespace:
+        assert url == f"{self.JQUANTS_API_BASE}/derivatives/bars/daily/options/225"
+        records = self.chain(date_yyyymmdd=params["date"])
+        return SimpleNamespace(json=lambda: {"data": records}, close=lambda: None)
 
 
 def _records(
@@ -85,7 +88,7 @@ def _records(
     """
     return [
         {
-            "Date": day,
+            "Date": day.isoformat(),
             "SQD": quote.expiry.isoformat(),
             "Strike": quote.strike,
             "IV": quote.implied_volatility,
@@ -673,9 +676,8 @@ class QuoteParsingTest(unittest.TestCase):
             ),
             ("unknown_side", [self._record(PCDiv="9")]),
             (
-                # A missing numeric arrives from the frame as NaN rather than as an
-                # absent key, and NaN compares false against every bound, so it would
-                # pass each later check.
+                # Non-finite inputs must not pass numeric comparison checks or
+                # become usable quotes. This is not a claim about native JSON values.
                 "not_a_number",
                 [self._record(IV=float("nan")), self._record(UnderPx=float("inf"))],
             ),
@@ -691,25 +693,14 @@ class QuoteParsingTest(unittest.TestCase):
 
         self.assertEqual(len(quotes_from_records(rows)), 1)
 
-    def test_an_expiry_carrying_a_time_is_read_as_its_date(self) -> None:
-        # Typed as text the column carries the time with it, and date parsing refuses
-        # the whole string rather than reading the part it understands.
-        rows = [self._record(SQD="2026-08-14T00:00:00")]
-
-        quotes = quotes_from_records(rows)
-
+    def test_native_expiry_is_read_without_inventing_a_timestamp(self) -> None:
+        quotes = quotes_from_records([self._record(SQD="2026-08-14")])
         self.assertEqual([quote.expiry for quote in quotes], [date(2026, 8, 14)])
 
-    def test_a_timestamp_expiry_becomes_a_date_the_maturity_can_subtract(self) -> None:
-        # A timestamp passes an isinstance check against date but cannot be
-        # subtracted from one, which would surface as a crash in the maturity
-        # arithmetic rather than as an unreadable row here.
+    def test_native_date_parser_does_not_accept_timestamp_objects(self) -> None:
         rows = [self._record(SQD=datetime(2026, 8, 14, 15, 0, tzinfo=ZoneInfo("Asia/Tokyo")))]
-
-        quotes = quotes_from_records(rows)
-
-        self.assertEqual([quote.expiry for quote in quotes], [date(2026, 8, 14)])
-        self.assertEqual((quotes[0].expiry - ASOF).days, 16)
+        self.assertEqual(quotes_from_records(rows), [])
+        self.assertIsNone(as_date("2026-08-14T15:00:00"))
 
 
 class OptionProviderTest(unittest.TestCase):
@@ -741,14 +732,14 @@ class OptionProviderTest(unittest.TestCase):
         # Without sharing, a ten-year backfill makes three times the calls it needs.
         fetched: list[date] = []
 
-        def one_chain(*, date_yyyymmdd: str) -> object:
+        def one_chain(*, date_yyyymmdd: str) -> list[dict[str, object]]:
             fetched.append(
                 date.fromisoformat(f"{date_yyyymmdd[:4]}-{date_yyyymmdd[4:6]}-{date_yyyymmdd[6:]}")
             )
-            return _FakeFrame(_chain_records(fetched[-1]))
+            return _chain_records(fetched[-1])
 
         provider = jquants_options.JQuantsOptionsProvider()
-        client = SimpleNamespace(get_drv_bars_daily_opt_225=one_chain)
+        client = _FakeOptionClient(one_chain)
         with (
             mock.patch.object(jquants_options, "jquants_read_client", return_value=client),
             mock.patch.object(jquants_options, "_read_api_key", return_value="k"),
@@ -817,9 +808,7 @@ class OptionProviderTest(unittest.TestCase):
             snapshot="001",
         )
         provider = jquants_options.JQuantsOptionsProvider()
-        client = SimpleNamespace(
-            get_drv_bars_daily_opt_225=lambda **_: _FakeFrame([*settled, *intervention])
-        )
+        client = _FakeOptionClient(lambda **_: [*settled, *intervention])
 
         both = provider._day_reading(
             client, ASOF, api_key="k", deadline=ReadDeadline("jquants_options")
@@ -832,9 +821,7 @@ class OptionProviderTest(unittest.TestCase):
         # The observation is stamped with the requested date, so a session served the
         # previous day's chain would carry the previous day's IV readings under today's date.
         provider = jquants_options.JQuantsOptionsProvider()
-        stale = SimpleNamespace(
-            get_drv_bars_daily_opt_225=lambda **_: _FakeFrame(_chain_records(ASOF - timedelta(1)))
-        )
+        stale = _FakeOptionClient(lambda **_: _chain_records(ASOF - timedelta(1)))
         with (
             mock.patch.object(jquants_options, "jquants_read_client", return_value=stale),
             mock.patch.object(jquants_options, "_read_api_key", return_value="k"),
@@ -851,13 +838,8 @@ class OptionProviderTest(unittest.TestCase):
         self.assertIn("2026-07-29", str(caught.exception))
 
     def test_missing_or_invalid_chain_dates_are_not_inferred_from_request(self) -> None:
-        # SDK Date coercion can produce NaT. Missing row dates cannot establish
-        # the requested session, even when the other rows name that day.
-        import pandas
-
-        self.assertIsInstance(pandas.NaT, datetime)
-        self.assertIsNone(as_date(pandas.NaT))
-
+        # Native JSON dates remain strings; an absent or malformed date cannot
+        # establish the requested session even when another row names it.
         rows = _chain_records()
 
         jquants_options._require_requested_day(rows, ASOF)
@@ -865,7 +847,7 @@ class OptionProviderTest(unittest.TestCase):
         with self.assertRaises(IndicatorsProviderError):
             jquants_options._require_requested_day(rows, ASOF + timedelta(1))
 
-        for invalid in (None, "not-a-date", pandas.NaT):
+        for invalid in (None, "not-a-date", "2026-07-29T00:00:00", ASOF):
             with self.subTest(invalid=invalid):
                 partial = _chain_records()
                 partial[0]["Date"] = invalid
@@ -882,18 +864,18 @@ class OptionProviderTest(unittest.TestCase):
         no_straddle = date(2026, 7, 28)  # both expiries past the target
         full = date(2026, 7, 29)
 
-        def chain(*, date_yyyymmdd: str) -> object:
+        def chain(*, date_yyyymmdd: str) -> list[dict[str, object]]:
             day = date.fromisoformat(
                 f"{date_yyyymmdd[:4]}-{date_yyyymmdd[4:6]}-{date_yyyymmdd[6:]}"
             )
             if day == closed:
-                return _FakeFrame([])
+                return []
             if day == no_straddle:
-                return _FakeFrame(_records([*_chain(ON_TARGET), *_chain(WIDE, level=2.0)], day))
-            return _FakeFrame(_chain_records(day))
+                return _records([*_chain(ON_TARGET), *_chain(WIDE, level=2.0)], day)
+            return _chain_records(day)
 
         provider = jquants_options.JQuantsOptionsProvider()
-        client = SimpleNamespace(get_drv_bars_daily_opt_225=chain)
+        client = _FakeOptionClient(chain)
         with (
             mock.patch.object(jquants_options, "jquants_read_client", return_value=client),
             mock.patch.object(jquants_options, "_read_api_key", return_value="k"),
