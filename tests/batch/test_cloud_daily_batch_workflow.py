@@ -137,18 +137,18 @@ def test_batch_step_writes_the_notice_and_finalizes_outputs_before_fatal_exit(
     assert "--notice-output" in batch_run
     # Outputs are echoed before the fatal exit so the notification step sees them.
     assert batch_run.index('echo "exit_code=$code"') < batch_run.index('exit "$code"')
-    assert 'echo "published=true"' in batch_run
-    assert 'echo "published=false"' in batch_run
+    assert 'echo "export_ready=true"' in batch_run
+    assert 'echo "export_ready=false"' in batch_run
 
 
-def test_upload_steps_run_only_when_published(steps_by_id: dict[str, dict]) -> None:
-    assert steps_by_id["upload-stores"]["if"] == "steps.batch.outputs.published == 'true'"
+def test_upload_steps_require_a_complete_local_export(steps_by_id: dict[str, dict]) -> None:
+    assert steps_by_id["upload-stores"]["if"] == "steps.batch.outputs.export_ready == 'true'"
 
 
 def test_the_durable_record_waits_for_the_store_and_the_views(
     steps_by_id: dict[str, dict],
 ) -> None:
-    """`history/` never deletes and `meta.json` is the freshness claim.
+    """Retained `history/` records past runs; `meta.json` is the freshness claim.
 
     Publishing either before the store holding this run is persisted would leave a
     permanent record of a run the store does not contain.
@@ -357,10 +357,9 @@ def test_data_credentials_are_absent_from_job_and_setup_steps(
         for step in steps
         if restricted.intersection(step.get("env", {}))
     }
-    # The step digests in the drift gate can be regenerated, so they cannot on their
-    # own show that a change left the credential boundary where it was. This table
-    # is what shows it: every difference has to be a step appearing, disappearing or
-    # being renamed, never a step gaining a secret it did not hold.
+    # The generic drift gate enforces step-scoped credentials, not which step
+    # owns each credential. This exact mapping detects unintended expansion
+    # of the workflow's credential-bearing surface.
     assert holders == {
         "lease-acquire": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
         "pull": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
@@ -419,11 +418,11 @@ def test_indicator_only_publication_keeps_the_existing_l1_release(
     steps_by_id: dict[str, dict],
 ) -> None:
     assert steps_by_id["publish-lake"]["if"] == (
-        "steps.batch.outputs.published == 'true' && steps.batch.outputs.market_updated == 'true'"
+        "steps.batch.outputs.export_ready == 'true' && steps.batch.outputs.market_updated == 'true'"
     )
     assert "market_updated=" in steps_by_id["batch"]["run"]
     # The one existing complete store/view publication path also handles holidays.
-    assert steps_by_id["upload-stores"]["if"] == "steps.batch.outputs.published == 'true'"
+    assert steps_by_id["upload-stores"]["if"] == "steps.batch.outputs.export_ready == 'true'"
 
 
 @pytest.mark.parametrize(
@@ -501,10 +500,10 @@ def test_daily_notice_only_explicit_false_skips_actual_lake_command(
     )
     outputs = dict(line.split("=", 1) for line in github_output.read_text().splitlines())
     assert outputs["exit_code"] == "0"
-    assert outputs["published"] == "true"
+    assert outputs["export_ready"] == "true"
     assert outputs["market_updated"] == str(expected_publish).lower()
     assert outputs["asof"] == ("2026-10-14" if notice_case in {"false", "true"} else "unknown")
-    if outputs["published"] == "true" and outputs["market_updated"] == "true":
+    if outputs["export_ready"] == "true" and outputs["market_updated"] == "true":
         publish = subprocess.run(
             ["bash", "-euo", "pipefail", "-c", steps_by_id["publish-lake"]["run"]],
             cwd=tmp_path,

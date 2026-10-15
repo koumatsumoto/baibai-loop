@@ -171,9 +171,9 @@ jobs:
           # can still see the batch exit code and the local export state.
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [[ -f "$RUNNER_TEMP/serving/views/meta.json" ]]; then
-            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "export_ready=true" >> "$GITHUB_OUTPUT"
           else
-            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "export_ready=false" >> "$GITHUB_OUTPUT"
           fi
           # Skip L1 publication only for an explicit, readable boolean false.
           python3 - <<'PYNOTICE' >> "$GITHUB_OUTPUT"
@@ -214,7 +214,7 @@ jobs:
       # failure policy: 2 — a broken release would corrupt the next hydration input.
       - name: Publish the L1 release
         id: publish-lake
-        if: steps.batch.outputs.published == 'true' && steps.batch.outputs.market_updated == 'true'
+        if: steps.batch.outputs.export_ready == 'true' && steps.batch.outputs.market_updated == 'true'
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -241,7 +241,7 @@ jobs:
       # failure policy: 2 — views must never describe a run absent from the remote store.
       - name: Upload machine stores and serving views
         id: upload-stores
-        if: steps.batch.outputs.published == 'true'
+        if: steps.batch.outputs.export_ready == 'true'
         shell: bash
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
@@ -345,8 +345,9 @@ jobs:
       # `!cancelled()` would skip it. A manual cancel costs one extra
       # `[CANCELLED]` message, which is far cheaper than losing every timeout.
       # The webhook secret is scoped to this step only. A delivery failure never
-      # fails the run: a red job means the day's artefacts were not published
-      # (docs/architecture.md, Failure policy), and a broken webhook is not that.
+      # fails the run: data/publication failures have their own step outcomes,
+      # and a delivery failure must not overwrite them. A red job alone does not
+      # prove publication never happened, since later steps can also fail.
       - name: "Notify Discord #batch-runs for ${{ steps.batch.outputs.asof || 'unknown' }}"
         id: notify
         if: ${{ always() }}
