@@ -176,6 +176,7 @@ class _JpxHtmlIndexer(HTMLParser):
             text = re.sub(r"\s+", " ", "".join(self._heading_buffer)).strip()
             if self._heading_tag == "h2":
                 self._last_h2 = text
+                self._last_h3 = None
                 self.section_text.setdefault(text, [])
             else:
                 self._last_h3 = text
@@ -765,7 +766,8 @@ class JPXProvider:
                 preceding_h2="本日の売買停止情報",
             )
         except JPXProviderError:
-            if _TRADING_HALT_EMPTY_MARKER in html:
+            section = indexer.section_text.get("本日の売買停止情報", [])
+            if _TRADING_HALT_EMPTY_MARKER in "".join(section):
                 return []
             raise
         return self._rows_from_parsed_table(
