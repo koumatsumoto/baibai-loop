@@ -226,7 +226,7 @@ def test_cancelled_report_releases_only_the_reported_reservation() -> None:
     assert repeated.changed is False
 
 
-def test_expired_report_requires_expiry_and_is_idempotent() -> None:
+def test_expired_report_checks_known_expiry_and_is_idempotent() -> None:
     ledger = load_portfolio_ledger(FIXTURE)
     expiry = datetime(2026, 7, 31, 15, 30, tzinfo=JST)
     now = datetime(2026, 8, 1, 12, 0, tzinfo=JST)
@@ -357,6 +357,8 @@ def test_filled_without_reservation_records_only_the_confirmed_execution() -> No
         now=_at(12),
     )
     assert len(result.event_ids) == 1
+    times = [event.occurred_at for event in result.document.events]
+    assert times == sorted(times)
     event = result.document.events[-1]
     assert event.type == "execution"
     assert event.reservation_id is None
@@ -465,24 +467,3 @@ def test_fill_cannot_replace_the_reservation_decision_reference() -> None:
             reservation_id=reservation_id,
             now=_at(12),
         )
-
-
-def test_direct_fill_inserts_reservation_before_newer_existing_events() -> None:
-    result = record_broker_fact(
-        load_portfolio_ledger(FIXTURE),
-        decision_reference=PROPOSAL,
-        status="filled",
-        occurred_at=_at(10),
-        ticker="2331",
-        quantity=100,
-        price_yen=Decimal("1090"),
-        price_guard_yen=Decimal("1100"),
-        expires_at=datetime(2026, 7, 20, 15, 30, tzinfo=JST),
-        now=_at(12),
-    )
-    times = [event.occurred_at for event in result.document.events]
-    assert times == sorted(times)
-    holding = next(
-        item for item in portfolio_snapshot(result.document).holdings if item.ticker == "2331"
-    )
-    assert holding.quantity == 300

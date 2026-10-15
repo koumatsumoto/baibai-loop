@@ -181,8 +181,7 @@ def test_reported_cancellation_is_not_relabelled_from_expiry_time() -> None:
     events[4]["reason"] = "cancelled"
     snapshot = portfolio_snapshot(_document(raw))
     assert all(
-        item.reservation_id != "reservation-2331-first"
-        for item in snapshot.active_reservations
+        item.reservation_id != "reservation-2331-first" for item in snapshot.active_reservations
     )
 
 
