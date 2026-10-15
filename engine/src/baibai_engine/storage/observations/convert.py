@@ -45,15 +45,7 @@ def code_quality(value: Any) -> tuple[str | None, str]:
 
 
 def normalize_ticker_or_none(value: Any) -> str | None:
-    if value in (None, ""):
-        return None
-    try:
-        ticker, common_code = parse_security_code_parts(value)
-    except SecurityCodeError:
-        return None
-    if not common_code:
-        return None
-    return ticker
+    return code_quality(value)[0]
 
 
 def is_common_stock_flag(record: Mapping[str, Any]) -> bool:

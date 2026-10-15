@@ -19,8 +19,9 @@ def _named_values(prefix: str, values: tuple[str, ...]) -> str:
     return ", ".join(f":{prefix}{index}" for index in range(len(values)))
 
 
-# is_common_stock is always true in the provider master. Keep missing bars and
-# financials in this population; only market/sector classify ordinary stocks.
+# The stored acquisition flag alone does not distinguish ordinary stocks from
+# other instruments. Classify this population by market/sector, retaining stocks
+# with missing bars or financials so coverage gaps remain visible.
 # docs/reference/screening-runtime.md#input-scope
 COMMON_STOCK_SNAPSHOT_SQL = (
     "SELECT ticker FROM jquants_master_snapshots WHERE snapshot_date = :asof "  # nosec B608

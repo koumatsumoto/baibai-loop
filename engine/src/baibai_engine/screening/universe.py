@@ -8,11 +8,10 @@ analysis-layer context or parameters by Candidate Discovery. The only structural
 instrument type, market segment, and a usable price observation. Each metric
 handles its own history requirement.
 
-Instrument type is decided by the sector classification rather than by the
-master's own flag. The exchange assigns a 33-sector code to common stock only,
-and it is the one identifier the source actually fills in; the master's
-`is_common_stock` reads true for every row it has ever held, so a screen that
-relied on it would be relying on a constant.
+Instrument eligibility requires a true acquisition flag and an eligible
+market/sector classification. The acquisition flag alone is insufficient to
+distinguish ordinary stocks from other instruments; an unknown sector on an
+eligible market stops the build rather than silently excluding its securities.
 """
 
 from __future__ import annotations
@@ -133,9 +132,9 @@ def build_universe(
                 exclusion_counts[flag] = exclusion_counts.get(flag, 0) + 1
             continue
 
-        # J-Quants v2 master does not expose listing_date; use the earliest available
-        # daily bar as a listing-span proxy. Bars cache covers asof-1200d, so established
-        # names show ~1200d and recent IPOs show days-since-listing accurately.
+        # The earliest available raw-price bar is a listing-span proxy, not a
+        # verified listing date. A bounded or incomplete price history can shorten
+        # the measured span even for a long-listed security.
         listing_span_days = (asof_date - history[0].traded_at).days
         latest = history[-1]
         trailing_20 = history[-AVG_TURNOVER_WINDOW_BARS:]
