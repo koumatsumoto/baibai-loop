@@ -1,9 +1,9 @@
-"""Point-in-time provider specs shared without importing fetch implementations.
+"""Publication-date cutoff specs shared without importing fetch implementations.
 
-Point-in-time vintage handling is opt-in because most providers timestamp bulk
-history with acquisition time rather than publication time. A provider that can
-support historical replay declares its ProviderSpec here so read-only consumers
-and the fetch implementation use the same capability object.
+Vintage filtering is opt-in because most providers timestamp bulk history with
+acquisition time rather than publication time. The cutoff uses the source date,
+not proof of when each revision became available through the API. Read-only
+consumers and fetch implementations share the same capability object.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ _POINT_IN_TIME_SPECS = (JQUANTS_FLOWS_SPEC,)
 
 
 def point_in_time_providers() -> frozenset[str]:
-    """Provider names whose publication vintages support historical replay."""
+    """Provider names whose source publication dates are filtered by the cutoff."""
 
     return frozenset(spec.name for spec in _POINT_IN_TIME_SPECS if spec.point_in_time_vintage)
 

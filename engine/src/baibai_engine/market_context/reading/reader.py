@@ -1,8 +1,9 @@
 """L1 store readers with provider-declared vintage selection.
 
-Only providers whose spec declares publication-quality vintages are clamped to
-the requested cutoff. Most bulk history stores the acquisition time as its
-vintage, not the original publication time; clamping those providers would make
+Only providers whose spec declares publication-date vintages are clamped to
+the requested cutoff. This does not establish exact historical API availability.
+Most bulk history stores the acquisition time as its vintage, not the original
+publication time; clamping those providers would make
 valid history disappear from snapshots whose as-of predates the backfill.
 """
 
@@ -28,8 +29,8 @@ def build_store_observation_reader(
 ) -> ObservationReader:
     """Bind one registry-aware observation reader to an open L1 connection.
 
-    ``vintage_cutoff`` separates when facts were knowable from the observation
-    range's end. Reading uses its as-of as the vintage cutoff only for providers
+    ``vintage_cutoff`` separates the source publication-date cutoff from the
+    observation range's end. Reading uses its as-of as the cutoff only for providers
     that opt in; other providers retain the latest stored history, including later
     retrievals and revisions. No overall historical-knowledge guarantee follows.
     """

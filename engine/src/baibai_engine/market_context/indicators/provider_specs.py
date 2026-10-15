@@ -37,8 +37,9 @@ class ProviderSpec:
     # A provider can opt only formulas whose observation grid is intentionally
     # replaceable into a stronger policy. Keys are provider_series_id values.
     range_replacement_overrides: Mapping[str, RangeReplacementPolicy] = field(default_factory=dict)
-    # Reads clamp to observations whose vintage is on/before the read cutoff, so a
-    # publish-lagged series stays point-in-time correct (J-Quants weekly flows).
+    # Reads clamp the provider's publication-date vintage to the read cutoff.
+    # This is not proof of exact historical API availability: J-Quants flows
+    # can serve corrections later, and older periods may retain only the latest revision.
     point_in_time_vintage: bool = False
     # Credential env var names required to fetch (diagnostics only; values are
     # read from the environment by the provider, never stored in the registry).

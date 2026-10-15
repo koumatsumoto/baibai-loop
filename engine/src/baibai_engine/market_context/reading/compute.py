@@ -4,7 +4,8 @@ Pure with respect to its inputs: the same store contents, rules and as-of date
 always produce the same snapshot. Nothing here fetches from a provider or writes
 to a store, so a reading can be recomputed for any past date without touching the
 outside world. Store readers clamp vintages only for providers whose spec
-declares publication-quality point-in-time timestamps. Bulk backfills usually
+declares publication-date vintages; this does not guarantee historical API
+availability or complete revision history. Bulk backfills usually
 carry acquisition timestamps, so clamping every provider would erase facts that
 were public before the store first acquired them.
 """

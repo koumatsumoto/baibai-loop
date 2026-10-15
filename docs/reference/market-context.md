@@ -218,7 +218,7 @@ uv run baibai-engine market-context reading --asof 2026-07-24 --format json   # 
 
 reading は L1 store を読むだけの純関数で、provider を呼ばず DB へ書かない。したがって過去日の asof でも同じ入力から同じ snapshot を再計算できる。CLI・read API・indicator chart は共通の store reader を使い、`ProviderSpec.point_in_time_vintage` を宣言する source だけを `vintage_at <= asof` へ clamp する。宣言のない bulk history の `vintage_at` は取得日時であって当時の公表日時ではないため、一律 clamp して取得前の過去 snapshot から既知だった履歴を消さない。専用 store は持たず、日次バッチが `baibai-web` 向けの現在読み値（`/api/market-context`・`views/market-context.json`）へ投影し、L3判断は引用したsnapshotとmethod revisionを入力出典に記録する。Web projectionは指定asofのreadingを1回組み立て、canonical snapshotを増やさない。
 
-過去as-ofの再計算は、全sourceの改定前情報を当時のまま再現する保証ではない。取得時刻と公表vintageを区別する。
+過去as-ofの再計算は、全sourceの改定前情報を当時のまま再現する保証ではない。取得時刻と公表vintageを区別する。投資部門別の`PubDate`は公表日であり、APIでその改定を取得できた正確な時刻ではない。訂正の配信には時間差があり、古い期間は最新改定だけの場合もあるため、公表日cutoffだけで当時の利用可能情報を完全再現したとは扱わない（[提供元仕様](https://jpx-jquants.com/en/spec/eq-investor-types)）。
 
 Baibai Loop の Market Context タブは、上から **現在の市場環境判断 → 経済指標のReading → 保存された判断履歴**の順に表示する。現在読み値は `web/config/market-context-panel.yaml` の 7 group 順に `series_id` で join し、最新値・観測日・短期/長期トレンド・`statistic`・percentile・`z_score`・実効窓・注記を並べる。行を開いた後だけ拡大チャートを取得する。**チャートの期間・粒度と percentile の実効窓は別物**なので、列見出しの ⓘ で明示する。
 

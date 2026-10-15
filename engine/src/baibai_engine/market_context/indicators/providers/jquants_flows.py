@@ -103,6 +103,8 @@ def parse_trades_spec(
                 source_url=series.source_url,
                 period_start=period_start,
                 period_end=period_end,
+                # PubDate is a source publication date, not the instant the API
+                # served this revision. Midnight UTC is its storage representation.
                 vintage_at=datetime(
                     published_at.year,
                     published_at.month,
