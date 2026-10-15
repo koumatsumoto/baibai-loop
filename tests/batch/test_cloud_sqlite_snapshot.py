@@ -145,7 +145,9 @@ def test_snapshot_closes_owned_connections(tmp_path, monkeypatch, failure):
             connection.execute("SELECT 1")
 
 
-@pytest.mark.parametrize("filename", ["store?copy.sqlite", "store#copy.sqlite", "store%20copy.sqlite"])
+@pytest.mark.parametrize(
+    "filename", ["store?copy.sqlite", "store#copy.sqlite", "store%20copy.sqlite"]
+)
 def test_validation_reads_the_exact_path_with_uri_characters(tmp_path: Path, filename: str) -> None:
     path = tmp_path / filename
     with closing(sqlite3.connect(path)) as connection, connection:

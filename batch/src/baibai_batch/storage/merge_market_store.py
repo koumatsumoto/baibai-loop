@@ -181,12 +181,11 @@ def _retain_target_tables(connection: sqlite3.Connection) -> tuple[TableMerge, .
 
 
 def _require_no_overclaimed_coverage(connection: sqlite3.Connection) -> None:
-    """Refuse a target claim that asserts more rows than the target holds.
+    """Refuse either store's claim when it exceeds the hydrated target rows.
 
-    Only the target is checked. The source is the copy R2 carries, whose lake-owned
-    tables were emptied by the publication that put those rows in the release, so every
-    claim in it would read as an overclaim about a file that was never meant to hold
-    the rows.
+    Claims from both stores are checked against hydrated target facts. Source facts may
+    be dehydrated, so they are not counted. A larger source claim must not disappear when
+    INSERT OR IGNORE keeps an existing target claim with the same key.
 
     The check is one-directional because the two errors are not symmetric. A claim above
     the rows describes a store that is not this one, and the reconcile below would lower
@@ -203,13 +202,35 @@ def _require_no_overclaimed_coverage(connection: sqlite3.Connection) -> None:
 
     _require_fin_summary_coverage_states(connection, schema="source")
     _require_fin_summary_coverage_states(connection, schema="main")
-    for coverage_key, start, end, claim in _clean_fin_summary_claims(connection, schema="main"):
-        actual = _fin_summary_range_count(connection, schema="main", start=start, end=end)
-        if claim > actual:
-            raise MergeError(
-                "jquants_fin_summaries coverage claims more rows than the store holds for "
-                f"'jquants_fin_summaries', {coverage_key!r}: claims {claim}, holds {actual}"
-            )
+    _require_matching_coverage_counts(connection)
+    for schema in ("main", "source"):
+        for coverage_key, start, end, claim in _clean_fin_summary_claims(connection, schema=schema):
+            actual = _fin_summary_range_count(connection, schema="main", start=start, end=end)
+            if claim > actual:
+                if schema == "main":
+                    raise MergeError(
+                        "jquants_fin_summaries coverage claims more rows than the store holds for "
+                        f"'jquants_fin_summaries', {coverage_key!r}: claims {claim}, holds {actual}"
+                    )
+                raise MergeError(
+                    f"jquants_fin_summaries coverage claims {claim} row(s) for {coverage_key!r} "
+                    f"but the target holds {actual}; hydrate from the published release before merging"
+                )
+
+
+def _require_matching_coverage_counts(connection: sqlite3.Connection) -> None:
+    """Only clean financial-summary claims may reconcile differing counts."""
+    row = connection.execute(
+        "SELECT s.source, s.coverage_key "
+        "FROM source.source_coverage s JOIN main.source_coverage t "
+        "ON t.source = s.source AND t.coverage_key = s.coverage_key "
+        "WHERE s.source NOT IN ('jquants_short_sale_reports', 'edinet_research_facts') "
+        "AND s.record_count IS NOT t.record_count "
+        "AND NOT (s.source = 'jquants_fin_summaries' AND s.status = 'ok' AND t.status = 'ok') "
+        "ORDER BY s.source, s.coverage_key LIMIT 1"
+    ).fetchone()
+    if row is not None:
+        raise MergeError(f"source_coverage payload disagrees for shared key: {row!r}")
 
 
 def _require_no_reinstated_coverage(connection: sqlite3.Connection) -> None:

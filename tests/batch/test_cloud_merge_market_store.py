@@ -865,3 +865,56 @@ def test_edinet_document_coverage_partial_retry_and_revision_merge(tmp_path):
     )
     with closing(sqlite3.connect(target)) as conn, conn:
         assert conn.execute("select count(*) from edinet_segment_facts").fetchone()[0] == 40
+
+
+@pytest.mark.parametrize(
+    ("source_name", "status"),
+    [
+        ("edinet_documents", "ok"),
+        ("jquants_fin_summaries", "failed"),
+        ("jquants_fin_summaries", "partial"),
+    ],
+)
+def test_shared_non_reconcilable_coverage_counts_must_match(tmp_path, source_name, status):
+    source = _store(tmp_path / "source.sqlite")
+    target = _store(tmp_path / "target.sqlite")
+    for path, amount in ((source, 2), (target, 1)):
+        _add_coverage(
+            path,
+            source_name,
+            _FIN_RANGE,
+            record_count=amount,
+            min_date="2020-01-01",
+            max_date="2020-12-31",
+            status=status,
+            error=None if status == "ok" else "provider error",
+        )
+    before = target.read_bytes()
+    with pytest.raises(MergeError, match="source_coverage payload disagrees"):
+        merge_stores(source, target)
+    assert target.read_bytes() == before
+
+
+@pytest.mark.parametrize("source_count", [1, 2, 3])
+def test_shared_clean_financial_claim_is_checked_before_target_wins(tmp_path, source_count):
+    source = _store(tmp_path / "source.sqlite")
+    target = _store(tmp_path / "target.sqlite")
+    _add_fin_summary(target, ticker="1301")
+    _add_fin_summary(target, ticker="1302")
+    for path, amount in ((source, source_count), (target, 1)):
+        _add_coverage(
+            path,
+            "jquants_fin_summaries",
+            _FIN_RANGE,
+            record_count=amount,
+            min_date="2020-01-01",
+            max_date="2020-12-31",
+        )
+    before = target.read_bytes()
+    if source_count > 2:
+        with pytest.raises(MergeError, match="claims 3 row"):
+            merge_stores(source, target)
+        assert target.read_bytes() == before
+    else:
+        merge_stores(source, target)
+        assert _coverage(target, "jquants_fin_summaries")[0][1] == 2
