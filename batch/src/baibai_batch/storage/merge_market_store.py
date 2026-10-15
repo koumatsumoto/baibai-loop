@@ -214,7 +214,8 @@ def _require_no_overclaimed_coverage(connection: sqlite3.Connection) -> None:
                     )
                 raise MergeError(
                     f"jquants_fin_summaries coverage claims {claim} row(s) for {coverage_key!r} "
-                    f"but the target holds {actual}; hydrate from the published release before merging"
+                    f"but the target holds {actual}; "
+                    "hydrate from the published release before merging"
                 )
 
 

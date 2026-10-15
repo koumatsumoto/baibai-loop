@@ -78,7 +78,7 @@ def _observation(series_id: str, day: date, value: float) -> ObservationRecord:
 
 
 def _rows(path: Path, sql: str) -> list[tuple[object, ...]]:
-    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    connection = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         return [tuple(row) for row in connection.execute(sql)]
     finally:
@@ -207,7 +207,7 @@ def test_merge_carries_a_retraction_to_the_other_store(tmp_path: Path) -> None:
 
 
 def _read_range(path: Path) -> tuple[object, ...]:
-    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    connection = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
     try:
         return tuple(
@@ -649,3 +649,28 @@ def _inject_source_observation(path: Path, observation: ObservationRecord) -> No
         insert_observations(connection, [observation], deduplicate_unchanged=False)
         connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
         connection.commit()
+
+
+@pytest.mark.parametrize("side", ["source", "target"])
+def test_retracted_values_do_not_need_to_fit_the_active_band(tmp_path, side):
+    source = tmp_path / "source.sqlite"
+    target = tmp_path / "target.sqlite"
+    for path in (source, target):
+        _build_store(path, series_ids=("jp.10y",), observations=())
+    _inject_source_observation(
+        source if side == "source" else target,
+        ObservationRecord(
+            series_id="jp.10y",
+            observed_at=date(2026, 7, 23),
+            value=999.0,
+            unit="percent",
+            source_url="https://example.com/series",
+            vintage_at=VINTAGE,
+            fetch_status="retracted",
+        ),
+    )
+
+    merge_stores(source, target)
+
+    assert _rows(target, "SELECT value, fetch_status FROM observations") == [(999.0, "retracted")]
+    assert _read_range(target) == ()

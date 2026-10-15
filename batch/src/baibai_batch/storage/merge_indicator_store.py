@@ -98,7 +98,7 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
     for path in (source, target):
         if not path.is_file():
             raise MergeError(f"indicator store does not exist: {path}")
-    uri = f"{target.resolve().as_uri()}"
+    uri = target.resolve().as_uri()
     with closing(sqlite3.connect(uri, uri=True, isolation_level=None)) as connection:
         _require_schema(connection, path=target)
         connection.execute("ATTACH DATABASE ? AS source", (f"{source.resolve().as_uri()}?mode=ro",))
@@ -172,20 +172,18 @@ def _validate_observations(
     # the query rather than quietly letting an unchecked name through.
     attached = _schema_name(schema)
     # A withdrawn row carries the value it withdrew, not a claim about one, so the
-    # registry band does not apply to it on either side of the merge.
-    registered = (
-        'o.series_id IN (SELECT series_id FROM main."series")' if attached == "source" else "1"
-    ) + " AND o.fetch_status != 'retracted'"
+    # registry band does not apply to it on either side of the merge. The inner join
+    # selects retained series; target bands were already checked to be complete/finite.
     row = connection.execute(
         f"""
         SELECT o.series_id, o.observed_at, o.value, o.unit,
                s.unit, s.plausible_min, s.plausible_max
         FROM {attached}.observations o
         JOIN main.series s ON s.series_id = o.series_id
-        WHERE {registered}
+        WHERE o.fetch_status != 'retracted'
           AND (o.unit != s.unit
-           OR (s.plausible_min IS NOT NULL AND o.value < s.plausible_min)
-           OR (s.plausible_max IS NOT NULL AND o.value > s.plausible_max))
+           OR o.value < s.plausible_min
+           OR o.value > s.plausible_max)
         ORDER BY o.series_id, o.observed_at, o.vintage_at
         LIMIT 1
         """  # nosec B608
@@ -198,11 +196,9 @@ def _validate_observations(
             f"{schema} observation {series_id} {observed_at} has unit "
             f"{actual_unit!r}; target registry expects {expected_unit!r}"
         )
-    rendered_low = "-inf" if low is None else f"{float(low):g}"
-    rendered_high = "inf" if high is None else f"{float(high):g}"
     raise MergeError(
         f"{schema} observation {series_id} {observed_at} value {float(value):g} "
-        f"is outside target plausible range [{rendered_low}, {rendered_high}]"
+        f"is outside target plausible range [{float(low):g}, {float(high):g}]"
     )
 
 
@@ -240,7 +236,7 @@ def _require_schema(
     *,
     path: Path,
     schema: str = "main",
-) -> int:
+) -> None:
     version = _count(connection, f"PRAGMA {_schema_name(schema)}.user_version")
     if version != SQLITE_SCHEMA_VERSION:
         raise MergeError(
@@ -251,7 +247,6 @@ def _require_schema(
         validate_current_schema(connection, schema=schema)
     except IndicatorsSchemaError as error:
         raise MergeError(f"indicator store schema contract is invalid: {path}: {error}") from error
-    return version
 
 
 def _registry_generation(connection: sqlite3.Connection, *, schema: str) -> int:
