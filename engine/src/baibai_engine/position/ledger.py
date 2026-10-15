@@ -218,7 +218,7 @@ class ConfirmedTaxEvent(_EventBase):
     type: Literal["tax_confirmed"]
     ticker: Annotated[str, Field(pattern=_TICKER_PATTERN)] | None = None
     tax_kind: Literal["dividend", "capital_gain", "other"]
-    amount_yen: Annotated[int, Field(gt=0)]
+    amount_yen: Annotated[int, Field(ge=0)]
 
 
 type LedgerEvent = Annotated[

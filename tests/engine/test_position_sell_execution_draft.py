@@ -148,7 +148,10 @@ def test_sell_quantity_not_multiple_of_board_lot_is_rejected(tmp_path: Path) -> 
         )
 
 
-def test_date_only_sell_keeps_reported_date_without_claiming_fill_time(tmp_path: Path) -> None:
+@pytest.mark.parametrize(("fees_yen", "tax_yen"), [(0, 0), (100, 200)])
+def test_date_only_sell_keeps_reported_date_without_claiming_fill_time(
+    tmp_path: Path, fees_yen: int, tax_yen: int
+) -> None:
     db = tmp_path / "app.sqlite"
     service = _seed(db)
     before = portfolio_snapshot(service.load())
@@ -167,9 +170,9 @@ def test_date_only_sell_keeps_reported_date_without_claiming_fill_time(tmp_path:
                 "--price-yen",
                 "1100",
                 "--fees-yen",
-                "100",
+                str(fees_yen),
                 "--tax-yen",
-                "200",
+                str(tax_yen),
                 "--occurred-on",
                 "2026-07-12",
                 "--decision-reference",
@@ -192,9 +195,12 @@ def test_date_only_sell_keeps_reported_date_without_claiming_fill_time(tmp_path:
     )
     saved = [event for event in service.load().events if event.event_id not in source_ids]
     assert all(event.occurred_on == date(2026, 7, 12) for event in saved)
-    assert (
-        portfolio_snapshot(service.load()).available_cash_yen == before.available_cash_yen + 109_700
-    )
+    assert {event.type: event.amount_yen for event in saved if event.type != "execution"} == {
+        "cost": fees_yen,
+        "tax_confirmed": tax_yen,
+    }
+    expected_cash = before.available_cash_yen + 110_000 - fees_yen - tax_yen
+    assert portfolio_snapshot(service.load()).available_cash_yen == expected_cash
     assert portfolio_snapshot(service.load()).realized_gross_pnl_yen == 6_000
 
 
