@@ -277,8 +277,10 @@ def store_jquants_all_issues_daily_margin(
                 """
                 INSERT INTO jquants_all_issues_daily_margin(
                   balance_date, ticker, long_vol, short_vol, long_std_vol, long_neg_vol,
-                  short_std_vol, short_neg_vol, issue_type
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  short_std_vol, short_neg_vol, issue_type, publication_date,
+                  long_value, short_value, long_std_value, long_neg_value,
+                  short_std_value, short_neg_value
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 normalized.rows,
             )
@@ -684,6 +686,15 @@ def _all_issues_daily_margin_rows_with_quality(
                 ticker,
                 *balances,
                 issue_type,
+                date_iso(record.get("PubDate")),
+                # Keep native balance values without unit conversion or inference
+                # from shares and a market price. Their source missingness remains null.
+                to_float(record.get("LongVal")),
+                to_float(record.get("ShrtVal")),
+                to_float(record.get("LongStdVal")),
+                to_float(record.get("LongNegVal")),
+                to_float(record.get("ShrtStdVal")),
+                to_float(record.get("ShrtNegVal")),
             )
         )
     return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)

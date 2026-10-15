@@ -204,6 +204,7 @@ JQUANTS_WEEKLY_MARGIN = LakeDataset(
 
 JQUANTS_ALL_ISSUES_DAILY_MARGIN = LakeDataset(
     name="jquants.all_issues_daily_margin",
+    contract_version=2,
     sqlite_table="jquants_all_issues_daily_margin",
     date_column="balance_date",
     coverage_authority="unproven",
@@ -217,6 +218,13 @@ JQUANTS_ALL_ISSUES_DAILY_MARGIN = LakeDataset(
         LakeColumn("short_std_vol", "REAL", _REAL, True),
         LakeColumn("short_neg_vol", "REAL", _REAL, True),
         LakeColumn("issue_type", "TEXT", _TEXT, True),
+        LakeColumn("publication_date", "TEXT", _TEXT, True),
+        LakeColumn("long_value", "REAL", _REAL, True),
+        LakeColumn("short_value", "REAL", _REAL, True),
+        LakeColumn("long_std_value", "REAL", _REAL, True),
+        LakeColumn("long_neg_value", "REAL", _REAL, True),
+        LakeColumn("short_std_value", "REAL", _REAL, True),
+        LakeColumn("short_neg_value", "REAL", _REAL, True),
     ),
 )
 

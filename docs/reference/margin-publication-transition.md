@@ -46,6 +46,10 @@ JPX の集計システムは 2026-09-27 に移行した。変更後データの�
 union しない。6 残高 field は有限・非負、`IssType` は non-null を clean snapshot の必須条件とし、
 一つでも欠けた response は partial coverage として再取得対象に残す。
 
+全銘柄日次系列では `PubDate` と六つの金額 field（`LongVal` / `ShrtVal`、standard / negotiable 内訳）も保存・lake 公開する。現在の L2 が株数だけを使うことを理由に、同じ応答で得られる金額を捨てない。値は提供元の単位のまま保持し、株数×市場価格で補完しない。欠測は null とし、金額欠測を理由に正常な株数まで再取得しない。`PubDate` は公表日であり、正確な API 利用可能時刻ではない。現行 serving の公表可否は§6の暦規約を使う。
+
+旧保存にはこの公表日・金額がないため、schema 切替だけで値を復元したことにしない。PR マージ後に利用可能な原本を再利用し、不足する期間だけ再取得して再構築する。runtime に旧schema救済は追加しない。[公式 ClientV2 の現行列定義](https://github.com/J-Quants/jquants-api-client-python/blob/main/jquantsapi/constants.py)を入力契約の確認に使う。
+
 日々公表銘柄等は `ShrtOut` / `LongOut`、各 change / ratio、standard / negotiable 内訳、
 `PubReason`、`TSEMrgnRegCls` を provider field のまま L1 列へ写す。この dataset は対象銘柄が
 選別されるため、欠けている ticker を残高ゼロと解釈しない。
@@ -79,9 +83,9 @@ union しない。6 残高 field は有限・非負、`IssType` は non-null を
 `jquants_all_issues_daily_margin` である。
 
 **軸の語義は cadence で変わらない。** level 軸は直近公表残高であり、日次化は解像度の向上で
-あって意味の変更ではない。`margin_long_delta_26w` は 26 週前との比較であり、日次側からも各
-ISO 週の最終 balance date だけを sampling して週間隔を保つ — 日次行を 26 個遡ると半年の変化が
-5 週間の変化に化ける。
+あって意味の変更ではない。`margin_long_delta_26w` は観測のある 26 ISO 週前との比較であり、日次側からも各
+ISO 週の最終 balance date だけを sampling する。欠測週を補間しないため、固定の半年差ではない。
+日次行を 26 個遡る計算とは区別する。
 
 日次の高頻度性そのものを使う軸（日次 delta など）はこの列へ足さない。別名の metric と事前登録
 study を用意する。
