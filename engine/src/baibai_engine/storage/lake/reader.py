@@ -9,7 +9,8 @@ Reads are fail-closed on identity, and the identity chain is closed by digest at
 every edge: the release manifest must hash to what the pointer named, each dataset
 manifest must hash to what the release entry named, and each object must hash to
 what its dataset manifest named while also carrying the schema, contract, row
-count, and key range that manifest published. A reader accepts exactly one
+count that manifest published. Declared key ranges are validated structurally,
+not recomputed from object rows by this reader. A reader accepts exactly one
 ``contract_version`` per dataset; a different contract is an error rather than
 something to adapt to.
 """
@@ -129,9 +130,6 @@ def _read_current_pointer(source: LakeObjectSource) -> L1ReleasePointer:
         pointer = load_lake_model_json(payload, L1ReleasePointer)
     except ValueError:
         raise LakeReadError("L1 current pointer is invalid") from None
-    expected_key = release_manifest_key(release_id=pointer.release_id)
-    if pointer.manifest_key != expected_key:
-        raise LakeReadError("L1 current pointer manifest key does not match its release id")
     return pointer
 
 
@@ -211,8 +209,6 @@ def _load_release(
             or manifest.totals != entry.totals
         ):
             raise LakeReadError(f"release and dataset manifest disagree: {name}")
-        if manifest.layer != "l1_canonical":
-            raise LakeReadError(f"L1 release references a non-canonical dataset build: {name}")
         manifests[name] = manifest
         digests[name] = dataset_digest
     return FixedRelease(

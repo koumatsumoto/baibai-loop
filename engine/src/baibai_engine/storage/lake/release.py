@@ -59,8 +59,6 @@ def create_l1_release(
     resolved_paths = [_contained_path(root, path) for path in dataset_manifest_paths]
     manifest_payloads = [path.read_bytes() for path in resolved_paths]
     manifests = [load_lake_model_json(payload, DatasetManifest) for payload in manifest_payloads]
-    if any(item.layer != "l1_canonical" for item in manifests):
-        raise ValueError("L1 release accepts l1_canonical dataset manifests only")
     datasets = {
         item.dataset: ReleaseDataset(
             build_id=item.build_id,

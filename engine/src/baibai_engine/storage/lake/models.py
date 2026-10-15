@@ -436,12 +436,6 @@ class ReleasePolicy(BaseModel):
     datasets: tuple[ReleaseDatasetPolicy, ...] = Field(min_length=1)
     max_manifest_bytes: int = Field(gt=0)
     max_objects: int = Field(gt=0)
-    # Whether every dataset in the release must have been exported from one and the same
-    # sealed SQLite generation. That is a property of how a profile's datasets are
-    # produced, not of what a release is: a dataset produced without reading a store has
-    # no SQLite generation to share, and a rule stated here lets such a dataset join a
-    # release under its own profile instead of requiring the constructor to change.
-    require_shared_snapshot_generation: bool
 
     @model_validator(mode="after")
     def validate_dataset_inventory(self) -> ReleasePolicy:
@@ -669,7 +663,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
     ),
     max_manifest_bytes=16 * 1024 * 1024,
     max_objects=10_000,
-    require_shared_snapshot_generation=True,
 )
 
 
@@ -801,8 +794,7 @@ def validate_release_policy(
             raise ValueError(f"{dataset}: historical dataset served previously cannot disappear")
     # Whether these datasets are one picture of the store at all comes before what the
     # picture says.
-    if policy.require_shared_snapshot_generation:
-        _require_shared_snapshot_generation(manifests.values())
+    _require_shared_snapshot_generation(manifests.values())
 
     total_manifest_bytes = len(canonical_lake_model_bytes(release))
     total_objects = 0
@@ -869,7 +861,7 @@ def validate_release_policy(
 
 
 def _require_shared_snapshot_generation(manifests: Iterable[DatasetManifest]) -> None:
-    """Every dataset was exported from one sealed read of the legacy store.
+    """Every dataset was exported from one sealed read of the market store.
 
     Two datasets exported from different seals describe the store at two different
     moments, and a release presents them as one consistent picture of it.
