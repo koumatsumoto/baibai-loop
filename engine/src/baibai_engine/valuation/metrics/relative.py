@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from statistics import median
 
-from .history import self_range_percentile, sigma_gap
+from .history import self_range_position, sigma_gap
 from .models import FinancialSnapshot
 
 VALUATION_METRICS = ("per_forward", "per_trailing", "pbr", "ev_ebitda", "p_s")
@@ -23,7 +23,7 @@ class RelativeValuation:
     sector_median_gap: Mapping[str, float | None]
     sector_median_value: Mapping[str, float | None]
     sector_median_basis: Mapping[str, str]
-    self_range_percentile: Mapping[str, float | None]
+    self_range_position: Mapping[str, float | None]
     self_range_median: Mapping[str, float | None]
     sigma_gap: Mapping[str, float | None]
 
@@ -37,7 +37,7 @@ def relative_valuation(
     sector_gaps: dict[str, float | None] = {}
     sector_medians: dict[str, float | None] = {}
     sector_bases: dict[str, str] = {}
-    self_percentiles: dict[str, float | None] = {}
+    self_positions: dict[str, float | None] = {}
     self_medians: dict[str, float | None] = {}
     sigma_gaps: dict[str, float | None] = {}
     for metric in VALUATION_METRICS:
@@ -63,7 +63,7 @@ def relative_valuation(
             else None
         )
         history_values = valuation_history.get(metric, [])
-        self_percentiles[metric] = self_range_percentile(history_values, current)
+        self_positions[metric] = self_range_position(history_values, current)
         # 自己レンジの中央値。機械 E[r] の保守側 anchor に使う。標本が薄い履歴
         # (直近上場等) の中央値は anchor として不安定なため 100 本を下限にする。
         # `valuation_history` は fundamentals を最新値で固定して価格だけを動かすので、
@@ -76,7 +76,7 @@ def relative_valuation(
         sector_median_gap=sector_gaps,
         sector_median_value=sector_medians,
         sector_median_basis=sector_bases,
-        self_range_percentile=self_percentiles,
+        self_range_position=self_positions,
         self_range_median=self_medians,
         sigma_gap=sigma_gaps,
     )

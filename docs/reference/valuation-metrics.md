@@ -278,7 +278,7 @@ fallback した値も `sector_median_gap` / `sector_median_value` に入るた�
 
 対象は`per_forward`・`per_trailing`・`pbr`・`p_s`・`ev_ebitda`。as-of以前の直近750本の価格barを使い、足りなければ利用可能な履歴で計算する。
 
-`self_range_percentile`は保存field名であり、意味は自己レンジ内の位置である。式は`(current - min(history)) / (max(history) - min(history))`。履歴なし／現在値欠測は`null`、履歴の最大値と最小値が同じなら`0.0`とし、0〜1へのclipはしない。観測順位に基づく統計的percentileではない。採用・除外条件は[Candidate Discovery](./screening-runtime.md#candidate-discovery)に従う。
+Valuationの`self_range_position`は自己レンジ内の位置であり、較正panelでは`srp_*`として保持する。式は`(current - min(history)) / (max(history) - min(history))`。履歴なし／現在値欠測は`null`、履歴の最大値と最小値が同じなら`0.0`とし、0〜1へのclipはしない。観測順位に基づく統計的percentileではない。採用・除外条件は[Candidate Discovery](./screening-runtime.md#candidate-discovery)に従う。
 
 Historical P/S と EV/EBITDA は、各日の raw close を `adjustment_factor` から as-of の価格調整基準へ揃え、最新の自己株式控除後株式数（`latest_shares_ex_treasury`）で時価総額だけを変化させる。P/S は `(historical_asof_basis_close * latest_shares_ex_treasury) / latest_sales_ttm`、EV/EBITDA は `(historical_asof_basis_close * latest_shares_ex_treasury + latest_debt - latest_cash) / latest_ebitda_ttm` とする。現在倍率と history の資本分母を揃えることで、自己株比率ではなく価格変化だけを自己レンジへ反映する。自己株式を含む発行済株式数・自己株式数のいずれかが欠損または破損していれば history は `null` とする。EV がゼロ以下、または EBITDA がゼロ以下の場合も `null` とし、`ttm_quality_ev_ebitda = exact` かつ正の EV/EBITDA だけ mechanical 判定に使う。PBR / PER の history も同じ as-of 価格調整基準の price を使うため、株式分割があっても history は連続になる。
 

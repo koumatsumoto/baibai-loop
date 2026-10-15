@@ -215,10 +215,10 @@ class ScreeningMetricsTests(SnapshotFixtures):
         # Historical EV/EBITDA should be
         # (price * shares + debt - cash) / ebitda, not a collapsed price ratio.
         self.assertIsNotNone(snapshot.ev_ebitda)
-        self.assertIsNotNone(derived.self_range_percentile["ev_ebitda"])
+        self.assertIsNotNone(derived.self_range_position["ev_ebitda"])
         self.assertIsNotNone(derived.sigma_gap["ev_ebitda"])
         self.assertAlmostEqual(snapshot.ev_ebitda, ((120.0 * 10.0) + 300.0 - 100.0) / 200.0)
-        self.assertAlmostEqual(derived.self_range_percentile["ev_ebitda"], 1.0)
+        self.assertAlmostEqual(derived.self_range_position["ev_ebitda"], 1.0)
         history_values = [
             ((price * 10.0) + 300.0 - 100.0) / 200.0 for price in (80.0, 100.0, 120.0)
         ]
@@ -302,7 +302,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             edinet_by_ticker={"130A": _edinet_metric_record(ebitda_ttm=-10.0)},
         )
         self.assertIsNone(negative_ebitda.financials["130A"].ev_ebitda)
-        self.assertIsNone(negative_ebitda.derived["130A"].self_range_percentile["ev_ebitda"])
+        self.assertIsNone(negative_ebitda.derived["130A"].self_range_position["ev_ebitda"])
         self.assertIsNone(negative_ebitda.derived["130A"].sigma_gap["ev_ebitda"])
 
         negative_ev = build_metrics(
@@ -315,5 +315,5 @@ class ScreeningMetricsTests(SnapshotFixtures):
             },
         )
         self.assertIsNone(negative_ev.financials["130A"].ev_ebitda)
-        self.assertIsNone(negative_ev.derived["130A"].self_range_percentile["ev_ebitda"])
+        self.assertIsNone(negative_ev.derived["130A"].self_range_position["ev_ebitda"])
         self.assertIsNone(negative_ev.derived["130A"].sigma_gap["ev_ebitda"])

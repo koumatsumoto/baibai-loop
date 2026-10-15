@@ -19,7 +19,6 @@ VALUATION_HISTORY_SESSIONS = 750
 
 
 def build_valuation_history(
-    latest_price: float,
     bars: Sequence[JQuantsDailyBar],
     snapshot: FinancialSnapshot,
     asof_date: date,
@@ -49,8 +48,9 @@ def build_valuation_history(
             if (value := _historical_ev_ebitda(price, snapshot)) is not None
         ]
     pbr_history: list[float] = []
+    latest_price = snapshot.market_price_yen
     pbr = snapshot.pbr
-    if pbr is not None and pbr != 0:
+    if latest_price is not None and latest_price > 0 and pbr is not None and pbr != 0:
         pbr_basis = latest_price / pbr
         pbr_history = [price / pbr_basis for price in prices]
     p_s_history: list[float] = []
@@ -67,7 +67,12 @@ def build_valuation_history(
     # matching the trailing-PER history convention and keeping range metrics
     # available for the forward valuation input.
     per_forward_history: list[float] = []
-    if snapshot.per_forward is not None and snapshot.per_forward != 0:
+    if (
+        latest_price is not None
+        and latest_price > 0
+        and snapshot.per_forward is not None
+        and snapshot.per_forward != 0
+    ):
         per_forward_basis = latest_price / snapshot.per_forward
         if per_forward_basis > 0:
             per_forward_history = [price / per_forward_basis for price in prices]
@@ -112,7 +117,8 @@ def _historical_ev_ebitda(
     return enterprise_value / ebitda_ttm
 
 
-def self_range_percentile(history: Sequence[float], current: float | None) -> float | None:
+def self_range_position(history: Sequence[float], current: float | None) -> float | None:
+    """Position between historical extrema, not an observation-rank percentile."""
     if not history or current is None:
         return None
     low = min(history)

@@ -1207,4 +1207,4 @@ class ScreeningMetricsTests(SnapshotFixtures):
         self.assertAlmostEqual(derived.sigma_gap["ev_ebitda"], expected_sigma_gap)
         # If raw close were used the second sample (200.0 -> 21/2 = 10.5) would
         # dominate the percentile and push latest off the upper boundary.
-        self.assertAlmostEqual(derived.self_range_percentile["ev_ebitda"], 1.0)
+        self.assertAlmostEqual(derived.self_range_position["ev_ebitda"], 1.0)

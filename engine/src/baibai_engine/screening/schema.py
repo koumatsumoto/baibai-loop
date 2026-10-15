@@ -71,7 +71,7 @@ class DerivedMetrics:
     # 値は `SECTOR_MEDIAN_BASIS_SECTOR` /
     # `SECTOR_MEDIAN_BASIS_MARKET` のいずれか。
     sector_median_basis: StringMap = Field(default_factory=dict)
-    self_range_percentile: NullableFloatMap = Field(default_factory=dict)
+    self_range_position: NullableFloatMap = Field(default_factory=dict)
     self_range_median: NullableFloatMap = Field(default_factory=dict)
     sigma_gap: NullableFloatMap = Field(default_factory=dict)
     sector_relative_strength_percentile: float | None = None

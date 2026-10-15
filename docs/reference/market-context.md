@@ -52,7 +52,7 @@ uv run baibai-engine screening ticker-profile --ticker <TICKER> --asof YYYY-MM-D
 uv run baibai-engine market-context reading --asof YYYY-MM-DD --format json
 ```
 
-`ticker-profile`はMarket Context、保存済みStock Analysis、event、portfolioを合成する。市場・分類とrunのcutoffは要求日を使うが、portfolioは現在のledger documentを独立の`ledger_as_of`で表示し、要求日への保有履歴再生は行わない。profile全体を完全な過去時点再現とは扱わない。既存の`price.self_range_percentile`は価格観測の順位割合で、Valuationのmin/max内位置と別の量であり、窓は合成callerが既存methodから渡す。
+`ticker-profile`はMarket Context、保存済みStock Analysis、event、portfolioを合成する。市場・分類とrunのcutoffは要求日を使うが、portfolioは現在のledger documentを独立の`ledger_as_of`で表示し、要求日への保有履歴再生は行わない。profile全体を完全な過去時点再現とは扱わない。既存の`price.self_range_percentile`は価格観測の順位割合で、Valuationの`self_range_position`（min/max内位置）と別の量であり、窓は合成callerが既存methodから渡す。
 
 日次の指標独立公開、有限AI調査・提案への接続、環境判断の深度は固定せず、materialな根拠・反証・含意に合わせる。以下にL1/Readingとassessmentの契約を示す。
 
