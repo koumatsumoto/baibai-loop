@@ -1097,4 +1097,3 @@ def has_jpx_regulation_data(sqlite_path: Path, asof_date: date) -> bool:
         return date_covered(conn, "jpx_regulation_flags", asof_date)
     finally:
         conn.close()
-
