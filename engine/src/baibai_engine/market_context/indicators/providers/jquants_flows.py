@@ -26,33 +26,12 @@ _API_KEY_ENV = JQUANTS_FLOWS_SPEC.required_env[0]
 # 並んで単一時系列にならないため、海外勢フローが最も効く東証プライムに固定する。
 _MARKET_SECTION = "TSEPrime"
 
-type ColumnKeys = tuple[str, ...]
-type MetricColumns = tuple[ColumnKeys, ColumnKeys, ColumnKeys]
-
-# provider_series_id -> (balance 候補, buy 候補, sell 候補)。ClientV2 (v2 investor-types) の
-# 省略名と J-Quants v1 trades_spec の正式名の双方を受ける。net = balance、無ければ buy - sell。
-_METRIC_COLUMNS: Mapping[str, MetricColumns] = {
-    "foreigners_net_value": (
-        ("FrgnBal", "ForeignersBalance", "ForeignBalance"),
-        ("FrgnBuy", "ForeignersPurchases", "ForeignPurchases"),
-        ("FrgnSell", "ForeignersSales", "ForeignSales"),
-    ),
-    "individuals_net_value": (
-        ("IndBal", "IndividualsBalance"),
-        ("IndBuy", "IndividualsPurchases"),
-        ("IndSell", "IndividualsSales"),
-    ),
-    "investment_trusts_net_value": (
-        ("InvTrBal", "InvestmentTrustsBalance"),
-        ("InvTrBuy", "InvestmentTrustsPurchases"),
-        ("InvTrSell", "InvestmentTrustsSales"),
-    ),
+# Current ClientV2 fields: provider balance, or a derived buy-minus-sell value.
+_METRIC_COLUMNS: Mapping[str, tuple[str, str, str]] = {
+    "foreigners_net_value": ("FrgnBal", "FrgnBuy", "FrgnSell"),
+    "individuals_net_value": ("IndBal", "IndBuy", "IndSell"),
+    "investment_trusts_net_value": ("InvTrBal", "InvTrBuy", "InvTrSell"),
 }
-
-# 集計週末を観測日、公表日を vintage として、週次 fact と利用可能時点を分ける。
-_PUBLISHED_DATE_KEYS: ColumnKeys = ("PubDate", "PublishedDate")
-_START_DATE_KEYS: ColumnKeys = ("StDate", "StartDate")
-_END_DATE_KEYS: ColumnKeys = ("EnDate", "EndDate")
 
 
 class JQuantsFlowsProvider:
@@ -98,7 +77,7 @@ def parse_trades_spec(
             f"unsupported jquants_flows metric {series.provider_series_id!r}; "
             f"supported: {supported}"
         )
-    balance_keys, buy_keys, sell_keys = columns
+    balance_key, buy_key, sell_key = columns
     observations_by_identity: dict[tuple[date, date], ObservationRecord] = {}
     for row in rows:
         # 日付・数値はレンジ外行も検証して、列が欠けた schema 崩れを必ず捕捉する。
@@ -106,14 +85,14 @@ def parse_trades_spec(
         period_end = _require_period_end(row)
         value = _net_value(
             row,
-            balance_keys=balance_keys,
-            buy_keys=buy_keys,
-            sell_keys=sell_keys,
+            balance_key=balance_key,
+            buy_key=buy_key,
+            sell_key=sell_key,
             metric=series.provider_series_id,
         )
         if start <= published_at <= end:
             # period_start は読み値に影響しないので、欠けたら 1 日期間として保守的に置く。
-            period_start = _optional_row_date(row, _START_DATE_KEYS) or period_end
+            period_start = _optional_row_date(row, "StDate") or period_end
             if not start <= period_end <= end:
                 continue
             observation = ObservationRecord(
@@ -188,12 +167,9 @@ def _frame_to_rows(frame: object) -> list[Mapping[str, object]]:
 
 
 def _row_date(row: Mapping[str, object]) -> date:
-    raw = _coalesce(row, _PUBLISHED_DATE_KEYS)
-    if raw is None:
-        tried = ", ".join(_PUBLISHED_DATE_KEYS)
-        raise IndicatorsProviderError(
-            f"jquants_flows row missing a publication date; tried {tried}"
-        )
+    raw = row.get("PubDate")
+    if raw is None or raw == "":
+        raise IndicatorsProviderError("jquants_flows row missing publication date PubDate")
     return _parse_date(raw)
 
 
@@ -204,46 +180,34 @@ def _require_period_end(row: Mapping[str, object]) -> date:
     2 点として並ぶ。列名が変わっただけで系列全体が公表日付けへ静かに移るため拒否する。
     """
 
-    period_end = _optional_row_date(row, _END_DATE_KEYS)
+    period_end = _optional_row_date(row, "EnDate")
     if period_end is None:
-        tried = ", ".join(_END_DATE_KEYS)
-        raise IndicatorsProviderError(
-            f"jquants_flows row missing an aggregation period end column; tried {tried}"
-        )
+        raise IndicatorsProviderError("jquants_flows row missing aggregation period end EnDate")
     return period_end
 
 
-def _optional_row_date(row: Mapping[str, object], keys: ColumnKeys) -> date | None:
-    raw = _coalesce(row, keys)
-    return None if raw is None else _parse_date(raw)
+def _optional_row_date(row: Mapping[str, object], key: str) -> date | None:
+    raw = row.get(key)
+    return None if raw is None or raw == "" else _parse_date(raw)
 
 
 def _net_value(
     row: Mapping[str, object],
     *,
-    balance_keys: ColumnKeys,
-    buy_keys: ColumnKeys,
-    sell_keys: ColumnKeys,
+    balance_key: str,
+    buy_key: str,
+    sell_key: str,
     metric: str,
 ) -> float:
-    balance = _coalesce(row, balance_keys)
-    if balance is not None:
-        return _coerce_float(balance, column=balance_keys[0])
-    buy = _coalesce(row, buy_keys)
-    sell = _coalesce(row, sell_keys)
-    if buy is None or sell is None:
-        tried = ", ".join((*balance_keys, *buy_keys, *sell_keys))
+    balance = row.get(balance_key)
+    if balance is not None and balance != "":
+        return _coerce_float(balance, column=balance_key)
+    buy = row.get(buy_key)
+    sell = row.get(sell_key)
+    if buy is None or buy == "" or sell is None or sell == "":
+        tried = ", ".join((balance_key, buy_key, sell_key))
         raise IndicatorsProviderError(f"jquants_flows row missing {metric} columns; tried {tried}")
-    return _coerce_float(buy, column=buy_keys[0]) - _coerce_float(sell, column=sell_keys[0])
-
-
-def _coalesce(row: Mapping[str, object], keys: ColumnKeys) -> object | None:
-    for key in keys:
-        if key in row:
-            value = row[key]
-            if value is not None and value != "":
-                return value
-    return None
+    return _coerce_float(buy, column=buy_key) - _coerce_float(sell, column=sell_key)
 
 
 def _parse_date(value: object) -> date:

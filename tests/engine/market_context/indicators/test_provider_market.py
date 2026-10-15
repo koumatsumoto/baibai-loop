@@ -557,6 +557,20 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         self.assertEqual(observations[1].value, -800.0)
         self.assertEqual(observations[0].unit, "jpy-thousand")
 
+    def test_parse_trades_spec_preserves_zero_native_balances_for_each_investor(self) -> None:
+        for metric, key in (
+            ("foreigners_net_value", "FrgnBal"),
+            ("individuals_net_value", "IndBal"),
+            ("investment_trusts_net_value", "InvTrBal"),
+        ):
+            with self.subTest(metric=metric):
+                series = _series("jquants_flows", metric, unit="jpy-thousand")
+                rows = [{"PubDate": "2026-05-08", "EnDate": "2026-05-08", key: 0}]
+                observations = parse_trades_spec(
+                    series, rows, start=date(2026, 5, 8), end=date(2026, 5, 8)
+                )
+                self.assertEqual([item.value for item in observations], [0.0])
+
     def test_parse_trades_spec_falls_back_to_purchases_minus_sales(self) -> None:
         series = _series("jquants_flows", "foreigners_net_value", unit="jpy-thousand")
         rows = [
