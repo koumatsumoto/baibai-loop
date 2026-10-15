@@ -2,22 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
 from baibai_engine.read_api import HoldingSnapshot
-from baibai_web.readmodel.models import (
-    HoldingView,
-    ReservationView,
-    UpcomingEventView,
-)
+from baibai_web.readmodel.models import HoldingView
 from baibai_web.sources.protocols import MarketPriceSource
 from baibai_web.sources.types import ResearchRevision, ScreeningRunRecord
-
-_EVENT_WINDOW_DAYS = 14
-
-_EVENT_KIND_ORDER = {"earnings": 0, "reservation_expiry": 1}
 
 _JST = ZoneInfo("Asia/Tokyo")
 
@@ -93,54 +85,6 @@ def holding_view(
             next_earnings_date.isoformat() if next_earnings_date is not None else None
         ),
     )
-
-
-def upcoming_events(
-    *,
-    today: date,
-    holdings: list[HoldingView],
-    reservations: list[ReservationView],
-) -> list[UpcomingEventView]:
-    """Collapse holding earnings and reservation expiries into one chronological list
-    within the next ``_EVENT_WINDOW_DAYS`` days.
-
-    The window is inclusive on both ends: an event dated today (days_until 0) through
-    ``today + _EVENT_WINDOW_DAYS`` is surfaced; anything past or beyond is dropped.
-    Reservation deadlines are exclusive instants, displayed on their last valid JST day.
-    """
-
-    window_end = today + timedelta(days=_EVENT_WINDOW_DAYS)
-    events: list[UpcomingEventView] = []
-    for holding in holdings:
-        if holding.next_earnings_date is None:
-            continue
-        event_date = date.fromisoformat(holding.next_earnings_date)
-        if today <= event_date <= window_end:
-            events.append(
-                UpcomingEventView(
-                    event_date=event_date,
-                    kind="earnings",
-                    ticker=holding.ticker,
-                    label=holding.company_name or holding.ticker,
-                    days_until=(event_date - today).days,
-                )
-            )
-    for reservation in reservations:
-        if reservation.expires_at is None:
-            continue
-        event_date = (reservation.expires_at.astimezone(_JST) - timedelta(microseconds=1)).date()
-        if today <= event_date <= window_end:
-            events.append(
-                UpcomingEventView(
-                    event_date=event_date,
-                    kind="reservation_expiry",
-                    ticker=reservation.ticker,
-                    label=reservation.ticker,
-                    days_until=(event_date - today).days,
-                )
-            )
-    events.sort(key=lambda item: (item.event_date, _EVENT_KIND_ORDER[item.kind], item.ticker or ""))
-    return events
 
 
 def percentage(numerator: int | None, denominator: int | None, *, digits: int) -> float | None:
