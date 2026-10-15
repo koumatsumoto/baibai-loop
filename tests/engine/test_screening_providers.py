@@ -1784,10 +1784,11 @@ class ScreeningProviderTests(unittest.TestCase):
 
         self.assertEqual(
             [(entry.ticker, entry.announcement_date) for entry in parsed.entries],
-            [("130A", date(2026, 7, 15)), ("7203", date(2026, 7, 16))],
+            [("130A", date(2026, 7, 15))],
         )
         self.assertEqual(parsed.raw_record_count, 3)
-        self.assertEqual(parsed.excluded_record_count, 1)
+        self.assertEqual(parsed.excluded_record_count, 2)
+        self.assertEqual(parsed.undated_tickers, ("7203",))
         self.assertIsNone(parsed.published_on)
 
     def test_jpx_earnings_parser_fails_on_layout_and_invalid_code(self) -> None:
@@ -1924,22 +1925,24 @@ class ScreeningProviderTests(unittest.TestCase):
 
         self.assertEqual(snapshot.entries[0].announcement_date, date(2026, 7, 20))
 
-    def test_jpx_earnings_snapshot_resolves_files_it_cannot_rank_the_same_way(self) -> None:
-        # Two archives stamped the same day cannot be separated by publication,
-        # so the snapshot must still not depend on the index listing order.
+    def test_jpx_earnings_snapshot_keeps_equal_priority_conflicts_unknown(self) -> None:
         snapshot = self._merge_earnings_files(
             (
                 self._earnings_file(
                     self._earnings_url("06_0715"), date(2026, 7, 15), {"130A": date(2026, 7, 20)}
                 ),
                 self._earnings_file(
-                    self._earnings_url("07_0715"), date(2026, 7, 15), {"130A": date(2026, 7, 25)}
+                    self._earnings_url("07_0715"),
+                    date(2026, 7, 15),
+                    {"130A": date(2026, 7, 25), "7203": date(2026, 7, 26)},
                 ),
             ),
             date(2026, 7, 14),
         )
-
-        self.assertEqual(snapshot.entries[0].announcement_date, date(2026, 7, 20))
+        self.assertEqual(
+            [(entry.ticker, entry.announcement_date) for entry in snapshot.entries],
+            [("7203", date(2026, 7, 26))],
+        )
 
     def test_jpx_earnings_snapshot_warns_when_archive_publication_stamp_is_missing(self) -> None:
         provider = JPXProvider()
@@ -2073,7 +2076,7 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(parsed.excluded_record_count, 4)
         self.assertIn("conflicting=1 unparsable=1", logs.output[0])
         self.assertIn("1305: '8月上旬'", logs.output[0])
-        self.assertIn("130A: 2026-08-06 and 2026-08-07", logs.output[0])
+        self.assertIn("130A: 2026-08-06 and 2026-08-07 and 2026-08-08", logs.output[0])
 
     def test_jpx_earnings_index_resolves_all_allowed_cohort_links(self) -> None:
         html = b"""

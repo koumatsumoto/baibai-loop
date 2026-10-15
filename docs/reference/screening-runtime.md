@@ -113,7 +113,7 @@ read ownerの`analysis_run`はResearch日以下のanalysisと`known_at`以下の
 
 <a id="jpx-earnings-calendar"></a>
 
-[JPXの決算予定](https://www.jpx.co.jp/listing/event-schedules/financial-announcement/index.html)は、3月期・9月期決算会社の翌営業日分の日次資料と、期末・四半期末を迎えた月別資料で対象が異なる。日次資料は予定なしならリンクが掲載されないことがあり、欠落だけでlayout障害と判定しない。月別資料は翌月上旬掲載後に更新される。ファイル名の日付、本文の基準日、取得時刻は別であり、現在取得した資料だけで過去時点の完全履歴を再現できるとは扱わない。[予定変更後が未決なら「未定」と登録する](https://faq.jpx.co.jp/disclo/tse/web/knowledge7701.html)ため、未定は単なる不正日付ではない。ファイル間の優先順位はprovider側の解決方針であり、JPX公式の優先規則と説明しない。
+[JPXの決算予定](https://www.jpx.co.jp/listing/event-schedules/financial-announcement/index.html)は、3月期・9月期決算会社の翌営業日分の日次資料と、期末・四半期末を迎えた月別資料で対象が異なる。日次資料は予定なしならリンクが掲載されないことがあり、欠落だけでlayout障害と判定しない。月別資料は翌月上旬掲載後に更新される。ファイル名の日付、本文の基準日、取得時刻は別であり、現在取得した資料だけで過去時点の完全履歴を再現できるとは扱わない。[予定変更後が未決なら「未定」と登録する](https://faq.jpx.co.jp/disclo/tse/web/knowledge7701.html)ため、未定は単なる不正日付ではない。ファイル間の優先順位はprovider側の解決方針であり、JPX公式の優先規則と説明しない。 同じ銘柄の未定・判読不能・矛盾は統合まで保持し、上位の資料で日付が未解決なら下位の古い日付で補わない。同順位の資料が食い違う場合もURL順で日付を決めず、その銘柄の予定は不明とする。他銘柄の既知予定は残す。
 
 JPX決算calendarは銘柄ごとの次回決算日の注記だが、snapshotの取得失敗は現行`run`全体を保存前に止める。個別銘柄にcalendar行がないことと同じ停止条件ではない。予定日当日・経過後の状態は`scheduled_date_reached`であり、発表確認を意味しない。保存済みの旧`announced`もWeb APIの投影とResearch入力では同じ意味として扱い、exact読取と元snapshotは保全する（[#1507](https://github.com/koumatsumoto/baibai-loop/issues/1507)）。EDINETのCSV抽出にhard failureが1件でもあると前処理snapshotを書かず、dailyもScreeningを進めない。いずれも取得・成果物の完全性に関する現行運用境界であり、銘柄の経済的な除外根拠や停止による機会損失の実測ではない。
 
