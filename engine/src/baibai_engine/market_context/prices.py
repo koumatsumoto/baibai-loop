@@ -1,4 +1,4 @@
-"""価格観測の読取と、保存したsplit eventに基づく価格のみの比較算術。"""
+"""価格観測の読取と、保存した価格調整係数に基づく価格のみの比較算術。"""
 
 from __future__ import annotations
 
@@ -90,8 +90,9 @@ def close_change_since(path: Path, tickers: Sequence[str], *, since: date) -> di
     Both ends are put on the latest price-adjustment basis before dividing. The stored close is
     unadjusted and provider-adjusted prices mix vintages across incremental acquisition, so
     a split between the two dates would otherwise read as a price move of the split
-    ratio — a 1:2 split as a 50% fall. The correction uses ``adjustment_factor``,
-    which is the split event itself and does not change once published.
+    ratio — a 1:2 split as a 50% fall. The correction uses the stored
+    ``adjustment_factor``. It may describe a price-only rights adjustment rather
+    than a share-unit change, and the provider may correct it later.
 
     A ticker with no close at or before ``since`` yields no entry: there is nothing to
     compare against, which is different from having not moved.
@@ -134,7 +135,7 @@ def worst_close_drawdown(
     This measures temporary price downside from the entry, not permanent business
     impairment or peak-to-trough drawdown. A name that halved and recovered reads
     as flat at the endpoint but still has an entry-relative trough. Both ends use
-    the window's latest share basis so a split does not register as a fall.
+    the window's latest price-adjustment basis so an action is not a price fall.
 
     The value is a ratio (``-0.3`` for a 30% trough) and is never positive: a name
     that stayed above its entry did not fall. A ticker with no close at or before

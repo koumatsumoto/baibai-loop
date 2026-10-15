@@ -289,8 +289,8 @@ def _resolve_dividend_carry(
     inside their accounting window, resolve payments separately even when multiple
     factors cancel to one. An explicit zero does not require that resolution.
 
-    Prefer nonnegative guidance from the document-period resolver (or the actual
-    disclosure freshness floor for legacy input). When positive actual DPS exists,
+    Prefer nonnegative guidance from the document-period resolver.
+    When positive actual DPS exists,
     guidance over twice that amount falls back to actual for recurring carry.
     Zero or unavailable actual DPS does not impose that spike ceiling.
     """

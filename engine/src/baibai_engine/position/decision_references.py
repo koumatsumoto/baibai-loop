@@ -75,10 +75,6 @@ def add_manual_fact_binding(
     additions: Sequence[LedgerEvent],
 ) -> None:
     """呼出元の CAS transaction 内だけで追加する。独立 commit はしない。"""
-    try:
-        binding = DecisionReferenceBinding.model_validate(binding.model_dump(mode="python"))
-    except ValueError as error:
-        raise LedgerConflictError(f"invalid manual-fact binding: {error}") from error
     referenced = tuple(
         event
         for event in additions
