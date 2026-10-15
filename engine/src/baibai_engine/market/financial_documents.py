@@ -28,10 +28,8 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
     ticker, common_code = parse_jquants_code_parts(first_value(record, "Code", "code"))
     if not common_code:
         return None
-    # 会社予想の純利益/経常のペアは forecast_eps と同一予想期から採る。当期予想 EPS
-    # (FEPS) が埋まっていれば当期予想の FNP/FOdP、本決算開示で FEPS が空なら翌期
-    # ガイダンスの NxFNp/NxFOdP を採る (forecast_eps の FEPS→NxFEPS と同じ期選択)。
-    # 期をまたいだ比較 (当期 EPS 期 と翌期利益の突合) は一時益 flag の誤検出になるので混ぜない。
+    # 期間metadataのないlegacy入力だけ、EPSと同じ当期/翌期slotから利益予想を採る。
+    # metadataのある文書は両slotをpayloadへ残し、as-ofの投影で対象期とbasisを解決する。
     legacy_forecast = _period(record, "current") is None
     if not legacy_forecast:
         forecast_profit = forecast_ordinary_profit = None
@@ -50,9 +48,7 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
                 record, "DisclosedDate", "disclosed_at", "DiscDate", "disc_date", "Date", "date"
             )
         ),
-        # ClientV2 の fin-summary は短縮キーを返す。FEPS=当期予想 EPS は本決算(FY)
-        # 開示で空になり、翌期ガイダンスは NxFEPS に入る。FEPS→NxFEPS の順で各時点の
-        # 最良 forward EPS(per_forward の基)を埋める。
+        # legacyの当期→翌期fallback。期間が分かる文書の予想はここで選ばない。
         forecast_eps=first_period_float(record, "FEPS", "NxFEPS") if legacy_forecast else None,
         eps_ttm=to_float(
             coalesce_field(
@@ -142,8 +138,7 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
                 "CurPerEn",
             )
         ),
-        # DivAnn=実績年間 DPS。予想年間は FDivAnn (四半期) → NxFDivAnn (本決算の
-        # 進行期ガイダンス) の順で埋める (FEPS→NxFEPS と同型)。
+        # 実績年間DPSと、legacy限定の予想fallback。文書予想は対象期の投影へ委ねる。
         dps_actual_annual=to_float(coalesce_field(record, "DivAnn")),
         dps_forecast_annual=first_period_float(record, "FDivAnn", "NxFDivAnn")
         if legacy_forecast

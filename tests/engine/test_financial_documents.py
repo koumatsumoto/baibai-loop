@@ -515,13 +515,31 @@ def test_conflicting_pre_split_reference_cannot_choose_share_basis(
     from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent
     from baibai_engine.valuation.metrics.capital import _normalize_summaries_with_status
 
+    # Keep the conflicting reference period distinct from the later FY correction.
+    # Otherwise that correction resolves the same cohort before reference selection.
     rows = decode(
         [actual_document("before-a", ShOutFY="1000"), actual_document("before-b", ShOutFY="500")]
     )
-    rows = [replace(row, disclosed_at=date(2026, 7, 10)) for row in rows]
+    rows = [
+        replace(
+            row,
+            disclosed_at=date(2026, 7, 10),
+            fiscal_period="3Q",
+            period_end=date(2026, 3, 31),
+        )
+        for row in rows
+    ]
     if with_older_reference:
         older = decode([actual_document("older", ShOutFY="1000")])[0]
-        rows.insert(0, replace(older, disclosed_at=date(2026, 7, 1)))
+        rows.insert(
+            0,
+            replace(
+                older,
+                disclosed_at=date(2026, 7, 1),
+                fiscal_period="3Q",
+                period_end=date(2026, 3, 31),
+            ),
+        )
     if reverse:
         rows.reverse()
     rows.extend(decode([actual_document("correction", ShOutFY="1000", TrShFY="0")]))
