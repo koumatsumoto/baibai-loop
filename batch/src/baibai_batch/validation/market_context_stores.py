@@ -2,8 +2,9 @@
 
 Market Context state lives in two existing stores. The L1 indicator
 store carries observations and their vintages, the application store carries the
-published context reports written against them. Their agreement is what CI cannot see —
-a workflow has no application store — so the pre-push instrument for it lives here.
+published context reports written against them. Their production agreement is not established by
+quality CI, which uses synthetic stores. This read-only operational check compares
+the actual stores supplied by the caller.
 
 The two directions of drift are asymmetric. An observation that the registry no longer
 covers is a contract violation and fails. A published report is immutable: it must still

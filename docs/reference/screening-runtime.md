@@ -81,7 +81,7 @@ primary coordinateがnull、非有限、またはapproachの要件を満たさ�
 
 候補純関数は丸め済み行をproductionと較正で共有する。normalized gapの母集団、reinvestment qualityのresolved母集団・sector minimum・market fallback、tie-breakはmethod契約で固定する。既存method hashのpreimageに残る`review_set_membership`等と`nomination_depth`はアルゴリズムidentityの凍結wireであり、旧publicationの存続ではない。候補正本の統合だけではproduction rules hash、ER model version、Valuation calculation revisionを変更しない。
 
-exact読取は保存された値・methodを返し、現在rulesを読み直さない。旧rules fileを指定した新しい計算を、過去の算式・当時値の再現とは扱わない。旧schemaのrun cacheは復元可能に退避し、新pathでObservationから新時刻・新UUIDのrunを作る。一回の最終code/store切替へまとめ、中間schemaの通常互換readerは作らない。現在必要な評価・提案・draftの旧根拠を保全する前に旧cacheを退避しない。
+exact読取は保存された値・methodを返し、現在rulesを読み直さない。旧rules fileを指定した新しい計算を、過去の算式・当時値の再現とは扱わない。旧run cacheの退避と現行schemaへの切替は[Research domainの切替](../../batch/OPERATIONS.md#research-domain-cutover)で完了している。旧schemaを通常readerで読み替えたり、旧cacheを現行正本へ戻したりしない。今後のschema変更は[明示的な切替手順](../../batch/OPERATIONS.md#schema-cutoverを修正するとき)に従い、必要な評価・提案・保存入力の根拠を保持する。
 
 較正cohort/forward rows/ER artifactはrun cacheと別の測定正本であり、run cacheの切替で再生成・削除しない。`PanelRow.in_review_set`、`valuation_approaches`、`valuation_approach_ranks`等は既存測定wireとして保持する。その値は同じ純関数の候補理由から導出する。[較正](./estimate-calibration.md)のidentity一致条件を保つ。
 

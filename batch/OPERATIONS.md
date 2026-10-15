@@ -60,23 +60,23 @@ gh run watch <RUN_ID> --exit-status --compact --interval 60
 | bucket | object | owner |
 | --- | --- | --- |
 | `baibai-stores` | `market.sqlite`（store-local data + `lake_store_origin` metadata） | `cloud-daily-batch` + ローカル`push-market`（cloud copyのmerge後だけupload） |
-| `baibai-stores` | `lake/`（lake所有datasetのcanonical L1） | `cloud-daily-batch`と`cloud-tradingview-snapshot`の`publish-lake` + ローカル`r2_transfer.sh publish-lake` |
+| `baibai-stores` | `lake/`（lake所有datasetのcanonical L1） | `cloud-daily-batch`・`cloud-tradingview-snapshot`・`cloud-external-assessment`の公開job + ローカル`r2_transfer.sh publish-lake` |
 | `baibai-stores` | `runs.sqlite` | `cloud-daily-batch` + 明示的なローカルdailyの`push-machine` |
 | `baibai-stores` | `indicators.sqlite` | `cloud-daily-batch`（rolling窓）+ ローカル`push-indicators`（全履歴。cloud copyのmerge後だけupload） |
 | `baibai-stores` | `baibai.sqlite` | 取得世代への条件付き更新（実行環境の分担は前節） |
 | `baibai-serving` | `views/*.json` | GitHub Actions materialize |
 | `baibai-serving` | `history/candidate-views/<asof>.json` | 日次batch、R2 lifecycleで31日後に削除 |
 
-R2 lifecycle ruleは`history/candidate-views/`だけに設定する。bucket全体へ設定すると`views/meta.json`まで期限で消え、欠落を検知できない。候補membershipの長期履歴は保持しない。
+`baibai-serving`のR2 lifecycle ruleは`history/candidate-views/`だけに設定する。bucket全体へ設定すると`views/meta.json`まで期限で消え、欠落を検知できない。候補membershipの長期履歴は保持しない。
 
-`cloud-materialize`・`cloud-daily-batch`・`cloud-tradingview-snapshot`はGitHubの`cloud-publish`を共有する。GitHubとローカルのpublication競合は[ローカル発行手順](#ローカルからクラウドを更新する)のleaseで止める。servingへのwriteはGitHub Actionsだけが行う。application更新の取得世代・競合処理は[application反映](#application-db-を反映する)に従う。
+`cloud-materialize`・`cloud-daily-batch`・`cloud-tradingview-snapshot`と、`cloud-external-assessment`のpublish jobはGitHubの`cloud-publish`を共有する。外部評価のplan/acquireは別の取得queueで動く。GitHubとローカルのpublication競合は[ローカル発行手順](#ローカルからクラウドを更新する)のleaseで止める。servingへのwriteはGitHub Actionsだけが行う。application更新の取得世代・競合処理は[application反映](#application-db-を反映する)に従う。
 
 資格情報はprincipalごとに分ける。
 
 | principal | 設定 | scope |
 | --- | --- | --- |
 | GitHub Actions | variable `R2_ACCOUNT_ID`、secrets `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / provider 3本 | 必要なtransfer/provider stepだけ、stores + serving read-write |
-| GitHub Actions（通知） | secret `DISCORD_WEBHOOK_URL` | `cloud-daily-batch` の通知 step と `cloud-batch-watchdog` の警報 step のみ（job env に出さない） |
+| GitHub Actions（通知） | secret `DISCORD_WEBHOOK_URL` | daily・TradingView・External Assessmentの通知 stepとwatchdogの警報 stepのみ（job envに出さない） |
 | GitHub Actions（Worker deploy） | variable `R2_ACCOUNT_ID`、secret `CLOUDFLARE_API_TOKEN` | 対象accountの`Workers Scripts Write`、`web`のdeploy stepのみ |
 | ローカルPCの`.env` | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | stores read-write。通常のクラウド開発へ持ち込まない |
 | Wrangler OAuth | `wrangler login` | bucket初期設定、Worker secretの手動設定 |
@@ -89,8 +89,9 @@ servingは各workflowのsource store取得・materializeが成功した後だけ
 
 provider secretは`JQUANTS_API_KEY` / `ESTAT_APP_ID` / `EDINET_API_KEY`。JPX規制情報の公開URLは
 [JPX source設定](../engine/src/baibai_engine/market/jpx_sources.py)の固定値を使い、環境変数では指定しない。
-`bootstrap-cache`は`universe.required_jpx_flags`の必要sourceを取得し、取得・検証に失敗した場合は
-machine stores / serving uploadを停止する。
+`bootstrap-cache`は`universe.required_jpx_flags`の必要sourceを取得する。日次で取得・検証に失敗した場合は
+新しいScreening runを発行せず、独立した指標更新と全views exportへ進みexit 3で報告する。
+store検査・exportが成功した場合の後続公開と、致命的失敗による公開停止は[日次機械工程](#日次機械工程--baibai-batch-daily)に従う。
 
 
 ## 日常運用
@@ -524,7 +525,7 @@ Workerの再deployは不要である。
 - upload前にPython `sqlite3.backup`でsnapshotを作り、WAL未checkpoint行を含めて`quick_check`する。
 - 複数storeのpushは全snapshotの作成・検査を終えてからuploadを始める。3 store一括の`push-machine`はGitHub Actionsと明示的なlocal dailyで使い、pull時の全ETag一致と各PUTの`If-Match`を必須にする。`indicators.sqlite` / `market.sqlite`を単独でローカルから進める場合は`push-indicators` / `push-market`でcloud copyをmergeし、cloud側の行の取り残しを検出したら停止する。
 - machine storeのpushは対象の前世代を`<key>.bak`に1世代保存する。復元時はwriterを停止し、対象bucketとexact `<key>.bak`・`<key>`を人間が確認したうえで、`aws s3api copy-object --cli-read-timeout 300`を使う。`aws s3 cp`へ置換しない。
-- machine store の`.bak`は1世代のみで、次のpushで置き換わる。前世代は次のpushで置き換わるため、24時間保持される保証ではない。`baibai.sqlite`だけは`baibai.sqlite.bak-YYYYMMDD`（JST）で日ごとに1世代を残し、直近14世代を超えた分をpush成功後に削除する。machine storeにも再取得できない観測があるため前世代を残し、判断と確認済み事実を持つapplication storeは日別世代を残す。prune は`baibai.sqlite.bak-`配下をlistし、`baibai.sqlite.bak-YYYYMMDD`に一致するkeyだけを完全一致で削除する（prefix削除はしない）。
+- machine store の`.bak`は1世代のみで次のpushで置き換わるため、24時間保持される保証ではない。`baibai.sqlite`だけは`baibai.sqlite.bak-YYYYMMDD`（JST）で日ごとに1世代を残し、直近14世代を超えた分をpush成功後に削除する。machine storeにも再取得できない観測があるため前世代を残し、判断と確認済み事実を持つapplication storeは日別世代を残す。prune は`baibai.sqlite.bak-`配下をlistし、`baibai.sqlite.bak-YYYYMMDD`に一致するkeyだけを完全一致で削除する（prefix削除はしない）。
 - 初回seedは既存のstore keyを1件でも検出したら停止し、再seedによるクラウド正本の上書きを許可しない。
 - pullは固定4 key以外を受け付けず、全downloadと`quick_check`完了後に置換する。
 - application store (`baibai.sqlite`) のpullは`pull-app`だけが行い、bulk pullは触らない。未公開の変更を失わないよう、`pull-app`はローカルにfileがあれば止める。CIはcheckout直後で`stores/application/`が空なので素通りする。作業コピーの更新・競合・復旧は[application反映](#application-db-を反映する)に従う。
@@ -700,7 +701,7 @@ uv run baibai-engine screening extract-edinet-facts \
 
 **成功確認**: summaryのselected/reused/extracted/failedとmissing reasons、代表書類の原典照合、固定releaseのexport/query/hydrateを確認する。現行codeのmain反映、整合するL1発行、store-local coverageのクラウド反映を一組で行う。codeだけを先に日次運用へ入れない。
 
-日次batchは単一run発行後に`extract-edinet-facts --asof`を実行する。初期化前は明示的skip、初期化後は収録済みfamilyと新規年次・訂正を処理する。取得失敗は既存screening発行を止めず、他の後段処理を終えた後のexit codeへ反映する。raw cacheを残してretryできる。抽出契約が変わった場合はResearch fact専用revisionを更新し、既存EDINET metricsのbaselineを無効化しない。
+日次batchはScreening工程の成否と独立して`extract-edinet-facts --asof`を実行する。初期化前は明示的skip、初期化後は収録済みfamilyと新規年次・訂正を処理する。取得失敗は既存screening発行を止めず、他の後段処理を終えた後のexit codeへ反映する。raw cacheを残してretryできる。抽出契約が変わった場合はResearch fact専用revisionを更新し、既存EDINET metricsのbaselineを無効化しない。
 
 storeのmergeでは同日でも別docIDの成否を混同しない。共有docIDはtargetのfactに対応する抽出claimを保持する。source側にしかないdocIDはtargetの抽出revisionを証明できないため、未確認のretry対象として取り込む。initialized markerは引き継げる。
 
@@ -784,7 +785,7 @@ gh workflow run cloud-external-assessment.yml --ref main \
 
 完全/部分verified terminalの再実行はstage・DB・lease・L1を読み直さず、`previously_verified`・provider通信0・追加row 0を返す。過去の検証結果であり、今回の新公開や現在世代の再検証ではない。terminalに保存されていない集計値を0で補わない。
 
-終端`notify` jobは既存secret `DISCORD_WEBHOOK_URL`の宛先へrun単位で1件通知する。成功・既知失敗を含む公開・部分公開・以前の完全/部分公開・取得未完了・公開確認失敗・取消を区別し、確認済みの固定pair・typed・既知失敗・normalnull・未記録・追加row件数と実行linkを載せる。matrix失敗時や旧terminalの未知集計値は不明とし、通知用のR2読取は加えない。銘柄別値・HTML・private batch ID・認証情報・error本文は通知しない。配送失敗はsanitizedな理由をstderrへ残し、batch結果を変更しない。job成功だけで実配送済みとは判断せず、workflow履歴も確認する。
+終端`notify` jobは既存secret `DISCORD_WEBHOOK_URL`の宛先へrun単位で1件通知する。成功・既知失敗を含む公開・部分公開・以前の完全/部分公開・取得未完了・公開確認失敗・取消を区別し、確認済みの固定pair・typed・既知失敗・normalnull・未記録・追加row件数と実行linkを載せる。matrix失敗時やterminalに保存されていない集計値は不明とし、通知用のR2読取は加えない。銘柄別値・HTML・private batch ID・認証情報・error本文は通知しない。配送失敗はsanitizedな理由をstderrへ残し、batch結果を変更しない。job成功だけで実配送済みとは判断せず、workflow履歴も確認する。
 
 正常な初回cohortのstage/rawはそれぞれ1 PUTとなる。private読取はplanの一度のstage走査、各acquireの自cohort読取、publishの確定stage走査に限定し、各acquireで全cohortを再走査しない。部分再開・競合・失敗では操作数が変わる。summaryの`provider_requests`は今回の実HTTP件数、`http_requests`/`response_content_bytes`は採用stageの累計で、wire bytesは未計測である。`elapsed_seconds`は今回の総時間、`collection_elapsed_seconds`はHTTP・host制限待機・解析、`storage_elapsed_seconds`はprivate読取・local spool・stage/raw保存を示す。429 backoffは総時間に含む。完了stageの取得時間とprovider件数は0で、過去runの時間を補わない。
 
@@ -818,7 +819,7 @@ market30→31・application20→21と指標の保存名切替は[PR #1442](https
 
 `cloud-tradingview-snapshot.yml`は平日15:37 / 17:37 / 19:37 / 21:37 / 23:37 JST（UTC `37 6,8,10,12,14 * * 1-5`）、土日09:37 / 13:37 / 17:37 JST（UTC `37 0,4,8 * * 0,6`）に独立して起動する。平日の祝日も既存5 slotを休場日の観測・未取得補完に使う。GitHub queueで実開始が遅れるため、targetは予定時刻ではなくrun開始時のJST当日とする。起動回数やjob成功数をprovider取得成功数として数えない。
 
-手動・定期ともhydrateしたJPX calendarで当日を判定し、営業日は15:30以降、休場日は09:00以降に取得する。09:00前はsetup前に終了する。09:00以降の営業日朝はlease・pull・hydrate・preflightまで進んでcalendarを確認するが、master取得・OAuth/provider接続・保存へ進まず`before_close`となる。朝の手動観測で同日PKを埋め、引け後の取得を妨げない。
+手動・定期ともhydrateしたJPX calendarで当日を判定し、営業日は15:30以降、休場日は09:00以降に取得する。09:00前はsetup前に終了する。09:00以降の営業日朝はlease・pull・hydrate・preflightまで進んでcalendarを確認するが、master取得・OAuth/provider接続・保存へ進まず`before_close`となる。朝の手動観測では同日PKを埋めず、引け後の取得を妨げない。
 
 Universeは営業日なら当日master、休場日ならcalendar上の直近営業日の保存済みexact-date masterから選ぶ。選んだ営業日から実観測日までcalendarの日付が連続していることを確認し、間の欠落があれば停止する。休場日の必要masterやcalendarがなければ停止し、より古い保存済みmasterへ暗黙に退避しない。`observation_master_asof`はこの必須基準日との一致確認であり、時間guardを解除しない。同日再開は同じ基準日を使う。`snapshot_date`は実観測日のJST当日、`fetched_at_utc`は実受領完了時刻で、masterの日付へ現在値を保存しない。master基準日を結果・progress・summaryの`master_asof`に記録する。日跨ぎ前の正常batchは部分結果として残し、跨いだresponseは前日へ保存しない。
 
