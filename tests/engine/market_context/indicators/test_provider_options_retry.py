@@ -29,7 +29,7 @@ from baibai_engine.market_context.indicators.providers.option_iv import (
     quotes_from_records,
 )
 from baibai_engine.market_context.indicators.providers.read_retry import read_deadline
-from baibai_engine.market_context.indicators.service import (
+from baibai_engine.market_context.indicator_service import (
     IndicatorsService,
     RefreshFailure,
     RefreshSuccess,

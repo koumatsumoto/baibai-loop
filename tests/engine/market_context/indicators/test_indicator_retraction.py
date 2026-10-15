@@ -15,7 +15,7 @@ from tests.helpers.indicator_store import (
     observation,
 )
 
-from baibai_engine.market_context.indicators.cli import (
+from baibai_engine.market_context.indicator_cli import (
     main,
 )
 from baibai_engine.market_context.indicators.db import (
@@ -33,7 +33,7 @@ from baibai_engine.market_context.indicators.definitions import (
     IndicatorDefinitions,
     load_definitions,
 )
-from baibai_engine.market_context.indicators.service import (
+from baibai_engine.market_context.indicator_service import (
     IndicatorsService,
 )
 
@@ -227,7 +227,7 @@ class RetractionVintageTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.market_context.indicators.service.fetch_observations",
+                    "baibai_engine.market_context.indicator_service.fetch_observations",
                     return_value=[week],
                 ),
                 redirect_stdout(io.StringIO()),
@@ -456,7 +456,7 @@ class RetractionVintageTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.market_context.indicators.service.fetch_observations",
+                    "baibai_engine.market_context.indicator_service.fetch_observations",
                     return_value=[week],
                 ),
                 redirect_stdout(io.StringIO()),

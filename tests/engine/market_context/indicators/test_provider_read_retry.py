@@ -28,7 +28,7 @@ from baibai_engine.market_context.indicators.providers.base import (
 from baibai_engine.market_context.indicators.providers.fred import parse_fred_csv
 from baibai_engine.market_context.indicators.providers.jquants_flows import parse_trades_spec
 from baibai_engine.market_context.indicators.providers.jquants_indices import parse_index_bars
-from baibai_engine.market_context.indicators.service import (
+from baibai_engine.market_context.indicator_service import (
     IndicatorsService,
     RefreshFailure,
     RefreshSuccess,

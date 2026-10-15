@@ -517,7 +517,7 @@ forbidden_modules = [
   "baibai_engine.position", "baibai_engine.tasks", "baibai_engine.read_api",
   "baibai_engine.storage.application.write", "baibai_engine.market_context.assessment.service",
   "baibai_engine.market_context.assessment.cli", "baibai_engine.market_context.reading.cli",
-  "baibai_engine.market_context.indicators.service", "baibai_engine.market_context.indicators.providers",
+  "baibai_engine.market_context.indicator_service", "baibai_engine.market_context.indicators.providers",
 ]
 
 [[tool.importlinter.contracts]]
@@ -525,6 +525,8 @@ name = "economic observations do not depend on reading computation"
 type = "forbidden"
 source_modules = ["baibai_engine.market_context.indicators"]
 forbidden_modules = [
+  "baibai_engine.market_context.indicator_service",
+  "baibai_engine.market_context.indicator_cli",
   "baibai_engine.market_context.reading.compute", "baibai_engine.market_context.reading.reader",
   "baibai_engine.market_context.reading.query", "baibai_engine.market_context.benchmark",
   "baibai_engine.market_context.snapshot", "baibai_engine.market_context.security",
@@ -637,8 +639,8 @@ source_modules = [
   "baibai_engine.market_context.reading.derived", "baibai_engine.market_context.reading.formulas",
 ]
 forbidden_modules = [
-  "baibai_engine.market_context.indicators.db", "baibai_engine.market_context.indicators.service",
-  "baibai_engine.market_context.indicators.providers", "baibai_engine.market_context.indicators.cli",
+  "baibai_engine.market_context.indicators.db", "baibai_engine.market_context.indicator_service",
+  "baibai_engine.market_context.indicators.providers", "baibai_engine.market_context.indicator_cli",
   "baibai_engine.market_context.reading.reader", "baibai_engine.market_context.reading.cli",
   "baibai_engine.storage", "baibai_engine.market_context.assessment", "baibai_engine.read_api",
 ]

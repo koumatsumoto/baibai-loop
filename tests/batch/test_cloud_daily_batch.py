@@ -24,7 +24,7 @@ from baibai_batch.jobs.daily import (
     run_daily_batch,
     run_daily_batch_structured,
 )
-from baibai_engine.market_context.indicators.service import (
+from baibai_engine.market_context.indicator_service import (
     DEFAULT_LATEST_LOOKBACK_DAYS,
     LATEST_FETCH_LOOKBACK_DAYS,
 )

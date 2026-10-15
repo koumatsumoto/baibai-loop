@@ -9,7 +9,7 @@ from tests.helpers.indicator_store import observation
 
 from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
 from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.indicators.service import IndicatorsService
+from baibai_engine.market_context.indicator_service import IndicatorsService
 from baibai_engine.market_context.reading.reader import build_store_observation_reader
 from baibai_engine.read_api.freshness import indicator_latest_observed_at
 

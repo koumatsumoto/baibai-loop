@@ -22,7 +22,7 @@ from tests.helpers.indicator_store import (
 )
 
 import baibai_engine.market_context.indicators.db as indicators_db
-from baibai_engine.market_context.indicators.cli import (
+from baibai_engine.market_context.indicator_cli import (
     main,
 )
 from baibai_engine.market_context.indicators.db import (
@@ -44,12 +44,12 @@ from baibai_engine.market_context.indicators.definitions import (
     load_definitions,
 )
 from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.service import (
+from baibai_engine.market_context.indicator_service import (
     IndicatorsService,
     _prune_registry_for_refresh,
 )
-from baibai_engine.market_context.indicators.service import list_series as catalog_list_series
-from baibai_engine.market_context.indicators.service import search as catalog_search
+from baibai_engine.market_context.indicator_service import list_series as catalog_list_series
+from baibai_engine.market_context.indicator_service import search as catalog_search
 from baibai_engine.market_context.reading.cli import main as reading_main
 
 
@@ -242,7 +242,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.market_context.indicators.service.fetch_observations",
+                    "baibai_engine.market_context.indicator_service.fetch_observations",
                     return_value=[refreshed],
                 ),
                 redirect_stdout(stdout),
@@ -392,12 +392,12 @@ class IndicatorsDBTests(unittest.TestCase):
 
                 with (
                     patch(
-                        "baibai_engine.market_context.indicators.service.print",
+                        "baibai_engine.market_context.indicator_service.print",
                         side_effect=closed_output,
                         create=True,
                     ),
                     patch(
-                        "baibai_engine.market_context.indicators.service.fetch_observations",
+                        "baibai_engine.market_context.indicator_service.fetch_observations",
                         return_value=[observation("us.10y", date(2026, 5, 1), 4.39)],
                     ),
                 ):
@@ -433,11 +433,11 @@ class IndicatorsDBTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.market_context.indicators.service.db.prune_definitions",
+                    "baibai_engine.market_context.indicator_service.db.prune_definitions",
                     side_effect=checked_prune,
                 ),
                 patch(
-                    "baibai_engine.market_context.indicators.service.fetch_observations",
+                    "baibai_engine.market_context.indicator_service.fetch_observations",
                     return_value=[observation("us.10y", date(2026, 5, 1), 4.39)],
                 ),
             ):
@@ -462,7 +462,7 @@ class IndicatorsDBTests(unittest.TestCase):
             try:
                 with (
                     patch(
-                        "baibai_engine.market_context.indicators.service.print", create=True
+                        "baibai_engine.market_context.indicator_service.print", create=True
                     ) as report,
                     self.assertRaisesRegex(sqlite3.OperationalError, "commit failed"),
                 ):
@@ -485,7 +485,7 @@ class IndicatorsDBTests(unittest.TestCase):
             )
             try:
                 with patch(
-                    "baibai_engine.market_context.indicators.service.print", create=True
+                    "baibai_engine.market_context.indicator_service.print", create=True
                 ) as report:
                     _prune_registry_for_refresh(connection, definitions)
                 report.assert_not_called()

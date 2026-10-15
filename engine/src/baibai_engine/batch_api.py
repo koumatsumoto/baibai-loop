@@ -118,7 +118,7 @@ from baibai_engine.market_context.assessment.projection import (
     assessment_projection,
     assessment_series_ids,
 )
-from baibai_engine.market_context.indicators.cli import parse_refresh_failure_count
+from baibai_engine.market_context.indicator_cli import parse_refresh_failure_count
 from baibai_engine.market_context.indicators.db import (
     DEFAULT_DB_PATH as DEFAULT_INDICATORS_DB_PATH,
 )
@@ -135,7 +135,7 @@ from baibai_engine.market_context.indicators.definitions import (
     IndicatorDefinitions,
     load_definitions,
 )
-from baibai_engine.market_context.indicators.service import (
+from baibai_engine.market_context.indicator_service import (
     DEFAULT_LATEST_LOOKBACK_DAYS,
     LATEST_FETCH_LOOKBACK_DAYS,
 )

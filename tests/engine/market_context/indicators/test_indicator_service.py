@@ -20,7 +20,7 @@ from tests.helpers.indicator_store import (
     observation,
 )
 
-from baibai_engine.market_context.indicators.cli import (
+from baibai_engine.market_context.indicator_cli import (
     build_parser,
     main,
     parse_refresh_failure_count,
@@ -42,7 +42,7 @@ from baibai_engine.market_context.indicators.providers import (
 from baibai_engine.market_context.indicators.providers.base import (
     FetchContext,
 )
-from baibai_engine.market_context.indicators.service import (
+from baibai_engine.market_context.indicator_service import (
     IndicatorsService,
     RefreshFailure,
     RefreshSuccess,
@@ -102,11 +102,11 @@ class IndicatorsServiceTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.market_context.indicators.service.load_definitions",
+                    "baibai_engine.market_context.indicator_service.load_definitions",
                     return_value=definitions,
                 ),
                 patch(
-                    "baibai_engine.market_context.indicators.service.fetch_observations",
+                    "baibai_engine.market_context.indicator_service.fetch_observations",
                     return_value=[observation("other.series", date(2026, 7, 20), 4.2)],
                 ),
             ):
@@ -149,11 +149,11 @@ class IndicatorsServiceTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.market_context.indicators.service.load_definitions",
+                    "baibai_engine.market_context.indicator_service.load_definitions",
                     return_value=definitions,
                 ),
                 patch(
-                    "baibai_engine.market_context.indicators.service.fetch_observations",
+                    "baibai_engine.market_context.indicator_service.fetch_observations",
                     return_value=[observation],
                 ),
             ):
@@ -192,11 +192,11 @@ class IndicatorsServiceTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.market_context.indicators.service.load_definitions",
+                    "baibai_engine.market_context.indicator_service.load_definitions",
                     return_value=definitions,
                 ),
                 patch(
-                    "baibai_engine.market_context.indicators.service.fetch_observations",
+                    "baibai_engine.market_context.indicator_service.fetch_observations",
                     return_value=observations,
                 ),
             ):
@@ -233,11 +233,11 @@ class IndicatorsServiceTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.market_context.indicators.service.load_definitions",
+                    "baibai_engine.market_context.indicator_service.load_definitions",
                     return_value=definitions,
                 ),
                 patch(
-                    "baibai_engine.market_context.indicators.service.fetch_observations",
+                    "baibai_engine.market_context.indicator_service.fetch_observations",
                     return_value=[observation("test.series", date(2026, 7, 20), 1e100)],
                 ),
             ):
@@ -269,11 +269,11 @@ class IndicatorsServiceTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.market_context.indicators.service.load_definitions",
+                    "baibai_engine.market_context.indicator_service.load_definitions",
                     return_value=definitions,
                 ),
                 patch(
-                    "baibai_engine.market_context.indicators.service.fetch_observations",
+                    "baibai_engine.market_context.indicator_service.fetch_observations",
                     return_value=[
                         observation("test.series", date(2026, 7, 19), -2.0),
                         observation("test.series", date(2026, 7, 20), 20.0),
@@ -314,7 +314,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 vintage_at=datetime.now(UTC),
             )
             with patch(
-                "baibai_engine.market_context.indicators.service.fetch_observations",
+                "baibai_engine.market_context.indicator_service.fetch_observations",
                 return_value=[observation],
             ) as fetch:
                 result = IndicatorsService(database).refresh_all_history(
@@ -347,10 +347,10 @@ class IndicatorsServiceTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.market_context.indicators.service.fetch_observations",
+                    "baibai_engine.market_context.indicator_service.fetch_observations",
                     side_effect=IndicatorsProviderError("unavailable"),
                 ),
-                patch("baibai_engine.market_context.indicators.service.time.sleep"),
+                patch("baibai_engine.market_context.indicator_service.time.sleep"),
                 self.assertRaisesRegex(IndicatorsProviderError, "unavailable"),
             ):
                 IndicatorsService(database).refresh_all_history(
@@ -389,7 +389,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 datetime(2026, 7, 21, tzinfo=UTC),
             )
             with patch(
-                "baibai_engine.market_context.indicators.service.fetch_observations",
+                "baibai_engine.market_context.indicator_service.fetch_observations",
                 return_value=[corrected],
             ):
                 IndicatorsService(database).refresh_all_history(
@@ -425,7 +425,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 ]
 
             with patch(
-                "baibai_engine.market_context.indicators.service.fetch_observations",
+                "baibai_engine.market_context.indicator_service.fetch_observations",
                 side_effect=_refetch,
             ):
                 for _ in range(3):
@@ -465,7 +465,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 ObservationRecord(**common, value=4.55, vintage_at=datetime(2026, 5, 9, tzinfo=UTC))
             ]
             with patch(
-                "baibai_engine.market_context.indicators.service.fetch_observations",
+                "baibai_engine.market_context.indicator_service.fetch_observations",
                 side_effect=[first, revised],
             ):
                 service.get_range(
@@ -530,11 +530,11 @@ class IndicatorsServiceTests(unittest.TestCase):
             )
             with (
                 patch(
-                    "baibai_engine.market_context.indicators.service._today_jst",
+                    "baibai_engine.market_context.indicator_service._today_jst",
                     return_value=date(2026, 7, 20),
                 ),
                 patch(
-                    "baibai_engine.market_context.indicators.service.fetch_observations",
+                    "baibai_engine.market_context.indicator_service.fetch_observations",
                     return_value=[observation],
                 ) as fetch,
             ):
@@ -592,7 +592,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 vintage_at=datetime.now(UTC),
             )
             with patch(
-                "baibai_engine.market_context.indicators.service.fetch_observations",
+                "baibai_engine.market_context.indicator_service.fetch_observations",
                 return_value=[observation],
             ) as fetch:
                 IndicatorsService(database).refresh_all_history(
@@ -627,7 +627,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 vintage_at=datetime.now(UTC),
             )
             with patch(
-                "baibai_engine.market_context.indicators.service.fetch_observations",
+                "baibai_engine.market_context.indicator_service.fetch_observations",
                 return_value=[observation],
             ) as fetch:
                 IndicatorsService(database).refresh_all_history(
@@ -649,7 +649,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.market_context.indicators.service.fetch_observations",
+                    "baibai_engine.market_context.indicator_service.fetch_observations",
                     return_value=[],
                 ),
                 self.assertRaisesRegex(IndicatorsProviderError, "returned no observations"),
@@ -695,10 +695,10 @@ class IndicatorsServiceTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.market_context.indicators.service.fetch_observations",
+                    "baibai_engine.market_context.indicator_service.fetch_observations",
                     side_effect=_fetch,
                 ),
-                patch("baibai_engine.market_context.indicators.service.time.sleep"),
+                patch("baibai_engine.market_context.indicator_service.time.sleep"),
             ):
                 outcomes = IndicatorsService(database).refresh_series(
                     ["us.10y", "us.2y", "us.30y"],
@@ -734,7 +734,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             initialize_database(database).close()
 
             with patch(
-                "baibai_engine.market_context.indicators.service.fetch_observations",
+                "baibai_engine.market_context.indicator_service.fetch_observations",
                 side_effect=lambda series, **_: [
                     observation(series.series_id, date(2026, 7, 20), 4.2)
                 ],
@@ -794,7 +794,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 return [observation(series.series_id, date(2026, 7, 20), 4.2)]
 
             with patch(
-                "baibai_engine.market_context.indicators.service.fetch_observations",
+                "baibai_engine.market_context.indicator_service.fetch_observations",
                 side_effect=_fetch,
             ):
                 IndicatorsService(database).refresh_series(
@@ -824,7 +824,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 return [observation(series.series_id, date(2026, 7, 20), 4.2)]
 
             with patch(
-                "baibai_engine.market_context.indicators.service.fetch_observations",
+                "baibai_engine.market_context.indicator_service.fetch_observations",
                 side_effect=_fetch,
             ):
                 outcomes = IndicatorsService(database).refresh_series(
@@ -867,10 +867,10 @@ class IndicatorsServiceTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.market_context.indicators.service.fetch_observations",
+                    "baibai_engine.market_context.indicator_service.fetch_observations",
                     side_effect=_fetch,
                 ),
-                patch("baibai_engine.market_context.indicators.service.time.sleep"),
+                patch("baibai_engine.market_context.indicator_service.time.sleep"),
             ):
                 outcomes = IndicatorsService(database).refresh_series(
                     ["us.10y", "us.2y"],
@@ -892,7 +892,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
                 with (
                     patch(
-                        "baibai_engine.market_context.indicators.service.fetch_observations",
+                        "baibai_engine.market_context.indicator_service.fetch_observations",
                         return_value=[observation("us.10y", date(2026, 7, 20), value)],
                     ),
                     self.assertRaisesRegex(IndicatorsProviderError, "non-finite value"),
@@ -937,10 +937,10 @@ class IndicatorsServiceTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.market_context.indicators.service.fetch_observations",
+                    "baibai_engine.market_context.indicator_service.fetch_observations",
                     side_effect=_fetch,
                 ),
-                patch("baibai_engine.market_context.indicators.service.time.sleep"),
+                patch("baibai_engine.market_context.indicator_service.time.sleep"),
                 redirect_stderr(errors),
             ):
                 exit_code = main(
@@ -1012,7 +1012,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 for day, value in ((3, 4.45), (2, 4.41), (1, 4.39))
             ]
             with patch(
-                "baibai_engine.market_context.indicators.service.fetch_observations",
+                "baibai_engine.market_context.indicator_service.fetch_observations",
                 return_value=descending,
             ):
                 result = IndicatorsService(db).get_range(
@@ -1042,13 +1042,13 @@ class IndicatorsServiceTests(unittest.TestCase):
             )
             with (
                 patch(
-                    "baibai_engine.market_context.indicators.service.fetch_observations",
+                    "baibai_engine.market_context.indicator_service.fetch_observations",
                     side_effect=[
                         IndicatorsProviderError("temporary upstream error"),
                         [observation],
                     ],
                 ) as fetch,
-                patch("baibai_engine.market_context.indicators.service.time.sleep") as sleep,
+                patch("baibai_engine.market_context.indicator_service.time.sleep") as sleep,
             ):
                 result = IndicatorsService(db).get_range(
                     "us.10y",
@@ -1092,7 +1092,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 vintage_at=datetime.now(UTC),
             )
             with patch(
-                "baibai_engine.market_context.indicators.service.fetch_observations",
+                "baibai_engine.market_context.indicator_service.fetch_observations",
                 side_effect=[[first_observation], [second_observation]],
             ) as fetch:
                 first = IndicatorsService(db).get_range(
@@ -1165,11 +1165,11 @@ class IndicatorsServiceTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.market_context.indicators.service._today_jst",
+                    "baibai_engine.market_context.indicator_service._today_jst",
                     return_value=today,
                 ),
                 patch(
-                    "baibai_engine.market_context.indicators.service.fetch_observations",
+                    "baibai_engine.market_context.indicator_service.fetch_observations",
                     side_effect=AssertionError("provider should not be called"),
                 ),
             ):
@@ -1193,15 +1193,15 @@ class IndicatorsServiceTests(unittest.TestCase):
             )
             with (
                 patch(
-                    "baibai_engine.market_context.indicators.service.fetch_observations",
+                    "baibai_engine.market_context.indicator_service.fetch_observations",
                     return_value=[observation],
                 ) as fetch,
                 patch(
-                    "baibai_engine.market_context.indicators.service.load_reading_rules",
+                    "baibai_engine.market_context.indicator_service.load_reading_rules",
                     side_effect=AssertionError("explicit refresh does not need cache rules"),
                 ),
                 patch(
-                    "baibai_engine.market_context.indicators.service._today_jst",
+                    "baibai_engine.market_context.indicator_service._today_jst",
                     return_value=today,
                 ),
             ):
@@ -1232,11 +1232,11 @@ class IndicatorsServiceTests(unittest.TestCase):
             )
             with (
                 patch(
-                    "baibai_engine.market_context.indicators.service._today_jst",
+                    "baibai_engine.market_context.indicator_service._today_jst",
                     return_value=today,
                 ),
                 patch(
-                    "baibai_engine.market_context.indicators.service.fetch_observations",
+                    "baibai_engine.market_context.indicator_service.fetch_observations",
                     return_value=[observation],
                 ) as fetch,
             ):
@@ -1273,11 +1273,11 @@ class IndicatorsServiceTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.market_context.indicators.service._today_jst",
+                    "baibai_engine.market_context.indicator_service._today_jst",
                     return_value=today,
                 ),
                 patch(
-                    "baibai_engine.market_context.indicators.service.fetch_observations",
+                    "baibai_engine.market_context.indicator_service.fetch_observations",
                     return_value=[current],
                 ) as fetch,
             ):
@@ -1300,11 +1300,11 @@ class IndicatorsServiceTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.market_context.indicators.service._today_jst",
+                    "baibai_engine.market_context.indicator_service._today_jst",
                     return_value=today,
                 ),
                 patch(
-                    "baibai_engine.market_context.indicators.service.fetch_observations",
+                    "baibai_engine.market_context.indicator_service.fetch_observations",
                     side_effect=AssertionError("provider should not be called"),
                 ),
             ):
@@ -1334,11 +1334,11 @@ class IndicatorsServiceTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.market_context.indicators.service._today_jst",
+                    "baibai_engine.market_context.indicator_service._today_jst",
                     return_value=today,
                 ),
                 patch(
-                    "baibai_engine.market_context.indicators.service.fetch_observations",
+                    "baibai_engine.market_context.indicator_service.fetch_observations",
                     return_value=[current],
                 ) as fetch,
             ):
@@ -1394,14 +1394,14 @@ def test_derived_read_ignores_old_materialization_and_does_not_fetch(tmp_path):
     _write_observation(database, "us.sp500_earnings_yield", observed_at=date(2026, 1, 1), value=5.0)
     _write_observation(database, "us.10y", observed_at=date(2026, 1, 30), value=4.0)
     with patch(
-        "baibai_engine.market_context.indicators.service.fetch_observations",
+        "baibai_engine.market_context.indicator_service.fetch_observations",
         side_effect=AssertionError("derived read must not acquire source data"),
     ):
         service = IndicatorsService(database)
         ordinary = service.get_range("us.erp", start=date(2026, 1, 15), end=date(2026, 1, 31))
         refreshed = service.refresh_all_history("us.erp", end=date(2026, 1, 31))
         with patch(
-            "baibai_engine.market_context.indicators.service._today_jst",
+            "baibai_engine.market_context.indicator_service._today_jst",
             return_value=date(2026, 1, 31),
         ):
             latest = service.get_latest("us.erp")
@@ -1435,7 +1435,7 @@ def test_derived_cli_reports_computation_without_source_fetch(tmp_path, capsys):
     _write_observation(database, "us.sp500_earnings_yield", observed_at=date(2026, 1, 1), value=5.0)
     _write_observation(database, "us.10y", observed_at=date(2026, 1, 30), value=4.0)
     with patch(
-        "baibai_engine.market_context.indicators.service.fetch_observations",
+        "baibai_engine.market_context.indicator_service.fetch_observations",
         side_effect=AssertionError("derived CLI must not acquire source data"),
     ):
         code = main(

@@ -13,7 +13,7 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
     _series,
 )
 
-from baibai_engine.market_context.indicators.cli import (
+from baibai_engine.market_context.indicator_cli import (
     main,
 )
 from baibai_engine.market_context.indicators.definitions import (
@@ -381,7 +381,7 @@ def test_catalog_never_opens_a_store(tmp_path, monkeypatch, capsys):
         raise AssertionError("catalog opened a store")
 
     monkeypatch.setattr("baibai_engine.market_context.indicators.db.open_connection", unexpected)
-    monkeypatch.setattr("baibai_engine.market_context.indicators.cli.load_project_env", unexpected)
+    monkeypatch.setattr("baibai_engine.market_context.indicator_cli.load_project_env", unexpected)
     before = set(tmp_path.rglob("*"))
     monkeypatch.chdir(tmp_path)
     for command in (["list", "--format", "json"], ["search", "CPI"]):

@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 from tests.helpers.indicator_store import observation
 
-from baibai_engine.market_context.indicators import db, service
+from baibai_engine.market_context import indicator_service as service
+from baibai_engine.market_context.indicators import db
 from baibai_engine.market_context.indicators.definitions import load_definitions
 
 

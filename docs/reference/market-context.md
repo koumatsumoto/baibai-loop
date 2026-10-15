@@ -9,7 +9,7 @@ status: active
 
 本書はMarket Contextの市場・個別相対の読取、経済指標・Reading、明示的assessment、過去に保存された判断本文の読取契約を所有する。個別企業の価値評価は[Valuation metrics](./valuation-metrics.md)と[Stock Assessment](./stock-assessment.md)が所有する。
 
-Market Contextの`indicators`はL1のregistry・取得・DB adapter、`reading`はL2の決定的算術・保存済みreaderを所有する。観測契約は`indicators/observations.py`に置き、計算からDB adapterを参照しない。L3は`market_context/assessment`が所有し、旧reportは履歴として読む。
+Market Contextの`indicators`はL1のregistry・取得・DB adapter、`reading`はL2の決定的算術・保存済みreaderを所有する。観測契約は`indicators/observations.py`に置き、計算からDB adapterを参照しない。L1取得とL2照会を組み合わせるアプリケーション処理は`indicator_service.py`と`indicator_cli.py`に置き、L1からReadingへ逆依存させない。L3は`market_context/assessment`が所有し、旧reportは履歴として読む。
 
 日次工程はL1観測とL2 Readingを更新し、人間の明示開始でMarketContextAssessmentを作成する。新判断は下記assessmentの最小契約とreview手順に従う。Market Context全体へこのレポート作成を必須にせず、保存済み機械状態と発行済み判断は個別に読める。
 
@@ -69,7 +69,7 @@ uv run baibai-engine market-context indicators get jp.nikkei225 --start 2026-05-
 uv run baibai-engine market-context indicators get jp.policy_rate --latest
 ```
 
-`get`は取得済み範囲を確認し、不足があればproviderを呼ぶ。同じ引数でもstore状態・source改定・実行日によって結果は変わる。計算の決定性は保存入力・採用vintage・規則・as-ofが固定された場合の性質である。`get --latest`はJSTの運用日を基準に、[reading rules](../../engine/src/baibai_engine/market_context/reading/rules.py)の公表ラグと猶予でcacheの鮮度を判定する。再取得の窓幅は鮮度閾値とは別で、[indicator service](../../engine/src/baibai_engine/market_context/indicators/service.py)が日次batchと共有する。
+`get`は取得済み範囲を確認し、不足があればproviderを呼ぶ。同じ引数でもstore状態・source改定・実行日によって結果は変わる。計算の決定性は保存入力・採用vintage・規則・as-ofが固定された場合の性質である。`get --latest`はJSTの運用日を基準に、[reading rules](../../engine/src/baibai_engine/market_context/reading/rules.py)の公表ラグと猶予でcacheの鮮度を判定する。再取得の窓幅は鮮度閾値とは別で、[indicator service](../../engine/src/baibai_engine/market_context/indicator_service.py)が日次batchと共有する。
 
 `refresh --all-history` は外部providerごとの取得可能な先頭日から強制再取得する。FREDは現在の `fredgraph.csv` が返す先頭日を再現可能な境界とし、それ以前の観測を残さない。外部source訂正では再取得期間・vintageの条件に該当する旧sourceの観測をcacheから除く。契約期間や公表archiveが履歴を制限する場合は、実際の取得範囲を運用記録へ残す。
 
@@ -90,7 +90,7 @@ uv run baibai-engine market-context indicators get jp.policy_rate --latest
 
 registryは系列定義の正本である。通常のopenでは登録外のfactsを削除せず、現行系列を指定した明示的なrefreshが退役系列をpruneする。storeが新世代、または同世代でmembershipが異なる場合は拒否する。退役・改名は[registry修正手順](../../batch/OPERATIONS.md#指標観測とregistryの修正)に従い、過去の発行済みContextを書き換えない。
 
-全providerの観測は系列identity・単位・有限値・系列固有のbandを満たす必要がある。bandは明白な列・桁・単位ずれを検出するもので、景気急変を前回値との差だけで拒否する条件ではない。band内に収まるscale変更はprovider固有のheader・metadata照合で守る。例えば`jp.foreign_flows`は原典の千円単位を保持する。検証違反はそのseriesの取得失敗とし、部分取り込みしない。DB境界でも同じ制約を守り、schemaやtriggerの不整合を拒否する。厳密な条件は[service](../../engine/src/baibai_engine/market_context/indicators/service.py)・[DB](../../engine/src/baibai_engine/market_context/indicators/db.py)・[schema](../../engine/src/baibai_engine/market_context/indicators/schema.sql)が所有する。storeは空または現行schemaだけを受け付ける。schema変更は明示的な一回切替で行い、通常のopenやtransferに旧schemaの移行処理を残さない。
+全providerの観測は系列identity・単位・有限値・系列固有のbandを満たす必要がある。bandは明白な列・桁・単位ずれを検出するもので、景気急変を前回値との差だけで拒否する条件ではない。band内に収まるscale変更はprovider固有のheader・metadata照合で守る。例えば`jp.foreign_flows`は原典の千円単位を保持する。検証違反はそのseriesの取得失敗とし、部分取り込みしない。DB境界でも同じ制約を守り、schemaやtriggerの不整合を拒否する。厳密な条件は[service](../../engine/src/baibai_engine/market_context/indicator_service.py)・[DB](../../engine/src/baibai_engine/market_context/indicators/db.py)・[schema](../../engine/src/baibai_engine/market_context/indicators/schema.sql)が所有する。storeは空または現行schemaだけを受け付ける。schema変更は明示的な一回切替で行い、通常のopenやtransferに旧schemaの移行処理を残さない。
 
 registryのband変更時は、Git管理外のstoreをread-only validatorで全履歴・全vintage検査する。CIのfixtureだけでは既存観測との整合を証明できない。検査はstoreを書き換えず、観測とcanonical trigger契約の違反を報告する。
 

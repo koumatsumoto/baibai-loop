@@ -1,3 +1,5 @@
+"""Indicator commands compose source acquisition and L2 calculation above both layers."""
+
 from __future__ import annotations
 
 import argparse
@@ -12,10 +14,7 @@ from typing import assert_never
 
 from baibai_engine.foundation.env import load_project_env
 
-from .db import DEFAULT_DB_PATH, IndicatorsSchemaError
-from .definitions import SeriesDefinition
-from .providers import IndicatorsProviderError, provider_spec
-from .service import (
+from .indicator_service import (
     IndicatorsService,
     QueryResult,
     RefreshFailure,
@@ -23,6 +22,9 @@ from .service import (
     list_series,
     search,
 )
+from .indicators.db import DEFAULT_DB_PATH, IndicatorsSchemaError
+from .indicators.definitions import SeriesDefinition
+from .indicators.providers import IndicatorsProviderError, provider_spec
 
 
 def format_refresh_failure_rollup(failed_series_ids: Sequence[str], *, total: int) -> str:
