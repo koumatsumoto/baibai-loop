@@ -57,7 +57,6 @@ from baibai_engine.read_api.market_context import (
     reading_snapshot,
 )
 from baibai_engine.read_api.valuation import VALUATION_HISTORY_SESSIONS
-from baibai_web.sources.screening_selection import operative_screening_run
 from baibai_web.sources.types import (
     IndicatorGroupConfig,
     IndicatorSeriesConfig,
@@ -387,7 +386,7 @@ class DbMetaSource:
         self._indicators_db_path = indicators_db_path.resolve()
 
     def screening_as_of(self) -> date | None:
-        run = operative_screening_run(DbScreeningSource(self._runs_db_path))
+        run = DbScreeningSource(self._runs_db_path).latest_run()
         return None if run is None else run.as_of
 
     def indicator_as_of(self) -> date | None:
@@ -399,7 +398,7 @@ class DbMetaSource:
     def data_updated_at(self) -> datetime | None:
         """Return the newest timestamp recorded by any UI data store."""
 
-        screening_run = operative_screening_run(DbScreeningSource(self._runs_db_path))
+        screening_run = DbScreeningSource(self._runs_db_path).latest_run()
         screening_updated_at = None if screening_run is None else screening_run.generated_at
         indicator_observed_at = indicator_latest_observed_at(self._indicators_db_path)
         indicator_updated_at = (

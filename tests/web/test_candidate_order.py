@@ -7,19 +7,18 @@ from tests.web.test_screening_judgment_binding import _dependencies
 from baibai_engine.read_api import candidate_rows
 from baibai_web.readmodel.stocks import build_screening, build_security_detail
 from baibai_web.sources.db_sources import DbScreeningSource
-from baibai_web.sources.screening_selection import operative_screening_run
 
 
 def test_zero_candidate_latest_run_never_falls_back(tmp_path: Path, mocker):
     path = tmp_path / "runs.sqlite"
-    assert operative_screening_run(DbScreeningSource(path)) is None
+    assert DbScreeningSource(path).latest_run() is None
     _publish(path, _run(rows=[_analysis("2331")], asof="2026-10-13"), revision="old")
     row = _analysis("2331")
     row["market_cap_oku"] = None
     row["metrics"].update(market_price_yen=1000.0, fv_sector_median_yen=1700.0)
     _publish(path, _run(rows=[row]), revision="new")
     source = DbScreeningSource(path)
-    run = operative_screening_run(source)
+    run = source.latest_run()
     assert run.run_revision_id == "new"
     assert candidate_rows(run.rows) == ()
     ledger, research = _dependencies(mocker)

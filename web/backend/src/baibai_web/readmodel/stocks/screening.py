@@ -45,7 +45,6 @@ from baibai_web.sources.protocols import (
     ResearchSource,
     ScreeningSource,
 )
-from baibai_web.sources.screening_selection import operative_screening_run
 from baibai_web.sources.types import ScreeningRunRecord
 
 _JST = ZoneInfo("Asia/Tokyo")
@@ -101,7 +100,7 @@ def build_screening(
 ) -> ScreeningView:
     """Build the latest Stock Analysis view with portfolio/research annotations."""
 
-    run = operative_screening_run(screening)
+    run = screening.latest_run()
     cutoff = external_cutoff or datetime.now(_JST)
     held, reserved = _held_and_reserved_tickers(ledger)
     revisions = research.revisions()
