@@ -31,8 +31,8 @@ Operationは公開済みProposalのID/hashを保持し、本文やhold draftを�
 
 manifest/Operation ID、またはactiveの同一draftで再開する。scope・対象・理由・source・cutoffを変更せず、別activeや別workspace bindingをforceで上書きしない。file失敗後はcommitされたOperation IDから投影を復元する。forceは投影だけを修復して執筆済みdraftを保持する。再開保証は固定入力の同一再生成であり、現在価格・資本・正式評価の条件不変や提案完成の保証ではない。
 
-追加対象は現在の結果・未完了を確定して次Operationへ進める。同文の本当の再依頼をglobal dedupeしない。旧workspace/selectionはruntimeで継続せず、[一回移行工具](../../tools/cutover/domain_v1.py)で現在必要な材料とactive handoffを退避する。
+追加対象は現在の結果・未完了を確定して次Operationへ進める。同文の本当の再依頼をglobal dedupeしない。旧workspace/selectionはruntimeで継続しない。切替時に退避した材料は新しいResearchの参考資料とし、現在入力から新Operationを開始する。
 
-## 統合時の一回移行
+## 完了済みの切替
 
-保存材料の引継ぎ・writer停止・隔離検証・本番切替は[Research domainの一回移行](../../batch/OPERATIONS.md#research-domain-cutover)に集約する。通常Researchの開始・再開と、旧schemaからの一度限りの切替を混同しない。
+旧schemaからの一回移行は完了し、専用toolは撤去した。[切替記録](../../batch/OPERATIONS.md#research-domain-cutover)と通常Researchの開始・再開を混同しない。
