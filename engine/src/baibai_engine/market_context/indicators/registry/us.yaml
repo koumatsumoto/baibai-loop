@@ -357,7 +357,7 @@ series:
     notes: 10年国債と3ヶ月国債の利回り差(percentage point)。10Y-2Yのbp表示とは単位を揃えて比較する。逆転だけで景気後退を確定しない。
     aliases: [10Y-3Mスプレッド, 逆イールド, recession spread, T10Y3M, 10年3ヶ月]
   - series_id: us.tga
-    name: 米財務省一般勘定(TGA)
+    name: 米財務省一般勘定(TGA・週平均)
     category: monetary
     geography: us
     frequency: weekly
@@ -368,7 +368,7 @@ series:
     provider_series_id: WTREGEN
     source_id: fred-wtregen
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=WTREGEN
-    notes: 財務省一般勘定残高(週次・百万ドル)。net liquidity = FRB総資産 − RRP − TGA の控除項。TGA積み上げは市場から流動性を吸収する
+    notes: WTREGENは水曜を期末とする週平均残高(百万ドル)で、水曜時点の残高ではない。ネット流動性の近似計算に使うが、期末値との混在を同時点の厳密な残高と解釈しない
     aliases: [TGA, 財務省一般勘定, Treasury General Account, WTREGEN]
   - series_id: us.move
     name: MOVE指数(米国債ボラティリティ)

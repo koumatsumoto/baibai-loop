@@ -30,6 +30,18 @@ class DerivedReadingTests(TestCase):
         # (8,000,000 - 500,000) / 1000 - 1,000 = 6,500 billion.
         self.assertEqual(value, 6500.0)
 
+    def test_net_liquidity_does_not_divide_billion_dollar_rrp_again(self) -> None:
+        for assets, tga, rrp, expected in (
+            (8_795_567.0, 689_569.0, 2366.798, 5739.2),
+            (6_747_560.0, 880_253.0, 2.338, 5864.969),
+        ):
+            with self.subTest(rrp=rrp):
+                actual = FORMULAS["us.net_liquidity"].compute(
+                    {"us.fed_assets": assets, "us.tga": tga, "us.reverse_repo": rrp}
+                )
+                assert actual is not None
+                self.assertAlmostEqual(actual, expected, places=6)
+
     def test_treasury_spread_uses_source_yields_and_converts_to_bp(self) -> None:
         series = load_definitions().by_id()["us.10y_2y_spread"]
         self.assertEqual(series.provider, "derived")

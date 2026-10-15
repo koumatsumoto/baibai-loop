@@ -45,6 +45,8 @@ FORMULAS: Mapping[str, DerivedFormula] = {
         unit="bp",
         compute=lambda v: (v["us.10y"] - v["us.2y"]) * 100.0,
     ),
+    # WALCL is Wednesday level; WTREGEN is a week average ending Wednesday.
+    # The mixed time bases make this a proxy, not an exact reserve balance.
     "us.net_liquidity": DerivedFormula(
         inputs=("us.fed_assets", "us.reverse_repo", "us.tga"),
         unit="usd-billion",
