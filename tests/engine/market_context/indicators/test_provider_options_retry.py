@@ -582,7 +582,7 @@ def test_later_malformed_page_does_not_return_a_partial_day(wire):
 
 def test_repeated_pagination_key_cannot_loop_or_complete_a_day(wire):
     wire.reply = lambda url: success(rows=[], next_page="same")
-    with pytest.raises(ProviderFetchStoppedError, match="repeated.*pagination_key"):
+    with pytest.raises(ProviderFetchStoppedError, match=r"repeated.*pagination_key"):
         wire.fetch()
     assert len(wire.calls) == 2
     assert wire.waits == []
