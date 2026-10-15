@@ -1,6 +1,7 @@
 """Stock views must not publish an invalid ledger as an unheld portfolio."""
 
 from datetime import date
+from functools import partial
 
 import pytest
 
@@ -21,13 +22,15 @@ def test_stock_views_propagate_invalid_ledger_instead_of_empty_holdings(mocker, 
     screening = mocker.Mock()
     screening.latest_run.return_value = None
 
+    build = {
+        "latest": partial(build_screening, screening, ledger, research),
+        "history": partial(
+            build_screening_history_run, screening, ledger, research, as_of=date(2026, 10, 15)
+        ),
+        "security": partial(prepare_security_inputs, ledger, research, screening),
+    }[surface]
     with pytest.raises(PortfolioLedgerError) as caught:
-        if surface == "latest":
-            build_screening(screening, ledger, research)
-        elif surface == "history":
-            build_screening_history_run(screening, ledger, research, as_of=date(2026, 10, 15))
-        else:
-            prepare_security_inputs(ledger, research, screening)
+        build()
     assert caught.value is failure
 
 
