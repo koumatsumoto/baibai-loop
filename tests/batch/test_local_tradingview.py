@@ -173,7 +173,8 @@ def test_bad_success_payload_does_not_publish(runtime):
     assert calls[-1] == "release"
 
 
-def test_zero_new_rows_cannot_publish_a_previous_partial(runtime, monkeypatch):
+@pytest.mark.parametrize(("added", "expected", "remaining"), [(0, 51, 1), (1, 49, -1)])
+def test_invalid_partial_counts_do_not_publish(runtime, monkeypatch, added, expected, remaining):
     state, calls, _ = runtime
     original = runner.command
 
@@ -183,10 +184,10 @@ def test_zero_new_rows_cannot_publish_a_previous_partial(runtime, monkeypatch):
             return json.dumps(
                 {
                     "status": "partial",
-                    "rows_added": 0,
+                    "rows_added": added,
                     "rows": 50,
-                    "expected_universe": 51,
-                    "remaining": 1,
+                    "expected_universe": expected,
+                    "remaining": remaining,
                 }
             )
         return original(args, **kwargs)
@@ -196,13 +197,13 @@ def test_zero_new_rows_cannot_publish_a_previous_partial(runtime, monkeypatch):
     assert "publish-lake" not in calls
 
 
-def test_before_close_does_not_read_credentials_or_acquire(runtime, monkeypatch):
+def test_before_observation_hours_does_not_read_credentials_or_acquire(runtime, monkeypatch):
     state, calls, _ = runtime
     state.unlink()
     monkeypatch.setattr(
         runner,
         "resolve_tradingview_target",
-        lambda *_a, **_kw: (date(2026, 9, 28), "manual", False, "before_close"),
+        lambda *_a, **_kw: (date(2026, 9, 28), "manual", False, "before_observation"),
     )
     assert runner.main(["--state-file", str(state)]) == 0
     assert calls == []

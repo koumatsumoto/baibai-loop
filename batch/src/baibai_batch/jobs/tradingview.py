@@ -102,7 +102,7 @@ def _report(output: str, allowed: set[str]) -> dict[str, object]:
 
             def count(key: str) -> int:
                 number = value.get(key)
-                if type(number) is not int:
+                if type(number) is not int or number < 0:
                     raise ValueError()
                 return number
 
@@ -209,12 +209,7 @@ def run_local(state_file: Path, *, batch_size: int = 50, interval: float = 15.0)
                         "skipped_historical_asof",
                     },
                 )
-                added = result.get("rows_added")
-                if (
-                    result["status"] in {"saved", "partial"}
-                    and isinstance(added, int)
-                    and added > 0
-                ):
+                if result["status"] in {"saved", "partial"}:
                     print(
                         command([str(ROOT / "batch/scripts/r2_transfer.sh"), "publish-lake"]),
                         end="",
