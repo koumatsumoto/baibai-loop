@@ -16,11 +16,10 @@ would let a screening run publish an empty universe as a healthy result, which i
 one new failure the daily lake cycle introduces. The loaded rows must equal what the
 release manifest published, per dataset.
 
-Emptying is fail-closed on the same count, from the other side. The copy that goes to
-R2 carries no row the lake owns, and "the lake owns it" has to mean the release actually
-holds those rows — not that the dataset is declared. A dataset that is in the registry
-but not yet in a release (a source whose publication has not started) would otherwise be
-emptied into nothing on the first day it has rows.
+Emptying checks the store origin and per-dataset row counts against the release before
+removing lake-owned rows from the upload copy. Datasets absent from the release must not
+lose local rows. These checks do not compare row values: the caller must publish local
+changes first and must not edit lake-owned rows between publication and snapshotting.
 """
 
 from __future__ import annotations
@@ -196,7 +195,7 @@ def hydrate_market_store(
     require_still_current(still_current, release)
     with exclusive_lock(store.with_name(f".{store.name}.lock"), subject="market store"):
         schema_version = validate_snapshot(store)
-        require_no_unpublished_rows(store, plan)
+        require_row_counts_within_release(store, plan)
         require_safe_hydrate_transition(store, release=release, plan=plan)
         require_durable_filesystem(store.parent)
         require_free_capacity(store.parent, store=store, plan=plan)
@@ -341,9 +340,9 @@ def dehydrate_market_store(
 ) -> DehydrateReport:
     """Empty every lake-owned table of ``store``, keeping only what the lake does not hold.
 
-    This runs on the copy that is about to be uploaded, never on the working store. It
-    refuses unless the release accounts for every row it is about to drop, so the only
-    way to shrink the published object is to have published the rows first.
+    Run only on an upload copy after publishing local changes, not on the working store.
+    Matching origin and row counts are required, but do not prove equality of row values.
+    The caller must not change lake-owned rows between publication and this snapshot.
     """
 
     if not store.is_file():
@@ -401,21 +400,13 @@ def dehydrate_market_store(
     )
 
 
-def require_no_unpublished_rows(store: Path, plan: ReleaseLoadPlan) -> None:
-    """Refuse to fill over rows the release cannot give back.
+def require_row_counts_within_release(store: Path, plan: ReleaseLoadPlan) -> None:
+    """Reject a store containing more rows than the release, per dataset.
 
-    The fill empties each lake-owned table before it reloads, so a store holding rows no
-    release published loses them with nothing to restore them from — a local backfill
-    that has not been through `publish-lake` is exactly that. The store being behind the
-    release is the ordinary case and stays allowed; holding *more* than the release is
-    the one that cannot be undone, and it is the state `publish-lake` leaves an operator
-    in when it refuses because the lake moved underneath them.
-
-    Counting separates the shape a backfill actually has: it adds rows, so a store
-    carrying unpublished fetches holds more than the release, while a store at an older
-    release holds fewer. What a total cannot see is a local pass that replaced as many
-    rows as it added; that case is left to the release-base check in the publication,
-    which refuses to build on a release the lake has moved past.
+    Hydration replaces lake-owned rows. This count check catches excess local rows,
+    not all unpublished changes: equal or smaller counts can contain local edits too.
+    Callers must hydrate before editing and publish those edits before hydrating again.
+    A publication release-base check does not protect an independent hydrate call.
     """
 
     expected = expected_row_totals(plan)

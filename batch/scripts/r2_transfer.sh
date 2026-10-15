@@ -211,9 +211,9 @@ publish_lake() {
 }
 
 dehydrate_market_snapshot() {
-  # Runs on the copy about to be uploaded, never on the working store. It refuses unless
-  # the release embedded in that same SQLite generation accounts for every row it drops,
-  # so no detached identity file can authorize the object to shrink.
+  # Runs on the upload copy, never on the working store. Origin and row counts must
+  # match the release; values are not compared. Publish local changes first and do not
+  # edit lake-owned rows between publication and snapshotting.
   local path="$1"
   (
     cd "${repo_root}" || exit 1
