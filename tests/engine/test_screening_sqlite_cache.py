@@ -139,8 +139,8 @@ class SQLiteCacheTest(unittest.TestCase):
                     {
                         "Code": "72030",
                         "Date": "2026-05-08",
-                        "Close": 1000,
-                        "AdjustmentClose": 1000,
+                        "C": 1000,
+                        "AdjC": 1000,
                     }
                 ],
                 requested_start=date(2026, 5, 8),
@@ -173,14 +173,14 @@ class SQLiteCacheTest(unittest.TestCase):
                     {
                         "Code": "72030",
                         "Date": "2026-05-08",
-                        "Close": 1000,
-                        "AdjustmentClose": 1000,
+                        "C": 1000,
+                        "AdjC": 1000,
                     },
                     {
                         "Code": "72030",
                         "Date": "2026-05-08",
-                        "Close": 1001,
-                        "AdjustmentClose": 1001,
+                        "C": 1001,
+                        "AdjC": 1001,
                     },
                 ],
                 requested_start=date(2026, 5, 8),
@@ -645,8 +645,8 @@ class SQLiteCacheTest(unittest.TestCase):
             store_jquants_daily_bars(
                 db,
                 [
-                    {"Code": "72030", "Date": "2026-05-12", "Close": 1000, "AdjustmentClose": 1000},
-                    {"Code": "72030", "Date": "2026-05-27", "Close": 1100, "AdjustmentClose": 1100},
+                    {"Code": "72030", "Date": "2026-05-12", "C": 1000, "AdjC": 1000},
+                    {"Code": "72030", "Date": "2026-05-27", "C": 1100, "AdjC": 1100},
                 ],
                 requested_start=date(2026, 5, 12),
                 requested_end=date(2026, 5, 29),
@@ -654,8 +654,8 @@ class SQLiteCacheTest(unittest.TestCase):
             store_jquants_daily_bars(
                 db,
                 [
-                    {"Code": "72030", "Date": "2026-05-27", "Close": 1100, "AdjustmentClose": 1100},
-                    {"Code": "72030", "Date": "2026-06-02", "Close": 1200, "AdjustmentClose": 1200},
+                    {"Code": "72030", "Date": "2026-05-27", "C": 1100, "AdjC": 1100},
+                    {"Code": "72030", "Date": "2026-06-02", "C": 1200, "AdjC": 1200},
                 ],
                 requested_start=date(2026, 5, 19),
                 requested_end=date(2026, 6, 5),
@@ -1033,7 +1033,7 @@ class EmptyPayloadReplacementTest(unittest.TestCase):
 
     @staticmethod
     def _bar(ticker: str, day: date) -> dict[str, object]:
-        return {"Code": ticker, "Date": day.isoformat(), "Close": 1000.0, "AdjustmentClose": 1000.0}
+        return {"Code": ticker, "Date": day.isoformat(), "C": 1000.0, "AdjC": 1000.0}
 
     def test_an_empty_bar_payload_refuses_to_replace_stored_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1394,7 +1394,7 @@ class MarginPublicationTransitionStoreTest(unittest.TestCase):
             store_jquants_daily_bars(
                 db,
                 [
-                    {"Date": day.isoformat(), "Code": "72030", "Close": 100.0}
+                    {"Date": day.isoformat(), "Code": "72030", "C": 100.0}
                     for day in trading_days
                 ],
                 requested_start=trading_days[0],
@@ -1441,8 +1441,8 @@ class MarginPublicationTransitionStoreTest(unittest.TestCase):
             store_jquants_daily_bars(
                 db,
                 [
-                    {"Date": "2026-09-25", "Code": "72030", "Close": 100.0},
-                    {"Date": "2026-09-28", "Code": "72030", "Close": 101.0},
+                    {"Date": "2026-09-25", "Code": "72030", "C": 100.0},
+                    {"Date": "2026-09-28", "Code": "72030", "C": 101.0},
                 ],
                 requested_start=date(2026, 9, 25),
                 requested_end=date(2026, 9, 28),
@@ -1558,7 +1558,7 @@ class MarginPublicationTransitionStoreTest(unittest.TestCase):
             db = Path(tmp) / "market.sqlite"
             store_jquants_daily_bars(
                 db,
-                [{"Date": "2026-09-25", "Code": "72030", "Close": 100.0}],
+                [{"Date": "2026-09-25", "Code": "72030", "C": 100.0}],
                 requested_start=date(2026, 9, 25),
                 requested_end=date(2026, 9, 25),
             )

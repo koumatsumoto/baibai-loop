@@ -991,7 +991,7 @@ class ScreeningCliTests(unittest.TestCase):
             store_jquants_daily_bars(
                 sqlite_path,
                 [
-                    {"Date": day.isoformat(), "Code": "72030", "Close": 100.0}
+                    {"Date": day.isoformat(), "Code": "72030", "C": 100.0}
                     for day in trading_days
                 ],
                 requested_start=trading_days[0],
@@ -1034,7 +1034,7 @@ class ScreeningCliTests(unittest.TestCase):
             store_jquants_daily_bars(
                 sqlite_path,
                 [
-                    {"Date": day.isoformat(), "Code": "72030", "Close": 100.0}
+                    {"Date": day.isoformat(), "Code": "72030", "C": 100.0}
                     for day in trading_days
                 ],
                 requested_start=trading_days[0],

@@ -32,37 +32,24 @@ def parse_jquants_code_parts(code: Any) -> tuple[str, bool]:
 
 
 def normalize_daily_bar(record: Mapping[str, Any]) -> JQuantsDailyBar | None:
-    ticker, common_code = parse_jquants_code_parts(first_value(record, "Code", "code"))
+    ticker, common_code = parse_jquants_code_parts(record.get("Code"))
     if not common_code:
         return None
-    # `or` チェーンは 0.0 を falsy 扱いして次キーに進むため、0 close/turnover の銘柄を
-    # 欠損と誤判定する。キー存在と非 None を基準に最初の値を取る。
-    close = to_float(coalesce_field(record, "Close", "close", "C", "c"))
+    # Decode native V2 fields without substituting adjusted values or legacy aliases.
+    close = to_float(record.get("C"))
     if close is None:
         # An adjusted-only observation cannot supply a raw price bar. The
         # independent factor event remains available through the store.
         return None
-    adjustment_factor = to_float(
-        coalesce_field(record, "AdjustmentFactor", "adjustment_factor", "AdjFactor")
-    )
+    adjustment_factor = to_float(record.get("AdjFactor"))
     return JQuantsDailyBar(
         ticker=ticker,
-        traded_at=parse_date(first_value(record, "Date", "date", "TradedAt", "traded_at")),
+        traded_at=parse_date(record.get("Date")),
         close=close,
         adjustment_factor=adjustment_factor,
         ex_right_type=normalize_ex_right_type(record.get("ExRT")),
-        volume=to_float(coalesce_field(record, "Volume", "volume", "Vo", "vo")),
-        turnover_value=to_float(
-            coalesce_field(
-                record,
-                "TurnoverValue",
-                "turnover_value",
-                "TradingValue",
-                "trading_value",
-                "Va",
-                "va",
-            )
-        ),
+        volume=to_float(record.get("Vo")),
+        turnover_value=to_float(record.get("Va")),
     )
 
 
@@ -71,17 +58,17 @@ def normalize_adjustment_factor_event(
 ) -> JQuantsAdjustmentFactorEvent | None:
     """Decode a corporate action without requiring a close or a non-unit factor."""
 
-    ticker, common_code = parse_jquants_code_parts(first_value(record, "Code", "code"))
+    ticker, common_code = parse_jquants_code_parts(record.get("Code"))
     if not common_code:
         return None
-    factor = to_float(coalesce_field(record, "AdjustmentFactor", "adjustment_factor", "AdjFactor"))
+    factor = to_float(record.get("AdjFactor"))
     kind = normalize_ex_right_type(record.get("ExRT"))
     if factor in (None, 0.0) or (factor == 1.0 and kind is None):
         return None
     assert factor is not None
     return JQuantsAdjustmentFactorEvent(
         ticker=ticker,
-        traded_at=parse_date(first_value(record, "Date", "date", "TradedAt", "traded_at")),
+        traded_at=parse_date(record.get("Date")),
         adjustment_factor=factor,
         ex_right_type=kind,
     )

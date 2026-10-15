@@ -146,7 +146,7 @@ class ReadDailyBarsTests(unittest.TestCase):
             db = Path(tmp) / "market.sqlite"
             store_jquants_daily_bars(
                 db,
-                [{"Code": "13010", "Date": "2024-03-19", "Close": 3790.0}],
+                [{"Code": "13010", "Date": "2024-03-19", "C": 3790.0}],
                 requested_start=date(2024, 3, 19),
                 requested_end=date(2024, 4, 18),
             )

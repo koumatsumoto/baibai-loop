@@ -119,14 +119,14 @@ def _bars_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> NormalizedR
     rejected_count = 0
     excluded_count = 0
     for record in records:
-        ticker, code_status = code_quality(first(record, "Code", "code"))
+        ticker, code_status = code_quality(record.get("Code"))
         if code_status == "rejected":
             rejected_count += 1
             continue
         if code_status == "excluded":
             excluded_count += 1
             continue
-        traded_at = date_iso(first(record, "Date", "date", "TradedAt", "traded_at"))
+        traded_at = date_iso(record.get("Date"))
         if ticker is None or traded_at is None:
             rejected_count += 1
             continue
@@ -134,15 +134,15 @@ def _bars_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> NormalizedR
             (
                 ticker,
                 traded_at,
-                to_float(first(record, "Open", "open", "O", "o")),
-                to_float(first(record, "High", "high", "H", "h")),
-                to_float(first(record, "Low", "low", "L", "l")),
-                to_float(first(record, "Close", "close", "C", "c")),
-                to_float(first(record, "Volume", "volume", "Vo", "vo")),
-                to_float(first(record, "TurnoverValue", "turnover_value", "Va", "va")),
-                to_float(first(record, "AdjustmentFactor", "adjustment_factor", "AdjFactor")),
-                to_str_or_none(first(record, "UpperLimit", "upper_limit", "UL")),
-                to_str_or_none(first(record, "LowerLimit", "lower_limit", "LL")),
+                to_float(record.get("O")),
+                to_float(record.get("H")),
+                to_float(record.get("L")),
+                to_float(record.get("C")),
+                to_float(record.get("Vo")),
+                to_float(record.get("Va")),
+                to_float(record.get("AdjFactor")),
+                to_str_or_none(record.get("UL")),
+                to_str_or_none(record.get("LL")),
                 normalize_ex_right_type(record.get("ExRT")),
                 to_float(record.get("MktCap")),
             )

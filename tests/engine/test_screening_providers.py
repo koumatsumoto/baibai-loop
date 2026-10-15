@@ -1364,9 +1364,9 @@ class ScreeningProviderTests(unittest.TestCase):
             {
                 "Code": "13010",
                 "Date": "2026-04-24T00:00:00",
-                "Close": 200.0,
-                "AdjustmentClose": 100.0,
-                "AdjustmentFactor": 0.5,
+                "C": 200.0,
+                "AdjC": 100.0,
+                "AdjFactor": 0.5,
                 "Va": 526318500.0,
             }
         )
@@ -1395,7 +1395,7 @@ class ScreeningProviderTests(unittest.TestCase):
                 "Code": "67310",
                 "Date": "2023-12-27T00:00:00",
                 "C": None,
-                "AdjustmentFactor": 100.0,
+                "AdjFactor": 100.0,
             }
         )
 
