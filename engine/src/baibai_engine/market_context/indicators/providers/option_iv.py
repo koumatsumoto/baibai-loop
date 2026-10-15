@@ -235,7 +235,7 @@ def _atm_volatility(quotes: Sequence[OptionQuote]) -> float | None:
 
 
 def _skew(quotes: Sequence[OptionQuote]) -> float | None:
-    """How much more the market charges for a fall than for the same move at the money.
+    """Downside-put IV minus near-at-the-money put IV, in volatility points.
 
     Both legs are puts, which keeps the measure on one volatility basis: taking the
     upside leg from the call side would put the whole of the source's put-against-call
