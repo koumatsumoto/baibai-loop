@@ -5,7 +5,6 @@ import sqlite3
 import tempfile
 import unittest
 from contextlib import closing, redirect_stderr
-from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -1429,3 +1428,27 @@ def test_old_derived_values_do_not_fill_missing_current_inputs(tmp_path):
     _write_observation(database, "us.erp", observed_at=date(2025, 1, 2), value=-0.6)
     result = IndicatorsService(database).refresh_all_history("us.erp", end=date(2026, 6, 30))
     assert result.observations == ()
+
+
+def test_derived_cli_reports_computation_without_source_fetch(tmp_path, capsys):
+    database = tmp_path / "indicators.sqlite"
+    _write_observation(database, "us.sp500_earnings_yield", observed_at=date(2026, 1, 1), value=5.0)
+    _write_observation(database, "us.10y", observed_at=date(2026, 1, 30), value=4.0)
+    with patch(
+        "baibai_engine.market_context.indicators.service.fetch_observations",
+        side_effect=AssertionError("derived CLI must not acquire source data"),
+    ):
+        code = main(
+            [
+                "get",
+                "us.erp",
+                "--start",
+                "2026-01-01",
+                "--end",
+                "2026-01-31",
+                "--db",
+                str(database),
+            ]
+        )
+    assert code == 0
+    assert "\tderived\tcomputed" in capsys.readouterr().out
