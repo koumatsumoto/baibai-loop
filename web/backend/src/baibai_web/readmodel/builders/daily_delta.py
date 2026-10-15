@@ -94,6 +94,7 @@ def build_daily_delta(
                 previous_entries,
                 market=market if market_ready else None,
                 previous_as_of=previous.as_of,
+                current_as_of=latest.as_of,
             )
             if not er_comparable:
                 # E[r] is context, not membership authority. Keep entries/exits but
@@ -165,6 +166,7 @@ def _candidate_deltas(
     *,
     market: MarketPriceSource | None,
     previous_as_of: date,
+    current_as_of: date,
 ) -> tuple[
     list[CandidateEntryDeltaView],
     list[CandidateEntryDeltaView],
@@ -173,14 +175,18 @@ def _candidate_deltas(
 ]:
     entered_tickers = sorted(set(current) - set(earlier))
     exited_tickers = sorted(set(earlier) - set(current))
-    # A name that reported between the two runs entered on new numbers, not on a price
-    # move alone. The run output carries no disclosure date, so it is read from
-    # the market store for the tickers that actually changed side. When that store
-    # cannot answer, the fact stays unknown instead of reading as "no disclosure".
+    # Read only disclosures between the compared runs. A newer market store must
+    # not attach later news to an earlier candidate change. This is date context,
+    # not a causal claim or proof that the run incorporated the disclosed figures.
+    # An absent store leaves this context unknown, not "no disclosure".
     disclosed: set[str] | None = None
     if market is not None:
         disclosed = set(
-            market.disclosures_after(entered_tickers + exited_tickers, after=previous_as_of)
+            market.disclosures_after(
+                entered_tickers + exited_tickers,
+                after=previous_as_of,
+                through_date=current_as_of,
+            )
         )
     entered = [
         _candidate_entry_delta(

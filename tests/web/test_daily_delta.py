@@ -1,13 +1,17 @@
 """Daily observations compare published method identities, not file names."""
 
+from contextlib import closing
 from dataclasses import replace
 from datetime import date, datetime
+from pathlib import Path
 from unittest.mock import Mock
 from zoneinfo import ZoneInfo
 
 import pytest
 
+from baibai_engine.storage.observations.schema import open_connection
 from baibai_web.readmodel.builders import build_daily_delta
+from baibai_web.sources.db_sources import DbMarketPriceSource
 from baibai_web.sources.types import ScreeningRunRecord
 
 
@@ -234,3 +238,29 @@ def test_mover_total_retains_rows_beyond_the_display_cap() -> None:
     )
     assert view.er_moves_total == 20
     assert len(view.er_moves) == 5
+
+
+def test_disclosure_context_stays_inside_the_compared_runs(tmp_path: Path) -> None:
+    path = tmp_path / "market.sqlite"
+    with closing(open_connection(path)) as connection, connection:
+        connection.executemany(
+            "INSERT INTO jquants_fin_summaries "
+            "(ticker, disclosed_at, record_key, document_payload) VALUES (?, ?, ?, ?)",
+            [
+                ("1002", "2026-09-04", "inside", "{}"),
+                ("1002", "2026-09-05", "newer", "{}"),
+                ("1003", "2026-09-05", "after-run", "{}"),
+                ("1004", "2026-09-03", "previous-run", "{}"),
+            ],
+        )
+    screening, ledger, research, _ = _sources()
+    market = DbMarketPriceSource(path)
+    view = build_daily_delta(screening, ledger, research, market)
+    assert {row.ticker: row.disclosed_since_previous for row in view.entered} == {
+        "1002": True,
+        "1003": False,
+    }
+    assert [(row.ticker, row.disclosed_since_previous) for row in view.exited] == [("1004", False)]
+    assert market.disclosures_after(
+        ["1002", "1003", "1004"], after=date(2026, 9, 3), through_date=date(2026, 9, 4)
+    ) == {"1002": date(2026, 9, 4)}

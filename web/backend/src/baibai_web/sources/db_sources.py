@@ -157,8 +157,12 @@ class DbMarketPriceSource:
     def close_changes_since(self, tickers: Sequence[str], *, since: date) -> Mapping[str, float]:
         return close_change_since(self._path, tickers, since=since)
 
-    def disclosures_after(self, tickers: Sequence[str], *, after: date) -> Mapping[str, date]:
-        return latest_disclosure_dates_after(self._path, tickers, after=after)
+    def disclosures_after(
+        self, tickers: Sequence[str], *, after: date, through_date: date
+    ) -> Mapping[str, date]:
+        return latest_disclosure_dates_after(
+            self._path, tickers, after=after, through_date=through_date
+        )
 
     def next_earnings_dates(self, tickers: Sequence[str], *, as_of: date) -> Mapping[str, date]:
         return next_earnings_dates(self._path, tickers, asof=as_of)

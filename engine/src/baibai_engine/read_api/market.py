@@ -101,14 +101,13 @@ def previous_business_day(path: Path, day: date, *, max_lookback: int = 10) -> d
 
 
 def latest_disclosure_dates_after(
-    path: Path, tickers: Sequence[str], *, after: date
+    path: Path, tickers: Sequence[str], *, after: date, through_date: date
 ) -> dict[str, date]:
-    """Return each ticker's newest financial disclosure strictly after ``after``.
+    """Return each ticker's newest disclosure in ``(after, through_date]``.
 
-    A candidate that entered the candidate list right after reporting is a different thing
-    from one that entered on a price move alone, and the screen's own output does
-    not carry the disclosure date. A ticker with no disclosure in the window yields
-    no entry.
+    The upper bound belongs to the compared run, not the current market store.
+    A disclosure in this interval is context, not proof that it caused a candidate
+    change or that the run consumed it. No disclosure in the window yields no entry.
     """
 
     if not tickers:
@@ -121,10 +120,10 @@ def latest_disclosure_dates_after(
         f"""
             SELECT ticker, MAX(disclosed_at)
             FROM jquants_fin_summaries
-            WHERE ticker IN ({placeholders}) AND disclosed_at > ?
+            WHERE ticker IN ({placeholders}) AND disclosed_at > ? AND disclosed_at <= ?
             GROUP BY ticker
             """,  # nosec B608
-        [*unique, after.isoformat()],
+        [*unique, after.isoformat(), through_date.isoformat()],
     )
     return {str(row[0]): date.fromisoformat(str(row[1])) for row in rows if row[1] is not None}
 
