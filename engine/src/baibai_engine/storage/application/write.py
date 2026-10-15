@@ -75,9 +75,12 @@ def backup_database(
     source_path = database_path(path)
     if not source_path.exists():
         return None
+    instant = now or datetime.now(JST)
+    if instant.utcoffset() is None:
+        raise ValueError("backup time must include a UTC offset")
     target_dir = backup_dir or source_path.parent / "backups"
     target_dir.mkdir(parents=True, exist_ok=True)
-    stamp = (now or datetime.now(JST)).strftime("%Y%m%dT%H%M%S%f%z")
+    stamp = instant.strftime("%Y%m%dT%H%M%S%f%z")
     target = target_dir / f"baibai-{stamp}.sqlite"
     with (
         closing(sqlite3.connect(source_path)) as source,
@@ -95,14 +98,19 @@ def backup_database(
 def prune_backups(backup_dir: Path, *, keep: int = KEPT_BACKUP_GENERATIONS) -> list[Path]:
     """Drop all but the newest ``keep`` checkpoints and return what was removed.
 
-    Ordering is by name: the stamp is fixed-width and its offset is a constant, so the
-    lexicographic order is the chronological one. Reading the times off the filesystem
-    would instead reorder the set whenever a copy was touched.
+    Compare the instants recorded in names, including their UTC offsets.
+    Filesystem timestamps would reorder the set whenever a copy was touched.
     """
 
     if keep < 1:
         raise ValueError(f"keep must be at least 1: {keep}")
-    generations = sorted(backup_dir.glob(_BACKUP_GLOB), key=lambda item: item.name)
+    generations = sorted(
+        backup_dir.glob(_BACKUP_GLOB),
+        key=lambda item: (
+            datetime.strptime(item.stem.removeprefix("baibai-"), "%Y%m%dT%H%M%S%f%z"),
+            item.name,
+        ),
+    )
     removed = generations[: max(len(generations) - keep, 0)]
     for path in removed:
         path.unlink()
