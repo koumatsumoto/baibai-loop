@@ -99,7 +99,7 @@ def snapshot(rows: list[JQuantsFinancialSummary]):
 def test_document_streams_keep_zero_and_income_source(tmp_path: Path) -> None:
     db = tmp_path / "market.sqlite"
     records = documents()
-    # A full-market acquisition creates coverage; an issuer repair cannot claim it.
+    # Repeated complete-range replacement preserves documents and coverage.
     store_jquants_fin_summaries(db, records, requested_start=date(2026, 8, 10), requested_end=ASOF)
     for _ in range(2):
         store_jquants_fin_summaries(
@@ -107,7 +107,6 @@ def test_document_streams_keep_zero_and_income_source(tmp_path: Path) -> None:
             records,
             requested_start=date(2026, 8, 10),
             requested_end=ASOF,
-            requested_ticker="9999",
         )
     before = db.read_bytes()
     stored = read_fin_summaries(db, date(2026, 8, 10), ASOF)
@@ -724,10 +723,9 @@ def test_conflicting_payment_allocations_cannot_select_split_adjustment_by_order
     assert _resolve_dividend_carry(rows, (), 100, ASOF).dividend_yield == 0.07
 
 
-@pytest.mark.parametrize("requested_ticker", [None, "9999"])
 @pytest.mark.parametrize("outside_day", ["2026-08-09", "2026-10-14"])
 def test_outside_financial_payload_preserves_rows_and_coverage(
-    tmp_path: Path, requested_ticker: str | None, outside_day: str
+    tmp_path: Path, outside_day: str
 ) -> None:
     db = tmp_path / "market.sqlite"
     start = date(2026, 8, 10)
@@ -739,7 +737,6 @@ def test_outside_financial_payload_preserves_rows_and_coverage(
             [document("unexpected", day=outside_day)],
             requested_start=start,
             requested_end=ASOF,
-            requested_ticker=requested_ticker,
         )
     assert db.read_bytes() == before
 

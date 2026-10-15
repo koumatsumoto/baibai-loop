@@ -55,7 +55,6 @@ def store_jquants_fin_summaries(
     *,
     requested_start: date,
     requested_end: date,
-    requested_ticker: str | None = None,
 ) -> int:
     if requested_start > requested_end:
         raise ValueError("financial request start must not follow end")
@@ -65,32 +64,16 @@ def store_jquants_fin_summaries(
         not requested_start.isoformat() <= str(row[1]) <= requested_end.isoformat() for row in rows
     ):
         raise ValueError("financial payload contains a disclosure date outside the request")
-    if requested_ticker is not None and any(row[0] != requested_ticker for row in rows):
-        raise ValueError("financial payload contains a different requested ticker")
     conn = open_connection(db_path)
     try:
-        if requested_ticker is None:
-            replace_date_range(
-                conn,
-                "jquants_fin_summaries",
-                "disclosed_at",
-                requested_start,
-                requested_end,
-                replacement_row_count=len(rows),
-            )
-        else:
-            held = conn.execute(
-                "SELECT COUNT(*) FROM jquants_fin_summaries WHERE ticker = ? "
-                "AND disclosed_at BETWEEN ? AND ?",
-                (requested_ticker, requested_start.isoformat(), requested_end.isoformat()),
-            ).fetchone()[0]
-            if held and not rows:
-                raise EmptyRangeReplacementError("refusing empty issuer financial replacement")
-            conn.execute(
-                "DELETE FROM jquants_fin_summaries WHERE ticker = ? "
-                "AND disclosed_at BETWEEN ? AND ?",
-                (requested_ticker, requested_start.isoformat(), requested_end.isoformat()),
-            )
+        replace_date_range(
+            conn,
+            "jquants_fin_summaries",
+            "disclosed_at",
+            requested_start,
+            requested_end,
+            replacement_row_count=len(rows),
+        )
         if rows:
             conn.executemany(
                 """
@@ -100,21 +83,17 @@ def store_jquants_fin_summaries(
                 """,
                 rows,
             )
-        if requested_ticker is None:
-            persisted_count = record_range_source_coverage(
-                conn,
-                source="jquants_fin_summaries",
-                operation="get_fin_summary_range",
-                table="jquants_fin_summaries",
-                date_column="disclosed_at",
-                requested_start=requested_start,
-                requested_end=requested_end,
-                status=normalized.status,
-                error=normalized.error,
-            )
-        else:
-            # An issuer repair does not establish all-market acquisition coverage.
-            persisted_count = len(rows)
+        persisted_count = record_range_source_coverage(
+            conn,
+            source="jquants_fin_summaries",
+            operation="get_fin_summary_range",
+            table="jquants_fin_summaries",
+            date_column="disclosed_at",
+            requested_start=requested_start,
+            requested_end=requested_end,
+            status=normalized.status,
+            error=normalized.error,
+        )
         conn.commit()
         return persisted_count
     finally:
