@@ -469,7 +469,7 @@ def build_sell_execution_draft(
             )
             if not (
                 existing.side == "sell"
-                and existing.occurred_at == occurred_at
+                and (occurred_on is not None or existing.occurred_at == occurred_at)
                 and existing.occurred_on == occurred_on
                 and existing.ticker == ticker
                 and existing.quantity == quantity

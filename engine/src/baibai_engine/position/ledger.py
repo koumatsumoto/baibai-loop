@@ -78,13 +78,12 @@ class _EventBase(BaseModel):
 
     event_id: Annotated[str, Field(min_length=1)]
     occurred_at: datetime
+    occurred_on: date | None = None
 
     @field_validator("occurred_at", mode="before")
     @classmethod
     def _parse_occurred_at(cls, value: object) -> datetime:
         return _datetime(value)
-
-    occurred_on: date | None = None
 
     @field_validator("occurred_on", mode="before")
     @classmethod
@@ -193,7 +192,6 @@ class ExecutionEvent(_EventBase):
     @classmethod
     def _parse_price(cls, value: object) -> Decimal:
         return _price(value)
-
 
 
 class IncomeEvent(_EventBase):
@@ -641,7 +639,9 @@ def replay_events_through(
                     if event.quantity > reservation.remaining_quantity:
                         raise PortfolioLedgerError("execution quantity exceeds reserved quantity")
                     if event.price_yen > reservation.price_guard_yen:
-                        raise PortfolioLedgerError("execution price exceeds reservation price guard")
+                        raise PortfolioLedgerError(
+                            "execution price exceeds reservation price guard"
+                        )
                     guarded = _yen_notional(
                         event.quantity, reservation.price_guard_yen, field="filled guarded notional"
                     )

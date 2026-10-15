@@ -261,9 +261,10 @@ def test_date_only_order_without_expiry_can_be_cancelled_and_retried(tmp_path):
     assert order.occurred_on == NOW.date()
     assert order.expires_at is None
     apply_draft(service, opened, human_confirmed=True)
-    assert open_direct(
-        service, occurred_at=None, occurred_on=NOW.date(), expires_at=None
-    ) == (None, ())
+    assert open_direct(service, occurred_at=None, occurred_on=NOW.date(), expires_at=None) == (
+        None,
+        (),
+    )
     report = dict(
         decision_reference=order.decision_reference,
         status="cancelled",
