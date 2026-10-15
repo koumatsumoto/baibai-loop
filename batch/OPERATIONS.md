@@ -367,7 +367,7 @@ vintage・retraction・generation・no-lossの意味は[Market Context reference
 
 **optionsの集計式変更**: `jp.n225_iv_30d`・`jp.n225_iv_skew`・`jp.n225_iv_term`は原本からL2で再計算する。式変更だけなら系列退役や再導入、API履歴の取り直しは行わない。原本が不足する日だけ補い、Readingと公開結果を確認する。旧scalar行は履歴として残っていても現行の読取には使わない。取得・再開の契約は[optionsの取得と復旧](../docs/reference/market-context.md#jquants-options-provider)を参照する。
 
-**schema7から9への一回切替**: 通常のopen・pull・mergeに旧schema互換を追加しない。マージ後の作業では、実行中writerがいない切替窓を確保し、最新cloud copyから別のcandidateを作る。既存のregistry・観測・取得履歴を保ったまま現行schemaのsource単位native snapshot表を追加し、取得済み原本の再利用と不足日だけの取得を行う。旧scalarからchainを復元できたとは扱わない。candidateと元copyの既存fact保持、raw日付・件数、Reading、公開結果を確認してからcodeとstoreの世代を合わせて切り替える。schema7のcloud copyをschema8の通常mergeへ渡しても切替にはならず、拒否される。切替時の最新cloud世代に対する条件付き書込みとbundle receiptの整合は通常公開と同様に守る。具体的な対象世代・原本不足範囲・candidate確認結果は切替実行時に確定し、PRのコード変更だけで本番切替済みとしない。
+**schema7から9への一回切替**: 通常のopen・pull・mergeに旧schema互換を追加しない。マージ後の作業では、実行中writerがいない切替窓を確保し、最新cloud copyから別のcandidateを作る。既存のregistry・観測・取得履歴を保ったまま現行schemaのsource単位native snapshot表を追加し、取得済み原本の再利用と不足日だけの取得を行う。旧scalarからchainを復元できたとは扱わない。candidateと元copyの既存fact保持、raw日付・件数、Reading、公開結果を確認してからcodeとstoreの世代を合わせて切り替える。schema7のcloud copyをschema9の通常mergeへ渡しても切替にはならず、拒否される。切替時の最新cloud世代に対する条件付き書込みとbundle receiptの整合は通常公開と同様に守る。具体的な対象世代・原本不足範囲・candidate確認結果は切替実行時に確定し、PRのコード変更だけで本番切替済みとしない。
 
 **停止と復旧**: DB拒否・意図しない退役・provider取得失敗・merge/CAS失敗では後続公開へ進まない。provider失敗がcommit済みpruneを巻き戻すとは扱わない。誤った内容をcloudへ反映した場合は次のpushを止め、[R2 transferの安全境界](#r2-transferの安全境界)の前世代復元へ進む。部分pushによるreceipt不一致だけは[部分pushからの復旧](#部分-push-からの復旧)で扱う。
 
