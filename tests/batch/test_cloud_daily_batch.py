@@ -430,7 +430,10 @@ def test_daily_batch_continues_indicators_after_screening_fatal(tmp_path: Path, 
     assert result.screening_status == "failed"
     assert result.run_revision_id is None
     assert result.candidate_count is None
-    assert "provider unavailable" in capsys.readouterr().err
+    error = capsys.readouterr().err
+    assert "provider unavailable" in error
+    assert "read models exported locally" in error
+    assert "export published" not in error
     assert runner.call_keys().count("market-context indicators list") == 1
     assert runner.call_keys().count("export") == 1
     assert "screening prune" not in runner.call_keys()
@@ -1042,7 +1045,7 @@ def test_indicator_refresh_groups_orders_derived_after_base() -> None:
     ]
 
 
-def test_a_reconcile_failure_degrades_the_batch_without_losing_the_publish(
+def test_a_reconcile_failure_degrades_the_batch_after_local_export(
     tmp_path: Path,
 ) -> None:
     """A reconciliation failure is deferred after a successful local export.
@@ -1094,7 +1097,7 @@ def test_daily_delta_distinguishes_method_change(tmp_path):
     assert notice.delta_unmeasured_reason == "手法変更"
 
 
-def test_research_fact_failure_is_deferred_until_after_publication(tmp_path):
+def test_research_fact_failure_is_deferred_until_after_local_export(tmp_path):
     script = _success_script()
     script["screening extract-edinet-facts"] = [CommandResult(1, "", "XBRL unavailable")]
     runner = _runner(script)

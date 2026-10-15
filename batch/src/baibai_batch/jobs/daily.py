@@ -775,8 +775,8 @@ def _execute_daily_batch(
     # The exchange publishes its schedule only weeks ahead, so a follow-up task
     # created a quarter out carries an estimate until the real date enters that
     # window. Comparing daily is what surfaces the day it becomes knowable. It
-    # reads nothing the publish produced and writes nothing, so it runs after the
-    # publish and a failure degrades rather than blocking it.
+    # reads nothing the local export produced and writes nothing, so it runs after
+    # export and a failure degrades rather than blocking it.
     try:
         _run_step(
             runner,
@@ -804,7 +804,7 @@ def _execute_daily_batch(
         )
     if deferred_failures:
         print(
-            f"error: export published, but {len(deferred_failures)} deferred step(s) failed:",
+            f"error: read models exported locally, but {len(deferred_failures)} deferred step(s) failed:",
             file=sys.stderr,
         )
         for failure in deferred_failures:

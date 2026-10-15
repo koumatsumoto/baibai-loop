@@ -3,10 +3,10 @@
 The read-only market runtime copy supplies both the previous business-day close
 for a judgment instant and same-date holding-basis closes.
 
-Research authoring lives in ``assessment``, which the import DAG keeps off the
-``baibai_engine.market`` package. This reader declares the expected market SQLite
-schema version and queries full-universe ``jquants_daily_bars`` through read-only
-SQL instead of importing the market package. Schema version mismatches and SQL
+Portfolio/Position owns this quote and share-basis reader; Research consumes it
+without making Portfolio/Position depend on Research. It declares the expected
+market SQLite schema version and queries full-universe ``jquants_daily_bars``
+through read-only SQL instead of importing acquisition or screening services. Schema version mismatches and SQL
 errors degrade to ``None``; a coupling test detects version drift in CI.
 
 For target-session planning, the resolved price is the raw/unadjusted ``close`` on the full-universe
