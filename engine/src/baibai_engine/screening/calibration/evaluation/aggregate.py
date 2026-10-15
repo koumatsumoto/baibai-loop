@@ -25,7 +25,14 @@ class _QualityControlAccumulator:
     median_deltas: list[float]
     trap_deltas: list[float]
     matched_weight: int = 0
-    cohorts: int = 0
+
+    def add(self, median_value: object, trap_value: object, weight: object) -> None:
+        if not isinstance(median_value, int | float) or not isinstance(trap_value, int | float):
+            return
+        self.median_deltas.append(float(median_value))
+        self.trap_deltas.append(float(trap_value))
+        if isinstance(weight, int):
+            self.matched_weight += weight
 
 
 @dataclass(slots=True)
@@ -348,18 +355,11 @@ def _aggregate_margin_hypotheses(
                 control = controls.get(field_name)
                 if not isinstance(control, dict) or control.get("normalized_in_axis") is True:
                     continue
-                median_value = control.get("stratified_median_excess_spread")
-                trap_value = control.get("stratified_trap_rate_delta")
-                if not isinstance(median_value, int | float) or not isinstance(
-                    trap_value, int | float
-                ):
-                    continue
-                accumulator.median_deltas.append(float(median_value))
-                accumulator.trap_deltas.append(float(trap_value))
-                accumulator.cohorts += 1
-                weight = control.get("matched_weight")
-                if isinstance(weight, int):
-                    accumulator.matched_weight += weight
+                accumulator.add(
+                    control.get("stratified_median_excess_spread"),
+                    control.get("stratified_trap_rate_delta"),
+                    control.get("matched_weight"),
+                )
         controls_summary = _control_summaries(control_values)
         result[axis_name] = {
             "eligible_n": eligible_n,
@@ -394,18 +394,11 @@ def _aggregate_profit_normalization(
                 control = cohort_controls.get(name)
                 if not isinstance(control, dict):
                     continue
-                median_value = control.get("stratified_median_excess_spread")
-                trap_value = control.get("stratified_trap_rate_delta")
-                if not isinstance(median_value, int | float) or not isinstance(
-                    trap_value, int | float
-                ):
-                    continue
-                accumulator.median_deltas.append(float(median_value))
-                accumulator.trap_deltas.append(float(trap_value))
-                accumulator.cohorts += 1
-                weight = control.get("matched_weight")
-                if isinstance(weight, int):
-                    accumulator.matched_weight += weight
+                accumulator.add(
+                    control.get("stratified_median_excess_spread"),
+                    control.get("stratified_trap_rate_delta"),
+                    control.get("matched_weight"),
+                )
 
     return {
         "mean_normalized_per_3fy_coverage": (
@@ -475,16 +468,11 @@ def _aggregate_asset_backed_hypotheses(
             control = cohort_controls.get(name)
             if not isinstance(control, dict):
                 continue
-            median_value = control.get("stratified_median_excess_spread")
-            trap_value = control.get("stratified_trap_rate_delta")
-            if not isinstance(median_value, int | float) or not isinstance(trap_value, int | float):
-                continue
-            accumulator.median_deltas.append(float(median_value))
-            accumulator.trap_deltas.append(float(trap_value))
-            accumulator.cohorts += 1
-            matched_weight = control.get("matched_weight")
-            if isinstance(matched_weight, int):
-                accumulator.matched_weight += matched_weight
+            accumulator.add(
+                control.get("stratified_median_excess_spread"),
+                control.get("stratified_trap_rate_delta"),
+                control.get("matched_weight"),
+            )
 
     return {
         "mean_asset_backed_ratio_coverage": round(fmean(coverage), 4) if coverage else None,
@@ -617,16 +605,11 @@ def _collect_control_values(
         control = controls.get(field_name)
         if not isinstance(control, dict):
             continue
-        median_value = control.get("stratified_median_excess_delta")
-        trap_value = control.get("stratified_trap_rate_delta")
-        if not isinstance(median_value, int | float) or not isinstance(trap_value, int | float):
-            continue
-        summary.median_deltas.append(float(median_value))
-        summary.trap_deltas.append(float(trap_value))
-        summary.cohorts += 1
-        weight = control.get("matched_weight")
-        if isinstance(weight, int):
-            summary.matched_weight += weight
+        summary.add(
+            control.get("stratified_median_excess_delta"),
+            control.get("stratified_trap_rate_delta"),
+            control.get("matched_weight"),
+        )
 
 
 def _control_summaries(
@@ -634,7 +617,7 @@ def _control_summaries(
 ) -> dict[str, object]:
     return {
         field_name: {
-            "cohorts": summary.cohorts,
+            "cohorts": len(summary.median_deltas),
             "matched_weight": summary.matched_weight,
             "mean_stratified_median_excess_delta": (
                 round(fmean(summary.median_deltas), 6) if summary.median_deltas else None

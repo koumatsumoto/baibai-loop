@@ -1,4 +1,4 @@
-"""tail除去とregime分割による評価の感度を測る。"""
+"""欠測した退出値と未評価銘柄の仮定に対する結論の感度を測る。"""
 
 from __future__ import annotations
 
@@ -23,14 +23,11 @@ from baibai_engine.screening.calibration.horizons import require_horizon
 from baibai_engine.screening.calibration.panel import PanelRow
 from baibai_engine.screening.rule_config import CandidateDiscoveryRules
 
-# Names whose series ends inside the window carry no exit value, so they leave the
-# cohort silently, and the numbers the cohort reports are computed from the survivors
-# alone. Rather than block every cohort that has one, that reported conclusion is
-# compared against itself recomputed with the missing names given a value from each
-# end of the plausible range: a total loss, and the return the rest of the cohort had.
-# The reported value is part of the comparison because it is the one the authority
-# gate consumes: a conclusion that holds under both imputations but not as reported is
-# precisely a conclusion the exclusion produced.
+# Observed-return statistics exclude unresolved exits and report their count apart.
+# Recompute the conclusions under total loss and the resolved population's median
+# return. These are sensitivity scenarios, not bounds on every possible missing exit.
+# Include the reported case too: agreement only between the imputations would not
+# show whether the exclusion itself changed the conclusion consumed by readiness.
 _DELISTING_IMPUTATIONS: tuple[str, ...] = ("total_loss", "neutral")
 
 _TOTAL_LOSS_RETURN = -1.0
@@ -148,11 +145,10 @@ def delisting_exclusion_sensitivity(
 ) -> dict[str, object]:
     """Say whether the names without an exit value could have produced the conclusions.
 
-    The two imputations bracket the exclusion from below: a delisted name is given
-    either nothing or what the cohort as a whole returned. A takeover settles above
-    the neutral case, so the bracket bounds how far the exclusion can have pushed a
-    conclusion down, not up; that limit is stated in the pre-registration rather than
-    hidden here.
+    An unresolved exit is assigned either total loss or the resolved population's
+    median return. A takeover can settle above
+    the neutral case, so these scenarios are not an upper bound on the missing
+    returns or a proof of robustness to every possible outcome.
     """
     price_returns, stale_count = _resolved_price_returns(forward_rows, horizon=horizon)
     in_population = {row.ticker for row in panel if row.in_population}

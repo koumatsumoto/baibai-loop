@@ -42,13 +42,12 @@ from baibai_engine.screening.calibration.panel import PanelRow
 
 
 def _adjustment_factor_status(rows: Sequence[ForwardReturnRow]) -> str:
-    """Say whether every bar behind these rows carried a split adjustment factor.
+    """Summarize adjustment-factor coverage reported by the forward calculation.
 
-    This is the only corporate-action question the bar store can answer. Actions
-    it does not adjust — a merger's consideration, a rights offering — leave no
-    local trace, so the residual is disclosed in the reference doc instead of
-    being folded into this value. ``unknown`` means no row reported a factor at
-    all and is kept distinct from a factor that is present but incomplete.
+    This describes the factors required for that price comparison, not complete
+    corporate-action coverage. Native event kinds can identify rights events, but
+    a factor alone does not establish consideration or shareholder cash flows.
+    ``unknown`` means at least one row has unknown coverage, or there are no rows.
     """
     values = {str(row.adjustment_factor_coverage) for row in rows}
     if not values or "unknown" in values:
