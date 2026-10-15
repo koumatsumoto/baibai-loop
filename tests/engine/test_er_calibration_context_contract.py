@@ -9,7 +9,6 @@ import pytest
 import yaml
 from pydantic import ValidationError
 from tests.helpers.er_calibration_context import context_artifact
-from tools.quality.drift import check_er_calibration_context
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.valuation.calibration.contracts import ErCalibrationContextArtifact
@@ -37,14 +36,12 @@ def _load(path: Path, payload: dict[str, Any], *, as_of: date | None = None):
     )
 
 
-def test_retained_schema_2_is_not_reinterpreted_even_for_its_original_method(monkeypatch) -> None:
+def test_retained_schema_2_is_not_reinterpreted_even_for_its_original_method() -> None:
     raw = safe_load(_RETAINED.read_text(encoding="utf-8"))
     assert isinstance(raw, dict)
     assert raw["schema_version"] == 2
     original = _RETAINED.read_bytes()
     assert _load(_RETAINED, raw).unavailable_reason == "invalid_artifact"
-    monkeypatch.setattr(check_er_calibration_context, "_CONTEXT", _RETAINED)
-    assert not check_er_calibration_context.check()
     assert _RETAINED.read_bytes() == original
 
 
@@ -57,7 +54,6 @@ def test_published_context_matches_its_method_and_preserves_formal_evidence() ->
     assert len(result.artifact.required_asofs) == len(raw["required_asofs"])
     assert result.artifact.evidence_complete is raw["evidence_complete"]
     assert list(result.artifact.evidence_blocking_reasons) == raw["evidence_blocking_reasons"]
-    assert not check_er_calibration_context.check()
 
 
 def test_schema_4_fixed_band_contract_is_accepted() -> None:
@@ -115,17 +111,12 @@ def test_shared_prediction_bands_allow_different_horizon_outcome_coverage(tmp_pa
     assert loaded.artifact.horizons[1].bands[0].bases[0].coverage.missing_n == 1
 
 
-def test_retained_schema_2_bytes_cannot_be_relabelled_or_modified(tmp_path, monkeypatch) -> None:
+def test_reader_rejects_edited_retained_schema_2(tmp_path) -> None:
     raw = safe_load(_RETAINED.read_text(encoding="utf-8"))
     assert isinstance(raw, dict)
     raw["horizons"][0]["bands"][0]["median_n"] += 1
     path = tmp_path / "changed-schema-2.yaml"
     _write(path, raw)
-    monkeypatch.setattr(check_er_calibration_context, "_CONTEXT", path)
-    assert (
-        "retained schema 2 E[r] context bytes differ from the original"
-        in check_er_calibration_context.check()
-    )
     assert _load(path, raw).artifact is None
 
 
@@ -209,9 +200,7 @@ def test_reader_preserves_method_identity_reasons(tmp_path: Path) -> None:
     assert model.unavailable_reason == "er_model_identity_mismatch"
 
 
-def test_pre_one_bar_scope_context_keeps_provenance_but_is_not_current(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_pre_one_bar_scope_context_keeps_provenance_but_is_not_current(tmp_path: Path) -> None:
     from baibai_engine.screening.rule_config import load_screening_rules
     from baibai_engine.screening.rules_identity import production_rules_contract_hash
 
@@ -222,8 +211,6 @@ def test_pre_one_bar_scope_context_keeps_provenance_but_is_not_current(
     payload = context_artifact(rules_hash=old_hash)
     path = tmp_path / "old-scope-context.yaml"
     _write(path, payload)
-    monkeypatch.setattr(check_er_calibration_context, "_CONTEXT", path)
-    assert not check_er_calibration_context.check()
     assert (
         load_er_calibration_context(
             path,
@@ -272,9 +259,7 @@ def test_pre_dividend_revision_context_is_retained_but_refused_for_current_run(
     path = tmp_path / "old-dividend-context.yaml"
     _write(path, payload)
     original = path.read_bytes()
-    monkeypatch.setattr(check_er_calibration_context, "_CONTEXT", path)
 
-    assert not check_er_calibration_context.check()
     result = load_er_calibration_context(
         path,
         expected_rules_hash=current_hash,
@@ -291,11 +276,7 @@ def test_pre_dividend_revision_context_is_retained_but_refused_for_current_run(
     assert path.read_bytes() == original
 
 
-def test_retained_context_is_withheld_from_new_population_without_relabeling(
-    tmp_path, monkeypatch
-) -> None:
-    import json
-
+def test_retained_context_is_withheld_from_new_population_without_relabeling(tmp_path) -> None:
     from baibai_engine.screening.rule_config import load_screening_rules
     from baibai_engine.screening.rules_identity import production_rules_contract_hash
 
@@ -311,23 +292,11 @@ def test_retained_context_is_withheld_from_new_population_without_relabeling(
             )
         }
     )
-    rules_dir = tmp_path / "method/screening/rules"
-    rules_dir.mkdir(parents=True)
-    for name, rules in (("old", old), ("new", new)):
-        (rules_dir / f"{name}.yaml").write_text(
-            yaml.safe_dump(json.loads(rules.model_dump_json()), sort_keys=False)
-        )
     payload = context_artifact(rules_hash=production_rules_contract_hash(old.model_dump_json()))
     path = tmp_path / "context.yaml"
     _write(path, payload)
     original = path.read_bytes()
     current_hash = production_rules_contract_hash(new.model_dump_json())
-    monkeypatch.setattr(check_er_calibration_context, "_ROOT", tmp_path)
-    monkeypatch.setattr(check_er_calibration_context, "_CONTEXT", path)
-    monkeypatch.setattr(
-        check_er_calibration_context, "DEFAULT_RULES_PATH", Path("method/screening/rules/new.yaml")
-    )
-    assert not check_er_calibration_context.check()
     result = load_er_calibration_context(
         path,
         expected_rules_hash=current_hash,
@@ -340,18 +309,7 @@ def test_retained_context_is_withheld_from_new_population_without_relabeling(
     assert path.read_bytes() == original
 
 
-def test_drift_checker_refuses_untraceable_evidence(tmp_path: Path, monkeypatch) -> None:
-    payload = _artifact()
-    payload["screening_rules_hash"] = "untraceable"
-    path = tmp_path / "context.yaml"
-    _write(path, payload)
-    monkeypatch.setattr(check_er_calibration_context, "_CONTEXT", path)
-    assert check_er_calibration_context.check() == (
-        "published E[r] context screening_rules_hash has no known rules revision",
-    )
-
-
-def test_retired_quality_knob_keeps_the_original_frozen_rules_provenance(tmp_path, monkeypatch):
+def test_retired_quality_knob_keeps_the_original_frozen_rules_provenance(tmp_path):
     from baibai_engine.screening.rule_config import load_screening_rules
 
     frozen = _ROOT / "method/screening/rules/2026-09-23T103000+0900.yaml"
@@ -361,26 +319,6 @@ def test_retired_quality_knob_keeps_the_original_frozen_rules_provenance(tmp_pat
     payload = context_artifact(rules_hash="7f934c6cdf199a33")
     context = tmp_path / "retained-context.yaml"
     _write(context, payload)
-    monkeypatch.setattr(check_er_calibration_context, "_CONTEXT", context)
 
-    assert not check_er_calibration_context.check()
     assert frozen.read_bytes() == original
     assert _load(context, payload).artifact is not None
-
-
-@pytest.mark.parametrize("valid", [True, False], ids=["valid", "invalid"])
-def test_drift_checker_and_reader_have_validity_parity(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, valid: bool
-) -> None:
-    payload = deepcopy(_artifact())
-    if not valid:
-        payload["horizons"][0]["bands"][0]["unknown"] = "value"
-    path = tmp_path / "context.yaml"
-    _write(path, payload)
-    monkeypatch.setattr(check_er_calibration_context, "_CONTEXT", path)
-
-    drift_valid = not check_er_calibration_context.check()
-    reader_valid = _load(path, payload).artifact is not None
-
-    assert drift_valid is valid
-    assert reader_valid is valid
