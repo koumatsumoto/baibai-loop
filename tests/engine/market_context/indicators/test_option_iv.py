@@ -641,7 +641,7 @@ class QuoteParsingTest(unittest.TestCase):
         # every strike that carries a row in each.
         rows = [self._record(), self._record(EmMrgnTrgDiv="001", IV=41.6, UnderPx=39000.0)]
 
-        quotes = quotes_from_records(rows, ASOF)
+        quotes = quotes_from_records(rows)
 
         self.assertEqual([quote.implied_volatility for quote in quotes], [20.0])
         self.assertEqual([quote.underlying for quote in quotes], [40000.0])
@@ -669,20 +669,20 @@ class QuoteParsingTest(unittest.TestCase):
 
         for name, rows in cases:
             with self.subTest(case=name):
-                self.assertEqual(quotes_from_records(rows, ASOF), [])
+                self.assertEqual(quotes_from_records(rows), [])
 
     def test_a_row_missing_a_field_is_dropped_rather_than_failing(self) -> None:
         # A chain always carries contracts with no quote; a day is still readable.
         rows = [self._record(), self._record(IV=None), self._record(Strike="")]
 
-        self.assertEqual(len(quotes_from_records(rows, ASOF)), 1)
+        self.assertEqual(len(quotes_from_records(rows)), 1)
 
     def test_an_expiry_carrying_a_time_is_read_as_its_date(self) -> None:
         # Typed as text the column carries the time with it, and date parsing refuses
         # the whole string rather than reading the part it understands.
         rows = [self._record(SQD="2026-08-14T00:00:00")]
 
-        quotes = quotes_from_records(rows, ASOF)
+        quotes = quotes_from_records(rows)
 
         self.assertEqual([quote.expiry for quote in quotes], [date(2026, 8, 14)])
 
@@ -692,7 +692,7 @@ class QuoteParsingTest(unittest.TestCase):
         # arithmetic rather than as an unreadable row here.
         rows = [self._record(SQD=datetime(2026, 8, 14, 15, 0, tzinfo=ZoneInfo("Asia/Tokyo")))]
 
-        quotes = quotes_from_records(rows, ASOF)
+        quotes = quotes_from_records(rows)
 
         self.assertEqual([quote.expiry for quote in quotes], [date(2026, 8, 14)])
         self.assertEqual((quotes[0].expiry - ASOF).days, 16)
@@ -829,7 +829,7 @@ class OptionProviderTest(unittest.TestCase):
             client, ASOF, api_key="k", deadline=ReadDeadline("jquants_options")
         )
 
-        self.assertEqual(both, fear_readings(quotes_from_records(settled, ASOF), ASOF))
+        self.assertEqual(both, fear_readings(quotes_from_records(settled), ASOF))
         self.assertIsNotNone(both.iv_30d)
 
     def test_a_chain_answering_for_another_day_is_refused(self) -> None:

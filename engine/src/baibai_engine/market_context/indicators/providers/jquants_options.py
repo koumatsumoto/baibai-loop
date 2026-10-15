@@ -113,7 +113,7 @@ class JQuantsOptionsProvider:
 
 
 def _reading(rows: Sequence[Mapping[str, object]], day: date) -> FearReadings:
-    return fear_readings(quotes_from_records(rows, day), day)
+    return fear_readings(quotes_from_records(rows), day)
 
 
 def _reading_field(provider_series_id: str) -> str:

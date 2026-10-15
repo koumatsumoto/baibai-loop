@@ -305,13 +305,12 @@ def settlement_rows(
     ]
 
 
-def quotes_from_records(records: Sequence[Mapping[str, object]], asof: date) -> list[OptionQuote]:
+def quotes_from_records(records: Sequence[Mapping[str, object]]) -> list[OptionQuote]:
     """Parse provider rows, dropping any the readings cannot use.
 
     Dropping rather than failing: a chain always carries contracts with no quote,
     and a day is still readable without them.
     """
-    del asof
     quotes: list[OptionQuote] = []
     for record in settlement_rows(records):
         expiry = as_date(record.get("SQD"))
