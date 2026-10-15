@@ -874,7 +874,11 @@ def test_optional_published_history_cannot_disappear(monkeypatch, carries_histor
     else:
         validate_release_policy(without_tv, {bars.dataset: bars}, published_coverage_start=previous)
     payload["datasets"][dataset] = {
-        **payload["datasets"][bars.dataset],
+        "build_id": tv.build_id,
+        "contract_version": tv.contract_version,
+        "data_as_of": tv.data_as_of.isoformat(),
+        "coverage_status": tv.coverage_status,
+        "totals": tv.totals.model_dump(mode="json"),
         "manifest_sha256": hashlib.sha256(canonical_lake_model_bytes(tv)).hexdigest(),
     }
     with_tv = load_lake_model_json(json.dumps(payload), ReleaseManifest)
