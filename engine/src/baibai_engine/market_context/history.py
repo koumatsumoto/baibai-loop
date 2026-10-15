@@ -174,7 +174,5 @@ def has_share_basis_warning(
     start = relevant[0].traded_at
     events = bars if adjustment_events is None else adjustment_events
     return any(
-        share_unit_factor(event) != 1.0
-        for event in events
-        if start <= event.traded_at <= asof_date
+        share_unit_factor(event) != 1.0 for event in events if start <= event.traded_at <= asof_date
     )

@@ -253,12 +253,6 @@ def build_metrics(
             ticker_return_4w=ticker_returns_4w.get(ticker),
             sector_return_4w=sector_context.mean_returns.get(sector),
             short_history_flag=listing_span_days < PRICE_HISTORY_WINDOW_DAYS,
-            share_basis_warning=has_share_basis_warning(
-                ticker_bars,
-                asof_date,
-                60,
-                adjustment_events=adjustment_events,
-            ),
             **asdict(
                 margin_supply_demand(
                     latest=(margin_latest or {}).get(ticker),

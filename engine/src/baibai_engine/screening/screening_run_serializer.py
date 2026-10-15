@@ -145,7 +145,6 @@ def stock_analysis_payload(analysis: StockAnalysis) -> dict[str, object]:
         if analysis.next_earnings_date is not None
         else None
     )
-    entry["share_basis_warning"] = analysis.share_basis_warning
     entry["freshness_warnings"] = [
         _build_freshness_warning(warning) for warning in analysis.freshness_warnings
     ]
