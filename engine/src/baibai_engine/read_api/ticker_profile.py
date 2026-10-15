@@ -200,15 +200,16 @@ def _next_earnings_date(sqlite_path: Path, ticker: str, asof_date: date) -> str 
 
 
 def _jpx_flags(sqlite_path: Path, ticker: str, asof_date: date) -> dict[str, object]:
-    snapshot_row = _query_one(
+    snapshot_rows = read_rows(
         sqlite_path,
         "SELECT MAX(asof_date) FROM jpx_regulation_flags WHERE asof_date <= ?",
         (asof_date.isoformat(),),
     )
+    snapshot_row = snapshot_rows[0] if snapshot_rows else None
     snapshot_date = snapshot_row[0] if snapshot_row and isinstance(snapshot_row[0], str) else None
     if snapshot_date is None:
         return {"snapshot_date": None, "flags": []}
-    rows = _query_all(
+    rows = read_rows(
         sqlite_path,
         "SELECT DISTINCT flag FROM jpx_regulation_flags WHERE ticker = ? AND asof_date = ?",
         (ticker, snapshot_date),
@@ -217,20 +218,3 @@ def _jpx_flags(sqlite_path: Path, ticker: str, asof_date: date) -> dict[str, obj
         "snapshot_date": snapshot_date,
         "flags": sorted(str(row[0]) for row in rows if row[0]),
     }
-
-
-def _query_one(
-    sqlite_path: Path,
-    query: str,
-    params: tuple[object, ...],
-) -> tuple[object, ...] | None:
-    rows = _query_all(sqlite_path, query, params)
-    return rows[0] if rows else None
-
-
-def _query_all(
-    sqlite_path: Path,
-    query: str,
-    params: tuple[object, ...],
-) -> list[tuple[object, ...]]:
-    return [tuple(row) for row in read_rows(sqlite_path, query, params)]

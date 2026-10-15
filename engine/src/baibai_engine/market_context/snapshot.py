@@ -4,9 +4,9 @@ The snapshot is the entry point for AI research on the market itself: a weekly
 time series of the mechanical benchmark trend and universe breadth, plus a
 sector map (per-sector return medians and breadth) at the evaluation date. It
 also feeds the explicit market context assessment with machine-collected inputs. All
-fields are deterministic transforms of stored daily bars; thresholds and
-window lengths are shared with :mod:`baibai_engine.market_context.benchmark` so the two
-never disagree.
+fields are deterministic transforms of stored market observations. Return windows
+and trend thresholds are shared with :mod:`baibai_engine.market_context.benchmark`;
+results also depend on the available history in each requested input window.
 """
 
 from __future__ import annotations
