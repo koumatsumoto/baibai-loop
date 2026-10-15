@@ -5874,7 +5874,7 @@
           "type": "number"
         },
         "price_basis": {
-          "const": "split_adjusted_close",
+          "const": "price_adjusted_close",
           "title": "Price Basis",
           "type": "string"
         },

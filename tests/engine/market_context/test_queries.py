@@ -262,3 +262,22 @@ def test_domain_reads_have_no_network_or_writes_and_missing_stores_stay_absent(
         is None
     )
     assert not missing.exists()
+
+
+def test_security_price_basis_includes_rights_price_adjustments(tmp_path):
+    path = tmp_path / "market.sqlite"
+    bars(path, "AAAA", 0.0)
+    connection = open_connection(path)
+    try:
+        connection.execute(
+            "UPDATE jquants_daily_bars SET close=80,adjustment_factor=0.8,ex_right_type='3' "
+            "WHERE ticker='AAAA' AND traded_at=?",
+            (ASOF.isoformat(),),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    price = security(path)["price"]
+    assert price["price_basis"] == "price_adjusted_close"
+    assert price["close"] == 80
+    assert price["return_20d"] == pytest.approx(0.0)

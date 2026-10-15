@@ -468,7 +468,7 @@ class SecurityMarketMasterView(BaseModel):
 class SecurityPriceContextView(BaseModel):
     resolved_date: date
     close: float
-    price_basis: Literal["split_adjusted_close"]
+    price_basis: Literal["price_adjusted_close"]
     return_1d: float | None
     return_5d: float | None
     return_20d: float | None

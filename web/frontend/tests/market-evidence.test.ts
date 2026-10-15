@@ -9,7 +9,7 @@ function render(node: ReturnType<typeof createElement>) { return renderToStaticM
 describe('市場根拠の表示', () => {
   it('要求日・観測日・peer端点と、騰落率・差の単位を分ける', () => {
     const context: SecurityMarketContextView = { as_of: '2026-10-13', return_basis: 'price_return_excluding_cash_dividends', master: null, benchmark_trend: null,
-      price: { resolved_date: '2026-10-09', close: 100, price_basis: 'split_adjusted_close', return_1d: null, return_5d: null, return_20d: 0.02, return_60d: null, high_52w: 120, low_52w: 80, gap_from_52w_low: 0.25, gap_from_52w_high: null, self_range_percentile: 0.6, self_range_window_bars: 100, realized_vol_20d: null, avg_turnover_20d_oku: null, bar_count: 100 },
+      price: { resolved_date: '2026-10-09', close: 100, price_basis: 'price_adjusted_close', return_1d: null, return_5d: null, return_20d: 0.02, return_60d: null, high_52w: 120, low_52w: 80, gap_from_52w_low: 0.25, gap_from_52w_high: null, self_range_percentile: 0.6, self_range_window_bars: 100, realized_vol_20d: null, avg_turnover_20d_oku: null, bar_count: 100 },
       relative: { benchmark_ticker: '1321', relative_1d: null, relative_5d: null, relative_20d: 0.001, relative_60d: null, sector: { sector_33: '合成業種', peer_count: 3, peer_median_return_20d: 0.01, relative_return_20d: 0.01, comparison_start_date: '2026-09-11', comparison_end_date: '2026-10-09', master_snapshot_date: '2026-10-08' } },
     }
     const html = render(createElement(SecurityMarketContextSection, { context }))

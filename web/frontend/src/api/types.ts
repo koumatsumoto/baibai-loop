@@ -965,7 +965,7 @@ export interface SecurityPeerContextView {
 export interface SecurityPriceContextView {
   resolved_date: string
   close: number
-  price_basis: 'split_adjusted_close'
+  price_basis: 'price_adjusted_close'
   return_1d: number | null
   return_5d: number | null
   return_20d: number | null
