@@ -420,22 +420,17 @@ def _parse_indicator_series(stdout: str) -> list[_IndicatorSeries]:
 
 
 def _indicator_refresh_groups(series: Sequence[_IndicatorSeries]) -> list[tuple[int, list[str]]]:
-    """Group series by frequency window, refreshing base (http) before derived (local).
-
-    A derived series reads other series from the store, so every ``http`` series
-    is refreshed before any ``local`` one; within each kind, series are grouped by
-    their frequency refresh window.
-    """
-
-    groups: dict[tuple[int, int], list[str]] = {}
+    """Refresh source observations; virtual L2 values are computed by the read export."""
+    groups: dict[int, list[str]] = {}
     for item in series:
+        if item.kind == "local":
+            continue
         window = LATEST_FETCH_LOOKBACK_DAYS.get(
             item.frequency,
             DEFAULT_LATEST_LOOKBACK_DAYS,
         )
-        kind_order = 1 if item.kind == "local" else 0
-        groups.setdefault((kind_order, window), []).append(item.series_id)
-    return [(window, series_ids) for (_kind_order, window), series_ids in sorted(groups.items())]
+        groups.setdefault(window, []).append(item.series_id)
+    return sorted(groups.items())
 
 
 def _run_screening_run(

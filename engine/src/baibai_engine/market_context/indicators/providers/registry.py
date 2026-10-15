@@ -4,6 +4,7 @@ from datetime import date
 
 from ..definitions import SeriesDefinition
 from ..observations import ObservationRecord
+from ..read_contracts import DERIVED_SPEC
 from .base import (
     FetchContext,
     HttpSession,
@@ -14,7 +15,6 @@ from .base import (
 from .boj import BojProvider
 from .boj_timeseries import BojTimeSeriesProvider
 from .cftc import CftcProvider
-from .derived import DerivedProvider
 from .ecb_fx import EcbFxProvider
 from .estat import EStatProvider
 from .estat_dashboard import EStatDashboardProvider
@@ -31,7 +31,8 @@ from .tsr_bankruptcies import TsrBankruptciesProvider
 from .umich_sca import UmichScaProvider
 from .yahoo import YahooChartProvider
 
-# The single registration point. Adding a provider means importing its class and
+# External acquisition registration. Virtual derived metadata has no fetch object.
+# Adding a provider means importing its class and
 # adding one line here; the service and store read capabilities from each
 # provider's ProviderSpec, never from a name branch.
 _PROVIDERS: dict[str, IndicatorDataProvider] = {
@@ -55,7 +56,6 @@ _PROVIDERS: dict[str, IndicatorDataProvider] = {
         TsrBankruptciesProvider(),
         UmichScaProvider(),
         YahooChartProvider(),
-        DerivedProvider(),
     )
 }
 
@@ -91,8 +91,8 @@ def resolve_provider(name: str) -> IndicatorDataProvider:
 
 
 def provider_spec(name: str) -> ProviderSpec:
-    return resolve_provider(name).spec
+    return DERIVED_SPEC if name == "derived" else resolve_provider(name).spec
 
 
 def registered_specs() -> tuple[ProviderSpec, ...]:
-    return tuple(provider.spec for provider in _PROVIDERS.values())
+    return (*tuple(provider.spec for provider in _PROVIDERS.values()), DERIVED_SPEC)

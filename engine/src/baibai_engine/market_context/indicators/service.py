@@ -8,11 +8,11 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import assert_never
 from zoneinfo import ZoneInfo
 
 from baibai_engine.foundation.redaction import redact_credentials
 
+from ..reading.reader import build_store_observation_reader
 from ..reading.rules import load_reading_rules
 from . import db
 from .db import IndicatorsSchemaError
@@ -26,7 +26,6 @@ from .providers import (
     provider_spec,
 )
 from .providers.base import ProviderFetchStoppedError, StoreReader
-from .providers.formulas import FORMULAS
 
 DEFAULT_LATEST_LOOKBACK_DAYS = 370
 LATEST_FETCH_LOOKBACK_DAYS = {
@@ -124,10 +123,13 @@ class IndicatorsService:
         definitions = load_definitions()
         if series_id not in definitions.by_id():
             raise KeyError(f"unknown indicator series: {series_id}")
+        if definitions.by_id()[series_id].provider == "derived":
+            raise ValueError(
+                "derived series has no stored observation to retract; retract its input"
+            )
         conn = db.open_connection(self.db_path, definitions=definitions)
         try:
             conn.execute("BEGIN IMMEDIATE")
-            _require_no_stale_derived_dependents(conn, series_id, targets)
             retractions = db.retract_observations(
                 conn,
                 series_id,
@@ -228,6 +230,8 @@ class IndicatorsService:
         context: FetchContext,
     ) -> QueryResult:
         series = db.get_series(conn, series_id)
+        if series.provider == "derived":
+            return _derived_range(conn, series, start=start, end=end)
         spec = provider_spec(series.provider)
         point_in_time = spec.point_in_time_vintage
         cache_hit = (not refresh) and db.has_ok_coverage(conn, series_id, start, end)
@@ -250,6 +254,8 @@ class IndicatorsService:
         context: FetchContext,
     ) -> QueryResult:
         series = db.get_series(conn, series_id)
+        if series.provider == "derived":
+            return _derived_range(conn, series, start=date(1970, 1, 1), end=end)
         spec = provider_spec(series.provider)
         if spec.all_history_rolling_years is not None:
             start = _years_before(_today_jst(), spec.all_history_rolling_years)
@@ -271,10 +277,8 @@ class IndicatorsService:
             end=end,
             context=context,
             trim_before_first=spec.trim_before_first,
-            # A local formula link identifies its implementation, not a replacement
-            # external source. Keep prior values and provenance when that link moves.
-            remove_other_sources=spec.kind == "http",
-            range_replacement=spec.range_replacement_for(series),
+            remove_other_sources=True,
+            range_replacement=spec.range_replacement,
             require_observations=True,
         )
         observations = db.observations_in_range(
@@ -291,6 +295,9 @@ class IndicatorsService:
         conn = db.open_connection(self.db_path, definitions=definitions)
         try:
             series = db.get_series(conn, series_id)
+            if series.provider == "derived":
+                result = _derived_range(conn, series, start=date(1970, 1, 1), end=end)
+                return QueryResult(series, result.observations[-1:], cache_hit=True)
             spec = provider_spec(series.provider)
             cached_latest = db.latest_observation(
                 conn, series_id, on_or_before=end, point_in_time=spec.point_in_time_vintage
@@ -349,14 +356,6 @@ class IndicatorsService:
             # Own the outer transaction: insert_observations uses a savepoint,
             # whose RELEASE would otherwise commit before the run record is written.
             conn.execute("BEGIN IMMEDIATE")
-            if range_replacement == "all_vintages":
-                _require_complete_replacement(
-                    conn,
-                    series,
-                    start=start,
-                    end=end,
-                    observations=observations,
-                )
             # Every store-rewrite policy below spares what the store learned after the
             # provider's newest statement. A rewrite replaces what the provider is
             # restating; a retraction and the belief it put back are decisions about
@@ -390,39 +389,23 @@ class IndicatorsService:
                         kept_after,
                     ),
                 )
-            if range_replacement != "none" and observations:
+            if range_replacement == "through_end_vintage" and observations:
                 first_observed_at = min(item.observed_at for item in observations)
                 replacement_start = min(start, first_observed_at).isoformat()
-                if range_replacement == "through_end_vintage":
-                    conn.execute(
-                        "DELETE FROM observations WHERE series_id = ? "
-                        "AND observed_at BETWEEN ? AND ? "
-                        "AND substr(vintage_at, 1, 10) <= ? "
-                        "AND (? IS NULL OR vintage_at <= ?)",
-                        (
-                            series.series_id,
-                            replacement_start,
-                            end.isoformat(),
-                            end.isoformat(),
-                            kept_after,
-                            kept_after,
-                        ),
-                    )
-                elif range_replacement == "all_vintages":
-                    conn.execute(
-                        "DELETE FROM observations WHERE series_id = ? "
-                        "AND observed_at BETWEEN ? AND ? "
-                        "AND (? IS NULL OR vintage_at <= ?)",
-                        (
-                            series.series_id,
-                            replacement_start,
-                            end.isoformat(),
-                            kept_after,
-                            kept_after,
-                        ),
-                    )
-                else:  # pragma: no cover - exhaustiveness guard over the policy literal
-                    assert_never(range_replacement)
+                conn.execute(
+                    "DELETE FROM observations WHERE series_id = ? "
+                    "AND observed_at BETWEEN ? AND ? "
+                    "AND substr(vintage_at, 1, 10) <= ? "
+                    "AND (? IS NULL OR vintage_at <= ?)",
+                    (
+                        series.series_id,
+                        replacement_start,
+                        end.isoformat(),
+                        end.isoformat(),
+                        kept_after,
+                        kept_after,
+                    ),
+                )
             db.insert_observations(conn, observations)
             db.delete_unchanged_vintages(conn, series.series_id)
             db.record_provider_run(
@@ -455,12 +438,24 @@ class IndicatorsService:
             raise
 
 
+def _derived_range(
+    conn: sqlite3.Connection, series: SeriesDefinition, *, start: date, end: date
+) -> QueryResult:
+    """Read one consistent input snapshot without persisting recomputable values."""
+    conn.execute("BEGIN")
+    try:
+        reader = build_store_observation_reader(conn, series=load_definitions().series)
+        values = tuple(reader(series.series_id, start, end))
+        return QueryResult(series, values, cache_hit=True)
+    finally:
+        conn.rollback()
+
+
 def _store_reader(conn: sqlite3.Connection) -> StoreReader:
     """Read a stored series through the live connection.
 
-    Derived (local) providers read their input series with this, so they see
-    inputs committed earlier in the same pass. spglobal_pmi reads it to skip
-    months it already holds.
+    Source providers such as spglobal_pmi use this to skip months already held.
+    L2 formulas use the read-only registry-aware reader, not a fetch callback.
     """
 
     def read(series_id: str, start: date, end: date) -> tuple[ObservationRecord, ...]:
@@ -474,48 +469,6 @@ def _newest_provider_statement(observations: list[ObservationRecord]) -> str | N
 
     vintages = [item.vintage_at for item in observations if item.vintage_at is not None]
     return max(vintages).isoformat() if vintages else None
-
-
-def _require_no_stale_derived_dependents(
-    conn: sqlite3.Connection,
-    series_id: str,
-    targets: Sequence[tuple[date, datetime]],
-) -> None:
-    """Refuse a retraction that would leave a derived value computed from it behind.
-
-    A derived series stores its own observations, so withdrawing an input does not
-    withdraw what was computed from it. Recomputation cannot repair it either: the
-    withdrawn date stops appearing among the inputs, so the formula produces nothing for
-    it and the stale row keeps winning on vintage — permanently, and silently.
-
-    The dependency graph is small and a retraction is rare, so this refuses and names the
-    exact follow-up rather than propagating on its own. Refusing before anything is
-    written also keeps the store out of a half-repaired state.
-    """
-
-    dependents = tuple(
-        sorted(
-            derived_id for derived_id, formula in FORMULAS.items() if series_id in formula.inputs
-        )
-    )
-    if not dependents:
-        return
-    stale: list[str] = []
-    for derived_id in dependents:
-        for observed_at, _ in targets:
-            vintage_at = db.latest_vintage_at(conn, derived_id, observed_at)
-            if vintage_at is None:
-                continue
-            stale.append(
-                f"market-context indicators retract {derived_id} "
-                f"--observed-at {observed_at.isoformat()} "
-                f"--expected-vintage {vintage_at.isoformat()}"
-            )
-    if stale:
-        raise IndicatorsProviderError(
-            f"retracting {series_id} would leave derived observations computed from it; "
-            "withdraw these first:\n" + "\n".join(stale)
-        )
 
 
 def _prune_registry_for_refresh(
@@ -658,52 +611,6 @@ def _provider_run_coverage_end(
     if series.frequency == "daily" and observations:
         return min(requested_end, max(item.observed_at for item in observations))
     return requested_end
-
-
-def _require_complete_replacement(
-    conn: sqlite3.Connection,
-    series: SeriesDefinition,
-    *,
-    start: date,
-    end: date,
-    observations: list[ObservationRecord],
-) -> None:
-    """Reject a destructive rebuild that drops a previously represented period.
-
-    A formula may intentionally change the date inside a declared month or quarter,
-    so replacement coverage is compared at the registry cadence rather than by exact
-    ``observed_at``. Missing periods indicate that the candidate was built from a
-    partial input store; keeping the existing rows is safer than committing a shorter
-    history as a successful all-history rebuild.
-    """
-
-    existing = db.observations_in_range(conn, series.series_id, start, end)
-    if not existing:
-        return
-    candidate_periods = {
-        _declared_period(item.observed_at, frequency=series.frequency) for item in observations
-    }
-    missing = sorted(
-        {_declared_period(item.observed_at, frequency=series.frequency) for item in existing}
-        - candidate_periods
-    )
-    if missing:
-        raise IndicatorsProviderError(
-            f"{series.series_id} rebuild would drop {len(missing)} existing "
-            f"{series.frequency} period(s), starting at {missing[0]}; "
-            "refresh complete inputs before replacing derived history"
-        )
-
-
-def _declared_period(observed_at: date, *, frequency: str) -> str:
-    if frequency == "monthly":
-        return observed_at.strftime("%Y-%m")
-    if frequency == "quarterly":
-        return f"{observed_at.year}-Q{(observed_at.month - 1) // 3 + 1}"
-    if frequency == "weekly":
-        iso_year, iso_week, _ = observed_at.isocalendar()
-        return f"{iso_year}-W{iso_week:02d}"
-    return observed_at.isoformat()
 
 
 def _fetch_observations_with_retry(

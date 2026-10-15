@@ -8,7 +8,11 @@ consumers and fetch implementations share the same capability object.
 
 from __future__ import annotations
 
+from datetime import date
+
 from .provider_specs import ProviderSpec
+
+DERIVED_SPEC = ProviderSpec(name="derived", kind="local", all_history_start=date(1970, 1, 1))
 
 JQUANTS_FLOWS_SPEC = ProviderSpec(
     name="jquants_flows",
@@ -28,6 +32,7 @@ def point_in_time_providers() -> frozenset[str]:
 
 
 __all__ = [
+    "DERIVED_SPEC",
     "JQUANTS_FLOWS_SPEC",
     "point_in_time_providers",
 ]

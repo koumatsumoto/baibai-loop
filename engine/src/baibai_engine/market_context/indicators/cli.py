@@ -268,7 +268,9 @@ def _print_series_json(series: Iterable[SeriesDefinition]) -> None:
 
 
 def _print_observations(result: QueryResult) -> None:
-    query = "cached" if result.cache_hit else "refreshed"
+    query = "computed" if result.series.provider == "derived" else (
+        "cached" if result.cache_hit else "refreshed"
+    )
     print(
         "series_id\tobserved_at\tvalue\tunit\tprovider\tquery",
     )

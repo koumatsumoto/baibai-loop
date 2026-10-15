@@ -1,30 +1,22 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import cast
+from unittest import TestCase
 
 from tests.engine.market_context.indicators.indicator_fixtures import (
     _series,
 )
-from tests.engine.market_context.indicators.provider_fixtures import SnapshotFixtures
 from tests.helpers.indicator_store import (
     observation,
 )
 
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.providers import (
-    IndicatorsProviderError,
-)
-from baibai_engine.market_context.indicators.providers.base import (
-    FetchContext,
-    HttpSession,
-)
-from baibai_engine.market_context.indicators.providers.derived import DerivedProvider
-from baibai_engine.market_context.indicators.providers.formulas import FORMULAS
+from baibai_engine.market_context.reading.derived import derive_series
+from baibai_engine.market_context.reading.formulas import FORMULAS
 
 
-class IndicatorsProviderParserTests(SnapshotFixtures):
+class DerivedReadingTests(TestCase):
     def test_derived_net_liquidity_formula_converts_units(self) -> None:
         definitions = load_definitions().by_id()
         self.assertEqual(definitions["us.fed_assets"].unit, "usd-million")
@@ -82,7 +74,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
     def test_derived_gold_copper_skips_zero_divisor(self) -> None:
         self.assertIsNone(FORMULAS["gold_copper_ratio"].compute({"gold": 3000.0, "copper": 0.0}))
 
-    def test_derived_provider_aligns_inputs_and_skips_partial_dates(self) -> None:
+    def test_derived_aligns_inputs_and_skips_partial_dates(self) -> None:
         series = _series("derived", "rate_diff.us_jp_10y", unit="percent")
         store: dict[str, tuple[ObservationRecord, ...]] = {
             "us.10y": (
@@ -92,30 +84,23 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
             # jp.10y missing 07-16 -> that date is skipped (no half-computed value)
             "jp.10y": (observation("jp.10y", date(2026, 7, 17), 2.715),),
         }
-        context = FetchContext(store_reader=lambda sid, s, e: store[sid])
 
-        observations = DerivedProvider().fetch(
+        observations = derive_series(
             series,
+            store,
             start=date(2026, 7, 1),
             end=date(2026, 7, 31),
-            session=cast(HttpSession, object()),
-            context=context,
         )
 
         self.assertEqual([obs.observed_at for obs in observations], [date(2026, 7, 17)])
         self.assertAlmostEqual(observations[0].value, 1.835, places=3)
 
-    def test_derived_provider_requires_store_reader(self) -> None:
+    def test_missing_inputs_produce_no_derived_value(self) -> None:
         series = _series("derived", "rate_diff.us_jp_10y", unit="percent")
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "store reader"):
-            DerivedProvider().fetch(
-                series,
-                start=date(2026, 7, 1),
-                end=date(2026, 7, 31),
-                session=cast(HttpSession, object()),
-                context=FetchContext(),
-            )
+        observations = derive_series(
+            series, {}, start=date(2026, 7, 1), end=date(2026, 7, 31)
+        )
+        self.assertEqual(observations, ())
 
     def test_derived_real_10y_proxy_formula(self) -> None:
         value = FORMULAS["jp.real_10y_proxy"].compute({"jp.10y": 1.62, "jp.cpi.core_yoy": 1.6})
@@ -128,7 +113,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         self.assertEqual(FORMULAS["us.erp"].alignment, "monthly")
         self.assertEqual(FORMULAS["us.erp"].monthly_observation_date, "latest_input")
 
-    def test_derived_provider_monthly_alignment_uses_month_end_of_daily_input(self) -> None:
+    def test_derived_monthly_alignment_uses_month_end_of_daily_input(self) -> None:
         series = _series("derived", "jp.real_10y_proxy", unit="percent", frequency="monthly")
         store: dict[str, tuple[ObservationRecord, ...]] = {
             "jp.10y": (
@@ -142,14 +127,12 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
                 observation("jp.cpi.core_yoy", date(2026, 6, 1), 1.6),
             ),
         }
-        context = FetchContext(store_reader=lambda sid, s, e: store[sid])
 
-        observations = DerivedProvider().fetch(
+        observations = derive_series(
             series,
+            store,
             start=date(2026, 5, 1),
             end=date(2026, 6, 30),
-            session=cast(HttpSession, object()),
-            context=context,
         )
 
         # The existing real-yield proxy keeps its canonical month-start grid.
@@ -167,12 +150,11 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
             "us.10y": (observation("us.10y", date(2026, 5, 29), 4.0),),
         }
 
-        observations = DerivedProvider().fetch(
+        observations = derive_series(
             series,
+            store,
             start=date(2026, 5, 1),
             end=date(2026, 5, 31),
-            session=cast(HttpSession, object()),
-            context=FetchContext(store_reader=lambda sid, s, e: store[sid]),
         )
 
         self.assertEqual(
@@ -180,7 +162,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
             [(date(2026, 5, 29), 1.0)],
         )
 
-    def test_derived_provider_monthly_alignment_skips_month_missing_an_input(self) -> None:
+    def test_derived_monthly_alignment_skips_month_missing_an_input(self) -> None:
         series = _series("derived", "jp.real_10y_proxy", unit="percent", frequency="monthly")
         store: dict[str, tuple[ObservationRecord, ...]] = {
             "jp.10y": (
@@ -191,14 +173,12 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
             # half-computed proxy.
             "jp.cpi.core_yoy": (observation("jp.cpi.core_yoy", date(2026, 5, 1), 1.5),),
         }
-        context = FetchContext(store_reader=lambda sid, s, e: store[sid])
 
-        observations = DerivedProvider().fetch(
+        observations = derive_series(
             series,
+            store,
             start=date(2026, 5, 1),
             end=date(2026, 6, 30),
-            session=cast(HttpSession, object()),
-            context=context,
         )
 
         self.assertEqual([obs.observed_at for obs in observations], [date(2026, 5, 1)])

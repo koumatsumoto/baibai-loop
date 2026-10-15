@@ -27,7 +27,7 @@ from baibai_engine.market_context.indicators.providers import (
 from baibai_engine.market_context.indicators.providers.estat_dashboard import (
     source_url_selectors as estat_dashboard_selectors,
 )
-from baibai_engine.market_context.indicators.providers.formulas import FORMULAS
+from baibai_engine.market_context.reading.formulas import FORMULAS
 
 
 class IndicatorsRegistryTests(unittest.TestCase):
@@ -340,7 +340,7 @@ class IndicatorsRegistryTests(unittest.TestCase):
 
         for series in load_definitions().series:
             with self.subTest(series_id=series.series_id):
-                # resolve_provider (via provider_spec) raises for an unknown provider.
+                # Both external and virtual series have declared metadata.
                 self.assertEqual(provider_spec(series.provider).name, series.provider)
 
     def test_every_registered_series_declares_a_complete_plausible_range(self) -> None:

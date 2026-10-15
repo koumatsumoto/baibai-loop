@@ -22,8 +22,8 @@ MAX_CSV_RESPONSE_BYTES = 8_000_000
 MAX_ZIP_RESPONSE_BYTES = 16_000_000
 
 # Reads a stored series' observations (latest ok vintage per observed_at) for a
-# derived provider that computes from other series. Bound to the live connection
-# by the service so a derived fetch sees inputs already committed this run.
+# source provider that can reuse existing input (for example published PMI months).
+# Bound to the live connection; L2 formulas do not depend on fetch context.
 type StoreReader = Callable[[str, date, date], tuple[ObservationRecord, ...]]
 
 # What a fetch pass is for. ``read`` serves a query whose window the store cannot

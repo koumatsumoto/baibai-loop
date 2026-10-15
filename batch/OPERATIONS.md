@@ -356,13 +356,13 @@ ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。�
 
 vintage・retraction・generation・no-lossの意味は[Market Context reference](../docs/reference/market-context.md#①-データindicator-series-を引く)を参照する。
 
-**観測の撤回**: `market-context indicators retract <series_id> --observed-at <date> --expected-vintage <ts>`で確認した最新vintageを名指す。derived入力ではcommandが示す依存系列の同日を先に撤回する。CAS拒否なら現在vintageを読み直す。成功後は正しい下位観測、または当日の非表示を確認する。localの直接DELETEや同じCASの反復で復旧しない。
+**観測の撤回**: `market-context indicators retract <series_id> --observed-at <date> --expected-vintage <ts>`で確認した最新vintageを名指す。`derived`系列は読取時の計算値なので撤回対象ではない。元の観測を訂正・撤回すると次回読取に反映する。CAS拒否なら現在vintageを読み直す。成功後は正しい下位観測、または当日の非表示を確認する。localの直接DELETEや同じCASの反復で復旧しない。
 
 **系列の追加・退役・改名**:
 
 1. writerが競合しない時間に、現行mainで`uv run baibai-batch validate-market-context-stores`を実行する。
 2. `engine/src/baibai_engine/market_context/indicators/registry/`の定義を変更し、`definitions.py`の`_REGISTRY_MEMBERSHIP_GENERATIONS`へ変更後の集合に対応する、現在より大きいgenerationを設定する。過去と同じ集合へ戻る場合はdigestも同じなので、その既存keyの値を更新する。重複keyの追記や旧generation再利用はしない。
-3. 変更codeをmainへ反映し、同じcodeのlocalで現行系列を1件以上指定して明示的な`market-context indicators refresh`を実行する。退役IDだけの指定ではpruneへ進めない。全履歴再計算が必要ならbase→derivedの順に実行する。
+3. 変更codeをmainへ反映し、同じcodeのlocalで現行系列を1件以上指定して明示的な`market-context indicators refresh`を実行する。退役IDだけの指定ではpruneへ進めない。base観測の同期後、派生値はReadingで再計算されるため別のrefreshは不要である。
 4. validator・Reading・意図した退役結果を確認後、`push-indicators`を実行する。件数表示はcommit後の補助出力であり、ログの組合せをcommit条件にしない。発行済みContextの退役系列warningは確認するが本文を書き換えない。
 
 **公開済みoptionsの集計式を変える場合**: `jp.n225_iv_30d`・`jp.n225_iv_skew`・`jp.n225_iv_term`は2段に分ける。まず3系列を退役し、generationを進めて上の手順でcloudへ反映する。そのpush成功後に新式と3系列を戻し、元digestの既存generation値を退役段階よりさらに大きい値へ更新する。再びcodeをmainへ反映してから必要範囲の全履歴を取得し、新式で値が出ない日に旧式の観測が残らないことを確認してpushする。長い取得窓はproviderの契約に従って分割する。日次batch待ち・localだけの削除・2段の一括化はしない。

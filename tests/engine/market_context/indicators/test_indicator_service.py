@@ -51,7 +51,7 @@ from baibai_engine.market_context.indicators.service import (
 
 
 class IndicatorsServiceTests(unittest.TestCase):
-    def test_derived_values_use_the_registry_bounds_at_the_store_boundary(self) -> None:
+    def test_derived_values_use_the_registry_bounds_at_the_calculation_boundary(self) -> None:
         for series_id, inputs in (
             ("jp.policy_path_gap", {"jp.2y": 12.0, "jp.policy_rate": 0.0}),
             ("us.erp", {"us.sp500_earnings_yield": 99.0, "us.10y": 4.0}),
@@ -68,7 +68,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                     )
                     conn.commit()
 
-                with self.assertRaisesRegex(IndicatorsProviderError, "outside plausible range"):
+                with self.assertRaisesRegex(ValueError, "outside plausible range"):
                     IndicatorsService(database).get_range(
                         series_id,
                         start=date(2026, 7, 1),
@@ -474,101 +474,6 @@ class IndicatorsServiceTests(unittest.TestCase):
                 ).fetchall()
             self.assertEqual(rows, [(4.25, "2026-07-21T00:00:00+00:00", definition.source_url)])
 
-    def test_derived_full_history_refresh_replaces_the_previous_alignment_grid(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            _write_observation(
-                database,
-                "us.erp",
-                observed_at=date(2026, 1, 2),
-                value=-0.5,
-                vintage_at=datetime(2026, 7, 26, tzinfo=UTC),
-            )
-            definition = load_definitions().by_id()["us.erp"]
-            rebuilt = ObservationRecord(
-                series_id="us.erp",
-                observed_at=date(2026, 1, 30),
-                value=-0.4,
-                unit=definition.unit,
-                source_url=definition.source_url,
-                vintage_at=datetime.now(UTC),
-            )
-
-            with patch(
-                "baibai_engine.market_context.indicators.service.fetch_observations",
-                return_value=[rebuilt],
-            ):
-                IndicatorsService(database).refresh_all_history(
-                    "us.erp",
-                    end=date(2026, 6, 30),
-                )
-
-            conn = open_connection(database)
-            try:
-                rows = conn.execute(
-                    "SELECT observed_at, value FROM observations WHERE series_id = ? "
-                    "ORDER BY observed_at",
-                    ("us.erp",),
-                ).fetchall()
-            finally:
-                conn.close()
-
-            self.assertEqual(
-                [(row["observed_at"], row["value"]) for row in rows],
-                [("2026-01-30", -0.4)],
-            )
-
-    def test_derived_full_history_refresh_rejects_period_coverage_loss(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            for observed_at, value in (
-                (date(2020, 1, 2), -0.5),
-                (date(2025, 1, 2), -0.6),
-            ):
-                _write_observation(database, "us.erp", observed_at=observed_at, value=value)
-            definition = load_definitions().by_id()["us.erp"]
-            partial = ObservationRecord(
-                series_id="us.erp",
-                observed_at=date(2026, 1, 30),
-                value=-0.4,
-                unit=definition.unit,
-                source_url=definition.source_url,
-                vintage_at=datetime(2026, 2, 1, tzinfo=UTC),
-            )
-
-            with (
-                patch(
-                    "baibai_engine.market_context.indicators.service.fetch_observations",
-                    return_value=[partial],
-                ),
-                self.assertRaisesRegex(IndicatorsProviderError, "would drop 2 existing monthly"),
-            ):
-                IndicatorsService(database).refresh_all_history(
-                    "us.erp",
-                    end=date(2026, 6, 30),
-                )
-
-            conn = open_connection(database)
-            try:
-                rows = conn.execute(
-                    "SELECT observed_at, value FROM observations WHERE series_id = ? "
-                    "ORDER BY observed_at",
-                    ("us.erp",),
-                ).fetchall()
-                latest_run = conn.execute(
-                    "SELECT status FROM provider_runs WHERE series_id = ? "
-                    "ORDER BY finished_at DESC LIMIT 1",
-                    ("us.erp",),
-                ).fetchone()
-            finally:
-                conn.close()
-
-            self.assertEqual(
-                [(row["observed_at"], row["value"]) for row in rows],
-                [("2020-01-02", -0.5), ("2025-01-02", -0.6)],
-            )
-            assert latest_run is not None
-            self.assertEqual(latest_run["status"], "failed")
 
     def test_repeated_range_refresh_is_idempotent_for_unchanged_data(self) -> None:
         # Mirrors the daily batch re-running the same rolling window: a provider
@@ -1553,3 +1458,44 @@ class IndicatorsServiceTests(unittest.TestCase):
             db = Path(tmp) / "indicators.sqlite"
 
             self.assertEqual(main(["get", "jp.cpi.stale", "--latest", "--db", str(db)]), 1)
+
+
+def test_derived_read_ignores_old_materialization_and_does_not_fetch(tmp_path):
+    database = tmp_path / "indicators.sqlite"
+    _write_observation(database, "us.erp", observed_at=date(2026, 1, 2), value=-0.5)
+    _write_observation(
+        database, "us.sp500_earnings_yield", observed_at=date(2026, 1, 1), value=5.0
+    )
+    _write_observation(database, "us.10y", observed_at=date(2026, 1, 30), value=4.0)
+    with patch(
+        "baibai_engine.market_context.indicators.service.fetch_observations",
+        side_effect=AssertionError("derived read must not acquire source data"),
+    ):
+        service = IndicatorsService(database)
+        ordinary = service.get_range("us.erp", start=date(2026, 1, 15), end=date(2026, 1, 31))
+        refreshed = service.refresh_all_history("us.erp", end=date(2026, 1, 31))
+        with patch(
+            "baibai_engine.market_context.indicators.service._today_jst",
+            return_value=date(2026, 1, 31),
+        ):
+            latest = service.get_latest("us.erp")
+    assert [(row.observed_at, row.value) for row in ordinary.observations] == [
+        (date(2026, 1, 30), 1.0)
+    ]
+    assert refreshed.observations == ordinary.observations
+    assert latest.observations == ordinary.observations[-1:]
+    with closing(sqlite3.connect(database)) as connection:
+        assert connection.execute(
+            "SELECT observed_at, value FROM observations WHERE series_id = 'us.erp'"
+        ).fetchall() == [("2026-01-02", -0.5)]
+        assert connection.execute(
+            "SELECT COUNT(*) FROM provider_runs WHERE series_id = 'us.erp'"
+        ).fetchone()[0] == 0
+
+
+def test_old_derived_values_do_not_fill_missing_current_inputs(tmp_path):
+    database = tmp_path / "indicators.sqlite"
+    _write_observation(database, "us.erp", observed_at=date(2020, 1, 2), value=-0.5)
+    _write_observation(database, "us.erp", observed_at=date(2025, 1, 2), value=-0.6)
+    result = IndicatorsService(database).refresh_all_history("us.erp", end=date(2026, 6, 30))
+    assert result.observations == ()

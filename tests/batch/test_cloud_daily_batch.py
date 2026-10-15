@@ -1032,7 +1032,7 @@ def test_indicator_refresh_groups_buckets_every_series_by_frequency_window() -> 
     ]
 
 
-def test_indicator_refresh_groups_orders_derived_after_base() -> None:
+def test_indicator_refresh_groups_skip_virtual_derived_series() -> None:
     parsed = _parse_indicator_series(
         json.dumps(
             [
@@ -1047,10 +1047,9 @@ def test_indicator_refresh_groups_orders_derived_after_base() -> None:
 
     groups = _indicator_refresh_groups(parsed)
 
-    # Same daily window, but base (http) is refreshed before the derived (local) series.
+    # Virtual L2 values have no independent acquisition or persistence step.
     assert groups == [
         (LATEST_FETCH_LOOKBACK_DAYS["daily"], ["us.10y", "gold"]),
-        (LATEST_FETCH_LOOKBACK_DAYS["daily"], ["gold_copper_ratio"]),
     ]
 
 

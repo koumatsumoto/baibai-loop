@@ -634,6 +634,7 @@ type = "forbidden"
 source_modules = [
   "baibai_engine.market_context.indicators.observations",
   "baibai_engine.market_context.reading.models", "baibai_engine.market_context.reading.compute",
+  "baibai_engine.market_context.reading.derived", "baibai_engine.market_context.reading.formulas",
 ]
 forbidden_modules = [
   "baibai_engine.market_context.indicators.db", "baibai_engine.market_context.indicators.service",

@@ -7,11 +7,11 @@ from typing import Literal
 # Pure derived-series formulas: each maps aligned input values to one output
 # value with no I/O. A formula names its input series and, for each aligned
 # observed_at, computes the output. Registry bounds are checked once by the
-# indicator service, just like externally fetched observations.
+# L2 calculation boundary; these values are not stored provider observations.
 
 type Compute = Callable[[Mapping[str, float]], float | None]
 
-# How the provider pairs input observations before computing:
+# How L2 pairs selected input observations before computing:
 #   "exact"   - inputs share a frequency; align on identical observed_at.
 #   "monthly" - inputs mix frequencies; fold each input to one value per calendar
 #               month (a daily input collapses to its month-end reading) and pair

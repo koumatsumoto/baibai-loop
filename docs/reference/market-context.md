@@ -71,15 +71,15 @@ uv run baibai-engine market-context indicators get jp.policy_rate --latest
 
 `get`は取得済み範囲を確認し、不足があればproviderを呼ぶ。同じ引数でもstore状態・source改定・実行日によって結果は変わる。計算の決定性は保存入力・採用vintage・規則・as-ofが固定された場合の性質である。`get --latest`はJSTの運用日を基準に、[reading rules](../../engine/src/baibai_engine/market_context/reading/rules.py)の公表ラグと猶予でcacheの鮮度を判定する。再取得の窓幅は鮮度閾値とは別で、[indicator service](../../engine/src/baibai_engine/market_context/indicators/service.py)が日次batchと共有する。
 
-`refresh --all-history` は provider ごとの取得可能な先頭日から強制再取得する。派生系列（`derived` provider）は外部ソースを持たず入力系列の重なりが履歴なので、どの base 系列よりも古い床から入力を読み直して全期間を再計算する（base 系列を先に同期してから回す）。月次整列は月内の各入力の最終観測を使う。market data を月末まで使う数式は選択入力の最終観測日を出力日とし、月初への backdate を防ぐ。数式変更で observation grid を置換する系列は provider spec で個別に宣言し、既存 period を欠く候補なら削除前に失敗して履歴を保持する。FRED 系列は現在の `fredgraph.csv` が返す先頭日を再現可能な境界とし、その日より前の観測を残さない。HTTP providerの全履歴source訂正では、再取得期間とvintageの条件に該当し、registryの`source_url`と異なる旧sourceの観測をcacheから除く。JP provider の契約期間や公表 archive が先頭日を制限する場合は、実際の取得範囲と制約を運用記録へ残す。
+`refresh --all-history` は外部providerごとの取得可能な先頭日から強制再取得する。FREDは現在の `fredgraph.csv` が返す先頭日を再現可能な境界とし、それ以前の観測を残さない。外部source訂正では再取得期間・vintageの条件に該当する旧sourceの観測をcacheから除く。契約期間や公表archiveが履歴を制限する場合は、実際の取得範囲を運用記録へ残す。
 
-local derivedの式の出典は現行配置の固定commit URLで示す。出典リンクの変更を外部source訂正として扱わず、旧観測の値・vintage・source URLは保持する。新URLの観測はprovenanceが異なるため初回は新vintageとなり、同じURL・同内容の反復では増えない。HTTP providerの全履歴取得で行う外部source訂正の扱いは維持する。
+`derived`の10系列は[Readingの純粋な数式](../../engine/src/baibai_engine/market_context/reading/formulas.py)で保存済み入力から読む都度計算する。独立した観測・取得履歴として書き込まず、日次取得の対象にも含めない。これらの`get`・`refresh`は入力を再取得せず、base系列の同期後に現在の値を読む。欠測や未定義の計算を古い派生値で補完せず、以前保存した派生cacheは読みや鮮度表示に使わない。保存済みの判断本文は変更しない。
 
-`us.erp --all-history`の旧grid/vintage置換は、[providerの明示的な再構築契約](../../engine/src/baibai_engine/market_context/indicators/providers/derived.py)として別に存在する。出典URLの変更を理由に起動せず、このURL切替を全履歴再構築のno-loss保証と扱わない。
+月次整列は月内の各入力の最終観測を使い、出力日は数式ごとの期間代表日または採用入力の最終日とする。これを実公表時刻や歴史的なAPI利用可能性の保証とみなさない。計算値のvintageは全入力に時点がある場合の最も遅い入力vintageであり、読んだ時刻を新しい公表として作らない。L2の数式変更に派生履歴の退役・再取得・置換を要求しない。オプションチェーン由来の別providerについては、現行の再構築手順を別途確認する。
 
 同内容の再取得ではobservationのvintageを増やさず、provider runに取得記録を残す。値・単位・期間・取得状態・sourceが変わるrevisionや、変化後に同じ値へ戻るrevisionは保持する。日次batchはrolling窓を引き直すため窓内の取得断は次回成功時に埋まるが、窓外の欠落は[指標履歴の復旧](../../batch/OPERATIONS.md#指標履歴)が必要になる。保存・重複排除は[indicator DB](../../engine/src/baibai_engine/market_context/indicators/db.py)を参照する。
 
-誤って入った observation は削除では消えない。cloudとのmergeは双方のfactを戻すno-loss契約なので、localで消しても次のpushで復活する。撤回は対象日の最新vintageをCASで名指しし、その下の状態を新しいvintageとして記録する。同じ撤回を繰り返すと意図しない旧値を戻し得るため、期待vintageが変われば拒否する。derived系列の保存観測は入力の撤回だけでは消えない。操作順と失敗時の行き先は[運用手順](../../batch/OPERATIONS.md#指標観測とregistryの修正)に従う。
+誤って入った observation は削除では消えない。cloudとのmergeは双方のfactを戻すno-loss契約なので、localで消しても次のpushで復活する。撤回は対象日の最新vintageをCASで名指しし、その下の状態を新しいvintageとして記録する。同じ撤回を繰り返すと意図しない旧値を戻し得るため、期待vintageが変われば拒否する。派生10系列は入力の撤回・訂正を次回読取で反映するため、派生値を先に撤回する操作は不要である。操作順と失敗時の行き先は[運用手順](../../batch/OPERATIONS.md#指標観測とregistryの修正)に従う。
 
 - 下に正しい観測があれば **その観測が再び読まれる**（誤った writer が正しい値の上に別の値を刻んだ場合。撤回のたびに 1 つずつ vintage を遡る）
 - 下に何も無い、または下も撤回済みなら `fetch_status='retracted'` を書き、その日は reading / chart / freshness のすべてから外れる

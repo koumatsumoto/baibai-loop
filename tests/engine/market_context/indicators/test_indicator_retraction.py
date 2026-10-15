@@ -33,9 +33,6 @@ from baibai_engine.market_context.indicators.definitions import (
     IndicatorDefinitions,
     load_definitions,
 )
-from baibai_engine.market_context.indicators.providers import (
-    IndicatorsProviderError,
-)
 from baibai_engine.market_context.indicators.service import (
     IndicatorsService,
 )
@@ -380,8 +377,8 @@ class RetractionVintageTests(unittest.TestCase):
 
             self.assertEqual([item.value for item in observations], [4.39])
 
-    def test_retracting_an_input_refuses_while_a_derived_value_still_reads_it(self) -> None:
-        """Recomputation cannot repair a derived row whose input date has gone."""
+    def test_retracting_an_input_also_removes_its_derived_reading(self) -> None:
+        """The old materialized value cannot outlive its withdrawn source input."""
 
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
@@ -413,11 +410,11 @@ class RetractionVintageTests(unittest.TestCase):
                 conn.close()
             service = IndicatorsService(database)
 
-            with self.assertRaisesRegex(
-                IndicatorsProviderError,
-                r"would leave derived observations computed from it",
-            ):
-                service.retract("us.10y", [(date(2026, 7, 20), vintage)])
+            service.retract("us.10y", [(date(2026, 7, 20), vintage)])
+            result = service.get_range(
+                "rate_diff.us_jp_10y", start=date(2026, 7, 20), end=date(2026, 7, 20)
+            )
+            self.assertEqual(result.observations, ())
 
             conn = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
             conn.row_factory = sqlite3.Row
@@ -426,7 +423,7 @@ class RetractionVintageTests(unittest.TestCase):
             finally:
                 conn.close()
 
-            self.assertEqual([item.value for item in kept], [4.5])
+            self.assertEqual(kept, ())
 
     def test_all_history_refresh_keeps_the_belief_a_retraction_put_back(self) -> None:
         """The restored row is an ordinary `ok` row, so only the vintage rule protects it."""

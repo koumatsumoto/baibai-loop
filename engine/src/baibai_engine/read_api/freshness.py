@@ -31,11 +31,13 @@ def screening_latest_asof(path: Path) -> date | None:
 
 
 def indicator_latest_observed_at(path: Path) -> date | None:
-    """Return the newest successful observation among currently registered series."""
+    """Return the newest successful source observation, excluding old derived caches."""
 
     if not path.is_file():
         return None
-    registered = {series.series_id for series in load_definitions().series}
+    registered = {
+        series.series_id for series in load_definitions().series if series.provider != "derived"
+    }
     if not registered:
         return None
     rows = read_rows(
