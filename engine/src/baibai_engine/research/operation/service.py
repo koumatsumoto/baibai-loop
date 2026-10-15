@@ -188,9 +188,7 @@ class OperationService:
             return operation
         selected = selection_binding(operation.payload)
         if selected is None:
-            raise OperationConflictError(
-                "fixed research_selection is required"
-            )
+            raise OperationConflictError("fixed research_selection is required")
         by_ticker = {item.ticker: item for item in progress.outcomes}
         by_ticker[outcome.ticker] = outcome
         # Selection order gives retry-stable immutable Proposal scope identity.
@@ -312,9 +310,7 @@ class OperationService:
         if status is not None:
             sql += " WHERE status = ?"
             parameters = (status,)
-        rows = read_rows(
-            database_path(self._db_path), sql, parameters, connector=connect_read_only
-        )
+        rows = read_rows(database_path(self._db_path), sql, parameters, connector=connect_read_only)
         return sorted(
             (_from_row(row) for row in rows),
             key=lambda operation: (operation.started_at, operation.operation_id),
