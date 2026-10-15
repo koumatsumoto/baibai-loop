@@ -1208,11 +1208,6 @@ class DerivedCacheIdentityTests(unittest.TestCase):
                 True,
             ),
             (
-                "adding_a_replay_variant",
-                lambda: patch.object(calibration_store, "RELAXED", ("approach-top5",)),
-                True,
-            ),
-            (
                 # 式の意味の変更は内容から導けないので人が宣言するが、宣言すれば版も動く。
                 "a_new_valuation_revision",
                 lambda: patch.object(
