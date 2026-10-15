@@ -19,7 +19,8 @@ def test_atomic_writer_creates_parent_and_replaces_complete_content(tmp_path, te
 
 @pytest.mark.parametrize("text", [False, True])
 def test_atomic_writer_preserves_previous_content_when_replace_fails(tmp_path, monkeypatch, text):
-    path = tmp_path / "result"
+    path = tmp_path / "target" / "result"
+    path.parent.mkdir()
     path.write_bytes(b"previous")
 
     def fail_replace(self, target):
@@ -30,4 +31,4 @@ def test_atomic_writer_preserves_previous_content_when_replace_fails(tmp_path, m
     with pytest.raises(OSError, match="synthetic replacement failure"):
         writer(path, "new" if text else b"new")
     assert path.read_bytes() == b"previous"
-    assert list(tmp_path.iterdir()) == [path]
+    assert list(path.parent.iterdir()) == [path]
