@@ -22,6 +22,7 @@ from baibai_engine.research.selection import (
     ResearchSelection,
     selection_targets,
 )
+from baibai_engine.valuation.metrics.history import VALUATION_HISTORY_SESSIONS
 from baibai_engine.valuation.query import (
     cash_flow_from_analysis,
     machine_valuation_from_analysis,
@@ -56,7 +57,7 @@ def collect_research_inputs(
                     sqlite_path=market_path,
                     ticker=ticker,
                     asof_date=research_as_of,
-                    self_range_window_bars=750,
+                    self_range_window_bars=VALUATION_HISTORY_SESSIONS,
                 ),
                 "external_assessment": external_assessment(
                     market_path, ticker=ticker, cutoff=input_known_at, evaluated_at=input_known_at

@@ -804,7 +804,8 @@ def _execute_daily_batch(
         )
     if deferred_failures:
         print(
-            f"error: read models exported locally, but {len(deferred_failures)} deferred step(s) failed:",
+            "error: read models exported locally, "
+            f"but {len(deferred_failures)} deferred step(s) failed:",
             file=sys.stderr,
         )
         for failure in deferred_failures:

@@ -6,8 +6,9 @@ for a judgment instant and same-date holding-basis closes.
 Portfolio/Position owns this quote and share-basis reader; Research consumes it
 without making Portfolio/Position depend on Research. It declares the expected
 market SQLite schema version and queries full-universe ``jquants_daily_bars``
-through read-only SQL instead of importing acquisition or screening services. Schema version mismatches and SQL
-errors degrade to ``None``; a coupling test detects version drift in CI.
+through read-only SQL instead of importing acquisition or screening services.
+Schema version mismatches and SQL errors degrade to ``None``; a coupling test
+detects version drift in CI.
 
 For target-session planning, the resolved price is the raw/unadjusted ``close`` on the full-universe
 daily bars' latest observed market-wide date eligible at that instant (today after
