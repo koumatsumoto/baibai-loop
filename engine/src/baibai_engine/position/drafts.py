@@ -162,7 +162,7 @@ def build_broker_fact_draft(
     if (occurred_at is None) == (occurred_on is None):
         raise ValueError("specify exactly one of occurred_at and occurred_on")
     if occurred_on is not None:
-        occurred_at = _date_only_execution_key(
+        occurred_at = date_only_replay_key(
             source, occurred_on, requested_ids[0] if requested_ids else None
         )
     assert occurred_at is not None
@@ -424,7 +424,7 @@ def build_sell_execution_draft(
         raise ValueError("specify exactly one of occurred_at and occurred_on")
     source, expected_head = service.load_with_head()
     if occurred_on is not None:
-        occurred_at = _date_only_execution_key(source, occurred_on, reservation_id)
+        occurred_at = date_only_replay_key(source, occurred_on, reservation_id)
     assert occurred_at is not None
     if execution_id is not None:
         _validate_execution_id(execution_id)
@@ -564,7 +564,7 @@ def build_sell_execution_draft(
     )
 
 
-def _date_only_execution_key(
+def date_only_replay_key(
     source: PortfolioLedgerDocument, occurred_on: date, reservation_id: str | None
 ) -> datetime:
     """Choose a replay key after the order without claiming an execution time."""
@@ -668,6 +668,7 @@ __all__ = [
     "build_meta_draft",
     "build_override_draft",
     "build_sell_execution_draft",
+    "date_only_replay_key",
     "known_broker_reference",
     "load_draft",
     "write_draft",

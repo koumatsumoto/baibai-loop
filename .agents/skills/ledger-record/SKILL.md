@@ -66,6 +66,8 @@ uv run baibai-engine position sell-execution-draft --db stores/application/baiba
 
 注文に束縛された約定・取消・失効は同じ参照とreservation IDを使う。約定時刻も報告された場合は`--occurred-on`の代わりに`--occurred-at`を使う。実約定を区別するbroker IDがない場合は推測して作らず、同日別約定を区別できなければ確認する。status等の必須項目は対象commandのpublic `--help`に従う。取引を現在の購入適格性で再審査しないが、報告・参照・数量・cashの整合は検証する。入金やincomeに買付提案を要求しない。
 
+費用も`event-draft --occurred-on <YYYY-MM-DD>`で日付だけを記録できる。手数料0円と明示された場合は、0円のcost eventを残す。未報告を0円と推定しない。
+
 ## draftとapply
 
 1. 確認した事実からtyped draftを作る。

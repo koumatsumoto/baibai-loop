@@ -211,7 +211,7 @@ class CostEvent(_EventBase):
     type: Literal["cost"]
     ticker: Annotated[str, Field(pattern=_TICKER_PATTERN)] | None = None
     cost_kind: Literal["commission", "exchange_fee", "other"]
-    amount_yen: Annotated[int, Field(gt=0)]
+    amount_yen: Annotated[int, Field(ge=0)]
 
 
 class ConfirmedTaxEvent(_EventBase):
