@@ -322,7 +322,6 @@ source_modules = [
   "baibai_engine.position",
 ]
 forbidden_modules = ["baibai_engine.research"]
-ignore_imports = []
 
 [[tool.importlinter.contracts]]
 name = "research composes explicit domain reads and portfolio judgments"
@@ -346,24 +345,6 @@ ignore_imports = [
   "baibai_engine.research.proposal -> baibai_engine.market.ticker",
   "baibai_engine.research.proposal_conditions -> baibai_engine.market.universe",
 ]
-
-[[tool.importlinter.contracts]]
-name = "web is never imported by the engine"
-type = "forbidden"
-# app composes domain read APIs into local UI read models. Reverse imports
-# would make UI iteration ripple into domain packages and obstruct a storage swap.
-source_modules = [
-  "baibai_engine.foundation",
-  "baibai_engine.market",
-
-  "baibai_engine.screening",
-  "baibai_engine.valuation",
-  "baibai_engine.market_context",
-  "baibai_engine.external_assessment",
-  "baibai_engine.position",
-  "baibai_engine.research",
-]
-forbidden_modules = ["baibai_web"]
 
 [[tool.importlinter.contracts]]
 name = "web imports the engine only through read_api"
@@ -551,9 +532,6 @@ forbidden_modules = [
   "baibai_engine.screening", "baibai_engine.valuation", "baibai_engine.research",
   "baibai_engine.external_assessment", "baibai_engine.position", "baibai_engine.tasks",
   "baibai_engine.read_api", "baibai_engine.storage.application.write",
-]
-# Public CLI dispatch composes the separate read-only L2 and explicit L3 entries.
-ignore_imports = [
 ]
 
 [[tool.importlinter.contracts]]

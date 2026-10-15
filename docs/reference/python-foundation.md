@@ -136,7 +136,7 @@ provider読取、実store validation、OAuth smoke、R2 acceptanceをfixture gat
 
 Ruffを使う。runtimeはPython 3.14だが、formatter targetは`py313`である。複数例外捕捉を`except (T1, T2):`に揃え、PEP 758の括弧なし構文へ自動変換させないための選択である。
 
-Markdownのhard breakを壊さないよう、trailing whitespace hookは`.md`を対象外とする。その他の設定値は`pyproject.toml`とpre-commit設定を参照する。
+任意のpre-commit hookは変更ファイルの基本整形・lintだけを行う。型・契約・全体テストをcommit/pushの必須前提にせず、対象HEADのCIで確認する。Markdownのhard breakを壊さないよう、trailing whitespace hookは`.md`を対象外とする。設定値は`pyproject.toml`とpre-commit設定を参照する。
 
 ## 4. Type checking
 
