@@ -156,7 +156,6 @@ def test_anonymous_equal_facts_are_not_inferred_to_be_the_same_or_a_new_fact(tmp
         quantity=100,
         price_yen=Decimal("1000"),
         sector="情報・通信業",
-        ordered_at=NOW + timedelta(minutes=1),
         occurred_at=NOW + timedelta(minutes=2),
         price_guard_yen=Decimal("1000"),
         expires_at=NOW + timedelta(days=1),
@@ -217,3 +216,86 @@ def test_cli_returns_initial_and_retry_reference_without_preapply_writes(tmp_pat
     assert retry["status"] == "no_change"
     assert retry["decision_reference"] == first["decision_reference"]
     assert not (tmp_path / "retry.yaml").exists()
+
+
+def test_date_only_direct_fill_needs_no_order_time_or_expiry(tmp_path):
+    service, _ = _service(tmp_path)
+    before = service.load()
+    report = dict(
+        decision_reference=None,
+        direct_fact=True,
+        status="filled",
+        occurred_on=NOW.date(),
+        ticker="1234",
+        quantity=100,
+        price_yen=Decimal("2020"),
+        sector="食料品",
+        now=NOW,
+    )
+    draft, ids = build_broker_fact_draft(service, unavailable, **report)
+    assert draft is not None
+    assert len(ids) == 1
+    event = draft.replacement.events[-1]
+    assert isinstance(event, ExecutionEvent)
+    assert event.occurred_on == NOW.date()
+    assert event.reservation_id is None
+    assert not any(isinstance(row, ReservationEvent) for row in draft.replacement.events)
+    apply_draft(service, draft, human_confirmed=True)
+    stored = service.load()
+    state = replay_events_through(stored.events, stored.as_of)
+    previous = replay_events_through(before.events, before.as_of)
+    assert state.available_cash_yen == previous.available_cash_yen - 202_000
+    assert state.reserved_cash_yen == 0
+    assert sum(lot.quantity for lot in state.lots["1234"]) == 100
+    reference = draft.binding_addition.reference
+    assert build_broker_fact_draft(
+        service, unavailable, **(report | {"decision_reference": reference})
+    ) == (None, ())
+
+
+def test_date_only_order_without_expiry_can_be_cancelled_and_retried(tmp_path):
+    service, _ = _service(tmp_path)
+    opened, _ = open_direct(service, occurred_at=None, occurred_on=NOW.date(), expires_at=None)
+    assert opened is not None
+    order = opened.replacement.events[-1]
+    assert order.occurred_on == NOW.date()
+    assert order.expires_at is None
+    apply_draft(service, opened, human_confirmed=True)
+    assert open_direct(service, occurred_at=None, occurred_on=NOW.date(), expires_at=None) == (
+        None,
+        (),
+    )
+    report = dict(
+        decision_reference=order.decision_reference,
+        status="cancelled",
+        occurred_on=NOW.date(),
+        reservation_id=order.reservation_id,
+        now=NOW,
+    )
+    cancelled, _ = build_broker_fact_draft(service, unavailable, **report)
+    assert cancelled is not None
+    apply_draft(service, cancelled, human_confirmed=True)
+    assert build_broker_fact_draft(service, unavailable, **report) == (None, ())
+    stored = service.load()
+    assert not replay_events_through(stored.events, stored.as_of).active_reservations
+
+
+def test_date_only_expiry_report_does_not_require_exact_expiry_clock_time(tmp_path):
+    service, _ = _service(tmp_path)
+    opened, _ = open_direct(service, expires_at=NOW + timedelta(hours=5))
+    apply_draft(service, opened, human_confirmed=True)
+    order = opened.replacement.events[-1]
+    expired, _ = build_broker_fact_draft(
+        service,
+        unavailable,
+        decision_reference=order.decision_reference,
+        status="expired",
+        occurred_on=NOW.date(),
+        reservation_id=order.reservation_id,
+        now=NOW + timedelta(hours=6),
+    )
+    assert expired is not None
+    assert expired.replacement.events[-1].occurred_on == NOW.date()
+    apply_draft(service, expired, human_confirmed=True)
+    stored = service.load()
+    assert not replay_events_through(stored.events, stored.as_of).active_reservations

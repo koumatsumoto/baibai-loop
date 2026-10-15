@@ -86,7 +86,7 @@ def build_dashboard(
         )
         for item in snapshot.active_reservations
     ]
-    reservations.sort(key=lambda item: item.expires_at)
+    reservations.sort(key=lambda item: (item.expires_at is None, item.expires_at))
     warnings = [
         WarningView(
             code=item.code,

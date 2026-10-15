@@ -117,7 +117,6 @@ def test_sequential_proposals_recollect_cash_without_changing_saved_scope_or_ter
             common_factors=(),
             price_guard_yen=Decimal(1000),
             expires_at=buy_item.terms.expires_at,
-            ordered_at=now,
             now=now,
         )
         assert draft is not None

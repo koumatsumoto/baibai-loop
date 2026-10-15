@@ -252,7 +252,9 @@ def _reservation_history(
                 "occurred_at": event.occurred_at.isoformat(),
                 "quantity": event.quantity,
                 "price_guard_yen": decimal_to_number(event.price_guard_yen),
-                "expires_at": event.expires_at.isoformat(),
+                "expires_at": event.expires_at.isoformat()
+                if event.expires_at is not None
+                else None,
             }
         )
     return history
