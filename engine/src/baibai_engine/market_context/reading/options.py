@@ -7,7 +7,7 @@ from datetime import date, datetime
 
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition
 from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.option_chains import read_chains
+from baibai_engine.market_context.indicators.source_snapshots import read_snapshots
 
 from .observations import reading_observation
 from .option_iv import OptionIvReadings, option_iv_readings, quotes_from_records
@@ -41,11 +41,11 @@ class OptionSeriesReader:
             raise ValueError(f"option series {series.series_id} has inconsistent unit")
         field = _READING_FIELDS[series.provider_series_id]
         observations = []
-        for chain in read_chains(self._connection, start, end):
-            cached = self._readings.get(chain.trade_date)
+        for chain in read_snapshots(self._connection, start, end, source_key="jquants_options:n225"):
+            cached = self._readings.get(chain.observed_at)
             if cached is None or cached[0] != chain.fetched_at:
-                readings = option_iv_readings(quotes_from_records(chain.records), chain.trade_date)
-                self._readings[chain.trade_date] = (chain.fetched_at, readings)
+                readings = option_iv_readings(quotes_from_records(chain.records), chain.observed_at)
+                self._readings[chain.observed_at] = (chain.fetched_at, readings)
             else:
                 readings = cached[1]
             value = getattr(readings, field)
@@ -54,7 +54,7 @@ class OptionSeriesReader:
             observations.append(
                 reading_observation(
                     series,
-                    observed_at=chain.trade_date,
+                    observed_at=chain.observed_at,
                     value=value,
                     vintage_at=chain.fetched_at,
                 )

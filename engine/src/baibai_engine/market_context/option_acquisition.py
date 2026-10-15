@@ -10,7 +10,7 @@ from baibai_engine.foundation.redaction import redact_credentials
 from .indicators import db
 from .indicators.definitions import SeriesDefinition
 from .indicators.observations import ObservationRecord
-from .indicators.option_chains import store_chain, stored_days
+from .indicators.source_snapshots import store_snapshot, stored_days
 from .indicators.providers.base import (
     FetchContext,
     IndicatorsProviderError,
@@ -54,7 +54,7 @@ class OptionAcquisition:
         started_at = datetime.now(UTC)
         fetched = False
         try:
-            known = stored_days(self._connection, start, end)
+            known = stored_days(self._connection, start, end, source_key="jquants_options:n225")
             for offset in range((end - start).days + 1):
                 day = start + timedelta(days=offset)
                 if day.weekday() >= 5:
@@ -77,9 +77,10 @@ class OptionAcquisition:
                 # A later transport or calculation failure does not roll back days
                 # already received. No transaction spans the external request.
                 with self._connection:
-                    store_chain(
+                    store_snapshot(
                         self._connection,
-                        trade_date=day,
+                        source_key="jquants_options:n225",
+                        observed_at=day,
                         fetched_at=datetime.now(UTC),
                         records=records,
                     )

@@ -14,7 +14,7 @@ from baibai_engine.foundation.repository_layout import INDICATORS_DB_PATH
 from .definitions import IndicatorDefinitions, SeriesDefinition, load_definitions
 from .observations import ObservationRecord
 
-SQLITE_SCHEMA_VERSION = 8
+SQLITE_SCHEMA_VERSION = 9
 # The acquisition outcome that says "this observation is withdrawn from the reads".
 RETRACTED_STATUS = "retracted"
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
@@ -24,14 +24,14 @@ _ROW_COUNT_SQL = {
     "aliases": "SELECT COUNT(*) FROM aliases",
     "observations": "SELECT COUNT(*) FROM observations",
     "provider_runs": "SELECT COUNT(*) FROM provider_runs",
-    "jquants_option_chains": "SELECT COUNT(*) FROM jquants_option_chains",
+    "indicator_source_snapshots": "SELECT COUNT(*) FROM indicator_source_snapshots",
 }
 _SCHEMA_VALIDATION_SQL = {
     "main": {
         "user_version": "PRAGMA main.user_version",
         "contract_tables": (
             "SELECT name, sql FROM main.sqlite_master "
-            "WHERE type = 'table' AND name IN ('registry_state', 'jquants_option_chains')"
+            "WHERE type = 'table' AND name IN ('registry_state', 'indicator_source_snapshots')"
         ),
         "registry_state": (
             "SELECT singleton, generation, typeof(singleton), typeof(generation) "
@@ -43,7 +43,7 @@ _SCHEMA_VALIDATION_SQL = {
         "user_version": "PRAGMA source.user_version",
         "contract_tables": (
             "SELECT name, sql FROM source.sqlite_master "
-            "WHERE type = 'table' AND name IN ('registry_state', 'jquants_option_chains')"
+            "WHERE type = 'table' AND name IN ('registry_state', 'indicator_source_snapshots')"
         ),
         "registry_state": (
             "SELECT singleton, generation, typeof(singleton), typeof(generation) "
@@ -212,7 +212,7 @@ def _canonical_contract_table_sql() -> dict[str, str]:
             str(row[0]): _normalize_schema_sql(str(row[1]))
             for row in connection.execute(
                 "SELECT name, sql FROM sqlite_master "
-                "WHERE type = 'table' AND name IN ('registry_state', 'jquants_option_chains')"
+                "WHERE type = 'table' AND name IN ('registry_state', 'indicator_source_snapshots')"
             )
         }
     finally:

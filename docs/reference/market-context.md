@@ -17,7 +17,7 @@ Market Contextの`indicators`はL1のregistry・取得・DB adapter、`reading`�
 
 `indicators`はL1の取得/registry/観測DB、`reading/query.py`は保存観測からのL2読取、`assessment`は明示判断と保存履歴を所有する。Web/batchの公開読取は`read_api/market_context.py`へ統合し、旧moduleを転送する入口は置かない。Webの現在の内容は`AssessmentContent`、過去の章・確率・主張・引用は歴史的本文の表示であり、新writerの必須構造ではない。
 
-runtimeの指標DBは`stores/market_context/indicators.sqlite`/R2 `indicators.sqlite`（schema8）、判断はapplication schema24の`market_context_assessment / market_context_assessment_head`に保存する。新規判断はschema6・`market-context-assessment-*` identityを使う。旧`macro-context-*` ID・JSON・引用・hashは変更せず、新しい`/api/market-context/assessments/{context_id}`から直接読む。schema5/6は同じコンパクト意味、旧3/4は保存された章立て履歴であり、新writerの構造とは分ける。Researchは保存された市場判断を固定入力へ取り込み、Investment Proposalがmarket_context_assessment_idへ束縛する。旧ResearchのTriage/CAAは通常runtimeで利用・再開せず、一回切替で必要な執筆材料と判断参照を退避する。保存名の切替は完了しており、通常の取得・反映・復旧は[運用手順](../../batch/OPERATIONS.md#store-identity-recovery)に従う。
+runtimeの指標DBは`stores/market_context/indicators.sqlite`/R2 `indicators.sqlite`（schema9）、判断はapplication schema24の`market_context_assessment / market_context_assessment_head`に保存する。新規判断はschema6・`market-context-assessment-*` identityを使う。旧`macro-context-*` ID・JSON・引用・hashは変更せず、新しい`/api/market-context/assessments/{context_id}`から直接読む。schema5/6は同じコンパクト意味、旧3/4は保存された章立て履歴であり、新writerの構造とは分ける。Researchは保存された市場判断を固定入力へ取り込み、Investment Proposalがmarket_context_assessment_idへ束縛する。旧ResearchのTriage/CAAは通常runtimeで利用・再開せず、一回切替で必要な執筆材料と判断参照を退避する。保存名の切替は完了しており、通常の取得・反映・復旧は[運用手順](../../batch/OPERATIONS.md#store-identity-recovery)に従う。
 
 Readingは`READING_RULES_PATH`が選ぶ一つのdated fileを使う。保存判断が引用する`method/macro/reading/2026-08-01T100000+0900.yaml`は元bytes/pathのまま保全し、別のcurrent copyを作らない。規則のidentityはdated stemであり、単なる配置整理で値・revision・schemaを変えない。
 
@@ -134,7 +134,7 @@ serviceが1回再試行するのは、停止を表す`ProviderFetchStoppedError`
 
 #### 取得とrate limit
 
-`jquants_options`は営業日ごとのnative chainを取得し、`jquants_option_chains`へ取得時刻付きで保存する。空の正常応答も取得済み日であり、解析不能・途中ページ失敗は正常な空日にしない。原本は系列registryから独立したsource factで、同じ日・取得時刻のpayloadが異なるmergeは拒否する。応答内容が直前と同一なら重複payloadを増やさない。
+`jquants_options`は営業日ごとのnative chainを取得し、`indicator_source_snapshots`へ取得時刻付きで保存する。空の正常応答も取得済み日であり、解析不能・途中ページ失敗は正常な空日にしない。原本は系列registryから独立したsource factで、同じ日・取得時刻のpayloadが異なるmergeは拒否する。応答内容が直前と同一なら重複payloadを増やさない。
 
 GETの回数・待機は上の共通契約に従う。同じpassの全営業日・3系列で予算と日ごとの取得成否を共有する。完了した日はその都度commitし、後日の取得停止やL2計算失敗で取り消さない。`--all-history`は保存済みの古い日を再利用し、直近14日と不足日を取得する。古い日の訂正を取り直す場合は開始・終了を指定する。現行購読窓より古い原本も削除しない。通常のrange読取は完了した空日を含め再利用し、最新値の取得は新しい読みに不足する場合に再照会する。
 

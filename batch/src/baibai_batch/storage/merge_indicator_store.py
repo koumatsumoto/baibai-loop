@@ -63,7 +63,7 @@ FACT_KEYS: Mapping[str, tuple[str, ...]] = {
 }
 # Native inputs belong to their source, not a particular current reading registry.
 NATIVE_FACT_KEYS: Mapping[str, tuple[str, ...]] = {
-    "jquants_option_chains": ("trade_date", "fetched_at"),
+    "indicator_source_snapshots": ("source_key", "observed_at", "fetched_at"),
 }
 # The tables the registry owns: the target's version is the only one.
 REGISTRY_TABLES: tuple[str, ...] = (

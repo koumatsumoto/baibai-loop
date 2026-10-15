@@ -60,10 +60,10 @@ def indicator_latest_observed_at(path: Path) -> date | None:
     if any(series.provider == "jquants_options" for series in definitions):
         native = read_rows(
             path,
-            "SELECT max(c.trade_date) FROM jquants_option_chains c "
-            "WHERE c.record_count > 0 AND c.fetched_at = ("
-            "SELECT max(n.fetched_at) FROM jquants_option_chains n "
-            "WHERE n.trade_date = c.trade_date)",
+            "SELECT max(c.observed_at) FROM indicator_source_snapshots c "
+            "WHERE c.source_key = 'jquants_options:n225' AND c.record_count > 0 AND c.fetched_at = ("
+            "SELECT max(n.fetched_at) FROM indicator_source_snapshots n "
+            "WHERE n.source_key = c.source_key AND n.observed_at = c.observed_at)",
         )
         if native and native[0][0] is not None:
             native_date = str(native[0][0])
