@@ -325,6 +325,8 @@ def test_direct_fill_does_not_consume_unidentified_same_ticker_orders(tmp_path, 
         execution_id="independent-confirmed-fill",
         now=NOW,
     )
+    with pytest.raises(BrokerFactRecordingError, match="inconsistent sector/common_factors"):
+        build_broker_fact_draft(service, unavailable, **(report | {"sector": "食料品"}))
     draft, _ = build_broker_fact_draft(service, unavailable, **report)
     assert draft is not None
     fill = draft.replacement.events[-1]

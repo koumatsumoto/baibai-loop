@@ -620,15 +620,13 @@ def replay_events_through(
                     event.quantity, event.price_yen, field="buy execution notional"
                 )
                 if event.reservation_id is None:
-                    if any(
-                        item.side == "buy" and item.ticker == event.ticker
-                        for item in active.values()
-                    ):
-                        raise PortfolioLedgerError("buy execution must identify its active order")
                     _require_cash(available_cash, paid, event.event_id)
                     if event.sector is None:
                         raise PortfolioLedgerError("unreserved buy execution requires sector")
-                    if not any(lot.quantity > 0 for lot in lots[event.ticker]):
+                    has_exposure = any(lot.quantity > 0 for lot in lots[event.ticker]) or any(
+                        item.ticker == event.ticker for item in active.values()
+                    )
+                    if not has_exposure:
                         metadata.pop(event.ticker, None)
                     _check_metadata(metadata, event.ticker, event.sector, event.common_factors)
                     available_cash -= paid
