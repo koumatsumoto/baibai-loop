@@ -119,4 +119,4 @@ J-Quantsのread取得は[provider](../../engine/src/baibai_engine/market/provide
 
 候補集合・rank・母集団・丸め・method/rules/model identityと、同じ入力のPanelRow全値を旧commitの合成goldenへ照合する。保存では全行context、空分析/空候補、rollback、完全冪等、rules mismatch、日時の内容Conflictを確認する。readはexact revision・同日複数・Research cutoffと、破損をfilterで隠さない経路を検証する。
 
-最終consumer treeでCLI、Research、Web/batch、生成contracts、materialize、frontendと完全local gateを実行する。fixture成功を実store検証・provider読取・本番切替成功と読み替えない。
+最終consumer treeのCLI、Research、Web/batch、生成contracts、materialize、frontendは[対象HEADのCIと必要な実store検証](./python-foundation.md#9-ci-and-local-parity)で確認する。fixture成功を実store検証・provider読取・本番切替成功と読み替えない。

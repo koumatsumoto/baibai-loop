@@ -1591,6 +1591,7 @@ class MarginPublicationLagTest(unittest.TestCase):
             self.assertEqual(published_margin_week_ends(db, date(2026, 7, 28)), [])
             self.assertEqual(published_margin_week_ends(db, date(2026, 7, 29)), [week_end])
 
+
 class CoverageReadErrorsTest(unittest.TestCase):
     def test_unwritten_store_has_no_coverage(self) -> None:
         with closing(sqlite3.connect(":memory:")) as connection:
