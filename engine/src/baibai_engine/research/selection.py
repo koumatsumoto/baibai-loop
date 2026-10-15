@@ -204,13 +204,5 @@ def selection_targets(selection: ResearchSelection) -> tuple[ResearchTarget, ...
     )
 
 
-def selection_request_text(selection: ResearchSelection) -> str:
-    return selection.request.text
-
-
-def selection_analysis_snapshot(selection: ResearchSelection) -> AnalysisInputSnapshot:
-    return selection.inputs.analysis
-
-
 def selection_sha256(selection: ResearchSelection) -> str:
     return sha256(canonical_json(selection.model_dump(mode="json")).encode()).hexdigest()

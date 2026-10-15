@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from baibai_engine.market.jquants_decode import JQuantsProviderError, parse_jqua
 from baibai_engine.storage.observations.convert import code_quality, to_float, to_str_or_none
 from baibai_engine.storage.observations.coverage import (
     EmptyRangeReplacementError,
+    covered_intervals,
     daily_bars_covered_by_data,
 )
 from baibai_engine.storage.observations.ingest.edinet import (
@@ -1588,6 +1590,26 @@ class MarginPublicationLagTest(unittest.TestCase):
             # at the close, so the publication day itself is still too early.
             self.assertEqual(published_margin_week_ends(db, date(2026, 7, 28)), [])
             self.assertEqual(published_margin_week_ends(db, date(2026, 7, 29)), [week_end])
+
+class CoverageReadErrorsTest(unittest.TestCase):
+    def test_unwritten_store_has_no_coverage(self) -> None:
+        with closing(sqlite3.connect(":memory:")) as connection:
+            self.assertEqual(covered_intervals(connection, "jquants_fin_summaries"), ())
+            self.assertFalse(
+                daily_bars_covered_by_data(connection, date(2026, 5, 1), date(2026, 5, 31))
+            )
+
+    def test_invalid_coverage_schema_is_not_an_unfetched_range(self) -> None:
+        with closing(sqlite3.connect(":memory:")) as connection:
+            connection.execute("CREATE TABLE source_coverage (source TEXT)")
+            with self.assertRaisesRegex(sqlite3.OperationalError, "no such column"):
+                covered_intervals(connection, "jquants_fin_summaries")
+
+    def test_invalid_bars_schema_is_not_an_unfetched_range(self) -> None:
+        with closing(sqlite3.connect(":memory:")) as connection:
+            connection.execute("CREATE TABLE jquants_daily_bars (ticker TEXT)")
+            with self.assertRaisesRegex(sqlite3.OperationalError, "no such column"):
+                daily_bars_covered_by_data(connection, date(2026, 5, 1), date(2026, 5, 31))
 
 
 if __name__ == "__main__":

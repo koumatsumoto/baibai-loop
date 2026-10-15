@@ -7,6 +7,8 @@ from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from itertools import pairwise
 
+from baibai_engine.foundation.sqlite_read import is_missing_table_error
+
 _DELETE_DATE_RANGE_SQL = {
     ("jquants_daily_bars", "traded_at"): (
         "DELETE FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ?"
@@ -55,10 +57,6 @@ _COUNT_DATE_RANGE_SQL = {
     ("jpx_regulation_flags", "asof_date"): (
         "SELECT COUNT(*) FROM jpx_regulation_flags WHERE asof_date BETWEEN ? AND ?"
     ),
-}
-_COUNT_TABLE_SQL = {
-    "jquants_master_snapshots": "SELECT COUNT(*) FROM jquants_master_snapshots",
-    "jpx_earnings_calendar": "SELECT COUNT(*) FROM jpx_earnings_calendar",
 }
 
 
@@ -345,11 +343,6 @@ def date_range_row_count(
     return int(row[0] or 0)
 
 
-def table_row_count(conn: sqlite3.Connection, table: str) -> int:
-    row = conn.execute(_COUNT_TABLE_SQL[table]).fetchone()
-    return int(row[0] or 0)
-
-
 def record_source_coverage(
     conn: sqlite3.Connection,
     *,
@@ -434,7 +427,9 @@ def covered_intervals(conn: sqlite3.Connection, source: str) -> tuple[tuple[date
             "FROM source_coverage WHERE source = ?",
             (source,),
         ).fetchall()
-    except sqlite3.OperationalError:
+    except sqlite3.OperationalError as error:
+        if not is_missing_table_error(error):
+            raise
         return ()
     intervals: list[tuple[date, date]] = []
     for coverage_start, coverage_end, record_count, status in rows:
@@ -533,7 +528,9 @@ def daily_bars_covered_by_data(conn: sqlite3.Connection, start: date, end: date)
         rows = conn.execute(
             _DAILY_BARS_COVERAGE_QUERY, (start.isoformat(), end.isoformat())
         ).fetchall()
-    except sqlite3.OperationalError:
+    except sqlite3.OperationalError as error:
+        if not is_missing_table_error(error):
+            raise
         return False
     dates: list[date] = []
     for (value,) in rows:
