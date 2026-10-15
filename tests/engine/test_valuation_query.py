@@ -181,7 +181,7 @@ def test_saved_carry_inputs_reach_valuation_candidates_and_research_without_chan
         self_range_median={"pbr": 1.0},
         sector_median_gap={"per_forward": -0.5},
     )
-    estimate = estimate_expected_return(expected_return_inputs(financial, derived, close=100.0))
+    estimate = estimate_expected_return(expected_return_inputs(financial, derived))
     assert estimate is not None
     assert estimate.carry_annual == pytest.approx(carry)
     assert estimate.er_annual == pytest.approx(0.0375 + carry)
@@ -189,9 +189,7 @@ def test_saved_carry_inputs_reach_valuation_candidates_and_research_without_chan
         "1234",
         per_forward=financial.per_forward,
         pbr=financial.pbr,
-        metrics=build_stock_analysis_metrics(
-            financial, derived=derived, estimate=estimate
-        ),
+        metrics=build_stock_analysis_metrics(financial, derived=derived, estimate=estimate),
     )
     path = tmp_path / "runs.sqlite"
     ScreeningRunStore(path).publish_run(

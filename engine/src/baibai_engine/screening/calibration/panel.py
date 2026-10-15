@@ -430,20 +430,12 @@ def build_panel(
         required_jpx_flags=rules.universe.required_jpx_flags,
     )
 
-    latest_close_by_ticker = {
-        ticker: financial.market_price_yen
-        for ticker, financial in metric_result.financials.items()
-        if financial.market_price_yen is not None
-    }
-
     rows: list[PanelRow] = []
     for ticker in sorted(universe_result.snapshots):
         financial = metric_result.financials[ticker]
         derived = metric_result.derived[ticker]
         snapshot = universe_result.snapshots[ticker]
-        estimate = estimate_expected_return(
-            expected_return_inputs(financial, derived, close=latest_close_by_ticker.get(ticker))
-        )
+        estimate = estimate_expected_return(expected_return_inputs(financial, derived))
         return_change = build_shareholder_return_change_signals(
             history_summaries_by_ticker.get(ticker, ()),
             normalized_profit_split_bars_by_ticker.get(ticker, ()),
@@ -468,7 +460,7 @@ def build_panel(
                 ),
                 avg_turnover_oku=snapshot.avg_turnover_oku,
                 listing_span_days=snapshot.listing_span_days,
-                close=latest_close_by_ticker.get(ticker),
+                close=financial.market_price_yen,
                 per_forward=financial.per_forward,
                 per_trailing=financial.per_trailing,
                 pbr=financial.pbr,

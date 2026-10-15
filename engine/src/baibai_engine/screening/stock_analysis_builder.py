@@ -83,9 +83,7 @@ def build_stock_analysis(
         metrics=build_stock_analysis_metrics(
             financial,
             derived=derived,
-            estimate=estimate_expected_return(
-                expected_return_inputs(financial, derived, close=_close_from_snapshot(financial))
-            ),
+            estimate=estimate_expected_return(expected_return_inputs(financial, derived)),
             normalized_per_3fy=normalized_per_3fy,
             earnings_lag=earnings_lag,
             valuation_catalyst_context=valuation_catalyst_context,
@@ -242,16 +240,12 @@ def build_stock_analysis_metrics(
     }
 
 
-def _close_from_snapshot(financial: FinancialSnapshot) -> float | None:
-    return financial.market_price_yen
-
-
 def _date_iso(value: date | None) -> str | None:
     return value.isoformat() if value is not None else None
 
 
 def expected_return_inputs(
-    financial: FinancialSnapshot, derived: DerivedMetrics, *, close: float | None
+    financial: FinancialSnapshot, derived: DerivedMetrics
 ) -> ExpectedReturnInputs:
     """Screening の大きな snapshot から Valuation の計算入力へ変換する。"""
     return ExpectedReturnInputs(
@@ -264,5 +258,5 @@ def expected_return_inputs(
         net_share_change_yoy=financial.net_share_change_yoy,
         dividend_basis_resolved=financial.dividend_basis
         not in {UNRESOLVED_DIVIDEND_BASIS, UNRESOLVED_ACTUAL_DIVIDEND_BASIS},
-        close=close,
+        close=financial.market_price_yen,
     )
