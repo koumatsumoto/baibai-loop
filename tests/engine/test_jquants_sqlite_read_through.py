@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -949,7 +950,7 @@ def test_later_financial_http_failure_retains_validated_earlier_chunk(tmp_path: 
             self.calls.append(params)
             if len(self.calls) == 2:
                 raise ValueError("injected nonretryable HTTP failure")
-            return [{"Code": "23310", "DisclosedDate": str(params["start_dt"]), "FEPS": 10.0}]
+            return [{"Code": "23310", "DiscDate": str(params["start_dt"]), "FEPS": 10.0}]
 
     client = FailingSecondChunkClient()
     database = tmp_path / "market.sqlite"
@@ -960,9 +961,16 @@ def test_later_financial_http_failure_retains_validated_earlier_chunk(tmp_path: 
             date(2026, 7, 1), date(2026, 8, 31), revision_overlap_days=7
         )
     with closing(sqlite3.connect(database)) as connection:
-        assert connection.execute(
-            "SELECT ticker, disclosed_at, forecast_eps FROM jquants_fin_summaries"
-        ).fetchall() == [("2331", "2026-07-01", 10.0)]
+        rows = connection.execute(
+            "SELECT ticker, disclosed_at, document_payload FROM jquants_fin_summaries"
+        ).fetchall()
+        assert len(rows) == 1
+        assert rows[0][:2] == ("2331", "2026-07-01")
+        assert json.loads(rows[0][2]) == {
+            "Code": "23310",
+            "DiscDate": "2026-07-01",
+            "FEPS": 10.0,
+        }
         assert connection.execute(
             "SELECT coverage_start, coverage_end, status, record_count FROM source_coverage"
         ).fetchall() == [("2026-07-01", "2026-07-31", "ok", 1)]
