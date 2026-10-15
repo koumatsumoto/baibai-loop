@@ -200,9 +200,7 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
                     }
                 )
                 with self.assertRaisesRegex(IndicatorsProviderError, "lengths differ"):
-                    parse_yahoo_chart(
-                        series, text, start=date(2026, 5, 1), end=date(2026, 5, 2)
-                    )
+                    parse_yahoo_chart(series, text, start=date(2026, 5, 1), end=date(2026, 5, 2))
 
     def test_parse_yahoo_chart_rejects_error_payload(self) -> None:
         series = _series("yahoo", "BADSYM", unit="index")
