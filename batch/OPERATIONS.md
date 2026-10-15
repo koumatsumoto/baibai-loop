@@ -568,8 +568,7 @@ market schema31→32 / financial-v1→v2 は切替済みであり、通常運用
 旧 source31 や過去の stage を現在の store へ再投入しない。今後の修正は上の「schema cutoverを修正するとき」に従う。
 
 schema の切替確認と #1520 全体の受入完了は別である。財務文書の内容・評価入力の検証は個別に確認する。
-残存する temporary tool と専用テストは整理対象だが、通常の R2 部分 push 復旧を検証するテストも同居しているため、
-その回帰検証を現行 schema のテストへ分離してから撤去する。
+旧 one-shot tool は撤去済み。通常の R2 部分 push 復旧の回帰検証は現行 schema のテストで継続する。
 
 ## Read modelの生成 — baibai_web.materialize
 
