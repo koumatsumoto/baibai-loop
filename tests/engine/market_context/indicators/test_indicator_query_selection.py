@@ -63,3 +63,61 @@ def test_fetch_cache_latest_and_rebuild_share_publication_vintage_selection(
         assert db.latest_observation(connection, definition.series_id) == future
         counts = connection.execute("SELECT record_count FROM provider_runs").fetchall()
         assert [row[0] for row in counts] == [2, 2, 2]
+
+
+def test_refresh_failure_after_inserting_values_rolls_back_the_whole_update(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "indicators.sqlite"
+    definition = load_definitions().by_id()["us.10y"]
+    day = date(2026, 7, 15)
+    old = observation(definition, day, 1.0, datetime(2026, 7, 15, tzinfo=UTC))
+    new = observation(definition, day, 2.0, datetime(2026, 7, 16, tzinfo=UTC))
+    with closing(db.initialize_database(path)) as connection:
+        db.insert_observations(connection, [old])
+        connection.commit()
+
+    record_run = db.record_provider_run
+
+    def fail_success_record(connection, **kwargs):
+        if kwargs["status"] == "ok":
+            raise RuntimeError("cannot record successful refresh")
+        return record_run(connection, **kwargs)
+
+    monkeypatch.setattr(service, "_fetch_observations_with_retry", lambda *args, **kwargs: [new])
+    monkeypatch.setattr(db, "record_provider_run", fail_success_record)
+    with pytest.raises(RuntimeError, match="cannot record successful refresh"):
+        service.IndicatorsService(path).get_range(
+            definition.series_id, start=day, end=day, refresh=True
+        )
+    with closing(db.open_read_only_connection(path)) as connection:
+        assert db.observations_in_range(connection, definition.series_id, day, day) == (old,)
+        assert connection.execute("SELECT COUNT(*) FROM observations").fetchone()[0] == 1
+        run = connection.execute("SELECT status, record_count FROM provider_runs").fetchone()
+        assert tuple(run) == ("failed", 0)
+
+
+def test_retraction_failure_after_rewrite_does_not_commit_a_partial_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "indicators.sqlite"
+    definition = load_definitions().by_id()["jp.bankruptcies"]
+    day = date(2026, 6, 1)
+    vintage = datetime(2026, 7, 10, tzinfo=UTC)
+    original = observation(definition, day, 1000.0, vintage)
+    with closing(db.initialize_database(path)) as connection:
+        db.insert_observations(connection, [original])
+        connection.commit()
+
+    retract = db.retract_observations
+
+    def fail_after_rewrite(connection, *args, **kwargs):
+        retract(connection, *args, **kwargs)
+        raise RuntimeError("retraction interrupted after rewrite")
+
+    monkeypatch.setattr(db, "retract_observations", fail_after_rewrite)
+    with pytest.raises(RuntimeError, match="retraction interrupted"):
+        service.IndicatorsService(path).retract(definition.series_id, [(day, vintage)])
+    with closing(db.open_read_only_connection(path)) as connection:
+        assert db.observations_in_range(connection, definition.series_id, day, day) == (original,)
+        assert connection.execute("SELECT COUNT(*) FROM observations").fetchone()[0] == 1

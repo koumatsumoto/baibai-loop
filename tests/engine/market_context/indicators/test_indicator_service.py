@@ -651,7 +651,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 ).fetchall()
             finally:
                 conn.close()
-            # The revision keeps both vintages; point-in-time read returns the latest.
+            # Both acquisition vintages remain stored; this source reads the latest history.
             self.assertEqual(
                 [(row["value"], row["vintage_at"]) for row in rows],
                 [

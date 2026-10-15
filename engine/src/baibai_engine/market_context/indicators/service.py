@@ -126,6 +126,7 @@ class IndicatorsService:
             raise KeyError(f"unknown indicator series: {series_id}")
         conn = db.open_connection(self.db_path, definitions=definitions)
         try:
+            conn.execute("BEGIN IMMEDIATE")
             _require_no_stale_derived_dependents(conn, series_id, targets)
             retractions = db.retract_observations(
                 conn,
@@ -345,6 +346,9 @@ class IndicatorsService:
             _reject_observation_identity(series, observations)
             _reject_non_finite(series, observations)
             _reject_outside_plausible_range(series, observations)
+            # Own the outer transaction: insert_observations uses a savepoint,
+            # whose RELEASE would otherwise commit before the run record is written.
+            conn.execute("BEGIN IMMEDIATE")
             if range_replacement == "all_vintages":
                 _require_complete_replacement(
                     conn,
