@@ -363,7 +363,7 @@ class IndicatorsRegistryTests(unittest.TestCase):
                 self.assertGreaterEqual(int(metadata_column), 1)
                 self.assertTrue(expected_metadata.strip())
 
-    def test_derived_formula_and_registry_plausible_ranges_do_not_drift(self) -> None:
+    def test_derived_formulas_match_registry_membership_units_and_inputs(self) -> None:
         registry = load_definitions().by_id()
 
         self.assertEqual(
@@ -372,10 +372,8 @@ class IndicatorsRegistryTests(unittest.TestCase):
         for series_id, formula in FORMULAS.items():
             with self.subTest(series_id=series_id):
                 series = registry[series_id]
-                self.assertEqual(
-                    (formula.plausible_min, formula.plausible_max),
-                    (series.plausible_min, series.plausible_max),
-                )
+                self.assertEqual(formula.unit, series.unit)
+                self.assertTrue(set(formula.inputs) <= registry.keys())
 
 
 def test_catalog_never_opens_a_store(tmp_path, monkeypatch, capsys):
