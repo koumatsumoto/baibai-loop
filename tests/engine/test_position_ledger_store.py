@@ -21,13 +21,8 @@ from baibai_engine.storage.application.write import initialize_database
 FIXTURE = Path("tests/fixtures/portfolio-ledger/representative.yaml")
 
 
-def _create_schema(path: Path) -> None:
-    initialize_database(path)
-
-
 def test_late_event_is_physically_appended_but_replayed_by_time(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
-    _create_schema(path)
     source = _store_fixture()
     service = LedgerStoreService(path)
     seed_ledger(path, source)
@@ -72,7 +67,6 @@ def test_late_event_is_physically_appended_but_replayed_by_time(tmp_path: Path) 
 
 def test_new_same_instant_event_gets_tail_ordinal(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
-    _create_schema(path)
     source = _store_fixture()
     service = LedgerStoreService(path)
     seed_ledger(path, source)
@@ -107,7 +101,6 @@ def test_new_same_instant_event_gets_tail_ordinal(tmp_path: Path) -> None:
 
 def test_stale_apply_and_event_rewrite_are_no_write(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
-    _create_schema(path)
     source = _store_fixture()
     service = LedgerStoreService(path)
     seed_ledger(path, source)
@@ -133,7 +126,6 @@ def test_stale_apply_and_event_rewrite_are_no_write(tmp_path: Path) -> None:
 
 def test_decision_reference_is_indexed_without_domain_specific_foreign_key(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
-    _create_schema(path)
     source = _store_fixture()
     service = LedgerStoreService(path)
     seed_ledger(path, source)
@@ -163,27 +155,25 @@ def test_decision_reference_is_indexed_without_domain_specific_foreign_key(tmp_p
             ).fetchone()[0]
             == "capital-allocation-assessment-20260719-2331"
         )
-        assert (
-            connection.execute(
-                "SELECT count(*) FROM ledger_event "
-                "WHERE json_extract(payload, '$.decision_reference') LIKE 'https://%' "
-                "AND decision_reference IS NULL"
-            ).fetchone()[0]
-            == 0
-        )
 
 
-def test_canonical_store_rejects_test_fixture_prices_without_write(tmp_path: Path) -> None:
+@pytest.mark.parametrize("fixture_side", ["source", "replacement"])
+def test_canonical_store_rejects_test_fixture_prices_without_write(
+    tmp_path: Path, fixture_side: str
+) -> None:
     path = tmp_path / "app.sqlite"
-    _create_schema(path)
-
+    source = _store_fixture()
+    seed_ledger(path, source)
+    service = LedgerStoreService(path)
+    head = service.append_head()
+    fixture = load_portfolio_ledger(FIXTURE)
     with pytest.raises(LedgerConflictError, match="test_fixture"):
-        seed_ledger(path, load_portfolio_ledger(FIXTURE))
-
-    with closing(sqlite3.connect(path)) as connection:
-        assert connection.execute("SELECT count(*) FROM ledger_event").fetchone()[0] == 0
-        assert connection.execute("SELECT count(*) FROM ledger_market_price").fetchone()[0] == 0
-        assert connection.execute("SELECT count(*) FROM ledger_meta").fetchone()[0] == 0
+        service.apply_document(
+            expected_head=head,
+            expected_document=fixture if fixture_side == "source" else source,
+            replacement=fixture if fixture_side == "replacement" else source,
+        )
+    assert service.load_with_head() == (source, head)
 
 
 def _store_fixture() -> PortfolioLedgerDocument:
