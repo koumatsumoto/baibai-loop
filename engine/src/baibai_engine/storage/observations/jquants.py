@@ -48,8 +48,9 @@ def store_jquants_daily_bars(
                 """
                 INSERT OR REPLACE INTO jquants_daily_bars(
                   ticker, traded_at, open, high, low, close, volume, turnover_value,
-                  adjustment_factor, upper_limit, lower_limit, ex_right_type
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  adjustment_factor, upper_limit, lower_limit, ex_right_type,
+                  market_cap_million_yen
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 rows,
             )
@@ -143,6 +144,7 @@ def _bars_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> NormalizedR
                 to_str_or_none(first(record, "UpperLimit", "upper_limit", "UL")),
                 to_str_or_none(first(record, "LowerLimit", "lower_limit", "LL")),
                 normalize_ex_right_type(record.get("ExRT")),
+                to_float(record.get("MktCap")),
             )
         )
     return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)

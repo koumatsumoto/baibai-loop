@@ -157,6 +157,8 @@ JQUANTS_DAILY_BARS = LakeDataset(
         LakeColumn("upper_limit", "TEXT", _TEXT, True),
         LakeColumn("lower_limit", "TEXT", _TEXT, True),
         LakeColumn("ex_right_type", "TEXT", _TEXT, True),
+        # Provider MktCap, in million yen; not recomputed from price and shares.
+        LakeColumn("market_cap_million_yen", "REAL", _REAL, True),
     ),
 )
 

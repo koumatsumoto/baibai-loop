@@ -92,6 +92,7 @@ CREATE TABLE IF NOT EXISTS jquants_daily_bars(
   upper_limit TEXT,
   lower_limit TEXT,
   ex_right_type TEXT,
+  market_cap_million_yen REAL,
   PRIMARY KEY (ticker, traded_at)
 );
 
