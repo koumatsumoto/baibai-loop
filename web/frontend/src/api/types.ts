@@ -884,7 +884,7 @@ export interface ReservationView {
   remaining_quantity: number
   price_guard_yen: string
   reserved_yen: number
-  expires_at: string
+  expires_at: string | null
   expiry_label: string | null
   route_label: string | null
 }

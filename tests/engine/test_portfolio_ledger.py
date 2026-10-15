@@ -164,14 +164,14 @@ def test_expired_reservation_requires_an_explicit_release() -> None:
         require_resolved_expiries(replay_events_through(document.events, document.as_of))
 
 
-def test_buy_execution_cannot_happen_at_expiry() -> None:
+def test_confirmed_buy_execution_is_not_rejected_by_order_expiry() -> None:
     raw = _raw()
     events = raw["events"]
     assert isinstance(events, list)
     events[3]["occurred_at"] = "2026-06-05T15:30:00+09:00"
 
-    with pytest.raises(PortfolioLedgerError, match="cannot occur at or after expires_at"):
-        portfolio_snapshot(_document(raw))
+    snapshot = portfolio_snapshot(_document(raw))
+    assert next(item for item in snapshot.holdings if item.ticker == "2331").quantity == 200
 
 
 def test_release_after_expiry_requires_expired_reason() -> None:

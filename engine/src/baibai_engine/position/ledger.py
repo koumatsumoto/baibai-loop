@@ -84,6 +84,29 @@ class _EventBase(BaseModel):
     def _parse_occurred_at(cls, value: object) -> datetime:
         return _datetime(value)
 
+    occurred_on: date | None = None
+
+    @field_validator("occurred_on", mode="before")
+    @classmethod
+    def _parse_occurred_on(cls, value: object) -> date | None:
+        if value is None or (isinstance(value, date) and not isinstance(value, datetime)):
+            return value
+        if isinstance(value, str):
+            try:
+                return date.fromisoformat(value)
+            except ValueError as error:
+                raise ValueError("occurred_on must be an ISO date") from error
+        raise ValueError("occurred_on must be an ISO date")
+
+    @model_validator(mode="after")
+    def _validate_date_only_event(self) -> _EventBase:
+        if (
+            self.occurred_on is not None
+            and self.occurred_at.astimezone(JST).date() != self.occurred_on
+        ):
+            raise ValueError("occurred_on must match the event replay date")
+        return self
+
 
 class OpeningBalanceEvent(_EventBase):
     type: Literal["opening_balance"]
@@ -111,7 +134,7 @@ class ReservationEvent(_EventBase):
     decision_reference: Annotated[str, Field(min_length=1)] | None = None
     quantity: Annotated[int, Field(gt=0)]
     price_guard_yen: Annotated[Decimal, Field(gt=0, decimal_places=4)]
-    expires_at: datetime
+    expires_at: datetime | None = None
     expiry_label: str | None = None
     route_label: str | None = None
 
@@ -122,8 +145,8 @@ class ReservationEvent(_EventBase):
 
     @field_validator("expires_at", mode="before")
     @classmethod
-    def _parse_expires_at(cls, value: object) -> datetime:
-        return _datetime(value)
+    def _parse_expires_at(cls, value: object) -> datetime | None:
+        return None if value is None else _datetime(value)
 
     @field_validator("price_guard_yen", mode="before")
     @classmethod
@@ -132,7 +155,7 @@ class ReservationEvent(_EventBase):
 
     @model_validator(mode="after")
     def _expiry_follows_reservation(self) -> ReservationEvent:
-        if self.expires_at <= self.occurred_at:
+        if self.expires_at is not None and self.expires_at <= self.occurred_at:
             raise ValueError("expires_at must be after occurred_at")
         if len(set(self.common_factors)) != len(self.common_factors):
             raise ValueError("common_factors must not contain duplicates")
@@ -157,33 +180,20 @@ class ExecutionEvent(_EventBase):
     quantity: Annotated[int, Field(gt=0)]
     price_yen: Annotated[Decimal, Field(gt=0, decimal_places=4)]
     decision_reference: Annotated[str, Field(min_length=1)] | None = None
-    occurred_on: date | None = None
+
+    sector: Annotated[str, Field(min_length=1)] | None = None
+    common_factors: tuple[Annotated[str, Field(min_length=1)], ...] = ()
+
+    @field_validator("common_factors", mode="before")
+    @classmethod
+    def _parse_common_factors(cls, value: object) -> object:
+        return _tuple(value)
 
     @field_validator("price_yen", mode="before")
     @classmethod
     def _parse_price(cls, value: object) -> Decimal:
         return _price(value)
 
-    @field_validator("occurred_on", mode="before")
-    @classmethod
-    def _parse_occurred_on(cls, value: object) -> date | None:
-        if value is None or (isinstance(value, date) and not isinstance(value, datetime)):
-            return value
-        if isinstance(value, str):
-            try:
-                return date.fromisoformat(value)
-            except ValueError as error:
-                raise ValueError("occurred_on must be an ISO date") from error
-        raise ValueError("occurred_on must be an ISO date")
-
-    @model_validator(mode="after")
-    def _validate_date_only_execution(self) -> ExecutionEvent:
-        if (
-            self.occurred_on is not None
-            and self.occurred_at.astimezone(JST).date() != self.occurred_on
-        ):
-            raise ValueError("occurred_on must match the execution replay date")
-        return self
 
 
 class IncomeEvent(_EventBase):
@@ -364,7 +374,7 @@ class ReservationSnapshot:
     remaining_quantity: int
     price_guard_yen: Decimal
     reserved_yen: int
-    expires_at: datetime
+    expires_at: datetime | None
     expiry_label: str | None
     route_label: str | None
 
@@ -416,7 +426,7 @@ class _Reservation:
     decision_reference: str | None
     remaining_quantity: int
     price_guard_yen: Decimal
-    expires_at: datetime
+    expires_at: datetime | None
     expiry_label: str | None
     route_label: str | None
 
@@ -576,11 +586,19 @@ def replay_events_through(
                     raise PortfolioLedgerError(
                         f"release references no active reservation: {event.reservation_id}"
                     )
-                if event.reason == "expired" and event.occurred_at < reservation.expires_at:
+                if (
+                    event.reason == "expired"
+                    and reservation.expires_at is not None
+                    and event.occurred_at < reservation.expires_at
+                ):
                     raise PortfolioLedgerError(
                         f"expired release predates expires_at: {event.reservation_id}"
                     )
-                if event.occurred_at >= reservation.expires_at and event.reason != "expired":
+                if (
+                    reservation.expires_at is not None
+                    and event.occurred_at >= reservation.expires_at
+                    and event.reason != "expired"
+                ):
                     raise PortfolioLedgerError(
                         "release at or after expires_at must use expired reason: "
                         f"{event.reservation_id}"
@@ -597,40 +615,43 @@ def replay_events_through(
             case ExecutionEvent(side="buy"):
                 if event.execution_id in seen_executions:
                     raise PortfolioLedgerError(f"execution_id already used: {event.execution_id}")
-                if event.reservation_id is None:
-                    raise PortfolioLedgerError("buy execution requires reservation_id")
                 if event.quantity % board_lot:
                     raise PortfolioLedgerError(
                         f"execution quantity must be a multiple of board_lot {board_lot}"
                     )
-                reservation = active.get(event.reservation_id)
-                if reservation is None:
-                    raise PortfolioLedgerError(
-                        f"buy references no active reservation: {event.reservation_id}"
-                    )
-                if reservation.side != "buy":
-                    raise PortfolioLedgerError("buy execution requires a buy reservation")
-                if event.ticker != reservation.ticker:
-                    raise PortfolioLedgerError("execution ticker must match reservation ticker")
-                if event.occurred_at >= reservation.expires_at:
-                    raise PortfolioLedgerError("buy execution cannot occur at or after expires_at")
-                if event.quantity > reservation.remaining_quantity:
-                    raise PortfolioLedgerError("execution quantity exceeds reserved quantity")
-                if event.price_yen > reservation.price_guard_yen:
-                    raise PortfolioLedgerError("execution price exceeds reservation price guard")
-                seen_executions.add(event.execution_id)
-                guarded = _yen_notional(
-                    event.quantity, reservation.price_guard_yen, field="filled guarded notional"
-                )
                 paid = _yen_notional(
                     event.quantity, event.price_yen, field="buy execution notional"
                 )
-                reserved_cash -= guarded
-                available_cash += guarded - paid
-                reservation.remaining_quantity -= event.quantity
+                if event.reservation_id is None:
+                    if any(item.ticker == event.ticker for item in active.values()):
+                        raise PortfolioLedgerError("buy execution must identify its active order")
+                    _require_cash(available_cash, paid, event.event_id)
+                    if event.sector is None:
+                        raise PortfolioLedgerError("unreserved buy execution requires sector")
+                    if not any(lot.quantity > 0 for lot in lots[event.ticker]):
+                        metadata.pop(event.ticker, None)
+                    _check_metadata(metadata, event.ticker, event.sector, event.common_factors)
+                    available_cash -= paid
+                else:
+                    reservation = active.get(event.reservation_id)
+                    if reservation is None or reservation.side != "buy":
+                        raise PortfolioLedgerError("buy execution requires an active buy order")
+                    if event.ticker != reservation.ticker:
+                        raise PortfolioLedgerError("execution ticker must match reservation ticker")
+                    if event.quantity > reservation.remaining_quantity:
+                        raise PortfolioLedgerError("execution quantity exceeds reserved quantity")
+                    if event.price_yen > reservation.price_guard_yen:
+                        raise PortfolioLedgerError("execution price exceeds reservation price guard")
+                    guarded = _yen_notional(
+                        event.quantity, reservation.price_guard_yen, field="filled guarded notional"
+                    )
+                    reserved_cash -= guarded
+                    available_cash += guarded - paid
+                    reservation.remaining_quantity -= event.quantity
+                    if reservation.remaining_quantity == 0:
+                        del active[event.reservation_id]
+                seen_executions.add(event.execution_id)
                 lots[event.ticker].append(_Lot(event.quantity, event.price_yen))
-                if reservation.remaining_quantity == 0:
-                    del active[event.reservation_id]
             case ExecutionEvent(side="sell"):
                 if event.execution_id in seen_executions:
                     raise PortfolioLedgerError(f"execution_id already used: {event.execution_id}")
@@ -646,10 +667,6 @@ def replay_events_through(
                         )
                     if event.quantity > reservation.remaining_quantity:
                         raise PortfolioLedgerError("sell execution exceeds ordered quantity")
-                    if event.occurred_at >= reservation.expires_at:
-                        raise PortfolioLedgerError(
-                            "sell execution cannot occur at or after expires_at"
-                        )
                     if event.price_yen < reservation.price_guard_yen:
                         raise PortfolioLedgerError("sell execution below limit price")
                 if event.quantity % board_lot:
@@ -719,7 +736,7 @@ def require_resolved_expiries(state: ReplayedPortfolioState) -> None:
     expired = sorted(
         item.reservation_id
         for item in state.active_reservations.values()
-        if item.expires_at <= state.as_of
+        if item.expires_at is not None and item.expires_at <= state.as_of
     )
     if expired:
         raise PortfolioLedgerError(f"expired reservations require an explicit release: {expired}")
@@ -899,7 +916,11 @@ def snapshot_to_payload(snapshot: PortfolioSnapshot) -> dict[str, object]:
                 "remaining_quantity": reservation.remaining_quantity,
                 "price_guard_yen": _price_payload(reservation.price_guard_yen),
                 "reserved_yen": reservation.reserved_yen,
-                "expires_at": reservation.expires_at.isoformat(),
+                "expires_at": (
+                    reservation.expires_at.isoformat()
+                    if reservation.expires_at is not None
+                    else None
+                ),
                 "expiry_label": reservation.expiry_label,
                 "route_label": reservation.route_label,
             }

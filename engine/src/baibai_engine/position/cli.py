@@ -144,7 +144,7 @@ def build_parser() -> argparse.ArgumentParser:
     broker_occurrence.add_argument(
         "--occurred-on",
         type=_date_argument,
-        help="fill date only; an identical unkeyed same-day report is a retry",
+        help="reported date; no exact order or execution time is required",
     )
     broker_fact_parser.add_argument("--ticker")
     broker_fact_parser.add_argument("--quantity", type=int)
@@ -165,7 +165,6 @@ def build_parser() -> argparse.ArgumentParser:
     broker_fact_parser.add_argument("--expires-at", type=_datetime_argument)
     broker_fact_parser.add_argument("--expiry-label")
     broker_fact_parser.add_argument("--route-label")
-    broker_fact_parser.add_argument("--ordered-at", type=_datetime_argument)
     broker_fact_parser.add_argument("--out", type=Path, required=True)
     sell_parser = subparsers.add_parser(
         "sell-execution-draft",
@@ -571,7 +570,6 @@ def _run_record_broker_fact(args: argparse.Namespace, *, now: datetime | None) -
             expires_at=args.expires_at,
             expiry_label=args.expiry_label,
             route_label=args.route_label,
-            ordered_at=args.ordered_at,
             now=now,
         )
         if draft is not None:

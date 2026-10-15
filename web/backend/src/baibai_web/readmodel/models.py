@@ -50,7 +50,7 @@ class ReservationView(BaseModel):
     remaining_quantity: int
     price_guard_yen: str
     reserved_yen: int
-    expires_at: datetime
+    expires_at: datetime | None
     expiry_label: str | None
     route_label: str | None
 

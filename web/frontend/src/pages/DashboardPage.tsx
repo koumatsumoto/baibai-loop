@@ -511,7 +511,7 @@ export function PendingOrdersCard({ reservations }: { reservations: ReservationV
           <span className="ml-2 text-xs text-muted-foreground">× {formatYen(Number(reservation.price_guard_yen))}</span>
         </TableCell>
         <TableCell className="text-right">{reservation.side === 'sell' ? '—' : <YenAmount className="font-medium" value={reservation.reserved_yen} />}</TableCell>
-        <TableCell className="pr-5 text-right sm:pr-6">{reservation.expiry_label ?? <AsOfBadge compact value={reservation.expires_at} />}</TableCell>
+        <TableCell className="pr-5 text-right sm:pr-6">{reservation.expiry_label ?? (reservation.expires_at ? <AsOfBadge compact value={reservation.expires_at} /> : '未指定')}</TableCell>
       </TableRow>)}</TableBody>
     </Table>
   </SectionCard>
