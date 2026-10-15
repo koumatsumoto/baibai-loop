@@ -248,3 +248,17 @@ def test_operation_lists_sort_by_instant_not_offset_text(tmp_path: Path) -> None
     assert [item["operation_id"] for item in list_operation_sessions(db)] == expected
     assert OperationService(db).list(status="active") == []
     assert list_operation_sessions(db, status="active") == []
+
+
+def test_operation_start_requires_the_explicit_payload_at_the_cli_boundary(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    db = tmp_path / "app.sqlite"
+    with pytest.raises(SystemExit) as error:
+        operation_main(
+            ["--db", str(db), "start", "--kind", "capital-allocation", "--as-of", "2026-07-19"],
+            now=NOW,
+        )
+    assert error.value.code == 2
+    assert "--payload" in capsys.readouterr().err
+    assert not db.exists()
