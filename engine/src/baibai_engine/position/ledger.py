@@ -646,16 +646,21 @@ def replay_events_through(
                     raise PortfolioLedgerError(
                         f"execution quantity must be a multiple of board_lot {board_lot}"
                     )
+                if event.reservation_id is None:
+                    pending = sum(
+                        item.remaining_quantity
+                        for item in active.values()
+                        if item.side == "sell" and item.ticker == event.ticker
+                    )
+                    held = sum(lot.quantity for lot in lots[event.ticker])
+                    if pending and event.quantity > held - pending:
+                        raise PortfolioLedgerError("sell execution exceeds uncommitted holding")
                 consumed_cost = _consume_fifo(lots[event.ticker], event.quantity, event.ticker)
                 if event.reservation_id is not None:
                     assert reservation is not None
                     reservation.remaining_quantity -= event.quantity
                     if reservation.remaining_quantity == 0:
                         del active[event.reservation_id]
-                elif any(
-                    item.side == "sell" and item.ticker == event.ticker for item in active.values()
-                ):
-                    raise PortfolioLedgerError("sell execution must identify its active order")
                 seen_executions.add(event.execution_id)
                 proceeds = _yen_notional(
                     event.quantity, event.price_yen, field="sell execution notional"

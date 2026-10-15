@@ -43,6 +43,8 @@ IDなしで記録した日付だけの買付報告を同じ内容で再送する
 
 ## Snapshotの式
 
+snapshotの`as_of`はreplay・評価の対象時点、`ledger_as_of`は保存台帳の記録基準である。市場quoteの観測時点はholdingごとに保持する。現在の再評価だけで台帳の記録基準や鮮度を更新しない。
+
 ```text
 cash_before_reservations =
     opening_balance
@@ -94,7 +96,7 @@ applyは1 transactionでsource head、event replay / payload、price/meta expect
 
 `broker-fact-draft`は人間の`open / filled / cancelled / expired`報告だけを入力にする。active reservationをIDなしで推定しない。partial fillはremainingがある間だけ後続broker factを受理する。full fill / cancel / expire後の完全一致broker fact reportはno-change、矛盾broker fact reportはhard errorとする。`expired`は人間が未約定での失効を確認した場合にreleaseを作る。期限が保存されている場合だけ、期限前の報告との矛盾を検証する。同時刻に複数reservationがterminalになる場合は`--reservation-id`の反復指定を1 transactionで検証・適用する。対象の一部が不正なら全件を拒否する。active reservationの後続broker factは同じ`decision_reference`、reservation ID、order IDへ束縛する。
 
-売付の`open`は`broker-fact-draft --side sell`で記録し、保有株数を超える重複注文を拒否する。売付の見込代金を現金へ加えず、対応する約定報告までlotを減らさない。
+売付の`open`は`broker-fact-draft --side sell`で記録し、保有株数を超える重複注文を拒否する。売付の見込代金を現金へ加えず、対応する約定報告までlotを減らさない。別の売付注文があっても、他注文へ拘束されていない保有株数の範囲なら独立した実売却を記録できる。その約定を既存注文へ推定対応付けたり、その注文の残数を減らしたりしない。拘束済み株数も売った報告は、対応する注文IDまたは取消事実を明示する。
 注文は`--occurred-on`で日付だけを記録できる。期限は任意で、未指定でも注文・約定の記録を妨げない。「今週中」などは`expiry_label`に原文を保存できるが、正確な期限への変換や追加確認を要求しない。既知の`expires_at`は排他的な期間終端として扱う。注文画面の市場・SOR等は`route_label`に原文を残し、約定した実市場とみなさない。broker固有の正確な失効時刻を意味しない。
 
 <a id="historical-outcome"></a>

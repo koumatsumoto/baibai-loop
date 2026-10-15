@@ -656,3 +656,70 @@ def test_override_approval_cannot_be_in_the_future() -> None:
 
     with pytest.raises(ValueError, match="override approval cannot occur after as_of"):
         _document(raw)
+
+
+@pytest.mark.parametrize("quantity", [100, 200])
+def test_independent_sell_preserves_stock_committed_to_another_order(quantity) -> None:
+    raw = _raw()
+    raw["as_of"] = "2026-07-12T12:00:00+09:00"
+    events = raw["events"]
+    assert isinstance(events, list)
+    events.extend(
+        [
+            {
+                "event_id": "separate-sell-order",
+                "type": "reservation",
+                "occurred_at": "2026-07-12T09:00:00+09:00",
+                "reservation_id": "separate-sell-order",
+                "order_id": "separate-sell-order",
+                "side": "sell",
+                "ticker": "2331",
+                "sector": "サービス業",
+                "common_factors": ["labor-automation"],
+                "quantity": 100,
+                "price_guard_yen": 1200,
+            },
+            {
+                "event_id": "independent-sell",
+                "execution_id": "independent-sell",
+                "type": "execution",
+                "occurred_at": "2026-07-12T10:00:00+09:00",
+                "ticker": "2331",
+                "side": "sell",
+                "quantity": quantity,
+                "price_yen": 1100,
+            },
+        ]
+    )
+    document = _document(raw)
+    if quantity == 200:
+        with pytest.raises(PortfolioLedgerError, match="exceeds uncommitted holding"):
+            replay_events_through(document.events, document.as_of)
+        return
+    state = replay_events_through(document.events, document.as_of)
+    assert sum(lot.quantity for lot in state.lots["2331"]) == 100
+    assert state.active_reservations["separate-sell-order"].remaining_quantity == 100
+    assert state.available_cash_yen == 10_190_500
+    assert state.realized_gross_pnl_yen == 6_000
+    # The unrelated order's limit and identity are not attached to this fill.
+    assert state.active_reservations["separate-sell-order"].price_guard_yen == 1200
+    events.append(
+        {
+            "event_id": "reserved-sell-fill",
+            "execution_id": "reserved-sell-fill",
+            "reservation_id": "separate-sell-order",
+            "type": "execution",
+            "occurred_at": "2026-07-12T11:00:00+09:00",
+            "ticker": "2331",
+            "side": "sell",
+            "quantity": 100,
+            "price_yen": 1200,
+        }
+    )
+    completed = _document(raw)
+    final = replay_events_through(completed.events, completed.as_of)
+    assert final.lots["2331"] == []
+    assert "separate-sell-order" not in final.active_reservations
+    assert final.available_cash_yen == 10_310_500
+    assert final.reserved_cash_yen == 119_000
+    assert final.realized_gross_pnl_yen == 27_000
