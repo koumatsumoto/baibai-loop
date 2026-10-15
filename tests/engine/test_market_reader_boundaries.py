@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from baibai_engine.market.jquants_decode import JQuantsProviderError
+from baibai_engine.market.store import read_daily_bars, read_daily_bars_for_tickers
 from baibai_engine.screening.calibration.grid import days_with_bars, month_end_asof_grid
 from baibai_engine.screening.calibration.panel import _coverage_floors
 from baibai_engine.screening.sqlite_coverage.required_fields import (
@@ -71,3 +73,35 @@ def test_field_coverage_query_failure_is_not_reported_as_missing(tmp_path: Path,
     with pytest.raises(sqlite3.OperationalError, match="no such table"):
         reader(path, start=date(2026, 1, 1), asof=date(2026, 2, 2))
     assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("scoped", [False, True])
+@pytest.mark.parametrize("corrupt", [False, True])
+def test_bar_readers_share_decoding_and_corrupt_row_behavior(tmp_path, scoped, corrupt):
+    path = tmp_path / "market.sqlite"
+    day = date(2026, 1, 30)
+    with closing(open_connection(path)) as conn, conn:
+        conn.executemany(
+            "INSERT INTO jquants_daily_bars(ticker, traded_at, close, volume) VALUES (?, ?, ?, ?)",
+            [
+                ("1301", day.isoformat(), "broken" if corrupt else 101.0, 10.0),
+                ("1302", day.isoformat(), 202.0, 20.0),
+                ("1303", day.isoformat(), None, 30.0),
+            ],
+        )
+
+    def read():
+        if scoped:
+            return read_daily_bars_for_tickers(path, ("1301",), day, day)
+        return read_daily_bars(path, day, day)
+
+    if corrupt:
+        with pytest.raises(JQuantsProviderError, match="corrupt SQLite row"):
+            read()
+    else:
+        rows = read()
+        assert rows is not None
+        expected = [("1301", 101.0, 10.0)]
+        if not scoped:
+            expected.append(("1302", 202.0, 20.0))
+        assert [(row.ticker, row.close, row.volume) for row in rows] == expected

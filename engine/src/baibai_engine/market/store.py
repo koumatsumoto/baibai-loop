@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 from baibai_engine.market.bars import (
     JQuantsAdjustmentFactorEvent,
@@ -39,35 +41,7 @@ def read_daily_bars(sqlite_path: Path, start: date, end: date) -> list[JQuantsDa
     finally:
         conn.close()
 
-    bars: list[JQuantsDailyBar] = []
-    for (
-        ticker,
-        traded_at,
-        close,
-        turnover_value,
-        volume,
-        adjustment_close,
-        adjustment_factor,
-    ) in rows:
-        if close is None or traded_at is None:
-            continue
-        try:
-            bars.append(
-                JQuantsDailyBar(
-                    ticker=str(ticker),
-                    traded_at=date.fromisoformat(traded_at),
-                    close=float(close),
-                    turnover_value=optional_float(turnover_value),
-                    volume=optional_float(volume),
-                    adjustment_close=optional_float(adjustment_close),
-                    adjustment_factor=optional_float(adjustment_factor),
-                )
-            )
-        except (TypeError, ValueError) as exc:
-            raise JQuantsProviderError(
-                f"corrupt SQLite row in jquants_daily_bars for {ticker} on {traded_at}: {exc}"
-            ) from exc
-    return bars
+    return _daily_bars_from_rows(rows)
 
 
 def daily_bars_covered(sqlite_path: Path, start: date, end: date) -> bool:
@@ -193,35 +167,7 @@ def read_daily_bars_for_tickers(
         ).fetchall()
     finally:
         conn.close()
-    bars: list[JQuantsDailyBar] = []
-    for (
-        ticker,
-        traded_at,
-        close,
-        turnover_value,
-        volume,
-        adjustment_close,
-        adjustment_factor,
-    ) in rows:
-        if close is None or traded_at is None:
-            continue
-        try:
-            bars.append(
-                JQuantsDailyBar(
-                    ticker=str(ticker),
-                    traded_at=date.fromisoformat(traded_at),
-                    close=float(close),
-                    turnover_value=optional_float(turnover_value),
-                    volume=optional_float(volume),
-                    adjustment_close=optional_float(adjustment_close),
-                    adjustment_factor=optional_float(adjustment_factor),
-                )
-            )
-        except (TypeError, ValueError) as exc:
-            raise JQuantsProviderError(
-                f"corrupt SQLite row in jquants_daily_bars for {ticker} on {traded_at}: {exc}"
-            ) from exc
-    return bars
+    return _daily_bars_from_rows(rows)
 
 
 def latest_stored_daily_bar_date(sqlite_path: Path) -> date | None:
@@ -302,3 +248,36 @@ def read_market_calendar(
         JQuantsMarketCalendarDay(day=date.fromisoformat(day), is_business_day=bool(flag))
         for day, flag in rows
     ]
+
+
+def _daily_bars_from_rows(rows: Iterable[tuple[Any, ...]]) -> list[JQuantsDailyBar]:
+    """Decode the same selected columns for full-universe and scoped reads."""
+    bars: list[JQuantsDailyBar] = []
+    for (
+        ticker,
+        traded_at,
+        close,
+        turnover_value,
+        volume,
+        adjustment_close,
+        adjustment_factor,
+    ) in rows:
+        if close is None or traded_at is None:
+            continue
+        try:
+            bars.append(
+                JQuantsDailyBar(
+                    ticker=str(ticker),
+                    traded_at=date.fromisoformat(traded_at),
+                    close=float(close),
+                    turnover_value=optional_float(turnover_value),
+                    volume=optional_float(volume),
+                    adjustment_close=optional_float(adjustment_close),
+                    adjustment_factor=optional_float(adjustment_factor),
+                )
+            )
+        except (TypeError, ValueError) as exc:
+            raise JQuantsProviderError(
+                f"corrupt SQLite row in jquants_daily_bars for {ticker} on {traded_at}: {exc}"
+            ) from exc
+    return bars
