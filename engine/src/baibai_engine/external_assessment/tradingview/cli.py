@@ -85,7 +85,6 @@ async def snapshot(
     interval: float,
     progress_output: Path | None = None,
     *,
-    batch_size: int = 50,
     master_asof: date | None = None,
 ) -> dict[str, object]:
     output_enabled = progress_output is not None
@@ -116,7 +115,6 @@ async def snapshot(
                 day,
                 fetch,
                 interval=interval,
-                batch_size=batch_size,
                 progress=progress,
                 master_asof=master_asof,
             )
@@ -192,8 +190,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="assert the calendar-required saved master date; never bypass observation hours",
     )
     refresh.add_argument("--progress-output", type=Path)
-    refresh.add_argument("--interval", type=float, default=15.0)
-    refresh.add_argument("--batch-size", type=int, choices=range(1, 51), default=50)
+    refresh.add_argument("--interval", type=float, default=15.0, help="request interval, 15..3600 seconds")
     accepted = sub.add_parser(
         "accept-observations", help="accept hash-pinned saved responses without provider access"
     )
@@ -231,8 +228,8 @@ def main(argv: list[str] | None = None, /) -> int:
                 return 0
             if day != now.astimezone(JST).date():
                 raise TimeGuardError("Snapshots require today's observation; backfill is forbidden")
-            if args.batch_size != 50 or not 15 <= args.interval <= 3600:
-                raise TimeGuardError("Observations require 50 symbols and interval >=15")
+            if not 15 <= args.interval <= 3600:
+                raise TimeGuardError("Observation interval must be between 15 and 3600 seconds")
             if args.master_asof is not None:
                 preflight = preflight_snapshot(
                     args.sqlite, day, master_asof=args.master_asof, now=now
@@ -253,7 +250,6 @@ def main(argv: list[str] | None = None, /) -> int:
                     day,
                     args.interval,
                     args.progress_output,
-                    batch_size=args.batch_size,
                     master_asof=args.master_asof,
                 )
             )

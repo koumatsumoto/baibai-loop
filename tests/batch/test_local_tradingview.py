@@ -108,14 +108,14 @@ def test_local_partial_with_existing_master_publishes_without_master_fetch(runti
     state, calls, settings = runtime
     settings["preflight"] = {"status": "needs_fetch", "needs_master": False, "rows": 2}
     settings["refresh"] = "partial"
-    assert runner.main(["--state-file", str(state), "--batch-size", "50", "--interval", "15"]) == 0
+    assert runner.main(["--state-file", str(state), "--interval", "15"]) == 0
     assert "master" not in calls
     assert calls[-3:] == ["refresh", "publish-lake", "release"]
 
 
 def test_local_invalid_pacing_stops_before_cloud_operations(runtime):
     state, calls, _ = runtime
-    assert runner.main(["--state-file", str(state), "--batch-size", "2", "--interval", "3"]) == 1
+    assert runner.main(["--state-file", str(state), "--interval", "3"]) == 1
     assert calls == []
 
 
@@ -355,3 +355,11 @@ def test_timeout_reports_safe_progress_before_release_and_removes_file(
     assert not progress_path.exists()
     assert not settings["handle"].parent.exists()
     assert "category=timeout" in capsys.readouterr().err
+
+
+def test_batch_size_is_not_a_configurable_operational_option(runtime):
+    state, calls, _ = runtime
+    with pytest.raises(SystemExit) as error:
+        runner.main(["--state-file", str(state), "--batch-size", "50"])
+    assert error.value.code == 2
+    assert calls == []

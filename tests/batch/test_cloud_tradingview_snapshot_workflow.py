@@ -23,7 +23,6 @@ def test_metadata_order_and_exclusive_writer():
         "37 0,4,8 * * 0,6",
     ]
     assert set(data["on"]["workflow_dispatch"]["inputs"]) == {
-        "batch_size",
         "interval",
         "observation_master_asof",
         "observations_json",
@@ -234,19 +233,18 @@ def test_gates_secret_scopes_and_durability():
 
 
 @pytest.mark.parametrize(
-    ("basis", "event", "batch", "interval", "valid", "eligible"),
+    ("basis", "event", "interval", "valid", "eligible"),
     [
-        ("", "workflow_dispatch", "50", "15", True, "true"),
-        ("", "schedule", "", "", True, "true"),
-        ("2026-10-09", "workflow_dispatch", "50", "15", True, "true"),
-        ("2026-10-12", "workflow_dispatch", "50", "15", False, None),
-        ("2026-10-09", "schedule", "50", "15", False, None),
-        ("2026-10-09", "workflow_dispatch", "49", "15", False, None),
-        ("2026-10-09", "workflow_dispatch", "50", "14", False, None),
+        ("", "workflow_dispatch", "15", True, "true"),
+        ("", "schedule", "", True, "true"),
+        ("2026-10-09", "workflow_dispatch", "15", True, "true"),
+        ("2026-10-12", "workflow_dispatch", "15", False, None),
+        ("2026-10-09", "schedule", "15", False, None),
+        ("2026-10-09", "workflow_dispatch", "14", False, None),
     ],
 )
 def test_actual_target_script_keeps_normal_guard_and_validates_manual_observation_before_lease(
-    tmp_path, monkeypatch, basis, event, batch, interval, valid, eligible
+    tmp_path, monkeypatch, basis, event, interval, valid, eligible
 ):
     step = next(s for s in workflow()["jobs"]["snapshot"]["steps"] if s.get("id") == "target")
     code = step["run"].split("<<'PYTARGET'\n", 1)[1].rsplit("\nPYTARGET", 1)[0]
@@ -263,7 +261,6 @@ def test_actual_target_script_keeps_normal_guard_and_validates_manual_observatio
         "EVENT_NAME": event,
         "EVENT_SCHEDULE": "37 6,8,10,12,14 * * 1-5",
         "OBSERVATION_MASTER_ASOF": basis,
-        "BATCH_SIZE": batch,
         "INTERVAL": interval,
     }.items():
         monkeypatch.setenv(key, value)
@@ -310,7 +307,7 @@ def test_acquisition_shell_passes_explicit_master_without_changing_observation_d
     args = (tmp_path / "arguments").read_text().splitlines()
     assert args[args.index("--asof") + 1] == "2026-10-11"
     assert args[args.index("--master-asof") + 1] == "2026-10-09"
-    assert args[args.index("--batch-size") + 1] == "50"
+    assert "--batch-size" not in args
     assert args[args.index("--interval") + 1] == "15"
 
 

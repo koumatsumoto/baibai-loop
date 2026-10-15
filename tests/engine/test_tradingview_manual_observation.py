@@ -160,7 +160,6 @@ def test_manual_partial_preserves_commits_and_resumes_same_day(tmp_path, failure
         "future_master",
         "missing_master",
         "short_interval",
-        "small_batch",
     ],
 )
 def test_manual_cli_rejects_invalid_mode_before_oauth(tmp_path, monkeypatch, capsys, case):
@@ -186,8 +185,6 @@ def test_manual_cli_rejects_invalid_mode_before_oauth(tmp_path, monkeypatch, cap
         args[-1] = "2026-10-08"
     if case == "short_interval":
         args += ["--interval", "14"]
-    if case == "small_batch":
-        args += ["--batch-size", "49"]
     before = path.read_bytes()
     assert cli.main(args) == 1
     output = capsys.readouterr()
@@ -373,3 +370,10 @@ def test_business_day_manual_morning_does_not_block_post_close_collection(
         collect(path, day, fetch, master_asof=day, clock=lambda: morning + timedelta(hours=6))
     )
     assert result["status"] == "saved"
+
+
+def test_batch_size_option_is_removed_before_any_credential_access(monkeypatch):
+    monkeypatch.setattr(cli, "credential_storage", lambda *_: pytest.fail("must not read OAuth"))
+    with pytest.raises(SystemExit) as error:
+        cli.main(["refresh", "--batch-size", "50"])
+    assert error.value.code == 2

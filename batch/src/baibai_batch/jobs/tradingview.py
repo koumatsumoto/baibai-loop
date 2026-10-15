@@ -139,9 +139,9 @@ def preflight(day: date) -> dict[str, object]:
     return tradingview_preflight(ROOT / MARKET_DB_PATH, day, now=now)
 
 
-def run_local(state_file: Path, *, batch_size: int = 50, interval: float = 15.0) -> int:
-    if batch_size != 50 or not 15 <= interval <= 3600:
-        raise StageFailure("Observations require 50 symbols and interval >=15")
+def run_local(state_file: Path, *, interval: float = 15.0) -> int:
+    if not 15 <= interval <= 3600:
+        raise StageFailure("Observation interval must be between 15 and 3600 seconds")
     day, _, eligible, reason = resolve_tradingview_target(
         datetime.now(UTC), event_name="workflow_dispatch", schedule=""
     )
@@ -191,8 +191,6 @@ def run_local(state_file: Path, *, batch_size: int = 50, interval: float = 15.0)
                         day.isoformat(),
                         "--state-file",
                         str(state_file),
-                        "--batch-size",
-                        str(batch_size),
                         "--interval",
                         str(interval),
                         "--progress-output",
@@ -240,8 +238,7 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="independent local OAuth file outside this dedicated runtime checkout",
     )
-    parser.add_argument("--batch-size", type=int, choices=range(1, 51), default=50)
-    parser.add_argument("--interval", type=float, default=15.0)
+    parser.add_argument("--interval", type=float, default=15.0, help="request interval, 15..3600 seconds")
     return parser
 
 
@@ -253,7 +250,6 @@ def main(argv: list[str] | None = None) -> int:
             raise StageFailure("Run from the dedicated repository root")
         return run_local(
             args.state_file.expanduser().resolve(),
-            batch_size=args.batch_size,
             interval=args.interval,
         )
     except lease.LeaseError:

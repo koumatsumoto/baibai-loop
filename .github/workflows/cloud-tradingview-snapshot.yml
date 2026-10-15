@@ -7,12 +7,8 @@ on:
     - cron: "37 0,4,8 * * 0,6"
   workflow_dispatch:
     inputs:
-      batch_size:
-        description: "Symbols per request (must be 50)"
-        type: number
-        default: 50
       interval:
-        description: "Seconds between requests"
+        description: "Seconds between requests (15 to 3600)"
         type: number
         default: 15
       observation_master_asof:
@@ -107,7 +103,6 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           EVENT_SCHEDULE: ${{ github.event.schedule }}
           OBSERVATION_MASTER_ASOF: ${{ inputs.observation_master_asof }}
-          BATCH_SIZE: ${{ inputs.batch_size }}
           INTERVAL: ${{ inputs.interval }}
         run: |
           python3 - <<'PYTARGET'
@@ -125,8 +120,8 @@ jobs:
               master_asof = date.fromisoformat(master_asof).isoformat()
               if date.fromisoformat(master_asof) > day:
                   raise ValueError("observation master must not be in the future")
-          if int(os.environ.get("BATCH_SIZE") or "50") != 50 or not 15 <= float(os.environ.get("INTERVAL") or "15") <= 3600:
-              raise ValueError("observations require 50 symbols and interval >=15")
+          if not 15 <= float(os.environ.get("INTERVAL") or "15") <= 3600:
+              raise ValueError("observation interval must be between 15 and 3600 seconds")
           jst = now.astimezone(timezone(timedelta(hours=9)))
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               for key, value in {
@@ -238,14 +233,12 @@ jobs:
           TRADINGVIEW_SECRET_WRITER_TOKEN: ${{ secrets.TRADINGVIEW_SECRET_WRITER_TOKEN }}
           TARGET_DATE: ${{ steps.target.outputs.target_date }}
           MASTER_ASOF: ${{ steps.preflight.outputs.needs_master == 'false' && steps.preflight.outputs.master_asof || '' }}
-          BATCH_SIZE: ${{ inputs.batch_size }}
           INTERVAL: ${{ inputs.interval }}
         run: |
           set -o pipefail
           progress="$RUNNER_TEMP/tradingview-progress.json"
           result="$RUNNER_TEMP/tradingview-result.json"
           stderr="$RUNNER_TEMP/tradingview-stderr.log"
-          batch_size="${BATCH_SIZE:-50}"
           interval="${INTERVAL:-15}"
           observation_options=()
           if [[ -n "${MASTER_ASOF:-}" ]]; then
@@ -253,7 +246,7 @@ jobs:
           fi
           set +e
           timeout --kill-after=30s 30m uv run baibai-engine tradingview refresh \
-            --asof "$TARGET_DATE" --batch-size "$batch_size" --interval "$interval" \
+            --asof "$TARGET_DATE" --interval "$interval" \
             "${observation_options[@]}" \
             --progress-output "$progress" > "$result" 2> >(tee "$stderr" >&2)
           status=$?
