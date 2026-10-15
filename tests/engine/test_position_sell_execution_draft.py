@@ -185,9 +185,7 @@ def test_date_only_sell_keeps_reported_date_without_claiming_fill_time(tmp_path:
     additions = [event for event in draft.replacement.events if event.event_id not in source_ids]
     assert {event.type for event in additions} == {"execution", "cost", "tax_confirmed"}
     assert all(event.occurred_on == date(2026, 7, 12) for event in additions)
-    assert all(
-        event.occurred_at.isoformat() == "2026-07-12T00:00:00+09:00" for event in additions
-    )
+    assert all(event.occurred_at.isoformat() == "2026-07-12T00:00:00+09:00" for event in additions)
     assert (
         main(["apply-draft", str(tmp_path / "date-only-sell.yaml"), "--db", str(db), "--confirmed"])
         == 0
