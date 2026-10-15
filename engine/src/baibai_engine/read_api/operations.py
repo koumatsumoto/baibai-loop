@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
@@ -29,8 +30,12 @@ def list_operation_sessions(
     if status is not None:
         sql += " WHERE status = ?"
         parameters = (status,)
-    sql += " ORDER BY started_at DESC, operation_id DESC"
-    return [_public(row) for row in read_rows(path, sql, parameters)]
+    rows = sorted(
+        read_rows(path, sql, parameters),
+        key=lambda row: (datetime.fromisoformat(row["started_at"]), row["operation_id"]),
+        reverse=True,
+    )
+    return [_public(row) for row in rows]
 
 
 def _public(row: sqlite3.Row) -> dict[str, object]:

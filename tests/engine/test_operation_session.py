@@ -251,3 +251,40 @@ def test_database_constraint_rejects_a_second_active_row(tmp_path: Path) -> None
             )
     finally:
         connection.close()
+
+
+def test_operation_list_does_not_create_an_unwritten_database(tmp_path: Path) -> None:
+    db = tmp_path / "unwritten.sqlite"
+    assert OperationService(db).list() == []
+    assert list_operation_sessions(db) == []
+    assert not db.exists()
+    db.touch()
+    assert OperationService(db).list() == []
+    assert list_operation_sessions(db) == []
+    assert db.stat().st_size == 0
+
+
+def test_operation_lists_sort_by_instant_not_offset_text(tmp_path: Path) -> None:
+    db = tmp_path / "app.sqlite"
+    initialize_database(db)
+    records = (
+        ("research-op-" + "1" * 32, "2026-07-19T09:00:00+09:00"),
+        ("research-op-" + "2" * 32, "2026-07-19T01:00:00+00:00"),
+        ("research-op-" + "3" * 32, "2026-07-19T10:00:00+09:00"),
+    )
+    with closing(connect_rw(db)) as connection, connection:
+        connection.executemany(
+            "INSERT INTO operation_session "
+            "(operation_id, session_kind, status, as_of, ticker, "
+            "started_at, completed_at, payload) "
+            "VALUES (?, 'capital-allocation', 'completed', '2026-07-19', NULL, ?, ?, ?)",
+            [
+                (identifier, instant, instant, _active_payload().model_dump_json())
+                for identifier, instant in records
+            ],
+        )
+    expected = [identifier for identifier, _ in reversed(records)]
+    assert [item.operation_id for item in OperationService(db).list()] == expected
+    assert [item["operation_id"] for item in list_operation_sessions(db)] == expected
+    assert OperationService(db).list(status="active") == []
+    assert list_operation_sessions(db, status="active") == []

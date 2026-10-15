@@ -11,6 +11,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from baibai_engine.foundation.repository_layout import RUNS_DB_PATH
+from baibai_engine.foundation.sqlite_read import read_rows
 from baibai_engine.foundation.time import JST
 from baibai_engine.research.assessment import AssessmentRef
 from baibai_engine.research.assessment_store import load_reviewed_assessment
@@ -308,16 +309,19 @@ class OperationService:
         return _from_row(row)
 
     def list(self, *, status: OperationStatus | None = None) -> list[OperationSession]:
-        initialize_database(self._db_path)
         sql = "SELECT * FROM operation_session"
         parameters: tuple[object, ...] = ()
         if status is not None:
             sql += " WHERE status = ?"
             parameters = (status,)
-        sql += " ORDER BY started_at DESC, operation_id DESC"
-        with closing(connect_rw(self._db_path)) as connection:
-            rows = connection.execute(sql, parameters).fetchall()
-        return [_from_row(row) for row in rows]
+        rows = read_rows(
+            database_path(self._db_path), sql, parameters, connector=connect_read_only
+        )
+        return sorted(
+            (_from_row(row) for row in rows),
+            key=lambda operation: (operation.started_at, operation.operation_id),
+            reverse=True,
+        )
 
     def active(self) -> OperationSession | None:
         path = database_path(self._db_path)
