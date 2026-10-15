@@ -28,6 +28,7 @@ Valuation・Market Context・External Assessmentの意味は[domain-language](./
 | 保存済みの機械評価と企業固有評価を読む | [Valuation metrics](./reference/valuation-metrics.md#machine-valuation)・[Stock Assessment](./reference/stock-assessment.md#scenario-arithmetic) |
 | 見積り方法・保存済みER較正文脈を確認する | [Estimate calibration](./reference/estimate-calibration.md) |
 | 条件・閾値の目的と根拠を確認する | [判断条件の見取り図](#判断条件の見取り図)から各責務の正本へ辿る |
+| 仕様の採否・簡素化、設計・レビューの基準を確認する | [開発・設計・レビューの原則](./doctrine.md#development-investment-policy) |
 | PC・クラウドで開発する、Actionsとの分担を確認する | [AGENTS](../AGENTS.md)・[Python foundation](./reference/python-foundation.md#cloud-development-boundary) |
 | artifact・指標の意味を調べる | [Reference index](./reference/README.md) |
 
