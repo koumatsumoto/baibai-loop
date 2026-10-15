@@ -217,15 +217,8 @@ def _candidate_reasons(
                     rank=rank,
                 )
             )
-    return {
-        ticker: tuple(
-            sorted(
-                nominations,
-                key=lambda item: APPROACH_IDS.index(item.valuation_approach_id),
-            )
-        )
-        for ticker, nominations in nominations_by_ticker.items()
-    }
+    # Approaches were visited in their canonical order above.
+    return {ticker: tuple(nominations) for ticker, nominations in nominations_by_ticker.items()}
 
 
 def _common_eligible(
@@ -266,8 +259,6 @@ def _ordered_eligible(
                 else "per_trailing_sector_gap"
             )
             gap = _finite(metrics.get(gap_key))
-            if gap is None:
-                gap = _finite(metrics.get("chosen_per_sector_gap"))
             if chosen is None or gap is None:
                 continue
             key = (

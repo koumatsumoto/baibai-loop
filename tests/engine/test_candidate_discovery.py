@@ -452,3 +452,12 @@ def test_four_independent_top20_sets_form_exact_80_stock_union() -> None:
             str(1000 + group * 100 + index): index + 1 for index in range(20)
         }
         assert result.contexts[str(1020 + group * 100)].reasons == ()
+
+
+@pytest.mark.parametrize("gap", [None, float("nan")])
+def test_current_earnings_requires_the_gap_of_the_chosen_native_multiple(gap):
+    row = _analysis("1111")
+    row["metrics"]["per_forward_sector_gap"] = gap
+    row["metrics"]["chosen_per_sector_gap"] = -0.9
+    row["metrics"]["per_trailing_sector_gap"] = -0.8
+    assert _ranks(_discover([row]), "current-earnings-power") == {}
