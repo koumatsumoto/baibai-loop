@@ -311,9 +311,7 @@ def test_price_comparisons_share_scope_without_changing_the_store(tmp_path: Path
         ],
     )
     before = database.read_bytes()
-    assert close_change_since(database, ["2331", "2331"], since=date(2026, 7, 28)) == {
-        "2331": 0.0
-    }
+    assert close_change_since(database, ["2331", "2331"], since=date(2026, 7, 28)) == {"2331": 0.0}
     drawdown = worst_close_drawdown(
         database, ["2331", "2331"], start=date(2026, 7, 28), end=date(2026, 7, 30)
     )
@@ -322,7 +320,5 @@ def test_price_comparisons_share_scope_without_changing_the_store(tmp_path: Path
     assert database.read_bytes() == before
     missing = tmp_path / "absent.sqlite"
     assert close_change_since(missing, [], since=date(2026, 7, 28)) == {}
-    assert worst_close_drawdown(
-        missing, [], start=date(2026, 7, 28), end=date(2026, 7, 30)
-    ) == {}
+    assert worst_close_drawdown(missing, [], start=date(2026, 7, 28), end=date(2026, 7, 30)) == {}
     assert not missing.exists()
