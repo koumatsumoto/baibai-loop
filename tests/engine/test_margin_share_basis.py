@@ -34,7 +34,9 @@ def test_margin_comparison_uses_actual_balance_dates_and_known_units(kind, facto
 def test_balance_after_report_and_before_asof_is_converted_or_left_unknown(kind):
     balance, action, end = date(2026, 1, 1), date(2026, 1, 2), date(2026, 1, 3)
     result = margin_supply_demand(
-        latest=MarginBalance(balance_date=balance, issue_type="2", long_vol=1000.0, short_vol=250.0),
+        latest=MarginBalance(
+            balance_date=balance, issue_type="2", long_vol=1000.0, short_vol=250.0
+        ),
         prior_26w=None,
         avg_daily_volume_shares=200.0,
         shares_outstanding=10000.0,
@@ -63,7 +65,9 @@ def test_volume_mean_uses_the_same_asof_share_unit(kind, factor):
         for i in range(20)
     ]
     events = [JQuantsAdjustmentFactorEvent("1111", action, factor, kind)]
-    assert avg_daily_volume(bars, end, adjustment_events=events) == (None if kind is None else 100.0)
+    assert avg_daily_volume(bars, end, adjustment_events=events) == (
+        None if kind is None else 100.0
+    )
 
 
 def test_market_context_calculation_revision_changes_run_and_panel_identity(monkeypatch):
@@ -126,12 +130,8 @@ def test_screening_assembles_margin_and_volume_on_one_basis():
                 balance_date=date(2026, 1, 19), issue_type="2", long_vol=1000.0, short_vol=200.0
             )
         },
-        margin_prior_26w={
-            "1111": MarginBalance(balance_date=date(2025, 7, 1), long_vol=1500.0)
-        },
-        adjustment_events_by_ticker={
-            "1111": [JQuantsAdjustmentFactorEvent("1111", end, 0.5, "1")]
-        },
+        margin_prior_26w={"1111": MarginBalance(balance_date=date(2025, 7, 1), long_vol=1500.0)},
+        adjustment_events_by_ticker={"1111": [JQuantsAdjustmentFactorEvent("1111", end, 0.5, "1")]},
     )
     axes = result.derived["1111"]
     assert axes.margin_long_to_adv == 10.0
