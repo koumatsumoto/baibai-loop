@@ -131,7 +131,7 @@ def test_every_exported_view_carries_exactly_the_keys_the_schema_requires(
         failures.extend(_check_value(schema, _definition(schema, reference), payload, relative))
 
     assert failures == []
-    # The fixture publishes a run, a thesis and a ledger, so the export is not one file.
+    # The fixture publishes a run, a Stock Assessment and a ledger, so the export is not one file.
     assert checked > 10
 
 
@@ -176,26 +176,28 @@ def test_the_renderer_emits_a_declaration_for_each_supported_definition(
 
 @pytest.mark.parametrize("count", [0, 5, 10, 11, 200])
 @pytest.mark.parametrize("er", [None, -0.2, 0.4])
-def test_review_set_delta_retains_every_entry_in_ticker_order(count, er):
+def test_candidate_delta_retains_every_entry_in_ticker_order(count, er):
     from datetime import date
 
     from baibai_batch.jobs.daily import _delta_ticker_labels, _Notice
     from baibai_batch.observability.discord import render_delta
-    from baibai_web.readmodel.builders.daily_delta import _review_set_deltas
+    from baibai_web.readmodel.builders.daily_delta import _candidate_deltas
 
     current = {
-        str(1000 + i): {"ticker": str(1000 + i), "analysis": {"expected_return": {"er_annual": er}}}
+        str(1000 + i): {"ticker": str(1000 + i), "metrics": {"er_annual": er}}
         for i in reversed(range(count))
     }
     earlier = {
-        str(4000 + i): {"ticker": str(4000 + i), "analysis": {"expected_return": {"er_annual": er}}}
+        str(4000 + i): {"ticker": str(4000 + i), "metrics": {"er_annual": er}}
         for i in reversed(range(count))
     }
-    entered, exited, moves, total = _review_set_deltas(
+    entered, exited, moves, total = _candidate_deltas(
         current, earlier, market=None, previous_as_of=date(2026, 9, 1)
     )
     assert [entry.ticker for entry in entered] == sorted(current)
     assert [entry.ticker for entry in exited] == sorted(earlier)
+    expected_er_pct = None if er is None else er * 100
+    assert all(entry.er_annual_pct == expected_er_pct for entry in [*entered, *exited])
     assert moves == []
     assert total == 0
     notice = _Notice(
@@ -204,6 +206,10 @@ def test_review_set_delta_retains_every_entry_in_ticker_order(count, er):
         exited=_delta_ticker_labels([entry.model_dump() for entry in exited]),
     )
     lines = render_delta(notice.to_json())
+    if er is None or count == 0:
+        assert all("E[r]" not in line for line in lines)
+    else:
+        assert all(line.count(f"E[r]{expected_er_pct:+.1f}%") == min(count, 5) for line in lines)
     if count > 5:
         assert all(f"全{count}件" in line and f"他{count - 5}件" in line for line in lines)
         assert "1004" in lines[0]

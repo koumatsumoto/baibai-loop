@@ -644,12 +644,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             # No fetch record: the operator derives this rather than a provider serving
             # it, so nothing can prove the archive was read completely.
             require_complete_coverage=False,
-            # The watermark is the latest delisting date, and JPX schedules them ahead —
-            # 15 of the 760 rows were still in the future on 2026-08-19, the furthest by
-            # 135 days. This dataset is refreshed by an operator command rather than by
-            # the daily batch, so the freshness window is an abandonment detector, not a
-            # cadence: firing it would stop the whole daily run over a monthly chore,
-            # and stale exits are caught where they matter by the cohort that reads them.
         ),
         ReleaseDatasetPolicy(
             dataset="edinet.tender_offer_exit_values",
@@ -663,8 +657,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             minimum_rows=76,
             minimum_population_count=76,
             require_complete_coverage=False,
-            # Operator-run like the delistings above; see that entry for why the window
-            # is wide. This watermark is always past — an exit is a completed event.
         ),
         ReleaseDatasetPolicy(
             dataset="jpx.regulation_sources",
@@ -686,9 +678,9 @@ def release_policy_for_profile(profile: ReleaseProfile) -> ReleasePolicy:
 
     There is one profile because there is one set of requirements. The gates that
     matter are per dataset — the row floor that catches a lossy export, the coverage
-    boundary, the cadence-aware freshness window — and they do not become different
+    boundary, and population floor — and they do not become different
     requirements because a release is read by a different caller. A second profile
-    carrying the same seventeen entries would be two tables free to rot apart, so the
+    carrying the same dataset entries would be two tables free to rot apart, so the
     manifest records which gate it passed and there is exactly one gate to pass.
     """
 

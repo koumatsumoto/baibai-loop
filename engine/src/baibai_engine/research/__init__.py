@@ -1,7 +1,5 @@
-"""Decision composition for theses, Capital Allocation Assessments, and Position Reviews.
+"""銘柄評価・独立Reviewと、価格・資本へ適用するInvestment Proposalを組み立てる。
 
-This package evaluates theses and proposes human-operated execution.
-It also composes a source-bound position-review draft from a thesis and
-the canonical portfolio ledger.  Portfolio reconciliation and review arithmetic
-remain in :mod:`baibai_engine.position`.
+評価の根拠はimmutable pairとして保存し、行動の条件と現在previewを分ける。
+確認済みの取引事実とportfolioのreplayはpositionが所有する。
 """

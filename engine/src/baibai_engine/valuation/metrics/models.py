@@ -78,8 +78,8 @@ class FinancialSnapshot:
     # Reinvestment用。最新のcomplete actual rowのTAとEqARの積であり、PBRのBPS fallbackは使わない。
     same_state_equity_yen: float | None = None
     # 最後の raw close を as-of の株式基準へ換算した screening 参考価格。時価総額・E[r]・
-    # Review Set表示は同じ基準の株数と組み合わせる。約定価格ではなく、plan-limit は SQLite
-    # の raw/unadjusted close を再取得する。
+    # Stock Analysis表示は同じ基準の株数と組み合わせる。約定価格ではなく、
+    # Research の価格 fact は SQLite の raw/unadjusted close を取得する。
     market_price_yen: float | None = None
     # 市場が値付けする株式数 (発行済 - 自己株式)。valuation history も現在倍率と同じ
     # 資本分母で組み、自己株比率の変化ではなく価格変化だけを自己レンジへ反映する。
@@ -129,7 +129,7 @@ class FinancialSnapshot:
     ttm_quality_fcf_yield: TTMQuality | None = None
     ttm_quality_net_cash: TTMQuality = TTMQuality.UNAVAILABLE
     shares_outstanding: float | None = None
-    # accruals_to_assets = (eps_ttm * shares - cfo_ttm) / average total assets — Sloan
+    # accruals_to_assets = (profit_ttm - cfo_ttm) / average total assets — Sloan
     # 1996. High positive accruals are an earnings-quality flag (reported NI
     # not converting to cash). None if any input is missing.
     accruals_to_assets: float | None = None

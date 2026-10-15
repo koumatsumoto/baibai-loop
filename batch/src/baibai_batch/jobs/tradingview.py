@@ -6,7 +6,9 @@ import argparse
 import json
 import os
 import signal
-import subprocess  # nosec B404 - fixed operational commands, never credential arguments
+
+# fixed operational commands, never credential arguments
+import subprocess  # nosec B404
 import sys
 import tempfile
 from collections.abc import Iterator
@@ -78,7 +80,8 @@ def _stop_child(process: subprocess.Popen[str]) -> None:
 
 
 def command(argv: list[str], *, timeout: float | None = None) -> str:
-    process = subprocess.Popen(  # nosec B603 - fixed commands with parsed date/path arguments
+    # fixed commands with parsed date/path arguments
+    process = subprocess.Popen(  # nosec B603
         argv, cwd=ROOT, stdout=subprocess.PIPE, text=True, start_new_session=True
     )
     try:
@@ -203,7 +206,6 @@ def run_local(state_file: Path, *, batch_size: int = 50, interval: float = 15.0)
                         "saved",
                         "partial",
                         "already_saved",
-                        "non_trading_day",
                         "skipped_historical_asof",
                     },
                 )

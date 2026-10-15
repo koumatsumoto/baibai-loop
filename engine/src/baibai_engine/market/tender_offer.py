@@ -2,8 +2,8 @@
 
 A delisted name has no market close to end a forward window with, so the calibration
 authority brackets it between a total loss and what the rest of its cohort returned. A
-takeover settles above the neutral case, so that bracket cannot bound the error from
-above. When the offer actually completed in cash, the price it paid is the observed exit
+takeover can settle above the neutral case, so that bracket is not an upper bound.
+When the offer actually completed in cash, the price it paid is the observed exit
 and no imputation is needed.
 
 Everything here is fail-closed. A case is realized only when the registration statement,
@@ -52,8 +52,8 @@ _SUCCESS_BLOCK_SUFFIX = "SuccessOrFailureOfTenderOfferTextBlock"
 _PRICE_NARRATIVE_HEADING = "算定の基礎"
 # Share rows are quoted per share and everything else per unit, so the per-share phrase
 # is what separates the share price from a warrant price. The class label in front of it
-# varies across filings ("株券", "株券普通株式", "株券対象者株式"), and the yen marker is
-# sometimes dropped, so neither is required — the per-share phrase carries the meaning.
+# varies across filings ("株券", "株券普通株式", "株券対象者株式"); the amount is
+# sometimes preceded by 金 and sometimes not. The 円 suffix is required.
 _PER_SHARE_PRICE = re.compile(r"[１1]株につき[、,\s　]*金?[\s　]*(?P<yen>[0-9][0-9,]*)円")
 # The condition clause states what would happen if the floor were missed ("行わない旨の
 # 条件"), so only the polite form that reports what did happen is read. Filings write the
@@ -502,7 +502,7 @@ def _realize_case(
     result_doc_id = ""
     # A correction supersedes the result it corrects, and a correction that leaves the
     # outcome alone omits the block, so the newest document that states an outcome at
-    # all is the one that holds.
+    # all is the one that holds. A present but unreadable revision blocks fallback.
     for filing in (case.result_document, *case.result_corrections)[::-1]:
         blocks = read_document_blocks(provider.download_csv_zip(filing.doc_id))
         downloads += 1
@@ -510,6 +510,8 @@ def _realize_case(
         if outcome is not None:
             result_doc_id = filing.doc_id
             break
+        if _block(blocks, _SUCCESS_BLOCK_SUFFIX) is not None:
+            return None, downloads
     if outcome is not True:
         return None, downloads
 
@@ -518,6 +520,7 @@ def _realize_case(
         # A correction restates only what it changes, so the newest document in the
         # chain that prints a price at all carries that offer's final price, and the
         # newest that reports the funding carries the consideration it was paid in.
+        # Only an omitted block inherits an older value; unreadable revisions do not.
         cash_only: bool | None = None
         priced_filing: tuple[float, TenderOfferFiling] | None = None
         for filing in chain[::-1]:
@@ -525,10 +528,14 @@ def _realize_case(
             downloads += 1
             if cash_only is None:
                 cash_only = pays_in_cash_only(blocks)
+                if cash_only is None and _block(blocks, _FUNDING_BLOCK_SUFFIX) is not None:
+                    return None, downloads
             if priced_filing is None:
                 price = parse_ordinary_share_offer_price(blocks)
                 if price is not None:
                     priced_filing = (price, filing)
+                elif _block(blocks, _PRICE_BLOCK_SUFFIX) is not None:
+                    return None, downloads
             if priced_filing is not None and cash_only is not None:
                 break
         if priced_filing is None or cash_only is not True:
@@ -581,11 +588,11 @@ def _filing_order(filing: TenderOfferFiling) -> tuple[str, str, int]:
     return filing.doc_date.isoformat(), filing.submit_datetime, filing.sequence_number
 
 
-def _block(blocks: Mapping[str, str], suffix: str) -> str:
+def _block(blocks: Mapping[str, str], suffix: str) -> str | None:
     for element, value in blocks.items():
         if element.endswith(suffix):
             return value
-    return ""
+    return None
 
 
 __all__ = (

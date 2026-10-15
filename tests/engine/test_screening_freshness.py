@@ -67,7 +67,7 @@ class ScreeningFreshnessTests(unittest.TestCase):
 
     def test_detect_edinet_freshness_warnings_includes_same_day_events(self) -> None:
         events = load_disclosure_events(
-            _fixture_root(
+            self._fixture_root(
                 [
                     {"ticker": "3678", "date": "2025-10-15", "title": "資金の借入に関するお知らせ"},
                     {"ticker": "3678", "date": "2026-03-02", "title": "持分取得に関するお知らせ"},
@@ -90,7 +90,7 @@ class ScreeningFreshnessTests(unittest.TestCase):
 
     def test_detect_edinet_freshness_warnings_classifies_non_ma_acquisition_titles(self) -> None:
         events = load_disclosure_events(
-            _fixture_root(
+            self._fixture_root(
                 [
                     {
                         "ticker": "3678",
@@ -147,7 +147,7 @@ class ScreeningFreshnessTests(unittest.TestCase):
 
     def test_detect_edinet_freshness_warnings_skips_when_source_date_is_missing(self) -> None:
         events = load_disclosure_events(
-            _fixture_root([{"ticker": "3678", "date": "2026-03-02", "title": "持分取得"}]),
+            self._fixture_root([{"ticker": "3678", "date": "2026-03-02", "title": "持分取得"}]),
             asof_date=date(2026, 5, 1),
         )
 
@@ -160,9 +160,21 @@ class ScreeningFreshnessTests(unittest.TestCase):
 
         self.assertEqual(warnings, ())
 
+    def test_disclosures_do_not_merge_other_issues_into_common_stock(self) -> None:
+        codes = ["130a0", "130a1", "130A!", "株式銘柄", "12!4"]
+        result = load_disclosure_events(
+            self._fixture_root(
+                [{"code": code, "date": "2026-03-02", "title": "社債発行"} for code in codes]
+            ),
+            asof_date=date(2026, 5, 1),
+        )
+        self.assertEqual(set(result.events_by_ticker), {"130A"})
+        self.assertEqual(result.event_count, 1)
+        self.assertEqual(result.skipped_record_count, 4)
 
-def _fixture_root(records: list[dict[str, str]]) -> Path:
-    root = Path(tempfile.mkdtemp())
-    path = root / "events.json"
-    path.write_text(json.dumps(records), encoding="utf-8")
-    return root
+    def _fixture_root(self, records: list[dict[str, str]]) -> Path:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        (root / "events.json").write_text(json.dumps(records), encoding="utf-8")
+        return root

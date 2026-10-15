@@ -13,8 +13,15 @@ from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+import pytest
+
+from baibai_engine.storage.lake import models
 from baibai_engine.storage.lake.datasets import LAKE_DATASETS
-from baibai_engine.storage.lake.keys import dataset_manifest_key, release_manifest_key
+from baibai_engine.storage.lake.keys import (
+    current_l1_pointer_key,
+    dataset_manifest_key,
+    release_manifest_key,
+)
 from baibai_engine.storage.lake.models import (
     DatasetManifest,
     L1ReleaseSourceRef,
@@ -26,7 +33,10 @@ from baibai_engine.storage.lake.models import (
     SQLiteSnapshotSourceRef,
     canonical_lake_model_bytes,
 )
+from baibai_engine.storage.lake.release import L1ReleasePointer, create_l1_release
+from baibai_engine.storage.lake.writer import export_legacy_sqlite, sealed_sqlite_snapshot
 from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
+from tests.helpers.lake_policy import narrow_release_policy
 
 
 def release_source(release_id: str = "20260130T000000Z-release") -> L1ReleaseSourceRef:
@@ -188,3 +198,69 @@ def market_store(
     connection.commit()
     connection.close()
     return path
+
+
+@pytest.fixture
+def lake(tmp_path, monkeypatch):
+    datasets = ("jquants.daily_bars", "jquants.short_sale_reports", "jquants.market_calendar")
+    narrow_release_policy(monkeypatch, datasets=datasets)
+    # A narrow fixture permits partial calendar coverage to exercise consumer reporting.
+    policy = models.PRODUCTION_RELEASE_POLICY
+    monkeypatch.setattr(
+        models,
+        "PRODUCTION_RELEASE_POLICY",
+        policy.model_copy(
+            update={
+                "datasets": tuple(
+                    item.model_copy(
+                        update={
+                            "minimum_population_count": None,
+                            "require_complete_coverage": False,
+                        }
+                    )
+                    if item.dataset == "jquants.market_calendar"
+                    else item
+                    for item in policy.datasets
+                ),
+            }
+        ),
+    )
+    database = market_store(tmp_path / "market.sqlite")
+    connection = open_connection(database)
+    connection.executemany(
+        "INSERT INTO jquants_market_calendar(day,is_business_day) VALUES (?,?)",
+        [("2025-01-05", 0), ("2026-01-05", 1), ("2026-01-20", 1)],
+    )
+    connection.commit()
+    connection.close()
+    mirror = tmp_path / "mirror"
+    built = datetime(2026, 3, 1, tzinfo=UTC)
+    with sealed_sqlite_snapshot(
+        sqlite_path=database, mirror_root=mirror, snapshot_id="g0-test"
+    ) as snapshot:
+        manifests = [
+            export_legacy_sqlite(
+                dataset_name=name,
+                mirror_root=mirror,
+                producer_git_commit="a" * 40,
+                source_snapshot=snapshot,
+                build_id="test-" + name.replace(".", "-"),
+                created_at=built,
+            ).manifest_path
+            for name in datasets
+        ]
+    path, release = create_l1_release(
+        dataset_manifest_paths=manifests,
+        mirror_root=mirror,
+        release_id="test-release",
+        created_at=built,
+    )
+    pointer = L1ReleasePointer(
+        release_id=release.release_id,
+        manifest_key=path.relative_to(mirror).as_posix(),
+        manifest_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+    )
+    current = mirror / current_l1_pointer_key()
+    current.parent.mkdir(parents=True)
+    current.write_bytes(canonical_lake_model_bytes(pointer))
+    return mirror, pointer

@@ -10,8 +10,12 @@ from baibai_engine.position.ledger import PortfolioLedgerDocument, PortfolioLedg
 from baibai_engine.position.outcome import (
     DailyNav,
     PortfolioOutcomeError,
+    compute_portfolio_outcome,
     compute_time_weighted_return,
+    outcome_to_payload,
 )
+from baibai_engine.position.outcome_store import PortfolioOutcomePublication, PortfolioOutcomeStore
+from baibai_engine.read_api.position import list_portfolio_outcome_payloads
 
 
 def test_twr_neutralizes_beginning_of_day_contribution() -> None:
@@ -144,8 +148,8 @@ def test_portfolio_outcome_includes_idle_cash_and_confirmed_cashflows() -> None:
         _benchmark(),
         business_days=(date(2025, 1, 6), date(2026, 1, 6)),
         bars=(
-            JQuantsDailyBar("1234", date(2025, 1, 6), 5.0, None),
-            JQuantsDailyBar("1234", date(2026, 1, 6), 6.0, None),
+            JQuantsDailyBar("1234", date(2025, 1, 6), 5.0, None, adjustment_factor=1.0),
+            JQuantsDailyBar("1234", date(2026, 1, 6), 6.0, None, adjustment_factor=1.0),
         ),
     )
 
@@ -159,7 +163,8 @@ def test_portfolio_outcome_includes_idle_cash_and_confirmed_cashflows() -> None:
     assert result.estimated_exit_tax_yen == 20
 
 
-def test_portfolio_outcome_rejects_unresolved_corporate_action() -> None:
+@pytest.mark.parametrize("factor", [None, 0.5, 2.0])
+def test_portfolio_outcome_rejects_unresolved_corporate_action(factor) -> None:
     from baibai_engine.position.outcome import compute_portfolio_outcome
 
     result = compute_portfolio_outcome(
@@ -167,13 +172,81 @@ def test_portfolio_outcome_rejects_unresolved_corporate_action() -> None:
         _benchmark(),
         business_days=(date(2025, 1, 6), date(2026, 1, 6)),
         bars=(
-            JQuantsDailyBar("1234", date(2025, 1, 6), 5.0, None),
-            JQuantsDailyBar("1234", date(2026, 1, 6), 6.0, None, adjustment_factor=2.0),
+            JQuantsDailyBar("1234", date(2025, 1, 6), 5.0, None, adjustment_factor=1.0),
+            JQuantsDailyBar("1234", date(2026, 1, 6), 6.0, None, adjustment_factor=factor),
         ),
     )
 
     assert result.status == "unresolved"
     assert result.reason == "corporate_action_unresolved"
+
+
+def test_portfolio_outcome_keeps_source_zero_factor_as_no_event() -> None:
+    result = compute_portfolio_outcome(
+        _ledger(),
+        _benchmark(),
+        business_days=(date(2025, 1, 6), date(2026, 1, 6)),
+        bars=(
+            JQuantsDailyBar("1234", date(2025, 1, 6), 5.0, None, adjustment_factor=0.0),
+            JQuantsDailyBar("1234", date(2026, 1, 6), 6.0, None, adjustment_factor=0.0),
+        ),
+    )
+    assert result.status == "resolved"
+    assert result.portfolio_twr_pct == pytest.approx((1208 / 1100 - 1) * 100)
+
+
+@pytest.mark.parametrize("tax_rate", [None, 2000])
+def test_calculated_resolved_outcome_publishes_and_reads_without_inventing_exit_tax(
+    tmp_path: Path, tax_rate
+) -> None:
+    ledger = _ledger().model_copy(
+        update={
+            "estimated_exit_tax_rate_bps": tax_rate,
+            "estimated_exit_tax_basis": None
+            if tax_rate is None
+            else "ledger_fifo_gross_unrealized_gain",
+        }
+    )
+    benchmark = _benchmark()
+    result = compute_portfolio_outcome(
+        ledger,
+        benchmark,
+        business_days=(date(2025, 1, 6), date(2026, 1, 6)),
+        bars=(
+            JQuantsDailyBar("1234", date(2025, 1, 6), 5.0, None, adjustment_factor=1.0),
+            JQuantsDailyBar("1234", date(2026, 1, 6), 6.0, None, adjustment_factor=1.0),
+        ),
+    )
+    assert result.status == "resolved"
+    payload = outcome_to_payload(result)
+    payload.update(
+        benchmark_id=benchmark.benchmark_id,
+        benchmark_observation=benchmark.model_dump(mode="json"),
+        market_data_ref="synthetic:two-business-day-bars",
+        market_data_sha256="a" * 64,
+        market_data_coverage_start_date=result.period_start_date.isoformat(),
+        market_data_coverage_end_date=result.period_end_date.isoformat(),
+        market_data_fingerprint="synthetic-bars-v1",
+    )
+    publication = PortfolioOutcomePublication(
+        outcome_id="outcome-1y-2026-01-06",
+        horizon=result.horizon,
+        period_start_date=result.period_start_date.isoformat(),
+        period_end_date=result.period_end_date.isoformat(),
+        status=result.status,
+        payload=payload,
+    )
+    database = tmp_path / "app.sqlite"
+    assert PortfolioOutcomeStore(database).publish(publication)
+    before = database.read_bytes()
+
+    saved = list_portfolio_outcome_payloads(database)[0]
+
+    assert saved["status"] == "resolved"
+    assert saved["portfolio_twr_pct"] == result.portfolio_twr_pct
+    assert saved["estimated_exit_tax_status"] == ("unknown" if tax_rate is None else "estimated")
+    assert saved["estimated_exit_tax_yen"] == (None if tax_rate is None else 20)
+    assert database.read_bytes() == before
 
 
 def _lapsed_reservation_ledger() -> PortfolioLedgerDocument:
@@ -265,8 +338,8 @@ def test_after_close_internal_cashflow_rolls_past_that_close() -> None:
         _benchmark(),
         business_days=(date(2025, 1, 6), date(2026, 1, 6)),
         bars=(
-            JQuantsDailyBar("1234", date(2025, 1, 6), 5.0, None),
-            JQuantsDailyBar("1234", date(2026, 1, 6), 6.0, None),
+            JQuantsDailyBar("1234", date(2025, 1, 6), 5.0, None, adjustment_factor=1.0),
+            JQuantsDailyBar("1234", date(2026, 1, 6), 6.0, None, adjustment_factor=1.0),
         ),
     )
 

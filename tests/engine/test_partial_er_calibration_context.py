@@ -242,12 +242,15 @@ def test_unresolved_nonfinite_price_is_corrupt_not_normal_missing(value):
         build(evaluation, panels, forwards)
 
 
-def test_research_receives_both_basis_coverage_and_the_limit(tmp_path, monkeypatch):
+def test_candidate_context_keeps_both_basis_coverage_and_the_limit(tmp_path):
     from datetime import date
 
     import yaml
 
-    from baibai_engine.research.workspace import prepare
+    from baibai_engine.valuation.calibration.query import (
+        candidate_er_band_context,
+        load_er_calibration_context,
+    )
 
     evaluation, panels, forwards = inputs(complete=False)
     forwards["2020-01-31"] = [
@@ -256,24 +259,14 @@ def test_research_receives_both_basis_coverage_and_the_limit(tmp_path, monkeypat
     ]
     path = tmp_path / "context.yaml"
     path.write_text(yaml.safe_dump(build(evaluation, panels, forwards)))
-    monkeypatch.setattr(prepare, "ER_LEVEL_CALIBRATION_CONTEXT_PATH", path)
-    context = prepare._load_er_distribution_context(
-        screening_rules_hash="synthetic-rules",
-        candidates=[
-            {
-                "ticker": "S09",
-                "analysis": {
-                    "expected_return": {"er_annual": 0.09, "er_model_version": "expected-return-v1"}
-                },
-            }
-        ],
-        asof=date(2026, 10, 1),
+    loaded = load_er_calibration_context(
+        path,
+        expected_rules_hash="synthetic-rules",
+        expected_er_model_version="expected-return-v1",
+        as_of=date(2026, 10, 1),
     )
-    assert context["status"] == "historical_context_only"
-    assert context["evidence_complete"] is False
-    assert "全母集団の期待収益" in context["interpretation"]
-    assert "配当効果を表さない" in context["interpretation"]
-    bands = context["candidates"]["S09"]["horizons"][0]["bands"]
+    assert loaded.artifact.evidence_complete is False
+    bands = candidate_er_band_context(loaded.artifact, 0.09)[0]["bands"]
     total, price = bands[0]["bases"]
     assert total["ticker_equal"] is None
     assert total["coverage"]["missing_reason_counts"] == {"unresolved_missing_dividend": 2}

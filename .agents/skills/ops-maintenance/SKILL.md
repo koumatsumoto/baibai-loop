@@ -13,7 +13,6 @@ description: batch・store・servingの操作を選び、既存runbookに従っ�
 | machine storeの反映 | [ローカルからクラウドを更新する](../../../batch/OPERATIONS.md#ローカルからクラウドを更新する) |
 | application DB・viewの公開 / application DBの復元 | [application反映](../../../batch/OPERATIONS.md#application-db-を反映する) / [復元](../../../batch/OPERATIONS.md#application-db-を復元する) |
 | credential rotation | [Password rotation](../../../batch/OPERATIONS.md#password-rotation) |
-| local Triageの失敗・再実行 | [Research Triage](../research-triage/SKILL.md) |
 | 外部参考評価の取得停止・部分再開・公開 | [cohort stageと再開](../../../batch/OPERATIONS.md#cohort-stageの確定と再開) / [公開・成功確認・停止後の運用](../../../batch/OPERATIONS.md#公開成功確認停止後の運用) |
 | batchの失敗・欠測 | [batch OPERATIONS](../../../batch/OPERATIONS.md)の結果確認・復旧・watchdog |
 | 保有の再評価 | [Position Review](../position-review/SKILL.md) |
@@ -31,7 +30,7 @@ description: batch・store・servingの操作を選び、既存runbookに従っ�
 - TSE capital policy・JPX delistingは翌月15日以降に既存のrefresh/build commandで更新し、[batch運用](../../../batch/OPERATIONS.md)のlake公開・store反映へ進む。
 - lake全履歴監査を定例作業に追加しない。不要になった既存の監査taskは終了し、通常の公開・利用時検証だけを維持する。
 
-注文報告だけを理由に全体計測を起動しない。注文結果の計測が依頼された場合は`tools.experiments.measure_limit_outcomes`の契約を参照する。
+注文報告だけを理由に全体計測を起動しない。注文結果の計測が依頼された場合は`tools.experiments.measure_limit_outcomes`の契約を参照する。対象は報告済みの買付予約で、価格差を逸失利益や指値規律の因果効果と扱わず、件数だけで方針変更の適格性を判定しない。
 
 ## 運用task
 

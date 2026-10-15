@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Sequence
-from datetime import date, datetime
+from datetime import date
 
 from baibai_engine.market_context.indicators import db as indicators_db
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition
@@ -51,23 +51,6 @@ def build_store_observation_reader(
         )
 
     return read
-
-
-def _observation_from_row(row: sqlite3.Row) -> ObservationRecord:
-    period_start = row["period_start"]
-    period_end = row["period_end"]
-    vintage_at = row["vintage_at"]
-    return ObservationRecord(
-        series_id=str(row["series_id"]),
-        observed_at=date.fromisoformat(str(row["observed_at"])),
-        period_start=date.fromisoformat(str(period_start)) if period_start else None,
-        period_end=date.fromisoformat(str(period_end)) if period_end else None,
-        value=float(row["value"]),
-        unit=str(row["unit"]),
-        vintage_at=datetime.fromisoformat(str(vintage_at)) if vintage_at else None,
-        fetch_status=str(row["fetch_status"]),
-        source_url=str(row["source_url"]),
-    )
 
 
 __all__ = [

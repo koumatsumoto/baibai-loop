@@ -7,7 +7,7 @@ status: active
 
 # Market Context — 指標・Reading・判断・保存履歴
 
-本書はMarket Contextの市場・個別相対の読取、経済指標・Reading、明示的assessment、過去に保存された判断本文の読取契約を所有する。個別企業の価値評価は[Valuation metrics](./valuation-metrics.md)と[Thesis](./thesis.md)が所有する。
+本書はMarket Contextの市場・個別相対の読取、経済指標・Reading、明示的assessment、過去に保存された判断本文の読取契約を所有する。個別企業の価値評価は[Valuation metrics](./valuation-metrics.md)と[Stock Assessment](./stock-assessment.md)が所有する。
 
 Market Contextの`indicators`はL1のregistry・取得・DB adapter、`reading`はL2の決定的算術・保存済みreaderを所有する。観測契約は`indicators/observations.py`に置き、計算からDB adapterを参照しない。L3は`market_context/assessment`が所有し、旧reportは履歴として読む。
 
@@ -15,9 +15,9 @@ Market Contextの`indicators`はL1のregistry・取得・DB adapter、`reading`�
 
 ## 現行配置と保全するidentity
 
-`indicators`はL1の取得/registry/観測DB、`reading/query.py`は保存観測からのL2読取、`assessment`は明示判断と保存履歴を所有する。Web/batch/Owner MCPの公開読取は`read_api/market_context.py`へ統合し、旧moduleを転送する入口は置かない。Webの現在の内容は`AssessmentContent`、過去の章・確率・主張・引用は歴史的本文の表示であり、新writerの必須構造ではない。
+`indicators`はL1の取得/registry/観測DB、`reading/query.py`は保存観測からのL2読取、`assessment`は明示判断と保存履歴を所有する。Web/batchの公開読取は`read_api/market_context.py`へ統合し、旧moduleを転送する入口は置かない。Webの現在の内容は`AssessmentContent`、過去の章・確率・主張・引用は歴史的本文の表示であり、新writerの必須構造ではない。
 
-runtimeの指標DBは`stores/market_context/indicators.sqlite`/R2 `indicators.sqlite`（schema7）、判断はapplication schema21の`market_context_assessment / market_context_assessment_head`に保存する。新規判断はschema6・`market-context-assessment-*` identityを使う。旧`macro-context-*` ID・JSON・引用・hashは変更せず、新しい`/api/market-context/assessments/{context_id}`から直接読む。schema5/6は同じコンパクト意味、旧3/4は保存された章立て履歴であり、新writerの構造とは分ける。新Triage4・CAA2は`market_context_assessment_id`を参照し、保存Triage3・CAA1は元payload/hashを保つ読取で利用・再開する。保存名の切替は完了しており、通常の取得・反映・復旧は[運用手順](../../batch/OPERATIONS.md#store-identity-recovery)に従う。
+runtimeの指標DBは`stores/market_context/indicators.sqlite`/R2 `indicators.sqlite`（schema7）、判断はapplication schema24の`market_context_assessment / market_context_assessment_head`に保存する。新規判断はschema6・`market-context-assessment-*` identityを使う。旧`macro-context-*` ID・JSON・引用・hashは変更せず、新しい`/api/market-context/assessments/{context_id}`から直接読む。schema5/6は同じコンパクト意味、旧3/4は保存された章立て履歴であり、新writerの構造とは分ける。Researchは保存された市場判断を固定入力へ取り込み、Investment Proposalがmarket_context_assessment_idへ束縛する。旧ResearchのTriage/CAAは通常runtimeで利用・再開せず、一回切替で必要な執筆材料と判断参照を退避する。保存名の切替は完了しており、通常の取得・反映・復旧は[運用手順](../../batch/OPERATIONS.md#store-identity-recovery)に従う。
 
 Readingは`READING_RULES_PATH`が選ぶ一つのdated fileを使う。13の保存判断が引用する`method/macro/reading/2026-08-01T100000+0900.yaml`は元bytes/pathのまま保全し、別のcurrent copyを作らない。規則のidentityはdated stemであり、単なる配置整理で値・revision・schemaを変えない。
 
@@ -25,7 +25,7 @@ Readingは`READING_RULES_PATH`が選ぶ一つのdated fileを使う。13の保�
 
 価格騰落・標本volatility・流動性・安値乖離・信用需給の純粋算術は`market_context/{history,margin}`が所有する。保存価格の指定日からの騰落・期間内下落は`market_context/prices`が所有し、外向け`read_api/market`は同じ処理を公開する。価格読取も計算も共有L1 split算術を使い、倍率の価格感応履歴/自己レンジ・母分散sigma gapはValuationに従う。観測窓と比較母集団の意味は変えない。
 
-通常Researchでは保存済みReading・市場/業種/個別状態を[調査入力](./analysis-operations.md#明示開始と固定対象)へ接続し、materialな含意をThesis/提案へ記録する。判断の新規作成は明示開始に限り、通常Researchは必要な環境上の含意を保存情報から接続する。
+通常Researchでは保存済みReading・市場/業種/個別状態を[調査入力](./analysis-operations.md#明示開始と固定対象)へ接続し、materialな含意をAssessment/提案へ記録する。判断の新規作成は明示開始に限り、通常Researchは必要な環境上の含意を保存情報から接続する。
 
 ## Market Contextの保存済み読取
 
@@ -35,7 +35,7 @@ Market Contextは経済、市場全体、業種と個別株の相対状態を扱
 
 | 出口 | 統計・対象 | 意味と欠測 |
 | --- | --- | --- |
-| Security Analysisの業種relative strength | Screeningの既存比較母集団。20 bar騰落の業種平均－市場平均と業種順位 | `market_context/sector`が計算し、Screeningが入力母集団・価格窓を供給する。同値の業種は平均順位を母集団数で割った同じ百分位を持つ。個別対業種の差ではない |
+| Stock Analysisの業種relative strength | Screeningの既存比較母集団。20 bar騰落の業種平均－市場平均と業種順位 | `market_context/sector`が計算し、Screeningが入力母集団・価格窓を供給する。同値の業種は平均順位を母集団数で割った同じ百分位を持つ。個別対業種の差ではない |
 | market snapshot | benchmarkの週次20/60 bar騰落・20 bar平均超のbreadth、同じ観測日の銘柄による業種中央値 | 1321 proxyの±3%方向注記は広いリスク許容判断ではない。breadthは既存最小標本数、sectorは既存対象を維持し、平均対平均と統合しない |
 | security market context | 指定銘柄（候補外も可）の価格・benchmark比較と、同業peerの20 bar中央値 | 個別とbenchmark/peerは指定銘柄の同じ開始・終了日を使う。peerは自銘柄を除き、端点不足を補間・前日値で埋めない |
 | Reading / MarketContextAssessment・保存履歴 | 保存済み経済観測・Reading規則、保存済み判断 | 観測/公表vintageの契約を維持する。判断は`as_of / known_at`で適格性を判定し実発行時刻で選ぶ。固定IDの履歴閲覧は旧schemaも本文のまま返す |
@@ -52,7 +52,7 @@ uv run baibai-engine screening ticker-profile --ticker <TICKER> --asof YYYY-MM-D
 uv run baibai-engine market-context reading --asof YYYY-MM-DD --format json
 ```
 
-`ticker-profile`はMarket Context、保存済みSecurity Analysis、event、portfolioを合成する。市場・分類とrunのcutoffは要求日を使うが、portfolioは現在のledger documentを独立の`ledger_as_of`で表示し、要求日への保有履歴再生は行わない。profile全体を完全な過去時点再現とは扱わない。既存の`price.self_range_percentile`は価格観測の順位割合で、Valuationのmin/max内位置と別の量であり、窓は合成callerが既存methodから渡す。
+`ticker-profile`はMarket Context、保存済みStock Analysis、event、portfolioを合成する。市場・分類とrunのcutoffは要求日を使うが、portfolioは現在のledger documentを独立の`ledger_as_of`で表示し、要求日への保有履歴再生は行わない。profile全体を完全な過去時点再現とは扱わない。既存の`price.self_range_percentile`は価格観測の順位割合で、Valuationのmin/max内位置と別の量であり、窓は合成callerが既存methodから渡す。
 
 日次の指標独立公開、有限AI調査・提案への接続、環境判断の深度は固定せず、materialな根拠・反証・含意に合わせる。以下にL1/Readingとassessmentの契約を示す。
 
@@ -94,7 +94,7 @@ registryは系列定義の正本である。通常のopenでは登録外のfacts
 
 registryのband変更時は、Git管理外のstoreをread-only validatorで全履歴・全vintage検査する。CIのfixtureだけでは既存観測との整合を証明できない。検査はstoreを書き換えず、観測とcanonical trigger契約の違反を報告する。
 
-同じvalidatorはapplication storeの判断履歴のmetadataと現在の作成型を検証する。旧schemaの本文はstored_onlyとして保持し、旧writerの構造条件で拒否しない。退役系列の引用はwarningとして記録する。Review Set発行はContextを読まないため、この検査失敗をReview Set停止と読み替えない。判断を使うTriage・Researchと履歴閲覧への影響を確認する。検証の実行条件とapplication store不在時の扱いは[完全local gate](./python-foundation.md#9-ci-and-local-parity)、系列退役の順序は[運用手順](../../batch/OPERATIONS.md#指標観測とregistryの修正)に従う。
+同じvalidatorはapplication storeの判断履歴のmetadataと現在の作成型を検証する。旧schemaの本文はstored_onlyとして保持し、旧writerの構造条件で拒否しない。退役系列の引用はwarningとして記録する。候補一覧発行はContextを読まないため、この検査失敗を候補一覧停止と読み替えない。判断を使うResearchと履歴閲覧への影響を確認する。検証の実行条件とapplication store不在時の扱いは[完全local gate](./python-foundation.md#9-ci-and-local-parity)、系列退役の順序は[運用手順](../../batch/OPERATIONS.md#指標観測とregistryの修正)に従う。
 
 ### データソース registry
 
@@ -121,6 +121,8 @@ registryのband変更時は、Git管理外のstoreをread-only validatorで全�
 ### GETの再試行
 
 `jquants_flows`・`jquants_indices`・`jquants_options`・`fred_csv`は[GET transport](../../engine/src/baibai_engine/market_context/indicators/providers/read_retry.py)で本文読了までの再試行を所有する。個々のGETは初回＋最大5回で、status retryと本文の一時受信失敗を通算する。有効な`Retry-After`の秒数／HTTP-dateを優先し、不在・不正なら30・60・120・300・600秒で待つ。認証・403・解析失敗やproviderが終了と決めた取得をserviceで再開せず、後続ページの失敗で成功済みページへ戻らない。FREDの8MB上限とsession内のbytes cacheを維持する。他providerの取得方式はこの契約へ一律変更しない。
+
+serviceが1回再試行するのは、停止を表す`ProviderFetchStoppedError`以外の`IndicatorsProviderError`に限る。再試行前に取得contextのbytes cacheを破棄し、再失敗は`provider_runs`へfailedとして記録する。GET transportの再試行終了・deadline・providerが確定した停止は`ProviderFetchStoppedError`で伝わり、このservice再試行へ戻さない。
 
 各providerの最初のGETから20分のdeadlineを同じ`FetchContext`の取得passで共有する。通信時間・本文受信・SDK内待機を数え、新しいGETや収まらない待機を開始しない。待機を短縮して再送せず、次passは新しい予算で始める。SDK/HTTPの通信timeoutは30秒のままで、進行中の通信を強制取消するものではない。日次job全体は90分上限だが、job残時間はcallerから渡されておらず、複数providerと他工程の総時間をこの局所予算だけで保証しない。job残時間の伝達は別の残件とし、永続cooldownや次passへの期限引継ぎは持たない。
 
@@ -150,7 +152,7 @@ GETの回数・待機は上の共通契約に従う。全営業日・3系列で�
 
 ### Providerの追加
 
-新ソース追加＝provider モジュールを 1 つ足して（`providers/` に 1 ファイル）`providers/registry.py` に 1 行登録し、series を registry（`indicators/registry/` の region 別 yaml）へ 1 entry 加える。provider の取得能力（all-history 起点・store 書き換え方針・refresh 可否・point-in-time vintage・必要 env）は各 provider の `ProviderSpec` が宣言し、service / store reader は provider 名で分岐しない。point-in-time replay を提供する provider の spec は fetch 実装を import しない read-safe module に置き、provider 実装と reader が同じ spec を参照する。registered provider との drift は test で検出する。1 series_id = 1 provider を厳守する。provider 取得は一時的な `IndicatorsProviderError` を 1 回 retry し、再失敗した場合は `provider_runs` に failed として記録する。
+新ソース追加＝provider モジュールを 1 つ足して（`providers/` に 1 ファイル）`providers/registry.py` に 1 行登録し、series を registry（`indicators/registry/` の region 別 yaml）へ 1 entry 加える。provider の取得能力（all-history 起点・store 書き換え方針・refresh 可否・point-in-time vintage・必要 env）は各 provider の `ProviderSpec` が宣言し、service / store reader は provider 名で分岐しない。point-in-time replay を提供する provider の spec は fetch 実装を import しない read-safe module に置き、provider 実装と reader が同じ spec を参照する。registered provider との drift は test で検出する。1 series_id = 1 provider を厳守する。取得の再試行と停止は[GETの再試行](#getの再試行)の境界に従う。
 
 `market-context indicators refresh` は複数 series を 1 pass で取得し、1 series の失敗は他 series を止めない。失敗した series は最後にまとめて stderr へ列挙し、exit code は非 0 になる（1 つの壊れたソースが同一グループの残り全系列を stale にしない）。1 pass は 1 つの fetch context を共有するので、複数 series が同じ bulk ファイルを参照しても download は 1 回、browser fallback を要する provider の起動も 1 回で済む。取得値は store へ入る前に有限値であることを検証し、NaN / ±inf は取得失敗として扱う（派生計算・percentile・export を汚染させない）。`provider_runs`は取得の成否と`record_count`を記録する。
 
@@ -186,7 +188,7 @@ uv run baibai-engine market-context indicators get jp.pmi_manufacturing --start 
 
 `baibai-web`の`/api/market-context`は`as_of / known_at`で選んだL3 assessment、指定基準日のL2 Reading、全系列の読み値を返す非canonical projectionである。新判断は要約・重要変化・反証・不確実性・含意・入力出典を表示し、保存済みv3/v4は従来の詳細と原本文を読める。新しい要約やscoreを生成しない。判断の入力確定時刻は`known_at`、発行時刻は`published_at`、Readingの基準は`asof`、系列の観測日は`observed_at`として別々に表示する。
 
-初期 response は full chart history を持たず、一覧用に各系列の約1年・月次 period-end を最大13 pointだけ返す。これは方向を走査する固定windowで、期間・粒度selectorの対象ではない。行を開いた時だけ `/api/market-context/indicators/<series_id>` がその 1 系列の daily 全履歴を返し、詳細chartの期間 `1y | 5y | 10y | max` と粒度 `daily | weekly | monthly | yearly` は browser 内で絞る。`series.yaml` に `tradingview_symbol` がある系列だけ TradingView の該当 symbol を新規 tab で開く。
+初期 response は full chart history を持たず、一覧用に各系列の約1年・月次 period-end を最大13 pointだけ返す。これは方向を走査する固定windowで、期間・粒度selectorの対象ではない。行を開いた時だけ `/api/market-context/indicators/<series_id>` がその 1 系列の daily 全履歴を返し、詳細chartの期間 `1y | 5y | 10y | max` と粒度 `daily | weekly | monthly | yearly` は browser 内で絞る。[region別registry](../../engine/src/baibai_engine/market_context/indicators/registry/)に `tradingview_symbol` がある系列だけ TradingView の該当 symbol を新規 tab で開く。
 
 ### 変更時の検証
 
@@ -212,7 +214,7 @@ uv run baibai-engine market-context reading --asof 2026-07-24 --format json   # 
 - flagsと極端なz-scoreは確認の入口であり、売買signalや誤値判定ではない。
 - 異なる実効窓とsampling cadenceを同じ物差しとして比較しない。`window_years`、`window_observations`と規則revisionを確認する。
 
-規則は`method/macro/reading/`のdated revisionに置き、出力の`rules_revision`で識別する。frequencyの既定と系列固有のoverrideを使い、既定がsourceの性質に合わない箇所だけを上書きする。厳密なfield・閾値・旧revisionの読込条件はrule modelとloaderを参照する。過去revisionの意味を現在の規則で書き換えない。
+規則は`method/macro/reading/`のdated revisionに置き、出力の`rules_revision`で識別する。frequencyの既定と系列固有のoverrideを使い、既定がsourceの性質に合わない箇所だけを上書きする。厳密なfield・閾値・旧revisionの読込条件はrule modelとloaderを参照する。過去revisionの意味を現在の規則で書き換えない。引用済みの現行dated fileはbytesを保持するため、コメント中の旧CLI名・当時の契約期間・公表上限の説明を現在の操作や保証として使わない。操作と解釈は本書へ集約する。水準が下がらないという前提や、過去最大ラグが将来も超えないという保証は置かない。
 
 reading は L1 store を読むだけの純関数で、provider を呼ばず DB へ書かない。したがって過去日の asof でも同じ入力から同じ snapshot を再計算できる。CLI・read API・indicator chart は共通の store reader を使い、`ProviderSpec.point_in_time_vintage` を宣言する source だけを `vintage_at <= asof` へ clamp する。宣言のない bulk history の `vintage_at` は取得日時であって当時の公表日時ではないため、一律 clamp して取得前の過去 snapshot から既知だった履歴を消さない。専用 store は持たず、日次バッチが `baibai-web` 向けの現在読み値（`/api/market-context`・`views/market-context.json`）へ投影し、L3判断は引用したsnapshotとmethod revisionを入力出典に記録する。Web projectionは指定asofのreadingを1回組み立て、canonical snapshotを増やさない。
 
@@ -224,7 +226,7 @@ Baibai Loop の Market Context タブは、上から **現在の市場環境判�
 
 <a id="assessment"></a>
 
-保存storeからの公開Readingは一つの`store_snapshot_payload`で`read_semantics`を付け、Research・Owner MCP・Web・CLIへ同じ説明を渡す。`as_of`は観測対象日であり、Researchの`known_at / received_cutoff`はReadingに適用しない。既存ProviderSpecの公表vintage契約を持つ系列だけを対象日でclampし、その他は現在保存されている後日取得/改定履歴で再計算する。全体の当時点再現は保証しない。各系列は`vintage_selection / vintage_cutoff`を示す。任意のreaderを受ける純粋計算・serializerにはこのstore固有の保証や説明を付けない。数値・元時刻・vintage選択を変更する仕組みではない。
+保存storeからの公開Readingは一つの`store_snapshot_payload`で`read_semantics`を付け、Research・Web・CLIへ同じ説明を渡す。`as_of`は観測対象日であり、Researchの`known_at / received_cutoff`はReadingに適用しない。既存ProviderSpecの公表vintage契約を持つ系列だけを対象日でclampし、その他は現在保存されている後日取得/改定履歴で再計算する。全体の当時点再現は保証しない。各系列は`vintage_selection / vintage_cutoff`を示す。任意のreaderを受ける純粋計算・serializerにはこのstore固有の保証や説明を付けない。数値・元時刻・vintage選択を変更する仕組みではない。
 
 `recomputed_current_store`は現在のstoreからの再計算を示すprovenanceであり、その日の`known_at`を満たす証明ではない。過去の判断や成績と突き合わせるときは、この利用可能時点の制約を残す。
 
@@ -244,7 +246,7 @@ Baibai Loop の Market Context タブは、上から **現在の市場環境判�
 
 保存済み`context_id`と`supersedes_id`は不変であり、新table/headへそのまま移す。旧schemaの本文、入力、supersedes、引用、保存済みscorecard参照は不変の履歴として取得し、新作成のvalidatorを適用しない。旧詳細の閲覧と新判断の表示は分け、共通projectionだけで過去本文を代替しない。ID閲覧では分析入力のcutoffを適用せず、分析用選択は日付と利用可能時刻を明示する。
 
-Research/Triageへ渡す共通projectionは要約・根拠・含意に加えて反証/不確実性を含む。旧Triageの実際の入力は保存されたrunner `input.json`が正本であり、上書き再生成しない。ファイルがない場合の照会は保存本文からの抽出で、当時の全入力一致や再現済みとは言わない。
+Researchへ渡す共通projectionは要約・根拠・含意に加えて反証/不確実性を含む。旧Triageの実際の入力は保存されたrunner `input.json`が正本であり、上書き再生成しない。ファイルがない場合の照会は保存本文からの抽出で、当時の全入力一致や再現済みとは言わない。
 
 旧v4の共通projectionには支配的な力の主張・伝達経路・確信度・反証・出典と、force IDで対応する相互作用を小さな`synthesis`として引用する。これは保存済み判断の抽出であり、新判断の必須章や新しい評価ではない。Research workspaceのassessment選択は今回の固定`known_at`を使い、External Assessmentの受信cutoffとは分ける。
 

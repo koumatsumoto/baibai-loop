@@ -48,12 +48,12 @@ def build_parser() -> argparse.ArgumentParser:
         close.add_argument("task_id")
     reconcile = commands.add_parser(
         "reconcile-earnings",
-        help="align earnings-related tasks with the disclosed earnings calendar",
+        help="compare earnings-related tasks with the disclosed earnings calendar",
     )
     reconcile.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
     edit = commands.add_parser(
         "edit",
-        help="change an open task's title, kind, due date, trigger event, body, or refs",
+        help="change a task's title, kind, due date, trigger event, body, or refs",
     )
     edit.add_argument("task_id")
     edit.add_argument("--title")
@@ -112,11 +112,9 @@ def main(argv: list[str] | None = None, *, today: date | None = None) -> int:
 def _reconcile_earnings(service: TaskService, args: argparse.Namespace, *, today: date) -> int:
     """Report where open task dates stand against the published schedule.
 
-    This never writes. A task's date is machine-set when the schedule could supply
-    one and hand-set when it could not, so the only dates that would ever change
-    here are the ones a human chose — and the task 規約 (ops-maintenance skill)
-    keeps that write boundary with the human. The comparison names what moved;
-    `task edit` applies it.
+    This never writes. Both published dates and estimates can change. The comparison
+    names the difference; an explicit `task edit` applies a reviewed change under
+    the task 規約 (ops-maintenance skill).
     """
     from .earnings_reconcile import reconcile_earnings_dates
     from .earnings_schedule import read_published_earnings_dates

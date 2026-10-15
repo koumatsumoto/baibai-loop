@@ -1,8 +1,17 @@
 from __future__ import annotations
 
-from datetime import date
+import sqlite3
+from contextlib import closing
+from datetime import date, datetime
 from pathlib import Path
 
+import pytest
+
+from baibai_engine.position.market_source import (
+    next_order_session,
+    quantity_basis_is_confirmed,
+    read_unadjusted_close,
+)
 from baibai_engine.read_api.market import (
     close_change_since,
     latest_disclosure_dates_after,
@@ -11,6 +20,8 @@ from baibai_engine.read_api.market import (
     previous_business_day,
     worst_close_drawdown,
 )
+from baibai_engine.screening.calibration.forward import latest_market_data_date
+from baibai_engine.screening.sqlite_coverage.core import _connect_readonly
 from baibai_engine.storage.observations.schema import open_connection
 
 
@@ -252,3 +263,35 @@ def test_previous_business_day_is_unknown_when_the_calendar_stops_short(tmp_path
     _seed_calendar(database, [("2026-07-27", 1)])
 
     assert previous_business_day(database, date(2026, 7, 27)) is None
+
+
+@pytest.mark.parametrize("name", ["market #1.sqlite", "market?mode=rw.sqlite", "市場%20.sqlite"])
+def test_readonly_market_readers_escape_uri_filename(tmp_path: Path, name: str) -> None:
+    path = tmp_path / name
+    day = date(2026, 10, 14)
+    _seed_bars_with_factors(path, [("2331", day.isoformat(), 1000.0, 1.0)])
+    _seed_calendar(path, [(day.isoformat(), 1), ("2026-10-15", 1)])
+    now = datetime.fromisoformat("2026-10-14T16:00:00+09:00")
+
+    quote = read_unadjusted_close(sqlite_path=path, ticker="2331", at=now)
+    assert quote is not None
+    assert quote.close_yen == 1000.0
+    assert quantity_basis_is_confirmed(
+        sqlite_path=path, ticker="2331", from_date=day, through_date=day
+    )
+    assert next_order_session(sqlite_path=path, now=now) == date(2026, 10, 15)
+    assert latest_market_data_date(path) == day
+    with closing(_connect_readonly(path)) as connection:
+        assert connection.execute("SELECT MAX(traded_at) FROM jquants_daily_bars").fetchone() == (
+            day.isoformat(),
+        )
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            connection.execute("DELETE FROM jquants_daily_bars")
+
+
+def test_order_session_rejects_naive_instant_before_store_read(tmp_path: Path) -> None:
+    path = tmp_path / "missing.sqlite"
+    naive = datetime(2026, 10, 14, 16)  # noqa: DTZ001 - deliberately invalid input
+    with pytest.raises(ValueError, match="timezone"):
+        next_order_session(sqlite_path=path, now=naive)
+    assert not path.exists()

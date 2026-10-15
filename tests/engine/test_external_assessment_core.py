@@ -4,6 +4,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -141,7 +142,7 @@ def test_empty_current_store_and_missing_file_are_unobserved(tmp_path):
 
 def test_obsolete_shape_and_corrupt_sqlite_are_errors(tmp_path):
     db = tmp_path / "obsolete.sqlite"
-    with sqlite3.connect(db) as conn:
+    with closing(sqlite3.connect(db)) as conn, conn:
         conn.execute("CREATE TABLE old_table(value TEXT)")
     with pytest.raises(SQLiteSchemaError):
         read_observations(db, "1234", RECEIVED)

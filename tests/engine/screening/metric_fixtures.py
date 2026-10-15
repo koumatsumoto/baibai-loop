@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _daily_bars(code: str, end: date, total_days: int) -> list[JQuantsDailyBar]:
+    """Synthetic daily observations, including weekends; not an exchange calendar."""
     start = end - timedelta(days=total_days - 1)
     return [
         JQuantsDailyBar(
@@ -58,9 +59,9 @@ def _summary(
     total_assets: float | None = None,
     equity_to_asset_ratio: float | None = None,
 ) -> JQuantsFinancialSummary:
-    # 報告純利益は 1 株当たり当期純利益 x 自己株控除後株数と一致する。trailing 倍率も
-    # accruals もこの行から出るので、既定値は行の中でその恒等式を満たす値にする。恒等式を
-    # 破った行を試す test だけが `profit` を明示的に渡す。
+    # fixture では株数一定の簡略条件として EPS x 期末自己株控除後株数で利益を作る。
+    # 実開示の EPS 分母は期中平均株数などであり、一般の恒等式ではない。
+    # 別の利益値を試す test は `profit` を明示する。
     if profit is None and eps_ttm is not None:
         profit = eps_ttm * (shares_outstanding - (treasury_shares or 0.0))
     return JQuantsFinancialSummary(

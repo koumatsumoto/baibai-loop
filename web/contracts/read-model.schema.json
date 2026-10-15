@@ -1,133 +1,27 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Baibai Loop read model",
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "roots": {
     "/api/screening/history": "#/$defs/ScreeningHistoryView",
     "history/candidate-views/{as_of}.json": "#/$defs/ScreeningHistoryRunView",
-    "views/capital-allocation-assessment--{capital_allocation_assessment_id}.json": "#/$defs/CapitalAllocationAssessmentView",
-    "views/capital-allocation-assessments.json": "#/$defs/CapitalAllocationAssessmentsView",
     "views/daily-delta.json": "#/$defs/DailyDeltaView",
     "views/dashboard.json": "#/$defs/DashboardView",
     "views/indicator-series--{series_id}.json": "#/$defs/IndicatorSeriesView",
+    "views/investment-proposal--{proposal_id}.json": "#/$defs/InvestmentProposalView",
+    "views/investment-proposal-preview--{proposal_id}.json": "#/$defs/InvestmentProposalPreviewView",
+    "views/investment-proposals.json": "#/$defs/InvestmentProposalsView",
     "views/market-context-assessment--{context_id}.json": "#/$defs/AssessmentPublicationView",
     "views/market-context.json": "#/$defs/MarketContextView",
     "views/meta.json": "#/$defs/MetaView",
     "views/operations.json": "#/$defs/OperationsView",
-    "views/research-triage--{research_triage_id}.json": "#/$defs/ResearchTriageDetailView",
     "views/screening_latest.json": "#/$defs/ScreeningView",
     "views/security--{ticker}.json": "#/$defs/SecurityDetailView",
+    "views/stock-assessment--{assessment_id}.json": "#/$defs/StockAssessmentDetailView",
+    "views/stock-assessments.json": "#/$defs/StockAssessmentsView",
     "views/tasks.json": "#/$defs/TasksView"
   },
   "$defs": {
-    "AllocationAlternativeView": {
-      "properties": {
-        "ticker": {
-          "title": "Ticker",
-          "type": "string"
-        },
-        "disposition": {
-          "title": "Disposition",
-          "type": "string"
-        },
-        "rationale": {
-          "title": "Rationale",
-          "type": "string"
-        },
-        "thesis_id": {
-          "title": "Thesis Id",
-          "type": "string"
-        },
-        "thesis_review_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Thesis Review Id"
-        },
-        "case_status": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Case Status"
-        },
-        "base_annualized_return_pct": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Base Annualized Return Pct"
-        },
-        "pmax_raw_yen": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Pmax Raw Yen"
-        },
-        "valuation_as_of": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Valuation As Of"
-        },
-        "thesis_projection": {
-          "additionalProperties": true,
-          "title": "Thesis Projection",
-          "type": "object"
-        },
-        "thesis_review": {
-          "anyOf": [
-            {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Thesis Review"
-        }
-      },
-      "required": [
-        "ticker",
-        "disposition",
-        "rationale",
-        "thesis_id",
-        "thesis_review_id",
-        "case_status",
-        "base_annualized_return_pct",
-        "pmax_raw_yen",
-        "valuation_as_of",
-        "thesis_projection",
-        "thesis_review"
-      ],
-      "title": "AllocationAlternativeView",
-      "type": "object"
-    },
     "AnalystRatingAssessment": {
       "additionalProperties": false,
       "properties": {
@@ -659,41 +553,27 @@
       "title": "AssessmentPublicationView",
       "type": "object"
     },
-    "AssessmentReviewView": {
+    "AssessmentRefView": {
       "properties": {
-        "attempt": {
-          "title": "Attempt",
-          "type": "integer"
-        },
-        "reviewer_identity": {
-          "title": "Reviewer Identity",
+        "assessment_id": {
+          "title": "Assessment Id",
           "type": "string"
         },
-        "reviewed_at": {
-          "format": "date-time",
-          "title": "Reviewed At",
+        "core_sha256": {
+          "title": "Core Sha256",
           "type": "string"
         },
-        "conclusion": {
-          "title": "Conclusion",
+        "review_id": {
+          "title": "Review Id",
           "type": "string"
-        },
-        "open_findings": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Open Findings",
-          "type": "array"
         }
       },
       "required": [
-        "attempt",
-        "reviewer_identity",
-        "reviewed_at",
-        "conclusion",
-        "open_findings"
+        "assessment_id",
+        "core_sha256",
+        "review_id"
       ],
-      "title": "AssessmentReviewView",
+      "title": "AssessmentRefView",
       "type": "object"
     },
     "AssessmentRevisionView": {
@@ -808,108 +688,67 @@
       "title": "BenchmarkTrendView",
       "type": "object"
     },
-    "CapitalAllocationAssessmentSummaryView": {
+    "CandidateDiscoveryMethodIdentityView": {
       "properties": {
-        "capital_allocation_assessment_id": {
-          "title": "Capital Allocation Assessment Id",
+        "method_id": {
+          "title": "Method Id",
           "type": "string"
         },
-        "as_of": {
-          "format": "date",
-          "title": "As Of",
+        "method_hash": {
+          "title": "Method Hash",
           "type": "string"
         },
-        "published_at": {
-          "format": "date-time",
-          "title": "Published At",
-          "type": "string"
+        "nomination_depth": {
+          "title": "Nomination Depth",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "method_id",
+        "method_hash",
+        "nomination_depth"
+      ],
+      "title": "CandidateDiscoveryMethodIdentityView",
+      "type": "object"
+    },
+    "CandidateDiscoverySummaryView": {
+      "properties": {
+        "method": {
+          "$ref": "#/$defs/CandidateDiscoveryMethodIdentityView"
         },
-        "decision": {
-          "title": "Decision",
-          "type": "string"
-        },
-        "headline": {
-          "title": "Headline",
-          "type": "string"
-        },
-        "research_triage_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Research Triage Id"
-        },
-        "alternative_count": {
-          "title": "Alternative Count",
+        "common_eligible_count": {
+          "title": "Common Eligible Count",
           "type": "integer"
         },
-        "allocated_ticker": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Allocated Ticker"
+        "candidate_counts_by_approach": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Candidate Counts By Approach",
+          "type": "object"
         },
-        "research_operation_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Research Operation Id"
+        "candidate_count": {
+          "title": "Candidate Count",
+          "type": "integer"
         }
       },
       "required": [
-        "capital_allocation_assessment_id",
-        "as_of",
-        "published_at",
-        "decision",
-        "headline",
-        "research_triage_id",
-        "alternative_count",
-        "allocated_ticker",
-        "research_operation_id"
+        "method",
+        "common_eligible_count",
+        "candidate_counts_by_approach",
+        "candidate_count"
       ],
-      "title": "CapitalAllocationAssessmentSummaryView",
+      "title": "CandidateDiscoverySummaryView",
       "type": "object"
     },
-    "CapitalAllocationAssessmentView": {
+    "CandidateEntryDeltaView": {
+      "description": "A ticker whose presence in the 候補 changed between two runs.\n\n``disclosed_since_previous`` is ``null`` when the store that holds disclosure\ndates could not answer, which must not read as \"no disclosure\".",
       "properties": {
-        "capital_allocation_assessment_id": {
-          "title": "Capital Allocation Assessment Id",
+        "ticker": {
+          "title": "Ticker",
           "type": "string"
         },
-        "as_of": {
-          "format": "date",
-          "title": "As Of",
-          "type": "string"
-        },
-        "published_at": {
-          "format": "date-time",
-          "title": "Published At",
-          "type": "string"
-        },
-        "decision": {
-          "title": "Decision",
-          "type": "string"
-        },
-        "headline": {
-          "title": "Headline",
-          "type": "string"
-        },
-        "research_triage_id": {
+        "company_name": {
           "anyOf": [
             {
               "type": "string"
@@ -918,106 +757,126 @@
               "type": "null"
             }
           ],
-          "title": "Research Triage Id"
+          "title": "Company Name"
         },
-        "market_context_assessment_id": {
+        "er_annual_pct": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "number"
             },
             {
               "type": "null"
             }
           ],
-          "title": "Market Context Assessment Id"
+          "title": "Er Annual Pct"
         },
-        "comparison": {
-          "title": "Comparison",
-          "type": "string"
-        },
-        "foregone_alternatives": {
-          "title": "Foregone Alternatives",
-          "type": "string"
-        },
-        "research_operation_id": {
+        "disclosed_since_previous": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "boolean"
             },
             {
               "type": "null"
             }
           ],
-          "default": null,
-          "title": "Research Operation Id"
-        },
-        "selected_new_target_count": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Selected New Target Count"
-        },
-        "unfinished_research": {
-          "items": {
-            "$ref": "#/$defs/UnfinishedResearchView"
-          },
-          "title": "Unfinished Research",
-          "type": "array"
-        },
-        "alternatives": {
-          "items": {
-            "$ref": "#/$defs/AllocationAlternativeView"
-          },
-          "title": "Alternatives",
-          "type": "array"
-        },
-        "content_review": {
-          "$ref": "#/$defs/AssessmentReviewView"
+          "title": "Disclosed Since Previous"
         }
       },
       "required": [
-        "capital_allocation_assessment_id",
-        "as_of",
-        "published_at",
-        "decision",
-        "headline",
-        "research_triage_id",
-        "market_context_assessment_id",
-        "comparison",
-        "foregone_alternatives",
-        "research_operation_id",
-        "selected_new_target_count",
-        "unfinished_research",
-        "alternatives",
-        "content_review"
+        "ticker",
+        "company_name",
+        "er_annual_pct",
+        "disclosed_since_previous"
       ],
-      "title": "CapitalAllocationAssessmentView",
+      "title": "CandidateEntryDeltaView",
       "type": "object"
     },
-    "CapitalAllocationAssessmentsView": {
+    "CandidateExpectedReturnDeltaView": {
+      "description": "A ticker in both 候補s whose machine E[r] moved most.",
       "properties": {
-        "assessments": {
-          "items": {
-            "$ref": "#/$defs/CapitalAllocationAssessmentSummaryView"
-          },
-          "title": "Assessments",
-          "type": "array"
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "company_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Company Name"
+        },
+        "er_annual_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Er Annual Pct"
+        },
+        "previous_er_annual_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Previous Er Annual Pct"
+        },
+        "change_pp": {
+          "title": "Change Pp",
+          "type": "number"
         }
       },
       "required": [
-        "assessments"
+        "ticker",
+        "company_name",
+        "er_annual_pct",
+        "previous_er_annual_pct",
+        "change_pp"
       ],
-      "title": "CapitalAllocationAssessmentsView",
+      "title": "CandidateExpectedReturnDeltaView",
+      "type": "object"
+    },
+    "CandidateReasonView": {
+      "properties": {
+        "valuation_approach_id": {
+          "enum": [
+            "current-earnings-power",
+            "normalized-earnings-power",
+            "asset-value",
+            "reinvestment-value"
+          ],
+          "title": "Valuation Approach Id",
+          "type": "string"
+        },
+        "valuation_method_id": {
+          "title": "Valuation Method Id",
+          "type": "string"
+        },
+        "rank": {
+          "title": "Rank",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "valuation_approach_id",
+        "valuation_method_id",
+        "rank"
+      ],
+      "title": "CandidateReasonView",
       "type": "object"
     },
     "DailyDeltaView": {
-      "description": "What changed between the latest machine run and the one before it.\n\nEvery field is an observation or a comparison of observations. The view names no\ncause and carries no recommendation: it tells the reader where to look, and the\ndecision to start a research cycle or a Position Review stays human.\n\n``unavailable`` lists the sections no store could answer, so an empty section is\nnever read as \"nothing changed\". ``method_changed`` marks different screening or\nCandidate Discovery method hashes, so no Review Set deltas are reported. Missing\nmethod identity makes Review Set comparison unavailable. An E[r]-only model\nchange keeps membership deltas but makes\n``review_set_estimate`` unavailable and suppresses estimate movers.\nMissing E[r] on either side of a shared ticker also marks that section unavailable,\nwhile comparable tickers retain their movers.\nHoldings that cannot be compared are counts rather than rows: repeating the same\nlist every day would bury the day's actual changes. ``er_moves_total`` says how\nmany names cleared the threshold before the row cap, so a capped list does not\nhide its own remainder.",
+      "description": "What changed between the latest machine run and the one before it.\n\nThe view compares observations, derived metrics, and machine estimates without\nturning them into causal claims or recommendations. It shows where to look; the\ndecision to start new-stock or holding research stays human.\n\n``unavailable`` lists the sections no store could answer, so an empty section is\nnever read as \"nothing changed\". ``method_changed`` marks different screening or\nCandidate Discovery method hashes, so no 候補 deltas are reported. Missing\nmethod identity makes 候補 comparison unavailable. An E[r]-only model\nchange keeps membership deltas but makes\n``candidate_estimate`` unavailable and suppresses estimate movers.\nMissing E[r] on either side of a shared ticker also marks that section unavailable,\nwhile comparable tickers retain their movers.\nHoldings that cannot be compared are counts rather than rows: repeating the same\nlist every day would bury the day's actual changes. ``er_moves_total`` says how\nmany names cleared the threshold before the row cap, so a capped list does not\nhide its own remainder.",
       "properties": {
         "generated_at": {
           "format": "date-time",
@@ -1054,21 +913,21 @@
         },
         "entered": {
           "items": {
-            "$ref": "#/$defs/ReviewSetEntryDeltaView"
+            "$ref": "#/$defs/CandidateEntryDeltaView"
           },
           "title": "Entered",
           "type": "array"
         },
         "exited": {
           "items": {
-            "$ref": "#/$defs/ReviewSetEntryDeltaView"
+            "$ref": "#/$defs/CandidateEntryDeltaView"
           },
           "title": "Exited",
           "type": "array"
         },
         "er_moves": {
           "items": {
-            "$ref": "#/$defs/ReviewSetExpectedReturnDeltaView"
+            "$ref": "#/$defs/CandidateExpectedReturnDeltaView"
           },
           "title": "Er Moves",
           "type": "array"
@@ -1286,13 +1145,6 @@
           },
           "title": "Warnings",
           "type": "array"
-        },
-        "research_load_errors": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Research Load Errors",
-          "type": "array"
         }
       },
       "required": [
@@ -1314,8 +1166,7 @@
         "deployed_pct",
         "holdings",
         "reservations",
-        "warnings",
-        "research_load_errors"
+        "warnings"
       ],
       "title": "DashboardView",
       "type": "object"
@@ -1324,8 +1175,8 @@
       "enum": [
         "screening_run",
         "previous_screening_run",
-        "review_set",
-        "review_set_estimate",
+        "candidates",
+        "candidate_estimate",
         "holdings",
         "market"
       ],
@@ -1757,6 +1608,24 @@
         "has_research"
       ],
       "title": "ExternalAssessmentSecurityView",
+      "type": "object"
+    },
+    "GateReasonView": {
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "GateReasonView",
       "type": "object"
     },
     "HistoricalConnectionSectionView": {
@@ -2486,7 +2355,7 @@
       "type": "object"
     },
     "HoldingDeltaView": {
-      "description": "Observed holding price movement; holding decisions belong to Position Review.",
+      "description": "Observed holding price movement; holding decisions belong to Investment Proposal.",
       "properties": {
         "ticker": {
           "title": "Ticker",
@@ -2642,7 +2511,7 @@
           ],
           "title": "Pmax Gap Pct"
         },
-        "latest_thesis_id": {
+        "pmax_gap_unavailable_reason": {
           "anyOf": [
             {
               "type": "string"
@@ -2651,9 +2520,10 @@
               "type": "null"
             }
           ],
-          "title": "Latest Thesis Id"
+          "default": null,
+          "title": "Pmax Gap Unavailable Reason"
         },
-        "disposition": {
+        "latest_assessment_id": {
           "anyOf": [
             {
               "type": "string"
@@ -2662,7 +2532,18 @@
               "type": "null"
             }
           ],
-          "title": "Disposition"
+          "title": "Latest Assessment Id"
+        },
+        "stance": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Stance"
         },
         "next_earnings_date": {
           "anyOf": [
@@ -2690,8 +2571,9 @@
         "unrealized_pnl_pct",
         "pmax_raw_yen",
         "pmax_gap_pct",
-        "latest_thesis_id",
-        "disposition",
+        "pmax_gap_unavailable_reason",
+        "latest_assessment_id",
+        "stance",
         "next_earnings_date"
       ],
       "title": "HoldingView",
@@ -2824,6 +2706,617 @@
         "points"
       ],
       "title": "IndicatorSeriesView",
+      "type": "object"
+    },
+    "InvestmentProposalItemView": {
+      "properties": {
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "action": {
+          "enum": [
+            "buy",
+            "hold",
+            "sell",
+            "no_action",
+            "defer"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "review_conditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Review Conditions",
+          "type": "array"
+        },
+        "assessment_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AssessmentRefView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "timing": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timing"
+        },
+        "proposed_limit_yen": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Proposed Limit Yen"
+        },
+        "terms": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LimitTermsView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "terms_unavailable_reasons": {
+          "items": {
+            "$ref": "#/$defs/GateReasonView"
+          },
+          "title": "Terms Unavailable Reasons",
+          "type": "array"
+        },
+        "order_readiness": {
+          "enum": [
+            "ready",
+            "needs_terms",
+            "not_applicable"
+          ],
+          "title": "Order Readiness",
+          "type": "string"
+        },
+        "position": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Position"
+        },
+        "holding_basis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Holding Basis"
+        },
+        "case_reassessment_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Case Reassessment Reason"
+        },
+        "remaining_reward": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Remaining Reward"
+        },
+        "return_calculation_unavailable_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Return Calculation Unavailable Reason"
+        },
+        "reason_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason Code"
+        },
+        "blockers": {
+          "items": {
+            "$ref": "#/$defs/GateReasonView"
+          },
+          "title": "Blockers",
+          "type": "array"
+        },
+        "resume_conditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Resume Conditions",
+          "type": "array"
+        },
+        "assessment_projection": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assessment Projection"
+        },
+        "assessment_review": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assessment Review"
+        }
+      },
+      "required": [
+        "ticker",
+        "action",
+        "rationale",
+        "review_conditions",
+        "assessment_ref",
+        "timing",
+        "proposed_limit_yen",
+        "terms",
+        "terms_unavailable_reasons",
+        "order_readiness",
+        "position",
+        "holding_basis",
+        "case_reassessment_reason",
+        "remaining_reward",
+        "return_calculation_unavailable_reason",
+        "reason_code",
+        "blockers",
+        "resume_conditions",
+        "assessment_projection",
+        "assessment_review"
+      ],
+      "title": "InvestmentProposalItemView",
+      "type": "object"
+    },
+    "InvestmentProposalPreviewView": {
+      "description": "取得時刻付きの現在再試算。保存Proposal/termsとは独立したread-only結果。",
+      "properties": {
+        "saved_proposal_id": {
+          "title": "Saved Proposal Id",
+          "type": "string"
+        },
+        "previewed_at": {
+          "format": "date-time",
+          "title": "Previewed At",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "unchanged",
+            "changed",
+            "blocked"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "current_inputs": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Current Inputs"
+        },
+        "items": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "change_reasons": {
+          "items": {
+            "$ref": "#/$defs/GateReasonView"
+          },
+          "title": "Change Reasons",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        },
+        "portfolio_exposure": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Portfolio Exposure"
+        }
+      },
+      "required": [
+        "saved_proposal_id",
+        "previewed_at",
+        "status",
+        "current_inputs",
+        "items",
+        "change_reasons",
+        "warnings",
+        "portfolio_exposure"
+      ],
+      "title": "InvestmentProposalPreviewView",
+      "type": "object"
+    },
+    "InvestmentProposalSummaryView": {
+      "properties": {
+        "proposal_id": {
+          "title": "Proposal Id",
+          "type": "string"
+        },
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "published_at": {
+          "format": "date-time",
+          "title": "Published At",
+          "type": "string"
+        },
+        "request_scope": {
+          "title": "Request Scope",
+          "type": "string"
+        },
+        "headline": {
+          "title": "Headline",
+          "type": "string"
+        },
+        "item_count": {
+          "title": "Item Count",
+          "type": "integer"
+        },
+        "tickers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tickers",
+          "type": "array"
+        },
+        "actions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Actions",
+          "type": "array"
+        },
+        "research_operation_id": {
+          "title": "Research Operation Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "proposal_id",
+        "as_of",
+        "published_at",
+        "request_scope",
+        "headline",
+        "item_count",
+        "tickers",
+        "actions",
+        "research_operation_id"
+      ],
+      "title": "InvestmentProposalSummaryView",
+      "type": "object"
+    },
+    "InvestmentProposalView": {
+      "properties": {
+        "proposal_id": {
+          "title": "Proposal Id",
+          "type": "string"
+        },
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "prepared_at": {
+          "format": "date-time",
+          "title": "Prepared At",
+          "type": "string"
+        },
+        "published_at": {
+          "format": "date-time",
+          "title": "Published At",
+          "type": "string"
+        },
+        "request_scope": {
+          "title": "Request Scope",
+          "type": "string"
+        },
+        "headline": {
+          "title": "Headline",
+          "type": "string"
+        },
+        "comparison": {
+          "title": "Comparison",
+          "type": "string"
+        },
+        "forgone": {
+          "title": "Forgone",
+          "type": "string"
+        },
+        "market_context_assessment_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Market Context Assessment Id"
+        },
+        "research_scope": {
+          "additionalProperties": true,
+          "title": "Research Scope",
+          "type": "object"
+        },
+        "saved_inputs": {
+          "additionalProperties": true,
+          "title": "Saved Inputs",
+          "type": "object"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/InvestmentProposalItemView"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "review": {
+          "additionalProperties": true,
+          "title": "Review",
+          "type": "object"
+        },
+        "draft_sha256": {
+          "title": "Draft Sha256",
+          "type": "string"
+        },
+        "liquidity_context": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Liquidity Context",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        },
+        "portfolio_exposure": {
+          "additionalProperties": true,
+          "title": "Portfolio Exposure",
+          "type": "object"
+        },
+        "unfinished_research": {
+          "items": {
+            "$ref": "#/$defs/UnfinishedResearchView"
+          },
+          "title": "Unfinished Research",
+          "type": "array"
+        }
+      },
+      "required": [
+        "proposal_id",
+        "as_of",
+        "prepared_at",
+        "published_at",
+        "request_scope",
+        "headline",
+        "comparison",
+        "forgone",
+        "market_context_assessment_id",
+        "research_scope",
+        "saved_inputs",
+        "items",
+        "review",
+        "draft_sha256",
+        "liquidity_context",
+        "warnings",
+        "portfolio_exposure",
+        "unfinished_research"
+      ],
+      "title": "InvestmentProposalView",
+      "type": "object"
+    },
+    "InvestmentProposalsView": {
+      "properties": {
+        "proposals": {
+          "items": {
+            "$ref": "#/$defs/InvestmentProposalSummaryView"
+          },
+          "title": "Proposals",
+          "type": "array"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Cursor"
+        }
+      },
+      "required": [
+        "proposals",
+        "next_cursor"
+      ],
+      "title": "InvestmentProposalsView",
+      "type": "object"
+    },
+    "LimitTermsView": {
+      "description": "保存当時の具体条件。現在条件、注文受理、約定を推定しない。",
+      "properties": {
+        "side": {
+          "enum": [
+            "buy",
+            "sell"
+          ],
+          "title": "Side",
+          "type": "string"
+        },
+        "limit_price_yen": {
+          "title": "Limit Price Yen",
+          "type": "string"
+        },
+        "quantity": {
+          "title": "Quantity",
+          "type": "integer"
+        },
+        "notional_yen": {
+          "title": "Notional Yen",
+          "type": "string"
+        },
+        "target_session": {
+          "format": "date",
+          "title": "Target Session",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "valuation_as_of": {
+          "format": "date",
+          "title": "Valuation As Of",
+          "type": "string"
+        },
+        "maximum_entry_price_yen": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Maximum Entry Price Yen"
+        },
+        "price_grid_rule_id": {
+          "title": "Price Grid Rule Id",
+          "type": "string"
+        },
+        "conditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Conditions",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "side",
+        "limit_price_yen",
+        "quantity",
+        "notional_yen",
+        "target_session",
+        "expires_at",
+        "valuation_as_of",
+        "maximum_entry_price_yen",
+        "price_grid_rule_id",
+        "conditions",
+        "warnings"
+      ],
+      "title": "LimitTermsView",
       "type": "object"
     },
     "MarketContextView": {
@@ -3749,6 +4242,42 @@
     },
     "OperationResearchTargetView": {
       "properties": {
+        "selection_rationale": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selection Rationale"
+        },
+        "research_question": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Research Question"
+        },
+        "key_risk": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Key Risk"
+        },
         "ticker": {
           "title": "Ticker",
           "type": "string"
@@ -3766,7 +4295,6 @@
             {
               "enum": [
                 "reviewed",
-                "proposal",
                 "unfinished"
               ],
               "type": "string"
@@ -3777,27 +4305,15 @@
           ],
           "title": "Outcome Status"
         },
-        "thesis_id": {
+        "assessment_ref": {
           "anyOf": [
             {
-              "type": "string"
+              "$ref": "#/$defs/AssessmentRefView"
             },
             {
               "type": "null"
             }
-          ],
-          "title": "Thesis Id"
-        },
-        "thesis_review_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Thesis Review Id"
+          ]
         },
         "unfinished_reason": {
           "anyOf": [
@@ -3816,32 +4332,25 @@
           },
           "title": "References",
           "type": "array"
-        },
-        "checked_at": {
-          "anyOf": [
-            {
-              "format": "date-time",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Checked At"
-        },
-        "holding_proposal": {
-          "anyOf": [
-            {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Holding Proposal"
-        },
-        "holding_proposal_null_reason": {
+        }
+      },
+      "required": [
+        "selection_rationale",
+        "research_question",
+        "key_risk",
+        "ticker",
+        "purpose",
+        "outcome_status",
+        "assessment_ref",
+        "unfinished_reason",
+        "references"
+      ],
+      "title": "OperationResearchTargetView",
+      "type": "object"
+    },
+    "OperationResearchView": {
+      "properties": {
+        "request_scope": {
           "anyOf": [
             {
               "type": "string"
@@ -3851,31 +4360,9 @@
             }
           ],
           "default": null,
-          "title": "Holding Proposal Null Reason"
-        }
-      },
-      "required": [
-        "ticker",
-        "purpose",
-        "outcome_status",
-        "thesis_id",
-        "thesis_review_id",
-        "unfinished_reason",
-        "references",
-        "checked_at",
-        "holding_proposal",
-        "holding_proposal_null_reason"
-      ],
-      "title": "OperationResearchTargetView",
-      "type": "object"
-    },
-    "OperationResearchView": {
-      "properties": {
-        "request": {
-          "title": "Request",
-          "type": "string"
+          "title": "Request Scope"
         },
-        "research_triage_id": {
+        "selection_summary": {
           "anyOf": [
             {
               "type": "string"
@@ -3884,7 +4371,24 @@
               "type": "null"
             }
           ],
-          "title": "Research Triage Id"
+          "default": null,
+          "title": "Selection Summary"
+        },
+        "max_deep_research_targets": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Deep Research Targets"
+        },
+        "request": {
+          "title": "Request",
+          "type": "string"
         },
         "targets": {
           "items": {
@@ -3893,7 +4397,7 @@
           "title": "Targets",
           "type": "array"
         },
-        "capital_allocation_assessment_id": {
+        "proposal_id": {
           "anyOf": [
             {
               "type": "string"
@@ -3902,7 +4406,18 @@
               "type": "null"
             }
           ],
-          "title": "Capital Allocation Assessment Id"
+          "title": "Proposal Id"
+        },
+        "proposal_draft_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Proposal Draft Sha256"
         },
         "source_run_revision_id": {
           "anyOf": [
@@ -3931,10 +4446,13 @@
         }
       },
       "required": [
+        "request_scope",
+        "selection_summary",
+        "max_deep_research_targets",
         "request",
-        "research_triage_id",
         "targets",
-        "capital_allocation_assessment_id",
+        "proposal_id",
+        "proposal_draft_sha256",
         "source_run_revision_id",
         "source_analysis_as_of"
       ],
@@ -4183,54 +4701,6 @@
         "held_and_reserved"
       ],
       "type": "string"
-    },
-    "PositionReviewView": {
-      "properties": {
-        "position_review_id": {
-          "title": "Position Review Id",
-          "type": "string"
-        },
-        "as_of": {
-          "format": "date",
-          "title": "As Of",
-          "type": "string"
-        },
-        "thesis_id": {
-          "title": "Thesis Id",
-          "type": "string"
-        },
-        "action": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Action"
-        },
-        "note": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Note"
-        }
-      },
-      "required": [
-        "position_review_id",
-        "as_of",
-        "thesis_id",
-        "action",
-        "note"
-      ],
-      "title": "PositionReviewView",
-      "type": "object"
     },
     "QuantsScoreAssessment": {
       "additionalProperties": false,
@@ -4795,20 +5265,41 @@
     },
     "ResearchRevisionView": {
       "properties": {
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "company_name": {
+          "title": "Company Name",
+          "type": "string"
+        },
+        "sector": {
+          "title": "Sector",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
         "as_of": {
           "format": "date",
           "title": "As Of",
           "type": "string"
         },
-        "thesis_id": {
-          "title": "Thesis Id",
+        "published_at": {
+          "format": "date-time",
+          "title": "Published At",
           "type": "string"
         },
-        "disposition": {
-          "title": "Disposition",
+        "assessment_id": {
+          "title": "Assessment Id",
           "type": "string"
         },
-        "pmax_raw_yen": {
+        "stance": {
+          "title": "Stance",
+          "type": "string"
+        },
+        "pmax_original_yen": {
           "anyOf": [
             {
               "type": "number"
@@ -4817,18 +5308,11 @@
               "type": "null"
             }
           ],
-          "title": "Pmax Raw Yen"
+          "title": "Pmax Original Yen"
         },
         "review_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Review Id"
+          "title": "Review Id",
+          "type": "string"
         },
         "status": {
           "title": "Status",
@@ -4836,180 +5320,19 @@
         }
       },
       "required": [
+        "ticker",
+        "company_name",
+        "sector",
+        "summary",
         "as_of",
-        "thesis_id",
-        "disposition",
-        "pmax_raw_yen",
+        "published_at",
+        "assessment_id",
+        "stance",
+        "pmax_original_yen",
         "review_id",
         "status"
       ],
       "title": "ResearchRevisionView",
-      "type": "object"
-    },
-    "ResearchTriageDetailView": {
-      "properties": {
-        "research_triage_id": {
-          "title": "Research Triage Id",
-          "type": "string"
-        },
-        "review_set_id": {
-          "title": "Review Set Id",
-          "type": "string"
-        },
-        "run_revision_id": {
-          "title": "Run Revision Id",
-          "type": "string"
-        },
-        "as_of": {
-          "format": "date",
-          "title": "As Of",
-          "type": "string"
-        },
-        "published_at": {
-          "format": "date-time",
-          "title": "Published At",
-          "type": "string"
-        },
-        "entries": {
-          "items": {
-            "$ref": "#/$defs/ResearchTriageEntryView"
-          },
-          "title": "Entries",
-          "type": "array"
-        },
-        "payload": {
-          "additionalProperties": true,
-          "title": "Payload",
-          "type": "object"
-        }
-      },
-      "required": [
-        "research_triage_id",
-        "review_set_id",
-        "run_revision_id",
-        "as_of",
-        "published_at",
-        "entries",
-        "payload"
-      ],
-      "title": "ResearchTriageDetailView",
-      "type": "object"
-    },
-    "ResearchTriageEntryView": {
-      "properties": {
-        "ticker": {
-          "title": "Ticker",
-          "type": "string"
-        },
-        "decision": {
-          "title": "Decision",
-          "type": "string"
-        },
-        "priority": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Priority"
-        },
-        "rationale": {
-          "title": "Rationale",
-          "type": "string"
-        },
-        "research_question": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Research Question"
-        },
-        "key_risk": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Key Risk"
-        },
-        "review_set_entry_snapshot": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ReviewSetEntrySnapshotView"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        }
-      },
-      "required": [
-        "ticker",
-        "decision",
-        "priority",
-        "rationale",
-        "research_question",
-        "key_risk",
-        "review_set_entry_snapshot"
-      ],
-      "title": "ResearchTriageEntryView",
-      "type": "object"
-    },
-    "ResearchTriageView": {
-      "properties": {
-        "research_triage_id": {
-          "title": "Research Triage Id",
-          "type": "string"
-        },
-        "review_set_id": {
-          "title": "Review Set Id",
-          "type": "string"
-        },
-        "run_revision_id": {
-          "title": "Run Revision Id",
-          "type": "string"
-        },
-        "as_of": {
-          "format": "date",
-          "title": "As Of",
-          "type": "string"
-        },
-        "published_at": {
-          "format": "date-time",
-          "title": "Published At",
-          "type": "string"
-        },
-        "entries": {
-          "items": {
-            "$ref": "#/$defs/ResearchTriageEntryView"
-          },
-          "title": "Entries",
-          "type": "array"
-        }
-      },
-      "required": [
-        "research_triage_id",
-        "review_set_id",
-        "run_revision_id",
-        "as_of",
-        "published_at",
-        "entries"
-      ],
-      "title": "ResearchTriageView",
       "type": "object"
     },
     "ReservationView": {
@@ -5089,1041 +5412,6 @@
       "title": "ReservationView",
       "type": "object"
     },
-    "ReviewSetAnalysisView": {
-      "properties": {
-        "identity_liquidity": {
-          "$ref": "#/$defs/ReviewSetIdentityLiquidityView"
-        },
-        "valuation": {
-          "$ref": "#/$defs/ReviewSetValuationView"
-        },
-        "current_earnings": {
-          "$ref": "#/$defs/ReviewSetCurrentEarningsView"
-        },
-        "normalized_earnings": {
-          "$ref": "#/$defs/ReviewSetNormalizedEarningsView"
-        },
-        "asset_value": {
-          "$ref": "#/$defs/ReviewSetAssetValueView"
-        },
-        "reinvestment": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ReviewSetReinvestmentView"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "expected_return": {
-          "$ref": "#/$defs/ReviewSetExpectedReturnView"
-        },
-        "data_quality": {
-          "$ref": "#/$defs/ReviewSetDataQualityView"
-        },
-        "context": {
-          "$ref": "#/$defs/ReviewSetContextView"
-        }
-      },
-      "required": [
-        "identity_liquidity",
-        "valuation",
-        "current_earnings",
-        "normalized_earnings",
-        "asset_value",
-        "reinvestment",
-        "expected_return",
-        "data_quality",
-        "context"
-      ],
-      "title": "ReviewSetAnalysisView",
-      "type": "object"
-    },
-    "ReviewSetAssetValueView": {
-      "properties": {
-        "asset_backed_ratio": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Asset Backed Ratio"
-        },
-        "net_cash_to_market_cap": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Net Cash To Market Cap"
-        },
-        "investment_securities": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Investment Securities"
-        },
-        "equity_ratio": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Equity Ratio"
-        }
-      },
-      "required": [
-        "asset_backed_ratio",
-        "net_cash_to_market_cap",
-        "investment_securities",
-        "equity_ratio"
-      ],
-      "title": "ReviewSetAssetValueView",
-      "type": "object"
-    },
-    "ReviewSetContextView": {
-      "properties": {
-        "next_earnings_status": {
-          "anyOf": [
-            {
-              "enum": [
-                "scheduled",
-                "scheduled_date_reached",
-                "estimated",
-                "unknown"
-              ],
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Next Earnings Status"
-        },
-        "next_earnings_estimated_date": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Next Earnings Estimated Date"
-        },
-        "margin_short_to_adv": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Margin Short To Adv"
-        },
-        "tse_capital_policy_status": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Tse Capital Policy Status"
-        },
-        "large_holding_filing_within_lookback": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Large Holding Filing Within Lookback"
-        },
-        "tender_offer_filing_within_lookback": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Tender Offer Filing Within Lookback"
-        }
-      },
-      "required": [
-        "next_earnings_status",
-        "next_earnings_estimated_date",
-        "margin_short_to_adv",
-        "tse_capital_policy_status",
-        "large_holding_filing_within_lookback",
-        "tender_offer_filing_within_lookback"
-      ],
-      "title": "ReviewSetContextView",
-      "type": "object"
-    },
-    "ReviewSetCurrentEarningsView": {
-      "properties": {
-        "fcf_yield": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Fcf Yield"
-        },
-        "ocf_yield": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Ocf Yield"
-        },
-        "forecast_special_gain_flag": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Forecast Special Gain Flag"
-        },
-        "forecast_full_year_loss_flag": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Forecast Full Year Loss Flag"
-        }
-      },
-      "required": [
-        "fcf_yield",
-        "ocf_yield",
-        "forecast_special_gain_flag",
-        "forecast_full_year_loss_flag"
-      ],
-      "title": "ReviewSetCurrentEarningsView",
-      "type": "object"
-    },
-    "ReviewSetDataQualityView": {
-      "properties": {
-        "bs_carry_forward_fields": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Bs Carry Forward Fields"
-        },
-        "bs_carry_forward_lag_days": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Bs Carry Forward Lag Days"
-        },
-        "edinet_failure_reasons": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Edinet Failure Reasons"
-        },
-        "stale_fin_flag": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Stale Fin Flag"
-        },
-        "ttm_quality_ev_ebitda": {
-          "anyOf": [
-            {
-              "enum": [
-                "exact",
-                "approximated",
-                "unavailable"
-              ],
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Ttm Quality Ev Ebitda"
-        },
-        "ttm_quality_fcf": {
-          "anyOf": [
-            {
-              "enum": [
-                "exact",
-                "approximated",
-                "unavailable"
-              ],
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Ttm Quality Fcf"
-        }
-      },
-      "required": [
-        "bs_carry_forward_fields",
-        "bs_carry_forward_lag_days",
-        "edinet_failure_reasons",
-        "stale_fin_flag",
-        "ttm_quality_ev_ebitda",
-        "ttm_quality_fcf"
-      ],
-      "title": "ReviewSetDataQualityView",
-      "type": "object"
-    },
-    "ReviewSetEntryDeltaView": {
-      "description": "A ticker whose presence in the Review Set changed between two runs.\n\n``disclosed_since_previous`` is ``null`` when the store that holds disclosure\ndates could not answer, which must not read as \"no disclosure\".",
-      "properties": {
-        "ticker": {
-          "title": "Ticker",
-          "type": "string"
-        },
-        "company_name": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Company Name"
-        },
-        "er_annual_pct": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Er Annual Pct"
-        },
-        "disclosed_since_previous": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Disclosed Since Previous"
-        }
-      },
-      "required": [
-        "ticker",
-        "company_name",
-        "er_annual_pct",
-        "disclosed_since_previous"
-      ],
-      "title": "ReviewSetEntryDeltaView",
-      "type": "object"
-    },
-    "ReviewSetEntrySnapshotView": {
-      "description": "Machine coordinates frozen into one Research Triage judgment entry.",
-      "properties": {
-        "name": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Name"
-        },
-        "sector_33": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Sector 33"
-        },
-        "nominations": {
-          "anyOf": [
-            {
-              "items": {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Nominations"
-        },
-        "expected_return": {
-          "anyOf": [
-            {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Expected Return"
-        },
-        "data_quality": {
-          "anyOf": [
-            {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Data Quality"
-        }
-      },
-      "required": [
-        "name",
-        "sector_33",
-        "nominations",
-        "expected_return",
-        "data_quality"
-      ],
-      "title": "ReviewSetEntrySnapshotView",
-      "type": "object"
-    },
-    "ReviewSetEntryView": {
-      "description": "One member of the exact approach Nomination union.",
-      "properties": {
-        "ticker": {
-          "title": "Ticker",
-          "type": "string"
-        },
-        "name": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Name"
-        },
-        "sector_33": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Sector 33"
-        },
-        "nominations": {
-          "items": {
-            "$ref": "#/$defs/ReviewSetNominationView"
-          },
-          "title": "Nominations",
-          "type": "array"
-        },
-        "analysis": {
-          "$ref": "#/$defs/ReviewSetAnalysisView"
-        }
-      },
-      "required": [
-        "ticker",
-        "name",
-        "sector_33",
-        "nominations",
-        "analysis"
-      ],
-      "title": "ReviewSetEntryView",
-      "type": "object"
-    },
-    "ReviewSetExpectedReturnDeltaView": {
-      "description": "A ticker in both Review Sets whose machine E[r] moved most.",
-      "properties": {
-        "ticker": {
-          "title": "Ticker",
-          "type": "string"
-        },
-        "company_name": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Company Name"
-        },
-        "er_annual_pct": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Er Annual Pct"
-        },
-        "previous_er_annual_pct": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Previous Er Annual Pct"
-        },
-        "change_pp": {
-          "title": "Change Pp",
-          "type": "number"
-        }
-      },
-      "required": [
-        "ticker",
-        "company_name",
-        "er_annual_pct",
-        "previous_er_annual_pct",
-        "change_pp"
-      ],
-      "title": "ReviewSetExpectedReturnDeltaView",
-      "type": "object"
-    },
-    "ReviewSetExpectedReturnView": {
-      "properties": {
-        "er_annual": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Er Annual"
-        },
-        "er_reversion_annual": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Er Reversion Annual"
-        },
-        "er_carry_annual": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Er Carry Annual"
-        },
-        "fv_sector_median_yen": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Fv Sector Median Yen"
-        },
-        "fv_self_range_yen": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Fv Self Range Yen"
-        },
-        "er_origin": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Er Origin"
-        },
-        "er_model_version": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Er Model Version"
-        },
-        "er_unit": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Er Unit"
-        },
-        "er_assumptions": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Er Assumptions"
-        },
-        "dividend_yield": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Dividend Yield"
-        },
-        "dividend_basis": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Dividend Basis"
-        },
-        "net_share_change_yoy": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Net Share Change Yoy"
-        },
-        "carry_missing_assumption": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Carry Missing Assumption"
-        }
-      },
-      "required": [
-        "er_annual",
-        "er_reversion_annual",
-        "er_carry_annual",
-        "fv_sector_median_yen",
-        "fv_self_range_yen",
-        "er_origin",
-        "er_model_version",
-        "er_unit",
-        "er_assumptions",
-        "dividend_yield",
-        "dividend_basis",
-        "net_share_change_yoy",
-        "carry_missing_assumption"
-      ],
-      "title": "ReviewSetExpectedReturnView",
-      "type": "object"
-    },
-    "ReviewSetIdentityLiquidityView": {
-      "properties": {
-        "market_cap_oku": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Market Cap Oku"
-        },
-        "avg_turnover_oku": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Avg Turnover Oku"
-        },
-        "listing_span_days": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Listing Span Days"
-        },
-        "jpx_flags": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Jpx Flags"
-        }
-      },
-      "required": [
-        "market_cap_oku",
-        "avg_turnover_oku",
-        "listing_span_days",
-        "jpx_flags"
-      ],
-      "title": "ReviewSetIdentityLiquidityView",
-      "type": "object"
-    },
-    "ReviewSetNominationView": {
-      "properties": {
-        "valuation_approach_id": {
-          "title": "Valuation Approach Id",
-          "type": "string"
-        },
-        "valuation_method_id": {
-          "title": "Valuation Method Id",
-          "type": "string"
-        },
-        "rank": {
-          "title": "Rank",
-          "type": "integer"
-        }
-      },
-      "required": [
-        "valuation_approach_id",
-        "valuation_method_id",
-        "rank"
-      ],
-      "title": "ReviewSetNominationView",
-      "type": "object"
-    },
-    "ReviewSetNormalizedEarningsView": {
-      "properties": {
-        "normalized_per_3fy": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Normalized Per 3Fy"
-        },
-        "normalized_per_3fy_sector_gap": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Normalized Per 3Fy Sector Gap"
-        }
-      },
-      "required": [
-        "normalized_per_3fy",
-        "normalized_per_3fy_sector_gap"
-      ],
-      "title": "ReviewSetNormalizedEarningsView",
-      "type": "object"
-    },
-    "ReviewSetReinvestmentView": {
-      "properties": {
-        "p_s_sector_gap": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "P S Sector Gap"
-        },
-        "operating_return_on_capital_proxy": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Operating Return On Capital Proxy"
-        },
-        "sales_yoy": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Sales Yoy"
-        },
-        "operating_margin": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Operating Margin"
-        },
-        "fcf_yield": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Fcf Yield"
-        }
-      },
-      "required": [
-        "p_s_sector_gap",
-        "operating_return_on_capital_proxy",
-        "sales_yoy",
-        "operating_margin",
-        "fcf_yield"
-      ],
-      "title": "ReviewSetReinvestmentView",
-      "type": "object"
-    },
-    "ReviewSetValuationView": {
-      "properties": {
-        "per_forward": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Per Forward"
-        },
-        "per_trailing": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Per Trailing"
-        },
-        "pbr": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Pbr"
-        },
-        "ev_ebitda": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Ev Ebitda"
-        },
-        "p_s": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "P S"
-        },
-        "pcfr": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Pcfr"
-        }
-      },
-      "required": [
-        "per_forward",
-        "per_trailing",
-        "pbr",
-        "ev_ebitda",
-        "p_s",
-        "pcfr"
-      ],
-      "title": "ReviewSetValuationView",
-      "type": "object"
-    },
-    "ReviewSetView": {
-      "properties": {
-        "review_set_id": {
-          "title": "Review Set Id",
-          "type": "string"
-        },
-        "run_revision_id": {
-          "title": "Run Revision Id",
-          "type": "string"
-        },
-        "created_at": {
-          "format": "date-time",
-          "title": "Created At",
-          "type": "string"
-        },
-        "entries": {
-          "items": {
-            "$ref": "#/$defs/ReviewSetEntryView"
-          },
-          "title": "Entries",
-          "type": "array"
-        }
-      },
-      "required": [
-        "review_set_id",
-        "run_revision_id",
-        "created_at",
-        "entries"
-      ],
-      "title": "ReviewSetView",
-      "type": "object"
-    },
     "ScreeningHistoryRunView": {
       "description": "Stable UI projection of one retained screening run.",
       "properties": {
@@ -6132,7 +5420,7 @@
         },
         "rows": {
           "items": {
-            "$ref": "#/$defs/SecurityAnalysisRowView"
+            "$ref": "#/$defs/StockAnalysisRowView"
           },
           "title": "Rows",
           "type": "array"
@@ -6219,11 +5507,11 @@
             }
           ]
         },
-        "security_analyses": {
+        "stock_analyses": {
           "items": {
-            "$ref": "#/$defs/SecurityAnalysisRowView"
+            "$ref": "#/$defs/StockAnalysisRowView"
           },
-          "title": "Security Analyses",
+          "title": "Stock Analyses",
           "type": "array"
         },
         "external_assessment_securities": {
@@ -6246,25 +5534,21 @@
           "default": null,
           "title": "External Assessment Cutoff"
         },
-        "review_sets": {
-          "items": {
-            "$ref": "#/$defs/ReviewSetView"
-          },
-          "title": "Review Sets",
-          "type": "array"
+        "candidate_discovery": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CandidateDiscoverySummaryView"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
-        "research_triages": {
+        "investment_proposals": {
           "items": {
-            "$ref": "#/$defs/ResearchTriageView"
+            "$ref": "#/$defs/InvestmentProposalSummaryView"
           },
-          "title": "Research Triages",
-          "type": "array"
-        },
-        "capital_allocation_assessments": {
-          "items": {
-            "$ref": "#/$defs/CapitalAllocationAssessmentSummaryView"
-          },
-          "title": "Capital Allocation Assessments",
+          "title": "Investment Proposals",
           "type": "array"
         },
         "er_level_calibration": {
@@ -6281,19 +5565,791 @@
       },
       "required": [
         "run",
-        "security_analyses",
+        "stock_analyses",
         "external_assessment_securities",
         "external_assessment_cutoff",
-        "review_sets",
-        "research_triages",
-        "capital_allocation_assessments",
+        "candidate_discovery",
+        "investment_proposals",
         "er_level_calibration"
       ],
       "title": "ScreeningView",
       "type": "object"
     },
-    "SecurityAnalysisRowView": {
+    "SecurityDetailView": {
       "properties": {
+        "market_context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SecurityMarketContextView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "external_assessment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExternalAssessment"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "company_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Company Name"
+        },
+        "sector": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sector"
+        },
+        "holding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HoldingView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "revisions": {
+          "items": {
+            "$ref": "#/$defs/ResearchRevisionView"
+          },
+          "title": "Revisions",
+          "type": "array"
+        },
+        "latest_assessment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StockAssessmentDetailView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "investment_proposals": {
+          "items": {
+            "$ref": "#/$defs/InvestmentProposalSummaryView"
+          },
+          "title": "Investment Proposals",
+          "type": "array"
+        },
+        "stock_analysis": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StockAnalysisRowView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "screening_run": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScreeningRunView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "market_context",
+        "external_assessment",
+        "ticker",
+        "company_name",
+        "sector",
+        "holding",
+        "revisions",
+        "latest_assessment",
+        "investment_proposals",
+        "stock_analysis",
+        "screening_run"
+      ],
+      "title": "SecurityDetailView",
+      "type": "object"
+    },
+    "SecurityMarketContextView": {
+      "properties": {
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "master": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SecurityMarketMasterView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "price": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SecurityPriceContextView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "relative": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SecurityRelativeContextView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "benchmark_trend": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BenchmarkTrendView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "return_basis": {
+          "const": "price_return_excluding_cash_dividends",
+          "default": "price_return_excluding_cash_dividends",
+          "title": "Return Basis",
+          "type": "string"
+        }
+      },
+      "required": [
+        "as_of",
+        "master",
+        "price",
+        "relative",
+        "benchmark_trend",
+        "return_basis"
+      ],
+      "title": "SecurityMarketContextView",
+      "type": "object"
+    },
+    "SecurityMarketMasterView": {
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "market_segment": {
+          "title": "Market Segment",
+          "type": "string"
+        },
+        "sector_33": {
+          "title": "Sector 33",
+          "type": "string"
+        },
+        "is_common_stock": {
+          "title": "Is Common Stock",
+          "type": "boolean"
+        },
+        "snapshot_date": {
+          "format": "date",
+          "title": "Snapshot Date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "market_segment",
+        "sector_33",
+        "is_common_stock",
+        "snapshot_date"
+      ],
+      "title": "SecurityMarketMasterView",
+      "type": "object"
+    },
+    "SecurityPeerContextView": {
+      "properties": {
+        "sector_33": {
+          "title": "Sector 33",
+          "type": "string"
+        },
+        "peer_count": {
+          "title": "Peer Count",
+          "type": "integer"
+        },
+        "peer_median_return_20d": {
+          "title": "Peer Median Return 20D",
+          "type": "number"
+        },
+        "relative_return_20d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Relative Return 20D"
+        },
+        "comparison_start_date": {
+          "format": "date",
+          "title": "Comparison Start Date",
+          "type": "string"
+        },
+        "comparison_end_date": {
+          "format": "date",
+          "title": "Comparison End Date",
+          "type": "string"
+        },
+        "master_snapshot_date": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Master Snapshot Date"
+        }
+      },
+      "required": [
+        "sector_33",
+        "peer_count",
+        "peer_median_return_20d",
+        "relative_return_20d",
+        "comparison_start_date",
+        "comparison_end_date",
+        "master_snapshot_date"
+      ],
+      "title": "SecurityPeerContextView",
+      "type": "object"
+    },
+    "SecurityPriceContextView": {
+      "properties": {
+        "resolved_date": {
+          "format": "date",
+          "title": "Resolved Date",
+          "type": "string"
+        },
+        "close": {
+          "title": "Close",
+          "type": "number"
+        },
+        "price_basis": {
+          "const": "split_adjusted_close",
+          "title": "Price Basis",
+          "type": "string"
+        },
+        "return_1d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Return 1D"
+        },
+        "return_5d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Return 5D"
+        },
+        "return_20d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Return 20D"
+        },
+        "return_60d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Return 60D"
+        },
+        "high_52w": {
+          "title": "High 52W",
+          "type": "number"
+        },
+        "low_52w": {
+          "title": "Low 52W",
+          "type": "number"
+        },
+        "gap_from_52w_low": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Gap From 52W Low"
+        },
+        "gap_from_52w_high": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Gap From 52W High"
+        },
+        "self_range_percentile": {
+          "title": "Self Range Percentile",
+          "type": "number"
+        },
+        "self_range_window_bars": {
+          "title": "Self Range Window Bars",
+          "type": "integer"
+        },
+        "realized_vol_20d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Realized Vol 20D"
+        },
+        "avg_turnover_20d_oku": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Avg Turnover 20D Oku"
+        },
+        "bar_count": {
+          "title": "Bar Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "resolved_date",
+        "close",
+        "price_basis",
+        "return_1d",
+        "return_5d",
+        "return_20d",
+        "return_60d",
+        "high_52w",
+        "low_52w",
+        "gap_from_52w_low",
+        "gap_from_52w_high",
+        "self_range_percentile",
+        "self_range_window_bars",
+        "realized_vol_20d",
+        "avg_turnover_20d_oku",
+        "bar_count"
+      ],
+      "title": "SecurityPriceContextView",
+      "type": "object"
+    },
+    "SecurityRelativeContextView": {
+      "properties": {
+        "benchmark_ticker": {
+          "title": "Benchmark Ticker",
+          "type": "string"
+        },
+        "relative_1d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Relative 1D"
+        },
+        "relative_5d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Relative 5D"
+        },
+        "relative_20d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Relative 20D"
+        },
+        "relative_60d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Relative 60D"
+        },
+        "sector": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SecurityPeerContextView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "benchmark_ticker",
+        "relative_1d",
+        "relative_5d",
+        "relative_20d",
+        "relative_60d",
+        "sector"
+      ],
+      "title": "SecurityRelativeContextView",
+      "type": "object"
+    },
+    "StockAnalysisRowView": {
+      "properties": {
+        "candidate": {
+          "$ref": "#/$defs/StockCandidateContextView"
+        },
+        "listing_span_days": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Listing Span Days"
+        },
+        "jpx_flags": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Jpx Flags"
+        },
+        "forecast_special_gain_flag": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Forecast Special Gain Flag"
+        },
+        "forecast_full_year_loss_flag": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Forecast Full Year Loss Flag"
+        },
+        "investment_securities": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Investment Securities"
+        },
+        "asset_backed_ratio": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Asset Backed Ratio"
+        },
+        "p_s_sector_gap": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "P S Sector Gap"
+        },
+        "operating_return_on_capital_proxy": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Operating Return On Capital Proxy"
+        },
+        "operating_margin": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Operating Margin"
+        },
+        "bs_carry_forward_fields": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Bs Carry Forward Fields"
+        },
+        "bs_carry_forward_lag_days": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Bs Carry Forward Lag Days"
+        },
+        "edinet_failure_reasons": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Edinet Failure Reasons"
+        },
+        "stale_fin_flag": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Stale Fin Flag"
+        },
+        "ttm_quality_ev_ebitda": {
+          "anyOf": [
+            {
+              "enum": [
+                "exact",
+                "approximated",
+                "unavailable"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ttm Quality Ev Ebitda"
+        },
+        "ttm_quality_fcf": {
+          "anyOf": [
+            {
+              "enum": [
+                "exact",
+                "approximated",
+                "unavailable"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ttm Quality Fcf"
+        },
+        "next_earnings_status": {
+          "anyOf": [
+            {
+              "enum": [
+                "scheduled",
+                "scheduled_date_reached",
+                "estimated",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Earnings Status"
+        },
+        "next_earnings_estimated_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Earnings Estimated Date"
+        },
+        "tse_capital_policy_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tse Capital Policy Status"
+        },
+        "large_holding_filing_within_lookback": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Large Holding Filing Within Lookback"
+        },
+        "tender_offer_filing_within_lookback": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tender Offer Filing Within Lookback"
+        },
+        "fv_sector_median_yen": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fv Sector Median Yen"
+        },
+        "fv_self_range_yen": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fv Self Range Yen"
+        },
+        "er_origin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Er Origin"
+        },
         "ticker": {
           "title": "Ticker",
           "type": "string"
@@ -6795,6 +6851,30 @@
         }
       },
       "required": [
+        "candidate",
+        "listing_span_days",
+        "jpx_flags",
+        "forecast_special_gain_flag",
+        "forecast_full_year_loss_flag",
+        "investment_securities",
+        "asset_backed_ratio",
+        "p_s_sector_gap",
+        "operating_return_on_capital_proxy",
+        "operating_margin",
+        "bs_carry_forward_fields",
+        "bs_carry_forward_lag_days",
+        "edinet_failure_reasons",
+        "stale_fin_flag",
+        "ttm_quality_ev_ebitda",
+        "ttm_quality_fcf",
+        "next_earnings_status",
+        "next_earnings_estimated_date",
+        "tse_capital_policy_status",
+        "large_holding_filing_within_lookback",
+        "tender_offer_filing_within_lookback",
+        "fv_sector_median_yen",
+        "fv_self_range_yen",
+        "er_origin",
         "ticker",
         "name",
         "sector_33",
@@ -6843,306 +6923,87 @@
         "er_level_quintile",
         "er_meets_8_5pct_band"
       ],
-      "title": "SecurityAnalysisRowView",
+      "title": "StockAnalysisRowView",
       "type": "object"
     },
-    "SecurityDetailView": {
+    "StockAssessmentDetailView": {
       "properties": {
-        "market_context": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/SecurityMarketContextView"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
+        "revision": {
+          "$ref": "#/$defs/ResearchRevisionView"
         },
-        "external_assessment": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ExternalAssessment"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
+        "document": {
+          "additionalProperties": true,
+          "title": "Document",
+          "type": "object"
         },
-        "ticker": {
-          "title": "Ticker",
+        "review": {
+          "additionalProperties": true,
+          "title": "Review",
+          "type": "object"
+        },
+        "core_sha256": {
+          "title": "Core Sha256",
           "type": "string"
         },
-        "company_name": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Company Name"
-        },
-        "sector": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Sector"
-        },
-        "holding": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/HoldingView"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "revisions": {
+        "projection": {
+          "additionalProperties": true,
+          "title": "Projection",
+          "type": "object"
+        }
+      },
+      "required": [
+        "revision",
+        "document",
+        "review",
+        "core_sha256",
+        "projection"
+      ],
+      "title": "StockAssessmentDetailView",
+      "type": "object"
+    },
+    "StockAssessmentsView": {
+      "properties": {
+        "assessments": {
           "items": {
             "$ref": "#/$defs/ResearchRevisionView"
           },
-          "title": "Revisions",
+          "title": "Assessments",
           "type": "array"
         },
-        "latest_thesis": {
+        "next_cursor": {
           "anyOf": [
             {
-              "$ref": "#/$defs/ThesisDetailView"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "position_reviews": {
-          "items": {
-            "$ref": "#/$defs/PositionReviewView"
-          },
-          "title": "Position Reviews",
-          "type": "array"
-        },
-        "security_analysis": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/SecurityAnalysisRowView"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "screening_run": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ScreeningRunView"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "required": [
-        "market_context",
-        "external_assessment",
-        "ticker",
-        "company_name",
-        "sector",
-        "holding",
-        "revisions",
-        "latest_thesis",
-        "position_reviews",
-        "security_analysis",
-        "screening_run"
-      ],
-      "title": "SecurityDetailView",
-      "type": "object"
-    },
-    "SecurityMarketContextView": {
-      "properties": {
-        "as_of": {
-          "format": "date",
-          "title": "As Of",
-          "type": "string"
-        },
-        "master": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/SecurityMarketMasterView"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "price": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/SecurityPriceContextView"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "relative": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/SecurityRelativeContextView"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "benchmark_trend": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/BenchmarkTrendView"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "return_basis": {
-          "const": "price_return_excluding_cash_dividends",
-          "default": "price_return_excluding_cash_dividends",
-          "title": "Return Basis",
-          "type": "string"
-        }
-      },
-      "required": [
-        "as_of",
-        "master",
-        "price",
-        "relative",
-        "benchmark_trend",
-        "return_basis"
-      ],
-      "title": "SecurityMarketContextView",
-      "type": "object"
-    },
-    "SecurityMarketMasterView": {
-      "properties": {
-        "name": {
-          "title": "Name",
-          "type": "string"
-        },
-        "market_segment": {
-          "title": "Market Segment",
-          "type": "string"
-        },
-        "sector_33": {
-          "title": "Sector 33",
-          "type": "string"
-        },
-        "is_common_stock": {
-          "title": "Is Common Stock",
-          "type": "boolean"
-        },
-        "snapshot_date": {
-          "format": "date",
-          "title": "Snapshot Date",
-          "type": "string"
-        }
-      },
-      "required": [
-        "name",
-        "market_segment",
-        "sector_33",
-        "is_common_stock",
-        "snapshot_date"
-      ],
-      "title": "SecurityMarketMasterView",
-      "type": "object"
-    },
-    "SecurityPeerContextView": {
-      "properties": {
-        "sector_33": {
-          "title": "Sector 33",
-          "type": "string"
-        },
-        "peer_count": {
-          "title": "Peer Count",
-          "type": "integer"
-        },
-        "peer_median_return_20d": {
-          "title": "Peer Median Return 20D",
-          "type": "number"
-        },
-        "relative_return_20d": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Relative Return 20D"
-        },
-        "comparison_start_date": {
-          "format": "date",
-          "title": "Comparison Start Date",
-          "type": "string"
-        },
-        "comparison_end_date": {
-          "format": "date",
-          "title": "Comparison End Date",
-          "type": "string"
-        },
-        "master_snapshot_date": {
-          "anyOf": [
-            {
-              "format": "date",
               "type": "string"
             },
             {
               "type": "null"
             }
           ],
-          "title": "Master Snapshot Date"
+          "default": null,
+          "title": "Next Cursor"
         }
       },
       "required": [
-        "sector_33",
-        "peer_count",
-        "peer_median_return_20d",
-        "relative_return_20d",
-        "comparison_start_date",
-        "comparison_end_date",
-        "master_snapshot_date"
+        "assessments",
+        "next_cursor"
       ],
-      "title": "SecurityPeerContextView",
+      "title": "StockAssessmentsView",
       "type": "object"
     },
-    "SecurityPriceContextView": {
+    "StockCandidateContextView": {
       "properties": {
-        "resolved_date": {
-          "format": "date",
-          "title": "Resolved Date",
-          "type": "string"
+        "common_eligible": {
+          "title": "Common Eligible",
+          "type": "boolean"
         },
-        "close": {
-          "title": "Close",
-          "type": "number"
+        "reasons": {
+          "items": {
+            "$ref": "#/$defs/CandidateReasonView"
+          },
+          "title": "Reasons",
+          "type": "array"
         },
-        "price_basis": {
-          "const": "adjusted_close_preferred",
-          "title": "Price Basis",
-          "type": "string"
-        },
-        "return_1d": {
+        "normalized_per_3fy_sector_gap": {
           "anyOf": [
             {
               "type": "number"
@@ -7151,197 +7012,15 @@
               "type": "null"
             }
           ],
-          "title": "Return 1D"
-        },
-        "return_5d": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Return 5D"
-        },
-        "return_20d": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Return 20D"
-        },
-        "return_60d": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Return 60D"
-        },
-        "high_52w": {
-          "title": "High 52W",
-          "type": "number"
-        },
-        "low_52w": {
-          "title": "Low 52W",
-          "type": "number"
-        },
-        "gap_from_52w_low": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Gap From 52W Low"
-        },
-        "gap_from_52w_high": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Gap From 52W High"
-        },
-        "self_range_percentile": {
-          "title": "Self Range Percentile",
-          "type": "number"
-        },
-        "self_range_window_bars": {
-          "title": "Self Range Window Bars",
-          "type": "integer"
-        },
-        "realized_vol_20d": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Realized Vol 20D"
-        },
-        "avg_turnover_20d_oku": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Avg Turnover 20D Oku"
-        },
-        "bar_count": {
-          "title": "Bar Count",
-          "type": "integer"
+          "title": "Normalized Per 3Fy Sector Gap"
         }
       },
       "required": [
-        "resolved_date",
-        "close",
-        "price_basis",
-        "return_1d",
-        "return_5d",
-        "return_20d",
-        "return_60d",
-        "high_52w",
-        "low_52w",
-        "gap_from_52w_low",
-        "gap_from_52w_high",
-        "self_range_percentile",
-        "self_range_window_bars",
-        "realized_vol_20d",
-        "avg_turnover_20d_oku",
-        "bar_count"
+        "common_eligible",
+        "reasons",
+        "normalized_per_3fy_sector_gap"
       ],
-      "title": "SecurityPriceContextView",
-      "type": "object"
-    },
-    "SecurityRelativeContextView": {
-      "properties": {
-        "benchmark_ticker": {
-          "title": "Benchmark Ticker",
-          "type": "string"
-        },
-        "relative_1d": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Relative 1D"
-        },
-        "relative_5d": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Relative 5D"
-        },
-        "relative_20d": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Relative 20D"
-        },
-        "relative_60d": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Relative 60D"
-        },
-        "sector": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/SecurityPeerContextView"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "required": [
-        "benchmark_ticker",
-        "relative_1d",
-        "relative_5d",
-        "relative_20d",
-        "relative_60d",
-        "sector"
-      ],
-      "title": "SecurityRelativeContextView",
+      "title": "StockCandidateContextView",
       "type": "object"
     },
     "StoreReadingSemanticsView": {
@@ -7540,24 +7219,6 @@
         "ledger_error"
       ],
       "title": "TasksView",
-      "type": "object"
-    },
-    "ThesisDetailView": {
-      "properties": {
-        "revision": {
-          "$ref": "#/$defs/ResearchRevisionView"
-        },
-        "projection": {
-          "additionalProperties": true,
-          "title": "Projection",
-          "type": "object"
-        }
-      },
-      "required": [
-        "revision",
-        "projection"
-      ],
-      "title": "ThesisDetailView",
       "type": "object"
     },
     "TradingViewAssessment": {
@@ -7993,8 +7654,16 @@
           "title": "Ticker",
           "type": "string"
         },
-        "reason": {
-          "title": "Reason",
+        "purpose": {
+          "enum": [
+            "new",
+            "holding"
+          ],
+          "title": "Purpose",
+          "type": "string"
+        },
+        "unfinished_reason": {
+          "title": "Unfinished Reason",
           "type": "string"
         },
         "references": {
@@ -8007,7 +7676,8 @@
       },
       "required": [
         "ticker",
-        "reason",
+        "purpose",
+        "unfinished_reason",
         "references"
       ],
       "title": "UnfinishedResearchView",

@@ -15,12 +15,10 @@ from pathlib import Path
 from typing import Any
 
 from baibai_engine.foundation.repository_layout import RUNS_DB_PATH
-from baibai_engine.screening.discovery.contracts import PublishedReviewSet
-from baibai_engine.screening.discovery.review_set import (
-    build_review_set,
-    validate_review_set_payload,
-)
-from baibai_engine.screening.rule_config import CandidateDiscoveryRules
+from baibai_engine.screening.discovery.candidates import build_candidate_contexts
+from baibai_engine.screening.discovery.contracts import validate_candidate_run
+from baibai_engine.screening.rule_config import ScreeningRules
+from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.storage.application.json import canonical_json
 
 from .schema import RUN_STORE_SCHEMA_VERSION, SCHEMA_SQL
@@ -32,10 +30,6 @@ class RunStoreConflictError(ValueError):
     """Raised when immutable publication identity is reused with different content."""
 
 
-class RunStoreNotFoundError(ValueError):
-    """Raised when a publication refers to an unknown parent."""
-
-
 class RunStoreAmbiguousError(ValueError):
     """Raised when a convenience query cannot identify one immutable revision."""
 
@@ -44,15 +38,13 @@ class RunStoreAmbiguousError(ValueError):
 class PublicationResult:
     publication_id: str
     inserted: bool
-    review_set_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class PruneResult:
     kept_runs: int
     deleted_runs: int
-    deleted_security_analyses: int
-    deleted_review_sets: int
+    deleted_stock_analyses: int
     bytes_before: int
     bytes_after: int
 
@@ -69,8 +61,18 @@ def connect_rw(path: Path | None = None) -> sqlite3.Connection:
     resolved.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(resolved, isolation_level=None)
     connection.row_factory = sqlite3.Row
+    register_run_clock(connection)
     connection.execute("PRAGMA foreign_keys = ON")
     return connection
+
+
+def run_clock(value: str) -> str:
+    """Compare saved aware clocks as fixed-width UTC text at full microsecond precision."""
+    return datetime.fromisoformat(value).astimezone(UTC).isoformat(timespec="microseconds")
+
+
+def register_run_clock(connection: sqlite3.Connection) -> None:
+    connection.create_function("run_clock", 1, run_clock, deterministic=True)
 
 
 def initialize_run_store(path: Path | None = None) -> int:
@@ -86,8 +88,13 @@ def initialize_run_store(path: Path | None = None) -> int:
                 "screening run cache uses an obsolete schema; rebuild it "
                 f"(found user_version={current}, expected={RUN_STORE_SCHEMA_VERSION})"
             )
-        connection.executescript(SCHEMA_SQL)
-        connection.execute(f"PRAGMA user_version = {RUN_STORE_SCHEMA_VERSION}")
+        try:
+            connection.executescript("BEGIN IMMEDIATE;\n" + SCHEMA_SQL)
+            connection.execute(f"PRAGMA user_version = {RUN_STORE_SCHEMA_VERSION}")
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
         return RUN_STORE_SCHEMA_VERSION
 
 
@@ -107,63 +114,19 @@ class ScreeningRunStore:
         self,
         payload: Mapping[str, object],
         *,
+        rules: ScreeningRules,
         run_revision_id: str | None = None,
-        review_set_rules: CandidateDiscoveryRules | None = None,
-        required_jpx_flags: Sequence[str] = (),
     ) -> PublicationResult:
-        prepared = _prepare_run(payload)
+        prepared = _prepare_run(payload, rules=rules)
         initialize_run_store(self._path)
         with closing(connect_rw(self._path)) as connection:
-            # Resolve a retained immutable run before the pure calculation. The
-            # transaction below rechecks this identity before writing anything.
-            existing = connection.execute(
-                "SELECT run_revision_id FROM screening_run WHERE public_run_id = ? AND run_at = ?",
-                (prepared.public_run_id, prepared.run_at),
-            ).fetchone()
-            identifier = run_revision_id or (
-                str(existing[0])
-                if existing is not None
-                else f"run-revision-{self._id_factory().hex}"
-            )
-            review_set = None
-            if review_set_rules is not None:
-                # The paired set's identity and clock follow the immutable source
-                # run, so repeating the same run does not manufacture a new set.
-                review_set = PublishedReviewSet.model_validate(
-                    {
-                        **build_review_set(
-                            [analysis.payload for analysis in prepared.security_analyses],
-                            rules=review_set_rules,
-                            required_jpx_flags=required_jpx_flags,
-                        ),
-                        "review_set_id": f"review-set-{identifier}",
-                        "run_revision_id": identifier,
-                        "as_of": payload["asof_date"],
-                        "created_at": prepared.run_at,
-                        "screening_rules_hash": payload["screening_rules_hash"],
-                    }
-                )
-                validate_review_set_payload(
-                    review_set.model_dump(mode="json"),
-                    security_analyses=[analysis.payload for analysis in prepared.security_analyses],
-                    rules=review_set_rules,
-                    required_jpx_flags=required_jpx_flags,
-                )
             connection.execute("BEGIN IMMEDIATE")
             try:
                 result = self._publish_run_in_transaction(
-                    connection, prepared, run_revision_id=identifier
+                    connection, prepared, run_revision_id=run_revision_id
                 )
-                if review_set is not None:
-                    self._publish_review_set_in_transaction(
-                        connection, review_set, source_payload_json=prepared.payload_json
-                    )
                 connection.commit()
-                return PublicationResult(
-                    result.publication_id,
-                    result.inserted,
-                    None if review_set is None else review_set.review_set_id,
-                )
+                return result
             except BaseException:
                 connection.rollback()
                 raise
@@ -174,15 +137,14 @@ class ScreeningRunStore:
         initialize_run_store(self._path)
         path = run_store_path(self._path)
         bytes_before = path.stat().st_size
-        deleted_security_analyses = 0
-        deleted_review_sets = 0
+        deleted_stock_analyses = 0
         with closing(connect_rw(self._path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 ordered = connection.execute(
                     """
                     SELECT run_revision_id FROM screening_run
-                    ORDER BY asof_date DESC, julianday(run_at) DESC, run_revision_id DESC
+                    ORDER BY asof_date DESC, run_clock(run_at) DESC, run_revision_id DESC
                     """
                 ).fetchall()
                 deleted_ids = [str(row[0]) for row in ordered[keep:]]
@@ -198,31 +160,17 @@ class ScreeningRunStore:
                         "INSERT INTO prune_run_id (run_revision_id) VALUES (?)",
                         ((run_revision_id,) for run_revision_id in deleted_ids),
                     )
-                    deleted_security_analyses = int(
+                    deleted_stock_analyses = int(
                         connection.execute(
                             """
-                            SELECT count(*) FROM security_analysis
-                            WHERE run_revision_id IN (SELECT run_revision_id FROM prune_run_id)
-                            """
-                        ).fetchone()[0]
-                    )
-                    deleted_review_sets = int(
-                        connection.execute(
-                            """
-                            SELECT count(*) FROM review_set
+                            SELECT count(*) FROM stock_analysis
                             WHERE run_revision_id IN (SELECT run_revision_id FROM prune_run_id)
                             """
                         ).fetchone()[0]
                     )
                     connection.execute(
                         """
-                        DELETE FROM review_set
-                        WHERE run_revision_id IN (SELECT run_revision_id FROM prune_run_id)
-                        """
-                    )
-                    connection.execute(
-                        """
-                        DELETE FROM security_analysis
+                        DELETE FROM stock_analysis
                         WHERE run_revision_id IN (SELECT run_revision_id FROM prune_run_id)
                         """
                     )
@@ -245,101 +193,10 @@ class ScreeningRunStore:
         return PruneResult(
             kept_runs=min(keep, len(ordered)),
             deleted_runs=len(deleted_ids),
-            deleted_security_analyses=deleted_security_analyses,
-            deleted_review_sets=deleted_review_sets,
+            deleted_stock_analyses=deleted_stock_analyses,
             bytes_before=bytes_before,
             bytes_after=path.stat().st_size,
         )
-
-    def publish_review_set(
-        self,
-        *,
-        run_revision_id: str,
-        payload: Mapping[str, object],
-        rules: CandidateDiscoveryRules,
-        required_jpx_flags: Sequence[str],
-        review_set_id: str | None = None,
-    ) -> PublicationResult:
-        if not run_revision_id:
-            raise ValueError("run_revision_id is required")
-        identifier = review_set_id or f"review-set-{self._id_factory().hex}"
-        publication = PublishedReviewSet.model_validate(payload)
-        if publication.review_set_id != identifier:
-            raise ValueError("review set identity does not match its publication ID")
-        if publication.run_revision_id != run_revision_id:
-            raise ValueError("review set run revision does not match its source")
-        initialize_run_store(self._path)
-        with closing(connect_rw(self._path)) as connection:
-            run_row = connection.execute(
-                "SELECT payload FROM screening_run WHERE run_revision_id = ?", (run_revision_id,)
-            ).fetchone()
-            if run_row is None:
-                raise RunStoreNotFoundError(f"unknown run_revision_id: {run_revision_id}")
-            source_payload_json = str(run_row[0])
-            analysis_rows = connection.execute(
-                "SELECT payload FROM security_analysis WHERE run_revision_id = ?",
-                (run_revision_id,),
-            ).fetchall()
-            validate_review_set_payload(
-                payload,
-                security_analyses=[decode_payload(row[0]) for row in analysis_rows],
-                rules=rules,
-                required_jpx_flags=required_jpx_flags,
-            )
-            connection.execute("BEGIN IMMEDIATE")
-            try:
-                result = self._publish_review_set_in_transaction(
-                    connection, publication, source_payload_json=source_payload_json
-                )
-                connection.commit()
-                return result
-            except BaseException:
-                connection.rollback()
-                raise
-
-    def _publish_review_set_in_transaction(
-        self,
-        connection: sqlite3.Connection,
-        publication: PublishedReviewSet,
-        *,
-        source_payload_json: str,
-    ) -> PublicationResult:
-        """Insert a validated set; only the caller owns commit and rollback."""
-
-        identifier = publication.review_set_id
-        run_revision_id = publication.run_revision_id
-        run_row = connection.execute(
-            "SELECT payload FROM screening_run WHERE run_revision_id = ?",
-            (run_revision_id,),
-        ).fetchone()
-        if run_row is None:
-            raise RunStoreNotFoundError(f"unknown run_revision_id: {run_revision_id}")
-        if str(run_row[0]) != source_payload_json:
-            raise RunStoreConflictError("review set source changed during preparation")
-        run_payload = decode_payload(run_row[0])
-        if publication.as_of.isoformat() != run_payload.get("asof_date"):
-            raise ValueError("review set as-of does not match its source")
-        if publication.screening_rules_hash != run_payload.get("screening_rules_hash"):
-            raise ValueError("review set rules identity does not match its source")
-        payload_json = canonical_json(publication.model_dump(mode="json"))
-        existing = connection.execute(
-            "SELECT run_revision_id, payload FROM review_set WHERE review_set_id = ?",
-            (identifier,),
-        ).fetchone()
-        if existing is not None:
-            if tuple(existing) != (run_revision_id, payload_json):
-                raise RunStoreConflictError(
-                    f"review set differs from existing publication: {identifier}"
-                )
-            return PublicationResult(identifier, inserted=False)
-        connection.execute(
-            """
-            INSERT INTO review_set (review_set_id, run_revision_id, created_at, payload)
-            VALUES (?, ?, ?, ?)
-            """,
-            (identifier, run_revision_id, publication.created_at.isoformat(), payload_json),
-        )
-        return PublicationResult(identifier, inserted=True)
 
     def _publish_run_in_transaction(
         self,
@@ -365,14 +222,14 @@ class ScreeningRunStore:
                 str(row[0])
                 for row in connection.execute(
                     """
-                    SELECT payload FROM security_analysis
+                    SELECT payload FROM stock_analysis
                     WHERE run_revision_id = ? ORDER BY ordinal
                     """,
                     (identifier,),
                 ).fetchall()
             )
             expected_analyses = tuple(
-                canonical_json(analysis.payload) for analysis in prepared.security_analyses
+                canonical_json(analysis.payload) for analysis in prepared.stock_analyses
             )
             if str(existing[1]) != prepared.payload_json or stored_analyses != expected_analyses:
                 raise RunStoreConflictError(
@@ -403,10 +260,10 @@ class ScreeningRunStore:
                 prepared.payload_json,
             ),
         )
-        for ordinal, analysis in enumerate(prepared.security_analyses):
+        for ordinal, analysis in enumerate(prepared.stock_analyses):
             connection.execute(
                 """
-                INSERT INTO security_analysis (
+                INSERT INTO stock_analysis (
                     run_revision_id, ordinal, ticker, sector_33, per_forward,
                     per_trailing, pbr, dividend_yield, er_annual, payload
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -428,7 +285,7 @@ class ScreeningRunStore:
 
 
 @dataclass(frozen=True, slots=True)
-class _SecurityAnalysis:
+class _StockAnalysis:
     ticker: str
     payload: Mapping[str, object]
 
@@ -441,11 +298,19 @@ class _PreparedRun:
     run_at: str
     universe_size: int
     rules_ref: str | None
-    security_analyses: tuple[_SecurityAnalysis, ...]
+    stock_analyses: tuple[_StockAnalysis, ...]
     payload_json: str
 
 
-def _prepare_run(payload: Mapping[str, object]) -> _PreparedRun:
+def _prepare_run(payload: Mapping[str, object], *, rules: ScreeningRules) -> _PreparedRun:
+    if payload.get("screening_rules_hash") != production_rules_contract_hash(
+        rules.model_dump_json()
+    ):
+        raise ValueError("screening_rules_hash does not match the supplied rules")
+    if payload.get("schema_version") != 1 or payload.get("kind") != "stock_analysis_run":
+        raise ValueError("expected stock_analysis_run schema_version 1")
+    if "candidate_discovery" in payload:
+        raise ValueError("candidate discovery is owned by the run writer")
     public_run_id = _required_string(payload, "run_id")
     run_date = _iso_date(payload, "run_date")
     asof_date = _iso_date(payload, "asof_date")
@@ -460,22 +325,24 @@ def _prepare_run(payload: Mapping[str, object]) -> _PreparedRun:
     universe_size = payload.get("universe_size")
     if isinstance(universe_size, bool) or not isinstance(universe_size, int) or universe_size < 0:
         raise ValueError("universe_size must be a non-negative integer")
-    raw_analyses = payload.get("security_analyses")
+    raw_analyses = payload.get("stock_analyses")
     if not isinstance(raw_analyses, Sequence) or isinstance(raw_analyses, (str, bytes)):
-        raise ValueError("security_analyses must be an array")
-    security_analyses: list[_SecurityAnalysis] = []
+        raise ValueError("stock_analyses must be an array")
+    stock_analyses: list[_StockAnalysis] = []
     tickers: set[str] = set()
     for raw in raw_analyses:
         if not isinstance(raw, Mapping):
-            raise ValueError("security analysis must be a mapping")
+            raise ValueError("stock analysis must be a mapping")
         ticker = _required_string(raw, "ticker")
         if re.fullmatch(r"[0-9A-Z]{4}", ticker) is None:
-            raise ValueError(f"security analysis ticker has invalid format: {ticker}")
+            raise ValueError(f"stock analysis ticker has invalid format: {ticker}")
         if ticker in tickers:
-            raise RunStoreConflictError(f"duplicate security analysis ticker: {ticker}")
+            raise RunStoreConflictError(f"duplicate stock analysis ticker: {ticker}")
         _required_string(raw, "name")
+        if raw.get("candidate") is not None:
+            raise ValueError("candidate context is owned by the run writer")
         tickers.add(ticker)
-        security_analyses.append(_SecurityAnalysis(ticker=ticker, payload=dict(raw)))
+        stock_analyses.append(_StockAnalysis(ticker=ticker, payload=dict(raw)))
     rules_ref = payload.get("rules_ref")
     if rules_ref is not None and not isinstance(rules_ref, str):
         raise ValueError("rules_ref must be a string or null")
@@ -485,6 +352,28 @@ def _prepare_run(payload: Mapping[str, object]) -> _PreparedRun:
             not isinstance(identity_value, str) or not identity_value.strip()
         ):
             raise ValueError(f"{identity_key} must be a non-empty string or null")
+    discovery = build_candidate_contexts(
+        [analysis.payload for analysis in stock_analyses],
+        rules=rules.candidate_discovery,
+        required_jpx_flags=rules.universe.required_jpx_flags,
+    )
+    stock_analyses = [
+        _StockAnalysis(
+            ticker=analysis.ticker,
+            payload={
+                **analysis.payload,
+                "candidate": discovery.contexts[analysis.ticker].model_dump(mode="json"),
+            },
+        )
+        for analysis in stock_analyses
+    ]
+    header = {
+        key: value
+        for key, value in payload.items()
+        if key not in {"stock_analyses", "run_revision_id"}
+    }
+    header["candidate_discovery"] = discovery.summary_payload()
+    validate_candidate_run(header, [analysis.payload for analysis in stock_analyses])
     return _PreparedRun(
         public_run_id=public_run_id,
         run_date=run_date,
@@ -492,10 +381,8 @@ def _prepare_run(payload: Mapping[str, object]) -> _PreparedRun:
         run_at=run_at,
         universe_size=universe_size,
         rules_ref=rules_ref,
-        security_analyses=tuple(security_analyses),
-        payload_json=canonical_json(
-            {key: value for key, value in payload.items() if key != "security_analyses"}
-        ),
+        stock_analyses=tuple(stock_analyses),
+        payload_json=canonical_json(header),
     )
 
 
@@ -553,7 +440,6 @@ __all__ = [
     "PublicationResult",
     "RunStoreAmbiguousError",
     "RunStoreConflictError",
-    "RunStoreNotFoundError",
     "ScreeningRunStore",
     "connect_rw",
     "decode_payload",

@@ -2,11 +2,13 @@
 title: "質・トラップ複合軸の計測結果"
 summary: "F-score 型充足本数は E[r] 上位帯の 1y excess を改善せず、production 参入を棄却した。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-02
 ---
 
 # 質・トラップ複合軸の計測結果
+
+以下は当時の固定実装と panel schema による履歴であり、列の存続や現行の research 手順を保証しない。旧計測値を現在の計算 revision の結果として扱わない。
 
 価値tier: T1 — E[r] 上位帯のバリュートラップ率を下げ、深掘り research に入る候補の打率を上げる。
 
@@ -20,7 +22,7 @@ date: 2026-08-02
 
 ## 1. 事前登録と実行契約
 
-成分、field 名、方向、時間窓、交絡順序、採否条件は結果計測前の commit `ffa2641d20d8a53035315a2c43f83ae95030657f` と [`2026-08-02-quality-trap-composite-preregistration.md`](.../2026-08-02-quality-trap-composite/preregistration/report.md) で固定した。実装は計測前の commit `19f5a351f859a6b82b1c7141e2081c828fa7fa50` で固定した。
+成分、field 名、方向、時間窓、交絡順序、採否条件は結果計測前の commit `ffa2641d20d8a53035315a2c43f83ae95030657f` と [`2026-08-02-quality-trap-composite-preregistration.md`](../2026-08-02-quality-trap-composite/preregistration.md) で固定した。実装は計測前の commit `19f5a351f859a6b82b1c7141e2081c828fa7fa50` で固定した。
 
 実行コマンド:
 
@@ -95,12 +97,12 @@ authority/coverage は現行 calibration 判定を適用した。1y は leading 
 | `dividend_yield` | 9 / 130 | −1.70pt / +1.56pt | 3 / 45 | +7.58pt / −2.55pt |
 | `price_change_60d` | 9 / 128 | −6.24pt / +3.63pt | 3 / 43 | +5.33pt / +1.25pt |
 
-design は6 control中4つで median delta が負、5つで trap delta が正だった。confirm は主検定の標本条件を満たさず、control も PER と momentum の trap delta が正だった。control ごとの有効 cohort は3〜11と疎であり、良い方向の一部 control だけを因果効果とはみなさない。
+design は6 control中5つで median delta が負、5つで trap delta が正だった。confirm は主検定の標本条件を満たさず、control も PER と momentum の trap delta が正だった。control ごとの有効 cohort は3〜11と疎であり、良い方向の一部 control だけを因果効果とはみなさない。
 
 ## 5. 検算
 
 - fixture で8成分すべて true、current/prior の利益 fallback 不一致時の ROA 欠損、available 5の composite null、available 6で支持0本、CSV boolean/count 改ざんの fail-closed を確認した。
-- `2024-01-31` 1y cohort を panel/forward CSV から独立再計算した。population median return −0.4143%、E[r] top decile 139、composite eligible 17、high 8 / low 4、high median excess −4.6358%、low +23.5138%、delta −28.1496%で evaluation YAML と一致した。trap 件数は両群0だった。
+- `2024-01-31` 1y cohort を panel/forward CSV から独立再計算した。population median return −0.4143%、E[r] top decile 139、composite eligible 17、high 8 / low 4、high median excess −4.6358%、low +23.5138%、delta −28.1496ptで evaluation YAML と一致した。trap 件数は両群0だった。
 - panel cache round-trip、schema v5拒否、全80 panel の v6 header、rebuild 件数を確認した。
 
 ## 6. 判定表

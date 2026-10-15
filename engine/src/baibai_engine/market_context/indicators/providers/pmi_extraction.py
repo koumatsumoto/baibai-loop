@@ -69,6 +69,7 @@ _HEADLINE_INDEX = re.compile(
 # name, so prose about employment or new orders does not disqualify a statement while
 # the composite index and the sub-indices still cannot be read as the headline.
 _SUB_INDEX = re.compile(
+    r"\bComposite\s+(?:PMI(?:\s+Output\s+Index)?|(?:Output\s+)?Index)\b|"
     r"(?:New Orders|New Business|New Export (?:Orders|Business)|Employment|Output|"
     r"Suppliers[’'`]?\s*Delivery Times|Stocks of (?:Purchases|Finished Goods)|"
     r"Quantity of Purchases|Input Prices|Prices Charged|Output Charges|Selling Prices|"

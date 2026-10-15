@@ -1,4 +1,4 @@
-"""Calendar-aware, fail-visible price-return forward observations."""
+"""Calendar-aware, fail-visible price and total-return forward observations."""
 
 from __future__ import annotations
 
@@ -16,14 +16,21 @@ from baibai_engine.market.bars import (
     asof_basis_closes,
 )
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
+from baibai_engine.market.jquants_models import JQuantsFinancialSummary
+from baibai_engine.storage.observations.reader import read_financial_documents
 
 # 配当・株数の基準はValuationのcarryと同じにする。較正と本番が異なる量を扱わないよう、
 # 規約の定数は計算を所有するValuationから読み、ここへ重複定義しない。
-from baibai_engine.valuation.metrics.capital import SHARE_COUNT_ANCHOR_TOLERANCE
+from baibai_engine.valuation.metrics.capital import (
+    SHARE_COUNT_ANCHOR_TOLERANCE,
+    _cumulative_adjustment_factor_after,
+)
 from baibai_engine.valuation.metrics.dividends import (
     DIVIDEND_RECORD_DATE_GUARD_DAYS,
     DIVIDEND_ROUTE_TOLERANCE,
+    _dividend_basis_factor,
 )
+from baibai_engine.valuation.metrics.periods import _latest_consistent_actual
 
 from .horizons import HORIZONS, STALE_PRICE_MAX_LAG_DAYS, HorizonSpec, require_horizon
 
@@ -39,6 +46,9 @@ __all__ = (
     "read_control_event_exits",
     "read_failure_exits",
 )
+
+
+FORWARD_CALCULATION_REVISION = "fy-dividend-document-revisions-v2"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -58,7 +68,8 @@ class ForwardObservationPolicy:
     @property
     def digest(self) -> str:
         """A canonical statement of the policy, stable across field additions."""
-        return "|".join(f"{field.name}={getattr(self, field.name)!r}" for field in fields(self))
+        policy = "|".join(f"{field.name}={getattr(self, field.name)!r}" for field in fields(self))
+        return f"{FORWARD_CALCULATION_REVISION}|{policy}"
 
 
 DEFAULT_FORWARD_OBSERVATION_POLICY = ForwardObservationPolicy()
@@ -93,12 +104,9 @@ BENCHMARK_TICKERS: tuple[str, ...] = (TOPIX_ETF_PROXY,)
 # reports/studies/2026-08-11-capital-control-exit-values/.
 CONTROL_EVENT_EXIT_STATUS = "resolved_control_event_exit"
 
-# A window that ended when the exchange removed a failing company is resolved by the last
-# price the market printed. No reinvestment convention is needed for these: the holding is
-# either extinguished or left unlisted, so nothing comes back to redeploy and the last
-# quote is the last value the market put on it. The status stays separate from `resolved`
-# so a reader can tell a window the market closed on its own target date from one closed
-# by a delisting.
+# A qualifying failure delisting uses the last traded close as its exit observation.
+# This is not proof of a final cash recovery or a worthless unlisted holding. Keep the
+# status separate so readers can distinguish this convention from a target-date close.
 FAILURE_EXIT_STATUS = "resolved_failure_exit"
 RESOLVED_STATUSES = frozenset({"resolved", CONTROL_EVENT_EXIT_STATUS, FAILURE_EXIT_STATUS})
 
@@ -139,7 +147,7 @@ _ACQUISITION_REASON_PHRASES = (
 
 
 def is_failure_delisting(reason: str) -> bool:
-    """Whether this delisting reason is a failure whose last close is the realized exit."""
+    """Whether the reason qualifies for the last-traded-close exit convention."""
     if any(phrase in reason for phrase in _ACQUISITION_REASON_PHRASES):
         return False
     return any(phrase in reason for phrase in _FAILURE_REASON_PHRASES)
@@ -218,7 +226,7 @@ def read_control_event_exits(sqlite_path: Path) -> dict[str, tuple[ControlEventE
     # that is byte-identical to the baseline while presenting itself as the actual-exit
     # contract, and the before/after comparison would then read "nothing was replaced"
     # as a result rather than as a missing input.
-    conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+    conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         rows = conn.execute(
             "SELECT ticker, delisted_on, offer_price_yen FROM tender_offer_exit_values"
@@ -244,7 +252,7 @@ def read_failure_exits(sqlite_path: Path) -> dict[str, tuple[FailureExit, ...]]:
     # No fallback to an empty mapping, for the same reason `read_control_event_exits`
     # has none: a store that cannot answer would build a byte-identical baseline while
     # presenting itself as the realized-exit contract.
-    conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+    conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         rows = conn.execute("SELECT ticker, delisted_on, reason FROM jpx_delistings").fetchall()
     finally:
@@ -280,7 +288,7 @@ def compute_forward_returns(
     latest_target = max(spec.target_date(asof) for asof in asofs for spec in specs)
     eval_cap = latest_market_data_date(sqlite_path)
     rows: list[ForwardReturnRow] = []
-    conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+    conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         for ticker in unique_tickers:
             bars = _load_ticker_bars(conn, ticker, start=min_asof)
@@ -575,9 +583,9 @@ def _failure_exit_row(
     the exchange removed from one that merely stopped trading: a name that traded again
     afterwards is left unresolved rather than priced at a close that was not its last.
 
-    A company suspended long before the exchange removed it is priced at the last close it
-    printed, which understates the loss rather than overstating it. That is the same
-    direction the omission this replaces already had, and a smaller amount of it.
+    A long suspension can leave this close far from final recoverable value. The row
+    records a market-price convention, not a cash settlement; the bias direction and
+    size are not established by the delisting reason alone.
     """
     if failure_exit is None or entry_date is None or entry_close <= 0:
         return None
@@ -600,7 +608,7 @@ def _failure_exit_row(
         adjustment_coverage=adjustment_coverage,
     )
     # `stale_price` stays false, as it does for an offer price. It marks a price the
-    # tolerance rejected, and this one is not rejected but definitive; `exit_date` already
+    # tolerance rejected, and this exit convention accepts the last close; `exit_date`
     # says exactly when the window ended, and `failure_exit_count` is where these are
     # counted.
     return replace(
@@ -671,29 +679,54 @@ def _load_fy_dividends(
 ) -> list[_FYDividendObservation]:
     if cutoff is None:
         return []
-    rows = conn.execute(
-        "SELECT fiscal_year_end, disclosed_at, period_start, dps_actual_annual, "
-        "dividend_q1, dividend_interim, dividend_q3, dividend_year_end, "
-        "dividend_total_annual, shares_outstanding, treasury_shares, average_shares "
-        "FROM jquants_fin_summaries "
-        "WHERE ticker = ? AND fiscal_period = 'FY' AND fiscal_year_end IS NOT NULL "
-        "AND disclosed_at <= ? ORDER BY fiscal_year_end, disclosed_at",
-        (ticker, cutoff.isoformat()),
-    ).fetchall()
-    return [
-        _FYDividendObservation(
-            fiscal_year_end=date.fromisoformat(str(row[0])),
-            disclosed_at=date.fromisoformat(str(row[1])),
-            dps_actual_annual=(float(row[3]) if row[3] is not None else None),
-            period_start=(date.fromisoformat(str(row[2])) if row[2] is not None else None),
-            payments=tuple(float(value) if value is not None else None for value in row[4:8]),
-            dividend_total_annual=(float(row[8]) if row[8] is not None else None),
-            shares_outstanding=(float(row[9]) if row[9] is not None else None),
-            treasury_shares=(float(row[10]) if row[10] is not None else None),
-            average_shares=(float(row[11]) if row[11] is not None else None),
+    by_year: dict[date, list[JQuantsFinancialSummary]] = {}
+    for row in read_financial_documents(conn, start=date.min, end=cutoff, ticker=ticker):
+        if row.fiscal_period == "FY" and row.fiscal_year_end is not None:
+            by_year.setdefault(row.fiscal_year_end, []).append(row)
+    observations = []
+    for year, rows in sorted(by_year.items()):
+        # A forecast-only revision does not cancel a recorded actual dividend.
+        # Same-day revisions use the shared disclosure-time/conflict contract.
+        candidates = [row for row in rows if row.dps_actual_annual is not None]
+        selected = _latest_consistent_actual(
+            candidates,
+            (
+                "dps_actual_annual",
+                "dividend_q1",
+                "dividend_interim",
+                "dividend_q3",
+                "dividend_year_end",
+                "dividend_total_annual",
+                "shares_outstanding",
+                "treasury_shares",
+                "average_shares",
+            ),
         )
-        for row in rows
-    ]
+        if selected is None:
+            # Retain the fiscal year as unresolved, rather than dropping its dividend.
+            observations.append(
+                _FYDividendObservation(year, max(row.disclosed_at for row in rows), None)
+            )
+            continue
+        observations.append(
+            _FYDividendObservation(
+                fiscal_year_end=year,
+                disclosed_at=selected.disclosed_at,
+                dps_actual_annual=selected.dps_actual_annual,
+                period_start=selected.period_start,
+                payments=(
+                    selected.dividend_q1,
+                    selected.dividend_interim,
+                    selected.dividend_q3,
+                    selected.dividend_year_end,
+                ),
+                dividend_total_annual=selected.dividend_total_annual,
+                shares_outstanding=selected.shares_outstanding,
+                treasury_shares=selected.treasury_shares,
+                average_shares=selected.average_shares,
+            )
+        )
+    return observations
 
 
 def _resolve_total_return(
@@ -773,10 +806,10 @@ def _asof_basis_dividend(
         return 0.0
     window_start = observation.period_start or add_months_clamped(observation.fiscal_year_end, -12)
     if (
-        _cumulative_adjustment_factor_after(
-            bars, after=window_start, asof_date=observation.disclosed_at
+        _dividend_basis_factor(
+            bars, accrual_start=window_start, disclosed_at=observation.disclosed_at
         )
-        == 1.0
+        is None
     ):
         return reported * _cumulative_adjustment_factor_after(
             bars, after=observation.disclosed_at, asof_date=basis_date
@@ -853,28 +886,10 @@ def _per_share_denominator(observation: _FYDividendObservation) -> float | None:
     return remaining
 
 
-def _cumulative_adjustment_factor_after(
-    bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
-    *,
-    after: date,
-    asof_date: date,
-) -> float:
-    """Match per-share facts to the final share basis used by asof_basis_closes."""
-    factor = 1.0
-    for bar in bars:
-        if bar.traded_at <= after or bar.traded_at > asof_date:
-            continue
-        if bar.adjustment_factor in (None, 0.0, 1.0):
-            continue
-        assert bar.adjustment_factor is not None
-        factor *= bar.adjustment_factor
-    return factor
-
-
 def latest_market_data_date(sqlite_path: Path) -> date | None:
     """Return the observation cutoff used by forward-return computation."""
 
-    conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+    conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         row = conn.execute("SELECT MAX(traded_at) FROM jquants_daily_bars").fetchone()
     finally:

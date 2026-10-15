@@ -49,10 +49,10 @@ class SpGlobalPmiProvider:
     it before it can enter the store.
 
     Fetch cost scales with the number of months in the window (one PDF each), so an
-    incremental refresh fetches only the months the store is missing. A final
-    headline reading is not revised once published, so re-reading a stored month
-    yields the same value; ``refresh --all-history`` re-reads every month and is the
-    way to rebuild the stream from source.
+    incremental refresh reuses stored months with the same source URL. It does not
+    detect a corrected PDF at that URL; ``refresh --all-history`` re-reads every
+    month to rebuild the stream from source. A changed manifest URL is re-fetched
+    even during an incremental refresh.
     """
 
     # The manifest is the whole obtainable history, so the all-history floor has to
@@ -250,8 +250,8 @@ def extract_pdf_text(content: bytes) -> str:
 def load_manifest(path: Path) -> dict[str, tuple[Release, ...]]:
     """The manifest at ``path``, parsed and validated.
 
-    The path is required rather than defaulted so one file cannot end up behind
-    two cache keys, which would let a caller read a copy the writer has replaced.
+    Parsed results are cached by the supplied path. Writers must clear this cache
+    after replacing the file; distinct path spellings can refer to the same file.
     """
 
     raw = strict_safe_load(path.read_text(encoding="utf-8"))

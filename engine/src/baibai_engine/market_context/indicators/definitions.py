@@ -156,6 +156,7 @@ def _lint_alias_identity_collisions(series: list[SeriesDefinition]) -> None:
 
 def _parse_series(raw: object) -> SeriesDefinition:
     entry = _mapping(raw, "series")
+    priority = _optional_int(entry, "priority")
     plausible_min = _optional_float(entry, "plausible_min")
     plausible_max = _optional_float(entry, "plausible_max")
     return SeriesDefinition(
@@ -169,7 +170,7 @@ def _parse_series(raw: object) -> SeriesDefinition:
         provider_series_id=_required_str(entry, "provider_series_id"),
         source_id=_required_str(entry, "source_id"),
         source_url=_required_str(entry, "source_url"),
-        priority=_optional_int(entry, "priority") or 100,
+        priority=100 if priority is None else priority,
         notes=_optional_str(entry, "notes"),
         plausible_min=plausible_min,
         plausible_max=plausible_max,
@@ -204,7 +205,7 @@ def _optional_int(entry: Mapping[str, object], key: str) -> int | None:
     value = entry.get(key)
     if value is None:
         return None
-    if isinstance(value, int):
+    if isinstance(value, int) and not isinstance(value, bool):
         return value
     raise ValueError(f"indicator definition field {key!r} must be an integer")
 

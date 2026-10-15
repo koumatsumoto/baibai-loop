@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
@@ -123,7 +124,7 @@ def test_document_streams_keep_zero_and_income_source(tmp_path: Path) -> None:
     assert result.dividend_forecast_source["disclosure_number"] == "dividend"
     assert stored[0].eps_ttm == 33.3
     assert db.read_bytes() == before
-    with sqlite3.connect(db) as conn:
+    with closing(sqlite3.connect(db)) as conn, conn:
         values = conn.execute(
             "SELECT forecast_eps, forecast_profit, forecast_ordinary_profit, dps_forecast_annual FROM jquants_fin_summaries"
         ).fetchall()
@@ -720,3 +721,30 @@ def test_conflicting_payment_allocations_cannot_select_split_adjustment_by_order
     assert _asof_basis_fy_dps(fy_rows, events, asof_date=ASOF) == {}
     assert _resolve_dividend_carry(rows, events, 100, ASOF).dividend_yield is None
     assert _resolve_dividend_carry(rows, (), 100, ASOF).dividend_yield == 0.07
+
+
+@pytest.mark.parametrize("requested_ticker", [None, "9999"])
+@pytest.mark.parametrize("outside_day", ["2026-08-09", "2026-10-14"])
+def test_outside_financial_payload_preserves_rows_and_coverage(
+    tmp_path: Path, requested_ticker: str | None, outside_day: str
+) -> None:
+    db = tmp_path / "market.sqlite"
+    start = date(2026, 8, 10)
+    store_jquants_fin_summaries(db, documents(), requested_start=start, requested_end=ASOF)
+    before = db.read_bytes()
+    with pytest.raises(ValueError, match="outside the request"):
+        store_jquants_fin_summaries(
+            db,
+            [document("unexpected", day=outside_day)],
+            requested_start=start,
+            requested_end=ASOF,
+            requested_ticker=requested_ticker,
+        )
+    assert db.read_bytes() == before
+
+
+def test_reversed_financial_range_does_not_create_store(tmp_path: Path) -> None:
+    db = tmp_path / "absent.sqlite"
+    with pytest.raises(ValueError, match="start must not follow end"):
+        store_jquants_fin_summaries(db, [], requested_start=ASOF, requested_end=date(2026, 8, 10))
+    assert not db.exists()

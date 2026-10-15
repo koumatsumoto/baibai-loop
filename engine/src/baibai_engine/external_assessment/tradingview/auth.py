@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess  # nosec B404 - fixed gh command, credential JSON goes only to stdin
+
+# fixed gh command, credential JSON goes only to stdin
+import subprocess  # nosec B404
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -18,7 +20,9 @@ from pydantic import BaseModel, ConfigDict
 
 from baibai_engine.foundation.filesystem import write_text_atomic
 
-SECRET_NAME = "TRADINGVIEW_OAUTH_STATE"  # nosec B105 - GitHub Secret identifier
+# GitHub Secret identifier
+
+SECRET_NAME = "TRADINGVIEW_OAUTH_STATE"  # nosec B105
 RUNTIME_ENVIRONMENT = "tradingview-runtime"
 
 

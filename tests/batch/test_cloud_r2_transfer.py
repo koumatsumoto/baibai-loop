@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -405,7 +406,7 @@ def _serving_export(tmp_path: Path) -> Path:
 
 
 def test_views_upload_replaces_the_mirror_and_leaves_meta_alone(tmp_path: Path) -> None:
-    """The stage that runs alongside the store push touches only the mutable image."""
+    """The mirror stage after the store push touches only the mutable image."""
     bin_dir, log = _fake_aws(tmp_path)
     output = _serving_export(tmp_path)
     env = _environment(bin_dir, log)
@@ -460,7 +461,7 @@ def test_serving_tail_appends_history_and_writes_meta_last(tmp_path: Path) -> No
 def test_serving_transfer_raises_concurrency_without_touching_the_caller_config(
     tmp_path: Path,
 ) -> None:
-    """The in-flight count is the only lever on a request-bound upload.
+    """Transfer concurrency is isolated from the caller's persistent configuration.
 
     It has no command-line flag, and this script also runs on a developer machine,
     so writing it into `~/.aws/config` would change transfers this repository has
@@ -512,9 +513,8 @@ def test_serving_concurrency_is_settable_without_a_code_change(tmp_path: Path) -
 def test_two_concurrent_publishes_do_not_share_a_transfer_config(tmp_path: Path) -> None:
     """Each process writes its own config, so neither can read the other's value.
 
-    The daily batch runs the views mirror beside the store push today, and a fixed
-    config path would silently become the last writer's setting the moment the push
-    side needed transfer settings too.
+    Independent invocations must keep their transfer settings isolated even when
+    they overlap; the daily workflow itself serializes the store and views pushes.
     """
     bin_dir, log = _fake_aws(tmp_path)
     output = _serving_export(tmp_path)
@@ -551,13 +551,10 @@ def test_two_concurrent_publishes_do_not_share_a_transfer_config(tmp_path: Path)
     assert not list(scratch.glob("baibai-r2-transfer.*"))
 
 
-APP_STORE = REPO_ROOT / "stores/application/baibai.sqlite"
-
-
 def test_pull_app_refuses_to_overwrite_a_local_application_store(tmp_path: Path) -> None:
-    # The application DB is canonical on the operator's machine: judgments are
-    # published locally and only then pushed. Replacing it with the cloud copy
-    # destroys anything published since the last push, and nothing can rebuild it.
+    # R2 is authoritative, but the local working copy may contain unpublished
+    # judgments. Pull must not overwrite those changes merely because a remote
+    # copy exists; they cannot be regenerated from market sources.
     bin_dir, log = _fake_aws(tmp_path)
     root = _fake_repo(tmp_path)
     app_store = root / "stores/application/baibai.sqlite"
@@ -879,11 +876,30 @@ def test_a_bundle_pull_accepts_the_set_the_receipt_names(tmp_path: Path) -> None
     assert "machine bundle receipt matches" in completed.stdout
 
 
-def test_legacy_indicator_key_cannot_satisfy_new_machine_receipt(tmp_path: Path) -> None:
-    receipt = '{"keys":{"market.sqlite":"etag-stable","runs.sqlite":"etag-stable","macro.sqlite":"etag-stable"}}'
+@pytest.mark.parametrize(
+    ("indicator_key", "expected_exit"), [("macro.sqlite", 1), ("indicators.sqlite", 0)]
+)
+def test_machine_receipt_requires_current_indicator_key(
+    tmp_path: Path, indicator_key: str, expected_exit: int
+) -> None:
+    # Keep the writer's line-oriented shape so failure tests the key, not JSON layout.
+    receipt = json.dumps(
+        {
+            "keys": {
+                "market.sqlite": "etag-stable",
+                "runs.sqlite": "etag-stable",
+                indicator_key: "etag-stable",
+            }
+        },
+        indent=2,
+    )
     result = _pull_machine(tmp_path, receipt=receipt)
-    assert result.returncode == 1
-    assert "receipt names no generation" in result.stderr
+    assert result.returncode == expected_exit
+    if expected_exit:
+        assert "R2 holds indicators.sqlite at generation etag-stable" in result.stderr
+        assert "receipt names no generation" in result.stderr
+    else:
+        assert "machine bundle receipt matches" in result.stdout
 
 
 def test_a_receipt_that_does_not_read_back_refuses_rather_than_passing(tmp_path: Path) -> None:
@@ -1266,9 +1282,7 @@ def test_application_store_prune_leaves_keys_it_did_not_write(tmp_path: Path) ->
 
 
 def test_machine_store_backups_stay_a_single_generation(tmp_path: Path) -> None:
-    """The three machine stores are rewritten every business day and rebuildable from
-    their sources, so a generation each would only hold copies of a store the next
-    batch replaces anyway."""
+    """Each machine store retains one fixed backup rather than dated application backups."""
 
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)

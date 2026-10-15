@@ -65,15 +65,15 @@ request() {
       "${label}" "${path}" "${expected_status}" "${status}" >&2
     return 1
   fi
-  if ! awk 'BEGIN { IGNORECASE=1; found=0 } /^cache-control:[[:space:]]*no-store\r?$/ { found=1 } END { exit !found }' "${headers}"; then
+  if ! awk 'BEGIN { found=0 } tolower($0) ~ /^cache-control:[[:space:]]*no-store\r?$/ { found=1 } END { exit !found }' "${headers}"; then
     printf '%s %s: Cache-Control: no-store is missing\n' "${label}" "${path}" >&2
     return 1
   fi
-  if ! awk 'BEGIN { IGNORECASE=1; found=0 } /^strict-transport-security:/ { found=1 } END { exit !found }' "${headers}"; then
+  if ! awk 'BEGIN { found=0 } tolower($0) ~ /^strict-transport-security:/ { found=1 } END { exit !found }' "${headers}"; then
     printf '%s %s: Strict-Transport-Security is missing\n' "${label}" "${path}" >&2
     return 1
   fi
-  if awk 'BEGIN { IGNORECASE=1 } /^access-control-allow-origin:/ { found=1 } END { exit !found }' "${headers}"; then
+  if awk 'tolower($0) ~ /^access-control-allow-origin:/ { found=1 } END { exit !found }' "${headers}"; then
     printf '%s %s: unexpected CORS response header\n' "${label}" "${path}" >&2
     return 1
   fi
@@ -85,6 +85,10 @@ paths=(
   /api/screening/latest
   /api/screening/history
   /api/operations
+  /api/tasks
+  /api/daily-delta
+  /api/stock-assessments
+  /api/investment-proposals
   /api/meta
   /api/market-context
   /api/market-context/indicators/us.10y
@@ -93,12 +97,14 @@ paths=(
 
 # Keyed routes, checked with a well-formed key that serving does not carry. The
 # credential still decides the response, and a correct one resolves to a clean 404, so
-# every route the Worker answers is exercised without depending on which keys exist.
+# materialized view routes are exercised without depending on which keys exist.
 absent_key_paths=(
   /api/screening/history/2000-01-01
   /api/market-context/assessments/no-such-context
   /api/market-context/indicators/no.such.series
-  /api/assessments/no-such-assessment
+  /api/stock-assessments/stock-assessment-00000000-0000-4000-8000-000000000000
+  /api/investment-proposals/investment-proposal-00000000-0000-4000-8000-000000000000
+  /api/investment-proposals/investment-proposal-00000000-0000-4000-8000-000000000000/current-preview
   /api/securities/ZZZZ
 )
 

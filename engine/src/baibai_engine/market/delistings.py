@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import date
 from html.parser import HTMLParser
@@ -35,7 +36,7 @@ class DelistingRecord:
 
 
 def store_jpx_delistings(sqlite_path: Path, rows: Sequence[DelistingRecord]) -> int:
-    """Accumulate immutable delisting facts as JPX retires archive pages."""
+    """Retain older delisting dates while refreshing source records at matching keys."""
     if not rows:
         raise DelistingSourceError("refusing to store zero JPX delistings")
     connection = open_connection(sqlite_path)
@@ -81,44 +82,44 @@ def download_jpx_delistings(
     session: requests.Session | None = None,
 ) -> tuple[DelistingRecord, ...]:
     """Download the current JPX page and same-origin archive pages."""
-    client = session or requests.Session()
-    index_response = client.get(JPX_DELISTING_INDEX_URL, timeout=_HTTP_TIMEOUT_SECONDS)
-    if index_response.status_code >= 400:
-        raise DelistingSourceError(
-            f"failed to download JPX delistings: {index_response.status_code}"
-        )
-    index_parser = _TableLinkParser()
-    index_parser.feed(_decode_jpx_html(index_response))
-    urls = {JPX_DELISTING_INDEX_URL}
-    for href in index_parser.links:
-        resolved = urljoin(JPX_DELISTING_INDEX_URL, href)
-        if resolved.startswith(JPX_DELISTING_INDEX_URL) and _JPX_ARCHIVE_RE.search(resolved):
-            urls.add(resolved)
-    rows: dict[tuple[date, str], DelistingRecord] = {}
-    for url in sorted(urls):
-        response = (
-            index_response
-            if url == JPX_DELISTING_INDEX_URL
-            else client.get(url, timeout=_HTTP_TIMEOUT_SECONDS)
-        )
-        if response.status_code >= 400:
-            raise DelistingSourceError(f"failed to download JPX delistings: {url}")
-        parser = _TableLinkParser()
-        parser.feed(_decode_jpx_html(response))
-        for cells in parser.rows:
-            row = _jpx_delisting_row(cells)
-            if row is None:
-                continue
-            key = (row.delisted_on, row.ticker)
-            existing = rows.get(key)
-            if existing is not None and existing != row:
-                raise DelistingSourceError(
-                    f"conflicting JPX delisting row: {row.ticker} {row.delisted_on.isoformat()}"
-                )
-            rows[key] = row
-    if not rows:
-        raise DelistingSourceError("JPX delisting history had no typed rows")
-    return tuple(rows[key] for key in sorted(rows))
+    with nullcontext(session) if session is not None else requests.Session() as client:
+        index_response = client.get(JPX_DELISTING_INDEX_URL, timeout=_HTTP_TIMEOUT_SECONDS)
+        if index_response.status_code >= 400:
+            raise DelistingSourceError(
+                f"failed to download JPX delistings: {index_response.status_code}"
+            )
+        index_parser = _TableLinkParser()
+        index_parser.feed(_decode_jpx_html(index_response))
+        urls = {JPX_DELISTING_INDEX_URL}
+        for href in index_parser.links:
+            resolved = urljoin(JPX_DELISTING_INDEX_URL, href)
+            if resolved.startswith(JPX_DELISTING_INDEX_URL) and _JPX_ARCHIVE_RE.search(resolved):
+                urls.add(resolved)
+        rows: dict[tuple[date, str], DelistingRecord] = {}
+        for url in sorted(urls):
+            response = (
+                index_response
+                if url == JPX_DELISTING_INDEX_URL
+                else client.get(url, timeout=_HTTP_TIMEOUT_SECONDS)
+            )
+            if response.status_code >= 400:
+                raise DelistingSourceError(f"failed to download JPX delistings: {url}")
+            parser = _TableLinkParser()
+            parser.feed(_decode_jpx_html(response))
+            for cells in parser.rows:
+                row = _jpx_delisting_row(cells)
+                if row is None:
+                    continue
+                key = (row.delisted_on, row.ticker)
+                existing = rows.get(key)
+                if existing is not None and existing != row:
+                    raise DelistingSourceError(
+                        f"conflicting JPX delisting row: {row.ticker} {row.delisted_on.isoformat()}"
+                    )
+                rows[key] = row
+        if not rows:
+            raise DelistingSourceError("JPX delisting history had no typed rows")
+        return tuple(rows[key] for key in sorted(rows))
 
 
 class _TableLinkParser(HTMLParser):

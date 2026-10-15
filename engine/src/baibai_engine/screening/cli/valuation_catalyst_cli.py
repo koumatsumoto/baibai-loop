@@ -8,7 +8,7 @@ from datetime import date
 from pathlib import Path
 from typing import TextIO
 
-from baibai_engine.market.providers.edinet import EDINETProviderError
+from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.valuation_catalysts import (
     ValuationCatalystError,
     refresh_tse_capital_policy,

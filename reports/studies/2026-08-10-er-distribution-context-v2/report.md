@@ -2,7 +2,7 @@
 title: "E[r] 実現分布 context v2 と cap 2点比較"
 summary: "現行E[r]の帯別下方分布を判断面へ正本化し、upside / buyback cap拡張は4窓すべてnegativeとして不採用にした。"
 doc_type: measurement-record
-status: complete
+status: historical
 date: 2026-08-10
 ---
 

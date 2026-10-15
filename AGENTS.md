@@ -20,7 +20,7 @@ broker操作と取引事実の確認は人間が担う。運用上の確認・�
 
 ## 検証と提出
 
-push前に[完全local gate](./docs/reference/python-foundation.md#9-ci-and-local-parity)を実行する。指標の計算・取得・registry・Reading methodを変更する場合は、同文書のstore検証も行う。文書だけの変更で本番データを再生成しない。
+通常の検証は[対象HEADのCI](./docs/reference/python-foundation.md#9-ci-and-local-parity)で確認する。ローカル実行は原因調査や必要な事前確認に使い、完全local gateをpushの必須前提にしない。指標の計算・取得・registry・Reading methodを変更する場合は、同文書の実store検証も別途行う。文書だけの変更で本番データを再生成しない。
 
 変更領域の[過去の誤認と正本](./docs/anti-patterns.md)を確認する。検証結果は実行済み・失敗・未実行を区別する。
 

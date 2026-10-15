@@ -190,10 +190,10 @@ def _frame_to_rows(frame: object) -> list[Mapping[str, object]]:
 def _row_date(row: Mapping[str, object]) -> date:
     raw = _coalesce(row, _PUBLISHED_DATE_KEYS)
     if raw is None:
-        raw = _coalesce(row, _END_DATE_KEYS)
-    if raw is None:
-        tried = ", ".join((*_PUBLISHED_DATE_KEYS, *_END_DATE_KEYS))
-        raise IndicatorsProviderError(f"jquants_flows row missing a date column; tried {tried}")
+        tried = ", ".join(_PUBLISHED_DATE_KEYS)
+        raise IndicatorsProviderError(
+            f"jquants_flows row missing a publication date; tried {tried}"
+        )
     return _parse_date(raw)
 
 

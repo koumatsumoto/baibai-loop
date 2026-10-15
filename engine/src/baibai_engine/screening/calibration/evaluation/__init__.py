@@ -1,4 +1,4 @@
-"""較正の評価指標: rank IC・decile・Review Set replay・trap・条件付きspread・収束実現。
+"""較正の評価指標: rank IC・decile・候補replay・trap・条件付きspread・収束実現。
 
 統計の誠実性 (docs/doctrine.md の計測経路):
 - cohort (月次 asof) は forward 窓が重複し独立でないため、有意性検定は行わず

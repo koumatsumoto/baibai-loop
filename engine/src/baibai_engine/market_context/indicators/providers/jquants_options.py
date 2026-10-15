@@ -53,12 +53,11 @@ class JQuantsOptionsProvider:
     name = spec.name
 
     def __init__(self) -> None:
-        # 3 系列は同じチェーンから読むので、1 日 1 回の取得を系列間で共有する。共有
-        # しないと全期間取得の呼び出し数が 3 倍になる。過去日のチェーンは変わらない
-        # ので memo でよい。休場日 (年 16 日ほど) の None も憶える——憶えないと 3 系列
-        # がそれぞれ空のチェーンを取りに行く。
+        # Share each day's chain across the three readings within one fetch pass.
+        # Clear successful and empty results on the next pass: historical data can
+        # be corrected, and an empty response does not prove permanent absence.
         self._readings: dict[date, FearReadings | None] = {}
-        self._failure_context: FetchContext | None = None
+        self._fetch_context: FetchContext | None = None
         # A failed chain is also one shared result: another reading must not reset
         # that day's HTTP retry budget. Failures last only for this fetch pass.
         self._failures: dict[date, str] = {}
@@ -73,9 +72,10 @@ class JQuantsOptionsProvider:
         context: FetchContext | None = None,
     ) -> list[ObservationRecord]:
         del session
-        if context is None or context is not self._failure_context:
+        if context is None or context is not self._fetch_context:
+            self._readings.clear()
             self._failures.clear()
-            self._failure_context = context
+            self._fetch_context = context
         deadline = read_deadline(self.name, context)
         field = _reading_field(series.provider_series_id)
         api_key = _read_api_key()
@@ -84,8 +84,8 @@ class JQuantsOptionsProvider:
         for day in _days(start, end):
             reading = self._day_reading(client, day, api_key=api_key, deadline=deadline)
             if reading is None:
-                # A closed market returns nothing; that is the day's fact, not a
-                # failure, and skipping keeps the series free of invented points.
+                # No chain was returned for this pass. Do not invent a point;
+                # a later pass will fetch again, including after late publication.
                 continue
             value = getattr(reading, field)
             if value is None:

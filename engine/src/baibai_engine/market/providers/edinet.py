@@ -7,6 +7,7 @@ import re
 import time
 import zipfile
 from collections.abc import Mapping, Sequence
+from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -17,22 +18,24 @@ import requests
 from pydantic import ConfigDict, field_validator
 from pydantic.dataclasses import dataclass
 
-from baibai_engine.market.edinet_models import EdinetMetricRecord
-from baibai_engine.market.metric_quality import TTMQuality
+from baibai_engine.market.edinet_decode import (
+    coalesce_field,
+    parse_optional_date,
+    parse_sec_code,
+    safe_error_value,
+    text_or_none,
+)
+from baibai_engine.market.edinet_models import (
+    EdinetMetricRecord,
+    EDINETProviderError,
+    EDINETRateLimitError,
+)
 from baibai_engine.market.ticker import normalize_ticker
 
 EDINET_API_BASE = "https://api.edinet-fsa.go.jp/api/v2"
 
 
 _MODEL_CONFIG = ConfigDict(strict=True, arbitrary_types_allowed=False)
-
-
-class EDINETProviderError(RuntimeError):
-    """Raised when EDINET access or normalization fails."""
-
-
-class EDINETRateLimitError(EDINETProviderError):
-    """Raised when EDINET asks the whole extraction run to back off."""
 
 
 TARGET_DOC_TYPE_CODES = frozenset({"120", "130", "140", "150", "160", "170"})
@@ -151,7 +154,7 @@ class EDINETProvider:
                 "EDINET documents.json resultset count mismatch: "
                 f"metadata={result_count} results={len(results)}"
             )
-        process_datetime = _to_str_or_none(metadata.get("processDateTime"))
+        process_datetime = text_or_none(metadata.get("processDateTime"))
         documents = _coerce_document_items(results, source="EDINET documents.json")
         for document in documents:
             document["doc_date"] = on_date.isoformat()
@@ -263,13 +266,15 @@ class EDINETProvider:
         )
 
     def _request_json(self, url: str) -> dict[str, Any]:
-        payload = self._request_response(url, timeout=30).json()
+        with closing(self._request_response(url, timeout=30)) as response:
+            payload = response.json()
         if not isinstance(payload, dict):
             raise EDINETProviderError("EDINET response JSON must be an object")
         return payload
 
     def _request_bytes(self, url: str) -> bytes:
-        return bytes(self._request_response(url, timeout=60).content)
+        with closing(self._request_response(url, timeout=60)) as response:
+            return bytes(response.content)
 
     def _request_response(self, url: str, *, timeout: int) -> requests.Response:
         """One retry budget for HTTP failures and EDINET's HTTP 200 body 429."""
@@ -290,15 +295,19 @@ class EDINETProvider:
             )
             if response.status_code < 400 and not rate_limited:
                 return response
-            if rate_limited and attempt >= max_attempts - 1:
-                raise EDINETRateLimitError("EDINET request rate limited after retries")
-            if not rate_limited and response.status_code not in {500, 502, 503, 504}:
-                raise EDINETProviderError(
-                    f"EDINET request failed with status {response.status_code}"
-                )
-            if attempt < max_attempts - 1:
+            try:
+                if rate_limited and attempt >= max_attempts - 1:
+                    raise EDINETRateLimitError("EDINET request rate limited after retries")
+                if not rate_limited and response.status_code not in {500, 502, 503, 504}:
+                    raise EDINETProviderError(
+                        f"EDINET request failed with status {response.status_code}"
+                    )
                 backoff = 3 * (2**attempt)
-                time.sleep(_retry_after_seconds(response, backoff) if rate_limited else backoff)
+                wait = _retry_after_seconds(response, backoff) if rate_limited else backoff
+            finally:
+                response.close()
+            if attempt < max_attempts - 1:
+                time.sleep(wait)
         raise EDINETProviderError("EDINET request failed after retries")
 
     def _sanitize_secret(self, text: str) -> str:
@@ -320,67 +329,11 @@ def _retry_after_seconds(response: requests.Response, backoff: int) -> float:
     return max(0.0, (deadline - datetime.now(UTC)).total_seconds())
 
 
-def normalize_metric_record(record: Mapping[str, Any]) -> EdinetMetricRecord:
-    # `or` チェーンは 0.0 (cash=0、debt=0 等の正当な値) を falsy 扱いするため、
-    # キー存在ベースの coalesce で最初の非 None 値を取る。
-    return EdinetMetricRecord(
-        ticker=parse_sec_code(_coalesce(record, "secCode", "ticker", "code")),
-        sales_ttm=_to_float(_coalesce(record, "sales_ttm", "SalesTTM")),
-        ocf_ttm=_to_float(_coalesce(record, "ocf_ttm", "OperatingCashFlowTTM")),
-        debt=_to_float(_coalesce(record, "debt", "Debt")),
-        cash=_to_float(_coalesce(record, "cash", "Cash")),
-        investment_securities=_to_float(
-            _coalesce(record, "investment_securities", "InvestmentSecurities")
-        ),
-        ebitda_ttm=_to_float(_coalesce(record, "ebitda_ttm", "EBITDATTM")),
-        consolidation_basis=_coalesce(record, "consolidation_basis", "ConsolidationBasis"),
-        ttm_quality_ev_ebitda=_parse_optional_ttm_quality(
-            _coalesce(record, "ttm_quality_ev_ebitda", "TTMQualityEvEbitda")
-        ),
-        ttm_quality_p_s=_parse_ttm_quality(_coalesce(record, "ttm_quality_p_s", "TTMQualityPS")),
-        ttm_quality_pcfr=_parse_ttm_quality(
-            _coalesce(record, "ttm_quality_pcfr", "TTMQualityPCFR")
-        ),
-        operating_profit_ttm=_to_float(_coalesce(record, "operating_profit_ttm")),
-        depreciation_and_amortization_ttm=_to_float(
-            _coalesce(record, "depreciation_and_amortization_ttm")
-        ),
-        capex_ttm=_to_float(_coalesce(record, "capex_ttm")),
-        ocf_receivables_cash_effect=_to_float(_coalesce(record, "ocf_receivables_cash_effect")),
-        ocf_inventories_cash_effect=_to_float(_coalesce(record, "ocf_inventories_cash_effect")),
-        ocf_payables_cash_effect=_to_float(_coalesce(record, "ocf_payables_cash_effect")),
-        ocf_contract_liabilities_cash_effect=_to_float(
-            _coalesce(record, "ocf_contract_liabilities_cash_effect")
-        ),
-        ocf_advances_received_cash_effect=_to_float(
-            _coalesce(record, "ocf_advances_received_cash_effect")
-        ),
-        ocf_other_payables_cash_effect=_to_float(
-            _coalesce(record, "ocf_other_payables_cash_effect")
-        ),
-        capex_ppe_reported=_to_float(_coalesce(record, "capex_ppe_reported")),
-        capex_intangible_reported=_to_float(_coalesce(record, "capex_intangible_reported")),
-        fcf_ttm=_to_float(_coalesce(record, "fcf_ttm")),
-        net_cash=_to_float(_coalesce(record, "net_cash")),
-        equity=_to_float(_coalesce(record, "equity")),
-        total_assets=_to_float(_coalesce(record, "total_assets")),
-        ttm_quality_fcf=_parse_optional_ttm_quality(_coalesce(record, "ttm_quality_fcf")),
-        ttm_quality_net_cash=_parse_ttm_quality(_coalesce(record, "ttm_quality_net_cash")),
-        source_doc_id=_to_str_or_none(_coalesce(record, "source_doc_id")),
-        document_type=_to_str_or_none(_coalesce(record, "document_type")),
-        source_submit_datetime=_to_str_or_none(_coalesce(record, "source_submit_datetime")),
-        source_period_start=_parse_optional_date(_coalesce(record, "source_period_start")),
-        source_period_end=_parse_optional_date(_coalesce(record, "source_period_end")),
-        capex_source=_to_str_or_none(_coalesce(record, "capex_source")),
-        failure_reasons=tuple(_coalesce(record, "failure_reasons") or ()),
-    )
-
-
 def parse_doc_id(value: object) -> str:
-    raw = str(value or "").strip().upper()
-    if not _DOC_ID_RE.fullmatch(raw):
-        raise EDINETProviderError(f"invalid EDINET docID: {_safe_error_value(value)}")
-    return raw
+    raw = str(value or "").strip()
+    if not raw.isascii() or not _DOC_ID_RE.fullmatch(raw.upper()):
+        raise EDINETProviderError(f"invalid EDINET docID: {safe_error_value(value)}")
+    return raw.upper()
 
 
 def select_document_candidates(
@@ -392,19 +345,19 @@ def select_document_candidates(
     candidates: dict[str, EdinetDocumentCandidate] = {}
     folded, quarantined = _canonicalize_document_events(documents, origin_start=origin_start)
     for document in folded:
-        raw_doc_id = _coalesce(document, "docID", "doc_id")
-        raw_type = _to_str_or_none(_coalesce(document, "docTypeCode", "doc_type_code"))
+        raw_doc_id = coalesce_field(document, "docID", "doc_id")
+        raw_type = text_or_none(coalesce_field(document, "docTypeCode", "doc_type_code"))
         if raw_doc_id is None or raw_type not in TARGET_DOC_TYPE_CODES:
             continue
-        if _to_str_or_none(_coalesce(document, "csvFlag", "csv_flag")) != "1":
+        if text_or_none(coalesce_field(document, "csvFlag", "csv_flag")) != "1":
             continue
-        if _to_str_or_none(_coalesce(document, "xbrlFlag", "xbrl_flag")) != "1":
+        if text_or_none(coalesce_field(document, "xbrlFlag", "xbrl_flag")) != "1":
             continue
         if _is_unusable_status(document):
             continue
         doc_id = parse_doc_id(raw_doc_id)
-        raw_sec_code = _coalesce(document, "secCode", "sec_code")
-        if _to_str_or_none(raw_sec_code) is None:
+        raw_sec_code = coalesce_field(document, "secCode", "sec_code")
+        if text_or_none(raw_sec_code) is None:
             continue
         ticker = parse_sec_code(raw_sec_code)
         period_start, period_end = _document_period(document)
@@ -412,7 +365,7 @@ def select_document_candidates(
             ticker=ticker,
             doc_id=doc_id,
             doc_type_code=raw_type,
-            submit_datetime=_to_str_or_none(_coalesce(document, "submitDateTime")),
+            submit_datetime=text_or_none(coalesce_field(document, "submitDateTime")),
             period_start=period_start,
             period_end=period_end,
             source_document_revision=_source_document_revision(document),
@@ -480,53 +433,55 @@ def _canonicalize_document_events(
     events: list[dict[str, Any]] = []
     for document in normalized:
         _validate_document_statuses(document)
-        doc_id_raw = _coalesce(document, "docID", "doc_id")
+        doc_id_raw = coalesce_field(document, "docID", "doc_id")
         if doc_id_raw is None:
             continue
         doc_id = parse_doc_id(doc_id_raw)
-        edit_status = _to_str_or_none(
-            _coalesce(document, "docInfoEditStatus", "doc_info_edit_status")
+        edit_status = text_or_none(
+            coalesce_field(document, "docInfoEditStatus", "doc_info_edit_status")
         )
-        withdrawal_status = _to_str_or_none(
-            _coalesce(document, "withdrawalStatus", "withdrawal_status")
+        withdrawal_status = text_or_none(
+            coalesce_field(document, "withdrawalStatus", "withdrawal_status")
         )
-        disclosure_status = _to_str_or_none(
-            _coalesce(document, "disclosureStatus", "disclosure_status")
+        disclosure_status = text_or_none(
+            coalesce_field(document, "disclosureStatus", "disclosure_status")
         )
         is_event = edit_status == "1" or withdrawal_status == "1" or disclosure_status in {"1", "3"}
         if is_event:
             events.append(document)
             continue
-        origin_date = _to_str_or_none(_coalesce(document, "doc_date"))
+        origin_date = text_or_none(coalesce_field(document, "doc_date"))
         if origin_start is not None and origin_date is not None:
             try:
                 if date.fromisoformat(origin_date) < origin_start:
                     continue
             except ValueError as exc:
                 raise EDINETProviderError(
-                    f"invalid EDINET origin date: {_safe_error_value(origin_date)}"
+                    f"invalid EDINET origin date: {safe_error_value(origin_date)}"
                 ) from exc
         origins[doc_id] = document
 
     children: dict[str, set[str]] = {}
     for doc_id, origin in origins.items():
-        parent = _to_str_or_none(_coalesce(origin, "parentDocID", "parent_doc_id"))
+        parent = text_or_none(coalesce_field(origin, "parentDocID", "parent_doc_id"))
         if parent:
             children.setdefault(parent, set()).add(doc_id)
     _validate_parent_graph(origins)
 
     quarantined: set[QuarantinedDocumentEvent] = set()
     for event in events:
-        doc_id = parse_doc_id(_coalesce(event, "docID", "doc_id"))
-        edit_status = _to_str_or_none(_coalesce(event, "docInfoEditStatus", "doc_info_edit_status"))
-        withdrawal_status = _to_str_or_none(
-            _coalesce(event, "withdrawalStatus", "withdrawal_status")
+        doc_id = parse_doc_id(coalesce_field(event, "docID", "doc_id"))
+        edit_status = text_or_none(
+            coalesce_field(event, "docInfoEditStatus", "doc_info_edit_status")
         )
-        disclosure_status = _to_str_or_none(
-            _coalesce(event, "disclosureStatus", "disclosure_status")
+        withdrawal_status = text_or_none(
+            coalesce_field(event, "withdrawalStatus", "withdrawal_status")
+        )
+        disclosure_status = text_or_none(
+            coalesce_field(event, "disclosureStatus", "disclosure_status")
         )
         if withdrawal_status == "1":
-            parent = _to_str_or_none(_coalesce(event, "parentDocID", "parent_doc_id"))
+            parent = text_or_none(coalesce_field(event, "parentDocID", "parent_doc_id"))
             if parent is None or parent not in origins:
                 quarantined.add(
                     _quarantined_document_event(
@@ -551,7 +506,7 @@ def _canonicalize_document_events(
                 )
             )
             continue
-        if _to_str_or_none(_coalesce(current, "withdrawalStatus", "withdrawal_status")) == "2":
+        if text_or_none(coalesce_field(current, "withdrawalStatus", "withdrawal_status")) == "2":
             raise EDINETProviderError(f"EDINET event follows withdrawal: {doc_id}")
         origin_date = current.get("doc_date")
         current.update({key: value for key, value in event.items() if value is not None})
@@ -583,9 +538,9 @@ def _quarantined_document_event(
     target_doc_id: str | None,
     event_type: str,
 ) -> QuarantinedDocumentEvent:
-    raw_sec_code = _coalesce(event, "secCode", "sec_code")
+    raw_sec_code = coalesce_field(event, "secCode", "sec_code")
     ticker: str | None = None
-    if _to_str_or_none(raw_sec_code) is not None:
+    if text_or_none(raw_sec_code) is not None:
         try:
             ticker = parse_sec_code(raw_sec_code)
         except EDINETProviderError:
@@ -593,7 +548,7 @@ def _quarantined_document_event(
             # the isolation scope to the event itself rather than restoring a
             # batch-wide failure for metadata that cannot identify a ticker.
             ticker = None
-    document_type = _to_str_or_none(_coalesce(event, "docTypeCode", "doc_type_code"))
+    document_type = text_or_none(coalesce_field(event, "docTypeCode", "doc_type_code"))
     if document_type is not None and (
         len(document_type) != 3 or not document_type.isascii() or not document_type.isdigit()
     ):
@@ -617,7 +572,7 @@ def _validate_parent_graph(origins: Mapping[str, Mapping[str, Any]]) -> None:
             if current in path:
                 raise EDINETProviderError(f"EDINET parent relation cycle detected: {current}")
             path.add(current)
-            parent = _to_str_or_none(_coalesce(origins[current], "parentDocID", "parent_doc_id"))
+            parent = text_or_none(coalesce_field(origins[current], "parentDocID", "parent_doc_id"))
             if parent is None:
                 break
             current = parent
@@ -652,10 +607,14 @@ def _validate_document_statuses(document: Mapping[str, Any]) -> None:
         "disclosure": {None, "0", "1", "2", "3"},
     }
     values = {
-        "legal": _to_str_or_none(_coalesce(document, "legalStatus", "legal_status")),
-        "withdrawal": _to_str_or_none(_coalesce(document, "withdrawalStatus", "withdrawal_status")),
-        "edit": _to_str_or_none(_coalesce(document, "docInfoEditStatus", "doc_info_edit_status")),
-        "disclosure": _to_str_or_none(_coalesce(document, "disclosureStatus", "disclosure_status")),
+        "legal": text_or_none(coalesce_field(document, "legalStatus", "legal_status")),
+        "withdrawal": text_or_none(
+            coalesce_field(document, "withdrawalStatus", "withdrawal_status")
+        ),
+        "edit": text_or_none(coalesce_field(document, "docInfoEditStatus", "doc_info_edit_status")),
+        "disclosure": text_or_none(
+            coalesce_field(document, "disclosureStatus", "disclosure_status")
+        ),
     }
     for name, value in values.items():
         if value not in allowed[name]:
@@ -663,9 +622,9 @@ def _validate_document_statuses(document: Mapping[str, Any]) -> None:
 
 
 def _document_event_sort_key(document: Mapping[str, Any]) -> tuple[str, str, int]:
-    doc_date = _to_str_or_none(_coalesce(document, "doc_date")) or ""
-    operation = _to_str_or_none(_coalesce(document, "opeDateTime", "operation_datetime")) or ""
-    raw_sequence = _coalesce(document, "seqNumber", "sequence_number")
+    doc_date = text_or_none(coalesce_field(document, "doc_date")) or ""
+    operation = text_or_none(coalesce_field(document, "opeDateTime", "operation_datetime")) or ""
+    raw_sequence = coalesce_field(document, "seqNumber", "sequence_number")
     try:
         sequence = int(raw_sequence or 0)
     except (TypeError, ValueError):
@@ -705,35 +664,21 @@ def _non_zip_response_message(content: bytes) -> str:
     if not isinstance(payload, Mapping):
         return "zip_invalid"
     status = _non_zip_response_status(content)
-    message = _to_str_or_none(payload.get("message")) or _to_str_or_none(payload.get("Message"))
+    message = text_or_none(payload.get("message")) or text_or_none(payload.get("Message"))
     if status and message:
-        return f"StatusCode={status} message={_safe_error_value(message)}"
+        return f"StatusCode={status} message={safe_error_value(message)}"
     if status:
         return f"StatusCode={status}"
     return "zip_invalid"
 
 
-def _coalesce(record: Mapping[str, Any], *keys: str) -> Any:
-    """Return first key with a non-None/non-empty value, preserving legitimate zeros."""
-    for key in keys:
-        if key in record and record[key] not in (None, ""):
-            return record[key]
-    return None
-
-
-def _to_str_or_none(value: Any) -> str | None:
-    if value in (None, ""):
-        return None
-    return str(value)
-
-
 def _is_unusable_status(document: Mapping[str, Any]) -> bool:
-    legal_status = _to_str_or_none(_coalesce(document, "legalStatus", "legal_status"))
-    disclosure_status = _to_str_or_none(
-        _coalesce(document, "disclosureStatus", "disclosure_status")
+    legal_status = text_or_none(coalesce_field(document, "legalStatus", "legal_status"))
+    disclosure_status = text_or_none(
+        coalesce_field(document, "disclosureStatus", "disclosure_status")
     )
-    withdrawal_status = _to_str_or_none(
-        _coalesce(document, "withdrawalStatus", "withdrawal_status")
+    withdrawal_status = text_or_none(
+        coalesce_field(document, "withdrawalStatus", "withdrawal_status")
     )
     # EDINET document list uses legalStatus="1", disclosureStatus="0",
     # withdrawalStatus="0" for normal usable filings. Treat unknown/missing
@@ -761,11 +706,11 @@ def _document_sort_key(
 
 
 def _document_period(document: Mapping[str, Any]) -> tuple[date | None, date | None]:
-    start = _parse_optional_date(_coalesce(document, "periodStart", "period_start"))
-    end = _parse_optional_date(_coalesce(document, "periodEnd", "period_end"))
+    start = parse_optional_date(coalesce_field(document, "periodStart", "period_start"))
+    end = parse_optional_date(coalesce_field(document, "periodEnd", "period_end"))
     if start is not None and end is not None:
         return start, end
-    description = _to_str_or_none(_coalesce(document, "docDescription", "doc_description"))
+    description = text_or_none(coalesce_field(document, "docDescription", "doc_description"))
     fallback_start, fallback_end = _parse_document_description_period(description)
     return start or fallback_start, end or fallback_end
 
@@ -786,62 +731,4 @@ def _parse_slash_date(value: str) -> date | None:
     try:
         return date.fromisoformat(value.replace("/", "-"))
     except ValueError:
-        return None
-
-
-def parse_sec_code(sec_code: Any) -> str:
-    raw = str(sec_code or "").strip().upper()
-    if len(raw) == 4:
-        return normalize_ticker(raw)
-    if len(raw) != 5:
-        raise EDINETProviderError(f"invalid EDINET secCode: {_safe_error_value(sec_code)}")
-    if raw[-1] != "0":
-        raise EDINETProviderError(
-            f"unsupported EDINET secCode suffix: {_safe_error_value(sec_code)}"
-        )
-    return normalize_ticker(raw[:4])
-
-
-def _safe_error_value(value: object, *, max_length: int = 80) -> str:
-    text = str(value)
-    sanitized = "".join(
-        char if char.isprintable() and char not in "\r\n\t" else "?" for char in text
-    )
-    if len(sanitized) > max_length:
-        sanitized = sanitized[:max_length] + "..."
-    return repr(sanitized)
-
-
-def _parse_optional_ttm_quality(value: Any) -> TTMQuality | None:
-    try:
-        return TTMQuality(value)
-    except (ValueError, TypeError):
-        return None
-
-
-def _parse_ttm_quality(value: Any) -> TTMQuality:
-    raw = str(value or TTMQuality.UNAVAILABLE.value)
-    try:
-        return TTMQuality(raw)
-    except ValueError:
-        return TTMQuality.UNAVAILABLE
-
-
-def _parse_optional_date(value: Any) -> date | None:
-    if value in (None, ""):
-        return None
-    if isinstance(value, date):
-        return value
-    try:
-        return date.fromisoformat(str(value)[:10])
-    except ValueError:
-        return None
-
-
-def _to_float(value: Any) -> float | None:
-    if value in (None, "", "-", "null"):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
         return None

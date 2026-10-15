@@ -35,7 +35,7 @@ _DATALOAD_HEADERS = {
 }
 
 # provider_series_id -> the dataload `list` value and the plausible band of the
-# weighted-average metric. A column/scale error falls far outside these.
+# weighted-average metric. These catch large deviations, not every column/scale error.
 _METRICS: dict[str, tuple[float, float]] = {
     "per": (5.0, 40.0),
     "pbr": (0.5, 4.0),
@@ -54,8 +54,8 @@ class NikkeiIndexesProvider:
     """Nikkei 225 valuation anchors (PER/PBR) from the official index statistics.
 
     provider_series_id selects the metric ("per"/"pbr"). The weighted-average
-    column is the market-quoted Nikkei figure. Values are range-checked so a
-    layout change cannot push a wrong number into the store.
+    column is the market-quoted Nikkei figure. Range checks reject large deviations,
+    but cannot detect a layout change that produces an in-range wrong value.
     """
 
     spec = ProviderSpec(name="nikkei_indexes", all_history_start=date(2010, 1, 1))

@@ -2,7 +2,7 @@
 title: "Market lake migration baseline"
 summary: "巨大SQLite配布をimmutable partitionへ置換する前の容量、転送、runtime、pilot dataset coverage。"
 doc_type: study
-status: complete
+status: historical
 as_of: "2026-08-12"
 ---
 

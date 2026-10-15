@@ -6,7 +6,6 @@ import argparse
 import sys
 from collections.abc import Callable, Sequence
 
-from baibai_batch.analysis.cli import main as analysis_main
 from baibai_batch.jobs.daily import main as daily_main
 from baibai_batch.jobs.external_assessment import main as external_assessment_acquisition_main
 from baibai_batch.jobs.tradingview import main as tradingview_main
@@ -18,7 +17,6 @@ from baibai_engine.batch_api import StoreLayoutError, reject_noncanonical_store_
 Command = Callable[[list[str] | None], int]
 
 _COMMANDS: dict[str, Command] = {
-    "analysis": analysis_main,
     "daily": daily_main,
     "external-assessment": external_assessment_acquisition_main,
     "tradingview": tradingview_main,

@@ -12,24 +12,8 @@ from baibai_web.readmodel.models import (
     ReservationView,
     UpcomingEventView,
 )
+from baibai_web.sources.protocols import MarketPriceSource
 from baibai_web.sources.types import ResearchRevision, ScreeningRunRecord
-
-_POSITION_REVIEW_NULL_REASONS = {
-    "investment_case_uncertain": "投資仮説の成立が未確認です",
-    "primary_evidence_requires_verification": "投資仮説の一次根拠が未確認です",
-    "valuation_unresolved": "企業価値の算定が未確定です",
-    "valuation_basis_requires_refresh": "企業評価の基準日が判断日と異なります",
-    "quote_missing": "対象日の株価がありません",
-    "quote_stale": "株価が鮮度上限を超えています",
-    "quote_after_judgment": "株価の日付が判断日より後です",
-    "quantity_basis_unconfirmed": "株式単位・権利変化が未確認です",
-    "remaining_reward_requires_confirmation": "残存見返りの判断が未確認です",
-}
-
-
-def position_review_reason_text(reason: str | None) -> str | None:
-    return None if reason is None else _POSITION_REVIEW_NULL_REASONS.get(reason, reason)
-
 
 _EVENT_WINDOW_DAYS = 14
 
@@ -62,6 +46,7 @@ def security_names_for_run(run: ScreeningRunRecord | None) -> dict[str, str]:
 def holding_view(
     holding: HoldingSnapshot,
     *,
+    market: MarketPriceSource,
     revision: ResearchRevision | None,
     security_name: str | None,
     next_earnings_date: date | None = None,
@@ -71,12 +56,23 @@ def holding_view(
     market_value = holding.market_value_yen
     price_as_of = holding.market_price_observed_at
     pnl = None if market_value is None else market_value - holding.deployed_cost_yen
-    fair_value = revision.pmax_raw_yen if revision is not None else None
-    fv_gap = (
-        round((fair_value - price_value) / price_value * 100, 1)
-        if fair_value is not None and price_value is not None and price_value != 0
-        else None
-    )
+    fair_value = revision.pmax_original_yen if revision is not None else None
+    fv_gap = None
+    gap_unavailable_reason = None
+    if fair_value is not None and price_value is not None and price_value != 0:
+        assert revision is not None
+        if (
+            revision.original_price_as_of is None
+            or price_as_of is None
+            or not market.price_comparison_basis_is_confirmed(
+                holding.ticker,
+                from_date=revision.original_price_as_of,
+                through_date=price_as_of.astimezone(_JST).date(),
+            )
+        ):
+            gap_unavailable_reason = "原評価から現在株価までの株式単位を確認できません。"
+        else:
+            fv_gap = round((fair_value - price_value) / price_value * 100, 1)
     return HoldingView(
         ticker=holding.ticker,
         company_name=revision.company_name if revision is not None else security_name,
@@ -90,8 +86,9 @@ def holding_view(
         unrealized_pnl_pct=percentage(pnl, holding.deployed_cost_yen, digits=2),
         pmax_raw_yen=fair_value,
         pmax_gap_pct=fv_gap,
-        latest_thesis_id=revision.thesis_id if revision is not None else None,
-        disposition=revision.disposition if revision is not None else None,
+        pmax_gap_unavailable_reason=gap_unavailable_reason,
+        latest_assessment_id=revision.assessment_id if revision is not None else None,
+        stance=revision.stance if revision is not None else None,
         next_earnings_date=(
             next_earnings_date.isoformat() if next_earnings_date is not None else None
         ),
@@ -108,8 +105,8 @@ def upcoming_events(
     within the next ``_EVENT_WINDOW_DAYS`` days.
 
     The window is inclusive on both ends: an event dated today (days_until 0) through
-    ``today + _EVENT_WINDOW_DAYS`` is surfaced; anything past or beyond is dropped so the
-    The app only shows what needs attention now.
+    ``today + _EVENT_WINDOW_DAYS`` is surfaced; anything past or beyond is dropped.
+    Reservation deadlines are exclusive instants, displayed on their last valid JST day.
     """
 
     window_end = today + timedelta(days=_EVENT_WINDOW_DAYS)
@@ -129,7 +126,7 @@ def upcoming_events(
                 )
             )
     for reservation in reservations:
-        event_date = (reservation.expires_at - timedelta(microseconds=1)).date()
+        event_date = (reservation.expires_at.astimezone(_JST) - timedelta(microseconds=1)).date()
         if today <= event_date <= window_end:
             events.append(
                 UpcomingEventView(

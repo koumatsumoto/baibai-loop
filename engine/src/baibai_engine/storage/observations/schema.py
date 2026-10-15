@@ -2,9 +2,9 @@
 
 This is the single physical store (`market.sqlite`): the market price/calendar
 tables and the screening fundamentals/regulation tables share one file, one
-schema version, and one connection path. Market owns the schema so the
-price-data layer can open and validate the store without importing screening,
-while screening reuses the same DDL for its fundamentals tables.
+schema version, and one connection path. Storage observations owns the physical
+schema; market and screening readers share it without importing each other's
+composition or acquisition services.
 
 The cache is rebuilt or replaced explicitly when this contract changes. Runtime
 readers never interpret or migrate an older shape.
@@ -791,11 +791,13 @@ def open_connection(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     try:
         if _existing_tables(conn):
-            _upgrade_existing_store(conn)
             validate_current_schema(conn)
         else:
-            conn.executescript(_SCHEMA_SQL)
-            conn.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION}")
+            conn.executescript(
+                "BEGIN IMMEDIATE;\n"
+                + _SCHEMA_SQL
+                + f"\nPRAGMA user_version = {SQLITE_SCHEMA_VERSION};\nCOMMIT;"
+            )
         conn.commit()
         return conn
     except Exception:
@@ -803,27 +805,16 @@ def open_connection(db_path: Path) -> sqlite3.Connection:
         raise
 
 
-def _upgrade_existing_store(conn: sqlite3.Connection) -> None:
-    """Accept only the current store contract."""
-    current = int(conn.execute("PRAGMA user_version").fetchone()[0] or 0)
-    if current == SQLITE_SCHEMA_VERSION:
-        return
-    raise SQLiteSchemaError(
-        "obsolete market SQLite schema; replace it with a current local build "
-        f"(found user_version={current}, expected={SQLITE_SCHEMA_VERSION})"
-    )
-
-
 def connect_current(sqlite_path: Path) -> sqlite3.Connection | None:
     """Open an existing store only when it already matches the current schema.
 
     Returns `None` for a missing/legacy/corrupt file so read helpers degrade to
-    "cache cannot serve this" rather than raising, letting bootstrap/fetch
-    commands populate the missing coverage.
+    "cache cannot serve this" rather than raising. Missing files are never created;
+    initialization or replacement belongs to the explicit writer path.
     """
     conn: sqlite3.Connection | None = None
     try:
-        conn = sqlite3.connect(sqlite_path)
+        conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=rw", uri=True)
         validate_current_schema(conn)
     except (SQLiteSchemaError, sqlite3.Error):
         if conn is not None:

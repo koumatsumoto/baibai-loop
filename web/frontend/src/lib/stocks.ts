@@ -1,6 +1,6 @@
-import type { ExternalAssessmentSecurityView, SecurityAnalysisRowView } from '../api/types'
+import type { ExternalAssessmentSecurityView, StockAnalysisRowView } from '../api/types'
 
-export type SecuritySearchRow = SecurityAnalysisRowView | ExternalAssessmentSecurityView
+export type SecuritySearchRow = StockAnalysisRowView | ExternalAssessmentSecurityView
 
 export const SECURITY_PAGE_SIZE = 12
 
@@ -61,7 +61,7 @@ export function filterSecurityRows<T extends SecuritySearchRow>(
 ): T[] {
   const query = normalized(filters.query)
   return rows.filter((row) => {
-    const analysis = row as Partial<SecurityAnalysisRowView>
+    const analysis = row as Partial<StockAnalysisRowView>
     const matchesQuery =
       query === '' ||
       normalized(row.ticker).startsWith(query) ||
@@ -79,7 +79,7 @@ export function filterSecurityRows<T extends SecuritySearchRow>(
 }
 
 function sortValue(row: SecuritySearchRow, key: SecuritySortKey): string | number | null {
-  const value = (row as Partial<SecurityAnalysisRowView>)[key]
+  const value = (row as Partial<StockAnalysisRowView>)[key]
   return typeof value === 'string' || typeof value === 'number' ? value : null
 }
 

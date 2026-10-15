@@ -51,7 +51,7 @@ dataset追加時は次を同じ変更で揃える。
 
 `jquants.fin_summaries`はcontract version 2、market SQLiteはschema 32で、主キーは`ticker / disclosed_at / record_key`である。同日文書を保持し、DocNo・開示時刻・DocType・全文document payloadを保存する。DocNo未取得のsourceはpayload digestで識別し、date-only既存行は`legacy`とする。digestやDocNoをrevision順序に使わない。既存actual列とlegacyのcollapsed forecast列は維持し、新文書の予想はpayloadから共通純粋投影で解決する。予想の意味は[Valuation metrics](./valuation-metrics.md#21-採用ソース)に従う。
 
-旧contract 1 releaseは元codeと組み合わせて保持する。runtimeの旧schema読替え・自動移行は行わない。#1520のcode変更と本番store/release切替は別工程であり、隔離copy検証から本番切替済みとは扱わない。保存済みactual/TTM/FY値を変えずに運ぶdelivery手順と原典再取得の範囲は別途レビューする。
+旧contract 1 releaseは元codeと組み合わせて保持する。現行の財務文書store/releaseへの切替は完了しており、runtimeの旧schema読替え・自動移行は行わない。通常の取得・発行・復旧は[batch運用](../../batch/OPERATIONS.md)に従う。
 
 個別dataset専用の移行runnerは作らない。現行storeからreleaseを再構築し、hydrateで現行schemaへ満たす。
 
@@ -90,8 +90,44 @@ named releaseはIDだけでは受理せずmanifest SHA-256を必須とする。�
 - objectのSHA-256、byte数、row数、Arrow schema
 - required dataset、coverage、row/population floor
 
-readerはmanifestが列挙したobject keyだけをbounded batchで読む。remote readに必要なDuckDB extensionは
-provisioning stepで事前にinstallし、runtime downloadへfallbackしない。
+`lake resolve`はmanifestを解決してidentityとdataset一覧を表示する。任意SQLの実行やdata objectの検証は行わない。
+Pythonで同じreleaseを固定し、必要なdatasetのmanifestに列挙されたobjectを検証してDuckDBへ渡す。
+次は`uv run python`で使うローカルmirrorの例で、`name / alias`を`edinet.documents / docs`、
+`edinet.segment_facts / segments`、`edinet.debt_schedule / debt`、`tradingview.forecast_snapshots / tv`から選ぶ。
+
+```python
+from pathlib import Path
+from baibai_engine.storage.lake.duck import lake_session
+from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.lake.reader import (
+    accepted_dataset,
+    materialize_partitions,
+    resolve_release,
+    selected_partitions,
+)
+
+mirror = Path("stores")
+source = LocalMirrorSource(mirror)
+release = resolve_release(source, "<release-id>", manifest_sha256="<release-manifest-sha256>")
+cache = LakeObjectCache(root=mirror, source=source)
+name, alias = "edinet.documents", "docs"
+paths = materialize_partitions(
+    cache,
+    dataset=accepted_dataset(release, name),
+    partitions=selected_partitions(release, name),
+)
+with lake_session() as session:
+    session.connection.read_parquet([str(path) for path in paths]).create_view(alias)
+    sql = Path("docs/reference/queries/edinet-research-filing.sql").read_text()
+    rows = session.connection.execute(
+        sql, {"ticker": "<TICKER>", "cutoff": "<YYYY-MM-DD>"}
+    ).fetchall()
+```
+
+同じsessionへ必要なviewを追加し、以下のSQL例もparameterをbindして実行する。optional datasetが一覧にない場合や
+objectが0件の場合は収録なしとして原典へ戻り、別releaseで補わない。`selected_partitions`の`periods`で対象月を
+絞れるが、提出版選択用の`docs`は全保持範囲を読む。readerはmanifestが列挙したobject keyだけをbounded batchで読む。
+remote readに必要なDuckDB extensionはprovisioning stepで事前にinstallし、runtime downloadへfallbackしない。
 
 <a id="shared-raw-read"></a>
 
@@ -176,15 +212,15 @@ unit testとlocal fakeで行い、専用acceptance workflowやexact workflow aud
 
 ## Researchのセグメント・負債満期照会
 
-最初に`l1.current`でreleaseを固定する。2 datasetはoptionalであり、`l1.describe`で存在を確かめる。導入前のreleaseも他datasetを読み続けられるが、存在しないdatasetへのqueryは行わず原典へ戻る。両datasetのpartitionは提出月、日付filterは`disclosed_on`である。企業別・期間別の行の存在は、questionの解決や全債務のcoverageを意味しない。
+最初に[解決と読み取り](#fixed-release-read)の`lake resolve`でrelease IDとmanifest SHA-256を固定する。2 datasetはoptionalであり、同じreleaseのdataset一覧で存在を確かめる。導入前のreleaseも他datasetを読み続けられるが、存在しないdatasetへのqueryは行わず原典へ戻る。両datasetのpartitionは提出月、日付filterは`disclosed_on`である。企業別・期間別の行の存在は、questionの解決や全債務のcoverageを意味しない。
 
-1. `l1.query`のsource alias `docs`に`edinet.documents`を指定し、[書類選択SQL](./queries/edinet-research-filing.sql)へ`ticker`と`cutoff`（JST日付、当日末まで）を渡す。sourceのfrom/toは保持したdocumentの全範囲を含める。狭い範囲にすると訂正のparentや取下げイベントを落とす。最新年次family内の提出版を先に選び、抽出済みかどうかで古い版へ戻らない。
+1. 固定releaseの`edinet.documents`からDuckDB view `docs`を作り、[書類選択SQL](./queries/edinet-research-filing.sql)へ`ticker`と`cutoff`（JST日付、当日末まで）を渡す。viewには保持したdocumentの全範囲を含める。狭い範囲にすると訂正のparentや取下げイベントを落とす。最新年次family内の提出版を先に選び、抽出済みかどうかで古い版へ戻らない。
 2. `validity=usable`の書類だけについて、同じreleaseで下記のfact queryを行う。選択0件・`validity_unknown`・抽出行なしは原典確認へ戻り、訂正前の値で補わない。現行inventoryが履歴を確定できない情報修正・不開示・取下げも、選択familyに紐づく場合、またはfamily不明の年次イベントがそれ以降の年次に影響し得る場合はunknownに倒す。既知の別familyだけに紐づくイベントでは選択familyを止めない。年次familyに関連しない非年次イベントだけでは止めない。日中時点のPIT再現にはこの日次例を使わない。
 3. 年次表の期末と現在日を併記する。`edinet.metrics`と合わせる際はtickerだけでJOINせず、metricsのasof・原典期間・連結basis・通貨を揃える。新しいBSとの時点差、事業再編、直近の借入れ・返済は別途確認する。
 
 `edinet.metrics`の年次書類120/130には、売上債権・棚卸資産・仕入債務・契約負債・前受金・未払金のOCF寄与と、報告された有形・無形CapEx内訳をnullableで持つ。OCF内訳は報告符号、CapEx内訳はpositive expenditure magnitudeである。内訳を0と仮定した値は原因分解の感応度に過ぎず、「正常FCF」や維持投資の機械判定として扱わない。nullはゼロではなく、対象標準conceptの不存在、context・unitの不一致や曖昧さ、またはv1対象外conceptを含み得る。必要な場合は原典を確認する。
 
-セグメントsourceを`segments`として、選ばれた`doc`をparameterに渡す。sourceの日付範囲は選択書類の提出日を含める。
+同じreleaseの`edinet.segment_facts`をview `segments`として、選ばれた`doc`をparameterに渡す。partitionを絞る場合は選択書類の提出月を含め、`disclosed_on`のcutoffも照合する。
 
 ```sql
 SELECT period_start, period_end, consolidation_basis, segment_key, segment_name,
@@ -194,7 +230,7 @@ WHERE source_doc_id = $doc AND segment_kind = 'segment'
 ORDER BY period_end, segment_key, metric
 ```
 
-負債sourceを`debt`として読む。nullを合計で黙って無視せず、categoryごとの欠測bucketも確認する。categoryがない場合は債務0としない。
+同じreleaseの`edinet.debt_schedule`をview `debt`として読む。nullを合計で黙って無視せず、categoryごとの欠測bucketも確認する。categoryがない場合は債務0としない。
 
 ```sql
 SELECT balance_sheet_date, consolidation_basis, debt_category,
@@ -227,15 +263,15 @@ uv run baibai-engine external-assessment show --ticker <TICKER> --cutoff <ISO_DA
 
 ## TradingView snapshotの照会
 
-`tradingview.forecast_snapshots`はmonth partitionの任意datasetであり、未収録のreleaseには存在しない。Owner MCPでcurrentを一度解決し、同じ`release_ref`のcatalogとbounded queryを使う。過去snapshotには期間filter、特定企業にはticker parameterを指定する。
+`tradingview.forecast_snapshots`はmonth partitionの任意datasetであり、未収録のreleaseには存在しない。[解決と読み取り](#fixed-release-read)でcurrentを一度解決し、同じrelease IDとmanifest SHA-256のdataset一覧とPython readerを使う。過去snapshotには期間filter、特定企業にはticker parameterを指定する。
 
-例えば、対象期間を絞ったsourceのaliasを`tv`として、次のSQLで取得状態と実取得時刻を確認できる。
+例えば、対象月のobjectからview `tv`を作り、`snapshot_date`の期間条件とともに、次のSQLで取得状態と実取得時刻を確認できる。
 
 ```sql
 SELECT snapshot_date, ticker, fetched_at_utc, fetch_status,
        eps_forecast_next_fy, quote_currency, estimate_currency
 FROM tv
-WHERE ticker = $ticker
+WHERE ticker = $ticker AND snapshot_date BETWEEN $start AND $end
 ORDER BY snapshot_date DESC
 LIMIT 30
 ```

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -128,7 +129,7 @@ def test_optional_release_roundtrip_preserves_received_history_and_other_dataset
             path, ticker, cutoff
         )
         assert read_observations(restored, ticker, RECEIVED).model_valuations[0].previous is None
-    with sqlite3.connect(restored) as conn:
+    with closing(sqlite3.connect(restored)) as conn:
         assert conn.execute("SELECT COUNT(*) FROM jquants_market_calendar").fetchone()[0] == 2
     assert save_observations(restored, observations) == 0
 
@@ -155,7 +156,7 @@ def test_read_facade_keeps_latest_null_and_rejects_obsolete_schema(tmp_path: Pat
     assert payload["model_valuations"][0]["inputs"]["latest"]["consensus_target"] is None
     assert payload["model_valuations"][0]["inputs"]["previous"]["consensus_target"] == 100
     assert payload["model_valuations"][0]["comparisons"][0]["state"] == "missing"
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute("PRAGMA user_version=28")
     with pytest.raises(SQLiteSchemaError):
         external_assessment(path, ticker="7203", cutoff=cutoff, evaluated_at=cutoff)

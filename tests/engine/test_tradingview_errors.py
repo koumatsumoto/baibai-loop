@@ -110,7 +110,7 @@ def test_historical_refresh_skips_before_credentials_or_connection(monkeypatch, 
     assert "category=time_guard" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("state", ["already_saved", "non_trading_day"])
+@pytest.mark.parametrize("state", ["already_saved"])
 def test_refresh_noop_preflight_avoids_oauth_and_connection(monkeypatch, capsys, state):
     class Clock:
         @staticmethod

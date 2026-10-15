@@ -4,16 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime
+from pathlib import Path
 from typing import Protocol
 
 from baibai_engine.read_api import PortfolioSnapshot
 from baibai_engine.read_api.external_assessment import ExternalAssessment
 from baibai_web.sources.types import (
-    PositionReviewSummary,
     ResearchRevision,
     ScreeningRunRecord,
+    StockAssessmentDetail,
     TaskRecord,
-    ThesisDetail,
 )
 
 
@@ -41,6 +41,10 @@ class MarketPriceSource(Protocol):
 
     def latest_closes(self, tickers: Sequence[str]) -> Mapping[str, tuple[float, date]]: ...
 
+    def price_comparison_basis_is_confirmed(
+        self, ticker: str, *, from_date: date, through_date: date
+    ) -> bool: ...
+
     def close_changes_since(
         self, tickers: Sequence[str], *, since: date
     ) -> Mapping[str, float]: ...
@@ -53,23 +57,15 @@ class MarketPriceSource(Protocol):
 class ResearchSource(Protocol):
     def revisions(self) -> list[ResearchRevision]: ...
 
-    def thesis_detail(self, thesis_id: str) -> ThesisDetail: ...
+    def assessment_detail(self, assessment_id: str) -> StockAssessmentDetail | None: ...
 
-    def position_reviews(self, *, ticker: str | None = None) -> list[PositionReviewSummary]: ...
+    def proposals(self) -> list[dict[str, object]]: ...
 
-    def research_triages(
-        self, *, review_set_ids: Sequence[str] | None = None
-    ) -> list[dict[str, object]]: ...
+    def proposal(self, proposal_id: str) -> dict[str, object] | None: ...
 
-    def assessments(self) -> list[dict[str, object]]: ...
-
-    def research_triage(self, research_triage_id: str) -> dict[str, object] | None: ...
-
-    def research_triage_history(self) -> list[dict[str, object]]: ...
-
-    def assessment(self, capital_allocation_assessment_id: str) -> dict[str, object] | None: ...
-
-    def load_errors(self) -> list[str]: ...
+    def proposal_preview(
+        self, proposal_id: str, *, sqlite_path: Path, now: datetime
+    ) -> dict[str, object] | None: ...
 
 
 class TaskSource(Protocol):
@@ -84,6 +80,3 @@ class ScreeningSource(Protocol):
     def previous_run(self) -> ScreeningRunRecord | None: ...
 
     def run(self, run_revision_id: str) -> ScreeningRunRecord | None: ...
-
-    # Canonical newest-first: run as-of, publication instant, then review_set_id.
-    def review_sets(self, *, run_revision_id: str | None = None) -> list[dict[str, object]]: ...

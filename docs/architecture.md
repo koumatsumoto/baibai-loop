@@ -50,7 +50,7 @@ flowchart LR
     research --> position[Portfolio / Position]
 ```
 
-図の矢印は業務入力・読取の依存を示す。三領域は相互やResearch・Screening・UIへ逆依存しない。Researchは三領域の公開読取入口を呼び、UI向け`read_api`を内部業務入力にしない。現行Screening RunはValuationとMarket Contextの結果を組み立て、母集団・候補探索・Review Setを所有する。External AssessmentはResearchと公開読取の参考入力であり、Review Setの推薦・所属・順序には使わない。ResearchはTriage、有限調査、Thesis/Reviewと売買提案を所有する。
+図の矢印は業務入力・読取の依存を示す。三領域は相互やResearch・Screening・UIへ逆依存しない。Researchは三領域の公開読取入口を呼び、UI向け`read_api`を内部業務入力にしない。現行Screening RunはValuationとMarket Contextの結果を組み立て、母集団・候補探索・候補一覧を所有する。External AssessmentはResearchと公開読取の参考入力であり、候補一覧の推薦・所属・順序には使わない。Researchは三入口の対象選定、固定入力、有限調査、Stock Assessment/ReviewとInvestment Proposalを所有する。
 
 Webのengine入口は`read_api`、Batchは`batch_api`/`read_api`である。Batchは判断や書込条件を複製せず、domainの既存serviceへ委譲する。domainが観測の意味・重複・書込条件を所有し、SQL/取得adapterが共有`storage`を使う。共有storageは純粋契約と技術helperだけを参照し、分析・AI・UI・取得serviceへ依存しない。純粋な型・算術は保存や取得を読み込まない。
 
@@ -66,15 +66,15 @@ Portfolio/Positionは確認済み取引と保有を所有し、Researchへ逆依
 
 | 所有 | 主モデル・成果物 | 入力と出力 | 保存・公開入口 |
 | --- | --- | --- | --- |
-| Valuation | FinancialSnapshot、倍率/機械ER/FV、ER較正文脈、Projection、条件付き収益 | `valuation/metrics`が純粋L1から財務/TTM/倍率・自己レンジを計算し、`valuation/scenario`が仮定から価値/収益を測る。`valuation/calibration`は保存済み較正文脈の契約・解釈・読取を所有 | L2機械値はSecurity Analysis、企業固有前提はThesisの一部。領域読取と外向け`read_api/valuation`・`read_api/er_calibration_context`。[Valuation](./reference/valuation-metrics.md#machine-valuation)・[Thesis](./reference/thesis.md#scenario-arithmetic) |
+| Valuation | FinancialSnapshot、倍率/機械ER/FV、ER較正文脈、Projection、条件付き収益 | `valuation/metrics`が純粋L1から財務/TTM/倍率・自己レンジを計算し、`valuation/scenario`が仮定から価値/収益を測る。`valuation/calibration`は保存済み較正文脈の契約・解釈・読取を所有 | L2機械値はStock Analysis、企業固有前提はStock Assessmentの一部。領域読取と外向け`read_api/valuation`・`read_api/er_calibration_context`。[Valuation](./reference/valuation-metrics.md#machine-valuation)・[Stock Assessment](./reference/stock-assessment.md#scenario-arithmetic) |
 | Market Context | Market Snapshot、Security Market Context、公式benchmark観測、Reading、MarketContextAssessment、保存判断の履歴 | `market_context/{history,prices,margin,sector,snapshot,security}`が価格・信用需給・相対状態、`indicators`が経済観測、`reading`が指標の統計・鮮度を所有。公式total-return観測契約は`observations/benchmark`、ファイル読取は`market/jpx_total_return` | 共有市場観測はmarket/lake、経済指標は指標DB、判断はapplication。`reading/query`がL2読取、`assessment`が明示判断と履歴読取、外向け入口は`read_api/market_context`。[Market Context](./reference/market-context.md#market-context-reads) |
 | External Assessment | 提示値の受領履歴、出所別比較・欠測 | `external_assessment/{acquisition,observations,store,tradingview}`が取得・純粋観測型・保存adapter、`analysis`が出所/尺度/期間付きの比較を所有 | typed L1はmarket/lake、比較は保存入力から再計算。`external_assessment/query`、外向け`read_api/external_assessment`とCLI。[入力](./reference/data-sources.md#external-assessment)・[読取](./reference/market-lake.md#external-assessment-query) |
-| Screening | Security Analysis、Nomination、Review Set | `screening/metrics/snapshot`が領域計算へ母集団を渡して結果を組み立て、`discovery`が候補探索、`calibration`が較正実行・証拠生成・選抜評価を所有 | runs storeとcalibration snapshot。`screening`の公開入口と`batch_api`。[Screening](./reference/screening-runtime.md) |
-| Research | Triage、Research Set、Thesis/Review、CAA、Position Review提案 | 領域結果・出典・保有を調べ、一銘柄ずつの判断/提案を作る | applicationの判断履歴。`research/triage`・`research/workspace`・既存service。[Research](../.agents/skills/research/SKILL.md) |
+| Screening | Stock Analysis、CandidateReason、候補文脈と候補一覧 | `screening/metrics/snapshot`が領域計算へ母集団を渡して結果を組み立て、`discovery`が同runの候補文脈を確定、`calibration`が較正実行・証拠生成・選抜評価を所有 | runs storeとcalibration snapshot。`screening`の公開入口と`batch_api`。[Screening](./reference/screening-runtime.md) |
+| Research | Research selection、Stock Assessment/Review、Investment Proposal | 領域結果・出典・保有を調べ、一銘柄ずつの判断/提案を作る | applicationの判断履歴。`research/selection`・`research/workspace`・既存service。[Research](../.agents/skills/research/SKILL.md) |
 | Portfolio/Position | Ledger、Reservation、Holding、Outcome | 人間確認済みbroker factを記録し、保有と資本を再構築 | application。Positionの事実記録・読取service。[Portfolio](./portfolio-management.md) |
 | Operation/task | Operation Session、調査進行、運用task | 明示開始・対象・成果・完了/未完了を記録 | application。`research/operation`と`tasks`のservice。AI完了を採用・約定に変換しない |
 
-L1/L2は定期処理へ、L3は明示開始へ分ける。新規と保有を区別し、合算最大三対象を開始時に固定する。0件・部分完了・未完了も記録し、弱い候補で枠を埋めず、一銘柄ずつ提案する。AIの完了、人間の採用、注文、約定は別の事実・状態である。成果物間の関係は[Decision flow](./domain-language.md#decision-flow)、開始・発行の条件は各skillが所有する。
+L1/L2は定期処理へ、L3は明示開始へ分ける。一つのOperationは新規または保有の単一scopeとし、保存capacityに従って開始時に対象を固定する。0件・部分完了・未完了も記録し、弱い候補で枠を埋めず、一銘柄ずつ提案する。AIの完了、人間の採用、注文、約定は別の事実・状態である。成果物間の関係は[Decision flow](./domain-language.md#decision-flow)、開始・発行の条件は各skillが所有する。
 
 <a id="store-authority"></a>
 
@@ -87,7 +87,7 @@ storageは物理保存の技術責務であり、保存DBをL3そのものと呼
 | R2 `baibai-stores/baibai.sqlite` / `stores/application/baibai.sqlite` | クラウド正本と判断・ledger・task・Operation等の作業コピー | 各application domain service |
 | R2 `lake/` | 不変L1 object・manifest・current pointer | 観測domainの契約、既存`publish-lake` |
 | `stores/market/market.sqlite` | lake所有tableのruntime copy。`source_coverage`等のstore-local dataはR2 market store、`lake_store_origin`はコピーの由来 | source domain/SQL adapter。接続・schema・hydrateは共有storage |
-| `stores/screening/runs.sqlite` | 再生成可能なScreening Run・Review Set | Screening |
+| `stores/screening/runs.sqlite` | 再生成可能なScreening Run・候補一覧 | Screening |
 | `stores/screening/calibration/current.sqlite` | 再生成可能なcalibration snapshot | Calibration |
 | `stores/market_context/indicators.sqlite` | 経済観測・vintage・取得情報の作業コピー | `market_context/indicators`の観測service・DB adapter |
 
@@ -103,7 +103,7 @@ EDINET metricのrevisionは抽出意味の変更時だけ明示更新し、配�
 
 ## 5. 現行writerと保存履歴
 
-現行配置は[所有表](#repository-map)に集約する。Market ContextのCLIは`market-context indicators / reading / assessment`で各ownerへ直接渡し、Web・Owner MCPも同じ読取ownerを使う。新規writerと保存済み判断の読取は区別し、旧payloadを新規判断として再発行しない。schema・参照field・履歴読取の詳細は[Market Context reference](./reference/market-context.md#現行配置と保全するidentity)、外部評価の永続名は[保存済み照会](./reference/market-lake.md#external-assessment-query)が所有する。
+現行配置は[所有表](#repository-map)に集約する。Market ContextのCLIは`market-context indicators / reading / assessment`で各ownerへ直接渡し、Webも同じ読取ownerを使う。新規writerと保存済み判断の読取は区別し、旧payloadを新規判断として再発行しない。schema・参照field・履歴読取の詳細は[Market Context reference](./reference/market-context.md#現行配置と保全するidentity)、外部評価の永続名は[保存済み照会](./reference/market-lake.md#external-assessment-query)が所有する。
 
 Readingの現行選択先は`READING_RULES_PATH`が指す`method/macro/reading/2026-08-01T100000+0900.yaml`である。保存判断が引用する元bytes/pathを保持し、名前切替のための移設・複製・revision変更を行わない。
 
@@ -122,7 +122,7 @@ GitHub Actions ──定期処理・転送─────────┤
        └──read model生成──> R2 serving ──> Worker ──> browser
 ```
 
-`baibai-engine`はdomain操作、`baibai-web`は表示/read model、`baibai-batch`は運用の入口である。optionの正本はpublic `--help`。Owner MCPは保存済み情報を読むlocal adapterで、store更新や定期batchを起動しない。[Owner MCP](../tools/owner_mcp/README.md)と[docs portal](./README.md#目的別の入口)から実操作へ進む。
+`baibai-engine`はdomain操作、`baibai-web`は表示/read model、`baibai-batch`は運用の入口である。optionの正本はpublic `--help`。[docs portal](./README.md#目的別の入口)から実操作へ進む。
 
 <a id="failure-policy"></a>
 

@@ -12,11 +12,11 @@ status: active
 | 調べたいこと | 正本 |
 | --- | --- |
 | 判断文書の編集と意味保全 | [judgment-writing](./judgment-writing.md) |
-| Thesis、Base/Downside、独立Review、Planning | [thesis](./thesis.md) |
-| 候補の比較と資本配分 | [capital-allocation-assessment](./capital-allocation-assessment.md) |
+| Stock Assessment、Base/Downside、独立Review | [stock-assessment](./stock-assessment.md) |
+| 候補の比較と資本配分 | [investment-proposal](./investment-proposal.md) |
 | 事業モデル別の調査 | [business-model-research](./business-model-research.md) |
 | cash、取引事実、replay、portfolio outcome | [portfolio-ledger](./portfolio-ledger.md) |
-| hold・exit・未確定と残存見返り | [position-review](./position-review.md) |
+| hold・sell・deferと残存見返り | [保有提案](./investment-proposal.md#holding) |
 
 ## 機械出力と入力の解釈
 
@@ -24,7 +24,7 @@ status: active
 | --- | --- |
 | 見積りの較正・保存済み文脈とmethodの採否 | [estimate-calibration](./estimate-calibration.md) |
 | 機械ER/FV、保存済み照会、valuation指標と入力basis | [valuation-metrics](./valuation-metrics.md) |
-| Candidate Discovery・Review Set | [screening-runtime](./screening-runtime.md) |
+| Candidate Discovery・候補一覧 | [screening-runtime](./screening-runtime.md) |
 | Market Context、市場/個別相対、経済指標・Reading・assessment・保存履歴 | [Market Context](./market-context.md) |
 | 外部参考評価・原評価元・尺度・欠測 | [data-sources](./data-sources.md#external-assessment)・[保存済み照会](./market-lake.md#external-assessment-query) |
 | 情報源の選択と取得失敗 | [data-sources](./data-sources.md) |
@@ -35,7 +35,7 @@ status: active
 
 | 調べたいこと | 正本 |
 | --- | --- |
-| Research Triageの契約・発行・進行・runner | [analysis-operations](./analysis-operations.md) |
+| Researchの選定・固定入力・提案進行・再開 | [analysis-operations](./analysis-operations.md) |
 | PC・Actions・クラウドの分担、環境準備と品質gate | [python-foundation](./python-foundation.md) |
 
 用語と関係図は[domain-language](../domain-language.md)、操作の入口は[docs portal](../README.md#目的別の入口)を参照する。

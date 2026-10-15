@@ -1,5 +1,7 @@
 # Historical source backfill feasibility 限定監査（#420）
 
+これは 2026-07-16 時点の制約・未確認事項を残す歴史的記録である。「現在」「再開には必要」とする plan、権限、料金、旧 command / module path は当時の状態であり、現行の接続状況・承認・blocker を復元する根拠にはしない。後日の許可や取得結果は対応する新しい記録で判断し、この過去の未承認状態を現在の停止指示として扱わない。
+
 価値tier: T2 — 取得不能・不完全なhistorical sourceを完全なas-ofデータと誤認し、screening較正のproduction変更へ使うことを防ぐ。
 
 ## 0. 判定

@@ -35,7 +35,7 @@ describe('Daily Delta display', () => {
   })
 
   it('does not describe an unmeasured estimate section as no changes', () => {
-    const html = render({ ...delta(0), unavailable: ['review_set_estimate'] })
+    const html = render({ ...delta(0), unavailable: ['candidate_estimate'] })
     expect(html).toContain('見積り欠損またはモデルを比較できない')
     expect(html).not.toContain('閾値に触れる変化はありません')
   })
@@ -45,4 +45,20 @@ describe('Daily Delta display', () => {
     expect(html).toContain('手法変更')
     expect(html).not.toContain('閾値に触れる変化はありません')
   })
+})
+
+
+it("E[r]の差を変化率ではなくパーセントポイントで表示する", () => {
+  const html = render(delta(1))
+  expect(html).toContain("+10pt")
+  expect(html).not.toContain("+10.0%")
+})
+
+it("差分の読込中と取得失敗を観測なしから区別する", () => {
+  const pending = renderToStaticMarkup(createElement(DailyDeltaCard, { delta: null, failed: false }))
+  expect(pending).toContain("変化を読み込んでいます")
+  expect(pending).not.toContain("観測がまだありません")
+  const failed = renderToStaticMarkup(createElement(DailyDeltaCard, { delta: null, failed: true }))
+  expect(failed).toContain("変化を読み込めませんでした")
+  expect(failed).toContain("変化がないことを意味しません")
 })

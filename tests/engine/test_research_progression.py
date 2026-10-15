@@ -1,584 +1,675 @@
-"""固定対象、部分完了、L3完了と確認済み公開の境界を通す。"""
+"""正式選定から評価pair、保存提案、完成/未完成への進行を合成正本で確認する。"""
 
+import json
 import socket
 import sqlite3
-from datetime import date, datetime, timedelta
+from contextlib import closing
+from copy import deepcopy
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
-from tests.engine.test_position_review_v3 import NOW
-from tests.helpers.research_triage import research_entry, research_triage_payload
-from tests.helpers.research_v4 import pair_payload
-
-from baibai_engine.research.capital_allocation import (
-    CapitalAllocationAssessment,
-    capital_allocation_draft_sha256,
+from pydantic import ValidationError
+from tests.helpers.assessment_v1 import (
+    NOW,
+    assessment_id,
+    pair_payload,
 )
-from baibai_engine.research.capital_allocation_scaffold import scaffold_capital_allocation
-from baibai_engine.research.capital_allocation_service import CapitalAllocationAssessmentService
-from baibai_engine.research.inputs import research_inputs
+from tests.helpers.db_seed import seed_ledger
+from tests.helpers.ledger import load_portfolio_ledger
+from tests.helpers.research_selection import selection as make_selection
+
+from baibai_engine.research.assessment_store import publish_reviewed_assessment
+from baibai_engine.research.inputs import collect_research_inputs, project_research_inputs
 from baibai_engine.research.operation.models import OperationPayload
 from baibai_engine.research.operation.progress import (
-    ResearchSelection,
-    ResearchTarget,
+    ResearchProgress,
     progress_binding,
+    proposal_scope,
     selection_binding,
+    with_progress,
 )
+from baibai_engine.research.operation.research_binding import require_proposal_research_scope
 from baibai_engine.research.operation.service import (
     OperationCompletionError,
     OperationConflictError,
     OperationService,
 )
-from baibai_engine.research.position_review import RemainingReward
-from baibai_engine.research.position_review_service import PositionReviewService
-from baibai_engine.research.thesis_store import ThesisStoreService
-from baibai_engine.research.triage.contracts import ResearchTriage
-from baibai_engine.research.workspace import ResearchWorkspaceConflictError, prepare_workspace
+from baibai_engine.research.proposal import InvestmentProposal, proposal_draft_sha256
+from baibai_engine.research.proposal_query import load_investment_proposal
 from baibai_engine.storage.application.json import canonical_json
-from baibai_engine.storage.application.write import connect_rw
+from baibai_engine.storage.application.read import connect_read_only
+from baibai_engine.storage.application.write import connect_rw, initialize_database
 
-pytest_plugins = ["tests.engine.test_position_review_v3"]
+PUBLISHED = datetime.fromisoformat("2026-10-14T16:20:00+09:00")
+
+
+@pytest.fixture
+def case(tmp_path):
+    db, market = tmp_path / "app.sqlite", tmp_path / "absent-market.sqlite"
+    initialize_database(db)
+    return db, market
 
 
 def ledger_rows(db):
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection, connection:
         return connection.execute("SELECT payload FROM ledger_event ORDER BY append_seq").fetchall()
 
 
-def seed_research(db):
-    triage = ResearchTriage.model_validate(
-        research_triage_payload(
-            research_triage_id="research-triage-finite",
-            as_of=NOW.date().isoformat(),
-            published_at=(NOW - timedelta(hours=2)).isoformat(),
-            entries=[
-                research_entry(ticker, rank=index)
-                for index, ticker in enumerate(("1234", "5678"), 1)
-            ],
+def seed_assessment(db, ticker="1234", *, number=1, now=NOW):
+    document, review = pair_payload(ticker=ticker, review_number=number + 100)
+    with closing(connect_rw(db)) as connection, connection:
+        connection.execute("BEGIN IMMEDIATE")
+        publish_reviewed_assessment(
+            connection, assessment_id(number), document, review, published_at=now
         )
-    )
-    with connect_rw(db) as connection:
-        connection.execute(
-            "INSERT INTO research_triage VALUES (?,?,?,?,?,?)",
-            (
-                triage.research_triage_id,
-                triage.review_set_id,
-                triage.run_revision_id,
-                triage.as_of.isoformat(),
-                triage.published_at.isoformat(),
-                canonical_json(triage.model_dump(mode="json")),
-            ),
-        )
-    for ticker in ("1234", "5678"):
-        thesis, review = pair_payload(ticker=ticker)
-        review["review_id"] = "review-" + ticker
-        ThesisStoreService(db, clock=lambda: NOW).publish_reviewed_thesis(
-            "thesis-" + ticker, thesis, review
-        )
-    return triage
+    return assessment_id(number)
 
 
-def start(db, market, targets):
-    selection = ResearchSelection(
-        request="synthetic explicit user start",
-        research_triage_id="research-triage-finite"
-        if any(purpose == "new" for _, purpose in targets)
-        else None,
-        targets=tuple(
-            ResearchTarget(ticker=ticker, purpose=purpose) for ticker, purpose in targets
-        ),
-    )
-    service = OperationService(db, sqlite_path=market)
+def start(case, tickers=(), *, scope="discover_new"):
+    db, _market = case
+    value = make_selection(now=NOW, tickers=tickers, scope=scope)
+    service = OperationService(db)
     operation = service.start(
-        session_kind="capital-allocation",
+        session_kind="position-review" if scope == "review_positions" else "capital-allocation",
         as_of=NOW.date(),
         started_at=NOW,
+        ticker=tickers[0] if scope == "review_positions" and len(tickers) == 1 else None,
         payload=OperationPayload(
-            checkpoint="explicit start", artifacts=(selection.model_dump(mode="json"),)
+            checkpoint="合成依頼を明示開始", artifacts=(value.model_dump(mode="json"),)
         ),
     )
     return service, operation
 
 
-def assessment(db, thesis_ids):
-    raw = scaffold_capital_allocation(
-        db_path=db,
-        capital_allocation_assessment_id="capital-allocation-assessment-20260907-finite",
-        as_of=NOW.date(),
-        research_triage_id="research-triage-finite",
-        thesis_ids=thesis_ids,
-        published_at=NOW,
-    )
-    raw.update(
-        headline="synthetic reviewed comparison",
-        comparison="complete scope only",
-        forgone="unfinished work is not economic rejection",
-    )
-    for item in raw["alternatives"]:
-        item["rationale"] = "synthetic economic no-allocation"
-    raw["review"]["reviewer_identity"] = "synthetic independent reviewer"
-    draft = CapitalAllocationAssessment.model_validate(raw)
-    return draft.model_copy(
-        update={
-            "review": draft.review.model_copy(
-                update={"draft_sha256": capital_allocation_draft_sha256(draft)}
-            )
-        }
-    )
-
-
-def final_payload(operation, *, assessment_id=None):
-    artifacts = operation.payload.artifacts
-    if assessment_id is not None:
-        artifacts = (*artifacts, {"kind": "capital_allocation_assessment", "ref": assessment_id})
+def final_payload(operation):
     return operation.payload.model_copy(
         update={
-            "artifacts": artifacts,
-            "result": "L3 proposal completed or investigation ended",
-            "next": "external human decision or new explicit request",
+            "result": "対象を調査し提案を保存、または0対象の理由を明示",
+            "next": "人間の裁定または次の明示依頼",
         }
     )
 
 
-@pytest.mark.parametrize(
-    "targets",
-    [
-        tuple((str(1000 + i), "new") for i in range(4)),
-        (("1234", "new"), ("5678", "new"), ("9012", "new"), ("2331", "holding")),
-        (("1234", "new"), ("1234", "holding")),
-    ],
-)
-def test_selection_caps_combined_subjects_and_refuses_duplicate_purposes(targets):
-    with pytest.raises(ValueError, match=r"targets|unique"):
-        ResearchSelection(
-            request="explicit",
-            research_triage_id="triage",
-            targets=tuple(ResearchTarget(ticker=t, purpose=p) for t, p in targets),
+def proposal_for(operation, *, actions=None, number=1):
+    """Operation境界を試験する固定提案。経済gateはProposalServiceの試験が所有する。"""
+    fixture = Path(__file__).parents[1] / "fixtures/domain-assessment-proposal-synthetic.json"
+    raw = deepcopy(json.loads(fixture.read_text())["investment_proposal"])
+    selected = selection_binding(operation.payload)
+    scope = proposal_scope(operation.operation_id, operation.payload)
+    raw.update(
+        proposal_id=f"investment-proposal-00000000-0000-4000-8000-{number:012x}",
+        request_scope=selected.request.scope,
+        research_scope=scope.model_dump(mode="json"),
+        published_at=PUBLISHED.isoformat(),
+        liquidity_context=[],
+    )
+    items, positions = [], []
+    template = deepcopy(raw["items"][0])
+    for outcome in scope.outcomes:
+        if outcome.status == "unfinished":
+            items.append(
+                {
+                    "ticker": outcome.ticker,
+                    "action": "defer",
+                    "rationale": "未調査を経済的見送りへ混ぜない",
+                    "review_conditions": ["一次資料の到着時に再評価する"],
+                    "assessment_ref": None,
+                    "blockers": [
+                        {"code": "research_unfinished", "message": outcome.unfinished_reason}
+                    ],
+                    "resume_conditions": ["必要な一次資料を確認する"],
+                }
+            )
+            continue
+        action = (actions or {}).get(outcome.ticker, "no_action")
+        item = {
+            "ticker": outcome.ticker,
+            "action": action,
+            "rationale": "合成の比較理由",
+            "review_conditions": ["新しい反証を確認したら再評価する"],
+            "assessment_ref": outcome.assessment_ref.model_dump(mode="json"),
+        }
+        if action in {"hold", "sell"}:
+            position = {
+                "ticker": outcome.ticker,
+                "sector": "未分類",
+                "common_factors": [],
+                "quantity": 200,
+                "cost_yen": "240000",
+                "quantity_basis_confirmed": True,
+                "original_reason_unavailable_reason": "旧当初理由は確認できない",
+            }
+            positions.append(position)
+            item.update(
+                position=position, case_reassessment_reason="今回仮説の維持/無効化を確認した"
+            )
+            if action == "hold":
+                item.update(
+                    holding_basis="investment_case_intact",
+                    remaining_reward=None,
+                    return_calculation_unavailable_reason="旧日起点につき同日収益算術は未確定",
+                )
+            else:
+                item.update(
+                    reason_code="economic_invalidation",
+                    remaining_reward=None,
+                    terms=None,
+                    terms_unavailable_reasons=[
+                        {"code": "quote_missing_or_stale", "message": "現在価格が未確認"}
+                    ],
+                )
+        elif action == "buy":
+            item.update(timing="wait_limit", terms=template["terms"], terms_unavailable_reasons=[])
+        elif action == "buy_needs_terms":
+            item.update(
+                action="buy",
+                timing="wait_limit",
+                terms=None,
+                proposed_limit_yen=template["terms"]["limit_price_yen"],
+                terms_unavailable_reasons=[
+                    {"code": "price_grid_rule_unavailable", "message": "対象市場分類が未確認"}
+                ],
+            )
+        items.append(item)
+    raw["items"] = items
+    raw["inputs"]["positions"] = positions
+    raw["review"]["review_id"] = f"proposal-review-00000000-0000-4000-8000-{number:012x}"
+    value = InvestmentProposal.model_validate(raw)
+    return value.model_copy(
+        update={
+            "review": value.review.model_copy(update={"draft_sha256": proposal_draft_sha256(value)})
+        }
+    )
+
+
+def seed_proposal(db, proposal):
+    with closing(connect_rw(db)) as connection, connection:
+        connection.execute(
+            "INSERT INTO investment_proposal VALUES (?,?,?,?,?,?,?)",
+            (
+                proposal.proposal_id,
+                proposal.as_of.isoformat(),
+                proposal.prepared_at.isoformat(),
+                proposal.published_at.isoformat(),
+                proposal.request_scope,
+                canonical_json(proposal.model_dump(mode="json")),
+                proposal_draft_sha256(proposal),
+            ),
         )
+        connection.executemany(
+            "INSERT INTO investment_proposal_item VALUES (?,?,?,?,?)",
+            [
+                (
+                    proposal.proposal_id,
+                    index,
+                    item.ticker,
+                    item.action,
+                    None if item.assessment_ref is None else item.assessment_ref.assessment_id,
+                )
+                for index, item in enumerate(proposal.items)
+            ],
+        )
+        for item in proposal.items:
+            if item.action == "buy" and item.terms is not None:
+                connection.execute(
+                    "INSERT INTO position_decision_reference VALUES (?,?,?,?,?,?,?)",
+                    (
+                        proposal.proposal_id,
+                        item.ticker,
+                        "buy",
+                        "proposal",
+                        proposal.proposal_id,
+                        proposal.proposal_id,
+                        proposal_draft_sha256(proposal),
+                    ),
+                )
 
 
-def test_empty_selection_completes_without_fake_caa_or_confirmation(holding_case):
-    db, market, _ = holding_case
+def record_and_finish(service, operation, proposal):
+    recorded = service.record_proposal(operation.operation_id, proposal.proposal_id, now=PUBLISHED)
+    return service.complete(operation.operation_id, final_payload(recorded), completed_at=PUBLISHED)
+
+
+def test_empty_selection_ends_with_reason_without_fabricating_proposal_or_confirmation(case):
+    db, _ = case
     before = ledger_rows(db)
-    service, operation = start(db, market, ())
+    service, operation = start(case)
     completed = service.complete(operation.operation_id, final_payload(operation), completed_at=NOW)
     assert completed.status == "completed"
     assert completed.payload.human_confirmation is None
     assert ledger_rows(db) == before
-    with sqlite3.connect(db) as connection:
-        assert (
-            connection.execute("SELECT count(*) FROM capital_allocation_assessment").fetchone()[0]
-            == 0
-        )
+    with closing(sqlite3.connect(db)) as connection, connection:
+        assert connection.execute("SELECT count(*) FROM investment_proposal").fetchone()[0] == 0
 
 
-@pytest.mark.parametrize(
-    "clock_time",
-    [
-        datetime.fromisoformat("2026-09-08T08:30:00+09:00"),
-        datetime.fromisoformat("2026-09-07T23:30:00+00:00"),
-    ],
-)
-def test_caa_today_uses_japanese_business_day_for_equivalent_instants(holding_case, clock_time):
-    db, market, _ = holding_case
-    seed_research(db)
-    service, operation = start(db, market, (("1234", "new"),))
-    service.record_thesis(operation.operation_id, "thesis-1234", now=NOW)
-    draft = assessment(db, ["thesis-1234"]).model_copy(
-        update={
-            "as_of": date(2026, 9, 8),
-            "published_at": datetime.fromisoformat("2026-09-08T08:15:00+09:00"),
-        }
-    )
-    draft = draft.model_copy(
-        update={
-            "review": draft.review.model_copy(
-                update={"draft_sha256": capital_allocation_draft_sha256(draft)}
-            )
-        }
-    )
-    publisher = CapitalAllocationAssessmentService(db, clock=lambda: clock_time)
-    publisher.check(draft)
-    assert publisher.publish(draft).published_at == clock_time
-
-
-def test_completed_a_and_unfinished_b_compare_only_a_with_fixed_coverage(holding_case):
-    db, market, _ = holding_case
-    seed_research(db)
-    before = ledger_rows(db)
-    service, operation = start(db, market, (("1234", "new"), ("5678", "new")))
-    service.record_thesis(operation.operation_id, "thesis-1234", now=NOW)
+def test_reviewed_a_and_unfinished_b_keep_complete_scope_and_distinct_actions(case):
+    db, _ = case
+    reference = seed_assessment(db)
+    service, operation = start(case, ("1234", "5678"))
+    service.record_assessment(operation.operation_id, reference, now=NOW)
     with pytest.raises(ValueError, match="covered"):
-        assessment(db, ["thesis-1234"])
+        proposal_for(service.get(operation.operation_id))
     service.record_unfinished(
         operation.operation_id,
         ticker="5678",
-        reason="source unavailable within this investigation",
-        references=("https://example.invalid/disclosure",),
+        reason="必要な一次資料を確認できない",
+        references=("https://example.invalid/synthetic-disclosure",),
         now=NOW,
     )
-    draft = assessment(db, ["thesis-1234"])
-    assert [item.ticker for item in draft.alternatives] == ["1234"]
-    assert len(draft.research_scope.targets) == 2
-    assert [item.status for item in draft.research_scope.outcomes] == ["reviewed", "unfinished"]
-    with pytest.raises(ValueError, match="completed new research"):
-        assessment(db, ["thesis-1234", "thesis-5678"])
-    published = CapitalAllocationAssessmentService(db, clock=lambda: NOW).publish(draft)
     operation = service.get(operation.operation_id)
-    completed = service.complete(
-        operation.operation_id,
-        final_payload(operation, assessment_id=published.capital_allocation_assessment_id),
-        completed_at=NOW,
-    )
+    proposal = proposal_for(operation)
+    assert [item.action for item in proposal.items] == ["no_action", "defer"]
+    assert [row.status for row in proposal.research_scope.outcomes] == ["reviewed", "unfinished"]
+    seed_proposal(db, proposal)
+    before = ledger_rows(db)
+    completed = record_and_finish(service, operation, proposal)
     assert completed.payload.human_confirmation is None
+    assert (
+        progress_binding(completed.payload).proposal_ref.draft_sha256
+        == proposal.review.draft_sha256
+    )
     assert ledger_rows(db) == before
     with pytest.raises(OperationConflictError, match="immutable"):
-        service.record_thesis(operation.operation_id, "thesis-5678", now=NOW)
+        service.record_assessment(operation.operation_id, reference, now=PUBLISHED)
 
 
-def test_all_unfinished_end_without_economic_rejection_or_fake_assessment(holding_case):
-    db, market, _ = holding_case
-    seed_research(db)
-    service, operation = start(db, market, (("1234", "new"), ("5678", "new")))
-    for ticker in ("1234", "5678"):
-        service.record_unfinished(
-            operation.operation_id,
-            ticker=ticker,
-            reason="investigation stopped with insufficient evidence",
-            references=("workspace:" + ticker,),
-            now=NOW,
-        )
-    operation = service.get(operation.operation_id)
-    with pytest.raises(ValueError, match="completed new research"):
-        assessment(db, ["thesis-1234"])
-    with pytest.raises(OperationCompletionError, match="fabricate"):
-        service.complete(
-            operation.operation_id,
-            final_payload(operation, assessment_id="absent"),
-            completed_at=NOW,
-        )
-    completed = service.complete(operation.operation_id, final_payload(operation), completed_at=NOW)
-    assert all(item.status == "unfinished" for item in progress_binding(completed.payload).outcomes)
-    with sqlite3.connect(db) as connection:
-        assert (
-            connection.execute("SELECT count(*) FROM capital_allocation_assessment").fetchone()[0]
-            == 0
-        )
-
-
-def test_mixed_operation_retains_checked_holding_draft_and_later_adoption_rechecks(holding_case):
-    db, market, _ = holding_case
-    seed_research(db)
-    before = ledger_rows(db)
-    service, operation = start(db, market, (("1234", "new"), ("5678", "new"), ("2331", "holding")))
-    position = PositionReviewService(db, sqlite_path=market, clock=lambda: NOW)
-    draft = position.build(thesis_id="current", position_id="2331")
-    draft = draft.model_copy(
-        update={
-            "remaining_reward": RemainingReward(
-                status="sufficient", reason="synthetic verified residual return"
-            )
-        }
-    )
-    captured = service.record_position_proposal(operation.operation_id, draft, now=NOW)
-    assert (
-        service.record_position_proposal(operation.operation_id, draft, now=NOW + timedelta(days=1))
-        == captured
-    )
-    proposal = progress_binding(captured.payload).outcomes[0]
-    assert proposal.draft.action == "hold"
-    assert proposal.checked_at == NOW
-    assert proposal.draft.quote == draft.quote
-    assert proposal.draft.holding == draft.holding
-    service.record_thesis(operation.operation_id, "thesis-1234", now=NOW)
-    service.record_unfinished(
+def test_all_unfinished_requires_saved_defer_proposal_and_does_not_become_rejection(case):
+    db, _ = case
+    service, operation = start(case, ("1234",))
+    operation = service.record_unfinished(
         operation.operation_id,
-        ticker="5678",
-        reason="limited evidence",
-        references=("workspace:5678",),
+        ticker="1234",
+        reason="研究不足",
+        references=("synthetic-source",),
         now=NOW,
     )
-    published = CapitalAllocationAssessmentService(db, clock=lambda: NOW).publish(
-        assessment(db, ["thesis-1234"])
-    )
-    assert {item.ticker for item in published.research_scope.targets} == {"1234", "5678"}
-    operation = service.get(operation.operation_id)
-    completed = service.complete(
-        operation.operation_id,
-        final_payload(operation, assessment_id=published.capital_allocation_assessment_id),
-        completed_at=NOW + timedelta(days=1),
-    )
-    assert completed.payload.human_confirmation is None
+    with pytest.raises(OperationCompletionError, match="published Investment Proposal"):
+        service.complete(operation.operation_id, final_payload(operation), completed_at=PUBLISHED)
+    proposal = proposal_for(operation)
+    seed_proposal(db, proposal)
+    completed = record_and_finish(service, operation, proposal)
+    assert progress_binding(completed.payload).outcomes[0].status == "unfinished"
+    assert proposal.items[0].action == "defer"
+    assert proposal.items[0].assessment_ref is None
+
+
+@pytest.mark.parametrize("action", ["hold", "sell"])
+def test_holding_uses_common_assessment_reference_and_published_proposal_only(case, action):
+    db, _ = case
+    ledger = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
+    seed_ledger(db, ledger.model_copy(update={"market_prices": ()}))
+    reference = seed_assessment(db, "2331")
+    service, operation = start(case, ("2331",), scope="review_positions")
+    operation = service.record_assessment(operation.operation_id, reference, now=NOW)
+    before = ledger_rows(db)
+    progress = progress_binding(operation.payload)
+    assert progress.outcomes[0].purpose == "holding"
+    assert progress.outcomes[0].assessment_ref.assessment_id == reference
+    assert "draft" not in progress.model_dump_json()
+    with pytest.raises(OperationCompletionError, match="published Investment Proposal"):
+        service.complete(operation.operation_id, final_payload(operation), completed_at=PUBLISHED)
+    proposal = proposal_for(operation, actions={"2331": action})
+    seed_proposal(db, proposal)
+    completed = record_and_finish(service, operation, proposal)
+    assert completed.status == "completed"
     assert ledger_rows(db) == before
-    with sqlite3.connect(db) as connection:
-        assert connection.execute("SELECT count(*) FROM position_review").fetchone()[0] == 0
-    with pytest.raises(ValueError, match="human confirmation"):
-        position.publish(draft, confirmed=False)
-    with pytest.raises(ValueError, match="formal judgment basis"):
-        PositionReviewService(
-            db, sqlite_path=market, clock=lambda: NOW + timedelta(days=1)
-        ).publish(draft, confirmed=True)
+    assert proposal.items[0].position.original_assessment_ref is None
+    assert proposal.items[0].position.original_reason_unavailable_reason
 
 
-def test_immutable_selection_and_missing_outcomes_prevent_silent_subject_drop(holding_case):
-    db, market, _ = holding_case
-    seed_research(db)
-    service, operation = start(db, market, (("1234", "new"), ("5678", "new")))
+def test_selection_immutable_and_missing_outcomes_cannot_drop_targets(case):
+    db, _ = case
+    service, operation = start(case, ("1234", "5678"))
     with pytest.raises(OperationCompletionError, match="covered"):
-        service.complete(operation.operation_id, final_payload(operation), completed_at=NOW)
-    selection = selection_binding(operation.payload)
-    changed = selection.model_copy(update={"targets": selection.targets[:1]})
+        service.complete(operation.operation_id, final_payload(operation), completed_at=PUBLISHED)
+    selected = selection_binding(operation.payload)
+    changed = selected.model_copy(update={"selection_summary": "別の選定"})
     with pytest.raises(OperationConflictError, match="immutable"):
         service.checkpoint(
             operation.operation_id,
             operation.payload.model_copy(update={"artifacts": (changed.model_dump(mode="json"),)}),
         )
     assert service.get(operation.operation_id) == operation
+    assert ledger_rows(db) == []
 
 
-def test_domain_inputs_are_read_only_and_do_not_require_independent_historical_report(
-    holding_case, tmp_path, monkeypatch
+@pytest.mark.parametrize("change", ["hash", "review", "ticker", "purpose"])
+def test_exact_assessment_pair_and_selected_purpose_are_verified(case, change):
+    db, _ = case
+    reference = seed_assessment(db)
+    service, operation = start(case, ("1234",))
+    operation = service.record_assessment(operation.operation_id, reference, now=NOW)
+    progress = progress_binding(operation.payload)
+    outcome = progress.outcomes[0]
+    if change in {"hash", "review"}:
+        field, value = (
+            ("core_sha256", "0" * 64)
+            if change == "hash"
+            else ("review_id", "assessment-review-00000000-0000-4000-8000-000000000099")
+        )
+        outcome = outcome.model_copy(
+            update={"assessment_ref": outcome.assessment_ref.model_copy(update={field: value})}
+        )
+    else:
+        outcome = outcome.model_copy(update={change: "5678" if change == "ticker" else "holding"})
+    with pytest.raises(ValueError, match=r"differs|unselected"):
+        service.checkpoint(
+            operation.operation_id,
+            with_progress(operation.payload, progress.model_copy(update={"outcomes": (outcome,)})),
+            now=NOW,
+        )
+    assert service.get(operation.operation_id) == operation
+
+
+def test_future_assessment_publication_cannot_be_recorded(case):
+    db, _ = case
+    reference = seed_assessment(db, now=NOW + timedelta(minutes=1))
+    service, operation = start(case, ("1234",))
+    with pytest.raises(ValueError, match="precedes Assessment publication"):
+        service.record_assessment(operation.operation_id, reference, now=NOW)
+    assert service.get(operation.operation_id) == operation
+
+
+def test_retry_is_stable_and_checkpoint_cannot_remove_recorded_outcomes_or_reference(case):
+    db, _ = case
+    reference = seed_assessment(db)
+    service, operation = start(case, ("1234",))
+    operation = service.record_assessment(operation.operation_id, reference, now=NOW)
+    assert service.record_assessment(operation.operation_id, reference, now=PUBLISHED) == operation
+    proposal = proposal_for(operation)
+    seed_proposal(db, proposal)
+    operation = service.record_proposal(operation.operation_id, proposal.proposal_id, now=PUBLISHED)
+    assert (
+        service.record_proposal(
+            operation.operation_id, proposal.proposal_id, now=PUBLISHED + timedelta(days=1)
+        )
+        == operation
+    )
+    for update in ({"outcomes": ()}, {"proposal_ref": None}):
+        progress = progress_binding(operation.payload).model_copy(update=update)
+        with pytest.raises(ValueError, match="silently removed"):
+            service.checkpoint(
+                operation.operation_id, with_progress(operation.payload, progress), now=PUBLISHED
+            )
+        assert service.get(operation.operation_id) == operation
+
+
+def test_late_outcome_preserves_saved_proposal_but_completion_requires_current_scope(case):
+    db, _ = case
+    first, later = seed_assessment(db), seed_assessment(db, "5678", number=2)
+    service, operation = start(case, ("1234", "5678"))
+    service.record_assessment(operation.operation_id, first, now=NOW)
+    operation = service.record_unfinished(
+        operation.operation_id,
+        ticker="5678",
+        reason="未確認資料",
+        references=("synthetic",),
+        now=NOW,
+    )
+    proposal = proposal_for(operation)
+    seed_proposal(db, proposal)
+    service.record_proposal(operation.operation_id, proposal.proposal_id, now=PUBLISHED)
+    operation = service.record_assessment(operation.operation_id, later, now=PUBLISHED)
+    with closing(connect_read_only(db)) as reader:
+        assert load_investment_proposal(reader, proposal.proposal_id) == proposal
+        with pytest.raises(ValueError, match="scope differs"):
+            require_proposal_research_scope(
+                reader,
+                scope=proposal.research_scope,
+                request_scope=proposal.request_scope,
+                published_at=PUBLISHED,
+            )
+    with pytest.raises(OperationCompletionError, match="scope differs"):
+        service.complete(operation.operation_id, final_payload(operation), completed_at=PUBLISHED)
+    replacement = proposal_for(operation, number=2)
+    seed_proposal(db, replacement)
+    assert record_and_finish(service, operation, replacement).status == "completed"
+    with closing(connect_read_only(db)) as reader:
+        assert load_investment_proposal(reader, proposal.proposal_id) == proposal
+
+
+@pytest.mark.parametrize(
+    "mutation", ["selection_hash", "reason", "references", "request", "unknown"]
+)
+def test_publication_requires_exact_current_selection_and_outcomes(case, mutation):
+    db, _ = case
+    service, operation = start(case, ("1234",))
+    operation = service.record_unfinished(
+        operation.operation_id, ticker="1234", reason="未調査", references=("synthetic",), now=NOW
+    )
+    scope = proposal_scope(operation.operation_id, operation.payload)
+    request_scope = "discover_new"
+    with closing(connect_read_only(db)) as reader:
+        assert require_proposal_research_scope(
+            reader, scope=scope, request_scope=request_scope, published_at=PUBLISHED
+        ) == selection_binding(operation.payload)
+        if mutation == "selection_hash":
+            scope = scope.model_copy(update={"selection_sha256": "0" * 64})
+        elif mutation in {"reason", "references"}:
+            field, value = (
+                ("unfinished_reason", "別の理由")
+                if mutation == "reason"
+                else ("references", ("other-source",))
+            )
+            scope = scope.model_copy(
+                update={"outcomes": (scope.outcomes[0].model_copy(update={field: value}),)}
+            )
+        elif mutation == "request":
+            request_scope = "specified_stocks"
+        else:
+            scope = scope.model_copy(update={"operation_id": "research-op-" + "f" * 32})
+        with pytest.raises(ValueError, match=r"scope differs|requires its current"):
+            require_proposal_research_scope(
+                reader, scope=scope, request_scope=request_scope, published_at=PUBLISHED
+            )
+
+
+@pytest.mark.parametrize("action", ["buy", "buy_needs_terms"])
+def test_only_concrete_buy_terms_complete_purchase_proposal(case, action):
+    db, _ = case
+    reference = seed_assessment(db)
+    service, operation = start(case, ("1234",))
+    operation = service.record_assessment(operation.operation_id, reference, now=NOW)
+    proposal = proposal_for(operation, actions={"1234": action})
+    seed_proposal(db, proposal)
+    operation = service.record_proposal(operation.operation_id, proposal.proposal_id, now=PUBLISHED)
+    if action == "buy_needs_terms":
+        with pytest.raises(OperationCompletionError, match="concrete order terms"):
+            service.complete(
+                operation.operation_id, final_payload(operation), completed_at=PUBLISHED
+            )
+        assert service.get(operation.operation_id) == operation
+    else:
+        # Completion a day later only verifies the stored publication/terms.
+        # Current price/cash/expiry belong to preview and do not rewrite terms.
+        completed = service.complete(
+            operation.operation_id,
+            final_payload(operation),
+            completed_at=PUBLISHED + timedelta(days=1),
+        )
+        assert completed.status == "completed"
+        with closing(connect_read_only(db)) as reader:
+            assert load_investment_proposal(reader, proposal.proposal_id) == proposal
+
+
+def test_proposal_hash_future_publication_and_completed_publish_are_checked(case):
+    db, _ = case
+    reference = seed_assessment(db)
+    service, operation = start(case, ("1234",))
+    operation = service.record_assessment(operation.operation_id, reference, now=NOW)
+    proposal = proposal_for(operation)
+    seed_proposal(db, proposal)
+    with pytest.raises(OperationCompletionError, match="precedes Proposal publication"):
+        service.record_proposal(operation.operation_id, proposal.proposal_id, now=NOW)
+    assert service.get(operation.operation_id) == operation
+    operation = service.record_proposal(operation.operation_id, proposal.proposal_id, now=PUBLISHED)
+    progress = progress_binding(operation.payload)
+    progress = progress.model_copy(
+        update={"proposal_ref": progress.proposal_ref.model_copy(update={"draft_sha256": "0" * 64})}
+    )
+    with pytest.raises(OperationCompletionError, match="saved draft hash"):
+        service.complete(
+            operation.operation_id,
+            final_payload(operation).model_copy(
+                update={"artifacts": with_progress(operation.payload, progress).artifacts}
+            ),
+            completed_at=PUBLISHED,
+        )
+    record_and_finish(service, operation, proposal)
+    with (
+        closing(connect_read_only(db)) as reader,
+        pytest.raises(ValueError, match="active Research Operation"),
+    ):
+        require_proposal_research_scope(
+            reader,
+            scope=proposal.research_scope,
+            request_scope=proposal.request_scope,
+            published_at=PUBLISHED,
+        )
+
+
+def test_new_research_progress_rejects_inline_old_holding_proposal_and_blank_reason():
+    with pytest.raises(ValidationError):
+        ResearchProgress.model_validate(
+            {
+                "outcomes": [
+                    {"status": "proposal", "ticker": "1234", "purpose": "holding", "draft": {}}
+                ]
+            }
+        )
+    with pytest.raises(ValidationError):
+        ResearchProgress.model_validate(
+            {
+                "outcomes": [
+                    {
+                        "status": "unfinished",
+                        "ticker": "1234",
+                        "purpose": "new",
+                        "unfinished_reason": " ",
+                        "references": ["synthetic"],
+                    }
+                ]
+            }
+        )
+
+
+def test_domain_inputs_preserve_gaps_and_null_and_do_not_write_or_use_network(
+    case, tmp_path, monkeypatch
 ):
-    db, market, _ = holding_case
-    before = db.read_bytes(), market.read_bytes()
+    db, market = case
+    before = db.read_bytes()
 
     def no_network(*args, **kwargs):
         pytest.fail("research inputs attempted network I/O")
 
     monkeypatch.setattr(socket, "socket", no_network)
-    snapshot = research_inputs(
-        tickers=("1234", "2331"),
-        as_of=NOW.date(),
-        cutoff=NOW,
-        known_at=NOW,
+    selected = make_selection(now=NOW, tickers=("1234",))
+    inputs = collect_research_inputs(
+        snapshot=selected.inputs.analysis,
+        input_gaps=selected.inputs.input_gaps,
+        tickers=("1234",),
+        research_as_of=NOW.date(),
+        input_known_at=NOW,
         market_path=market,
-        runs_path=tmp_path / "absent-runs.sqlite",
         indicators_path=tmp_path / "absent-indicators.sqlite",
         app_path=db,
     )
-    assert set(snapshot["securities"]) == {"1234", "2331"}
-    assert snapshot["market_context"]["saved_market_context_assessment"] is None
-    assert snapshot["market_context"]["reading"] is None
-    assert (db.read_bytes(), market.read_bytes()) == before
-    assert not (tmp_path / "absent-runs.sqlite").exists()
+    projected = project_research_inputs(selected.model_copy(update={"inputs": inputs}))
+    assert set(projected["securities"]) == {"1234"}
+    assert projected["market_context"]["saved_market_context_assessment"] is None
+    assert projected["market_context"]["reading"] is None
+    assert inputs.analysis == selected.inputs.analysis
+    assert inputs.input_gaps == selected.inputs.input_gaps
+    assert db.read_bytes() == before
+    assert not market.exists()
     assert not (tmp_path / "absent-indicators.sqlite").exists()
 
 
-def test_analysis_asof_cannot_drift_on_combined_or_holding_workspace_reuse(holding_case, tmp_path):
-    from baibai_engine.research.workspace import prepare_holding_workspace
-
-    db, market, _ = holding_case
-    workspace = tmp_path / "workspace"
-    kwargs = dict(
-        research_triage_id=None,
-        db_path=db,
-        workspace=workspace,
-        request="synthetic explicit holding selection",
-        holding_tickers=("2331",),
-        started_at=NOW,
-        sqlite_path=market,
-        runs_path=tmp_path / "absent-runs",
-        indicators_path=tmp_path / "absent-macro",
+def test_equivalent_publication_instants_use_aware_time_comparison(case):
+    db, _ = case
+    reference = seed_assessment(db)
+    service, operation = start(case, ("1234",))
+    operation = service.record_assessment(
+        operation.operation_id, reference, now=NOW.astimezone(UTC)
     )
-    prepared = prepare_workspace(asof=NOW.date(), **kwargs)
-    operation = OperationService(db).get(prepared.operation_id)
-    before = {path: path.read_bytes() for path in workspace.rglob("*.yaml")}
-    with pytest.raises(ResearchWorkspaceConflictError, match="as_of"):
-        prepare_workspace(asof=NOW.date() + timedelta(days=1), force=True, **kwargs)
-    assert {path: path.read_bytes() for path in workspace.rglob("*.yaml")} == before
-    with pytest.raises(ResearchWorkspaceConflictError, match="as_of"):
-        prepare_holding_workspace(
-            asof=NOW.date() + timedelta(days=1),
-            ticker="2331",
-            db_path=db,
-            workspace=workspace / "holdings" / "2331",
-            started_at=NOW,
-            force=True,
-            sqlite_path=market,
-        )
-    assert {path: path.read_bytes() for path in workspace.rglob("*.yaml")} == before
-    resumed = prepare_workspace(asof=NOW.date(), force=True, **kwargs)
-    assert resumed.operation_id == operation.operation_id
-    assert OperationService(db).get(operation.operation_id) == operation
-    # Hand editing both workspace dates is not another path to shifting the Operation date.
-    import yaml
-
-    from baibai_engine.research.workspace import compute_status
-
-    for name in ("manifest.yaml", "research-workspace.yaml"):
-        path = workspace / name
-        value = yaml.safe_load(path.read_text())
-        value["as_of"] = (NOW.date() + timedelta(days=1)).isoformat()
-        path.write_text(yaml.safe_dump(value))
-    with pytest.raises(ResearchWorkspaceConflictError, match="as_of"):
-        compute_status(workspace, db_path=db, now=NOW)
-
-
-@pytest.mark.parametrize("active_selection", [False, True])
-def test_legacy_holding_manifest_is_readable_but_cannot_mutate_outside_operation(
-    holding_case, tmp_path, active_selection
-):
-    import yaml
-
-    from baibai_engine.research.triage.contracts import ResearchTriageEntry
-    from baibai_engine.research.workspace import (
-        compute_status,
-        promote,
-        scaffold_review,
-        scaffold_thesis,
+    proposal = proposal_for(operation)
+    seed_proposal(db, proposal)
+    operation = service.record_proposal(
+        operation.operation_id, proposal.proposal_id, now=PUBLISHED.astimezone(UTC)
+    )
+    assert (
+        service.complete(
+            operation.operation_id, final_payload(operation), completed_at=PUBLISHED.astimezone(UTC)
+        ).status
+        == "completed"
     )
 
-    db, market, _ = holding_case
-    if active_selection:
-        triage = seed_research(db)
-        triage = triage.model_copy(
-            update={
-                "entries": (
-                    *triage.entries,
-                    ResearchTriageEntry.model_validate(research_entry("9012", rank=3)),
-                )
-            }
-        )
-        with connect_rw(db) as connection:
-            connection.execute(
-                "UPDATE research_triage SET payload=? WHERE research_triage_id=?",
-                (triage.model_dump_json(), triage.research_triage_id),
-            )
-        start(db, market, (("1234", "new"), ("5678", "new"), ("9012", "new")))
-    workspace = tmp_path / "legacy-holding"
-    (workspace / "2331").mkdir(parents=True)
-    (workspace / "manifest.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "purpose": "position_review",
-                "holding_ticker": "2331",
-                "as_of": NOW.date().isoformat(),
-            }
-        )
-    )
-    (workspace / "research-workspace.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "as_of": NOW.date().isoformat(),
-                "research_set": ["2331"],
-                "position_review_subject": [{"ticker": "2331"}],
-            }
-        )
-    )
-    thesis, review = pair_payload(ticker="2331")
-    (workspace / "2331/thesis-draft.yaml").write_text(yaml.safe_dump(thesis))
-    (workspace / "2331/2026-09-07-2331-decision-review.yaml").write_text(yaml.safe_dump(review))
-    # Saved work remains inspectable; inspection is not permission to extend the fixed selection.
-    assert compute_status(workspace, db_path=db, now=NOW)["cases"][0]["ticker"] == "2331"
-    before = {path: path.read_bytes() for path in workspace.rglob("*.yaml")}
-    db_before = db.read_bytes()
-    for mutate in (
-        lambda: scaffold_thesis(
-            workspace=workspace,
-            ticker="2331",
-            sqlite_path=market,
-            target_session=NOW.date(),
-            retrieved_at=NOW,
-            db_path=db,
-            force=True,
-        ),
-        lambda: scaffold_review(workspace=workspace, ticker="2331", db_path=db, force=True),
-        lambda: promote(
-            workspace=workspace,
-            ticker="2331",
-            db_path=db,
-            thesis_id="outside-selection",
-            supersedes_id=None,
+
+@pytest.mark.parametrize("field", ["result", "next"])
+def test_zero_targets_still_need_a_nonblank_reason_and_next_step(case, field):
+    service, operation = start(case)
+    payload = final_payload(operation).model_copy(update={field: " "})
+    with pytest.raises(OperationCompletionError, match=field):
+        service.complete(operation.operation_id, payload, completed_at=NOW)
+    assert service.get(operation.operation_id) == operation
+
+
+def test_selected_ticker_cannot_borrow_another_tickers_assessment_pair(case):
+    db, _ = case
+    reference = seed_assessment(db)
+    service, operation = start(case, ("1234", "5678"))
+    operation = service.record_assessment(operation.operation_id, reference, now=NOW)
+    progress = progress_binding(operation.payload)
+    borrowed = progress.outcomes[0].model_copy(update={"ticker": "5678"})
+    with pytest.raises(ValueError, match="Reviewed Assessment ticker"):
+        service.checkpoint(
+            operation.operation_id,
+            with_progress(
+                operation.payload,
+                progress.model_copy(update={"outcomes": (*progress.outcomes, borrowed)}),
+            ),
             now=NOW,
-        ),
-    ):
-        with pytest.raises(ResearchWorkspaceConflictError, match="Operation ID"):
-            mutate()
-        assert {path: path.read_bytes() for path in workspace.rglob("*.yaml")} == before
-        assert db.read_bytes() == db_before
+        )
+    assert service.get(operation.operation_id) == operation
 
 
-def test_alphanumeric_holding_prepares_thesis_and_verified_proposal_end_to_end(tmp_path):
-    import yaml
-    from tests.helpers.db_seed import seed_ledger
-    from tests.helpers.ledger import load_portfolio_ledger
-    from tests.helpers.screening_sqlite import seed_daily_bars
+def test_a_new_operation_cannot_bind_the_previous_operations_proposal(case):
+    db, _ = case
+    reference = seed_assessment(db)
+    service, operation = start(case, ("1234",))
+    operation = service.record_assessment(operation.operation_id, reference, now=NOW)
+    proposal = proposal_for(operation)
+    seed_proposal(db, proposal)
+    completed = record_and_finish(service, operation, proposal)
+    service, other = start(case, ("1234",))
+    with pytest.raises(OperationConflictError, match="another Research Operation"):
+        service.record_proposal(other.operation_id, proposal.proposal_id, now=PUBLISHED)
+    assert service.get(other.operation_id) == other
+    assert service.get(operation.operation_id) == completed
 
-    from baibai_engine.research.workspace import (
-        prepare_holding_workspace,
-        promote,
-        scaffold_review,
-        scaffold_thesis,
-    )
 
-    db, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
-    from pathlib import Path
+def test_stale_progress_write_cannot_overwrite_a_concurrent_outcome(case):
+    db, _ = case
+    reference = seed_assessment(db)
+    service, operation = start(case, ("1234", "5678"))
+    stale_payload = operation.payload
+    updated = service.record_assessment(operation.operation_id, reference, now=NOW)
+    with pytest.raises(OperationConflictError, match="progress changed"):
+        service._replace_active(
+            operation.operation_id,
+            payload=stale_payload,
+            completed_at=None,
+            checked_at=NOW,
+            expected_payload=stale_payload,
+        )
+    assert service.get(operation.operation_id) == updated
 
-    ledger = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
-    events = []
-    for event in ledger.events:
-        payload = event.model_dump(mode="json")
-        if payload.get("ticker") == "2331":
-            payload["ticker"] = "285A"
-        events.append(type(event).model_validate(payload))
-    ledger = ledger.model_copy(update={"events": tuple(events), "market_prices": ()})
-    seed_ledger(db, ledger)
-    seed_daily_bars(
-        market, [("285A", "2026-06-03", 1000.0, 1.0), ("285A", "2026-09-04", 1000.0, 1.0)]
-    )
-    workspace = tmp_path / "holding"
-    prepared = prepare_holding_workspace(
-        asof=NOW.date(),
-        db_path=db,
-        ticker="285A",
-        workspace=workspace,
-        request="synthetic explicit alpha-code holding research",
-        started_at=NOW,
-        sqlite_path=market,
-        runs_path=tmp_path / "absent-runs",
-        indicators_path=tmp_path / "absent-macro",
-    )
-    operation = OperationService(db).get(prepared.operation_id)
-    assert operation.ticker == "285A"
-    assert selection_binding(operation.payload).targets[0].ticker == "285A"
-    scaffold_thesis(
-        workspace=workspace,
-        ticker="285A",
-        sqlite_path=market,
-        target_session=NOW.date(),
-        retrieved_at=NOW,
-        db_path=db,
-    )
-    thesis, review = pair_payload(ticker="285A")
-    (workspace / "285A/thesis-draft.yaml").write_text(yaml.safe_dump(thesis))
-    scaffold_review(workspace=workspace, ticker="285A", db_path=db)
-    (workspace / "285A/2026-09-07-285A-decision-review.yaml").write_text(yaml.safe_dump(review))
-    promoted = promote(
-        workspace=workspace,
-        ticker="285A",
-        db_path=db,
-        thesis_id="alpha-current",
-        supersedes_id=None,
-        now=NOW,
-    )
-    position = PositionReviewService(db, sqlite_path=market, clock=lambda: NOW)
-    draft = position.build(thesis_id=promoted.thesis_id, position_id="285A")
-    draft = draft.model_copy(
-        update={
-            "remaining_reward": RemainingReward(
-                status="uncertain", reason="synthetic uncertain future return"
-            )
-        }
-    )
-    before = ledger_rows(db)
-    captured = OperationService(db, sqlite_path=market).record_position_proposal(
-        operation.operation_id, draft, now=NOW
-    )
-    assert progress_binding(captured.payload).outcomes[0].ticker == "285A"
-    assert progress_binding(captured.payload).outcomes[0].draft.ticker == "285A"
-    assert ledger_rows(db) == before
-    completed = OperationService(db, sqlite_path=market).complete(
-        operation.operation_id, final_payload(captured), completed_at=NOW
-    )
-    assert completed.status == "completed"
-    with sqlite3.connect(db) as connection:
-        assert connection.execute("SELECT count(*) FROM position_review").fetchone()[0] == 0
+
+def test_naive_progress_instant_is_rejected_without_recording_an_assessment(case):
+    db, _ = case
+    reference = seed_assessment(db)
+    service, operation = start(case, ("1234",))
+    with pytest.raises(ValueError, match="UTC offset"):
+        service.record_assessment(operation.operation_id, reference, now=NOW.replace(tzinfo=None))
+    assert service.get(operation.operation_id) == operation

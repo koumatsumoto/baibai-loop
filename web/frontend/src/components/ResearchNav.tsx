@@ -3,7 +3,7 @@ import { cn } from '../lib/utils'
 
 export function ResearchNav() {
   const { pathname } = useLocation()
-  const active = pathname.startsWith('/market-context') ? 'market' : pathname === '/stocks/explore' || pathname === '/research-triage' || pathname.startsWith('/securities/') ? 'explore' : 'proposals'
+  const active = pathname.startsWith('/market-context') ? 'market' : pathname === '/stocks/explore' || pathname.startsWith('/securities/') ? 'explore' : 'proposals'
   return <nav aria-label="調査・提案の内容" className="flex gap-1 rounded-lg bg-muted p-1 text-sm">
     {[
       { key: 'proposals', to: '/stocks', label: '提案' },

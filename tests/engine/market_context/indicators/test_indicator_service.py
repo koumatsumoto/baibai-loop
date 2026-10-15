@@ -4,7 +4,7 @@ import io
 import sqlite3
 import tempfile
 import unittest
-from contextlib import redirect_stderr
+from contextlib import closing, redirect_stderr
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -86,7 +86,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                     end=date(2026, 7, 20),
                 )
 
-            with sqlite3.connect(database) as conn:
+            with closing(sqlite3.connect(database)) as conn:
                 stored = conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
                 run = conn.execute(
                     "SELECT series_id, status, record_count, error_message FROM provider_runs"
@@ -133,7 +133,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                     end=date(2026, 7, 20),
                 )
 
-            with sqlite3.connect(database) as conn:
+            with closing(sqlite3.connect(database)) as conn:
                 stored = conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
                 run = conn.execute(
                     "SELECT status, record_count, error_message FROM provider_runs"
@@ -194,7 +194,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             self.assertEqual(run[0:2], ("failed", 0))
             self.assertIn("value 2000", run[2])
 
-    def test_refresh_without_plausible_range_keeps_backward_compatibility(self) -> None:
+    def test_refresh_without_plausible_range_accepts_finite_values(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
             definition = _series("fred_csv", "TEST")
@@ -378,7 +378,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             conn.close()
 
             def stored_rows() -> tuple[tuple[object, ...], ...]:
-                with sqlite3.connect(database) as connection:
+                with closing(sqlite3.connect(database)) as connection:
                     return tuple(
                         connection.execute(
                             "SELECT * FROM observations WHERE series_id = ? "
@@ -436,7 +436,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                     definition.series_id,
                     end=date(2026, 7, 21),
                 )
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection:
                 rows = connection.execute(
                     "SELECT value, vintage_at, source_url FROM observations WHERE series_id = ?",
                     (definition.series_id,),

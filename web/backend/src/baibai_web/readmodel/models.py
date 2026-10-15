@@ -36,8 +36,9 @@ class HoldingView(BaseModel):
     unrealized_pnl_pct: float | None
     pmax_raw_yen: float | None
     pmax_gap_pct: float | None
-    latest_thesis_id: str | None
-    disposition: str | None
+    pmax_gap_unavailable_reason: str | None = None
+    latest_assessment_id: str | None
+    stance: str | None
     next_earnings_date: str | None = None
 
 
@@ -110,7 +111,6 @@ class DashboardView(BaseModel):
     holdings: list[HoldingView]
     reservations: list[ReservationView]
     warnings: list[WarningView]
-    research_load_errors: list[str]
 
 
 class TasksView(BaseModel):
@@ -124,24 +124,32 @@ class TasksView(BaseModel):
     ledger_error: str | None
 
 
+class AssessmentRefView(BaseModel):
+    assessment_id: str
+    core_sha256: str
+    review_id: str
+
+
 class OperationResearchTargetView(BaseModel):
+    selection_rationale: str | None = None
+    research_question: str | None = None
+    key_risk: str | None = None
     ticker: str
     purpose: Literal["new", "holding"]
-    outcome_status: Literal["reviewed", "proposal", "unfinished"] | None
-    thesis_id: str | None
-    thesis_review_id: str | None
+    outcome_status: Literal["reviewed", "unfinished"] | None
+    assessment_ref: AssessmentRefView | None
     unfinished_reason: str | None
     references: list[str]
-    checked_at: datetime | None
-    holding_proposal: dict[str, object] | None
-    holding_proposal_null_reason: str | None = None
 
 
 class OperationResearchView(BaseModel):
+    request_scope: str | None = None
+    selection_summary: str | None = None
+    max_deep_research_targets: int | None = None
     request: str
-    research_triage_id: str | None
     targets: list[OperationResearchTargetView]
-    capital_allocation_assessment_id: str | None
+    proposal_id: str | None
+    proposal_draft_sha256: str | None
     source_run_revision_id: str | None = None
     source_analysis_as_of: date | None = None
 
@@ -183,7 +191,7 @@ class ScreeningRunView(BaseModel):
     generated_at: datetime
     universe_size: int
     analyzed_security_count: int
-    # The revision the review_sets in the same payload bind to; ``run_id`` is the
+    # The revision the candidate rows in the same payload bind to; ``run_id`` is the
     # public identifier a reader sees.
     run_revision_id: str
     stale: bool
@@ -192,7 +200,60 @@ class ScreeningRunView(BaseModel):
 type PortfolioState = Literal["unheld", "held", "reserved", "held_and_reserved"]
 
 
-class SecurityAnalysisRowView(BaseModel):
+class CandidateReasonView(BaseModel):
+    valuation_approach_id: Literal[
+        "current-earnings-power", "normalized-earnings-power", "asset-value", "reinvestment-value"
+    ]
+    valuation_method_id: str
+    rank: int
+
+
+class StockCandidateContextView(BaseModel):
+    common_eligible: bool
+    reasons: list[CandidateReasonView]
+    normalized_per_3fy_sector_gap: float | None
+
+
+class CandidateDiscoveryMethodIdentityView(BaseModel):
+    method_id: str
+    method_hash: str
+    nomination_depth: int
+
+
+class CandidateDiscoverySummaryView(BaseModel):
+    method: CandidateDiscoveryMethodIdentityView
+    common_eligible_count: int
+    candidate_counts_by_approach: dict[str, int]
+    candidate_count: int
+
+
+class StockAnalysisRowView(BaseModel):
+    candidate: StockCandidateContextView
+    listing_span_days: float | None
+    jpx_flags: list[str] | None
+    forecast_special_gain_flag: bool | None
+    forecast_full_year_loss_flag: bool | None
+    investment_securities: float | None
+    asset_backed_ratio: float | None
+    p_s_sector_gap: float | None
+    operating_return_on_capital_proxy: float | None
+    operating_margin: float | None
+    bs_carry_forward_fields: str | None
+    bs_carry_forward_lag_days: float | None
+    edinet_failure_reasons: str | None
+    stale_fin_flag: bool | None
+    ttm_quality_ev_ebitda: Literal["exact", "approximated", "unavailable"] | None
+    ttm_quality_fcf: Literal["exact", "approximated", "unavailable"] | None
+    next_earnings_status: (
+        Literal["scheduled", "scheduled_date_reached", "estimated", "unknown"] | None
+    )
+    next_earnings_estimated_date: str | None
+    tse_capital_policy_status: str | None
+    large_holding_filing_within_lookback: bool | None
+    tender_offer_filing_within_lookback: bool | None
+    fv_sector_median_yen: float | None
+    fv_self_range_yen: float | None
+    er_origin: str | None
     ticker: str
     name: str | None
     sector_33: str | None
@@ -241,10 +302,10 @@ class SecurityAnalysisRowView(BaseModel):
     data_quality_flags: list[str]
     portfolio_state: PortfolioState
     has_research: bool
-    # 保存済みSecurity Analysisの機械anchor。Review Set入りを条件にせず再計算もしない。
+    # 保存済みStock Analysisの機械anchor。候補入りを条件にせず再計算もしない。
     fair_value_anchor_yen: float | None = None
     fair_value_gap_pct: float | None = None
-    # Historical calibration context only. It never alters E[r], rank, or review_set.
+    # Historical calibration context only. It never alters E[r], rank, or candidates.
     er_level_quintile: int | None = None
     er_meets_8_5pct_band: bool = False
 
@@ -318,14 +379,13 @@ class ExternalAssessmentSecurityView(BaseModel):
 
 class ScreeningView(BaseModel):
     run: ScreeningRunView | None
-    security_analyses: list[SecurityAnalysisRowView]
+    stock_analyses: list[StockAnalysisRowView]
     external_assessment_securities: list[ExternalAssessmentSecurityView] = Field(
         default_factory=list
     )
     external_assessment_cutoff: datetime | None = None
-    review_sets: list[ReviewSetView]
-    research_triages: list[ResearchTriageView]
-    capital_allocation_assessments: list[CapitalAllocationAssessmentSummaryView]
+    candidate_discovery: CandidateDiscoverySummaryView | None
+    investment_proposals: list[InvestmentProposalSummaryView]
     er_level_calibration: ErLevelCalibrationContextView | None = None
 
 
@@ -337,178 +397,34 @@ class ScreeningHistoryRunView(BaseModel):
     """Stable UI projection of one retained screening run."""
 
     run: ScreeningRunView
-    rows: list[SecurityAnalysisRowView]
-
-
-class ReviewSetNominationView(BaseModel):
-    valuation_approach_id: str
-    valuation_method_id: str
-    rank: int
-
-
-class ReviewSetIdentityLiquidityView(BaseModel):
-    market_cap_oku: float | None
-    avg_turnover_oku: float | None
-    listing_span_days: float | None
-    jpx_flags: list[str] | None
-
-
-class ReviewSetValuationView(BaseModel):
-    per_forward: float | None
-    per_trailing: float | None
-    pbr: float | None
-    ev_ebitda: float | None
-    p_s: float | None
-    pcfr: float | None
-
-
-class ReviewSetCurrentEarningsView(BaseModel):
-    fcf_yield: float | None
-    ocf_yield: float | None
-    forecast_special_gain_flag: bool | None
-    forecast_full_year_loss_flag: bool | None
-
-
-class ReviewSetNormalizedEarningsView(BaseModel):
-    normalized_per_3fy: float | None
-    normalized_per_3fy_sector_gap: float | None
-
-
-class ReviewSetAssetValueView(BaseModel):
-    asset_backed_ratio: float | None
-    net_cash_to_market_cap: float | None
-    investment_securities: float | None
-    equity_ratio: float | None
-
-
-class ReviewSetReinvestmentView(BaseModel):
-    p_s_sector_gap: float | None
-    operating_return_on_capital_proxy: float | None
-    sales_yoy: float | None
-    operating_margin: float | None
-    fcf_yield: float | None
-
-
-class ReviewSetExpectedReturnView(BaseModel):
-    er_annual: float | None
-    er_reversion_annual: float | None
-    er_carry_annual: float | None
-    fv_sector_median_yen: float | None
-    fv_self_range_yen: float | None
-    er_origin: str | None
-    er_model_version: str | None
-    er_unit: str | None
-    er_assumptions: str | None
-    dividend_yield: float | None = None
-    dividend_basis: str | None = None
-    net_share_change_yoy: float | None = None
-    carry_missing_assumption: str | None = None
-
-
-class ReviewSetDataQualityView(BaseModel):
-    bs_carry_forward_fields: str | None
-    bs_carry_forward_lag_days: float | None
-    edinet_failure_reasons: str | None
-    stale_fin_flag: bool | None
-    ttm_quality_ev_ebitda: Literal["exact", "approximated", "unavailable"] | None = None
-    ttm_quality_fcf: Literal["exact", "approximated", "unavailable"] | None = None
-
-
-class ReviewSetContextView(BaseModel):
-    next_earnings_status: (
-        Literal["scheduled", "scheduled_date_reached", "estimated", "unknown"] | None
-    )
-    next_earnings_estimated_date: str | None
-    margin_short_to_adv: float | None
-    tse_capital_policy_status: str | None
-    large_holding_filing_within_lookback: bool | None
-    tender_offer_filing_within_lookback: bool | None
-
-
-class ReviewSetAnalysisView(BaseModel):
-    identity_liquidity: ReviewSetIdentityLiquidityView
-    valuation: ReviewSetValuationView
-    current_earnings: ReviewSetCurrentEarningsView
-    normalized_earnings: ReviewSetNormalizedEarningsView
-    asset_value: ReviewSetAssetValueView
-    reinvestment: ReviewSetReinvestmentView | None
-    expected_return: ReviewSetExpectedReturnView
-    data_quality: ReviewSetDataQualityView
-    context: ReviewSetContextView
-
-
-class ReviewSetEntryView(BaseModel):
-    """One member of the exact approach Nomination union."""
-
-    ticker: str
-    name: str | None
-    sector_33: str | None
-    nominations: list[ReviewSetNominationView]
-    analysis: ReviewSetAnalysisView
-
-
-class ReviewSetView(BaseModel):
-    review_set_id: str
-    run_revision_id: str
-    created_at: datetime
-    entries: list[ReviewSetEntryView]
-
-
-class ReviewSetEntrySnapshotView(BaseModel):
-    """Machine coordinates frozen into one Research Triage judgment entry."""
-
-    name: str | None = None
-    sector_33: str | None = None
-    nominations: list[dict[str, object]] | None
-    expected_return: dict[str, object] | None
-    data_quality: dict[str, object] | None
-
-
-class ResearchTriageEntryView(BaseModel):
-    ticker: str
-    decision: str
-    priority: int | None = None
-    rationale: str
-    research_question: str | None = None
-    key_risk: str | None = None
-    # 判断時の機械座標。source run が prune された後もレビュー面が読めるよう、
-    # publish 時に judgment へ焼き込まれた値をそのまま返す。
-    review_set_entry_snapshot: ReviewSetEntrySnapshotView | None = None
-
-
-class ResearchTriageView(BaseModel):
-    research_triage_id: str
-    review_set_id: str
-    run_revision_id: str
-    as_of: date
-    published_at: datetime
-    entries: list[ResearchTriageEntryView]
-
-
-class ResearchTriageDetailView(ResearchTriageView):
-    payload: dict[str, object]
+    rows: list[StockAnalysisRowView]
 
 
 class ResearchRevisionView(BaseModel):
+    ticker: str
+    company_name: str
+    sector: str
+    summary: str
     as_of: date
-    thesis_id: str
-    disposition: str
-    pmax_raw_yen: float | None
-    review_id: str | None
+    published_at: datetime
+    assessment_id: str
+    stance: str
+    pmax_original_yen: float | None
+    review_id: str
     status: str
 
 
-class ThesisDetailView(BaseModel):
+class StockAssessmentDetailView(BaseModel):
     revision: ResearchRevisionView
-    projection: dict[str, object]
+    document: dict[str, Any]
+    review: dict[str, Any]
+    core_sha256: str
+    projection: dict[str, Any]
 
 
-class PositionReviewView(BaseModel):
-    position_review_id: str
-    as_of: date
-    thesis_id: str
-    action: str | None
-    note: str | None
+class StockAssessmentsView(BaseModel):
+    assessments: list[ResearchRevisionView]
+    next_cursor: str | None = None
 
 
 class MarketPointView(BaseModel):
@@ -552,7 +468,7 @@ class SecurityMarketMasterView(BaseModel):
 class SecurityPriceContextView(BaseModel):
     resolved_date: date
     close: float
-    price_basis: Literal["adjusted_close_preferred"]
+    price_basis: Literal["split_adjusted_close"]
     return_1d: float | None
     return_5d: float | None
     return_20d: float | None
@@ -616,9 +532,9 @@ class SecurityDetailView(BaseModel):
     sector: str | None
     holding: HoldingView | None
     revisions: list[ResearchRevisionView]
-    latest_thesis: ThesisDetailView | None
-    position_reviews: list[PositionReviewView]
-    security_analysis: SecurityAnalysisRowView | None
+    latest_assessment: StockAssessmentDetailView | None
+    investment_proposals: list[InvestmentProposalSummaryView]
+    stock_analysis: StockAnalysisRowView | None
     screening_run: ScreeningRunView | None
 
 
@@ -938,79 +854,120 @@ class MarketContextView(BaseModel):
     groups: list[IndicatorGroupView]
 
 
-class AllocationAlternativeView(BaseModel):
+class GateReasonView(BaseModel):
+    code: str
+    message: str
+
+
+class LimitTermsView(BaseModel):
+    """保存当時の具体条件。現在条件、注文受理、約定を推定しない。"""
+
+    side: Literal["buy", "sell"]
+    limit_price_yen: str
+    quantity: int
+    notional_yen: str
+    target_session: date
+    expires_at: datetime
+    valuation_as_of: date
+    maximum_entry_price_yen: str | None
+    price_grid_rule_id: str
+    conditions: list[str]
+    warnings: list[str]
+
+
+class InvestmentProposalItemView(BaseModel):
     ticker: str
-    disposition: str
+    action: Literal["buy", "hold", "sell", "no_action", "defer"]
     rationale: str
-    thesis_id: str
-    thesis_review_id: str | None
-    case_status: str | None
-    base_annualized_return_pct: float | None
-    pmax_raw_yen: float | None
-    valuation_as_of: str | None
-    thesis_projection: dict[str, Any] = Field(default_factory=dict)
-    thesis_review: dict[str, Any] | None = None
+    review_conditions: list[str]
+    assessment_ref: AssessmentRefView | None = None
+    timing: str | None = None
+    proposed_limit_yen: str | None = None
+    terms: LimitTermsView | None = None
+    terms_unavailable_reasons: list[GateReasonView] = Field(default_factory=list)
+    order_readiness: Literal["ready", "needs_terms", "not_applicable"]
+    position: dict[str, Any] | None = None
+    holding_basis: str | None = None
+    case_reassessment_reason: str | None = None
+    remaining_reward: dict[str, Any] | None = None
+    return_calculation_unavailable_reason: str | None = None
+    reason_code: str | None = None
+    blockers: list[GateReasonView] = Field(default_factory=list)
+    resume_conditions: list[str] = Field(default_factory=list)
+    assessment_projection: dict[str, Any] | None = None
+    assessment_review: dict[str, Any] | None = None
 
 
-class AssessmentReviewView(BaseModel):
-    attempt: int
-    reviewer_identity: str
-    reviewed_at: datetime
-    conclusion: str
-    open_findings: list[str]
-
-
-class CapitalAllocationAssessmentSummaryView(BaseModel):
-    capital_allocation_assessment_id: str
+class InvestmentProposalSummaryView(BaseModel):
+    proposal_id: str
     as_of: date
     published_at: datetime
-    decision: str
+    request_scope: str
     headline: str
-    research_triage_id: str | None
-    alternative_count: int
-    allocated_ticker: str | None
-    research_operation_id: str | None = None
+    item_count: int
+    tickers: list[str]
+    actions: list[str]
+    research_operation_id: str
 
 
-class CapitalAllocationAssessmentsView(BaseModel):
-    assessments: list[CapitalAllocationAssessmentSummaryView]
+class InvestmentProposalsView(BaseModel):
+    proposals: list[InvestmentProposalSummaryView]
+    next_cursor: str | None = None
 
 
 class UnfinishedResearchView(BaseModel):
     ticker: str
-    reason: str
+    purpose: Literal["new", "holding"]
+    unfinished_reason: str
     references: list[str]
 
 
-class CapitalAllocationAssessmentView(BaseModel):
-    capital_allocation_assessment_id: str
+class InvestmentProposalView(BaseModel):
+    proposal_id: str
     as_of: date
+    prepared_at: datetime
     published_at: datetime
-    decision: str
+    request_scope: str
     headline: str
-    research_triage_id: str | None
-    market_context_assessment_id: str | None
     comparison: str
-    foregone_alternatives: str
-    research_operation_id: str | None = None
-    selected_new_target_count: int | None = None
-    unfinished_research: list[UnfinishedResearchView] = Field(default_factory=list)
-    alternatives: list[AllocationAlternativeView]
-    content_review: AssessmentReviewView
+    forgone: str
+    market_context_assessment_id: str | None
+    research_scope: dict[str, Any]
+    saved_inputs: dict[str, Any]
+    items: list[InvestmentProposalItemView]
+    review: dict[str, Any]
+    draft_sha256: str
+    liquidity_context: list[dict[str, Any]]
+    warnings: list[str]
+    portfolio_exposure: dict[str, Any]
+    unfinished_research: list[UnfinishedResearchView]
+
+
+class InvestmentProposalPreviewView(BaseModel):
+    """取得時刻付きの現在再試算。保存Proposal/termsとは独立したread-only結果。"""
+
+    saved_proposal_id: str
+    previewed_at: datetime
+    status: Literal["unchanged", "changed", "blocked"]
+    current_inputs: dict[str, Any] | None
+    items: list[dict[str, Any]]
+    change_reasons: list[GateReasonView]
+    warnings: list[str] = Field(default_factory=list)
+    portfolio_exposure: dict[str, Any] | None = None
 
 
 type DeltaUnavailable = Literal[
     "screening_run",
     "previous_screening_run",
-    "review_set",
-    "review_set_estimate",
+    "candidates",
+    "candidate_estimate",
     "holdings",
     "market",
 ]
 
 
-class ReviewSetEntryDeltaView(BaseModel):
-    """A ticker whose presence in the Review Set changed between two runs.
+class CandidateEntryDeltaView(BaseModel):
+    """A ticker whose presence in the 候補 changed between two runs.
 
     ``disclosed_since_previous`` is ``null`` when the store that holds disclosure
     dates could not answer, which must not read as "no disclosure".
@@ -1022,8 +979,8 @@ class ReviewSetEntryDeltaView(BaseModel):
     disclosed_since_previous: bool | None
 
 
-class ReviewSetExpectedReturnDeltaView(BaseModel):
-    """A ticker in both Review Sets whose machine E[r] moved most."""
+class CandidateExpectedReturnDeltaView(BaseModel):
+    """A ticker in both 候補s whose machine E[r] moved most."""
 
     ticker: str
     company_name: str | None
@@ -1033,7 +990,7 @@ class ReviewSetExpectedReturnDeltaView(BaseModel):
 
 
 class HoldingDeltaView(BaseModel):
-    """Observed holding price movement; holding decisions belong to Position Review."""
+    """Observed holding price movement; holding decisions belong to Investment Proposal."""
 
     ticker: str
     company_name: str | None
@@ -1044,16 +1001,16 @@ class HoldingDeltaView(BaseModel):
 class DailyDeltaView(BaseModel):
     """What changed between the latest machine run and the one before it.
 
-    Every field is an observation or a comparison of observations. The view names no
-    cause and carries no recommendation: it tells the reader where to look, and the
-    decision to start a research cycle or a Position Review stays human.
+    The view compares observations, derived metrics, and machine estimates without
+    turning them into causal claims or recommendations. It shows where to look; the
+    decision to start new-stock or holding research stays human.
 
     ``unavailable`` lists the sections no store could answer, so an empty section is
     never read as "nothing changed". ``method_changed`` marks different screening or
-    Candidate Discovery method hashes, so no Review Set deltas are reported. Missing
-    method identity makes Review Set comparison unavailable. An E[r]-only model
+    Candidate Discovery method hashes, so no 候補 deltas are reported. Missing
+    method identity makes 候補 comparison unavailable. An E[r]-only model
     change keeps membership deltas but makes
-    ``review_set_estimate`` unavailable and suppresses estimate movers.
+    ``candidate_estimate`` unavailable and suppresses estimate movers.
     Missing E[r] on either side of a shared ticker also marks that section unavailable,
     while comparable tickers retain their movers.
     Holdings that cannot be compared are counts rather than rows: repeating the same
@@ -1066,9 +1023,9 @@ class DailyDeltaView(BaseModel):
     as_of: date | None
     previous_as_of: date | None
     method_changed: bool
-    entered: list[ReviewSetEntryDeltaView]
-    exited: list[ReviewSetEntryDeltaView]
-    er_moves: list[ReviewSetExpectedReturnDeltaView]
+    entered: list[CandidateEntryDeltaView]
+    exited: list[CandidateEntryDeltaView]
+    er_moves: list[CandidateExpectedReturnDeltaView]
     er_moves_total: int
     holdings: list[HoldingDeltaView]
     holdings_without_price: int

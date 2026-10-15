@@ -9,24 +9,22 @@ import sys
 from datetime import date, datetime
 
 import pytest
-from tests.helpers.research_triage import published_review_set, research_triage_payload
-from tests.helpers.screening_run import screening_run_payload, security_analysis
+from tests.helpers.research_selection import selection
+from tests.helpers.screening_run import screening_run_payload, stock_analysis
 
-from baibai_batch.analysis.model_input import build_model_input
 from baibai_engine.read_api import stored_machine_valuation
-from baibai_engine.read_api.ticker_profile import _load_security_analysis_context
-from baibai_engine.research.inputs import research_inputs
-from baibai_engine.research.triage.contracts import StoredResearchTriage
-from baibai_engine.screening.discovery.contracts import PublishedReviewSet
-from baibai_engine.screening.discovery.review_set import build_review_set
+from baibai_engine.read_api.ticker_profile import _load_stock_analysis_context
+from baibai_engine.research.inputs import collect_research_inputs, project_research_inputs
+from baibai_engine.research.selection import InputGap
+from baibai_engine.research.selection_query import load_analysis_snapshot
+from baibai_engine.screening.discovery.candidates import build_candidate_contexts
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.run_store import ScreeningRunStore
 from baibai_engine.screening.schema import DerivedMetrics
-from baibai_engine.screening.security_analysis_builder import (
-    build_security_analysis_metrics,
+from baibai_engine.screening.stock_analysis_builder import (
+    build_stock_analysis_metrics,
     expected_return_inputs,
 )
-from baibai_engine.storage.application.json import canonical_json
 from baibai_engine.valuation.estimates import estimate_expected_return
 from baibai_engine.valuation.metrics.models import FinancialSnapshot
 from baibai_engine.valuation.query import (
@@ -45,7 +43,7 @@ CUTOFF = date(2026, 9, 19)
 def test_saved_cf_sources_reach_research_without_recomputing_or_changing_selection(
     tmp_path, jq_ocf, edinet_ocf, capex, fcf
 ):
-    row = security_analysis(
+    row = stock_analysis(
         "1234",
         per_forward=10.0,
         metrics={
@@ -70,29 +68,29 @@ def test_saved_cf_sources_reach_research_without_recomputing_or_changing_selecti
     )
     original = copy.deepcopy(row)
     rules = load_screening_rules()
-    selection = canonical_json(
-        build_review_set(
-            [row],
-            rules=rules.candidate_discovery,
-            required_jpx_flags=rules.universe.required_jpx_flags,
-        )
+    selection = build_candidate_contexts(
+        [row],
+        rules=rules.candidate_discovery,
+        required_jpx_flags=rules.universe.required_jpx_flags,
     )
     path = tmp_path / "runs.sqlite"
     store = ScreeningRunStore(path)
     store.publish_run(
-        screening_run_payload(as_of=CUTOFF.isoformat(), security_analyses=[row]),
+        screening_run_payload(as_of=CUTOFF.isoformat(), stock_analyses=[row]),
         run_revision_id="cf-fixed",
+        rules=load_screening_rules(),
     )
     store.publish_run(
         screening_run_payload(
             as_of="2026-09-20",
-            security_analyses=[security_analysis("1234", metrics={"fcf_ttm": 999.0})],
+            stock_analyses=[stock_analysis("1234", metrics={"fcf_ttm": 999.0})],
         ),
         run_revision_id="future",
+        rules=load_screening_rules(),
     )
     before = path.read_bytes()
     now = datetime.fromisoformat("2026-09-19T18:00:00+09:00")
-    inputs = research_inputs(
+    inputs = _project_inputs(
         tickers=("1234", "9999"),
         as_of=CUTOFF,
         cutoff=now,
@@ -131,15 +129,12 @@ def test_saved_cf_sources_reach_research_without_recomputing_or_changing_selecti
     assert inputs["securities"]["9999"]["cash_flow"] is None
     assert row == original
     assert (
-        canonical_json(
-            build_review_set(
-                [row],
-                rules=rules.candidate_discovery,
-                required_jpx_flags=rules.universe.required_jpx_flags,
-            )
+        build_candidate_contexts(
+            [row],
+            rules=rules.candidate_discovery,
+            required_jpx_flags=rules.universe.required_jpx_flags,
         )
-        == selection
-    )
+    ) == selection
     assert path.read_bytes() == before
 
 
@@ -162,7 +157,7 @@ def test_absent_cf_and_document_metadata_stay_missing():
         (None, 0.03, "unavailable", -0.03),
     ],
 )
-def test_saved_carry_inputs_reach_valuation_triage_and_research_without_changing_er(
+def test_saved_carry_inputs_reach_valuation_candidates_and_research_without_changing_er(
     tmp_path, dividend, share_change, basis, carry
 ):
     financial = FinancialSnapshot(
@@ -190,18 +185,19 @@ def test_saved_carry_inputs_reach_valuation_triage_and_research_without_changing
     assert estimate is not None
     assert estimate.carry_annual == pytest.approx(carry)
     assert estimate.er_annual == pytest.approx(0.0375 + carry)
-    row = security_analysis(
+    row = stock_analysis(
         "1234",
         per_forward=financial.per_forward,
         pbr=financial.pbr,
-        metrics=build_security_analysis_metrics(
+        metrics=build_stock_analysis_metrics(
             financial, derived=derived, freshness_warning_count=0, estimate=estimate
         ),
     )
     path = tmp_path / "runs.sqlite"
     ScreeningRunStore(path).publish_run(
-        screening_run_payload(as_of=CUTOFF.isoformat(), security_analyses=[row]),
+        screening_run_payload(as_of=CUTOFF.isoformat(), stock_analyses=[row]),
         run_revision_id="carry-inputs",
+        rules=load_screening_rules(),
     )
     before = path.read_bytes()
     valuation = stored_machine_valuation(path, ticker="1234", as_of=CUTOFF).valuation
@@ -211,7 +207,7 @@ def test_saved_carry_inputs_reach_valuation_triage_and_research_without_changing
     assert "not observed zero" in valuation.carry_missing_assumption
     assert valuation.assumptions == estimate.assumptions
     now = datetime.fromisoformat("2026-09-19T18:00:00+09:00")
-    research = research_inputs(
+    research = _project_inputs(
         tickers=("1234",),
         as_of=CUTOFF,
         cutoff=now,
@@ -221,50 +217,15 @@ def test_saved_carry_inputs_reach_valuation_triage_and_research_without_changing
         indicators_path=tmp_path / "absent-indicators",
         app_path=tmp_path / "absent-app",
     )["securities"]["1234"]["machine_valuation"]["estimate"]
-    rules = load_screening_rules()
-    raw_set = {
-        **build_review_set(
-            [row],
-            rules=rules.candidate_discovery,
-            required_jpx_flags=rules.universe.required_jpx_flags,
-        ),
-        "review_set_id": "review-set-carry",
-        "run_revision_id": "carry-inputs",
-        "as_of": CUTOFF,
-        "created_at": now,
-        "screening_rules_hash": "synthetic",
-    }
-    model_input = build_model_input(PublishedReviewSet.model_validate(raw_set), None, known_at=now)
-    expected = model_input.model_dump(mode="json")["candidates"][0]["snapshot"]["analysis"][
-        "expected_return"
-    ]
     for key in (
         "dividend_yield",
         "net_share_change_yoy",
         "dividend_basis",
         "carry_missing_assumption",
     ):
-        assert expected[key] == research[key] == getattr(valuation, key)
-    assert (
-        expected["er_carry_annual"] == valuation.carry_annual == research["carry_annual"] == carry
-    )
-    assert "missing or absent" in model_input.instruction
+        assert research[key] == getattr(valuation, key)
+    assert valuation.carry_annual == research["carry_annual"] == carry
     assert path.read_bytes() == before
-
-
-def test_frozen_review_set_and_triage_keep_absent_carry_fields_and_original_payload():
-    raw_set = published_review_set()
-    original = canonical_json(raw_set)
-    typed_set = PublishedReviewSet.model_validate(raw_set)
-    assert canonical_json(typed_set.model_dump(mode="json")) == original
-    raw_triage = research_triage_payload()
-    original_triage = canonical_json(raw_triage)
-    saved = StoredResearchTriage.from_payload(raw_triage)
-    expected = saved.entries[0].candidate_snapshot.analysis.expected_return.model_dump(mode="json")
-    assert expected == raw_triage["entries"][0]["candidate_snapshot"]["analysis"]["expected_return"]
-    assert canonical_json(saved.publication_payload()) == original_triage
-    assert "dps_actual_annual" not in expected
-    assert "dps_forecast_annual" not in expected
 
 
 @pytest.mark.parametrize(
@@ -276,10 +237,10 @@ def test_frozen_review_set_and_triage_keep_absent_carry_fields_and_original_payl
         (12.0, 0.0, "forecast_annual"),
     ],
 )
-def test_saved_normalized_dps_reaches_review_set_and_triage_input_without_selection_change(
+def test_saved_normalized_dps_does_not_change_candidate_context_or_raw_values(
     actual, forecast, basis
 ):
-    row = security_analysis(
+    row = stock_analysis(
         "1234",
         per_forward=10.0,
         metrics={
@@ -297,38 +258,16 @@ def test_saved_normalized_dps_reaches_review_set_and_triage_input_without_select
         "rules": rules.candidate_discovery,
         "required_jpx_flags": rules.universe.required_jpx_flags,
     }
-    before = build_review_set([row], **kwargs)
+    before = build_candidate_contexts([row], **kwargs)
     row_without_dps = copy.deepcopy(row)
     del row_without_dps["metrics"]["dps_actual_annual"]
     del row_without_dps["metrics"]["dps_forecast_annual"]
-    selection = build_review_set([row_without_dps], **kwargs)
-    assert before["method"] == selection["method"]
-    assert before["diagnostics"] == selection["diagnostics"]
-    assert [entry["nominations"] for entry in before["entries"]] == [
-        entry["nominations"] for entry in selection["entries"]
-    ]
-    expected = before["entries"][0]["analysis"]["expected_return"]
-    assert expected["dps_actual_annual"] == actual
-    assert expected["dps_forecast_annual"] == forecast
-    assert expected["dividend_basis"] == basis
-    assert expected["er_annual"] == 0.05
-    assert "dps_actual_annual" in expected
-    assert "dps_forecast_annual" in expected
-    published = PublishedReviewSet.model_validate(
-        {
-            **before,
-            "review_set_id": "review-set-dps",
-            "run_revision_id": "run-dps",
-            "as_of": CUTOFF,
-            "created_at": datetime.fromisoformat("2026-09-19T18:00:00+09:00"),
-            "screening_rules_hash": "synthetic",
-        }
-    )
-    model_input = build_model_input(published, None, known_at=published.created_at)
-    projected = model_input.model_dump(mode="json")["candidates"][0]["snapshot"]["analysis"][
-        "expected_return"
-    ]
-    assert projected == expected
+    selection = build_candidate_contexts([row_without_dps], **kwargs)
+    assert before == selection
+    assert row["metrics"]["dps_actual_annual"] == actual
+    assert row["metrics"]["dps_forecast_annual"] == forecast
+    assert row["metrics"]["dividend_basis"] == basis
+    assert row["metrics"]["er_annual"] == 0.05
 
 
 def publish(path, day, revision, *, price=1000, anchor=1500, run_at=None):
@@ -336,8 +275,8 @@ def publish(path, day, revision, *, price=1000, anchor=1500, run_at=None):
         screening_run_payload(
             as_of=day,
             run_at=run_at,
-            security_analyses=[
-                security_analysis(
+            stock_analyses=[
+                stock_analysis(
                     "1234",
                     metrics={
                         "market_price_yen": price,
@@ -353,6 +292,7 @@ def publish(path, day, revision, *, price=1000, anchor=1500, run_at=None):
             ],
         ),
         run_revision_id=revision,
+        rules=load_screening_rules(),
     )
 
 
@@ -362,20 +302,20 @@ def test_saved_non_candidate_and_profile_use_latest_run_before_cutoff(tmp_path):
     publish(path, "2026-09-19", "early", anchor=1400, run_at="2026-09-19T09:00:00+09:00")
     publish(path, "2026-09-19", "last", anchor=1600)
     publish(path, "2026-09-20", "future", anchor=2000)
-    # No Review Set exists; membership cannot authorize or suppress this read.
+    # Candidate membership cannot authorize or suppress this saved-analysis read.
     result = stored_machine_valuation(path, ticker="1234", as_of=CUTOFF)
     assert result.run_revision_id == "last"
     assert result.as_of == CUTOFF
     assert result.valuation.sector_median_anchor_yen == 1600
     assert result.valuation.er_annual == 0.075
     assert anchor_gap_pct(result.valuation) == 60
-    context = _load_security_analysis_context(path, "1234", CUTOFF, run_revision_id=None)
+    context = _load_stock_analysis_context(path, "1234", CUTOFF, run_revision_id=None)
     assert context["screening_run_revision_id"] == result.run_revision_id
-    assert context["security_analysis"]["metrics"]["fv_sector_median_yen"] == 1600
+    assert context["stock_analysis"]["metrics"]["fv_sector_median_yen"] == 1600
     assert stored_machine_valuation(path, ticker="1234", as_of=date(2026, 9, 17)) is None
 
 
-@pytest.mark.parametrize("entry", [stored_machine_valuation, _load_security_analysis_context])
+@pytest.mark.parametrize("entry", [stored_machine_valuation, _load_stock_analysis_context])
 def test_fixed_run_checks_cutoff_and_identity(tmp_path, entry):
     path = tmp_path / "runs.sqlite"
     publish(path, "2026-09-19", "fixed")
@@ -411,7 +351,7 @@ def test_missing_store_scope_and_coordinates_are_distinct(tmp_path):
     for raw in ({}, {"metrics": {}}, {"metrics": None}):
         assert machine_valuation_from_analysis(raw).sector_median_anchor_yen is None
     connection = sqlite3.connect(path)
-    connection.execute("DROP TABLE security_analysis")
+    connection.execute("DROP TABLE stock_analysis")
     connection.close()
     with pytest.raises(sqlite3.OperationalError):
         stored_machine_valuation(path, ticker="1234", as_of=CUTOFF)
@@ -468,3 +408,45 @@ assert not any(name.startswith(("baibai_engine.research", "baibai_engine.read_ap
         ],
         check=True,
     )
+
+
+def _project_inputs(
+    *,
+    tickers,
+    as_of,
+    cutoff,
+    known_at,
+    market_path,
+    runs_path,
+    indicators_path,
+    app_path,
+    run_revision_id=None,
+):
+    revision = run_revision_id or "carry-inputs"
+    gaps = tuple(
+        InputGap(
+            ticker=t, reason="synthetic analysis unavailable", attempted_sources=("saved source",)
+        )
+        for t in tickers
+        if t == "9999"
+    )
+    snapshot = load_analysis_snapshot(
+        run_revision_id=revision,
+        research_as_of=as_of,
+        tickers=tickers,
+        gaps=gaps,
+        known_at=known_at,
+        runs_path=runs_path,
+    )
+    inputs = collect_research_inputs(
+        snapshot=snapshot,
+        input_gaps=gaps,
+        tickers=tickers,
+        research_as_of=as_of,
+        input_known_at=cutoff,
+        market_path=market_path,
+        indicators_path=indicators_path,
+        app_path=app_path,
+    )
+    value = selection(now=known_at, tickers=tickers)
+    return project_research_inputs(value.model_copy(update={"inputs": inputs}))

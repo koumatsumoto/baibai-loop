@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from contextlib import closing
+from datetime import date
 from pathlib import Path
 
 from baibai_engine.position.ledger import (
@@ -15,7 +16,9 @@ from baibai_engine.position.ledger import (
     summarize_portfolio,
 )
 from baibai_engine.position.ledger_read import load_ledger_document
+from baibai_engine.position.market_source import quantity_basis_is_confirmed
 from baibai_engine.position.valuation import current_portfolio
+from baibai_engine.read_api.market import read_rows as read_market_rows
 from baibai_engine.read_api.sqlite import (
     read_application_rows as read_rows,
 )
@@ -27,9 +30,30 @@ __all__ = [
     "current_portfolio",
     "list_portfolio_outcome_payloads",
     "portfolio_ledger_document",
+    "price_comparison_basis_is_confirmed",
     "replay_events_through",
     "summarize_portfolio",
 ]
+
+
+def price_comparison_basis_is_confirmed(
+    path: Path, ticker: str, *, from_date: date, through_date: date
+) -> bool:
+    """Confirm an original observed price's share units through the current quote.
+
+    The original price date must exist in the local series. The holding quantity
+    reader also accepts acquisition dates without a bar, so its range check alone
+    cannot establish this price comparison's starting basis.
+    """
+    return bool(
+        read_market_rows(
+            path,
+            "SELECT 1 FROM jquants_daily_bars WHERE ticker=? AND traded_at=?",
+            (ticker, from_date.isoformat()),
+        )
+    ) and quantity_basis_is_confirmed(
+        sqlite_path=path, ticker=ticker, from_date=from_date, through_date=through_date
+    )
 
 
 def list_portfolio_outcome_payloads(db_path: Path) -> list[dict[str, object]]:
@@ -56,20 +80,3 @@ def _publication(outcome_id: str, encoded: str) -> dict[str, object]:
     if not isinstance(payload, Mapping):
         raise ValueError("portfolio outcome payload must be an object")
     return {"outcome_id": outcome_id, **payload}
-
-
-def ledger_rows(
-    path: Path,
-    *,
-    kind: str,
-    filters: dict[str, object],
-    after: list[str | int | float] | None = None,
-    limit: int = 1,
-) -> list[dict[str, object]]:
-    from baibai_engine.position.ledger_read import stored_ledger_rows
-    from baibai_engine.storage.application.read import connect_read_only
-
-    from .stored import required_read
-
-    with required_read(path, connect_read_only) as connection:
-        return stored_ledger_rows(connection, kind=kind, filters=filters, after=after, limit=limit)

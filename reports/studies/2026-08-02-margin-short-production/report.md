@@ -2,11 +2,13 @@
 title: "空売り残/ADVの長期production判断"
 summary: "固定3y/5y authorityは通過したが、独立3y confirmのintegrity不足によりproduction採用を見送る。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-02
 ---
 
 # 空売り残/ADVの長期production判断
+
+これは当時の固定週次入力・計算規約・採否条件による履歴であり、現在の候補選定や日次信用残の仕様ではない。空売り残は対象データの信用売残に限られ、機関投資家の報告残高や市場全体の空売りを代表しない。control は各属性で別々に層別した比較であり、同時調整ではない。
 
 価値tier: T1 — 高い空売り残/ADVと将来劣後の関連を一次research前に示し、バリュートラップへ調査枠を使う確率を下げる。
 
@@ -20,7 +22,7 @@ date: 2026-08-02
 
 ## 固定scopeとartifact
 
-事前登録はcommit `0e37eb3`、結果を読む前に固定したoptional metric authorityとsurvivorship判定はcommit `32e00ed` である。入力、方向、cohort、control、採否条件は [`2026-08-02-margin-short-production-preregistration.md`](.../2026-08-02-margin-short-production/preregistration/report.md) を正本とする。
+事前登録はcommit `0e37eb3`、結果を読む前に固定したoptional metric authorityとsurvivorship判定はcommit `32e00ed` である。入力、方向、cohort、control、採否条件は [`2026-08-02-margin-short-production-preregistration.md`](../2026-08-02-margin-short-production/preregistration.md) を正本とする。
 
 - 独立3y confirm: `2023-06-30`、`2023-07-31`
 - 固定production authority: `2020-01-31`、`2020-05-29`、`2021-01-29`、`2021-05-31` × `3y` / `5y`

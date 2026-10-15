@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import shutil
 import sqlite3
+from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -11,14 +12,17 @@ import pytest
 from tests.engine.test_tradingview_collector import DAY, NOW, payload, store, stored
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.screening_sqlite import make_master_records
-from tools.l1_mcp.contract import Query
-from tools.l1_mcp.query import execute_query
 
 from baibai_engine.external_assessment.tradingview.collector import collect, preflight_snapshot
 from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.hydrate import dehydrate_market_store, hydrate_market_store
 from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.storage.lake.reader import resolve_release
+from baibai_engine.storage.lake.reader import (
+    accepted_dataset,
+    materialize_partitions,
+    resolve_release,
+    selected_partitions,
+)
 from baibai_engine.storage.lake.release import create_l1_release
 from baibai_engine.storage.lake.writer import (
     export_legacy_sqlite,
@@ -69,7 +73,7 @@ def test_l1_only_publish_restores_snapshot_without_market_push(
         requested_start=DAY,
         requested_end=date(2026, 9, 21),
     )
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute(
             "INSERT INTO jquants_daily_bars(ticker,traded_at,close) VALUES (?,?,?)",
             ("1000", DAY.isoformat(), 100),
@@ -145,7 +149,7 @@ def test_l1_only_publish_restores_snapshot_without_market_push(
     assert current.data_as_of == DAY
 
     # The remote market object remains the prior dehydrated copy: only L1 advanced.
-    with sqlite3.connect(remote) as conn:
+    with closing(sqlite3.connect(remote)) as conn:
         assert (
             conn.execute("SELECT COUNT(*) FROM tradingview_forecast_snapshots").fetchone()[0] == 0
         )
@@ -199,26 +203,17 @@ def test_l1_only_publish_restores_snapshot_without_market_push(
         (current, current_cache, 50),
         (completed, completed_cache, 2500),
     ):
-        query = Query.model_validate(
-            {
-                "release_ref": {
-                    "release_id": release.release_id,
-                    "manifest_sha256": release.manifest_sha256,
-                },
-                "sources": [
-                    {
-                        "dataset": NAME,
-                        "alias": "tv",
-                        "from": today.isoformat(),
-                        "to": today.isoformat(),
-                    }
-                ],
-                "sql": "SELECT COUNT(*) AS rows FROM tv WHERE snapshot_date = $day",
-                "parameters": {"day": today.isoformat()},
-                "max_rows": 1,
-            }
+        paths = materialize_partitions(
+            cache,
+            dataset=accepted_dataset(release, NAME),
+            partitions=selected_partitions(release, NAME, periods=[(today.year, today.month)]),
         )
-        assert execute_query(release, query, cache)["rows"] == [[expected]]
+        with lake_session() as session:
+            result = session.connection.execute(
+                "SELECT COUNT(*) FROM read_parquet($files) WHERE snapshot_date = $day",
+                {"files": [str(path) for path in paths], "day": today.isoformat()},
+            ).fetchone()
+        assert result == (expected,)
 
 
 def test_month_partition_fixed_query_and_hydrate_roundtrip(
@@ -232,7 +227,7 @@ def test_month_partition_fixed_query_and_hydrate_roundtrip(
 
     asyncio.run(collect(path, DAY, fetch, clock=lambda: NOW))
     next_day = date(2026, 10, 1)
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute("UPDATE jquants_master_snapshots SET snapshot_date=?", (next_day.isoformat(),))
         conn.execute("UPDATE jquants_market_calendar SET day=?", (next_day.isoformat(),))
     asyncio.run(collect(path, next_day, fetch, clock=lambda: datetime(2026, 10, 1, 7, tzinfo=UTC)))
@@ -260,22 +255,23 @@ def test_month_partition_fixed_query_and_hydrate_roundtrip(
     source = LocalMirrorSource(mirror)
     release = resolve_release(source, release_id="tv-release", manifest_sha256=digest)
     cache = LakeObjectCache(root=mirror, source=source)
-    request = Query.model_validate(
-        {
-            "release_ref": {"release_id": "tv-release", "manifest_sha256": digest},
-            "sources": [
-                {"dataset": NAME, "alias": "tv", "from": DAY.isoformat(), "to": "2026-10-01"}
-            ],
-            "sql": "SELECT snapshot_date,ticker,fetch_status,eps_forecast_next_fy FROM tv ORDER BY snapshot_date,ticker",
-            "max_rows": 4,
-        }
+    paths = materialize_partitions(
+        cache,
+        dataset=accepted_dataset(release, NAME),
+        partitions=selected_partitions(release, NAME, periods=[(2026, 9), (2026, 10)]),
     )
-    query = execute_query(release, request, cache)
-    assert query["rows"] == [
-        ["2026-09-18", "1000", "ok", -5.0],
-        ["2026-09-18", "1001", "unresolved", None],
-        ["2026-10-01", "1000", "ok", -5.0],
-        ["2026-10-01", "1001", "unresolved", None],
+    with lake_session() as session:
+        rows = session.connection.execute(
+            "SELECT snapshot_date,ticker,fetch_status,eps_forecast_next_fy "
+            "FROM read_parquet($files) WHERE snapshot_date BETWEEN $start AND $end "
+            "ORDER BY snapshot_date,ticker",
+            {"files": [str(path) for path in paths], "start": DAY.isoformat(), "end": "2026-10-01"},
+        ).fetchall()
+    assert rows == [
+        (DAY.isoformat(), "1000", "ok", -5.0),
+        (DAY.isoformat(), "1001", "unresolved", None),
+        (next_day.isoformat(), "1000", "ok", -5.0),
+        (next_day.isoformat(), "1001", "unresolved", None),
     ]
     hydrated = tmp_path / "hydrated.sqlite"
     open_connection(hydrated).close()

@@ -1,12 +1,12 @@
 """Run the local daily machine batch as one command.
 
-Screening cache acquisition and its paired run/Review Set publication are
+Screening cache acquisition and its single Stock Analysis run publication are
 independent of Market Context indicator refresh. A Japan holiday skips only
 Screening. Validated L1 chunks remain committed after a later source failure.
 The complete serving image is materialized once; unchanged Screening history
 is retained. Domain failures are reported with exit 3 after the export, while an
 unsafe/unreadable store or failed export remains fatal. Run exit 2 is a published
-pair with partial-quality warnings.
+run with partial-quality warnings.
 """
 
 from __future__ import annotations
@@ -37,6 +37,7 @@ from baibai_engine.batch_api import (
     MARKET_DB_PATH,
     RUNS_DB_PATH,
     repository_root_error,
+    validate_candidate_run,
 )
 from baibai_engine.read_api import market_calendar_business_day
 
@@ -126,7 +127,7 @@ class DailyBatchResult:
     asof: str
     exit_code: int
     run_revision_id: str | None = None
-    review_set_id: str | None = None
+    candidate_count: int | None = None
     deferred_failure_count: int = 0
     steps: tuple[StepResult, ...] = ()
     screening_status: str = "published"
@@ -139,7 +140,7 @@ class DailyBatchResult:
             "asof": self.asof,
             "exit_code": self.exit_code,
             "run_revision_id": self.run_revision_id,
-            "review_set_id": self.review_set_id,
+            "candidate_count": self.candidate_count,
             "deferred_failure_count": self.deferred_failure_count,
             "steps": [step.to_json() for step in self.steps],
             "screening_status": self.screening_status,
@@ -280,7 +281,7 @@ def _delta_ticker_labels(rows: object) -> list[str]:
 
 
 def _read_daily_delta(path: Path, notice: _Notice) -> None:
-    """Carry the day's review-set entries and exits into the notice.
+    """Carry the day's candidate entries and exits into the notice.
 
     The notification is the only channel that reaches a reader without being
     opened, so the names that moved belong in it. ``delta_measured`` separates a
@@ -302,7 +303,7 @@ def _read_daily_delta(path: Path, notice: _Notice) -> None:
     unavailable = payload.get("unavailable")
     if not isinstance(unavailable, list):
         return
-    for section in ("screening_run", "previous_screening_run", "review_set"):
+    for section in ("screening_run", "previous_screening_run", "candidates"):
         if section in unavailable:
             notice.delta_unmeasured_reason = section
             return
@@ -345,54 +346,34 @@ def _stderr_summary(stderr: str) -> str:
 @dataclass(frozen=True, slots=True)
 class _RunView:
     run_revision_id: str
-    review_set_id: str
     universe_size: int
-    analyzed_security_count: int
+    analyzed_count: int
+    candidate_count: int
 
 
 def _read_run_view(run_yaml: Path) -> _RunView:
-    """Read run identity and Security Analysis counts from the run YAML view.
-
-    ``screening run --output-path`` writes ``universe_size`` and ``security_analyses``
-    alongside ``run_revision_id``; the counts default to 0 when a view omits them
-    so a minimal view still surfaces the stable ``run_revision_id`` contract.
-    """
-
-    if not run_yaml.is_file():
-        # failure policy: 2 — review-set publish cannot bind to a run without its publication ID.
-        raise BatchStepError(
-            "screening run did not write the --output-path YAML view",
-            stage="screening-run",
-        )
+    """Read identity/counts from the committed run export; invalid is not empty."""
     try:
         payload = yaml.safe_load(run_yaml.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError) as exc:
-        # failure policy: 2 — unreadable input cannot identify the Review Set source run.
+        if not isinstance(payload, dict):
+            raise ValueError("stock analysis run export must be an object")
+        revision = payload.get("run_revision_id")
+        if not isinstance(revision, str) or not revision:
+            raise ValueError("run_revision_id must be a non-empty string")
+        universe = payload.get("universe_size")
+        if type(universe) is not int or universe < 0:
+            raise ValueError("universe_size must be a non-negative integer")
+        analyses = payload.get("stock_analyses")
+        if not isinstance(analyses, list) or any(not isinstance(row, dict) for row in analyses):
+            raise ValueError("stock_analyses must be an array of objects")
+        validate_candidate_run(payload, analyses)
+        count = payload["candidate_discovery"]["diagnostics"]["candidate_count"]
+        return _RunView(revision, universe, len(analyses), count)
+    except (OSError, yaml.YAMLError, ValueError) as error:
         raise BatchStepError(
-            f"screening run YAML view is unreadable: {exc}",
+            f"screening run YAML view is invalid or unreadable: {error}",
             stage="screening-run",
-        ) from exc
-    if isinstance(payload, dict):
-        run_revision_id = payload.get("run_revision_id")
-        review_set_id = payload.get("review_set_id")
-        if (
-            isinstance(run_revision_id, str)
-            and run_revision_id
-            and isinstance(review_set_id, str)
-            and review_set_id
-        ):
-            universe = payload.get("universe_size")
-            analyses = payload.get("security_analyses")
-            universe_size = (
-                universe if isinstance(universe, int) and not isinstance(universe, bool) else 0
-            )
-            analyzed_security_count = len(analyses) if isinstance(analyses, list) else 0
-            return _RunView(run_revision_id, review_set_id, universe_size, analyzed_security_count)
-    # failure policy: 2 — review-set publish would otherwise point at an unknown run publication.
-    raise BatchStepError(
-        "screening run YAML view does not contain run_revision_id and review_set_id",
-        stage="screening-run",
-    )
+        ) from error
 
 
 @dataclass(frozen=True, slots=True)
@@ -502,13 +483,12 @@ def _run_screening_run(
 class _Notice:
     """What the batch leaves for the Discord notifier on every terminal path.
 
-    The as-of it ran for, whether the business-day gate skipped it, the first
+    The as-of it ran for, whether Screening was updated, the first
     fatal or deferred failure stage, and the names that entered or left the
-    Review Set. The exit code carries the outcome itself.
+    candidate list. The exit code carries the outcome itself.
     """
 
     asof: str = ""
-    skipped: bool = False
     screening_status: str = "pending"
     market_updated: bool = False
     failed_stage: str | None = None
@@ -520,7 +500,6 @@ class _Notice:
     def to_json(self) -> dict[str, object]:
         return {
             "asof": self.asof,
-            "skipped": self.skipped,
             "screening_status": self.screening_status,
             "market_updated": self.market_updated,
             "failed_stage": self.failed_stage,
@@ -623,7 +602,7 @@ def run_daily_batch_structured(
         asof=result.asof,
         exit_code=result.exit_code,
         run_revision_id=result.run_revision_id,
-        review_set_id=result.review_set_id,
+        candidate_count=result.candidate_count,
         deferred_failure_count=result.deferred_failure_count,
         steps=tuple(steps),
         screening_status=notice.screening_status,
@@ -796,8 +775,8 @@ def _execute_daily_batch(
     # The exchange publishes its schedule only weeks ahead, so a follow-up task
     # created a quarter out carries an estimate until the real date enters that
     # window. Comparing daily is what surfaces the day it becomes knowable. It
-    # reads nothing the publish produced and writes nothing, so it runs after the
-    # publish and a failure degrades rather than blocking it.
+    # reads nothing the local export produced and writes nothing, so it runs after
+    # export and a failure degrades rather than blocking it.
     try:
         _run_step(
             runner,
@@ -820,12 +799,13 @@ def _execute_daily_batch(
             "daily batch done: "
             f"asof={asof_arg}; screening={notice.screening_status}; "
             f"run_revision_id={None if run_view is None else run_view.run_revision_id}; "
-            f"review_set_id={None if run_view is None else run_view.review_set_id}",
+            f"candidate_count={None if run_view is None else run_view.candidate_count}",
             flush=True,
         )
     if deferred_failures:
         print(
-            f"error: export published, but {len(deferred_failures)} deferred step(s) failed:",
+            "error: read models exported locally, "
+            f"but {len(deferred_failures)} deferred step(s) failed:",
             file=sys.stderr,
         )
         for failure in deferred_failures:
@@ -835,7 +815,7 @@ def _execute_daily_batch(
             asof_arg,
             _EXIT_DEFERRED_FAILURE,
             None if run_view is None else run_view.run_revision_id,
-            None if run_view is None else run_view.review_set_id,
+            None if run_view is None else run_view.candidate_count,
             len(deferred_failures),
         )
     return DailyBatchResult(
@@ -843,7 +823,7 @@ def _execute_daily_batch(
         asof_arg,
         0,
         None if run_view is None else run_view.run_revision_id,
-        None if run_view is None else run_view.review_set_id,
+        None if run_view is None else run_view.candidate_count,
     )
 
 

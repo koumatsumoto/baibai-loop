@@ -1,116 +1,46 @@
-"""Operationが所有する有限対象と成果。判断・取引事実の第二正本を作らない。"""
+"""Operationの有限対象と評価/提案への参照。本文の第二正本を作らない。"""
 
 from __future__ import annotations
 
-from datetime import date
-from hashlib import sha256
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Literal, Self
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from baibai_engine.research.operation.models import OperationPayload
-from baibai_engine.research.position_review import PositionReviewDocument
-from baibai_engine.storage.application.json import canonical_json
+from baibai_engine.research.proposal import (
+    ProposalResearchScope,
+    ReviewedOutcome,
+    UnfinishedOutcome,
+)
+from baibai_engine.research.selection import (
+    ResearchSelection,
+    ResearchTarget,
+    parse_selection,
+    selection_sha256,
+    selection_targets,
+)
 
 
-class ExplicitResearchRun(BaseModel):
-    """開始時にcanonical runから引用した、選択銘柄だけの機械根拠。"""
+class ReviewedTarget(ReviewedOutcome):
+    """新規/保有に共通の公開済み評価pairへの正確な参照。"""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    # 候補順位は開始資格ではない。明示要求はTriageの優先選別と別の開始根拠。
-    # run整理後も当時の根拠を読めるよう、選択銘柄だけを開始時に固定する。
-    # docs/reference/analysis-operations.md#explicit-research-source / refs #1481
-
-    kind: Literal["user_selected_run"] = "user_selected_run"
-    run_revision_id: str = Field(min_length=1)
-    as_of: date
-    run_at: AwareDatetime
-    run_metadata: dict[str, Any]
-    analyses: dict[str, dict[str, Any]]
-
-    @model_validator(mode="after")
-    def ticker_identity(self) -> Self:
-        if any(row.get("ticker") != ticker for ticker, row in self.analyses.items()):
-            raise ValueError("explicit run analysis ticker differs from its key")
-        return self
-
-    def binding(self) -> dict[str, str]:
-        return {
-            "run_revision_id": self.run_revision_id,
-            "snapshot_sha256": sha256(
-                canonical_json(self.model_dump(mode="json")).encode()
-            ).hexdigest(),
-        }
-
-
-class ResearchTarget(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    ticker: str = Field(pattern=r"^[0-9A-Z]{4}$")
-    purpose: Literal["new", "holding"]
-
-
-class ResearchSelection(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    kind: Literal["research_selection"] = "research_selection"
-    request: str = Field(min_length=1, pattern=r"\S")
-    research_triage_id: str | None = None
-    explicit_run: ExplicitResearchRun | None = Field(default=None, exclude_if=lambda v: v is None)
-    targets: tuple[ResearchTarget, ...] = Field(max_length=3)
-
-    @model_validator(mode="after")
-    def fixed_subjects(self) -> Self:
-        if len({item.ticker for item in self.targets}) != len(self.targets):
-            raise ValueError("selected tickers must be unique across new and holding purposes")
-        if self.research_triage_id and self.explicit_run is not None:
-            raise ValueError("Research Triage and explicit run are mutually exclusive sources")
-        if self.explicit_run is not None and set(self.explicit_run.analyses) != {
-            item.ticker for item in self.targets
-        }:
-            raise ValueError("explicit analysis snapshot must exactly cover the fixed targets")
-        if (
-            any(item.purpose == "new" for item in self.targets)
-            and not self.research_triage_id
-            and self.explicit_run is None
-        ):
-            raise ValueError("new research targets require Research Triage admission")
-        return self
-
-
-class ReviewedTarget(ResearchTarget):
-    purpose: Literal["new"] = "new"
     status: Literal["reviewed"] = "reviewed"
-    thesis_id: str = Field(min_length=1)
-    thesis_core_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    thesis_review_id: str = Field(min_length=1)
 
 
-class HoldingProposal(ResearchTarget):
-    purpose: Literal["holding"] = "holding"
-    status: Literal["proposal"] = "proposal"
-    draft: PositionReviewDocument
-    checked_at: AwareDatetime | None = None
-    thesis_core_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    thesis_review_id: str = Field(min_length=1)
-
-
-class UnfinishedTarget(ResearchTarget):
+class UnfinishedTarget(UnfinishedOutcome):
     status: Literal["unfinished"] = "unfinished"
-    reason: str = Field(min_length=1, pattern=r"\S")
-    references: tuple[str, ...] = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def references_present(self) -> Self:
-        if any(not value.strip() for value in self.references):
-            raise ValueError("unfinished references must be non-empty")
-        return self
 
 
-type ResearchOutcome = Annotated[
-    ReviewedTarget | HoldingProposal | UnfinishedTarget, Field(discriminator="status")
-]
+type ResearchOutcome = Annotated[ReviewedTarget | UnfinishedTarget, Field(discriminator="status")]
+
+
+class ProposalRef(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    proposal_id: str = Field(
+        pattern=r"^investment-proposal-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    )
+    draft_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class ResearchProgress(BaseModel):
@@ -118,28 +48,12 @@ class ResearchProgress(BaseModel):
 
     kind: Literal["research_progress"] = "research_progress"
     outcomes: tuple[ResearchOutcome, ...] = ()
+    proposal_ref: ProposalRef | None = None
 
     @model_validator(mode="after")
     def unique_subjects(self) -> Self:
         if len({item.ticker for item in self.outcomes}) != len(self.outcomes):
-            raise ValueError("a target must have exactly one completed or unfinished outcome")
-        return self
-
-
-class ResearchComparisonScope(BaseModel):
-    """CAAに固定する新規完了・未完了の範囲。保有提案は比較へ混ぜない。"""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    operation_id: str
-    targets: tuple[ResearchTarget, ...]
-    outcomes: tuple[ResearchOutcome, ...]
-
-    @model_validator(mode="after")
-    def exact_cover(self) -> Self:
-        if any(item.purpose != "new" for item in (*self.targets, *self.outcomes)):
-            raise ValueError("CAA scope contains only new research targets")
-        require_coverage(self.targets, self.outcomes, complete=True)
+            raise ValueError("a target must have exactly one reviewed or unfinished outcome")
         return self
 
 
@@ -149,7 +63,7 @@ def selection_binding(payload: OperationPayload) -> ResearchSelection | None:
         return None
     if len(rows) != 1:
         raise ValueError("one fixed research_selection is required")
-    return ResearchSelection.model_validate(rows[0])
+    return parse_selection(rows[0])
 
 
 def progress_binding(payload: OperationPayload) -> ResearchProgress:
@@ -167,23 +81,23 @@ def require_coverage(
     if len(actual) != len(outcomes) or not actual <= selected:
         raise ValueError("research outcomes contain duplicate or unselected ticker/purpose")
     if complete and actual != selected:
-        raise ValueError("selected targets must be covered by completed and unfinished outcomes")
+        raise ValueError("selected targets must be covered by reviewed and unfinished outcomes")
 
 
-def comparison_scope(operation_id: str, payload: OperationPayload) -> ResearchComparisonScope:
+def proposal_scope(operation_id: str, payload: OperationPayload) -> ProposalResearchScope:
     selection = selection_binding(payload)
     if selection is None:
         raise ValueError("fixed research_selection is required")
     progress = progress_binding(payload)
-    return ResearchComparisonScope(
-        operation_id=operation_id,
-        targets=tuple(item for item in selection.targets if item.purpose == "new"),
-        outcomes=tuple(item for item in progress.outcomes if item.purpose == "new"),
+    require_coverage(selection_targets(selection), progress.outcomes, complete=True)
+    return ProposalResearchScope.model_validate(
+        {
+            "operation_id": operation_id,
+            "selection_sha256": selection_sha256(selection),
+            "targets": [item.model_dump(mode="json") for item in selection_targets(selection)],
+            "outcomes": [item.model_dump(mode="json") for item in progress.outcomes],
+        }
     )
-
-
-def selection_sha256(selection: ResearchSelection) -> str:
-    return sha256(canonical_json(selection.model_dump(mode="json")).encode()).hexdigest()
 
 
 def with_progress(payload: OperationPayload, progress: ResearchProgress) -> OperationPayload:

@@ -106,14 +106,12 @@ class _JQuantsTransport:
     def __init__(
         self,
         api_key: str,
-        cache_dir: Path,
         client: Any | None = None,
         *,
         sqlite_path: Path | None = None,
         cache_only: bool = False,
     ) -> None:
         self._api_key = api_key
-        self._cache_dir = Path(cache_dir) / "jquants"
         self._client = client
         self._sqlite_path = Path(sqlite_path) if sqlite_path is not None else None
         self._cache_only = cache_only
@@ -134,9 +132,9 @@ class _JQuantsTransport:
                 return
             stored_latest = latest_stored_daily_bar_date(self._sqlite_path)
             if stored_latest is not None and end < stored_latest:
-                # The window ends before days the store already holds, so the
-                # edge gap is a closed market rather than a tail the provider
-                # has since published. Reading it live would delete and rewrite
+                # Reuse a historical window accepted by the coverage policy.
+                # Later stored dates do not prove that its edge gap is a holiday.
+                # Implicit re-fetching would delete and rewrite
                 # a historical cross-section on every pass over a past window.
                 return
             # The coverage check tolerates a holiday-sized edge gap, so an
@@ -402,8 +400,6 @@ class JQuantsProvider(_JQuantsTransport):
 
     def get_eq_master(self, requested_asof: date) -> list[SecurityMaster]:
         if self._sqlite_path is not None:
-            # Imported lazily to avoid a circular import: sqlite_reader pulls in
-            # this module's schema dataclasses to materialise rows.
             from baibai_engine.storage.observations.reader import read_eq_master_exact
 
             cached = read_eq_master_exact(self._sqlite_path, requested_asof)
@@ -798,9 +794,9 @@ class JQuantsProvider(_JQuantsTransport):
 
         Two things are fetched: what the coverage says is missing, and the trailing
         ``revision_overlap_days`` regardless of coverage. The overlap is the only
-        way a filing the provider published late — for a date already fetched — ever
-        lands, and today that protection exists only as an accident of the sliding
-        chunk grid, which re-reads between 1 and 31 days depending on the as-of.
+        way this refresh discovers a late publication for an already covered date
+        within that trailing window. Older corrections require explicit repair ranges;
+        acquisition coverage alone does not prove that no later revision exists.
 
         The two are merged before anything is requested, so a stop longer than the
         overlap costs the outage and not the outage plus a week. Asking once, here,

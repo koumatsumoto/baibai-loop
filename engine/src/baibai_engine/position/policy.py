@@ -24,7 +24,7 @@ PORTFOLIO_POLICY: dict[str, Any] = {
     "valuation": {
         "market_price_max_age_days": 7,
         # 暫定の通常購入floor。新しい通常評価もこの率を出発点とする。
-        # 記録済みThesisの要求率・Pmaxは変更しない。採用理由は refs #1464。
+        # 公開済みStock Assessmentの要求率・Pmaxは変更しない。採用理由は refs #1464。
         # docs/portfolio-management.md#required-return-policy
         "minimum_required_annual_return_pct": 6.0,
     },

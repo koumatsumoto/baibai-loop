@@ -109,6 +109,7 @@ class LakeDataset:
             b"baibai.contract_version": str(self.contract_version).encode(),
             b"baibai.dataset": self.name.encode(),
             b"baibai.primary_key": ",".join(self.primary_key).encode(),
+            # Existing wire tag for SQLite snapshot ingestion, not a schema version.
             b"baibai.source_kind": b"legacy_sqlite_import",
         }
         return pa.schema(

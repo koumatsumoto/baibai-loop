@@ -32,7 +32,7 @@ def _raw() -> dict[str, object]:
 
 
 def _document(raw: dict[str, object] | None = None) -> PortfolioLedgerDocument:
-    return PortfolioLedgerDocument.model_validate(raw or _raw())
+    return PortfolioLedgerDocument.model_validate(_raw() if raw is None else raw)
 
 
 def test_representative_ledger_reconciles_every_required_event_to_one_yen() -> None:
@@ -298,12 +298,6 @@ def test_realized_gross_pnl_accumulates_fifo_across_full_exit_and_repurchase() -
     ]:
         state = replay_events_through(document.events, datetime.fromisoformat(cutoff))
         assert state.realized_gross_pnl_yen == expected
-        assert (
-            replay_events_through(
-                document.events, datetime.fromisoformat(cutoff)
-            ).realized_gross_pnl_yen
-            == expected
-        )
     snapshot = portfolio_snapshot(document)
     assert snapshot.realized_gross_pnl_yen == 2_000
     assert snapshot_to_payload(snapshot)["realized_gross_pnl_yen"] == 2_000

@@ -11,7 +11,7 @@ from dataclasses import dataclass, replace
 from functools import cached_property
 from typing import Literal, cast
 
-from baibai_batch.analysis.io import canonical_json
+from baibai_batch.storage.canonical_json import canonical_json
 from baibai_batch.storage.external_assessment_identity import PLAN_FORMAT
 from baibai_engine.batch_api import (
     ExternalAssessmentAnalystRatingObservation,

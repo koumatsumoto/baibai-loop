@@ -1,4 +1,4 @@
-"""Market価格とcalendarの読取。財務・銘柄・信用等はmarket.sqlite.readerが所有する。"""
+"""Market価格とcalendarの読取。財務・銘柄・信用等はstorage.observations.readerが所有する。"""
 
 from __future__ import annotations
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from dataclasses import asdict, fields
 from datetime import date, timedelta
 from pathlib import Path
@@ -15,7 +16,7 @@ from baibai_engine.market_context.margin import (
 from baibai_engine.screening.calibration import store as calibration_store
 from baibai_engine.screening.calibration.store import CalibrationCacheError, read_panel
 from baibai_engine.screening.schema import DerivedMetrics
-from baibai_engine.screening.security_analysis_builder import build_security_analysis_metrics
+from baibai_engine.screening.stock_analysis_builder import build_stock_analysis_metrics
 from baibai_engine.valuation.metrics.models import FinancialSnapshot
 
 WEEK = date(2026, 7, 24)
@@ -122,8 +123,8 @@ class DerivedMetricsCarriesEveryAxisTest(unittest.TestCase):
         self.assertEqual(derived.margin_std_long_share, 0.8)
         self.assertEqual(derived.margin_week_end, WEEK)
 
-    def test_security_analysis_output_carries_short_to_adv_and_observation_week(self) -> None:
-        metrics = build_security_analysis_metrics(
+    def test_stock_analysis_output_carries_short_to_adv_and_observation_week(self) -> None:
+        metrics = build_stock_analysis_metrics(
             FinancialSnapshot(
                 latest_financial_disclosure_date=None,
                 per_forward=None,
@@ -153,7 +154,12 @@ class CalibrationCacheVersionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             publish_panel(root, "2020-01-31", [{"ticker": "7203"}])
-            with sqlite3.connect(root / calibration_store.CURRENT_SNAPSHOT_NAME) as connection:
+            with (
+                closing(
+                    sqlite3.connect(root / calibration_store.CURRENT_SNAPSHOT_NAME)
+                ) as connection,
+                connection,
+            ):
                 connection.execute("UPDATE snapshot_meta SET contract_version = ?", ("0" * 16,))
             with self.assertRaises(CalibrationCacheError) as caught:
                 read_panel(root, date(2020, 1, 31))

@@ -25,12 +25,76 @@ from baibai_engine.valuation.metrics.capital import (
 from baibai_engine.valuation.metrics.dividends import (
     _asof_basis_dividend,
     _resolve_dividend_carry,
+    build_shareholder_return_change_signals,
 )
 from baibai_engine.valuation.metrics.models import FinancialSnapshot
 
 
 class DividendCarryResolverTests(unittest.TestCase):
     """carry 用配当利回りの基準解決 (予想の跳ね・株式基準) を検証する。"""
+
+    def test_offsetting_actions_do_not_hide_mixed_payment_bases(self) -> None:
+        asof = date(2026, 8, 10)
+        bars = [
+            _split_bar("130A", date(2025, 6, 10), 0.5),
+            _split_bar("130A", date(2025, 12, 15), 2.0),
+        ]
+        for interim, year_end, reported, expected in (
+            (40.0, 60.0, 100.0, 140.0),
+            (None, None, 100.0, None),
+            (None, None, 0.0, 0.0),
+        ):
+            with self.subTest(interim=interim, reported=reported):
+                row = _summary(
+                    "130A",
+                    date(2026, 5, 15),
+                    fiscal_period="FY",
+                    fiscal_year_end=date(2026, 3, 31),
+                    period_start=date(2025, 4, 1),
+                    dps_actual_annual=reported,
+                    dividend_interim=interim,
+                    dividend_year_end=year_end,
+                )
+                carry = _resolve_dividend_carry([row], bars, 1000.0, asof)
+                self.assertEqual(carry.dps_actual_annual, expected)
+                self.assertEqual(carry.split_factor, 1.0)
+                self.assertEqual(
+                    carry.dividend_yield, None if expected is None else expected / 1000.0
+                )
+                self.assertEqual(
+                    carry.basis,
+                    "unresolved_split_basis"
+                    if expected is None
+                    else "actual_reported"
+                    if expected == 0
+                    else "actual_record_date_resolved",
+                )
+                forward = _forward_asof_basis_dividend(
+                    _FYDividendObservation(
+                        fiscal_year_end=date(2026, 3, 31),
+                        disclosed_at=date(2026, 5, 15),
+                        dps_actual_annual=reported,
+                        period_start=date(2025, 4, 1),
+                        payments=(None, interim, None, year_end),
+                    ),
+                    bars,
+                    basis_date=asof,
+                )
+                self.assertEqual(forward, expected)
+                prior = _summary(
+                    "130A",
+                    date(2025, 5, 15),
+                    fiscal_period="FY",
+                    fiscal_year_end=date(2025, 3, 31),
+                    period_start=date(2024, 4, 1),
+                    dps_actual_annual=100.0,
+                )
+                signal = build_shareholder_return_change_signals([prior, row], bars, asof)
+                if expected is None:
+                    self.assertIsNone(signal.dps_yoy_latest)
+                else:
+                    assert signal.dps_yoy_latest is not None
+                    self.assertAlmostEqual(signal.dps_yoy_latest, expected / 100.0 - 1.0)
 
     def test_zero_forecast_outranks_positive_actual(self) -> None:
         summaries = [
@@ -981,13 +1045,10 @@ class TradableShareChangeTest(unittest.TestCase):
 
 
 def test_the_two_dividend_routes_must_agree_within_five_percent() -> None:
-    """The per-share total and the sum of the payments are two readings of one year.
+    """Reported annual DPS and payment details must satisfy the relative tolerance.
 
-    They are computed on different share bases — the total is divided by the period-end
-    count while each payment belongs to its own record date — so a few percent apart is
-    the buyback, and further apart means one route is on another basis entirely. The
-    year is then dropped rather than averaged, because a wrong dividend reaches the
-    reader as a yield.
+    This fixture supplies DPS, not a yen total divided by period-end shares.
+    A discrepancy does not establish a buyback or identify a particular error.
     """
 
     def carried(detail_total: float) -> float | None:

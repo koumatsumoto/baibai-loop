@@ -67,7 +67,7 @@ gh run watch <RUN_ID> --exit-status --compact --interval 60
 | `baibai-serving` | `views/*.json` | GitHub Actions materialize |
 | `baibai-serving` | `history/candidate-views/<asof>.json` | 日次batch、R2 lifecycleで31日後に削除 |
 
-R2 lifecycle ruleは`history/candidate-views/`だけに設定する。bucket全体へ設定すると`views/meta.json`まで期限で消え、欠落を検知できない。Review Set membershipの長期履歴は保持しない。
+R2 lifecycle ruleは`history/candidate-views/`だけに設定する。bucket全体へ設定すると`views/meta.json`まで期限で消え、欠落を検知できない。候補membershipの長期履歴は保持しない。
 
 `cloud-materialize`・`cloud-daily-batch`・`cloud-tradingview-snapshot`はGitHubの`cloud-publish`を共有する。GitHubとローカルのpublication競合は[ローカル発行手順](#ローカルからクラウドを更新する)のleaseで止める。servingへのwriteはGitHub Actionsだけが行う。application更新の取得世代・競合処理は[application反映](#application-db-を反映する)に従う。
 
@@ -97,7 +97,7 @@ machine stores / serving uploadを停止する。
 
 ### クラウド正本をローカルへ取得する
 
-**前提**: research-triage / research / market-context assessmentの分析前に、`cloud-daily-batch`の実run状態を確認する。queued / in_progressなら通常の分析用pullを開始せず、完了後に実行する。固定時刻で安全性を判断しない。
+**前提**: research / market-context assessmentの分析前に、`cloud-daily-batch`の実run状態を確認する。queued / in_progressなら通常の分析用pullを開始せず、完了後に実行する。固定時刻で安全性を判断しない。
 
 ```bash
 gh run list --workflow cloud-daily-batch.yml --limit 5
@@ -116,7 +116,7 @@ batch/scripts/pull.sh
 ### Screening入力を検証・補修する
 
 **前提**: screening入力を実際に検証・補修する場合だけ実行する。Market Context Assessmentの作成や、
-既存Review Setを読むResearch Triageの前提にはしない。対象日を指定し、個別銘柄の確認が必要なら対象tickerを指定する。
+保存済み入力を読むResearchの前提にはしない。対象日を指定し、個別銘柄の確認が必要なら対象tickerを指定する。
 
 **実行**:
 
@@ -206,19 +206,39 @@ batch/scripts/publish.sh
 このscriptは取得ETagの一致を確認し、backupのsource条件とPUTの`If-Match`で競合を止めて`baibai.sqlite`のconsistent snapshotだけをstoresへ送り、`cloud-materialize`をdispatchする。servingへの直接writeは行わない。PUT応答のETagを次の更新基準へ保存する。未知世代ではuploadせず停止し、現在のHEADだけで取得世代を補わない。
 
 **成功確認**: `publish.sh`とdispatchされた`cloud-materialize`が成功し、表示のas-ofと対象judgmentのIDを確認する。
-Screeningの最新表示は、表示中の`review_set_id / run_revision_id`に束縛されたResearch TriageとCAAだけを載せる。
-同日でも後発のScreening Runが公開されると、先行runの判断は最新一覧の対象から外れる。
-公開済みCAAの反映は、そのimmutable IDのAssessment詳細と参照先Thesisで確認する。
-最新一覧への非掲載だけを理由に、既存ResearchのTriage bindingを付け替えない。
-後発Review SetのTriageを進める場合は、完了済みmachine bundleを取得して`research-triage`の通常手順で扱う。
+Screeningの候補は表示中のrun/候補に束縛され、保存済みInvestment Proposalは別の提案記録として読む。
+公開済みProposalの反映は、そのimmutable IDの提案詳細と参照先Stock Assessment・Assessment Reviewで確認する。
+後発runによる最新候補の変化だけで既存Operationの選定・固定入力を付け替えない。
+後発分析からResearchを進める場合は、完了済みmachine bundleを取得してResearchの通常手順で扱う。
 
 **停止と復旧**: 世代競合では未公開変更を退避し、最新正本を取得して必要な変更をapplication serviceで再適用する。自動mergeや無条件再uploadはしない。PUT成功後の世代記録・backup整理・dispatchの失敗は部分成功として確認し、未反映と決めつけて旧DBを再送しない。ledger preflightが失敗した場合はstoreをuploadせず停止する。exportはstoreのschemaがcodeと一致しない間、viewを1件も書かずexit 1で停止する。
 schemaを一致させてから再実行する。application更新の表示には、そのsnapshot uploadとmaterializeの成功が必要である。cloud dailyによる独立した機械view更新とは区別する。
 
-application DBはcurrent schemaだけを開き、materializeとOwner MCPは取得済みコピーをread-onlyで読む。schemaを上げるPRは、
+application DBはcurrent schemaだけを開き、materializeは取得済みコピーをread-onlyで読む。schemaを上げるPRは、
 source versionを限定したtemporary one-shot toolとexact commandを用意し、main merge後のattended cutover・検証・
-cloud反映が終わるまで保持する。完了証拠を残してから同じdeliveryのcleanupで削除する。現在のtreeに汎用cutover
-commandはないため、version不一致を見つけたoperatorは手書きSQLで進めず、schema変更issueへtoolを再構築する。
+cloud反映が終わるまで保持する。完了証拠を残してから同じdeliveryのcleanupで削除する。
+Research domainの今回の切替は[一回移行手順](#research-domain-cutover)に従う。
+対象外のsource versionでは手書きSQLや汎用移行へ進まず、schema変更issueで専用toolと検証を用意する。
+
+<a id="research-domain-cutover"></a>
+
+### Research domain の一回移行
+
+application22をread-onlyのconsistent transactionで読み、最終application24へ一回で切り替える。選択した旧評価・提案・保有理由と必要な根拠を執筆材料draftへ抽出し、新Assessment/Proposal/Operationとして自動公開しない。台帳全event/meta/price、task・市場判断・outcomeを保持し、ledger replay前後一致を確認する。旧買付判断はticker識別の最小bindingを保持し、未保存の価格・数量・期限を約定から作らない。
+
+```bash
+uv run python -m tools.cutover.domain_v1 \
+  --source-app <OLD_APP_COPY> --output-app <NEW_APP_COPY> \
+  --source-runs <OLD_RUN_COPY> --output-runs <NEW_RUN_COPY> \
+  --manifest <KEEP_MANIFEST> --draft-dir <MATERIAL_DRAFT_DIR> \
+  --workspace-root <ACTIVE_WORKSPACE_ROOT> --check
+```
+
+--checkは書込なしで不足と必要参照を報告する。実行は新未存在output/draft-dirへ限り、source/backupを保持する。activeがある場合は工具専用workspace-rootが必要で、旧Operation IDに一致するworkspaceだけを非破壊退避する。root外・別Operationを黙って探索しない。通常runtimeに旧workspaceのfallbackを置かない。
+
+旧run cacheは原本または必要な選択根拠を退避し、新runは通常Screeningで実時刻・新IDにより再生成する。切替後は通常selection-context→prepareで新Operationを開始し、退避材料を確認して新Assessment/独立Reviewを公開し、そのOperationと現在入力から新Proposalを作る。新成果を移行manifestへ事前登録しない。欠けた理由・評価を過去の判断として補完せず、Fillから旧提案条件を復元しない。工具の検証と隔離コピーによるrehearsalを、本番切替実施と混同しない。
+
+統合releaseの切替窓はapplication全writerとactive draft編集を停止し、引継先を確認する。最終copy後に新read transactionでsourceの全保持table内容とledger末尾を照合し、変化があれば切り替えずcopyをやり直す。実行担当者はcode/storeの最終schemaが一致する世代を確認し、切替順序を判断する。source/backupを不可逆削除せず、日次batchに移行を代行させない。
 
 ### application DB を復元する
 
@@ -456,7 +476,7 @@ receiptが現在世代へ書き直される。次の`pull-machine`でreceipt一�
 
 ### 日次 workflow を手動実行する
 
-**前提**: 原因調査には使わず、ローカルで修正とgateを完了した後の最終確認に限定する。`asof`省略時は当日JSTを
+**前提**: 取得・再計算・公開が必要な対象を確認して実行する。原因調査だけのために繰り返しdispatchしない。code修正が必要な場合は最新HEADのCI成功とmainへの反映を確認する。`asof`省略時は当日JSTを
 market calendarで判定し、非営業日はScreeningだけをskipして指標更新と単一公開を進める。過去日を指定するとScreeningの営業日gateをskipする。
 
 **実行**:
@@ -611,7 +631,7 @@ uv run python -m baibai_web.materialize --output-dir <dir> [--batch daily|manual
 
 ## 日次機械工程 — baibai-batch daily
 
-Screeningのcalendar判定、独立した市場/財務/EDINET/JPX取得、必要入力のcoverage検証、run + Review Setの一つのtransaction、独立した指標refresh、全viewsの単一exportへ進む。各取得は既存provider/cacheを再利用し、後半HTTP失敗でも検証してcommitしたL1 chunkを保持する。required-field不足を取得済み全観測の無効化へ置き換えず、source復元や全DB組戻しは行わない。Screeningの失敗は指標更新を止めない。
+Screeningのcalendar判定、独立した市場/財務/EDINET/JPX取得、必要入力のcoverage検証、全Stock Analysisと候補文脈のrunの一つのtransaction、独立した指標refresh、全viewsの単一exportへ進む。各取得は既存provider/cacheを再利用し、後半HTTP失敗でも検証してcommitしたL1 chunkを保持する。required-field不足を取得済み全観測の無効化へ置き換えず、source復元や全DB組戻しは行わない。Screeningの失敗は指標更新を止めない。
 
 以下は用途別の選択肢であり、続けて全件を実行しない。`.cache/daily-serving`はlocalの生成先である。
 
@@ -642,15 +662,11 @@ read -r -p '対象日 YYYY-MM-DD: ' asof &&
 | --- | --- |
 | 0 | 全views export完了。非営業日はScreeningだけskipし、指標更新・exportを行う |
 | 1 | store検査/export等の致命的失敗。今回の結果を公開へ進めない |
-| 3 | 全views export完了だが、Screening取得/計算、指標refresh、prune等で失敗。新Screeningの有無は両IDとscreening_statusで確認 |
+| 3 | 全views export完了だが、Screening取得/計算、指標refresh、prune等で失敗。新Screeningの有無はrun_revision_idとscreening_statusで確認 |
 
 クラウド公開はこの後に既存L1 release、machine store、serving views、history/freshnessの順で一度進む。読み取り専用connectionの`PRAGMA data_version`でmarket storeのcommit変化を確認し、正常に読めるnoticeの明示的`market_updated=false`の時だけ既存L1 releaseを保持する。noticeの欠落・読取不能・不正JSON・field不正は詳細を含まないwarningで示し、既存L1公開経路へ進む。これは値のbyte比較ではなく、commit済みstore変更の検出である。Screening未更新なら`--skip-history`でhistoryを生成せず、workflowの新しい出力先にはhistoryを含めないため再uploadしない。run pruneも省き、旧値・ID・実計算時刻を保持する。local exportの有無を示す既存output名`published`を、R2公開成功と読み替えない。workflowが失敗しても一部反映が済んでいる場合がある。
 
 機械結果の`screening_status`は`published / failed / skipped_non_business_day`を区別する。Screeningが未更新でも指標・全viewsを更新し、画面生成時刻を旧Screeningの実計算時刻へ上書きしない。store schema/hydration検査と全views exportの失敗はfatalである。詳細なstepとoptionはpublic `--help`と実run logを確認する。
-
-## local daily analysis — canonical Review SetのResearch Triage
-
-local analysisの操作は[Research Triage skill](../.agents/skills/research-triage/SKILL.md)、statusの意味と入力境界は[runner reference](../docs/reference/analysis-operations.md)が所有する。ここでは同じcommand列と再実行手順を再掲しない。
 
 ## 日次結果のDiscord通知
 
@@ -662,15 +678,14 @@ message は 4 要素からなる。
 
 1. 見出し行 — label・as-of・失敗した step 名（あれば）。`[FAILED] as-of 2026-08-26 — failed step: hydrate`
 2. `executor: GitHub Actions|Local` — 実行環境から判定した固定2値。見出しの直後に必ず1行表示する
-3. `🆕 新規 Review Set 入り:` / `👋 Review Set 退出:` の 2 行 — それぞれ銘柄コード順・最大5件（超過時は全件数・表示件数・他の件数を明示）・`<ticker> <社名> E[r]±X.X%`。急落当日の候補と、Review Set から落ちた銘柄を通知だけで拾えるようにするための行である。**新Screeningを発行した run では常に出す** — 0 件の日は `なし`、delta view が読めない日は `計測なし（<理由>）` と書く。行が無いことは「0 件」「計測不能」「通知経路の異常」の3つを同時に意味してしまい、読み手が区別できない。Screening未更新日は旧差分を再通知せず、`Screening更新なし（非営業日/失敗）; 保存済み結果を保持`を出す
+3. `🆕 新規 候補入り:` / `👋 候補退出:` の 2 行 — それぞれ銘柄コード順・最大5件（超過時は全件数・表示件数・他の件数を明示）・`<ticker> <社名> E[r]±X.X%`。急落当日の候補と、候補一覧から落ちた銘柄を通知だけで拾えるようにするための行である。**新Screeningを発行した run では常に出す** — 0 件の日は `なし`、delta view が読めない日は `計測なし（<理由>）` と書く。行が無いことは「0 件」「計測不能」「通知経路の異常」の3つを同時に意味してしまい、読み手が区別できない。Screening未更新日は旧差分を再通知せず、`Screening更新なし（非営業日/失敗）; 保存済み結果を保持`を出す
 4. `run:` — GitHub Actions の run URL。所要時間・step ごとの結果・lake release・error の本文はこの run log にある
 
-label は5種。
+`cloud-daily-batch`の終端通知labelは次の4種。
 
 | label | 意味 |
 | --- | --- |
 | `[OK]` | batch exit 0、upload および lease release まで成功 |
-| `[SKIPPED]` | 全工程skipのnoticeを扱う既存label。通常dailyの日本休日は指標を公開するため`[OK]` |
 | `[DEGRADED]` | batch exit 3。全views export済みで、見出しに最初の失敗 stepを表示。Screening未更新の場合は保存済み結果の保持を明示 |
 | `[FAILED]` | batch の致命的失敗（見出しに batch 内の stage 名）、または lease 解放を含む batch 以外の step の失敗（見出しに step 名） |
 | `[CANCELLED]` | job が中断された（`timeout-minutes` 超過・手動 cancel） |
@@ -730,7 +745,7 @@ uv run baibai-engine screening extract-edinet-facts \
 
 **成功確認**: summaryのselected/reused/extracted/failedとmissing reasons、代表書類の原典照合、固定releaseのexport/query/hydrateを確認する。現行codeのmain反映、整合するL1発行、store-local coverageのクラウド反映を一組で行う。codeだけを先に日次運用へ入れない。
 
-日次batchはReview Set発行後に`extract-edinet-facts --asof`を実行する。初期化前は明示的skip、初期化後は収録済みfamilyと新規年次・訂正を処理する。取得失敗は既存screening発行を止めず、他の後段処理を終えた後のexit codeへ反映する。raw cacheを残してretryできる。抽出契約が変わった場合はResearch fact専用revisionを更新し、既存EDINET metricsのbaselineを無効化しない。
+日次batchは単一run発行後に`extract-edinet-facts --asof`を実行する。初期化前は明示的skip、初期化後は収録済みfamilyと新規年次・訂正を処理する。取得失敗は既存screening発行を止めず、他の後段処理を終えた後のexit codeへ反映する。raw cacheを残してretryできる。抽出契約が変わった場合はResearch fact専用revisionを更新し、既存EDINET metricsのbaselineを無効化しない。
 
 storeのmergeでは同日でも別docIDの成否を混同しない。共有docIDはtargetのfactに対応する抽出claimを保持する。source側にしかないdocIDはtargetの抽出revisionを証明できないため、未確認のretry対象として取り込む。initialized markerは引き継げる。
 
@@ -810,9 +825,9 @@ gh workflow run cloud-external-assessment.yml --ref main \
 
 公開後は今回専用のprivate mirrorから固定releaseの変更されたExternal Assessmentの年/月partitionを読み、原観測の全列と変更月内の既存・追加履歴digestを照合して`readback: verified`を記録する。新upload objectはpublisherがremoteから全bytesを読戻してSHAを検証し、その取得fileを固定releaseのSHA照合・型付き履歴検証にも使う。未取得の変更月objectはremoteから取得し、別runやexport元fileを流用しない。無変更partitionはmanifest object identityで確認する。同stageの再投入は追加row 0である。JST日付は元UTCから導出し、日跨ぎを単一日の全銘柄coverageとしない。公開失敗後は次回も最新正本をhydrateし、readback失敗を完了扱いしない。
 
-停止したbatchを確定済み観測だけで閉じるとoperatorが明示的に選ぶ場合は、同じ保存batch ID/master日付に`operation=publish_confirmed_partial`を指定する。この入口は取得jobを実行せず、保存planとtyped観測がなければ拒否する。最新正本のfresh hydrateと同じlease/readback契約で確定typedだけを公開し、欠落cohort・未記録pairを正常nullや確定失敗へ変えず、元stageを保持する。部分terminalは4状態件数・元JST受信日/source別typed件数を残し、全件完了と区別して同batchを閉じる。既存の旧5状態terminalも過去の検証済み証拠として認識するが、旧checkpointの追加取得には使わない。
+停止したbatchを確定済み観測だけで閉じるとoperatorが明示的に選ぶ場合は、同じ保存batch ID/master日付に`operation=publish_confirmed_partial`を指定する。この入口は取得jobを実行せず、保存planとtyped観測がなければ拒否する。最新正本のfresh hydrateと同じlease/readback契約で確定typedだけを公開し、欠落cohort・未記録pairを正常nullや確定失敗へ変えず、元stageを保持する。部分terminalは4状態件数・元JST受信日/source別typed件数を残し、全件完了と区別して同batchを閉じる。旧5状態terminalは現行readerでは受け付けない。過去の証拠は元revisionで確認し、現行checkpointへ読み替えない。
 
-完全/部分verified terminalの再実行はstage・DB・lease・L1を読み直さず、`previously_verified`・provider通信0・追加row 0を返す。過去の検証結果であり、今回の新公開や現在世代の再検証ではない。旧terminalの未知件数を0で補わない。
+完全/部分verified terminalの再実行はstage・DB・lease・L1を読み直さず、`previously_verified`・provider通信0・追加row 0を返す。過去の検証結果であり、今回の新公開や現在世代の再検証ではない。terminalに保存されていない集計値を0で補わない。
 
 終端`notify` jobは既存secret `DISCORD_WEBHOOK_URL`の宛先へrun単位で1件通知する。成功・既知失敗を含む公開・部分公開・以前の完全/部分公開・取得未完了・公開確認失敗・取消を区別し、確認済みの固定pair・typed・既知失敗・normalnull・未記録・追加row件数と実行linkを載せる。matrix失敗時や旧terminalの未知集計値は不明とし、通知用のR2読取は加えない。銘柄別値・HTML・private batch ID・認証情報・error本文は通知しない。配送失敗はsanitizedな理由をstderrへ残し、batch結果を変更しない。job成功だけで実配送済みとは判断せず、workflow履歴も確認する。
 
@@ -973,7 +988,7 @@ TradingView stepのsafe failure line、`TradingView progress:` summaryの順に�
 - `provider_all_missing`: coverage不存在と断定せず、provider全体のdegradationの可能性を確認する。
 - `provider_response`: 固定validation reasonを起点に応答契約を調べる。Secret・raw body・symbol一覧をIssueやlogへ転載しない。
 - `provider_transport`: 接続・通信の失敗を確認し、provider側の状態と次slotを見て再取得を判断する。
-- `time_guard`: target日がJST当日で15:30以降か確認する。条件を満たさなければ取得せず、過去日を現在値で補完しない。
+- `time_guard`: target日がJST当日で、JPX calendar上の営業日なら15:30以降、休場日なら09:00以降か確認する。条件を満たさなければ取得せず、過去日を現在値で補完しない。
 - `internal`: safe failure lineの`exception_type`と失敗stepを起点に未分類の例外を調べる。`MCPError`では標準RPCの`mcp_error_code`も返すが、HTTP statusとは別である。例外本文・data・tracebackは出さず、原因未確認のまま正常partialへ変更しない。
 - `timeout`: 最後のphase / chunkとprovider時間を確認し、原因確認なしにtimeoutを延長しない。
 - `storage`: calendar / master / schemaとlocal storeの整合を確認し、修復までpublishしない。

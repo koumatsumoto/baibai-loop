@@ -143,7 +143,7 @@ def validate_published_contexts(
 ) -> PublishedContextReport:
     """Load every current-contract report the way its consumers do, then look for drift.
 
-    Detect reports that current Context consumers can no longer load. Review Set publication
+    Detect reports that current Context consumers can no longer load. candidate list publication
     does not consume Context. A retired series may leave a report readable but its scorecard
     unsettleable, so registry drift is reported separately.
     """

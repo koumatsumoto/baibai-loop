@@ -10,8 +10,8 @@ it stays green while the command rejects every input the runbook asks for.
 
 from __future__ import annotations
 
-import copy
 import sqlite3
+from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
 
@@ -46,12 +46,6 @@ def _ledger_db(tmp_path: Path) -> Path:
         ),
     )
     return db
-
-
-def _mapping(path: Path) -> dict[str, object]:
-    parsed = safe_load(path.read_text(encoding="utf-8"))
-    assert isinstance(parsed, dict)
-    return copy.deepcopy(parsed)
 
 
 def _emitted(capsys: pytest.CaptureFixture[str]) -> dict[str, object]:
@@ -144,7 +138,9 @@ def test_operation_checkpoint_cli_replaces_the_active_payload(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     db = tmp_path / "app.sqlite"
-    binding = {"kind": "research_selection", "request": "synthetic explicit request", "targets": []}
+    from tests.helpers.research_selection import selection
+
+    binding = selection(now=OPERATION_NOW).model_dump(mode="json")
     start = tmp_path / "start.yaml"
     start.write_text(yaml.safe_dump({"checkpoint": "start", "artifacts": [binding]}))
     assert (
@@ -157,8 +153,6 @@ def test_operation_checkpoint_cli_replaces_the_active_payload(
                 "capital-allocation",
                 "--payload",
                 str(start),
-                "--ticker",
-                "2331",
                 "--as-of",
                 "2026-07-19",
             ],
@@ -187,7 +181,7 @@ def test_operation_checkpoint_cli_replaces_the_active_payload(
     assert code == 0
     emitted = _emitted(capsys)
     assert emitted["payload"]["checkpoint"] == "fixed research checkpoint"
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection, connection:
         row = connection.execute(
             "SELECT status, json_extract(payload, '$.checkpoint') "
             "FROM operation_session WHERE operation_id = ?",
@@ -224,7 +218,7 @@ def test_task_drop_cli_closes_the_row_on_the_operation_date(
 
     assert code == 0
     assert _emitted(capsys)["status"] == "dropped"
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection, connection:
         row = connection.execute(
             "SELECT status, closed_at FROM task WHERE task_id = ?", (task_id,)
         ).fetchone()
@@ -241,7 +235,7 @@ def test_db_init_cli_creates_the_application_database_at_the_current_schema(
     assert code == 0
     reported = _emitted(capsys)
     assert reported["path"] == str(db)
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection, connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == reported["user_version"]
         assert (
             connection.execute(
@@ -265,7 +259,7 @@ def test_db_backup_cli_writes_a_snapshot_beside_the_source(
     assert reported["status"] == "ok"
     snapshots = sorted((db.parent / "backups").glob("baibai-*.sqlite"))
     assert [str(item) for item in snapshots] == [reported["path"]]
-    with sqlite3.connect(snapshots[0]) as connection:
+    with closing(sqlite3.connect(snapshots[0])) as connection, connection:
         assert (
             connection.execute("PRAGMA user_version").fetchone()[0] == initialized["user_version"]
         )

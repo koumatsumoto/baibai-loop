@@ -64,16 +64,15 @@ class ComputeBenchmarkTrendStateTests(unittest.TestCase):
             self.assertGreater(snapshot.benchmark_return_20d, 0.03)
             self.assertIs(snapshot.trend_state, BenchmarkTrendState.UPTREND)
             # Monotonic rally: the latest close is the window high, so the gap
-            # from the high is 0.0 — the "最高値圏" signal that should make RR
-            # judgement stress the downside.
+            # is 0.0. This observation does not prescribe an investment judgment.
             self.assertEqual(snapshot.benchmark_gap_from_high, 0.0)
 
     def test_compute_gap_from_high_negative_after_pullback(self) -> None:
         as_of = date(2026, 5, 29)
         with tempfile.TemporaryDirectory() as tmpdir:
             sqlite_path = Path(tmpdir) / "market.sqlite"
-            # Rally to a peak (~110), then pull back to 104: window high stays
-            # 110 so the gap from high is negative even though the trend is up.
+            # Rally to 109.5, then pull back to 104: the gap stays negative.
+            # This assertion concerns the high, not the trend classification.
             closes = [*_rising_closes(20, start=100.0, step=0.5), 109.0, 108.0, 106.0, 105.0, 104.0]
             _insert_bars(sqlite_path, "1321", closes, end=as_of)
             snapshot = compute_benchmark_trend(sqlite_path, as_of)
@@ -153,7 +152,8 @@ class ComputeBenchmarkTrendStateTests(unittest.TestCase):
             snapshot = compute_benchmark_trend(sqlite_path, as_of)
 
             assert snapshot is not None
-            self.assertAlmostEqual(snapshot.benchmark_return_20d or 0.0, 0.0)
+            assert snapshot.benchmark_return_20d is not None
+            self.assertAlmostEqual(snapshot.benchmark_return_20d, 0.0)
             self.assertIs(snapshot.trend_state, BenchmarkTrendState.NEUTRAL)
 
 

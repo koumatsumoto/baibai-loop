@@ -3,12 +3,12 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from baibai_engine.screening.security_analysis_builder import expected_return_inputs
+from baibai_engine.screening.stock_analysis_builder import expected_return_inputs
 
 ROOT = Path(__file__).resolve().parents[2]
 
 from baibai_engine.screening.schema import DerivedMetrics
-from baibai_engine.screening.security_analysis_builder import _close_from_snapshot
+from baibai_engine.screening.stock_analysis_builder import _close_from_snapshot
 from baibai_engine.valuation.estimates import (
     REALIZATION_RATE_ANNUAL,
     SHARE_COUNT_CLIP,
@@ -86,7 +86,7 @@ class EstimateExpectedReturnTest(unittest.TestCase):
         self.assertAlmostEqual(estimate.upside_blend, 0.375)
         self.assertAlmostEqual(estimate.upside_capped, 0.375)
         self.assertAlmostEqual(estimate.reversion_annual, REALIZATION_RATE_ANNUAL * 0.375)
-        # carry = 配当 3% + 自社株買い 2% (clip 内)
+        # carry = 配当 3% + 株数減少の機械寄与 2% (clip 内)
         self.assertAlmostEqual(estimate.carry_annual, 0.03 + 0.02)
         self.assertAlmostEqual(estimate.er_annual, estimate.reversion_annual + 0.05)
         self.assertEqual(estimate.anchor_metrics, "pbr,per_forward")

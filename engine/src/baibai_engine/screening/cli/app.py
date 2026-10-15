@@ -61,9 +61,9 @@ from .delisting_cli import (
 from .providers import ProviderBundle
 from .prune import prune_command
 from .query import (
+    candidates_show_command,
     market_snapshot_command,
-    review_set_publish_command,
-    review_set_show_command,
+    run_show_command,
     ticker_profile_command,
 )
 from .run import run_command
@@ -292,62 +292,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    review_set_parser = subparsers.add_parser(
-        "review-set",
-        help="publish or read multi-valuation Review Sets",
-    )
-    review_set_commands = review_set_parser.add_subparsers(dest="review_set_command", required=True)
-    review_set_publish = review_set_commands.add_parser(
-        "publish", help="publish the exact Nomination union from one immutable run"
-    )
-    review_set_publish.add_argument(
-        "--asof", required=True, help="screening target date (YYYY-MM-DD)"
-    )
-    review_set_publish.add_argument(
-        "--run-revision-id",
-        required=True,
-        help="immutable screening run revision whose Nominations form the union",
-    )
-    review_set_publish.add_argument("--runs-db", help="screening run store path")
-    review_set_publish.add_argument(
-        "--review-set-id",
-        help="preallocated immutable ID for idempotent machine resume",
-    )
-    review_set_publish.add_argument(
-        "--created-at",
-        type=datetime.fromisoformat,
-        help="fixed timezone-aware publication clock for idempotent machine resume",
-    )
-    review_set_publish.add_argument(
-        "--rules-path",
-        default=os.environ.get("SCREENING_RULES_PATH") or str(DEFAULT_RULES_PATH),
-        help=f"screening rules path (default: SCREENING_RULES_PATH or {DEFAULT_RULES_PATH})",
-    )
-    review_set_publish.add_argument(
-        "--output-path",
-        help="also write the Review Set YAML to this path (stdout is unchanged)",
-    )
-    review_set_publish.add_argument(
-        "--force",
-        action="store_true",
-        help="overwrite an existing --output-path file",
-    )
-    review_set_publish.add_argument("--format", choices=("yaml", "json"), default="yaml")
-    review_set_show = review_set_commands.add_parser(
-        "show", help="re-emit a published Review Set without publishing a new one"
-    )
-    review_set_show.add_argument("--review-set-id", required=True)
-    review_set_show.add_argument("--runs-db", help="screening run store path")
-    review_set_show.add_argument(
-        "--output-path",
-        help="also write the Review Set YAML to this path (stdout is unchanged)",
-    )
-    review_set_show.add_argument(
-        "--force",
-        action="store_true",
-        help="overwrite an existing --output-path file",
-    )
-    review_set_show.add_argument("--format", choices=("yaml", "json"), default="yaml")
+    run_show = subparsers.add_parser("run-show", help="export one saved Stock Analysis run")
+    candidates = subparsers.add_parser("candidates", help="read candidates from a saved run")
+    candidates_commands = candidates.add_subparsers(dest="candidates_command", required=True)
+    candidates_show = candidates_commands.add_parser("show", help="show one run's candidates")
+    for show in (run_show, candidates_show):
+        show.add_argument("--run-revision-id", required=True)
+        show.add_argument("--runs-db", help="screening run store path")
+        show.add_argument("--output-path", help="also write the same output to this path")
+        show.add_argument("--force", action="store_true", help="overwrite an existing output file")
+        show.add_argument("--format", choices=("yaml", "json"), default="yaml")
 
     profile_parser = subparsers.add_parser(
         "ticker-profile",
@@ -436,7 +390,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     calibration_evaluate_parser = subparsers.add_parser(
         "calibration-evaluate",
-        help="evaluate stored calibration cohorts (rank IC / decile / Review Set replay)",
+        help="evaluate stored calibration cohorts (rank IC / decile / candidate replay)",
     )
     calibration_evaluate_parser.add_argument(
         "--calibration-dir",
@@ -532,22 +486,10 @@ def main(argv: list[str] | None = None) -> int:
             runs_db_path=Path(args.runs_db) if args.runs_db else None,
         )
 
-    if args.command == "review-set" and args.review_set_command == "publish":
-        return review_set_publish_command(
-            asof_date=_parse_iso_date(args.asof),
-            rules=load_screening_rules(Path(args.rules_path)),
-            output_path=Path(args.output_path) if args.output_path else None,
-            force=args.force,
+    if args.command in {"run-show", "candidates"}:
+        command = candidates_show_command if args.command == "candidates" else run_show_command
+        return command(
             run_revision_id=args.run_revision_id,
-            runs_db_path=Path(args.runs_db) if args.runs_db else None,
-            output_format=args.format,
-            review_set_id=args.review_set_id,
-            created_at=args.created_at,
-        )
-
-    if args.command == "review-set" and args.review_set_command == "show":
-        return review_set_show_command(
-            review_set_id=args.review_set_id,
             runs_db_path=Path(args.runs_db) if args.runs_db else None,
             output_path=Path(args.output_path) if args.output_path else None,
             force=args.force,
@@ -625,6 +567,14 @@ def main(argv: list[str] | None = None) -> int:
             allow_stale_jpx=args.allow_stale_jpx,
         )
 
+    if args.command == "refresh-tse-capital-policy":
+        return refresh_tse_capital_policy_command(
+            sqlite_path=Path(args.sqlite_path),
+        )
+
+    if args.command == "refresh-jpx-delistings":
+        return refresh_jpx_delistings_command(sqlite_path=Path(args.sqlite_path))
+
     try:
         config = ScreeningConfig.from_env()
     except ConfigError as exc:
@@ -662,7 +612,6 @@ def main(argv: list[str] | None = None) -> int:
     providers = ProviderBundle(
         jquants=JQuantsProvider(
             config.jquants_api_key,
-            config.cache_dir,
             sqlite_path=sqlite_path,
             cache_only=args.command == "run",
         ),
@@ -677,7 +626,6 @@ def main(argv: list[str] | None = None) -> int:
             else None
         ),
         jpx=JPXProvider(
-            config.cache_dir,
             regulation_urls=JPX_REGULATION_URLS,
             sqlite_path=sqlite_path,
             cache_only=args.command == "run",
@@ -714,14 +662,6 @@ def main(argv: list[str] | None = None) -> int:
             asof_date=_parse_iso_date(args.asof),
             providers=providers,
         )
-
-    if args.command == "refresh-tse-capital-policy":
-        return refresh_tse_capital_policy_command(
-            sqlite_path=Path(args.sqlite_path),
-        )
-
-    if args.command == "refresh-jpx-delistings":
-        return refresh_jpx_delistings_command(sqlite_path=Path(args.sqlite_path))
 
     if args.command == "backfill-edinet-identity":
         return backfill_edinet_identity_command(

@@ -21,12 +21,10 @@ def read_rows(path: Path, sql: str, parameters: Sequence[object] = ()) -> list[s
 def market_calendar_business_day(path: Path, day: date) -> bool | None:
     """Return whether ``day`` is a trading day, or None when the calendar has no such row.
 
-    This answer gates whether the daily batch writes at all, so unlike the view
-    readers here it does not degrade: every way of failing to read the calendar
-    raises and reaches the caller as its own diagnosis. An absent file, an
-    unreadable store and an uncovered date each send the operator somewhere
-    different, and collapsing them into "not a trading day" would skip a run that
-    should have been reported as broken.
+    This answer controls the daily Screening update; indicators and export are
+    independent. Unlike optional view reads, calendar read failures raise so the
+    caller can report Screening's failure. An absent file, an unreadable store and
+    an uncovered date remain distinct from a confirmed non-business day.
     """
 
     with closing(connect_read_only(path)) as connection:
@@ -87,7 +85,7 @@ def previous_business_day(path: Path, day: date, *, max_lookback: int = 10) -> d
     calendar is the only record of which those are. This answers a view question, so
     it degrades: a store the writer has not produced yields None and the caller
     reports the comparison as unmeasured. ``market_calendar_business_day`` raises
-    instead because it gates whether the daily batch writes at all.
+    instead because the daily Screening update requires a confirmed calendar answer.
     """
 
     rows = read_rows(
@@ -107,7 +105,7 @@ def latest_disclosure_dates_after(
 ) -> dict[str, date]:
     """Return each ticker's newest financial disclosure strictly after ``after``.
 
-    A candidate that entered the Review Set right after reporting is a different thing
+    A candidate that entered the candidate list right after reporting is a different thing
     from one that entered on a price move alone, and the screen's own output does
     not carry the disclosure date. A ticker with no disclosure in the window yields
     no entry.
@@ -173,20 +171,3 @@ __all__ = [
     "previous_business_day",
     "worst_close_drawdown",
 ]
-
-
-def stored_market_rows(
-    path: Path,
-    *,
-    kind: str,
-    filters: dict[str, object],
-    after: list[str | int | float] | None = None,
-    limit: int = 1,
-) -> list[dict[str, object]]:
-    from baibai_engine.storage.observations.stored import local_rows
-
-    from .sqlite import connect_read_only
-    from .stored import required_read
-
-    with required_read(path, connect_read_only) as connection:
-        return local_rows(connection, kind=kind, filters=filters, after=after, limit=limit)

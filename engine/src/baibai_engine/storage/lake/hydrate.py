@@ -578,7 +578,7 @@ def load_dataset_rows(
 ) -> int:
     """Load one dataset a partition at a time, in bounded row batches.
 
-    One partition is one month, and its objects are fetched and verified just before
+    Each partition follows its dataset's month or year grain; objects are verified before
     they are read, so neither the objects nor the rows of the whole dataset are ever
     held at once. SQLite stores the table in its primary-key B-tree, so the order
     partitions arrive in does not change the result.

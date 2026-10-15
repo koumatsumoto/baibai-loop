@@ -16,7 +16,7 @@ from baibai_engine.market_context.indicators.definitions import load_definitions
 from .sqlite import read_application_rows, read_rows
 
 # Judgment-layer stores are all JST-domain records. Date-only columns
-# (task dates, position-review as-of) and any timezone-naive value are read at JST
+# and any timezone-naive value are read at JST
 # so they compare with the timezone-aware timestamps in the same max().
 _JST = ZoneInfo("Asia/Tokyo")
 
@@ -64,11 +64,12 @@ def application_db_updated_at(path: Path) -> datetime | None:
     """Return the newest write instant recorded inside the application database.
 
     The value is the max over application business-record and judgment write instants:
-    ledger events, research theses and reviews, Position Reviews, market context assessments,
-    reviewed research_triages, tasks (created and closed), and
+    ledger events, Stock Assessments, Assessment Reviews, Investment Proposals,
+    Market Context Assessments, tasks (created and closed), and
     operation sessions (started and completed). Nullable decision timestamps are
-    excluded until set. Values are normalized to timezone-aware JST before the max
-    so timezone-aware timestamps and date-only columns compare in one pass.
+    excluded until set. Saved offsets are retained; naive timestamps and date-only
+    columns are read at JST. All values compare as aware instants without dropping
+    microseconds or choosing a textual maximum first.
     """
 
     # One query per source, not one UNION: an unwritten store can be missing a table.
@@ -79,24 +80,22 @@ def application_db_updated_at(path: Path) -> datetime | None:
         rows = read_application_rows(
             path,
             # Fixed pairs from the tuple below; no caller input reaches this string.
-            f"SELECT max({column}) FROM {table}",  # nosec B608
+            f"SELECT {column} FROM {table} WHERE {column} IS NOT NULL",  # nosec B608
         )
-        if not rows or rows[0][0] is None:
-            continue
-        instant = _as_jst_instant(str(rows[0][0]))
-        latest = instant if latest is None else max(latest, instant)
+        for row in rows:
+            instant = _as_jst_instant(str(row[0]))
+            latest = instant if latest is None else max(latest, instant)
     return latest
 
 
 # Every judgment-layer write instant, as (table, column). Nullable decision timestamps
-# are read through max(), which ignores NULL, so they contribute only once set.
+# are excluded while NULL, so they contribute only once set.
 _WRITE_INSTANT_COLUMNS: tuple[tuple[str, str], ...] = (
     ("ledger_event", "occurred_at"),
-    ("thesis", "published_at"),
-    ("thesis_review", "reviewed_at"),
-    ("position_review", "as_of"),
+    ("stock_assessment", "published_at"),
+    ("stock_assessment_review", "reviewed_at"),
+    ("investment_proposal", "published_at"),
     ("market_context_assessment", "published_at"),
-    ("research_triage", "published_at"),
     ("task", "created_at"),
     ("task", "closed_at"),
     ("operation_session", "started_at"),

@@ -1,12 +1,12 @@
 """Read a locally downloaded IR PDF (決算短信 等) as text.
 
-TDnet and company IR distribute earnings releases as AES-encrypted PDFs with an empty
-owner password, so the reader needs `pypdf[crypto]`. A 短信 runs 20-30 pages while a
-thesis needs a handful of figures, so keyword search with surrounding context is the
-mode that gets used; whole-page output is there for reading a section end to end.
+The reader uses `pypdf[crypto]` for local PDFs, including supported AES-encrypted
+files. Keyword search extracts figures with surrounding context; whole-page output
+is available for reading a section end to end. Text extraction is not OCR and does
+not establish that a term is absent from images or unreadable page content.
 
 The file must already be on disk — this tool does not fetch URLs, so the retrieval step
-stays visible in the session that recorded `retrieved_at` for the thesis source.
+stays visible in the session that recorded `retrieved_at` for the assessment source.
 
     uv run python -m baibai_engine.research.pdf_reader <pdf> --pages 1-3
     uv run python -m baibai_engine.research.pdf_reader <pdf> --search 減価償却費 自己株式の取得
@@ -69,9 +69,14 @@ def find_keyword_contexts(
     are skipped: a 短信 repeats a term several times inside one paragraph, and printing
     that paragraph once per occurrence buries the other pages. Separate mentions on the
     same page still come through, because a figure quoted in the summary and in the
-    statements are two different readings and which one a thesis cites matters.
+    statements are two different readings and which one an assessment cites matters.
     """
 
+    if context_chars < 0:
+        raise ValueError("context_chars must be non-negative")
+    keywords = tuple(keywords)
+    if "" in keywords:
+        raise ValueError("search keyword must not be empty")
     hits: list[KeywordHit] = []
     for index, text in enumerate(pages, start=1):
         for keyword in keywords:
@@ -132,7 +137,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.context < 0:
+        parser.error("--context must be non-negative")
+    if args.search is not None and "" in args.search:
+        parser.error("search keyword must not be empty")
 
     if not args.pdf.is_file():
         print(f"no such PDF: {args.pdf}", file=sys.stderr)

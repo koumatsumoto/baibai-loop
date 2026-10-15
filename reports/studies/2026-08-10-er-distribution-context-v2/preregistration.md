@@ -2,11 +2,13 @@
 title: "E[r] 実現分布 context v2 と cap 2 点検証 — 事前登録"
 summary: "判断面へ出す固定 band の実現分布と、upside / buyback cap の固定2点リプレイ契約を結果計測前に固定する。"
 doc_type: measurement-record
-status: active
+status: historical
 date: 2026-08-10
 ---
 
 # E[r] 実現分布 context v2 と cap 2 点検証 — 事前登録
+
+この事前登録は 2026-08-10 時点の旧 E[r] 式・authority・context v2 を対象とする履歴である。「現行」はその時点を指す。quintile の表示境界と 8.5% hurdle は現行の固定 band・運用閾値の説明ではない。下記の出荷・更新・CI は当時の計画であり、現在の運用手順や実施済みの証拠と混同しない。
 
 価値tier: T1 — 機械 E[r] の帯ごとの下方分布を判断面へ供給し、割安候補の過剰棄却と value trap の見落としを減らす。
 
@@ -30,13 +32,15 @@ context v2 は cap 仮説の結果に依存しない成果物である。cap var
 
 ### 2.2 basis、重み、統計量
 
-主 basis は `fy_actual_dividend_total_return`、副 basis は `price_return_only` とする。`median` / `q25` / `q10` は各 row の実現 return を nominal horizon で年率化した絶対年率であり、「E[r] 8.5% が歴史的にどの実現年率へ対応したか」を直接読める座標にする。trap は各 basis の cumulative return から同一 cohort・同一 basis の流動性母集団中央値を引いた excess が `<= -0.20` の row とする。TOPIX return は補助 provenanceとして保持するが、band分位またはtrapの基準へ混ぜない。
+主 basis は `fy_actual_dividend_total_return`、副 basis は `price_return_only` とする。前者は当時の年度 DPS による近似であり、実際の配当受取キャッシュフローの再現ではない。`median` / `q25` / `q10` は各 row の実現 return を nominal horizon で年率化した絶対年率であり、「E[r] 8.5% が歴史的にどの実現年率へ対応したか」を直接読める座標にする。trap は各 basis の cumulative return から同一 cohort・同一 basis の流動性母集団中央値を引いた excess が `<= -0.20` の row とする。TOPIX return は補助 provenanceとして保持するが、band分位またはtrapの基準へ混ぜない。
 
 band × horizon × basis ごとに次を固定する。
 
 - 主読み `ticker_equal`: 全 ticker-as-of observation を等重みにした実現絶対年率の `median`、`q25`、`q10`、trap率、`n`。
 - 副読み `cohort_equal`: cohort ごとに同じ5統計量を作り、その値を cohort 等重みで集計した中央値。trap率も cohort trap率の中央値とする。
 - coverage: `cohort_count`、cohort内 `n` の中央値 `median_n`、as-of 範囲。
+
+`ticker_equal` は unique ticker ごとの等重みではなく、同じ ticker が異なる as-of に現れる各 observation の等重みを指す。
 
 月次 cohort は窓が重複するため、ticker-as-of observation を独立標本とは呼ばず、有意性や track record を主張しない。分位点は線形補間せず、既存評価で使う deterministic nearest-rank 規則へ統一する。
 
@@ -51,15 +55,17 @@ band × horizon × basis ごとに次を固定する。
 
 H-1 の `raw_upside_blend` は production の `estimate_expected_return` が cap 前に計算する同じ値を panel に保存する。H-2 の欠損 dividend / buyback は production と同じ 0 寄せを使う。variant は評価時だけ再構成し、production model を呼び替えない。
 
-H-3 は診断だけとする。`raw_upside_blend < 0` と `>= 0` に分け、`realized_reversion_rate = annualized(price_return) / raw_upside_blend` の median / q25 / q10 と符号一致率を出す。分母の絶対値が 0.05 未満の row と非有限値は除外し、採否語彙へ接続しない。
+H-3 は診断だけとする。`raw_upside_blend < 0` と `>= 0` に分け、`realized_reversion_rate = annualized(price_return) / raw_upside_blend` の median / q25 / q10 と符号一致率を出す。分母の絶対値が 0.05 未満の row と非有限値は除外し、採否語彙へ接続しない。この比率は株価変化と事前 upside の記述的な比であり、利益成長等を分離した倍率回帰速度や因果効果ではない。
 
 ## 4. 時間分割と採否 gate
 
-各 horizon の eligible cohort を as-of 昇順に並べ、前半を design、後半を confirm とする。奇数件は confirm 側を1件多くする。既知母数どおりなら 3y は 19 / 20、5y は 9 / 9 になる。eligible status は outcome値を読まない integrity contractで確定し、分割後に cohort を移動しない。
+各 horizon の eligible cohort を as-of 昇順に並べ、前半を design、後半を confirm とする。奇数件は confirm 側を1件多くする。既知母数どおりなら 3y は 19 / 20、5y は 9 / 9 になる。eligible status は既存 authority の integrity 判定で確定し、variant の比較結果を見て membership を変更せず、分割後に cohort を移動しない。integrity に outcome を使う感度判定が含まれるため、outcome から独立した抽出とは主張しない。
 
 各 H-1 / H-2 を独立に、3y-design、3y-confirm、5y-design、5y-confirm の4窓で判定する。各窓では次をすべて満たすことを要求する。
 
-1. **水準 MAE**: cohortごとに、resolved total-return rowの `abs(annualized(total_return) - variant_er)` 中央値を計算する。cohort等重みの中央値が control より **0.005/年（0.50pt）以上改善**する。
+ここで旧 artifact 名の MAE は平均絶対誤差ではなく、cohort 内の絶対誤差中央値をさらに cohort 間で中央値集計した指標である。以下では旧名称を残すが、通常の mean absolute error と区別する。
+
+1. **水準 MAE（中央値集計）**: cohortごとに、resolved total-return rowの `abs(annualized(total_return) - variant_er)` 中央値を計算する。cohort等重みの中央値が control より **0.005/年（0.50pt）以上改善**する。
 2. **cohort改善率**: variant MAE が control MAE より小さい cohort が **2/3以上**。同値は改善に数えない。
 3. **top-N順位非劣化**: `pass_screen` × variant E[r] non-null集合を variant E[r] 降順に並べた top-20 / top-5 の cohort median excessを作る。cohort等重み中央値が、同じ集合を control E[r] 順にした値より **-0.01（-1pt）以上**である。
 4. **trap非劣化**: top-20 / top-5 の ticker等重み trap率が control より **+0.01（+1pt）を超えて悪化しない**。
@@ -78,7 +84,7 @@ H-3 は診断だけとする。`raw_upside_blend < 0` と `>= 0` に分け、`re
 
 context v2 artifact は現行 `screening_rules_hash` / `er_model_version`、生成時刻、45日expiry、schema versionを持つ。生成元 evaluation artifact の SHA-256 と context artifact 自身の SHA-256をdated reportへ固定する。loaderはmethod identity、schema、basis、band、分位順、as-of、expiryの不整合をfail closedで非表示にする。
 
-rules hash が変わる変更では、同じCIでproduction method identityとpublished context identityを比較し、不一致なら失敗させる。運用側は月次更新で再生成する。これにより、hash不一致を7日超放置する経路を持たない。
+rules hash が変わる変更では、同じCIでproduction method identityとpublished context identityを比較し、不一致なら失敗させる。運用側は月次更新で再生成する。CI の不一致検出だけでは再生成の実行・成功・期限内の復旧を保証できない。「7日以内に解消」はこの仕組みからは導けず、未更新時には非表示が続き得る。旧 artifact の hash を後付けで書き換えて現行互換とみなしてはならない。
 
 H-1 / H-2 が `negative` または `inconclusive` なら専用variant計算・専用testを通常treeから削除する。context v2生成に必要な共通集計は残す。raw upside panel列は H-1 の判定後、判断面または次の事前登録済みstudyで具体的な消費経路がなければ削除する。結果reportとhashは反証記録として残す。
 

@@ -2,11 +2,13 @@
 title: "投資有価証券による資産バリュー軸の事前登録"
 summary: "EDINETの投資有価証券簿価とnet cashを使うasset-backed ratioを、PBR統制と還元変化との交互作用で評価する。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-02
 ---
 
 # 投資有価証券による資産バリュー軸の事前登録
+
+本書は当時の入力・抽出経路と検証計画の履歴である。「現在」の availability は 2026-08-02 時点を指し、旧 CLI・candidate・playbook の記述を現行仕様や操作指示として使わない。
 
 価値tier: T1 — cash-rich候補の下値保護を現金だけでなく投資有価証券簿価まで観測し、資産が還元へ動く候補の発見面積を広げる。
 
@@ -50,7 +52,7 @@ forward returnと既存calibration outcomeは参照せず、source期間、raw C
 - ratioは負値を許容する。負のnet cashが投資有価証券を上回る状態を0へ丸めない。
 - `investment_securities`と`asset_backed_ratio`はobserved / derivedのcandidate contextとして出すが、割安の事実、清算価値、FVとは呼ばない。
 
-固定閾値0.4は既存cash-richの`cash_to_market_cap >= 0.4`と同じ下値保護比率であり、直近入力で両interaction群を形成できる。outcome結果に応じて0.3 / 0.5等へ動かさない。
+固定閾値0.4は既存cash-richの`cash_to_market_cap >= 0.4`と数値上同じだが、分子が異なるため同等の下値保護を意味しない。直近入力で両interaction群を形成できる。outcome結果に応じて0.3 / 0.5等へ動かさない。
 
 ## 4. H-1の評価とcontrol
 
@@ -73,7 +75,7 @@ controlは順序を固定する。
 - C: `asset_backed_ratio < 0.4` and `shareholder_return_change == true`
 - D: `asset_backed_ratio < 0.4` and `shareholder_return_change == false`
 
-主比較はA−Bのmedian excessとtrap rate。資産厚だけでなく還元変化が伴うことの増分を見る。副比較としてdifference-in-differences `(A−B) − (C−D)` を出し、還元変化一般の代理でないか確認する。副比較だけで主判定を上書きしない。
+主比較はA−Bのmedian excessとtrap rate。資産厚だけでなく還元変化が伴うことの増分を見る。副比較として4群の差の差 `(A−B) − (C−D)` を出す。これは横断的な interaction の記述であり、介入前後の平行トレンド等を検証した因果的 difference-in-differences ではない。還元変化一般の代理でないことも証明しない。副比較だけで主判定を上書きしない。
 
 ## 6. 固定時間分割とavailability gate
 

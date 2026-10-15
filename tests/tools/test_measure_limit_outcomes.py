@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -268,8 +269,7 @@ def test_imported_orders_are_summarised_apart_from_decision_bound_orders(tmp_pat
     assert summary["all_ledger_orders"]["full_fill_rate_pct"] == pytest.approx(50.0)
     assert summary["decision_bound_orders"]["orders"] == 1
     assert summary["decision_bound_orders"]["full_fill_rate_pct"] == pytest.approx(0.0)
-    # 判断経路を通った注文が 1 件では chase policy を動かさない。
-    assert payload["chase_policy_decision"]["ready"] is False
+    assert "chase_policy_decision" not in payload
 
 
 def test_a_missing_market_store_fails_instead_of_reporting_empty_windows(tmp_path: Path) -> None:
@@ -461,8 +461,112 @@ def test_broker_states_and_denominators_match_ledger_replay(tmp_path: Path) -> N
     assert summary["broker_rejected"] == summary["decision_changed"] == 1
     assert summary["still_open"] == 2
     assert summary["partially_filled_open"] == 1
-    assert summary["decided_orders"] == payload["chase_policy_decision"]["decided_orders"] == 3
+    assert summary["decided_orders"] == 3
     assert summary["full_fill_rate_pct"] == 33.3
     assert summary["forgone_measured_orders"] == 2
-    assert payload["chase_policy_decision"]["ready"] is False
+    assert "chase_policy_decision" not in payload
     assert (app_db.read_bytes(), market.read_bytes()) == original
+
+
+def _expired_case(tmp_path):
+    app, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
+    _ledger(
+        app,
+        [
+            _reservation(
+                reservation_id="expired",
+                occurred_at="2026-07-01T09:00:00+09:00",
+                limit_yen="1000",
+                decision_reference="retained-reference",
+            ),
+            {
+                "event_id": "release",
+                "type": "release",
+                "occurred_at": "2026-07-10T15:30:00+09:00",
+                "reservation_id": "expired",
+                "reason": "expired",
+            },
+        ],
+    )
+    _market(market, [("2026-07-02", 1050.0, 1100.0), *_post_expiry_sessions(high_close=1250)])
+    return app, market
+
+
+@pytest.mark.parametrize("factor", [0.5, None])
+def test_changed_or_unknown_share_basis_keeps_order_facts_without_price_comparison(
+    tmp_path, factor
+):
+    app, market = _expired_case(tmp_path)
+    with closing(open_connection(market)) as connection, connection:
+        connection.execute(
+            "UPDATE jquants_daily_bars SET adjustment_factor=? WHERE traded_at='2026-07-13'",
+            (factor,),
+        )
+    payload = build_limit_outcomes(app_db=app, market_db=market, asof=date(2026, 8, 1))
+    order = payload["orders"][0]
+    assert order["outcome"] == "expired"
+    assert order["post_expiry_sessions_observed"] == POST_EXPIRY_SESSIONS
+    assert order["price_comparison_unavailable_reason"] == "share_basis_unconfirmed"
+    assert order["distance_to_limit_pct"] is None
+    assert order["forgone_pct"] is None
+    assert payload["summary"]["all_ledger_orders"]["price_incomparable_orders"] == 1
+    assert payload["summary"]["all_ledger_orders"]["forgone_pending_window_orders"] == 0
+
+
+def test_cutoff_and_placed_day_use_tokyo_even_for_utc_event(tmp_path):
+    app, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
+    _ledger(
+        app,
+        [
+            _reservation(
+                reservation_id="utc",
+                occurred_at="2026-07-30T23:30:00Z",
+                limit_yen="1000",
+                decision_reference=None,
+            )
+        ],
+    )
+    _market(market, [("2026-07-31", 1000.0, 1100.0)])
+    before = build_limit_outcomes(app_db=app, market_db=market, asof=date(2026, 7, 30))
+    assert before["orders"] == []
+    after = build_limit_outcomes(app_db=app, market_db=market, asof=ASOF)
+    assert after["orders"][0]["placed_on"] == "2026-07-31"
+
+
+def test_sell_reservations_are_not_counted_as_buy_limit_outcomes(tmp_path):
+    app, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
+    buy = _reservation(
+        reservation_id="buy",
+        occurred_at="2026-07-01T09:00:00+09:00",
+        limit_yen="1000",
+        decision_reference="buy-ref",
+    )
+    sell = _reservation(
+        reservation_id="sell",
+        occurred_at="2026-07-03T09:00:00+09:00",
+        limit_yen="1200",
+        decision_reference=None,
+    )
+    sell["side"] = "sell"
+    _ledger(
+        app,
+        [
+            buy,
+            {
+                "event_id": "fill-buy",
+                "type": "execution",
+                "occurred_at": "2026-07-02T09:00:00+09:00",
+                "execution_id": "exec-buy",
+                "reservation_id": "buy",
+                "ticker": "2331",
+                "side": "buy",
+                "quantity": 100,
+                "price_yen": "1000",
+            },
+            sell,
+        ],
+    )
+    _market(market, [("2026-07-02", 990.0, 1000.0)])
+    payload = build_limit_outcomes(app_db=app, market_db=market, asof=ASOF)
+    assert payload["scope"] == "buy_reservations"
+    assert [item["reservation_id"] for item in payload["orders"]] == ["buy"]

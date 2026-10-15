@@ -99,7 +99,8 @@ async def authorize(path: Path) -> None:
             redirect_uris=["http://127.0.0.1:8765/callback"],
             grant_types=["authorization_code", "refresh_token"],
             response_types=["code"],
-            token_endpoint_auth_method="none",  # nosec B106 - OAuth public-client auth method
+            # OAuth public-client auth method
+            token_endpoint_auth_method="none",  # nosec B106
         ),
         storage=_BootstrapStorage(path),
         redirect_handler=redirect,

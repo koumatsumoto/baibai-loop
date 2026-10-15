@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market_context.indicators.db import (
     initialize_database as initialize_indicators_db,
 )
@@ -18,13 +17,11 @@ from baibai_engine.market_context.reading.rules import (
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import ScreeningRunStore
-from baibai_engine.storage.application.json import canonical_json
-from baibai_engine.storage.application.write import connect_rw
 from baibai_engine.tasks.models import Task
 from tests.helpers.db_seed import seed_ledger, seed_tasks
 from tests.helpers.fixed_now import FIXED_NOW
 from tests.helpers.ledger import load_portfolio_ledger
-from tests.helpers.screening_run import screening_run_payload, security_analysis
+from tests.helpers.screening_run import screening_run_payload, stock_analysis
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SCREENING_RULES_HASH = production_rules_contract_hash(load_screening_rules().model_dump_json())
@@ -109,37 +106,18 @@ def _seed_app_method_root(root: Path) -> None:
             }
         ),
     )
-    thesis = safe_load((FIXTURES / "thesis/2331-decision.yaml").read_text(encoding="utf-8"))
-    review = safe_load((FIXTURES / "thesis/2331-decision-review.yaml").read_text(encoding="utf-8"))
-    assert isinstance(thesis, dict)
-    assert isinstance(review, dict)
-    with connect_rw(db_path) as connection:
-        connection.execute(
-            "INSERT INTO thesis(thesis_id,ticker,as_of,recommendation,published_at,payload,core_sha256) VALUES (?,?,?,?,?,?,?)",
-            (
-                "thesis-20260714-2331-r1",
-                "2331",
-                "2026-07-03",
-                "buy",
-                FIXED_NOW.isoformat(),
-                canonical_json(thesis),
-                review["reviewed_thesis_sha256"],
-            ),
-        )
-        connection.execute(
-            "INSERT INTO thesis_review(review_id,thesis_id,reviewed_at,payload) VALUES (?,?,?,?)",
-            (
-                review["review_id"],
-                "thesis-20260714-2331-r1",
-                review["reviewed_at"],
-                canonical_json(review),
-            ),
-        )
+    from baibai_engine.research.assessment_store import AssessmentStoreService
+    from tests.helpers.assessment_v1 import assessment_id, pair_payload
+
+    document, review = pair_payload(ticker="2331", as_of="2026-07-03")
+    AssessmentStoreService(db_path, clock=lambda: FIXED_NOW).publish_reviewed_assessment(
+        assessment_id(2331), document, review
+    )
     tasks = yaml.safe_load(_TASKS)["tasks"]
     seed_tasks(db_path, (Task.model_validate(item) for item in tasks))
     run_store = ScreeningRunStore(root / "stores/screening/runs.sqlite")
     for as_of in ("2026-07-01", "2026-07-08"):
-        run_store.publish_run(_seed_screening_run(as_of))
+        run_store.publish_run(_seed_screening_run(as_of), rules=load_screening_rules())
 
 
 def _tree_fingerprint(root: Path) -> str:
@@ -209,20 +187,20 @@ def _seed_screening_run(as_of: str) -> dict[str, object]:
         run_at=f"{as_of}T12:00:00+09:00",
         universe_size=3,
         rules_hash=SCREENING_RULES_HASH,
-        security_analyses=[
-            security_analysis(
+        stock_analyses=[
+            stock_analysis(
                 "2331",
                 name="ALSOK",
                 sector_33="サービス業",
                 per_trailing=12.0,
                 metrics={"er_annual": 0.12},
             ),
-            security_analysis(
+            stock_analysis(
                 "0001",
                 name="Sample One",
                 sector_33="情報・通信業",
                 metrics={"er_annual": 0.1},
             ),
-            security_analysis("0002", name="Sample Two", sector_33="小売業", metrics={}),
+            stock_analysis("0002", name="Sample Two", sector_33="小売業", metrics={}),
         ],
     )

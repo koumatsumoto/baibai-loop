@@ -13,37 +13,32 @@ from baibai_engine.read_api import (
     IndicatorGranularity,
     PortfolioSnapshot,
     application_db_updated_at,
-    capital_allocation_assessment_payload,
     close_change_since,
     current_portfolio,
     indicator_fetch_health,
     indicator_latest_observed_at,
     indicator_series,
+    investment_proposal_payload,
     latest_disclosure_dates_after,
-    latest_research_triage_payload,
     latest_unadjusted_closes,
-    list_capital_allocation_assessment_payloads,
+    list_assessment_review_publications,
+    list_investment_proposal_payloads,
     list_operation_sessions,
     list_portfolio_outcome_payloads,
-    list_position_review_publications,
-    list_research_triage_payloads,
+    list_stock_assessment_publications,
     list_task_payloads,
-    list_thesis_publications,
-    list_thesis_review_publications,
     market_master_snapshot,
     next_earnings_dates,
     portfolio_ledger_document,
-    position_review_null_reason,
+    preview_current_proposal_terms,
     previous_business_day,
-    research_triage_payload,
-    research_triage_payloads_for_review_set,
-    reviewed_thesis_projection,
+    price_comparison_basis_is_confirmed,
+    reviewed_assessment_projection,
     safe_load,
-    screening_review_set_payloads,
     screening_run_asof_dates,
     screening_run_payload,
+    stock_assessment_publication,
     task_store_exists,
-    thesis_publication,
 )
 from baibai_engine.read_api.external_assessment import (
     ExternalAssessment,
@@ -66,11 +61,10 @@ from baibai_web.sources.screening_selection import operative_screening_run
 from baibai_web.sources.types import (
     IndicatorGroupConfig,
     IndicatorSeriesConfig,
-    PositionReviewSummary,
     ResearchRevision,
     ScreeningRunRecord,
+    StockAssessmentDetail,
     TaskRecord,
-    ThesisDetail,
 )
 
 
@@ -154,6 +148,13 @@ class DbMarketPriceSource:
     def latest_closes(self, tickers: Sequence[str]) -> Mapping[str, tuple[float, date]]:
         return latest_unadjusted_closes(self._path, tickers)
 
+    def price_comparison_basis_is_confirmed(
+        self, ticker: str, *, from_date: date, through_date: date
+    ) -> bool:
+        return price_comparison_basis_is_confirmed(
+            self._path, ticker, from_date=from_date, through_date=through_date
+        )
+
     def close_changes_since(self, tickers: Sequence[str], *, since: date) -> Mapping[str, float]:
         return close_change_since(self._path, tickers, since=since)
 
@@ -173,9 +174,6 @@ class DbOperationsSource:
     def operations(self) -> list[dict[str, object]]:
         return list_operation_sessions(self._path)
 
-    def position_review_null_reason(self, payload: Mapping[str, object]) -> str | None:
-        return position_review_null_reason(self._path, payload)
-
     def outcomes(self) -> list[dict[str, object]]:
         return list_portfolio_outcome_payloads(self._path)
 
@@ -183,126 +181,76 @@ class DbOperationsSource:
 class DbResearchSource:
     def __init__(self, db_path: Path) -> None:
         self._path = db_path.resolve()
-        self._load_errors: list[str] = []
 
     def revisions(self) -> list[ResearchRevision]:
-        reviews = _latest_review_ids(list_thesis_review_publications(self._path))
-        result: list[ResearchRevision] = []
-        errors: list[str] = []
-        for publication in list_thesis_publications(self._path):
-            thesis_id = str(publication["thesis_id"])
-            try:
-                result.append(self._revision(publication, review_id=reviews.get(thesis_id)))
-            except (KeyError, TypeError, ValueError):
-                errors.append(thesis_id)
-        self._load_errors = errors
-        return result
+        # A malformed newer pair is a source error. Never expose an older supported
+        # assessment by silently dropping that revision from the current index.
+        return [self._revision(item) for item in list_stock_assessment_publications(self._path)]
 
-    def thesis_detail(self, thesis_id: str) -> ThesisDetail:
-        publication = thesis_publication(self._path, thesis_id=thesis_id)
+    def assessment_detail(self, assessment_id: str) -> StockAssessmentDetail | None:
+        publication = stock_assessment_publication(self._path, assessment_id=assessment_id)
         if publication is None:
-            raise ValueError(f"unknown thesis_id: {thesis_id}")
-        reviews = list_thesis_review_publications(self._path, thesis_id=thesis_id)
-        revision = self._revision(
-            publication,
-            review_id=_latest_review_ids(reviews).get(thesis_id),
-        )
-        return ThesisDetail(
-            revision=revision,
-            projection=reviewed_thesis_projection(self._path, thesis_id=thesis_id),
-        )
-
-    def position_reviews(self, *, ticker: str | None = None) -> list[PositionReviewSummary]:
-        result: list[PositionReviewSummary] = []
-        publications = list_position_review_publications(self._path, ticker=ticker)
-        if not publications:
-            return result
-        for publication in publications:
-            payload = _mapping(publication["payload"], label="Position Review")
-            reward = payload.get("remaining_reward")
-            reward_reason = reward.get("reason") if isinstance(reward, Mapping) else None
-            action = _optional_text(payload.get("action"))
-            result.append(
-                PositionReviewSummary(
-                    position_review_id=str(publication["position_review_id"]),
-                    ticker=str(publication["ticker"]),
-                    as_of=date.fromisoformat(str(publication["as_of"])),
-                    thesis_id=str(publication["thesis_id"]),
-                    action=action,
-                    note=_optional_text(
-                        reward_reason or payload.get("unresolved_reason") or payload.get("note")
-                    ),
-                    null_reason=position_review_null_reason(self._path, payload)
-                    if action is None
-                    else None,
-                )
-            )
-        return result
-
-    def load_errors(self) -> list[str]:
-        return list(self._load_errors)
-
-    def research_triages(
-        self,
-        *,
-        review_set_ids: Sequence[str] | None = None,
-    ) -> list[dict[str, object]]:
-        if review_set_ids is None:
-            latest = latest_research_triage_payload(self._path)
-            return [] if latest is None else [latest]
-        latest_by_review_set: list[dict[str, object]] = []
-        for review_set_id in dict.fromkeys(review_set_ids):
-            payloads = research_triage_payloads_for_review_set(self._path, review_set_id)
-            if payloads:
-                latest_by_review_set.append(payloads[0])
-        return sorted(
-            latest_by_review_set,
-            key=lambda item: str(item["published_at"]),
-            reverse=True,
+            return None
+        reviews = list_assessment_review_publications(self._path, assessment_id=assessment_id)
+        if len(reviews) != 1:
+            raise ValueError("Stock Assessment requires exactly one independent Review")
+        projection = reviewed_assessment_projection(self._path, assessment_id=assessment_id)
+        return StockAssessmentDetail(
+            revision=self._revision(publication, projection=projection),
+            document=dict(_mapping(publication["payload"], label="Stock Assessment")),
+            review=dict(_mapping(reviews[0]["payload"], label="Assessment Review")),
+            core_sha256=str(publication["core_sha256"]),
+            projection=projection,
         )
 
-    def assessments(self) -> list[dict[str, object]]:
-        return list_capital_allocation_assessment_payloads(self._path)
+    def proposals(self) -> list[dict[str, object]]:
+        return list_investment_proposal_payloads(self._path)
 
-    def research_triage(self, research_triage_id: str) -> dict[str, object] | None:
-        return research_triage_payload(self._path, research_triage_id)
+    def proposal(self, proposal_id: str) -> dict[str, object] | None:
+        return investment_proposal_payload(self._path, proposal_id=proposal_id)
 
-    def research_triage_history(self) -> list[dict[str, object]]:
-        return list_research_triage_payloads(self._path)
-
-    def assessment(self, capital_allocation_assessment_id: str) -> dict[str, object] | None:
-        return capital_allocation_assessment_payload(
-            self._path, capital_allocation_assessment_id=capital_allocation_assessment_id
+    def proposal_preview(
+        self, proposal_id: str, *, sqlite_path: Path, now: datetime
+    ) -> dict[str, object] | None:
+        return preview_current_proposal_terms(
+            self._path, proposal_id=proposal_id, sqlite_path=sqlite_path, now=now
         )
 
     def _revision(
         self,
         publication: dict[str, object],
         *,
-        review_id: str | None,
+        projection: dict[str, object] | None = None,
     ) -> ResearchRevision:
-        payload = _mapping(publication["payload"], label="research thesis")
-        snapshot = _mapping(payload["input_snapshot"], label="thesis input snapshot")
-        projection = reviewed_thesis_projection(self._path, thesis_id=str(publication["thesis_id"]))
+        payload = _mapping(publication["payload"], label="Stock Assessment")
+        snapshot = _mapping(payload["input_snapshot"], label="Assessment input snapshot")
+        current = (
+            projection
+            if projection is not None
+            else reviewed_assessment_projection(
+                self._path, assessment_id=str(publication["assessment_id"])
+            )
+        )
         return ResearchRevision(
             ticker=str(publication["ticker"]),
             company_name=str(snapshot["company_name"]),
             sector=str(snapshot["sector"]),
+            summary=str(
+                _mapping(payload["findings"], label="Assessment findings")["value_gap_explanation"]
+            ),
             as_of=date.fromisoformat(str(publication["as_of"])),
-            thesis_id=str(publication["thesis_id"]),
-            disposition=str(projection.get("disposition", "requires_reassessment")),
-            pmax_raw_yen=_optional_float(projection.get("pmax_raw_yen")),
-            review_id=review_id,
-            status=str(projection["status"]),
+            published_at=datetime.fromisoformat(str(publication["published_at"])),
+            assessment_id=str(publication["assessment_id"]),
+            stance=str(current["stance"]),
+            pmax_original_yen=_optional_float(current.get("pmax_original_yen")),
+            review_id=str(current["review_id"]),
+            status=str(current["status"]),
+            original_price_as_of=(
+                None
+                if current["original_price_as_of"] is None
+                else date.fromisoformat(str(current["original_price_as_of"]))
+            ),
         )
-
-
-def _latest_review_ids(reviews: list[dict[str, object]]) -> dict[str, str]:
-    """The reader supplies reviewed_at DESC, review_id DESC; retain the first row."""
-    latest: dict[str, str] = {}
-    for review in reviews:
-        latest.setdefault(str(review["thesis_id"]), str(review["review_id"]))
-    return latest
 
 
 class DbTaskSource:
@@ -439,7 +387,7 @@ class DbMetaSource:
         self._indicators_db_path = indicators_db_path.resolve()
 
     def screening_as_of(self) -> date | None:
-        run, _ = operative_screening_run(DbScreeningSource(self._runs_db_path))
+        run = operative_screening_run(DbScreeningSource(self._runs_db_path))
         return None if run is None else run.as_of
 
     def indicator_as_of(self) -> date | None:
@@ -451,7 +399,7 @@ class DbMetaSource:
     def data_updated_at(self) -> datetime | None:
         """Return the newest timestamp recorded by any UI data store."""
 
-        screening_run, _ = operative_screening_run(DbScreeningSource(self._runs_db_path))
+        screening_run = operative_screening_run(DbScreeningSource(self._runs_db_path))
         screening_updated_at = None if screening_run is None else screening_run.generated_at
         indicator_observed_at = indicator_latest_observed_at(self._indicators_db_path)
         indicator_updated_at = (
@@ -503,17 +451,13 @@ class DbScreeningSource:
         raw = screening_run_payload(self._runs_path, as_of_date=as_of)
         return None if raw is None else self._parse_run(raw)
 
-    def review_sets(self, *, run_revision_id: str | None = None) -> list[dict[str, object]]:
-        return screening_review_set_payloads(
-            self._runs_path,
-            run_revision_id=run_revision_id,
-        )
-
     @staticmethod
     def _parse_run(raw: dict[str, object]) -> ScreeningRunRecord:
-        analyses = raw["security_analyses"]
+        analyses = raw["stock_analyses"]
         if not isinstance(analyses, list) or not all(isinstance(item, dict) for item in analyses):
-            raise ValueError("screening security analyses must be an array of objects")
+            raise ValueError("screening stock analyses must be an array of objects")
+        header = _mapping(raw["payload"], label="run header")
+        summary = _mapping(header["candidate_discovery"], label="candidate discovery")
         return ScreeningRunRecord(
             run_id=str(raw["public_run_id"]),
             as_of=date.fromisoformat(str(raw["as_of_date"])),
@@ -529,6 +473,7 @@ class DbScreeningSource:
             er_model_version=(
                 None if raw.get("er_model_version") is None else str(raw["er_model_version"])
             ),
+            candidate_discovery=dict(summary),
             rows=tuple(analyses),
         )
 

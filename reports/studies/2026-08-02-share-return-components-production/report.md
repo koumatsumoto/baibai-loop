@@ -2,11 +2,13 @@
 title: "株数減少・予想増配の長期production判断"
 summary: "株数減少は3y control、予想増配は独立3yと5yで条件を外したため、両成分ともproductionへ採用しない。"
 doc_type: report
-status: active
+status: historical
 date: 2026-08-02
 ---
 
 # 株数減少・予想増配の長期production判断
+
+以下は固定 commit の旧計算による測定・判断履歴で、現行手順ではない。計測後のレビューで、当時の negative という総合ラベルは事前登録 §2 の「Gate 0 未達なら方向を問わず insufficient」と整合しないことを確認した。正式な evidence の状態は insufficient、観測済み部分の方向・control 不一致は negative diagnostic と分ける。採用しない結論は変わらず、元 artifact・数値を再計測や改名で上書きしていない。
 
 価値tier: T1 — 低valuation候補のバリュートラップ率を下げる還元変化について、長期・authority・一次IRの事前登録条件を満たさない成分を判断面へ接続しない。
 
@@ -15,13 +17,13 @@ date: 2026-08-02
 - **H-S `share_count_reduction_streak`: `negative`**。独立3y confirmと固定5yの方向は強く、一次IR固定標本も12社すべてclassifyできた。しかし固定3yの`dividend_yield` controlでtrap rateが+1.12pt悪化し、事前登録した全control条件を外した。
 - **H-D `dps_guidance_up`: `negative`**。独立3y confirmのmedian deltaは-9.52pt、固定5yは-17.03ptで、全6 controlも同じ逆方向だった。
 
-加えて、独立3y confirmの2 cohortはpriced-master対象forward returnの解決が不完全で、production authorityがblockedだった。方向・controlのfailがあるため最終判定は`insufficient`ではなく`negative`とするが、blocked authorityを良い固定長期結果で上書きもしない。
+加えて、独立3y confirmの2 cohortはpriced-master対象forward returnの解決が不完全で、production authorityがblockedだった。当時は方向・controlのfailを優先して最終判定を`negative`と記録した。しかし Gate 0 の規定を優先すれば正式判定は`insufficient`である。下表の negative はその歴史的ラベルであり、blocked authorityを通過した証拠ではない。
 
 candidate annotation、UI、warning、gate、ranking、FV、E[r]、sizingは変更しない。production配線の別issueも作らない。`share_count_reduction_streak`を「自社株買い」と表示する根拠にも使わない。
 
 ## 固定scopeとartifact
 
-事前登録はcommit `e6ca851`、結果を読む前に固定した単発診断実装はcommit `70aee43`である。入力、cohort、control、一次IR標本、採否条件は [`2026-08-02-share-return-components-production-preregistration.md`](.../2026-08-02-share-return-components-production/preregistration/report.md) を正本とする。
+事前登録はcommit `e6ca851`、結果を読む前に固定した単発診断実装はcommit `70aee43`である。入力、cohort、control、一次IR標本、採否条件は [`2026-08-02-share-return-components-production-preregistration.md`](../2026-08-02-share-return-components-production/preregistration.md) を正本とする。
 
 - 独立3y confirm: `2023-06-30`、`2023-07-31`
 - 固定長期: `2020-01-31`、`2020-05-29`、`2021-01-29`、`2021-05-31` × `3y` / `5y`
@@ -117,7 +119,8 @@ artifactの+14.9527pt / -10.5340ptとの差は、toolがstratumごとのgroup ra
 | 固定3y effect / control / sample | **dividend yield trap fail** | pass |
 | 固定5y effect / control / sample | pass | **effect・全control fail** |
 | 一次IR追加条件 | pass | 対象外 |
-| 最終判定 | **negative** | **negative** |
+| 当時の記録ラベル | **negative** | **negative** |
+| Gate 0 を優先した正式な evidence 状態 | **insufficient** | **insufficient** |
 
 forward窓は重複するため、cohort数を独立標本や有意性として扱わない。結果はprice-onlyの関連であり、還元施策が株価を上げたという因果推定でもない。
 

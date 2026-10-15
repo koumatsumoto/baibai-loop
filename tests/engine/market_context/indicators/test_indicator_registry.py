@@ -391,3 +391,40 @@ def test_catalog_never_opens_a_store(tmp_path, monkeypatch, capsys):
     assert set(tmp_path.rglob("*")) == before
     with pytest.raises(SystemExit):
         main(["list", "--db", str(tmp_path / "missing.sqlite")])
+
+
+@pytest.mark.parametrize(("priority", "expected"), [("0", 0), ("10", 10), ("null", 100)])
+def test_registry_preserves_explicit_priority(tmp_path, priority, expected):
+    path = tmp_path / "registry.yaml"
+    path.write_text(
+        _registry_yaml(plausible_min="-2", plausible_max="20") + f"    priority: {priority}\n",
+        encoding="utf-8",
+    )
+    assert load_definitions(path).series[0].priority == expected
+
+
+@pytest.mark.parametrize("priority", ["true", "false"])
+def test_registry_priority_is_not_a_boolean(tmp_path, priority):
+    path = tmp_path / "registry.yaml"
+    path.write_text(
+        _registry_yaml(plausible_min="-2", plausible_max="20") + f"    priority: {priority}\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match=r"priority.*integer"):
+        load_definitions(path)
+
+
+@pytest.mark.parametrize(
+    ("series_id", "provider_id", "excluded_alias"),
+    [
+        ("usd_index.broad", "DTWEXBGS", "DXY"),
+        ("us.gdp_growth", "A191RL1Q225SBEA", "GDPC1"),
+        ("us.pce.core", "PCEPILFE", "FRB目標インフレ"),
+        ("jp.real_wage_index", "0302030201010090010", "実質賃金前年比"),
+        ("jp.policy_rate", "FM01:STRDCLUCON", "日銀政策金利"),
+    ],
+)
+def test_registry_preserves_series_identity(series_id, provider_id, excluded_alias):
+    definition = load_definitions().by_id()[series_id]
+    assert definition.provider_series_id == provider_id
+    assert excluded_alias not in definition.aliases

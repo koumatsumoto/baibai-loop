@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Protocol, TextIO
 from zipfile import BadZipFile
 
+from baibai_engine.market.edinet_decode import parse_sec_code
 from baibai_engine.market.edinet_facts.extract import EXTRACTOR_REVISION, extract_facts
 from baibai_engine.market.edinet_facts.models import filing_identity
 from baibai_engine.market.edinet_facts.store import (
@@ -19,13 +20,8 @@ from baibai_engine.market.edinet_facts.store import (
     record_initialized,
     store_facts,
 )
-from baibai_engine.market.providers.edinet import (
-    EDINETProviderError,
-    EDINETRateLimitError,
-    _canonicalize_document_events,
-    _document_period,
-    parse_sec_code,
-)
+from baibai_engine.market.edinet_models import EDINETProviderError, EDINETRateLimitError
+from baibai_engine.market.providers.edinet import _canonicalize_document_events, _document_period
 
 
 class XbrlSource(Protocol):

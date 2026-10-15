@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 import sys
 from collections.abc import Callable
+from contextlib import closing
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
+import yaml
 
 from baibai_batch.jobs.daily import (
     BatchStepError,
@@ -16,6 +18,7 @@ from baibai_batch.jobs.daily import (
     _Notice,
     _parse_indicator_series,
     _read_daily_delta,
+    _read_run_view,
     build_parser,
     main,
     run_daily_batch,
@@ -42,11 +45,6 @@ RUN_OK = CommandResult(
     0,
     "screening run done: status=ok; run_revision_id=rev-1; output=/tmp/run.yaml; "
     "universe=3800; candidates=42\n",
-    "",
-)
-REVIEW_SET_OK = CommandResult(
-    0,
-    json.dumps({"review_set_id": "review-set-1", "entries": [{"ticker": "2331"}]}) + "\n",
     "",
 )
 
@@ -102,12 +100,55 @@ def _run_yaml_writer(revision_id: str | None) -> Callable[[list[str]], None]:
 
     def _writer(argv: list[str]) -> None:
         idx = argv.index("--output-path")
-        lines = ['asof_date: "2026-07-21"', "universe_size: 3800", "candidates:"]
-        if revision_id is not None:
-            lines.insert(0, f'run_revision_id: "{revision_id}"')
-            lines.insert(0, 'review_set_id: "review-set-1"')
-            lines.extend(['  - ticker: "2331"', '  - ticker: "0001"'])
-        Path(argv[idx + 1]).write_text("\n".join(lines) + "\n", encoding="utf-8")
+        payload = {
+            "schema_version": 1,
+            "kind": "stock_analysis_run",
+            "run_revision_id": revision_id,
+            "asof_date": "2026-07-21",
+            "universe_size": 3800,
+            "stock_analyses": [
+                {
+                    "ticker": "2331",
+                    "candidate": {
+                        "common_eligible": True,
+                        "reasons": [
+                            {
+                                "valuation_approach_id": "current-earnings-power",
+                                "valuation_method_id": "synthetic-method",
+                                "rank": 1,
+                            }
+                        ],
+                        "normalized_per_3fy_sector_gap": None,
+                    },
+                },
+                {
+                    "ticker": "0001",
+                    "candidate": {
+                        "common_eligible": False,
+                        "reasons": [],
+                        "normalized_per_3fy_sector_gap": None,
+                    },
+                },
+            ],
+            "candidate_discovery": {
+                "method": {
+                    "method_id": "synthetic-method",
+                    "method_hash": "a" * 64,
+                    "nomination_depth": 20,
+                },
+                "diagnostics": {
+                    "common_eligible_count": 1,
+                    "candidate_count": 1,
+                    "candidate_counts_by_approach": {
+                        "current-earnings-power": 1,
+                        "normalized-earnings-power": 0,
+                        "asset-value": 0,
+                        "reinvestment-value": 0,
+                    },
+                },
+            },
+        }
+        Path(argv[idx + 1]).write_text(yaml.safe_dump(payload), encoding="utf-8")
 
     return _writer
 
@@ -159,7 +200,7 @@ def _runner(
     run_revision_id: str | None = "rev-1",
 ) -> ScriptedRunner:
     return ScriptedRunner(
-        results or _success_script(),
+        _success_script() if results is None else results,
         writers={"screening run": _run_yaml_writer(run_revision_id)},
     )
 
@@ -254,7 +295,7 @@ def test_structured_and_human_daily_paths_have_normalized_equivalent_results(
     assert result.exit_code == human_exit == 0
     assert result.status == "machine_complete"
     assert result.run_revision_id == "rev-1"
-    assert result.review_set_id == "review-set-1"
+    assert result.candidate_count == 1
     assert human.call_keys() == structured.call_keys()
     assert [step.name for step in result.steps] == [
         "refresh-edinet-documents",
@@ -388,8 +429,11 @@ def test_daily_batch_continues_indicators_after_screening_fatal(tmp_path: Path, 
     assert result.exit_code == 3
     assert result.screening_status == "failed"
     assert result.run_revision_id is None
-    assert result.review_set_id is None
-    assert "provider unavailable" in capsys.readouterr().err
+    assert result.candidate_count is None
+    error = capsys.readouterr().err
+    assert "provider unavailable" in error
+    assert "read models exported locally" in error
+    assert "export published" not in error
     assert runner.call_keys().count("market-context indicators list") == 1
     assert runner.call_keys().count("export") == 1
     assert "screening prune" not in runner.call_keys()
@@ -485,7 +529,7 @@ def test_daily_batch_defers_indicator_list_failure_and_still_exports(tmp_path: P
     assert "export" in keys
 
 
-def test_daily_batch_defers_run_view_without_pair_ids(tmp_path: Path) -> None:
+def test_daily_batch_defers_run_view_without_revision(tmp_path: Path) -> None:
     runner = _runner(run_revision_id=None)
     result = run_daily_batch_structured(
         root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner
@@ -526,7 +570,7 @@ def test_daily_batch_skips_only_screening_on_non_business_day(tmp_path: Path, ca
 
 def test_analysis_structured_path_gates_an_explicit_non_business_day(tmp_path: Path) -> None:
     _seed_calendar(tmp_path, {ASOF: "0"})
-    runner = _runner({})
+    runner = _runner()
 
     result = run_daily_batch_structured(
         root=tmp_path,
@@ -664,7 +708,7 @@ def _notice_runner(
     results: dict[str, list[CommandResult]] | None = None,
 ) -> ScriptedRunner:
     return ScriptedRunner(
-        results or _success_script(),
+        _success_script() if results is None else results,
         writers={"screening run": _run_yaml_writer("rev-1"), "export": _export_meta_writer},
     )
 
@@ -690,7 +734,6 @@ def test_daily_batch_writes_the_notice_with_asof_and_an_unmeasured_delta(tmp_pat
     # rather than empty lists that would read as "nothing changed".
     assert _load_notice(notice_path) == {
         "asof": "2026-07-21",
-        "skipped": False,
         "screening_status": "published",
         "market_updated": False,
         "failed_stage": None,
@@ -705,7 +748,6 @@ def _delta_view(path: Path, entered: list[object], exited: list[object] | None =
     payload = {
         "entered": entered,
         "exited": [] if exited is None else exited,
-        "er_moves": [],
         "holdings": [],
         "unavailable": [],
     }
@@ -839,7 +881,7 @@ def test_daily_delta_names_nothing_when_the_view_cannot_be_read(tmp_path: Path) 
     assert notice.entered == []
 
 
-def test_daily_batch_writes_a_skipped_notice_on_a_non_business_day(tmp_path: Path) -> None:
+def test_daily_batch_reports_screening_skip_without_skipping_indicators(tmp_path: Path) -> None:
     today = datetime.now(JST).date()
     _seed_calendar(tmp_path, {today: "0"})
     notice_path = tmp_path / "notice.json"
@@ -848,13 +890,12 @@ def test_daily_batch_writes_a_skipped_notice_on_a_non_business_day(tmp_path: Pat
         root=tmp_path,
         output_dir=tmp_path / "serving",
         asof=None,
-        runner=_notice_runner({}),
+        runner=_notice_runner(),
         notice_output=notice_path,
     )
 
     assert exit_code == 0
     notice = _load_notice(notice_path)
-    assert notice["skipped"] is False
     assert notice["screening_status"] == "skipped_non_business_day"
     assert notice["asof"] == today.isoformat()
     assert notice["failed_stage"] is None
@@ -1004,14 +1045,12 @@ def test_indicator_refresh_groups_orders_derived_after_base() -> None:
     ]
 
 
-def test_a_reconcile_failure_degrades_the_batch_without_losing_the_publish(
+def test_a_reconcile_failure_degrades_the_batch_after_local_export(
     tmp_path: Path,
 ) -> None:
-    """The step reports and writes nothing, so it must never cost the day's publish.
+    """A reconciliation failure is deferred after a successful local export.
 
-    Pins the deferral itself: replacing the try/except with a bare `_run_step`
-    puts the step back on the critical path, and nothing else in the suite would
-    notice.
+    The scripted runner tests orchestration and notice state, not remote publication.
     """
     script = _success_script()
     script["task reconcile-earnings"] = [CommandResult(returncode=1, stdout="", stderr="boom")]
@@ -1035,12 +1074,12 @@ def test_a_reconcile_failure_degrades_the_batch_without_losing_the_publish(
     assert _load_notice(notice_path)["failed_stage"] == "task-reconcile-earnings"
 
 
-@pytest.mark.parametrize("section", ["screening_run", "previous_screening_run", "review_set"])
+@pytest.mark.parametrize("section", ["screening_run", "previous_screening_run", "candidates"])
 def test_daily_delta_does_not_report_missing_comparison_as_empty(tmp_path, section):
     view = _delta_view(tmp_path / "delta.json", [])
-    payload = json.loads(view.read_text())
+    payload = json.loads(view.read_text(encoding="utf-8"))
     payload["unavailable"] = [section]
-    view.write_text(json.dumps(payload))
+    view.write_text(json.dumps(payload), encoding="utf-8")
     notice = _Notice()
     _read_daily_delta(view, notice)
     assert not notice.delta_measured
@@ -1049,16 +1088,16 @@ def test_daily_delta_does_not_report_missing_comparison_as_empty(tmp_path, secti
 
 def test_daily_delta_distinguishes_method_change(tmp_path):
     view = _delta_view(tmp_path / "delta.json", [])
-    payload = json.loads(view.read_text())
+    payload = json.loads(view.read_text(encoding="utf-8"))
     payload["method_changed"] = True
-    view.write_text(json.dumps(payload))
+    view.write_text(json.dumps(payload), encoding="utf-8")
     notice = _Notice()
     _read_daily_delta(view, notice)
     assert not notice.delta_measured
     assert notice.delta_unmeasured_reason == "手法変更"
 
 
-def test_research_fact_failure_is_deferred_until_after_publication(tmp_path):
+def test_research_fact_failure_is_deferred_until_after_local_export(tmp_path):
     script = _success_script()
     script["screening extract-edinet-facts"] = [CommandResult(1, "", "XBRL unavailable")]
     runner = _runner(script)
@@ -1100,7 +1139,7 @@ def test_committed_market_chunk_survives_bootstrap_failure_and_requests_lake_pub
     assert result.market_updated is True
     assert result.screening_status == "failed"
     assert _load_notice(notice_path)["market_updated"] is True
-    with sqlite3.connect(market) as connection:
+    with closing(sqlite3.connect(market)) as connection:
         assert connection.execute(
             "SELECT is_business_day FROM jquants_market_calendar WHERE day = ?",
             (next_day.isoformat(),),
@@ -1131,3 +1170,79 @@ def test_corrupt_market_store_does_not_block_indicators_and_export_stays_fatal(
     assert "screening run" not in runner.call_keys()
     assert "market-context indicators refresh" in runner.call_keys()
     assert not (tmp_path / "serving/views/meta.json").exists()
+
+
+def test_daily_output_uses_single_run_export_and_zero_candidates_is_published(
+    tmp_path: Path,
+) -> None:
+    runner = _runner()
+    original_writer = _run_yaml_writer("rev-1")
+
+    def empty_candidates(argv: list[str]) -> None:
+        original_writer(argv)
+        output = Path(argv[argv.index("--output-path") + 1])
+        payload = yaml.safe_load(output.read_text(encoding="utf-8"))
+        payload["stock_analyses"][0]["candidate"]["reasons"] = []
+        payload["candidate_discovery"]["diagnostics"]["candidate_count"] = 0
+        payload["candidate_discovery"]["diagnostics"]["candidate_counts_by_approach"][
+            "current-earnings-power"
+        ] = 0
+        output.write_text(yaml.safe_dump(payload), encoding="utf-8")
+
+    runner._writers["screening run"] = empty_candidates
+    result = run_daily_batch_structured(
+        root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner
+    )
+    assert result.exit_code == 0
+    assert result.screening_status == "published"
+    assert result.candidate_count == 0
+    assert result.run_revision_id == "rev-1"
+    assert "review_set_id" not in result.to_json()
+    assert "screening prune" in runner.call_keys()
+
+
+@pytest.mark.parametrize("mutation", ["header", "rows", "context", "counts", "method", "universe"])
+def test_daily_rejects_invalid_committed_run_export_and_keeps_indicators_independent(
+    tmp_path: Path, mutation: str
+) -> None:
+    runner = _runner()
+    original_writer = _run_yaml_writer("rev-1")
+
+    def broken_export(argv: list[str]) -> None:
+        original_writer(argv)
+        output = Path(argv[argv.index("--output-path") + 1])
+        payload = yaml.safe_load(output.read_text(encoding="utf-8"))
+        if mutation == "header":
+            payload.pop("candidate_discovery")
+        elif mutation == "rows":
+            payload["stock_analyses"] = None
+        elif mutation == "context":
+            payload["stock_analyses"][0]["candidate"] = None
+        elif mutation == "counts":
+            payload["candidate_discovery"]["diagnostics"]["candidate_count"] = 0
+        elif mutation == "method":
+            payload["candidate_discovery"]["method"]["method_hash"] = "invalid"
+        else:
+            payload["universe_size"] = True
+        output.write_text(yaml.safe_dump(payload), encoding="utf-8")
+
+    runner._writers["screening run"] = broken_export
+    result = run_daily_batch_structured(
+        root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner
+    )
+    assert result.exit_code == 3
+    assert result.screening_status == "failed"
+    assert result.candidate_count is None
+    assert "market-context indicators refresh" in runner.call_keys()
+    assert "--skip-history" in _call(runner, "export")
+    assert "screening prune" not in runner.call_keys()
+
+
+def test_run_export_counts_match_stock_rows_without_review_publication_id(tmp_path: Path) -> None:
+    output = tmp_path / "run.yaml"
+    _run_yaml_writer("rev-1")(["--output-path", str(output)])
+    view = _read_run_view(output)
+    assert view.run_revision_id == "rev-1"
+    assert view.universe_size == 3800
+    assert view.analyzed_count == 2
+    assert view.candidate_count == 1

@@ -1,26 +1,29 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from contextlib import closing
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
-from tests.engine.test_position_review_v3 import NOW
-from tests.engine.test_position_review_v3 import holding_case as holding_case
-from tests.helpers.screening_run import screening_run_payload, security_analysis
+from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
+from tests.helpers.db_seed import seed_ledger
+from tests.helpers.screening_run import RULES_HASH, screening_run_payload, stock_analysis
 from tests.helpers.screening_sqlite import seed_daily_bars
+from tests.web.test_research_assessment_views import seed_web_assessment, seed_web_proposal
 
-from baibai_engine.research.position_review import RemainingReward
-from baibai_engine.research.position_review_service import PositionReviewService
+from baibai_engine.position.ledger import PortfolioLedgerDocument
+from baibai_engine.position.valuation import current_portfolio
+from baibai_engine.research.assessment_store import AssessmentStoreService
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.run_store import ScreeningRunStore
 from baibai_engine.storage.application.write import connect_rw
 from baibai_engine.storage.observations.schema import open_connection
+from baibai_web.readmodel.builders import build_dashboard
 from baibai_web.readmodel.stocks.detail import build_security_detail
 from baibai_web.sources.db_sources import (
     DbLedgerSource,
     DbMarketPriceSource,
-    DbOperationsSource,
     DbResearchSource,
     DbScreeningSource,
     DbTaskSource,
@@ -57,109 +60,68 @@ class TestDbResearchSource:
     def make_source(self, root: Path) -> ResearchSource:
         return DbResearchSource(root / "stores/application/baibai.sqlite")
 
-    def test_revisions_and_thesis_detail(self, app_method_root: Path) -> None:
+    def test_revisions_and_exact_assessment_detail(self, app_method_root: Path) -> None:
         source = self.make_source(app_method_root)
-
         revisions = source.revisions()
-        detail = source.thesis_detail(revisions[0].thesis_id)
-
+        detail = source.assessment_detail(revisions[0].assessment_id)
         assert len(revisions) == 1
         assert revisions[0].ticker == "2331"
-        assert revisions[0].review_id is not None
+        assert revisions[0].review_id
         assert detail.revision == revisions[0]
-        assert detail.projection["status"] == "requires_reassessment"
-        assert len(detail.projection["raw"]["permanent_loss_risks"]) == 7
-        assert detail.projection["raw"]["schema_version"] == 3
-        assert source.position_reviews(ticker="2331") == []
-
-    def test_published_null_shows_input_freshness_separately_from_reward(
-        self, holding_case, tmp_path: Path
-    ) -> None:
-        db, market, _ = holding_case
-        tomorrow = NOW + timedelta(days=1)
-        service = PositionReviewService(db, sqlite_path=market, clock=lambda: tomorrow)
-        draft = service.build(thesis_id="current", position_id="2331")
-        draft = draft.model_copy(
-            update={
-                "remaining_reward": RemainingReward(
-                    status="sufficient", reason="保有継続の将来価値を確認"
-                )
-            }
-        )
+        assert detail.projection["status"] == "resolved"
+        assert detail.document["schema_version"] == 1
+        assert detail.document["permanent_loss_risks"]
+        assert detail.review["review_id"] == revisions[0].review_id
+        assert source.proposals() == []
         assert (
-            DbOperationsSource(db).position_review_null_reason(draft.model_dump(mode="json"))
-            == "valuation_basis_requires_refresh"
+            source.assessment_detail("stock-assessment-00000000-0000-4000-8000-00000000ffff")
+            is None
         )
-        assert service.publish(draft, confirmed=True).action is None
-        research = DbResearchSource(db)
-        summary = research.position_reviews(ticker="2331")[0]
-        assert summary.null_reason == "valuation_basis_requires_refresh"
-        assert summary.note == "保有継続の将来価値を確認"
+
+    def test_holding_proposal_keeps_case_judgment_and_unavailable_return(
+        self, app_method_root: Path
+    ) -> None:
+        _, _, pair, proposal = seed_web_proposal(
+            app_method_root,
+            tickers=("2331",),
+            scope="review_positions",
+            actions={"2331": "hold"},
+        )
+        source = self.make_source(app_method_root)
+        stored = source.proposal(proposal.proposal_id)
+        item = stored["items"][0]
+        assert item["action"] == "hold"
+        assert item["holding_basis"] == "investment_case_intact"
+        assert item["remaining_reward"] is None
+        assert item["return_calculation_unavailable_reason"]
+        assert item["assessment_ref"]["assessment_id"] == pair.assessment_id
         detail = build_security_detail(
             "2331",
-            DbLedgerSource(db, market),
-            research,
-            DbScreeningSource(tmp_path / "missing-runs.sqlite"),
-            DbMarketPriceSource(market),
+            DbLedgerSource(
+                app_method_root / "stores/application/baibai.sqlite",
+                app_method_root / "stores/market/market.sqlite",
+            ),
+            source,
+            DbScreeningSource(app_method_root / "stores/screening/runs.sqlite"),
+            DbMarketPriceSource(app_method_root / "stores/market/market.sqlite"),
         )
-        assert detail is not None
-        assert detail.position_reviews[0].note == (
-            "企業評価の基準日が判断日と異なります。保有継続の将来価値を確認"
-        )
+        assert detail.investment_proposals[0].actions == ["hold"]
+        assert detail.latest_assessment.revision.assessment_id == pair.assessment_id
 
-    @pytest.mark.parametrize("reviews", [[], ["newer"], ["tie-a", "tie-z"]])
-    def test_latest_review_matches_detail(
-        self, app_method_root: Path, reviews: list[str], mocker
+    def test_missing_exact_review_is_a_source_error_without_older_fallback(
+        self, app_method_root: Path
     ) -> None:
+        pair = seed_web_assessment(app_method_root, ticker="2331")
         db = app_method_root / "stores/application/baibai.sqlite"
-        with connect_rw(db) as connection:
-            row = connection.execute("SELECT * FROM thesis_review LIMIT 1").fetchone()
-            for review_id in reviews:
-                connection.execute(
-                    "INSERT INTO thesis_review(review_id, thesis_id, reviewed_at, payload) VALUES (?, ?, ?, ?)",
-                    (review_id, row["thesis_id"], "2026-07-20T10:00:00+09:00", row["payload"]),
-                )
-        if not reviews:
-            mocker.patch(
-                "baibai_web.sources.db_sources.list_thesis_review_publications", return_value=[]
+        with closing(connect_rw(db)) as connection, connection:
+            connection.execute(
+                "DELETE FROM stock_assessment_review WHERE assessment_id=?", (pair.assessment_id,)
             )
         source = self.make_source(app_method_root)
-        revision = source.revisions()[0]
-        assert source.thesis_detail(revision.thesis_id).revision.review_id == revision.review_id
-        assert revision.review_id == (max(reviews) if reviews else None)
-
-    def test_research_triages_returns_the_latest_judgment_for_each_review_set(
-        self,
-        tmp_path: Path,
-        mocker,
-    ) -> None:
-        read = mocker.patch(
-            "baibai_web.sources.db_sources.research_triage_payloads_for_review_set",
-            side_effect=[
-                [
-                    {
-                        "research_triage_id": "triage-a",
-                        "published_at": "2026-08-28T14:00:00+09:00",
-                    },
-                    {
-                        "research_triage_id": "triage-a-old",
-                        "published_at": "2026-08-28T13:00:00+09:00",
-                    },
-                ],
-                [
-                    {
-                        "research_triage_id": "triage-b",
-                        "published_at": "2026-08-28T15:00:00+09:00",
-                    }
-                ],
-            ],
-        )
-        source = DbResearchSource(tmp_path / "app.sqlite")
-
-        triages = source.research_triages(review_set_ids=["review-set-a", "review-set-b"])
-
-        assert [item["research_triage_id"] for item in triages] == ["triage-b", "triage-a"]
-        assert [call.args[1] for call in read.call_args_list] == ["review-set-a", "review-set-b"]
+        with pytest.raises(ValueError, match="Review"):
+            source.revisions()
+        with pytest.raises(ValueError, match="Review"):
+            source.assessment_detail(pair.assessment_id)
 
 
 class TestDbTaskSource:
@@ -210,15 +172,16 @@ class TestDbScreeningSource:
                 as_of="2026-08-01",
                 run_at="2026-08-01T18:30:00+09:00",
                 universe_size=1,
-                rules_hash="rules-hash-v1",
-                security_analyses=[security_analysis("4432", name="sample")],
-            )
+                rules_hash=RULES_HASH,
+                stock_analyses=[stock_analysis("4432", name="sample")],
+            ),
+            rules=load_screening_rules(),
         )
 
         run = DbScreeningSource(runs_path).latest_run()
 
         assert run is not None
-        assert run.screening_rules_hash == "rules-hash-v1"
+        assert run.screening_rules_hash == RULES_HASH
         assert run.er_model_version == "expected-return-v1"
 
 
@@ -263,38 +226,113 @@ class TestDbMarketPriceSource:
         assert source.latest_closes(["2331"]) == {"2331": (110.0, date(2026, 7, 29))}
 
 
-def test_current_enterprise_projection_and_unresolved_holding_reason(app_method_root):
-    from datetime import datetime
-
-    from tests.helpers.research_v4 import pair_payload
-
-    from baibai_engine.research.thesis_store import ThesisStoreService
-
-    db = app_method_root / "stores/application/baibai.sqlite"
-    thesis, review = pair_payload(ticker="2331")
-    now = datetime.fromisoformat("2026-09-07T18:00:00+09:00")
-    ThesisStoreService(db, clock=lambda: now).publish_reviewed_thesis(
-        "current", thesis, review, supersedes_id="thesis-20260714-2331-r1"
-    )
-    source = DbResearchSource(db)
-    detail = source.thesis_detail("current")
-    assert detail.revision.disposition == "candidate"
-    assert detail.projection["original_quote_at"] == "2026-09-04T15:30:00+09:00"
+def test_assessment_snapshot_projection_retains_original_basis_and_review(
+    app_method_root,
+):
+    pair = seed_web_assessment(app_method_root, ticker="2331")
+    source = DbResearchSource(app_method_root / "stores/application/baibai.sqlite")
+    detail = source.assessment_detail(pair.assessment_id)
+    assert detail.revision.stance == "supported"
+    assert detail.projection["as_of"] == "2026-10-14"
+    assert detail.projection["original_quote_at"] == "2026-10-14T15:30:00+09:00"
     assert detail.projection["original_price_basis"] == "last_close_unadjusted"
-    assert detail.projection["projections"]["base"]["annualized_return_pct"] == 23.4
+    assert detail.projection["projections"]["base"]["annualized_return_pct"] is not None
     assert detail.projection["horizon_months"] == 12
-    with connect_rw(db) as connection:
-        import json
+    assert detail.projection["raw"] == pair.document.model_dump(mode="json")
+    assert detail.review["review_id"] == pair.review.review_id
 
-        payload = {
-            "schema_version": 3,
-            "action": None,
-            "remaining_reward": {"status": "uncertain", "reason": "顧客契約の残存価値を確認中"},
+
+@pytest.mark.parametrize("factor", [0.5, None, 1.0, "missing_original"])
+def test_holding_pmax_gap_checks_the_assessment_window_even_when_acquired_after_split(
+    tmp_path: Path, mocker, factor
+) -> None:
+    db, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
+    now = datetime.fromisoformat("2026-10-14T17:00:00+09:00")
+    document, review = pair_payload(ticker="1234", quote_as_of="2026-10-12")
+    document["valuation"]["required_annual_return_pct"] = "6"
+    document["valuation"]["base"].update(
+        terminal_value_per_share_yen="2120", cash_distribution_per_share_yen="0"
+    )
+    review["recalculated_projections"][0].update(
+        terminal_value_per_share_yen="2120", cash_distribution_per_share_yen="0"
+    )
+    update_review_hash(document, review)
+    AssessmentStoreService(db, clock=lambda: now).publish_reviewed_assessment(
+        assessment_id(), document, review
+    )
+    ledger = PortfolioLedgerDocument.model_validate(
+        {
+            "schema_version": 2,
+            "portfolio_scope": "repository_only",
+            "as_of": now.isoformat(),
+            "events": [
+                {
+                    "type": "opening_balance",
+                    "event_id": "opening",
+                    "occurred_at": "2026-10-14T08:00:00+09:00",
+                    "amount_yen": 1000000,
+                },
+                {
+                    "type": "reservation",
+                    "event_id": "reserve-after-split",
+                    "occurred_at": "2026-10-14T08:30:00+09:00",
+                    "reservation_id": "after-split",
+                    "order_id": "order-after-split",
+                    "ticker": "1234",
+                    "sector": "未分類",
+                    "common_factors": [],
+                    "quantity": 100,
+                    "price_guard_yen": 1000,
+                    "expires_at": "2026-10-14T15:30:00+09:00",
+                },
+                {
+                    "type": "execution",
+                    "event_id": "buy-after-split",
+                    "execution_id": "buy",
+                    "reservation_id": "after-split",
+                    "occurred_at": "2026-10-14T09:00:00+09:00",
+                    "ticker": "1234",
+                    "side": "buy",
+                    "quantity": 100,
+                    "price_yen": 1000,
+                },
+            ],
+            "market_prices": [],
         }
-        connection.execute(
-            "INSERT INTO position_review(position_review_id,ticker,as_of,thesis_id,payload) VALUES ('unresolved','2331','2026-09-07','current',?)",
-            (json.dumps(payload),),
-        )
-    view = source.position_reviews(ticker="2331")[0]
-    assert view.action is None
-    assert view.note == "顧客契約の残存価値を確認中"
+    )
+    seed_ledger(db, ledger)
+    seed_daily_bars(
+        market,
+        [
+            ("1234", "2026-10-12", 2000.0, 1.0),
+            ("1234", "2026-10-13", 1000.0, 1.0 if factor == "missing_original" else factor),
+            ("1234", "2026-10-14", 1000.0, 1.0),
+        ],
+    )
+    if factor == "missing_original":
+        with closing(open_connection(market)) as connection, connection:
+            connection.execute(
+                "DELETE FROM jquants_daily_bars WHERE ticker='1234' AND traded_at='2026-10-12'"
+            )
+    snapshot = current_portfolio(ledger, sqlite_path=market, now=now)
+    assert snapshot.holdings[0].market_price_yen == 1000
+    ledger_source = mocker.Mock(spec=LedgerSource)
+    ledger_source.exists.return_value = True
+    ledger_source.snapshot.return_value = snapshot
+    screening = mocker.Mock(spec=ScreeningSource)
+    screening.latest_run.return_value = None
+    before = {path: path.read_bytes() for path in (db, market)}
+
+    view = build_dashboard(
+        ledger_source, DbResearchSource(db), screening, DbMarketPriceSource(market)
+    )
+
+    holding = view.holdings[0]
+    assert holding.pmax_raw_yen == 2000
+    if factor == 1.0:
+        assert holding.pmax_gap_pct == 100
+        assert holding.pmax_gap_unavailable_reason is None
+    else:
+        assert holding.pmax_gap_pct is None
+        assert holding.pmax_gap_unavailable_reason
+    assert {path: path.read_bytes() for path in (db, market)} == before

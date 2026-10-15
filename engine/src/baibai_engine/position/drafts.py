@@ -8,9 +8,10 @@ from datetime import date, datetime, time
 from decimal import Decimal
 from pathlib import Path
 from typing import Literal
+from uuid import uuid4
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
@@ -22,6 +23,7 @@ from baibai_engine.position.broker_fact_recording import (
     record_broker_fact,
     record_terminal_broker_facts,
 )
+from baibai_engine.position.decision_references import DecisionReferenceBinding
 from baibai_engine.position.ledger import (
     ConfirmedTaxEvent,
     ContributionEvent,
@@ -47,22 +49,37 @@ HumanEvent = ContributionEvent | WithdrawalEvent | IncomeEvent | CostEvent | Con
 class LedgerDraft(BaseModel):
     """A reviewable replacement bound to the exact DB state it was built from."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True, allow_inf_nan=False)
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     kind: DraftKind
     expected_head: int = Field(ge=0)
     source: PortfolioLedgerDocument
     replacement: PortfolioLedgerDocument
     confirmation_required: bool = True
+    binding_addition: DecisionReferenceBinding | None = None
+
+    @field_validator("schema_version", mode="before")
+    @classmethod
+    def _version(cls, value: object) -> object:
+        if type(value) is not int:
+            raise ValueError("ledger draft schema_version requires an integer; prepare a new draft")
+        return value
+
+    @model_validator(mode="after")
+    def _binding_kind(self) -> LedgerDraft:
+        if self.binding_addition is not None and self.kind != "broker-fact":
+            raise ValueError("only a direct buy broker-fact may add a decision binding")
+        return self
 
 
 def build_broker_fact_draft(
     ledger_service: LedgerStoreService,
-    resolve_allocated_ticker: Callable[[str], str],
+    resolve_buy_ticker: Callable[[str], str],
     *,
-    decision_reference: str,
+    decision_reference: str | None,
     status: BrokerFactStatus,
+    direct_fact: bool = False,
     side: Literal["buy", "sell"] = "buy",
     occurred_at: datetime | None = None,
     occurred_on: date | None = None,
@@ -82,10 +99,10 @@ def build_broker_fact_draft(
     ordered_at: datetime | None = None,
     now: datetime | None = None,
 ) -> tuple[LedgerDraft | None, tuple[str, ...]]:
-    """Build a draft from a canonical buy assessment or its active reservation.
+    """Build a draft from a saved buy binding or an explicitly reported direct fact.
 
-    The historical assessment identifies the selected ticker. Order terms are
-    human-reported facts, not a persisted plan. Existing reservations keep the same
+    The saved decision binding identifies the buy ticker. Order terms are
+    human-reported facts, separate from the published proposal. Existing reservations keep the same
     decision reference for every partial or terminal broker fact. The resolver
     is called only when no active or known terminal reservation binds the report.
     """
@@ -100,6 +117,50 @@ def build_broker_fact_draft(
         raise ValueError("multiple reservation_ids require a terminal broker fact")
 
     source, expected_head = ledger_service.load_with_head()
+    binding_addition: DecisionReferenceBinding | None = None
+    if direct_fact:
+        if side != "buy" or ticker is None:
+            raise ValueError("direct-fact requires an explicit buy ticker")
+        known = known_broker_reference(
+            source,
+            execution_id=execution_id,
+            order_id=order_id,
+            reservation_ids=requested_ids,
+        )
+        if known is not None:
+            saved_reference, saved_reservation_id = known
+            if decision_reference is not None and decision_reference != saved_reference:
+                raise ValueError("decision_reference conflicts with the reported broker identity")
+            decision_reference = saved_reference
+            if not requested_ids and saved_reservation_id is not None:
+                requested_ids = (saved_reservation_id,)
+        else:
+            if decision_reference is None:
+                if (
+                    execution_id is None
+                    and order_id is None
+                    and not requested_ids
+                    and any(
+                        isinstance(event, (ExecutionEvent, ReservationEvent))
+                        and event.ticker == ticker
+                        and event.side == "buy"
+                        and (event.decision_reference or "").startswith("manual-fact-")
+                        for event in source.events
+                    )
+                ):
+                    raise ValueError(
+                        "direct-fact report without broker identity needs its saved manual-fact "
+                        "reference; select the existing fact or explicitly identify a new fact"
+                    )
+                decision_reference = f"manual-fact-{uuid4()}"
+            binding_addition = DecisionReferenceBinding(
+                reference=decision_reference,
+                ticker=ticker,
+                source_id=decision_reference,
+            )
+    elif decision_reference is None:
+        raise ValueError("decision_reference is required unless direct-fact is explicit")
+    assert decision_reference is not None
     if (occurred_at is None) == (occurred_on is None):
         raise ValueError("specify exactly one of occurred_at and occurred_on")
     if occurred_on is not None:
@@ -133,7 +194,7 @@ def build_broker_fact_draft(
         )
 
     # A fully filled order is no longer active. Check a saved execution before
-    # consulting the historical assessment or looking for an active reservation.
+    # consulting the buy binding or looking for an active reservation.
     if (
         status == "filled"
         and execution_id is not None
@@ -175,9 +236,13 @@ def build_broker_fact_draft(
     elif side == "buy":
         if status in {"cancelled", "expired"}:
             raise ValueError(f"{status} requires an active reservation")
-        allocated_ticker = resolve_allocated_ticker(decision_reference)
-        if ticker != allocated_ticker:
-            raise ValueError("broker fact ticker does not match the allocation assessment")
+        bound_ticker = (
+            binding_addition.ticker
+            if binding_addition is not None
+            else resolve_buy_ticker(decision_reference)
+        )
+        if ticker != bound_ticker:
+            raise ValueError("broker fact ticker does not match the buy decision reference")
     elif status != "open":
         raise ValueError("sell broker fact requires an active order")
 
@@ -202,9 +267,61 @@ def build_broker_fact_draft(
             source=source,
             replacement=result.document,
             confirmation_required=True,
+            binding_addition=binding_addition,
         ),
         result.event_ids,
     )
+
+
+def known_broker_reference(
+    source: PortfolioLedgerDocument,
+    *,
+    execution_id: str | None,
+    order_id: str | None,
+    reservation_ids: tuple[str, ...],
+) -> tuple[str, str | None] | None:
+    """Resolve identities before minting a reference; an order never identifies a fill."""
+    matches = [
+        event
+        for event in source.events
+        if (
+            isinstance(event, ExecutionEvent)
+            and execution_id is not None
+            and event.execution_id == execution_id
+        )
+        or (
+            isinstance(event, ReservationEvent)
+            and (
+                (order_id is not None and event.order_id == order_id)
+                or event.reservation_id in reservation_ids
+            )
+        )
+    ]
+    if not matches:
+        return None
+    references = {event.decision_reference for event in matches}
+    ids = {event.reservation_id for event in matches}
+    if None in references or len(references) != 1:
+        raise ValueError("reported broker identities have inconsistent or missing references")
+    reference = next(iter(references))
+    assert reference is not None
+    if len(ids) != 1:
+        if len(reservation_ids) > 1 and execution_id is None and order_id is None:
+            return reference, None
+        raise ValueError("reported broker identities refer to different orders")
+    saved_id = next(iter(ids))
+    if order_id is not None and saved_id is not None:
+        order = next(
+            (
+                event
+                for event in source.events
+                if isinstance(event, ReservationEvent) and event.reservation_id == saved_id
+            ),
+            None,
+        )
+        if order is None or order.order_id != order_id:
+            raise ValueError("order_id conflicts with the reported broker identity")
+    return reference, saved_id
 
 
 def build_event_draft(
@@ -301,7 +418,7 @@ def build_sell_execution_draft(
     and any confirmed fee or tax that overdraws available cash. Broker fees and
     the confirmed capital-gain tax are recorded as their own cost / tax events so
     realized proceeds and cost stay separable in replay. ``decision_reference``
-    binds the sell to the Position Review that judged the exit. A matching
+    can retain the reported Investment Proposal reference. A matching
     ``execution_id`` and complete report returns None without a draft.
     """
 
@@ -512,6 +629,8 @@ def write_draft(path: Path, draft: LedgerDraft) -> None:
 
 def load_draft(path: Path) -> LedgerDraft:
     raw = safe_load(path.read_text(encoding="utf-8"))
+    if isinstance(raw, dict) and raw.get("schema_version") != 2:
+        raise ValueError("ledger draft schema_version=2 required; prepare a new draft")
     return LedgerDraft.model_validate(raw)
 
 
@@ -533,6 +652,7 @@ def apply_draft(
         expected_head=draft.expected_head,
         expected_document=draft.source,
         replacement=draft.replacement,
+        binding_addition=draft.binding_addition,
     )
 
 
@@ -545,6 +665,7 @@ __all__ = [
     "build_meta_draft",
     "build_override_draft",
     "build_sell_execution_draft",
+    "known_broker_reference",
     "load_draft",
     "write_draft",
 ]

@@ -501,8 +501,9 @@ def published_margin_week_ends(sqlite_path: Path, asof: date) -> list[date]:
 
     A balance date is not usable on the day it describes: the exchange publishes it
     days later, so joining on the balance date alone would read Friday's positioning
-    into Friday's decision. Trading days come from the bar rows, which are the only
-    complete record of which days the market was open across the stored history.
+    into Friday's decision. Trading days come from the stored bar dates. Missing
+    trading dates can delay inferred publication; this does not certify the
+    historical calendar as complete.
     """
     if not sqlite_path.exists():
         return []
@@ -548,7 +549,7 @@ def published_margin_week_ends(sqlite_path: Path, asof: date) -> list[date]:
     finally:
         conn.close()
     # `trading_days` stops at `asof`, so a balance date's publication day is inside
-    # the list exactly when it has already happened.
+    # the list once observed, but same-day publications remain excluded at the close.
     return [
         week_end
         for week_end in week_ends
@@ -1017,6 +1018,8 @@ def read_jpx_earnings_calendar_snapshot(
             fetched_at = datetime.fromisoformat(str(fetched_at_text).replace("Z", "+00:00"))
         except ValueError:
             return None
+        if fetched_at.tzinfo is None or fetched_at.utcoffset() is None:
+            return None
         if not allow_stale and weekday_distance(asof_date, fetched_at.astimezone(JST).date()) > 7:
             return None
         rows = conn.execute(
@@ -1106,15 +1109,7 @@ def has_jpx_regulation_data(sqlite_path: Path, asof_date: date) -> bool:
     if conn is None:
         return False
     try:
-        try:
-            cur = conn.execute(
-                "SELECT 1 FROM source_coverage WHERE source = ? "
-                "AND coverage_start <= ? AND coverage_end >= ? AND status = 'ok' LIMIT 1",
-                ("jpx_regulation_flags", asof_date.isoformat(), asof_date.isoformat()),
-            )
-        except sqlite3.OperationalError:
-            return False
-        return cur.fetchone() is not None
+        return _date_imported(conn, "jpx_regulation_flags", asof_date)
     finally:
         conn.close()
 

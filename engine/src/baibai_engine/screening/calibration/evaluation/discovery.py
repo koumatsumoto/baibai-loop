@@ -44,7 +44,7 @@ def _evaluate_candidate_discovery(
                 ]
             )
 
-    # Pure E[r] is a benchmark only; it neither gates nor fills the Review Set.
+    # Pure E[r] is a benchmark only; it neither gates nor fills candidate membership.
     population_by_er = sorted(
         (row for row in population if row.er_annual is not None),
         key=lambda row: (-(row.er_annual or 0.0), row.ticker),
@@ -68,7 +68,6 @@ def _evaluate_candidate_discovery(
 def _candidate_discovery_fidelity(
     panel: Sequence[PanelRow],
     excess: Mapping[str, float],
-    candidate_discovery: Mapping[str, object],
     *,
     candidate_discovery_rules: CandidateDiscoveryRules,
     jpx_input_status: str,

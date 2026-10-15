@@ -1,4 +1,4 @@
-"""Stop invalid E[r] evidence before Research Triage consumes it."""
+"""Stop invalid E[r] evidence before Research selection consumes it."""
 
 from __future__ import annotations
 

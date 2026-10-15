@@ -1,8 +1,8 @@
 """Measure a production-size L1 export, and what a one-month correction moves.
 
-Every export derives every partition, so the second run costs the same export as the
-first; what it measures is that content addressing lands the untouched months on their
-existing objects and only the corrected month becomes a new one.
+Both runs derive every partition. Timings and object reuse are measurements, not
+fixed-cost guarantees. This diagnostic reports the effect of one synthetic row
+correction; it does not replace export parity or production acceptance checks.
 """
 
 from __future__ import annotations
@@ -14,12 +14,13 @@ import resource
 import sqlite3
 import tempfile
 import time
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
 from baibai_engine.foundation.filesystem import write_bytes_atomic
 from baibai_engine.storage.lake.identity import verified_git_commit
-from baibai_engine.storage.lake.objects import sha256_file
+from baibai_engine.storage.lake.sources import sha256_file
 from baibai_engine.storage.lake.writer import LakeExportReport, export_lake_legacy
 from baibai_engine.storage.observations.lake_origin import read_lake_store_origin
 from baibai_engine.storage.observations.snapshot import create_snapshot
@@ -69,7 +70,7 @@ def _object_inventory(build: LakeExportReport) -> dict[str, int]:
 
 
 def _inject_one_month_correction(sqlite_path: Path) -> str:
-    with sqlite3.connect(sqlite_path) as connection:
+    with closing(sqlite3.connect(sqlite_path)) as connection, connection:
         row = connection.execute(
             "SELECT ticker, traded_at FROM jquants_daily_bars "
             "WHERE close IS NOT NULL ORDER BY traded_at DESC, ticker DESC LIMIT 1"
@@ -91,6 +92,7 @@ def benchmark(*, sqlite_path: Path, report_path: Path, producer_commit: str) -> 
         mirror = root / "mirror"
         create_snapshot(sqlite_path, working_sqlite)
         source_sha256 = sha256_file(working_sqlite)
+        source_bytes = working_sqlite.stat().st_size
         store_origin = read_lake_store_origin(working_sqlite)
 
         started = time.perf_counter()
@@ -117,14 +119,14 @@ def benchmark(*, sqlite_path: Path, report_path: Path, producer_commit: str) -> 
         new_keys = set(corrected_objects) - set(baseline_objects)
 
         payload: dict[str, object] = {
-            "kind": "l1_full_history_export_acceptance",
-            "status": "passed",
+            "kind": "l1_full_history_export_benchmark",
+            "status": "measured",
             "recorded_at": datetime.now(UTC).isoformat(),
             "producer_git_commit": producer_commit,
             "implementation_sha256": _implementation_sha256(),
             "source": {
                 "sha256": source_sha256,
-                "bytes": working_sqlite.stat().st_size,
+                "bytes": source_bytes,
             },
             "full": {
                 "elapsed_seconds": full_seconds,

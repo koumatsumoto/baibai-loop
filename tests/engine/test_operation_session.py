@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
 
 import pytest
 import yaml
+from tests.helpers.research_selection import selection
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.read_api.operations import list_operation_sessions, operation_session
@@ -110,28 +112,10 @@ def test_operation_json_format_emits_one_machine_object(
 def _active_payload(checkpoint: str = "source review") -> OperationPayload:
     return OperationPayload(
         checkpoint=checkpoint,
-        artifacts=(
-            {"kind": "research_selection", "request": "synthetic explicit request", "targets": []},
-        ),
+        artifacts=(selection(now=NOW).model_dump(mode="json"),),
         human_confirmation={"request": "confirm the reviewed result"},
         next="wait for confirmation",
     )
-
-
-def _complete_payload(kind: SessionKind) -> OperationPayload:
-    values: dict[str, object] = {
-        "checkpoint": "final",
-        "result": "trigger work completed",
-        "next": "wait for the next trigger",
-    }
-    values["human_confirmation"] = {
-        "request": "confirm",
-        "result": "human confirmed",
-    }
-    values["artifacts"] = ({"kind": "review", "summary": "reviewed"},)
-    if kind == "position-review":
-        values["canonical_refs"] = ("position-review-test",)
-    return OperationPayload.model_validate(values)
 
 
 def test_all_kinds_share_one_active_slot_and_no_checkpoint_history(tmp_path: Path) -> None:
@@ -147,14 +131,14 @@ def test_all_kinds_share_one_active_slot_and_no_checkpoint_history(tmp_path: Pat
     with pytest.raises(OperationConflictError, match="active operation already exists"):
         service.start(
             session_kind="capital-allocation",
-            ticker="2331",
+            ticker=None,
             as_of=date(2026, 7, 19),
             started_at=NOW,
             payload=_active_payload(),
         )
 
     service.checkpoint(operation.operation_id, _active_payload("two"))
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection, connection:
         row = connection.execute(
             "SELECT count(*), json_extract(payload, '$.checkpoint') FROM operation_session"
         ).fetchone()
@@ -176,7 +160,7 @@ def test_complete_rejects_missing_kind_specific_final_fields(
     service = OperationService(tmp_path / "app.sqlite")
     operation = service.start(
         session_kind=kind,
-        ticker="2331",
+        ticker=None,
         as_of=date(2026, 7, 19),
         started_at=NOW,
         payload=_active_payload(),
@@ -207,11 +191,11 @@ def test_no_research_is_readable_history_but_rejected_by_all_writers(
     )
     with pytest.raises(OperationCompletionError, match="read-only history"):
         service.start(
-            session_kind=kind, ticker="2331", as_of=NOW.date(), started_at=NOW, payload=historical
+            session_kind=kind, ticker=None, as_of=NOW.date(), started_at=NOW, payload=historical
         )
     operation = service.start(
         session_kind=kind,
-        ticker="2331",
+        ticker=None,
         as_of=NOW.date(),
         started_at=NOW,
         payload=_active_payload(),
@@ -228,7 +212,7 @@ def test_no_research_is_readable_history_but_rejected_by_all_writers(
                 invoke()
             assert service.get(operation.operation_id) == operation
     # Seed an already completed row exactly as it was persisted before writer retirement.
-    with connect_rw(db) as connection:
+    with closing(connect_rw(db)) as connection, connection:
         connection.execute(
             "UPDATE operation_session SET status='completed', completed_at=?, payload=? "
             "WHERE operation_id=?",
@@ -267,36 +251,3 @@ def test_database_constraint_rejects_a_second_active_row(tmp_path: Path) -> None
             )
     finally:
         connection.close()
-
-
-@pytest.mark.parametrize("status", ["active", "completed"])
-def test_position_operation_history_remains_readable_and_immutable(tmp_path, status):
-    db = tmp_path / "app.sqlite"
-    initialize_database(db)
-    with connect_rw(db) as connection:
-        connection.execute(
-            "INSERT INTO operation_session VALUES (?,?,?,?,?,?,?,?)",
-            (
-                "op-20260719-position-review-1",
-                "position-review",
-                status,
-                NOW.date().isoformat(),
-                "2331",
-                NOW.isoformat(),
-                NOW.isoformat() if status == "completed" else None,
-                OperationPayload(
-                    checkpoint="legacy", artifacts=({"kind": "legacy_review", "ref": "old"},)
-                ).model_dump_json(),
-            ),
-        )
-    service = OperationService(db)
-    assert service.get("op-20260719-position-review-1").session_kind == "position-review"
-    assert operation_session(db, "op-20260719-position-review-1")["status"] == status
-    assert len(list_operation_sessions(db)) == 1
-    with pytest.raises(OperationConflictError, match=r"immutable|read-only|handoff"):
-        service.checkpoint("op-20260719-position-review-1", _active_payload("changed"))
-    if status == "completed":
-        with connect_rw(db) as connection, pytest.raises(sqlite3.IntegrityError, match="immutable"):
-            connection.execute(
-                "DELETE FROM operation_session WHERE operation_id='op-20260719-position-review-1'"
-            )

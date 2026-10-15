@@ -72,16 +72,20 @@ class SQLiteCacheTest(unittest.TestCase):
             ("130A0", ("130A", "ok")),
             ("72031", (None, "excluded")),
             ("123", (None, "rejected")),
+            ("12-3", (None, "rejected")),
+            ("１２３４", (None, "rejected")),
         ]:
             with self.subTest(raw=raw):
                 self.assertEqual(code_quality(raw), expected)
         self.assertEqual(parse_jquants_code_parts("130a0"), ("130A", True))
         self.assertEqual(parse_jquants_code_parts("72031"), ("7203", False))
-        with self.assertRaisesRegex(JQuantsProviderError, "invalid J-Quants code"):
-            parse_jquants_code_parts("123")
-        # Four-character validation still reports the ticker error, as before the move.
-        with self.assertRaisesRegex(ValueError, "ticker must"):
-            parse_jquants_code_parts("12-3")
+        # Every malformed source code uses the provider error boundary.
+        for raw in ("123", "12-3", "１２３４"):
+            with (
+                self.subTest(raw=raw),
+                self.assertRaisesRegex(JQuantsProviderError, "invalid J-Quants code"),
+            ):
+                parse_jquants_code_parts(raw)
 
     def test_sqlite_scalar_missing_markers_preserve_zero(self) -> None:
         for value in (None, "", " NaT ", "nan", "null", "<NA>", float("nan"), pd.NA, pd.NaT):
@@ -937,10 +941,6 @@ class SQLiteCacheTest(unittest.TestCase):
                 conn.close()
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class DailyBarsCoverageTest(unittest.TestCase):
     def test_the_ten_day_imperial_transition_closure_is_not_a_missing_window(self) -> None:
         # The market was shut for the ten consecutive days of the 2019 imperial
@@ -1034,7 +1034,7 @@ class EmptyPayloadReplacementTest(unittest.TestCase):
             conn = open_connection(db)
             try:
                 remaining = conn.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0]
-                # The refusal must leave no coverage row claiming the range is fine.
+                # The refused replacement must preserve the previous coverage count.
                 coverage = conn.execute(
                     "SELECT record_count FROM source_coverage WHERE source = ?",
                     ("jquants_daily_bars",),
@@ -1588,3 +1588,7 @@ class MarginPublicationLagTest(unittest.TestCase):
             # at the close, so the publication day itself is still too early.
             self.assertEqual(published_margin_week_ends(db, date(2026, 7, 28)), [])
             self.assertEqual(published_margin_week_ends(db, date(2026, 7, 29)), [week_end])
+
+
+if __name__ == "__main__":
+    unittest.main()

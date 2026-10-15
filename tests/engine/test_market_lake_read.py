@@ -7,7 +7,7 @@ import shutil
 import sqlite3
 import threading
 from collections.abc import Callable, Iterator
-from contextlib import AbstractContextManager, contextmanager, nullcontext
+from contextlib import AbstractContextManager, closing, contextmanager, nullcontext
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -52,7 +52,6 @@ from baibai_engine.storage.lake.objects import (
     LocalMirrorSource,
     mirror_path,
     mirror_root,
-    sha256_file,
 )
 from baibai_engine.storage.lake.prefetch import (
     PrefetchingSource,
@@ -71,6 +70,7 @@ from baibai_engine.storage.lake.reader import (
 )
 from baibai_engine.storage.lake.release import L1ReleasePointer, create_l1_release
 from baibai_engine.storage.lake.retention import LakeRetentionError, exclusive_lock
+from baibai_engine.storage.lake.sources import sha256_file
 from baibai_engine.storage.lake.writer import export_legacy_sqlite, sealed_sqlite_snapshot
 from baibai_engine.storage.observations.lake_origin import (
     LakeStoreOrigin,
@@ -91,7 +91,7 @@ _BUILT_AT = datetime(2026, 8, 12, 3, 0, tzinfo=UTC)
 @pytest.fixture(autouse=True)
 def _small_pilot_release_policy(monkeypatch: pytest.MonkeyPatch) -> None:
     # These fixtures build the two datasets these tests exercise, so the profile is
-    # narrowed to them: a policy that still required the other thirteen would refuse
+    # narrowed to them: a policy that still required every other dataset would refuse
     # every fixture release for being incomplete, which is a fact about the fixture
     # rather than about the code under test.
     narrow_release_policy(monkeypatch)
@@ -240,6 +240,21 @@ def _cache(lake: Lake, *, recording: RecordingSource | None = None) -> LakeObjec
 
 
 class TestFixedRelease:
+    @pytest.mark.parametrize("error", [FileNotFoundError("missing"), PermissionError("denied")])
+    def test_pointer_read_failure_does_not_claim_the_pointer_is_absent(
+        self, lake: Lake, monkeypatch: pytest.MonkeyPatch, error: OSError
+    ) -> None:
+        def fail_read(_source: LocalMirrorSource, key: str) -> bytes:
+            assert key == current_l1_pointer_key()
+            raise error
+
+        monkeypatch.setattr(LocalMirrorSource, "read_bytes", fail_read)
+        with pytest.raises(LakeReadError, match="current pointer could not be read") as failure:
+            resolve_current_release(LocalMirrorSource(lake.mirror))
+
+        assert failure.value.__cause__ is error
+        assert "pointer is absent" not in str(failure.value)
+
     def test_pointer_is_read_once_and_a_mid_run_switch_does_not_change_the_input(
         self, session: LakeSession, lake: Lake, tmp_path: Path
     ) -> None:
@@ -539,7 +554,7 @@ class TestFixedRelease:
         release = resolve_current_release(source)
         build_id = release.dataset_manifest("jquants.daily_bars").build_id
         key = f"lake/manifests/datasets/jquants.daily_bars/{build_id}.json"
-        with sqlite3.connect(lake.sqlite_path) as connection:
+        with closing(sqlite3.connect(lake.sqlite_path)) as connection, connection:
             connection.execute("UPDATE jquants_daily_bars SET close = 999.0")
         with sealed_sqlite_snapshot(
             sqlite_path=lake.sqlite_path, mirror_root=tmp_path / "second-mirror"
@@ -773,7 +788,7 @@ class TestExplicitObjectReads:
     def test_rows_arrive_in_bounded_batches_rather_than_one_list(
         self, session: LakeSession, lake: Lake
     ) -> None:
-        """Peak memory has to follow the batch size, not the dataset size.
+        """Python row conversion is bounded separately from DuckDB query memory.
 
         A decade of daily bars is eight figures of rows; converting them all into
         Python objects at once is what would make a real fill unbuildable.
@@ -807,6 +822,28 @@ class TestExplicitObjectReads:
 
 
 class TestCredentialBoundary:
+    @pytest.mark.parametrize("failed_statement", [1, 2])
+    def test_session_closes_when_connection_setup_fails(
+        self, monkeypatch: pytest.MonkeyPatch, failed_statement: int
+    ) -> None:
+        class FailingConnection:
+            statements = 0
+            closed = False
+
+            def execute(self, _statement: str) -> None:
+                self.statements += 1
+                if self.statements == failed_statement:
+                    raise RuntimeError("setup failed")
+
+            def close(self) -> None:
+                self.closed = True
+
+        connection = FailingConnection()
+        monkeypatch.setattr(duck_module.duckdb, "connect", lambda _database: connection)
+        with pytest.raises(RuntimeError, match="setup failed"), lake_session():
+            pytest.fail("a failed setup must not yield a session")
+        assert connection.closed
+
     def test_remote_authorization_loads_but_never_installs_httpfs(self) -> None:
         class RecordingConnection:
             def __init__(self) -> None:
@@ -1097,7 +1134,7 @@ class TestHydrate:
     ) -> None:
         store = tmp_path / "stale.sqlite"
         shutil.copyfile(lake.sqlite_path, store)
-        with sqlite3.connect(lake.sqlite_path) as connection:
+        with closing(sqlite3.connect(lake.sqlite_path)) as connection, connection:
             connection.execute(
                 "UPDATE jquants_daily_bars SET close = 999.0 "
                 "WHERE ticker = '1301' AND traded_at = '2026-01-05'"
@@ -1127,7 +1164,7 @@ class TestHydrate:
     ) -> None:
         store = tmp_path / "repair.sqlite"
         shutil.copyfile(lake.sqlite_path, store)
-        with sqlite3.connect(store) as connection:
+        with closing(sqlite3.connect(store)) as connection, connection:
             connection.execute(
                 "UPDATE jquants_daily_bars SET close = 999.0 "
                 "WHERE ticker = '1301' AND traded_at = '2026-01-05'"
@@ -1147,7 +1184,9 @@ class TestHydrate:
             release_id=release.release_id,
             release_manifest_sha256=release.manifest_sha256,
         )
-        with sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True) as connection:
+        with closing(
+            sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True)
+        ) as connection:
             assert connection.execute(
                 "SELECT close FROM jquants_daily_bars "
                 "WHERE ticker = '1301' AND traded_at = '2026-01-05'"
@@ -1161,7 +1200,7 @@ class TestHydrate:
     ) -> None:
         store = tmp_path / "generation-a.sqlite"
         shutil.copyfile(lake.sqlite_path, store)
-        with sqlite3.connect(lake.sqlite_path) as connection:
+        with closing(sqlite3.connect(lake.sqlite_path)) as connection, connection:
             connection.execute(
                 "UPDATE jquants_daily_bars SET close = 999.0 "
                 "WHERE ticker = '1301' AND traded_at = '2026-01-05'"
@@ -1182,7 +1221,9 @@ class TestHydrate:
             release_id=release.release_id,
             release_manifest_sha256=release.manifest_sha256,
         )
-        with sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True) as connection:
+        with closing(
+            sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True)
+        ) as connection:
             assert connection.execute(
                 "SELECT close FROM jquants_daily_bars "
                 "WHERE ticker = '1301' AND traded_at = '2026-01-05'"
@@ -1221,7 +1262,9 @@ class TestHydrate:
             release_id=original.release_id,
             release_manifest_sha256=original.manifest_sha256,
         )
-        with sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True) as connection:
+        with closing(
+            sqlite3.connect(f"{store.resolve().as_uri()}?mode=ro", uri=True)
+        ) as connection:
             assert connection.execute(
                 "SELECT COUNT(*) FROM jquants_short_sale_reports"
             ).fetchone() == (2,)
@@ -1466,13 +1509,13 @@ class TestHydrate:
     ) -> None:
         """A readable SQLite is the mistyped path that a file-type check would miss.
 
-        `runs.sqlite` and the application store open cleanly and pass every integrity
+        `research.sqlite` and the application store open cleanly and pass every integrity
         check, so what refuses them is the contract comparison: the release's tables are
-        not there. The copy is made first, so the proof that matters is that the named
-        file still holds its own bytes afterwards.
+        not there. Preflight refuses before copying; the named file must still hold
+        its own bytes afterwards.
         """
 
-        store = tmp_path / "runs.sqlite"
+        store = tmp_path / "research.sqlite"
         connection = sqlite3.connect(store)
         connection.execute("CREATE TABLE screening_run(run_revision_id TEXT PRIMARY KEY)")
         connection.execute("INSERT INTO screening_run VALUES ('r1')")
@@ -1595,7 +1638,7 @@ def test_obsolete_market_store_is_rejected_before_lake_work(tmp_path: Path) -> N
     store = tmp_path / "obsolete.sqlite"
     connection = open_connection(store)
     connection.close()
-    with sqlite3.connect(store) as connection:
+    with closing(sqlite3.connect(store)) as connection, connection:
         connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
 
     with pytest.raises(SQLiteSchemaError, match="replace it with a current local build"):

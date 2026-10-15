@@ -120,6 +120,8 @@ def test_outcome_requires_embedded_benchmark(tmp_path: Path) -> None:
         ({"excess_percentage_points": 99.0}, "portfolio minus benchmark"),
         ({"benchmark_cumulative_return_pct": 8.1}, "benchmark return"),
         ({"ending_cash_yen": None}, "resolved outcome fields"),
+        ({"estimated_exit_tax_yen": None}, "estimated exit tax requires a value"),
+        ({"estimated_exit_tax_status": "unknown"}, "unknown exit tax must be null"),
     ],
 )
 def test_outcome_rejects_retired_schema_and_semantic_bypasses(

@@ -249,13 +249,13 @@ def verified_value(release_candidate: ReleaseCandidate, *, context: FetchContext
 
 
 def _require_release_identity(text: str, *, release_candidate: ReleaseCandidate) -> None:
-    """Require the PDF to be the release of this PMI on the date the index gave.
+    """Require the named PMI and publication month to agree with the index.
 
     Proving the month is not enough on its own. The headline statement of a services
     release is read the same way as a manufacturing one, so a title mapped to the
     wrong PMI would still yield a value for the right month. The release names the
-    PMI it belongs to and states its own embargo date, and both have to agree with
-    what the index said before the headline is read at all.
+    PMI it belongs to and states its embargo date. The comparison checks the
+    publication month, not equality of the calendar day or embargo time.
     """
 
     identity = f"{release_candidate.stream} {release_candidate.observed_at}"

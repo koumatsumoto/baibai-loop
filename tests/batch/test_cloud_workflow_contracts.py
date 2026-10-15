@@ -214,7 +214,7 @@ def test_web_workflow_keeps_all_gates_before_the_only_deploy_step() -> None:
     assert deploy["run"] == "npx wrangler deploy"
 
 
-def test_nothing_answering_from_outside_the_tree_stands_in_front_of_production() -> None:
+def test_web_job_keeps_node_audit_in_a_separate_workflow() -> None:
     """`npm audit` answers from GitHub's advisory database, not from the tree.
 
     A disclosure lands without anyone touching the repository, so an audit in this
@@ -225,32 +225,6 @@ def test_nothing_answering_from_outside_the_tree_stands_in_front_of_production()
     steps = _steps(_workflow("web.yml"), "quality")
 
     assert not [step for step in steps if "audit" in str(step.get("run", ""))]
-
-
-@pytest.mark.parametrize(
-    "failed_gate",
-    [
-        "Lint UI",
-        "Build UI",
-        "Test UI",
-        "Check Worker generated types",
-        "Typecheck Worker",
-        "Test Worker",
-        "Dry-run Worker deploy",
-    ],
-)
-def test_each_failed_web_gate_leaves_deploy_call_count_zero(failed_gate: str) -> None:
-    steps = _steps(_workflow("web.yml"), "quality")
-    success = True
-    deploy_calls = 0
-    for step in steps:
-        name = str(step.get("name", ""))
-        if name == failed_gate:
-            success = False
-        if name == "Deploy Worker and UI assets" and success:
-            deploy_calls += 1
-
-    assert deploy_calls == 0
 
 
 def test_only_manual_main_runs_can_reach_production() -> None:
@@ -329,13 +303,11 @@ def test_tracked_tree_stays_inside_the_path_filter_evaluation_limit() -> None:
     matching file falls outside that window. A diff is bounded by the files
     present before it plus the files present after — deletions are why it can
     name more files than the tree holds — so while every commit keeps the tree
-    under this budget no diff between two of them can reach 3,000. The largest
-    first-parent diff on main so far is 708 files against a tree of 640.
+    under this budget no diff between two of them can reach 3,000.
 
     Growing past this budget means the filter has to give way to in-job detection
-    before it starts hiding the web gates. GitHub's troubleshooting page still
-    quotes the older 300-file window, so a shrinking limit would also be silent;
-    the workflow-syntax reference is the one that carries 3,000.
+    before it starts hiding the web gates. The limit was checked on 2026-10-14:
+    https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#git-diff-comparisons
     """
     tracked = _git(ROOT, "ls-files").splitlines()
 

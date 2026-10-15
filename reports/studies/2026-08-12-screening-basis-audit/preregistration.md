@@ -2,11 +2,13 @@
 title: "screening基盤の反証監査 — 事前登録"
 summary: "現行screeningの株式・期間・母集団・時点・合成basisを全件とtailで反証し、明示contractに反する到達可能な欠陥だけを修正する。"
 doc_type: measurement-record
-status: active
+status: historical
 date: 2026-08-12
 ---
 
 # screening基盤の反証監査 — 事前登録
+
+この監査は 2026-08-12〜13 の旧 schema 23・旧 playbook / ranking・旧較正 authority の履歴である。「現行」、採用・不採用、保存できない provenance、残課題は当時の状態を指す。後続の財務 document / revision 保存・期間解決や Candidate Discovery の仕様を否定する根拠にはしない。30/30 eligible も当時固定した入力・metric・as-of に限る結果であり、現在の変更や本番切替の承認ではない。下記の cloud push 等は当時の計画で、現行の運用指示ではない。
 
 価値tier: T2 — basisの混同や欠損時のfail-openで割安に見える銘柄を候補へ通す経路を塞ぎ、永久損失候補を一次researchへ接続する確率を下げる。
 

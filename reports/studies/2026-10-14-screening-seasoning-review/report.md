@@ -2,10 +2,12 @@
 title: "Screeningの履歴条件と旧設定の見直し"
 summary: "182日共通floorと未使用YoY閾値を整理し、固定L1でのv6再現と長期較正の成立範囲を検証する。"
 doc_type: measurement-record
-status: active
+status: historical
 ---
 
 # Screeningの履歴条件と旧設定の見直し（#1481）
+
+本記録の「現在」「現行」は、#1487 の測定・採用時点を指す。Thesis / CAA / Portfolio Ledger など当時の名称と固定 hash は測定の来歴として残し、その後のドメイン整理・期間補正を含む現行 API や算式の仕様とは区別する。現行仕様は下記の正本を参照する。
 
 ## 目的・採用理由
 
