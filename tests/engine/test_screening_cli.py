@@ -8,7 +8,7 @@ import sqlite3
 import tempfile
 import unittest
 import zipfile
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from io import BytesIO

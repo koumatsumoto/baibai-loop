@@ -16,11 +16,11 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 
 from tests.helpers.screening_sqlite import (
-    insert_financial_record,
     CALIBRATION_FIXTURE_ASOF,
     add_source_coverage,
     build_calibration_fixture_sqlite,
     insert_daily_bars_from_closes,
+    insert_financial_record,
 )
 
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary

@@ -6,7 +6,6 @@ from datetime import date, datetime
 from pathlib import Path
 
 import pytest
-
 from tests.helpers.screening_sqlite import insert_financial_record
 
 from baibai_engine.market import store as market_store
