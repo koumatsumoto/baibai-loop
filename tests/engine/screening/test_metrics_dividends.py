@@ -282,37 +282,6 @@ class DividendCarryResolverTests(unittest.TestCase):
         self.assertIsNone(carry.dps_forecast_annual)
         self.assertEqual(carry.dividend_yield, 0.02)
 
-    def test_new_fiscal_year_actual_still_expires_previous_guidance(self) -> None:
-        rows = [
-            _summary(
-                "130A",
-                date(2025, 5, 10),
-                fiscal_period="FY",
-                fiscal_year_end=date(2025, 3, 31),
-                dps_actual_annual=30.0,
-                dps_forecast_annual=40.0,
-            ),
-            _summary(
-                "130A",
-                date(2026, 5, 10),
-                fiscal_period="FY",
-                fiscal_year_end=date(2026, 3, 31),
-                dps_actual_annual=0.0,
-            ),
-            _summary(
-                "130A",
-                date(2026, 5, 20),
-                fiscal_period="FY",
-                fiscal_year_end=date(2025, 3, 31),
-                dps_actual_annual=30.0,
-            ),
-        ]
-        carry = _resolve_dividend_carry(rows, [], 1000.0, date(2026, 5, 20))
-        self.assertEqual(carry.basis, "actual_reported")
-        self.assertEqual(carry.dps_actual_annual, 0.0)
-        self.assertIsNone(carry.dps_forecast_annual)
-        self.assertEqual(carry.dividend_yield, 0.0)
-
     def test_refuses_the_actual_yield_when_a_split_falls_in_the_accrual_window(self) -> None:
         # 分割が期末に重なる形。期末配当の基準日は分割の効力発生日より前なので実績 DPS は
         # 分割前基準だが、権利落ち日しか持たない store からはそれを言えない。基準が確定

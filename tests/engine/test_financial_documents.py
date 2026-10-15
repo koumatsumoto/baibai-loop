@@ -788,7 +788,10 @@ def test_conflicting_same_document_identity_preserves_store(tmp_path, reverse):
     assert db.read_bytes() == before
 
 
-def test_expired_dividend_guidance_cannot_replace_current_zero_actual() -> None:
+@pytest.mark.parametrize("late_old_correction", [False, True])
+def test_expired_dividend_guidance_cannot_replace_current_zero_actual(
+    late_old_correction: bool,
+) -> None:
     records = [
         document(
             "old-guidance",
@@ -821,6 +824,19 @@ def test_expired_dividend_guidance_cannot_replace_current_zero_actual() -> None:
             FDivAnn="",
         ),
     ]
+    if late_old_correction:
+        records.append(
+            document(
+                "late-old-actual-correction",
+                day="2026-08-10",
+                DocType="FYFinancialStatements_Consolidated_JP",
+                CurFYSt="2023-10-01",
+                CurFYEn="2024-09-30",
+                CurPerSt="2023-10-01",
+                CurPerEn="2024-09-30",
+                DivAnn="30",
+            )
+        )
     rules = load_screening_rules()
     result = build_financial_snapshot(
         130, decode(records), None, rules.ttm, adjustment_events=(), asof_date=date(2026, 8, 11)
