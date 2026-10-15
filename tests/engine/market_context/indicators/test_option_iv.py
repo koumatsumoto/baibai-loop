@@ -874,6 +874,15 @@ class OptionProviderTest(unittest.TestCase):
         with self.assertRaises(IndicatorsProviderError):
             jquants_options._require_requested_day(rows, ASOF + timedelta(1))
 
+        for invalid in (None, "not-a-date", pandas.NaT):
+            with self.subTest(invalid=invalid):
+                partial = _chain_records()
+                partial[0]["Date"] = invalid
+                for candidate in (partial, partial[:1]):
+                    with self.assertRaisesRegex(IndicatorsProviderError, "observation date"):
+                        jquants_options._require_requested_day(candidate, ASOF)
+        jquants_options._require_requested_day([], ASOF)
+
     def test_a_day_the_chain_cannot_answer_produces_no_observation(self) -> None:
         # A closed market and a reading the chain could not compute are both facts
         # about the day, not failures; inventing a point for either would put a

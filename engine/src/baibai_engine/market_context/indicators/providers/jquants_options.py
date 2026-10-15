@@ -200,9 +200,16 @@ def _require_requested_day(rows: Sequence[Mapping[str, object]], day: date) -> N
     nothing to show for it. The payload names the day it belongs to; reading it costs
     one comparison and turns a silent re-dating into a failure.
     """
-    answered = {parsed for row in rows if (parsed := as_date(row.get("Date"))) is not None}
+    answered: set[date] = set()
+    for row in rows:
+        parsed = as_date(row.get("Date"))
+        if parsed is None:
+            raise ProviderFetchStoppedError(
+                f"jquants_options has a missing or invalid observation date for {day.isoformat()}"
+            )
+        answered.add(parsed)
     if answered and answered != {day}:
-        seen = ", ".join(sorted(value.isoformat() for value in sorted(answered))[:3])
+        seen = ", ".join(value.isoformat() for value in sorted(answered)[:3])
         raise ProviderFetchStoppedError(
             f"jquants_options answered for {seen} when {day.isoformat()} was requested"
         )
