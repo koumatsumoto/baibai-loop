@@ -67,8 +67,9 @@ def parse_fred_csv(
     series: SeriesDefinition, text: str, *, start: date, end: date
 ) -> list[ObservationRecord]:
     reader = csv.DictReader(io.StringIO(text))
-    if reader.fieldnames is None or series.provider_series_id not in reader.fieldnames:
-        raise IndicatorsProviderError(f"FRED CSV missing column {series.provider_series_id}")
+    for column in ("observation_date", series.provider_series_id):
+        if column not in (reader.fieldnames or ()):
+            raise IndicatorsProviderError(f"FRED CSV missing column {column}")
     observations: list[ObservationRecord] = []
     for row in reader:
         observed_at_raw = row.get("observation_date")

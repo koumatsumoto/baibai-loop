@@ -109,6 +109,8 @@ def _extract_series(payload: object, symbol: str) -> tuple[Sequence[object], Seq
     closes = quote0.get("close")
     if not isinstance(timestamps, list) or not isinstance(closes, list):
         raise IndicatorsProviderError(f"Yahoo chart missing timestamp/close for {symbol}")
+    if len(timestamps) != len(closes):
+        raise IndicatorsProviderError(f"Yahoo timestamp/close lengths differ for {symbol}")
     return cast(Sequence[object], timestamps), cast(Sequence[object], closes)
 
 

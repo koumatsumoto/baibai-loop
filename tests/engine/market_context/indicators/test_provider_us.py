@@ -44,6 +44,16 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         self.assertEqual(observations[0].observed_at, date(2026, 5, 4))
         self.assertEqual(observations[0].value, 4.45)
 
+    def test_parse_fred_csv_rejects_missing_date_header_instead_of_empty_history(self) -> None:
+        series = _series("fred_csv", "DGS10")
+        with self.assertRaisesRegex(IndicatorsProviderError, "missing column observation_date"):
+            parse_fred_csv(
+                series,
+                "date,DGS10\n2026-05-01,4.39\n",
+                start=date(2026, 5, 1),
+                end=date(2026, 5, 2),
+            )
+
     def test_parse_umich_table_reads_the_column_for_each_published_month(self) -> None:
         series = _series("umich_sca", "ICS_ALL", unit="index", frequency="monthly")
         # The early history is quarterly, so consecutive rows can skip months.

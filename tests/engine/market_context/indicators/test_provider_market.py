@@ -178,6 +178,32 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
         self.assertEqual([obs.observed_at for obs in observations], [date(2026, 5, 5)])
         self.assertEqual(observations[0].value, 4050.5)
 
+    def test_parse_yahoo_chart_rejects_unpaired_dates_or_values(self) -> None:
+        series = _series("yahoo", "GC=F", unit="usd-per-oz")
+        stamp = int(datetime(2026, 5, 1, tzinfo=UTC).timestamp())
+        for timestamps, closes in (
+            ([stamp, stamp + 86400], [4000.0]),
+            ([stamp], [4000.0, 4010.0]),
+        ):
+            with self.subTest(timestamps=timestamps, closes=closes):
+                text = json.dumps(
+                    {
+                        "chart": {
+                            "error": None,
+                            "result": [
+                                {
+                                    "timestamp": timestamps,
+                                    "indicators": {"quote": [{"close": closes}]},
+                                }
+                            ],
+                        }
+                    }
+                )
+                with self.assertRaisesRegex(IndicatorsProviderError, "lengths differ"):
+                    parse_yahoo_chart(
+                        series, text, start=date(2026, 5, 1), end=date(2026, 5, 2)
+                    )
+
     def test_parse_yahoo_chart_rejects_error_payload(self) -> None:
         series = _series("yahoo", "BADSYM", unit="index")
         text = json.dumps(
