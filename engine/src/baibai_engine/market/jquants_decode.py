@@ -57,6 +57,7 @@ def normalize_daily_bar(record: Mapping[str, Any]) -> JQuantsDailyBar | None:
         close=close,
         adjustment_close=adjustment_close,
         adjustment_factor=adjustment_factor,
+        ex_right_type=normalize_ex_right_type(record.get("ExRT")),
         volume=to_float(coalesce_field(record, "Volume", "volume", "Vo", "vo")),
         turnover_value=to_float(
             coalesce_field(
@@ -88,7 +89,13 @@ def normalize_adjustment_factor_event(
         ticker=ticker,
         traded_at=parse_date(first_value(record, "Date", "date", "TradedAt", "traded_at")),
         adjustment_factor=factor,
+        ex_right_type=normalize_ex_right_type(record.get("ExRT")),
     )
+
+
+def normalize_ex_right_type(value: Any) -> str | None:
+    """Keep the source event kind; unknown future values are not relabelled as splits."""
+    return None if is_missing_scalar(value) else str(value).strip() or None
 
 
 def normalize_market_calendar(record: Mapping[str, Any]) -> JQuantsMarketCalendarDay:

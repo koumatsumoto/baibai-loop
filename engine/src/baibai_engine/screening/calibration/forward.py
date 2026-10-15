@@ -639,7 +639,7 @@ def _load_ticker_bars(
     conn: sqlite3.Connection, ticker: str, *, start: date
 ) -> list[JQuantsDailyBar]:
     rows = conn.execute(
-        "SELECT traded_at, close, adjustment_factor FROM jquants_daily_bars "
+        "SELECT traded_at, close, adjustment_factor, ex_right_type FROM jquants_daily_bars "
         "WHERE ticker = ? AND traded_at >= ? AND close IS NOT NULL ORDER BY traded_at",
         (ticker, start.isoformat()),
     ).fetchall()
@@ -650,8 +650,9 @@ def _load_ticker_bars(
             close=float(close),
             turnover_value=None,
             adjustment_factor=float(factor) if factor is not None else None,
+            ex_right_type=ex_right_type,
         )
-        for day, close, factor in rows
+        for day, close, factor, ex_right_type in rows
     ]
 
 
@@ -659,7 +660,7 @@ def _load_ticker_adjustment_events(
     conn: sqlite3.Connection, ticker: str, *, start: date
 ) -> list[JQuantsAdjustmentFactorEvent]:
     rows = conn.execute(
-        "SELECT traded_at, adjustment_factor FROM jquants_daily_bars "
+        "SELECT traded_at, adjustment_factor, ex_right_type FROM jquants_daily_bars "
         "WHERE ticker = ? AND traded_at >= ? AND adjustment_factor IS NOT NULL "
         "AND adjustment_factor NOT IN (0.0, 1.0) ORDER BY traded_at",
         (ticker, start.isoformat()),
@@ -669,8 +670,9 @@ def _load_ticker_adjustment_events(
             ticker=ticker,
             traded_at=date.fromisoformat(str(day)),
             adjustment_factor=float(factor),
+            ex_right_type=ex_right_type,
         )
-        for day, factor in rows
+        for day, factor, ex_right_type in rows
     ]
 
 

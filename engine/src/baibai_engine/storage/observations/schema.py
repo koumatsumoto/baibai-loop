@@ -23,7 +23,7 @@ from baibai_engine.external_assessment.observations.contract import (
 )
 from baibai_engine.external_assessment.tradingview.contract import DDL as TV_DDL
 
-SQLITE_SCHEMA_VERSION = 32
+SQLITE_SCHEMA_VERSION = 33
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
 # EDINET serves a filing's descriptive columns only while its public-inspection period
@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS jquants_daily_bars(
   adjustment_factor REAL,
   upper_limit TEXT,
   lower_limit TEXT,
+  ex_right_type TEXT,
   PRIMARY KEY (ticker, traded_at)
 );
 

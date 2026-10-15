@@ -50,8 +50,8 @@ def _required_field_values(
         if row.ticker in population:
             summaries.setdefault(row.ticker, []).append(row)
     events: dict[str, list[JQuantsAdjustmentFactorEvent]] = {}
-    for ticker, traded_at, factor in conn.execute(
-        "SELECT ticker, traded_at, adjustment_factor FROM jquants_daily_bars "
+    for ticker, traded_at, factor, ex_right_type in conn.execute(
+        "SELECT ticker, traded_at, adjustment_factor, ex_right_type FROM jquants_daily_bars "
         "WHERE traded_at BETWEEN ? AND ? AND adjustment_factor NOT IN (0.0, 1.0)",
         (start.isoformat(), asof.isoformat()),
     ):
@@ -61,6 +61,7 @@ def _required_field_values(
                     ticker=ticker,
                     traded_at=date.fromisoformat(traded_at),
                     adjustment_factor=factor,
+                    ex_right_type=ex_right_type,
                 )
             )
     result = {}

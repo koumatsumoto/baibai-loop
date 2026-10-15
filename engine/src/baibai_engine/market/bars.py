@@ -31,9 +31,9 @@ def asof_basis_closes(
 
     incremental cache では adjustment_close の遡及調整が取得時期に依存して混在し、
     series としては使えない (分割後に取得した行だけ調整済みになり、境界で偽の
-    ±50% 段差が生じる)。分割・併合イベントそのものである adjustment_factor は
-    不変なので、close x (その行より後の factor 累積) で調整済み系列を自前で組む。
+    ±50% 段差が生じる)。close x (その行より後の価格調整factor累積) で系列を組む。
     factor は権利落ち日の bar に載り、その日より前の価格に適用される。
+    配信元による係数の訂正はあり得る。ライツイシューの価格調整は株数の単位変更ではない。
     """
     if not bars:
         return []
@@ -100,6 +100,7 @@ class JQuantsDailyBar:
     volume: float | None = None
     adjustment_close: float | None = None
     adjustment_factor: float | None = None
+    ex_right_type: str | None = None
 
     @field_validator("ticker", mode="before")
     @classmethod
@@ -124,6 +125,7 @@ class JQuantsAdjustmentFactorEvent:
     ticker: str
     traded_at: date
     adjustment_factor: float
+    ex_right_type: str | None = None
 
     @field_validator("ticker", mode="before")
     @classmethod

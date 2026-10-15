@@ -7,6 +7,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from baibai_engine.market.jquants_decode import normalize_ex_right_type
 from baibai_engine.storage.observations.convert import (
     NormalizedRows,
     code_quality,
@@ -48,8 +49,8 @@ def store_jquants_daily_bars(
                 INSERT OR REPLACE INTO jquants_daily_bars(
                   ticker, traded_at, open, high, low, close, volume, turnover_value,
                   adjustment_open, adjustment_high, adjustment_low, adjustment_close,
-                  adjustment_volume, adjustment_factor, upper_limit, lower_limit
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  adjustment_volume, adjustment_factor, upper_limit, lower_limit, ex_right_type
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 rows,
             )
@@ -147,6 +148,7 @@ def _bars_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> NormalizedR
                 to_float(first(record, "AdjustmentFactor", "adjustment_factor", "AdjFactor")),
                 to_str_or_none(first(record, "UpperLimit", "upper_limit", "UL")),
                 to_str_or_none(first(record, "LowerLimit", "lower_limit", "LL")),
+                normalize_ex_right_type(record.get("ExRT")),
             )
         )
     return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)

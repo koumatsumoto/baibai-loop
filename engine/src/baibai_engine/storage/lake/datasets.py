@@ -140,6 +140,7 @@ _INTEGER = pa.int64()
 
 JQUANTS_DAILY_BARS = LakeDataset(
     name="jquants.daily_bars",
+    contract_version=2,
     sqlite_table="jquants_daily_bars",
     date_column="traded_at",
     coverage_authority="daily_bars_rows",
@@ -160,6 +161,7 @@ JQUANTS_DAILY_BARS = LakeDataset(
         LakeColumn("adjustment_factor", "REAL", _REAL, True),
         LakeColumn("upper_limit", "TEXT", _TEXT, True),
         LakeColumn("lower_limit", "TEXT", _TEXT, True),
+        LakeColumn("ex_right_type", "TEXT", _TEXT, True),
     ),
 )
 
