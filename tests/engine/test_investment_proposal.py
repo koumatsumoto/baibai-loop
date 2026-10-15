@@ -80,7 +80,7 @@ def test_appendix_parses_with_exact_typed_review_hash(payload):
     validate_proposal_policy(proposal)
 
 
-def test_scope_hash_binds_the_formal_a_selection_fixture():
+def test_scope_hash_binds_the_fixed_research_selection_fixture():
     path = Path(__file__).parents[1] / "fixtures/domain-assessment-proposal-synthetic.json"
     fixture = json.loads(path.read_text())
     selected = ResearchSelection.model_validate(fixture["research_selection"])

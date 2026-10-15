@@ -40,7 +40,7 @@ def backend_case(
     valuation_unresolved=False,
     tickers=("1234",),
 ):
-    """実writerでA選定/OperationとCpairを作る。新Operation行のSQL seedはしない。"""
+    """実writerで固定選定/Operationと評価・Reviewのpairを作る。新Operation行のSQL seedはしない。"""
     app, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
     initialize_database(app)
     events = [

@@ -226,9 +226,9 @@ Baibai Loop の Market Context タブは、上から **現在の市場環境判�
 
 <a id="assessment"></a>
 
-保存storeからの公開Readingは一つの`store_snapshot_payload`で`read_semantics`を付け、Research・Web・CLIへ同じ説明を渡す。`as_of`は観測対象日であり、Researchの`known_at / received_cutoff`はReadingに適用しない。既存ProviderSpecの公表vintage契約を持つ系列だけを対象日でclampし、その他は現在保存されている後日取得/改定履歴で再計算する。全体の当時点再現は保証しない。各系列は`vintage_selection / vintage_cutoff`を示す。任意のreaderを受ける純粋計算・serializerにはこのstore固有の保証や説明を付けない。数値・元時刻・vintage選択を変更する仕組みではない。
+保存storeからの公開Readingは一つの`store_snapshot_payload`で`read_semantics`を付け、Research・Web・CLIへ同じ説明を渡す。`as_of`は観測対象日であり、Researchの`known_at`はReadingに適用しない。既存ProviderSpecの公表vintage契約を持つ系列だけを対象日でclampし、その他は現在保存されている後日取得/改定履歴で再計算する。全体の当時点再現は保証しない。各系列は`vintage_selection / vintage_cutoff`を示す。任意のreaderを受ける純粋計算・serializerにはこのstore固有の保証や説明を付けない。数値・元時刻・vintage選択を変更する仕組みではない。
 
-`recomputed_current_store`は現在のstoreからの再計算を示すprovenanceであり、その日の`known_at`を満たす証明ではない。過去の判断や成績と突き合わせるときは、この利用可能時点の制約を残す。
+`read_semantics.mode: recomputed_from_current_store`は現在のstoreからの再計算を示すprovenanceであり、その日の`known_at`を満たす証明ではない。過去の判断や成績と突き合わせるときは、この利用可能時点の制約を残す。
 
 ## ③ 明示作成する市場環境判断
 
@@ -246,7 +246,7 @@ Baibai Loop の Market Context タブは、上から **現在の市場環境判�
 
 保存済み`context_id`と`supersedes_id`は不変であり、新table/headへそのまま移す。旧schemaの本文、入力、supersedes、引用、保存済みscorecard参照は不変の履歴として取得し、新作成のvalidatorを適用しない。旧詳細の閲覧と新判断の表示は分け、共通projectionだけで過去本文を代替しない。ID閲覧では分析入力のcutoffを適用せず、分析用選択は日付と利用可能時刻を明示する。
 
-Researchへ渡す共通projectionは要約・根拠・含意に加えて反証/不確実性を含む。旧Triageの実際の入力は保存されたrunner `input.json`が正本であり、上書き再生成しない。ファイルがない場合の照会は保存本文からの抽出で、当時の全入力一致や再現済みとは言わない。
+Researchへ渡す共通projectionは要約・根拠・含意に加えて反証/不確実性を含む。旧Triageの当時の入力を調べる場合は、切替時に退避したrunnerの`input.json`を参照し、現行Researchの入力として再利用・再生成しない。退避ファイルがない場合に保存判断本文から抽出できる情報は、当時の全入力一致や再現済みを意味しない。
 
 旧v4の共通projectionには支配的な力の主張・伝達経路・確信度・反証・出典と、force IDで対応する相互作用を小さな`synthesis`として引用する。これは保存済み判断の抽出であり、新判断の必須章や新しい評価ではない。Research workspaceのassessment選択は今回の固定`known_at`を使い、External Assessmentの受信cutoffとは分ける。
 

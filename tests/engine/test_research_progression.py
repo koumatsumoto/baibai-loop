@@ -577,6 +577,8 @@ def test_domain_inputs_preserve_gaps_and_null_and_do_not_write_or_use_network(
     )
     projected = project_research_inputs(selected.model_copy(update={"inputs": inputs}))
     assert set(projected["securities"]) == {"1234"}
+    assert projected["known_at"] == selected.input_known_at.isoformat()
+    assert "received_cutoff" not in projected
     assert projected["market_context"]["saved_market_context_assessment"] is None
     assert projected["market_context"]["reading"] is None
     assert inputs.analysis == selected.inputs.analysis

@@ -96,7 +96,6 @@ def project_research_inputs(selection: ResearchSelection) -> dict[str, JsonValue
         dict[str, JsonValue],
         {
             "research_as_of": selection.research_as_of.isoformat(),
-            "received_cutoff": selection.input_known_at.isoformat(),
             "known_at": selection.input_known_at.isoformat(),
             "market_context": selection.inputs.market_context,
             "securities": securities,
