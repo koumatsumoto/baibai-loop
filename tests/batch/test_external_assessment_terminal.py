@@ -88,7 +88,7 @@ def test_valid_terminal_is_preserved_without_upgrading_or_reconstructing_counts(
         "format_shape",
     ],
 )
-def test_legacy_full_terminal_exact_shape_and_binding_remain_strict(fault):
+def test_full_terminal_exact_shape_and_binding_remain_strict(fault):
     p = plan()
     value = terminal(p)
     changes = {

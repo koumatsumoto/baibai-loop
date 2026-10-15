@@ -267,6 +267,5 @@ def test_historical_synthesis_keeps_the_claim_counter_evidence_and_interactions(
         for field in ("summary", "transmission", "confidence", "counter_evidence", "source_ids"):
             assert quoted[field] == source[field]
         assert any(
-            item["summary"] == source["counter_evidence"]
-            for item in projection["counter_evidence"]
+            item["summary"] == source["counter_evidence"] for item in projection["counter_evidence"]
         )

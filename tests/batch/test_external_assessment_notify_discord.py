@@ -290,7 +290,7 @@ def test_publication_outputs_allow_only_measured_nonnegative_aggregate_counters(
     )
 
 
-def test_legacy_terminal_missing_counters_remain_unknown_without_reconstruction(
+def test_full_terminal_missing_counters_remain_unknown_without_reconstruction(
     tmp_path, monkeypatch
 ):
     path = tmp_path / "github-output"
