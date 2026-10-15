@@ -86,7 +86,7 @@ local derivedの式の出典は現行配置の固定commit URLで示す。出典
 
 読みは「観測日ごとに `ok` と `retracted` の中から最大 vintage を採り、それが `ok` のときだけ返す」。`failed` / `unreleased` は取得の結果であって値についての主張ではないので、読めていた観測を隠さない。書かれた行は普通の fact なので merge が両方向へ運び、他方の store に残る誤った行より必ず新しいため上書きされない。`--all-history` を含む全ての store 書き換えは、**provider の最新の主張より新しい vintage の行を消さない**——書き換えが置換してよいのは provider が言い直すものだけで、その後に store が下した決定（撤回とそれが戻した観測）ではないからである。取得時刻を vintage に刻む provider では最新の主張が「今」なので、この規則は何も余分に残さない。provider が同じ観測日を再配信した場合だけ、新しい `ok` vintage が上に乗って復活する（「源泉が再び主張する事実は読む」で正しい）。
 
-point-in-time provider（`jquants_flows`）では撤回の vintage が公表時刻ではなく操作時刻になるため、**撤回は撤回時刻以降の as-of にしか効かない**（それ以前の as-of での replay は撤回前の値を読み続ける。当時そう信じていたことの誠実な表現である）。同じ理由で、撤回時刻より前の公表 vintage を持つ改定は撤回の下に埋もれる。実際に撤回した観測は source が publish しない幽霊日なので改定の余地が無いが、real な観測日を撤回するときはこの境界を意識する。
+公表日cutoffを使う`jquants_flows`でも、撤回のvintageはsourceの公表日ではなく操作時刻（UTC）で保存する。読取は日付単位なので、そのUTC日付以降のas-ofに撤回が反映され、同日の操作前後を区別する再生は行わない。より古い公表vintageの改定は新しい撤回を上書きしない。過去as-ofで撤回前の値が見えても、当時のAPI配信状態を再現できた証明ではない。
 
 registryは系列定義の正本である。通常のopenでは登録外のfactsを削除せず、現行系列を指定した明示的なrefreshが退役系列をpruneする。storeが新世代、または同世代でmembershipが異なる場合は拒否する。退役・改名は[registry修正手順](../../batch/OPERATIONS.md#指標観測とregistryの修正)に従い、過去の発行済みContextを書き換えない。
 

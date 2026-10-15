@@ -233,6 +233,43 @@ class IndicatorsProviderParserTests(SnapshotFixtures):
             "PLAYWRIGHT_BROWSERS_PATH": "/home/runner/.cache/ms-playwright",
         }
 
+    def test_pdf_uses_the_shared_download_with_the_callers_limit(self) -> None:
+        from baibai_engine.market_context.indicators.providers.browser import BrowserFetcher
+
+        fetcher = BrowserFetcher()
+        with patch.object(fetcher, "fetch_download", return_value=b"%PDF-test") as download:
+            self.assertEqual(
+                fetcher.fetch_pdf("https://example.test/release.pdf", max_bytes=1234),
+                b"%PDF-test",
+            )
+        download.assert_called_once_with("https://example.test/release.pdf", max_bytes=1234)
+
+    def test_pdf_does_not_repeat_a_non_pdf_download_inside_the_provider_retry(self) -> None:
+        from baibai_engine.market_context.indicators.providers.browser import BrowserFetcher
+
+        fetcher = BrowserFetcher()
+        with (
+            patch.object(
+                fetcher, "fetch_download", return_value=b"<html>not a PDF</html>"
+            ) as download,
+            self.assertRaisesRegex(IndicatorsProviderError, "is not a PDF"),
+        ):
+            fetcher.fetch_pdf("https://example.test/release.pdf", max_bytes=1234)
+        download.assert_called_once_with("https://example.test/release.pdf", max_bytes=1234)
+
+    def test_pdf_preserves_the_shared_download_failure_without_retrying(self) -> None:
+        from baibai_engine.market_context.indicators.providers.browser import BrowserFetcher
+
+        fetcher = BrowserFetcher()
+        failure = BrowserUnavailableError("browser closed")
+        with (
+            patch.object(fetcher, "fetch_download", side_effect=failure) as download,
+            self.assertRaises(BrowserUnavailableError) as raised,
+        ):
+            fetcher.fetch_pdf("https://example.test/release.pdf", max_bytes=1234)
+        self.assertIs(raised.exception, failure)
+        download.assert_called_once_with("https://example.test/release.pdf", max_bytes=1234)
+
     def test_parse_ecb_fx_csv_computes_cross_rate(self) -> None:
         series = _series("ecb_fx", "USDJPY", unit="jpy-per-usd")
         text = "Date,USD,JPY,AUD\n2026-05-08,1.1761,184.37,1.6259\n"
