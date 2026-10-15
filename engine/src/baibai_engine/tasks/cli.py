@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import sqlite3
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -103,7 +104,7 @@ def main(argv: list[str] | None = None, *, today: date | None = None) -> int:
             _emit(service.edit(args.task_id, _edit_changes(args)).payload())
         else:  # pragma: no cover
             raise AssertionError(f"unreachable task command: {args.command}")
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, sqlite3.Error) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
     return 0
