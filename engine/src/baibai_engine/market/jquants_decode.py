@@ -197,8 +197,8 @@ def to_float(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     # ClientV2 DataFrames preserve pandas' non-finite markers when converted to
-    # records. They are not numeric observations; the period-slot selector separately
-    # decides whether an ambiguous marker may fall through to another forecast period.
+    # records. They are not numeric observations. Fiscal-period selection is independent
+    # of value availability; an unknown number cannot select another forecast period.
     if not isfinite(result):
         return None
     return result

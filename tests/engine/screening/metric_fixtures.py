@@ -70,7 +70,7 @@ def _summary(
         disclosed_at=disclosed_at,
         forecast_eps=forecast_eps,
         forecast_status="confirmed",
-        dividend_forecast_status="confirmed",
+        dividend_forecast_status="confirmed" if dps_forecast_annual is not None else "missing",
         eps_ttm=eps_ttm,
         bps=120.0,
         shares_outstanding=shares_outstanding,
