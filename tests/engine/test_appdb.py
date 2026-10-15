@@ -97,7 +97,7 @@ def test_prune_backups_does_not_delete_when_a_timestamp_is_unreadable(tmp_path: 
     unknown = tmp_path / "baibai-undated.sqlite"
     valid.touch()
     unknown.touch()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="does not match format"):
         prune_backups(tmp_path, keep=1)
     assert valid.exists()
     assert unknown.exists()
@@ -107,7 +107,8 @@ def test_backup_rejects_naive_time_without_creating_a_generation(tmp_path: Path)
     db = tmp_path / "app.sqlite"
     initialize_database(db)
     with pytest.raises(ValueError, match="UTC offset"):
-        backup_database(db, now=datetime(2026, 8, 29, 12))
+        instant = datetime.fromisoformat("2026-08-29T12:00:00+09:00").replace(tzinfo=None)
+        backup_database(db, now=instant)
     assert not (tmp_path / "backups").exists()
 
 
