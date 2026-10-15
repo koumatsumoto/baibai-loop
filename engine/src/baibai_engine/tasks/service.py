@@ -74,9 +74,7 @@ class TaskService:
             sql += " WHERE status = ?"
             parameters = (status,)
         sql += " ORDER BY CASE status WHEN 'open' THEN 0 ELSE 1 END, due_date, task_id"
-        rows = read_rows(
-            database_path(self._db_path), sql, parameters, connector=connect_read_only
-        )
+        rows = read_rows(database_path(self._db_path), sql, parameters, connector=connect_read_only)
         return [Task.model_validate_json(str(row[0])) for row in rows]
 
     def close(self, task_id: str, *, status: Literal["done", "dropped"], closed_at: date) -> Task:
