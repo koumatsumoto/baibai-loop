@@ -778,9 +778,7 @@ def test_financial_store_keeps_uninterpreted_provider_fields(tmp_path: Path) -> 
         NxFEPS="20",
         ProviderExtraField="uninterpreted",
     )
-    store_jquants_fin_summaries(
-        db, [record], requested_start=date(2026, 9, 14), requested_end=ASOF
-    )
+    store_jquants_fin_summaries(db, [record], requested_start=date(2026, 9, 14), requested_end=ASOF)
     with closing(sqlite3.connect(db)) as conn:
         payload = conn.execute("SELECT document_payload FROM jquants_fin_summaries").fetchone()[0]
     assert json.loads(payload) == record

@@ -254,9 +254,7 @@ class SQLiteCacheTest(unittest.TestCase):
             )
             conn = sqlite3.connect(db)
             try:
-                row = conn.execute(
-                    "SELECT document_payload FROM jquants_fin_summaries"
-                ).fetchone()
+                row = conn.execute("SELECT document_payload FROM jquants_fin_summaries").fetchone()
             finally:
                 conn.close()
 

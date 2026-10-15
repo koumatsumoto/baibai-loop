@@ -660,7 +660,7 @@ class CalibrationPanelTest(unittest.TestCase):
             )
             conn = open_connection(sqlite_path)
             try:
-                for (year, eps) in ((2022, 40.0), (2023, 20.0), (2024, 20.0), (2025, 20.0)):
+                for year, eps in ((2022, 40.0), (2023, 20.0), (2024, 20.0), (2025, 20.0)):
                     insert_financial_record(
                         conn,
                         {
