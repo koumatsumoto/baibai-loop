@@ -1155,7 +1155,7 @@ def test_committed_market_chunk_survives_bootstrap_failure_and_requests_lake_pub
         ).fetchone() == (1,)
         assert connection.execute(
             "SELECT holiday_division IN ('1', '2') FROM jquants_market_calendar WHERE day = ?",
-            (ASOF.isoformat(),)
+            (ASOF.isoformat(),),
         ).fetchone() == (1,)
     assert "screening run" not in runner.call_keys()
     assert (

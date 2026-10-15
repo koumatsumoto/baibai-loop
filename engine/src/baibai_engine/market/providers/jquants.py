@@ -148,17 +148,11 @@ class _JQuantsTransport:
         self._fetch_missing_range_chunks("get_eq_bars_daily_range", start, end)
 
     def ensure_eq_bars_daily_range(self, start: date, end: date) -> int:
-        """Cover `[start, end]` and answer how many usable rows the store holds for it.
+        """Fetch as needed under the stored-date coverage policy and count non-null closes.
 
-        Bootstrap and backfill want the window filled and a number to report; they
-        never look at a bar. Handing them the models instead costs ~13s per call on
-        the production window and is discarded a line later.
-
-        The coverage check after the fetch is what makes the answer mean "the window
-        is filled" rather than "some rows exist". A provider that returns part of
-        what was asked for leaves a count that looks healthy and a window that is
-        not, and the run would then fail somewhere downstream, against a different
-        window, instead of here.
+        Bootstrap and backfill need a count, not one model per stored bar. The
+        post-fetch coverage check rejects windows outside that policy, but its
+        tolerated gaps do not prove every trading date or instrument is present.
         """
         if self._sqlite_path is None:
             self._raise_if_cache_only(
@@ -195,9 +189,8 @@ class _JQuantsTransport:
         self._raise_if_cache_only(
             "jquants_market_calendar", f"{start.isoformat()}..{end.isoformat()}"
         )
-        # holiday_division フィルタは掛けない。"1"=営業日だけでなく "2"=半日営業 (大納会など)
-        # も取引あり扱いすべきで、事前フィルタで "2" を落とすと正しい営業日で asof が
-        # reject される。normalize 側で "1"/"2" を営業扱いにする。
+        # Fetch every category, including non-business and holiday-trading days.
+        # Storage retains HolDiv; this cash-equity projection selects categories 1/2.
         records = self._load_or_fetch(
             "get_mkt_calendar",
             from_yyyymmdd=start.strftime("%Y%m%d"),
@@ -700,7 +693,7 @@ class JQuantsProvider(_JQuantsTransport):
     def get_adjustment_factor_bars_range(
         self, start: date, end: date
     ) -> list[JQuantsAdjustmentFactorEvent]:
-        """Return only split events while still proving the full bar range is covered."""
+        """Return price-adjustment events under the daily-bar coverage policy."""
         if self._sqlite_path is not None:
             from baibai_engine.market.store import read_adjustment_factor_bars
 
@@ -714,7 +707,7 @@ class JQuantsProvider(_JQuantsTransport):
             if cached is not None:
                 return cached
             raise JQuantsProviderError(
-                "SQLite cache remained incomplete after fetching split-normalization bars "
+                "SQLite cache remained incomplete after fetching price-adjustment bars "
                 f"for {start.isoformat()}..{end.isoformat()}"
             )
         records = self._load_or_fetch_range("get_eq_bars_daily_range", start, end)

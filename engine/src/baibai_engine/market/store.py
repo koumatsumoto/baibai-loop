@@ -91,7 +91,7 @@ def count_daily_bars(sqlite_path: Path, start: date, end: date) -> int:
 def read_adjustment_factor_bars(
     sqlite_path: Path, start: date, end: date
 ) -> list[JQuantsAdjustmentFactorEvent] | None:
-    """Read split events over a covered range, including rows without a close."""
+    """Read price-adjustment events over an accepted range, including rows without a close."""
     if not sqlite_path.exists():
         return None
     conn = connect_current(sqlite_path)

@@ -118,7 +118,7 @@ def _snapshot_state(
 ) -> tuple[list[str] | None, dict[str, object]]:
     calendar = conn.execute(
         "SELECT holiday_division IN ('1', '2') FROM jquants_market_calendar WHERE day=?",
-        (day.isoformat(),)
+        (day.isoformat(),),
     ).fetchone()
     if calendar is None:
         raise SourceDataError("Exact-date trading calendar is unavailable")

@@ -18,8 +18,7 @@ def test_calendar_categories_survive_sqlite_and_lake_without_becoming_booleans(t
     start = date(2026, 1, 1)
     end = start + timedelta(days=3)
     records = [
-        {"Date": (start + timedelta(days=i)).isoformat(), "HolDiv": str(i)}
-        for i in range(4)
+        {"Date": (start + timedelta(days=i)).isoformat(), "HolDiv": str(i)} for i in range(4)
     ]
     database = tmp_path / "market.sqlite"
     assert (
