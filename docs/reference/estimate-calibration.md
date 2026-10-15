@@ -68,7 +68,7 @@ EDINET の取込は最近の as-of 分しか無いので、それ以前の cohor
 
 | 分類 | 意味 | gate への影響 |
 | --- | --- | --- |
-| `entry_not_listed_count` | panel も as-of の価格を持たない | block しない。production screen も同じ銘柄を universe から落とすので、較正の母集団は screen が選び得た集合と一致する |
+| `entry_unpriced_at_asof_count` | panel も as-of 基準の価格を持たない。未上場の確認ではない | block しない。production screen も同じ銘柄を universe から落とすので、較正の母集団は screen が選び得た集合と一致する |
 | `entry_price_gap_count` | panel は as-of の価格を持つのに forward が entry を持たない | block する。断面に数えた銘柄の forward 観測が無いので、population を無言で欠く |
 | `unpriced_exit_count` | 窓中に系列が終わる（廃止 exit value なし） | 件数では block しない。`delisting_exclusion` が結論の頑健性で判定する（下記） |
 | `future_horizon_count` | target が評価可能な最終取引日より先 | block する。cohort が満期に達していない |

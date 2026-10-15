@@ -1639,9 +1639,9 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         return counts, coverage
 
     def test_unpriced_entry_is_disclosed_without_blocking_the_cohort(self) -> None:
-        # panel も価格を持たない = asof に市場に無かった銘柄。除外は正しいので
-        # blocker にはならず件数だけ残る。
-        not_listed = ForwardReturnRow(
+        # panelに価格がなくproductionの有効価格scope外。未上場と断定せず、
+        # forward欠測とは分けて件数を残す。
+        unpriced = ForwardReturnRow(
             asof="2025-06-30",
             ticker="9100",
             horizon="3y",
@@ -1653,17 +1653,17 @@ class MarginSizeNormalizationTest(unittest.TestCase):
             exit_date=None,
             status="unresolved_missing_entry",
         )
-        counts, coverage = self._reason_counts(*self._long_horizon_cohort([(not_listed, None)]))
+        counts, coverage = self._reason_counts(*self._long_horizon_cohort([(unpriced, None)]))
 
-        self.assertEqual(coverage["entry_not_listed_count"], 1)
+        self.assertEqual(coverage["entry_unpriced_at_asof_count"], 1)
         self.assertEqual(coverage["entry_price_gap_count"], 0)
         self.assertEqual(coverage["unpriced_exit_count"], 0)
         self.assertEqual([key for key in counts if key.startswith("entry_price_gap")], [])
         self.assertEqual([key for key in counts if key.startswith("unpriced_exit")], [])
 
     def test_entry_missing_for_a_priced_name_blocks_even_without_an_entry_date(self) -> None:
-        # panel が価格を持つのに forward が entry を持たない銘柄は、取引可能名を
-        # 無言で落とす経路である。entry_date が空でも未上場として扱わない。
+        # panelの価格で分析対象にした銘柄をforward欠測で無言に落とさない。
+        # 観測価格があることと、実際に約定できることは別である。
         dropped = ForwardReturnRow(
             asof="2025-06-30",
             ticker="9400",
@@ -1678,7 +1678,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         )
         counts, coverage = self._reason_counts(*self._long_horizon_cohort([(dropped, 1200.0)]))
 
-        self.assertEqual(coverage["entry_not_listed_count"], 0)
+        self.assertEqual(coverage["entry_unpriced_at_asof_count"], 0)
         self.assertEqual(coverage["entry_price_gap_count"], 1)
         self.assertEqual(counts.get("entry_price_gap"), 1)
 
