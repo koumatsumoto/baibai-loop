@@ -199,12 +199,9 @@ def usable_expiries(quotes: Sequence[OptionQuote], asof: date) -> dict[date, lis
             continue
         if quote.implied_volatility <= MIN_USABLE_VOLATILITY:
             continue
-        # The underlying is repeated on every row and every reading is a position
-        # relative to it, so one row carrying nothing would put the basis band at
-        # zero and empty the check. The strike needs no such guard: it is only ever
-        # selected by distance from a positive underlying, so a row without one is
-        # never the nearest.
-        if quote.underlying <= 0:
+        # Nonpositive pricing coordinates cannot define a usable moneyness.
+        # A zero strike can still be the nearest if other strikes are far away.
+        if quote.underlying <= 0 or quote.strike <= 0:
             continue
         grouped.setdefault(quote.expiry, []).append(quote)
     return grouped
@@ -226,7 +223,8 @@ def _atm_volatility(quotes: Sequence[OptionQuote]) -> float | None:
     paired = [strike for strike, pair in sides.items() if PUT in pair and CALL in pair]
     if not paired:
         return None
-    pair = sides[min(paired, key=lambda strike: abs(strike - underlying))]
+    # Resolve an exact distance tie toward the lower strike, not source row order.
+    pair = sides[min(paired, key=lambda strike: (abs(strike - underlying), strike))]
     return (pair[PUT] + pair[CALL]) / 2
 
 
@@ -252,7 +250,9 @@ def _nearest(quotes: Sequence[OptionQuote], put_call: str, target: float) -> flo
     side = [quote for quote in quotes if quote.put_call == put_call]
     if not side:
         return None
-    return min(side, key=lambda quote: abs(quote.strike - target)).implied_volatility
+    return min(
+        side, key=lambda quote: (abs(quote.strike - target), quote.strike)
+    ).implied_volatility
 
 
 def _constant_maturity(

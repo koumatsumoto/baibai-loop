@@ -142,6 +142,24 @@ def _chain(
 
 
 class OptionIvReadingsTest(unittest.TestCase):
+    def test_equal_distance_strikes_do_not_depend_on_source_row_order(self) -> None:
+        ladder = {0.9375: 20.0, 1.0625: 30.0, 1.09375: 40.0}
+        quotes = [*_chain(NEAR, ladder=ladder), *_chain(FAR, ladder=ladder)]
+        forward = option_iv_readings(quotes, ASOF)
+        backward = option_iv_readings(list(reversed(quotes)), ASOF)
+
+        self.assertEqual(forward, backward)
+        self.assertEqual(forward.iv_30d, 20.0)
+        self.assertEqual(forward.iv_skew, 0.0)
+        self.assertEqual(forward.iv_term, 0.0)
+
+    def test_nonpositive_strikes_do_not_enter_the_usable_smile(self) -> None:
+        quotes = _chain(NEAR, ladder={-0.1: 20.0, 0.0: 20.0, 1.0: 25.0})
+        usable = usable_expiries(quotes, ASOF)
+
+        self.assertEqual({quote.strike for quote in usable[NEAR]}, {UNDERLYING})
+        self.assertEqual(len(usable[NEAR]), 2)
+
     def test_the_atm_average_is_where_it_was_when_the_sides_disagree(self) -> None:
         # Equal opposite offsets cancel in this synthetic fixture. This does not
         # establish the error structure of actual quotes or immunity to source errors.
