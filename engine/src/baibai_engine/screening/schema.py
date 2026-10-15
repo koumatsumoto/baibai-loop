@@ -78,7 +78,7 @@ class DerivedMetrics:
     ticker_return_4w: float | None = None
     sector_return_4w: float | None = None
     short_history_flag: bool = False
-    split_adjustment_flag: bool = False
+    share_basis_warning: bool = False
     price_history_sessions_750d: int | None = None
     price_history_coverage_750d: float | None = None
     # Supply/demand read from the exchange's published margin balances. Definitions
@@ -162,7 +162,7 @@ class StockAnalysis:
     price_history_coverage_750d: float | None = None
     metrics: MetricValueMap = Field(default_factory=dict)
     next_earnings_date: date | None = None
-    split_adjustment_flag: bool = False
+    share_basis_warning: bool = False
     freshness_warnings: tuple[FreshnessWarning, ...] = ()
     candidate: StockCandidateContext | None = None
 

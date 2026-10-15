@@ -11,6 +11,7 @@ from baibai_engine.market.bars import (
     JQuantsAdjustmentFactorEvent,
     JQuantsDailyBar,
     asof_basis_closes,
+    share_unit_factor,
 )
 
 PRICE_HISTORY_WINDOW_DAYS = 750
@@ -151,19 +152,17 @@ def turnover_spike(
     return mean(latest_values) / baseline
 
 
-def has_split_adjustment_within_sessions(
+def has_share_basis_warning(
     bars: Sequence[JQuantsDailyBar],
     asof_date: date,
     sessions: int,
     *,
     adjustment_events: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar] | None = None,
 ) -> bool:
-    """True when J-Quants adjustment_factor marks a split in the latest sessions.
+    """Flag observed unit changes or an unclassified nontrivial factor.
 
-    J-Quants daily_quotes sets ``AdjustmentFactor`` on ex-rights dates for
-    stock splits and reverse splits. Use the same session window as
-    ``price_change_60d`` so the flag covers the price-change calculation it
-    qualifies.
+    Price-only rights adjustments do not invalidate share-based comparisons.
+    This warning is not a certificate of complete source coverage.
     """
     ordered = sorted(
         (bar for bar in bars if bar.traded_at <= asof_date), key=lambda item: item.traded_at
@@ -174,9 +173,8 @@ def has_split_adjustment_within_sessions(
     relevant = ordered[-(sessions + 1) :]
     start = relevant[0].traded_at
     events = bars if adjustment_events is None else adjustment_events
-    factors = [
-        event.adjustment_factor
+    return any(
+        share_unit_factor(event) != 1.0
         for event in events
-        if start <= event.traded_at <= asof_date and event.adjustment_factor is not None
-    ]
-    return any(factor != 1.0 for factor in factors) or len(set(factors)) > 1
+        if start <= event.traded_at <= asof_date
+    )

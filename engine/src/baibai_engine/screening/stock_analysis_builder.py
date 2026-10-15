@@ -94,7 +94,7 @@ def build_stock_analysis(
             valuation_catalyst_context=valuation_catalyst_context,
         ),
         next_earnings_date=next_earnings_date,
-        split_adjustment_flag=derived.split_adjustment_flag,
+        share_basis_warning=derived.share_basis_warning,
         freshness_warnings=freshness_warnings,
     )
 

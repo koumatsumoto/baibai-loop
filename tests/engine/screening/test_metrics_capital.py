@@ -650,7 +650,7 @@ class MissingCloseAdjustmentEventTests(unittest.TestCase):
         self.assertIsNotNone(derived.gap_from_52w_low)
         self.assertAlmostEqual(derived.price_change_60d, 0.0, places=12)
         self.assertAlmostEqual(derived.gap_from_52w_low, 0.0, places=12)
-        self.assertTrue(derived.split_adjustment_flag)
+        self.assertTrue(derived.share_basis_warning)
 
 
 def test_the_share_count_anchor_admits_a_double_and_refuses_past_it() -> None:

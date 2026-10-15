@@ -232,8 +232,8 @@ def _data_quality_flags(row: Mapping[str, object], metrics: Mapping[str, object]
         flags.append("BS前期繰越")
     if row.get("freshness_warnings"):
         flags.append("鮮度warning")
-    if row.get("split_adjustment_flag") is True:
-        flags.append("分割補正")
+    if row.get("share_basis_warning") is True:
+        flags.append("株数基準に注意")
     if metrics.get("forecast_special_gain_flag") is True:
         flags.append("一時益予想")
     if metrics.get("stale_fin_flag") is True:

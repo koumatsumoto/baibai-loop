@@ -76,8 +76,8 @@ class MarginSupplyDemandTest(unittest.TestCase):
     def test_a_split_inside_a_window_declines_that_axis(self) -> None:
         # Balances are reported on the balance date's share basis and are not
         # restated, so a split inside the window compares two different bases.
-        adv = _axes(split_within_adv_window=True)
-        delta = _axes(split_within_delta_window=True)
+        adv = _axes(adv_basis_warning=True)
+        delta = _axes(delta_basis_warning=True)
 
         self.assertIsNone(adv.margin_long_to_adv)
         self.assertIsNone(adv.margin_short_to_adv)

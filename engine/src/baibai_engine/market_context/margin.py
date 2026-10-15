@@ -10,8 +10,9 @@ change a rule.
 
 Balances are reported in shares as of the balance date and are not restated for
 later splits, so an axis that spans a split would compare two different share
-bases. Rather than guess an adjustment, an axis whose window contains a split
-declines to answer.
+bases. Rather than guess an adjustment, an axis whose window contains a share-unit change
+or an unclassified adjustment declines to answer. Price-only rights factors do not
+change the units of margin balances or traded volume.
 """
 
 from __future__ import annotations
@@ -80,13 +81,13 @@ def margin_supply_demand(
     prior_26w: MarginBalance | None,
     avg_daily_volume_shares: float | None,
     shares_outstanding: float | None,
-    split_within_adv_window: bool = False,
-    split_within_delta_window: bool = False,
+    adv_basis_warning: bool = False,
+    delta_basis_warning: bool = False,
 ) -> MarginSupplyDemand:
     """Derive the supply/demand axes for one ticker.
 
-    An axis is None when its inputs are missing or when its window crosses a
-    split, never defaulted: a zero balance and an unobserved balance mean opposite
+    An axis is None when its inputs are missing or when its window has a share-basis
+    warning, never defaulted: a zero balance and an unobserved balance mean opposite
     things, and a share count that changed mid-window is not a balance that fell.
     A zero long balance still yields a zero `margin_long_to_adv` — no overhang is
     an observation — while `margin_std_long_share` stays None there, because a
@@ -108,7 +109,7 @@ def margin_supply_demand(
         margin_issue_type=latest.issue_type,
         margin_long_to_adv=(
             long_vol / avg_daily_volume_shares
-            if long_vol is not None and avg_daily_volume_shares and not split_within_adv_window
+            if long_vol is not None and avg_daily_volume_shares and not adv_basis_warning
             else None
         ),
         margin_short_to_adv=(
@@ -116,7 +117,7 @@ def margin_supply_demand(
             if latest.issue_type == ISSUE_TYPE_LENDING_ELIGIBLE
             and short_vol is not None
             and avg_daily_volume_shares
-            and not split_within_adv_window
+            and not adv_basis_warning
             else None
         ),
         margin_long_share=(long_vol / two_sided if two_sided and long_vol is not None else None),
@@ -126,7 +127,7 @@ def margin_supply_demand(
             and prior_26w is not None
             and prior_26w.long_vol is not None
             and shares_outstanding
-            and not split_within_delta_window
+            and not delta_basis_warning
             else None
         ),
         margin_std_long_share=(

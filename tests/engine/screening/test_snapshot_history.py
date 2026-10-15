@@ -197,7 +197,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
         self.assertEqual(derived.price_change_60d, 0.0)
 
     def test_build_metrics_flags_split_adjustment_within_price_change_sessions(self) -> None:
-        """split_adjustment_flag uses the same 60-session window as price_change_60d."""
+        """share_basis_warning uses the same 60-session window as price_change_60d."""
         asof = date(2026, 4, 24)
         bars = [
             JQuantsDailyBar(
@@ -219,7 +219,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             },
             edinet_by_ticker={},
         )
-        self.assertTrue(result.derived["130A"].split_adjustment_flag)
+        self.assertTrue(result.derived["130A"].share_basis_warning)
 
     def test_build_metrics_does_not_flag_split_adjustment_when_factor_is_one(self) -> None:
         asof = date(2026, 4, 24)
@@ -242,7 +242,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             },
             edinet_by_ticker={},
         )
-        self.assertFalse(result.derived["130A"].split_adjustment_flag)
+        self.assertFalse(result.derived["130A"].share_basis_warning)
 
     def test_build_metrics_does_not_flag_split_adjustment_when_factor_is_missing(self) -> None:
         asof = date(2026, 4, 24)
@@ -258,4 +258,4 @@ class ScreeningMetricsTests(SnapshotFixtures):
             },
             edinet_by_ticker={},
         )
-        self.assertFalse(result.derived["130A"].split_adjustment_flag)
+        self.assertFalse(result.derived["130A"].share_basis_warning)

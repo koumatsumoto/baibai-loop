@@ -20,7 +20,7 @@ from baibai_engine.market_context.history import (
     PRICE_HISTORY_WINDOW_DAYS,
     avg_daily_volume,
     gap_from_low,
-    has_split_adjustment_within_sessions,
+    has_share_basis_warning,
     latest_bar_on_or_before,
     price_change,
     realized_volatility,
@@ -253,7 +253,7 @@ def build_metrics(
             ticker_return_4w=ticker_returns_4w.get(ticker),
             sector_return_4w=sector_context.mean_returns.get(sector),
             short_history_flag=listing_span_days < PRICE_HISTORY_WINDOW_DAYS,
-            split_adjustment_flag=has_split_adjustment_within_sessions(
+            share_basis_warning=has_share_basis_warning(
                 ticker_bars,
                 asof_date,
                 60,
@@ -265,13 +265,13 @@ def build_metrics(
                     prior_26w=(margin_prior_26w or {}).get(ticker),
                     avg_daily_volume_shares=avg_daily_volume(ticker_bars, asof_date),
                     shares_outstanding=snapshot.shares_outstanding,
-                    split_within_adv_window=has_split_adjustment_within_sessions(
+                    adv_basis_warning=has_share_basis_warning(
                         ticker_bars,
                         asof_date,
                         AVG_VOLUME_SESSIONS,
                         adjustment_events=adjustment_events,
                     ),
-                    split_within_delta_window=has_split_adjustment_within_sessions(
+                    delta_basis_warning=has_share_basis_warning(
                         ticker_bars,
                         asof_date,
                         MARGIN_DELTA_SESSIONS,
