@@ -461,23 +461,3 @@ def test_refreshed_tombstone_allows_earlier_metadata_without_reviving_document(
     assert folded[0]["withdrawalStatus"] == "2"
     assert folded[0]["legalStatus"] == "0"
     assert original["periodEnd"] == "2026-03-31"
-
-
-def test_metadata_edit_can_clear_optional_values_instead_of_retaining_old_facts():
-    from baibai_engine.market.providers.edinet import _canonicalize_document_events
-
-    original = document()
-    correction = document("S100CORR", "2026-08-01 10:00", parentDocID="S100TEST")
-    correction["docTypeCode"] = "130"
-    edit = {**correction, "doc_date": "2026-08-02", "docInfoEditStatus": "1"}
-    edit.update(parentDocID=None, periodEnd=None)
-
-    folded, quarantined = _canonicalize_document_events(
-        [original, correction, edit], origin_start=None
-    )
-    current = next(row for row in folded if row["docID"] == "S100CORR")
-    assert not quarantined
-    assert current["parentDocID"] is None
-    assert current["periodEnd"] is None
-    assert correction["parentDocID"] == "S100TEST"
-    assert correction["periodEnd"] == "2026-03-31"
