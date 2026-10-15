@@ -65,7 +65,6 @@ def normalize_adjustment_factor_event(
     kind = normalize_ex_right_type(record.get("ExRT"))
     if factor is None or (factor == 1.0 and kind is None):
         return None
-    assert factor is not None
     return JQuantsAdjustmentFactorEvent(
         ticker=ticker,
         traded_at=parse_date(record.get("Date")),
@@ -177,25 +176,3 @@ def has_period_slot(record: Mapping[str, Any], key: str) -> bool:
         return False
     value = record[key]
     return not (isinstance(value, str) and value.strip() in {"", "-", "null"})
-
-
-def first_value(record: Mapping[str, Any], *keys: str) -> Any:
-    """The first key a record actually carries, or a refusal naming all of them."""
-
-    for key in keys:
-        if key in record and not is_missing_scalar(record[key]):
-            return record[key]
-    joined = ", ".join(keys)
-    raise JQuantsProviderError(f"missing required field in payload: {joined}")
-
-
-def coalesce_field(record: Mapping[str, Any], *keys: str) -> Any:
-    """Return the first key's value that is explicitly present and non-null/empty.
-
-    Unlike chained `or`, this does NOT treat 0 / 0.0 / False as missing — so it is safe
-    to use for numeric payload fields that may legitimately be zero.
-    """
-    for key in keys:
-        if key in record and not is_missing_scalar(record[key]):
-            return record[key]
-    return None
