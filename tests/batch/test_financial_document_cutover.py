@@ -90,7 +90,7 @@ def stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     source = old_store(tmp_path / "old.sqlite")
     mirror = tmp_path / "mirror"
     with cutover.legacy_reader():
-        snap = writer.LegacySQLiteSnapshot(
+        snap = writer.SealedSQLiteSnapshot(
             path=source,
             ref=SQLiteSnapshotSourceRef(
                 kind="sqlite_snapshot",
@@ -100,7 +100,7 @@ def stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
                 captured_at=datetime(2026, 10, 14, tzinfo=UTC),
             ),
         )
-        report = writer.export_legacy_sqlite(
+        report = writer.export_dataset_snapshot(
             dataset_name=cutover.FIN,
             mirror_root=mirror,
             source_snapshot=snap,

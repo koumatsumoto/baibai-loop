@@ -40,7 +40,7 @@ from baibai_engine.storage.lake.objects import open_lake
 from baibai_engine.storage.lake.prefetch import prefetching_hydration_cache
 from baibai_engine.storage.lake.reader import resolve_current_release
 from baibai_engine.storage.lake.release import L1ReleasePointer, create_l1_release
-from baibai_engine.storage.lake.writer import export_lake_legacy
+from baibai_engine.storage.lake.writer import export_market_store
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("BAIBAI_R2_ACCEPTANCE") != "1",
@@ -221,7 +221,7 @@ def test_actual_r2_l1_publish_and_read_back_into_a_market_store(
     store = _store()
     mirror = tmp_path / "publisher"
     sqlite_path = _tiny_market(tmp_path / "market.sqlite")
-    build = export_lake_legacy(
+    build = export_market_store(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit="a" * 40,
@@ -321,7 +321,7 @@ def test_actual_r2_reconciles_a_real_pointer_commit_after_a_wrapper_error(
     delegate = _store()
     mirror = tmp_path / "publisher"
     sqlite_path = _tiny_market(tmp_path / "market.sqlite")
-    build = export_lake_legacy(
+    build = export_market_store(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit="b" * 40,

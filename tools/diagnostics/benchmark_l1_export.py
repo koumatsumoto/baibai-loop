@@ -21,7 +21,7 @@ from pathlib import Path
 from baibai_engine.foundation.filesystem import write_bytes_atomic
 from baibai_engine.storage.lake.identity import verified_git_commit
 from baibai_engine.storage.lake.sources import sha256_file
-from baibai_engine.storage.lake.writer import LakeExportReport, export_lake_legacy
+from baibai_engine.storage.lake.writer import LakeExportReport, export_market_store
 from baibai_engine.storage.observations.lake_origin import read_lake_store_origin
 from baibai_engine.storage.observations.snapshot import create_snapshot
 
@@ -96,7 +96,7 @@ def benchmark(*, sqlite_path: Path, report_path: Path, producer_commit: str) -> 
         store_origin = read_lake_store_origin(working_sqlite)
 
         started = time.perf_counter()
-        full = export_lake_legacy(
+        full = export_market_store(
             sqlite_path=working_sqlite,
             mirror_root=mirror,
             producer_git_commit=producer_commit,
@@ -108,7 +108,7 @@ def benchmark(*, sqlite_path: Path, report_path: Path, producer_commit: str) -> 
         corrected_month = _inject_one_month_correction(working_sqlite)
         corrected_source_sha256 = sha256_file(working_sqlite)
         started = time.perf_counter()
-        corrected = export_lake_legacy(
+        corrected = export_market_store(
             sqlite_path=working_sqlite,
             mirror_root=mirror,
             producer_git_commit=producer_commit,

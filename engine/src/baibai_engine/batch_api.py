@@ -170,7 +170,11 @@ from baibai_engine.storage.lake.reader import FixedRelease as LakeFixedRelease
 from baibai_engine.storage.lake.reader import LakeReadError, resolve_release
 from baibai_engine.storage.lake.release import L1ReleasePointer
 from baibai_engine.storage.lake.release import create_l1_release as create_lake_l1_release
-from baibai_engine.storage.lake.writer import LakeBuildError, LakeBuildReport, export_lake_legacy
+from baibai_engine.storage.lake.writer import (
+    LakeBuildError,
+    LakeBuildReport,
+    export_market_store,
+)
 from baibai_engine.storage.observations.lake_origin import (
     LakeStoreOrigin,
     LakeStoreOriginError,
@@ -238,7 +242,7 @@ __all__ = [
     "create_lake_l1_release",
     "create_market_snapshot",
     "database_path",
-    "export_lake_legacy",
+    "export_market_store",
     "external_assessment_acquisition_main",
     "external_assessment_calendar_master_asof",
     "external_assessment_collect_pair",

@@ -38,7 +38,7 @@ from baibai_engine.storage.lake.models import canonical_lake_model_bytes
 from baibai_engine.storage.lake.objects import LakeObjectCache, LakeObjectError, LocalMirrorSource
 from baibai_engine.storage.lake.reader import LakeReadError, resolve_current_release
 from baibai_engine.storage.lake.release import L1ReleasePointer, create_l1_release
-from baibai_engine.storage.lake.writer import export_legacy_sqlite, sealed_sqlite_snapshot
+from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
 from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
 
@@ -126,7 +126,7 @@ def build_master_lake(
     mirror = tmp_path / "published"
     with sealed_sqlite_snapshot(sqlite_path=database, mirror_root=mirror) as snapshot_source:
         manifests = [
-            export_legacy_sqlite(
+            export_dataset_snapshot(
                 dataset_name=name,
                 mirror_root=mirror,
                 producer_git_commit="a" * 40,

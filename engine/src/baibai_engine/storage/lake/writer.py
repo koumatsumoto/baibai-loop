@@ -1,4 +1,4 @@
-"""Deterministic legacy SQLite to L1 Canonical Parquet export."""
+"""Deterministic market SQLite to L1 Canonical Parquet export."""
 
 from __future__ import annotations
 
@@ -84,8 +84,8 @@ class LakeExportReport:
 
 
 @dataclass(frozen=True)
-class LegacySQLiteSnapshot:
-    """A sealed read of the legacy store, valid only inside the operation that took it."""
+class SealedSQLiteSnapshot:
+    """A sealed read of the market store, valid only inside the operation that took it."""
 
     path: Path
     ref: SQLiteSnapshotSourceRef
@@ -104,8 +104,8 @@ def sealed_sqlite_snapshot(
     sqlite_path: Path,
     mirror_root: Path,
     snapshot_id: str | None = None,
-) -> Iterator[LegacySQLiteSnapshot]:
-    """Give one operation a fixed read of the legacy store, then take it back.
+) -> Iterator[SealedSQLiteSnapshot]:
+    """Give one operation a fixed read of the market store, then take it back.
 
     The sealed copy is the size of the whole store. It exists to stop the store from
     moving underneath a build that reads it for minutes, which is a property of the
@@ -132,7 +132,7 @@ def sealed_sqlite_snapshot(
             schema_version = create_snapshot(sqlite_path, sealed)
             if schema_version != SQLITE_SCHEMA_VERSION:
                 raise LakeBuildError(
-                    f"legacy SQLite schema is {schema_version}; expected {SQLITE_SCHEMA_VERSION}"
+                    f"market SQLite schema: {schema_version}; expected {SQLITE_SCHEMA_VERSION}"
                 )
             digest = sha256_file(sealed)
             ref = SQLiteSnapshotSourceRef(
@@ -144,17 +144,17 @@ def sealed_sqlite_snapshot(
             )
         except (OSError, sqlite3.Error, ValueError) as exc:
             raise LakeBuildError(f"SQLite snapshot capture failed: {exc}") from exc
-        yield LegacySQLiteSnapshot(path=sealed, ref=ref)
+        yield SealedSQLiteSnapshot(path=sealed, ref=ref)
     finally:
         shutil.rmtree(workspace, ignore_errors=True)
 
 
-def export_legacy_sqlite(
+def export_dataset_snapshot(
     *,
     dataset_name: str,
     mirror_root: Path,
     producer_git_commit: str,
-    source_snapshot: LegacySQLiteSnapshot,
+    source_snapshot: SealedSQLiteSnapshot,
     build_id: str | None = None,
     created_at: datetime | None = None,
 ) -> LakeBuildReport:
@@ -172,7 +172,7 @@ def export_legacy_sqlite(
 
     dataset = require_lake_dataset(dataset_name)
     now = (created_at or datetime.now(UTC)).astimezone(UTC)
-    actual_build_id = build_id or f"{now:%Y%m%dT%H%M%SZ}-legacy-{uuid.uuid4().hex[:8]}"
+    actual_build_id = build_id or f"{now:%Y%m%dT%H%M%SZ}-sqlite-{uuid.uuid4().hex[:8]}"
     validate_identifier(actual_build_id, label="build_id")
     staging_root = _workspace_path(mirror_root, "staging", actual_build_id)
     if staging_root.exists():
@@ -225,7 +225,7 @@ def export_legacy_sqlite(
             totals=totals,
         )
         new_objects = _promote_partitions(mirror_root, built)
-        validate_legacy_parity(
+        validate_snapshot_parity(
             sqlite_path=snapshot.path,
             mirror_root=mirror_root,
             manifest=manifest,
@@ -254,7 +254,7 @@ def export_legacy_sqlite(
         raise LakeBuildError(str(exc)) from exc
 
 
-def export_lake_legacy(
+def export_market_store(
     *,
     sqlite_path: Path,
     mirror_root: Path,
@@ -284,7 +284,7 @@ def export_lake_legacy(
         if not populated:
             raise LakeBuildError("no lake dataset holds a row in this SQLite generation")
         reports = {
-            dataset_name: export_legacy_sqlite(
+            dataset_name: export_dataset_snapshot(
                 dataset_name=dataset_name,
                 mirror_root=mirror_root,
                 producer_git_commit=producer_git_commit,
@@ -308,7 +308,7 @@ def _has_rows(connection: sqlite3.Connection, dataset: LakeDataset) -> bool:
     return row is not None
 
 
-def validate_legacy_parity(
+def validate_snapshot_parity(
     *,
     sqlite_path: Path,
     mirror_root: Path,
@@ -399,7 +399,7 @@ def _build_period(
 def _coverage_assessment(
     connection: sqlite3.Connection, dataset: LakeDataset
 ) -> tuple[CoverageStatus, date, int | None]:
-    """Derive completeness from the authority defined for the legacy source."""
+    """Derive operational coverage from the evidence defined for this SQLite source."""
     bounds = connection.execute(
         f"SELECT MIN({dataset.date_column}), MAX({dataset.date_column}) "  # nosec B608
         f"FROM {dataset.sqlite_table}"  # nosec B608
@@ -514,7 +514,9 @@ def _period_rows(
 def _validate_sqlite_contract(connection: sqlite3.Connection, dataset: LakeDataset) -> None:
     version = int(connection.execute("PRAGMA user_version").fetchone()[0])
     if version != SQLITE_SCHEMA_VERSION:
-        raise LakeBuildError(f"legacy SQLite schema is {version}; expected {SQLITE_SCHEMA_VERSION}")
+        raise LakeBuildError(
+            f"market SQLite schema is {version}; expected {SQLITE_SCHEMA_VERSION}"
+        )
     actual = tuple(connection.execute(f"PRAGMA table_info({dataset.sqlite_table})"))
     expected = tuple(
         (
@@ -528,7 +530,7 @@ def _validate_sqlite_contract(connection: sqlite3.Connection, dataset: LakeDatas
         for index, column in enumerate(dataset.columns)
     )
     if actual != expected:
-        raise LakeBuildError(f"legacy SQLite table contract mismatch: {dataset.sqlite_table}")
+        raise LakeBuildError(f"market SQLite table contract mismatch: {dataset.sqlite_table}")
 
 
 def _manifest_partitions(manifest: DatasetManifest) -> dict[Period, PartitionManifest]:
@@ -571,7 +573,7 @@ def _data_as_of(
     date_index = names.index(dataset.date_column)
     rows = _period_rows(connection, dataset, latest)
     if not rows:
-        raise LakeBuildError("latest manifest partition is absent from the legacy SQLite")
+        raise LakeBuildError("latest manifest partition is absent from the market SQLite")
     return max(_iso_date(row[date_index], dataset=dataset) for row in rows)
 
 

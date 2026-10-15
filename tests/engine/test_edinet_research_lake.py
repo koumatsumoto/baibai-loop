@@ -22,7 +22,7 @@ from baibai_engine.storage.lake.reader import (
     selected_partitions,
 )
 from baibai_engine.storage.lake.release import create_l1_release
-from baibai_engine.storage.lake.writer import export_legacy_sqlite, sealed_sqlite_snapshot
+from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.observations.schema import open_connection
 
 
@@ -37,7 +37,7 @@ def test_facts_export_fixed_read_and_hydrate(tmp_path, monkeypatch):
         sqlite_path=db, mirror_root=mirror, snapshot_id="facts"
     ) as snapshot:
         paths = [
-            export_legacy_sqlite(
+            export_dataset_snapshot(
                 dataset_name=name,
                 mirror_root=mirror,
                 source_snapshot=snapshot,

@@ -33,8 +33,8 @@ from baibai_engine.storage.lake.release import (
 )
 from baibai_engine.storage.lake.writer import (
     LakeBuildError,
-    export_lake_legacy,
-    export_legacy_sqlite,
+    export_dataset_snapshot,
+    export_market_store,
     sealed_sqlite_snapshot,
 )
 from baibai_engine.storage.observations.lake_origin import (
@@ -61,10 +61,10 @@ def _fixed_publication_clock(monkeypatch: pytest.MonkeyPatch) -> None:
         "create_lake_l1_release",
         lambda **kwargs: create_release(created_at=fixed_now, **kwargs),
     )
-    export_lake = market_publish_module.export_lake_legacy
+    export_lake = market_publish_module.export_market_store
     monkeypatch.setattr(
         market_publish_module,
-        "export_lake_legacy",
+        "export_market_store",
         lambda **kwargs: export_lake(created_at=fixed_now, **kwargs),
     )
 
@@ -87,7 +87,7 @@ def _release(tmp_path: Path) -> tuple[Path, Path]:
         sqlite_path=sqlite_path, mirror_root=mirror, snapshot_id="release-snapshot"
     ) as snapshot:
         datasets = [
-            export_legacy_sqlite(
+            export_dataset_snapshot(
                 dataset_name=name,
                 mirror_root=mirror,
                 producer_git_commit="a" * 40,
@@ -504,7 +504,7 @@ def test_market_publish_conflicts_if_current_moves_during_export(
     )
     _bind_market_store_to_pointer(tmp_path / "market.sqlite", pointer)
     successor_path = _successor_release(mirror, "concurrent-successor")
-    original_export = market_publish_module.export_lake_legacy
+    original_export = market_publish_module.export_market_store
 
     def concurrent_export(**kwargs: object) -> object:
         publish_l1_release(
@@ -514,7 +514,7 @@ def test_market_publish_conflicts_if_current_moves_during_export(
         )
         return original_export(**kwargs)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(market_publish_module, "export_lake_legacy", concurrent_export)
+    monkeypatch.setattr(market_publish_module, "export_market_store", concurrent_export)
     monkeypatch.setattr(market_publish_module, "lake_verified_git_commit", lambda: "a" * 40)
 
     with pytest.raises(LakeCASConflict):
@@ -699,7 +699,7 @@ def test_remote_manifest_digest_mismatch_stops_before_export(
         export_called = True
         raise AssertionError("export must not start")
 
-    monkeypatch.setattr(market_publish_module, "export_lake_legacy", unexpected_export)
+    monkeypatch.setattr(market_publish_module, "export_market_store", unexpected_export)
 
     with pytest.raises(LakePublishError, match="downloaded lake object digest mismatch"):
         market_publish_module.publish_market_lake(
@@ -1145,7 +1145,7 @@ def _two_month_release(tmp_path: Path) -> tuple[Path, Path, Path]:
     connection.commit()
     connection.close()
     mirror = tmp_path / "mirror"
-    build = export_lake_legacy(
+    build = export_market_store(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit="a" * 40,
@@ -1177,7 +1177,7 @@ def test_a_one_month_correction_moves_only_that_month(tmp_path: Path) -> None:
     connection.execute("UPDATE jquants_daily_bars SET close = 9.0 WHERE traded_at = '2026-02-04'")
     connection.commit()
     connection.close()
-    corrected = export_lake_legacy(
+    corrected = export_market_store(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit="a" * 40,

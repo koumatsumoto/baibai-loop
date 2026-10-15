@@ -240,7 +240,9 @@ def prepare(
             manifest_sha256=origin.release_manifest_sha256,
         )
         for manifest in old.dataset_manifests.values():
-            writer.validate_legacy_parity(sqlite_path=source, mirror_root=mirror, manifest=manifest)
+            writer.validate_snapshot_parity(
+                sqlite_path=source, mirror_root=mirror, manifest=manifest
+            )
     original_inputs = machine_input_hashes(bundle) if bundle is not None else None
     original_runs = destination.with_name(destination.name + ".original-runs.sqlite")
     if bundle is not None:
@@ -257,7 +259,7 @@ def prepare(
             src.backup(dst)
     source_tables = convert(source, destination)
     repair_four_documents(destination, records)
-    exported = writer.export_lake_legacy(
+    exported = writer.export_market_store(
         sqlite_path=destination,
         mirror_root=mirror,
         producer_git_commit=producer,
@@ -271,7 +273,7 @@ def prepare(
         },
     )
     for item in exported.datasets.values():
-        writer.validate_legacy_parity(
+        writer.validate_snapshot_parity(
             sqlite_path=destination, mirror_root=mirror, manifest=item.manifest
         )
     return {

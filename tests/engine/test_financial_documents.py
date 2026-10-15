@@ -309,9 +309,9 @@ def test_financial_lake_contract_roundtrip_preserves_documents(
     from baibai_engine.storage.lake.reader import resolve_release
     from baibai_engine.storage.lake.release import create_l1_release
     from baibai_engine.storage.lake.writer import (
-        export_legacy_sqlite,
+        export_dataset_snapshot,
         sealed_sqlite_snapshot,
-        validate_legacy_parity,
+        validate_snapshot_parity,
     )
 
     narrow_release_policy(monkeypatch, datasets=("jquants.fin_summaries",))
@@ -321,7 +321,7 @@ def test_financial_lake_contract_roundtrip_preserves_documents(
         db, documents(), requested_start=date(2026, 8, 10), requested_end=ASOF
     )
     with sealed_sqlite_snapshot(sqlite_path=db, mirror_root=mirror) as sealed:
-        exported = export_legacy_sqlite(
+        exported = export_dataset_snapshot(
             dataset_name="jquants.fin_summaries",
             mirror_root=mirror,
             source_snapshot=sealed,
@@ -329,7 +329,7 @@ def test_financial_lake_contract_roundtrip_preserves_documents(
             created_at=datetime(2026, 10, 14, tzinfo=UTC),
         )
     assert exported.manifest.contract_version == 2
-    validate_legacy_parity(sqlite_path=db, mirror_root=mirror, manifest=exported.manifest)
+    validate_snapshot_parity(sqlite_path=db, mirror_root=mirror, manifest=exported.manifest)
     release_path, manifest = create_l1_release(
         dataset_manifest_paths=[exported.manifest_path],
         mirror_root=mirror,

@@ -34,7 +34,7 @@ from baibai_engine.storage.lake.models import (
     canonical_lake_model_bytes,
 )
 from baibai_engine.storage.lake.release import L1ReleasePointer, create_l1_release
-from baibai_engine.storage.lake.writer import export_legacy_sqlite, sealed_sqlite_snapshot
+from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
 from tests.helpers.lake_policy import narrow_release_policy
 
@@ -239,7 +239,7 @@ def lake(tmp_path, monkeypatch):
         sqlite_path=database, mirror_root=mirror, snapshot_id="g0-test"
     ) as snapshot:
         manifests = [
-            export_legacy_sqlite(
+            export_dataset_snapshot(
                 dataset_name=name,
                 mirror_root=mirror,
                 producer_git_commit="a" * 40,

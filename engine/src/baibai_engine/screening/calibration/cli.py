@@ -15,7 +15,7 @@ from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.storage.lake.retention import lake_writer_lock
 from baibai_engine.storage.lake.writer import (
     LakeBuildError,
-    LegacySQLiteSnapshot,
+    SealedSQLiteSnapshot,
     sealed_sqlite_snapshot,
 )
 from baibai_engine.storage.observations.readiness import unreadable_store_reason
@@ -143,7 +143,7 @@ def calibration_build_command(
 
 def _calibration_build_command(
     *,
-    snapshot: LegacySQLiteSnapshot,
+    snapshot: SealedSQLiteSnapshot,
     calibration_dir: Path,
     work_dir: Path,
     rules: ScreeningRules,

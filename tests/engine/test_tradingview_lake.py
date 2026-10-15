@@ -25,9 +25,9 @@ from baibai_engine.storage.lake.reader import (
 )
 from baibai_engine.storage.lake.release import create_l1_release
 from baibai_engine.storage.lake.writer import (
-    export_legacy_sqlite,
+    export_dataset_snapshot,
     sealed_sqlite_snapshot,
-    validate_legacy_parity,
+    validate_snapshot_parity,
 )
 from baibai_engine.storage.observations.ingest.jquants import store_jquants_master
 from baibai_engine.storage.observations.jquants import store_jquants_market_calendar
@@ -88,7 +88,7 @@ def test_l1_only_publish_restores_snapshot_without_market_push(
     def publish(release_id, source_path=path):
         with sealed_sqlite_snapshot(sqlite_path=source_path, mirror_root=mirror) as snapshot:
             manifests = [
-                export_legacy_sqlite(
+                export_dataset_snapshot(
                     dataset_name=name,
                     mirror_root=mirror,
                     producer_git_commit="a" * 40,
@@ -233,7 +233,7 @@ def test_month_partition_fixed_query_and_hydrate_roundtrip(
     asyncio.run(collect(path, next_day, fetch, clock=lambda: datetime(2026, 10, 1, 7, tzinfo=UTC)))
     mirror = tmp_path / "mirror"
     with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=mirror) as snapshot:
-        exported = export_legacy_sqlite(
+        exported = export_dataset_snapshot(
             dataset_name=NAME,
             mirror_root=mirror,
             producer_git_commit="a" * 40,
@@ -245,7 +245,7 @@ def test_month_partition_fixed_query_and_hydrate_roundtrip(
         {"year": 2026, "month": 10},
     ]
     assert exported.manifest.totals.rows == 4
-    validate_legacy_parity(sqlite_path=path, mirror_root=mirror, manifest=exported.manifest)
+    validate_snapshot_parity(sqlite_path=path, mirror_root=mirror, manifest=exported.manifest)
     manifest_path, _ = create_l1_release(
         dataset_manifest_paths=[exported.manifest_path],
         mirror_root=mirror,

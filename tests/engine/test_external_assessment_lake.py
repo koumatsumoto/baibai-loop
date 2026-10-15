@@ -23,9 +23,9 @@ from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSourc
 from baibai_engine.storage.lake.reader import resolve_release
 from baibai_engine.storage.lake.release import create_l1_release
 from baibai_engine.storage.lake.writer import (
-    export_legacy_sqlite,
+    export_dataset_snapshot,
     sealed_sqlite_snapshot,
-    validate_legacy_parity,
+    validate_snapshot_parity,
 )
 from baibai_engine.storage.observations.jquants import store_jquants_market_calendar
 from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
@@ -40,7 +40,7 @@ RECEIVED = datetime(2026, 9, 30, 14, 59, tzinfo=UTC)
 def _publish(path: Path, mirror: Path, datasets: tuple[str, ...], release_id: str):
     with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=mirror) as snapshot:
         exported = [
-            export_legacy_sqlite(
+            export_dataset_snapshot(
                 dataset_name=name,
                 mirror_root=mirror,
                 producer_git_commit="a" * 40,
@@ -50,7 +50,7 @@ def _publish(path: Path, mirror: Path, datasets: tuple[str, ...], release_id: st
             for index, name in enumerate(datasets)
         ]
     for item in exported:
-        validate_legacy_parity(sqlite_path=path, mirror_root=mirror, manifest=item.manifest)
+        validate_snapshot_parity(sqlite_path=path, mirror_root=mirror, manifest=item.manifest)
     manifest_path, _ = create_l1_release(
         dataset_manifest_paths=[item.manifest_path for item in exported],
         mirror_root=mirror,

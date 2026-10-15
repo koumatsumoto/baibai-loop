@@ -71,7 +71,7 @@ from baibai_engine.storage.lake.reader import (
 from baibai_engine.storage.lake.release import L1ReleasePointer, create_l1_release
 from baibai_engine.storage.lake.retention import LakeRetentionError, exclusive_lock
 from baibai_engine.storage.lake.sources import sha256_file
-from baibai_engine.storage.lake.writer import export_legacy_sqlite, sealed_sqlite_snapshot
+from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.observations.lake_origin import (
     LakeStoreOrigin,
     read_lake_store_origin,
@@ -143,7 +143,7 @@ def _build_lake(root: Path, *, release_id: str = "release-one") -> Lake:
         sqlite_path=sqlite_path, mirror_root=mirror, snapshot_id=f"snapshot-{release_id}"
     ) as snapshot:
         manifests = [
-            export_legacy_sqlite(
+            export_dataset_snapshot(
                 dataset_name=name,
                 mirror_root=mirror,
                 producer_git_commit=_COMMIT,
@@ -559,7 +559,7 @@ class TestFixedRelease:
         with sealed_sqlite_snapshot(
             sqlite_path=lake.sqlite_path, mirror_root=tmp_path / "second-mirror"
         ) as snapshot:
-            replacement = export_legacy_sqlite(
+            replacement = export_dataset_snapshot(
                 dataset_name="jquants.daily_bars",
                 mirror_root=tmp_path / "second-mirror",
                 producer_git_commit=_COMMIT,
@@ -945,7 +945,7 @@ def _build_lake_second_release(lake: Lake) -> str:
         snapshot_id=f"snapshot-{release_id}",
     ) as snapshot:
         manifests = [
-            export_legacy_sqlite(
+            export_dataset_snapshot(
                 dataset_name=name,
                 mirror_root=lake.mirror,
                 producer_git_commit=_COMMIT,
@@ -1680,7 +1680,7 @@ class TestOperatorDerivedRetraction:
         with sealed_sqlite_snapshot(
             sqlite_path=sqlite_path, mirror_root=mirror, snapshot_id=f"snapshot-{release_id}"
         ) as snapshot:
-            manifest_path = export_legacy_sqlite(
+            manifest_path = export_dataset_snapshot(
                 dataset_name="edinet.tender_offer_exit_values",
                 mirror_root=mirror,
                 producer_git_commit=_COMMIT,

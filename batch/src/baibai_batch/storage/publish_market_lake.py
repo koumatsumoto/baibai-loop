@@ -38,7 +38,7 @@ from baibai_engine.batch_api import (
     advance_lake_store_origin,
     canonical_lake_model_bytes,
     create_lake_l1_release,
-    export_lake_legacy,
+    export_market_store,
     lake_dataset_manifest_key,
     lake_mirror_path,
     lake_verified_git_commit,
@@ -113,7 +113,7 @@ def publish_market_lake(
         }
 
     export_started = time.perf_counter()
-    export = export_lake_legacy(
+    export = export_market_store(
         sqlite_path=sqlite_path,
         mirror_root=mirror_root,
         producer_git_commit=lake_verified_git_commit(),
