@@ -9,13 +9,6 @@ import sys
 from contextlib import closing
 from pathlib import Path
 
-from baibai_engine.external_assessment.acquisition.collection import (
-    DEFAULT_TICKERS,
-    collect,
-    load_staging,
-    save_staging,
-)
-from baibai_engine.external_assessment.store import save_observations
 from baibai_engine.storage.observations.schema import SQLiteSchemaError, validate_current_schema
 
 
@@ -31,7 +24,7 @@ def add_acquisition_commands(commands: argparse._SubParsersAction[argparse.Argum
         "collect", help="collect a bounded set into private local staging JSON"
     )
     acquisition.add_argument("--output", type=Path, required=True)
-    acquisition.add_argument("--tickers", nargs="+", default=DEFAULT_TICKERS)
+    acquisition.add_argument("--tickers", nargs="+")
     acquisition.add_argument("--source", choices=("monex", "rakuten", "kabumap"), action="append")
     acquisition.add_argument("--request-budget", type=int, default=9)
     acquisition.add_argument("--time-limit-seconds", type=float, default=60)
@@ -48,6 +41,12 @@ def main(argv: list[str] | None = None, /) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "collect":
+            from baibai_engine.external_assessment.acquisition.collection import (
+                DEFAULT_TICKERS,
+                collect,
+                save_staging,
+            )
+
             try:
                 args.output.lstat()
             except FileNotFoundError:
@@ -55,7 +54,7 @@ def main(argv: list[str] | None = None, /) -> int:
             else:
                 raise FileExistsError
             result = collect(
-                args.tickers,
+                args.tickers or DEFAULT_TICKERS,
                 sources=args.source or ("monex", "rakuten"),
                 request_budget=args.request_budget,
                 time_limit_seconds=args.time_limit_seconds,
@@ -69,6 +68,9 @@ def main(argv: list[str] | None = None, /) -> int:
                 and all(item.status == "observed" for item in result.outcomes)
                 else 1
             )
+        from baibai_engine.external_assessment.acquisition.collection import load_staging
+        from baibai_engine.external_assessment.store import save_observations
+
         observations = load_staging(args.input)
         # Import requires an existing, explicitly migrated local copy. Neither
         # an absent file nor an empty SQLite file is a bootstrap request.

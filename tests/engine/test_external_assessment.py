@@ -260,3 +260,23 @@ def test_tradingview_identity_and_value_reads_agree_at_subsecond_and_offset_boun
             path, ticker=ticker, cutoff=requested_cutoff, evaluated_at=requested_cutoff
         )
         assert (assessment.tradingview.inputs.latest is not None) == (ticker in listed)
+
+
+def test_show_parser_does_not_import_acquisition_or_store_implementations():
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """
+import sys
+from baibai_engine.external_assessment.cli import build_parser
+args = build_parser().parse_args([
+    "show", "--ticker", "1234", "--cutoff", "2026-10-15T12:00:00+09:00"
+])
+assert args.command == "show"
+assert "baibai_engine.external_assessment.acquisition.collection" not in sys.modules
+assert "baibai_engine.external_assessment.store" not in sys.modules
+""",
+        ],
+        check=True,
+    )

@@ -29,7 +29,7 @@ class DomainModule(Protocol):
 class Domain:
     """One domain of the CLI, resolved on demand.
 
-    module を遅延 import するのは、1 domain の起動に 8 domain 分の import closure を
+    module を遅延 import するのは、1 domain の起動に他 domain の import closure を
     読ませないためである。`--help` の一覧は summary だけで書けるので、一覧を出すために
     provider や pydantic model まで load する必要はない。
     """
