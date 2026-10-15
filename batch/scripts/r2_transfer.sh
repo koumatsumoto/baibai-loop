@@ -110,14 +110,20 @@ count_files() {
 }
 
 remote_object_exists() {
-  # Exact-key existence, so a sibling object (a `.bak`) never reads as the key
-  # itself the way a prefix listing would. `aws s3 ls` is not usable here: it
-  # rejects the transfer flags `aws_s3` passes and would fail for every key.
-  aws s3api head-object \
+  # Only an explicit missing object means absence. Authentication, network and server
+  # failures must stop the script even when this function is called inside an `if`.
+  local error
+  if error="$(aws s3api head-object \
     --bucket "${stores_bucket}" \
     --key "$1" \
-    --endpoint-url "${endpoint}" \
-    >/dev/null 2>&1
+    --endpoint-url "${endpoint}" 2>&1 >/dev/null)"; then
+    return 0
+  fi
+  if [[ "${error}" == *"(404) when calling the HeadObject operation"* ]]; then
+    return 1
+  fi
+  printf 'cannot determine whether R2 object %s exists: %s\n' "$1" "${error}" >&2
+  exit 2
 }
 
 store_path() {
@@ -347,8 +353,8 @@ require_machine_manifest() {
   # Absence is decided by the existence check, not by the download failing: a download
   # that fails for any other reason must refuse the pull rather than read as "no receipt
   # was ever written", which is the shape a hole in this check would take. The existence
-  # check is the same head-object this pull has already run once per key, so a broken
-  # credential or a dead endpoint has stopped it well before here.
+  # check distinguishes a missing object from authentication, network or server errors;
+  # success for another key does not establish that this request succeeded.
   if ! remote_object_exists "${machine_manifest_key}"; then
     printf 'no machine bundle receipt in s3://%s yet; taking the store set unverified. ' \
       "${stores_bucket}" >&2
@@ -543,7 +549,7 @@ _push_keys() {
     started="${SECONDS}"
     snapshot_sqlite "${source}" "${transfer_staging}/${key}"
     # The copy that leaves here carries only what the lake does not hold — but only
-    # once the lake holds anything. A serving pointer is where that authority is
+    # once the lake holds anything. An L1 release pointer is where that authority is
     # declared, so it is read rather than assumed: before the first publication (an
     # empty bucket being seeded) the store is still the only copy of those rows, and
     # after it the emptying is mandatory rather than best-effort.

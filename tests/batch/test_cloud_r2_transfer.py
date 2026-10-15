@@ -77,6 +77,10 @@ if [[ "$1 $2" == "s3api head-object" ]]; then
     fi
     exit 0
   fi
+  if [[ "$key" == "${AWS_FAKE_HEAD_ERROR_KEY:-}" ]]; then
+    printf '%s\\n' "${AWS_FAKE_HEAD_ERROR}" >&2
+    exit 254
+  fi
   if [[ -f "${AWS_FAKE_STATE}/deleted-${slug}" ]]; then
     printf 'An error occurred (404) when calling the HeadObject operation\\n' >&2
     exit 254
@@ -1786,3 +1790,47 @@ def test_an_unknown_publish_lake_argument_is_refused(tmp_path: Path) -> None:
 
     assert completed.returncode == 2
     assert "usage:" in completed.stderr
+
+
+@pytest.mark.parametrize(
+    ("action", "key"),
+    [
+        ("pull-machine", "machine-manifest.json"),
+        ("push-machine", "lake/pointers/l1/current.json"),
+        ("push-app", "baibai.sqlite"),
+        ("seed-all", "market.sqlite"),
+    ],
+)
+@pytest.mark.parametrize(
+    "error",
+    [
+        "An error occurred (403) when calling the HeadObject operation: Forbidden",
+        "An error occurred (500) when calling the HeadObject operation: InternalError",
+        "Could not connect to the endpoint URL",
+    ],
+)
+def test_head_failure_is_not_treated_as_absence(
+    tmp_path: Path, action: str, key: str, error: str
+) -> None:
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["AWS_FAKE_HEAD_ERROR_KEY"] = key
+    env["AWS_FAKE_HEAD_ERROR"] = error
+    (Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag").write_text('"etag-stable"\n')
+
+    result = subprocess.run(
+        [root / "batch/scripts/r2_transfer.sh", action],
+        cwd=tmp_path,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "cannot determine whether R2 object" in result.stderr
+    assert error in result.stderr
+    commands = _transfer_commands(log)
+    assert not any(command.startswith(("s3 cp ", "s3api put-object ")) for command in commands)
+    assert not list(root.glob(".r2-transfer.*"))
