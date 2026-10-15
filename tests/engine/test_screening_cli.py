@@ -2147,8 +2147,7 @@ def _seed_trading_days(sqlite_path: Path, start: date, end: date) -> None:
                 rows.append(("7203", day.isoformat(), 1.0))
             day += timedelta(days=1)
         conn.executemany(
-            "INSERT OR REPLACE INTO jquants_daily_bars"
-            "(ticker, traded_at, close) VALUES (?, ?, ?)",
+            "INSERT OR REPLACE INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
             rows,
         )
         conn.commit()

@@ -958,8 +958,7 @@ class DailyBarsCoverageTest(unittest.TestCase):
                     *(date(2019, 5, 7) + timedelta(days=offset) for offset in range(5)),
                 ]
                 conn.executemany(
-                    "INSERT INTO jquants_daily_bars(ticker, traded_at, close) "
-                    "VALUES (?, ?, ?)",
+                    "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
                     [("7203", day.isoformat(), 1000.0) for day in days],
                 )
                 conn.commit()
@@ -986,8 +985,7 @@ class DailyBarsCoverageTest(unittest.TestCase):
             try:
                 start, end = date(2024, 4, 1), date(2024, 5, 1)
                 conn.execute(
-                    "INSERT INTO jquants_daily_bars(ticker, traded_at, close) "
-                    "VALUES (?, ?, ?)",
+                    "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
                     ("7203", (start + timedelta(days=15)).isoformat(), 1000.0),
                 )
                 conn.commit()
@@ -995,8 +993,7 @@ class DailyBarsCoverageTest(unittest.TestCase):
                 # The closure that forced the gap threshold up still has to be
                 # reachable from a boundary that lands on its first day.
                 conn.executemany(
-                    "INSERT INTO jquants_daily_bars"
-                    "(ticker, traded_at, close) VALUES (?, ?, ?)",
+                    "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
                     [
                         ("7203", (date(2019, 5, 7) + timedelta(days=offset)).isoformat(), 1.0)
                         for offset in range(8)
@@ -1176,8 +1173,7 @@ class WeeklyMarginStoreTest(unittest.TestCase):
             conn = open_connection(db)
             try:
                 conn.executemany(
-                    "INSERT INTO jquants_daily_bars"
-                    "(ticker, traded_at, close) VALUES (?, ?, ?)",
+                    "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
                     [("7203", day.isoformat(), 1.0) for day in trading_days],
                 )
                 conn.commit()
@@ -1210,8 +1206,7 @@ class WeeklyMarginStoreTest(unittest.TestCase):
             conn = open_connection(db)
             try:
                 conn.executemany(
-                    "INSERT INTO jquants_daily_bars"
-                    "(ticker, traded_at, close) VALUES (?, ?, ?)",
+                    "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
                     [
                         ("7203", day.isoformat(), 1.0)
                         for day in (

@@ -82,8 +82,7 @@ def _add_bar(path: Path, ticker: str, traded_at: str, close: float) -> None:
     conn = open_connection(path)
     try:
         conn.execute(
-            "INSERT OR REPLACE INTO jquants_daily_bars"
-            "(ticker, traded_at, close) VALUES (?, ?, ?)",
+            "INSERT OR REPLACE INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
             (ticker, traded_at, close),
         )
         conn.commit()
