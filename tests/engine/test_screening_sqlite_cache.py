@@ -208,14 +208,14 @@ class SQLiteCacheTest(unittest.TestCase):
                 [
                     {
                         "Code": "72030",
-                        "DisclosedDate": "2026-05-08",
-                        "NetSales": 100,
+                        "DiscDate": "2026-05-08",
+                        "Sales": 100,
                         "DiscNo": "synthetic-document",
                     },
                     {
                         "Code": "72030",
-                        "DisclosedDate": "2026-05-08",
-                        "NetSales": 100,
+                        "DiscDate": "2026-05-08",
+                        "Sales": 100,
                         "DiscNo": "synthetic-document",
                     },
                 ],
@@ -244,7 +244,7 @@ class SQLiteCacheTest(unittest.TestCase):
                 [
                     {
                         "Code": "41670",
-                        "DisclosedDate": "2024-08-14",
+                        "DiscDate": "2024-08-14",
                         "AvgSh": "7563857",
                         "TrShFY": "352373",
                     }
@@ -275,13 +275,13 @@ class SQLiteCacheTest(unittest.TestCase):
                 [
                     {
                         "Code": "97150",
-                        "DisclosedDate": "2026-04-30",
+                        "DiscDate": "2026-04-30",
                         "FEPS": "",
                         "NxFEPS": "360.26",
                     },
                     {
                         "Code": "72030",
-                        "DisclosedDate": "2026-05-13",
+                        "DiscDate": "2026-05-13",
                         "FEPS": "306.89",
                         "NxFEPS": "",
                     },
@@ -310,7 +310,11 @@ class SQLiteCacheTest(unittest.TestCase):
                 [
                     {
                         "Code": "97150",
-                        "DisclosedDate": "2026-05-13",
+                        "DiscDate": "2026-05-13",
+                        "CurFYSt": "2026-04-01",
+                        "CurFYEn": "2027-03-31",
+                        "NxtFYSt": "2027-04-01",
+                        "NxtFYEn": "2028-03-31",
                         "FEPS": float("nan"),
                         "NxFEPS": "120.0",
                         "FNP": float("inf"),
@@ -353,7 +357,11 @@ class SQLiteCacheTest(unittest.TestCase):
                 [
                     {
                         "Code": "97150",
-                        "DisclosedDate": "2026-05-13",
+                        "DiscDate": "2026-05-13",
+                        "CurFYSt": "2026-04-01",
+                        "CurFYEn": "2027-03-31",
+                        "NxtFYSt": "2027-04-01",
+                        "NxtFYEn": "2028-03-31",
                         "FEPS": pd.NA,
                         "NxFEPS": "120.0",
                         "FNP": pd.NA,
@@ -384,7 +392,11 @@ class SQLiteCacheTest(unittest.TestCase):
                 [
                     {
                         "Code": "97150",
-                        "DisclosedDate": "2026-05-13",
+                        "DiscDate": "2026-05-13",
+                        "CurFYSt": "2026-04-01",
+                        "CurFYEn": "2027-03-31",
+                        "NxtFYSt": "2027-04-01",
+                        "NxtFYEn": "2028-03-31",
                         "FEPS": 0,
                         "NxFEPS": "120.0",
                         "FNP": "1000000000",
@@ -408,9 +420,7 @@ class SQLiteCacheTest(unittest.TestCase):
             self.assertEqual(summary.dps_forecast_annual, 0.0)
 
     def test_fin_summaries_forecast_profit_pair_round_trips_by_period(self) -> None:
-        # 予想純利益/経常は forecast_eps と同一予想期から採って保存・読戻す。当期予想
-        # EPS(FEPS)がある四半期開示は当期ペア(FNP/FOdP)、FEPS 空の本決算開示は翌期
-        # ペア(NxFNp/NxFOdP)を採る。純利益>経常の行が一時益 flag の一次入力になる。
+        # Storage retains both slots; the reader projects the applicable fiscal period.
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             store_jquants_fin_summaries(
@@ -418,7 +428,10 @@ class SQLiteCacheTest(unittest.TestCase):
                 [
                     {
                         "Code": "48490",
-                        "DisclosedDate": "2026-05-13",
+                        "DiscDate": "2026-05-13",
+                        "CurFYSt": "2026-04-01",
+                        "NxtFYSt": "2027-04-01",
+                        "NxtFYEn": "2028-03-31",
                         "FEPS": "138.72",
                         "FNP": "5464000000",
                         "FOdP": "3406000000",
@@ -431,7 +444,11 @@ class SQLiteCacheTest(unittest.TestCase):
                     },
                     {
                         "Code": "97150",
-                        "DisclosedDate": "2026-04-30",
+                        "DiscDate": "2026-04-30",
+                        "CurFYSt": "2025-04-01",
+                        "CurFYEn": "2026-03-31",
+                        "NxtFYSt": "2026-04-01",
+                        "NxtFYEn": "2027-03-31",
                         "FEPS": "",
                         "NxFEPS": "360.26",
                         "FNP": "5464000000",
@@ -466,8 +483,8 @@ class SQLiteCacheTest(unittest.TestCase):
             store_jquants_fin_summaries(
                 db,
                 [
-                    {"Code": "72030", "DisclosedDate": "2026-05-13", "NetSales": 100},
-                    {"Code": "72040", "DisclosedDate": "2026-05-27", "NetSales": 200},
+                    {"Code": "72030", "DiscDate": "2026-05-13", "Sales": 100},
+                    {"Code": "72040", "DiscDate": "2026-05-27", "Sales": 200},
                 ],
                 requested_start=date(2026, 5, 12),
                 requested_end=date(2026, 5, 29),
@@ -475,8 +492,8 @@ class SQLiteCacheTest(unittest.TestCase):
             store_jquants_fin_summaries(
                 db,
                 [
-                    {"Code": "72040", "DisclosedDate": "2026-05-27", "NetSales": 200},
-                    {"Code": "72050", "DisclosedDate": "2026-06-02", "NetSales": 300},
+                    {"Code": "72040", "DiscDate": "2026-05-27", "Sales": 200},
+                    {"Code": "72050", "DiscDate": "2026-06-02", "Sales": 300},
                 ],
                 requested_start=date(2026, 5, 19),
                 requested_end=date(2026, 6, 5),
@@ -507,9 +524,9 @@ class SQLiteCacheTest(unittest.TestCase):
             store_jquants_fin_summaries(
                 db,
                 [
-                    {"Code": "72030", "DisclosedDate": "2021-08-02", "NetSales": 100},
-                    {"Code": "72040", "DisclosedDate": "2024-01-10", "NetSales": 200},
-                    {"Code": "72050", "DisclosedDate": "2026-07-16", "NetSales": 300},
+                    {"Code": "72030", "DiscDate": "2021-08-02", "Sales": 100},
+                    {"Code": "72040", "DiscDate": "2024-01-10", "Sales": 200},
+                    {"Code": "72050", "DiscDate": "2026-07-16", "Sales": 300},
                 ],
                 requested_start=date(2021, 8, 2),
                 requested_end=date(2026, 7, 16),
@@ -517,8 +534,8 @@ class SQLiteCacheTest(unittest.TestCase):
             store_jquants_fin_summaries(
                 db,
                 [
-                    {"Code": "", "DisclosedDate": "2025-03-05", "NetSales": 400},
-                    {"Code": "72060", "DisclosedDate": "2025-03-06", "NetSales": 500},
+                    {"Code": "", "DiscDate": "2025-03-05", "Sales": 400},
+                    {"Code": "72060", "DiscDate": "2025-03-06", "Sales": 500},
                 ],
                 requested_start=date(2025, 3, 1),
                 requested_end=date(2025, 3, 31),
@@ -564,13 +581,13 @@ class SQLiteCacheTest(unittest.TestCase):
             db = Path(tmp) / "market.sqlite"
             store_jquants_fin_summaries(
                 db,
-                [{"Code": "", "DisclosedDate": "2025-03-05", "NetSales": 400}],
+                [{"Code": "", "DiscDate": "2025-03-05", "Sales": 400}],
                 requested_start=date(2025, 3, 1),
                 requested_end=date(2025, 3, 31),
             )
             store_jquants_fin_summaries(
                 db,
-                [{"Code": "72060", "DisclosedDate": "2025-03-05", "NetSales": 500}],
+                [{"Code": "72060", "DiscDate": "2025-03-05", "Sales": 500}],
                 requested_start=date(2025, 2, 1),
                 requested_end=date(2025, 4, 30),
             )
@@ -593,13 +610,13 @@ class SQLiteCacheTest(unittest.TestCase):
             db = Path(tmp) / "market.sqlite"
             store_jquants_fin_summaries(
                 db,
-                [{"Code": "", "DisclosedDate": "2025-02-05"}],
+                [{"Code": "", "DiscDate": "2025-02-05"}],
                 requested_start=date(2025, 2, 1),
                 requested_end=date(2025, 4, 30),
             )
             store_jquants_fin_summaries(
                 db,
-                [{"Code": "", "DisclosedDate": "2025-03-05"}],
+                [{"Code": "", "DiscDate": "2025-03-05"}],
                 requested_start=date(2025, 3, 1),
                 requested_end=date(2025, 3, 31),
             )
@@ -878,7 +895,7 @@ class SQLiteCacheTest(unittest.TestCase):
             db = Path(tmp) / "market.sqlite"
             store_jquants_fin_summaries(
                 db,
-                [{"Code": "72030", "DisclosedDate": "2026-05-08", "NetSales": 100}],
+                [{"Code": "72030", "DiscDate": "2026-05-08", "Sales": 100}],
                 requested_start=date(2026, 5, 8),
                 requested_end=date(2026, 5, 8),
             )

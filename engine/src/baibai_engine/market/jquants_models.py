@@ -1,4 +1,4 @@
-"""J-Quants source facts; no Screening outputs or provider I/O."""
+"""J-Quants observations and financial projections; no provider I/O."""
 
 from __future__ import annotations
 
@@ -95,7 +95,9 @@ class JQuantsShortSaleReport:
 
 @dataclass(frozen=True, slots=True, config=MODEL_CONFIG)
 class JQuantsFinancialSummary:
-    """短信1行。保存fieldと計算後の指標を区別する。
+    """財務文書の読取・計算用投影。保存された原本そのものではない。
+
+    実績の数値と、対象日・期間・basisを解決した会社予想を区別する。
 
     `eps_ttm`は開示期間の累計EPSであり、TTM合成済みの値ではない。
     このEPS自体を足し引きしてTTM合成しない。
@@ -146,12 +148,12 @@ class JQuantsFinancialSummary:
     dividend_q3: float | None = None
     dividend_year_end: float | None = None
     dividend_total_annual: float | None = None
-    # 期中平均株式数。提出者が EPS を出すのに使った株数で、期末発行済から自己株を引いた
-    # 株数が壊れていないかを同じ行の中で照合するのに使う。
+    # 提出者がEPS計算に用いる期中平均株式数。期末の発行済・自己株式数とは異なる観測。
     average_shares: float | None = None
 
-    # Source-document identity is independent of accounting-period identity. None
-    # denotes the older date-only store; no original document is invented for it.
+    # Source-document identity is independent of accounting-period identity.
+    # A combined L2 observation may have no single source record; its contributing
+    # forecast records remain in forecast_field_sources / forecast_source_documents.
     record_key: str | None = None
     disclosure_number: str | None = None
     disclosed_time: str | None = None
@@ -164,8 +166,8 @@ class JQuantsFinancialSummary:
     unresolved_actual_fields: tuple[str, ...] = ()
     forecast_source_documents: tuple[str, ...] = ()
     forecast_field_sources: tuple[tuple[str, tuple[str, ...]], ...] = ()
-    forecast_status: str = "legacy_unknown"
-    dividend_forecast_status: str = "legacy_unknown"
+    forecast_status: str = "not_applicable"
+    dividend_forecast_status: str = "not_applicable"
 
     @field_validator("ticker", mode="before")
     @classmethod

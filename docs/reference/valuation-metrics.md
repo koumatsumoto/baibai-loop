@@ -78,7 +78,7 @@ Researchの選択済み銘柄入力の`cash_flow`は、機械anchorと同じrun�
 
 source文書のbasisと採用対象のbasisを別に保持する。単体→連結・連結→単体の移行後に、旧primary予想を新basisへラベル替えしない。同時刻のstatementがbasisについて矛盾すれば、basis自体を未解決にする。
 
-開示時刻不明は同日の既知時刻より古いとは決めず、候補として残す。開示日・時刻が同じ文書、または時刻不明で順序を確定できない文書の矛盾は対象fieldを`unresolved`とし、DocNoの大小や投入順で採否を決めない。一致しているEPS・NP・Sales等まで落とさず、利益予想の一部だけが矛盾した場合は`partially_unresolved`を記録する。Stock Analysisの`earnings_forecast_source` / `dividend_forecast_source`はJSON文字列で、status・文書番号・開示日/時刻・DocType・対象期間・sourceのbasis・採用対象basisを残す。旧date-only保存値は`legacy_unknown`の機械入力として維持し、確認済み会社予想へ格上げせず、確認済み新期間や修正へ優先しない。取得窓の延長や全legacy値の一括無効化は行わない。
+開示時刻不明は同日の既知時刻より古いとは決めず、候補として残す。開示日・時刻が同じ文書、または時刻不明で順序を確定できない文書の矛盾は対象fieldを`unresolved`とし、DocNoの大小や投入順で採否を決めない。一致しているEPS・NP・Sales等まで落とさず、利益予想の一部だけが矛盾した場合は`partially_unresolved`を記録する。Stock Analysisの`earnings_forecast_source` / `dividend_forecast_source`はJSON文字列で、status・文書番号・開示日/時刻・DocType・対象期間・sourceのbasis・採用対象basisを残す。現行の原本を文書単位で読み、対象期間が欠ける・逆転する文書から当期/翌期予想を値の有無で補完しない。旧date-only保存を読む互換経路は持たず、保存形式の切替時は保持原本から再構築する。
 
 ### 2.2 却下したソース
 

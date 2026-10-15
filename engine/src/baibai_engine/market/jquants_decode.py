@@ -217,15 +217,6 @@ def has_period_slot(record: Mapping[str, Any], key: str) -> bool:
     return not (isinstance(value, str) and value.strip() in {"", "-", "null"})
 
 
-def first_period_float(record: Mapping[str, Any], *keys: str) -> float | None:
-    """Return a numeric value without crossing a present-but-unknown forecast period."""
-
-    for key in keys:
-        if has_period_slot(record, key):
-            return to_float(record[key])
-    return None
-
-
 def first_value(record: Mapping[str, Any], *keys: str) -> Any:
     """The first key a record actually carries, or a refusal naming all of them."""
 

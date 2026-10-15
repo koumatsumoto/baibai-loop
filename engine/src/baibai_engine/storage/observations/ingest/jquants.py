@@ -782,16 +782,14 @@ def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> Norm
     rejected_count = 0
     excluded_count = 0
     for record in records:
-        ticker, quality = code_quality(first(record, "Code", "code"))
+        ticker, quality = code_quality(record.get("Code"))
         if quality == "rejected":
             rejected_count += 1
             continue
         if quality == "excluded":
             excluded_count += 1
             continue
-        disclosed_at = date_iso(
-            first(record, "DisclosedDate", "disclosed_at", "DiscDate", "disc_date", "Date")
-        )
+        disclosed_at = date_iso(record.get("DiscDate"))
         if ticker is None or disclosed_at is None:
             rejected_count += 1
             continue

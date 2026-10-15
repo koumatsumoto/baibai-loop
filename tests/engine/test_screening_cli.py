@@ -164,6 +164,8 @@ class FakeJQuantsProvider:
         self.calls.append(("get_fin_summary_range", start, end))
         return [
             JQuantsFinancialSummary(
+                # Calculation fixture: guidance has already been projected for this snapshot.
+                forecast_status="confirmed",
                 ticker="130A",
                 disclosed_at=date(2025, 12, 31),
                 forecast_eps=20.0,
@@ -181,6 +183,8 @@ class FakeJQuantsProvider:
                 profit=None,
             ),
             JQuantsFinancialSummary(
+                # Calculation fixture: guidance has already been projected for this snapshot.
+                forecast_status="confirmed",
                 ticker="130A",
                 disclosed_at=date(2026, 3, 31),
                 forecast_eps=22.0,

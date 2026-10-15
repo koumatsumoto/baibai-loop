@@ -103,6 +103,8 @@ class SnapshotFixtures(unittest.TestCase):
                 treasury_shares=0.0,
                 forecast_eps=92.22,
                 dps_forecast_annual=45.0,
+                forecast_status="confirmed",
+                dividend_forecast_status="confirmed",
             )
             for disclosure, year, period, end, sales, profit in [
                 (date(2025, 7, 29), 2025, "2Q", date(2025, 6, 30), 80_239, 7_684),

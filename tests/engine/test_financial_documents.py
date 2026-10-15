@@ -196,23 +196,16 @@ def test_conflicting_same_time_forecasts_are_unresolved(reverse: bool) -> None:
     assert result.dividend_forecast_source["status"] == "unresolved"
 
 
-def test_legacy_stays_unconfirmed_and_cannot_override_confirmed_period() -> None:
-    legacy = JQuantsFinancialSummary(
-        ticker="9999", disclosed_at=ASOF, forecast_eps=99, dps_forecast_annual=99
-    )
-    assert snapshot([legacy]).per_forward == 1074 / 99
-    assert snapshot([legacy]).earnings_forecast_source == {
-        "status": "legacy_unknown",
-        "disclosure_number": None,
-        "disclosed_at": ASOF.isoformat(),
-        "disclosed_time": None,
-        "document_type": None,
-        "period_start": None,
-        "period_end": None,
-        "basis": None,
-        "target_basis": None,
-    }
-    assert snapshot([*decode(documents()), legacy]).per_forward == 1074 / 31.9
+@pytest.mark.parametrize(
+    "period",
+    [{"CurFYSt": "", "CurFYEn": ""}, {"CurFYSt": "2026-10-01", "CurFYEn": "2026-03-31"}],
+)
+def test_missing_or_reversed_period_does_not_supply_forecasts(period: dict[str, str]) -> None:
+    invalid = document("invalid-period", FEPS="99", FDivAnn="99", **period)
+    result = snapshot(decode([invalid]))
+    assert result.per_forward is None
+    assert result.dps_forecast_annual is None
+    assert snapshot([*decode(documents()), *decode([invalid])]).per_forward == 1074 / 31.9
 
 
 def test_f_and_next_slots_are_retained_without_mixing() -> None:

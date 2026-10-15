@@ -64,10 +64,13 @@ def _summary(
     # 別の利益値を試す test は `profit` を明示する。
     if profit is None and eps_ttm is not None:
         profit = eps_ttm * (shares_outstanding - (treasury_shares or 0.0))
+    # Calculation-ready fixture; native document/period resolution has separate tests.
     return JQuantsFinancialSummary(
         ticker=code,
         disclosed_at=disclosed_at,
         forecast_eps=forecast_eps,
+        forecast_status="confirmed",
+        dividend_forecast_status="confirmed",
         eps_ttm=eps_ttm,
         bps=120.0,
         shares_outstanding=shares_outstanding,

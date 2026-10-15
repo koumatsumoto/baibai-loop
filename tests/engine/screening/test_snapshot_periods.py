@@ -360,6 +360,9 @@ class ScreeningMetricsTests(SnapshotFixtures):
         rules = load_screening_rules()
         for forecast in (None, 100.0):
             notice = JQuantsFinancialSummary(
+                # Calculation fixture: guidance has already been projected for this snapshot.
+                forecast_status="confirmed",
+                dividend_forecast_status="confirmed",
                 ticker="4812",
                 disclosed_at=date(2026, 8, 28),
                 fiscal_period="FY",

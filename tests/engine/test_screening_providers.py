@@ -31,6 +31,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 from baibai_engine.market.edinet_decode import normalize_metric_record, parse_sec_code
 from baibai_engine.market.edinet_models import EDINETProviderError, EDINETRateLimitError
+from baibai_engine.market.financial_documents import project_financial_documents
 from baibai_engine.market.jpx_models import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
@@ -1425,7 +1426,8 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertIsNotNone(summary)
         assert summary is not None
         self.assertEqual(summary.ticker, "8891")
-        self.assertEqual(summary.forecast_eps, 377.75)
+        self.assertIsNone(summary.forecast_eps)
+        self.assertIn('"FEPS": "377.75"', summary.document_payload or "")
         self.assertEqual(summary.eps_ttm, 300.50)
         self.assertEqual(summary.shares_outstanding, 1000000.0)
         self.assertEqual(summary.operating_profit, 1840000000.0)
@@ -1434,12 +1436,13 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(summary.period_start, date(2026, 4, 1))
         self.assertEqual(summary.period_end, date(2026, 6, 30))
 
-    def test_normalize_financial_summary_falls_back_to_next_year_forecast(self) -> None:
-        # Full-year (FY) disclosures leave the current-period FEPS empty and carry the
-        # new-year guidance in NxFEPS; forecast_eps (the basis for per_forward) must
-        # still populate from the next-year forecast.
+    def test_projection_selects_next_fiscal_year_by_dates(self) -> None:
         fy = normalize_financial_summary(
             {
+                "CurFYSt": "2025-04-01",
+                "CurFYEn": "2026-03-31",
+                "NxtFYSt": "2026-04-01",
+                "NxtFYEn": "2027-03-31",
                 "Code": "97150",
                 "DiscDate": "2026-05-13T00:00:00",
                 "FEPS": "",
@@ -1448,12 +1451,18 @@ class ScreeningProviderTests(unittest.TestCase):
             }
         )
         assert fy is not None
+        self.assertIsNone(fy.forecast_eps)
+        fy = project_financial_documents([fy], date.fromisoformat("2026-05-13"))[0]
         self.assertEqual(fy.forecast_eps, 360.26)
         self.assertEqual(fy.eps_ttm, 349.18)
 
     def test_non_finite_current_forecasts_do_not_cross_into_next_period(self) -> None:
         summary = normalize_financial_summary(
             {
+                "CurFYSt": "2026-04-01",
+                "CurFYEn": "2027-03-31",
+                "NxtFYSt": "2027-04-01",
+                "NxtFYEn": "2028-03-31",
                 "Code": "97150",
                 "DiscDate": "2026-05-13T00:00:00",
                 "FEPS": float("nan"),
@@ -1475,6 +1484,8 @@ class ScreeningProviderTests(unittest.TestCase):
 
         assert summary is not None
         self.assertIsNone(summary.forecast_eps)
+        summary = project_financial_documents([summary], date.fromisoformat("2026-05-13"))[0]
+        self.assertIsNone(summary.forecast_eps)
         self.assertIsNone(summary.forecast_profit)
         self.assertIsNone(summary.forecast_ordinary_profit)
         self.assertIsNone(summary.dps_forecast_annual)
@@ -1488,6 +1499,10 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_pandas_missing_current_forecasts_do_not_cross_periods(self) -> None:
         summary = normalize_financial_summary(
             {
+                "CurFYSt": "2026-04-01",
+                "CurFYEn": "2027-03-31",
+                "NxtFYSt": "2027-04-01",
+                "NxtFYEn": "2028-03-31",
                 "Code": "97150",
                 "DiscDate": "2026-05-13T00:00:00",
                 "FEPS": pd.NA,
@@ -1503,13 +1518,19 @@ class ScreeningProviderTests(unittest.TestCase):
 
         assert summary is not None
         self.assertIsNone(summary.forecast_eps)
+        summary = project_financial_documents([summary], date.fromisoformat("2026-05-13"))[0]
+        self.assertIsNone(summary.forecast_eps)
         self.assertIsNone(summary.forecast_profit)
         self.assertIsNone(summary.forecast_ordinary_profit)
         self.assertIsNone(summary.dps_forecast_annual)
 
-    def test_normalize_financial_summary_keeps_zero_current_forecasts(self) -> None:
+    def test_projection_keeps_zero_current_forecasts(self) -> None:
         summary = normalize_financial_summary(
             {
+                "CurFYSt": "2026-04-01",
+                "CurFYEn": "2027-03-31",
+                "NxtFYSt": "2027-04-01",
+                "NxtFYEn": "2028-03-31",
                 "Code": "97150",
                 "DiscDate": "2026-05-13T00:00:00",
                 "FEPS": 0,
@@ -1524,6 +1545,8 @@ class ScreeningProviderTests(unittest.TestCase):
         )
 
         assert summary is not None
+        self.assertIsNone(summary.forecast_eps)
+        summary = project_financial_documents([summary], date.fromisoformat("2026-05-13"))[0]
         self.assertEqual(summary.forecast_eps, 0.0)
         self.assertEqual(summary.forecast_profit, 1_000_000_000.0)
         self.assertEqual(summary.forecast_ordinary_profit, 900_000_000.0)
@@ -1545,11 +1568,13 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(summary.average_shares, 7_563_857.0)
         self.assertEqual(summary.treasury_shares, 352_373.0)
 
-    def test_normalize_financial_summary_prefers_current_forecast_over_next_year(self) -> None:
-        # Mid-year (Q1-Q3) disclosures carry the current-FY forecast in FEPS; it takes
-        # priority over NxFEPS so forecast_eps stays the nearest forecast.
+    def test_projection_selects_current_fiscal_year_by_dates(self) -> None:
         q3 = normalize_financial_summary(
             {
+                "CurFYSt": "2025-04-01",
+                "CurFYEn": "2026-03-31",
+                "NxtFYSt": "2026-04-01",
+                "NxtFYEn": "2027-03-31",
                 "Code": "97150",
                 "DiscDate": "2026-02-13T00:00:00",
                 "FEPS": "300.0",
@@ -1557,13 +1582,17 @@ class ScreeningProviderTests(unittest.TestCase):
             }
         )
         assert q3 is not None
+        self.assertIsNone(q3.forecast_eps)
+        q3 = project_financial_documents([q3], date.fromisoformat("2026-02-13"))[0]
         self.assertEqual(q3.forecast_eps, 300.0)
 
-    def test_normalize_financial_summary_reads_current_forecast_profit_pair(self) -> None:
-        # 当期予想 EPS(FEPS)が埋まる四半期開示では当期予想の純利益/経常(FNP/FOdP)を採る。
-        # 翌期キー(NxFNp/NxFOdP)が併存しても当期側を採り、期をまたがない。
+    def test_projection_keeps_current_forecast_profit_pair(self) -> None:
         summary = normalize_financial_summary(
             {
+                "CurFYSt": "2026-04-01",
+                "CurFYEn": "2027-03-31",
+                "NxtFYSt": "2027-04-01",
+                "NxtFYEn": "2028-03-31",
                 "Code": "48490",
                 "DiscDate": "2026-05-13T00:00:00",
                 "FEPS": "138.72",
@@ -1575,15 +1604,18 @@ class ScreeningProviderTests(unittest.TestCase):
             }
         )
         assert summary is not None
+        self.assertIsNone(summary.forecast_eps)
+        summary = project_financial_documents([summary], date.fromisoformat("2026-05-13"))[0]
         self.assertEqual(summary.forecast_profit, 5464000000.0)
         self.assertEqual(summary.forecast_ordinary_profit, 3406000000.0)
 
-    def test_normalize_financial_summary_pairs_forecast_profit_with_next_year_on_fy(self) -> None:
-        # 本決算開示で FEPS が空なら forecast_eps は NxFEPS に落ちる。純利益/経常も
-        # 同じ翌期ペア(NxFNp/NxFOdP)を採り、当期の FNP/FOdP と期をまたいで比較しない
-        # (期ズレ比較は一時益 flag の誤検出になる)。
+    def test_projection_keeps_next_forecast_profit_pair(self) -> None:
         summary = normalize_financial_summary(
             {
+                "CurFYSt": "2025-04-01",
+                "CurFYEn": "2026-03-31",
+                "NxtFYSt": "2026-04-01",
+                "NxtFYEn": "2027-03-31",
                 "Code": "48490",
                 "DiscDate": "2026-04-01T00:00:00",
                 "FEPS": "",
@@ -1595,6 +1627,8 @@ class ScreeningProviderTests(unittest.TestCase):
             }
         )
         assert summary is not None
+        self.assertIsNone(summary.forecast_eps)
+        summary = project_financial_documents([summary], date.fromisoformat("2026-04-01"))[0]
         self.assertEqual(summary.forecast_eps, 120.0)
         self.assertEqual(summary.forecast_profit, 2000000000.0)
         self.assertEqual(summary.forecast_ordinary_profit, 2500000000.0)
@@ -1603,12 +1637,12 @@ class ScreeningProviderTests(unittest.TestCase):
         summary = normalize_financial_summary(
             {
                 "Code": "88910",
-                "DisclosedDate": "2026-04-01",
-                "TypeOfCurrentPeriod": "1Q",
-                "CurrentFiscalYearEndDate": "2027-03-31",
-                "CurrentPeriodStartDate": "2026-04-01",
-                "CurrentPeriodEndDate": "2026-06-30",
-                "EarningsPerShare": "300.50",
+                "DiscDate": "2026-04-01",
+                "CurPerType": "1Q",
+                "CurFYEn": "2027-03-31",
+                "CurPerSt": "2026-04-01",
+                "CurPerEn": "2026-06-30",
+                "EPS": "300.50",
             }
         )
         self.assertIsNotNone(summary)

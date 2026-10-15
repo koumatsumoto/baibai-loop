@@ -73,24 +73,9 @@ class _DividendCarry:
 def _forecast_annual_dps(
     summaries: Sequence[JQuantsFinancialSummary],
 ) -> float | None:
-    """Return applicable-period guidance, using an actual-date floor only for legacy rows.
-
-    A later disclosure correcting an older period does not invalidate current guidance.
-    Null DPS alone does not establish a withdrawal.
-    """
-
-    if any(row.dividend_forecast_status != "legacy_unknown" for row in summaries):
-        source = latest_forecast_source(summaries, dividend=True)
-        return source.dps_forecast_annual if source is not None else None
-    actual_rows = _actual_dps_rows(summaries)
-    threshold = actual_rows[0].disclosed_at if actual_rows else None
-    for source in sorted(summaries, key=lambda item: item.disclosed_at, reverse=True):
-        if threshold is not None and source.disclosed_at < threshold:
-            return None
-        value = source.dps_forecast_annual
-        if value is not None and value >= 0:
-            return value
-    return None
+    """Return guidance after the caller resolved its applicable period and basis."""
+    source = latest_forecast_source(summaries, dividend=True)
+    return source.dps_forecast_annual if source is not None else None
 
 
 _DIVIDEND_DETAIL_FIELDS = (

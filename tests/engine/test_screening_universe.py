@@ -387,6 +387,8 @@ class ScreeningUniverseTests(unittest.TestCase):
         )
         asof = date(2026, 4, 24)
         summary = JQuantsFinancialSummary(
+            # Calculation fixture: guidance has already been projected for this snapshot.
+            forecast_status="confirmed",
             ticker="400A",
             disclosed_at=asof,
             forecast_eps=10.0,

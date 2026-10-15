@@ -78,6 +78,8 @@ class ScreeningMetricsTests(SnapshotFixtures):
             equity_to_asset_ratio=0.6,
         )
         quarterly = JQuantsFinancialSummary(
+            # Calculation fixture: guidance has already been projected for this snapshot.
+            forecast_status="confirmed",
             ticker="130A",
             disclosed_at=asof - timedelta(days=10),
             forecast_eps=20.0,

@@ -280,7 +280,7 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             disclosed = date(2024, 4, 18)
             store_jquants_fin_summaries(
                 sqlite_path,
-                [{"Code": "13010", "DisclosedDate": disclosed.isoformat(), "NetSales": 100}],
+                [{"Code": "13010", "DiscDate": disclosed.isoformat(), "Sales": 100}],
                 requested_start=disclosed,
                 requested_end=disclosed,
             )
@@ -570,9 +570,9 @@ class _FinRecordingClient(_RecordingClient):
         return [
             {
                 "Code": "13010",
-                "DisclosedDate": start_dt,
-                "NetSales": 100,
-                "TypeOfCurrentPeriod": "FY",
+                "DiscDate": start_dt,
+                "Sales": 100,
+                "CurPerType": "FY",
             }
         ]
 
@@ -906,7 +906,7 @@ class CachedRangeInspectionCostTests(unittest.TestCase):
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             store_jquants_fin_summaries(
                 sqlite_path,
-                [{"Code": "13010", "DisclosedDate": "2024-04-18", "NetSales": 100}],
+                [{"Code": "13010", "DiscDate": "2024-04-18", "Sales": 100}],
                 requested_start=date(2024, 4, 1),
                 requested_end=date(2024, 4, 30),
             )
