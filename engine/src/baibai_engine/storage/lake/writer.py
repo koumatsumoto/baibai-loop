@@ -125,26 +125,25 @@ def sealed_sqlite_snapshot(
     workspace.mkdir(parents=True)
     sealed = workspace / "snapshot.sqlite"
     try:
-        required = max(sqlite_path.stat().st_size * 2, 64 * 1024 * 1024)
-        if shutil.disk_usage(workspace).free < required:
-            raise LakeBuildError("insufficient disk space for a sealed SQLite snapshot")
-        schema_version = create_snapshot(sqlite_path, sealed)
-        if schema_version != SQLITE_SCHEMA_VERSION:
-            raise LakeBuildError(
-                f"legacy SQLite schema is {schema_version}; expected {SQLITE_SCHEMA_VERSION}"
+        try:
+            required = max(sqlite_path.stat().st_size * 2, 64 * 1024 * 1024)
+            if shutil.disk_usage(workspace).free < required:
+                raise LakeBuildError("insufficient disk space for a sealed SQLite snapshot")
+            schema_version = create_snapshot(sqlite_path, sealed)
+            if schema_version != SQLITE_SCHEMA_VERSION:
+                raise LakeBuildError(
+                    f"legacy SQLite schema is {schema_version}; expected {SQLITE_SCHEMA_VERSION}"
+                )
+            digest = sha256_file(sealed)
+            ref = SQLiteSnapshotSourceRef(
+                kind="sqlite_snapshot",
+                source_id=f"market-v{schema_version}-{digest[:24]}",
+                sha256=digest,
+                schema_version=schema_version,
+                captured_at=captured_at,
             )
-        digest = sha256_file(sealed)
-        ref = SQLiteSnapshotSourceRef(
-            kind="sqlite_snapshot",
-            source_id=f"market-v{schema_version}-{digest[:24]}",
-            sha256=digest,
-            schema_version=schema_version,
-            captured_at=captured_at,
-        )
-    except (OSError, sqlite3.Error, ValueError) as exc:
-        shutil.rmtree(workspace, ignore_errors=True)
-        raise LakeBuildError(f"SQLite snapshot capture failed: {exc}") from exc
-    try:
+        except (OSError, sqlite3.Error, ValueError) as exc:
+            raise LakeBuildError(f"SQLite snapshot capture failed: {exc}") from exc
         yield LegacySQLiteSnapshot(path=sealed, ref=ref)
     finally:
         shutil.rmtree(workspace, ignore_errors=True)

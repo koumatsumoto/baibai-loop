@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from contextlib import closing, contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from tests.helpers.l1_release import market_store
@@ -762,3 +763,41 @@ def test_final_parity_failure_keeps_previous_release(tmp_path, monkeypatch, fail
     assert release.datasets["jquants.daily_bars"].build_id == "baseline"
     for path, payload in objects.items():
         assert path.read_bytes() == payload
+
+
+@pytest.mark.parametrize("failure", ["space", "schema", "capture", "interrupted"])
+def test_sealed_snapshot_cleans_capture_failures_without_touching_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    source = tmp_path / "market.sqlite"
+    source.write_bytes(b"unchanged source")
+    mirror = tmp_path / "mirror"
+    workspace = mirror / "lake/staging/failed-capture"
+
+    def capture(_source: Path, destination: Path) -> int:
+        destination.write_bytes(b"incomplete temporary copy")
+        if failure == "capture":
+            raise OSError("synthetic capture failure")
+        if failure == "interrupted":
+            raise KeyboardInterrupt("synthetic interruption")
+        return writer_module.SQLITE_SCHEMA_VERSION - 1
+
+    monkeypatch.setattr(writer_module, "create_snapshot", capture)
+    if failure == "space":
+        monkeypatch.setattr(writer_module.shutil, "disk_usage", lambda _: SimpleNamespace(free=0))
+    error = KeyboardInterrupt if failure == "interrupted" else LakeBuildError
+    message = {
+        "space": "insufficient disk space",
+        "schema": "schema",
+        "capture": "capture failed",
+        "interrupted": "synthetic interruption",
+    }[failure]
+    with (
+        pytest.raises(error, match=message),
+        sealed_sqlite_snapshot(
+            sqlite_path=source, mirror_root=mirror, snapshot_id="failed-capture"
+        ),
+    ):
+        pytest.fail("failed capture exposed a snapshot")
+    assert not workspace.exists()
+    assert source.read_bytes() == b"unchanged source"
