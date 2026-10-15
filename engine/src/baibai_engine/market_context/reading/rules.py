@@ -44,8 +44,9 @@ type PublicationCadence = Literal[
     "quarterly",
 ]
 
-# Maximum calendar-day span used for the context-free threshold shown when a series has
-# no observation. Actual freshness is computed from the observation's calendar date.
+# Baseline cadence span used for the context-free threshold shown when there is
+# no observation. This is not a maximum calendar span: business_daily skips weekends.
+# Actual freshness is computed from the observation's calendar date.
 PUBLICATION_INTERVAL_DAYS: Mapping[str, int] = {
     "calendar_daily": 1,
     "business_daily": 1,
@@ -64,7 +65,7 @@ class _StrictModel(BaseModel):
 
 
 class ThresholdFlag(_StrictModel):
-    """A textbook threshold worth noting next to a value (never a signal)."""
+    """A configured threshold worth noting next to a value (never a signal)."""
 
     id: str = Field(min_length=1)
     comparison: FlagComparison

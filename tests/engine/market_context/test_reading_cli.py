@@ -28,9 +28,7 @@ def test_table_labels_each_trend_with_its_actual_window(capsys: pytest.CaptureFi
     rules = ReadingRules(
         schema_version=published.schema_version,
         defaults=published.defaults,
-        overrides={
-            definition.series_id: SeriesOverride(short_trend_months=1, long_trend_months=6)
-        },
+        overrides={definition.series_id: SeriesOverride(short_trend_months=1, long_trend_months=6)},
     )
     points = observations(
         definition,

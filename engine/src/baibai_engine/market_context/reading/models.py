@@ -33,9 +33,9 @@ class SeriesReading:
 
     Every statistic is optional because a series can be too young for it, and the
     reading says so rather than substituting a value computed from a shorter
-    history. ``window_years`` is the effective statistical window the rules
-    resolved for this series, so a reader can tell a 10-year percentile from a
-    3-year one.
+    history. ``window_years`` is the configured window resolved for this series,
+    not its exact observed span or a guarantee of complete coverage. Read it
+    together with ``window_observations`` and ``insufficient_history``.
 
     ``percentile`` and ``z_score`` rank ``statistic_value``, which is the level for most
     series and the year-on-year percent change for those whose level scale is set by

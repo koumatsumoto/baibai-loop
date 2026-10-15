@@ -31,7 +31,10 @@ export function transformSeriesHistory(
   let points = series.points
   if (latest !== undefined && period !== 'max') {
     const cutoff = new Date(`${latest}T00:00:00Z`)
+    const month = cutoff.getUTCMonth()
     cutoff.setUTCFullYear(cutoff.getUTCFullYear() - Number.parseInt(period, 10))
+    // Clamp February 29 to February 28 instead of rolling the boundary into March.
+    if (cutoff.getUTCMonth() !== month) cutoff.setUTCDate(0)
     const cutoffText = cutoff.toISOString().slice(0, 10)
     points = points.filter((point) => point.observed_at >= cutoffText)
   }
@@ -74,10 +77,9 @@ export interface ReadingStatistics {
   readonly withheldNote: string | null
 }
 
-// The statistics of one series, as the reading permits them to be shown. A series whose
-// history does not fill the effective window has no historical position at all, so the
-// panel shows blanks and says why rather than ranking it inside its own short life; a
-// year-on-year series with no observation a year back has no current statistic to rank.
+// Follow the backend's history sufficiency policy rather than inventing a rank
+// from a shorter window. A withheld statistic is not proof of an acquisition fault.
+// A year-on-year series without a comparable observation has no current value to rank.
 export function readingStatistics(series: ReadingSeriesView): ReadingStatistics {
   if (series.insufficient_history) {
     return { percentilePct: null, zScore: null, withheldNote: `履歴不足（${series.window_years}y 窓）` }
@@ -103,10 +105,10 @@ export function statisticName(statistic: string): string {
 // A |z| at or beyond this puts a series at the edge of its own distribution.
 export const EXTREME_Z_SCORE = 3
 
-// The states a row can carry. The first three are acquisition problems, and each breaks
-// what a percentile means. The fourth is the reading's own answer to "where are we" — a
-// policy rate at its ten-year high reads as +3.8 z because it is at its ten-year high —
-// so it is counted apart from the other three and never presented as a defect.
+// Acquisition failure, age and insufficient history are separate states. The
+// latter two can reflect normal publication cadence or limited source history.
+// An extreme z-score is a descriptive threshold, not a defect or a trading signal;
+// merely reaching a historical high does not imply any particular z-score.
 export type IndicatorStatus = 'fetch-failed' | 'stale' | 'insufficient-history' | 'extreme'
 
 export const INDICATOR_STATUSES: readonly IndicatorStatus[] = [

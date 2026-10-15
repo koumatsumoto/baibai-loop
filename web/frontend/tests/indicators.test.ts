@@ -136,6 +136,24 @@ describe('lazy series history', () => {
   })
 })
 
+describe('history calendar-year boundaries', () => {
+  it.each([
+    ['1y', '2023-02-27', '2023-02-28'],
+    ['5y', '2019-02-27', '2019-02-28'],
+    ['10y', '2014-02-27', '2014-02-28'],
+  ] as const)('clamps a leap-day %s window to February month-end', (period, before, boundary) => {
+    const series = panelSeries({
+      points: [
+        { observed_at: before, value: 1 },
+        { observed_at: boundary, value: 2 },
+        { observed_at: '2024-02-29', value: 3 },
+      ],
+    })
+    expect(transformSeriesHistory(series, period, 'daily').points).toEqual(series.points.slice(1))
+    expect(transformSeriesHistory(series, 'max', 'daily').points).toEqual(series.points)
+  })
+})
+
 describe('readingStatistics', () => {
   it('rescales a 0-1 percentile to percent and keeps the z-score', () => {
     const stats = readingStatistics(readingSeries({ percentile: 0.83, z_score: 0.9 }))
