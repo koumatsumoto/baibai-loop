@@ -152,7 +152,8 @@ def read_reported_short_metrics(
             ), latest_reporters AS (
               SELECT ticker, MAX(short_ratio) AS short_ratio,
                      MAX(disclosed_at) AS disclosed_at,
-                     (COUNT(*) != 1 OR COUNT(short_ratio) != 1 OR MIN(short_ratio) < 0) AS unresolved
+                     (COUNT(*) != 1 OR COUNT(short_ratio) != 1
+                      OR MIN(short_ratio) < 0) AS unresolved
               FROM dated WHERE recency = 1
               GROUP BY ticker, short_seller_name,
                        discretionary_investment_contractor_name, investment_fund_name
