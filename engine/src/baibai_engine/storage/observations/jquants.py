@@ -48,9 +48,8 @@ def store_jquants_daily_bars(
                 """
                 INSERT OR REPLACE INTO jquants_daily_bars(
                   ticker, traded_at, open, high, low, close, volume, turnover_value,
-                  adjustment_open, adjustment_high, adjustment_low, adjustment_close,
-                  adjustment_volume, adjustment_factor, upper_limit, lower_limit, ex_right_type
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  adjustment_factor, upper_limit, lower_limit, ex_right_type
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 rows,
             )
@@ -140,11 +139,6 @@ def _bars_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> NormalizedR
                 to_float(first(record, "Close", "close", "C", "c")),
                 to_float(first(record, "Volume", "volume", "Vo", "vo")),
                 to_float(first(record, "TurnoverValue", "turnover_value", "Va", "va")),
-                to_float(first(record, "AdjustmentOpen", "adjustment_open", "AdjO", "adj_o")),
-                to_float(first(record, "AdjustmentHigh", "adjustment_high", "AdjH", "adj_h")),
-                to_float(first(record, "AdjustmentLow", "adjustment_low", "AdjL", "adj_l")),
-                to_float(first(record, "AdjustmentClose", "adjustment_close", "AdjC", "adj_c")),
-                to_float(first(record, "AdjustmentVolume", "adjustment_volume", "AdjVo", "adj_vo")),
                 to_float(first(record, "AdjustmentFactor", "adjustment_factor", "AdjFactor")),
                 to_str_or_none(first(record, "UpperLimit", "upper_limit", "UL")),
                 to_str_or_none(first(record, "LowerLimit", "lower_limit", "LL")),

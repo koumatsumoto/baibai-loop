@@ -117,8 +117,8 @@ class ComputeBenchmarkTrendStateTests(unittest.TestCase):
             conn = sqlite3.connect(sqlite_path)
             try:
                 conn.execute(
-                    "INSERT INTO jquants_daily_bars(ticker, traded_at, close, adjustment_close)"
-                    " VALUES ('1321', ?, 1.0, 1.0)",
+                    "INSERT INTO jquants_daily_bars(ticker, traded_at, close)"
+                    " VALUES ('1321', ?, 1.0)",
                     ((as_of + timedelta(days=3)).isoformat(),),
                 )
                 conn.commit()
@@ -141,7 +141,7 @@ class ComputeBenchmarkTrendStateTests(unittest.TestCase):
             conn = sqlite3.connect(sqlite_path)
             try:
                 conn.execute(
-                    "UPDATE jquants_daily_bars SET close = NULL, adjustment_close = NULL, "
+                    "UPDATE jquants_daily_bars SET close = NULL, "
                     "adjustment_factor = 0.5 WHERE ticker = '1321' AND traded_at = ?",
                     (event_day.isoformat(),),
                 )

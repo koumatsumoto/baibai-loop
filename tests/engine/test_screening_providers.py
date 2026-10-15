@@ -1358,7 +1358,7 @@ class ScreeningProviderTests(unittest.TestCase):
         )
         self.assertIsNone(bar)
 
-    def test_normalize_daily_bar_preserves_adjustment_close(self) -> None:
+    def test_normalize_daily_bar_keeps_raw_close_despite_provider_adjustment(self) -> None:
         bar = normalize_daily_bar(
             {
                 "Code": "13010",
@@ -1372,22 +1372,7 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertIsNotNone(bar)
         assert bar is not None
         self.assertEqual(bar.close, 200.0)
-        self.assertEqual(bar.adjustment_close, 100.0)
         self.assertEqual(bar.adjustment_factor, 0.5)
-
-    def test_normalize_daily_bar_leaves_adjustment_close_none_when_missing(self) -> None:
-        bar = normalize_daily_bar(
-            {
-                "Code": "13010",
-                "Date": "2026-04-24T00:00:00",
-                "C": 100.0,
-                "Va": 526318500.0,
-            }
-        )
-        self.assertIsNotNone(bar)
-        assert bar is not None
-        self.assertEqual(bar.close, 100.0)
-        self.assertIsNone(bar.adjustment_close)
 
     def test_adjusted_only_record_does_not_invent_raw_close_or_lose_split_event(self) -> None:
         record = {

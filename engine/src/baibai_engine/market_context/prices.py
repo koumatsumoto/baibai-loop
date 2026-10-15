@@ -46,8 +46,8 @@ def read_price_bars(
         + " ORDER BY ticker, traded_at",
         parameters,
     )
-    # cache の adjustment_close は incremental 取得で遡及の有無が混在するため使わず、
-    # 不変イベントの adjustment_factor の後方累積で末尾基準の価格系列を組む。
+    # 取得世代の異なる調整済み価格を混ぜず、価格factorの後方累積で末尾基準へ揃える。
+    # factor自体にも配信元の訂正があるため、原本の再取得時には訂正値を保存する。
     raw: dict[str, list[tuple[date, float | None, float | None, float | None]]] = {}
     for ticker, traded_at, close, adjustment_factor, turnover_value in rows:
         if not isinstance(traded_at, str):
@@ -87,8 +87,8 @@ _CHANGE_START_LOOKBACK_DAYS = 15
 def close_change_since(path: Path, tickers: Sequence[str], *, since: date) -> dict[str, float]:
     """Return each ticker's percent close change from ``since`` to its latest close.
 
-    Both ends are put on the latest share basis before dividing. The stored close is
-    unadjusted and ``adjustment_close`` mixes vintages across an incremental cache, so
+    Both ends are put on the latest price-adjustment basis before dividing. The stored close is
+    unadjusted and provider-adjusted prices mix vintages across incremental acquisition, so
     a split between the two dates would otherwise read as a price move of the split
     ratio — a 1:2 split as a 50% fall. The correction uses ``adjustment_factor``,
     which is the split event itself and does not change once published.

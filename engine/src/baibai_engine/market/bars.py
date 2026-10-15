@@ -24,12 +24,12 @@ def asof_basis_closes(
     *,
     asof_date: date | None = None,
 ) -> list[float]:
-    """昇順に並んだ bars の close を、指定asofの株式基準へ換算した系列を返す。
+    """昇順に並んだ bars の close を、指定asofの価格調整基準へ換算した系列を返す。
 
     `asof_date`を省略した場合だけ最終barの日を基準にする。価格が無いaction日を明示asofに
     指定した場合も、その日までのfactorを適用する。
 
-    incremental cache では adjustment_close の遡及調整が取得時期に依存して混在し、
+    配信元の調整済み価格は遡及調整が取得時期に依存して混在し、
     series としては使えない (分割後に取得した行だけ調整済みになり、境界で偽の
     ±50% 段差が生じる)。close x (その行より後の価格調整factor累積) で系列を組む。
     factor は権利落ち日の bar に載り、その日より前の価格に適用される。
@@ -53,7 +53,7 @@ def asof_basis_prices(
     *,
     asof_date: date,
 ) -> list[float]:
-    """観測価格と独立factorからas-of基準の価格を組む、共有L1算術。
+    """観測価格と独立factorからas-of基準の価格を組む、共有価格算術。
 
     callerはasof以下の価格を日付昇順で渡す。出力はその価格列と同じ順序になる。
     factor側の日付制限と整列はこの関数が行う。
@@ -98,7 +98,6 @@ class JQuantsDailyBar:
     # count; dividing yen turnover by the close would substitute the close for the
     # day's average price.
     volume: float | None = None
-    adjustment_close: float | None = None
     adjustment_factor: float | None = None
     ex_right_type: str | None = None
 
@@ -107,7 +106,7 @@ class JQuantsDailyBar:
     def _normalize_ticker_field(cls, value: str) -> str:
         return normalize_ticker(value)
 
-    @field_validator("close", "turnover_value", "volume", "adjustment_close", "adjustment_factor")
+    @field_validator("close", "turnover_value", "volume", "adjustment_factor")
     @classmethod
     def _finite_numeric_fields(cls, value: float | None) -> float | None:
         return validate_finite(value)
@@ -118,7 +117,7 @@ class JQuantsAdjustmentFactorEvent:
     """Corporate-action factor whose existence does not depend on a traded close.
 
     An ex-rights row can legitimately have no close while trading is suspended.  Price
-    bars require a close, but split-basis normalization requires only this event tuple.
+    bars require a close, but adjustment calculations require the independent event.
     Keeping the two records separate prevents a missing price from deleting the action.
     """
 

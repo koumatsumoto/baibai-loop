@@ -101,12 +101,12 @@ class ReadDailyBarsTests(unittest.TestCase):
             with closing(open_connection(db)) as conn, conn:
                 conn.executemany(
                     "INSERT INTO jquants_daily_bars("
-                    "ticker, traded_at, close, turnover_value, adjustment_close, adjustment_factor"
-                    ") VALUES (?, ?, ?, ?, ?, ?)",
+                    "ticker, traded_at, close, turnover_value, adjustment_factor"
+                    ") VALUES (?, ?, ?, ?, ?)",
                     [
-                        ("1301", "2024-03-19", 3790.0, 1000.0, 3790.0, 1.0),
-                        ("1301", "2024-03-21", 3800.0, 1200.0, 3800.0, 0.5),
-                        ("1301", "2024-04-19", 3900.0, 1500.0, 3900.0, 1.0),
+                        ("1301", "2024-03-19", 3790.0, 1000.0, 1.0),
+                        ("1301", "2024-03-21", 3800.0, 1200.0, 0.5),
+                        ("1301", "2024-04-19", 3900.0, 1500.0, 1.0),
                     ],
                 )
                 add_source_coverage(

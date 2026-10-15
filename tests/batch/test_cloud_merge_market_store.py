@@ -83,8 +83,8 @@ def _add_bar(path: Path, ticker: str, traded_at: str, close: float) -> None:
     try:
         conn.execute(
             "INSERT OR REPLACE INTO jquants_daily_bars"
-            "(ticker, traded_at, close, adjustment_close) VALUES (?, ?, ?, ?)",
-            (ticker, traded_at, close, close),
+            "(ticker, traded_at, close) VALUES (?, ?, ?)",
+            (ticker, traded_at, close),
         )
         conn.commit()
     finally:

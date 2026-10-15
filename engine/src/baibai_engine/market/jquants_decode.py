@@ -39,15 +39,9 @@ def normalize_daily_bar(record: Mapping[str, Any]) -> JQuantsDailyBar | None:
     # 欠損と誤判定する。キー存在と非 None を基準に最初の値を取る。
     close = to_float(coalesce_field(record, "Close", "close", "C", "c"))
     if close is None:
-        # An adjusted-only observation cannot supply a raw price bar. Its source
-        # fields and independent factor event remain available through the store.
+        # An adjusted-only observation cannot supply a raw price bar. The
+        # independent factor event remains available through the store.
         return None
-    # 配信元の調整済みcloseも観測値として分けて保持する。取得時期の異なる
-    # adjustment_closeは株式基準が混在するため、履歴比較では使用せず
-    # bars.asof_basis_pricesがraw closeと独立factorから同一基準へ換算する。
-    adjustment_close = to_float(
-        coalesce_field(record, "AdjustmentClose", "adjustment_close", "AdjC", "adj_c")
-    )
     adjustment_factor = to_float(
         coalesce_field(record, "AdjustmentFactor", "adjustment_factor", "AdjFactor")
     )
@@ -55,7 +49,6 @@ def normalize_daily_bar(record: Mapping[str, Any]) -> JQuantsDailyBar | None:
         ticker=ticker,
         traded_at=parse_date(first_value(record, "Date", "date", "TradedAt", "traded_at")),
         close=close,
-        adjustment_close=adjustment_close,
         adjustment_factor=adjustment_factor,
         ex_right_type=normalize_ex_right_type(record.get("ExRT")),
         volume=to_float(coalesce_field(record, "Volume", "volume", "Vo", "vo")),

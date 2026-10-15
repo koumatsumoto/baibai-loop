@@ -86,29 +86,14 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
             (
                 ticker,
                 (history_start + timedelta(days=index)).isoformat(),
-                None,
-                None,
-                None,
                 float(100 + index),
-                None,
                 300_000_000.0,
-                None,
-                None,
-                None,
-                float(100 + index),
-                None,
-                None,
-                None,
-                None,
             )
             for index in range(history_days)
         ]
         conn.executemany(
-            "INSERT INTO jquants_daily_bars("
-            "ticker, traded_at, open, high, low, close, volume, turnover_value, "
-            "adjustment_open, adjustment_high, adjustment_low, adjustment_close, "
-            "adjustment_volume, adjustment_factor, upper_limit, lower_limit"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO jquants_daily_bars(ticker, traded_at, close, turnover_value) "
+            "VALUES (?, ?, ?, ?)",
             bars_rows,
         )
         # Mark the API request bracket the screening run will use; the

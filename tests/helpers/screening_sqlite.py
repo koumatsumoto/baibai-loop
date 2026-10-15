@@ -79,31 +79,17 @@ def insert_daily_bars_from_closes(
     end_date: date,
     turnover_value: float | None = None,
 ) -> None:
-    """Insert ``len(closes)`` consecutive daily bars ending on ``end_date``.
-
-    ``adjustment_close`` mirrors ``close`` (the test fixtures are unadjusted by
-    design). ``turnover_value`` is included only when supplied, so callers that
-    do not need a turnover column do not get a non-NULL row.
-    """
+    """Insert consecutive raw closes; absent turnover remains SQL NULL."""
     start = end_date - timedelta(days=len(closes) - 1)
-    if turnover_value is None:
-        columns = "ticker, traded_at, close, adjustment_close"
-        rows: list[tuple[object, ...]] = [
-            (ticker, (start + timedelta(days=index)).isoformat(), close, close)
-            for index, close in enumerate(closes)
-        ]
-        placeholders = "?, ?, ?, ?"
-    else:
-        columns = "ticker, traded_at, close, adjustment_close, turnover_value"
-        rows = [
-            (ticker, (start + timedelta(days=index)).isoformat(), close, close, turnover_value)
-            for index, close in enumerate(closes)
-        ]
-        placeholders = "?, ?, ?, ?, ?"
+    rows = [
+        (ticker, (start + timedelta(days=index)).isoformat(), close, turnover_value)
+        for index, close in enumerate(closes)
+    ]
     conn = open_connection(sqlite_path)
     try:
         conn.executemany(
-            f"INSERT OR REPLACE INTO jquants_daily_bars({columns}) VALUES ({placeholders})",
+            "INSERT OR REPLACE INTO jquants_daily_bars"
+            "(ticker, traded_at, close, turnover_value) VALUES (?, ?, ?, ?)",
             rows,
         )
         conn.commit()

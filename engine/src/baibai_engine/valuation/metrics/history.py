@@ -27,14 +27,13 @@ def build_valuation_history(
     adjustment_events: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
     history_sessions: int = VALUATION_HISTORY_SESSIONS,
 ) -> dict[str, list[float]]:
-    # asof 以前の bar に限定し、look-ahead bias を防ぐ。
+    # asof より後の価格barを除く。配信元の後日訂正まで復元するものではない。
     eligible = sorted(
         (bar for bar in bars if bar.traded_at <= asof_date),
         key=lambda item: item.traded_at,
     )
-    # 価格の不連続 (分割) を valuation history に持ち込まないため調整済み系列を使う。
-    # cache の adjustment_close は incremental 取得で基準が混在するため使わず、
-    # 不変イベントの adjustment_factor から asof 基準の系列を自前で組む。
+    # 分割・併合・ライツイシューを含む価格factorで、同一asof基準の系列を組む。
+    # 係数にも配信元の訂正があるため、永久に不変のイベントとは扱わない。
     prices = asof_basis_closes(eligible[-history_sessions:], adjustment_events, asof_date=asof_date)
     ev_ebitda_history: list[float] = []
     if (

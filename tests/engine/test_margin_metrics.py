@@ -181,8 +181,8 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
         try:
             conn.executemany(
                 "INSERT OR REPLACE INTO jquants_daily_bars"
-                "(ticker, traded_at, close, adjustment_close) VALUES (?, ?, ?, ?)",
-                [("7203", day.isoformat(), 1.0, 1.0) for day in trading_days],
+                "(ticker, traded_at, close) VALUES (?, ?, ?)",
+                [("7203", day.isoformat(), 1.0) for day in trading_days],
             )
             conn.commit()
         finally:
@@ -297,8 +297,8 @@ class MarginPublicationSeamTest(unittest.TestCase):
         try:
             conn.executemany(
                 "INSERT OR REPLACE INTO jquants_daily_bars"
-                "(ticker, traded_at, close, adjustment_close) VALUES (?, ?, ?, ?)",
-                [("7203", day.isoformat(), 1.0, 1.0) for day in trading],
+                "(ticker, traded_at, close) VALUES (?, ?, ?)",
+                [("7203", day.isoformat(), 1.0) for day in trading],
             )
             conn.commit()
         finally:

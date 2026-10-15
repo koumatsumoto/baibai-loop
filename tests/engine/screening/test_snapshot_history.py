@@ -146,14 +146,13 @@ class ScreeningMetricsTests(SnapshotFixtures):
         assert gappy.price_history_coverage_750d is not None
         self.assertLess(gappy.price_history_coverage_750d, 0.8)
 
-    def test_build_metrics_price_change_uses_adjusted_close_across_splits(self) -> None:
+    def test_build_metrics_price_change_uses_factor_adjusted_prices_across_splits(self) -> None:
         # 2-for-1 split between the 60d-prior date and today:
         # raw close drops 100 -> 50, but the split factor normalizes both
         # ends to 50, so price_change_60d should not register a synthetic decline.
         asof = date(2026, 4, 24)
         bars = []
-        # 分割前 70 sessions は raw=100。adjustment_close はわざと stale
-        # (raw のまま = incremental cache の未遡及 row) にして無視されることを検証。
+        # 分割前70本のraw価格100を、権利落ち日より後の価格50と比較する。
         for i in range(70):
             bars.append(
                 JQuantsDailyBar(
@@ -161,7 +160,6 @@ class ScreeningMetricsTests(SnapshotFixtures):
                     asof - timedelta(days=70 - i),
                     close=100.0,
                     turnover_value=300_000_000.0,
-                    adjustment_close=100.0,
                 )
             )
         # 権利落ち日 (= asof) の bar に factor 0.5。close は分割後 50。
@@ -171,7 +169,6 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 asof,
                 close=50.0,
                 turnover_value=300_000_000.0,
-                adjustment_close=50.0,
                 adjustment_factor=0.5,
                 ex_right_type="1",
             )

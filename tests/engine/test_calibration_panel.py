@@ -680,11 +680,11 @@ class CalibrationPanelTest(unittest.TestCase):
                 )
                 conn.executemany(
                     "INSERT OR REPLACE INTO jquants_daily_bars("
-                    "ticker, traded_at, close, adjustment_close, adjustment_factor, ex_right_type"
-                    ") VALUES (?, ?, ?, ?, ?, ?)",
+                    "ticker, traded_at, close, adjustment_factor, ex_right_type"
+                    ") VALUES (?, ?, ?, ?, ?)",
                     [
-                        ("9001", "2022-05-10", 50.0, 50.0, 1.0, None),
-                        ("9001", "2022-10-03", 50.0, 100.0, 0.5, "1"),
+                        ("9001", "2022-05-10", 50.0, 1.0, None),
+                        ("9001", "2022-10-03", 50.0, 0.5, "1"),
                     ],
                 )
                 add_source_coverage(

@@ -1154,10 +1154,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
         self.assertEqual(snapshot.edinet_source_period_end, date(2026, 3, 31))
 
     def test_build_metrics_historical_ev_ebitda_normalizes_split_via_factor(self) -> None:
-        # 1:2 分割 (権利落ち = asof、factor 0.5) を跨ぐ価格履歴。調整は不変イベントの
-        # adjustment_factor から組む。adjustment_close は incremental cache で
-        # 遡及の有無が混在し series にならないため、わざと stale な値 (raw close の
-        # まま) を入れて「無視されること」を検証する。
+        # 1:2 分割を跨ぐraw価格を、その権利落ちfactorで同一基準へ換算する。
         # 正規化後の履歴 = [160x0.5, 200x0.5, 120] = [80, 100, 120]。
         asof = date(2026, 4, 24)
         bars = [
@@ -1166,21 +1163,18 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 asof - timedelta(days=2),
                 close=160.0,
                 turnover_value=300_000_000.0,
-                adjustment_close=160.0,
             ),
             JQuantsDailyBar(
                 "130A",
                 asof - timedelta(days=1),
                 close=200.0,
                 turnover_value=300_000_000.0,
-                adjustment_close=200.0,
             ),
             JQuantsDailyBar(
                 "130A",
                 asof,
                 close=120.0,
                 turnover_value=300_000_000.0,
-                adjustment_close=120.0,
                 adjustment_factor=0.5,
                 ex_right_type="1",
             ),

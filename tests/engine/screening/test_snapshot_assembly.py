@@ -162,7 +162,6 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 ticker="130A",
                 traded_at=start + timedelta(days=index),
                 close=90.0 if index >= 25 else 100.0,
-                adjustment_close=90.0 if index >= 25 else 100.0,
                 turnover_value=300_000_000.0 if index >= 25 else 100_000_000.0,
             )
             for index in range(30)

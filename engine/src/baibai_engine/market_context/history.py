@@ -48,7 +48,7 @@ def price_change(
     if len(ordered) <= sessions:
         return None
     # 分割を跨ぐ比較で偽の騰落を出さないよう、adjustment_factor から組んだ
-    # asof 基準系列で両端を比較する (cache の adjustment_close は基準混在のため不使用)。
+    # asof 基準系列で両端を比較する (配信元の調整済み価格は基準混在のため不使用)。
     prices = asof_basis_closes(ordered[-(sessions + 1) :], adjustment_events, asof_date=asof_date)
     return trailing_return(prices, sessions)
 

@@ -41,9 +41,9 @@ def test_adjusted_only_ingest_preserves_observation_and_event_without_a_raw_pric
     )
     with closing(sqlite3.connect(path)) as connection:
         row = connection.execute(
-            "SELECT close,adjustment_close,adjustment_factor FROM jquants_daily_bars"
+            "SELECT close,adjustment_factor FROM jquants_daily_bars"
         ).fetchone()
-    assert row == (None, 500, 100)
+    assert row == (None, 100)
     assert read_daily_bars_for_tickers(path, ("6731",), day, day) == []
     events = read_adjustment_factor_bars(path, day, day)
     assert events is not None
@@ -203,9 +203,9 @@ def _insert_daily_bars(
         while current <= stop:
             conn.execute(
                 "INSERT INTO jquants_daily_bars("
-                "ticker, traded_at, close, turnover_value, adjustment_close"
-                ") VALUES (?, ?, ?, ?, ?)",
-                ("1301", current.isoformat(), close, 1000.0, close),
+                "ticker, traded_at, close, turnover_value"
+                ") VALUES (?, ?, ?, ?)",
+                ("1301", current.isoformat(), close, 1000.0),
             )
             current += timedelta(days=1)
 

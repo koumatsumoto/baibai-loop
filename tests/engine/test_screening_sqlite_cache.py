@@ -958,9 +958,9 @@ class DailyBarsCoverageTest(unittest.TestCase):
                     *(date(2019, 5, 7) + timedelta(days=offset) for offset in range(5)),
                 ]
                 conn.executemany(
-                    "INSERT INTO jquants_daily_bars(ticker, traded_at, close, adjustment_close) "
-                    "VALUES (?, ?, ?, ?)",
-                    [("7203", day.isoformat(), 1000.0, 1000.0) for day in days],
+                    "INSERT INTO jquants_daily_bars(ticker, traded_at, close) "
+                    "VALUES (?, ?, ?)",
+                    [("7203", day.isoformat(), 1000.0) for day in days],
                 )
                 conn.commit()
                 covered = daily_bars_covered_by_data(conn, date(2019, 4, 22), date(2019, 5, 11))
@@ -986,9 +986,9 @@ class DailyBarsCoverageTest(unittest.TestCase):
             try:
                 start, end = date(2024, 4, 1), date(2024, 5, 1)
                 conn.execute(
-                    "INSERT INTO jquants_daily_bars(ticker, traded_at, close, adjustment_close) "
-                    "VALUES (?, ?, ?, ?)",
-                    ("7203", (start + timedelta(days=15)).isoformat(), 1000.0, 1000.0),
+                    "INSERT INTO jquants_daily_bars(ticker, traded_at, close) "
+                    "VALUES (?, ?, ?)",
+                    ("7203", (start + timedelta(days=15)).isoformat(), 1000.0),
                 )
                 conn.commit()
                 sparse = daily_bars_covered_by_data(conn, start, end)
@@ -996,9 +996,9 @@ class DailyBarsCoverageTest(unittest.TestCase):
                 # reachable from a boundary that lands on its first day.
                 conn.executemany(
                     "INSERT INTO jquants_daily_bars"
-                    "(ticker, traded_at, close, adjustment_close) VALUES (?, ?, ?, ?)",
+                    "(ticker, traded_at, close) VALUES (?, ?, ?)",
                     [
-                        ("7203", (date(2019, 5, 7) + timedelta(days=offset)).isoformat(), 1.0, 1.0)
+                        ("7203", (date(2019, 5, 7) + timedelta(days=offset)).isoformat(), 1.0)
                         for offset in range(8)
                     ],
                 )
@@ -1177,8 +1177,8 @@ class WeeklyMarginStoreTest(unittest.TestCase):
             try:
                 conn.executemany(
                     "INSERT INTO jquants_daily_bars"
-                    "(ticker, traded_at, close, adjustment_close) VALUES (?, ?, ?, ?)",
-                    [("7203", day.isoformat(), 1.0, 1.0) for day in trading_days],
+                    "(ticker, traded_at, close) VALUES (?, ?, ?)",
+                    [("7203", day.isoformat(), 1.0) for day in trading_days],
                 )
                 conn.commit()
             finally:
@@ -1211,9 +1211,9 @@ class WeeklyMarginStoreTest(unittest.TestCase):
             try:
                 conn.executemany(
                     "INSERT INTO jquants_daily_bars"
-                    "(ticker, traded_at, close, adjustment_close) VALUES (?, ?, ?, ?)",
+                    "(ticker, traded_at, close) VALUES (?, ?, ?)",
                     [
-                        ("7203", day.isoformat(), 1.0, 1.0)
+                        ("7203", day.isoformat(), 1.0)
                         for day in (
                             week_end,
                             date(2026, 8, 3),
@@ -1566,8 +1566,8 @@ class MarginPublicationLagTest(unittest.TestCase):
         try:
             conn.executemany(
                 "INSERT OR REPLACE INTO jquants_daily_bars"
-                "(ticker, traded_at, close, adjustment_close) VALUES (?, ?, ?, ?)",
-                [("7203", d.isoformat(), 1.0, 1.0) for d in trading_days],
+                "(ticker, traded_at, close) VALUES (?, ?, ?)",
+                [("7203", d.isoformat(), 1.0) for d in trading_days],
             )
             conn.commit()
         finally:

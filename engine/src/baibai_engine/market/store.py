@@ -32,7 +32,7 @@ def read_daily_bars(sqlite_path: Path, start: date, end: date) -> list[JQuantsDa
             return None
         rows = conn.execute(
             "SELECT ticker, traded_at, close, turnover_value, volume, "
-            "adjustment_close, adjustment_factor, ex_right_type "
+            "adjustment_factor, ex_right_type "
             "FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ? "
             "ORDER BY ticker, traded_at",
             (start.isoformat(), end.isoformat()),
@@ -157,7 +157,7 @@ def read_daily_bars_for_tickers(
         placeholders = ", ".join("?" for _ in tickers)
         rows = conn.execute(
             "SELECT ticker, traded_at, close, turnover_value, volume, "
-            "adjustment_close, adjustment_factor, ex_right_type "
+            "adjustment_factor, ex_right_type "
             "FROM jquants_daily_bars "
             # Local placeholder count; ticker values remain bound.  # nosec B608
             f"WHERE ticker IN ({placeholders}) AND traded_at BETWEEN ? AND ? "
@@ -255,7 +255,6 @@ def _daily_bars_from_rows(rows: Iterable[tuple[Any, ...]]) -> list[JQuantsDailyB
         close,
         turnover_value,
         volume,
-        adjustment_close,
         adjustment_factor,
         ex_right_type,
     ) in rows:
@@ -269,7 +268,6 @@ def _daily_bars_from_rows(rows: Iterable[tuple[Any, ...]]) -> list[JQuantsDailyB
                     close=float(close),
                     turnover_value=optional_float(turnover_value),
                     volume=optional_float(volume),
-                    adjustment_close=optional_float(adjustment_close),
                     adjustment_factor=optional_float(adjustment_factor),
                     ex_right_type=ex_right_type,
                 )
