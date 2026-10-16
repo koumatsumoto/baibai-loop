@@ -19,24 +19,14 @@ def normalize_metric_record(record: Mapping[str, Any]) -> EdinetMetricRecord:
         ocf_ttm=to_float(record.get("ocf_ttm")),
         debt=to_float(record.get("debt")),
         cash=to_float(record.get("cash")),
-        investment_securities=to_float(
-            record.get("investment_securities")
-        ),
+        investment_securities=to_float(record.get("investment_securities")),
         ebitda_ttm=to_float(record.get("ebitda_ttm")),
         consolidation_basis=text_or_none(record.get("consolidation_basis")),
-        ttm_quality_ev_ebitda=_parse_optional_ttm_quality(
-            record.get("ttm_quality_ev_ebitda")
-        ),
-        ttm_quality_p_s=_parse_ttm_quality(
-            record.get("ttm_quality_p_s")
-        ),
-        ttm_quality_pcfr=_parse_ttm_quality(
-            record.get("ttm_quality_pcfr")
-        ),
+        ttm_quality_ev_ebitda=_parse_optional_ttm_quality(record.get("ttm_quality_ev_ebitda")),
+        ttm_quality_p_s=_parse_ttm_quality(record.get("ttm_quality_p_s")),
+        ttm_quality_pcfr=_parse_ttm_quality(record.get("ttm_quality_pcfr")),
         operating_profit_ttm=to_float(record.get("operating_profit_ttm")),
-        depreciation_and_amortization_ttm=to_float(
-            record.get("depreciation_and_amortization_ttm")
-        ),
+        depreciation_and_amortization_ttm=to_float(record.get("depreciation_and_amortization_ttm")),
         capex_ttm=to_float(record.get("capex_ttm")),
         ocf_receivables_cash_effect=to_float(record.get("ocf_receivables_cash_effect")),
         ocf_inventories_cash_effect=to_float(record.get("ocf_inventories_cash_effect")),
@@ -44,12 +34,8 @@ def normalize_metric_record(record: Mapping[str, Any]) -> EdinetMetricRecord:
         ocf_contract_liabilities_cash_effect=to_float(
             record.get("ocf_contract_liabilities_cash_effect")
         ),
-        ocf_advances_received_cash_effect=to_float(
-            record.get("ocf_advances_received_cash_effect")
-        ),
-        ocf_other_payables_cash_effect=to_float(
-            record.get("ocf_other_payables_cash_effect")
-        ),
+        ocf_advances_received_cash_effect=to_float(record.get("ocf_advances_received_cash_effect")),
+        ocf_other_payables_cash_effect=to_float(record.get("ocf_other_payables_cash_effect")),
         capex_ppe_reported=to_float(record.get("capex_ppe_reported")),
         capex_intangible_reported=to_float(record.get("capex_intangible_reported")),
         fcf_ttm=to_float(record.get("fcf_ttm")),

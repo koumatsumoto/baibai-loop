@@ -1140,7 +1140,7 @@ class ScreeningCliTests(unittest.TestCase):
                 date(2026, 4, 24),
                 [
                     {
-                        "secCode": "96820",
+                        "ticker": "9682",
                         "sales_ttm": 1000.0,
                         "ocf_ttm": 200.0,
                         "extractor_revision": "test",
