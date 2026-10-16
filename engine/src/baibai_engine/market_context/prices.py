@@ -129,59 +129,15 @@ def _index_on_or_before(bars: Sequence[JQuantsDailyBar], day: date) -> int | Non
     return None
 
 
-def worst_close_drawdown(
-    path: Path, tickers: Sequence[str], *, start: date, end: date
-) -> dict[str, float]:
-    """Return each ticker's deepest close-to-close fall from ``start`` within the window.
-
-    This measures temporary price downside from the entry, not permanent business
-    impairment or peak-to-trough drawdown. A name that halved and recovered reads
-    as flat at the endpoint but still has an entry-relative trough. Both ends use
-    the window's latest price-adjustment basis so an action is not a price fall.
-
-    The value is a ratio (``-0.3`` for a 30% trough) and is never positive: a name
-    that stayed above its entry did not fall. A ticker with no close at or before
-    ``start`` yields no entry.
-    """
-
-    if not tickers:
-        return {}
-    unique = list(dict.fromkeys(tickers))
-    by_ticker, events_by_ticker = _read_price_observations(
-        path, unique, start=start - timedelta(days=_CHANGE_START_LOOKBACK_DAYS), end=end
-    )
-    worst: dict[str, float] = {}
-    for ticker, bars in by_ticker.items():
-        entry = _index_on_or_before(bars, start)
-        if entry is None or entry == len(bars) - 1:
-            continue
-        closes = asof_basis_closes(
-            bars,
-            events_by_ticker.get(ticker, ()),
-            asof_date=end,
-        )
-        if closes[entry] == 0:
-            continue
-        trough = min(closes[entry + 1 :])
-        # A name that never traded below its entry has no drawdown. Reporting the
-        # distance to its lowest point would call a rise a fall.
-        worst[ticker] = min(0.0, trough / closes[entry] - 1)
-    return worst
-
-
 def _read_price_observations(
     path: Path,
     tickers: Sequence[str],
     *,
     start: date,
-    end: date | None = None,
 ) -> tuple[dict[str, list[JQuantsDailyBar]], dict[str, list[JQuantsAdjustmentFactorEvent]]]:
     """Read valued bars and independent action events from the same SQL snapshot."""
     placeholders = ",".join("?" for _ in tickers)
-    end_clause = " AND traded_at <= ?" if end is not None else ""
     parameters: list[object] = [*tickers, start.isoformat()]
-    if end is not None:
-        parameters.append(end.isoformat())
     rows = read_rows(
         path,
         f"""
@@ -189,7 +145,6 @@ def _read_price_observations(
             FROM jquants_daily_bars
             WHERE ticker IN ({placeholders})
               AND traded_at >= ?
-              {end_clause}
             ORDER BY ticker, traded_at
             """,  # nosec B608
         parameters,

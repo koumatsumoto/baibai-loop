@@ -8,7 +8,7 @@ from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
 
-from baibai_engine.market_context.prices import close_change_since, worst_close_drawdown
+from baibai_engine.market_context.prices import close_change_since
 from baibai_engine.storage.observations.read import connect_read_only
 
 from .sqlite import read_rows as _read_rows
@@ -168,5 +168,4 @@ __all__ = [
     "market_calendar_business_day",
     "next_earnings_dates",
     "previous_business_day",
-    "worst_close_drawdown",
 ]

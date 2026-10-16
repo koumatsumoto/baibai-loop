@@ -20,7 +20,6 @@ from baibai_engine.read_api.market import (
     latest_unadjusted_closes,
     next_earnings_dates,
     previous_business_day,
-    worst_close_drawdown,
 )
 from baibai_engine.screening.calibration.forward import latest_market_data_date
 from baibai_engine.screening.sqlite_coverage.core import _connect_readonly
@@ -188,25 +187,6 @@ def test_close_change_since_keeps_factor_on_a_close_null_day(tmp_path: Path) -> 
     assert close_change_since(database, ["2331"], since=date(2026, 7, 28)) == {"2331": 0.0}
 
 
-def test_worst_close_drawdown_keeps_factor_on_a_close_null_day(tmp_path: Path) -> None:
-    database = tmp_path / "market.sqlite"
-    _seed_bars_with_factors(
-        database,
-        [
-            ("2331", "2026-07-28", 1.0, 1.0),
-            ("2331", "2026-07-29", None, 100.0),
-            ("2331", "2026-07-30", 50.0, 1.0),
-        ],
-    )
-
-    assert worst_close_drawdown(
-        database,
-        ["2331"],
-        start=date(2026, 7, 28),
-        end=date(2026, 7, 30),
-    ) == {"2331": -0.5}
-
-
 def test_close_change_since_skips_a_ticker_with_no_close_by_the_day(tmp_path: Path) -> None:
     database = tmp_path / "market.sqlite"
     _seed_bars_with_factors(
@@ -302,7 +282,7 @@ def test_order_session_rejects_naive_instant_before_store_read(tmp_path: Path) -
     assert not path.exists()
 
 
-def test_price_comparisons_share_scope_without_changing_the_store(tmp_path: Path) -> None:
+def test_close_change_keeps_ticker_scope_without_changing_the_store(tmp_path: Path) -> None:
     database = tmp_path / "market.sqlite"
     _seed_bars_with_factors(
         database,
@@ -317,15 +297,9 @@ def test_price_comparisons_share_scope_without_changing_the_store(tmp_path: Path
     )
     before = database.read_bytes()
     assert close_change_since(database, ["2331", "2331"], since=date(2026, 7, 28)) == {"2331": 0.0}
-    drawdown = worst_close_drawdown(
-        database, ["2331", "2331"], start=date(2026, 7, 28), end=date(2026, 7, 30)
-    )
-    assert set(drawdown) == {"2331"}
-    assert drawdown["2331"] == pytest.approx(-0.1)
     assert database.read_bytes() == before
     missing = tmp_path / "absent.sqlite"
     assert close_change_since(missing, [], since=date(2026, 7, 28)) == {}
-    assert worst_close_drawdown(missing, [], start=date(2026, 7, 28), end=date(2026, 7, 30)) == {}
     assert not missing.exists()
 
 

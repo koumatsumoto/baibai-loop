@@ -38,7 +38,6 @@ from .market import (
     market_calendar_business_day,
     next_earnings_dates,
     previous_business_day,
-    worst_close_drawdown,
 )
 from .market_context import (
     ASSESSMENT_STALE_DAYS,
@@ -152,7 +151,6 @@ __all__ = [
     "validate_market_store_hydration",
     "validate_market_store_schema",
     "validate_reading_rules",
-    "worst_close_drawdown",
 ]
 
 from baibai_engine.read_api.position import current_portfolio
