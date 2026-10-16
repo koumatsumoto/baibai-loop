@@ -448,10 +448,9 @@ class ControlFilingIndexTest(unittest.TestCase):
                 before = read_control_filing_index(
                     connection, start=date(2026, 1, 1), end=date(2026, 7, 1)
                 )
-                after = read_control_filing_index(
-                    connection, start=date(2026, 1, 1), end=self.ASOF
-                )
-            assert before is not None and after is not None
+                after = read_control_filing_index(connection, start=date(2026, 1, 1), end=self.ASOF)
+            assert before is not None
+            assert after is not None
             self.assertEqual(before.latest_by_target[("1301", "large_holding")], date(2026, 7, 1))
             self.assertEqual(after.latest_by_target, {})
 
