@@ -33,7 +33,7 @@ status: active
 
 Snapshotは必要な値を固定し、元run storeの存在を要求しない。ScreeningのE[r]とFV anchorは候補発見のsecondary machine priorであり、Stock Assessmentへ重複転記しない。
 
-factは`fact_id / fact_kind / value / unit / as_of / source_ids`を持つ。外部sourceはHTTPS、local dataはprovider/datasetを持つ。ticker、source参照、取得・観測時刻、単位を検証する。判断後の資料を判断前の事実として混入しない。市場価格は`observed_at`と未調整1株の`price_basis`を明示する。
+factは`fact_id / fact_kind / value / unit / as_of / source_ids`を持つ。外部sourceはHTTPS、local dataはprovider/datasetを持つ。ticker、source参照、取得・観測時刻、単位を検証する。判断後の資料を判断前の事実として混入しない。市場価格は未調整1株の`price_basis`を明示する。日次終値は原典の取引日`as_of`で扱い、観測時刻を捏造しない。実際に観測時刻がある場合だけ`observed_at`を付け、realtime価格では必須とする。終値の利用可能な取引日はJSTの立会終了境界で判定する。
 
 resolved valuationは価格factを参照する。unresolvedでは価格もnullでよく、valuation_metricや正の起点利益を要求しない。財務根拠が未確定なら所見と理由を独立確認しuncertain/unsupportedの評価を完成させる。欠損を0やverifiedへ変換しない。
 

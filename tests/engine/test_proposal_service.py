@@ -111,7 +111,7 @@ def test_same_id_retry_requires_the_exact_signed_typed_payload(case):
         service.publish(InvestmentProposal.model_validate(raw))
 
 
-@pytest.mark.parametrize("change", ["head", "meta", "quote", "source", "basis"])
+@pytest.mark.parametrize("change", ["head", "meta", "quote", "source"])
 def test_actual_input_fact_change_requires_new_snapshot_and_review(case, change):
     proposal = reviewed_proposal(case)
     if change == "head":
@@ -137,12 +137,9 @@ def test_actual_input_fact_change_requires_new_snapshot_and_review(case, change)
             expected_document=ledger,
             replacement=ledger.model_copy(update={"as_of": ledger.as_of + timedelta(minutes=1)}),
         )
-    elif change in {"quote", "basis"}:
+    elif change == "quote":
         with closing(sqlite3.connect(case.market)) as connection, connection:
-            connection.execute(
-                "UPDATE jquants_daily_bars SET "
-                + ("close=1099" if change == "quote" else "adjustment_factor=0.5")
-            )
+            connection.execute("UPDATE jquants_daily_bars SET close=1099")
     else:
         raw = proposal.payload()
         raw["inputs"]["quotes"][0]["source_ref"] = "other-real-source"
@@ -327,3 +324,14 @@ def test_late_outcome_does_not_rewrite_saved_scope_but_rejects_stale_new_publica
         InvestmentProposalService(
             case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(minutes=3)
         ).publish(new)
+
+
+def test_same_session_adjustment_does_not_change_native_quote_or_comparison(case):
+    proposal = reviewed_proposal(case)
+    with closing(sqlite3.connect(case.market)) as connection, connection:
+        connection.execute(
+            "UPDATE jquants_daily_bars SET adjustment_factor=0.5, ex_right_type='1'"
+        )
+    service = InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    assert service.check(proposal).valid
+    assert service.publish(proposal).proposal_id == proposal.proposal_id
