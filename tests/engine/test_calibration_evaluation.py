@@ -384,8 +384,8 @@ class SectorMedianBasisTest(unittest.TestCase):
             )
             panel.extend((own, market))
             # own_sector: the cheapest end wins. market_fallback: it loses.
-            forwards.append(_forward_row(own.ticker, index / 100))
-            forwards.append(_forward_row(market.ticker, -index / 100))
+            forwards.append(_forward_row(own.ticker, index / 200))
+            forwards.append(_forward_row(market.ticker, -index / 200))
         result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
         return result["6m"]
 
@@ -787,7 +787,7 @@ class EvaluateCohortsTest(unittest.TestCase):
                     realized_volatility_60d=0.1 + index / 1000,
                 )
             )
-            forwards.append(_forward_row(ticker, -index / 100))
+            forwards.append(_forward_row(ticker, -index / 200))
 
         result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
         cohort = result["6m"]["cohorts"][0]
@@ -831,7 +831,7 @@ class EvaluateCohortsTest(unittest.TestCase):
                     self_range_observed_sessions=1300,
                 )
             )
-            forwards.append(_forward_row(ticker, -index / 100))
+            forwards.append(_forward_row(ticker, -index / 200))
 
         result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
         cohort = result["6m"]["cohorts"][0]
@@ -1391,7 +1391,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         self.assertEqual(coverage["candidate_forward_missing_count"], 2)
         self.assertEqual(coverage["candidate_forward_extra_count"], 2)
 
-    def test_removed_per_sector_diagnostics_are_not_emitted(
+    def test_horizon_output_has_only_current_contract_sections(
         self,
     ) -> None:
         panel: list[PanelRow] = []
@@ -1422,23 +1422,6 @@ class MarginSizeNormalizationTest(unittest.TestCase):
             {"2025-06-30": forwards},
             horizons=["6m"],
         )
-
-        horizon = result["6m"]
-        assert isinstance(horizon, dict)
-        self.assertEqual(
-            set(horizon),
-            {"evidence_role", "cohorts", "aggregate", "observation_dependence"},
-        )
-
-    def test_horizon_output_has_only_current_contract_sections(self) -> None:
-        panel: list[PanelRow] = []
-        forwards: list[ForwardReturnRow] = []
-        for i in range(120):
-            ticker = f"6{i:03d}"
-            panel.append(_panel_row(ticker, per_trailing=10.0 + i))
-            forwards.append(_forward_row(ticker, 0.001 * i))
-
-        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
 
         horizon = result["6m"]
         assert isinstance(horizon, dict)
@@ -1732,7 +1715,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         self.assertEqual(counts.get("entry_price_gap"), 1)
 
     def test_price_gap_and_unpriced_exit_are_named_as_separate_blockers(self) -> None:
-        # 取引可能名の取りこぼしと廃止 exit value の欠落は、別々の理由として名指しする。
+        # panel で価格を観測した銘柄の entry 欠測と、exit 価格の欠測を区別する。
         price_gap = ForwardReturnRow(
             asof="2025-06-30",
             ticker="9200",
@@ -1765,8 +1748,8 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         self.assertEqual(coverage["unpriced_exit_count"], 1)
         self.assertEqual(counts.get("entry_price_gap"), 1)
         self.assertEqual(coverage["unclassified_unresolved_count"], 0)
-        # A name that left the market is counted on its own, but it blocks only when
-        # giving it a value changes what the cohort concludes.
+        # An unresolved exit is counted separately; the specified imputations
+        # determine whether it changes the cohort conclusion.
         self.assertIsNone(counts.get("unpriced_exit"))
 
     def test_priced_master_row_count_mismatch_blocks_fail_closed(self) -> None:
@@ -1853,15 +1836,15 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         self.assertEqual(exit_code, 1)
 
 
-class DelistingExclusionSensitivityTests(unittest.TestCase):
-    """Whether the names that left the market could have produced the conclusions."""
+class MissingExitSensitivityTests(unittest.TestCase):
+    """Whether unresolved exits could change conclusions under the specified imputations."""
 
     @staticmethod
     def _cohort(
-        *, delisted_ranks: tuple[int, ...]
+        *, missing_exit_ranks: tuple[int, ...]
     ) -> tuple[list[PanelRow], list[ForwardReturnRow]]:
-        # A cohort where the recommended names beat the rest, plus names that left
-        # the market inside the window and so carry no exit value.
+        # A cohort where nominated names beat the rest, plus unresolved exits.
+        # Missing prices alone do not establish delisting or actual recovery value.
         panel = [
             _panel_row(f"{9000 + index}", per_trailing=10.0) for index in range(MIN_AXIS_SAMPLE)
         ]
@@ -1869,7 +1852,7 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         for rank in (1, 2):
             panel.append(_panel_row(f"81{rank:02d}", per_trailing=10.0, rank=rank))
             forwards.append(_forward_row(f"81{rank:02d}", 0.30))
-        for rank in delisted_ranks:
+        for rank in missing_exit_ranks:
             ticker = f"82{rank:02d}"
             panel.append(_panel_row(ticker, per_trailing=10.0, rank=rank))
             forwards.append(
@@ -1888,16 +1871,16 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
             )
         return panel, forwards
 
-    def _sensitivity(self, *, delisted_ranks: tuple[int, ...]) -> dict[str, object]:
-        panel, forwards = self._cohort(delisted_ranks=delisted_ranks)
+    def _sensitivity(self, *, missing_exit_ranks: tuple[int, ...]) -> dict[str, object]:
+        panel, forwards = self._cohort(missing_exit_ranks=missing_exit_ranks)
         result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
         cohort = result["6m"]["cohorts"][0]  # type: ignore[index]
         return cohort["coverage"]["delisting_exclusion"]  # type: ignore[index]
 
     def test_a_conclusion_stays_stable_under_both_specified_imputations(self) -> None:
-        # The delisted name is not in the selected rank window, so that
-        # group stays ahead whichever value the delisting is given.
-        panel, forwards = self._cohort(delisted_ranks=())
+        # The missing-exit name is outside the nomination group.
+        # That group stays ahead under both specified imputations.
+        panel, forwards = self._cohort(missing_exit_ranks=())
         panel.append(_panel_row("8300", per_trailing=10.0))
         forwards.append(
             ForwardReturnRow(
@@ -1920,10 +1903,10 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         self.assertTrue(sensitivity["direction_stable"])
 
     def test_a_conclusion_that_moves_between_the_ends_blocks_the_cohort(self) -> None:
-        # Half the recommended group left the market. Called total losses they drag
+        # Half the nominated group has unresolved exits. Imputed as total losses they drag
         # the group below the rest of the cohort; called neutral they do not. The
         # cohort cannot say which happened, so it does not get to conclude.
-        sensitivity = self._sensitivity(delisted_ranks=(3, 4))
+        sensitivity = self._sensitivity(missing_exit_ranks=(3, 4))
 
         self.assertEqual(sensitivity["excluded_count"], 2)
         self.assertFalse(sensitivity["direction_stable"])
@@ -1963,12 +1946,12 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
 
         self.assertIsNone(_margin_short_to_adv_adoption_sign({"deciles": []}))
 
-    def test_a_conclusion_only_the_survivors_support_blocks_the_cohort(self) -> None:
-        # Three of the five recommended names left the market. What the cohort
-        # reports is the two survivors' lead; both imputations agree the group did
+    def test_a_conclusion_supported_only_by_observed_returns_blocks_the_cohort(self) -> None:
+        # Three of five nominated names have unresolved exits. The reported result
+        # uses only the two observed outcomes; both imputations agree the group did
         # not lead. Comparing the two imputations to each other alone would call
-        # that stable, which is the survivorship case the rule exists to catch.
-        sensitivity = self._sensitivity(delisted_ranks=(3, 4, 5))
+        # that stable, which is the missing-outcome selection bias the rule exists to catch.
+        sensitivity = self._sensitivity(missing_exit_ranks=(3, 4, 5))
 
         self.assertEqual(sensitivity["excluded_count"], 3)
         self.assertGreater(sensitivity["as_reported"]["nomination_union_all"], 0)
@@ -1977,8 +1960,8 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         self.assertEqual(imputations["neutral"]["nomination_union_all"], 0.0)
         self.assertFalse(sensitivity["direction_stable"])
 
-    def test_delisting_neutral_uses_only_the_reported_eligible_population(self) -> None:
-        panel, forwards = self._cohort(delisted_ranks=(3,))
+    def test_missing_exit_neutral_uses_only_the_reported_eligible_population(self) -> None:
+        panel, forwards = self._cohort(missing_exit_ranks=(3,))
         for index in range(MIN_AXIS_SAMPLE * 2):
             ticker = f"7{index:03d}"
             panel.append(_panel_row(ticker, in_population=False))
@@ -1992,8 +1975,8 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         self.assertEqual(sensitivity["excluded_count"], 1)
         self.assertEqual(sensitivity["neutral_return"], 0.0)
 
-    def test_a_cohort_without_delistings_needs_no_imputation(self) -> None:
-        sensitivity = self._sensitivity(delisted_ranks=())
+    def test_a_cohort_without_missing_exits_needs_no_imputation(self) -> None:
+        sensitivity = self._sensitivity(missing_exit_ranks=())
 
         self.assertEqual(sensitivity["excluded_count"], 0)
         self.assertTrue(sensitivity["direction_stable"])

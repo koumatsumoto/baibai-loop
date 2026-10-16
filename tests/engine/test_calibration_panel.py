@@ -638,7 +638,7 @@ class CalibrationPanelTest(unittest.TestCase):
             without_event_row = {item.ticker: item for item in without_event.rows}["9003"]
 
             self.assertEqual(with_event_row.share_count_reduction_streak, 0)
-            self.assertFalse(with_event_row.shareholder_return_change)
+            self.assertIsNone(with_event_row.shareholder_return_change)
             self.assertEqual(without_event_row.share_count_reduction_streak, 1)
             self.assertTrue(without_event_row.shareholder_return_change)
 
@@ -770,9 +770,8 @@ class CalibrationPanelTest(unittest.TestCase):
     def _panel_row(self, **updates: object) -> dict[str, object]:
         """A stored panel row as native values, with the named fields replaced.
 
-        The invariants below are what the store enforces on every row it reads, so
-        they are exercised at the materializer rather than by editing a published
-        object — an edited object fails on its digest long before a value is parsed.
+        These cases exercise the same materializer used by read_panel to validate
+        row payloads loaded from current.sqlite.
         """
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -911,8 +910,8 @@ class CalibrationPanelTest(unittest.TestCase):
                 read_forward(store_dir, ASOF)
 
     def test_panel_counts_asof_priced_tickers_the_master_read_omits(self) -> None:
-        # asof 当日に価格がありながら master に居ない銘柄は、その断面が投資可能
-        # universe を再現していないことの証拠なので数える。
+        # 当日の観測価格と master の銘柄集合の不一致を数える。
+        # 価格だけで普通株資格や実際の取引可能性まで確定したとは扱わない。
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             build_calibration_fixture_sqlite(sqlite_path)
@@ -926,10 +925,9 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertEqual(diagnostics.asof_population_mismatch_count, 1)
             self.assertNotIn("9003", {row.ticker for row in result.rows})
 
-    def test_panel_does_not_count_a_name_delisted_before_asof_as_a_population_hole(self) -> None:
-        # asof 前に最終売買を終えた銘柄は as-of に投資可能でないので、master が
-        # それを持たないのは正しい。entry の staleness 許容を population の定義へ
-        # 流用すると、どの master でも mismatch を 0 にできなくなる。
+    def test_panel_does_not_count_tickers_without_asof_prices_as_population_holes(self) -> None:
+        # 当日の観測価格がある銘柄だけを数える。過去の価格だけでは上場廃止や
+        # 現在の投資可能性を判定しない。entry の価格遅延許容はこの診断へ流用しない。
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             build_calibration_fixture_sqlite(sqlite_path)
