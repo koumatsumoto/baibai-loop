@@ -13,7 +13,7 @@ from tests.engine.test_screening_run_store import _run as _stock_run_payload
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_run import stock_analysis as stock_analysis
-from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
+from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market_context.prices import read_price_bars
@@ -61,6 +61,13 @@ def _insert_reference_rows(sqlite_path: Path) -> None:
             "INSERT OR REPLACE INTO jpx_regulation_flags"
             "(asof_date, source_name, ticker, flag)"
             " VALUES ('2026-05-29', '特別注意銘柄', 'AAAA', '特別注意銘柄')"
+        )
+        add_source_coverage(
+            conn,
+            source="jpx_regulation_flags",
+            coverage_key="2026-05-29",
+            min_date="2026-05-29",
+            max_date="2026-05-29",
         )
         conn.commit()
     finally:
@@ -162,6 +169,28 @@ class BuildTickerProfileTests(unittest.TestCase):
             stock_analysis = screening["stock_analysis"]
             assert isinstance(stock_analysis, dict)
             self.assertEqual(stock_analysis["metrics"], {"ocf_yield": 0.11})
+
+    def test_empty_regulation_snapshot_replaces_older_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            sqlite_path = root / "market.sqlite"
+            _insert_reference_rows(sqlite_path)
+            with closing(open_connection(sqlite_path)) as conn, conn:
+                add_source_coverage(
+                    conn,
+                    source="jpx_regulation_flags",
+                    coverage_key="2026-05-30",
+                    min_date="2026-05-30",
+                    max_date="2026-05-30",
+                    record_count=0,
+                )
+            profile = _dated_profile(root, date(2026, 5, 30))
+            self.assertEqual(
+                profile["events"]["jpx_regulation"],
+                {"snapshot_date": "2026-05-30", "flags": []},
+            )
+            earlier = _dated_profile(root, _ASOF)
+            self.assertEqual(earlier["events"]["jpx_regulation"]["flags"], ["特別注意銘柄"])
 
     def test_price_series_keeps_an_action_event_without_a_close(self) -> None:
         """売買停止日のfactorを落とさず、前後価格を同じ株式基準へ揃える。"""

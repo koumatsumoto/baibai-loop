@@ -29,7 +29,10 @@ from baibai_engine.read_api.position import (
     summarize_portfolio,
 )
 from baibai_engine.screening.run_store import ScreeningRunReader
-from baibai_engine.storage.observations.reader import read_jpx_earnings_calendar_snapshot
+from baibai_engine.storage.observations.reader import (
+    read_jpx_earnings_calendar_snapshot,
+    read_jpx_regulations,
+)
 from baibai_engine.valuation.metrics.history import VALUATION_HISTORY_SESSIONS
 
 
@@ -200,21 +203,20 @@ def _next_earnings_date(sqlite_path: Path, ticker: str, asof_date: date) -> str 
 
 
 def _jpx_flags(sqlite_path: Path, ticker: str, asof_date: date) -> dict[str, object]:
+    # A successfully acquired empty snapshot supersedes older flags too.
     snapshot_rows = read_rows(
         sqlite_path,
-        "SELECT MAX(asof_date) FROM jpx_regulation_flags WHERE asof_date <= ?",
+        "SELECT MAX(coverage_end) FROM source_coverage "
+        "WHERE source = 'jpx_regulation_flags' AND status = 'ok' AND coverage_end <= ?",
         (asof_date.isoformat(),),
     )
-    snapshot_row = snapshot_rows[0] if snapshot_rows else None
-    snapshot_date = snapshot_row[0] if snapshot_row and isinstance(snapshot_row[0], str) else None
+    snapshot_date = snapshot_rows[0][0] if snapshot_rows else None
     if snapshot_date is None:
         return {"snapshot_date": None, "flags": []}
-    rows = read_rows(
-        sqlite_path,
-        "SELECT DISTINCT flag FROM jpx_regulation_flags WHERE ticker = ? AND asof_date = ?",
-        (ticker, snapshot_date),
-    )
+    snapshot = read_jpx_regulations(sqlite_path, date.fromisoformat(str(snapshot_date)))
+    if snapshot is None:
+        return {"snapshot_date": None, "flags": []}
     return {
-        "snapshot_date": snapshot_date,
-        "flags": sorted(str(row[0]) for row in rows if row[0]),
+        "snapshot_date": str(snapshot_date),
+        "flags": sorted(set(snapshot.flags_by_ticker.get(ticker, ()))),
     }
