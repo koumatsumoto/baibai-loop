@@ -69,12 +69,12 @@ describe('保存した提案と評価', () => {
   it('表示できない原文を最新評価で補わない', () => {
     expect(render(ProposalAssessmentDetails, { ...item, assessment_projection: {} })).toContain('参照評価の本文を表示できません')
   })
-  it('現在quote再試算と保存limit再検証を別表示し、保存条件を更新しない', () => {
+  it('現在quote再試算と保存limit再検証を別表示し、渡されたpreviewを変更しない', () => {
     const preview = { saved_proposal_id: 'investment-proposal-original', previewed_at: '2026-10-14T18:00:00+09:00', status: 'changed', current_inputs: { available_cash_yen: '200000' }, change_reasons: [{ code: 'inputs_changed', message: 'cashが変化しました' }], items: [{ ticker: '1234', saved_action: 'buy', current_quote_calculation: { calculation_price_yen: '1100', quantity: 0, current_price_projection: { base: { total_return_pct: 0 }, downside: { total_return_pct: -36.3636 } } }, saved_limit_revalidation: { quantity: 200 }, blockers: [] }], warnings: ['current-warning'], portfolio_exposure: null } as InvestmentProposalPreviewView
-    const original = JSON.stringify(item)
+    const originalPreview = JSON.stringify(preview)
     const html = renderToStaticMarkup(createElement(CurrentPreviewContent, { preview }))
     for (const text of ['現在 quote での再試算', '試算価格 1100円', '保存 limit の再検証', '現在資金等での試算数量 200株', 'cashが変化しました', '保存した価格・数量・期限を更新していません']) expect(html).toContain(text)
-    expect(JSON.stringify(item)).toBe(original)
+    expect(JSON.stringify(preview)).toBe(originalPreview)
     expect(render(ProposalItemContent)).toContain('300株')
   })
   it('再計算不能の保有判断では理由を示し、未確認の収益率を計算結果に見せない', () => {
