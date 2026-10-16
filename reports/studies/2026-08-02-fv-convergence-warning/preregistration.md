@@ -50,4 +50,4 @@ payloadには`status`、warning code、利用した参考価格、anchor名と�
 
 rejectedでwarningになったのは2026-07-17の7575と2026-07-29の7944で、どちらも現値がsector / self-rangeの両anchor以上かつreversionが負だった。clear 10件のうち9件は現値が片方のanchorだけを上回り、もう片方には上値余地が残った。残る2026-07-28の2267は現値が両anchor未満でreversionも正だった。`not_evaluable`は無く、欠損補完は発生していない。
 
-selectedのwarningは2026-07-29の7575だけだった。この記述比較はwarningの正誤を確定しないが、3 cycleのselectedの95.8%をwarningにしないため、OP3面を広い注意表示で埋めない。既知classのcoverageは16.7%に限定されるので、warningは「人間の棄却型を代行する検出器」ではなく、両machine anchorへの収束を高確度で表面化するannotationとして扱う。
+selectedのwarningは2026-07-29の7575だけだった。この記述比較はwarningの正誤を確定しないが、3 cycleのselectedの95.8%をwarningにしないため、OP3面を広い注意表示で埋めない。既知classのcoverageは16.7%に限定されるので、warningは「人間の棄却型を代行する検出器」ではなく、利用可能な全machine anchor以上の価格と非正のreversionという、定義済みの数値条件を表面化するannotationとして扱う。

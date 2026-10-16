@@ -121,5 +121,5 @@ population_level_difference_about_2pt: observed_on_different_populations
 
 ## 7. 監視事項
 
-- panel が増えるたびに両 basis で再計算する。特に 3.3 は basis 間で向きが割れているので、cohort 一致が片側で 60% を超えるまで結論に使わない。
+- panel が増えるたびに両 basis で再計算する。特に 3.3 は basis 間で差の大きさと cohort 一致率が異なるので、cohort 一致が片側で 60% を超えるまで結論に使わない。
 - 3m / 6m の total 被覆は窓の短さに由来する構造的なもので、単純な panel 追加で解消するとは限らない。`bases_comparable` が true にならない限りこの 2 horizon は price のみで読む。
