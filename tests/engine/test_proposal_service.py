@@ -5,7 +5,7 @@ from contextlib import closing
 from datetime import UTC, timedelta
 
 import pytest
-from tests.helpers.proposal_v1 import PUBLISHED, backend_case, bind_review, reviewed_proposal
+from tests.helpers.proposal import PUBLISHED, backend_case, bind_review, reviewed_proposal
 
 from baibai_engine.research.proposal import ProposalConflictError, ProposalError
 from baibai_engine.research.proposal_query import get_investment_proposal
@@ -157,7 +157,6 @@ def test_same_instant_utc_and_decimal_equivalent_facts_publish(case):
     proposal = reviewed_proposal(case)
     raw = proposal.payload()
     raw["inputs"]["ledger_as_of"] = "2026-10-14T06:00:00Z"
-    raw["inputs"]["quotes"][0]["observed_at"] = "2026-10-14T06:30:00Z"
     raw["inputs"]["quotes"][0]["price_yen"] = "1100.00"
     raw["inputs"]["available_cash_yen"] = "3E+5"
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
@@ -173,7 +172,7 @@ def test_same_instant_utc_and_decimal_equivalent_facts_publish(case):
     ("checked_at", "blocker_code", "message"),
     [
         ("2026-10-14T16:19:00+09:00", "proposal_inputs_after_review", "独立Review以前"),
-        ("2026-10-14T15:20:00+09:00", "quote_observed_after_inputs", "保存入力の収集時刻以前"),
+        ("2026-10-14T15:20:00+09:00", "quote_session_after_inputs", "入力収集時点で利用できる取引日以前"),
     ],
 )
 def test_saved_input_and_quote_times_must_precede_their_reviewed_cutoffs(
@@ -196,7 +195,6 @@ def test_saved_input_and_quote_times_must_precede_their_reviewed_cutoffs(
 def test_saved_input_review_and_quote_boundaries_accept_the_same_utc_instant(case, checked_at):
     raw = reviewed_proposal(case).payload()
     raw["inputs"]["checked_at"] = checked_at
-    raw["inputs"]["quotes"][0]["observed_at"] = "2026-10-14T06:30:00Z"
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     service = InvestmentProposalService(
         case.app, sqlite_path=case.market, clock=lambda: PUBLISHED.astimezone(UTC)

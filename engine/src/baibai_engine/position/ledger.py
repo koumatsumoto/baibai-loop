@@ -229,15 +229,15 @@ class MarketPrice(BaseModel):
 
     ticker: Annotated[str, Field(pattern=_TICKER_PATTERN)]
     price_yen: Annotated[Decimal, Field(gt=0, decimal_places=4)]
-    observed_at: datetime
+    price_as_of: date
     source_kind: Literal["market_api", "official_exchange", "licensed_dataset", "test_fixture"]
     price_basis: Literal["current", "close", "unadjusted_close"]
     source_ref: Annotated[str, Field(min_length=1)]
 
-    @field_validator("observed_at", mode="before")
+    @field_validator("price_as_of", mode="before")
     @classmethod
-    def _parse_observed_at(cls, value: object) -> datetime:
-        return _datetime(value)
+    def _parse_price_date(cls, value: object) -> object:
+        return date.fromisoformat(value) if isinstance(value, str) else value
 
     @field_validator("price_yen", mode="before")
     @classmethod
@@ -342,7 +342,7 @@ class HoldingSnapshot:
     quantity: int
     deployed_cost_yen: int
     market_price_yen: Decimal | None
-    market_price_observed_at: datetime | None
+    market_price_as_of: date | None
     market_price_source_kind: str | None
     market_price_basis: str | None
     market_price_source_ref: str | None
@@ -869,9 +869,9 @@ def snapshot_to_payload(snapshot: PortfolioSnapshot) -> dict[str, object]:
                 "market_price_yen": None
                 if holding.market_price_yen is None
                 else _price_payload(holding.market_price_yen),
-                "market_price_observed_at": None
-                if holding.market_price_observed_at is None
-                else holding.market_price_observed_at.isoformat(),
+                "market_price_as_of": None
+                if holding.market_price_as_of is None
+                else holding.market_price_as_of.isoformat(),
                 "market_price_source_kind": holding.market_price_source_kind,
                 "market_price_basis": holding.market_price_basis,
                 "market_price_source_ref": holding.market_price_source_ref,
@@ -996,7 +996,7 @@ def _holding_snapshots(
                 quantity=quantity,
                 deployed_cost_yen=deployed,
                 market_price_yen=None if market_price is None else market_price.price_yen,
-                market_price_observed_at=None if market_price is None else market_price.observed_at,
+                market_price_as_of=None if market_price is None else market_price.price_as_of,
                 market_price_source_kind=None if market_price is None else market_price.source_kind,
                 market_price_basis=None if market_price is None else market_price.price_basis,
                 market_price_source_ref=None if market_price is None else market_price.source_ref,

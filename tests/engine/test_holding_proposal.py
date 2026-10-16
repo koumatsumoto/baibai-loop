@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -46,7 +46,6 @@ def evaluate(document=None, **overrides):
             quote=QuoteInput(
                 ticker="1234",
                 price_yen=Decimal(1000),
-                observed_at=datetime.fromisoformat("2026-10-14T15:30:00+09:00"),
                 price_as_of=AS_OF,
                 price_basis="last_close_unadjusted",
                 source_ref="fixture:daily_bars",

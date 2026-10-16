@@ -12,7 +12,7 @@ from pathlib import Path
 
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 from baibai_engine.foundation.time import JST
-from baibai_engine.position.market_source import next_order_session
+from baibai_engine.position.market_source import latest_eligible_close_date, next_order_session
 from baibai_engine.position.policy import PORTFOLIO_POLICY
 from baibai_engine.research.assessment_store import (
     ReviewedAssessment,
@@ -257,11 +257,12 @@ def check_proposal(
                 message="保存入力の収集時刻は、その入力を確認した独立Review以前である必要があります。",
             )
         )
-    if any(quote.observed_at > proposal.inputs.checked_at for quote in proposal.inputs.quotes):
+    close_cutoff = latest_eligible_close_date(proposal.inputs.checked_at)
+    if any(quote.price_as_of > close_cutoff for quote in proposal.inputs.quotes):
         blockers.append(
             GateReason(
-                code="quote_observed_after_inputs",
-                message="保存quoteの観測時刻は、保存入力の収集時刻以前である必要があります。",
+                code="quote_session_after_inputs",
+                message="保存終値の対象日は、入力収集時点で利用できる取引日以前である必要があります。",
             )
         )
     for item in proposal.items:

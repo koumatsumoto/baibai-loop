@@ -249,3 +249,17 @@ def test_portfolio_summary_uses_the_replayed_instant(holding_case, valuation_at)
     assert snapshot.ledger_as_of == recorded_at
     assert snapshot.available_cash_yen == state.available_cash_yen
     assert ledger.as_of == recorded_at
+
+
+@pytest.mark.parametrize(
+    ("instant", "expected"),
+    [
+        ("2026-10-14T15:29:59+09:00", "2026-10-13"),
+        ("2026-10-14T15:30:00+09:00", "2026-10-14"),
+        ("2026-10-14T06:30:00Z", "2026-10-14"),
+    ],
+)
+def test_close_date_cutoff_is_not_a_source_observation_timestamp(instant, expected):
+    from baibai_engine.position.market_source import latest_eligible_close_date
+
+    assert latest_eligible_close_date(datetime.fromisoformat(instant)).isoformat() == expected

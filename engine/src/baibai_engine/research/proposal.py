@@ -25,7 +25,7 @@ from baibai_engine.research.selection import ResearchTarget
 from baibai_engine.storage.application.json import canonical_json
 from baibai_engine.valuation.scenario import finite_decimal
 
-INVESTMENT_PROPOSAL_SCHEMA_VERSION = 1
+INVESTMENT_PROPOSAL_SCHEMA_VERSION = 2
 _CONFIG = ConfigDict(extra="forbid", frozen=True, strict=True, allow_inf_nan=False)
 _UUID_PATTERN = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 
@@ -111,9 +111,8 @@ class PositionInput(_ProposalValue):
 class QuoteInput(_ProposalValue):
     ticker: Ticker
     price_yen: PositiveMoney
-    observed_at: Instant
     price_as_of: ISODate
-    price_basis: Literal["last_close_unadjusted", "realtime"]
+    price_basis: Literal["last_close_unadjusted"]
     source_ref: NonEmptyStr
     basis_confirmed: bool
 
@@ -431,7 +430,7 @@ class InvestmentProposal(_ProposalValue):
     """不変の提案本文と、当時の入力・比較範囲・具体条件。"""
 
     kind: Literal["investment_proposal"] = "investment_proposal"
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     proposal_id: Annotated[NonEmptyStr, Field(pattern=rf"^investment-proposal-{_UUID_PATTERN}$")]
     as_of: ISODate
     prepared_at: Instant

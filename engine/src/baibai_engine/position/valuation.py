@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, time
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -84,7 +84,7 @@ def current_portfolio(
             prices[ticker] = MarketPrice(
                 ticker=ticker,
                 price_yen=Decimal(str(quote.close_yen)),
-                observed_at=datetime.combine(quote.price_as_of, time(15, 30), tzinfo=JST),
+                price_as_of=quote.price_as_of,
                 source_kind="market_api",
                 price_basis="unadjusted_close",
                 source_ref="jquants_daily_bars",

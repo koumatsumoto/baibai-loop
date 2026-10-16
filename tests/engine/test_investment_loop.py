@@ -8,7 +8,7 @@ from functools import partial
 
 import pytest
 from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
-from tests.helpers.proposal_v1 import PUBLISHED, backend_case, bind_review
+from tests.helpers.proposal import PUBLISHED, backend_case, bind_review
 
 from baibai_engine.position.decision_references import resolve_buy_reference
 from baibai_engine.position.drafts import apply_draft, build_broker_fact_draft

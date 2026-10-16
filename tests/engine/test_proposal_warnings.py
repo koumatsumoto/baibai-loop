@@ -1,5 +1,5 @@
 import json
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
@@ -79,7 +79,6 @@ def quote(ticker="5678", *, price=1000, **overrides):
             ticker=ticker,
             price_yen=Decimal(price),
             price_as_of=date(2026, 10, 14),
-            observed_at=datetime.fromisoformat("2026-10-14T15:30:00+09:00"),
             price_basis="last_close_unadjusted",
             source_ref="fixture:daily_bars",
             basis_confirmed=True,

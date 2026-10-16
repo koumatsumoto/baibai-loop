@@ -78,6 +78,11 @@ def test_dashboard_reads_market_without_ledger_quotes_and_retains_unknowns(
     assert view.holdings[0].deployed_cost_yen == 203000
     assert view.holdings[0].market_value_yen == (None if missing else 200000)
     assert view.total_capital_yen == (None if missing else 10399500)
+    assert view.holdings[0].market_price_as_of == (None if missing else date(2026, 9, 4))
+    assert view.valuation_as_of == (None if missing else date(2026, 9, 4))
+    assert view.model_dump(mode="json")["valuation_as_of"] == (
+        None if missing else "2026-09-04"
+    )
     assert view.realized_gross_pnl_yen == 0
     if missing:
         assert view.holdings[0].unrealized_pnl_yen is None

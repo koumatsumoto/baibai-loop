@@ -114,7 +114,7 @@ def build_dashboard(
         if any(item.market_price_as_of is None for item in holdings)
         else min(
             (item.market_price_as_of for item in holdings if item.market_price_as_of is not None),
-            default=snapshot.as_of,
+            default=snapshot.as_of.astimezone(_JST).date(),
         )
     )
     return DashboardView(
@@ -125,7 +125,7 @@ def build_dashboard(
         ledger_stale=snapshot.ledger_as_of.astimezone(_JST).date() <= today - timedelta(days=7),
         valuation_as_of=valuation_as_of,
         valuation_stale=valuation_as_of is None
-        or valuation_as_of.date() <= today - timedelta(days=7),
+        or valuation_as_of <= today - timedelta(days=7),
         total_capital_yen=total,
         available_cash_yen=available_cash,
         reserved_cash_yen=reserved_cash,

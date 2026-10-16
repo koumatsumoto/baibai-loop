@@ -170,7 +170,7 @@ def compute_portfolio_outcome(
                 {
                     "ticker": ticker,
                     "price_yen": Decimal(str(bar.close)),
-                    "observed_at": _close_instant(valuation_day).isoformat(),
+                    "price_as_of": valuation_day,
                     "source_kind": "licensed_dataset",
                     "price_basis": "unadjusted_close",
                     "source_ref": (

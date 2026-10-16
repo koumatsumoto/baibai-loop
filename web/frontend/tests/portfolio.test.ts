@@ -11,7 +11,7 @@ function holding(overrides: Partial<HoldingView>): HoldingView {
     quantity: 100,
     deployed_cost_yen: 100_000,
     market_price_yen: '1100',
-    market_price_as_of: '2026-07-23T15:30:00+09:00',
+    market_price_as_of: '2026-07-23',
     market_value_yen: 110_000,
     unrealized_pnl_yen: 10_000,
     unrealized_pnl_pct: 10,

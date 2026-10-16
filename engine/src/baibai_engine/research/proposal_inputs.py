@@ -6,7 +6,7 @@ import json
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime
 from hashlib import sha256
 from pathlib import Path
 
@@ -161,7 +161,6 @@ def collect_proposal_inputs(
         quote = QuoteInput(
             ticker=ticker,
             price_yen=finite_decimal(observed.close_yen),
-            observed_at=datetime.combine(observed.price_as_of, time(15, 30), tzinfo=JST),
             price_as_of=observed.price_as_of,
             price_basis="last_close_unadjusted",
             source_ref="jquants_daily_bars",
@@ -191,7 +190,7 @@ def collect_proposal_inputs(
                 prices[ticker] = MarketPrice(
                     ticker=ticker,
                     price_yen=quote.price_yen,
-                    observed_at=quote.observed_at,
+                    price_as_of=quote.price_as_of,
                     source_kind="market_api",
                     price_basis="unadjusted_close",
                     source_ref=quote.source_ref,

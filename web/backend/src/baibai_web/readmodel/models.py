@@ -30,7 +30,7 @@ class HoldingView(BaseModel):
     quantity: int
     deployed_cost_yen: int
     market_price_yen: str | None
-    market_price_as_of: datetime | None
+    market_price_as_of: date | None
     market_value_yen: int | None
     unrealized_pnl_yen: int | None
     unrealized_pnl_pct: float | None
@@ -95,7 +95,7 @@ class DashboardView(BaseModel):
     ledger_error: str | None
     ledger_as_of: datetime | None
     ledger_stale: bool
-    valuation_as_of: datetime | None
+    valuation_as_of: date | None
     valuation_stale: bool
     total_capital_yen: int | None
     available_cash_yen: int | None = Field(

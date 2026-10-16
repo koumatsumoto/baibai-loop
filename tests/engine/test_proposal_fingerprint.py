@@ -57,7 +57,6 @@ def test_checked_at_is_the_only_excluded_fact(facts):
 def test_decimal_equivalence_and_utc_same_instant_do_not_conflict(facts):
     baseline = _fingerprint(facts)
     facts["ledger_as_of"] = "2026-10-14T06:00:00Z"
-    facts["quotes"][0]["observed_at"] = "2026-10-14T06:30:00Z"
     facts["available_cash_yen"] = "3.00000E+5"
     facts["total_capital_yen"] = "300000.00"
     facts["positions"][0]["cost_yen"] = "90000.000"
@@ -115,8 +114,6 @@ def test_array_order_and_common_factor_order_are_stable(facts):
         (("active_reservations", 0, "decision_reference"), "changed-decision"),
         (("quotes", 0, "price_yen"), "1101"),
         (("quotes", 0, "price_as_of"), "2026-10-13"),
-        (("quotes", 0, "observed_at"), "2026-10-14T15:31:00+09:00"),
-        (("quotes", 0, "price_basis"), "realtime"),
         (("quotes", 0, "source_ref"), "fixture:other-received-version"),
         (("quotes", 0, "basis_confirmed"), False),
         (("security_classification", 0, "market_segment"), "Standard"),

@@ -42,6 +42,14 @@ class UnadjustedCloseObservation:
     corporate_action_unresolved: bool
 
 
+def latest_eligible_close_date(at: datetime) -> date:
+    """Apply the JST session cutoff without inventing a source observation timestamp."""
+    if at.tzinfo is None or at.utcoffset() is None:
+        raise ValueError("market instant requires a timezone")
+    local = at.astimezone(JST)
+    return local.date() - timedelta(days=local.time() < time(15, 30))
+
+
 def read_unadjusted_close(
     *,
     sqlite_path: Path,
@@ -54,10 +62,7 @@ def read_unadjusted_close(
     ``None`` means no raw close is available (missing store, missing coverage, or an
     adjusted-only row); the caller must not substitute an adjusted series.
     """
-    if at.tzinfo is None or at.utcoffset() is None:
-        raise ValueError("quote instant requires a timezone")
-    local_at = at.astimezone(JST)
-    target_session = local_at.date() + timedelta(days=local_at.time() >= time(15, 30))
+    latest_close_date = latest_eligible_close_date(at)
     conn = connection
     owns_connection = conn is None
     if conn is None:
@@ -71,8 +76,8 @@ def read_unadjusted_close(
         if version_row is None or int(version_row[0]) != SQLITE_SCHEMA_VERSION:
             raise SQLiteSchemaError("market quote requires the current market schema")
         market_session_row = conn.execute(
-            "SELECT MAX(traded_at) FROM jquants_daily_bars WHERE traded_at < ?",
-            (target_session.isoformat(),),
+            "SELECT MAX(traded_at) FROM jquants_daily_bars WHERE traded_at <= ?",
+            (latest_close_date.isoformat(),),
         ).fetchone()
         if market_session_row is None or market_session_row[0] is None:
             return None
@@ -182,10 +187,7 @@ def market_basis_is_confirmed(
 
 def next_order_session(*, sqlite_path: Path, now: datetime) -> date | None:
     """Resolve the first unexpired session from the existing calendar, including holidays."""
-    if now.tzinfo is None or now.utcoffset() is None:
-        raise ValueError("order planning instant requires a timezone")
-    local = now.astimezone(JST)
-    start = local.date() + timedelta(days=local.time() >= time(15, 30))
+    start = latest_eligible_close_date(now) + timedelta(days=1)
     if not sqlite_path.exists():
         return None
     with closing(connect_read_only(sqlite_path)) as connection:

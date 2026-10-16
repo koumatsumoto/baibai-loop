@@ -7,7 +7,7 @@ from datetime import timedelta
 
 import pytest
 from tests.helpers.assessment_v1 import assessment_id, pair_payload, review_id, update_review_hash
-from tests.helpers.proposal_v1 import PREPARED, PUBLISHED, backend_case, reviewed_proposal
+from tests.helpers.proposal import PREPARED, PUBLISHED, backend_case, reviewed_proposal
 from tests.helpers.screening_sqlite import seed_daily_bars
 
 import baibai_engine.read_api as read_api

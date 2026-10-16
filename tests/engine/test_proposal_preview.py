@@ -6,7 +6,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
-from tests.helpers.proposal_v1 import PUBLISHED, backend_case, bind_review, reviewed_proposal
+from tests.helpers.proposal import PUBLISHED, backend_case, bind_review, reviewed_proposal
 
 from baibai_engine.research.proposal_query import get_investment_proposal, preview_current_terms
 from baibai_engine.research.proposal_service import InvestmentProposalService

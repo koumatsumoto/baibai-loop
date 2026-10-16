@@ -51,7 +51,7 @@ def holding_view(
     price_value = None if holding.market_price_yen is None else float(holding.market_price_yen)
     price_display = None if holding.market_price_yen is None else str(holding.market_price_yen)
     market_value = holding.market_value_yen
-    price_as_of = holding.market_price_observed_at
+    price_as_of = holding.market_price_as_of
     pnl = None if market_value is None else market_value - holding.deployed_cost_yen
     fair_value = revision.pmax_original_yen if revision is not None else None
     fv_gap = None
@@ -64,7 +64,7 @@ def holding_view(
             or not market.price_comparison_basis_is_confirmed(
                 holding.ticker,
                 from_date=revision.original_price_as_of,
-                through_date=price_as_of.astimezone(_JST).date(),
+                through_date=price_as_of,
             )
         ):
             gap_unavailable_reason = "原評価から現在株価までの株式単位を確認できません。"

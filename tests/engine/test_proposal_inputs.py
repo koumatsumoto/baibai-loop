@@ -6,7 +6,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
-from tests.helpers.proposal_v1 import (
+from tests.helpers.proposal import (
     PREPARED,
     PROPOSAL_ID,
     PUBLISHED,
@@ -45,9 +45,8 @@ def test_collect_preserves_meta_cutoff_and_stable_daily_label(tmp_path):
     assert first.checked_at != second.checked_at
     assert first.ledger_as_of == second.ledger_as_of == case.ledger.as_of
     assert first.ledger_head == second.ledger_head == 1
-    assert first.quotes[0].observed_at == second.quotes[0].observed_at
-    assert first.quotes[0].observed_at.hour == 15
-    assert first.quotes[0].observed_at.minute == 30
+    assert first.quotes[0].price_as_of == second.quotes[0].price_as_of == PREPARED.date()
+    assert "observed_at" not in first.quotes[0].model_dump()
     assert proposal_inputs_fingerprint(first) == proposal_inputs_fingerprint(second)
     context = build_proposal_context(
         operation_id=case.operation.operation_id,

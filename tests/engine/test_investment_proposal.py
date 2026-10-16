@@ -140,7 +140,7 @@ def test_naive_time_rejected(payload):
         InvestmentProposal.model_validate(payload)
 
 
-@pytest.mark.parametrize("value", [True, 1.0, "1"])
+@pytest.mark.parametrize("value", [True, 2.0, "2"])
 def test_version_does_not_coerce_boolean_float_or_string(payload, value):
     payload["schema_version"] = value
     with pytest.raises(ValidationError, match="must be an integer"):
@@ -471,3 +471,13 @@ def test_review_draft_hash_covers_saved_inputs_terms_scope_and_projections(paylo
     else:
         payload["liquidity_context"][0]["unavailable_reason"] = "元snapshotにADV無し"
     assert proposal_draft_sha256(InvestmentProposal.model_validate(payload)) != baseline
+
+
+def test_quote_uses_native_daily_date_without_an_observation_clock(payload):
+    proposal = InvestmentProposal.model_validate(payload)
+    quote = proposal.inputs.quotes[0]
+    assert quote.price_as_of.isoformat() == "2026-10-14"
+    assert "observed_at" not in quote.model_dump()
+    payload["inputs"]["quotes"][0]["observed_at"] = "2026-10-14T15:30:00+09:00"
+    with pytest.raises(ValidationError, match="Extra inputs"):
+        InvestmentProposal.model_validate(payload)

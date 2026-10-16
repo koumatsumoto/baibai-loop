@@ -1012,7 +1012,7 @@
         "valuation_as_of": {
           "anyOf": [
             {
-              "format": "date-time",
+              "format": "date",
               "type": "string"
             },
             {
@@ -2447,7 +2447,7 @@
         "market_price_as_of": {
           "anyOf": [
             {
-              "format": "date-time",
+              "format": "date",
               "type": "string"
             },
             {

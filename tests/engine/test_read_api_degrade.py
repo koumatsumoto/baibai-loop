@@ -14,7 +14,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
-from tests.helpers.proposal_v1 import PUBLISHED, backend_case, reviewed_proposal
+from tests.helpers.proposal import PUBLISHED, backend_case, reviewed_proposal
 
 import baibai_engine.read_api as read_api
 from baibai_engine.market_context.indicators.db import (

@@ -590,7 +590,7 @@ def test_reservation_partial_fill_release_preserves_book_capital(
                 {
                     "ticker": "2331",
                     "price_yen": execution_price,
-                    "observed_at": "2026-01-06T15:00:00+09:00",
+                    "price_as_of": "2026-01-06",
                     "source_kind": "test_fixture",
                     "price_basis": "close",
                     "source_ref": "property-fixture",
