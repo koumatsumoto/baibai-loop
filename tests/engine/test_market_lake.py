@@ -843,7 +843,9 @@ def test_a_forward_only_calendar_uses_its_policy_floor_not_the_previous_snapshot
 
 
 @pytest.mark.parametrize("carries_history", [True, False])
-@pytest.mark.parametrize("dataset", ["tradingview.forecast_snapshots", "edinet.tender_offer_exit_values"])
+@pytest.mark.parametrize(
+    "dataset", ["tradingview.forecast_snapshots", "edinet.tender_offer_exit_values"]
+)
 def test_optional_published_history_cannot_disappear(monkeypatch, carries_history, dataset):
     narrow_release_policy(
         monkeypatch, datasets=("jquants.daily_bars", dataset), carries_history=carries_history
@@ -901,7 +903,8 @@ def test_release_requires_the_current_dataset_contract(monkeypatch) -> None:
 
 def test_recomputed_exit_proxies_do_not_require_historical_conclusions() -> None:
     policy = next(
-        item for item in lake_models.PRODUCTION_RELEASE_POLICY.datasets
+        item
+        for item in lake_models.PRODUCTION_RELEASE_POLICY.datasets
         if item.dataset == "edinet.tender_offer_exit_values"
     )
     assert not policy.required
