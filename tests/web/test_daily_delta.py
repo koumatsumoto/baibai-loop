@@ -268,9 +268,14 @@ def test_disclosure_context_stays_inside_the_compared_runs(tmp_path: Path) -> No
 
 @pytest.mark.parametrize(
     ("previous", "current", "included"),
-    [(0.1004, 0.13, False), (0.13, 0.1004, False),
-     (0.10, 0.13, True), (0.10, 0.07, True),
-     (0.10, 0.13001, True), (0.10, 0.06999, True)],
+    [
+        (0.1004, 0.13, False),
+        (0.13, 0.1004, False),
+        (0.10, 0.13, True),
+        (0.10, 0.07, True),
+        (0.10, 0.13001, True),
+        (0.10, 0.06999, True),
+    ],
 )
 def test_estimate_mover_threshold_uses_unrounded_change(previous, current, included):
     view = build_daily_delta(
