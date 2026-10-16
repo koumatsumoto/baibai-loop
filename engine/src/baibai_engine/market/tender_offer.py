@@ -276,25 +276,14 @@ def build_tender_offer_exit_values(
 def store_tender_offer_exit_values(
     sqlite_path: Path, values: Sequence[TenderOfferExitValue]
 ) -> int:
-    """Replace the derived table wholesale: it is a function of the two sources.
+    """Replace derived proxies with exactly the currently established values.
 
-    A derivation that established nothing does not clear a table that already holds
-    values. Missing identities or unreadable filings can produce an empty result;
-    neither proves that every stored exit value should be retracted. This table is
-    published through L1, not merged back from the machine-store copy.
+    An empty successful derivation retracts old proxies just as a partial result
+    retracts omitted ones. Source acquisition failures must propagate before this
+    write; unavailable evidence is never permission to retain an old conclusion.
     """
     connection = open_connection(sqlite_path)
     try:
-        if not values:
-            stored = int(
-                connection.execute("SELECT COUNT(*) FROM tender_offer_exit_values").fetchone()[0]
-                or 0
-            )
-            if stored:
-                raise TenderOfferError(
-                    f"refusing to replace {stored} exit values with an empty derivation; "
-                    "check source coverage, identity mapping and rejected documents before retrying"
-                )
         connection.execute("DELETE FROM tender_offer_exit_values")
         connection.executemany(
             "INSERT INTO tender_offer_exit_values("

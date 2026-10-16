@@ -10,7 +10,6 @@ from tempfile import TemporaryDirectory
 
 from baibai_engine.market.delistings import DelistingRecord, store_jpx_delistings
 from baibai_engine.market.tender_offer import (
-    TenderOfferError,
     build_tender_offer_exit_values,
     parse_ordinary_share_offer_price,
     pays_in_cash_only,
@@ -868,8 +867,8 @@ class ControlEventExitBuildTest(unittest.TestCase):
 
             self.assertEqual(read_tender_offer_exit_values(sqlite_path), ())
 
-    def test_an_empty_derivation_does_not_clear_values_already_established(self) -> None:
-        """空の導出結果で既存の確定したexit valueを消さない。"""
+    def test_an_empty_derivation_retracts_values_no_longer_established(self) -> None:
+        """Derived proxies must not outlive the filing evidence that supports them."""
         with TemporaryDirectory() as tmp:
             sqlite_path = self._store(
                 tmp, self._registration_and_result(), reason="ＭＢＯ（公開買付け、株式併合）"
@@ -887,10 +886,8 @@ class ControlEventExitBuildTest(unittest.TestCase):
             )
             store_tender_offer_exit_values(sqlite_path, values)
 
-            with self.assertRaises(TenderOfferError):
-                store_tender_offer_exit_values(sqlite_path, ())
-
-            self.assertEqual(len(read_tender_offer_exit_values(sqlite_path)), 1)
+            self.assertEqual(store_tender_offer_exit_values(sqlite_path, ()), 0)
+            self.assertEqual(read_tender_offer_exit_values(sqlite_path), ())
 
 
 class DocumentBlocksTest(unittest.TestCase):
