@@ -735,13 +735,12 @@ def _is_unusable_status(document: Mapping[str, Any]) -> bool:
     withdrawal_status = text_or_none(
         coalesce_field(document, "withdrawalStatus", "withdrawal_status")
     )
-    # EDINET document list uses legalStatus="1", disclosureStatus="0",
-    # withdrawalStatus="0" for normal usable filings. Treat unknown/missing
-    # status as usable because older cached payloads may not have all fields.
+    # Only explicit published, non-withdrawn filings are usable. Missing flags
+    # in an old normalized cache do not establish current document validity.
     return (
-        legal_status not in (None, "1", "2")
-        or disclosure_status not in (None, "0")
-        or withdrawal_status not in (None, "0")
+        legal_status not in ("1", "2")
+        or disclosure_status != "0"
+        or withdrawal_status != "0"
     )
 
 

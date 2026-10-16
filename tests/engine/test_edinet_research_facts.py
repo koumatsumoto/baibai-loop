@@ -533,3 +533,33 @@ def test_metadata_edit_clears_optional_values_in_raw_and_stored_rows(tmp_path, t
     assert current["docTypeCode"] == "130"
     assert correction["parentDocID"] == "S100TEST"
     assert correction["periodEnd"] == "2026-03-31"
+
+
+@pytest.mark.parametrize("edited", ["0", "2"])
+def test_metadata_edit_status_is_not_document_unavailability(tmp_path, edited):
+    from baibai_engine.market.edinet_facts.service import usable_document
+    from baibai_engine.market.providers.edinet import select_document_candidates
+
+    # EDINET API v2 section 3-1-6: 2 identifies the edited filing, not a withdrawal.
+    original = document()
+    original["docInfoEditStatus"] = edited
+    path = tmp_path / "market.sqlite"
+    insert_documents(path, [original])
+    assert selected_filing(path, "2026-06-24")[-1] == "usable"
+    assert usable_document(annual_documents([original])[0])
+    assert select_document_candidates([original]).candidates["1873"].doc_id == "S100TEST"
+
+
+@pytest.mark.parametrize("field", ["legalStatus", "disclosureStatus", "withdrawalStatus"])
+@pytest.mark.parametrize("missing", [None, "", "omitted"])
+def test_missing_document_validity_is_not_treated_as_legacy_usable(field, missing):
+    from baibai_engine.market.edinet_facts.service import usable_document
+    from baibai_engine.market.providers.edinet import select_document_candidates
+
+    original = document()
+    if missing == "omitted":
+        original.pop(field)
+    else:
+        original[field] = missing
+    assert not select_document_candidates([original]).candidates
+    assert not usable_document(annual_documents([original])[0])

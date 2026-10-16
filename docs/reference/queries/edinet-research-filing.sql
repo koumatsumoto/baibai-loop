@@ -45,7 +45,7 @@ WITH RECURSIVE origins AS (
 ), selected AS (
   SELECT r.*,
     CASE WHEN r.legal_status IN ('1', '2') AND r.disclosure_status = '0'
-      AND r.withdrawal_status = '0' AND r.doc_info_edit_status = '0' AND r.xbrl_flag = '1'
+      AND r.withdrawal_status = '0' AND r.doc_info_edit_status IN ('0', '2') AND r.xbrl_flag = '1'
       AND r.annual_period_end IS NOT NULL
       AND NOT EXISTS (
         SELECT 1 FROM unresolved_annual_events e
@@ -63,8 +63,7 @@ WITH RECURSIVE origins AS (
       AND NOT EXISTS (
         SELECT 1 FROM origins o JOIN families f ON o.doc_id = f.doc_id
         WHERE o.version = 1 AND f.root_id = r.root_id
-          AND (o.withdrawal_status = '2' OR o.disclosure_status = '2'
-            OR o.doc_info_edit_status = '2')
+          AND (o.withdrawal_status = '2' OR o.disclosure_status = '2')
       )
       AND NOT EXISTS (
         SELECT 1 FROM docs e JOIN families f

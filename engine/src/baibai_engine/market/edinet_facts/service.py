@@ -131,7 +131,7 @@ def usable_document(doc: dict[str, Any]) -> bool:
         and str(doc.get("legalStatus")) in {"1", "2"}
         and str(doc.get("withdrawalStatus")) == "0"
         and str(doc.get("disclosureStatus")) == "0"
-        and str(doc.get("docInfoEditStatus")) == "0"
+        and str(doc.get("docInfoEditStatus")) in {"0", "2"}
         and str(doc.get("xbrlFlag")) == "1"
     )
 
