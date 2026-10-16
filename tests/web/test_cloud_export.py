@@ -156,10 +156,10 @@ def test_build_meta_freshness_ignores_retained_unregistered_series(
     assert view.data_updated_at == datetime(2026, 7, 18, 0, 0, tzinfo=JST)
 
 
-def test_build_meta_takes_the_latest_judgment_write_across_stores(
+def test_build_meta_takes_the_latest_business_record_timestamp(
     app_method_root: Path,
 ) -> None:
-    # The fixture's newest judgment write without a macro context is a task created
+    # The fixture's latest business-record timestamp without a macro context is a task created
     # on 2026-07-18; its date-only column is read at JST midnight.
     view = build_meta(_meta_source(app_method_root))
 
@@ -168,10 +168,10 @@ def test_build_meta_takes_the_latest_judgment_write_across_stores(
     assert view.batch is None
 
 
-def test_build_meta_reflects_a_newly_written_operation_session(
+def test_build_meta_reflects_the_operation_session_start_time(
     app_method_root: Path,
 ) -> None:
-    # A judgment write in a table beyond ledger/research/market-context must move freshness.
+    # Operation start time contributes to freshness; this is not the physical database write time.
     started_at = datetime(2026, 8, 1, 9, 30, tzinfo=JST)
     database = app_method_root / "stores/application/baibai.sqlite"
     with closing(sqlite3.connect(database)) as connection, connection:
@@ -450,7 +450,7 @@ def test_exported_views_match_api_responses(app_method_root: Path, tmp_path: Pat
     service = LedgerStoreService(app_method_root / "stores/application/baibai.sqlite")
     draft = build_sell_execution_draft(
         service,
-        occurred_at=datetime(2026, 7, 12, 10, tzinfo=JST),
+        occurred_on=date(2026, 7, 12),
         ticker="2331",
         quantity=100,
         price_yen=Decimal("1100"),

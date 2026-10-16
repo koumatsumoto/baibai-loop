@@ -121,7 +121,7 @@ def test_api_meta_reports_store_freshness(app_method_root: Path) -> None:
     body = response.json()
     assert body["screening_as_of"] == "2026-07-08"
     assert body["indicators_as_of"] is None
-    # Newest judgment write in the fixture is a task created on 2026-07-18 (JST date).
+    # The latest business-record timestamp is the task creation date, not a DB write time.
     assert datetime.fromisoformat(body["app_db_updated_at"]) == datetime(
         2026, 7, 18, 0, 0, tzinfo=ZoneInfo("Asia/Tokyo")
     )
