@@ -312,78 +312,48 @@ class ScreeningMetricsTests(SnapshotFixtures):
         self.assertIsNone(_shares_excluding_treasury(1_000.0, 1_000.0))
         self.assertEqual(_shares_excluding_treasury(1_000.0, 100.0), 900.0)
 
-    def test_treasury_carry_stops_after_issued_shares_decrease(self) -> None:
-        """消却後の発行済から消却前の自己株をもう一度引かない。"""
+    def test_positive_treasury_is_not_reused_after_later_issued_observations(self) -> None:
+        """総株数の増減・不変・回復から、欠測した自己株の現在値を推測しない。"""
         asof = date(2026, 7, 1)
         bars = _daily_bars("130A", asof, 40)
-        summaries = [
-            _summary(
-                "130A",
-                asof - timedelta(days=300),
-                fiscal_period="FY",
-                shares_outstanding=1_000.0,
-                treasury_shares=300.0,
-            ),
-            _summary(
-                "130A",
-                asof - timedelta(days=20),
-                shares_outstanding=700.0,
-                treasury_shares=None,
-            ),
-        ]
-
-        index = build_shares_outstanding_index({"130A": summaries}, {"130A": bars}, asof)
-        snapshot = build_metrics(
-            asof_date=asof,
-            securities_by_ticker={"130A": _security()},
-            bars_by_ticker={"130A": bars},
-            summaries_by_ticker={"130A": summaries},
-            edinet_by_ticker={},
-        ).financials["130A"]
-
-        self.assertIsNone(index["130A"])
-        self.assertIsNone(snapshot.market_cap)
-        self.assertEqual(snapshot.shares_outstanding, 700.0)
-        self.assertEqual(
-            snapshot.capital_basis_failure_reason,
-            "indeterminate_positive_treasury_after_later_issued_observation",
+        cases = (
+            ("decrease", 300.0, (700.0,)),
+            ("increase", 100.0, (1100.0,)),
+            ("same_gross", 100.0, (1000.0,)),
+            ("decrease_then_increase", 100.0, (900.0, 1100.0)),
         )
-
-    def test_treasury_carry_stops_after_issued_shares_increase(self) -> None:
-        """増資と同時の自己株処分を観測できないため、古い自己株を再控除しない。"""
-        asof = date(2026, 7, 1)
-        bars = _daily_bars("130A", asof, 40)
-        summaries = [
-            _summary(
-                "130A",
-                asof - timedelta(days=300),
-                fiscal_period="FY",
-                shares_outstanding=1_000.0,
-                treasury_shares=100.0,
-            ),
-            _summary(
-                "130A",
-                asof - timedelta(days=20),
-                shares_outstanding=1_100.0,
-                treasury_shares=None,
-            ),
-        ]
-
-        index = build_shares_outstanding_index({"130A": summaries}, {"130A": bars}, asof)
-        snapshot = build_metrics(
-            asof_date=asof,
-            securities_by_ticker={"130A": _security()},
-            bars_by_ticker={"130A": bars},
-            summaries_by_ticker={"130A": summaries},
-            edinet_by_ticker={},
-        ).financials["130A"]
-
-        self.assertIsNone(index["130A"])
-        self.assertIsNone(snapshot.shares_ex_treasury)
-        self.assertEqual(
-            snapshot.capital_basis_failure_reason,
-            "indeterminate_positive_treasury_after_later_issued_observation",
-        )
+        for name, old_treasury, later_issued in cases:
+            with self.subTest(case=name):
+                summaries = [
+                    _summary(
+                        "130A", asof - timedelta(days=300), fiscal_period="FY",
+                        shares_outstanding=1000.0, treasury_shares=old_treasury,
+                    ),
+                    *[
+                        _summary(
+                            "130A", asof - timedelta(days=20 + 180 * (len(later_issued) - i - 1)),
+                            shares_outstanding=issued, treasury_shares=None,
+                            average_shares=950.0 if name == "same_gross" else None,
+                        )
+                        for i, issued in enumerate(later_issued)
+                    ],
+                ]
+                index = build_shares_outstanding_index({"130A": summaries}, {"130A": bars}, asof)
+                snapshot = build_metrics(
+                    asof_date=asof,
+                    securities_by_ticker={"130A": _security()},
+                    bars_by_ticker={"130A": bars},
+                    summaries_by_ticker={"130A": summaries},
+                    edinet_by_ticker={},
+                ).financials["130A"]
+                self.assertIsNone(index["130A"])
+                self.assertIsNone(snapshot.market_cap)
+                self.assertIsNone(snapshot.shares_ex_treasury)
+                self.assertEqual(snapshot.shares_outstanding, later_issued[-1])
+                self.assertEqual(
+                    snapshot.capital_basis_failure_reason,
+                    "indeterminate_positive_treasury_after_later_issued_observation",
+                )
 
     def test_known_valid_old_treasury_still_fails_closed_without_current_provenance(self) -> None:
         """一次資料で旧10株が有効でも、lossy入力だけでは無効例と区別できない。"""
@@ -409,86 +379,6 @@ class ScreeningMetricsTests(SnapshotFixtures):
         self.assertIsNone(result.shares_ex_treasury)
         self.assertEqual(
             result.failure_reason,
-            "indeterminate_positive_treasury_after_later_issued_observation",
-        )
-
-    def test_treasury_carry_stops_after_same_gross_issued_is_reobserved(self) -> None:
-        """自己株0が欠損になるsourceで、処分前の正値を同じgrossから再控除しない。"""
-        asof = date(2026, 7, 1)
-        bars = _daily_bars("130A", asof, 40)
-        summaries = [
-            _summary(
-                "130A",
-                asof - timedelta(days=300),
-                fiscal_period="FY",
-                shares_outstanding=1_000.0,
-                treasury_shares=100.0,
-            ),
-            _summary(
-                "130A",
-                asof - timedelta(days=20),
-                shares_outstanding=1_000.0,
-                treasury_shares=None,
-                average_shares=950.0,
-            ),
-        ]
-
-        index = build_shares_outstanding_index({"130A": summaries}, {"130A": bars}, asof)
-        snapshot = build_metrics(
-            asof_date=asof,
-            securities_by_ticker={"130A": _security()},
-            bars_by_ticker={"130A": bars},
-            summaries_by_ticker={"130A": summaries},
-            edinet_by_ticker={},
-        ).financials["130A"]
-
-        self.assertIsNone(index["130A"])
-        self.assertIsNone(snapshot.market_cap)
-        self.assertEqual(
-            snapshot.capital_basis_failure_reason,
-            "indeterminate_positive_treasury_after_later_issued_observation",
-        )
-
-    def test_treasury_carry_does_not_revive_after_decrease_then_increase(self) -> None:
-        """消却前の自己株basisは、後日の増資でgrossが回復しても復活しない。"""
-        asof = date(2026, 7, 1)
-        bars = _daily_bars("130A", asof, 40)
-        summaries = [
-            _summary(
-                "130A",
-                asof - timedelta(days=300),
-                fiscal_period="FY",
-                shares_outstanding=1_000.0,
-                treasury_shares=100.0,
-            ),
-            _summary(
-                "130A",
-                asof - timedelta(days=200),
-                shares_outstanding=900.0,
-                treasury_shares=None,
-            ),
-            _summary(
-                "130A",
-                asof - timedelta(days=20),
-                shares_outstanding=1_100.0,
-                treasury_shares=None,
-            ),
-        ]
-
-        index = build_shares_outstanding_index({"130A": summaries}, {"130A": bars}, asof)
-        snapshot = build_metrics(
-            asof_date=asof,
-            securities_by_ticker={"130A": _security()},
-            bars_by_ticker={"130A": bars},
-            summaries_by_ticker={"130A": summaries},
-            edinet_by_ticker={},
-        ).financials["130A"]
-
-        self.assertIsNone(index["130A"])
-        self.assertIsNone(snapshot.market_cap)
-        self.assertEqual(snapshot.shares_outstanding, 1_100.0)
-        self.assertEqual(
-            snapshot.capital_basis_failure_reason,
             "indeterminate_positive_treasury_after_later_issued_observation",
         )
 
@@ -1088,12 +978,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
         self.assertEqual(kept.debt, 300.0)
 
     def test_accruals_use_the_reported_profit_line_not_a_share_count_product(self) -> None:
-        """accruals の純利益は報告値。1 株当たり x 発行済株数で作らない。
-
-        自己株式を 30% 積み上げた会社では、発行済株数を掛けた再構成が純利益を 1.43 倍に
-        し、accruals が 0.04 から 0.09 へ動く。判定はこの水準で行うので、再構成の誤差だけ
-        で earnings-quality の結論が変わる。
-        """
+        """報告利益を EPS × 期末の総株数・自己株控除後株数のどちらにも置換しない。"""
         asof = date(2026, 7, 1)
         security = _security()
         bars = _daily_bars("130A", asof, 30)
@@ -1102,6 +987,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 "130A",
                 date(2026, 5, 15),
                 eps_ttm=10.0,
+                profit=500_000_000.0,
                 shares_outstanding=100_000_000.0,
                 treasury_shares=30_000_000.0,
                 cfo=100_000_000.0,
@@ -1120,19 +1006,21 @@ class ScreeningMetricsTests(SnapshotFixtures):
             edinet_by_ticker={},
         )
         financial = result.financials["130A"]
-        reported_profit = 10.0 * (100_000_000.0 - 30_000_000.0)
+        reported_profit = 500_000_000.0
         assert financial.accruals_to_assets is not None
         self.assertAlmostEqual(
             financial.accruals_to_assets,
             (reported_profit - 100_000_000.0) / 10_000_000_000.0,
             places=9,
         )
-        reconstructed = 10.0 * 100_000_000.0
-        self.assertNotAlmostEqual(
-            financial.accruals_to_assets,
-            (reconstructed - 100_000_000.0) / 10_000_000_000.0,
-            places=3,
-        )
+        # 正しい値は0.04。期末net株数での再構成は0.06、gross株数なら0.09になる。
+        for shares in (70_000_000.0, 100_000_000.0):
+            with self.subTest(reconstructed_shares=shares):
+                self.assertNotAlmostEqual(
+                    financial.accruals_to_assets,
+                    (10.0 * shares - 100_000_000.0) / 10_000_000_000.0,
+                    places=3,
+                )
 
     def test_build_metrics_preserves_edinet_source_metadata(self) -> None:
         asof = date(2026, 4, 24)
