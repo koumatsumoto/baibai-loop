@@ -298,8 +298,8 @@ matched 比較の被覆率・membership 数・集中度など、forward outcome 
 - **control cell の判定は「0 許容の全 cell 通過」を既定にしない**（偽陰性へ構造的に偏る）。noise floor（例: trap delta ≤ +2pt）または k-of-n cell 通過と、cell ごとの最小 matched weight を**事前登録で宣言**する。
 - 判定語彙は `negative` / `insufficient` / `adoption_candidate` / `inconclusive` の 4 種。同一仮説の再検定は新 evidence（新規満期 cohort・contract レベルの nomination contract 変更）がある場合に限る。
 - **語彙は窓ごとに決めてから全体へ畳む。** 窓を跨いで「どれか 1 つでも被覆不足なら全体 `insufficient`」とすると、1 窓の 1 basis の件数不足が、他窓で確定した効果の不成立を語彙の上で覆い隠す。各窓を `insufficient` / `inconclusive` / `negative` / `adoption_candidate` へ落としたうえで統合し、全体を `insufficient` と呼ぶのは、**効果が確定した窓が 1 つも無い**ときに限る。
-- **満期済み窓を根拠に cleanup するときは、残る変動幅を示す。** as-of 範囲が固定で満期済みでも値は不動ではない。forward row は build のたびに再計算され、FY 配当や退場銘柄の exit が backfill されれば `total` basis の pair 数と中央値は動く。したがって次の bullet の `insufficient` 保持規則より削除を優先してよいのは、**その窓の効果が確定しており、かつ窓内の coverage backfill では結論が反転しないことを示した**ときに限る。示せないなら保持規則が優先する。
-- `negative` / `inconclusive` が確定した軸は、判定 PR で panel 列・派生計算・評価枝・専用 test を削除し、dated report と git history を反証証跡の正本とする（残すのは `adoption_candidate` / `insufficient` / control 再利用列 / production annotation 入力列のみ）。
+- **測定の判定と実装の存続は分ける。** 固定した満期済み窓でも、配当・exitの補完で結果は動く。効果の不成立を削除理由として主張する場合は、残るcoverageの限界と結論が変わり得る範囲を示す。証拠不足は `insufficient` のまま記録し、削除したことを棄却や収益改善の証明にしない。
+- 実装を残すかは[開発投資方針](../doctrine.md#development-investment-policy)に従い、現在の用途と維持費で決める。`insufficient` / `adoption_candidate` でも用途のないpanel列・派生計算・評価枝・専用testは削減でき、満期や追加取得を待つ保持義務はない。controlや本番判断が使う部分は必要性を確認して残す。過去の測定・採否はdated reportとgit historyで追えるようにする。
 - rules variant の計測は本番 rules を変えず `SCREENING_RULES_PATH` で variant を指し、別 store（`stores/screening/calibration/variants/<variant>/`）へ panel を構築する。rules_hash provenance が混線を機械検出する。
 - 機械レバー（approach / 候補一覧 / E[r]）の実証的改訂は 3y/5y eligible evidence を必須の関門にし、判断レバー（市場環境判断 / research 手順）は保有 outcome と運用の事後検証で改める。
 
@@ -319,7 +319,7 @@ Research Setの対象について、[Stock Assessment](./stock-assessment.md#sce
 
 ### 支配権イベントの exit 代理値
 
-上場廃止で市場終値が無くなった forward 窓は、成立した現金公開買付けの 1 株買付価格を代理値として計算する（`resolved_control_event_exit`）。買付価格と成立報告は観測事実だが、上場廃止日にその価格で退出したという扱いは較正上の測定規約である。非応募株主のスクイーズアウト対価、実際の支払日、個々の受取額を確認したものではない。`resolved` はこの規約で計算できたことを表し、実約定・現金受領の証明とは区別する。[JPXの上場制度FAQ](https://www.jpx.co.jp/faq/stock_listed_company.html)も、非応募株主の後続手続について発行会社の開示確認を案内している。導出規則・置換規則・比較方法・停止条件は [`reports/studies/2026-08-11-capital-control-exit-values/preregistration.md`](../../reports/studies/2026-08-11-capital-control-exit-values/preregistration.md) に事前登録し、置換前後の較正影響を同ディレクトリの report に固定する。代理値を確定できない上場廃止は従来どおり全損・中立の感度ケースに残り、`unpriced_exit_flips_direction` の判定材料であり続ける。
+上場廃止で市場終値が無くなった forward 窓は、成立した現金公開買付けの 1 株買付価格を代理値として計算する（`resolved_control_event_exit`）。買付価格と成立報告は観測事実だが、上場廃止日にその価格で退出したという扱いは較正上の測定規約である。非応募株主のスクイーズアウト対価、実際の支払日、個々の受取額を確認したものではない。`resolved` はこの規約で計算できたことを表し、実約定・現金受領の証明とは区別する。[JPXの上場制度FAQ](https://www.jpx.co.jp/faq/stock_listed_company.html)も、非応募株主の後続手続について発行会社の開示確認を案内している。導入時の[事前登録](../../reports/studies/2026-08-11-capital-control-exit-values/preregistration.md)と[比較結果](../../reports/studies/2026-08-11-capital-control-exit-values/report.md)は履歴として残す。旧schema・CLI・再構築範囲・停止条件を現在の手順へ読み替えず、現行の導出・置換条件は本節と実装を正本とする。代理値を確定できない上場廃止は従来どおり全損・中立の感度ケースに残り、`unpriced_exit_flips_direction` の判定材料であり続ける。
 
 JPX理由の「公開買付」「株式の併合 / 株式併合」「株式等売渡請求」は資料確認へ進む候補条件で、現金対価の証明ではない。株式併合・売渡請求だけの表記でも、先行する現金公開買付けを資料で検証する。対象ticker・届出/訂正・取下げ・成立報告・普通株1株の単一価格・現金のみという既存の証拠条件を保ち、資料なし・撤回・非現金・価格不一致は未解決に残す。CLIの`candidates`は調査候補件数、`resolved`が証拠を満たした件数である。6881の通常資料取得による再現と取得範囲は[測定記録](../../reports/studies/2026-10-14-tender-exit-candidate-coverage/report.md)を参照する。
 

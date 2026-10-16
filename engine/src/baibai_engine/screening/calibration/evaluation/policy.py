@@ -108,7 +108,7 @@ AXES: tuple[AxisSpec, ...] = (
     AxisSpec(name="srp_p_s", direction=-1),
     AxisSpec(name="net_share_change_yoy", direction=-1),
     # 同じ株数変化を自己株控除後で測った軸。方向は旧軸と同じ「縮むほど良い」を先に宣言する。
-    # 採否は reports/studies/2026-08-17-tradable-share-change/ の事前登録が決める。
+    # 当時の比較結果は reports/studies/2026-08-17-tradable-share-change/ に残す。
     AxisSpec(name="tradable_share_change_yoy", direction=-1),
     AxisSpec(name="accruals_to_assets", direction=-1),
     AxisSpec(name="dps_yoy_latest", direction=1),
@@ -119,8 +119,8 @@ AXES: tuple[AxisSpec, ...] = (
     # margin_long_to_adv / margin_long_share は「買い方が混雑しているほど将来リターンは
     # 劣後する」= 低いほど良い。margin_long_delta_26w は「半年で信用買いが減った
     # 後ほど良い」= 低いほど良い。margin_std_long_share は「期日を持つ overhang が
-    # 多いほど劣後する」= 低いほど良い。いずれも計測前の仮説であり、採否は
-    # dated report の採用基準で決める。
+    # 多いほど劣後する」= 低いほど良い。当時の仮説・採否は dated report に残す。
+    # この方向定義だけで本番の選定価値や将来成績を保証しない。
     AxisSpec(name="margin_long_to_adv", direction=-1),
     AxisSpec(name="margin_short_to_adv", direction=-1),
     AxisSpec(name="margin_long_share", direction=-1),

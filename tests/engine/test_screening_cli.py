@@ -125,8 +125,8 @@ class FakeJQuantsProvider:
 
     def get_eq_bars_daily_range(self, start: date, end: date) -> list[JQuantsDailyBar]:
         self.calls.append(("get_eq_bars_daily_range", start, end))
-        # Span >=800 days so listed_under_6_months (182) and short_history_flag (750)
-        # checks both treat the fixture as an established listing.
+        # Long observed price history supplies the historical metrics in this fixture.
+        # Observation span is not evidence of the issuer's listing date.
         total = 800
         base = end - timedelta(days=total - 1)
         return [
@@ -1078,7 +1078,8 @@ class ScreeningCliTests(unittest.TestCase):
         self.assertEqual(called, [[historical]])
 
     def test_main_backfill_master_rejects_a_date_the_bar_store_never_priced(self) -> None:
-        # 非営業日の断面も存在しない。bar store が市場の実績を持つ唯一の証拠。
+        # この過去日取得の入口は保存済みの取引日を要求する。
+        # 価格未保存だけで取引所の休場やproviderの断面不存在まで断定しない。
         exit_code, stderr = self._backfill_master_main(["--asof", "2026-01-01"])
 
         self.assertEqual(exit_code, 1)

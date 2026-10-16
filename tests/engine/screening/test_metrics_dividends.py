@@ -342,8 +342,8 @@ class TradableShareChangeTest(unittest.TestCase):
 
     日本の自社株買いは取得した株式を自己株式へ入れるだけで、発行済株式総数は消却するまで
     減らない。carry の株数項が発行済で測られている限り、還元が起きた年は 0 で、現金の動かない
-    消却年に符号が付く。どちらで測るかは事前登録した比較で決めるので
-    (reports/studies/2026-08-17-tradable-share-change/)、ここでは 2 軸が別物であることだけを
+    消却年に符号が付く。当時の比較結果は既存 carry の維持として記録済み
+    (reports/studies/2026-08-17-tradable-share-change/)。ここでは 2 軸が別物であることを
     固定する。
     """
 
