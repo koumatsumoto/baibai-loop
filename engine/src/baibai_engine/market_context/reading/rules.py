@@ -14,7 +14,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from baibai_engine.foundation.repository_layout import READING_RULES_PATH
 from baibai_engine.foundation.yaml_io import strict_safe_load
@@ -87,9 +87,8 @@ class FrequencyDefaults(_StrictModel):
     percentile_window_years: int = Field(ge=1)
     short_trend_months: int = Field(ge=1)
     long_trend_months: int = Field(ge=1)
-    publication_lag_days: int | None = Field(default=None, ge=0)
-    staleness_margin_days: int | None = Field(default=None, ge=0)
-    staleness_warn_days: int | None = Field(default=None, ge=1)
+    publication_lag_days: int = Field(ge=0)
+    staleness_margin_days: int = Field(ge=0)
 
 
 class SeriesOverride(_StrictModel):
@@ -101,7 +100,6 @@ class SeriesOverride(_StrictModel):
     publication_cadence: PublicationCadence | None = None
     publication_lag_days: int | None = Field(default=None, ge=0)
     staleness_margin_days: int | None = Field(default=None, ge=0)
-    staleness_warn_days: int | None = Field(default=None, ge=1)
     flags: tuple[ThresholdFlag, ...] = ()
 
     @field_validator("flags", mode="before")
@@ -112,58 +110,9 @@ class SeriesOverride(_StrictModel):
 
 
 class ReadingRules(_StrictModel):
-    schema_version: Literal[1, 2]
+    schema_version: Literal[2]
     defaults: Mapping[str, FrequencyDefaults]
     overrides: Mapping[str, SeriesOverride] = {}
-
-    @model_validator(mode="after")
-    def _enforce_versioned_publication_contract(self) -> ReadingRules:
-        """Keep legacy thresholds and forward publication facts unambiguous."""
-
-        for frequency, default in self.defaults.items():
-            if self.schema_version == 1:
-                if default.staleness_warn_days is None:
-                    raise ValueError(
-                        f"schema_version 1 defaults for {frequency!r} require staleness_warn_days"
-                    )
-                if (
-                    default.publication_lag_days is not None
-                    or default.staleness_margin_days is not None
-                ):
-                    raise ValueError(
-                        f"schema_version 1 defaults for {frequency!r} cannot declare "
-                        "publication_lag_days or staleness_margin_days"
-                    )
-            else:
-                if default.staleness_warn_days is not None:
-                    raise ValueError(
-                        f"schema_version 2 defaults for {frequency!r} cannot declare "
-                        "staleness_warn_days"
-                    )
-                if default.publication_lag_days is None or default.staleness_margin_days is None:
-                    raise ValueError(
-                        f"schema_version 2 defaults for {frequency!r} require both "
-                        "publication_lag_days and staleness_margin_days"
-                    )
-        if self.schema_version == 1:
-            for series_id, override in self.overrides.items():
-                if (
-                    override.publication_cadence is not None
-                    or override.publication_lag_days is not None
-                    or override.staleness_margin_days is not None
-                ):
-                    raise ValueError(
-                        f"schema_version 1 override for {series_id!r} cannot declare "
-                        "forward publication fields"
-                    )
-        else:
-            for series_id, override in self.overrides.items():
-                if override.staleness_warn_days is not None:
-                    raise ValueError(
-                        f"schema_version 2 override for {series_id!r} cannot declare "
-                        "staleness_warn_days; override publication lag or margin instead"
-                    )
-        return self
 
     def resolve(self, *, series_id: str, frequency: str) -> ResolvedRule:
         """Resolve the rule for one series, or fail if no default covers it.
@@ -192,24 +141,11 @@ class ReadingRules(_StrictModel):
             override.staleness_margin_days,
             base.staleness_margin_days,
         )
-        staleness_warn_days = _override_or_default(
-            override.staleness_warn_days,
-            base.staleness_warn_days,
+        staleness_warn_days = (
+            publication_lag_days
+            + PUBLICATION_INTERVAL_DAYS[publication_cadence]
+            + staleness_margin_days
         )
-        explicit_staleness_warn_days = staleness_warn_days is not None
-        if staleness_warn_days is None:
-            if publication_lag_days is None or staleness_margin_days is None:
-                raise ReadingRulesError(f"Reading rules cannot derive staleness for {series_id!r}")
-            try:
-                publication_interval_days = PUBLICATION_INTERVAL_DAYS[publication_cadence]
-            except KeyError as exc:
-                raise ReadingRulesError(
-                    f"Reading rules cannot derive a publication interval "
-                    f"for cadence {publication_cadence!r} (needed by {series_id})"
-                ) from exc
-            staleness_warn_days = (
-                publication_lag_days + publication_interval_days + staleness_margin_days
-            )
         return ResolvedRule(
             percentile_window_years=override.percentile_window_years
             or base.percentile_window_years,
@@ -223,7 +159,6 @@ class ReadingRules(_StrictModel):
             publication_lag_days=publication_lag_days,
             staleness_margin_days=staleness_margin_days,
             staleness_warn_days=staleness_warn_days,
-            explicit_staleness_warn_days=explicit_staleness_warn_days,
             flags=override.flags,
         )
 
@@ -235,20 +170,17 @@ class ResolvedRule(_StrictModel):
     short_trend_months: int
     long_trend_months: int
     publication_cadence: PublicationCadence
-    publication_lag_days: int | None
-    staleness_margin_days: int | None
+    publication_lag_days: int
+    staleness_margin_days: int
     staleness_warn_days: int
-    explicit_staleness_warn_days: bool
     flags: tuple[ThresholdFlag, ...]
 
     def matched_flags(self, value: float) -> tuple[str, ...]:
         return tuple(flag.id for flag in self.flags if flag.matches(value))
 
-    def next_print_estimate(self, observed_at: date) -> date | None:
+    def next_print_estimate(self, observed_at: date) -> date:
         """Estimate the next publication from one observation's dated policy."""
 
-        if self.publication_lag_days is None:
-            return None
         match self.publication_cadence:
             case "calendar_daily":
                 next_observation = observed_at + timedelta(days=1)
@@ -268,12 +200,7 @@ class ResolvedRule(_StrictModel):
     def stale_after(self, observed_at: date) -> date:
         """Return the last as-of date on which the observation remains fresh."""
 
-        if self.explicit_staleness_warn_days:
-            return observed_at + timedelta(days=self.staleness_warn_days)
-        next_print = self.next_print_estimate(observed_at)
-        if next_print is None or self.staleness_margin_days is None:
-            return observed_at + timedelta(days=self.staleness_warn_days)
-        return next_print + timedelta(days=self.staleness_margin_days)
+        return self.next_print_estimate(observed_at) + timedelta(days=self.staleness_margin_days)
 
     def staleness_limit_days(self, observed_at: date) -> int:
         """Observation age represented by the calendar-aware freshness boundary."""
@@ -334,7 +261,7 @@ def _publication_cadence(frequency: str, *, series_id: str) -> PublicationCadenc
             )
 
 
-def _override_or_default[T](override: T | None, default: T | None) -> T | None:
+def _override_or_default[T](override: T | None, default: T) -> T:
     return default if override is None else override
 
 

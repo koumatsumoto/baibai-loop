@@ -142,9 +142,7 @@ def _read_series(
         stale=rule.is_stale(latest.observed_at, asof=asof),
         staleness_warn_days=rule.staleness_limit_days(latest.observed_at),
         next_print_estimate=next_print_estimate,
-        print_due_in_days=(
-            None if next_print_estimate is None else (next_print_estimate - asof).days
-        ),
+        print_due_in_days=(next_print_estimate - asof).days,
         window_years=rule.percentile_window_years,
         window_observations=len(values),
         expected_observations=expected,

@@ -220,7 +220,7 @@ uv run baibai-engine market-context reading --asof 2026-07-24 --format json   # 
 - flagsと極端なz-scoreは確認の入口であり、売買signalや誤値判定ではない。
 - 異なる実効窓とsampling cadenceを同じ物差しとして比較しない。`window_years`、`window_observations`と規則revisionを確認する。
 
-規則は`method/macro/reading/`のdated revisionに置き、出力の`rules_revision`で識別する。frequencyの既定と系列固有のoverrideを使い、既定がsourceの性質に合わない箇所だけを上書きする。厳密なfield・閾値・旧revisionの読込条件はrule modelとloaderを参照する。過去revisionの意味を現在の規則で書き換えない。引用済みの現行dated fileはbytesを保持するため、コメント中の旧CLI名・当時の契約期間・公表上限の説明を現在の操作や保証として使わない。操作と解釈は本書へ集約する。水準が下がらないという前提や、過去最大ラグが将来も超えないという保証は置かない。
+規則は`method/macro/reading/`のdated revisionに置き、出力の`rules_revision`で識別する。frequencyの既定と系列固有のoverrideを使い、既定がsourceの性質に合わない箇所だけを上書きする。実行対象はschema 2の規則に絞り、鮮度は公表周期・lag・marginから導く。旧schema 1の固定日数方式を再実行する互換分岐は持たない。旧dated fileと保存済み判断のrevision参照は当時の方針を示す履歴として残し、数値や意味を現在の規則へ書き換えない。`--rules`は現行schemaの別方針を試すために使える。厳密なfield・閾値はrule modelとloaderを参照する。引用済みの現行dated fileはbytesを保持するため、コメント中の旧CLI名・当時の契約期間・公表上限の説明を現在の操作や保証として使わない。操作と解釈は本書へ集約する。水準が下がらないという前提や、過去最大ラグが将来も超えないという保証は置かない。
 
 reading は L1 store を読むだけの純関数で、provider を呼ばず DB へ書かない。したがって過去日の asof でも同じ入力から同じ snapshot を再計算できる。CLI・read API・indicator chart は共通の store reader を使い、`ProviderSpec.point_in_time_vintage` を宣言する source だけを `vintage_at <= asof` へ clamp する。宣言のない bulk history の `vintage_at` は取得日時であって当時の公表日時ではないため、一律 clamp して取得前の過去 snapshot から既知だった履歴を消さない。専用 store は持たず、日次バッチが `baibai-web` 向けの現在読み値（`/api/market-context`・`views/market-context.json`）へ投影し、L3判断は引用したsnapshotとmethod revisionを入力出典に記録する。Web projectionは指定asofのreadingを1回組み立て、canonical snapshotを増やさない。
 
