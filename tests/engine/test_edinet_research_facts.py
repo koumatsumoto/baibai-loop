@@ -294,6 +294,7 @@ def test_query_selects_latest_before_validity_and_handles_events(tmp_path):
     correction.update(xbrlFlag="1", parentDocID="S100LOST")
     insert_documents(path, [original, correction])
     assert selected_filing(path, "2026-08-01")[-1] == "validity_unknown"
+    assert annual_documents([original, correction]) == []
     event = document("S100EDIT", "2026-08-02 10:00", parentDocID="S100TEST")
     event.update(withdrawalStatus="1")
     insert_documents(path, [original, event])
@@ -563,3 +564,12 @@ def test_missing_document_validity_is_not_treated_as_legacy_usable(field, missin
         original[field] = missing
     assert not select_document_candidates([original]).candidates
     assert not usable_document(annual_documents([original])[0])
+
+
+def test_orphan_correction_does_not_block_a_later_annual_family():
+    old = document()
+    orphan = document("S100CORR", "2026-08-01 10:00", parentDocID="S100LOST")
+    orphan["docTypeCode"] = "130"
+    newer = document("S100NEXT", "2027-06-24 10:00")
+    newer["periodEnd"] = "2027-03-31"
+    assert [row["docID"] for row in annual_documents([old, orphan, newer])] == ["S100NEXT"]
