@@ -169,7 +169,7 @@ def test_target_period_changes_before_numeric_availability() -> None:
     assert result.dps_forecast_annual is None
     assert result.earnings_forecast_source
     assert result.earnings_forecast_source["period_end"] == "2026-12-31"
-    assert result.earnings_forecast_source["status"] == "missing"
+    assert result.earnings_forecast_source["status"] == "unresolved"
 
 
 def test_unknown_present_slot_does_not_revive_old_forecast() -> None:
@@ -970,3 +970,49 @@ def test_actual_dividend_does_not_invent_missing_accrual_period(dps):
     assert result.dps_actual_annual == (0 if dps == 0 else None)
     assert result.dividend_yield == (0 if dps == 0 else None)
     assert result.basis == ("actual_reported" if dps == 0 else "unresolved_actual_dividend")
+
+
+@pytest.mark.parametrize("fields", [{}, {"FSales": "1000", "FOP": "100"}])
+def test_annual_revision_without_point_estimate_does_not_revive_old_earnings(fields):
+    old = document("old", day="2026-08-01", FEPS="20", FDivAnn="7")
+    revised = document("range-or-undecided", **fields)
+    result = snapshot(decode([old, revised]))
+    assert result.per_forward is None
+    assert result.dps_forecast_annual == 7
+    assert result.earnings_forecast_source["status"] == "unresolved"
+    assert result.earnings_forecast_source["disclosure_number"] == "range-or-undecided"
+
+
+@pytest.mark.parametrize("period_type", ["2Q", "FY"])
+@pytest.mark.parametrize("prefix", ["F", "FNC"])
+def test_half_year_only_revision_keeps_annual_earnings(period_type, prefix):
+    old = document("old", day="2026-08-01", FEPS="20")
+    half_year = document("half", CurPerType=period_type, **{prefix + "EPS2Q": "5"})
+    assert snapshot(decode([old, half_year])).per_forward == 1074 / 20
+
+
+@pytest.mark.parametrize("fields", [{}, {"FDiv2Q": "3"}, {"FDiv2Q": "3", "FDivFY": "4"}])
+def test_dividend_revision_without_annual_value_does_not_invent_or_revive_it(fields):
+    old = document("old", day="2026-08-01", FEPS="20", FDivAnn="7")
+    revised = document("undecided-dividend", DocType="DividendForecastRevision", **fields)
+    result = snapshot(decode([old, revised]))
+    assert result.dps_forecast_annual is None
+    assert result.per_forward == 1074 / 20
+    assert result.dividend_forecast_source["status"] == "unresolved"
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_same_time_unknown_revision_cannot_be_hidden_by_numeric_document(reverse):
+    records = [document("numeric", FEPS="20"), document("unresolved")]
+    if reverse:
+        records.reverse()
+    assert snapshot(decode(records)).per_forward is None
+
+
+def test_new_numeric_guidance_resolves_previous_unknown_revision():
+    records = [
+        document("old", day="2026-08-01", FEPS="20"),
+        document("unresolved"),
+        document("new", day="2026-10-01", FEPS="30"),
+    ]
+    assert snapshot(decode(records)).per_forward == 1074 / 30

@@ -151,6 +151,24 @@ def _period(record: Mapping[str, Any], slot: str) -> tuple[date, date] | None:
     return (start, end) if start is not None and end is not None and start <= end else None
 
 
+def _annual_earnings_revision(record: Mapping[str, Any], keys: tuple[str, ...]) -> bool:
+    """An explicit revision with no usable annual value must not revive old guidance.
+
+    Half-year-only revisions leave annual guidance untouched. Empty annual revisions
+    may mean an undecided forecast or a range, not necessarily a withdrawal.
+    """
+    if record.get("DocType") != "EarnForecastRevision":
+        return False
+    annual_keys = (*keys, "FNCSales", "FNCOP") if keys[0] == "FNCEPS" else (*keys, "FSales", "FOP")
+    half_year_keys = (
+        "FSales2Q", "FOP2Q", "FOdP2Q", "FNP2Q", "FEPS2Q",
+        "FNCSales2Q", "FNCOP2Q", "FNCOdP2Q", "FNCNP2Q", "FNCEPS2Q",
+    )
+    return any(has_period_slot(record, key) for key in annual_keys) or not any(
+        has_period_slot(record, key) for key in half_year_keys
+    )
+
+
 def project_financial_documents(
     summaries: Sequence[JQuantsFinancialSummary], asof_date: date
 ) -> list[JQuantsFinancialSummary]:
@@ -227,18 +245,32 @@ def project_financial_documents(
                         if any(has_period_slot(record, key) for key in keys)
                         else "missing"
                     )
+                    unresolved_revision = (
+                        selected_slot == "current"
+                        and earnings_status == "missing"
+                        and _annual_earnings_revision(record, keys)
+                    )
+                    if unresolved_revision:
+                        earnings_status = "unresolved"
                     eps, profit, ordinary = (to_float(record.get(key)) for key in keys)
                     for field, key in zip(
                         ("forecast_eps", "forecast_profit", "forecast_ordinary_profit"),
                         keys,
                         strict=True,
                     ):
-                        if has_period_slot(record, key) and row.disclosure_number:
+                        if (has_period_slot(record, key) or unresolved_revision) and row.disclosure_number:
                             field_sources.append((field, (row.disclosure_number,)))
                 dps_key = f"{prefix}DivAnn"
                 dividend_status = "confirmed" if has_period_slot(record, dps_key) else "missing"
+                unresolved_dividend_revision = (
+                    selected_slot == "current"
+                    and dividend_status == "missing"
+                    and row.document_type == "DividendForecastRevision"
+                )
+                if unresolved_dividend_revision:
+                    dividend_status = "unresolved"
                 dps = to_float(record.get(dps_key))
-                if has_period_slot(record, dps_key) and row.disclosure_number:
+                if (has_period_slot(record, dps_key) or unresolved_dividend_revision) and row.disclosure_number:
                     field_sources.append(("dps_forecast_annual", (row.disclosure_number,)))
             projected.append(
                 replace(
@@ -264,7 +296,7 @@ def latest_forecast_source(
 ) -> JQuantsFinancialSummary | None:
     """Resolve revision ties by value agreement, never by DocNo or input order."""
     status_field = "dividend_forecast_status" if dividend else "forecast_status"
-    candidates = [row for row in rows if getattr(row, status_field) == "confirmed"]
+    candidates = [row for row in rows if getattr(row, status_field) in {"confirmed", "unresolved"}]
     if not candidates:
         candidates = [row for row in rows if getattr(row, status_field) == "missing"]
     if not candidates:
