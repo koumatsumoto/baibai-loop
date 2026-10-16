@@ -177,4 +177,7 @@ def test_vintage_order_and_identity_use_instants_not_timezone_spelling(tmp_path:
 def test_observation_vintage_without_timezone_is_not_guessed() -> None:
     definition = load_definitions().by_id()["us.10y"]
     with pytest.raises(ValueError, match="vintage_at must include a timezone"):
-        observation(definition, date(2026, 10, 15), 1.0, datetime(2026, 10, 16))
+        observation(
+            definition, date(2026, 10, 15), 1.0,
+            datetime(2026, 10, 16, tzinfo=UTC).replace(tzinfo=None),
+        )
