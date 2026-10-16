@@ -64,7 +64,7 @@ def test_refuses_wrong_or_broken_source_without_retaining_a_candidate(tmp_path, 
             original.execute("INSERT INTO market_context_assessment_head VALUES (1, 'missing')")
         original.commit()
     original_bytes = source.read_bytes()
-    with pytest.raises(ValueError, match="expected|shape|references"):
+    with pytest.raises(ValueError, match=r"expected|shape|references"):
         prepare(source, output)
     assert not output.exists()
     assert source.read_bytes() == original_bytes
