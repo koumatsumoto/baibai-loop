@@ -25,7 +25,7 @@ from baibai_engine.valuation.metrics.profit import build_normalized_profit_signa
 
 
 class ScreeningMetricsTests(SnapshotFixtures):
-    def test_february_fy_fallback_restores_yoy_and_share_count(self) -> None:
+    def test_february_actual_period_supports_yoy_and_share_count(self) -> None:
         asof = date(2025, 4, 30)
         rows = [
             _summary(
@@ -33,6 +33,8 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 date(2024, 4, 10),
                 fiscal_period="FY",
                 fiscal_year_end=date(2024, 2, 29),
+                period_start=date(2023, 3, 1),
+                period_end=date(2024, 2, 29),
                 eps_ttm=20.0,
                 shares_outstanding=100_000_000.0,
                 sales=100.0,
@@ -42,6 +44,8 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 date(2025, 4, 10),
                 fiscal_period="FY",
                 fiscal_year_end=date(2025, 2, 28),
+                period_start=date(2024, 3, 1),
+                period_end=date(2025, 2, 28),
                 eps_ttm=30.0,
                 shares_outstanding=98_000_000.0,
                 sales=120.0,
