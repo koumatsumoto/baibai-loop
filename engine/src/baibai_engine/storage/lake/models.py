@@ -198,8 +198,9 @@ class DatasetManifest(BaseModel):
 
     A per-issue fact table reports how many subjects are actually represented.
     Historical counts are not a minimum size promised by the provider. A trading
-    calendar or a filing index has no such subject: each row is a day or document. Reporting zero there would claim an
-    empty population instead of an inapplicable question, so the absence is `None`.
+    calendar or a filing index has no such subject: each row is a day or document.
+    Reporting zero there would claim an empty population instead of an inapplicable
+    question, so the absence is `None`.
     """
     coverage_status: CoverageStatus
     partition_by: tuple[str, ...] = Field(min_length=1)
@@ -598,9 +599,9 @@ def release_policy_for_profile(profile: ReleaseProfile) -> ReleasePolicy:
     """Return the registered release policy; an unconfigured profile fails closed.
 
     There is one profile because there is one set of requirements. The gates that
-    matter are per dataset — the row floor that catches a lossy export, the coverage
-    boundary, and population floor — and they do not become different
-    requirements because a release is read by a different caller. A second profile
+    matter are the declared datasets, coverage and source/manifest consistency.
+    They do not become different requirements because a release is read by a
+    different caller. A second profile
     carrying the same dataset entries would be two tables free to rot apart, so the
     manifest records which gate it passed and there is exactly one gate to pass.
     """
@@ -769,6 +770,11 @@ def validate_release_policy(
             )
         if manifest.totals.rows == 0:
             raise ValueError(f"{dataset}: a published dataset must contain observations")
+        if (
+            LAKE_DATASETS[dataset].population_column is not None
+            and manifest.population_count is None
+        ):
+            raise ValueError(f"{dataset}: does not report the population declared by its contract")
         total_manifest_bytes += len(manifest_bytes)
         total_objects += manifest.totals.objects
 

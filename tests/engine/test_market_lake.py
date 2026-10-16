@@ -371,10 +371,9 @@ def test_release_policy_rejects_incomplete_or_missing_inventory(
 
     validate_release_policy(release, manifests)
 
-    # A dataset with no population to count reports none, and the model accepts that
-    # because it cannot tell "inapplicable" from "omitted". The floor is what refuses
-    # it: a profile that measures a population against a dataset that does not report
-    # one has to stop rather than skip the check it was configured to make.
+    # A ticker-based contract must report its actual population count. This is
+    # distinct from requiring a historical number of tickers: None means that a
+    # population is inapplicable, not that its declared count was omitted.
     unpopulated = manifest.model_copy(update={"population_count": None})
     unpopulated_release = release.model_copy(
         update={
@@ -441,7 +440,10 @@ def test_release_policy_rejects_incomplete_or_missing_inventory(
     ("rows", "population", "accepted"), [(1, 1, True), (0, None, False)]
 )
 def test_new_generation_uses_declared_observations_not_historical_size(
-    monkeypatch: pytest.MonkeyPatch, rows: int, population: int | None, accepted: bool
+    monkeypatch: pytest.MonkeyPatch,
+    rows: int,
+    population: int | None,
+    accepted: bool,
 ) -> None:
     narrow_release_policy(monkeypatch, carries_history=None)
     daily = _load_dataset(
