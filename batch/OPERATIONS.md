@@ -218,6 +218,21 @@ cloud反映が終わるまで保持する。完了証拠を残してから同じ
 完了済みのResearch domain切替は[切替記録](#research-domain-cutover)を参照する。
 対象外のsource versionでは手書きSQLや汎用移行へ進まず、schema変更issueで専用toolと検証を用意する。
 
+PR #1541 の application24→25 は、別candidateから不要な価格cacheだけを除く。
+最新正本を取得した後、次を実行する。sourceと取得ETagは保持し、outputに既存ファイルを指定しない。
+
+```bash
+uv run python -m tools.cutover.prepare_application_v25 \
+  --source /tmp/private-cutover/application-v24.sqlite \
+  --output /tmp/private-cutover/application-v25.sqlite
+```
+
+このtoolはsourceを変更せず、台帳event・判断・参照をコピーする。新しい価格の生成・取得・公開はしない。
+candidateの台帳再生とmachine storeを合わせたmaterializeを確認してから、取得世代に対する条件付きapplication反映を行う。
+market・indicatorsのschema切替をこのtoolで代行しない。全L1の新規再取得は #1543 のアーキテクチャ改善後にまとめて行い、
+それ以前の切替で利用する既存資料を、再取得済みの原本と表示しない。反映・読戻し完了後、この一回限りのtoolと専用テストを除去する。
+
+
 <a id="research-domain-cutover"></a>
 
 ### Research domain の切替記録
