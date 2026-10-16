@@ -626,9 +626,7 @@ def test_orphan_correction_is_scoped_to_its_fiscal_period(tmp_path, description_
         orphan["periodEnd"] = None
         if orphan_end is not None:
             year = int(orphan_end[:4])
-            orphan["docDescription"] = (
-                f"訂正有価証券報告書－第44期({year - 1}/04/01－{year}/03/31)"
-            )
+            orphan["docDescription"] = f"訂正有価証券報告書－第44期({year - 1}/04/01－{year}/03/31)"
     documents = [original, linked, orphan]
     expected = ["S100TXF4", "S100UZ4I"] if orphan_end == "2022-03-31" else []
     assert [row["docID"] for row in annual_documents(documents)] == expected
