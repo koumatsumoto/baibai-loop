@@ -39,8 +39,8 @@ def latest_unadjusted_closes(path: Path, tickers: Sequence[str]) -> dict[str, tu
     """Return each ticker's most recent non-null unadjusted close and its trade date.
 
     Reads the licensed daily-bars store read-only. A missing file or an unknown
-    ticker yields no entry so callers fall back to the canonical ledger observation.
-    Rows whose close is NULL are ignored.
+    ticker yields no entry. Rows whose close is NULL are ignored; this does not
+    establish quote freshness or a price stored in the ledger.
     """
 
     if not tickers:

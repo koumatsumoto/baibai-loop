@@ -291,3 +291,26 @@ def test_security_price_basis_includes_rights_price_adjustments(tmp_path):
     assert price["price_basis"] == "price_adjusted_close"
     assert price["close"] == 80
     assert price["return_20d"] == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize("reader", ["prices", "master"])
+def test_market_context_readers_reject_obsolete_market_schema(tmp_path, reader):
+    from baibai_engine.storage.observations.schema import (
+        SQLITE_SCHEMA_VERSION,
+        SQLiteSchemaError,
+    )
+
+    path = tmp_path / "market.sqlite"
+    bars(path, "AAAA", 0.1)
+    master(path, "2026-05-28", {"AAAA": "機械"})
+    connection = sqlite3.connect(path)
+    try:
+        connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
+        connection.commit()
+    finally:
+        connection.close()
+    with pytest.raises(SQLiteSchemaError, match="obsolete market SQLite schema"):
+        if reader == "prices":
+            read_price_bars(path, start=ASOF - timedelta(days=90), end=ASOF)
+        else:
+            read_master_snapshot(path, as_of=ASOF)

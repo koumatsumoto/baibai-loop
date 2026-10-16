@@ -45,6 +45,7 @@ def read_price_bars(
         + clause
         + " ORDER BY ticker, traded_at",
         parameters,
+        connector=connect_read_only,
     )
     # 取得世代の異なる調整済み価格を混ぜず、価格factorの後方累積で末尾基準へ揃える。
     # factor自体にも配信元の訂正があるため、原本の再取得時には訂正値を保存する。

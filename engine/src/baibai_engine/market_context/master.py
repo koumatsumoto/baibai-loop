@@ -8,6 +8,7 @@ from pathlib import Path
 
 from baibai_engine.foundation.sqlite_read import read_rows
 from baibai_engine.market.master_snapshot import masters_from_payloads
+from baibai_engine.storage.observations.read import connect_read_only
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +25,7 @@ def read_master_snapshot(path: Path, *, as_of: date) -> MasterSnapshot | None:
         "SELECT MAX(snapshot_date) FROM jquants_master_snapshots "
         "WHERE snapshot_date <= ?) ORDER BY security_code",
         (as_of.isoformat(),),
+        connector=connect_read_only,
     )
     if not rows:
         return None
