@@ -50,13 +50,16 @@ class ScreeningConfigTests(unittest.TestCase):
 
 
 def test_cache_only_run_reaches_local_preflight_without_api_keys(tmp_path, monkeypatch, capsys):
-    from baibai_engine.screening.cli.app import main
+    from baibai_engine.screening.cli import app
+
+    # Do not let a developer or repository .env reintroduce credentials.
+    monkeypatch.setattr(app, "load_project_env", lambda: None)
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("JQUANTS_API_KEY", raising=False)
     monkeypatch.delenv("EDINET_API_KEY", raising=False)
     # The store is absent: fail for the missing local input, not unrelated credentials.
-    assert main(["run", "--asof", "2026-04-24"]) == 1
+    assert app.main(["run", "--asof", "2026-04-24"]) == 1
     error = capsys.readouterr().err
     assert "SQLite cache coverage incomplete" in error
     assert "JQUANTS_API_KEY" not in error
