@@ -286,6 +286,7 @@ class ForwardReturnTest(unittest.TestCase):
                         "CurPerType": "FY",
                         "CurFYEn": "2020-03-31",
                         "CurPerSt": "2019-04-01",
+                        "CurPerEn": "2020-03-31",
                         "DivAnn": 75.0,
                         "Div1Q": 50.0,
                         "Div2Q": 25.0,
@@ -337,9 +338,9 @@ class ForwardReturnTest(unittest.TestCase):
             self.assertEqual(mutation.realized_dividend_sum, 75.0)
             self.assertEqual(mutation.total_return, 0.75)
 
-    def test_forward_reader_uses_february_month_end_for_missing_period_start(self) -> None:
-        # 2025-02-28 FY のfallback開始日は閏年の2024-02-29。
-        # 開始日当日のeventは期間外なので、明細を要求せず実績年間DPSを採れる。
+    def test_forward_reader_uses_observed_february_fiscal_period(self) -> None:
+        # 2025-02-28 FY の実際の期首は2024-03-01。
+        # 期首前のeventは期間外なので、実績年間DPSを採れる。
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             conn = open_connection(sqlite_path)
@@ -363,6 +364,8 @@ class ForwardReturnTest(unittest.TestCase):
                         "DiscDate": "2025-05-15",
                         "CurPerType": "FY",
                         "CurFYEn": "2025-02-28",
+                        "CurPerSt": "2024-03-01",
+                        "CurPerEn": "2025-02-28",
                         "DivAnn": 60.0,
                     },
                 )
@@ -419,6 +422,8 @@ class ForwardReturnTest(unittest.TestCase):
                                     "DiscTime": disclosed_time,
                                     "CurPerType": "FY",
                                     "CurFYEn": "2025-03-31",
+                                    "CurPerSt": "2024-04-01",
+                                    "CurPerEn": "2025-03-31",
                                     "DivAnn": dps,
                                 },
                             )
@@ -495,13 +500,13 @@ class ForwardReturnTest(unittest.TestCase):
             _bar(date(2023, 1, 31), 3000.0, 1.0, ticker="7203"),
         ]
         dividends = [
-            _FYDividendObservation(date(2020, 3, 31), date(2020, 5, 12), 50.0),
-            _FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), 55.0),
+            _FYDividendObservation(date(2020, 3, 31), date(2020, 5, 12), 50.0, period_start=date(2019, 4, 1)),
+            _FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), 55.0, period_start=date(2020, 4, 1)),
             # 同じ FY の訂正は最新 non-null だけを使い、55+60 と二重加算しない。
-            _FYDividendObservation(date(2021, 3, 31), date(2021, 6, 1), 60.0),
-            _FYDividendObservation(date(2022, 3, 31), date(2022, 5, 11), 70.0),
+            _FYDividendObservation(date(2021, 3, 31), date(2021, 6, 1), 60.0, period_start=date(2020, 4, 1)),
+            _FYDividendObservation(date(2022, 3, 31), date(2022, 5, 11), 70.0, period_start=date(2021, 4, 1)),
             # exit 後の FY は対象外。
-            _FYDividendObservation(date(2023, 3, 31), date(2023, 5, 10), 75.0),
+            _FYDividendObservation(date(2023, 3, 31), date(2023, 5, 10), 75.0, period_start=date(2022, 4, 1)),
         ]
 
         row = _ticker_forward_rows(
@@ -529,7 +534,7 @@ class ForwardReturnTest(unittest.TestCase):
         row = _ticker_forward_rows(
             "7203",
             bars,
-            fy_dividends=[_FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), 40.0)],
+            fy_dividends=[_FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), 40.0, period_start=date(2020, 4, 1))],
             asofs=[date(2021, 1, 31)],
             horizons=(HORIZONS["1y"],),
             eval_cap=date(2022, 3, 1),
@@ -551,7 +556,7 @@ class ForwardReturnTest(unittest.TestCase):
             "7203",
             bars,
             adjustment_events=events,
-            fy_dividends=[_FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), 40.0)],
+            fy_dividends=[_FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), 40.0, period_start=date(2020, 4, 1))],
             asofs=[date(2021, 1, 31)],
             horizons=(HORIZONS["1y"],),
             eval_cap=date(2022, 3, 1),
@@ -570,17 +575,17 @@ class ForwardReturnTest(unittest.TestCase):
         cases = (
             ((), "unresolved_no_fy_observation", None),
             (
-                (_FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), None),),
+                (_FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), None, period_start=date(2020, 4, 1)),),
                 "unresolved_missing_dividend",
                 None,
             ),
             (
-                (_FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), -1.0),),
+                (_FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), -1.0, period_start=date(2020, 4, 1)),),
                 "unresolved_invalid_dividend",
                 None,
             ),
             (
-                (_FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), 0.0),),
+                (_FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), 0.0, period_start=date(2020, 4, 1)),),
                 "resolved",
                 0.1,
             ),
@@ -614,8 +619,8 @@ class ForwardReturnTest(unittest.TestCase):
                     "7203",
                     bars,
                     fy_dividends=[
-                        _FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), 50.0),
-                        _FYDividendObservation(date(2021, 3, 31), date(2021, 6, 1), invalid),
+                        _FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), 50.0, period_start=date(2020, 4, 1)),
+                        _FYDividendObservation(date(2021, 3, 31), date(2021, 6, 1), invalid, period_start=date(2020, 4, 1)),
                     ],
                     asofs=[date(2021, 1, 31)],
                     horizons=(HORIZONS["1y"],),
@@ -821,7 +826,7 @@ class AdjustmentFactorGuardTest(unittest.TestCase):
     ASOF = date(2020, 1, 31)
 
     def _dividends(self) -> list[_FYDividendObservation]:
-        return [_FYDividendObservation(date(2020, 3, 31), date(2020, 5, 12), 50.0)]
+        return [_FYDividendObservation(date(2020, 3, 31), date(2020, 5, 12), 50.0, period_start=date(2019, 4, 1))]
 
     def _row(self, bars: list[JQuantsDailyBar]) -> ForwardReturnRow:
         return _ticker_forward_rows(

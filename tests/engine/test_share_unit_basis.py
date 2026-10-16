@@ -30,6 +30,10 @@ def test_price_adjustment_and_financial_share_units_are_separate(kind, price_fac
     source = _summary(
         "1111",
         before,
+        fiscal_period="FY",
+        fiscal_year_end=date(2026, 3, 31),
+        period_start=date(2025, 4, 1),
+        period_end=date(2026, 3, 31),
         shares_outstanding=100.0,
         treasury_shares=10.0,
         eps_ttm=20.0,
@@ -110,7 +114,7 @@ def test_rights_during_holding_need_proceeds_or_exercise_facts_for_total_return(
 def test_rights_after_exit_do_not_change_an_already_completed_total_return():
     exit_date = date(2025, 12, 31)
     event = JQuantsAdjustmentFactorEvent("1111", date(2026, 3, 1), 0.8, "3")
-    dividend = _FYDividendObservation(exit_date, date(2026, 2, 1), 8.0)
+    dividend = _FYDividendObservation(exit_date, date(2026, 2, 1), 8.0, period_start=date(2025, 1, 1))
     result = _resolve_total_return(
         [],
         [dividend],
