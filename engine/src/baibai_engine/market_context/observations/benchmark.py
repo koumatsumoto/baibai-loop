@@ -8,6 +8,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from baibai_engine.foundation.time import JST
+
 _CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid")
 
 
@@ -89,6 +91,6 @@ class BenchmarkObservation(BaseModel):
             tolerance_pct = self.display_precision_bps / 100 + 0.01
             if abs(derived - self.annualized_return_pct) > tolerance_pct:
                 raise ValueError("annualized_return_pct disagrees with cumulative_return_pct")
-        if self.published_at > self.retrieved_at.date():
+        if self.published_at > self.retrieved_at.astimezone(JST).date():
             raise ValueError("published_at cannot be after retrieved_at")
         return self
