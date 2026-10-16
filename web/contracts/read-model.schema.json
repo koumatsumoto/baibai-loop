@@ -6088,7 +6088,7 @@
               "type": "null"
             }
           ],
-          "title": "Listing Span Days"
+          "title": "Price History Span Days"
         },
         "jpx_flags": {
           "anyOf": [
@@ -6737,7 +6737,7 @@
             }
           ],
           "default": null,
-          "title": "Margin Week End"
+          "title": "Margin Balance Date"
         },
         "margin_long_to_adv": {
           "anyOf": [
