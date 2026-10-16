@@ -583,7 +583,6 @@ export interface LimitTermsView {
   quantity: number
   notional_yen: string
   target_session: string
-  expires_at: string
   valuation_as_of: string
   maximum_entry_price_yen: string | null
   price_grid_rule_id: string

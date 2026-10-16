@@ -90,7 +90,7 @@ uv run baibai-engine research proposal-scaffold \
 
 固定scopeの全対象と完成/未完了をProposalへ投影し、保存入力を固定する。全対象についてbuy/hold/sell/no_action/deferを区別し、未調査はdeferとする。0対象では空Proposalを作らず、選定理由を保持して第5節へ進む。比較は完成対象だけを経済比較し、未完成を経済的な見送りへ混ぜない。詳細は[Investment Proposal](../../../docs/reference/investment-proposal.md)が所有する。
 
-buyは実quoteと試算limitを分け、Pmax以下の指値待ちも許される。closeを架空の安い値へ変えず、価格以外の仮説・保有・予約・権利単位・cash等のgateを確認する。価格・数量・次session・期限・条件を記し、current limitは即約定を保証しない。分類や共通gridの確認不足は具体terms未確定として残す。holdは今回の仮説維持確認と当日の収益算術を分け、算術不足だけで仮説を無効にしない。brokenを確認したsellはquote不明でも経済判断を残せるが、具体売却条件が未完了であることを示す。
+buyは実quoteと試算limitを分け、Pmax以下の指値待ちも許される。closeを架空の安い値へ変えず、価格以外の仮説・保有・予約・権利単位・cash等のgateを確認する。価格・数量・次session・条件を記し、current limitは即約定を保証しない。分類や共通gridの確認不足は具体terms未確定として残す。holdは今回の仮説維持確認と当日の収益算術を分け、算術不足だけで仮説を無効にしない。brokenを確認したsellはquote不明でも経済判断を残せるが、具体売却条件が未完了であることを示す。
 
 ```bash
 uv run baibai-engine research proposal-check <DRAFT> --db stores/application/baibai.sqlite

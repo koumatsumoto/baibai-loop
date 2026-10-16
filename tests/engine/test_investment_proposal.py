@@ -140,7 +140,7 @@ def test_naive_time_rejected(payload):
         InvestmentProposal.model_validate(payload)
 
 
-@pytest.mark.parametrize("value", [True, 2.0, "2"])
+@pytest.mark.parametrize("value", [True, 3.0, "3"])
 def test_version_does_not_coerce_boolean_float_or_string(payload, value):
     payload["schema_version"] = value
     with pytest.raises(ValidationError, match="must be an integer"):
@@ -300,7 +300,6 @@ def test_buy_terms_availability_and_side(payload, change):
         ("quantity", 301, "notional_yen"),
         ("notional_yen", "299999", "notional_yen"),
         ("maximum_entry_price_yen", "999", "maximum entry price"),
-        ("expires_at", "2026-10-15T15:29:00+09:00", "15:30 JST"),
         ("valuation_as_of", "2026-10-13", "valuation based on proposal"),
         ("conditions", [], "at least 1"),
     ],
@@ -486,4 +485,19 @@ def test_quote_uses_native_daily_date_without_an_observation_clock(payload):
 def test_order_terms_require_saved_common_stock_classification(payload):
     payload["inputs"]["security_classification"][0]["is_common_stock"] = False
     with pytest.raises(ValidationError, match="common stock grid rule"):
+        InvestmentProposal.model_validate(payload)
+
+
+def test_proposal_terms_do_not_require_or_accept_a_duplicate_expiry(payload):
+    proposal = InvestmentProposal.model_validate(payload)
+    assert proposal.items[0].terms.target_session.isoformat() == "2026-10-15"
+    assert "expires_at" not in proposal.items[0].terms.model_dump()
+    payload["items"][0]["terms"]["expires_at"] = "2026-10-15T15:30:00+09:00"
+    with pytest.raises(ValidationError, match="Extra inputs"):
+        InvestmentProposal.model_validate(payload)
+
+
+def test_proposal_rejects_prior_schema_without_relabeling_review(payload):
+    payload["schema_version"] = 2
+    with pytest.raises(ValidationError):
         InvestmentProposal.model_validate(payload)

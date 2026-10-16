@@ -76,7 +76,6 @@ def test_sequential_proposals_recollect_cash_without_changing_saved_scope_or_ter
                         "quantity": quantity,
                         "notional_yen": str(1000 * quantity),
                         "target_session": "2026-10-15",
-                        "expires_at": "2026-10-15T15:30:00+09:00",
                         "valuation_as_of": "2026-10-14",
                         "maximum_entry_price_yen": "1000",
                         "price_grid_rule_id": "tse-common-conservative-20261014",
@@ -116,7 +115,6 @@ def test_sequential_proposals_recollect_cash_without_changing_saved_scope_or_ter
             sector="情報・通信業",
             common_factors=(),
             price_guard_yen=Decimal(1000),
-            expires_at=buy_item.terms.expires_at,
             now=now,
         )
         assert draft is not None

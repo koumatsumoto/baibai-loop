@@ -150,13 +150,6 @@ def _validate_action(
                         message="提案条件のsessionが次の注文可能sessionへ一致しません。",
                     )
                 )
-            if item.terms.expires_at <= now:
-                blockers.append(
-                    GateReason(
-                        code="target_session_not_next_available",
-                        message="提案条件の期限を経過しました。",
-                    )
-                )
     return tuple(blockers)
 
 

@@ -17,7 +17,7 @@ const item = {
   ticker: '1234', action: 'buy', rationale: '当時1100円、1000円の指値で待つ', timing: 'wait_limit',
   assessment_ref: { assessment_id: 'stock-assessment-original', core_sha256: 'a'.repeat(64), review_id: 'assessment-review-original' },
   proposed_limit_yen: null, review_conditions: ['仮説の反証時に再確認'], order_readiness: 'ready',
-  terms: { side: 'buy', limit_price_yen: '1000', quantity: 300, notional_yen: '300000', target_session: '2026-10-15', expires_at: '2026-10-15T15:30:00+09:00', valuation_as_of: '2026-10-14', maximum_entry_price_yen: '1000', price_grid_rule_id: 'tse-common-conservative-20261014', conditions: ['仮説・株式単位・資金に重要変化が無いこと'], warnings: ['dry_powder_below_floor'] },
+  terms: { side: 'buy', limit_price_yen: '1000', quantity: 300, notional_yen: '300000', target_session: '2026-10-15', valuation_as_of: '2026-10-14', maximum_entry_price_yen: '1000', price_grid_rule_id: 'tse-common-conservative-20261014', conditions: ['仮説・株式単位・資金に重要変化が無いこと'], warnings: ['dry_powder_below_floor'] },
   terms_unavailable_reasons: [], blockers: [], resume_conditions: [], remaining_reward: null,
   assessment_projection: { raw: document, original_price_yen: 1100, original_quote_at: '2026-10-14T15:30:00+09:00', original_price_basis: 'last_close_unadjusted', projections: { base: { total_return_pct: 0, annualized_return_pct: 0 }, downside: { total_return_pct: -36.3636, annualized_return_pct: -36.3636 } } },
   assessment_review: { review_id: 'assessment-review-original', reviewer_identity: '保存した独立reviewer', review_scope: '保存根拠と今回の値を確認' },
@@ -34,7 +34,7 @@ describe('保存した提案と評価', () => {
     expect(html).toContain('href="/stocks/stock-assessments/stock-assessment-original"')
     expect(html).not.toContain('最新評価の根拠')
   })
-  it('保存limit/quantity/expiry/warningsを示し、注文や約定と区別する', () => {
+  it('保存limit/quantity/target_session/warningsを示し、注文や約定と区別する', () => {
     const html = render(ProposalItemContent)
     for (const text of ['保存した提案条件', '提案条件確定', '1,000円', '300株', '300,000円', '2026-10-15', '指定の指値で待つ提案', '買付後の現金余力が警告水準を下回ります', '注文受理・約定の保証ではありません']) expect(html).toContain(text)
   })
@@ -73,7 +73,7 @@ describe('保存した提案と評価', () => {
     const preview = { saved_proposal_id: 'investment-proposal-original', previewed_at: '2026-10-14T18:00:00+09:00', status: 'changed', current_inputs: { available_cash_yen: '200000' }, change_reasons: [{ code: 'inputs_changed', message: 'cashが変化しました' }], items: [{ ticker: '1234', saved_action: 'buy', current_quote_calculation: { calculation_price_yen: '1100', quantity: 0, current_price_projection: { base: { total_return_pct: 0 }, downside: { total_return_pct: -36.3636 } } }, saved_limit_revalidation: { quantity: 200 }, blockers: [] }], warnings: ['current-warning'], portfolio_exposure: null } as InvestmentProposalPreviewView
     const originalPreview = JSON.stringify(preview)
     const html = renderToStaticMarkup(createElement(CurrentPreviewContent, { preview }))
-    for (const text of ['現在 quote での再試算', '試算価格 1100円', '保存 limit の再検証', '現在資金等での試算数量 200株', 'cashが変化しました', '保存した価格・数量・期限を更新していません']) expect(html).toContain(text)
+    for (const text of ['現在 quote での再試算', '試算価格 1100円', '保存 limit の再検証', '現在資金等での試算数量 200株', 'cashが変化しました', '保存した価格・数量・対象日を更新していません']) expect(html).toContain(text)
     expect(JSON.stringify(preview)).toBe(originalPreview)
     expect(render(ProposalItemContent)).toContain('300株')
   })

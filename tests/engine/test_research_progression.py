@@ -482,7 +482,7 @@ def test_only_concrete_buy_terms_complete_purchase_proposal(case, action):
         assert service.get(operation.operation_id) == operation
     else:
         # Completion a day later only verifies the stored publication/terms.
-        # Current price/cash/expiry belong to preview and do not rewrite terms.
+        # Current price/cash/target session belong to preview and do not rewrite terms.
         completed = service.complete(
             operation.operation_id,
             final_payload(operation),

@@ -865,7 +865,6 @@ class LimitTermsView(BaseModel):
     quantity: int
     notional_yen: str
     target_session: date
-    expires_at: datetime
     valuation_as_of: date
     maximum_entry_price_yen: str | None
     price_grid_rule_id: str

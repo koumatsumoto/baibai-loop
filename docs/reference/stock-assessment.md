@@ -11,7 +11,7 @@ status: active
 
 ## 目的と適用
 
-本書はStock Assessmentと独立したAssessment Reviewの内容・算術・参照契約を定める。企業評価は現在価格・cash・保有に対する行動判断から独立する。新規購入と保有継続・売却の行動、条件付き価格・数量・期限は[Investment Proposal](./investment-proposal.md)、確認済み取引事実は[Portfolio Ledger](./portfolio-ledger.md)が所有する。
+本書はStock Assessmentと独立したAssessment Reviewの内容・算術・参照契約を定める。企業評価は現在価格・cash・保有に対する行動判断から独立する。新規購入と保有継続・売却の行動、条件付き価格・数量・対象日は[Investment Proposal](./investment-proposal.md)、確認済み取引事実は[Portfolio Ledger](./portfolio-ledger.md)が所有する。
 
 ## Stock Assessment v1
 
@@ -47,7 +47,7 @@ resolved valuationは価格factを参照する。unresolvedでは価格もnull�
 
 新しい通常評価では[要求年率方針](../portfolio-management.md#required-return-policy)を出発点に、作者が採用率を`required_annual_return_pct`へ明記する。個別の上乗せ理由は既存のcalculationに記す。scaffoldは未評価の率をnullで出し、自動補完しない。保存済み評価は原率で読み、率を改める場合は新revisionと独立Reviewを作る。
 
-夜間評価の注文案が翌営業日を期限としていても、翌朝の現在判断には同日の企業評価を使う。元Stock Assessmentからの差分draftで、価値・期間・これから受け取るcashを確認し、新しい独立ReviewとInvestment Proposalへ束縛する。元資料の再取得や全Researchは一律に要求しないが、日付だけの更新で旧分配を今後分へ読み替えない。Operationの分析対象日、企業評価日、quote日は区別する。
+夜間評価の注文案が翌営業日を対象日としていても、翌朝の現在判断には同日の企業評価を使う。元Stock Assessmentからの差分draftで、価値・期間・これから受け取るcashを確認し、新しい独立ReviewとInvestment Proposalへ束縛する。元資料の再取得や全Researchは一律に要求しないが、日付だけの更新で旧分配を今後分へ読み替えない。Operationの分析対象日、企業評価日、quote日は区別する。
 
 Projectionは`terminal_value_per_share_yen / cash_distribution_per_share_yen / calculation / source_ids`。terminalとcashは0以上の有限値。calculationに入力、単位、式、数値代入、結果、重要仮定を記す。期間は銘柄とシナリオの比較窓で、保有期限や売却期限ではない。期間の根拠、重要な遅延・上振れは文章で扱う。
 

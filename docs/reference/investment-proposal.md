@@ -35,7 +35,7 @@ related_docs:
 
 最新reviewed評価がsupported/intact、valuationが当日起点で、現在要求率・実quote・仮説・権利単位・cash・既保有・予約・同Proposalの買約定等のgateを満たすことを確認する。現在closeがpmax超過でもpmax以下の低いlimitで待つことはできる。価格以外の不足を安い指値で迂回しない。数量は提案limitで計算し、guide上限とcashの単元床を使う。guide超でもcash内の1単元を許す現方針とwarningを維持する。
 
-現在limitは現在closeを上限とする指値であり、成行や即約定の保証ではない。wait_limitには実quoteより低い価格と選択理由が必要である。価格・数量・期限・session・前提条件を保存し、株式単位、仮説、資金、注文状態に重要変化がないことを条件にする。未約定売却代金はcashへ加えない。
+現在limitは現在closeを上限とする指値であり、成行や即約定の保証ではない。wait_limitには実quoteより低い価格と選択理由が必要である。価格・数量・対象日（session）・前提条件を保存し、株式単位、仮説、資金、注文状態に重要変化がないことを条件にする。未約定売却代金はcashへ加えない。
 
 <a id="price-grid"></a>
 
@@ -63,9 +63,11 @@ intactでmaterialな反証が無いことを今回確認した場合は、旧val
 
 ## 保存・独立Review・現在preview
 
+提案の具体条件はschema 3とし、対象日（target_session）から重複する15:30の期限を保存しない。対象日は呼値と現在条件の確認に使う。実注文の任意期限は本人が報告した台帳上の事実であり、提案から補完しない。既存schema 2の提案がある場合は本番切替前に移行・退役方針を確定し、読込時に期限だけを削って旧Reviewや参照hashを新本文へ付け替えない。
+
 scaffoldで入力snapshotとProposal/ReviewのIDを固定し、作者が行動・具体条件・比較理由を記す。初期draftの未記述比較はdeferであり、経済的no_actionへ自動変換しない。`proposal-check`は書込をせず、Review前にdraft_sha256を確認できる。作者とは別の役が内容Reviewを行い、変更した場合は取り直す。
 
-Review hashにはreviewとpublished_at以外の全文を含め、cash、scope、価格・数量・期限・前提、grid、warnings/exposureを束縛する。公開時はOperationの現在被覆と保存scope、exact評価pair、現在入力事実を再読照合する。checked_atの経過だけをdriftにせず、実入力値を比較する。入力が変わればsnapshotと独立Reviewを取り直す。
+Review hashにはreviewとpublished_at以外の全文を含め、cash、scope、価格・数量・対象日・前提、grid、warnings/exposureを束縛する。公開時はOperationの現在被覆と保存scope、exact評価pair、現在入力事実を再読照合する。checked_atの経過だけをdriftにせず、実入力値を比較する。入力が変わればsnapshotと独立Reviewを取り直す。
 
 同ID同内容は保存済みpublicationを返し、異内容はimmutable conflictとなる。Proposal本文、item indexと具体buyのdecision bindingを同transactionで保存する。hold/sell/no_action/deferにbuy bindingを作らず、公開でledgerを変更しない。保存後は固定scopeが当時の正本であり、Operationの進捗や最新候補へ付け替えない。
 

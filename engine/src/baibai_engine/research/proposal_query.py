@@ -370,14 +370,13 @@ def preview_current_terms(
                         )
                     )
                 elif (
-                    item.terms.expires_at <= now
-                    or item.terms.target_session
+                    item.terms.target_session
                     != next_order_session(sqlite_path=sqlite_path, now=now)
                 ):
                     blockers.append(
                         GateReason(
                             code="target_session_not_next_available",
-                            message="保存条件の期限経過または次sessionとの差があります。",
+                            message="保存条件の対象日が次の注文可能sessionと異なります。",
                         )
                     )
                 if item.action == "sell":

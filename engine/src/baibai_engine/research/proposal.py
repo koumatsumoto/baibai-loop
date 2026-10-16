@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, time
+from datetime import date, datetime
 from decimal import Decimal
 from hashlib import sha256
 from typing import Annotated, Literal, Self
@@ -25,7 +25,7 @@ from baibai_engine.research.selection import ResearchTarget
 from baibai_engine.storage.application.json import canonical_json
 from baibai_engine.valuation.scenario import finite_decimal
 
-INVESTMENT_PROPOSAL_SCHEMA_VERSION = 2
+INVESTMENT_PROPOSAL_SCHEMA_VERSION = 3
 _CONFIG = ConfigDict(extra="forbid", frozen=True, strict=True, allow_inf_nan=False)
 _UUID_PATTERN = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 
@@ -242,7 +242,6 @@ class LimitTerms(_ProposalValue):
     quantity: PositiveInt
     notional_yen: PositiveMoney
     target_session: ISODate
-    expires_at: Instant
     valuation_as_of: ISODate
     maximum_entry_price_yen: PositiveMoney | None
     price_grid_rule_id: Literal["tse-common-conservative-20261014"]
@@ -260,11 +259,6 @@ class LimitTerms(_ProposalValue):
                 raise ValueError("buy limit cannot exceed maximum entry price")
         elif self.maximum_entry_price_yen is not None:
             raise ValueError("sell terms cannot carry a buy maximum entry price")
-        expiry = self.expires_at.astimezone(JST)
-        if expiry.date() != self.target_session or expiry.timetz().replace(tzinfo=None) != time(
-            15, 30
-        ):
-            raise ValueError("expires_at must be target session 15:30 JST")
         return self
 
 
@@ -429,7 +423,7 @@ class InvestmentProposal(_ProposalValue):
     """不変の提案本文と、当時の入力・比較範囲・具体条件。"""
 
     kind: Literal["investment_proposal"] = "investment_proposal"
-    schema_version: Literal[2] = 2
+    schema_version: Literal[3] = 3
     proposal_id: Annotated[NonEmptyStr, Field(pattern=rf"^investment-proposal-{_UUID_PATTERN}$")]
     as_of: ISODate
     prepared_at: Instant
@@ -514,8 +508,6 @@ class InvestmentProposal(_ProposalValue):
         assert terms is not None
         if terms.quantity % self.inputs.board_lot != 0:
             raise ValueError("terms quantity must be a board-lot multiple")
-        if terms.expires_at <= self.prepared_at:
-            raise ValueError("terms expiry must be after prepared_at")
         classification = next(
             (row for row in self.inputs.security_classification if row.ticker == item.ticker), None
         )

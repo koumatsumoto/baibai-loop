@@ -3263,11 +3263,6 @@
           "title": "Target Session",
           "type": "string"
         },
-        "expires_at": {
-          "format": "date-time",
-          "title": "Expires At",
-          "type": "string"
-        },
         "valuation_as_of": {
           "format": "date",
           "title": "Valuation As Of",
@@ -3309,7 +3304,6 @@
         "quantity",
         "notional_yen",
         "target_session",
-        "expires_at",
         "valuation_as_of",
         "maximum_entry_price_yen",
         "price_grid_rule_id",

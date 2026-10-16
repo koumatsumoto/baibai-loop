@@ -227,7 +227,7 @@
   },
   "investment_proposal": {
     "kind": "investment_proposal",
-    "schema_version": 2,
+    "schema_version": 3,
     "proposal_id": "investment-proposal-00000000-0000-4000-8000-000000000003",
     "as_of": "2026-10-14",
     "prepared_at": "2026-10-14T16:10:00+09:00",
@@ -317,7 +317,6 @@
           "quantity": 300,
           "notional_yen": "300000",
           "target_session": "2026-10-15",
-          "expires_at": "2026-10-15T15:30:00+09:00",
           "valuation_as_of": "2026-10-14",
           "maximum_entry_price_yen": "1000",
           "price_grid_rule_id": "tse-common-conservative-20261014",
@@ -345,7 +344,7 @@
       "reviewer_identity": "synthetic-independent-reviewer",
       "reviewed_at": "2026-10-14T16:15:00+09:00",
       "conclusion": "pass",
-      "draft_sha256": "9798193229bbf26118fbeb491ed2fcee189ffb005c65c7fb1b6cbadd010d490e",
+      "draft_sha256": "09cfdd68af8bc3cb61f280dd166c975be44f82c4d25aa6ad421387900c335388",
       "open_findings": []
     },
     "warnings": [],

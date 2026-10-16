@@ -202,7 +202,6 @@ def reviewed_proposal(case, *, action="buy", proposal_id=PROPOSAL_ID):
                 "quantity": 300,
                 "notional_yen": "300000",
                 "target_session": "2026-10-15",
-                "expires_at": "2026-10-15T15:30:00+09:00",
                 "valuation_as_of": "2026-10-14",
                 "maximum_entry_price_yen": "1000",
                 "price_grid_rule_id": "tse-common-conservative-20261014",
