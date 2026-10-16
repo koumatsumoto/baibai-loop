@@ -359,11 +359,14 @@ def build_override_draft(
     source, expected_head = service.load_with_head()
     if any(item.override_id == override.override_id for item in source.overrides):
         raise ValueError(f"duplicate override_id: {override.override_id}")
-    replacement = source.model_copy(
-        update={
-            "overrides": tuple(
-                sorted((*source.overrides, override), key=lambda item: item.override_id)
-            )
+    replacement = PortfolioLedgerDocument.model_validate(
+        {
+            **source.model_dump(mode="json"),
+            "as_of": max(source.as_of, override.approved_at).isoformat(),
+            "overrides": [
+                item.model_dump(mode="json")
+                for item in sorted((*source.overrides, override), key=lambda item: item.override_id)
+            ],
         }
     )
     active_human_overrides(replacement.overrides, as_of=replacement.as_of)

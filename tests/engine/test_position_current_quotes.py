@@ -263,3 +263,38 @@ def test_close_date_cutoff_is_not_a_source_observation_timestamp(instant, expect
     from baibai_engine.market.sessions import latest_eligible_close_date
 
     assert latest_eligible_close_date(datetime.fromisoformat(instant)).isoformat() == expected
+
+
+@pytest.mark.parametrize("approval_offset_days", [-1, 0, 1])
+def test_override_report_roundtrips_and_advances_only_its_metadata_cutoff(
+    holding_case, tmp_path, approval_offset_days
+):
+    from baibai_engine.position.drafts import build_override_draft, load_draft, write_draft
+    from baibai_engine.position.ledger import HumanOverride, active_human_overrides
+
+    db, _, ledger = holding_case
+    service = LedgerStoreService(db)
+    approved = ledger.as_of + timedelta(days=approval_offset_days)
+    override = HumanOverride(
+        override_id="later-human-approval",
+        scope="ticker",
+        key="2331",
+        reason="確認済みの集中を一時許容",
+        decision_reference="human-confirmation",
+        approved_at=approved,
+        expires_at=approved + timedelta(days=2),
+    )
+    before_head = service.append_head()
+    draft = build_override_draft(service, override)
+    path = tmp_path / "override-draft.yaml"
+    write_draft(path, draft)
+    restored = load_draft(path)
+    assert restored == draft
+    assert service.load() == ledger
+    apply_draft(service, restored, human_confirmed=True)
+    saved = service.load()
+    assert saved.as_of == max(ledger.as_of, approved)
+    assert saved.events == ledger.events
+    assert service.append_head() == before_head
+    assert saved.overrides == (override,)
+    assert active_human_overrides(saved.overrides, as_of=saved.as_of)[("ticker", "2331")] == override
