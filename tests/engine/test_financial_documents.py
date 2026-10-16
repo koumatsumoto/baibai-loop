@@ -1206,3 +1206,30 @@ def test_financial_yoy_does_not_compare_different_scopes_but_keeps_issuer_shares
         assert result.operating_profit_loss_narrowing is None
         assert result.net_share_change_yoy == pytest.approx(-0.1)
         assert result.sales == 200
+
+
+@pytest.mark.parametrize("dps", [0, 7])
+def test_tied_fy_period_conflict_does_not_select_by_input_order(dps):
+    from baibai_engine.valuation.metrics.dividends import _latest_fy_revisions
+
+    first = actual_document("full-year", DivAnn=str(dps), ShOutFY="1000", TrShFY="0")
+    short = {**first, "DiscNo": "short-year", "CurPerSt": "2025-10-01", "EPS": "40"}
+    for records in ([first, short], [short, first]):
+        rows = decode(records)
+        selected = _latest_fy_revisions(rows)
+        assert len(selected) == 1
+        assert selected[0].eps_ttm is None
+        assert selected[0].dps_actual_annual == (0 if dps == 0 else None)
+        assert selected[0].shares_outstanding is None
+        assert {row.eps_ttm for row in rows} == {20, 40}
+
+
+def test_tied_fy_basis_conflict_preserves_independent_issuer_dividend():
+    from baibai_engine.valuation.metrics.dividends import _latest_fy_revisions
+
+    individual = actual_document("individual", DivAnn="7")
+    consolidated = {**individual, "DiscNo": "group", "DocType": "FYFinancialStatements_Consolidated_JP"}
+    for records in ([individual, consolidated], [consolidated, individual]):
+        selected = _latest_fy_revisions(decode(records))
+        assert selected[0].eps_ttm is None
+        assert selected[0].dps_actual_annual == 7

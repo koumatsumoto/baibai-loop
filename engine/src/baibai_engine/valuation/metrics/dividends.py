@@ -311,12 +311,24 @@ def _latest_fy_revisions(
                 row.dps_actual_annual is not None,
             ),
         )
-        if (
-            len(tied) == 1
-            or len({statement_basis(row) for row in tied}) != 1
-            or len({accounting_period_identity(row) for row in tied}) != 1
-        ):
+        if len(tied) == 1:
             result.append(representative)
+            continue
+        if len({accounting_period_identity(row) for row in tied}) != 1:
+            # A shared FY label does not resolve conflicting reported periods.
+            # Keep the year in the series, but never let input order choose its
+            # earnings, payout window or capital observation. Zero DPS is unit-free.
+            result.append(
+                replace(
+                    representative,
+                    eps_ttm=None,
+                    dps_actual_annual=0.0 if all(row.dps_actual_annual == 0 for row in tied) else None,
+                    shares_outstanding=None,
+                    treasury_shares=None,
+                    disclosure_number=None,
+                    document_payload=None,
+                )
+            )
             continue
 
         def agreed(candidates: Sequence[JQuantsFinancialSummary], field: str) -> float | None:
@@ -328,7 +340,10 @@ def _latest_fy_revisions(
                 else None
             )
 
-        eps, dps = agreed(tied, "eps_ttm"), agreed(tied, "dps_actual_annual")
+        eps = (
+            agreed(tied, "eps_ttm") if len({statement_basis(row) for row in tied}) == 1 else None
+        )
+        dps = agreed(tied, "dps_actual_annual")
         # EPS and payout are independent facts. The capital pair remains exactly
         # the representative source's pair; never fill its missing half from another.
         result.append(

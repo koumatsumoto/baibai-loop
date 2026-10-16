@@ -43,7 +43,7 @@ from .profit import (
 )
 from .ratios import _safe_positive_ratio, _safe_ratio, _yoy_ratio
 
-VALUATION_CALCULATION_REVISION = "statement-period-basis-v39"
+VALUATION_CALCULATION_REVISION = "annual-period-cohort-v40"
 
 
 def build_financial_snapshot(
