@@ -1503,3 +1503,25 @@ class SQLiteCoverageTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+def test_fetched_empty_financial_history_is_not_sufficient_for_screening() -> None:
+    from baibai_engine.storage.observations.coverage import range_covered
+
+    asof = _COMMON_COVERAGE_ASOF
+    with _complete_coverage_database() as database:
+        with closing(sqlite3.connect(database)) as connection, connection:
+            connection.execute("DELETE FROM jquants_fin_summaries")
+            connection.execute(
+                "UPDATE source_coverage SET record_count = 0 "
+                "WHERE source = 'jquants_fin_summaries'"
+            )
+            assert range_covered(
+                connection, "jquants_fin_summaries", asof - timedelta(days=2200), asof
+            )
+        issues = _verify_screening_sqlite_coverage(database, asof)
+        assert any(
+            issue.source == "jquants_fin_summaries"
+            and "has no rows in the required date window" in issue.reason
+            for issue in issues
+        )

@@ -31,13 +31,13 @@ from baibai_engine.storage.observations.jquants import store_jquants_daily_bars
 from baibai_engine.storage.observations.schema import open_connection
 
 
-def test_adjusted_only_ingest_preserves_observation_and_event_without_a_raw_price(tmp_path):
+def test_missing_close_preserves_observation_and_adjustment_event(tmp_path):
     path = tmp_path / "market.sqlite"
     day = date(2023, 12, 27)
     assert (
         store_jquants_daily_bars(
             path,
-            [{"Code": "67310", "Date": day.isoformat(), "C": None, "AdjC": 500, "AdjFactor": 100}],
+            [{"Code": "67310", "Date": day.isoformat(), "C": None, "AdjFactor": 100}],
             requested_start=day,
             requested_end=day,
         )
@@ -186,12 +186,12 @@ def _add_source_coverage(
     record_count: int,
     min_date: str,
     max_date: str,
-    path: str | None = None,
+    coverage_key: str | None = None,
 ) -> None:
     add_source_coverage(
         conn,
         source=source,
-        coverage_key=path or f"sqlite:{source}",
+        coverage_key=coverage_key or f"sqlite:{source}",
         record_count=record_count,
         min_date=min_date,
         max_date=max_date,
@@ -252,8 +252,8 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             conn = open_connection(sqlite_path)
-            # Dense bars across the whole window: coverage is derived from the
-            # rows, so every trading day must be present to skip the API.
+            # Dense synthetic bars satisfy the stored-date reuse heuristic.
+            # This test does not establish full exchange-calendar completeness.
             _insert_daily_bars(conn, [("2024-03-19", "2024-04-18")], close=3790.0)
             _add_source_coverage(
                 conn,
@@ -499,10 +499,7 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
                 record_count=3,
                 min_date="2024-03-19",
                 max_date="2024-03-21",
-                path=(
-                    "records/_data/raw/screening/jquants/"
-                    "get_eq_bars_daily_range-end_dt-2024-03-21-start_dt-2024-03-19.json"
-                ),
+                coverage_key="get_eq_bars_daily_range:2024-03-19..2024-03-21",
             )
             _add_source_coverage(
                 conn,
@@ -510,10 +507,7 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
                 record_count=4,
                 min_date="2024-04-15",
                 max_date="2024-04-18",
-                path=(
-                    "records/_data/raw/screening/jquants/"
-                    "get_eq_bars_daily_range-end_dt-2024-04-18-start_dt-2024-04-15.json"
-                ),
+                coverage_key="get_eq_bars_daily_range:2024-04-15..2024-04-18",
             )
             conn.commit()
             conn.close()
@@ -558,12 +552,7 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
 
 
 class _FinRecordingClient(_RecordingClient):
-    """Answers summary ranges with a row, so a fetch actually establishes coverage.
-
-    The shared fake returns nothing, which records a zero-count window and leaves
-    the range still unreadable — fine where the fetch is not the subject, useless
-    for asking what the planner requested.
-    """
+    """Return one synthetic disclosure per requested range and record API calls."""
 
     def get_fin_summary_range(self, start_dt: str, end_dt: str) -> list[dict[str, Any]]:
         self.fin_calls.append((start_dt, end_dt))
@@ -685,13 +674,8 @@ class FinSummaryFetchWindowTests(unittest.TestCase):
             [("2025-06-02", "2025-06-06")],
         )
 
-    def test_a_window_recorded_ok_with_no_rows_is_requested_again(self) -> None:
-        """`_trim_ok_coverage_around` leaves these behind on purpose.
-
-        `range_covered` refuses to read through a zero-count window, so a planner
-        that counted it as held would skip the fetch and then find the reader still
-        unable to serve the range — every run, with no way to recover.
-        """
+    def test_a_window_recorded_ok_with_no_rows_is_reused(self) -> None:
+        """A known empty period must not become an acquisition gap."""
         boundary = date(2025, 6, 1)
         self.assertEqual(
             self._requested(
@@ -701,7 +685,7 @@ class FinSummaryFetchWindowTests(unittest.TestCase):
                     (date(2025, 6, 21), self._END, True),
                 ]
             ),
-            [("2025-06-02", "2025-06-20")],
+            [],
         )
 
     def test_the_head_is_requested_when_coverage_starts_late(self) -> None:
@@ -977,3 +961,64 @@ def test_later_financial_http_failure_retains_validated_earlier_chunk(tmp_path: 
             "SELECT coverage_start, coverage_end, status, record_count FROM source_coverage"
         ).fetchall() == [("2026-07-01", "2026-07-31", "ok", 1)]
     assert len(client.calls) == 2
+
+
+def test_successful_empty_financial_range_is_readable_and_reused(tmp_path: Path) -> None:
+    database = tmp_path / "market.sqlite"
+    client = _RecordingClient()
+    provider = JQuantsProvider("fixture", client=client, sqlite_path=database)
+    start, end = date(2026, 5, 2), date(2026, 5, 3)
+
+    assert provider.get_fin_summary_range(start, end) == []
+    assert provider.get_fin_summary_range(start, end) == []
+    assert client.fin_calls == [(start.isoformat(), end.isoformat())]
+    offline = JQuantsProvider("fixture", client=client, sqlite_path=database, cache_only=True)
+    assert offline.get_fin_summary_range(start, end) == []
+    assert len(client.fin_calls) == 1
+    with closing(sqlite3.connect(database)) as connection:
+        assert range_covered(connection, "jquants_fin_summaries", start, end)
+        assert connection.execute(
+            "SELECT record_count, status FROM source_coverage"
+        ).fetchall() == [(0, "ok")]
+
+
+def test_empty_financial_range_still_accepts_explicit_revision_refresh(tmp_path: Path) -> None:
+    database = tmp_path / "market.sqlite"
+    start, end = date(2026, 5, 2), date(2026, 5, 3)
+    store_jquants_fin_summaries(database, [], requested_start=start, requested_end=end)
+    client = _FinRecordingClient()
+    provider = JQuantsProvider("fixture", client=client, sqlite_path=database)
+
+    assert provider.refresh_fin_summary_range(start, end, revision_overlap_days=7) == 1
+    assert client.fin_calls == [(start.isoformat(), end.isoformat())]
+    assert len(provider.get_fin_summary_range(start, end)) == 1
+    assert len(client.fin_calls) == 1
+
+
+def test_rejected_empty_financial_range_does_not_claim_coverage(tmp_path: Path) -> None:
+    database = tmp_path / "market.sqlite"
+    start, end = date(2026, 5, 2), date(2026, 5, 3)
+    store_jquants_fin_summaries(
+        database, [{"Code": "", "DiscDate": start.isoformat()}],
+        requested_start=start, requested_end=end,
+    )
+    with closing(sqlite3.connect(database)) as connection:
+        assert not range_covered(connection, "jquants_fin_summaries", start, end)
+        assert connection.execute(
+            "SELECT record_count, status FROM source_coverage"
+        ).fetchall() == [(0, "partial")]
+
+
+def test_partial_financial_refetch_preserves_empty_outer_windows(tmp_path: Path) -> None:
+    database = tmp_path / "market.sqlite"
+    start, end = date(2026, 5, 1), date(2026, 5, 31)
+    store_jquants_fin_summaries(database, [], requested_start=start, requested_end=end)
+    bad_day = date(2026, 5, 15)
+    store_jquants_fin_summaries(
+        database, [{"Code": "", "DiscDate": bad_day.isoformat()}],
+        requested_start=bad_day, requested_end=bad_day,
+    )
+    with closing(sqlite3.connect(database)) as connection:
+        assert range_covered(connection, "jquants_fin_summaries", start, date(2026, 5, 14))
+        assert not range_covered(connection, "jquants_fin_summaries", bad_day, bad_day)
+        assert range_covered(connection, "jquants_fin_summaries", date(2026, 5, 16), end)

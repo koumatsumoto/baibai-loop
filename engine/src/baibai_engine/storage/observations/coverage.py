@@ -237,11 +237,8 @@ def _trim_ok_coverage_around(
     a gap exactly where the fetch failed, and its `record_count` is recounted from
     the rows so the row stays a statement about what the store actually holds.
 
-    A part narrower than the disclosure cadence can recount to zero, and for the
-    sources that require rows `range_covered` treats a zero-count window as no claim
-    at all. Such a part is therefore re-fetched next time rather than trusted -- the
-    conservative direction, and the same one the whole-window delete took, but over
-    days instead of years.
+    A surviving financial window can contain no disclosures. It remains fetched:
+    absence of filings is a valid observation, not a reason to request it again.
     """
     rows = conn.execute(
         "SELECT coverage_key, coverage_start, coverage_end, fetched_at_utc "
@@ -383,7 +380,7 @@ def _range_coverage_key(operation: str, start: date, end: date) -> str:
 
 
 _RANGE_SOURCES_REQUIRING_ROWS = frozenset(
-    {"jquants_daily_bars", "jquants_fin_summaries", "jquants_market_calendar"}
+    {"jquants_daily_bars", "jquants_market_calendar"}
 )
 
 
@@ -411,9 +408,9 @@ def merge_date_ranges(ranges: Iterable[tuple[date, date]]) -> tuple[tuple[date, 
 def covered_intervals(conn: sqlite3.Connection, source: str) -> tuple[tuple[date, date], ...]:
     """Merge the coverage windows a source can actually be read through.
 
-    A window counts only when it is `ok`, and for the sources that require rows,
-    only when it holds some: `_trim_ok_coverage_around` deliberately leaves `ok`
-    windows whose recount came out zero, and those are not a claim on anything.
+    A window counts only when it is `ok`. Daily bars and calendars additionally
+    require rows; financial disclosures may legitimately be absent in a fetched
+    window. Acquisition coverage does not establish analytical sufficiency.
     Abutting windows are merged, so two fetches that stopped either side of a
     chunk boundary describe one continuous range.
 

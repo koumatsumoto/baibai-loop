@@ -128,8 +128,7 @@ class ReadDailyBarsTests(unittest.TestCase):
                 add_source_coverage(
                     conn,
                     source="jquants_daily_bars",
-                    coverage_key=".cache/screening/raw/jquants/"
-                    "get_eq_bars_daily_range-end_dt-2024-04-18-start_dt-2024-03-19.json",
+                    coverage_key="get_eq_bars_daily_range:2024-03-19..2024-04-18",
                     record_count=0,
                     min_date=None,
                     max_date=None,
@@ -137,7 +136,7 @@ class ReadDailyBarsTests(unittest.TestCase):
 
             self.assertIsNone(read_daily_bars(db, date(2024, 3, 19), date(2024, 4, 18)))
 
-    def test_returns_none_when_source_coverage_status_failed(self) -> None:
+    def test_sparse_bar_dates_do_not_cover_requested_range(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             store_jquants_daily_bars(
@@ -146,12 +145,6 @@ class ReadDailyBarsTests(unittest.TestCase):
                 requested_start=date(2024, 3, 19),
                 requested_end=date(2024, 4, 18),
             )
-            with closing(open_connection(db)) as conn, conn:
-                conn.execute(
-                    "UPDATE source_coverage SET status = ? WHERE source = ?",
-                    ("failed", "jquants_daily_bars"),
-                )
-
             self.assertIsNone(read_daily_bars(db, date(2024, 3, 19), date(2024, 4, 18)))
 
 
@@ -197,7 +190,7 @@ class ReadFinSummariesTests(unittest.TestCase):
             self.assertEqual(summaries[0].eps_ttm, 50.0)
             self.assertEqual(summaries[0].fiscal_period, "2Q")
 
-    def test_returns_none_when_zero_row_chunk_covers_range(self) -> None:
+    def test_returns_none_when_coverage_dates_are_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             with closing(open_connection(db)) as conn, conn:
@@ -274,10 +267,11 @@ class FinSummariesReadableFromTests(unittest.TestCase):
             db = self._store_with_windows(tmp, (("a", "2016-08-11", "2020-12-31", 100),))
             self.assertIsNone(fin_summaries_readable_from(db, date(2025, 6, 30)))
 
-    def test_a_window_recorded_with_no_rows_is_not_readable(self) -> None:
+    def test_a_bounded_window_with_no_rows_is_readable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = self._store_with_windows(tmp, (("a", "2016-08-11", "2026-08-11", 0),))
-            self.assertIsNone(fin_summaries_readable_from(db, date(2025, 6, 30)))
+            self.assertEqual(fin_summaries_readable_from(db, date(2025, 6, 30)), date(2016, 8, 11))
+            self.assertEqual(read_fin_summaries(db, date(2025, 6, 1), date(2025, 6, 30)), [])
 
     def test_returns_none_when_sqlite_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -838,9 +838,9 @@ def fin_summaries_covered(sqlite_path: Path, start: date, end: date) -> bool:
     Deliberately the same predicate `read_fin_summaries` gates on, asked without
     the materialisation: a chunk-skip test and a fetch planner need the boolean,
     not the summaries. Sharing `range_covered` is what keeps them agreeing with
-    the reader — a window recorded `ok` with zero rows is not a claim, and a
-    planner that treated it as one would leave the reader unable to serve the
-    range it just fetched.
+    the reader. A successful empty financial window is readable as an empty list,
+    whereas an unexamined or partial window still needs a fetch. Required history
+    and usable financial inputs are checked separately by the analysis consumers.
     """
     if not sqlite_path.exists():
         return False
