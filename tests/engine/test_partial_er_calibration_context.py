@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import asdict, replace
-from datetime import datetime
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -13,6 +13,7 @@ from baibai_engine.screening.calibration.context import (
     build_er_distribution_context,
 )
 from baibai_engine.screening.calibration.forward import ForwardReturnRow
+from baibai_engine.screening.calibration.horizons import require_horizon
 from baibai_engine.valuation.calibration.contracts import ErCalibrationContextArtifact
 from baibai_engine.valuation.calibration.query import candidate_er_band_context
 
@@ -31,12 +32,12 @@ def inputs(dates=("2020-01-31",), *, complete=True):
                 asof=asof,
                 ticker=row.ticker,
                 horizon=horizon,
-                target_date="2023-01-31" if horizon == "3y" else "2025-01-31",
+                target_date=require_horizon(horizon).target_date(date.fromisoformat(asof)).isoformat(),
                 resolved=True,
                 price_return=index / 10 - 0.5,
                 stale_price=False,
                 entry_date=asof,
-                exit_date="2023-01-31" if horizon == "3y" else "2025-01-31",
+                exit_date=require_horizon(horizon).target_date(date.fromisoformat(asof)).isoformat(),
                 adjustment_factor_coverage="complete",
                 realized_dividend_sum=3.0,
                 realized_dividend_fy_count=3,
@@ -243,8 +244,6 @@ def test_unresolved_nonfinite_price_is_corrupt_not_normal_missing(value):
 
 
 def test_candidate_context_keeps_both_basis_coverage_and_the_limit(tmp_path):
-    from datetime import date
-
     import yaml
 
     from baibai_engine.valuation.calibration.query import (

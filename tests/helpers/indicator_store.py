@@ -66,8 +66,8 @@ def observation(
 
     Passing a `SeriesDefinition` takes its unit and source URL, because a record whose
     unit disagrees with its series is one the store's own triggers refuse — a fixture
-    that builds it is testing a shape production never writes. ``period_days`` spells
-    the flow case: a window of that many days ending at ``observed_at``.
+    that builds it is testing a shape production never writes. ``period_days`` is the
+    start-to-end date offset, not an inclusive day count (4 means Monday to Friday).
     """
 
     if period_days is not None:

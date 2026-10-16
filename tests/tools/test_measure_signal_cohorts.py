@@ -145,7 +145,7 @@ def test_missing_store_fails_instead_of_reporting_an_empty_comparison(tmp_path: 
         build_measurement(calibration_dir=directory, horizons=("1y",), er_threshold=0.085)
 
 
-def test_cli_writes_yaml_and_reports_a_missingcalibration_root(tmp_path: Path) -> None:
+def test_cli_writes_yaml_and_reports_a_missing_calibration_root(tmp_path: Path) -> None:
     directory = calibration_root(tmp_path)
     publish_panel(directory, "2024-01-31", [liquid_panel_row("1111", "2024-01-31")])
     publish_forward(
@@ -171,7 +171,7 @@ def test_cli_writes_yaml_and_reports_a_missingcalibration_root(tmp_path: Path) -
     assert main(["--calibration-dir", str(tmp_path / "absent"), "--horizon", "1y"]) == 1
 
 
-def _both_basescalibration_root(tmp_path: Path) -> Path:
+def _both_bases_calibration_root(tmp_path: Path) -> Path:
     """One as-of where the two bases resolve different rows and different values."""
 
     directory = calibration_root(tmp_path)
@@ -226,7 +226,7 @@ def _population_group(payload: Mapping[str, Any]) -> Mapping[str, Any]:
 
 
 def test_total_basis_uses_the_dividend_inclusive_return(tmp_path: Path) -> None:
-    directory = _both_basescalibration_root(tmp_path)
+    directory = _both_bases_calibration_root(tmp_path)
 
     price = build_measurement(
         calibration_dir=directory, horizons=("1y",), er_threshold=0.085, basis="price"
@@ -247,7 +247,7 @@ def test_total_basis_uses_the_dividend_inclusive_return(tmp_path: Path) -> None:
 def test_basis_coverage_reports_both_denominators(tmp_path: Path) -> None:
     """total の中央値を「同じ群の別 basis」として読ませないための母数表明。"""
 
-    directory = _both_basescalibration_root(tmp_path)
+    directory = _both_bases_calibration_root(tmp_path)
 
     payload = build_measurement(
         calibration_dir=directory, horizons=("1y",), er_threshold=0.085, basis="total"
@@ -327,7 +327,7 @@ def test_basis_comparability_requires_identical_rows(shared_count: int) -> None:
 
 
 def test_coverage_is_limited_to_requested_panel_window(tmp_path: Path) -> None:
-    directory = _both_basescalibration_root(tmp_path)
+    directory = _both_bases_calibration_root(tmp_path)
     asof = "2021-01-31"
     publish_panel(directory, asof, [liquid_panel_row("2000", asof)])
     publish_forward(
