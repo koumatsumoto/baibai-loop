@@ -5,10 +5,11 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date
-from math import isfinite
 from typing import Any
 
 from baibai_engine.market.jquants_decode import JQuantsProviderError
+from baibai_engine.market.jquants_decode import is_missing_scalar as _is_missing_scalar
+from baibai_engine.market.jquants_decode import to_float as to_float
 from baibai_engine.market.ticker import SecurityCodeError, parse_security_code_parts
 
 
@@ -60,18 +61,6 @@ def first(record: Mapping[str, Any], *keys: str) -> Any:
     return None
 
 
-def to_float(value: Any) -> float | None:
-    if _is_missing_scalar(value) or value == "-":
-        return None
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        return None
-    if not isfinite(result):
-        return None
-    return result
-
-
 def to_str_or_none(value: Any) -> str | None:
     if _is_missing_scalar(value):
         return None
@@ -101,21 +90,6 @@ def optional_date(value: object) -> date | None:
         return date.fromisoformat(str(value))
     except ValueError:
         return None
-
-
-def _is_missing_scalar(value: Any) -> bool:
-    """Recognize scalar missing markers produced by JSON and pandas without importing pandas."""
-
-    if value is None:
-        return True
-    if isinstance(value, str):
-        return value.strip() in {"", "NaT", "nan", "null", "<NA>"}
-    if str(value).strip() in {"NaT", "nan", "<NA>"}:
-        return True
-    try:
-        return bool(value != value)
-    except (TypeError, ValueError):
-        return False
 
 
 def distinct_source_rows(
