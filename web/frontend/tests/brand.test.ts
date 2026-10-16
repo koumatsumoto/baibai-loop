@@ -340,12 +340,8 @@ describe('status surfaces', () => {
     expect(ratio).toBeGreaterThanOrEqual(4.5)
   })
 
-  // A measured ratio is only the rendered one while both colors fit in sRGB. Raising chroma to
-  // force a pair apart would pass the check above and leave the browser painting a color this
-  // file never measured. The mark colors above sit a hair outside sRGB — a channel at -0.009 —
-  // and there Chrome's gamut mapping lands on the same bytes this file clamps to, so their
-  // ratios are the rendered ones. That agreement is not owed for a larger overshoot, which is
-  // what this keeps the fill and its ink away from.
+  // Keep the tested status colors inside sRGB so this approximation does not
+  // rely on a browser-specific gamut mapping. It does not verify rendered pixels.
   it.each(STATUS_FAMILIES)('states %s-surface and its ink inside sRGB', (family) => {
     expect(fitsInSrgb(tokenValue(`${family}-surface`))).toBe(true)
     expect(fitsInSrgb(tokenValue(`${family}-ink`))).toBe(true)
