@@ -22,7 +22,7 @@ def _row(*, anchor=1600.0):
         "name": "合成会社",
         "sector_33": "機械",
         "market_cap_oku": None,
-        "listing_span_days": 20,
+        "price_history_span_days": 20,
         "jpx_flags": [],
         "metrics": {
             "er_annual": 0.075,

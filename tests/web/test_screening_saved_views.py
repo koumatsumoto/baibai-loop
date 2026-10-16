@@ -46,7 +46,7 @@ def _frozen_entry() -> dict[str, object]:
         "sector_33": "情報・通信業",
         "market_cap_oku": 123.0,
         "avg_turnover_oku": 4.5,
-        "listing_span_days": 900,
+        "price_history_span_days": 900,
         "jpx_flags": ["prime"],
         "per_forward": 8.0,
         "per_trailing": 9.0,

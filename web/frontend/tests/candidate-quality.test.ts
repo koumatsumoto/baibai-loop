@@ -117,7 +117,7 @@ it("信用残は日次移行後も基準日として表示する", () => {
 
 
 it('labels price-history span without presenting it as a verified listing age', () => {
-  const html = renderQuality(null, null, { listing_span_days: 20 })
+  const html = renderQuality(null, null, { price_history_span_days: 20 })
   expect(html).toContain('日足履歴の観測期間（上場日未確認）')
   expect(html).toMatch(/日足履歴の観測期間（上場日未確認）<\/dt><dd[^>]*>20 日<\/dd>/)
   expect(html).not.toContain('listing span')

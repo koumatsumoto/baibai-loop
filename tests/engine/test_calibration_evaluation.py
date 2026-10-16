@@ -108,7 +108,7 @@ def _panel_row(ticker: str, *, rank: int | None = None, **overrides: object) -> 
     context: dict[str, object] = {
         "market_cap_oku": 500.0,
         "avg_turnover_oku": 5.0,
-        "listing_span_days": 1200,
+        "price_history_span_days": 1200,
         "close": 1000.0,
         "price_history_coverage_750d": 1.0,
     }

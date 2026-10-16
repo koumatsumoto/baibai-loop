@@ -13,6 +13,6 @@ productionで採用するGit管理のnormative methodologyを置きます。
 
 methodは明示PRで採用し、reportから自動更新しません。dated revisionは上書きせず、対象loaderの契約に従って新しいrevisionを追加します。
 
-`screening/rules/revisions.sha256`はscreening rules専用です。Readingとresearch playbookをこの台帳へ登録しません。playbookのIDとApproach mappingは[playbooks README](./research/playbooks/README.md)を参照してください。
+dated revisionの内容と履歴はGitで管理し、同じ内容のchecksum台帳を別途維持しません。playbookのIDとApproach mappingは[playbooks README](./research/playbooks/README.md)を参照してください。
 
 実行時状態は[stores](../stores/README.md)、表示設定は[web/config](../web/config)、採否の証拠は[reports](../reports/README.md)が所有します。

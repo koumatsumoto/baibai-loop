@@ -229,7 +229,7 @@ class CandidateDiscoverySummaryView(BaseModel):
 
 class StockAnalysisRowView(BaseModel):
     candidate: StockCandidateContextView
-    listing_span_days: float | None
+    price_history_span_days: float | None
     jpx_flags: list[str] | None
     forecast_special_gain_flag: bool | None
     forecast_full_year_loss_flag: bool | None

@@ -3,7 +3,7 @@ import type { StockAnalysisRowView, ScreeningRunView, CandidateDiscoverySummaryV
 export function stockAnalysisRow(overrides: Partial<StockAnalysisRowView> = {}): StockAnalysisRowView {
   return {
     candidate: { common_eligible: true, reasons: [{ valuation_approach_id: 'current-earnings-power', valuation_method_id: 'synthetic-v1', rank: 1 }], normalized_per_3fy_sector_gap: null },
-    listing_span_days: null,
+    price_history_span_days: null,
     jpx_flags: null,
     forecast_special_gain_flag: null,
     forecast_full_year_loss_flag: null,

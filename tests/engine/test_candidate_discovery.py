@@ -55,7 +55,7 @@ def _analysis(
         "sector_33": "情報・通信業",
         "market_cap_oku": 500,
         "avg_turnover_oku": 5.0,
-        "listing_span_days": 1000,
+        "price_history_span_days": 1000,
         "jpx_flags": [],
         "per_forward": per,
         "per_trailing": per + 1,
@@ -187,7 +187,7 @@ def test_adv_and_expected_return_context_do_not_change_selection(avg_turnover_ok
 )
 def test_common_eligibility_history_and_required_jpx_flags(span, flags, expected) -> None:
     row = _analysis("1111")
-    row.update(market_cap_oku=50, listing_span_days=span, jpx_flags=flags)
+    row.update(market_cap_oku=50, price_history_span_days=span, jpx_flags=flags)
     context = _discover([row]).contexts["1111"]
     assert context.common_eligible is expected
     assert bool(context.reasons) is expected

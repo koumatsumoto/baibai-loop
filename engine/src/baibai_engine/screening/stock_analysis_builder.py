@@ -69,7 +69,7 @@ def build_stock_analysis(
         },
         market_cap_oku=universe_snapshot.market_cap_oku,
         avg_turnover_oku=universe_snapshot.avg_turnover_oku,
-        listing_span_days=universe_snapshot.listing_span_days,
+        price_history_span_days=universe_snapshot.price_history_span_days,
         jpx_flags=universe_snapshot.jpx_flags,
         price_change_1d=derived.price_change_1d,
         price_change_5d=derived.price_change_5d,

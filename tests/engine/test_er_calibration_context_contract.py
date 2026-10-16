@@ -280,7 +280,18 @@ def test_retained_context_is_withheld_from_new_population_without_relabeling(tmp
     from baibai_engine.screening.rule_config import load_screening_rules
     from baibai_engine.screening.rules_identity import production_rules_contract_hash
 
-    old = load_screening_rules(_ROOT / "method/screening/rules/2026-09-23T103000+0900.yaml")
+    current = load_screening_rules()
+    old = current.model_copy(
+        update={
+            "candidate_discovery": current.candidate_discovery.model_copy(
+                update={
+                    "common_eligibility": current.candidate_discovery.common_eligibility.model_copy(
+                        update={"min_market_cap_oku": 100.0}
+                    )
+                }
+            )
+        }
+    )
     new = old.model_copy(
         update={
             "candidate_discovery": old.candidate_discovery.model_copy(
@@ -309,16 +320,3 @@ def test_retained_context_is_withheld_from_new_population_without_relabeling(tmp
     assert path.read_bytes() == original
 
 
-def test_retired_quality_knob_keeps_the_original_frozen_rules_provenance(tmp_path):
-    from baibai_engine.screening.rule_config import load_screening_rules
-
-    frozen = _ROOT / "method/screening/rules/2026-09-23T103000+0900.yaml"
-    original = frozen.read_bytes()
-    assert "yoy_deterioration_threshold" not in load_screening_rules(frozen).quality.model_dump()
-    # Original production fingerprint, captured before the unused field was removed.
-    payload = context_artifact(rules_hash="7f934c6cdf199a33")
-    context = tmp_path / "retained-context.yaml"
-    _write(context, payload)
-
-    assert frozen.read_bytes() == original
-    assert _load(context, payload).artifact is not None

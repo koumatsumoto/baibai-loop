@@ -135,7 +135,7 @@ def build_universe(
         # The earliest available raw-price bar is a listing-span proxy, not a
         # verified listing date. A bounded or incomplete price history can shorten
         # the measured span even for a long-listed security.
-        listing_span_days = (asof_date - history[0].traded_at).days
+        price_history_span_days = (asof_date - history[0].traded_at).days
         latest = history[-1]
         trailing_20 = history[-AVG_TURNOVER_WINDOW_BARS:]
         turnovers = [bar.turnover_value for bar in trailing_20 if bar.turnover_value is not None]
@@ -168,7 +168,7 @@ def build_universe(
         snapshots[security.ticker] = UniverseSnapshot(
             market_cap_oku=round(market_cap_oku) if market_cap_oku is not None else None,
             avg_turnover_oku=round(avg_turnover_oku, 1) if avg_turnover_oku is not None else None,
-            listing_span_days=listing_span_days,
+            price_history_span_days=price_history_span_days,
             jpx_flags=tuple(sorted(set(jpx_flags_by_ticker.get(security.ticker, ())))),
         )
 
@@ -197,7 +197,7 @@ def candidate_comparison_population(
         for ticker, snapshot in snapshots.items()
         if eligibility.matches(
             market_cap_oku=snapshot.market_cap_oku,
-            listing_span_days=snapshot.listing_span_days,
+            price_history_span_days=snapshot.price_history_span_days,
             jpx_flags=snapshot.jpx_flags,
             required_jpx_flags=required_jpx,
             require_facts=True,

@@ -369,7 +369,7 @@ def test_stock_analysis_schema_and_serializer_keep_original_numeric_rounding() -
         ttm_quality={},
         market_cap_oku=99,
         avg_turnover_oku=1.25,
-        listing_span_days=20,
+        price_history_span_days=20,
         price_change_1d=0.012345,
         metrics={
             "er_annual": 0.123456,

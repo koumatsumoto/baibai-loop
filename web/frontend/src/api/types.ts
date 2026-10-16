@@ -992,7 +992,7 @@ export interface SecurityRelativeContextView {
 
 export interface StockAnalysisRowView {
   candidate: StockCandidateContextView
-  listing_span_days: number | null
+  price_history_span_days: number | null
   jpx_flags: string[] | null
   forecast_special_gain_flag: boolean | null
   forecast_full_year_loss_flag: boolean | null

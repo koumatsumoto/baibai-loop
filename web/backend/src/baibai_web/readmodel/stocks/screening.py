@@ -292,7 +292,7 @@ def _stock_analysis_row_view(
         meets_hurdle = len(bands) > 1
     return StockAnalysisRowView(
         candidate=StockCandidateContextView.model_validate(row.get("candidate")),
-        listing_span_days=number(row.get("listing_span_days")),
+        price_history_span_days=number(row.get("price_history_span_days")),
         jpx_flags=list(flags_raw) if isinstance(flags_raw, list | tuple) else None,
         forecast_special_gain_flag=_optional_bool(metrics.get("forecast_special_gain_flag")),
         forecast_full_year_loss_flag=_optional_bool(metrics.get("forecast_full_year_loss_flag")),

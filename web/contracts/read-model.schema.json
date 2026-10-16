@@ -6085,7 +6085,7 @@
         "candidate": {
           "$ref": "#/$defs/StockCandidateContextView"
         },
-        "listing_span_days": {
+        "price_history_span_days": {
           "anyOf": [
             {
               "type": "number"
@@ -6859,7 +6859,7 @@
       },
       "required": [
         "candidate",
-        "listing_span_days",
+        "price_history_span_days",
         "jpx_flags",
         "forecast_special_gain_flag",
         "forecast_full_year_loss_flag",

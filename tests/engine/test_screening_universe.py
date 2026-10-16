@@ -243,7 +243,7 @@ class ScreeningUniverseTests(unittest.TestCase):
             jpx_flags_by_ticker={},
         )
         self.assertIn("300A", result.snapshots)
-        self.assertEqual(result.snapshots["300A"].listing_span_days, 90)
+        self.assertEqual(result.snapshots["300A"].price_history_span_days, 90)
 
     def test_build_universe_keeps_short_history_with_null_20bar_turnover(self) -> None:
         security = SecurityMaster(
@@ -307,7 +307,7 @@ class ScreeningUniverseTests(unittest.TestCase):
                     continue
                 snapshot = result.snapshots["400A"]
                 self.assertIsNone(snapshot.market_cap_oku)
-                self.assertEqual(snapshot.listing_span_days, count - 1)
+                self.assertEqual(snapshot.price_history_span_days, count - 1)
                 self.assertEqual(snapshot.avg_turnover_oku, 3.0 if count == 20 else None)
 
         for close in (0.0, -1.0):

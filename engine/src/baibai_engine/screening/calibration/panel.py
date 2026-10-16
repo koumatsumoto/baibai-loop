@@ -131,7 +131,7 @@ class PanelRow:
     in_population: bool
     market_cap_oku: float | None
     avg_turnover_oku: float | None
-    listing_span_days: int | None
+    price_history_span_days: int | None
     close: float | None
     per_forward: float | None
     per_trailing: float | None
@@ -461,7 +461,7 @@ def build_panel(
                     float(snapshot.market_cap_oku) if snapshot.market_cap_oku is not None else None
                 ),
                 avg_turnover_oku=snapshot.avg_turnover_oku,
-                listing_span_days=snapshot.listing_span_days,
+                price_history_span_days=snapshot.price_history_span_days,
                 close=financial.market_price_yen,
                 per_forward=financial.per_forward,
                 per_trailing=financial.per_trailing,
@@ -670,7 +670,7 @@ def _unresolved_master_member_row(
         in_population=True,
         market_cap_oku=None,
         avg_turnover_oku=None,
-        listing_span_days=None,
+        price_history_span_days=None,
         close=None,
         per_forward=None,
         per_trailing=None,

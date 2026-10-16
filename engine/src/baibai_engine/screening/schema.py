@@ -38,7 +38,7 @@ def _validate_finite(value: float | None) -> float | None:
 class UniverseSnapshot:
     market_cap_oku: int | None
     avg_turnover_oku: float | None
-    listing_span_days: int | None = None
+    price_history_span_days: int | None = None
     jpx_flags: tuple[str, ...] = ()
 
     @field_validator("jpx_flags", mode="before")
@@ -150,7 +150,7 @@ class StockAnalysis:
     ttm_quality: Mapping[str, TTMQuality]
     market_cap_oku: int | None = None
     avg_turnover_oku: float | None = None
-    listing_span_days: int | None = None
+    price_history_span_days: int | None = None
     jpx_flags: tuple[str, ...] = ()
     price_change_1d: float | None = None
     price_change_5d: float | None = None

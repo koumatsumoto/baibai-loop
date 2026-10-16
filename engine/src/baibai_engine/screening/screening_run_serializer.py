@@ -117,7 +117,7 @@ def stock_analysis_payload(analysis: StockAnalysis) -> dict[str, object]:
     entry["avg_turnover_oku"] = (
         round(analysis.avg_turnover_oku, 1) if analysis.avg_turnover_oku is not None else None
     )
-    entry["listing_span_days"] = analysis.listing_span_days
+    entry["price_history_span_days"] = analysis.price_history_span_days
     entry["jpx_flags"] = [QuotedString(flag) for flag in analysis.jpx_flags]
     entry["price_change_1d"] = _round_ratio(analysis.price_change_1d)
     entry["price_change_5d"] = _round_ratio(analysis.price_change_5d)

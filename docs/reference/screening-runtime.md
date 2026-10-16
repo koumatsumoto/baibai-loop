@@ -50,7 +50,7 @@ Stock Analysisは`observed / derived / estimate`を混同しない。欠損を0�
 
 <a id="input-scope"></a>
 
-Stock Analysisは普通株・対象市場・as-of以前の有効価格barが1本以上ある銘柄を評価対象とする。価格barが0本、最新終値またはas-of基準の最新価格が非正・非有限な入力は評価対象にしない。価格調整factorは価格日より後・as-of以前の換算にだけ適用し、使う係数は正の有限値を要求する。原本の`0`を「イベントなし」へ読み替えない。最新価格の換算に必要な係数が不正なら、そのas-of価格は評価できない。平均売買代金は20barすべての売買代金が揃う場合だけ計算し、足りなければnullにする。株数・現在価格・分割basisの欠測を補完して候補にしない。`listing_span_days`は最初の利用可能barからの期間proxyであり正式な上場日ではない。`price_history_sessions_750d`と`price_history_coverage_750d`は短い履歴・疎な履歴の品質contextとして残す。資本判定は評価計算の会計期間・文書revision・株式basis resolverが所有し、同日の別文書から発行済と自己株を合成しない。計算上の欠測を原本の未取得とみなして再取得しない。cache coverageのbar・財務密度は、as-of masterの対象市場かつ東証33業種の普通株を母集団とし、価格・財務が欠けた普通株も分母に残す。対象市場の未知業種は分類を更新するまで停止する。各指標の入力期間・TTM・株式basisは[Valuation metrics](./valuation-metrics.md)に従い、productionと較正replayで共有する。入力不足はnullや品質contextとして残し、実績・予測・観測期間を混ぜて穴埋めしない。
+Stock Analysisは普通株・対象市場・as-of以前の有効価格barが1本以上ある銘柄を評価対象とする。価格barが0本、最新終値またはas-of基準の最新価格が非正・非有限な入力は評価対象にしない。価格調整factorは価格日より後・as-of以前の換算にだけ適用し、使う係数は正の有限値を要求する。原本の`0`を「イベントなし」へ読み替えない。最新価格の換算に必要な係数が不正なら、そのas-of価格は評価できない。平均売買代金は20barすべての売買代金が揃う場合だけ計算し、足りなければnullにする。株数・現在価格・分割basisの欠測を補完して候補にしない。`price_history_span_days`は最初の利用可能barからの期間proxyであり正式な上場日ではない。`price_history_sessions_750d`と`price_history_coverage_750d`は短い履歴・疎な履歴の品質contextとして残す。資本判定は評価計算の会計期間・文書revision・株式basis resolverが所有し、同日の別文書から発行済と自己株を合成しない。計算上の欠測を原本の未取得とみなして再取得しない。cache coverageのbar・財務密度は、as-of masterの対象市場かつ東証33業種の普通株を母集団とし、価格・財務が欠けた普通株も分母に残す。対象市場の未知業種は分類を更新するまで停止する。各指標の入力期間・TTM・株式basisは[Valuation metrics](./valuation-metrics.md)に従い、productionと較正replayで共有する。入力不足はnullや品質contextとして残し、実績・予測・観測期間を混ぜて穴埋めしない。
 
 <a id="history-context"></a>
 
@@ -126,3 +126,5 @@ J-Quantsのread取得は[provider](../../engine/src/baibai_engine/market/provide
 候補集合・rank・母集団・丸め・method/rules/model identityと、同じ入力のPanelRow全値を旧commitの合成goldenへ照合する。保存では全行context、空分析/空候補、rollback、完全冪等、rules mismatch、日時の内容Conflictを確認する。readはexact revision・同日複数・Research cutoffと、破損をfilterで隠さない経路を検証する。
 
 最終consumer treeのCLI、Research、Web/batch、生成contracts、materialize、frontendは[対象HEADのCIと必要な実store検証](./python-foundation.md#9-ci-and-local-parity)で確認する。fixture成功を実store検証・provider読取・本番切替成功と読み替えない。
+
+価格観測期間は`price_history_span_days`で表し、上場後の経過日数とは呼ばない。現行rulesも`min_price_history_span_days`を使う。閾値の値は変えず、旧field名への互換aliasは持たない。保存済みrun・cohort・公開viewは現行契約で再構築する。

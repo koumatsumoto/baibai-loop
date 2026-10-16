@@ -367,7 +367,7 @@ def test_documented_shell_composition_is_not_interpreted(tmp_path: Path, shell: 
 @pytest.mark.parametrize(
     "method_path",
     [
-        "method/screening/rules/2026-10-14T065100+0900.yaml",
+        "method/screening/rules/2026-10-16T133000+0900.yaml",
         "method/screening/rules/2099-01-01T000000+0900.yaml",
         "method/macro/reading/2099-01-01T000000+0900.yaml",
     ],
