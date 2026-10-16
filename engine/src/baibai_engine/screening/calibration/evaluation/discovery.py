@@ -23,6 +23,10 @@ def _evaluate_candidate_discovery(
     *,
     candidate_discovery_rules: CandidateDiscoveryRules,
 ) -> dict[str, object]:
+    # Select comparison portfolios from the declared predictions, before observing
+    # which future returns resolve. Missing outcomes must not promote lower ranks.
+    declared_population = [row for row in population if row.in_population]
+    population = [row for row in declared_population if row.ticker in excess]
     result: dict[str, object] = {}
     nomination_rows = sorted(
         (row for row in population if row.in_nomination_union), key=lambda row: row.ticker
@@ -52,13 +56,15 @@ def _evaluate_candidate_discovery(
 
     # Pure E[r] is a benchmark only; it neither gates nor fills candidate membership.
     population_by_er = sorted(
-        (row for row in population if row.er_annual is not None),
+        (row for row in declared_population if row.er_annual is not None),
         key=lambda row: (-(row.er_annual or 0.0), row.ticker),
     )
-    nomination_tickers = {row.ticker for row in nomination_rows}
+    nomination_tickers = {row.ticker for row in declared_population if row.in_nomination_union}
     for top_n in COMPARISON_TOP_NS:
         er_rows = population_by_er[:top_n]
-        result[f"pure_er_top{top_n}"] = _group_stats([excess[row.ticker] for row in er_rows])
+        result[f"pure_er_top{top_n}"] = _group_stats(
+            [excess[row.ticker] for row in er_rows if row.ticker in excess]
+        )
         er_tickers = {row.ticker for row in er_rows}
         result[f"nomination_union_vs_er_top{top_n}"] = {
             "nomination_union_n": len(nomination_tickers),

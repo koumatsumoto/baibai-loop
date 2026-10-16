@@ -223,7 +223,7 @@ def _evaluate_cohort(
         if axes_result is not None:
             axes[spec.name] = axes_result
     candidate_discovery = _evaluate_candidate_discovery(
-        population, excess, candidate_discovery_rules=candidate_discovery_rules
+        panel, excess, candidate_discovery_rules=candidate_discovery_rules
     )
     candidate_discovery_fidelity = _candidate_discovery_fidelity(
         panel,
