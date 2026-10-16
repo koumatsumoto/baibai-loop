@@ -9,6 +9,7 @@ from math import isfinite
 from statistics import fmean
 
 from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.market.financial_documents import statement_basis
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.metric_quality import OperatingProfitSource
 from baibai_engine.valuation.metrics.capital import _normalize_summaries_to_asof_basis
@@ -17,7 +18,7 @@ from baibai_engine.valuation.metrics.dividends import (
     _latest_fy_revisions,
 )
 from baibai_engine.valuation.metrics.models import TTMRules
-from baibai_engine.valuation.metrics.periods import _carry_forward, _latest_summary, _ttm_value
+from baibai_engine.valuation.metrics.periods import _carry_forward, _latest_summary, _period_days, _ttm_value
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -72,11 +73,14 @@ def build_normalized_profit_signals(
     asof_date: date,
     *,
     close: float | None,
+    ttm_rules: TTMRules,
 ) -> NormalizedProfitSignals:
     """Build the preregistered 3/5-FY EPS anchors without filling missing years.
 
     Each anchor averages full-year per-share earnings across years, which is a mean of
     per-share values rather than a sum, so the years may carry different share counts.
+    Fiscal labels cannot replace completed full-year periods. Ineligible years stay
+    in the sequence and cannot be skipped in favor of older, convenient earnings.
     """
     available = sorted(
         (summary for summary in summaries if summary.disclosed_at <= asof_date),
@@ -84,10 +88,16 @@ def build_normalized_profit_signals(
     )
     normalized = _normalize_summaries_to_asof_basis(available, ticker_bars, asof_date)
     fy_rows = _latest_fy_revisions(normalized)
+    latest_basis = statement_basis(fy_rows[-1]) if fy_rows else None
     eps_values = {
         row.fiscal_year_end: row.eps_ttm
         for row in fy_rows
-        if row.fiscal_year_end is not None and row.eps_ttm is not None
+        if row.fiscal_year_end is not None
+        and row.eps_ttm is not None
+        and row.period_end == row.fiscal_year_end
+        and (days := _period_days(row)) is not None
+        and ttm_rules.full_year_min_days <= days <= ttm_rules.full_year_max_days
+        and statement_basis(row) == latest_basis
     }
     latest_three = _latest_consecutive_values(fy_rows, eps_values, count=3)
     latest_five = _latest_consecutive_values(fy_rows, eps_values, count=5)

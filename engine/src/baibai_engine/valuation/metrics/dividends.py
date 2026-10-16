@@ -322,7 +322,9 @@ def _latest_fy_revisions(
                 replace(
                     representative,
                     eps_ttm=None,
-                    dps_actual_annual=0.0 if all(row.dps_actual_annual == 0 for row in tied) else None,
+                    dps_actual_annual=0.0
+                    if all(row.dps_actual_annual == 0 for row in tied)
+                    else None,
                     shares_outstanding=None,
                     treasury_shares=None,
                     disclosure_number=None,
@@ -340,9 +342,7 @@ def _latest_fy_revisions(
                 else None
             )
 
-        eps = (
-            agreed(tied, "eps_ttm") if len({statement_basis(row) for row in tied}) == 1 else None
-        )
+        eps = agreed(tied, "eps_ttm") if len({statement_basis(row) for row in tied}) == 1 else None
         dps = agreed(tied, "dps_actual_annual")
         # EPS and payout are independent facts. The capital pair remains exactly
         # the representative source's pair; never fill its missing half from another.

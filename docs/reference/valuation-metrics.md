@@ -120,7 +120,7 @@ source文書のbasisと採用対象のbasisを別に保持する。採用対象�
 
 ### 3.1 3FY normalized PER の算出と用途
 
-`normalized_per_3fy` は、as-of 以前に開示された直近 3 FY の EPS を現在の株式数基準へ分割補正し、その単純平均で現在株価を割る raw Derived Metric である。FYの連続性は月末を保って前年へ移した末日で確認するため、2/28と閏年の2/29は連続する。3 FY が揃わない、選択済みFYのEPSが欠ける、補正後 EPS 平均が正でない、または価格・分割係数を確定できない場合は `null` とし、別指標へのフォールバックは行わない。
+`normalized_per_3fy` は、as-of 以前に開示された直近 3 FY の EPS を現在の株式数基準へ分割補正し、その単純平均で現在株価を割る raw Derived Metric である。FYの連続性は月末を保って前年へ移した末日で確認するため、2/28と閏年の2/29は連続する。各FYは原本の期間終了日が年度末に一致し、開示日までに終了した期間長が共通TTM規則の通期範囲内であることを確認する。最新FYと連結・単体区分が異なる年度や、期間が欠ける・短い・不正な年度を古い年で埋めない。3 FY が揃わない、選択済みFYのEPSが欠ける、補正後 EPS 平均が正でない、または価格・分割係数を確定できない場合は `null` とし、別指標へのフォールバックは行わない。
 
 `normalized_per_3fy`と同sector gapはNormalized Earnings Powerのnative eligibility/orderに使う。一方、FV/E[r] estimatorの入力には使わない。一時損益の中身を直接判定する指標ではなく、3FY earnings powerを単年利益と別座標で比較するDerived Metricである。
 

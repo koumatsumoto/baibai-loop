@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
+from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.market.providers.jquants import JQuantsProvider
 from baibai_engine.storage.observations.ingest.jquants import store_jquants_fin_summaries
 from baibai_engine.valuation.metrics.profit import build_normalized_profit_signals
@@ -36,6 +37,6 @@ def test_fy_provider_retains_latest_year_without_eps(tmp_path, cached):
     assert len(rows) == 6
     assert rows[-1].fiscal_year_end == date(2026, 3, 31)
     assert rows[-1].eps_ttm is None
-    signals = build_normalized_profit_signals(rows, [], end, close=100.0)
+    signals = build_normalized_profit_signals(rows, [], end, close=100.0, ttm_rules=load_screening_rules().ttm)
     assert signals.normalized_per_3fy is None
     assert signals.normalized_per_5fy is None

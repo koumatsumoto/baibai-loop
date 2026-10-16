@@ -81,6 +81,8 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 date(2023, 5, 10),
                 fiscal_period="FY",
                 fiscal_year_end=date(2023, 3, 31),
+                period_start=date(2022, 4, 1),
+                period_end=date(2023, 3, 31),
                 eps_ttm=40.0,
             ),
             _summary(
@@ -88,6 +90,8 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 date(2024, 5, 10),
                 fiscal_period="FY",
                 fiscal_year_end=date(2024, 3, 31),
+                period_start=date(2023, 4, 1),
+                period_end=date(2024, 3, 31),
                 eps_ttm=20.0,
             ),
             _summary(
@@ -95,10 +99,12 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 date(2025, 5, 10),
                 fiscal_period="FY",
                 fiscal_year_end=date(2025, 3, 31),
+                period_start=date(2024, 4, 1),
+                period_end=date(2025, 3, 31),
                 eps_ttm=20.0,
             ),
         ]
-        split_safe = build_normalized_profit_signals(summaries, bars, asof, close=100.0)
+        split_safe = build_normalized_profit_signals(summaries, bars, asof, close=100.0, ttm_rules=load_screening_rules().ttm)
         loss_mean = build_normalized_profit_signals(
             [
                 replace(summary, eps_ttm=value)
@@ -106,8 +112,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             ],
             (),
             asof,
-            close=100.0,
-        )
+            close=100.0, ttm_rules=load_screening_rules().ttm)
 
         self.assertAlmostEqual(split_safe.normalized_per_3fy or 0.0, 5.0)
         self.assertIsNone(loss_mean.normalized_per_3fy)

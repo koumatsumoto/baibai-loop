@@ -268,7 +268,7 @@ def test_conflicting_actual_eps_is_unresolved_in_normalized_fy(reverse: bool) ->
     if reverse:
         rows.reverse()
     assert _latest_actual_row(rows, field_names=("eps_ttm",)) is None
-    assert build_normalized_profit_signals(rows, (), ASOF, close=1074).normalized_per_3fy is None
+    assert build_normalized_profit_signals(rows, (), ASOF, close=1074, ttm_rules=load_screening_rules().ttm).normalized_per_3fy is None
 
 
 def test_same_time_different_docs_cannot_supply_capital_pair(tmp_path: Path) -> None:
@@ -1228,8 +1228,50 @@ def test_tied_fy_basis_conflict_preserves_independent_issuer_dividend():
     from baibai_engine.valuation.metrics.dividends import _latest_fy_revisions
 
     individual = actual_document("individual", DivAnn="7")
-    consolidated = {**individual, "DiscNo": "group", "DocType": "FYFinancialStatements_Consolidated_JP"}
+    consolidated = {
+        **individual,
+        "DiscNo": "group",
+        "DocType": "FYFinancialStatements_Consolidated_JP",
+    }
     for records in ([individual, consolidated], [consolidated, individual]):
         selected = _latest_fy_revisions(decode(records))
         assert selected[0].eps_ttm is None
         assert selected[0].dps_actual_annual == 7
+
+
+@pytest.mark.parametrize("problem", ["missing", "short", "inverted", "future", "basis"])
+@pytest.mark.parametrize("affected_index", [0, 2])
+def test_normalized_earnings_requires_comparable_completed_years(problem, affected_index):
+    records = [
+        document(
+            f"year-{year}", day=f"{year}-05-15",
+            DocType="FYFinancialStatements_Consolidated_JP", CurPerType="FY",
+            CurFYSt=f"{year - 1}-04-01", CurFYEn=f"{year}-03-31",
+            CurPerSt=f"{year - 1}-04-01", CurPerEn=f"{year}-03-31", EPS="20",
+        )
+        for year in range(2022, 2027)
+    ]
+    rules = load_screening_rules().ttm
+    baseline = build_normalized_profit_signals(
+        decode(records), (), date(2026, 6, 1), close=1000, ttm_rules=rules
+    )
+    assert baseline.normalized_per_3fy == 50
+    assert baseline.normalized_per_5fy == 50
+    affected = records[affected_index]
+    year = 2022 + affected_index
+    if problem == "missing":
+        affected["CurPerSt"] = ""
+    elif problem == "short":
+        affected["CurPerSt"] = f"{year - 1}-10-01"
+    elif problem == "inverted":
+        affected["CurPerSt"] = f"{year}-04-01"
+    elif problem == "future":
+        affected["CurPerEn"] = f"{year + 1}-03-31"
+    else:
+        affected["DocType"] = "FYFinancialStatements_NonConsolidated_JP"
+    for ordered in (records, list(reversed(records))):
+        result = build_normalized_profit_signals(
+            decode(ordered), (), date(2026, 6, 1), close=1000, ttm_rules=rules
+        )
+        assert result.normalized_per_3fy == (50 if affected_index == 0 else None)
+        assert result.normalized_per_5fy is None
