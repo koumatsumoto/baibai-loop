@@ -79,22 +79,21 @@ class RetractionVintageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             conn = initialize_database(Path(tmp) / "indicators.sqlite")
             try:
-                series = get_series(conn, "jp.foreign_flows")
+                series = get_series(conn, "us.10y")
                 insert_observations(
                     conn,
                     [
                         observation(
                             series,
                             date(2024, 8, 23),
-                            -408854431.0,
+                            4.39,
                             datetime(2024, 8, 29, tzinfo=UTC),
-                            period_days=4,
                         )
                     ],
                 )
                 retract_observations(
                     conn,
-                    "jp.foreign_flows",
+                    "us.10y",
                     [(date(2024, 8, 23), datetime(2024, 8, 29, tzinfo=UTC))],
                     vintage_at=datetime(2024, 9, 15, tzinfo=UTC),
                 )
@@ -102,7 +101,7 @@ class RetractionVintageTests(unittest.TestCase):
 
                 before = observations_in_range(
                     conn,
-                    "jp.foreign_flows",
+                    "us.10y",
                     date(2024, 8, 1),
                     date(2024, 9, 30),
                     point_in_time=True,
@@ -110,7 +109,7 @@ class RetractionVintageTests(unittest.TestCase):
                 )
                 after = observations_in_range(
                     conn,
-                    "jp.foreign_flows",
+                    "us.10y",
                     date(2024, 8, 1),
                     date(2024, 9, 30),
                     point_in_time=True,
@@ -119,7 +118,7 @@ class RetractionVintageTests(unittest.TestCase):
             finally:
                 conn.close()
 
-            self.assertEqual([item.value for item in before], [-408854431.0])
+            self.assertEqual([item.value for item in before], [4.39])
             self.assertEqual(after, ())
 
     def test_a_newer_provider_vintage_revives_a_retracted_observation(self) -> None:
@@ -304,7 +303,7 @@ class RetractionVintageTests(unittest.TestCase):
             self.assertEqual([item.value for item in observations], [4.39])
 
     def test_retracting_an_input_also_removes_its_derived_reading(self) -> None:
-        """The old materialized value cannot outlive its withdrawn source input."""
+        """A derived reading exists only while its source inputs are available."""
 
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
@@ -323,18 +322,17 @@ class RetractionVintageTests(unittest.TestCase):
                     [
                         observation(get_series(conn, "us.10y"), date(2026, 7, 20), 4.5, vintage),
                         observation(get_series(conn, "jp.10y"), date(2026, 7, 20), 1.6, vintage),
-                        observation(
-                            get_series(conn, "rate_diff.us_jp_10y"),
-                            date(2026, 7, 20),
-                            2.9,
-                            vintage,
-                        ),
                     ],
                 )
                 conn.commit()
             finally:
                 conn.close()
             service = IndicatorsService(database)
+            before = service.get_range(
+                "rate_diff.us_jp_10y", start=date(2026, 7, 20), end=date(2026, 7, 20)
+            )
+            self.assertEqual(len(before.observations), 1)
+            self.assertAlmostEqual(before.observations[0].value, 2.9)
 
             service.retract("us.10y", [(date(2026, 7, 20), vintage)])
             result = service.get_range(
