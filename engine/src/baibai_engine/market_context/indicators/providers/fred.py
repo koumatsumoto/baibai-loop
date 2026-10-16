@@ -61,9 +61,7 @@ class FredSource:
             raise ProviderFetchStoppedError(str(exc)) from None
 
 
-def parse_fred_csv(
-    series: SeriesDefinition, text: str, *, start: date, end: date
-) -> NativeRecords:
+def parse_fred_csv(series: SeriesDefinition, text: str, *, start: date, end: date) -> NativeRecords:
     reader = csv.DictReader(io.StringIO(text))
     for column in ("observation_date", series.provider_series_id):
         if column not in (reader.fieldnames or ()):

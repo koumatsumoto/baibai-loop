@@ -27,6 +27,7 @@ from baibai_engine.market_context.indicators.providers.base import (
     fetch_text,
     store_fetched_bytes,
 )
+from baibai_engine.market_context.indicators.providers.fred import FredSource
 
 
 class IndicatorsProviderParserTests(TestCase):
@@ -288,22 +289,22 @@ class IndicatorsProviderParserTests(TestCase):
         with self.assertRaisesRegex(IndicatorsProviderError, "missing Date column"):
             parse_ecb_reference_csv("JPY\n184.37\n", start=date(2026, 5, 8), end=date(2026, 5, 8))
 
-    def test_fetch_observations_wraps_request_exception(self) -> None:
+    def test_fred_source_wraps_request_exception(self) -> None:
         series = _series("fred_csv", "DGS10")
 
         with self.assertRaisesRegex(IndicatorsProviderError, "failed to fetch"):
-            fetch_observations(
+            FredSource().fetch_records(
                 series,
                 start=date(2026, 5, 1),
                 end=date(2026, 5, 1),
                 session=_RaisingSession(),
             )
 
-    def test_fetch_observations_rejects_oversized_response(self) -> None:
+    def test_fred_source_rejects_oversized_response(self) -> None:
         series = _series("fred_csv", "DGS10")
 
         with self.assertRaisesRegex(IndicatorsProviderError, "too large"):
-            fetch_observations(
+            FredSource().fetch_records(
                 series,
                 start=date(2026, 5, 1),
                 end=date(2026, 5, 1),

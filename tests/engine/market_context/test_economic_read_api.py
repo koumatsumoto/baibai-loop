@@ -15,6 +15,7 @@ from baibai_engine.market_context.indicators.db import (
     retract_observations,
 )
 from baibai_engine.market_context.indicators.observations import ObservationRecord
+from baibai_engine.market_context.indicators.read_contracts import native_source_key
 from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
 from baibai_engine.market_context.reading.rules import ReadingRulesError
 from baibai_engine.read_api.freshness import indicator_latest_observed_at
@@ -193,23 +194,20 @@ def test_reading_snapshot_clamps_only_provider_declared_point_in_time_vintages(
                     }
                 ],
             )
-        insert_observations(
-            connection,
-            [
-                ObservationRecord(
-                    series_id="jp.nikkei225",
-                    observed_at=date(2024, 8, 23),
-                    value=value,
-                    unit="index",
-                    source_url="https://fred.stlouisfed.org/graph/fredgraph.csv?id=NIKKEI225",
-                    vintage_at=vintage_at,
-                )
-                for value, vintage_at in (
-                    (100.0, datetime(2024, 8, 29, tzinfo=UTC)),
-                    (120.0, datetime(2024, 9, 10, tzinfo=UTC)),
-                )
-            ],
-        )
+        definition = get_series(connection, "jp.nikkei225")
+        for value, vintage_at in (
+            (100.0, datetime(2024, 8, 29, tzinfo=UTC)),
+            (120.0, datetime(2024, 9, 10, tzinfo=UTC)),
+        ):
+            store_snapshot(
+                connection,
+                source_key=native_source_key(definition),
+                observed_at=date(2024, 8, 23),
+                fetched_at=vintage_at,
+                records=[
+                    {"observation_date": "2024-08-23", definition.provider_series_id: str(value)}
+                ],
+            )
         connection.commit()
     finally:
         connection.close()
@@ -342,12 +340,12 @@ def test_retracted_observations_leave_the_chart_and_the_freshness_date(tmp_path:
     database = tmp_path / "indicators.sqlite"
     connection = initialize_database(database)
     try:
-        series = get_series(connection, "us.fed_funds.upper")
+        series = get_series(connection, "jp.2y")
         insert_observations(
             connection,
             [
                 ObservationRecord(
-                    series_id="us.fed_funds.upper",
+                    series_id="jp.2y",
                     observed_at=observed_at,
                     value=value,
                     unit=series.unit,
@@ -362,7 +360,7 @@ def test_retracted_observations_leave_the_chart_and_the_freshness_date(tmp_path:
         )
         retract_observations(
             connection,
-            "us.fed_funds.upper",
+            "jp.2y",
             [
                 (
                     date(2026, 5, 4),
@@ -375,7 +373,7 @@ def test_retracted_observations_leave_the_chart_and_the_freshness_date(tmp_path:
     finally:
         connection.close()
 
-    chart = indicator_series(database, series_id="us.fed_funds.upper", granularity="daily")
+    chart = indicator_series(database, series_id="jp.2y", granularity="daily")
 
     assert chart is not None
     assert chart["points"] == [{"observed_at": "2026-05-01", "value": 4.39}]
