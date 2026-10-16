@@ -71,7 +71,19 @@ def _check_value(
                 if isinstance(option, Mapping)
             ]
             return [] if any(not item for item in failures) else min(failures, key=len)
-    if node.get("type") == "array" and isinstance(value, list):
+    kind = node.get("type")
+    shape_matches = {
+        "null": value is None,
+        "array": isinstance(value, list),
+        "object": isinstance(value, Mapping),
+        "string": isinstance(value, str),
+        "boolean": isinstance(value, bool),
+        "integer": isinstance(value, int) and not isinstance(value, bool),
+        "number": isinstance(value, (int, float)) and not isinstance(value, bool),
+    }
+    if isinstance(kind, str) and kind in shape_matches and not shape_matches[kind]:
+        return [f"{path}: schema describes {kind}, payload holds {type(value).__name__}"]
+    if kind == "array" and isinstance(value, list):
         items = node.get("items")
         if not isinstance(items, Mapping):
             return []
@@ -220,3 +232,24 @@ def test_candidate_delta_retains_every_entry_in_ticker_order(count, er):
         assert "1005" not in lines[0]
     elif count == 0:
         assert all("なし" in line for line in lines)
+
+
+@pytest.mark.parametrize(
+    ("value", "valid"),
+    [(None, True), ({"name": "fixed"}, True), ({}, False),
+     ({"name": "fixed", "unexpected": 1}, False),
+     ({"name": None}, False), ([], False), ("not-an-object", False)],
+)
+def test_nullable_contract_check_does_not_accept_broken_objects_as_null(value, valid):
+    schema = {
+        "$defs": {
+            "Nullable": {"anyOf": [{"$ref": "#/$defs/Detail"}, {"type": "null"}]},
+            "Detail": {
+                "type": "object",
+                "properties": {"name": {"type": "string"}},
+                "required": ["name"],
+            },
+        }
+    }
+    failures = _check_value(schema, schema["$defs"]["Nullable"], value, "detail")
+    assert bool(failures) is not valid
