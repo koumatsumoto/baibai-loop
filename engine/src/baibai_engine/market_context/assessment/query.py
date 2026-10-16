@@ -70,7 +70,8 @@ def assessment_by_id(path: Path | None, *, context_id: str) -> StoredAssessment:
         try:
             row = connection.execute(
                 "SELECT context_id, schema_version, as_of, published_at, payload "
-                "FROM market_context_assessment WHERE context_id=?", (context_id,)
+                "FROM market_context_assessment WHERE context_id=?",
+                (context_id,),
             ).fetchone()
         except sqlite3.OperationalError as error:
             if is_unwritten_store(error, resolved):

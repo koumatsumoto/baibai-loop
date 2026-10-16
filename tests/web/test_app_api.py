@@ -507,7 +507,7 @@ def test_market_context_rejects_a_cutoff_without_timezone(app_method_root: Path)
     assert response.status_code == 422
 
 
-@pytest.mark.parametrize("field,value", [("payload", "[]"), ("as_of", "2026-07-01")])
+@pytest.mark.parametrize(("field", "value"), [("payload", "[]"), ("as_of", "2026-07-01")])
 def test_existing_context_corruption_is_not_reported_as_missing(
     app_method_root: Path, field: str, value: str
 ) -> None:
