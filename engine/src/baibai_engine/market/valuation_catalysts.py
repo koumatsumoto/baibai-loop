@@ -20,6 +20,7 @@ import openpyxl
 import requests
 
 from baibai_engine.market.edinet_decode import is_usable_filing_status, parse_sec_code
+from baibai_engine.market.edinet_document_store import read_current_filing_documents
 from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.ticker import normalize_ticker
 from baibai_engine.storage.observations.schema import connect_current, open_connection
@@ -311,17 +312,20 @@ def read_control_filing_index(
     if not edinet_identity_covered(connection, start=start, end=end):
         return None
     ticker_by_edinet_code = edinet_code_to_ticker(connection)
-    rows = connection.execute(
-        "SELECT doc_date, doc_type_code, issuer_edinet_code, subject_edinet_code, "
-        "legal_status, disclosure_status, withdrawal_status "
-        "FROM edinet_documents WHERE doc_date BETWEEN ? AND ? "
-        "AND doc_type_code IN "
-        f"({_placeholders(LARGE_HOLDING_DOC_TYPES + TENDER_OFFER_DOC_TYPES)})",  # nosec B608
-        (start.isoformat(), end.isoformat(), *LARGE_HOLDING_DOC_TYPES, *TENDER_OFFER_DOC_TYPES),
-    ).fetchall()
     index: dict[tuple[str, ControlFilingKind], date] = {}
     anonymous: set[ControlFilingKind] = set()
-    for doc_date, doc_type, issuer, subject, legal, disclosure, withdrawal in rows:
+    for doc in read_current_filing_documents(connection, through=end):
+        doc_type = str(doc.get("docTypeCode"))
+        if doc_type not in LARGE_HOLDING_DOC_TYPES + TENDER_OFFER_DOC_TYPES:
+            continue
+        doc_date = date.fromisoformat(str(doc["doc_date"]))
+        if doc_date < start:
+            continue
+        legal = doc.get("legalStatus")
+        disclosure = doc.get("disclosureStatus")
+        withdrawal = doc.get("withdrawalStatus")
+        issuer = doc.get("issuerEdinetCode")
+        subject = doc.get("subjectEdinetCode")
         if not is_usable_filing_status(legal, disclosure, withdrawal):
             continue
         filing_kind: ControlFilingKind = (
@@ -339,7 +343,7 @@ def read_control_filing_index(
             # The target is named but its listing cannot be resolved. That is a gap for
             # the company behind that code, which `identified_tickers` already excludes.
             continue
-        observed = date.fromisoformat(str(doc_date))
+        observed = doc_date
         key = (ticker, filing_kind)
         if observed > index.get(key, date.min):
             index[key] = observed

@@ -9,6 +9,21 @@ from datetime import date
 from typing import Any
 
 from baibai_engine.market.edinet_models import EDINETProviderError
+from baibai_engine.market.providers.edinet import _canonicalize_document_events
+
+
+def read_current_filing_documents(
+    connection: sqlite3.Connection, *, through: date
+) -> list[dict[str, Any]]:
+    """Fold retained edits and withdrawals before interpreting filing metadata.
+
+    Operations without a retained origin do not establish a filing. Raw operation
+    rows remain available through read_stored_documents for extraction diagnostics.
+    """
+    filings, _ = _canonicalize_document_events(
+        read_stored_documents(connection, through=through), origin_start=None
+    )
+    return filings
 
 
 def read_stored_documents(

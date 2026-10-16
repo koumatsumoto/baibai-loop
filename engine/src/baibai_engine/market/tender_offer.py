@@ -26,6 +26,7 @@ from typing import Protocol
 
 from baibai_engine.market.delistings import DelistingRecord, read_jpx_delistings
 from baibai_engine.market.edinet_decode import is_usable_filing_status
+from baibai_engine.market.edinet_document_store import read_current_filing_documents
 from baibai_engine.market.valuation_catalysts import (
     TENDER_OFFER_REGISTRATION_CORRECTION_DOC_TYPE,
     TENDER_OFFER_REGISTRATION_DOC_TYPE,
@@ -182,48 +183,32 @@ def read_document_blocks(content: bytes) -> dict[str, str]:
 def read_tender_offer_filings(
     connection: sqlite3.Connection, *, through: date
 ) -> tuple[TenderOfferFiling, ...]:
-    """Every usable tender-offer index row that names both an offeror and a target."""
-    doc_types = (
+    """Usable tender-offer origins after their retained operations have been applied."""
+    doc_types = {
         TENDER_OFFER_REGISTRATION_DOC_TYPE,
         TENDER_OFFER_REGISTRATION_CORRECTION_DOC_TYPE,
         TENDER_OFFER_WITHDRAWAL_DOC_TYPE,
         TENDER_OFFER_RESULT_DOC_TYPE,
         TENDER_OFFER_RESULT_CORRECTION_DOC_TYPE,
-    )
-    placeholders = ",".join("?" for _ in doc_types)
-    rows = connection.execute(
-        "SELECT doc_id, doc_type_code, doc_date, submit_datetime, sequence_number, "
-        "edinet_code, subject_edinet_code, legal_status, disclosure_status, withdrawal_status, "
-        "parent_doc_id "
-        f"FROM edinet_documents WHERE doc_date <= ? AND doc_type_code IN ({placeholders}) "  # nosec B608
-        "AND edinet_code IS NOT NULL AND subject_edinet_code IS NOT NULL",
-        (through.isoformat(), *doc_types),
-    ).fetchall()
+    }
     filings = [
         TenderOfferFiling(
-            doc_id=str(doc_id),
-            doc_type_code=str(doc_type_code),
-            doc_date=date.fromisoformat(str(doc_date)),
-            submit_datetime=str(submit_datetime or ""),
-            sequence_number=int(sequence_number),
-            offeror_edinet_code=str(offeror),
-            subject_edinet_code=str(subject),
-            parent_doc_id=str(parent) if parent else None,
+            doc_id=str(doc["docID"]),
+            doc_type_code=str(doc["docTypeCode"]),
+            doc_date=date.fromisoformat(str(doc["doc_date"])),
+            submit_datetime=str(doc.get("submitDateTime") or ""),
+            sequence_number=int(doc["seqNumber"]),
+            offeror_edinet_code=str(doc["edinetCode"]),
+            subject_edinet_code=str(doc["subjectEdinetCode"]),
+            parent_doc_id=str(doc["parentDocID"]) if doc.get("parentDocID") else None,
         )
-        for (
-            doc_id,
-            doc_type_code,
-            doc_date,
-            submit_datetime,
-            sequence_number,
-            offeror,
-            subject,
-            legal,
-            disclosure,
-            withdrawal,
-            parent,
-        ) in rows
-        if is_usable_filing_status(legal, disclosure, withdrawal)
+        for doc in read_current_filing_documents(connection, through=through)
+        if str(doc.get("docTypeCode")) in doc_types
+        and doc.get("edinetCode")
+        and doc.get("subjectEdinetCode")
+        and is_usable_filing_status(
+            doc.get("legalStatus"), doc.get("disclosureStatus"), doc.get("withdrawalStatus")
+        )
     ]
     return tuple(sorted(filings, key=_filing_order))
 
