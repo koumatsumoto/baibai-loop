@@ -70,7 +70,7 @@ function FrozenAnalysis({ analysis }: { analysis: StockAnalysisRowView }) {
       ]} title="Valuation" />
       <FrozenGroup fields={[
         ['FCF yield', percent(analysis.fcf_yield)], ['OCF yield', percent(analysis.ocf_yield)],
-        ['special gain flag', String(analysis.forecast_special_gain_flag ?? EMPTY)], ['full-year loss flag', String(analysis.forecast_full_year_loss_flag ?? EMPTY)],
+        ['予想純利益＞予想経常利益', String(analysis.forecast_special_gain_flag ?? EMPTY)], ['full-year loss flag', String(analysis.forecast_full_year_loss_flag ?? EMPTY)],
       ]} title="Current earnings" />
       <FrozenGroup fields={[
         ['3FY平均EPSベースPER', number(analysis.normalized_per_3fy)], ['sector gap', number(analysis.candidate.normalized_per_3fy_sector_gap)],

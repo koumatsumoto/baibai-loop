@@ -232,7 +232,7 @@ def _data_quality_flags(row: Mapping[str, object], metrics: Mapping[str, object]
     if row.get("freshness_warnings"):
         flags.append("鮮度warning")
     if metrics.get("forecast_special_gain_flag") is True:
-        flags.append("一時益予想")
+        flags.append("予想純利益＞予想経常利益")
     if metrics.get("stale_fin_flag") is True:
         flags.append("予定日到来・財務未照合")
     dividend_basis = metrics.get("dividend_basis")

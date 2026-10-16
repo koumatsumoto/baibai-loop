@@ -192,3 +192,13 @@ def test_security_row_projects_saved_machine_anchor_and_quality_statuses() -> No
     )
     assert without_price.fair_value_gap_pct is None
     assert without_price.data_quality_flags == []
+
+
+@pytest.mark.parametrize("flag", [True, False, None])
+def test_forecast_profit_flag_describes_comparison_not_a_proven_oneoff_gain(flag):
+    row = _frozen_entry()
+    row["metrics"]["forecast_special_gain_flag"] = flag
+    view = _stock_analysis_row_view(row, held=set(), reserved=set(), researched=set())
+    assert view.forecast_special_gain_flag is flag
+    assert ("予想純利益＞予想経常利益" in view.data_quality_flags) is (flag is True)
+    assert "一時益予想" not in view.data_quality_flags

@@ -89,11 +89,11 @@ source文書のbasisと採用対象のbasisを別に保持する。採用対象�
 
 有効な会社予想EPSを得られなければ`per_forward`はnullとする。Current Earnings Powerは正のforward PERを優先し、なければ正のtrailing PERを使う。選んだPERと対応gapを得られない場合は、そのApproachではnominateしない。他Approachの条件やStock Assessmentの評価方法へ、このfallbackを横展開しない。
 
-### 2.4 会社予想の一時益 data-quality flag
+### 2.4 予想純利益と予想経常利益の比較注記
 
 **判定:** 同じ予想期の予想当期純利益と予想経常利益が両方あり、前者が後者を上回る場合に`forecast_special_gain`を立てる。大小関係だけでは差の原因や持続性は確定しない。特別損益・税等の影響は一次開示で確認する。
 
-**用途:** 予想利益の質を調査するための注記である。flagや画面の「一時益予想」という名称を、原因が確定したことの証拠にはしない。
+**用途:** 予想利益の質を調査するための注記である。画面では「予想純利益＞予想経常利益」と表示する。一時益や特別利益の発生を確定した表示にはしない。
 
 **非目標:** ranking、E[r]、既存指標の計算は変えない。これはdoctrineのwarning / annotation境界に従う。
 
