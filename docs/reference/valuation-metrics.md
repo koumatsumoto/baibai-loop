@@ -229,6 +229,7 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 | `forecast_annual` | 対象期・basisとspike条件を満たす非負の予想DPS。明示0を含む |
 | `actual_reported` | 会計期間から比較日まで単位変更・未分類 action のない年間実績の原本値、または明示0 |
 | `unresolved_split_basis` | 実績の基準が未解決で、独立して使える予想もないため利回りを出さない |
+| `unresolved_actual_dividend` | 同時開示の実績DPSが矛盾し、独立して使える予想もない |
 | `unavailable` | 予想も実績も観測できない、または価格がない |
 
 `unresolved_split_basis`は無配や観測自体の不在と区別し、利回りとE[r]を作らない。実績の基準が未解決でも、独立して利用できる予想は妨げない。較正では価格だけの成績を残し、配当込みの成績を未解決とする。未解決年度を飛ばして古い年度から増配率や連続増配を復活させない。
@@ -294,7 +295,7 @@ Historical P/S と EV/EBITDA は、各日の raw close を `adjustment_factor` �
 - `price_history_sessions_750d`: 直近 750 暦日のうち bar が存在する営業日数
 - `price_history_coverage_750d`: 上記 / 当日 scope 内の最大値(最も密な銘柄が取引カレンダーの近似)
 
-`short_history_flag`(上場 750 暦日未満)は新規上場を扱い、本 fact は「上場は古いが履歴が疎」な銘柄を扱う。
+`short_history_flag`は観測された価格履歴が750暦日未満であることを示し、新規上場を確認したflagではない。相対密度はその履歴の疎密を示す別の量である。
 Stock Analysisへの入力は有効価格1本から許すが、履歴を要する指標を埋めない。`avg_turnover_oku`は20本、1/5/20/60営業日騰落率はそれぞれ2/6/21/61本、自己価格中央値anchorは100本を必要とし、足りなければnullを保つ。1本だけの自己レンジ位置や52週安値gapは算術上0になり得るが、長期の割安さを示すものではない。`price_history_coverage_750d`は当日のscope内の相対密度なので、小さなfixtureでは1本でも1.0になり得る。必ず観測本数と期間proxyを合わせて読む。
 
 ### 9.1 価格調整と株数・配当の単位

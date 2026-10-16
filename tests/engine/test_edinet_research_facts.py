@@ -12,12 +12,12 @@ import pytest
 from tests.helpers.http_doubles import FakeSession, response
 
 from baibai_engine.market.edinet_facts.extract import extract_facts
-from baibai_engine.market.edinet_facts.service import extract_edinet_facts_command
 from baibai_engine.market.edinet_facts.selection import (
     annual_documents,
     latest_annual_filing,
     usable_document,
 )
+from baibai_engine.market.edinet_facts.service import extract_edinet_facts_command
 from baibai_engine.market.edinet_facts.store import (
     document_inventory,
     extraction_status,
