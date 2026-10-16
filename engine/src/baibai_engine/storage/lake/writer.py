@@ -81,7 +81,11 @@ class LakeExportReport:
     store_origin: LakeStoreOrigin | None
     datasets: Mapping[str, LakeBuildReport]
     empty_datasets: tuple[str, ...] = ()
-    """Datasets the registry declares whose source has not published a row yet."""
+    """Declared datasets whose source table currently holds no rows.
+
+    This does not distinguish not-yet-acquired data from a verified empty response
+    or a derivation that withdrew its previous result.
+    """
 
 
 @dataclass(frozen=True)
@@ -274,10 +278,9 @@ def export_market_store(
                     "sealed SQLite store origin differs from the serving L1 release; "
                     "hydrate from current before publishing"
                 )
-            # A dataset whose source has not started publishing yet holds no row, and a
-            # canonical build with no partition is not a release input. Skipping it keeps
-            # "this source has not begun" distinct from "this build failed", which is the
-            # difference an operator needs on the day the source does begin.
+            # Empty source tables produce no partition. Omit them here without claiming
+            # why they are empty; release policy decides whether an omitted dataset is
+            # allowed, including required inputs and previously published history.
             populated = tuple(
                 name for name in sorted(LAKE_DATASETS) if _has_rows(probe, LAKE_DATASETS[name])
             )
