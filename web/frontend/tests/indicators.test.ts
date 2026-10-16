@@ -9,10 +9,13 @@ const marketContextPageSource = readFileSync(resolve(import.meta.dirname, '../sr
 
 describe('Market Context information architecture', () => {
   it('puts current context before indicators and history', () => {
-    const headings = ['現在のマクロ局面', 'マクロ経済指標', '過去の経済分析レポート']
+    const sections = ['<MarketSnapshotSection', '<LatestContext context=', '>マクロ経済指標</h2>', '保存済み市場判断・過去の経済分析レポート（']
     expect(marketContextPageSource).toContain('title="市場環境"')
-    expect(marketContextPageSource.indexOf(headings[0])).toBeLessThan(marketContextPageSource.indexOf(headings[1]))
-    expect(marketContextPageSource.indexOf(headings[1])).toBeLessThan(marketContextPageSource.indexOf(headings[2]))
+    const positions = sections.map(section => marketContextPageSource.indexOf(section))
+    for (const position of positions) expect(position).toBeGreaterThanOrEqual(0)
+    for (let index = 1; index < positions.length; index++) {
+      expect(positions[index - 1]).toBeLessThan(positions[index])
+    }
   })
 
   it('does not restore the retired daily comparison presentation', () => {
