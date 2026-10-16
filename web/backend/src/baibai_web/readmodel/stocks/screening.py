@@ -113,7 +113,7 @@ def build_screening(
     identities = (
         {}
         if market is None or not external_tickers
-        else market.security_identities(as_of=cutoff.date())
+        else market.security_identities(as_of=cutoff.astimezone(_JST).date())
     )
     external_securities = [
         ExternalAssessmentSecurityView(

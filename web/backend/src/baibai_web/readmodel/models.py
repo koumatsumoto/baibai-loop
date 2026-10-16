@@ -290,9 +290,7 @@ class StockAnalysisRowView(BaseModel):
     price_change_20d: float | None
     gap_from_52w_low: float | None
     next_earnings_date: str | None
-    # 需給は観測値として表示する。margin_short_to_adv は採否基準を通過しているが
-    # annotation 契約のまま warning / gate へ変換しない。制度期日偏重だけは別途検証済み
-    # の閾値に達したとき flag を持つ。
+    # 需給は観測値として表示し、候補選定の順位や採否条件とは区別する。
     margin_week_end: date | None = None
     margin_long_to_adv: float | None
     margin_short_to_adv: float | None = None

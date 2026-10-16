@@ -271,3 +271,27 @@ def test_all_external_sources_are_searchable_without_machine_analysis(
         assert detail["company_name"] == identity["name"]
     assert not (out / "views/security--4444.json").exists()
     assert market.read_bytes() == before
+
+
+@pytest.mark.parametrize("instant", [
+    "2026-10-15T15:30:00+00:00",
+    "2026-10-16T00:30:00+09:00",
+    "2026-10-15T22:30:00+07:00",
+])
+def test_external_security_identity_uses_japan_date_of_the_cutoff(mocker, instant):
+    from datetime import date
+    from baibai_web.readmodel.stocks import build_screening
+
+    screening, ledger, research, external, market = [mocker.Mock() for _ in range(5)]
+    screening.latest_run.return_value = None
+    ledger.exists.return_value = False
+    research.revisions.return_value = []
+    research.proposals.return_value = []
+    external.observed_tickers.return_value = ["9999"]
+    market.security_identities.return_value = {"9999": {"name": "合成企業", "sector_33": "サービス業"}}
+    cutoff = datetime.fromisoformat(instant)
+    result = build_screening(screening, ledger, research, external_assessment=external,
+                            market=market, external_cutoff=cutoff)
+    market.security_identities.assert_called_once_with(as_of=date(2026, 10, 16))
+    external.observed_tickers.assert_called_once_with(cutoff=cutoff)
+    assert result.external_assessment_securities[0].name == "合成企業"
