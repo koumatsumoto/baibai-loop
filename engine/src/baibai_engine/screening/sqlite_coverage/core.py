@@ -34,9 +34,9 @@ from .jquants import (
 )
 from .shared import CacheCoverageIssue
 from .sources import (
+    _append_jpx_regulation_count_issue,
     _append_required_date_rows_issue,
     _append_source_coverage_quality_issues,
-    _append_jpx_regulation_count_issue,
     _append_window_consistency_issues,
     _source_coverage_covers_date,
 )

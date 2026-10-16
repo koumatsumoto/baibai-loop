@@ -111,15 +111,22 @@ def _append_jpx_regulation_count_issue(
             (iso, iso),
         ).fetchone()[0]
     )
-    table_count = int(conn.execute(
-        "SELECT COUNT(*) FROM jpx_regulation_flags WHERE asof_date = ?", (iso,)
-    ).fetchone()[0])
+    table_count = int(
+        conn.execute(
+            "SELECT COUNT(*) FROM jpx_regulation_flags WHERE asof_date = ?", (iso,)
+        ).fetchone()[0]
+    )
     if table_count != imported_count:
-        issues.append(CacheCoverageIssue(
-            source="jpx_regulation_flags", requirement=iso,
-            reason=(f"jpx_regulation_flags row count ({table_count}) does not match "
-                    f"source_coverage record_count ({imported_count}) for {iso}; repair SQLite"),
-        ))
+        issues.append(
+            CacheCoverageIssue(
+                source="jpx_regulation_flags",
+                requirement=iso,
+                reason=(
+                    f"jpx_regulation_flags row count ({table_count}) does not match "
+                    f"source_coverage record_count ({imported_count}) for {iso}; repair SQLite"
+                ),
+            )
+        )
 
 
 def _append_window_consistency_issues(

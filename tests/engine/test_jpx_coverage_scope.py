@@ -25,7 +25,7 @@ def test_unrelated_regulation_rows_and_receipt_counts_do_not_block_current_run(o
             )
             connection.execute(
                 "INSERT INTO source_coverage VALUES ('jpx_regulation_flags', ?, ?, ?, ?, ?, ?, NULL)",
-                (other, other, other, other + 'T00:00:00Z', 99 if status == 'ok' else 1, status),
+                (other, other, other, other + "T00:00:00Z", 99 if status == "ok" else 1, status),
             )
         assert _verify_screening_sqlite_coverage(path, asof) == ()
 
@@ -39,4 +39,7 @@ def test_requested_regulation_snapshot_still_rejects_its_own_count_mismatch():
                 (asof.isoformat(),),
             )
         issues = _verify_screening_sqlite_coverage(path, asof)
-        assert any(issue.source == 'jpx_regulation_flags' and 'row count' in issue.reason for issue in issues)
+        assert any(
+            issue.source == "jpx_regulation_flags" and "row count" in issue.reason
+            for issue in issues
+        )
