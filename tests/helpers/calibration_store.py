@@ -78,7 +78,7 @@ _PANEL_REQUIRED: Mapping[str, Any] = {
     "margin_long_share": None,
     "margin_long_delta_26w": None,
     "margin_std_long_share": None,
-    "in_review_set": False,
+    "in_nomination_union": False,
     "valuation_approaches": "",
     "valuation_approach_ranks": "",
     "smg_market_fallback": "",
@@ -134,7 +134,7 @@ def _hints(model: type) -> Mapping[str, Any]:
 def panel_row(asof: str, ticker: str, **overrides: Any) -> PanelRow:
     """One panel row, with the fields a fixture never varies filled in.
 
-    `in_review_set` is independent from any E[r] ordering: membership is the exact
+    `in_nomination_union` is independent from any E[r] ordering: membership is the exact
     valuation-approach nomination union.
     """
 

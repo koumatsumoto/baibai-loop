@@ -24,10 +24,10 @@ def _evaluate_candidate_discovery(
     candidate_discovery_rules: CandidateDiscoveryRules,
 ) -> dict[str, object]:
     result: dict[str, object] = {}
-    review_set_rows = sorted(
-        (row for row in population if row.in_review_set), key=lambda row: row.ticker
+    nomination_rows = sorted(
+        (row for row in population if row.in_nomination_union), key=lambda row: row.ticker
     )
-    result["review_set_all"] = _group_stats([excess[row.ticker] for row in review_set_rows])
+    result["nomination_union_all"] = _group_stats([excess[row.ticker] for row in nomination_rows])
 
     approach_ranks = {
         row.ticker: _valuation_approach_rank_map(
@@ -55,16 +55,16 @@ def _evaluate_candidate_discovery(
         (row for row in population if row.er_annual is not None),
         key=lambda row: (-(row.er_annual or 0.0), row.ticker),
     )
-    review_tickers = {row.ticker for row in review_set_rows}
+    nomination_tickers = {row.ticker for row in nomination_rows}
     for top_n in COMPARISON_TOP_NS:
         er_rows = population_by_er[:top_n]
         result[f"pure_er_top{top_n}"] = _group_stats([excess[row.ticker] for row in er_rows])
         er_tickers = {row.ticker for row in er_rows}
         result[f"nomination_union_vs_er_top{top_n}"] = {
-            "review_set_n": len(review_tickers),
+            "nomination_union_n": len(nomination_tickers),
             "pure_er_n": len(er_tickers),
-            "overlap_n": len(review_tickers & er_tickers),
-            "displaced_from_er_n": len(er_tickers - review_tickers),
+            "overlap_n": len(nomination_tickers & er_tickers),
+            "displaced_from_er_n": len(er_tickers - nomination_tickers),
         }
     return result
 
@@ -102,21 +102,21 @@ def _candidate_discovery_fidelity(
             ),
         }
 
-    review_rows = [row for row in panel if row.in_population and row.in_review_set]
-    resolved_review_count = sum(row.ticker in excess for row in review_rows)
+    nomination_rows = [row for row in panel if row.in_population and row.in_nomination_union]
+    resolved_nomination_count = sum(row.ticker in excess for row in nomination_rows)
     nominated_tickers = {ticker for ticker, ranks in approach_ranks.items() if ranks}
-    review_tickers = {row.ticker for row in review_rows}
+    nomination_tickers = {row.ticker for row in nomination_rows}
     nomination_union_eligible = (
         input_complete
         and all(approaches[approach]["eligible"] is True for approach in APPROACH_IDS)
-        and review_tickers == nominated_tickers
-        and resolved_review_count == len(review_rows)
+        and nomination_tickers == nominated_tickers
+        and resolved_nomination_count == len(nomination_rows)
     )
     return {
         "jpx_regulation_input_status": jpx_input_status,
         "approaches": approaches,
-        "review_count": len(review_rows),
-        "resolved_review_count": resolved_review_count,
+        "nomination_count": len(nomination_rows),
+        "resolved_nomination_count": resolved_nomination_count,
         "nomination_union_eligible": nomination_union_eligible,
     }
 

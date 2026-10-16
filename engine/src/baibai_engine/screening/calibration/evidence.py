@@ -21,7 +21,7 @@ DECISION_SUBJECTS = (
 CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC = "candidate_discovery_nomination_union_fidelity"
 ESTIMATOR_POLICY_MANDATORY_METRICS = ("er_calibration",)
 UNION_MANDATORY_METRICS = (
-    "review_set_all",
+    "nomination_union_all",
     CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC,
     *(f"candidate_discovery_approach_{item.replace('-', '_')}_fidelity" for item in APPROACH_IDS),
 )
@@ -39,7 +39,7 @@ def candidate_discovery_approach_fidelity_metric(approach: str) -> str:
 
 KNOWN_METRICS = frozenset(
     (
-        "review_set_all",
+        "nomination_union_all",
         "pure_er_top5",
         "pure_er_top10",
         "pure_er_top20",
@@ -111,7 +111,7 @@ def subject_mandatory_metrics(scope: EvaluationScope) -> tuple[str, ...]:
         approach = scope.candidate_discovery_approaches[0]
         metrics.extend(
             (
-                "review_set_all",
+                "nomination_union_all",
                 CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC,
                 candidate_discovery_approach_nomination_metric(approach),
                 candidate_discovery_approach_fidelity_metric(approach),

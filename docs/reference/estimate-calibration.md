@@ -97,7 +97,7 @@ cache が対象 row を同定できない、diagnostics 件数と row 数が一�
 | 全損 | `price_return = -1.0` |
 | 中立 | 同 cohort の resolved common eligible母集団の中央値。benchmarkや母集団外の銘柄は含めない |
 
-報告値を比較に含めるのは、それが evidence readiness の読む値そのものだからである。両方の代入で向きが揃っても報告値だけが逆を向くなら、その結論は除外が作ったものになる。向きは`review_set_all`がNomination union全体の`median_excess`の符号、`er_calibration`が最上位 quintile の`median_realized_price_excess` − 最下位 quintile の同値の符号で定める。いずれかの場合で値が算出できず他の場合で算出できるときも、除外が「cohort が何か言えるかどうか」を決めているので不安定として扱う。
+報告値を比較に含めるのは、それが evidence readiness の読む値そのものだからである。両方の代入で向きが揃っても報告値だけが逆を向くなら、その結論は除外が作ったものになる。向きは`nomination_union_all`がNomination union全体の`median_excess`の符号、`er_calibration`が最上位 quintile の`median_realized_price_excess` − 最下位 quintile の同値の符号で定める。いずれかの場合で値が算出できず他の場合で算出できるときも、除外が「cohort が何か言えるかどうか」を決めているので不安定として扱う。
 
 この判定は結論を下へ引く可能性に対しての bracket である。買収による廃止はプレミアム付きで中立代入の上に出るため、上側は挟まない。実値で解決できた行はこの bracket の対象から外れる。
 
@@ -175,7 +175,7 @@ forward row は price-only の `price_return` / `status` と、`realized_dividen
 
 `normalized_per_3fy`がcalibrationのsubject mandatory metricではないことは、Candidate Discoveryで未使用という意味ではない。Normalized Earnings Powerのnative eligibility/orderには使い、FV/E[r] estimator入力には使わない。
 
-候補正本の統合後も、`PanelRow.in_review_set`、`valuation_approaches`、`valuation_approach_ranks`、PanelDiagnosticsの`security_analyses`/`nominated_candidates`、evidenceの`candidate_discovery_nomination_union`等は測定wireとして保持する。これらは独立publicationではなく候補集合membershipの測定値である。productionと較正は同じ丸め済みStock Analysisへ`build_candidate_contexts`を一度適用し、理由から測定値を導出する。cohort/forward/ER artifactをrun cacheの切替で消したり、現在identityへ書換えたりしない。
+候補集合の測定は`PanelRow.in_nomination_union`、`valuation_approaches`、`valuation_approach_ranks`、PanelDiagnosticsの`security_analyses`/`nominated_candidates`、evidenceの`candidate_discovery_nomination_union`で表す。旧Review Set名への互換aliasは持たない。これらは独立publicationではなく候補集合membershipの測定値である。productionと較正は同じ丸め済みStock Analysisへ`build_candidate_contexts`を一度適用し、理由から測定値を導出する。run cacheと較正storeは別の責務である。較正schema変更時は対象cohortを現行入力から再構築し、古い測定結果へ現在identityを付け替えない。
 
 cache schema versionは[store実装](../../engine/src/baibai_engine/screening/calibration/store.py)がfieldと計算revision等から導出する。計算の意味変更は所有領域のrevision（`VALUATION_CALCULATION_REVISION` / `MARKET_CONTEXT_CALCULATION_REVISION`）を明示更新する。run・panel・cacheは両方をidentityに含め、旧計算の再利用を防ぐ。保存済み資料のidentityを新値へ付け替えない。市場storeの整数`user_version`とは別契約である。panelは、productionの730日財務入力を変えずに補助履歴から、3 FYのsplit-safe DPS、DPS YoY・予想増配・配当開始、グロス株数減少streakと還元変化composite、赤字を含む連続3/5 FYのsplit-safe平均EPSによる正規化PER、PIT-TTMの`operating_profit_to_assets`・`operating_margin`・`asset_turnover`を記録する。これらのpanel列と`ProfitabilityLevelSignals`はcalibration専用で、productionへ渡さない。production ReinvestmentはStock Analysisから別途収益性を計算し、[native eligibility/order](./screening-runtime.md#candidate-discovery)に使う。グロス株数減少は自己株取得の事実ではなく、消却・発行等の純変化proxyである。`rules_hash`はrules・variant・入力窓・Valuation / Market Context calculation revision・Candidate Discovery method hashを含む。valuationの式・資本分母・価格基準またはCandidate Discoveryのeligibility・order・Nomination union contractが異なるpanelは、method identityとcache schemaの不一致でfail closedにする。
 

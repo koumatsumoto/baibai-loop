@@ -489,7 +489,7 @@ def _evaluate_sector_median_basis(
                 "market_fallback" if metric in row.smg_market_fallback.split("|") else "own_sector"
             )
             groups[basis].append((value * spec.direction, excess[row.ticker]))
-            screened[basis] += row.in_review_set
+            screened[basis] += row.in_nomination_union
         entry: dict[str, object] = {}
         for basis, pairs in groups.items():
             decile_values = _decile_values(pairs) if len(pairs) >= MIN_AXIS_SAMPLE else None

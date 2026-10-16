@@ -197,7 +197,7 @@ class PanelRow:
     margin_long_delta_26w: float | None
     margin_std_long_share: float | None
     # 保存済み較正panelのwire名。意味はCandidate Discoveryのnomination union所属。
-    in_review_set: bool
+    in_nomination_union: bool
     valuation_approaches: str
     valuation_approach_ranks: str
     population_coverage_status: PopulationCoverageStatus = "evaluated"
@@ -539,7 +539,7 @@ def build_panel(
                 operating_profit_to_assets=profitability.operating_profit_to_assets,
                 operating_margin=profitability.operating_margin,
                 asset_turnover=profitability.asset_turnover,
-                in_review_set=bool(discovery.contexts[ticker].reasons),
+                in_nomination_union=bool(discovery.contexts[ticker].reasons),
                 valuation_approaches="|".join(
                     item.valuation_approach_id for item in discovery.contexts[ticker].reasons
                 ),
@@ -722,7 +722,7 @@ def _unresolved_master_member_row(
         margin_long_delta_26w=None,
         margin_std_long_share=None,
         realized_volatility_60d=None,
-        in_review_set=False,
+        in_nomination_union=False,
         valuation_approaches="",
         valuation_approach_ranks="",
         population_coverage_status=(

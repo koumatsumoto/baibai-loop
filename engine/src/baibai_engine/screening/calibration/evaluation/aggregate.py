@@ -130,7 +130,7 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
                         round(fmean(float(row[field]) for row in rows), 1) if rows else 0
                     )
                     for field in (
-                        "review_set_n",
+                        "nomination_union_n",
                         "pure_er_n",
                         "overlap_n",
                         "displaced_from_er_n",

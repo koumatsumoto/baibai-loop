@@ -104,7 +104,7 @@ def _panel_row(ticker: str, *, rank: int | None = None, **overrides: object) -> 
     if rank is not None:
         # This file's cohort is one where every ranked name also passed, which is what
         # its evaluation cases are about; the panel does not require that in general.
-        overrides.setdefault("in_review_set", True)
+        overrides.setdefault("in_nomination_union", True)
     context: dict[str, object] = {
         "market_cap_oku": 500.0,
         "avg_turnover_oku": 5.0,
@@ -273,7 +273,7 @@ class SectorMedianBasisThinSideTest(unittest.TestCase):
                 per_trailing=10.0,
                 smg_p_s=-index / 100,
                 smg_market_fallback="p_s",
-                in_review_set=True,
+                in_nomination_union=True,
             )
             panel.append(row)
             # The group sits well above the population and the axis orders it inside:
@@ -380,7 +380,7 @@ class SectorMedianBasisTest(unittest.TestCase):
                 per_trailing=10.0,
                 smg_p_s=-index / 100,
                 smg_market_fallback="p_s",
-                in_review_set=True,
+                in_nomination_union=True,
             )
             panel.extend((own, market))
             # own_sector: the cheapest end wins. market_fallback: it loses.
@@ -929,7 +929,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         # candidate_discovery replay: 上位 10 銘柄は安い側なので正の超過。
         candidate_discovery = cohorts[0]["candidate_discovery"]
         assert isinstance(candidate_discovery, dict)
-        nomination_union = candidate_discovery["review_set_all"]
+        nomination_union = candidate_discovery["nomination_union_all"]
         assert isinstance(nomination_union, dict)
         self.assertEqual(nomination_union["n"], 10)
         median_excess = nomination_union["median_excess"]
@@ -1051,7 +1051,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
             ticker = f"{3000 + i}"
             row = _panel_row(ticker, per_trailing=10.0, rank=(i + 1 if i < 20 else None))
             # PanelRow は frozen なので必要 field を差し替えた新 instance を作る。
-            row = replace(row, er_annual=0.20 - 0.001 * i, in_review_set=i < 20)
+            row = replace(row, er_annual=0.20 - 0.001 * i, in_nomination_union=i < 20)
             panel.append(row)
             forwards.append(_forward_row(ticker, 0.001 * i))
         result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
@@ -1069,7 +1069,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         assert isinstance(median_excess, float)
         self.assertLess(median_excess, 0.0)
         changed = evaluate_cohorts(
-            {_ASOF: [replace(row, in_review_set=index >= 100) for index, row in enumerate(panel)]},
+            {_ASOF: [replace(row, in_nomination_union=index >= 100) for index, row in enumerate(panel)]},
             {_ASOF: forwards},
             horizons=["6m"],
         )["6m"]
@@ -1497,9 +1497,9 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         self.assertIn("requires one --candidate-discovery-approach", errors.getvalue())
 
     def test_nomination_union_outcome_stays_registered(self) -> None:
-        # `review_set_all` is emitted by every cohort, so leaving it out of the
+        # `nomination_union_all` is emitted by every cohort, so leaving it out of the
         # registry would reject a preregistration that names an output it can see.
-        self.assertIn("review_set_all", KNOWN_METRICS)
+        self.assertIn("nomination_union_all", KNOWN_METRICS)
 
     def test_calibration_evaluate_command_marks_short_horizon_as_diagnostic(self) -> None:
         panel: list[PanelRow] = []
@@ -1928,8 +1928,8 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         self.assertEqual(sensitivity["excluded_count"], 2)
         self.assertFalse(sensitivity["direction_stable"])
         imputations = sensitivity["imputations"]
-        self.assertLess(imputations["total_loss"]["review_set_all"], 0)
-        self.assertGreater(imputations["neutral"]["review_set_all"], 0)
+        self.assertLess(imputations["total_loss"]["nomination_union_all"], 0)
+        self.assertGreater(imputations["neutral"]["nomination_union_all"], 0)
 
     def test_normalized_per_direction_flip_blocks_optional_evidence(self) -> None:
         as_reported = {"normalized_per_3fy": 0.1}
@@ -1971,10 +1971,10 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         sensitivity = self._sensitivity(delisted_ranks=(3, 4, 5))
 
         self.assertEqual(sensitivity["excluded_count"], 3)
-        self.assertGreater(sensitivity["as_reported"]["review_set_all"], 0)
+        self.assertGreater(sensitivity["as_reported"]["nomination_union_all"], 0)
         imputations = sensitivity["imputations"]
-        self.assertLess(imputations["total_loss"]["review_set_all"], 0)
-        self.assertEqual(imputations["neutral"]["review_set_all"], 0.0)
+        self.assertLess(imputations["total_loss"]["nomination_union_all"], 0)
+        self.assertEqual(imputations["neutral"]["nomination_union_all"], 0.0)
         self.assertFalse(sensitivity["direction_stable"])
 
     def test_delisting_neutral_uses_only_the_reported_eligible_population(self) -> None:
@@ -2031,8 +2031,8 @@ class PricedMasterWithoutUniverseSensitivityTests(unittest.TestCase):
         self.assertEqual(sensitivity["excluded_count"], 2)
         self.assertEqual(sensitivity["resolved_target_count"], 2)
         self.assertTrue(sensitivity["resolution_complete"])
-        self.assertEqual(sensitivity["as_reported"]["review_set_all"], 0.0)
-        self.assertGreater(sensitivity["imputations"]["total_loss"]["review_set_all"], 0)
+        self.assertEqual(sensitivity["as_reported"]["nomination_union_all"], 0.0)
+        self.assertGreater(sensitivity["imputations"]["total_loss"]["nomination_union_all"], 0)
         self.assertFalse(sensitivity["direction_stable"])
 
     def test_an_unresolved_target_direction_split_is_not_stable(self) -> None:
@@ -2077,8 +2077,8 @@ class PricedMasterWithoutUniverseSensitivityTests(unittest.TestCase):
         self.assertEqual(sensitivity["resolved_target_count"], 0)
         self.assertFalse(sensitivity["resolution_complete"])
         self.assertFalse(sensitivity["direction_stable"])
-        self.assertEqual(sensitivity["as_reported"]["review_set_all"], 0.0)
-        self.assertGreater(sensitivity["imputations"]["total_loss"]["review_set_all"], 0)
+        self.assertEqual(sensitivity["as_reported"]["nomination_union_all"], 0.0)
+        self.assertGreater(sensitivity["imputations"]["total_loss"]["nomination_union_all"], 0)
 
 
 def test_a_stratum_needs_five_names_on_each_side_before_it_is_matched() -> None:

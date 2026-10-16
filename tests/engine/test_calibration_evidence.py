@@ -82,7 +82,7 @@ def test_nomination_union_mandatory_metrics_cannot_be_omitted() -> None:
     scope = _scope(subject=CANDIDATE_DISCOVERY_UNION_SUBJECT)
     required = effective_required_metrics(scope)
     assert required[:2] == (
-        "review_set_all",
+        "nomination_union_all",
         CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC,
     )
     assert len(required) == 6
@@ -97,14 +97,14 @@ def test_nomination_union_mandatory_metrics_cannot_be_omitted() -> None:
     )
     readiness = evaluate_evidence_readiness(scope, incomplete)
     assert readiness.evidence_complete is False
-    assert "metric_unresolved:review_set_all" in readiness.blocking_reasons
+    assert "metric_unresolved:nomination_union_all" in readiness.blocking_reasons
 
 
 def test_approach_mandatory_metrics_include_direct_and_union_outcomes() -> None:
     approach = "asset-value"
     scope = _scope(subject=CANDIDATE_DISCOVERY_APPROACH_SUBJECT, approach=approach)
     assert effective_required_metrics(scope) == (
-        "review_set_all",
+        "nomination_union_all",
         CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC,
         candidate_discovery_approach_nomination_metric(approach),
         candidate_discovery_approach_fidelity_metric(approach),

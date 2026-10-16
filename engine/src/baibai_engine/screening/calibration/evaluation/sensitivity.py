@@ -33,7 +33,7 @@ _DELISTING_IMPUTATIONS: tuple[str, ...] = ("total_loss", "neutral")
 _TOTAL_LOSS_RETURN = -1.0
 
 _SENSITIVITY_METRICS: tuple[str, ...] = (
-    "review_set_all",
+    "nomination_union_all",
     "er_calibration",
 )
 
@@ -79,7 +79,7 @@ def _direction_signs(
         candidate_discovery_rules=candidate_discovery_rules,
     )
     signs: dict[str, float | None] = {}
-    for key in ("review_set_all",):
+    for key in ("nomination_union_all",):
         group = candidate_discovery.get(key)
         value = group.get("median_excess") if isinstance(group, dict) else None
         signs[key] = value if isinstance(value, int | float) else None
