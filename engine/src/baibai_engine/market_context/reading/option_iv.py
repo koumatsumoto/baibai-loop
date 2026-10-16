@@ -70,9 +70,10 @@ class OptionIvReadings:
 def option_iv_readings(quotes: Sequence[OptionQuote], asof: date) -> OptionIvReadings:
     """Summarise the two nearest usable, paired expiries.
 
-    Level and skew require a bracket around 30 days. Skew also requires usable put
-    legs and a passing basis check; term needs two priced expiries and the same
-    basis check, but no 30-day bracket. Missing readings remain None, not zero.
+    Level and skew use an observed 30-day expiry directly, or interpolate between
+    two expiries bracketing 30 days. Skew checks only the expiries it uses. Term
+    needs two priced expiries and both basis checks, but no 30-day bracket.
+    Missing readings remain None, not zero.
 
     The level averages put/call volatility at the nearest paired strike and is
     deliberately retained even when the basis check fails. Symmetric errors cancel
@@ -93,12 +94,10 @@ def option_iv_readings(quotes: Sequence[OptionQuote], asof: date) -> OptionIvRea
     second_volatility = atm[second] if second is not None else None
     near_days = (front - asof).days
     far_days = (second - asof).days if second is not None else None
-    # Both difference readings are built from the second expiry as well as the first,
-    # so checking only the front would pass a chain whose second month is the broken
-    # one — and a term reading built on it can invert its own sign.
-    consistent = _basis_is_consistent(by_expiry[front]) and (
-        second is None or _basis_is_consistent(by_expiry[second])
-    )
+    # Interpolated skew and term need both legs. An exact 30-day skew uses only
+    # that expiry, so an unrelated second leg must not erase its observed value.
+    near_consistent = _basis_is_consistent(by_expiry[front])
+    far_consistent = second is not None and _basis_is_consistent(by_expiry[second])
     return OptionIvReadings(
         iv_30d=_constant_maturity(
             near_days=near_days,
@@ -106,19 +105,15 @@ def option_iv_readings(quotes: Sequence[OptionQuote], asof: date) -> OptionIvRea
             far_days=far_days,
             far_volatility=second_volatility,
         ),
-        iv_skew=(
-            _constant_maturity_skew(
-                near_days=near_days,
-                near_skew=_skew(by_expiry[front]),
-                far_days=far_days,
-                far_skew=_skew(by_expiry[second]) if second is not None else None,
-            )
-            if consistent
-            else None
+        iv_skew=_constant_maturity_skew(
+            near_days=near_days,
+            near_skew=_skew(by_expiry[front]) if near_consistent else None,
+            far_days=far_days,
+            far_skew=_skew(by_expiry[second]) if second is not None and far_consistent else None,
         ),
         iv_term=(
             second_volatility - front_volatility
-            if consistent and second_volatility is not None
+            if near_consistent and far_consistent and second_volatility is not None
             else None
         ),
     )
@@ -134,11 +129,16 @@ def _constant_maturity_skew(
     """Interpolate put skew on the inverse-square-root maturity axis.
 
     This is the indicator's chosen interpolation convention, not a guarantee that
-    maturity effects or market noise disappear. Both expiries must bracket 30 days.
+    maturity effects or market noise disappear. Unless an expiry is exactly 30 days,
+    both expiries must bracket the target.
     The convex weights keep the result between the two available skew readings.
     Historical rationale and sample diagnostics are in
     reports/studies/2026-07-31-option-iv-quantiles/report.md.
     """
+    if near_days == TARGET_DAYS:
+        return near_skew
+    if far_days == TARGET_DAYS:
+        return far_skew
     if near_skew is None or far_days is None or far_skew is None or far_days == near_days:
         return None
     if not near_days <= TARGET_DAYS <= far_days:
@@ -270,11 +270,16 @@ def _constant_maturity(
     The result is at least the same-weight linear volatility average, but that
     algebraic difference alone does not establish forecast accuracy.
 
-    Two expiries that bracket the target are required. A single expiry sitting past
+    An exact target expiry needs no interpolation or second expiry. Otherwise two
+    expiries must bracket the target. A single expiry sitting past
     30 days would have to be reported as if it were a 30-day contract, which is a
     maturity the chain never priced; `opt_225` carries several expiries every day, so
     the chain answers or it does not.
     """
+    if near_days == TARGET_DAYS:
+        return near_volatility
+    if far_days == TARGET_DAYS:
+        return far_volatility
     if far_days is None or far_volatility is None or far_days == near_days:
         return None
     if not near_days <= TARGET_DAYS <= far_days:

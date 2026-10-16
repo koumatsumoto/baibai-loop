@@ -500,18 +500,38 @@ class OptionIvReadingsTest(unittest.TestCase):
         self.assertEqual((leading.iv_skew, leading.iv_30d), (12.0, 20.0))
         self.assertEqual((trailing.iv_skew, trailing.iv_30d), (3.0, 23.0))
 
-    def test_a_chain_with_one_priced_expiry_answers_nothing(self) -> None:
-        # Every reading needs two expiries: the differences by definition, and the
-        # level because one expiry past the target would have to be reported as a
-        # 30-day contract the chain never priced. Reaching for a second expiry that is
-        # not there must decline rather than fail the whole day.
+    def test_one_priced_expiry_answers_only_when_it_is_exactly_the_target(self) -> None:
+        # A lone expiry cannot be extrapolated to 30 days, but an actual 30-day
+        # quote needs no second expiry. Only the term difference remains missing.
         far_out = option_iv_readings(list(_chain(WIDE)), ASOF)
         on_target = option_iv_readings(list(_chain(ON_TARGET)), ASOF)
         too_near = option_iv_readings(list(_chain(NEAR)), ASOF)
 
         self.assertEqual(far_out, OptionIvReadings())
-        self.assertEqual(on_target, OptionIvReadings())
+        self.assertEqual(on_target, OptionIvReadings(iv_30d=20.0, iv_skew=10.0))
         self.assertEqual(too_near, OptionIvReadings())
+
+    def test_exact_target_skew_does_not_require_an_unused_expirys_basis(self) -> None:
+        ladder = {0.90: 50.0, 0.95: 46.0, 0.975: 42.0, 1.00: 40.0, 1.05: 36.0}
+        for other in (NEAR, FAR):
+            with self.subTest(other=other):
+                readings = option_iv_readings(
+                    [
+                        *_chain(ON_TARGET, ladder=ladder),
+                        *_chain(other, ladder=ladder, basis_gap=30.0),
+                    ],
+                    ASOF,
+                )
+                self.assertEqual(readings.iv_30d, 40.0)
+                self.assertEqual(readings.iv_skew, 6.0)
+                self.assertIsNone(readings.iv_term)
+
+    def test_exact_target_skew_still_requires_its_own_basis(self) -> None:
+        ladder = {0.90: 50.0, 0.95: 46.0, 0.975: 42.0, 1.00: 40.0, 1.05: 36.0}
+        readings = option_iv_readings(_chain(ON_TARGET, ladder=ladder, basis_gap=30.0), ASOF)
+        self.assertEqual(readings.iv_30d, 40.0)
+        self.assertIsNone(readings.iv_skew)
+        self.assertIsNone(readings.iv_term)
 
     def test_the_basis_check_reaches_the_second_expiry_the_differences_read(self) -> None:
         # Both differences are built from the second expiry as well as the first, so a
