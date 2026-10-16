@@ -8,7 +8,12 @@ from contextlib import redirect_stdout
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from tests.helpers.indicator_store import observation, store_h15_observations, store_mof_observations
+import pytest
+from tests.helpers.indicator_store import (
+    observation,
+    store_h15_observations,
+    store_mof_observations,
+)
 
 from baibai_engine.market_context.indicator_cli import (
     main,
@@ -26,12 +31,12 @@ from baibai_engine.market_context.indicators.db import (
     retract_observations,
     row_count,
 )
-from baibai_engine.market_context.indicators.read_contracts import native_source_key
-from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
 from baibai_engine.market_context.indicators.definitions import (
     IndicatorDefinitions,
     load_definitions,
 )
+from baibai_engine.market_context.indicators.read_contracts import native_source_key
+from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
 
 
 class RetractionVintageTests(unittest.TestCase):
@@ -340,8 +345,11 @@ class RetractionVintageTests(unittest.TestCase):
             conn = initialize_database(database, definitions=definitions)
             try:
                 store_snapshot(
-                    conn, source_key=native_source_key(registry["jp.10y"]),
-                    observed_at=date(2026, 7, 20), fetched_at=datetime(2026, 7, 22, tzinfo=UTC), records=[],
+                    conn,
+                    source_key=native_source_key(registry["jp.10y"]),
+                    observed_at=date(2026, 7, 20),
+                    fetched_at=datetime(2026, 7, 22, tzinfo=UTC),
+                    records=[],
                 )
                 conn.commit()
             finally:
@@ -354,7 +362,10 @@ class RetractionVintageTests(unittest.TestCase):
             conn = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
             conn.row_factory = sqlite3.Row
             try:
-                from baibai_engine.market_context.reading.reader import build_store_observation_reader
+                from baibai_engine.market_context.reading.reader import (
+                    build_store_observation_reader,
+                )
+
                 reader = build_store_observation_reader(conn, series=definitions.series)
                 kept = reader("jp.10y", date(2026, 7, 20), date(2026, 7, 20))
             finally:
@@ -412,10 +423,10 @@ class RetractionVintageTests(unittest.TestCase):
             database = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(database)
             try:
-                series = get_series(conn, "us.fed_funds.upper")
+                series = get_series(conn, "jp.bankruptcies")
                 insert_observations(
                     conn,
-                    [observation(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC))],
+                    [observation(series, date(2026, 5, 1), 439.0, datetime(2026, 5, 2, tzinfo=UTC))],
                 )
                 conn.commit()
             finally:
@@ -426,7 +437,7 @@ class RetractionVintageTests(unittest.TestCase):
                 exit_code = main(
                     [
                         "retract",
-                        "us.fed_funds.upper",
+                        "jp.bankruptcies",
                         "--observed-at",
                         "2026-05-01",
                         "--expected-vintage",
@@ -437,5 +448,24 @@ class RetractionVintageTests(unittest.TestCase):
                 )
 
             self.assertEqual(exit_code, 0)
-            self.assertIn("us.fed_funds.upper\t2026-05-01\twithdrawn\t4.39\t-", stdout.getvalue())
+            self.assertIn("jp.bankruptcies\t2026-05-01\twithdrawn\t439.0\t-", stdout.getvalue())
             self.assertIn("0 fell back to an earlier vintage, 1 left the reads", stdout.getvalue())
+
+
+def test_retraction_must_be_newer_before_it_can_report_a_withdrawal(tmp_path):
+    path = tmp_path / "indicators.sqlite"
+    conn = initialize_database(path)
+    try:
+        series = get_series(conn, "jp.bankruptcies")
+        day = date(2026, 6, 1)
+        latest = datetime(2026, 6, 2, tzinfo=UTC)
+        original = observation(series, day, 441.0, latest)
+        insert_observations(conn, [original])
+        conn.commit()
+        for attempted in (datetime(2026, 5, 10, tzinfo=UTC), latest):
+            with pytest.raises(ValueError, match="must be later"):
+                retract_observations(conn, series.series_id, [(day, latest)], vintage_at=attempted)
+            assert observations_in_range(conn, series.series_id, day, day) == (original,)
+            assert row_count(conn, "observations") == 1
+    finally:
+        conn.close()

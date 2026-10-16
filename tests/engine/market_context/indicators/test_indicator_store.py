@@ -231,10 +231,15 @@ class IndicatorsDBTests(unittest.TestCase):
             database = Path(tmp) / "indicators.sqlite"
             _write_retired_series(database)
             definition = load_definitions().by_id()["jp.2y"]
-            refreshed = {date(2026, 5, 1): [{
-                "row": {"基準日": "R8.5.1", definition.provider_series_id: "4.39"},
-                "source_url": definition.source_url, "preamble": [],
-            }]}
+            refreshed = {
+                date(2026, 5, 1): [
+                    {
+                        "row": {"基準日": "R8.5.1", definition.provider_series_id: "4.39"},
+                        "source_url": definition.source_url,
+                        "preamble": [],
+                    }
+                ]
+            }
             stdout = io.StringIO()
 
             with (
@@ -394,8 +399,8 @@ class IndicatorsDBTests(unittest.TestCase):
                         create=True,
                     ),
                     patch(
-                        "baibai_engine.market_context.indicator_service.fetch_observations",
-                        return_value=[observation("us.fed_funds.upper", date(2026, 5, 1), 4.39)],
+                        "baibai_engine.market_context.indicator_service.fetch_native_records",
+                        return_value={date(2026, 5, 1): [{"observation_date": "2026-05-01", "DFEDTARU": "4.39"}]},
                     ),
                 ):
                     IndicatorsService(database).refresh_series(
@@ -434,8 +439,8 @@ class IndicatorsDBTests(unittest.TestCase):
                     side_effect=checked_prune,
                 ),
                 patch(
-                    "baibai_engine.market_context.indicator_service.fetch_observations",
-                    return_value=[observation("us.fed_funds.upper", date(2026, 5, 1), 4.39)],
+                    "baibai_engine.market_context.indicator_service.fetch_native_records",
+                    return_value={date(2026, 5, 1): [{"observation_date": "2026-05-01", "DFEDTARU": "4.39"}]},
                 ),
             ):
                 IndicatorsService(database).refresh_series(

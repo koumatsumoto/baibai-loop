@@ -735,6 +735,8 @@ def retract_observations(
     caller is working from a stale list.
     """
 
+    if vintage_at.tzinfo is None or vintage_at.utcoffset() is None:
+        raise ValueError("retraction vintage must include a timezone")
     outcomes: list[RetractionOutcome] = []
     written: list[ObservationRecord] = []
     for observed_at, expected_vintage_at in targets:
@@ -754,6 +756,8 @@ def retract_observations(
             )
         if withdrawn.fetch_status == RETRACTED_STATUS:
             continue
+        if withdrawn.vintage_at is not None and vintage_at <= withdrawn.vintage_at:
+            raise ValueError("retraction vintage must be later than the withdrawn observation")
         underneath = _observation_from_row(rows[1]) if len(rows) > 1 else None
         if underneath is not None and underneath.fetch_status == RETRACTED_STATUS:
             underneath = None

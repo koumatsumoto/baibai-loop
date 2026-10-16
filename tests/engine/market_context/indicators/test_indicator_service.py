@@ -61,8 +61,13 @@ class IndicatorsServiceTests(unittest.TestCase):
         # source, not whichever production provider has not yet become native.
         registry = load_definitions()
         extra = tuple(
-            _series("test_scalar", name, series_id=f"test.scalar.{name}",
-                    plausible_min=-2.0, plausible_max=20.0)
+            _series(
+                "test_scalar",
+                name,
+                series_id=f"test.scalar.{name}",
+                plausible_min=-2.0,
+                plausible_max=20.0,
+            )
             for name in ("one", "two", "three")
         )
         definitions = IndicatorDefinitions(registry.series + extra, generation=registry.generation)
@@ -74,13 +79,16 @@ class IndicatorsServiceTests(unittest.TestCase):
         ):
             self.enterContext(patch(target, return_value=definitions))
         provider = SimpleNamespace(
-            name="test_scalar", spec=ProviderSpec(name="test_scalar", all_history_start=date(1974, 1, 1)),
+            name="test_scalar",
+            spec=ProviderSpec(name="test_scalar", all_history_start=date(1974, 1, 1)),
             fetch=Mock(side_effect=AssertionError("test must stub scalar acquisition")),
         )
-        self.enterContext(patch.dict(
-            "baibai_engine.market_context.indicators.providers.registry._PROVIDERS",
-            {"test_scalar": provider},
-        ))
+        self.enterContext(
+            patch.dict(
+                "baibai_engine.market_context.indicators.providers.registry._PROVIDERS",
+                {"test_scalar": provider},
+            )
+        )
 
     def test_derived_values_use_the_registry_bounds_at_the_calculation_boundary(self) -> None:
         for series_id, inputs in (
@@ -100,7 +108,9 @@ class IndicatorsServiceTests(unittest.TestCase):
                         ],
                     )
                     if "jp.2y" in inputs:
-                        store_mof_observations(conn, [observation("jp.2y", date(2026, 7, 1), inputs["jp.2y"])])
+                        store_mof_observations(
+                            conn, [observation("jp.2y", date(2026, 7, 1), inputs["jp.2y"])]
+                        )
                     if "jp.policy_rate" in inputs:
                         policy = load_definitions().by_id()["jp.policy_rate"]
                         store_snapshot(
@@ -710,7 +720,10 @@ class IndicatorsServiceTests(unittest.TestCase):
             successes = [outcome for outcome in outcomes if isinstance(outcome, RefreshSuccess)]
             self.assertEqual([failure.series_id for failure in failures], ["test.scalar.two"])
             self.assertIn("source unavailable", failures[0].message)
-            self.assertEqual([success.series_id for success in successes], ["test.scalar.one", "test.scalar.three"])
+            self.assertEqual(
+                [success.series_id for success in successes],
+                ["test.scalar.one", "test.scalar.three"],
+            )
             conn = open_connection(database)
             try:
                 stored = {
@@ -979,7 +992,9 @@ class IndicatorsServiceTests(unittest.TestCase):
     def test_refresh_cli_requires_one_range_mode(self) -> None:
         parser = build_parser()
 
-        args = parser.parse_args(["refresh", "test.scalar.one", "--all-history", "--end", "2026-07-20"])
+        args = parser.parse_args(
+            ["refresh", "test.scalar.one", "--all-history", "--end", "2026-07-20"]
+        )
         self.assertTrue(args.all_history)
         with self.assertRaises(SystemExit):
             parser.parse_args(

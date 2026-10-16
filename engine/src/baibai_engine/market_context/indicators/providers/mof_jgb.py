@@ -46,10 +46,17 @@ class MofJgbSource:
         records: dict[date, list[dict[str, object]]] = defaultdict(list)
         for url in (series.source_url, _current_month_csv_url(series.source_url)):
             content = fetch_bytes(
-                session, url, params=None, max_bytes=MAX_CSV_RESPONSE_BYTES, context=context,
+                session,
+                url,
+                params=None,
+                max_bytes=MAX_CSV_RESPONSE_BYTES,
+                context=context,
             )
             native = parse_mof_jgb_csv(
-                replace(series, source_url=url), content.decode("cp932"), start=start, end=end,
+                replace(series, source_url=url),
+                content.decode("cp932"),
+                start=start,
+                end=end,
             )
             for day, rows in native.items():
                 records[day].extend(dict(row) for row in rows)
@@ -84,9 +91,13 @@ def parse_mof_jgb_csv(
         if len(row) > len(header):
             raise IndicatorsProviderError("MOF JGB CSV row has more fields than its header")
         cells = {column: row[i] if i < len(row) else None for i, column in enumerate(header)}
-        records[observed_at].append({
-            "row": cells, "source_url": series.source_url, "preamble": list(preamble),
-        })
+        records[observed_at].append(
+            {
+                "row": cells,
+                "source_url": series.source_url,
+                "preamble": list(preamble),
+            }
+        )
     if header is None:
         raise IndicatorsProviderError("MOF JGB CSV missing header row")
     return dict(records)

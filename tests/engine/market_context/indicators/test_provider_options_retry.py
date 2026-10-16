@@ -498,13 +498,13 @@ def test_normal_tls_proxy_pool_timeout_and_other_sdk_clients_are_unchanged(wire)
 def test_failed_options_keep_native_chain_readable_and_another_series_can_commit(
     wire, monkeypatch, tmp_path
 ):
-    provider_name = _registered("us.fed_funds.upper").provider
+    provider_name = _registered("jp.bankruptcies").provider
 
     class OtherProvider:
         spec = registry._PROVIDERS[provider_name].spec
 
         def fetch(self, series, *, start, end, session, context):
-            return [observation(series, ASOF, 4.2)]
+            return [observation(series, ASOF, 420.0)]
 
     monkeypatch.setitem(registry._PROVIDERS, provider_name, OtherProvider())
     database = tmp_path / "indicators.sqlite"
@@ -527,7 +527,7 @@ def test_failed_options_keep_native_chain_readable_and_another_series_can_commit
     conn.close()
     wire.reply = lambda url: (403, {}, {"message": "synthetic-key"})
     results = IndicatorsService(database).refresh_series(
-        [*READINGS, "us.fed_funds.upper"], start=ASOF, end=ASOF
+        [*READINGS, "jp.bankruptcies"], start=ASOF, end=ASOF
     )
     assert all(isinstance(r, RefreshFailure) for r in results[:3])
     assert isinstance(results[3], RefreshSuccess)
@@ -542,7 +542,7 @@ def test_failed_options_keep_native_chain_readable_and_another_series_can_commit
         } == before_values
         assert (
             conn.execute(
-                "SELECT COUNT(*) FROM observations WHERE series_id = 'us.fed_funds.upper'"
+                "SELECT COUNT(*) FROM observations WHERE series_id = 'jp.bankruptcies'"
             ).fetchone()[0]
             == 1
         )

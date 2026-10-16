@@ -98,10 +98,10 @@ def test_refresh_failure_after_inserting_values_rolls_back_the_whole_update(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = tmp_path / "indicators.sqlite"
-    definition = load_definitions().by_id()["us.fed_funds.upper"]
-    day = date(2026, 7, 15)
-    old = observation(definition, day, 1.0, datetime(2026, 7, 15, tzinfo=UTC))
-    new = observation(definition, day, 2.0, datetime(2026, 7, 16, tzinfo=UTC))
+    definition = load_definitions().by_id()["jp.bankruptcies"]
+    day = date(2026, 7, 1)
+    old = observation(definition, day, 1000.0, datetime(2026, 7, 15, tzinfo=UTC))
+    new = observation(definition, day, 1001.0, datetime(2026, 7, 16, tzinfo=UTC))
     with closing(db.initialize_database(path)) as connection:
         db.insert_observations(connection, [old])
         connection.commit()

@@ -5,7 +5,11 @@ from contextlib import closing
 from datetime import UTC, date, datetime
 
 import pytest
-from tests.helpers.indicator_store import observation, store_h15_observations, store_mof_observations
+from tests.helpers.indicator_store import (
+    observation,
+    store_h15_observations,
+    store_mof_observations,
+)
 
 from baibai_engine.market_context.indicator_service import IndicatorsService
 from baibai_engine.market_context.indicators.db import initialize_database, insert_observations

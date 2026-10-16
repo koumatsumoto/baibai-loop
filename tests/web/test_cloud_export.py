@@ -80,10 +80,18 @@ def _seed_indicator_observations(root: Path) -> None:
                 ),
             ],
         )
-        store_mof_observations(conn, [ObservationRecord(
-            series_id="jp.10y", observed_at=date(2026, 7, 17), value=1.1,
-            unit="percent", source_url="https://example.com/jp10y",
-        )])
+        store_mof_observations(
+            conn,
+            [
+                ObservationRecord(
+                    series_id="jp.10y",
+                    observed_at=date(2026, 7, 17),
+                    value=1.1,
+                    unit="percent",
+                    source_url="https://example.com/jp10y",
+                )
+            ],
+        )
         store_h15_observations(
             conn,
             [
