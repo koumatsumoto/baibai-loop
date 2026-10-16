@@ -78,19 +78,20 @@ def extract_edinet_facts_command(
             )
             continue
         previous = statuses.get(doc_id)
-        if (
-            previous
-            and previous[0] == "ok"
-            and json.loads(previous[1] or "{}").get("revision") == EXTRACTOR_REVISION
-        ):
-            counts["reused"] += 1
-            continue
+        if previous and previous[0] == "ok":
+            cached = json.loads(previous[1] or "{}")
+            if (
+                cached.get("revision") == EXTRACTOR_REVISION
+                and cached.get("identity") == identity.model_dump()
+            ):
+                counts["reused"] += 1
+                continue
         try:
             content = provider.download_xbrl_zip(doc_id)
             facts = extract_facts(
                 content=content, ticker=identity.ticker, doc_id=doc_id, submitted=submitted
             )
-            store_facts(sqlite_path, doc_id=doc_id, disclosed_on=identity.disclosed_on, facts=facts)
+            store_facts(sqlite_path, identity=identity, facts=facts)
         except (EDINETProviderError, ValueError, BadZipFile, OSError) as exc:
             # Provider exception text is sanitized; source failures are fixed reason codes.
             record_failure(

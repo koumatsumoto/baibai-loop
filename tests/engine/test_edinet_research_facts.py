@@ -11,6 +11,7 @@ from unittest.mock import Mock
 import pytest
 from tests.helpers.http_doubles import FakeSession, response
 
+from baibai_engine.market.edinet_facts.models import ExtractedFacts, filing_identity
 from baibai_engine.market.edinet_facts.extract import extract_facts
 from baibai_engine.market.edinet_facts.selection import (
     annual_documents,
@@ -345,7 +346,7 @@ def test_store_keeps_vintages_and_coverage_reasons(tmp_path):
     one = facts()
     two = facts("S100YJ24")
     for doc, rows in [("S100YR5P", one), ("S100YJ24", two), ("S100YR5P", one)]:
-        store_facts(path, doc_id=doc, disclosed_on="2026-07-22", facts=rows)
+        store_facts(path, identity=filing_identity("1873", doc, "2026-07-22 10:00"), facts=rows)
     conn = sqlite3.connect(path)
     assert conn.execute("select count(*) from edinet_segment_facts").fetchone()[0] == 72
     conn.close()
@@ -637,3 +638,58 @@ def test_orphan_correction_is_scoped_to_its_fiscal_period(tmp_path, description_
         assert selected == ("S100UZ4I", "2024-12-20 11:36", "2024-03-31", "usable")
     else:
         assert selected is None
+
+
+@pytest.mark.parametrize("field,value", [("secCode", "99990"), ("submitDateTime", "2026-06-24 15:00")])
+def test_research_facts_reextract_when_document_identity_changes(tmp_path, field, value):
+    path = tmp_path / "market.sqlite"
+    original = document()
+    insert_documents(path, [original])
+    provider = Mock()
+    provider.download_xbrl_zip.return_value = source_zip()
+    kwargs = dict(asof=date(2026, 9, 18), sqlite_path=path, provider=provider)
+    assert extract_edinet_facts_command(**kwargs, initialize=True) == 0
+    changed = {**original, field: value}
+    insert_documents(path, [changed])
+    assert extract_edinet_facts_command(**kwargs) == 0
+    expected = filing_identity(changed["secCode"][:4], changed["docID"], changed["submitDateTime"])
+    with sqlite3.connect(path) as conn:
+        for table in ("edinet_segment_facts", "edinet_debt_schedule"):
+            assert conn.execute(f"SELECT DISTINCT ticker, source_submit_datetime FROM {table}").fetchall() == [
+                (expected.ticker, expected.source_submit_datetime)
+            ]
+    assert provider.download_xbrl_zip.call_count == 2
+    assert extract_edinet_facts_command(**kwargs) == 0
+    assert provider.download_xbrl_zip.call_count == 2
+
+
+def test_research_facts_identity_uses_normalized_submission_time(tmp_path):
+    path = tmp_path / "market.sqlite"
+    original = document()
+    insert_documents(path, [original])
+    provider = Mock()
+    provider.download_xbrl_zip.return_value = source_zip()
+    kwargs = dict(asof=date(2026, 9, 18), sqlite_path=path, provider=provider)
+    assert extract_edinet_facts_command(**kwargs, initialize=True) == 0
+    insert_documents(path, [{**original, "submitDateTime": "2026-06-24T14:00:00+09:00"}])
+    assert extract_edinet_facts_command(**kwargs) == 0
+    assert provider.download_xbrl_zip.call_count == 1
+
+
+def test_empty_research_facts_still_bind_the_extraction_identity(tmp_path, monkeypatch):
+    path = tmp_path / "market.sqlite"
+    original = document()
+    insert_documents(path, [original])
+    provider = Mock()
+    provider.download_xbrl_zip.return_value = source_zip()
+    monkeypatch.setattr(
+        "baibai_engine.market.edinet_facts.service.extract_facts",
+        lambda **kwargs: ExtractedFacts((), ()),
+    )
+    kwargs = dict(asof=date(2026, 9, 18), sqlite_path=path, provider=provider)
+    assert extract_edinet_facts_command(**kwargs, initialize=True) == 0
+    assert extract_edinet_facts_command(**kwargs) == 0
+    assert provider.download_xbrl_zip.call_count == 1
+    insert_documents(path, [{**original, "secCode": "99990"}])
+    assert extract_edinet_facts_command(**kwargs) == 0
+    assert provider.download_xbrl_zip.call_count == 2

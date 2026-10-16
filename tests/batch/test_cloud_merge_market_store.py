@@ -19,6 +19,7 @@ from baibai_batch.storage.merge_market_store import (
     main,
     merge_stores,
 )
+from baibai_engine.market.edinet_facts.models import filing_identity
 from baibai_engine.storage.lake.datasets import LAKE_DATASETS
 from baibai_engine.storage.observations.coverage import record_range_source_coverage
 from baibai_engine.storage.observations.ingest.jquants import store_jquants_short_sale_reports
@@ -874,12 +875,12 @@ def test_edinet_document_coverage_partial_retry_and_revision_merge(tmp_path):
 
     source, target = _store(tmp_path / "source.sqlite"), _store(tmp_path / "target.sqlite")
     # Two documents submitted the same day are independent claims.
-    store_facts(target, doc_id="S100YR5P", disclosed_on="2026-07-22", facts=facts())
+    store_facts(target, identity=filing_identity("1873", "S100YR5P", "2026-07-22 10:00"), facts=facts())
     record_failure(target, doc_id="S100FAIL", disclosed_on="2026-07-22", reason="unavailable")
     # Target successfully retried the source's failure.
     record_failure(source, doc_id="S100YR5P", disclosed_on="2026-07-22", reason="old failure")
     # A remote-only success is not proof of the target's extracted fact generation.
-    store_facts(source, doc_id="S100YJ24", disclosed_on="2026-07-22", facts=facts("S100YJ24"))
+    store_facts(source, identity=filing_identity("1873", "S100YJ24", "2026-07-22 10:00"), facts=facts("S100YJ24"))
     record_initialized(source, date(2026, 9, 18))
     merge_stores(source, target)
     statuses = extraction_status(target)
@@ -888,7 +889,7 @@ def test_edinet_document_coverage_partial_retry_and_revision_merge(tmp_path):
     assert statuses["S100YJ24"] == ("failed", "imported_document_requires_recheck")
     assert json.loads(statuses["initialized"][1]) == {"since": "2026-09-18"}
     # Different extractor revisions retain the target claim attached to its facts.
-    store_facts(source, doc_id="S100YR5P", disclosed_on="2026-07-22", facts=facts())
+    store_facts(source, identity=filing_identity("1873", "S100YR5P", "2026-07-22 10:00"), facts=facts())
     with closing(sqlite3.connect(target)) as conn, conn:
         conn.execute(
             "UPDATE source_coverage SET error=? WHERE source='edinet_research_facts' AND coverage_key='S100YR5P'",

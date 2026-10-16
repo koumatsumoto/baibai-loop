@@ -10,6 +10,7 @@ from tests.engine.test_edinet_research_facts import facts
 from tests.helpers.l1_release import lake as lake
 from tests.helpers.lake_policy import narrow_release_policy
 
+from baibai_engine.market.edinet_facts.models import filing_identity
 from baibai_engine.market.edinet_facts.store import store_facts
 from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.hydrate import hydrate_market_store
@@ -30,7 +31,7 @@ def test_facts_export_fixed_read_and_hydrate(tmp_path, monkeypatch):
     names = ("edinet.segment_facts", "edinet.debt_schedule")
     narrow_release_policy(monkeypatch, datasets=names)
     db = tmp_path / "source.sqlite"
-    store_facts(db, doc_id="S100YR5P", disclosed_on="2026-07-22", facts=facts())
+    store_facts(db, identity=filing_identity("1873", "S100YR5P", "2026-07-22 10:00"), facts=facts())
     mirror = tmp_path / "mirror"
     stamp = datetime(2026, 9, 19, tzinfo=UTC)
     with sealed_sqlite_snapshot(

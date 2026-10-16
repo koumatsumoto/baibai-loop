@@ -14,7 +14,7 @@ from baibai_engine.storage.observations.coverage import record_source_coverage
 from baibai_engine.storage.observations.schema import connect_current, open_connection
 
 from .extract import EXTRACTOR_REVISION
-from .models import DebtFact, ExtractedFacts, SegmentFact
+from .models import DebtFact, ExtractedFacts, FactIdentity, SegmentFact
 
 COVERAGE_SOURCE = "edinet_research_facts"
 
@@ -45,7 +45,9 @@ def extraction_status(path: Path) -> dict[str, tuple[str, str | None]]:
         connection.close()
 
 
-def store_facts(path: Path, *, doc_id: str, disclosed_on: str, facts: ExtractedFacts) -> None:
+def store_facts(path: Path, *, identity: FactIdentity, facts: ExtractedFacts) -> None:
+    doc_id = identity.source_doc_id
+    disclosed_on = identity.disclosed_on
     connection = open_connection(path)
     try:
         with connection:
@@ -62,6 +64,7 @@ def store_facts(path: Path, *, doc_id: str, disclosed_on: str, facts: ExtractedF
                 error=json.dumps(
                     {
                         "revision": EXTRACTOR_REVISION,
+                        "identity": identity.model_dump(),
                         "segment_reasons": facts.segment_reasons,
                         "debt_reasons": facts.debt_reasons,
                     },
