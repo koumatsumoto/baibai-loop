@@ -702,7 +702,7 @@ def _evaluate_er_level_calibration(
         "calibration_error_basis": "realized_minus_predicted",
         "component_basis": {
             "predicted_reversion": "er_reversion_annual",
-            "predicted_carry": "er_carry_annual_dividend_plus_buyback",
+            "predicted_carry": "er_carry_annual_dividend_plus_share_count_yield",
             "realized_price": "adjusted_close_price_return_annualized",
             "realized_dividend": "annualized_total_minus_annualized_price",
         },

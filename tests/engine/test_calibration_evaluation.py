@@ -1745,6 +1745,30 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         self.assertEqual(coverage["entry_price_gap_count"], 1)
         self.assertEqual(counts.get("entry_price_gap"), 1)
 
+    def test_known_raw_price_is_not_lost_when_panel_valuation_is_unavailable(self) -> None:
+        missing = ForwardReturnRow(
+            asof="2025-06-30",
+            ticker="9400",
+            horizon="3y",
+            target_date="2028-06-30",
+            resolved=False,
+            price_return=None,
+            stale_price=False,
+            entry_date=None,
+            exit_date=None,
+            status="unresolved_missing_entry",
+        )
+        panel, forwards = self._long_horizon_cohort([(missing, None)])
+        panel[-1] = replace(
+            panel[-1], population_coverage_status="priced_master_without_universe"
+        )
+        counts, coverage = self._reason_counts(
+            panel, forwards, priced_master_without_universe_count=1
+        )
+        self.assertEqual(coverage["entry_unpriced_at_asof_count"], 0)
+        self.assertEqual(coverage["entry_price_gap_count"], 1)
+        self.assertEqual(counts.get("entry_price_gap"), 1)
+
     def test_price_gap_and_unpriced_exit_are_named_as_separate_blockers(self) -> None:
         # panel で価格を観測した銘柄の entry 欠測と、exit 価格の欠測を区別する。
         price_gap = ForwardReturnRow(

@@ -105,7 +105,11 @@ def _evaluate_cohort(
     # absence nor presence of a stored close proves listing or actual executability.
     # A missing forward entry for a price-backed panel member loses an observation
     # the analytical population otherwise includes.
-    priced_at_asof = {row.ticker for row in panel if row.close is not None}
+    priced_at_asof = {
+        row.ticker for row in panel
+        if row.close is not None
+        or row.population_coverage_status == "priced_master_without_universe"
+    }
     missing_entry = [row for row in unresolved if row.status == "unresolved_missing_entry"]
     entry_unpriced_at_asof = [row for row in missing_entry if row.ticker not in priced_at_asof]
     entry_price_gap = [row for row in missing_entry if row.ticker in priced_at_asof]
