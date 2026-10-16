@@ -62,7 +62,7 @@ function FrozenAnalysis({ analysis }: { analysis: StockAnalysisRowView }) {
     <div className="grid gap-5 py-3">
       <FrozenGroup fields={[
         ['market cap', `${number(analysis.market_cap_oku)} 億円`], ['ADV (context)', `${number(analysis.avg_turnover_oku)} 億円`],
-        ['listing span', `${number(analysis.listing_span_days, 0)} 日`], ['JPX flags', analysis.jpx_flags?.join(', ') || EMPTY],
+        ['日足履歴の観測期間（上場日未確認）', `${number(analysis.listing_span_days, 0)} 日`], ['JPX flags', analysis.jpx_flags?.join(', ') || EMPTY],
       ]} title="Identity / liquidity" />
       <FrozenGroup fields={[
         ['PER forward', number(analysis.per_forward)], ['PER trailing', number(analysis.per_trailing)], ['PBR', number(analysis.pbr)],
