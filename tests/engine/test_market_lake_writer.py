@@ -137,8 +137,8 @@ def test_case_sensitive_like_keeps_partition_rows_order_and_identity(tmp_path: P
     ):
         legacy.execute("PRAGMA case_sensitive_like=OFF")
         for period in ((2026, 1), (2026, 2)):
-            legacy_rows = writer_module._period_rows(legacy, dataset, period)
-            indexed_rows = writer_module._period_rows(indexed, dataset, period)
+            legacy_rows = list(writer_module._period_rows(legacy, dataset, period))
+            indexed_rows = list(writer_module._period_rows(indexed, dataset, period))
             assert indexed_rows == legacy_rows
 
 

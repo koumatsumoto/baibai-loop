@@ -103,6 +103,8 @@ storageは物理保存の技術責務であり、保存DBをL3そのものと呼
 
 <a id="edinet-metric-revision"></a>
 
+EDINETのCSV/XBRL ZIPは`edinet.source_archives`で取得bytesを保持し、既存のmarket SQLite・lake公開へ載せる。ローカルZIPは再利用可能なdownload cacheであって共有正本の代替ではない。抽出したmetric/Research factは原本から再生成するmaterializationであり、元の空欄・単位・contextや未選択項目を置き換えない。既存の抽出履歴に原本がない場合、復元したことにせず履歴を保つ。独立した監査DBや全要求履歴は追加しない。
+
 EDINET metricのrevisionは抽出意味の変更時だけ明示更新し、配置・import・transport retryでは更新しない。対象とprovenanceは[データソース](./reference/data-sources.md#edinet-metric-revision)、[反映手順](../batch/OPERATIONS.md#edinet-metrics-revision)はbatch運用が所有する。
 
 <a id="migration-status"></a>

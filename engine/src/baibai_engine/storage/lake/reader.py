@@ -330,6 +330,8 @@ def iter_partition_rows(
         return
     if batch_size < 1:
         raise LakeReadError("row batch size must be positive")
+    if dataset.has_binary_payload:
+        batch_size = 1
     selected = (
         tuple(columns) if columns is not None else tuple(column.name for column in dataset.columns)
     )

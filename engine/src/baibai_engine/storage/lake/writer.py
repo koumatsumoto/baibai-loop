@@ -9,6 +9,7 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from itertools import islice
 from pathlib import Path
 from types import MappingProxyType
 
@@ -196,8 +197,7 @@ def export_dataset_snapshot(
                 )
                 for period in periods
             ]
-            data_as_of = _data_as_of(connection, dataset, periods=periods)
-            coverage_status, coverage_start, population_count = _coverage_assessment(
+            coverage_status, coverage_start, data_as_of, population_count = _coverage_assessment(
                 connection, dataset
             )
 
@@ -340,30 +340,53 @@ def validate_snapshot_parity(
             )
 
 
+def _row_batch_size(dataset: LakeDataset) -> int:
+    # A source ZIP can be large; keep at most one archive row in an Arrow batch.
+    # Ordinary scalar observations keep the existing row-group budget.
+    return 1 if dataset.has_binary_payload else _ROW_GROUP_SIZE
+
+
 def _build_period(
     *,
     dataset: LakeDataset,
     period: Period,
     staging_root: Path,
-    rows: Sequence[tuple[object, ...]],
+    rows: Iterable[tuple[object, ...]],
     sources: tuple[SourceRef, ...],
 ) -> _BuiltPartition:
-    table = pa.Table.from_pylist(
-        [dict(zip((column.name for column in dataset.columns), row, strict=True)) for row in rows],
-        schema=dataset.arrow_schema,
-    )
     provisional = staging_root / f"{dataset.sqlite_table}-{period_label(period)}.parquet"
-    pq.write_table(
-        table,
+    names = tuple(column.name for column in dataset.columns)
+    pk_indexes = _pk_indexes(dataset)
+    batch_size = _row_batch_size(dataset)
+    iterator = iter(rows)
+    count = 0
+    min_key: tuple[str, ...] | None = None
+    max_key: tuple[str, ...] | None = None
+    with pq.ParquetWriter(
         provisional,
+        dataset.arrow_schema,
         compression=_COMPRESSION,
         compression_level=_COMPRESSION_LEVEL,
         data_page_version="1.0",
-        row_group_size=_ROW_GROUP_SIZE,
         use_dictionary=False,
         version=_PARQUET_VERSION,
-        write_statistics=True,
-    )
+        write_statistics=[
+            column.name for column in dataset.columns if column.sqlite_type != "BLOB"
+        ],
+    ) as writer:
+        while batch := list(islice(iterator, batch_size)):
+            table = pa.Table.from_pylist(
+                [dict(zip(names, row, strict=True)) for row in batch],
+                schema=dataset.arrow_schema,
+            )
+            writer.write_table(table, row_group_size=batch_size)
+            count += len(batch)
+            for row in batch:
+                key = tuple(str(row[index]) for index in pk_indexes)
+                min_key = key if min_key is None else min(min_key, key)
+                max_key = key if max_key is None else max(max_key, key)
+    if min_key is None or max_key is None:
+        raise LakeBuildError("cannot build an empty calendar partition")
     content_sha256 = sha256_file(provisional)
     object_key = canonical_object_key(
         layer="l1_canonical",
@@ -376,29 +399,22 @@ def _build_period(
     staged = staging_root / object_key
     staged.parent.mkdir(parents=True, exist_ok=True)
     provisional.replace(staged)
-    primary_keys = [tuple(str(row[index]) for index in _pk_indexes(dataset)) for row in rows]
     lake_object = LakeObject(
-        key=object_key,
-        sha256=content_sha256,
-        bytes=staged.stat().st_size,
-        rows=len(rows),
-        min_key=min(primary_keys),
-        max_key=max(primary_keys),
+        key=object_key, sha256=content_sha256, bytes=staged.stat().st_size,
+        rows=count, min_key=min_key, max_key=max_key,
     )
     return _BuiltPartition(
         period=period,
         staged_path=staged,
         manifest=PartitionManifest(
-            values=period_values(dataset, period),
-            objects=(lake_object,),
-            sources=sources,
+            values=period_values(dataset, period), objects=(lake_object,), sources=sources,
         ),
     )
 
 
 def _coverage_assessment(
     connection: sqlite3.Connection, dataset: LakeDataset
-) -> tuple[CoverageStatus, date, int | None]:
+) -> tuple[CoverageStatus, date, date, int | None]:
     """Derive operational coverage from the evidence defined for this SQLite source."""
     bounds = connection.execute(
         f"SELECT MIN({dataset.date_column}), MAX({dataset.date_column}) "  # nosec B608
@@ -418,7 +434,7 @@ def _coverage_assessment(
         )
         if population_count <= 0:
             raise LakeBuildError(f"{dataset.name} has no {dataset.population_column} population")
-    return _coverage_status(connection, dataset, start=start, end=end), start, population_count
+    return _coverage_status(connection, dataset, start=start, end=end), start, end, population_count
 
 
 def _coverage_status(
@@ -446,31 +462,40 @@ def _validate_parquet(
     *,
     dataset: LakeDataset,
     period: Period,
-    expected_rows: Sequence[tuple[object, ...]],
+    expected_rows: Iterable[tuple[object, ...]],
     expected_object: LakeObject,
 ) -> None:
     if not path.is_file() or path.stat().st_size <= 0:
         raise LakeBuildError(f"Parquet object missing or empty: {path}")
     if sha256_file(path) != expected_object.sha256 or path.stat().st_size != expected_object.bytes:
         raise LakeBuildError(f"Parquet checksum or size mismatch: {path}")
-    table = pq.read_table(path)
-    if not table.schema.equals(dataset.arrow_schema, check_metadata=True):
-        raise LakeBuildError(f"Parquet Arrow schema mismatch: {path}")
     names = tuple(column.name for column in dataset.columns)
-    actual_rows = [tuple(item[name] for name in names) for item in table.to_pylist()]
-    if actual_rows != list(expected_rows):
-        raise LakeBuildError(f"Parquet values or row order differ from SQLite: {path}")
-    pk_indexes = _pk_indexes(dataset)
-    keys = [tuple(str(row[index]) for index in pk_indexes) for row in actual_rows]
-    if len(keys) != len(set(keys)):
-        raise LakeBuildError(f"Parquet primary key is not unique: {path}")
     date_index = names.index(dataset.date_column)
+    pk_indexes = _pk_indexes(dataset)
     prefix = f"{period_label(period)}-"
-    if any(not str(row[date_index]).startswith(prefix) for row in actual_rows):
-        raise LakeBuildError(f"Parquet row escapes its calendar partition: {path}")
-    if len(actual_rows) != expected_object.rows:
+    expected = iter(expected_rows)
+    keys: set[tuple[str, ...]] = set()
+    count = 0
+    with pq.ParquetFile(path, pre_buffer=False) as parquet:
+        if not parquet.schema_arrow.equals(dataset.arrow_schema, check_metadata=True):
+            raise LakeBuildError(f"Parquet Arrow schema mismatch: {path}")
+        for batch in parquet.iter_batches(batch_size=_row_batch_size(dataset)):
+            actual = [tuple(item[name] for name in names) for item in batch.to_pylist()]
+            if actual != list(islice(expected, len(actual))):
+                raise LakeBuildError(f"Parquet values or row order differ from SQLite: {path}")
+            count += len(actual)
+            for row in actual:
+                key = tuple(str(row[index]) for index in pk_indexes)
+                if key in keys:
+                    raise LakeBuildError(f"Parquet primary key is not unique: {path}")
+                keys.add(key)
+                if not str(row[date_index]).startswith(prefix):
+                    raise LakeBuildError(f"Parquet row escapes its calendar partition: {path}")
+    if next(expected, None) is not None:
+        raise LakeBuildError(f"Parquet values or row order differ from SQLite: {path}")
+    if count != expected_object.rows:
         raise LakeBuildError(f"Parquet row count mismatch: {path}")
-    if min(keys) != expected_object.min_key or max(keys) != expected_object.max_key:
+    if not keys or min(keys) != expected_object.min_key or max(keys) != expected_object.max_key:
         raise LakeBuildError(f"Parquet min/max primary key mismatch: {path}")
 
 
@@ -500,7 +525,7 @@ def _period_rows(
     connection: sqlite3.Connection,
     dataset: LakeDataset,
     period: Period,
-) -> list[tuple[object, ...]]:
+) -> Iterator[tuple[object, ...]]:
     prefix = f"{period_label(period)}-"
     columns = ", ".join(column.name for column in dataset.columns)
     order = ", ".join(dataset.primary_key)
@@ -508,7 +533,8 @@ def _period_rows(
         f"SELECT {columns} FROM {dataset.sqlite_table} "  # nosec B608
         f"WHERE {dataset.date_column} LIKE ? ORDER BY {order}"
     )
-    return [tuple(row) for row in connection.execute(query, (f"{prefix}%",))]
+    for row in connection.execute(query, (f"{prefix}%",)):
+        yield tuple(row)
 
 
 def _validate_sqlite_contract(connection: sqlite3.Connection, dataset: LakeDataset) -> None:
@@ -558,21 +584,6 @@ def _promote_partitions(mirror_root: Path, built: Sequence[_BuiltPartition]) -> 
         except ImmutableInstallError as exc:
             raise LakeBuildError(f"content-addressed key collision: {target}") from exc
     return created
-
-
-def _data_as_of(
-    connection: sqlite3.Connection,
-    dataset: LakeDataset,
-    *,
-    periods: Iterable[Period],
-) -> date:
-    latest = max(periods)
-    names = tuple(column.name for column in dataset.columns)
-    date_index = names.index(dataset.date_column)
-    rows = _period_rows(connection, dataset, latest)
-    if not rows:
-        raise LakeBuildError("latest manifest partition is absent from the market SQLite")
-    return max(_iso_date(row[date_index], dataset=dataset) for row in rows)
 
 
 def _iso_date(value: object, *, dataset: LakeDataset) -> date:

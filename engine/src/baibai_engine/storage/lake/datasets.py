@@ -86,6 +86,10 @@ class LakeDataset:
     """The column whose distinct values are the dataset's population, if it has one."""
 
     @property
+    def has_binary_payload(self) -> bool:
+        return any(column.sqlite_type == "BLOB" for column in self.columns)
+
+    @property
     def coverage_source_name(self) -> str:
         return self.coverage_source or self.sqlite_table
 
@@ -391,6 +395,20 @@ EDINET_METRICS = LakeDataset(
     ),
 )
 
+EDINET_SOURCE_ARCHIVES = LakeDataset(
+    name="edinet.source_archives",
+    sqlite_table="edinet_source_archives",
+    date_column="stored_on",
+    coverage_authority="unproven",
+    population_column=None,
+    columns=(
+        LakeColumn("doc_id", "TEXT", _TEXT, False, 1),
+        LakeColumn("source_type", "INTEGER", _INTEGER, False, 2),
+        LakeColumn("stored_on", "TEXT", _TEXT, False),
+        LakeColumn("zip_content", "BLOB", pa.binary(), False),
+    ),
+)
+
 EDINET_DOCUMENT_LISTS = LakeDataset(
     name="edinet.document_lists",
     sqlite_table="edinet_document_lists",
@@ -572,6 +590,7 @@ EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS = LakeDataset(
 )
 
 LAKE_DATASETS = {
+    EDINET_SOURCE_ARCHIVES.name: EDINET_SOURCE_ARCHIVES,
     EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS.name: (
         EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS
     ),

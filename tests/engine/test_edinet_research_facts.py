@@ -17,7 +17,7 @@ from baibai_engine.market.edinet_facts.service import annual_documents, extract_
 from baibai_engine.market.edinet_facts.store import extraction_status, store_facts
 from baibai_engine.market.edinet_facts.xbrl import SourceFormatError, xml_root
 from baibai_engine.market.edinet_models import EDINETProviderError
-from baibai_engine.market.providers.edinet_facts import EDINETFactsProvider
+from baibai_engine.market.providers.edinet import EDINETProvider
 from baibai_engine.storage.observations.schema import open_connection
 
 FIXTURES = Path(__file__).parents[1] / "fixtures/edinet/research"
@@ -294,7 +294,7 @@ def test_retained_annual_family_receives_later_corrections():
 
 def test_provider_raw_zip_cache_and_nonzip_rate_limit(tmp_path, monkeypatch):
     session = FakeSession(response(b'{"StatusCode":429}'), response(source_zip()))
-    provider = EDINETFactsProvider("test-key", tmp_path, session=session)
+    provider = EDINETProvider("test-key", tmp_path, session=session)
     monkeypatch.setattr("baibai_engine.market.providers.edinet.time.sleep", lambda _: None)
     data = provider.download_xbrl_zip("S100YR5P")
     assert provider.download_xbrl_zip("S100YR5P") == data

@@ -581,6 +581,13 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             require_complete_coverage=False,
         ),
         ReleaseDatasetPolicy(
+            dataset="edinet.source_archives",
+            required=False,
+            carries_history=True,
+            minimum_rows=1,
+            require_complete_coverage=False,
+        ),
+        ReleaseDatasetPolicy(
             dataset="edinet.document_lists",
             required=True,
             carries_history=True,

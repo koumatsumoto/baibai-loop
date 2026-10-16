@@ -17,7 +17,6 @@ from baibai_engine.market.edinet_facts.service import extract_edinet_facts_comma
 from baibai_engine.market.edinet_metrics.service import extract_edinet_metrics_command
 from baibai_engine.market.jpx_sources import JPX_REGULATION_URLS
 from baibai_engine.market.providers.edinet import EDINETProvider
-from baibai_engine.market.providers.edinet_facts import EDINETFactsProvider
 from baibai_engine.market.providers.jpx import JPXProvider
 from baibai_engine.market.providers.jquants import JQuantsProvider
 from baibai_engine.read_api.market import market_calendar_business_day
@@ -586,8 +585,10 @@ def main(argv: list[str] | None = None) -> int:
         return extract_edinet_facts_command(
             asof=_parse_iso_date(args.asof),
             sqlite_path=Path(args.sqlite_path) if args.sqlite_path else sqlite_path,
-            provider=EDINETFactsProvider(
-                config.edinet_api_key, config.cache_dir, cache_only=args.cache_only
+            provider=EDINETProvider(
+                config.edinet_api_key, config.cache_dir,
+                sqlite_path=Path(args.sqlite_path) if args.sqlite_path else sqlite_path,
+                cache_only=args.cache_only,
             ),
             initialize=args.initialize,
             tickers=tuple(args.ticker),

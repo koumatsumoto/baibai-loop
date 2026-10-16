@@ -23,7 +23,7 @@ from baibai_engine.external_assessment.observations.contract import (
 )
 from baibai_engine.external_assessment.tradingview.contract import DDL as TV_DDL
 
-SQLITE_SCHEMA_VERSION = 36
+SQLITE_SCHEMA_VERSION = 37
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
 # EDINET serves a filing's descriptive columns only while its public-inspection period
@@ -306,6 +306,14 @@ CREATE TABLE IF NOT EXISTS edinet_debt_schedule(
   source_locator TEXT NOT NULL,
   PRIMARY KEY (source_doc_id, balance_sheet_date, consolidation_basis,
                debt_category, due_from_months, due_to_months)
+);
+
+CREATE TABLE IF NOT EXISTS edinet_source_archives(
+  doc_id TEXT NOT NULL,
+  source_type INTEGER NOT NULL,
+  stored_on TEXT NOT NULL,
+  zip_content BLOB NOT NULL,
+  PRIMARY KEY (doc_id, source_type)
 );
 
 CREATE TABLE IF NOT EXISTS edinet_metrics(

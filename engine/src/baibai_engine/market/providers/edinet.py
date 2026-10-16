@@ -105,7 +105,6 @@ class EDINETProvider:
         self._session = session or requests.Session()
         self._sqlite_path = Path(sqlite_path) if sqlite_path is not None else None
         self._cache_only = cache_only
-        self._zip_cache_dir = self._cache_dir / "csv_zips"
 
     def list_documents(
         self,
@@ -226,26 +225,51 @@ class EDINETProvider:
         return fetched
 
     def download_csv_zip(self, doc_id: str) -> bytes:
-        safe_doc_id = parse_doc_id(doc_id)
-        cache_path = self._zip_cache_dir / f"{safe_doc_id}.zip"
-        if cache_path.exists():
-            cached = cache_path.read_bytes()
-            if _is_zip_bytes(cached):
-                return cached
-            cache_path.unlink(missing_ok=True)
-        self._raise_if_cache_only("edinet_csv_zip", safe_doc_id)
+        return self._download_document_zip(doc_id, source_type=5)
 
-        api_key = self._require_api_key("download_csv_zip")
-        query = urlencode({"type": 5, "Subscription-Key": api_key})
-        url = f"{EDINET_API_BASE}/documents/{safe_doc_id}?{query}"
-        content = self._request_bytes(url)
+    def download_xbrl_zip(self, doc_id: str) -> bytes:
+        return self._download_document_zip(doc_id, source_type=1)
+
+    def _download_document_zip(self, doc_id: str, *, source_type: int) -> bytes:
+        from baibai_engine.market.edinet_sources import read_source_archive
+
+        safe_id = parse_doc_id(doc_id)
+        source_name = "csv" if source_type == 5 else "xbrl"
+        if self._sqlite_path is not None:
+            retained = read_source_archive(self._sqlite_path, safe_id, source_type)
+            if retained is not None:
+                if not _is_zip_bytes(retained):
+                    raise EDINETProviderError(f"stored EDINET {source_name} archive is not a ZIP")
+                return retained
+        cache = self._cache_dir / f"{source_name}_zips" / f"{safe_id}.zip"
+        if cache.exists():
+            content = cache.read_bytes()
+            if _is_zip_bytes(content):
+                return self._retain_document_zip(safe_id, source_type, content)
+            cache.unlink()
+        self._raise_if_cache_only(f"edinet_{source_name}_zip", safe_id)
+        query = urlencode(
+            {"type": source_type, "Subscription-Key": self._require_api_key("download_document_zip")}
+        )
+        content = self._request_bytes(f"{EDINET_API_BASE}/documents/{safe_id}?{query}")
         if not _is_zip_bytes(content):
             raise EDINETProviderError(
-                f"EDINET CSV ZIP response was not a zip: {_non_zip_response_message(content)}"
+                f"EDINET {source_name.upper()} ZIP response was not a zip: "
+                f"{_non_zip_response_message(content)}"
             )
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        cache_path.write_bytes(content)
-        return content
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_bytes(content)
+        return self._retain_document_zip(safe_id, source_type, content)
+
+    def _retain_document_zip(self, doc_id: str, source_type: int, content: bytes) -> bytes:
+        if self._sqlite_path is None:
+            return content
+        from baibai_engine.market.edinet_sources import retain_source_archive
+
+        return retain_source_archive(
+            self._sqlite_path, doc_id, source_type, content,
+            stored_on=datetime.now(UTC).date(),
+        )
 
     def _require_api_key(self, operation: str) -> str:
         if not self._api_key:

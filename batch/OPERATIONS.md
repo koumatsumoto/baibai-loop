@@ -683,6 +683,18 @@ CLI 引数・log には出ない）。secret の実値を Git・issue・log へ�
 
 **停止・復旧**: 取得失敗、期待外の差分、generation競合、lease失効では後続公開へ進まず、対象を限定して直す。日次batchに意味移行を代行させず、旧値へ新revisionを一括設定して再抽出済みと扱わない。code・保存値・readbackの整合が揃うまで切替完了としない。
 
+<a id="edinet-source-archives"></a>
+
+## EDINET原本の共有保存
+
+`edinet.source_archives`はtype=5 CSV ZIPとtype=1 XBRL ZIPの取得bytesを、`doc_id`・`source_type`別にmarket storeへ保持する。通常のlake公開・hydrate・dehydrateに含まれる。`stored_on`はこのstoreに最初に保持したUTC日付で、開示日・APIで利用可能になった日・元cacheの取得日の代用ではない。ZIPの内容をJSONへ再構成せず、元のencoding・空欄・単位・未選択の項目を保つ。
+
+原本を読む順序は共有storeの作業コピー、既存のlocal ZIP cache、必要なAPI取得である。local cacheにあったZIPも取得を繰り返さず共有保存へ取り込む。CSVとXBRLのtransport・保存経路は同じproviderを使う。取得エラーや不開示通知PDFで保存済みZIPを上書きしない。`doc_id + source_type`はcacheの論理keyであり、同じ書類・取得種別でZIP bytesが永遠に同じと保証するものではない。原本の公開世代・保持は既存lakeの不変objectとretentionに従い、別の版管理機構を追加しない。
+
+マージ後の初回切替ではcurrent schemaを構築して既存releaseをhydrateし、手元の原本を再利用する。現行metricの再抽出に加え、保存済みResearch factsが参照するdocIDの原本も確認する。抽出結果のreuseだけでは、失われたZIPを再取得したことにならない。不足分だけを取得・保存し、取得できない過去書類は一覧化して既存抽出履歴を残す。原本不足を理由に過去の判断・取引・抽出履歴を削除しない。新規の通常取得は、抽出結果とは別に原本を保存する。
+
+受入ではCSV/XBRLのbytes一致、別環境の空cacheからの再読、元のcontext/単位/欠測を保った再抽出、lake公開・hydrateの往復、保存量・読込時間を確認する。archive列はPython側のbatchを一行にしてParquetへ書き出し・照合・SQLiteへ戻し、ZIP内容のmin/max統計は作らない。通常のスカラー観測は既存のrow batchを使う。全原本の取得完了や全過去期間の再計算可能性を、行が存在するだけで保証しない。
+
 <a id="edinet-research-facts"></a>
 
 ## EDINET Research factの初期化・日次差分
