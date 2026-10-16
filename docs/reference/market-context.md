@@ -36,7 +36,7 @@ Market Contextは経済、市場全体、業種と個別株の相対状態を扱
 | 出口 | 統計・対象 | 意味と欠測 |
 | --- | --- | --- |
 | Stock Analysisの業種relative strength | Screeningの既存比較母集団。20 bar騰落の業種平均－市場平均と業種順位 | `market_context/sector`が計算し、Screeningが入力母集団・価格窓を供給する。同値の業種は平均順位を母集団数で割った同じ百分位を持つ。個別対業種の差ではない |
-| market snapshot | benchmarkの週次20/60 bar騰落・20 bar平均超のbreadth、同じ観測日の銘柄による業種中央値 | 1321 proxyの±3%方向注記は広いリスク許容判断ではない。breadthは既存最小標本数、sectorは既存対象を維持し、平均対平均と統合しない |
+| market snapshot | benchmarkの週次20/60 bar騰落・20 bar平均超のbreadth、同じ観測日の銘柄による業種中央値 | 1321 proxyの±3%方向注記は広いリスク許容判断ではない。breadth・sector・業種peerは普通株masterに限定し、ETF等を混ぜない。週次breadthは各時点以下の最新masterを使い、将来の構成を遡及適用しない。最小標本数を満たさないbreadthは未評価 |
 | security market context | 指定銘柄（候補外も可）の価格・benchmark比較と、同業peerの20 bar中央値 | 個別とbenchmark/peerは指定銘柄の同じ開始・終了日を使う。peerは自銘柄を除き、端点不足を補間・前日値で埋めない |
 | Reading / MarketContextAssessment・保存履歴 | 保存済み経済観測・Reading規則、保存済み判断 | 観測/公表vintageの契約を維持する。判断は`as_of / known_at`で適格性を判定し実発行時刻で選ぶ。固定IDの履歴閲覧は旧schemaも本文のまま返す |
 

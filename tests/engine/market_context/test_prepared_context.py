@@ -25,6 +25,7 @@ def context_store(tmp_path: Path) -> Path:
         ("1321", 350, ASOF - timedelta(days=1)),
         ("AAAA", 350, ASOF - timedelta(days=1)),
         ("BBBB", 350, ASOF - timedelta(days=1)),
+        ("PREF", 350, ASOF - timedelta(days=1)),
         ("NEW1", 3, ASOF - timedelta(days=1)),
         ("OLD1", 80, ASOF - timedelta(days=500)),
     ):
@@ -37,6 +38,12 @@ def context_store(tmp_path: Path) -> Path:
             "(snapshot_date,ticker,name,market,sector_33,is_common_stock) "
             "VALUES ('2026-05-28',?,?,'プライム','機械',1)",
             [(ticker, ticker) for ticker in ("AAAA", "BBBB", "NEW1", "OLD1", "NONE")],
+        )
+        # Non-common securities are not industry peers even when the sector label matches.
+        connection.execute(
+            "INSERT INTO jquants_master_snapshots "
+            "(snapshot_date,ticker,name,market,sector_33,is_common_stock) "
+            "VALUES ('2026-05-28','PREF','non-common security','プライム','機械',0)"
         )
         # An observed split without a close must still normalize the previous price.
         connection.execute(

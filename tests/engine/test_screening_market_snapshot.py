@@ -91,7 +91,7 @@ class BuildMarketSnapshotTests(unittest.TestCase):
             assert isinstance(last["benchmark_return_20d"], float)
             self.assertGreater(last["benchmark_return_20d"], 0.03)
             self.assertEqual(last["benchmark_trend"], "uptrend")
-            self.assertEqual(last["breadth_sample_size"], 3)
+            self.assertEqual(last["breadth_sample_size"], 2)
             assert isinstance(last["breadth_pct_above_ma20"], float)
 
             sectors = payload["sectors"]
@@ -250,3 +250,35 @@ class SectorObservationDateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_breadth_uses_each_points_common_stock_membership(tmp_path):
+    path = tmp_path / "market.sqlite"
+    for ticker, prices in (
+        ("1321", [100 * 1.003**i for i in range(70)]),
+        ("FUND", [100 * 1.01**i for i in range(70)]),
+        ("OLD1", [100 * 1.01**i for i in range(70)]),
+        ("LIVE", [100.0] * 70),
+    ):
+        _insert_bars(path, ticker, prices, end=_ASOF)
+    conn = open_connection(path)
+    try:
+        conn.executemany(
+            "INSERT INTO jquants_master_snapshots "
+            "(snapshot_date,ticker,name,market,sector_33,is_common_stock) VALUES (?,?,?,?,?,?)",
+            [
+                ("2026-05-15", "OLD1", "old member", "PRIME", "機械", 1),
+                ("2026-05-15", "FUND", "fund", "PRIME", "その他", 0),
+                ("2026-05-29", "LIVE", "current member", "PRIME", "小売業", 1),
+                ("2026-05-29", "FUND", "fund", "PRIME", "その他", 0),
+            ],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    result = build_market_snapshot(
+        sqlite_path=path, asof_date=_ASOF, history_weeks=2, min_breadth_sample=1
+    )
+    assert [point["breadth_sample_size"] for point in result["points"]] == [1, 1]
+    assert [point["breadth_pct_above_ma20"] for point in result["points"]] == [1.0, 0.0]
+    assert [sector["sector_33"] for sector in result["sectors"]] == ["小売業"]

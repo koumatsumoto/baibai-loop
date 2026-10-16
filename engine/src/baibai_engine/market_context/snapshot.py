@@ -115,7 +115,9 @@ def build_market_snapshot(
 
     ``points`` walks weekly evaluation dates from oldest to ``asof_date`` so a
     reader sees how trend and breadth evolved; ``sectors``
-    aggregates per-sector returns and breadth at ``asof_date`` only.
+    aggregates per-sector returns and breadth at ``asof_date`` only. Breadth
+    uses common-stock membership from the latest master available at each point;
+    ETFs and later master constituents cannot enter a historical stock sample.
     """
     point_dates = [
         asof_date - timedelta(days=7 * offset) for offset in range(history_weeks - 1, -1, -1)
@@ -139,18 +141,34 @@ def build_market_snapshot(
     sector_by_ticker = (
         {}
         if master is None
-        else {ticker: str(row["sector_33"]) for ticker, row in master.securities.items()}
+        else {
+            ticker: str(row["sector_33"])
+            for ticker, row in master.securities.items()
+            if row["is_common_stock"]
+        }
     )
     benchmark = series_by_ticker.get(benchmark_ticker)
-    points = [
-        _point(
-            point_date,
-            benchmark=benchmark,
-            series_by_ticker=series_by_ticker,
-            min_breadth_sample=min_breadth_sample,
+    points = []
+    for point_date in point_dates:
+        point_master = (
+            master
+            if point_date == asof_date
+            else read_master_snapshot(sqlite_path, as_of=point_date)
         )
-        for point_date in point_dates
-    ]
+        breadth_tickers = (
+            set()
+            if point_master is None
+            else {ticker for ticker, row in point_master.securities.items() if row["is_common_stock"]}
+        )
+        points.append(
+            _point(
+                point_date,
+                benchmark=benchmark,
+                series_by_ticker=series_by_ticker,
+                breadth_tickers=breadth_tickers,
+                min_breadth_sample=min_breadth_sample,
+            )
+        )
     return {
         "as_of": asof_date.isoformat(),
         "benchmark_ticker": benchmark_ticker,
@@ -171,6 +189,7 @@ def _point(
     *,
     benchmark: _Series | None,
     series_by_ticker: dict[str, _Series],
+    breadth_tickers: set[str],
     min_breadth_sample: int,
 ) -> dict[str, object]:
     benchmark_prices = benchmark.prefix(point_date) if benchmark is not None else ()
@@ -182,6 +201,7 @@ def _point(
         observation_date=observation_date,
         upto=point_date,
         min_sample=min_breadth_sample,
+        tickers=breadth_tickers,
     )
     return {
         "date": point_date.isoformat(),
@@ -200,13 +220,14 @@ def _breadth(
     observation_date: date | None,
     upto: date,
     min_sample: int,
+    tickers: set[str],
 ) -> tuple[float | None, int]:
     if observation_date is None:
         return None, 0
     above = 0
     sample = 0
-    for series in series_by_ticker.values():
-        if series.last_date_on(upto) != observation_date:
+    for ticker, series in series_by_ticker.items():
+        if ticker not in tickers or series.last_date_on(upto) != observation_date:
             continue
         prices = series.prefix(upto)
         if len(prices) < BREADTH_MA_WINDOW_BARS:
