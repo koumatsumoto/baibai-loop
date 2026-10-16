@@ -230,7 +230,7 @@ class IndicatorsDBTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
             _write_retired_series(database)
-            definition = load_definitions().by_id()["us.fed_funds.upper"]
+            definition = load_definitions().by_id()["jp.2y"]
             refreshed = ObservationRecord(
                 series_id=definition.series_id,
                 observed_at=date(2026, 5, 1),
@@ -251,7 +251,7 @@ class IndicatorsDBTests(unittest.TestCase):
                 exit_code = main(
                     [
                         "refresh",
-                        "us.fed_funds.upper",
+                        "jp.2y",
                         "--start",
                         "2026-05-01",
                         "--end",

@@ -692,9 +692,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             successes = [outcome for outcome in outcomes if isinstance(outcome, RefreshSuccess)]
             self.assertEqual([failure.series_id for failure in failures], ["jp.5y"])
             self.assertIn("source unavailable", failures[0].message)
-            self.assertEqual(
-                [success.series_id for success in successes], ["jp.2y", "jp.10y"]
-            )
+            self.assertEqual([success.series_id for success in successes], ["jp.2y", "jp.10y"])
             conn = open_connection(database)
             try:
                 stored = {
@@ -963,9 +961,7 @@ class IndicatorsServiceTests(unittest.TestCase):
     def test_refresh_cli_requires_one_range_mode(self) -> None:
         parser = build_parser()
 
-        args = parser.parse_args(
-            ["refresh", "jp.2y", "--all-history", "--end", "2026-07-20"]
-        )
+        args = parser.parse_args(["refresh", "jp.2y", "--all-history", "--end", "2026-07-20"])
         self.assertTrue(args.all_history)
         with self.assertRaises(SystemExit):
             parser.parse_args(
