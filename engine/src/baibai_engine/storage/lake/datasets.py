@@ -254,11 +254,11 @@ JQUANTS_FIN_SUMMARIES = LakeDataset(
     sqlite_table="jquants_fin_summaries",
     date_column="disclosed_at",
     partition_grain="year",
-    contract_version=3,
+    contract_version=4,
     columns=(
         LakeColumn("ticker", "TEXT", _TEXT, False, 1),
         LakeColumn("disclosed_at", "TEXT", _TEXT, False, 2),
-        LakeColumn("record_key", "TEXT", _TEXT, False, 3),
+        LakeColumn("disclosure_number", "TEXT", _TEXT, False, 3),
         LakeColumn("document_payload", "TEXT", _TEXT, False),
     ),
 )

@@ -929,7 +929,7 @@ def read_financial_documents(
     cursor = conn.execute(
         "SELECT document_payload FROM jquants_fin_summaries "
         "WHERE disclosed_at BETWEEN ? AND ? AND (? IS NULL OR ticker = ?) "
-        "ORDER BY ticker, disclosed_at, record_key",
+        "ORDER BY ticker, disclosed_at, disclosure_number",
         (start.isoformat(), end.isoformat(), ticker, ticker),
     )
     summaries: list[JQuantsFinancialSummary] = []

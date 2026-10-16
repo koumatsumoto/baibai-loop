@@ -517,7 +517,6 @@ def _latest_fy_revisions(
                 **details,
                 unresolved_actual_fields=tuple(sorted(flags)),
                 disclosure_number=None,
-                record_key=None,
                 document_payload=None,
             )
         )

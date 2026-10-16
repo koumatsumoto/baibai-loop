@@ -8,7 +8,7 @@ from math import isfinite
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.market.financial_documents import financial_document_key
+from baibai_engine.market.financial_documents import required_disclosure_number
 from baibai_engine.market.jquants_decode import provider_record_payload
 from baibai_engine.market.margin_publication import (
     require_all_issues_daily_balance_date,
@@ -75,7 +75,7 @@ def store_jquants_fin_summaries(
             conn.executemany(
                 """
                 INSERT INTO jquants_fin_summaries(
-                  ticker, disclosed_at, record_key, document_payload
+                  ticker, disclosed_at, disclosure_number, document_payload
                 ) VALUES (?, ?, ?, ?)
                 """,
                 rows,
@@ -670,7 +670,7 @@ def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> Norm
         disclosed_at = date.fromisoformat(disclosed_at).isoformat()
         # Store provider fields, not selected forecasts or a second numeric truth.
         # Source record JSON is not the original HTTP response or Bulk CSV bytes.
-        key = (ticker, disclosed_at, financial_document_key(record))
+        key = (ticker, disclosed_at, required_disclosure_number(record))
         payload = provider_record_payload(record)
         if key in seen:
             if seen[key] != payload:

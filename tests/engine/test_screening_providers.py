@@ -1318,6 +1318,7 @@ class ScreeningProviderTests(unittest.TestCase):
         # EPS=0 / OP=0 / Sales=0 が None に潰れないこと (損益分岐点ちょうど、赤字転換など)。
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-88910-2026-04-01",
                 "Code": "88910",
                 "DiscDate": "2026-04-01T00:00:00",
                 "FEPS": "10.0",
@@ -1407,6 +1408,7 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_normalize_financial_summary_supports_client_v2_short_keys(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-88910-2026-04-01",
                 "Code": "88910",
                 "DiscDate": "2026-04-01T00:00:00",
                 "FEPS": "377.75",
@@ -1439,6 +1441,7 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_projection_selects_next_fiscal_year_by_dates(self) -> None:
         fy = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-97150-2026-05-13",
                 "CurFYSt": "2025-04-01",
                 "CurFYEn": "2026-03-31",
                 "NxtFYSt": "2026-04-01",
@@ -1459,6 +1462,7 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_non_finite_current_forecasts_do_not_cross_into_next_period(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-97150-2026-05-13",
                 "CurFYSt": "2026-04-01",
                 "CurFYEn": "2027-03-31",
                 "NxtFYSt": "2027-04-01",
@@ -1499,6 +1503,7 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_pandas_missing_current_forecasts_do_not_cross_periods(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-97150-2026-05-13",
                 "CurFYSt": "2026-04-01",
                 "CurFYEn": "2027-03-31",
                 "NxtFYSt": "2027-04-01",
@@ -1527,6 +1532,7 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_projection_keeps_zero_current_forecasts(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-97150-2026-05-13",
                 "CurFYSt": "2026-04-01",
                 "CurFYEn": "2027-03-31",
                 "NxtFYSt": "2027-04-01",
@@ -1555,6 +1561,7 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_normalize_financial_summary_keeps_average_shares_separate(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-41670-2024-08-14",
                 "Code": "41670",
                 "DiscDate": "2024-08-14T00:00:00",
                 "AvgSh": "7563857",
@@ -1571,6 +1578,7 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_projection_selects_current_fiscal_year_by_dates(self) -> None:
         q3 = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-97150-2026-02-13",
                 "CurFYSt": "2025-04-01",
                 "CurFYEn": "2026-03-31",
                 "NxtFYSt": "2026-04-01",
@@ -1589,6 +1597,7 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_projection_keeps_current_forecast_profit_pair(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-48490-2026-05-13",
                 "CurFYSt": "2026-04-01",
                 "CurFYEn": "2027-03-31",
                 "NxtFYSt": "2027-04-01",
@@ -1612,6 +1621,7 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_projection_keeps_next_forecast_profit_pair(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-48490-2026-04-01",
                 "CurFYSt": "2025-04-01",
                 "CurFYEn": "2026-03-31",
                 "NxtFYSt": "2026-04-01",
@@ -1636,6 +1646,7 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_normalize_financial_summary_preserves_fiscal_period_fields(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-88910-2026-04-01",
                 "Code": "88910",
                 "DiscDate": "2026-04-01",
                 "CurPerType": "1Q",
@@ -1655,6 +1666,7 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_normalize_financial_summary_skips_non_common_suffix(self) -> None:
         summary = normalize_financial_summary(
             {
+                "DiscNo": "synthetic-25935-2026-04-24",
                 "Code": "25935",
                 "DiscDate": "2026-04-24T00:00:00",
                 "EPS": "10.0",

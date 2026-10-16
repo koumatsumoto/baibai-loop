@@ -27,11 +27,11 @@ def insert_financial_record(conn: sqlite3.Connection, record: dict[str, Any]) ->
     """Insert a constructed provider-native document, without financial projection."""
     conn.execute(
         "INSERT OR REPLACE INTO jquants_fin_summaries "
-        "(ticker, disclosed_at, record_key, document_payload) VALUES (?, ?, ?, ?)",
+        "(ticker, disclosed_at, disclosure_number, document_payload) VALUES (?, ?, ?, ?)",
         (
             str(record["Code"])[:4],
             record["DiscDate"],
-            f"doc:{record['DiscNo']}",
+            str(record["DiscNo"]),
             json.dumps(record, ensure_ascii=False),
         ),
     )

@@ -246,6 +246,7 @@ class SQLiteCacheTest(unittest.TestCase):
                 db,
                 [
                     {
+                        "DiscNo": "synthetic-41670-2024-08-14",
                         "Code": "41670",
                         "DiscDate": "2024-08-14",
                         "AvgSh": "7563857",
@@ -277,12 +278,14 @@ class SQLiteCacheTest(unittest.TestCase):
                 db,
                 [
                     {
+                        "DiscNo": "synthetic-97150-2026-04-30",
                         "Code": "97150",
                         "DiscDate": "2026-04-30",
                         "FEPS": "",
                         "NxFEPS": "360.26",
                     },
                     {
+                        "DiscNo": "synthetic-72030-2026-05-13",
                         "Code": "72030",
                         "DiscDate": "2026-05-13",
                         "FEPS": "306.89",
@@ -312,6 +315,7 @@ class SQLiteCacheTest(unittest.TestCase):
                 db,
                 [
                     {
+                        "DiscNo": "synthetic-97150-2026-05-13",
                         "Code": "97150",
                         "DiscDate": "2026-05-13",
                         "CurFYSt": "2026-04-01",
@@ -359,6 +363,7 @@ class SQLiteCacheTest(unittest.TestCase):
                 db,
                 [
                     {
+                        "DiscNo": "synthetic-97150-2026-05-13",
                         "Code": "97150",
                         "DiscDate": "2026-05-13",
                         "CurFYSt": "2026-04-01",
@@ -394,6 +399,7 @@ class SQLiteCacheTest(unittest.TestCase):
                 db,
                 [
                     {
+                        "DiscNo": "synthetic-97150-2026-05-13",
                         "Code": "97150",
                         "DiscDate": "2026-05-13",
                         "CurFYSt": "2026-04-01",
@@ -430,6 +436,7 @@ class SQLiteCacheTest(unittest.TestCase):
                 db,
                 [
                     {
+                        "DiscNo": "synthetic-48490-2026-05-13",
                         "Code": "48490",
                         "DiscDate": "2026-05-13",
                         "CurFYSt": "2026-04-01",
@@ -446,6 +453,7 @@ class SQLiteCacheTest(unittest.TestCase):
                         "CurPerEn": "2026-06-30T00:00:00",
                     },
                     {
+                        "DiscNo": "synthetic-97150-2026-04-30",
                         "Code": "97150",
                         "DiscDate": "2026-04-30",
                         "CurFYSt": "2025-04-01",
@@ -486,8 +494,8 @@ class SQLiteCacheTest(unittest.TestCase):
             store_jquants_fin_summaries(
                 db,
                 [
-                    {"Code": "72030", "DiscDate": "2026-05-13", "Sales": 100},
-                    {"Code": "72040", "DiscDate": "2026-05-27", "Sales": 200},
+                    {"DiscNo": "synthetic-72030-2026-05-13", "Code": "72030", "DiscDate": "2026-05-13", "Sales": 100},
+                    {"DiscNo": "synthetic-72040-2026-05-27", "Code": "72040", "DiscDate": "2026-05-27", "Sales": 200},
                 ],
                 requested_start=date(2026, 5, 12),
                 requested_end=date(2026, 5, 29),
@@ -495,8 +503,8 @@ class SQLiteCacheTest(unittest.TestCase):
             store_jquants_fin_summaries(
                 db,
                 [
-                    {"Code": "72040", "DiscDate": "2026-05-27", "Sales": 200},
-                    {"Code": "72050", "DiscDate": "2026-06-02", "Sales": 300},
+                    {"DiscNo": "synthetic-72040-2026-05-27", "Code": "72040", "DiscDate": "2026-05-27", "Sales": 200},
+                    {"DiscNo": "synthetic-72050-2026-06-02", "Code": "72050", "DiscDate": "2026-06-02", "Sales": 300},
                 ],
                 requested_start=date(2026, 5, 19),
                 requested_end=date(2026, 6, 5),
@@ -527,9 +535,9 @@ class SQLiteCacheTest(unittest.TestCase):
             store_jquants_fin_summaries(
                 db,
                 [
-                    {"Code": "72030", "DiscDate": "2021-08-02", "Sales": 100},
-                    {"Code": "72040", "DiscDate": "2024-01-10", "Sales": 200},
-                    {"Code": "72050", "DiscDate": "2026-07-16", "Sales": 300},
+                    {"DiscNo": "synthetic-72030-2021-08-02", "Code": "72030", "DiscDate": "2021-08-02", "Sales": 100},
+                    {"DiscNo": "synthetic-72040-2024-01-10", "Code": "72040", "DiscDate": "2024-01-10", "Sales": 200},
+                    {"DiscNo": "synthetic-72050-2026-07-16", "Code": "72050", "DiscDate": "2026-07-16", "Sales": 300},
                 ],
                 requested_start=date(2021, 8, 2),
                 requested_end=date(2026, 7, 16),
@@ -538,7 +546,7 @@ class SQLiteCacheTest(unittest.TestCase):
                 db,
                 [
                     {"Code": "", "DiscDate": "2025-03-05", "Sales": 400},
-                    {"Code": "72060", "DiscDate": "2025-03-06", "Sales": 500},
+                    {"DiscNo": "synthetic-72060-2025-03-06", "Code": "72060", "DiscDate": "2025-03-06", "Sales": 500},
                 ],
                 requested_start=date(2025, 3, 1),
                 requested_end=date(2025, 3, 31),
@@ -590,7 +598,7 @@ class SQLiteCacheTest(unittest.TestCase):
             )
             store_jquants_fin_summaries(
                 db,
-                [{"Code": "72060", "DiscDate": "2025-03-05", "Sales": 500}],
+                [{"DiscNo": "synthetic-72060-2025-03-05", "Code": "72060", "DiscDate": "2025-03-05", "Sales": 500}],
                 requested_start=date(2025, 2, 1),
                 requested_end=date(2025, 4, 30),
             )
@@ -1065,7 +1073,7 @@ class EmptyPayloadReplacementTest(unittest.TestCase):
             window = (date(2020, 12, 1), date(2020, 12, 31))
             store_jquants_fin_summaries(
                 db,
-                [{"Code": "72030", "DiscDate": "2020-12-15", "EPS": "10"}],
+                [{"DiscNo": "synthetic-72030-2020-12-15", "Code": "72030", "DiscDate": "2020-12-15", "EPS": "10"}],
                 requested_start=window[0],
                 requested_end=window[1],
             )

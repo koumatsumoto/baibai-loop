@@ -357,9 +357,9 @@ def _resolve_capital_basis(
         treasury_source_key = _accounting_observation_key(treasury_row)
         if (
             incomparable_time
-            and issued_row.record_key is not None
-            and treasury_row.record_key is not None
-            and issued_row.record_key != treasury_row.record_key
+            and issued_row.disclosure_number is not None
+            and treasury_row.disclosure_number is not None
+            and issued_row.disclosure_number != treasury_row.disclosure_number
         ):
             return _CapitalBasisResolution(
                 issued=issued,

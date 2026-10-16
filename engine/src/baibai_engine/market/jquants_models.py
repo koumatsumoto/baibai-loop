@@ -155,7 +155,6 @@ class JQuantsFinancialSummary:
     # Source-document identity is independent of accounting-period identity.
     # A combined L2 observation may have no single source record; its contributing
     # forecast records remain in forecast_field_sources / forecast_source_documents.
-    record_key: str | None = None
     disclosure_number: str | None = None
     disclosed_time: str | None = None
     document_type: str | None = None

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
@@ -10,6 +9,7 @@ from datetime import date, time
 from typing import Any
 
 from baibai_engine.market.jquants_decode import (
+    JQuantsProviderError,
     has_period_slot,
     parse_date,
     parse_jquants_code_parts,
@@ -53,8 +53,7 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
         dividend_year_end=to_float(record.get("DivFY")),
         dividend_total_annual=to_float(record.get("DivTotalAnn")),
         average_shares=to_float(record.get("AvgSh")),
-        record_key=financial_document_key(record),
-        disclosure_number=_text(record.get("DiscNo")),
+        disclosure_number=required_disclosure_number(record),
         disclosed_time=_disclosed_time(record.get("DiscTime")),
         document_type=_text(record.get("DocType")),
         document_payload=provider_record_payload(record),
@@ -77,11 +76,12 @@ def _disclosed_time(value: Any) -> str | None:
     return parsed.isoformat() if parsed.tzinfo is None else None
 
 
-def financial_document_key(record: Mapping[str, Any]) -> str:
+def required_disclosure_number(record: Mapping[str, Any]) -> str:
+    """Use the native disclosure identity; a content digest is not a disclosure number."""
     number = _text(record.get("DiscNo"))
-    if number is not None:
-        return f"doc:{number}"
-    return "payload:" + hashlib.sha256(provider_record_payload(record).encode()).hexdigest()
+    if number is None:
+        raise JQuantsProviderError("financial source record has no native DiscNo")
+    return number
 
 
 def disclosure_revision(row: JQuantsFinancialSummary) -> tuple[date, str]:
@@ -233,13 +233,13 @@ def project_financial_documents(
                         keys,
                         strict=True,
                     ):
-                        if has_period_slot(record, key) and row.record_key:
-                            field_sources.append((field, (row.record_key,)))
+                        if has_period_slot(record, key) and row.disclosure_number:
+                            field_sources.append((field, (row.disclosure_number,)))
                 dps_key = f"{prefix}DivAnn"
                 dividend_status = "confirmed" if has_period_slot(record, dps_key) else "missing"
                 dps = to_float(record.get(dps_key))
-                if has_period_slot(record, dps_key) and row.record_key:
-                    field_sources.append(("dps_forecast_annual", (row.record_key,)))
+                if has_period_slot(record, dps_key) and row.disclosure_number:
+                    field_sources.append(("dps_forecast_annual", (row.disclosure_number,)))
             projected.append(
                 replace(
                     row,
@@ -317,12 +317,11 @@ def latest_forecast_source(
             if name == field
             for key in keys
         }
-        records.update(row.record_key for row in observed if row.record_key)
+        records.update(row.disclosure_number for row in observed if row.disclosure_number)
         field_sources.append((field, tuple(sorted(records))))
     if len(latest) > 1:
         source = replace(
             source,
-            record_key=None,
             document_payload=None,
             forecast_field_sources=tuple(field_sources),
         )

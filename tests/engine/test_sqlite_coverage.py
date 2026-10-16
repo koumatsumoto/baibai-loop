@@ -989,6 +989,9 @@ class SQLiteCoverageTests(unittest.TestCase):
                     {"Code": f"{1301 + index}0", date_field: older_input.isoformat(), value_field: 1000}
                     for index in range(100)
                 ]
+                if source == "jquants_fin_summaries":
+                    for record in clean:
+                        record["DiscNo"] = f"synthetic-{record['Code']}-{older_input.isoformat()}"
                 store(
                     sqlite_path,
                     [*clean, {"Code": "invalid", date_field: older_input.isoformat()}],

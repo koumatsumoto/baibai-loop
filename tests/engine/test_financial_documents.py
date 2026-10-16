@@ -17,6 +17,7 @@ from baibai_engine.market.financial_documents import (
     normalize_financial_summary,
     project_financial_documents,
 )
+from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.storage.observations.ingest.jquants import store_jquants_fin_summaries
@@ -125,7 +126,7 @@ def test_document_streams_keep_zero_and_income_source(tmp_path: Path) -> None:
     with closing(sqlite3.connect(db)) as conn, conn:
         values = conn.execute("SELECT document_payload FROM jquants_fin_summaries").fetchall()
         columns = {row[1] for row in conn.execute("PRAGMA table_info(jquants_fin_summaries)")}
-    assert columns == {"ticker", "disclosed_at", "record_key", "document_payload"}
+    assert columns == {"ticker", "disclosed_at", "disclosure_number", "document_payload"}
     assert {json.loads(row[0])["DiscNo"]: json.loads(row[0]) for row in values} == {
         record["DiscNo"]: record for record in records
     }
@@ -315,7 +316,7 @@ def test_financial_lake_contract_roundtrip_preserves_documents(
             producer_git_commit="a" * 40,
             created_at=datetime(2026, 10, 14, tzinfo=UTC),
         )
-    assert exported.manifest.contract_version == 3
+    assert exported.manifest.contract_version == 4
     validate_snapshot_parity(sqlite_path=db, mirror_root=mirror, manifest=exported.manifest)
     release_path, manifest = create_l1_release(
         dataset_manifest_paths=[exported.manifest_path],
@@ -453,18 +454,10 @@ def test_conflicting_actual_dps_does_not_hide_agreed_profit_and_sales(reverse: b
 @pytest.mark.parametrize("reverse", [False, True])
 def test_unknown_time_actual_agreement_is_kept_and_conflict_is_unresolved(reverse: bool) -> None:
     records = [
-        actual_document("legacy-origin", ShOutFY="1000", TrShFY="0"),
+        actual_document("unknown-time", DiscTime="", ShOutFY="1000", TrShFY="0"),
         actual_document("known-time", ShOutFY="1000", TrShFY="0"),
     ]
-    known = decode(records)[1]
-    unknown = replace(
-        decode(records)[0],
-        record_key="legacy",
-        disclosure_number=None,
-        disclosed_time=None,
-        document_type=None,
-        document_payload=None,
-    )
+    unknown, known = decode(records)
     rows = [unknown, known]
     if reverse:
         rows.reverse()
@@ -601,10 +594,10 @@ def test_complementary_earnings_documents_keep_independent_fields_and_sources(
     assert result.per_forward == 1074 / 20
     assert result.forecast_special_gain_flag
     assert result.earnings_forecast_source
-    assert result.earnings_forecast_source["forecast_eps_source_records"] == "doc:eps"
-    assert result.earnings_forecast_source["forecast_profit_source_records"] == "doc:profit"
+    assert result.earnings_forecast_source["forecast_eps_source_records"] == "eps"
+    assert result.earnings_forecast_source["forecast_profit_source_records"] == "profit"
     assert (
-        result.earnings_forecast_source["forecast_ordinary_profit_source_records"] == "doc:profit"
+        result.earnings_forecast_source["forecast_ordinary_profit_source_records"] == "profit"
     )
 
 
@@ -687,7 +680,7 @@ def test_explicit_unknown_forecast_slot_is_not_an_absent_complement() -> None:
     result = snapshot(rows)
     assert result.per_forward is None
     assert result.earnings_forecast_source
-    assert result.earnings_forecast_source["forecast_eps_source_records"] == "doc:known,doc:unknown"
+    assert result.earnings_forecast_source["forecast_eps_source_records"] == "known,unknown"
 
 
 @pytest.mark.parametrize("reverse", [False, True])
@@ -906,3 +899,24 @@ def test_native_primary_financial_values_reach_l2_without_nc_substitution(tmp_pa
     missing = snapshot(decode([record]))
     assert missing.sales_ttm is None
     assert missing.operating_profit_ttm is None
+
+
+@pytest.mark.parametrize("number", [None, "", "   "])
+def test_native_identity_is_required_before_replacing_history(tmp_path, number):
+    db = tmp_path / "market.sqlite"
+    store_jquants_fin_summaries(
+        db, documents(), requested_start=date(2026, 8, 10), requested_end=ASOF
+    )
+    before = db.read_bytes()
+    record = document("unused", FNCEPS="30")
+    if number is None:
+        record.pop("DiscNo")
+    else:
+        record["DiscNo"] = number
+    with pytest.raises(JQuantsProviderError, match="native DiscNo"):
+        normalize_financial_summary(record)
+    with pytest.raises(JQuantsProviderError, match="native DiscNo"):
+        store_jquants_fin_summaries(
+            db, [record], requested_start=date(2026, 8, 10), requested_end=ASOF
+        )
+    assert db.read_bytes() == before

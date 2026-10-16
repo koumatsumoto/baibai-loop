@@ -280,7 +280,7 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             disclosed = date(2024, 4, 18)
             store_jquants_fin_summaries(
                 sqlite_path,
-                [{"Code": "13010", "DiscDate": disclosed.isoformat(), "Sales": 100}],
+                [{"DiscNo": "synthetic-13010-" + str(disclosed.isoformat())[:10], "Code": "13010", "DiscDate": disclosed.isoformat(), "Sales": 100}],
                 requested_start=disclosed,
                 requested_end=disclosed,
             )
@@ -569,6 +569,7 @@ class _FinRecordingClient(_RecordingClient):
         self.fin_calls.append((start_dt, end_dt))
         return [
             {
+                "DiscNo": "synthetic-13010-" + str(start_dt)[:10],
                 "Code": "13010",
                 "DiscDate": start_dt,
                 "Sales": 100,
@@ -906,7 +907,7 @@ class CachedRangeInspectionCostTests(unittest.TestCase):
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             store_jquants_fin_summaries(
                 sqlite_path,
-                [{"Code": "13010", "DiscDate": "2024-04-18", "Sales": 100}],
+                [{"DiscNo": "synthetic-13010-2024-04-18", "Code": "13010", "DiscDate": "2024-04-18", "Sales": 100}],
                 requested_start=date(2024, 4, 1),
                 requested_end=date(2024, 4, 30),
             )
@@ -950,7 +951,7 @@ def test_later_financial_http_failure_retains_validated_earlier_chunk(tmp_path: 
             self.calls.append(params)
             if len(self.calls) == 2:
                 raise ValueError("injected nonretryable HTTP failure")
-            return [{"Code": "23310", "DiscDate": str(params["start_dt"]), "FEPS": 10.0}]
+            return [{"DiscNo": "synthetic-23310-" + str(str(params['start_dt']))[:10], "Code": "23310", "DiscDate": str(params["start_dt"]), "FEPS": 10.0}]
 
     client = FailingSecondChunkClient()
     database = tmp_path / "market.sqlite"
@@ -967,6 +968,7 @@ def test_later_financial_http_failure_retains_validated_earlier_chunk(tmp_path: 
         assert len(rows) == 1
         assert rows[0][:2] == ("2331", "2026-07-01")
         assert json.loads(rows[0][2]) == {
+            "DiscNo": "synthetic-23310-2026-07-01",
             "Code": "23310",
             "DiscDate": "2026-07-01",
             "FEPS": 10.0,

@@ -245,7 +245,7 @@ def test_disclosure_context_stays_inside_the_compared_runs(tmp_path: Path) -> No
     with closing(open_connection(path)) as connection, connection:
         connection.executemany(
             "INSERT INTO jquants_fin_summaries "
-            "(ticker, disclosed_at, record_key, document_payload) VALUES (?, ?, ?, ?)",
+            "(ticker, disclosed_at, disclosure_number, document_payload) VALUES (?, ?, ?, ?)",
             [
                 ("1002", "2026-09-04", "inside", "{}"),
                 ("1002", "2026-09-05", "newer", "{}"),

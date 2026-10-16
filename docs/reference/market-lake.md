@@ -50,9 +50,9 @@ dataset追加時は次を同じ変更で揃える。
 4. export・resolve・hydrateのpositive/negative test
 5. `data-sources.md`のsource意味
 
-`jquants.fin_summaries`はcontract version 3で、主キーは`ticker / disclosed_at / record_key`である。索引用の3列と、提供元recordの全fieldを保持する必須`document_payload`だけを保存する。APIからdecodeしたrecordやBulk CSVから読んだrecordをJSON化したものであり、原HTTPレスポンスやCSV bytesそのものとは呼ばない。空欄・当期/翌期slot・未使用fieldも保持し、財務数値の展開列を別の正本にしない。
+`jquants.fin_summaries`はcontract version 4で、主キーは`ticker / disclosed_at / disclosure_number`である。索引用の3列と、提供元recordの全fieldを保持する必須`document_payload`だけを保存する。APIからdecodeしたrecordやBulk CSVから読んだrecordをJSON化したものであり、原HTTPレスポンスやCSV bytesそのものとは呼ばない。空欄・当期/翌期slot・未使用fieldも保持し、財務数値の展開列を別の正本にしない。
 
-DocNoがある文書はその番号、未取得ならpayload digestで識別する。同じidentityの同一recordは一度だけ保存し、内容が異なる場合は入力順で選ばず拒否する。digestやDocNoはrevision順序ではない。型変換・当期/翌期予想の選択・財務計算は読込後の共通純粋投影で行う。予想の意味は[Valuation metrics](./valuation-metrics.md#21-採用ソース)、物理schemaは[観測store](../../engine/src/baibai_engine/storage/observations/schema.py)を正本とする。
+文書は原本の`DiscNo`で識別し、番号がないrecordへpayload digestによる代替identityを生成しない。必須identityがない応答は保存済み範囲の置換前に拒否する。同じidentityの同一recordは一度だけ保存し、内容が異なる場合は入力順で選ばず拒否する。開示番号はrevision順序ではない。[公式仕様](https://jpx-jquants.com/ja/spec/fin-summary)に従い、開示日・時刻と会計期間で判断する。型変換・当期/翌期予想の選択・財務計算は読込後の共通純粋投影で行う。予想の意味は[Valuation metrics](./valuation-metrics.md#21-採用ソース)、物理schemaは[観測store](../../engine/src/baibai_engine/storage/observations/schema.py)を正本とする。
 
 旧contractのreleaseは対応codeと組み合わせて保持し、runtimeの旧schema読替え・自動移行は行わない。原本を欠く旧flattened行を原本recordに見せかけて変換しない。schema変更時の再構築・検証・明示切替と、通常の取得・発行・復旧を分ける。運用は[batch運用](../../batch/OPERATIONS.md)に従う。
 
