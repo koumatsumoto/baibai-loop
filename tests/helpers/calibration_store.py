@@ -159,8 +159,9 @@ def panel_diagnostics(asof: str, **overrides: Any) -> PanelDiagnostics:
 def forward_row(asof: str, ticker: str, horizon: str, **overrides: Any) -> ForwardReturnRow:
     """One forward observation whose resolved flags follow its status.
 
-    ``resolved`` and the total-return fields are derived rather than accepted, so a
-    fixture cannot describe a row the store would refuse to read back.
+    ``resolved`` and the total-return fields follow the requested statuses.
+    Resolved-total fixtures assume an entry price of one yen when constructing
+    dividend cash from the return difference; they are not source dividend evidence.
     """
 
     hints = _hints(ForwardReturnRow)

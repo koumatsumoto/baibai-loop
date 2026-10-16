@@ -1,9 +1,8 @@
-"""Build a minimal but real L1 release inside a mirror, closure and all.
+"""Build synthetic L1 release graphs and SQLite-backed export fixtures.
 
-Resolving an `L1ReleaseSourceRef` walks what it roots — dataset manifests and every
-Parquet object they name — so a stand-in payload no longer stands in. Tests that need
-a resolvable release build one here rather than each inventing a shape production
-never produces.
+`stored_release_source` supplies checksum-consistent placeholder object bytes for
+reference/retention tests, not readable Parquet. The `lake` fixture instead exports
+actual Parquet from a small SQLite store for row-level reader tests.
 """
 
 from __future__ import annotations
@@ -61,12 +60,10 @@ def _snapshot_source() -> SQLiteSnapshotSourceRef:
 
 
 def stored_release_source(root: Path) -> tuple[Path, L1ReleaseSourceRef]:
-    """A retained source whose whole closure is on disk, and the manifest file it names.
+    """A checksum-consistent retained graph, with placeholder rather than Parquet bytes.
 
-    A stand-in payload was enough while resolving one meant hashing one file. Resolving
-    an L1 release now walks what it roots — dataset manifests and every Parquet object
-    they name — so the fixture has to be a release the mirror actually holds, or the
-    test would be asserting against a shape production never sees.
+    This exercises reference closure and retention. It does not establish Parquet
+    schema validity, row content, or production release-policy eligibility.
     """
 
     reference = release_source()
