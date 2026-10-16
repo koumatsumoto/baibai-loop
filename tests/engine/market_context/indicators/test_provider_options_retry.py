@@ -23,7 +23,7 @@ from baibai_engine.market_context.indicator_service import (
     RefreshFailure,
     RefreshSuccess,
 )
-from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
+from baibai_engine.market_context.indicators.db import initialize_database
 from baibai_engine.market_context.indicators.providers import jquants_options, registry
 from baibai_engine.market_context.indicators.providers.base import (
     FetchContext,
@@ -35,6 +35,8 @@ from baibai_engine.market_context.reading.option_iv import (
 )
 from baibai_engine.market_context.indicators.providers.read_retry import read_deadline
 from baibai_engine.market_context.option_acquisition import OptionAcquisition
+from baibai_engine.market_context.indicators.source_snapshots import read_snapshots, store_snapshot
+from baibai_engine.market_context.reading.options import OptionSeriesReader
 
 BASE = datetime(2026, 10, 13, tzinfo=UTC).timestamp()
 READINGS = ("jp.n225_iv_30d", "jp.n225_iv_skew", "jp.n225_iv_term")
@@ -493,7 +495,7 @@ def test_normal_tls_proxy_pool_timeout_and_other_sdk_clients_are_unchanged(wire)
     assert all(t.connect_timeout == t.read_timeout == 30 for t in wire.timeouts)
 
 
-def test_failed_options_keep_stored_observations_and_another_series_can_commit(
+def test_failed_options_keep_native_chain_readable_and_another_series_can_commit(
     wire, monkeypatch, tmp_path
 ):
     provider_name = _registered("us.10y").provider
@@ -507,12 +509,21 @@ def test_failed_options_keep_stored_observations_and_another_series_can_commit(
     monkeypatch.setitem(registry._PROVIDERS, provider_name, OtherProvider())
     database = tmp_path / "indicators.sqlite"
     conn = initialize_database(database)
-    for series_id, value in zip(READINGS, (20.0, 1.0, -1.0), strict=True):
-        insert_observations(
-            conn, [observation(_registered(series_id), ASOF - timedelta(days=1), value)]
-        )
+    store_snapshot(
+        conn,
+        source_key="jquants_options:n225",
+        observed_at=ASOF,
+        fetched_at=datetime.combine(ASOF, datetime.min.time(), UTC),
+        records=_chain_records(ASOF),
+    )
     conn.commit()
-    before = conn.execute("SELECT * FROM observations ORDER BY series_id").fetchall()
+    before = tuple(read_snapshots(conn, ASOF, ASOF, source_key="jquants_options:n225"))
+    reader = OptionSeriesReader(conn)
+    before_values = {
+        series_id: reader.read(_registered(series_id), start=ASOF, end=ASOF)
+        for series_id in READINGS
+    }
+    assert all(before_values.values())
     conn.close()
     wire.reply = lambda url: (403, {}, {"message": "synthetic-key"})
     results = IndicatorsService(database).refresh_series(
@@ -522,10 +533,13 @@ def test_failed_options_keep_stored_observations_and_another_series_can_commit(
     assert isinstance(results[3], RefreshSuccess)
     conn = initialize_database(database)
     try:
-        after = conn.execute(
-            "SELECT * FROM observations WHERE series_id != 'us.10y' ORDER BY series_id"
-        ).fetchall()
+        after = tuple(read_snapshots(conn, ASOF, ASOF, source_key="jquants_options:n225"))
         assert after == before
+        reader = OptionSeriesReader(conn)
+        assert {
+            series_id: reader.read(_registered(series_id), start=ASOF, end=ASOF)
+            for series_id in READINGS
+        } == before_values
         assert (
             conn.execute("SELECT COUNT(*) FROM observations WHERE series_id = 'us.10y'").fetchone()[
                 0

@@ -50,6 +50,7 @@ from baibai_engine.market_context.indicators.definitions import (
     load_definitions,
 )
 from baibai_engine.market_context.indicators.observations import ObservationRecord
+from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
 from baibai_engine.market_context.reading.cli import main as reading_main
 
 
@@ -173,25 +174,23 @@ class IndicatorsDBTests(unittest.TestCase):
             database = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(database)
             try:
-                insert_observations(
-                    conn,
-                    [
-                        ObservationRecord(
-                            series_id="jp.foreign_flows",
-                            observed_at=date(2024, 8, 23),
-                            value=value,
-                            unit="jpy-thousand",
-                            source_url="https://jpx-jquants.com/ja/spec/eq-investor-types",
-                            period_start=date(2024, 8, 19),
-                            period_end=date(2024, 8, 23),
-                            vintage_at=vintage_at,
-                        )
-                        for value, vintage_at in (
-                            (-408854431.0, datetime(2024, 8, 29, tzinfo=UTC)),
-                            (-400000000.0, datetime(2024, 9, 10, tzinfo=UTC)),
-                        )
-                    ],
-                )
+                for published, value in (
+                    (date(2024, 8, 29), -408854431.0),
+                    (date(2024, 9, 10), -400000000.0),
+                ):
+                    store_snapshot(
+                        conn,
+                        source_key="jquants_flows:TSEPrime",
+                        observed_at=published,
+                        fetched_at=datetime.combine(published, datetime.min.time(), UTC),
+                        records=[{
+                            "Section": "TSEPrime",
+                            "PubDate": published.isoformat(),
+                            "StDate": "2024-08-19",
+                            "EnDate": "2024-08-23",
+                            "FrgnBal": value,
+                        }],
+                    )
                 conn.commit()
             finally:
                 conn.close()
@@ -822,7 +821,7 @@ class IndicatorsDBTests(unittest.TestCase):
                 ):
                     open_connection(database)
 
-    def test_jquants_range_excludes_vintages_published_after_end(self) -> None:
+    def test_scalar_range_excludes_vintages_after_query_end(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(database)
@@ -831,32 +830,30 @@ class IndicatorsDBTests(unittest.TestCase):
                     conn,
                     [
                         ObservationRecord(
-                            series_id="jp.foreign_flows",
+                            series_id="us.10y",
                             observed_at=date(2024, 8, 23),
                             value=value,
-                            unit="jpy-thousand",
-                            source_url="https://jpx-jquants.com/ja/spec/eq-investor-types",
-                            period_start=date(2024, 8, 19),
-                            period_end=date(2024, 8, 23),
+                            unit="percent",
+                            source_url="https://example.com/synthetic-us10y.csv",
                             vintage_at=vintage_at,
                         )
                         for value, vintage_at in (
-                            (-408854431.0, datetime(2024, 8, 29, tzinfo=UTC)),
-                            (-400000000.0, datetime(2024, 9, 10, tzinfo=UTC)),
+                            (4.3, datetime(2024, 8, 29, tzinfo=UTC)),
+                            (4.4, datetime(2024, 9, 10, tzinfo=UTC)),
                         )
                     ],
                 )
 
                 august = observations_in_range(
                     conn,
-                    "jp.foreign_flows",
+                    "us.10y",
                     date(2024, 8, 1),
                     date(2024, 8, 31),
                     point_in_time=True,
                 )
                 september = observations_in_range(
                     conn,
-                    "jp.foreign_flows",
+                    "us.10y",
                     date(2024, 8, 1),
                     date(2024, 9, 30),
                     point_in_time=True,
@@ -864,8 +861,8 @@ class IndicatorsDBTests(unittest.TestCase):
             finally:
                 conn.close()
 
-            self.assertEqual([item.value for item in august], [-408854431.0])
-            self.assertEqual([item.value for item in september], [-400000000.0])
+            self.assertEqual([item.value for item in august], [4.3])
+            self.assertEqual([item.value for item in september], [4.4])
 
     def test_insert_observations_skips_unchanged_later_vintage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
