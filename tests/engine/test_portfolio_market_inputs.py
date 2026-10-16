@@ -11,6 +11,8 @@ import pytest
 from tests.helpers.screening_sqlite import add_source_coverage
 
 from baibai_engine.market import store as market_store
+from baibai_engine.position.market_source import market_basis_is_confirmed
+from baibai_engine.storage.observations.read import connect_read_only
 from baibai_engine.storage.observations.schema import open_connection
 
 START = date(2026, 10, 14)
@@ -108,3 +110,33 @@ def test_portfolio_market_inputs_preserve_unavailable_and_missing_ticker_distinc
     else:
         assert calendar is not None
         assert bars == ([] if missing == "ticker" else None)
+
+
+def test_caller_keeps_the_same_snapshot_for_unit_checks_after_prices(tmp_path):
+    database = tmp_path / "market.sqlite"
+    _market_store(database)
+    with closing(sqlite3.connect(database)) as setup:
+        setup.execute("PRAGMA journal_mode = WAL")
+    with closing(connect_read_only(database)) as reader:
+        reader.execute("BEGIN")
+        calendar, bars = market_store.read_portfolio_market_inputs(
+            database, ("1301",), START, END, connection=reader
+        )
+        assert calendar is not None and bars is not None
+        with closing(sqlite3.connect(database)) as writer, writer:
+            writer.execute(
+                "UPDATE jquants_daily_bars SET adjustment_factor = 0.5 WHERE traded_at = ?",
+                (END.isoformat(),),
+            )
+        assert market_basis_is_confirmed(
+            basis="price",
+            sqlite_path=database,
+            ticker="1301",
+            from_date=START,
+            through_date=END,
+            connection=reader,
+        )
+        assert reader.in_transaction
+    assert not market_basis_is_confirmed(
+        basis="price", sqlite_path=database, ticker="1301", from_date=START, through_date=END
+    )

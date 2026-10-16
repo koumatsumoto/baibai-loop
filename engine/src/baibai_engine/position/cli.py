@@ -57,6 +57,7 @@ from baibai_engine.position.ledger import (
     snapshot_to_payload,
 )
 from baibai_engine.position.ledger_read import LedgerConflictError
+from baibai_engine.position.market_source import market_basis_is_confirmed
 from baibai_engine.position.outcome import compute_portfolio_outcome, outcome_to_payload
 from baibai_engine.position.outcome_store import (
     PortfolioOutcomePublication,
@@ -64,6 +65,7 @@ from baibai_engine.position.outcome_store import (
 )
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.position.valuation import current_portfolio
+from baibai_engine.storage.observations.read import connect_read_only
 
 
 def _datetime_argument(value: str) -> datetime:
@@ -452,21 +454,43 @@ def _run_outcome(
             }
         )
     )
-    calendar_days, bars = read_portfolio_market_inputs(
-        sqlite_path, tickers, benchmark.period_start_date, benchmark.period_end_date
-    )
-    if calendar_days is None:
-        payload = _outcome_unresolved_payload(benchmark, "benchmark_unavailable")
-    elif bars is None:
-        payload = _outcome_unresolved_payload(benchmark, "missing_market_price")
-    else:
-        outcome = compute_portfolio_outcome(
-            ledger,
-            benchmark,
-            business_days=tuple(day.day for day in calendar_days if day.is_business_day),
-            bars=tuple(bars),
-        )
-        payload = outcome_to_payload(outcome)
+    connection = connect_read_only(sqlite_path) if sqlite_path.exists() else None
+    try:
+        if connection is None:
+            calendar_days, bars = None, None
+        else:
+            connection.execute("BEGIN")
+            calendar_days, bars = read_portfolio_market_inputs(
+                sqlite_path,
+                tickers,
+                benchmark.period_start_date,
+                benchmark.period_end_date,
+                connection=connection,
+            )
+        if calendar_days is None:
+            payload = _outcome_unresolved_payload(benchmark, "benchmark_unavailable")
+        elif bars is None:
+            payload = _outcome_unresolved_payload(benchmark, "missing_market_price")
+        else:
+            assert connection is not None
+            outcome = compute_portfolio_outcome(
+                ledger,
+                benchmark,
+                business_days=tuple(day.day for day in calendar_days if day.is_business_day),
+                bars=tuple(bars),
+                confirm_price_basis=lambda ticker, first, last: market_basis_is_confirmed(
+                    basis="price",
+                    sqlite_path=sqlite_path,
+                    ticker=ticker,
+                    from_date=first,
+                    through_date=last,
+                    connection=connection,
+                ),
+            )
+            payload = outcome_to_payload(outcome)
+    finally:
+        if connection is not None:
+            connection.close()
     payload.update(
         benchmark_id=benchmark.benchmark_id,
         market_data_ref=str(sqlite_path),

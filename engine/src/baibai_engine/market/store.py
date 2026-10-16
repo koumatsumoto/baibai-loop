@@ -260,24 +260,33 @@ def _read_calendar(
 
 
 def read_portfolio_market_inputs(
-    sqlite_path: Path, tickers: tuple[str, ...], start: date, end: date
+    sqlite_path: Path,
+    tickers: tuple[str, ...],
+    start: date,
+    end: date,
+    *,
+    connection: sqlite3.Connection | None = None,
 ) -> tuple[list[JQuantsMarketCalendarDay] | None, list[JQuantsDailyBar] | None]:
     """Select calendar and scoped prices from one SQLite read snapshot.
 
     Cash-only outcomes need a calendar, not artificial price coverage. A missing
     input remains unavailable; this does not create an archive or replay proof.
+    A supplied connection belongs to the caller, including its read transaction.
     """
-    conn = connect_current(sqlite_path)
+    owns_connection = connection is None
+    conn = connect_current(sqlite_path) if owns_connection else connection
     if conn is None:
         return None, None
     try:
-        conn.execute("BEGIN")
+        if owns_connection:
+            conn.execute("BEGIN")
         calendar = _read_calendar(conn, start, end)
         if calendar is None:
             return None, None
         return calendar, _read_ticker_bars(conn, tickers, start, end)
     finally:
-        conn.close()
+        if owns_connection:
+            conn.close()
 
 
 def _daily_bars_from_rows(rows: Iterable[tuple[Any, ...]]) -> list[JQuantsDailyBar]:

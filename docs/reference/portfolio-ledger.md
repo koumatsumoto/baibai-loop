@@ -113,6 +113,8 @@ portfolio outcomeは各JPX営業日closeまでeventをreplayし、日次NAVを`a
 r_d = V_d / (V_(d-1) + CF_d) - 1
 ```
 
+保有期間の株数・価格単位は取得日から売却日（継続保有なら測定終了日）まで確認する。測定開始前の分割と、全売却した日の分割も検査対象であり、購入当日の調整を過去保有の単位変更とは扱わない。CLIはcalendar・価格・単位確認を同じSQLite読取世代で行い、単位確認だけのために過去終値を要求しない。
+
 非営業日のeventは次のJPX営業日BODへ繰り越す。収益率は開始日closeから終了日closeまでを測り、confirmed income/cost/taxと期間内の売却完了銘柄も同じ `(開始日, 終了日]` を対象とする。開始日closeに含まれるeventは開始NAVへ反映済みなので、期間内cashflowへ二重計上しない。
 
 価格欠損、未解決corporate action、負のNAV、ゼロ以下の開始NAV・収益率の分母は補完せず`unresolved`にする。正の投下資本が確認済み損失・費用によって0になった場合は、欠測ではなく-100%の実績である。outcome publicationはapplication DBのimmutable recordである。

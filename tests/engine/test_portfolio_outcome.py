@@ -1,3 +1,4 @@
+from contextlib import closing
 from datetime import date
 from pathlib import Path
 
@@ -7,6 +8,7 @@ from baibai_engine.market.bars import JQuantsDailyBar
 from baibai_engine.market_context.observations.benchmark import BenchmarkObservation
 from baibai_engine.position.cli import main
 from baibai_engine.position.ledger import PortfolioLedgerDocument, PortfolioLedgerError
+from baibai_engine.position.market_source import market_basis_is_confirmed
 from baibai_engine.position.outcome import (
     DailyNav,
     PortfolioOutcomeError,
@@ -16,6 +18,7 @@ from baibai_engine.position.outcome import (
 )
 from baibai_engine.position.outcome_store import PortfolioOutcomePublication, PortfolioOutcomeStore
 from baibai_engine.read_api.position import list_portfolio_outcome_payloads
+from baibai_engine.storage.observations.schema import open_connection
 
 
 def test_twr_neutralizes_beginning_of_day_contribution() -> None:
@@ -220,7 +223,7 @@ def test_portfolio_outcome_does_not_assume_zero_factor_is_neutral() -> None:
         _benchmark(),
         business_days=(date(2025, 1, 6), date(2026, 1, 6)),
         bars=(
-            JQuantsDailyBar("1234", date(2025, 1, 6), 5.0, None, adjustment_factor=0.0),
+            JQuantsDailyBar("1234", date(2025, 1, 6), 5.0, None, adjustment_factor=1.0),
             JQuantsDailyBar("1234", date(2026, 1, 6), 6.0, None, adjustment_factor=0.0),
         ),
     )
@@ -505,3 +508,100 @@ def test_position_closed_before_opening_close_is_not_a_period_exit() -> None:
     assert result.status == "resolved"
     assert result.portfolio_twr_pct == 0.0
     assert result.closed_tickers == ()
+
+
+def test_purchase_day_split_does_not_change_the_reported_fill_basis() -> None:
+    result = compute_portfolio_outcome(
+        _ledger(),
+        _benchmark(),
+        business_days=(date(2025, 1, 6), date(2026, 1, 6)),
+        bars=(
+            JQuantsDailyBar("1234", date(2025, 1, 6), 5.0, None, adjustment_factor=0.5),
+            JQuantsDailyBar("1234", date(2026, 1, 6), 6.0, None, adjustment_factor=1.0),
+        ),
+    )
+    assert result.status == "resolved"
+    assert result.portfolio_twr_pct == pytest.approx((1208 / 1100 - 1) * 100)
+
+
+def _preperiod_holding() -> PortfolioLedgerDocument:
+    raw = _ledger().model_dump(mode="json")
+    for event in raw["events"][:3]:
+        event["occurred_at"] = event["occurred_at"].replace("2025-01-06", "2024-12-27")
+    return PortfolioLedgerDocument.model_validate(raw)
+
+
+def test_opening_holding_requires_evidence_of_its_preperiod_units() -> None:
+    result = compute_portfolio_outcome(
+        _preperiod_holding(),
+        _benchmark(),
+        business_days=(date(2025, 1, 6), date(2026, 1, 6)),
+        bars=(
+            JQuantsDailyBar("1234", date(2025, 1, 6), 5.0, None, adjustment_factor=1.0),
+            JQuantsDailyBar("1234", date(2026, 1, 6), 6.0, None, adjustment_factor=1.0),
+        ),
+    )
+    assert result.status == "unresolved"
+    assert result.reason == "corporate_action_unresolved"
+
+
+@pytest.mark.parametrize("preperiod_factor", [0.5, 1.0])
+def test_opening_unit_check_uses_native_factors_not_historical_closes(tmp_path, preperiod_factor):
+    database = tmp_path / "market.sqlite"
+    with closing(open_connection(database)) as connection, connection:
+        connection.executemany(
+            "INSERT INTO jquants_daily_bars(ticker, traded_at, close, adjustment_factor) "
+            "VALUES ('1234', ?, ?, ?)",
+            [
+                ("2024-12-30", None, preperiod_factor),
+                ("2025-01-06", 5.0, 1.0),
+                ("2026-01-06", 6.0, 1.0),
+            ],
+        )
+        result = compute_portfolio_outcome(
+            _preperiod_holding(),
+            _benchmark(),
+            business_days=(date(2025, 1, 6), date(2026, 1, 6)),
+            bars=(
+                JQuantsDailyBar("1234", date(2025, 1, 6), 5.0, None, adjustment_factor=1.0),
+                JQuantsDailyBar("1234", date(2026, 1, 6), 6.0, None, adjustment_factor=1.0),
+            ),
+            confirm_price_basis=lambda ticker, first, last: market_basis_is_confirmed(
+                basis="price",
+                sqlite_path=database,
+                ticker=ticker,
+                from_date=first,
+                through_date=last,
+                connection=connection,
+            ),
+        )
+    assert result.status == ("resolved" if preperiod_factor == 1.0 else "unresolved")
+    assert result.reason == (None if preperiod_factor == 1.0 else "corporate_action_unresolved")
+
+
+def test_full_sale_does_not_hide_a_corporate_action_on_its_execution_day() -> None:
+    raw = _ledger().model_dump(mode="json")
+    raw["events"] = [
+        *raw["events"][:3],
+        {
+            "event_id": "sale",
+            "type": "execution",
+            "execution_id": "sale",
+            "occurred_at": "2026-01-06T09:00:00+09:00",
+            "ticker": "1234",
+            "side": "sell",
+            "quantity": 100,
+            "price_yen": 6,
+        },
+    ]
+    result = compute_portfolio_outcome(
+        PortfolioLedgerDocument.model_validate(raw),
+        _benchmark(),
+        business_days=(date(2025, 1, 6), date(2026, 1, 6)),
+        bars=(
+            JQuantsDailyBar("1234", date(2025, 1, 6), 5.0, None, adjustment_factor=1.0),
+            JQuantsDailyBar("1234", date(2026, 1, 6), 6.0, None, adjustment_factor=0.5),
+        ),
+    )
+    assert result.status == "unresolved"
+    assert result.reason == "corporate_action_unresolved"

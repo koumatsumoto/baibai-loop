@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from decimal import Decimal
@@ -113,12 +114,14 @@ def compute_portfolio_outcome(
     *,
     business_days: tuple[date, ...],
     bars: tuple[JQuantsDailyBar, ...],
+    confirm_price_basis: Callable[[str, date, date], bool] | None = None,
 ) -> PortfolioOutcome:
     """Compute one official benchmark period without filling missing evidence.
 
     The result is structured as ``unresolved`` for expected data gaps. Ledger
     corruption still raises through the caller: it is an invalid input, not an
-    uncertain investment outcome.
+    uncertain investment outcome. An optional read-only basis check can establish
+    pre-period holding units without supplying otherwise unused historical closes.
     """
 
     start, end = benchmark.period_start_date, benchmark.period_end_date
@@ -165,9 +168,6 @@ def compute_portfolio_outcome(
             bar = bars_by_ticker_day.get((ticker, valuation_day))
             if bar is None:
                 return _unresolved(benchmark, "missing_market_price")
-            # Only an explicit neutral factor establishes an unchanged price basis.
-            if bar.adjustment_factor != 1.0:
-                return _unresolved(benchmark, "corporate_action_unresolved")
             prices[ticker] = MarketPrice.model_validate(
                 {
                     "ticker": ticker,
@@ -191,6 +191,31 @@ def compute_portfolio_outcome(
         final_value = value
 
     assert final_value is not None
+    # Check the whole holding episode, including before the opening NAV and the
+    # final sale day. Looking only at end-of-day holdings misses a fully sold name.
+    # A purchase already reports quantities on its own session's unit basis.
+    for ticker, acquired_on, through in _holding_basis_intervals(
+        ledger.events, effective_event_dates, start=start, end=end
+    ):
+        if acquired_on == through:
+            continue
+        if confirm_price_basis is not None:
+            confirmed = confirm_price_basis(ticker, acquired_on, through)
+        else:
+            # Supplied in-period bars cannot certify a pre-period quantity basis.
+            days = tuple(day for day in business_days if acquired_on < day <= through)
+            confirmed = (
+                acquired_on >= start
+                and bool(days)
+                and days[-1] == through
+                and all(
+                    (bar := bars_by_ticker_day.get((ticker, day))) is not None
+                    and bar.adjustment_factor == 1.0
+                    for day in days
+                )
+            )
+        if not confirmed:
+            return _unresolved(benchmark, "corporate_action_unresolved")
     try:
         twr = compute_time_weighted_return(
             tuple(navs), horizon_years=_horizon_years(benchmark.horizon)
@@ -241,6 +266,37 @@ def compute_portfolio_outcome(
         open_tickers=open_tickers,
         closed_tickers=closed_tickers,
     )
+
+
+def _holding_basis_intervals(
+    events: tuple[LedgerEvent, ...],
+    effective_dates: tuple[date | None, ...],
+    *,
+    start: date,
+    end: date,
+) -> tuple[tuple[str, date, date], ...]:
+    """Unit-check intervals for reconciled positions relevant after opening close."""
+    balances: dict[str, int] = {}
+    acquired: dict[str, date] = {}
+    intervals: list[tuple[str, date, date]] = []
+    for event, effective in zip(events, effective_dates, strict=True):
+        if not isinstance(event, ExecutionEvent) or effective is None or effective > end:
+            continue
+        ticker = event.ticker
+        day = event.occurred_on or event.occurred_at.astimezone(_TOKYO).date()
+        balance = balances.get(ticker, 0)
+        if event.side == "buy":
+            if balance == 0:
+                acquired[ticker] = day
+            balances[ticker] = balance + event.quantity
+        else:
+            balances[ticker] = balance - event.quantity
+            if balances[ticker] == 0:
+                first = acquired.pop(ticker)
+                if effective > start:
+                    intervals.append((ticker, first, day))
+    intervals.extend((ticker, first, end) for ticker, first in acquired.items())
+    return tuple(intervals)
 
 
 def outcome_to_payload(outcome: PortfolioOutcome) -> dict[str, object]:
