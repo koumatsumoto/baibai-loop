@@ -322,7 +322,6 @@ class FakeJPXProvider:
         del asof_date
         return JPXRegulationSnapshot(flags_by_ticker={}, source_names=self.source_names)
 
-
     def bootstrap_cache(self, asof_date: date) -> dict[str, int]:
         self.bootstrap_calls.append(asof_date)
         if self.fail_bootstrap:
@@ -624,10 +623,6 @@ class ScreeningCliTests(unittest.TestCase):
                 self.assertEqual(exit_code, 1)
             finally:
                 os.chdir(cwd)
-
-
-
-
 
     def test_run_command_fails_when_required_jpx_source_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

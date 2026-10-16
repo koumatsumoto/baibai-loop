@@ -406,7 +406,6 @@ class JPXProvider:
             store_jpx_earnings_calendar_snapshot(self._sqlite_path, snapshot)
         return snapshot
 
-
     def _raise_if_cache_only(self, source: str, requirement: str) -> None:
         if not self._cache_only:
             return

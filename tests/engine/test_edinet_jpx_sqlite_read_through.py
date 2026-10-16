@@ -359,7 +359,6 @@ class JPXProviderReadThroughTests(unittest.TestCase):
 
             self.assertEqual(snapshot.flags_by_ticker["1302"], ("取引停止",))
 
-
     def test_get_regulation_snapshot_requires_source_when_sqlite_empty(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"

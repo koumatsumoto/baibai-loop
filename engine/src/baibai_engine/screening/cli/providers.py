@@ -96,7 +96,6 @@ class JPXAdapter(Protocol):
 
     def get_regulation_snapshot(self, asof_date: date) -> JPXRegulationSnapshot: ...
 
-
     def bootstrap_cache(self, asof_date: date) -> Mapping[str, int]: ...
 
 
