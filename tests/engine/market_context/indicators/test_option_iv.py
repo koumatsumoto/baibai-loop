@@ -340,11 +340,11 @@ class OptionIvReadingsTest(unittest.TestCase):
                 "EmMrgnTrgDiv": "002",
                 "PCDiv": PUT,
                 "SQD": NEAR.isoformat(),
-                "Strike": UNDERLYING,
+                "Strike": UNDERLYING + offset,
                 "IV": value,
                 "UnderPx": UNDERLYING,
             }
-            for value in (0.5, 1.0, 1.01)
+            for offset, value in enumerate((0.5, 1.0, 1.01))
         ]
         quotes = quotes_from_records(records)
         self.assertEqual([quote.implied_volatility for quote in quotes], [0.5, 1.0, 1.01])

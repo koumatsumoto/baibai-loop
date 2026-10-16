@@ -2,7 +2,10 @@
 -- Parameters: ticker (four-character code), cutoff (JST date, inclusive).
 -- Choose the filing BEFORE querying its facts. Never fall back after this selection.
 WITH RECURSIVE origins AS (
-  SELECT *, row_number() OVER (PARTITION BY doc_id ORDER BY doc_date DESC, sequence_number DESC) AS version
+  SELECT *, row_number() OVER (
+    PARTITION BY doc_id
+    ORDER BY doc_date DESC, coalesce(operation_datetime, '') DESC, sequence_number DESC
+  ) AS version
   FROM docs
   WHERE doc_type_code IN ('120', '130')
     AND substr(submit_datetime, 1, 10) <= $cutoff

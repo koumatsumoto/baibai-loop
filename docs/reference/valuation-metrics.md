@@ -203,7 +203,7 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 
 対象書類は有価証券報告書 / 四半期報告書 / 半期報告書と、それぞれの訂正書を扱う。訂正書は EDINET documents API 上で `periodStart` / `periodEnd` が欠損しやすいため、欠損時のみ `docDescription` の対象期間から fallback parse する。書類選択は[EDINET provider](../../engine/src/baibai_engine/market/providers/edinet.py)と[保存・選択処理](../../engine/src/baibai_engine/market/edinet_metrics/store.py)を参照する。書類metadataの期間と、抽出したCF・BSの測定期間を同一視しない。
 
-[EDINET API仕様](https://disclosure2dl.edinet-fsa.go.jp/guide/static/disclosure/download/ESE140206.pdf)の書類情報訂正を畳む際、現在の読取処理は書類種別・提出日時・CSV/XBRL可否が揃う訂正metadataを置換として扱い、親書類・期間の明示nullも反映する。これらが欠ける疎な保存行では、NULLだけで元の情報を消さない。SQLiteのnullable列そのものが元JSONのキー欠落と明示nullを区別できるわけではない。
+[EDINET API仕様](https://disclosure2dl.edinet-fsa.go.jp/guide/static/disclosure/download/ESE140206.pdf)の書類情報訂正を畳む際は、保存したnative responseの同日・seqNumber・docIDに対応する操作行を使う。供給されたキーの明示nullは反映し、キーの省略は以前の値を変更しない。特定の4項目が揃うかから完全な置換を推定しない。native responseを持たない保存行ではSQL NULLから元のキー有無を復元できないため、NULLは明示的な消去の証拠にしない。通常の提出行は閲覧期限前に観測したidentityを保持し、同日の複数行は操作日時・seqNumberの順で選ぶ。
 
 `edinet_source_period_start` / `edinet_source_period_end` は EDINET documents metadata 上の書類対象期間であり、必ずしも抽出 metric の測定期間そのものではない。特に半期報告書 / 訂正半期報告書では fiscal year 全体の period end が入ることがある。screening では source traceability と document selection に使い、research では対象書類の CF 計算書 / BS 表示期間を一次確認する。
 

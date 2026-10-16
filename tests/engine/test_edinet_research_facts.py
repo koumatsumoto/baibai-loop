@@ -301,6 +301,19 @@ def test_query_selects_latest_before_validity_and_handles_events(tmp_path):
     assert selected_filing(path, "2026-08-02")[-1] == "validity_unknown"
 
 
+def test_query_and_runtime_order_duplicate_origins_by_operation_time(tmp_path):
+    path = tmp_path / "market.sqlite"
+    later = document()
+    later.update(seqNumber=1, opeDateTime="2026-06-24 16:00", periodEnd="2026-03-31")
+    earlier = document()
+    earlier.update(seqNumber=2, opeDateTime="2026-06-24 15:00", periodEnd="2025-03-31")
+    insert_documents(path, [later, earlier])
+
+    selected = selected_filing(path, "2026-06-24")
+    assert selected == ("S100TEST", "2026-06-24 14:00", "2026-03-31", "usable")
+    assert [row["periodEnd"] for row in annual_documents([later, earlier])] == ["2026-03-31"]
+
+
 def test_retained_annual_family_receives_later_corrections():
     old = document()
     newer = document("S100NEXT", "2027-06-24 14:00")
@@ -500,7 +513,16 @@ def test_metadata_edit_clears_optional_values_in_raw_and_stored_rows(tmp_path, t
         documents = []
         for row in (original, correction, edit):
             day = date.fromisoformat(row["doc_date"])
-            store_edinet_documents(path, day, [{**row, "seqNumber": 1}])
+            native = {key: value for key, value in row.items() if key != "doc_date"}
+            native["seqNumber"] = 1
+            store_edinet_documents(
+                path,
+                day,
+                [native],
+                response_json=json.dumps({
+                    "metadata": {"resultset": {"count": 1}}, "results": [native]
+                }),
+            )
             stored = read_edinet_documents(path, day)
             assert stored is not None
             documents.extend(stored)

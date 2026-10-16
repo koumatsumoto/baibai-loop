@@ -543,23 +543,10 @@ def _canonicalize_document_events(
         )
         origin_date = current.get("doc_date")
         old_parent = text_or_none(coalesce_field(current, "parentDocID", "parent_doc_id"))
-        # A metadata-bearing edit replaces optional values, including an explicit
-        # empty parent. Sparse cached operation rows have NULL placeholders even
-        # for type/time/availability; those do not erase the origin metadata.
-        has_edit_metadata = edit_status == "1" and all(
-            coalesce_field(event, *names) is not None
-            for names in (
-                ("docTypeCode", "doc_type_code"),
-                ("submitDateTime", "submit_datetime"),
-                ("csvFlag", "csv_flag"),
-                ("xbrlFlag", "xbrl_flag"),
-            )
-        )
-        current.update(
-            event
-            if has_edit_metadata
-            else {key: value for key, value in event.items() if value is not None}
-        )
+        # Supplied nulls replace metadata; omitted keys leave it alone. The stored
+        # reader preserves native operation keys and omits unknown SQL placeholders
+        # when an import has no original response to establish key presence.
+        current.update(event)
         new_parent = text_or_none(coalesce_field(current, "parentDocID", "parent_doc_id"))
         if new_parent != old_parent:
             if old_parent is not None:

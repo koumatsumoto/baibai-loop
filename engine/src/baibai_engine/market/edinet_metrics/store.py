@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from baibai_engine.market.edinet_decode import normalize_metric_record
+from baibai_engine.market.edinet_document_store import read_stored_documents
 from baibai_engine.market.edinet_metrics.revision import has_hard_metric_failure
 from baibai_engine.market.edinet_models import EdinetMetricRecord, EDINETProviderError
 from baibai_engine.storage.observations.schema import connect_current
@@ -156,7 +157,7 @@ def read_edinet_metric_baseline(
 
 
 def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, Any]] | None:
-    """Read the stored document view, not the original provider response.
+    """Read retained origins and source-key-preserving operations for one day.
 
     Missing coverage returns None; database query failures propagate.
     """
@@ -168,61 +169,9 @@ def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, An
     try:
         if not date_covered(conn, "edinet_documents", on_date):
             return None
-        rows = conn.execute(
-            "SELECT sequence_number, doc_id, sec_code, doc_type_code, csv_flag, xbrl_flag, "
-            "legal_status, disclosure_status, withdrawal_status, doc_info_edit_status, "
-            "parent_doc_id, operation_datetime, submit_datetime, doc_description, "
-            "period_start, period_end, edinet_code, issuer_edinet_code, subject_edinet_code "
-            "FROM edinet_documents WHERE doc_date = ? ORDER BY sequence_number",
-            (on_date.isoformat(),),
-        ).fetchall()
+        return read_stored_documents(conn, through=on_date, start=on_date)
     finally:
         conn.close()
-    return [
-        {
-            "doc_date": on_date.isoformat(),
-            "seqNumber": sequence_number,
-            "docID": doc_id,
-            "secCode": sec_code,
-            "docTypeCode": doc_type_code,
-            "csvFlag": csv_flag,
-            "xbrlFlag": xbrl_flag,
-            "legalStatus": legal_status,
-            "disclosureStatus": disclosure_status,
-            "withdrawalStatus": withdrawal_status,
-            "docInfoEditStatus": doc_info_edit_status,
-            "parentDocID": parent_doc_id,
-            "opeDateTime": operation_datetime,
-            "submitDateTime": submit_datetime,
-            "docDescription": doc_description,
-            "periodStart": period_start,
-            "periodEnd": period_end,
-            "edinetCode": edinet_code,
-            "issuerEdinetCode": issuer_edinet_code,
-            "subjectEdinetCode": subject_edinet_code,
-        }
-        for (
-            sequence_number,
-            doc_id,
-            sec_code,
-            doc_type_code,
-            csv_flag,
-            xbrl_flag,
-            legal_status,
-            disclosure_status,
-            withdrawal_status,
-            doc_info_edit_status,
-            parent_doc_id,
-            operation_datetime,
-            submit_datetime,
-            doc_description,
-            period_start,
-            period_end,
-            edinet_code,
-            issuer_edinet_code,
-            subject_edinet_code,
-        ) in rows
-    ]
 
 
 def read_unfinalized_edinet_document_dates(sqlite_path: Path, *, before: date) -> tuple[date, ...]:

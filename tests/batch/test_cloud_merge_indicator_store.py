@@ -699,7 +699,7 @@ def test_native_option_facts_merge_independently_of_registered_readings(tmp_path
     assert raw.skipped == 0
     assert raw.target_rows_after == 2
     assert merge_stores(source, target).inserted == 0
-    assert _rows(source, "SELECT * FROM indicator_source_snapshots") == _rows(target, "SELECT * FROM indicator_source_snapshots WHERE trade_date = '2026-07-20'")
+    assert _rows(source, "SELECT * FROM indicator_source_snapshots") == _rows(target, "SELECT * FROM indicator_source_snapshots WHERE observed_at = '2026-07-20'")
 
 
 def test_raw_payload_conflict_rolls_back_scalar_rows_in_the_same_merge(tmp_path: Path) -> None:
