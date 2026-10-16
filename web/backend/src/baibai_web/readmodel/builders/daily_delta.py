@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import date, datetime
+from decimal import Decimal
 
 from baibai_engine.read_api import PortfolioSnapshot, candidate_rows
 from baibai_web.readmodel.builders.presentation import _JST, latest_research_by_ticker, number, text
@@ -200,26 +201,31 @@ def _candidate_deltas(
         )
         for ticker in exited_tickers
     ]
-    moves: list[CandidateExpectedReturnDeltaView] = []
+    moves: list[tuple[Decimal, CandidateExpectedReturnDeltaView]] = []
     for ticker in sorted(set(current) & set(earlier)):
-        current_er = _percent(_candidate_er(current[ticker]))
-        previous_er = _percent(_candidate_er(earlier[ticker]))
+        current_er = _candidate_er(current[ticker])
+        previous_er = _candidate_er(earlier[ticker])
         if current_er is None or previous_er is None:
             continue
-        change = round(current_er - previous_er, 1)
+        # Decide membership and rank before display rounding. Decimal preserves
+        # the stored decimal boundary instead of losing exact 3 pp to subtraction.
+        change = (Decimal(str(current_er)) - Decimal(str(previous_er))) * 100
         if abs(change) < _DELTA_ER_MOVE_MIN_PP:
             continue
         moves.append(
-            CandidateExpectedReturnDeltaView(
-                ticker=ticker,
-                company_name=text(current[ticker].get("name")),
-                er_annual_pct=current_er,
-                previous_er_annual_pct=previous_er,
-                change_pp=change,
+            (
+                abs(change),
+                CandidateExpectedReturnDeltaView(
+                    ticker=ticker,
+                    company_name=text(current[ticker].get("name")),
+                    er_annual_pct=round(current_er * 100, 1),
+                    previous_er_annual_pct=round(previous_er * 100, 1),
+                    change_pp=float(round(change, 1)),
+                ),
             )
         )
-    moves.sort(key=lambda item: (-abs(item.change_pp), item.ticker))
-    return entered, exited, moves[:_DELTA_ER_MOVERS_SHOWN], len(moves)
+    moves.sort(key=lambda item: (-item[0], item[1].ticker))
+    return entered, exited, [item for _, item in moves[:_DELTA_ER_MOVERS_SHOWN]], len(moves)
 
 
 def _holding_deltas(

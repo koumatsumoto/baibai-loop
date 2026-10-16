@@ -264,3 +264,38 @@ def test_disclosure_context_stays_inside_the_compared_runs(tmp_path: Path) -> No
     assert market.disclosures_after(
         ["1002", "1003", "1004"], after=date(2026, 9, 3), through_date=date(2026, 9, 4)
     ) == {"1002": date(2026, 9, 4)}
+
+
+@pytest.mark.parametrize(
+    ("previous", "current", "included"),
+    [(0.1004, 0.13, False), (0.13, 0.1004, False),
+     (0.10, 0.13, True), (0.10, 0.07, True),
+     (0.10, 0.13001, True), (0.10, 0.06999, True)],
+)
+def test_estimate_mover_threshold_uses_unrounded_change(previous, current, included):
+    view = build_daily_delta(
+        *_sources(
+            current_candidate_fixture=_candidate_fixture(["1001"], current),
+            previous_candidate_fixture=_candidate_fixture(["1001"], previous),
+        )
+    )
+    assert view.er_moves_total == int(included)
+    assert len(view.er_moves) == int(included)
+    if included:
+        assert abs(view.er_moves[0].change_pp) == 3.0
+
+
+def test_estimate_mover_display_cap_ranks_unrounded_changes():
+    tickers = [str(1000 + index) for index in range(6)]
+    current = _candidate_fixture(tickers, 0.13)
+    for index, row in enumerate(current["rows"]):
+        row["metrics"]["er_annual"] = 0.13001 + index * 0.00001
+    view = build_daily_delta(
+        *_sources(
+            current_candidate_fixture=current,
+            previous_candidate_fixture=_candidate_fixture(tickers, 0.10),
+        )
+    )
+    assert view.er_moves_total == 6
+    assert [row.ticker for row in view.er_moves] == list(reversed(tickers[1:]))
+    assert all(row.change_pp == 3.0 for row in view.er_moves)
