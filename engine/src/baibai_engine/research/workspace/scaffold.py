@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import date, datetime
+from datetime import date, datetime, time
 from math import isfinite
 from pathlib import Path
 from typing import get_args
@@ -91,7 +91,8 @@ def scaffold_assessment(
     if from_assessment_id is not None:
         payload = scaffold_assessment_refresh(pair, as_of=as_of, assessed_at=retrieved_at)
     else:
-        quote = read_unadjusted_close(sqlite_path=sqlite_path, ticker=ticker, at=retrieved_at)
+        price_cutoff = min(retrieved_at, datetime.combine(as_of, time.max, tzinfo=JST))
+        quote = read_unadjusted_close(sqlite_path=sqlite_path, ticker=ticker, at=price_cutoff)
         sources: list[dict[str, object]] = []
         facts: list[dict[str, object]] = []
         if quote is not None:

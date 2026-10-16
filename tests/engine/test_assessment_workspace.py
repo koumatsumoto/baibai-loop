@@ -147,6 +147,40 @@ def test_nonfinite_or_boolean_cached_price_does_not_create_draft(case, monkeypat
     assert not (case[1] / "1234").exists()
 
 
+@pytest.mark.parametrize(
+    ("as_of", "retrieved_at", "expected_date", "expected_price"),
+    [
+        ("2026-10-14", "2026-10-15T17:00:00+09:00", "2026-10-14", 100.0),
+        ("2026-10-15", "2026-10-15T09:00:00+09:00", "2026-10-14", 100.0),
+        ("2026-10-15", "2026-10-15T17:00:00+09:00", "2026-10-15", 200.0),
+    ],
+)
+def test_scaffold_quote_respects_assessment_date_and_available_close(
+    case, as_of, retrieved_at, expected_date, expected_price
+):
+    from tests.helpers.screening_sqlite import seed_daily_bars
+
+    db, workspace, _ = case
+    market = workspace / "market.sqlite"
+    seed_daily_bars(
+        market,
+        [("1234", "2026-10-14", 100.0, 1.0), ("1234", "2026-10-15", 200.0, 1.0)],
+    )
+    result = scaffold_assessment(
+        workspace=workspace,
+        ticker="1234",
+        sqlite_path=market,
+        as_of=datetime.fromisoformat(as_of).date(),
+        retrieved_at=datetime.fromisoformat(retrieved_at),
+        db_path=db,
+    )
+    raw = yaml.safe_load(Path(result["assessment_draft"]).read_text())
+    assert result["price_as_of"] == expected_date
+    assert result["close_yen"] == expected_price
+    assert raw["input_snapshot"]["facts"][0]["as_of"] == expected_date
+    assert raw["input_snapshot"]["sources"][0]["retrieved_at"] == retrieved_at
+
+
 def test_review_scaffold_has_exact_hash_new_uuid_and_independent_empty_slots(case, monkeypatch):
     db, workspace, _ = case
     author(case)
