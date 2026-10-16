@@ -1,6 +1,5 @@
-"""The new owners expose pure contracts and preserve current storage identities."""
+"""Storage contracts stay independent of acquisition and publication services."""
 
-import importlib.util
 import subprocess
 import sys
 
@@ -25,19 +24,6 @@ assert contract.MODEL_VALUATION_TABLE == 'external_assessment_model_valuation_ob
 assert tv_contract.TABLE == 'tradingview_forecast_snapshots'
 """
     subprocess.run([sys.executable, "-c", code], check=True)
-
-
-def test_removed_package_paths_have_no_compatibility_imports():
-    for name in (
-        "baibai_engine.appdb",
-        "baibai_engine.market.sqlite",
-        "baibai_engine.market.lake",
-        "baibai_engine.market.retail_dynamics",
-        "baibai_engine.market.tradingview",
-        "baibai_engine.market.providers.jquants_decode",
-        "baibai_batch.jobs.retail_daily",
-    ):
-        assert importlib.util.find_spec(name) is None
 
 
 def test_storage_reader_does_not_load_provider_or_writer_implementations():

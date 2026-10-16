@@ -1,4 +1,4 @@
-"""Research dates use the Tokyo business day, regardless of timestamp offset."""
+"""Research dates use the Tokyo calendar date, regardless of timestamp offset."""
 
 from copy import deepcopy
 from datetime import datetime
@@ -143,11 +143,12 @@ def test_assessment_rejects_utc_date_that_is_next_day_in_tokyo():
         ),
     ],
 )
-def test_position_quote_age_uses_jst_day_with_unchanged_policy(
+def test_position_quote_age_uses_explicit_price_date_regardless_of_receipt_offset(
     jst_stamp, utc_stamp, expected_action, expected_reason
 ):
     assessment_payload, _ = pair_payload(as_of="2026-10-21", quote_as_of="2026-10-14")
     assessment = StockAssessmentDocument.model_validate(assessment_payload)
+    # The consumer uses the supplied price date, not the offset of receipt time.
     for stamp in (jst_stamp, utc_stamp):
         observed = datetime.fromisoformat(stamp)
         from baibai_engine.foundation.time import JST

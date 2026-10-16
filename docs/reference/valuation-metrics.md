@@ -321,6 +321,7 @@ J-Quantsの価格factorには分割・併合だけでなくライツイシュー
 
 - 2024 年以降、EDINET 単体では旧来の四半期報告書に依存した TTM 再構成ができない期間がある
 - TTM 品質を `exact` / `approximated` / `unavailable` で明示する
+- J-Quantsの実績フローは開示日までに終了した正の期間だけをTTMへ合成する。原本に未来の終了日や逆転した期間があれば数値自体を保存しても、その期間を確定済み12か月として使わない。
 - EDINET CSV抽出では年次報告（書類種別120/130）かつ書類metadataで12か月の期間を確認できるフローを`exact`、期間不明・短縮決算・それ以外の取得フローを`approximated`、算出不能を`unavailable`とする。時点残高のnet cashは12か月フローではなく、算出できる当期残高を`exact`、算出不能を`unavailable`とする。半期のCFO・CapExを取得しても完全TTMへ合成・年率化しない。書類の`source_period_end`はフローのcontext終点とは限らない。
 - 品質は供給元の計算・期間の区別であり、継続利益、資金の経済的持続性、株主回収可能性、倍率全体の正しさの認定ではない。`approximated`を一律に半期と解釈しない。
 - Webの同じStock Analysis rowにある`ttm_quality_ev_ebitda` / `ttm_quality_fcf`は、raw Stock Analysisの`ttm_quality.ev_ebitda` / `fcf_yield`をそのまま投影する。採用元の品質がなければ`null`で、別世代・別sourceから補わず、この注記だけで候補理由を変えない。
@@ -338,7 +339,7 @@ Reinvestmentの`operating_profit_ttm`は営業利益そのもののTTMで、経�
 
 J-Quants の財務サマリーは四半期 disclosure の時系列として扱うため、直前 disclosure は YoY ではなく QoQ になる。`eps_yoy` / `sales_yoy` / `operating_profit_yoy` は前年同期間を優先し、期間metadataが不足する場合は同じ`TypeOfCurrentPeriod`と前年の`CurrentFiscalYearEndDate`で照合する。対応する前年値が無ければ`null`とする。nullは比較不能であり、改善や悪化なしを確認した値ではない。季節性によるQoQ変化をYoYへ読み替えない。
 
-前年のFY末と同期間の開始・終了は、月末を保つ12か月前の日付で照合する。2/28と閏年の2/29は連続した月末として扱い、8月末決算の半期末が閏日でも前年半期を探す。実期間長と開始・終了日の既存許容差を検査し、同期間が一致しなければ既存のFY label/endによるfallbackへ進む。欠けた期間や年度を生成せず、fieldごとの候補選択と選択済み実績の欠測規則を維持する。
+前年のFY末と同期間の開始・終了は、月末を保つ12か月前の日付で照合する。2/28と閏年の2/29は連続した月末として扱い、8月末決算の半期末が閏日でも前年半期を探す。実期間長と開始・終了日の既存許容差を検査する。開始・終了日が揃っている場合はその比較結果を採用し、不一致や不正期間をFY label/endの一致で救済しない。label/endの照合は当期の期間metadataが不足する場合だけに限る。欠けた期間や年度を生成せず、fieldごとの候補選択と選択済み実績の欠測規則を維持する。
 
 利益項目は当期の対象会計期間内で営業→経常→純利益の順に選び、前年も当期に採用した同じfieldで比較する。部分訂正では同期間に観測済みの同fieldを使う既存選択を維持する。採用可能な前年値がなければ、別の利益項目や別期間で補わず、YoYと赤字縮小をともに`null`とする。
 

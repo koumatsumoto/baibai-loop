@@ -296,14 +296,14 @@ def _prior_year_summary(
     if latest is None:
         return None
     if latest.period_start is not None and latest.period_end is not None:
-        matched = _matched_prior_period_summary(
+        # Explicit dates own comparability. A failed period match must not be
+        # rescued by an FY/Q label that ignores a short year or invalid dates.
+        return _matched_prior_period_summary(
             summaries,
             latest,
             ttm_rules,
             field_name=field_name,
         )
-        if matched is not None:
-            return matched
     if latest.fiscal_period is None or latest.fiscal_year_end is None:
         return None
     target_fiscal_year_end = add_months_clamped(latest.fiscal_year_end, -12)
@@ -438,7 +438,11 @@ def _matched_prior_period_summary(
 
 
 def _period_days(summary: JQuantsFinancialSummary) -> int | None:
-    if summary.period_start is None or summary.period_end is None:
+    if (
+        summary.period_start is None
+        or summary.period_end is None
+        or summary.period_end > summary.disclosed_at
+    ):
         return None
     days = (summary.period_end - summary.period_start).days + 1
     return days if days > 0 else None
