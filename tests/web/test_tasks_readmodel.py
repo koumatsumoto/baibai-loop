@@ -137,3 +137,28 @@ def test_event_window_order_and_labels_are_preserved() -> None:
         ("reservation_expiry", "2001", "2001", 0),
         ("earnings", "1003", "1003", 14),
     ]
+
+
+def test_calendar_collapses_same_ticker_expiries_without_collapsing_other_milestones() -> None:
+    first = datetime.fromisoformat("2026-10-17T00:00:00+09:00")
+    same_day = datetime.fromisoformat("2026-10-16T15:00:00+00:00")
+    next_day = datetime.fromisoformat("2026-10-18T00:00:00+09:00")
+    events = _upcoming_events(
+        today=date(2026, 10, 14),
+        earnings={"2222": date(2026, 10, 16)},
+        names={},
+        expiries=[
+            ("2222", first),
+            ("2222", first),
+            ("2222", same_day),
+            ("2222", next_day),
+            ("3333", first),
+            ("4444", None),
+        ],
+    )
+    assert [(event.kind, event.ticker, event.event_date) for event in events] == [
+        ("earnings", "2222", date(2026, 10, 16)),
+        ("reservation_expiry", "2222", date(2026, 10, 16)),
+        ("reservation_expiry", "3333", date(2026, 10, 16)),
+        ("reservation_expiry", "2222", date(2026, 10, 17)),
+    ]

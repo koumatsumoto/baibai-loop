@@ -125,6 +125,7 @@ def _upcoming_events(
     The window is inclusive on both ends: an event dated today (days_until 0) through
     ``today + _EVENT_WINDOW_DAYS`` is surfaced; anything past or beyond is dropped.
     Reservation deadlines are exclusive instants, displayed on their last valid JST day.
+    This calendar shows one milestone per ticker and day, not individual orders.
     """
 
     window_end = today + timedelta(days=_EVENT_WINDOW_DAYS)
@@ -140,10 +141,12 @@ def _upcoming_events(
                     days_until=(event_date - today).days,
                 )
             )
-    for ticker, expires_at in expiries:
-        if expires_at is None:
-            continue
-        event_date = (expires_at.astimezone(_JST) - timedelta(microseconds=1)).date()
+    expiry_days = {
+        (ticker, (expires_at.astimezone(_JST) - timedelta(microseconds=1)).date())
+        for ticker, expires_at in expiries
+        if expires_at is not None
+    }
+    for ticker, event_date in expiry_days:
         if today <= event_date <= window_end:
             events.append(
                 UpcomingEventView(
