@@ -4,7 +4,12 @@ import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
 
-from baibai_engine.market.store import read_adjustment_factor_bars, read_daily_bars
+import pytest
+
+from baibai_engine.market.store import (
+    latest_daily_bar_date, latest_stored_daily_bar_date,
+    read_adjustment_factor_bars, read_daily_bars,
+)
 from baibai_engine.storage.observations.schema import open_connection
 
 
@@ -106,3 +111,31 @@ def test_daily_bars_short_gap_is_only_a_coverage_heuristic(tmp_path: Path) -> No
 def test_read_daily_bars_none_when_empty(tmp_path: Path) -> None:
     sqlite_path = _seed(tmp_path, [])
     assert read_daily_bars(sqlite_path, date(2024, 1, 1), date(2024, 3, 31)) is None
+
+
+@pytest.mark.parametrize("scoped", [False, True])
+def test_latest_bar_date_distinguishes_missing_from_invalid_storage(tmp_path, scoped):
+    path = tmp_path / "market.sqlite"
+
+    def read_latest():
+        return (
+            latest_daily_bar_date(path, date(2024, 1, 1), date(2024, 3, 31))
+            if scoped else latest_stored_daily_bar_date(path)
+        )
+
+    assert read_latest() is None
+    _seed(tmp_path, [])
+    assert read_latest() is None
+    connection = open_connection(path)
+    try:
+        connection.execute(
+            "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES (?, ?, ?)",
+            ("1301", "2024-02-01-invalid", 1000),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    before = path.read_bytes()
+    with pytest.raises(ValueError):
+        read_latest()
+    assert path.read_bytes() == before

@@ -68,10 +68,10 @@ def daily_bars_covered(sqlite_path: Path, start: date, end: date) -> bool:
 
 
 def count_daily_bars(sqlite_path: Path, start: date, end: date) -> int:
-    """Count non-null closes; return 0 for an unavailable or incompatible store.
+    """Count non-null closes; an absent store has count 0.
 
     This does not validate individual values or prove acquisition coverage.
-    Query errors propagate; model validation belongs to the row reader.
+    Schema and query errors propagate; model validation belongs to the row reader.
     """
     if not sqlite_path.exists():
         return 0
@@ -193,10 +193,7 @@ def latest_stored_daily_bar_date(sqlite_path: Path) -> date | None:
         conn.close()
     if row is None or row[0] is None:
         return None
-    try:
-        return date.fromisoformat(str(row[0]))
-    except ValueError:
-        return None
+    return date.fromisoformat(str(row[0]))
 
 
 def latest_daily_bar_date(sqlite_path: Path, start: date, end: date) -> date | None:
@@ -220,10 +217,7 @@ def latest_daily_bar_date(sqlite_path: Path, start: date, end: date) -> date | N
         conn.close()
     if row is None or row[0] is None:
         return None
-    try:
-        return date.fromisoformat(str(row[0]))
-    except ValueError:
-        return None
+    return date.fromisoformat(str(row[0]))
 
 
 def read_market_calendar(
