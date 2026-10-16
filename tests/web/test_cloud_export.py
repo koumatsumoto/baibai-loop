@@ -277,6 +277,7 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
         "security--0001.json",
         "security--0002.json",
         "security--2331.json",
+        "security--8929.json",
     } | {f"indicator-series--{item.series_id}.json" for item in load_definitions().series}
     assert {item.name for item in views.iterdir()} == expected
 
@@ -302,6 +303,13 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     for name in ("security--0001.json", "security--0002.json", "security--2331.json"):
         detail = SecurityDetailView.model_validate_json((views / name).read_text(encoding="utf-8"))
         assert detail.stock_analysis is not None
+
+    reserved = SecurityDetailView.model_validate_json(
+        (views / "security--8929.json").read_text(encoding="utf-8")
+    )
+    assert reserved.ticker == "8929"
+    assert reserved.holding is None
+    assert reserved.stock_analysis is None
 
     assert not (output_dir / "history/select").exists()
 
