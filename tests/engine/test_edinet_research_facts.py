@@ -13,8 +13,16 @@ from tests.helpers.http_doubles import FakeSession, response
 
 from baibai_engine.market.edinet_facts.extract import extract_facts
 from baibai_engine.market.edinet_facts.service import extract_edinet_facts_command
-from baibai_engine.market.edinet_facts.selection import annual_documents, latest_annual_filing, usable_document
-from baibai_engine.market.edinet_facts.store import document_inventory, extraction_status, store_facts
+from baibai_engine.market.edinet_facts.selection import (
+    annual_documents,
+    latest_annual_filing,
+    usable_document,
+)
+from baibai_engine.market.edinet_facts.store import (
+    document_inventory,
+    extraction_status,
+    store_facts,
+)
 from baibai_engine.market.edinet_facts.xbrl import SourceFormatError, xml_root
 from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.providers.edinet import EDINETProvider
@@ -265,7 +273,9 @@ def selected_filing(path, cutoff):
     if doc is None:
         return None
     return (
-        doc["docID"], doc.get("submitDateTime"), doc["_research_annual_period_end"],
+        doc["docID"],
+        doc.get("submitDateTime"),
+        doc["_research_annual_period_end"],
         "usable" if usable_document(doc) else "validity_unknown",
     )
 
@@ -574,16 +584,27 @@ def test_orphan_correction_does_not_block_a_later_annual_family():
 def test_saved_selection_resolves_metadata_edit_without_permanent_rejection(tmp_path, refreshed):
     path = tmp_path / "market.sqlite"
     original = document()
-    edit = {**original, "doc_date": "2026-07-01", "docInfoEditStatus": "1",
-            "opeDateTime": "2026-07-01 10:00", "periodEnd": "2026-04-30"}
+    edit = {
+        **original,
+        "doc_date": "2026-07-01",
+        "docInfoEditStatus": "1",
+        "opeDateTime": "2026-07-01 10:00",
+        "periodEnd": "2026-04-30",
+    }
     documents = [original, edit]
     if refreshed:
         documents.append({**edit, "doc_date": "2026-07-02", "docInfoEditStatus": "2"})
     insert_documents(path, documents)
     assert selected_filing(path, "2026-06-30") == (
-        "S100TEST", "2026-06-24 14:00", "2026-03-31", "usable",
+        "S100TEST",
+        "2026-06-24 14:00",
+        "2026-03-31",
+        "usable",
     )
     for cutoff in ["2026-07-01", "2026-07-02"]:
         assert selected_filing(path, cutoff) == (
-            "S100TEST", "2026-06-24 14:00", "2026-04-30", "usable",
+            "S100TEST",
+            "2026-06-24 14:00",
+            "2026-04-30",
+            "usable",
         )

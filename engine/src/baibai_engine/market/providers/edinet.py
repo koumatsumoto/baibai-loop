@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import io
 import json
-import re
 import time
 import zipfile
 from collections.abc import Mapping, Sequence
@@ -22,7 +21,6 @@ from baibai_engine.market.edinet_decode import (
     coalesce_field,
     document_period,
     is_usable_filing_status,
-    parse_optional_date,
     parse_sec_code,
     safe_error_value,
     text_or_none,
