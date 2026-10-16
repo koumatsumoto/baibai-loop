@@ -6,6 +6,7 @@ import sqlite3
 import subprocess
 import sys
 from datetime import UTC, date, datetime, timedelta
+from functools import partial
 
 import pytest
 from tests.helpers.assessment_history import historical_context_payload, seed_history
@@ -309,8 +310,10 @@ def test_market_context_readers_reject_obsolete_market_schema(tmp_path, reader):
         connection.commit()
     finally:
         connection.close()
+    read = (
+        partial(read_price_bars, path, start=ASOF - timedelta(days=90), end=ASOF)
+        if reader == "prices"
+        else partial(read_master_snapshot, path, as_of=ASOF)
+    )
     with pytest.raises(SQLiteSchemaError, match="obsolete market SQLite schema"):
-        if reader == "prices":
-            read_price_bars(path, start=ASOF - timedelta(days=90), end=ASOF)
-        else:
-            read_master_snapshot(path, as_of=ASOF)
+        read()

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 import subprocess
 import sys
 from contextlib import closing
@@ -13,6 +12,7 @@ import pytest
 from pydantic import TypeAdapter
 
 from baibai_engine.market_context.prices import read_price_bars
+from baibai_engine.storage.observations.schema import open_connection
 from baibai_engine.valuation.metrics.models import FinancialSnapshot
 
 
@@ -81,13 +81,10 @@ def test_market_context_calculation_cold_import_does_not_load_composition_or_io(
 
 def test_price_reader_keeps_nontraded_action_without_inventing_a_price(tmp_path) -> None:
     path = tmp_path / "market.sqlite"
-    with closing(sqlite3.connect(path)) as connection, connection:
-        connection.execute(
-            "CREATE TABLE jquants_daily_bars "
-            "(ticker TEXT, traded_at TEXT, close REAL, adjustment_factor REAL, turnover_value REAL)"
-        )
+    with closing(open_connection(path)) as connection, connection:
         connection.executemany(
-            "INSERT INTO jquants_daily_bars VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO jquants_daily_bars "
+            "(ticker, traded_at, close, adjustment_factor, turnover_value) VALUES (?, ?, ?, ?, ?)",
             [
                 ("130A", "2026-07-10", 100.0, 1.0, 1000.0),
                 ("130A", "2026-07-11", None, 0.5, None),
