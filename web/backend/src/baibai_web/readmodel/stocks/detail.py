@@ -136,6 +136,7 @@ def build_security_detail(
         and raw_stock_analysis is None
         and not has_external
         and not proposals
+        and ticker not in inputs.reserved
     ):
         return None
 
@@ -143,7 +144,7 @@ def build_security_detail(
     security_sector = (
         text(raw_stock_analysis.get("sector_33")) if raw_stock_analysis is not None else None
     )
-    if raw_stock_analysis is None and has_external:
+    if raw_stock_analysis is None:
         identity = market.security_identities(as_of=today).get(ticker, {})
         security_name = text(identity.get("name")) or None
         security_sector = text(identity.get("sector_33"))

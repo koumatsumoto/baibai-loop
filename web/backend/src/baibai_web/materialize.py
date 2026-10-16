@@ -302,9 +302,10 @@ class _CachedResearchSource(DbResearchSource):
 
 
 def _security_tickers(dashboard: DashboardView, screening: ScreeningView) -> list[str]:
-    """Enumerate holdings and latest-run analyses; published Research is added by caller."""
+    """Enumerate portfolio tickers and latest-run analyses; Research is added by caller."""
 
     tickers = {holding.ticker for holding in dashboard.holdings}
+    tickers.update(item.ticker for item in dashboard.reservations)
     tickers.update(row.ticker for row in screening.stock_analyses)
     return sorted(tickers)
 
