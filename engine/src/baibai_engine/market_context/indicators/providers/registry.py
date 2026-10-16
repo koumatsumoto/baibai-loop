@@ -4,7 +4,14 @@ from datetime import date
 
 from ..definitions import SeriesDefinition
 from ..observations import ObservationRecord
-from ..read_contracts import CFTC_SPEC, DERIVED_SPEC, ECB_FX_SPEC, JQUANTS_OPTIONS_SPEC
+from ..read_contracts import (
+    CFTC_SPEC,
+    DERIVED_SPEC,
+    ECB_FX_SPEC,
+    JQUANTS_FLOWS_SPEC,
+    JQUANTS_INDICES_SPEC,
+    JQUANTS_OPTIONS_SPEC,
+)
 from .base import (
     FetchContext,
     HttpSession,
@@ -18,8 +25,6 @@ from .estat import EStatProvider
 from .estat_dashboard import EStatDashboardProvider
 from .frb_h15 import FrbH15Provider
 from .fred import FredProvider
-from .jquants_flows import JQuantsFlowsProvider
-from .jquants_indices import JQuantsIndicesProvider
 from .mof_jgb import MofJgbProvider
 from .multpl import MultplProvider
 from .nikkei_indexes import NikkeiIndexesProvider
@@ -39,8 +44,6 @@ _PROVIDERS: dict[str, IndicatorDataProvider] = {
         BojTimeSeriesProvider(),
         EStatProvider(),
         EStatDashboardProvider(),
-        JQuantsFlowsProvider(),
-        JQuantsIndicesProvider(),
         MofJgbProvider(),
         MultplProvider(),
         NikkeiIndexesProvider(),
@@ -87,6 +90,10 @@ def provider_spec(name: str) -> ProviderSpec:
         return DERIVED_SPEC
     if name == "jquants_options":
         return JQUANTS_OPTIONS_SPEC
+    if name == "jquants_flows":
+        return JQUANTS_FLOWS_SPEC
+    if name == "jquants_indices":
+        return JQUANTS_INDICES_SPEC
     if name == "cftc":
         return CFTC_SPEC
     if name == "ecb_fx":
@@ -101,4 +108,6 @@ def registered_specs() -> tuple[ProviderSpec, ...]:
         JQUANTS_OPTIONS_SPEC,
         CFTC_SPEC,
         ECB_FX_SPEC,
+        JQUANTS_FLOWS_SPEC,
+        JQUANTS_INDICES_SPEC,
     )

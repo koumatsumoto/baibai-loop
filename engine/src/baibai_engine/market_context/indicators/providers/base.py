@@ -11,7 +11,6 @@ import requests
 from ..definitions import SeriesDefinition
 from ..observations import ObservationRecord
 from ..provider_specs import ProviderSpec as ProviderSpec
-from ..provider_specs import RangeReplacementPolicy as RangeReplacementPolicy
 
 if TYPE_CHECKING:
     from .browser import BrowserFetcher

@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 from baibai_engine.market_context.indicators.definitions import load_definitions
 from baibai_engine.market_context.indicators.read_contracts import NATIVE_PROVIDERS, native_source_key
+from baibai_engine.market_context.indicators.source_snapshots import decode_records
 
 from .sqlite import read_application_rows, read_rows
 
@@ -71,8 +72,29 @@ def indicator_latest_observed_at(path: Path) -> date | None:
             "GROUP BY c.source_key",
         )
         for source_key, observed_at in native:
-            if source_key in native_keys and observed_at is not None:
+            if (
+                source_key in native_keys
+                and source_key != "jquants_flows:TSEPrime"
+                and observed_at is not None
+            ):
                 native_date = str(observed_at)
+                latest = max(latest, native_date) if latest is not None else native_date
+    if "jquants_flows:TSEPrime" in native_keys:
+        # The table key is the publication date for flows; freshness here means
+        # the economic observation period, as it does for the scalar series.
+        publications = read_rows(
+            path,
+            "SELECT c.payload FROM indicator_source_snapshots c "
+            "WHERE c.source_key = 'jquants_flows:TSEPrime' AND c.fetched_at = ("
+            "SELECT max(n.fetched_at) FROM indicator_source_snapshots n "
+            "WHERE n.source_key = c.source_key AND n.observed_at = c.observed_at)",
+        )
+        for (payload,) in publications:
+            for record in decode_records(payload):
+                period_end = record.get("EnDate")
+                if not isinstance(period_end, str):
+                    raise ValueError("investor flow has no native EnDate")
+                native_date = date.fromisoformat(period_end).isoformat()
                 latest = max(latest, native_date) if latest is not None else native_date
     return None if latest is None else date.fromisoformat(latest)
 

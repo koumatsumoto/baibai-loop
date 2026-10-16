@@ -356,7 +356,7 @@ ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。�
 
 vintage・retraction・generation・no-lossの意味は[Market Context reference](../docs/reference/market-context.md#①-データindicator-series-を引く)を参照する。
 
-**観測の撤回**: `market-context indicators retract <series_id> --observed-at <date> --expected-vintage <ts>`で確認した最新vintageを名指す。`derived`と`jquants_options`の系列は読取時の計算値なのでscalar観測の撤回対象ではない。元の観測を訂正・撤回すると次回読取に反映する。CAS拒否なら現在vintageを読み直す。成功後は正しい下位観測、または当日の非表示を確認する。localの直接DELETEや同じCASの反復で復旧しない。
+**観測の撤回**: `market-context indicators retract <series_id> --observed-at <date> --expected-vintage <ts>`で確認した最新vintageを名指す。`derived`とnative原本から読む系列（options・CFTC・ECB FX・投資部門別・TOPIX）はscalar観測の撤回対象ではない。元の観測を訂正・撤回すると次回読取に反映する。CAS拒否なら現在vintageを読み直す。成功後は正しい下位観測、または当日の非表示を確認する。localの直接DELETEや同じCASの反復で復旧しない。
 
 **系列の追加・退役・改名**:
 
@@ -368,6 +368,8 @@ vintage・retraction・generation・no-lossの意味は[Market Context reference
 **optionsの集計式変更**: `jp.n225_iv_30d`・`jp.n225_iv_skew`・`jp.n225_iv_term`は原本からL2で再計算する。式変更だけなら系列退役や再導入、API履歴の取り直しは行わない。原本が不足する日だけ補い、Readingと公開結果を確認する。旧scalar行は履歴として残っていても現行の読取には使わない。取得・再開の契約は[optionsの取得と復旧](../docs/reference/market-context.md#jquants-options-provider)を参照する。
 
 **schema7から9への一回切替**: 通常のopen・pull・mergeに旧schema互換を追加しない。マージ後の作業では、実行中writerがいない切替窓を確保し、最新cloud copyから別のcandidateを作る。既存のregistry・観測・取得履歴を保ったまま現行schemaのsource単位native snapshot表を追加し、取得済み原本の再利用と不足日だけの取得を行う。旧scalarからchainを復元できたとは扱わない。candidateと元copyの既存fact保持、raw日付・件数、Reading、公開結果を確認してからcodeとstoreの世代を合わせて切り替える。schema7のcloud copyをschema9の通常mergeへ渡しても切替にはならず、拒否される。切替時の最新cloud世代に対する条件付き書込みとbundle receiptの整合は通常公開と同様に守る。具体的な対象世代・原本不足範囲・candidate確認結果は切替実行時に確定し、PRのコード変更だけで本番切替済みとしない。
+
+**native原本の不足補完**: options・CFTC・ECB FX・投資部門別・TOPIXはschema9のsource snapshotへ保存する。従来のscalar観測は原本の代替にせず、PRマージ後に取得済み原本を再利用し、不足する期間だけ取得して再計算する。投資部門別の取得範囲は公表日であり、L2の集計期間と取り違えない。TOPIXの旧終値からO/H/Lを推定しない。必要な原本・Reading・公開読戻しを確認するまで、本番切替の受入完了としない。
 
 **停止と復旧**: DB拒否・意図しない退役・provider取得失敗・merge/CAS失敗では後続公開へ進まない。provider失敗がcommit済みpruneを巻き戻すとは扱わない。誤った内容をcloudへ反映した場合は次のpushを止め、[R2 transferの安全境界](#r2-transferの安全境界)の前世代復元へ進む。部分pushによるreceipt不一致だけは[部分pushからの復旧](#部分-push-からの復旧)で扱う。
 
@@ -1072,6 +1074,3 @@ L1 credentialは新しいbucket-scoped Object Read only tokenを作り、2つの
 旧R2 tokenを失効させます。更新途中のlake 502は全設定が揃ってから再確認します。L1公開自体の撤回は
 `(cd web/edge && npx wrangler secret delete L1_R2_ACCESS_KEY_ID)`でgatewayを503にし、Cloudflare側でもその専用tokenを失効させます。
 既存owner viewとcanonical dataは維持され、secret変更で再deployは不要です。
-
-
-CFTC・ECB FXのnative入力もschema9のsource snapshotへ保存する。従来のscalar観測は原本の代替にせず、切替後に対象履歴を取得して再計算する。再取得はPRマージ後に行い、取得済み原本があれば再利用する。native取得が終わるまでは該当Readingが欠測になることを切替窓の受入で確認する。

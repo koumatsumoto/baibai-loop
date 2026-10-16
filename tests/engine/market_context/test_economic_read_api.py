@@ -14,6 +14,7 @@ from baibai_engine.market_context.indicators.db import (
     retract_observations,
 )
 from baibai_engine.market_context.indicators.observations import ObservationRecord
+from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
 from baibai_engine.market_context.reading.rules import ReadingRulesError
 from baibai_engine.read_api.freshness import indicator_latest_observed_at
 from baibai_engine.read_api.market_context import (
@@ -125,25 +126,11 @@ def test_indicator_series_applies_jquants_publication_cutoff(tmp_path: Path) -> 
     database = tmp_path / "indicators.sqlite"
     connection = initialize_database(database)
     try:
-        insert_observations(
-            connection,
-            [
-                ObservationRecord(
-                    series_id="jp.foreign_flows",
-                    observed_at=date(2024, 8, 23),
-                    value=value,
-                    unit="jpy-thousand",
-                    source_url="https://jpx-jquants.com/ja/spec/eq-investor-types",
-                    period_start=date(2024, 8, 19),
-                    period_end=date(2024, 8, 23),
-                    vintage_at=vintage_at,
-                )
-                for value, vintage_at in (
-                    (-408854431.0, datetime(2024, 8, 29, tzinfo=UTC)),
-                    (-400000000.0, datetime(2024, 9, 10, tzinfo=UTC)),
-                )
-            ],
-        )
+        for published, value in [(date(2024, 8, 29), -408854431.0), (date(2024, 9, 10), -400000000.0)]:
+            store_snapshot(connection, source_key="jquants_flows:TSEPrime", observed_at=published,
+                           fetched_at=datetime(2026, 10, 16, tzinfo=UTC),
+                           records=[{"Section": "TSEPrime", "PubDate": published.isoformat(),
+                                     "StDate": "2024-08-19", "EnDate": "2024-08-23", "FrgnBal": value}])
         connection.commit()
     finally:
         connection.close()
@@ -175,25 +162,14 @@ def test_reading_snapshot_clamps_only_provider_declared_point_in_time_vintages(
     database = tmp_path / "indicators.sqlite"
     connection = initialize_database(database)
     try:
+        for published, value in [(date(2024, 8, 29), 100.0), (date(2024, 9, 10), 120.0)]:
+            store_snapshot(connection, source_key="jquants_flows:TSEPrime", observed_at=published,
+                           fetched_at=datetime(2026, 10, 16, tzinfo=UTC),
+                           records=[{"Section": "TSEPrime", "PubDate": published.isoformat(),
+                                     "StDate": "2024-08-19", "EnDate": "2024-08-23", "FrgnBal": value}])
         insert_observations(
             connection,
             [
-                ObservationRecord(
-                    series_id="jp.foreign_flows",
-                    observed_at=date(2024, 8, 23),
-                    value=value,
-                    unit="jpy-thousand",
-                    source_url="https://jpx-jquants.com/ja/spec/eq-investor-types",
-                    period_start=date(2024, 8, 19),
-                    period_end=date(2024, 8, 23),
-                    vintage_at=vintage_at,
-                )
-                for value, vintage_at in (
-                    (100.0, datetime(2024, 8, 29, tzinfo=UTC)),
-                    (120.0, datetime(2024, 9, 10, tzinfo=UTC)),
-                )
-            ]
-            + [
                 ObservationRecord(
                     series_id="jp.nikkei225",
                     observed_at=date(2024, 8, 23),

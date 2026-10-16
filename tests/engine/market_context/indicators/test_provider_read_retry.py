@@ -23,6 +23,7 @@ from baibai_engine.market_context.indicator_service import (
     RefreshFailure,
     RefreshSuccess,
     _fetch_observations_with_retry,
+    _fetch_with_retry,
 )
 from baibai_engine.market_context.indicators import db
 from baibai_engine.market_context.indicators.definitions import load_definitions
@@ -32,8 +33,8 @@ from baibai_engine.market_context.indicators.providers.base import (
     ProviderFetchStoppedError,
 )
 from baibai_engine.market_context.indicators.providers.fred import parse_fred_csv
-from baibai_engine.market_context.indicators.providers.jquants_flows import parse_trades_spec
-from baibai_engine.market_context.indicators.providers.jquants_indices import parse_index_bars
+from baibai_engine.market_context.indicators.providers.native import fetch_native_records
+from baibai_engine.market_context.reading.reader import build_store_observation_reader
 from baibai_engine.storage.application.write import initialize_database as initialize_application
 
 IDS = ("jp.foreign_flows", "jp.topix", "vix")
@@ -98,6 +99,14 @@ def wire(monkeypatch):
             )
 
         def fetch(self, series_id, *, context=None):
+            selected_context = self.context if context is None else context
+            if series_id != "vix":
+                native = _fetch_with_retry(
+                    lambda: fetch_native_records(load_definitions().by_id()[series_id],
+                                                 start=START, end=END, context=selected_context),
+                    context=selected_context,
+                )
+                return [row for records in native.values() for row in records]
             return _fetch_observations_with_retry(
                 load_definitions().by_id()[series_id],
                 start=START,
@@ -115,7 +124,7 @@ def wire(monkeypatch):
             f"baibai_engine.market_context.indicators.providers.{name}", fromlist=["*"]
         )
         monkeypatch.setattr(module, "_read_api_key", lambda: "synthetic-key")
-    for provider in ["jquants_flows", "jquants_indices", "fred_csv"]:
+    for provider in ["fred_csv"]:
         monkeypatch.setitem(registry._PROVIDERS, provider, type(registry._PROVIDERS[provider])())
     monkeypatch.setattr(
         HTTPConnectionPool,
@@ -147,16 +156,13 @@ def test_one_get_owns_the_initial_plus_five_attempts(wire, series_id, failures):
         records = wire.fetch(series_id)
         series = load_definitions().by_id()[series_id]
         data = payload(series_id)
-        expected = (
-            parse_fred_csv(series, data.decode(), start=START, end=END)
-            if series_id == "vix"
-            else parse_index_bars(series, data["data"], start=START, end=END)
-            if series_id == "jp.topix"
-            else parse_trades_spec(series, data["data"], start=START, end=END)
-        )
-        assert [(r.observed_at, r.value, r.unit, r.period_end) for r in records] == [
-            (r.observed_at, r.value, r.unit, r.period_end) for r in expected
-        ]
+        if series_id != "vix":
+            assert records == data["data"]
+        else:
+            expected = parse_fred_csv(series, data.decode(), start=START, end=END)
+            assert [(r.observed_at, r.value, r.unit, r.period_end) for r in records] == [
+                (r.observed_at, r.value, r.unit, r.period_end) for r in expected
+            ]
     assert len(wire.calls) == min(failures + 1, 6)
     assert len(set(wire.calls)) == 1
     assert wire.waits == [30, 60, 120, 300, 600][: min(failures, 5)]
@@ -198,7 +204,10 @@ def test_a_later_fetch_pass_does_not_inherit_an_expired_deadline(wire, series_id
     wire.reply = lambda sid, url: (200, {}, payload(sid, value=25 if sid == "vix" else 3500))
     with FetchContext() as next_pass:
         records = wire.fetch(series_id, context=next_pass)
-    assert records[0].value == (25 if series_id == "vix" else 3500)
+    if series_id == "vix":
+        assert records[0].value == 25
+    else:
+        assert records[0]["C" if series_id == "jp.topix" else "FrgnBal"] == 3500
     assert len(wire.calls) == 2
 
 
@@ -341,56 +350,37 @@ def test_fred_keeps_the_response_size_guard_inside_body_reception(wire, headers,
 def test_service_writes_and_reads_real_temporary_stores_without_losing_prior_rows(
     wire, tmp_path, capsys
 ):
-    definitions = load_definitions().by_id()
+    definitions = load_definitions()
+    by_id = definitions.by_id()
     database = tmp_path / "indicators.sqlite"
     application = tmp_path / "application.sqlite"
     initialize_application(application)
     conn = db.initialize_database(database)
-    db.insert_observations(
-        conn,
-        [
-            observation(definitions[sid], DAY - timedelta(days=7), value)
-            for sid, value in zip(IDS, (400, 2900, 19), strict=True)
-        ],
-    )
+    db.insert_observations(conn, [observation(by_id["vix"], DAY - timedelta(days=7), 19)])
     conn.commit()
     conn.close()
-    wire.reply = lambda sid, url: (200, {}, payload(sid))
+    def full_response(sid, url):
+        current = payload(sid)
+        if sid != "vix":
+            previous = payload(sid, day=DAY - timedelta(days=7), value=400 if sid == "jp.foreign_flows" else 2900)
+            current["data"] = previous["data"] + current["data"]
+        return 200, {}, current
+    wire.reply = full_response
     results = IndicatorsService(database).refresh_series(IDS, start=START, end=END)
     assert all(isinstance(r, RefreshSuccess) for r in results)
     conn = db.open_read_only_connection(database)
     try:
-        before = conn.execute(
-            "SELECT * FROM observations ORDER BY series_id,observed_at"
-        ).fetchall()
+        before = conn.execute("SELECT * FROM observations ORDER BY series_id,observed_at").fetchall()
+        native_before = conn.execute("SELECT * FROM indicator_source_snapshots ORDER BY source_key,observed_at,fetched_at").fetchall()
+        reader = build_store_observation_reader(conn, series=definitions.series)
         for sid, value in zip(IDS, (500, 3000, 20), strict=True):
-            rows = db.observations_in_range(conn, sid, START, END)
+            rows = reader(sid, START, END)
             assert len(rows) == 2
             assert rows[-1].value == value
-        assert (
-            db.observations_in_range(
-                conn,
-                IDS[0],
-                DAY,
-                DAY,
-                point_in_time=True,
-                vintage_on_or_before=DAY + timedelta(days=5),
-            )
-            == ()
-        )
-        assert (
-            len(
-                db.observations_in_range(
-                    conn,
-                    IDS[0],
-                    DAY,
-                    DAY,
-                    point_in_time=True,
-                    vintage_on_or_before=DAY + timedelta(days=6),
-                )
-            )
-            == 1
-        )
+        before_publication = build_store_observation_reader(conn, series=definitions.series, vintage_cutoff=DAY + timedelta(days=5))
+        after_publication = build_store_observation_reader(conn, series=definitions.series, vintage_cutoff=DAY + timedelta(days=6))
+        assert before_publication(IDS[0], DAY, DAY) == ()
+        assert len(after_publication(IDS[0], DAY, DAY)) == 1
     finally:
         conn.close()
     wire.reply = lambda sid, url: (403, {}, {})
@@ -398,10 +388,8 @@ def test_service_writes_and_reads_real_temporary_stores_without_losing_prior_row
     assert all(isinstance(r, RefreshFailure) for r in failures)
     conn = db.open_read_only_connection(database)
     try:
-        assert (
-            conn.execute("SELECT * FROM observations ORDER BY series_id,observed_at").fetchall()
-            == before
-        )
+        assert conn.execute("SELECT * FROM observations ORDER BY series_id,observed_at").fetchall() == before
+        assert conn.execute("SELECT * FROM indicator_source_snapshots ORDER BY source_key,observed_at,fetched_at").fetchall() == native_before
         assert conn.execute("SELECT COUNT(*) FROM provider_runs").fetchone()[0] == 6
         assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []

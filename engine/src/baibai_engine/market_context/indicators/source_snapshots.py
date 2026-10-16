@@ -1,4 +1,8 @@
-"""Native daily source records, independent of their L2 indicator uses."""
+"""Native daily source records, independent of their L2 indicator uses.
+
+The source date is PubDate for investor flows and the observation date for other
+providers. Economic aggregation periods remain inside the unmodified records.
+"""
 
 from __future__ import annotations
 
@@ -18,10 +22,14 @@ class SourceSnapshot:
 
     @property
     def records(self) -> tuple[Mapping[str, object], ...]:
-        records = json.loads(gzip.decompress(self.payload))
-        if not isinstance(records, list) or any(not isinstance(row, dict) for row in records):
-            raise ValueError("stored source snapshot must contain native records")
-        return tuple(records)
+        return decode_records(self.payload)
+
+
+def decode_records(payload: bytes) -> tuple[Mapping[str, object], ...]:
+    records = json.loads(gzip.decompress(payload))
+    if not isinstance(records, list) or any(not isinstance(row, dict) for row in records):
+        raise ValueError("stored source snapshot must contain native records")
+    return tuple(records)
 
 
 def store_snapshot(

@@ -56,7 +56,9 @@ def build_store_observation_reader(
             inputs = {key: read(key, input_start, end) for key in formula.inputs}
             return derive_series(definition, inputs, start=start, end=end)
         if definition.provider in NATIVE_BULK_PROVIDERS:
-            return read_native_series(connection, definition, start=start, end=end)
+            return read_native_series(
+                connection, definition, start=start, end=end, vintage_cutoff=vintage_cutoff
+            )
         if definition.provider == "jquants_options":
             return options.read(definition, start=start, end=end)
         return indicators_db.observations_in_range(

@@ -17,11 +17,9 @@ from baibai_engine.market_context.indicators.providers import (
     fetch_observations,
     parse_multpl_current,
     parse_multpl_history,
-    parse_trades_spec,
     parse_yahoo_chart,
 )
 from baibai_engine.market_context.indicators.providers.cftc import parse_cftc_records
-from baibai_engine.market_context.indicators.providers.jquants_indices import parse_index_bars
 from baibai_engine.market_context.indicators.providers.nikkei_indexes import parse_nikkei_valuation
 
 
@@ -62,7 +60,7 @@ class IndicatorsProviderParserTests(TestCase):
         with self.assertRaisesRegex(IndicatorsProviderError, "does not match requested"):
             parse_cftc_records(series, text, start=date(2026, 7, 1), end=date(2026, 7, 31))
 
-    def test_parse_cftc_records_leaves_range_policy_to_storage(self) -> None:
+    def test_parse_cftc_records_preserves_values_for_l2_range_policy(self) -> None:
         series = _series("cftc", "097741", unit="contracts")
         text = json.dumps(
             [
@@ -78,51 +76,6 @@ class IndicatorsProviderParserTests(TestCase):
         observations = parse_cftc_records(series, text, start=date(2026, 7, 1), end=date(2026, 7, 31))
         self.assertEqual(observations[date(2026, 7, 14)][0]["noncomm_positions_long_all"], "9000000")
 
-    def test_parse_index_bars_extracts_close_and_filters_range(self) -> None:
-        series = _series("jquants_indices", "topix", unit="index")
-        rows = [
-            {
-                "Date": datetime(2026, 6, 30, tzinfo=UTC),
-                "O": 3900.0,
-                "H": 3950.0,
-                "L": 3890.0,
-                "C": 3940.5,
-            },
-            {
-                "Date": datetime(2026, 7, 1, tzinfo=UTC),
-                "O": 3945.0,
-                "H": 4000.0,
-                "L": 3940.0,
-                "C": 3990.2,
-            },
-            {
-                "Date": datetime(2026, 8, 1, tzinfo=UTC),
-                "O": 4010.0,
-                "H": 4020.0,
-                "L": 4000.0,
-                "C": 4015.0,
-            },
-        ]
-
-        observations = parse_index_bars(series, rows, start=date(2026, 7, 1), end=date(2026, 7, 31))
-
-        self.assertEqual(
-            [(o.observed_at, o.value) for o in observations], [(date(2026, 7, 1), 3990.2)]
-        )
-
-    def test_parse_index_bars_leaves_range_policy_to_storage(self) -> None:
-        series = _series("jquants_indices", "topix", unit="index")
-        rows = [{"Date": datetime(2026, 7, 1, tzinfo=UTC), "C": 99999.0}]
-
-        observations = parse_index_bars(series, rows, start=date(2026, 7, 1), end=date(2026, 7, 31))
-        self.assertEqual(observations[0].value, 99999.0)
-
-    def test_parse_index_bars_rejects_missing_close_column(self) -> None:
-        series = _series("jquants_indices", "topix", unit="index")
-        rows = [{"Date": datetime(2026, 7, 1, tzinfo=UTC), "O": 3945.0}]
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "missing a close column"):
-            parse_index_bars(series, rows, start=date(2026, 7, 1), end=date(2026, 7, 31))
 
     def test_parse_nikkei_valuation_takes_weighted_average_and_filters_range(self) -> None:
         series = _series("nikkei_indexes", "per", unit="ratio")
@@ -512,154 +465,3 @@ class IndicatorsProviderParserTests(TestCase):
             )
 
         self.assertEqual([item.observed_at for item in observations], [date(2026, 7, 20)])
-
-    def test_parse_trades_spec_filters_range_and_uses_foreign_balance(self) -> None:
-        series = _series("jquants_flows", "foreigners_net_value", unit="jpy-thousand")
-        rows = [
-            {
-                "PubDate": "2026-05-08",
-                "EnDate": "2026-04-25",
-                "FrgnBuy": 900,
-                "FrgnSell": 800,
-                "FrgnBal": 100,
-            },
-            {
-                "PubDate": "2026-05-08",
-                "EnDate": "2026-05-02",
-                "FrgnBuy": 1500,
-                "FrgnSell": 1000,
-                "FrgnBal": 500,
-            },
-            {
-                "PubDate": "2026-05-15",
-                "EnDate": "2026-05-09",
-                "FrgnBuy": 1200,
-                "FrgnSell": 2000,
-                "FrgnBal": -800,
-            },
-            {
-                "PubDate": "2026-05-22",
-                "EnDate": "2026-05-16",
-                "FrgnBuy": 300,
-                "FrgnSell": 100,
-                "FrgnBal": 200,
-            },
-        ]
-
-        observations = parse_trades_spec(
-            series, rows, start=date(2026, 5, 1), end=date(2026, 5, 15)
-        )
-
-        self.assertEqual(len(observations), 2)
-        self.assertEqual(observations[0].observed_at, date(2026, 5, 2))
-        self.assertEqual(observations[0].value, 500.0)
-        self.assertEqual(observations[0].vintage_at, datetime(2026, 5, 8, tzinfo=UTC))
-        self.assertEqual(observations[1].observed_at, date(2026, 5, 9))
-        self.assertEqual(observations[1].value, -800.0)
-        self.assertEqual(observations[0].unit, "jpy-thousand")
-
-    def test_parse_trades_spec_preserves_zero_native_balances_for_each_investor(self) -> None:
-        for metric, key in (
-            ("foreigners_net_value", "FrgnBal"),
-            ("individuals_net_value", "IndBal"),
-            ("investment_trusts_net_value", "InvTrBal"),
-        ):
-            with self.subTest(metric=metric):
-                series = _series("jquants_flows", metric, unit="jpy-thousand")
-                rows = [{"PubDate": "2026-05-08", "EnDate": "2026-05-08", key: 0}]
-                observations = parse_trades_spec(
-                    series, rows, start=date(2026, 5, 8), end=date(2026, 5, 8)
-                )
-                self.assertEqual([item.value for item in observations], [0.0])
-
-    def test_parse_trades_spec_falls_back_to_purchases_minus_sales(self) -> None:
-        series = _series("jquants_flows", "foreigners_net_value", unit="jpy-thousand")
-        rows = [
-            {"PubDate": "2026-05-08", "EnDate": "2026-05-08", "FrgnBuy": 1500, "FrgnSell": 1000}
-        ]
-
-        observations = parse_trades_spec(series, rows, start=date(2026, 5, 8), end=date(2026, 5, 8))
-
-        self.assertEqual(len(observations), 1)
-        self.assertEqual(observations[0].value, 500.0)
-        self.assertIsNone(observations[0].period_start)
-        self.assertEqual(observations[0].period_end, date(2026, 5, 8))
-
-    def test_parse_trades_spec_keeps_each_period_for_duplicate_publication_date(
-        self,
-    ) -> None:
-        series = _series("jquants_flows", "foreigners_net_value", unit="jpy-thousand")
-        rows = [
-            {
-                "PubDate": "2024-09-10",
-                "StDate": "2024-08-19",
-                "EnDate": "2024-08-23",
-                "FrgnBal": -408854431,
-            },
-            {
-                "PubDate": "2024-09-10",
-                "StDate": "2024-08-26",
-                "EnDate": "2024-08-30",
-                "FrgnBal": -237009201,
-            },
-        ]
-
-        observations = parse_trades_spec(
-            series,
-            rows,
-            start=date(2024, 8, 1),
-            end=date(2024, 9, 30),
-        )
-
-        self.assertEqual(len(observations), 2)
-        self.assertEqual(observations[0].observed_at, date(2024, 8, 23))
-        self.assertEqual(observations[0].period_start, date(2024, 8, 19))
-        self.assertEqual(observations[0].period_end, date(2024, 8, 23))
-        self.assertEqual(observations[0].value, -408854431.0)
-        self.assertEqual(observations[1].observed_at, date(2024, 8, 30))
-        self.assertEqual(observations[1].period_start, date(2024, 8, 26))
-        self.assertEqual(observations[1].period_end, date(2024, 8, 30))
-        self.assertEqual(observations[1].value, -237009201.0)
-        self.assertEqual(observations[0].vintage_at, datetime(2024, 9, 10, tzinfo=UTC))
-        self.assertEqual(observations[1].vintage_at, datetime(2024, 9, 10, tzinfo=UTC))
-
-    def test_parse_trades_spec_rejects_missing_foreign_columns(self) -> None:
-        series = _series("jquants_flows", "foreigners_net_value", unit="jpy-thousand")
-        rows = [{"PubDate": "2026-05-08", "EnDate": "2026-05-08", "Section": "TSEPrime"}]
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "missing"):
-            parse_trades_spec(series, rows, start=date(2026, 5, 8), end=date(2026, 5, 8))
-
-    def test_parse_trades_spec_rejects_a_row_without_an_aggregation_period_end(self) -> None:
-        series = _series("jquants_flows", "foreigners_net_value", unit="jpy-thousand")
-        rows = [{"PubDate": "2026-05-08", "FrgnBal": 500}]
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "aggregation period end"):
-            parse_trades_spec(series, rows, start=date(2026, 5, 1), end=date(2026, 5, 15))
-
-    def test_parse_trades_spec_dates_the_week_by_its_end_not_its_publication(self) -> None:
-        series = _series("jquants_flows", "foreigners_net_value", unit="jpy-thousand")
-        rows = [
-            {
-                "PubDate": "2026-07-02",
-                "StDate": "2026-06-22",
-                "EnDate": "2026-06-26",
-                "FrgnBal": -1208567543,
-            }
-        ]
-
-        observations = parse_trades_spec(
-            series, rows, start=date(2026, 6, 1), end=date(2026, 7, 31)
-        )
-
-        self.assertEqual(len(observations), 1)
-        self.assertEqual(observations[0].observed_at, date(2026, 6, 26))
-        self.assertEqual(observations[0].period_start, date(2026, 6, 22))
-        self.assertEqual(observations[0].vintage_at, datetime(2026, 7, 2, tzinfo=UTC))
-
-    def test_parse_trades_spec_does_not_invent_publication_from_period_end(self) -> None:
-        series = _series("jquants_flows", "foreigners_net_value", unit="jpy-thousand")
-        rows = [{"EnDate": "2026-05-08", "FrgnBal": 500}]
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "publication date"):
-            parse_trades_spec(series, rows, start=date(2026, 5, 1), end=date(2026, 5, 15))

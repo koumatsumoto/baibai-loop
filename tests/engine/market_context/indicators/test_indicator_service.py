@@ -497,69 +497,17 @@ class IndicatorsServiceTests(unittest.TestCase):
     def test_refresh_all_history_uses_the_jquants_rolling_window(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
-            conn = initialize_database(database)
-            try:
-                insert_observations(
-                    conn,
-                    [
-                        ObservationRecord(
-                            series_id="jp.foreign_flows",
-                            observed_at=observed_at,
-                            value=1.0,
-                            unit="jpy-thousand",
-                            source_url="https://jpx-jquants.com/ja/spec/eq-investor-types",
-                            vintage_at=vintage_at,
-                        )
-                        for observed_at, vintage_at in (
-                            (date(2021, 6, 1), datetime(2026, 1, 1, tzinfo=UTC)),
-                            (date(2025, 1, 1), datetime(2026, 1, 1, tzinfo=UTC)),
-                            (date(2025, 6, 1), datetime(2026, 2, 1, tzinfo=UTC)),
-                        )
-                    ],
-                )
-                conn.commit()
-            finally:
-                conn.close()
-            observation = ObservationRecord(
-                series_id="jp.foreign_flows",
-                observed_at=date(2025, 12, 26),
-                value=1.0,
-                unit="jpy-thousand",
-                source_url="https://jpx-jquants.com/ja/spec/eq-investor-types",
-                vintage_at=datetime(2026, 1, 1, tzinfo=UTC),
-            )
+            rows = {date(2026, 1, 1): [{
+                "Section": "TSEPrime", "PubDate": "2026-01-01",
+                "StDate": "2025-12-22", "EnDate": "2025-12-26", "FrgnBal": 1,
+            }]}
             with (
-                patch(
-                    "baibai_engine.market_context.indicator_service._today_jst",
-                    return_value=date(2026, 7, 20),
-                ),
-                patch(
-                    "baibai_engine.market_context.indicator_service.fetch_observations",
-                    return_value=[observation],
-                ) as fetch,
+                patch("baibai_engine.market_context.indicator_service._today_jst", return_value=date(2026, 7, 20)),
+                patch("baibai_engine.market_context.indicator_service.fetch_native_records", return_value=rows) as fetch,
             ):
-                IndicatorsService(database).refresh_all_history(
-                    "jp.foreign_flows",
-                    end=date(2026, 1, 1),
-                )
-
+                result = IndicatorsService(database).refresh_all_history("jp.foreign_flows", end=date(2026, 1, 1))
             self.assertEqual(fetch.call_args.kwargs["start"], date(2016, 7, 20))
-            conn = open_connection(database)
-            try:
-                observed_dates = [
-                    row[0]
-                    for row in conn.execute(
-                        "SELECT observed_at FROM observations WHERE series_id = ? "
-                        "ORDER BY observed_at",
-                        ("jp.foreign_flows",),
-                    )
-                ]
-            finally:
-                conn.close()
-            # 2025-06-01 carries a vintage later than the requested end, so the
-            # point-in-time replacement leaves it alone; the rest of the window is
-            # replaced by what the provider now returns.
-            self.assertEqual(observed_dates, ["2025-06-01", "2025-12-26"])
+            self.assertEqual([(item.observed_at, item.value) for item in result.observations], [(date(2025, 12, 26), 1)])
 
     def test_refresh_all_history_uses_boj_timeseries_floor(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

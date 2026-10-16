@@ -12,6 +12,7 @@ from baibai_engine.market_context.indicators.observations import ObservationReco
 from baibai_engine.market_context.indicators.read_contracts import native_source_key
 from baibai_engine.market_context.indicators.source_snapshots import read_snapshots
 
+from .flows import read_flow_series
 from .observations import reading_observation
 
 
@@ -21,7 +22,12 @@ def read_native_series(
     *,
     start: date,
     end: date,
+    vintage_cutoff: date | None = None,
 ) -> tuple[ObservationRecord, ...]:
+    if series.provider == "jquants_flows":
+        return read_flow_series(
+            connection, series, start=start, end=end, publication_cutoff=vintage_cutoff or end
+        )
     observations = []
     for snapshot in read_snapshots(
         connection, start, end, source_key=native_source_key(series)
@@ -52,6 +58,10 @@ def _one_value(series: SeriesDefinition, records: Sequence[Mapping[str, object]]
 
 
 def _record_value(series: SeriesDefinition, row: Mapping[str, object]) -> float | None:
+    if series.provider == "jquants_indices":
+        if series.provider_series_id != "topix" or series.unit != "index":
+            raise ValueError(f"unsupported native index reading: {series.series_id}")
+        return _positive_number(row.get("C"))
     if series.provider == "cftc":
         if series.unit != "contracts":
             raise ValueError(f"CFTC series {series.series_id} has inconsistent unit")

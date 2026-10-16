@@ -21,7 +21,6 @@ from .indicators.observations import ObservationRecord
 from .indicators.providers import (
     FetchContext,
     IndicatorsProviderError,
-    RangeReplacementPolicy,
     fetch_observations,
     provider_spec,
 )
@@ -323,7 +322,6 @@ class IndicatorsService:
             context=context,
             trim_before_first=spec.trim_before_first,
             remove_other_sources=True,
-            range_replacement=spec.range_replacement,
             require_observations=True,
         )
         observations = db.observations_in_range(
@@ -408,7 +406,7 @@ class IndicatorsService:
                 )
                 fetched_at = datetime.now(UTC)
                 # One complete bulk response owns this window. Empty days are source
-                # facts too, so removed observations cannot resurrect from old vintages.
+                # facts too, so an older payload for the same source day cannot revive.
                 with conn:
                     for offset in range((end - start).days + 1):
                         day = start + timedelta(days=offset)
@@ -452,7 +450,6 @@ class IndicatorsService:
         context: FetchContext,
         trim_before_first: bool = False,
         remove_other_sources: bool = False,
-        range_replacement: RangeReplacementPolicy = "none",
         require_observations: bool = False,
     ) -> None:
         started_at = datetime.now(UTC)
@@ -497,23 +494,6 @@ class IndicatorsService:
                         series.series_id,
                         series.source_url,
                         start.isoformat(),
-                        end.isoformat(),
-                        end.isoformat(),
-                        kept_after,
-                        kept_after,
-                    ),
-                )
-            if range_replacement == "through_end_vintage" and observations:
-                first_observed_at = min(item.observed_at for item in observations)
-                replacement_start = min(start, first_observed_at).isoformat()
-                conn.execute(
-                    "DELETE FROM observations WHERE series_id = ? "
-                    "AND observed_at BETWEEN ? AND ? "
-                    "AND substr(vintage_at, 1, 10) <= ? "
-                    "AND (? IS NULL OR vintage_at <= ?)",
-                    (
-                        series.series_id,
-                        replacement_start,
                         end.isoformat(),
                         end.isoformat(),
                         kept_after,
@@ -646,8 +626,8 @@ def _reject_non_finite(series: SeriesDefinition, observations: list[ObservationR
 
     ``float("nan")`` and ``float("1e999")`` parse from source text as ordinary
     numbers, and once stored they silently poison every derived computation,
-    percentile and JSON export that reads the series. This is the one gate every
-    provider passes through, so no provider can introduce one on its own.
+    percentile and JSON export that reads the series. This is the gate for scalar
+    observations; native-record values are checked by the reading layer.
     """
 
     for observation in observations:

@@ -9,7 +9,7 @@ status: active
 
 本書はMarket Contextの市場・個別相対の読取、経済指標・Reading、明示的assessment、過去に保存された判断本文の読取契約を所有する。個別企業の価値評価は[Valuation metrics](./valuation-metrics.md)と[Stock Assessment](./stock-assessment.md)が所有する。
 
-Market Contextの`indicators`はL1のregistry・取得・DB adapter、`reading`はL2の決定的算術・保存済みreaderを所有する。観測契約は`indicators/observations.py`に置き、計算からDB adapterを参照しない。L1取得とL2照会を組み合わせるアプリケーション処理は`indicator_service.py`と`indicator_cli.py`に置き、L1からReadingへ逆依存させない。L3は`market_context/assessment`が所有し、旧reportは履歴として読む。
+Market Contextの`indicators`はL1のregistry・取得・DB adapter、`reading`はL2の決定的算術・保存済みreaderを所有する。観測契約は`indicators/observations.py`に置き、純粋算術からDB adapterを参照しない。L1取得とL2照会を組み合わせるアプリケーション処理は`indicator_service.py`と`indicator_cli.py`に置き、L1からReadingへ逆依存させない。L3は`market_context/assessment`が所有し、旧reportは履歴として読む。
 
 日次工程はL1観測とL2 Readingを更新し、人間の明示開始でMarketContextAssessmentを作成する。新判断は下記assessmentの最小契約とreview手順に従う。Market Context全体へこのレポート作成を必須にせず、保存済み機械状態と発行済み判断は個別に読める。
 
@@ -79,20 +79,22 @@ uv run baibai-engine market-context indicators get jp.policy_rate --latest
 
 月次整列は月内の各入力の最終観測を使い、出力日は数式ごとの期間代表日または採用入力の最終日とする。これを実公表時刻や歴史的なAPI利用可能性の保証とみなさない。計算値のvintageは全入力に時点がある場合の最も遅い入力vintageであり、読んだ時刻を新しい公表として作らない。L2の数式変更に派生履歴の退役・再取得・置換を要求しない。オプションの3系列も保存済み原本をL2で計算する。取得は固定SDKの認証・再試行付きGETを使い、各ページのnative JSON recordをDataFrame化せず読む。空のdata配列と、dataの欠落・不正形状・途中ページ失敗を区別する。日次chainの全項目・欠測・識別子をgzip JSONとして保持し、現在の3指標が使わない項目も残す。HTTPの元bytesを保存する契約ではない。
 
+`cftc`・`ecb_fx`・`jquants_flows`・`jquants_indices`もnative recordを`indicator_source_snapshots`へ保存し、L2が必要な値を選択・計算する。CFTCのlong/short、ECBの全通貨、投資部門別の全項目、TOPIXのO/H/L/Cと欠測を保持し、未使用の値も現在の計算結果へ潰さない。正常なbulk応答は要求範囲の空日も記録するが、失敗した応答を空日として保存しない。計算不能でも取得した原本は残し、旧scalar観測へfallbackしない。
+
+投資部門別の取得範囲とsnapshotの日付は`PubDate`である。`StDate/EnDate`は集計期間として原本に残し、L2が要求した公表日cutoff以下の最新版を先に選ぶ。読み値の観測日は`EnDate`、vintageは`PubDate`のUTC日付表現であり、実際の配信時刻ではない。公表日と観測期間の終端は別なので、後日訂正を過去の集計期間へ反映できる。最新の`FrgnBal`が欠測なら買い−売りや旧公表値で埋めず、同一公表日に矛盾する値があれば任意の行を採らない。通常の範囲取得は終了日までの公表を対象とし、保存済みread-only照会は必要に応じて別の公表日cutoffを使う。取消の意味が不明な項目から、他の公表日の削除を推測しない。
+
 同内容の再取得ではobservationのvintageを増やさず、provider runに取得記録を残す。値・単位・期間・取得状態・sourceが変わるrevisionや、変化後に同じ値へ戻るrevisionは保持する。日次batchはrolling窓を引き直すため窓内の取得断は次回成功時に埋まるが、窓外の欠落は[指標履歴の復旧](../../batch/OPERATIONS.md#指標履歴)が必要になる。保存・重複排除は[indicator DB](../../engine/src/baibai_engine/market_context/indicators/db.py)を参照する。
 
-誤って入った observation は削除では消えない。cloudとのmergeは双方のfactを戻すno-loss契約なので、localで消しても次のpushで復活する。撤回は対象日の最新vintageをCASで名指しし、その下の状態を新しいvintageとして記録する。同じ撤回を繰り返すと意図しない旧値を戻し得るため、期待vintageが変われば拒否する。派生系列は入力の撤回・訂正を次回読取で反映するため、派生値を先に撤回する操作は不要である。操作順と失敗時の行き先は[運用手順](../../batch/OPERATIONS.md#指標観測とregistryの修正)に従う。
+scalarとして保存した誤った observation は削除では消えない。cloudとのmergeは双方のfactを戻すno-loss契約なので、localで消しても次のpushで復活する。撤回は対象日の最新vintageをCASで名指しし、その下の状態を新しいvintageとして記録する。同じ撤回を繰り返すと意図しない旧値を戻し得るため、期待vintageが変われば拒否する。派生系列は入力の撤回・訂正を次回読取で反映するため、派生値を先に撤回する操作は不要である。操作順と失敗時の行き先は[運用手順](../../batch/OPERATIONS.md#指標観測とregistryの修正)に従う。
 
 - 下に正しい観測があれば **その観測が再び読まれる**（誤った writer が正しい値の上に別の値を刻んだ場合。撤回のたびに 1 つずつ vintage を遡る）
 - 下に何も無い、または下も撤回済みなら `fetch_status='retracted'` を書き、その日は reading / chart / freshness のすべてから外れる
 
 読みは「観測日ごとに `ok` と `retracted` の中から最大 vintage を採り、それが `ok` のときだけ返す」。`failed` / `unreleased` は取得の結果であって値についての主張ではないので、読めていた観測を隠さない。書かれた行は普通の fact なので merge が両方向へ運び、他方の store に残る誤った行より必ず新しいため上書きされない。`--all-history` を含む全ての store 書き換えは、**provider の最新の主張より新しい vintage の行を消さない**——書き換えが置換してよいのは provider が言い直すものだけで、その後に store が下した決定（撤回とそれが戻した観測）ではないからである。取得時刻を vintage に刻む provider では最新の主張が「今」なので、この規則は何も余分に残さない。provider が同じ観測日を再配信した場合だけ、新しい `ok` vintage が上に乗って復活する（「源泉が再び主張する事実は読む」で正しい）。
 
-公表日cutoffを使う`jquants_flows`でも、撤回のvintageはsourceの公表日ではなく操作時刻（UTC）で保存する。読取は日付単位なので、そのUTC日付以降のas-ofに撤回が反映され、同日の操作前後を区別する再生は行わない。より古い公表vintageの改定は新しい撤回を上書きしない。過去as-ofで撤回前の値が見えても、当時のAPI配信状態を再現できた証明ではない。
-
 registryは系列定義の正本である。通常のopenでは登録外のfactsを削除せず、現行系列を指定した明示的なrefreshが退役系列をpruneする。storeが新世代、または同世代でmembershipが異なる場合は拒否する。退役・改名は[registry修正手順](../../batch/OPERATIONS.md#指標観測とregistryの修正)に従い、過去の発行済みContextを書き換えない。
 
-全providerの観測は系列identity・単位・有限値・系列固有のbandを満たす必要がある。bandは明白な列・桁・単位ずれを検出するもので、景気急変を前回値との差だけで拒否する条件ではない。band内に収まるscale変更はprovider固有のheader・metadata照合で守る。例えば`jp.foreign_flows`は原典の千円単位を保持する。検証違反はそのseriesの取得失敗とし、部分取り込みしない。DB境界でも同じ制約を守り、schemaやtriggerの不整合を拒否する。厳密な条件は[service](../../engine/src/baibai_engine/market_context/indicator_service.py)・[DB](../../engine/src/baibai_engine/market_context/indicators/db.py)・[schema](../../engine/src/baibai_engine/market_context/indicators/schema.sql)が所有する。storeは空または現行schemaだけを受け付ける。schema変更は明示的な一回切替で行い、通常のopenやtransferに旧schemaの移行処理を残さない。
+scalarとして保存する観測は系列identity・単位・有限値・系列固有のbandを満たす必要がある。native原本の数値はここで削らず、L2の読み値へ同じ単位・有限値・bandの条件を適用する。bandは明白な列・桁・単位ずれを検出するもので、景気急変を前回値との差だけで拒否する条件ではない。band内に収まるscale変更はprovider固有のheader・metadata照合で守る。例えば`jp.foreign_flows`のL2読み値は原典の千円単位を保持する。scalar観測の検証違反は取得失敗とし、部分取り込みしない。native原本は計算失敗でも保持する。scalarのDB境界でも同じ制約を守り、schemaやtriggerの不整合を拒否する。厳密な条件は[service](../../engine/src/baibai_engine/market_context/indicator_service.py)・[DB](../../engine/src/baibai_engine/market_context/indicators/db.py)・[schema](../../engine/src/baibai_engine/market_context/indicators/schema.sql)が所有する。storeは空または現行schemaだけを受け付ける。schema変更は明示的な一回切替で行い、通常のopenやtransferに旧schemaの移行処理を残さない。
 
 registryのband変更時は、Git管理外のstoreをread-only validatorで全履歴・全vintage検査する。CIのfixtureだけでは既存観測との整合を証明できない。検査はstoreを書き換えず、観測とcanonical trigger契約の違反を報告する。
 
@@ -106,10 +108,12 @@ registryのband変更時は、Git管理外のstoreをread-only validatorで全�
 | --- | --- | --- |
 | `fred_csv` | 米マクロ、金利、FX、信用、市場系列 | 系列ごとに配信開始・終了や履歴窓が異なる。relay停止とsource停止はstore上で区別できないため、公表元が機械可読配信を持つ場合は直読を優先する |
 | `frb_h15` | 米国債金利・スプレッド | 遮断時だけbrowserで再取得する。サイズ上限・404・5xx・通信障害は別経路で迂回しない |
-| `ecb_fx` | JPYクロス | JPYと基軸通貨の比で算出する |
+| `ecb_fx` | JPYクロス | 全通貨のnative値を保持し、JPYと基軸通貨の比をL2で算出する |
+| `cftc` | 投機筋ポジション | 要求contractのAPI全項目を保持し、同じ原本行のlong−shortをL2で算出する |
 | `estat` | 日本の公式マクロ | API認証が必要。DB掲載が途中で止まる統計もあるため、新規採用時は更新日と公表元を照合する |
 | `estat_dashboard` | 失業率・名目賃金等 | 頻度・季節調整・地域を固定し、速報は採らない。確報前はreading rulesの公表待ちとして扱う。基準改定を窓の境目で継ぎ足さないため全履歴を取得する |
-| `jquants_flows` | 海外投資家フロー | screeningと同じcredential。購読窓内を取得し、集計週末をobservation、公表日をvintage、原典の千円を単位として保持する |
+| `jquants_flows` | 海外投資家フロー | screeningと同じcredential。公表日単位で全項目を保存し、集計期間と訂正の選択はL2で扱う。単位は千円 |
+| `jquants_indices` | TOPIX | native Date/O/H/L/Cを保存し、L2でCを読み値にする。Closeという旧項目で補わない |
 | `jquants_options` | 日経225のIV・スキュー・期間構造 | rate limit、式変更、購読窓、緊急取引証拠金日は[専用手順](#jquants-options-provider)を参照する |
 | `boj` | マネタリーベース・実質輸出・消費活動 | xlsxの値列とheader・基準年・単位を照合する。隣列のmetadataで代用しない |
 | `boj_timeseries` | 日銀の時系列統計 | `SURVEY_DATES`は対象期間。月次は月初、四半期は最終月の月初を内部の代表日とするが、実際の観測日や公表日時とは扱わない（[公式API仕様](https://www.stat-search.boj.or.jp/info/api_manual_en.pdf)） |

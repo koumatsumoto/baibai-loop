@@ -23,7 +23,7 @@ JQUANTS_OPTIONS_SPEC = ProviderSpec(
 
 CFTC_SPEC = ProviderSpec(name="cftc", all_history_start=date(2000, 1, 1))
 ECB_FX_SPEC = ProviderSpec(name="ecb_fx", all_history_start=date(1999, 1, 1))
-NATIVE_BULK_PROVIDERS = frozenset({"cftc", "ecb_fx"})
+NATIVE_BULK_PROVIDERS = frozenset({"cftc", "ecb_fx", "jquants_flows", "jquants_indices"})
 NATIVE_PROVIDERS = NATIVE_BULK_PROVIDERS | {"jquants_options"}
 
 
@@ -32,6 +32,10 @@ def native_source_key(series: SeriesDefinition) -> str:
         return "jquants_options:n225"
     if series.provider == "ecb_fx":
         return "ecb_fx:reference"
+    if series.provider == "jquants_flows":
+        return "jquants_flows:TSEPrime"
+    if series.provider == "jquants_indices":
+        return f"jquants_indices:{series.provider_series_id}"
     if series.provider == "cftc":
         return f"cftc:{series.provider_series_id}"
     raise ValueError(f"not a native-record provider: {series.provider}")
@@ -40,8 +44,13 @@ def native_source_key(series: SeriesDefinition) -> str:
 JQUANTS_FLOWS_SPEC = ProviderSpec(
     name="jquants_flows",
     all_history_rolling_years=10,
-    range_replacement="through_end_vintage",
     point_in_time_vintage=True,
+    required_env=("JQUANTS_API_KEY",),
+)
+
+JQUANTS_INDICES_SPEC = ProviderSpec(
+    name="jquants_indices",
+    all_history_rolling_years=10,
     required_env=("JQUANTS_API_KEY",),
 )
 
@@ -62,6 +71,7 @@ __all__ = [
     "native_source_key",
     "DERIVED_SPEC",
     "JQUANTS_FLOWS_SPEC",
+    "JQUANTS_INDICES_SPEC",
     "JQUANTS_OPTIONS_SPEC",
     "point_in_time_providers",
 ]

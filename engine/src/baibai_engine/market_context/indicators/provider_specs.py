@@ -6,8 +6,6 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Literal
 
-type RangeReplacementPolicy = Literal["none", "through_end_vintage"]
-
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProviderSpec:
@@ -24,11 +22,9 @@ class ProviderSpec:
     all_history_rolling_years: int | None = None
     # Store-rewrite policy for an all-history refresh. ``trim_before_first`` drops
     # observations older than the first the provider returns (FRED's licensed
-    # window defines its reproducible start). ``range_replacement`` controls
-    # all-history replacement: point-in-time sources replace only vintages known
-    # by the requested end. Derived values have no independent stored history.
+    # window defines its reproducible start). Native source snapshots and derived
+    # values do not use this scalar-store rewrite.
     trim_before_first: bool = False
-    range_replacement: RangeReplacementPolicy = "none"
     # Reads clamp the provider's publication-date vintage to the read cutoff.
     # This is not proof of exact historical API availability: J-Quants flows
     # can serve corrections later, and older periods may retain only the latest revision.
@@ -38,4 +34,4 @@ class ProviderSpec:
     required_env: tuple[str, ...] = ()
 
 
-__all__ = ["ProviderSpec", "RangeReplacementPolicy"]
+__all__ = ["ProviderSpec"]

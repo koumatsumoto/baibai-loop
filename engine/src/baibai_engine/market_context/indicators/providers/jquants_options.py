@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping, Sequence
-from contextlib import closing
 from datetime import date
-from typing import Any
 
 from baibai_engine.foundation.env import load_project_env
 
 from .base import FetchContext, ProviderFetchStoppedError
+from .jquants_native import read_native_pages
 from .read_retry import jquants_read_client, read_deadline
 
 _API_KEY_ENV = "JQUANTS_API_KEY"
@@ -26,7 +25,10 @@ class OptionChainSource:
 
     def fetch(self, day: date) -> list[Mapping[str, object]]:
         self._deadline.check()
-        records = _call(self._client, day, api_key=self._api_key)
+        records = read_native_pages(
+            self._client, "/derivatives/bars/daily/options/225",
+            {"date": day.strftime("%Y%m%d")}, provider="jquants_options", api_key=self._api_key,
+        )
         _require_requested_day(records, day)
         return records
 
@@ -69,45 +71,3 @@ def _require_requested_day(rows: Sequence[Mapping[str, object]], day: date) -> N
         raise ProviderFetchStoppedError(
             f"jquants_options answered for {seen} when {day.isoformat()} was requested"
         )
-
-
-def _call(client: Any, day: date, *, api_key: str) -> list[Mapping[str, object]]:
-    """Read native pages through the pinned SDK's authenticated, retry-mounted GET.
-
-    The public DataFrame method coerces dates and infers field types. The SDK's
-    paginator also skips missing/non-list data silently. Keep native records and
-    require each page to be an actual response before declaring the day complete.
-    """
-    url = f"{client.JQUANTS_API_BASE}/derivatives/bars/daily/options/225"
-    params = {"date": day.strftime("%Y%m%d")}
-    rows: list[Mapping[str, object]] = []
-    seen: set[str] = set()
-    try:
-        while True:
-            with closing(client._get(url, params=params)) as response:
-                payload = response.json()
-            if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
-                raise ProviderFetchStoppedError("jquants_options page must contain a data list")
-            records = payload["data"]
-            if not all(isinstance(record, dict) for record in records):
-                raise ProviderFetchStoppedError("jquants_options data must contain records")
-            rows.extend(records)
-            key = payload.get("pagination_key")
-            if key is None or key == "":
-                return rows
-            if not isinstance(key, str) or key in seen:
-                raise ProviderFetchStoppedError(
-                    "invalid or repeated jquants_options pagination_key"
-                )
-            seen.add(key)
-            params["pagination_key"] = key
-    except Exception as exc:
-        sanitized = _redact(str(exc), api_key)
-        raise ProviderFetchStoppedError(
-            f"failed to fetch jquants_options for {day.isoformat()}: "
-            f"{type(exc).__name__}: {sanitized}"
-        ) from None
-
-
-def _redact(message: str, secret: str) -> str:
-    return message.replace(secret, "***") if secret else message
