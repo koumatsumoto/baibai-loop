@@ -734,32 +734,20 @@ def test_only_a_replaced_table_is_exempt_from_the_history_floor() -> None:
     assert exempt == snapshot_datasets
 
 
-def test_the_seasonal_calendar_floor_clears_its_measured_trough() -> None:
-    """季節性を持つ量の床は、観測した谷の下に無ければならない。
-
-    先 68 日窓 — この snapshot の幅 — に決算を announce する社数は、実開示 2023-08 以降の
-    週次 149 標本で 978〜4,699・中央 3,985 と 5 倍近く動く。谷は 3 年連続で 11 月中旬に
-    来る。旧床 3,232 は一度の観測 3,403 の 0.95 倍で、 32% の窓を割っており、健全な publish
-    を毎秋拒否していた。床が守るのは「calendar の一部しか返さなかった fetch」なので、
-    観測最小の半分に置く。
-    """
-
+def test_calendar_size_is_not_inferred_from_historical_disclosures() -> None:
     from baibai_engine.storage.lake.models import PRODUCTION_RELEASE_POLICY
 
-    policy = {item.dataset: item for item in PRODUCTION_RELEASE_POLICY.datasets}
-    calendar = policy["jpx.earnings_calendar"]
-    measured_trough = 978
-
-    assert calendar.minimum_rows < measured_trough
-    assert calendar.minimum_population_count is not None
-    assert calendar.minimum_population_count < measured_trough
-    # 空の fetch を通してしまう床では意味がない。
-    assert calendar.minimum_rows > measured_trough // 4
+    calendar = next(
+        item for item in PRODUCTION_RELEASE_POLICY.datasets if item.dataset == "jpx.earnings_calendar"
+    )
+    assert calendar.minimum_rows == 1
+    assert calendar.minimum_population_count == 1
+    assert calendar.require_complete_coverage is True
 
 
-@pytest.mark.parametrize(("rows", "accepted"), [(1_100, True), (400, False)])
-def test_a_forward_only_calendar_uses_its_policy_floor_not_the_previous_snapshot(
-    monkeypatch: pytest.MonkeyPatch, rows: int, accepted: bool
+@pytest.mark.parametrize("rows", [1_100, 400, 1])
+def test_a_forward_only_calendar_accepts_small_complete_schedules_not_a_history_floor(
+    monkeypatch: pytest.MonkeyPatch, rows: int
 ) -> None:
     """免除は宣言だけでなく、release policy の検証が通ることを確認する。
 
@@ -823,11 +811,6 @@ def test_a_forward_only_calendar_uses_its_policy_floor_not_the_previous_snapshot
         ),
         ReleaseManifest,
     )
-    if not accepted:
-        with pytest.raises(ValueError, match="below the profile floor"):
-            validate_release_policy(release, manifests)
-        return
-
     validate_release_policy(release, manifests)
 
     # Not the shared narrowing: this half turns the dataset under test into one that
