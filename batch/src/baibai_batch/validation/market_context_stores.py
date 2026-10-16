@@ -19,6 +19,7 @@ import json
 import math
 import sqlite3
 import sys
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -34,6 +35,7 @@ from baibai_engine.batch_api import (
     assessment_series_ids,
     connect_read_only,
     database_path,
+    decode_indicator_source_records,
     load_definitions,
     validate_indicator_schema,
 )
@@ -46,6 +48,7 @@ class ValidationReport:
     schema_version: int
     registry_series: int
     observations: int
+    source_snapshots: int
     violation_count: int
     violations: tuple[str, ...]
 
@@ -70,7 +73,12 @@ def validate_store(
     *,
     definitions: IndicatorDefinitions | None = None,
 ) -> ValidationReport:
-    """Check every stored vintage without opening the database for writes."""
+    """Check scalar contracts and every native payload, without changing source values.
+
+    Native checks prove that retained records decode and match their stored count,
+    not that all external dates or securities were acquired. Native fields are not
+    filtered through the current scalar registry or plausible ranges.
+    """
 
     resolved = definitions or load_definitions()
     registry = resolved.by_id()
@@ -123,6 +131,20 @@ def validate_store(
                     f"{identity}: value {value:g} outside plausible range "
                     f"[{rendered_low}, {rendered_high}]"
                 )
+        source_snapshots = 0
+        for row in connection.execute(
+            "SELECT source_key, observed_at, fetched_at, record_count, payload "
+            "FROM indicator_source_snapshots ORDER BY source_key, observed_at, fetched_at"
+        ):
+            source_snapshots += 1
+            identity = f"{row['source_key']} {row['observed_at']} fetched {row['fetched_at']}"
+            try:
+                native = decode_indicator_source_records(row["payload"])
+            except (OSError, EOFError, ValueError, zlib.error):
+                record(f"{identity}: native payload cannot be decoded")
+                continue
+            if len(native) != row["record_count"]:
+                record(f"{identity}: native record count differs from the payload")
     finally:
         connection.close()
 
@@ -130,6 +152,7 @@ def validate_store(
         schema_version=schema_version,
         registry_series=len(resolved.series),
         observations=observations,
+        source_snapshots=source_snapshots,
         violation_count=violation_count,
         violations=tuple(violations),
     )
@@ -189,7 +212,7 @@ def validate_published_contexts(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "validate every economic observation against the current registry, "
+            "validate scalar observations against the registry and native snapshot payloads, "
             "and every saved market assessment against the read path"
         )
     )
@@ -228,13 +251,14 @@ def _render_store_report(report: ValidationReport) -> int:
     if report.valid:
         print(
             f"ok: schema v{report.schema_version}; {report.registry_series} registry series; "
-            f"{report.observations} observations",
+            f"{report.observations} scalar observations; {report.source_snapshots} native snapshots",
             flush=True,
         )
         return 0
     print(
         f"error: {report.violation_count} indicator store contract violations "
-        f"across {report.observations} observations",
+        f"across {report.observations} scalar observations and "
+        f"{report.source_snapshots} native snapshots",
         file=sys.stderr,
     )
     for violation in report.violations:

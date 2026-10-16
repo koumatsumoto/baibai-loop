@@ -139,6 +139,9 @@ from baibai_engine.market_context.indicators.definitions import (
     IndicatorDefinitions,
     load_definitions,
 )
+from baibai_engine.market_context.indicators.source_snapshots import (
+    decode_records as decode_indicator_source_records,
+)
 from baibai_engine.screening.discovery.contracts import (
     validate_candidate_run as validate_candidate_run,
 )
@@ -238,6 +241,7 @@ __all__ = [
     "connect_read_only",
     "create_lake_l1_release",
     "create_market_snapshot",
+    "decode_indicator_source_records",
     "database_path",
     "export_market_store",
     "external_assessment_acquisition_main",

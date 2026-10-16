@@ -625,7 +625,9 @@ class TestShortSaleCoverage:
             )
         ]
 
-    def test_a_newer_partial_claim_is_not_overridden_by_an_older_success(self, tmp_path: Path) -> None:
+    def test_a_newer_partial_claim_is_not_overridden_by_an_older_success(
+        self, tmp_path: Path
+    ) -> None:
         source = _store(tmp_path / "source.sqlite")
         target = _store(tmp_path / "target.sqlite")
         _store_short_snapshot(
@@ -961,14 +963,17 @@ def test_short_sale_partial_refetch_cannot_be_relabelled_complete_by_merge(tmp_p
     day = date(2026, 8, 1)
     for path in stores.values():
         _store_short_snapshot(
-            path, [_short_record("A", 0.5), _short_record("B", 0.6)],
+            path,
+            [_short_record("A", 0.5), _short_record("B", 0.6)],
             fetched_at_utc="2026-08-02T00:00:00+00:00",
         )
     newer = stores[newer_side]
     # Exercise the real writer: one invalid record makes a received replacement partial.
     store_jquants_short_sale_reports(
-        newer, [_short_record("A", 0.7), {**_short_record("B", 0.6), "Code": "invalid"}],
-        requested_start=day, requested_end=day,
+        newer,
+        [_short_record("A", 0.7), {**_short_record("B", 0.6), "Code": "invalid"}],
+        requested_start=day,
+        requested_end=day,
     )
     with closing(open_connection(newer)) as connection, connection:
         connection.execute(
