@@ -233,12 +233,19 @@ def test_partial_buy_uses_saved_hope_ceiling_cash_and_never_creates_binding(tmp_
         ("2026-10-14T16:19:00+09:00", "2026-10-14T07:20:00Z", None, None),
         ("2026-10-14T09:00:00+09:00", "2026-10-14T09:01:00+09:00", "2026-10-14", None),
         ("2026-10-15T09:00:00+09:00", "2026-10-15T09:01:00+09:00", "2026-10-15", None),
+        (
+            "2026-10-13T09:00:00+09:00",
+            "2026-10-13T09:01:00+09:00",
+            "2026-10-13",
+            "評価公開は買付より後",
+        ),
     ],
 )
 def test_original_reason_respects_reported_buy_time_precision(
     tmp_path, reservation_at, execution_at, occurred_on, unavailable_reason
 ):
-    case = backend_case(tmp_path)
+    # The earlier-day negative case needs cash to exist before its reported fill.
+    case = backend_case(tmp_path, opening_at="2026-10-13T09:00:00+09:00")
     proposal = reviewed_proposal(case)
     InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
         proposal

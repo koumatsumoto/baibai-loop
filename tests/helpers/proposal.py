@@ -37,6 +37,7 @@ def backend_case(
     active_sell=False,
     broken=False,
     cash_yen=300000,
+    opening_at="2026-10-14T09:00:00+09:00",
     assessment_as_of="2026-10-14",
     valuation_unresolved=False,
     tickers=("1234",),
@@ -48,7 +49,7 @@ def backend_case(
         {
             "type": "opening_balance",
             "event_id": "synthetic-opening",
-            "occurred_at": "2026-10-14T09:00:00+09:00",
+            "occurred_at": opening_at,
             "amount_yen": cash_yen,
         }
     ]
