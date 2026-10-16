@@ -5,10 +5,10 @@ import { forceTitle } from '../../lib/assessment-history'
 import { EvidenceDisclosure, JudgmentBadge } from './shared'
 
 export function HistoricalDominantForces({ synthesis }: { synthesis: HistoricalSynthesisView }) {
-  const forces = synthesis.dominant_forces ?? []
-  const interactions = synthesis.interactions ?? []
+  const forces = synthesis.dominant_forces
+  const interactions = synthesis.interactions
   return (
-    <SectionCard description="複数の経済チャネルを横断して現局面を動かす力。反証も同じ面で確認します。" padded title="支配的な力">
+    <SectionCard description="複数の経済チャネルを横断して保存当時の局面を動かす力。反証も同じ面で確認します。" padded title="支配的な力">
       <div className="grid gap-4">
         <div className="grid gap-4 lg:grid-cols-2">
           {forces.map((force) => (

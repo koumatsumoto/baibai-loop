@@ -8,11 +8,10 @@ import { HistoricalScenariosAndMonitoring } from './HistoricalScenariosAndMonito
 
 export function HistoricalReportContent({ data }: { data: AssessmentPublicationView }) {
   const partition = partitionHistoricalCore(data.core)
-  const hasCore = (data.core?.length ?? 0) > 0
+  const hasCore = data.core.length > 0
   return (
     <>
       <HistoricalReportOverview data={data} regime={partition.regime} risk={partition.risk} />
-      {!hasCore && <p className="whitespace-pre-wrap">{data.summary}</p>}
       {data.synthesis && <HistoricalDominantForces synthesis={data.synthesis} />}
       {data.connection && <HistoricalResearchImplications connection={data.connection} />}
       <HistoricalScenariosAndMonitoring monitoring={partition.monitoring} risk={partition.risk} />

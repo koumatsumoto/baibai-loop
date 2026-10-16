@@ -9,11 +9,11 @@ import { estimateComponent, labelHistoricalSection, labelHistoricalValue } from 
 import { Disclosure, EvidenceDisclosure, JudgmentBadge, SeriesReferences, SourceIds } from './shared'
 
 export function HistoricalResearchImplications({ connection }: { connection: HistoricalConnectionSectionView }) {
-  const caveats = [...(connection.estimate_caveats ?? [])].sort((left, right) => estimateComponent(left.affected_component).order - estimateComponent(right.affected_component).order)
-  const hints = connection.research_priority_hints ?? []
-  const cautions = connection.sizing_cautions ?? []
-  const tilts = connection.sector_tilts ?? []
-  const hasEvidence = (connection.fact_summary?.length ?? 0) > 0 || (connection.series?.length ?? 0) > 0 || (connection.core_section_ids?.length ?? 0) > 0
+  const caveats = [...connection.estimate_caveats].sort((left, right) => estimateComponent(left.affected_component).order - estimateComponent(right.affected_component).order)
+  const hints = connection.research_priority_hints
+  const cautions = connection.sizing_cautions
+  const tilts = connection.sector_tilts
+  const hasEvidence = connection.fact_summary.length > 0 || connection.series.length > 0 || connection.core_section_ids.length > 0
   return (
     <SectionCard description="このsectionはresearchと見積りの注意点を示します。機械ranking、売買時期、投入額を自動決定しません。" padded title="日本株の調査・見積りへの含意">
       <div className="grid gap-5">
@@ -41,9 +41,9 @@ export function HistoricalResearchImplications({ connection }: { connection: His
         </section>}
 
         {hasEvidence && <Disclosure label="この含意の根拠"><div className="grid gap-5">
-          {(connection.fact_summary ?? []).length > 0 && <div className="grid gap-3"><h3 className="font-semibold">事実</h3>{connection.fact_summary.map((fact, index) => <div key={`fact-${index}`}><p>{fact.summary}</p><SourceIds ids={fact.source_ids} /></div>)}</div>}
-          {((connection.core_section_ids?.length ?? 0) > 0 || (connection.series?.length ?? 0) > 0) && <div className="grid gap-3 border-t pt-4"><h3 className="font-semibold">参照</h3>
-            {(connection.core_section_ids?.length ?? 0) > 0 && <p className="text-sm"><span className="font-medium">依拠する経済チャネル:</span> {connection.core_section_ids.map(labelHistoricalSection).join(' / ')}</p>}
+          {connection.fact_summary.length > 0 && <div className="grid gap-3"><h3 className="font-semibold">事実</h3>{connection.fact_summary.map((fact, index) => <div key={`fact-${index}`}><p>{fact.summary}</p><SourceIds ids={fact.source_ids} /></div>)}</div>}
+          {(connection.core_section_ids.length > 0 || connection.series.length > 0) && <div className="grid gap-3 border-t pt-4"><h3 className="font-semibold">参照</h3>
+            {connection.core_section_ids.length > 0 && <p className="text-sm"><span className="font-medium">依拠する経済チャネル:</span> {connection.core_section_ids.map(labelHistoricalSection).join(' / ')}</p>}
             <SeriesReferences series={connection.series} />
           </div>}
         </div></Disclosure>}
