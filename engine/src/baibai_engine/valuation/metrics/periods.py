@@ -9,6 +9,8 @@ from typing import Any
 
 from baibai_engine.foundation.date_utils import add_months_clamped
 from baibai_engine.market.financial_documents import (
+    AccountingPeriodKey as _AccountingPeriodKey,
+    accounting_period_identity as _accounting_period_identity,
     disclosure_revision,
     latest_disclosure_candidates,
 )
@@ -16,50 +18,7 @@ from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.valuation.metrics.models import TTMRules
 
-_AccountingPeriodKey = tuple[date, int, date, date, int]
 _AccountingObservationKey = tuple[_AccountingPeriodKey, tuple[date, str]]
-
-_FISCAL_PERIOD_ORDER = {"1Q": 1, "2Q": 2, "3Q": 3, "FY": 4}
-
-
-def _accounting_period_identity(
-    summary: JQuantsFinancialSummary,
-) -> _AccountingPeriodKey:
-    """Period-first order for actual facts and capital state.
-
-    A delayed correction may be disclosed after the current quarter while describing
-    an older period.  A valid completed-period end therefore precedes accounting labels
-    and source revision order in this key.  A future reported period uses only its
-    period-start lower bound; an inverted period has no chronology authority.  This
-    preserves a lone future-labelled actual observation, prevents a malformed Q1 from
-    replacing a valid Q2, and lets a completed short fiscal year outrank an earlier
-    quarter whose nominal fiscal-year end happens to be later.
-    """
-
-    reported_end = summary.period_end or summary.fiscal_year_end
-    completed = (
-        reported_end
-        if reported_end is not None
-        and reported_end <= summary.disclosed_at
-        and (summary.period_start is None or summary.period_start <= reported_end)
-        else None
-    )
-    chronology = completed or (
-        summary.period_start
-        if reported_end is not None
-        and reported_end > summary.disclosed_at
-        and summary.period_start is not None
-        else date.min
-    )
-    period_order = _FISCAL_PERIOD_ORDER.get(summary.fiscal_period or "", 0)
-    return (
-        chronology,
-        int(completed is not None),
-        summary.fiscal_year_end or date.min,
-        summary.period_start or date.min,
-        period_order,
-    )
-
 
 def _accounting_observation_key(summary: JQuantsFinancialSummary) -> _AccountingObservationKey:
     return _accounting_period_identity(summary), disclosure_revision(summary)

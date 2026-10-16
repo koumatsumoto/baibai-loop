@@ -1041,3 +1041,46 @@ def test_actual_dividend_period_validity_agrees_with_forward_measurement(
     expected = 0 if dps == 0 else None
     assert _asof_basis_dividend(observations[0], (), basis_date=ASOF) == expected
     assert _resolve_dividend_carry(decode([record]), (), 100, ASOF).dps_actual_annual == expected
+
+
+@pytest.mark.parametrize("new_basis", ["Consolidated", "NonConsolidated"])
+@pytest.mark.parametrize("late_old_correction", [False, True])
+@pytest.mark.parametrize("revision", [False, True])
+def test_short_fiscal_year_uses_current_statement_basis(
+    new_basis, late_old_correction, revision
+):
+    old_basis = "NonConsolidated" if new_basis == "Consolidated" else "Consolidated"
+    old = document(
+        "old-quarter", day="2026-08-10",
+        DocType=f"1QFinancialStatements_{old_basis}_JP", CurPerType="1Q",
+        CurFYSt="2026-04-01", CurFYEn="2027-03-31",
+        CurPerSt="2026-04-01", CurPerEn="2026-06-30",
+    )
+    current = document(
+        "short-year", day="2027-02-10",
+        DocType=f"FYFinancialStatements_{new_basis}_JP",
+        CurFYSt="2026-04-01", CurFYEn="2026-12-31",
+        CurPerSt="2026-04-01", CurPerEn="2026-12-31",
+        NxtFYSt="2027-01-01", NxtFYEn="2027-12-31", NxFEPS="20",
+    )
+    records = [old, current]
+    if late_old_correction:
+        records.append({**old, "DiscNo": "old-correction", "DiscDate": "2027-02-12"})
+    if revision:
+        records.append(document(
+            "new-revision", day="2027-02-13",
+            CurFYSt="2027-01-01", CurFYEn="2027-12-31",
+            CurPerSt="2027-01-01", CurPerEn="2027-12-31", FEPS="25",
+        ))
+    for ordered in (records, list(reversed(records))):
+        projected = project_financial_documents(decode(ordered), date(2027, 2, 15))
+        source = latest_forecast_source(projected)
+        assert source is not None
+        assert source.forecast_eps == (25 if revision else 20)
+        assert source.forecast_target_basis == new_basis.lower()
+        assert source.disclosure_number == ("new-revision" if revision else "short-year")
+        result = build_financial_snapshot(
+            1000, decode(ordered), None, load_screening_rules().ttm,
+            adjustment_events=(), asof_date=date(2027, 2, 15),
+        )
+        assert result.per_forward == 1000 / (25 if revision else 20)

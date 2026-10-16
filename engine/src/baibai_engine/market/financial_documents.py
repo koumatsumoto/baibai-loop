@@ -21,6 +21,50 @@ from baibai_engine.market.jquants_decode import (
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 
 
+AccountingPeriodKey = tuple[date, int, date, date, int]
+
+_FISCAL_PERIOD_ORDER = {"1Q": 1, "2Q": 2, "3Q": 3, "FY": 4}
+
+
+def accounting_period_identity(
+    summary: JQuantsFinancialSummary,
+) -> AccountingPeriodKey:
+    """Period-first order for actual facts and capital state.
+
+    A delayed correction may be disclosed after the current quarter while describing
+    an older period.  A valid completed-period end therefore precedes accounting labels
+    and source revision order in this key.  A future reported period uses only its
+    period-start lower bound; an inverted period has no chronology authority.  This
+    preserves a lone future-labelled actual observation, prevents a malformed Q1 from
+    replacing a valid Q2, and lets a completed short fiscal year outrank an earlier
+    quarter whose nominal fiscal-year end happens to be later.
+    """
+
+    reported_end = summary.period_end or summary.fiscal_year_end
+    completed = (
+        reported_end
+        if reported_end is not None
+        and reported_end <= summary.disclosed_at
+        and (summary.period_start is None or summary.period_start <= reported_end)
+        else None
+    )
+    chronology = completed or (
+        summary.period_start
+        if reported_end is not None
+        and reported_end > summary.disclosed_at
+        and summary.period_start is not None
+        else date.min
+    )
+    period_order = _FISCAL_PERIOD_ORDER.get(summary.fiscal_period or "", 0)
+    return (
+        chronology,
+        int(completed is not None),
+        summary.fiscal_year_end or date.min,
+        summary.period_start or date.min,
+        period_order,
+    )
+
+
 def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSummary | None:
     """Decode native provider fields; select forecast period and basis only in L2 projection."""
     ticker, common_code = parse_jquants_code_parts(record.get("Code"))
@@ -113,9 +157,9 @@ def statement_basis(row: JQuantsFinancialSummary) -> str:
 def _statement_basis_state(rows: Sequence[JQuantsFinancialSummary]) -> str:
     if not rows:
         return "primary_unknown"
-    end = max(row.fiscal_year_end or date.min for row in rows)
+    period = max(map(accounting_period_identity, rows))
     candidates = latest_disclosure_candidates(
-        [row for row in rows if (row.fiscal_year_end or date.min) == end]
+        [row for row in rows if accounting_period_identity(row) == period]
     )
     bases = {statement_basis(row) for row in candidates}
     return next(iter(bases)) if len(bases) == 1 else "basis_unresolved"
