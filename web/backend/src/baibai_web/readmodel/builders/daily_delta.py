@@ -107,13 +107,15 @@ def build_daily_delta(
     if not ledger.exists():
         unavailable.append("holdings")
     elif market_ready:
-        holdings, holdings_without_price = _holding_deltas(
+        holdings, holdings_without_price, comparison_incomplete = _holding_deltas(
             ledger.snapshot(),
             research=research,
             market=market,
             as_of=today,
             previous_as_of=None if previous is None else previous.as_of,
         )
+        if comparison_incomplete:
+            unavailable.append("holdings")
 
     return DailyDeltaView(
         generated_at=now,
@@ -235,10 +237,10 @@ def _holding_deltas(
     market: MarketPriceSource,
     as_of: date,
     previous_as_of: date | None,
-) -> tuple[list[HoldingDeltaView], int]:
+) -> tuple[list[HoldingDeltaView], int, bool]:
     tickers = [holding.ticker for holding in snapshot.holdings]
     if not tickers:
-        return [], 0
+        return [], 0, False
     latest_by_ticker = market.latest_closes(tickers)
     # The change is asked of the market layer so both ends land on the same share
     # basis; dividing two stored closes would report a split as a price move.
@@ -269,7 +271,7 @@ def _holding_deltas(
                 ),
             )
         )
-    return rows, without_price
+    return rows, without_price, any(ticker not in changes for ticker in tickers)
 
 
 def _percent(value: float | None) -> float | None:

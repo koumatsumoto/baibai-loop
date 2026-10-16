@@ -309,7 +309,7 @@ const deltaUnavailableLabel: Record<DeltaUnavailable, string> = {
   previous_screening_run: 'Screening Run（比較する前 run なし）',
   candidates: '候補（比較に必要な手法情報なし）',
   candidate_estimate: '候補の E[r]（見積り欠損またはモデルを比較できない）',
-  holdings: '保有（ledger なし）',
+  holdings: '保有（台帳または価格比較を確認できない）',
   market: '市場データ（store なし）',
 }
 

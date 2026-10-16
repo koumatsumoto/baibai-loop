@@ -62,3 +62,11 @@ it("差分の読込中と取得失敗を観測なしから区別する", () => {
   expect(failed).toContain("変化を読み込めませんでした")
   expect(failed).toContain("変化がないことを意味しません")
 })
+
+
+it('does not describe unavailable holding comparison as no changes or no current price', () => {
+  const html = render({ ...delta(0), unavailable: ['holdings'] })
+  expect(html).toContain('台帳または価格比較を確認できない')
+  expect(html).not.toContain('閾値に触れる変化はありません')
+  expect(html).not.toContain('現値が無く')
+})

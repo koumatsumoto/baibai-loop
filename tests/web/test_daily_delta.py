@@ -4,6 +4,7 @@ from contextlib import closing
 from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 from zoneinfo import ZoneInfo
 
@@ -166,7 +167,7 @@ def test_method_change_does_not_skip_holdings(mocker) -> None:
     sources = _sources(latest=replace(_run(4), screening_rules_hash="changed"))
     sources[1].exists.return_value = True
     holding_delta = mocker.patch(
-        "baibai_web.readmodel.builders.daily_delta._holding_deltas", return_value=([], 3)
+        "baibai_web.readmodel.builders.daily_delta._holding_deltas", return_value=([], 3, True)
     )
     view = build_daily_delta(*sources)
     assert view.method_changed
@@ -304,3 +305,30 @@ def test_estimate_mover_display_cap_ranks_unrounded_changes():
     assert view.er_moves_total == 6
     assert [row.ticker for row in view.er_moves] == list(reversed(tickers[1:]))
     assert all(row.change_pp == 3.0 for row in view.er_moves)
+
+
+@pytest.mark.parametrize("comparison", ["missing", "no_previous_run", "unchanged", "partial"])
+def test_holding_price_comparison_missing_is_not_no_change(comparison: str) -> None:
+    sources = _sources(
+        current_candidate_fixture=_candidate_fixture([], 0.2),
+        previous_candidate_fixture=_candidate_fixture([], 0.1),
+    )
+    screening, ledger, research, market = sources
+    tickers = ["1001", "1002"] if comparison == "partial" else ["1001"]
+    ledger.exists.return_value = True
+    ledger.snapshot.return_value = SimpleNamespace(
+        holdings=[SimpleNamespace(ticker=ticker) for ticker in tickers]
+    )
+    research.revisions.return_value = []
+    market.latest_closes.return_value = dict.fromkeys(tickers, 100.0)
+    market.next_earnings_dates.return_value = {}
+    market.close_changes_since.return_value = {
+        "unchanged": {"1001": 0.0},
+        "partial": {"1002": 6.0},
+    }.get(comparison, {})
+    if comparison == "no_previous_run":
+        screening.previous_run.return_value = None
+    view = build_daily_delta(*sources)
+    assert ("holdings" in view.unavailable) is (comparison != "unchanged")
+    assert view.holdings_without_price == 0
+    assert [row.ticker for row in view.holdings] == (["1002"] if comparison == "partial" else [])
