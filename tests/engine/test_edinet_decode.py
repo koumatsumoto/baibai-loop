@@ -2,7 +2,7 @@
 
 import pytest
 
-from baibai_engine.market.edinet_decode import normalize_metric_record
+from baibai_engine.market.edinet_decode import is_usable_filing_status, normalize_metric_record
 
 
 @pytest.mark.parametrize(
@@ -21,3 +21,26 @@ def test_canonical_metric_zero_and_missing_values_are_preserved():
     assert record.cash == 0
     assert record.debt is None
     assert record.sales_ttm == 100
+
+
+@pytest.mark.parametrize("legal", ["1", "2", 1, 2])
+def test_explicit_published_filing_is_usable(legal):
+    assert is_usable_filing_status(legal, "0", "0")
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [
+        (None, "0", "0"),
+        ("1", None, "0"),
+        ("1", "0", None),
+        ("", "0", "0"),
+        ("1", "", "0"),
+        ("1", "0", ""),
+        ("0", "0", "0"),
+        ("1", "1", "0"),
+        ("1", "0", "1"),
+    ],
+)
+def test_missing_or_unavailable_filing_status_is_not_usable(flags):
+    assert not is_usable_filing_status(*flags)

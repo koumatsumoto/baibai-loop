@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Protocol
 
 from baibai_engine.market.delistings import DelistingRecord, read_jpx_delistings
+from baibai_engine.market.edinet_decode import is_usable_filing_status
 from baibai_engine.market.valuation_catalysts import (
     TENDER_OFFER_REGISTRATION_CORRECTION_DOC_TYPE,
     TENDER_OFFER_REGISTRATION_DOC_TYPE,
@@ -32,7 +33,6 @@ from baibai_engine.market.valuation_catalysts import (
     TENDER_OFFER_RESULT_DOC_TYPE,
     TENDER_OFFER_WITHDRAWAL_DOC_TYPE,
     edinet_code_to_ticker,
-    is_usable_filing_status,
 )
 from baibai_engine.storage.observations.schema import connect_current, open_connection
 

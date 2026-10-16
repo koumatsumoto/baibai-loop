@@ -19,7 +19,7 @@ from typing import Literal
 import openpyxl
 import requests
 
-from baibai_engine.market.edinet_decode import parse_sec_code
+from baibai_engine.market.edinet_decode import is_usable_filing_status, parse_sec_code
 from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.ticker import normalize_ticker
 from baibai_engine.storage.observations.schema import connect_current, open_connection
@@ -401,15 +401,6 @@ def edinet_code_to_ticker(connection: sqlite3.Connection) -> dict[str, str]:
     return {code: next(iter(values)) for code, values in observed.items() if len(values) == 1}
 
 
-def is_usable_filing_status(legal: object, disclosure: object, withdrawal: object) -> bool:
-    """Same usability rule the metric extraction applies to a list row."""
-    return (
-        _status_text(legal) in (None, "1", "2")
-        and _status_text(disclosure) in (None, "0")
-        and _status_text(withdrawal) in (None, "0")
-    )
-
-
 def _policy_by_ticker(
     connection: sqlite3.Connection, policy_month: object, requested: Sequence[str]
 ) -> dict[str, tuple[CapitalPolicyStatus, date | None]]:
@@ -573,10 +564,6 @@ def _text(value: object) -> str:
     return re.sub(r"\s+", "", str(value or "")).strip()
 
 
-def _status_text(value: object) -> str | None:
-    return None if value is None else str(value)
-
-
 def _placeholders(values: Sequence[object]) -> str:
     return ",".join("?" for _ in values)
 
@@ -607,7 +594,6 @@ __all__ = (
     "ValuationCatalystError",
     "edinet_code_to_ticker",
     "edinet_identity_covered",
-    "is_usable_filing_status",
     "parse_tse_capital_policy_workbook",
     "read_control_filing_index",
     "read_valuation_catalyst_contexts",

@@ -20,6 +20,7 @@ from pydantic.dataclasses import dataclass
 
 from baibai_engine.market.edinet_decode import (
     coalesce_field,
+    is_usable_filing_status,
     parse_optional_date,
     parse_sec_code,
     safe_error_value,
@@ -728,16 +729,11 @@ def _non_zip_response_message(content: bytes) -> str:
 
 
 def _is_unusable_status(document: Mapping[str, Any]) -> bool:
-    legal_status = text_or_none(coalesce_field(document, "legalStatus", "legal_status"))
-    disclosure_status = text_or_none(
-        coalesce_field(document, "disclosureStatus", "disclosure_status")
+    return not is_usable_filing_status(
+        coalesce_field(document, "legalStatus", "legal_status"),
+        coalesce_field(document, "disclosureStatus", "disclosure_status"),
+        coalesce_field(document, "withdrawalStatus", "withdrawal_status"),
     )
-    withdrawal_status = text_or_none(
-        coalesce_field(document, "withdrawalStatus", "withdrawal_status")
-    )
-    # Only explicit published, non-withdrawn filings are usable. Missing flags
-    # in an old normalized cache do not establish current document validity.
-    return legal_status not in ("1", "2") or disclosure_status != "0" or withdrawal_status != "0"
 
 
 def _document_sort_key(

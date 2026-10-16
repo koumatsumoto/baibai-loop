@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Protocol, TextIO
 from zipfile import BadZipFile
 
-from baibai_engine.market.edinet_decode import parse_sec_code
+from baibai_engine.market.edinet_decode import is_usable_filing_status, parse_sec_code
 from baibai_engine.market.edinet_facts.extract import EXTRACTOR_REVISION, extract_facts
 from baibai_engine.market.edinet_facts.models import filing_identity
 from baibai_engine.market.edinet_facts.store import (
@@ -128,9 +128,9 @@ def annual_documents(
 def usable_document(doc: dict[str, Any]) -> bool:
     return (
         doc.get("_research_period_known", True)
-        and str(doc.get("legalStatus")) in {"1", "2"}
-        and str(doc.get("withdrawalStatus")) == "0"
-        and str(doc.get("disclosureStatus")) == "0"
+        and is_usable_filing_status(
+            doc.get("legalStatus"), doc.get("disclosureStatus"), doc.get("withdrawalStatus")
+        )
         and str(doc.get("docInfoEditStatus")) in {"0", "2"}
         and str(doc.get("xbrlFlag")) == "1"
     )
