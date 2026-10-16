@@ -103,7 +103,7 @@ class _JQuantsTransport:
 
     def __init__(
         self,
-        api_key: str,
+        api_key: str | None,
         client: Any | None = None,
         *,
         sqlite_path: Path | None = None,
@@ -376,6 +376,8 @@ class _JQuantsTransport:
     def _get_client(self) -> Any:
         if self._client is not None:
             return self._client
+        if not self._api_key:
+            raise JQuantsProviderError("JQUANTS_API_KEY is required for provider fetch")
         try:
             import jquantsapi
         except ModuleNotFoundError as exc:

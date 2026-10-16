@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from baibai_engine.screening.config import DEFAULT_CACHE_DIR, ConfigError, ScreeningConfig
+from baibai_engine.screening.config import DEFAULT_CACHE_DIR, ScreeningConfig
 
 
 class ScreeningConfigTests(unittest.TestCase):
@@ -29,6 +29,34 @@ class ScreeningConfigTests(unittest.TestCase):
 
         self.assertEqual(config.cache_dir, DEFAULT_CACHE_DIR)
 
-    def test_from_env_requires_tokens(self) -> None:
-        with self.assertRaises(ConfigError):
-            ScreeningConfig.from_env({})
+    def test_local_configuration_does_not_require_provider_credentials(self) -> None:
+        config = ScreeningConfig.from_env({})
+        self.assertIsNone(config.jquants_api_key)
+        self.assertIsNone(config.edinet_api_key)
+
+    def test_jquants_network_boundary_requires_its_own_key(self) -> None:
+        from baibai_engine.market.jquants_decode import JQuantsProviderError
+        from baibai_engine.market.providers.jquants import JQuantsProvider
+
+        provider = JQuantsProvider(None)
+        with self.assertRaisesRegex(JQuantsProviderError, "JQUANTS_API_KEY"):
+            provider._get_client()
+
+    def test_injected_client_does_not_require_credentials(self) -> None:
+        from baibai_engine.market.providers.jquants import JQuantsProvider
+
+        client = object()
+        self.assertIs(JQuantsProvider(None, client=client)._get_client(), client)
+
+
+def test_cache_only_run_reaches_local_preflight_without_api_keys(tmp_path, monkeypatch, capsys):
+    from baibai_engine.screening.cli.app import main
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("JQUANTS_API_KEY", raising=False)
+    monkeypatch.delenv("EDINET_API_KEY", raising=False)
+    # The store is absent: fail for the missing local input, not unrelated credentials.
+    assert main(["run", "--asof", "2026-04-24"]) == 1
+    error = capsys.readouterr().err
+    assert "SQLite cache coverage incomplete" in error
+    assert "JQUANTS_API_KEY" not in error

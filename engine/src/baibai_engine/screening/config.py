@@ -20,7 +20,7 @@ class ConfigError(ValueError):
 class ScreeningConfig(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
-    jquants_api_key: str = Field(min_length=1)
+    jquants_api_key: str | None = Field(default=None, min_length=1)
     edinet_api_key: str | None = None
     cache_dir: Path = DEFAULT_CACHE_DIR
     sqlite_cache_dir: Path = DEFAULT_SQLITE_CACHE_DIR
@@ -51,18 +51,13 @@ class ScreeningConfig(BaseModel):
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> ScreeningConfig:
         source = env if env is not None else os.environ
-        missing = [name for name in ("JQUANTS_API_KEY",) if not source.get(name)]
-        if missing:
-            missing_names = ", ".join(missing)
-            raise ConfigError(f"missing required env vars: {missing_names}")
-
         # cache_dir / sqlite_cache_dir は repo 内の運用規約に固定する。
         # env override は作業者ごとの local store 分岐を生むため受け付けない。
         cache_dir_value = str(DEFAULT_CACHE_DIR)
         sqlite_cache_dir_value = str(DEFAULT_SQLITE_CACHE_DIR)
         try:
             return cls(
-                jquants_api_key=source["JQUANTS_API_KEY"],
+                jquants_api_key=source.get("JQUANTS_API_KEY") or None,
                 edinet_api_key=source.get("EDINET_API_KEY") or None,
                 cache_dir=cache_dir_value,
                 sqlite_cache_dir=sqlite_cache_dir_value,
