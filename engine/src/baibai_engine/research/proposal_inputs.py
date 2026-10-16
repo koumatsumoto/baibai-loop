@@ -57,10 +57,9 @@ def proposal_input_policy_id() -> str:
 
 def _holding_episode(
     ledger: PortfolioLedgerDocument, ticker: str, now: datetime
-) -> tuple[datetime | None, str | None, datetime | None]:
+) -> tuple[ExecutionEvent | None, datetime | None]:
     balance = 0
-    first_buy: datetime | None = None
-    reference: str | None = None
+    first_buy: ExecutionEvent | None = None
     last_trade: datetime | None = None
     for event in ledger.events:
         if (
@@ -72,22 +71,32 @@ def _holding_episode(
         last_trade = event.occurred_at
         if event.side == "buy":
             if balance == 0:
-                first_buy, reference = event.occurred_at, event.decision_reference
+                first_buy = event
             balance += event.quantity
         else:
             balance -= event.quantity
             if balance == 0:
-                first_buy, reference = None, None
-    return first_buy, reference, last_trade
+                first_buy = None
+    return first_buy, last_trade
 
 
 def _original_assessment(
     connection: sqlite3.Connection,
     *,
     ticker: str,
-    reference: str | None,
-    bought_at: datetime | None,
+    bought: ExecutionEvent | None,
 ) -> tuple[AssessmentRef | None, str | None]:
+    reference = None if bought is None else bought.decision_reference
+
+    def follows_reported_buy(published_at: datetime) -> bool:
+        if bought is None:
+            return True
+        if bought.occurred_on is not None:
+            # A date-only report explicitly names its proposal, but supplies no
+            # execution clock. Its replay key must not invent an intraday conflict.
+            return published_at.astimezone(JST).date() > bought.occurred_on
+        return published_at > bought.occurred_at
+
     if reference is not None:
         row = connection.execute(
             "SELECT ticker,origin,proposal_id FROM position_decision_reference WHERE reference=?",
@@ -109,7 +118,7 @@ def _original_assessment(
                 "SELECT published_at FROM stock_assessment WHERE assessment_id=?",
                 (item.assessment_ref.assessment_id,),
             ).fetchone()
-            if bought_at is None or datetime.fromisoformat(str(published[0])) > bought_at:
+            if follows_reported_buy(datetime.fromisoformat(str(published[0]))):
                 return (
                     None,
                     (
@@ -117,7 +126,7 @@ def _original_assessment(
                         "買付時の評価と確認できず、現在評価を当初理由として補完しない。"
                     ),
                 )
-            if proposal.published_at > bought_at:
+            if follows_reported_buy(proposal.published_at):
                 return (
                     None,
                     (
@@ -167,7 +176,7 @@ def collect_proposal_inputs(
         )
         quotes.append(quote)
         if ticker in held_tickers:
-            first_buy, _, last_trade = _holding_episode(ledger, ticker, now)
+            first_buy, last_trade = _holding_episode(ledger, ticker, now)
             confirmed = (
                 first_buy is not None
                 and last_trade is not None
@@ -175,7 +184,7 @@ def collect_proposal_inputs(
                     basis="shares",
                     sqlite_path=sqlite_path,
                     ticker=ticker,
-                    from_date=min(first_buy.astimezone(JST).date(), quote.price_as_of),
+                    from_date=min(first_buy.occurred_at.astimezone(JST).date(), quote.price_as_of),
                     through_date=max(last_trade.astimezone(JST).date(), quote.price_as_of),
                 )
             )
@@ -197,9 +206,9 @@ def collect_proposal_inputs(
     portfolio = summarize_portfolio(ledger, state, prices)
     positions: list[PositionInput] = []
     for holding in portfolio.holdings:
-        bought_at, reference, _ = _holding_episode(ledger, holding.ticker, now)
+        bought, _ = _holding_episode(ledger, holding.ticker, now)
         original_ref, unavailable = _original_assessment(
-            connection, ticker=holding.ticker, reference=reference, bought_at=bought_at
+            connection, ticker=holding.ticker, bought=bought
         )
         positions.append(
             PositionInput(

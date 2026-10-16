@@ -225,16 +225,18 @@ def test_partial_buy_uses_saved_hope_ceiling_cash_and_never_creates_binding(tmp_
 
 
 @pytest.mark.parametrize(
-    ("reservation_at", "execution_at", "unavailable_reason"),
+    ("reservation_at", "execution_at", "occurred_on", "unavailable_reason"),
     [
-        ("2026-10-15T09:00:00+09:00", "2026-10-15T09:01:00+09:00", None),
-        ("2026-10-14T09:00:00+09:00", "2026-10-14T09:01:00+09:00", "評価公開は買付より後"),
-        ("2026-10-14T16:09:00+09:00", "2026-10-14T16:10:00+09:00", "提案公開は買付より後"),
-        ("2026-10-14T16:19:00+09:00", "2026-10-14T07:20:00Z", None),
+        ("2026-10-15T09:00:00+09:00", "2026-10-15T09:01:00+09:00", None, None),
+        ("2026-10-14T09:00:00+09:00", "2026-10-14T09:01:00+09:00", None, "評価公開は買付より後"),
+        ("2026-10-14T16:09:00+09:00", "2026-10-14T16:10:00+09:00", None, "提案公開は買付より後"),
+        ("2026-10-14T16:19:00+09:00", "2026-10-14T07:20:00Z", None, None),
+        ("2026-10-14T09:00:00+09:00", "2026-10-14T09:01:00+09:00", "2026-10-14", None),
+        ("2026-10-15T09:00:00+09:00", "2026-10-15T09:01:00+09:00", "2026-10-15", None),
     ],
 )
-def test_original_reason_requires_both_pair_and_proposal_before_first_buy(
-    tmp_path, reservation_at, execution_at, unavailable_reason
+def test_original_reason_respects_reported_buy_time_precision(
+    tmp_path, reservation_at, execution_at, occurred_on, unavailable_reason
 ):
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
@@ -269,6 +271,7 @@ def test_original_reason_requires_both_pair_and_proposal_before_first_buy(
             "event_id": "next-real-fill",
             "execution_id": "next-broker-fill",
             "occurred_at": execution_at,
+            "occurred_on": occurred_on,
             "ticker": "1234",
             "side": "buy",
             "reservation_id": reservation.reservation_id,
