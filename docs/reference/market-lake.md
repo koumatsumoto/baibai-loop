@@ -170,8 +170,8 @@ uv run baibai-engine lake hydrate \
   --store stores/market/market.sqlite
 ```
 
-hydrateは同一filesystem上のtemporary storeへ書き、`integrity_check`、foreign key、manifest row数を
-確認してから`os.replace`する。途中失敗時は直前のstoreを保持する。current以外を使う場合は
+hydrateは同一filesystem上のtemporary storeへ書き、SQLiteの`quick_check`・対象列・manifest row数を
+確認してからatomic replaceする。途中失敗時は直前のstoreを保持する。current以外を使う場合は
 `--release`と`--manifest-sha256`、またはtyped `--release-ref`で固定する。
 
 ## 保持とGC
@@ -210,6 +210,10 @@ uv run baibai-engine screening calibration-build \
 operator-local CLIは復旧に必要なlocal pathを表示してよい。R2 tokenはreader、publisher、retention
 finalizerで権限を分け、production bucketを試験用途に使わない。remote実装のprotocol確認はdeterministic
 unit testとlocal fakeで行い、専用acceptance workflowやexact workflow auditを運用条件にしない。
+
+## EDINET原本archive
+
+`edinet.source_archives`はCSV/XBRLの取得ZIP bytesを保持する任意datasetである。旧releaseの抽出値から原本を捏造せず、新規取得・既存cache再利用から増やす。日付partitionは初回保存日であり、書類の観測日ではない。抽出値の正本と混同せず、[原本保存の運用](../../batch/OPERATIONS.md#edinet-source-archives)に従って不足確認・再計算・公開受入を行う。
 
 <a id="edinet-research-query"></a>
 
@@ -282,8 +286,3 @@ LIMIT 30
 External AssessmentはTradingViewも同じ保存済み読取へ含める。正常受領の予測欄あり、正常受領で全予測欄null、`unresolved`、未取得を別状態で返す。quoteや人数だけを有効な予測の証拠にせず、正常受領を比較可能な企業評価と同一視しない。元のquote通貨と未確認のestimate通貨・単位・株式基準・絶対対象期を区別し、既存の未知metadataから数値deltaや対価格の割安判定を作らない。行単位の`target_period_label/end`は各metricとの対象期対応を保証しない。年度metadataが埋まっていても四半期・次年度・倍率等へ割り当てず、現行TradingViewの数値差分は`metric_period_mapping_unconfirmed`で比較不能に保つ。最新・直前の提示値と未取得・欠測・復帰の受領状態は保持する。銘柄列挙と値の読取は同じaware時刻比較を使い、optionalな秒以下表現やcutoffのUTC offsetで選択を変えない。
 
 最新行も`snapshot_date`と`fetched_at_utc`を併記する。同じ日でもbatchや後続slotで取得時刻が異なる。対象日に行がないこと、`unresolved`の行、正常rowの個別指標nullを別々に読む。部分公開の場合、rowがない銘柄は未取得であり、coverage不存在とは判定しない。取得前の履歴、provider公表時刻、翌日取得による前日補完はこのdatasetから復元できない。値の意味は[data sources](./data-sources.md#tradingviewの市場期待)に従う。
-
-
-### EDINET原本archive
-
-`edinet.source_archives`はCSV/XBRLの取得ZIP bytesを保持する任意datasetである。旧releaseの抽出値から原本を捏造せず、新規取得・既存cache再利用から増やす。日付partitionは初回保存日であり、書類の観測日ではない。抽出値の正本と混同せず、[原本保存の運用](../../batch/OPERATIONS.md#edinet-source-archives)に従って不足確認・再計算・公開受入を行う。
