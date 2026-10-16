@@ -263,6 +263,7 @@ def read_valuation_catalyst_contexts(
     if connection is None:
         return {}
     try:
+        connection.execute("BEGIN")
         policy_month = connection.execute(
             "SELECT MAX(snapshot_month_end) FROM tse_capital_policy_snapshots "
             "WHERE snapshot_month_end <= ?",
