@@ -30,7 +30,7 @@ from .mof_jgb import MofJgbProvider
 from .nikkei_indexes import NikkeiIndexesProvider
 from .spglobal_pmi import SpGlobalPmiProvider
 from .tsr_bankruptcies import TsrBankruptciesProvider
-from .umich_sca import UmichScaProvider
+from .umich_sca import UmichScaSource
 from .yahoo import YahooChartProvider
 
 # Scalar external acquisitions. Native records have their own source boundary;
@@ -44,7 +44,6 @@ _PROVIDERS: dict[str, IndicatorDataProvider] = {
         NikkeiIndexesProvider(),
         SpGlobalPmiProvider(),
         TsrBankruptciesProvider(),
-        UmichScaProvider(),
         YahooChartProvider(),
     )
 }
@@ -81,6 +80,8 @@ def resolve_provider(name: str) -> IndicatorDataProvider:
 
 
 def provider_spec(name: str) -> ProviderSpec:
+    if name == "umich_sca":
+        return UmichScaSource.spec
     if name == "fred_csv":
         return FredSource.spec
     if name == "frb_h15":
@@ -114,6 +115,7 @@ def registered_specs() -> tuple[ProviderSpec, ...]:
         EStatSource.spec,
         FrbH15Source.spec,
         FredSource.spec,
+        UmichScaSource.spec,
         JQUANTS_OPTIONS_SPEC,
         CFTC_SPEC,
         MULTPL_SPEC,

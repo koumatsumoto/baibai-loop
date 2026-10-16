@@ -76,8 +76,12 @@ class IndicatorsProviderParserTests(TestCase):
         observations = parse_umich_table(series, text, start=date(1952, 1, 1), end=date(2026, 7, 1))
 
         self.assertEqual(
-            [(item.observed_at, item.value) for item in observations],
-            [(date(1952, 11, 1), 86.2), (date(1953, 2, 1), 90.7), (date(2026, 6, 1), 49.5)],
+            observations,
+            {
+                date(1952, 11, 1): [{"Month": "November", "YYYY": "1952", "ICS_ALL": "86.2"}],
+                date(1953, 2, 1): [{"Month": "February", "YYYY": "1953", "ICS_ALL": "90.7"}],
+                date(2026, 6, 1): [{"Month": "June", "YYYY": "2026", "ICS_ALL": "49.5"}],
+            },
         )
 
     def test_parse_umich_table_filters_to_the_requested_window(self) -> None:
@@ -88,15 +92,18 @@ class IndicatorsProviderParserTests(TestCase):
             series, text, start=date(2026, 5, 1), end=date(2026, 5, 31)
         )
 
-        self.assertEqual([item.observed_at for item in observations], [date(2026, 5, 1)])
+        self.assertEqual(list(observations), [date(2026, 5, 1)])
 
-    def test_parse_umich_table_skips_a_month_published_without_a_value(self) -> None:
+    def test_parse_umich_table_retains_a_month_published_without_a_value(self) -> None:
         series = _series("umich_sca", "ICS_ALL", unit="index", frequency="monthly")
         text = "Month,YYYY,ICS_ALL\nMay,2026,44.8\nJune,2026,\n"
 
         observations = parse_umich_table(series, text, start=date(2026, 1, 1), end=date(2026, 7, 1))
 
-        self.assertEqual([item.observed_at for item in observations], [date(2026, 5, 1)])
+        self.assertEqual(
+            observations[date(2026, 6, 1)],
+            [{"Month": "June", "YYYY": "2026", "ICS_ALL": ""}],
+        )
 
     def test_parse_umich_table_rejects_a_row_that_is_not_a_month_of_a_year(self) -> None:
         series = _series("umich_sca", "ICS_ALL", unit="index", frequency="monthly")

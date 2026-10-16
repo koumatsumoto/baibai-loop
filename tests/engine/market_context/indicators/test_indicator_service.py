@@ -1229,70 +1229,47 @@ class IndicatorsServiceTests(unittest.TestCase):
             self.assertEqual(result.observations[0].observed_at, today - timedelta(days=1))
             self.assertEqual(result.observations[0].value, 2.8)
 
-    def test_get_latest_uses_series_staleness_override_for_consumer_sentiment(
-        self,
-    ) -> None:
+    def test_get_latest_uses_series_staleness_override_for_consumer_sentiment(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
-            today = date(2026, 7, 27)
-            definition = load_definitions().by_id()["us.consumer_sentiment"]
-            _write_observation_with_coverage(
-                database,
-                definition.series_id,
-                observed_at=today - timedelta(days=66),
-                value=50.0,
-                coverage_start=today - timedelta(days=370),
-                coverage_end=today,
-            )
-            current = ObservationRecord(
-                series_id=definition.series_id,
-                observed_at=today - timedelta(days=28),
-                value=51.0,
-                unit=definition.unit,
-                source_url=definition.source_url,
-                vintage_at=datetime.now(UTC),
-            )
-
+            today = date(2026, 7, 6)
+            # May 1 is 66 days old; June 1 is a genuine monthly coordinate.
+            replies = [
+                {date(2026, 5, 1): [{"Month": "May", "YYYY": "2026", "ICS_ALL": "50"}]},
+                {date(2026, 6, 1): [{"Month": "June", "YYYY": "2026", "ICS_ALL": "51"}]},
+            ]
             with (
+                patch("baibai_engine.market_context.indicator_service._today_jst", return_value=today),
                 patch(
-                    "baibai_engine.market_context.indicator_service._today_jst",
-                    return_value=today,
-                ),
-                patch(
-                    "baibai_engine.market_context.indicator_service.fetch_observations",
-                    return_value=[current],
+                    "baibai_engine.market_context.indicator_service.fetch_native_records",
+                    side_effect=lambda *a, **k: replies.pop(0),
                 ) as fetch,
             ):
-                result = IndicatorsService(database).get_latest(definition.series_id)
-
+                service = IndicatorsService(database)
+                service.get_latest("us.consumer_sentiment")
+                result = service.get_latest("us.consumer_sentiment")
             self.assertFalse(result.cache_hit)
-            self.assertEqual(fetch.call_count, 1)
+            self.assertEqual(fetch.call_count, 2)
             self.assertEqual(result.observations[0].value, 51.0)
 
     def test_get_latest_accepts_cache_at_series_staleness_boundary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
-            today = date(2026, 7, 27)
-            _write_observation(
-                database,
-                "us.consumer_sentiment",
-                observed_at=today - timedelta(days=65),
-                value=50.0,
-            )
-
+            # May 1 is exactly 65 days old, not an invented within-month date.
+            today = date(2026, 7, 5)
+            records = {date(2026, 5, 1): [{"Month": "May", "YYYY": "2026", "ICS_ALL": "50"}]}
             with (
+                patch("baibai_engine.market_context.indicator_service._today_jst", return_value=today),
                 patch(
-                    "baibai_engine.market_context.indicator_service._today_jst",
-                    return_value=today,
-                ),
-                patch(
-                    "baibai_engine.market_context.indicator_service.fetch_observations",
-                    side_effect=AssertionError("provider should not be called"),
-                ),
+                    "baibai_engine.market_context.indicator_service.fetch_native_records",
+                    return_value=records,
+                ) as fetch,
             ):
-                result = IndicatorsService(database).get_latest("us.consumer_sentiment")
-
+                service = IndicatorsService(database)
+                service.get_latest("us.consumer_sentiment")
+                result = service.get_latest("us.consumer_sentiment")
             self.assertTrue(result.cache_hit)
+            self.assertEqual(fetch.call_count, 1)
 
     def test_multpl_latest_uses_native_staleness_rule(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

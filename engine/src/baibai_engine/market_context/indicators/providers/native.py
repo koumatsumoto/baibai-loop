@@ -14,6 +14,7 @@ from .fred import FredSource
 from .jquants_flows import JQuantsFlowsSource
 from .jquants_indices import JQuantsIndicesSource
 from .multpl import MultplSource
+from .umich_sca import UmichScaSource
 
 
 def fetch_native_records(
@@ -29,8 +30,11 @@ def fetch_native_records(
         | EStatSource
         | FrbH15Source
         | MultplSource
+        | UmichScaSource
     )
-    if series.provider == "fred_csv":
+    if series.provider == "umich_sca":
+        source = UmichScaSource()
+    elif series.provider == "fred_csv":
         source = FredSource()
     elif series.provider == "multpl":
         source = MultplSource()

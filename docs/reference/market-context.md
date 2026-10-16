@@ -130,7 +130,7 @@ registryのband変更時は、Git管理外のstoreのscalar観測をread-only va
 | `mof_jgb` | 日本国債金利 | 公表CSVの和暦・文字コードを正規化する |
 | `tsr_bankruptcies` | 日本の企業倒産 | 公表ページが参照する月次履歴の既知値を取得する。欠月を補間せず、履歴の短さや古さはReadingで表示する。未解釈・矛盾する月次値は取得失敗とする |
 | `spglobal_pmi` | 日本・米国の製造業/サービスPMI | 公式PDFを読む。release manifest更新は[下記](#pmi-release-manifestの更新)。遮断時だけbrowserを使う |
-| `umich_sca` | 米消費者態度 | 公表元の月次表を直読する。読めない行をskipして短い履歴として扱わない |
+| `umich_sca` | 米消費者態度 | 公表元の月次表の全列・空欄を原本として保存し、L2で対象列を数値化する。欠測への訂正で古い数値を復活させない |
 | `yahoo` | 金属先物・MOVE・Russell2000・SOX等 | providerが要求するbrowser UAを使う |
 | `multpl` | 米株バリュエーション | current levelと確定済み月次標本を区別する。未公表月を合成せず、readingの統計標本だけ月次化する。HTML変更時は短期窓と全履歴の取得を確認する |
 

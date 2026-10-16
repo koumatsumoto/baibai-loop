@@ -60,6 +60,15 @@ def _one_value(series: SeriesDefinition, records: Sequence[Mapping[str, object]]
 
 
 def _record_value(series: SeriesDefinition, row: Mapping[str, object]) -> float | None:
+    if series.provider == "umich_sca":
+        if series.provider_series_id not in row:
+            raise ValueError(f"UMich table missing column {series.provider_series_id}")
+        raw = row[series.provider_series_id]
+        if raw is None:
+            return None
+        if not isinstance(raw, str):
+            raise ValueError("UMich source cell must be text")
+        return float(raw) if raw.strip() else None
     if series.provider == "fred_csv":
         if series.provider_series_id not in row:
             raise ValueError(f"FRED CSV missing column {series.provider_series_id}")
