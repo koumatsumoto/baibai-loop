@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -246,7 +246,10 @@ def test_sell_fees_and_tax_over_proceeds_and_cash_are_rejected(tmp_path: Path) -
         )
 
 
-def test_identical_sell_parameters_after_apply_are_rejected_as_duplicate(tmp_path: Path) -> None:
+@pytest.mark.parametrize("retry_at", [OCCURRED_AT, OCCURRED_AT.astimezone(UTC)])
+def test_identical_sell_parameters_after_apply_are_no_change(
+    tmp_path: Path, retry_at: datetime
+) -> None:
     service = _seed(tmp_path / "app.sqlite")
     first = build_sell_execution_draft(
         service,
@@ -256,13 +259,21 @@ def test_identical_sell_parameters_after_apply_are_rejected_as_duplicate(tmp_pat
         price_yen=Decimal("1100"),
     )
     apply_draft(service, first, human_confirmed=True)
-    with pytest.raises(ValueError, match="event_id must be unique"):
+    assert build_sell_execution_draft(
+        service,
+        occurred_at=retry_at,
+        ticker="2331",
+        quantity=100,
+        price_yen=Decimal("1100"),
+    ) is None
+    assert _holding(service, "2331").quantity == 100
+    with pytest.raises(ValueError, match="conflicting human report"):
         build_sell_execution_draft(
             service,
-            occurred_at=OCCURRED_AT,
+            occurred_at=retry_at,
             ticker="2331",
             quantity=100,
-            price_yen=Decimal("1100"),
+            price_yen=Decimal("1101"),
         )
 
 
