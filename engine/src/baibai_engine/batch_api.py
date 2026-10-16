@@ -84,7 +84,7 @@ from baibai_engine.external_assessment.tradingview.accepted import (
     load_observations as tradingview_load_observations,
 )
 from baibai_engine.external_assessment.tradingview.accepted import (
-    verify_observations as tradingview_verify_observations,
+    verify_release_observations as tradingview_verify_release_observations,
 )
 from baibai_engine.external_assessment.tradingview.collector import (
     preflight_snapshot as tradingview_preflight,
@@ -276,7 +276,7 @@ __all__ = [
     "tradingview_preflight",
     "tradingview_safe_progress",
     "tradingview_validate_time",
-    "tradingview_verify_observations",
+    "tradingview_verify_release_observations",
     "validate_candidate_run",
     "validate_indicator_schema",
     "validate_lake_release_policy",

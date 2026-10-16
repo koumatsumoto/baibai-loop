@@ -21,13 +21,11 @@ from baibai_engine.batch_api import (
     LakeFixedRelease,
     LakeObjectCache,
     LocalMirrorSource,
-    hydrate_market_store,
     lake_session,
-    open_market_store,
     read_lake_store_origin,
     tradingview_accept_observations,
     tradingview_load_observations,
-    tradingview_verify_observations,
+    tradingview_verify_release_observations,
 )
 
 DATASET = "tradingview.forecast_snapshots"
@@ -132,17 +130,12 @@ def publish_and_verify(
     for part in tv.partitions:
         for obj in part.objects:
             _fetch(store, readback_mirror, obj.key, expected_sha256=obj.sha256)
-    readback_store = directory / "readback.sqlite"
-    open_market_store(readback_store).close()
     with lake_session() as session:
-        hydrate_market_store(
-            session,
-            release=after,
+        tradingview_verify_release_observations(
+            session, release=after,
             cache=LakeObjectCache(root=readback_mirror, source=LocalMirrorSource(readback_mirror)),
-            store=readback_store,
-            dataset_names=(DATASET,),
+            accepted=accepted, report=acceptance,
         )
-    tradingview_verify_observations(readback_store, accepted, acceptance)
     verify_held(store, handle)
     report = {
         **acceptance,

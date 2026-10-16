@@ -14,12 +14,22 @@ from baibai_engine.external_assessment.tradingview import cli
 from baibai_engine.external_assessment.tradingview.accepted import (
     accept_observations,
     load_observations,
-    verify_observations,
+    NAMES,
+    _verify_history,
 )
 from baibai_engine.external_assessment.tradingview.collector import preflight_snapshot
 from baibai_engine.external_assessment.tradingview.diagnostics import SourceDataError
 from baibai_engine.external_assessment.tradingview.observations import COLUMNS, FetchError
 from baibai_engine.storage.observations.schema import open_connection
+
+
+def verify_saved_rows(path, accepted, report):
+    # Exercise the same stream verifier used for fixed-release Parquet readback.
+    with closing(sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)) as conn:
+        rows = conn.execute(
+            f"SELECT {','.join(NAMES)} FROM tradingview_forecast_snapshots ORDER BY snapshot_date,ticker"  # nosec B608
+        )
+        _verify_history(rows, accepted, report)
 
 
 def document():
@@ -95,7 +105,7 @@ def test_explicit_weekend_receipts_keep_exact_times_and_other_market_data(tmp_pa
         ]
     with pytest.raises(SourceDataError, match="Previous business day"):
         preflight_snapshot(path, accepted.document.observation_date_jst)
-    verify_observations(path, accepted, report)
+    verify_saved_rows(path, accepted, report)
     original = path.read_bytes()
     again = accept_observations(path, accepted)
     assert again["status"] == "already_recorded"
@@ -181,7 +191,7 @@ def test_readback_checks_all_values_and_retained_history(tmp_path, change):
     source, digest = input_file(tmp_path)
     accepted = load_observations(source, sha256=digest)
     report = accept_observations(path, accepted)
-    verify_observations(path, accepted, report)
+    verify_saved_rows(path, accepted, report)
     if change == "source_ref":
         report = copy.deepcopy(report)
         report["source_ref"]["sha256"] = "b" * 64
@@ -191,8 +201,8 @@ def test_readback_checks_all_values_and_retained_history(tmp_path, change):
                 "UPDATE tradingview_forecast_snapshots SET quote_close=777 WHERE ticker=?",
                 ("1000" if change == "accepted_value" else "1003",),
             )
-    with pytest.raises(SourceDataError, match="readback"):
-        verify_observations(path, accepted, report)
+    with pytest.raises(ValueError, match="differs|mismatch"):
+        verify_saved_rows(path, accepted, report)
 
 
 def test_cli_acceptance_never_loads_credentials_and_never_echoes_invalid_input(

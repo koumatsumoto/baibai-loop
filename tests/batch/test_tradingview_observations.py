@@ -211,6 +211,7 @@ def test_fresh_hydrate_publish_and_remote_readback_preserve_history_and_other_da
     assert report["retained_rows"] == 1
     assert report["total_rows"] == 4
     assert report["readback"] == "verified"
+    assert not (directory / "readback.sqlite").exists()
     assert report["unchanged_other_datasets"] == 2
     assert report["coverage_status"] == "partial"
     assert report["release_id"] != before.release_id
