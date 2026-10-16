@@ -344,6 +344,7 @@ jobs:
         id: publish-lake
         if: (steps.tradingview.outputs.status == 'saved' || steps.tradingview.outputs.status == 'partial') && fromJSON(steps.tradingview.outputs.rows_added || '0') > 0
         env:
+          PUBLICATION_LEASE_HANDLE: ${{ runner.temp }}/publication-lease-handle.json
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}

@@ -8,6 +8,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from tests.helpers.r2_store import MemoryR2Store
+
+from baibai_batch.storage.publication_lease import acquire, _save_handle
 
 import baibai_batch.storage.publish_market_lake as publish_module
 from baibai_batch.storage.lake_publish import LakePublishError
@@ -16,11 +19,6 @@ from baibai_engine.batch_api import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-
-
-class _UnusedStore:
-    def download_file(self, key: str, path: Path, *, expect_bytes: int | None = None) -> None:
-        raise AssertionError(f"the test must not download {key}")
 
 
 class _DownloadStore:
@@ -119,7 +117,7 @@ def test_export_manifests_are_frozen_from_the_checked_models_inside_the_mirror(
 
 
 def test_a_build_error_is_reported_without_prescribing_an_operation(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """What is left here cannot be answered by rebuilding, so it names no recovery."""
 
@@ -127,9 +125,13 @@ def test_a_build_error_is_reported_without_prescribing_an_operation(
         raise LakeBuildError("invalid date in sealed SQLite snapshot")
 
     monkeypatch.setattr(publish_module, "publish_market_lake", _refuse)
-    monkeypatch.setattr(publish_module, "Boto3R2Store", lambda **_: _UnusedStore())
+    store = MemoryR2Store()
+    handle, _ = acquire(store, "operator")
+    path = tmp_path / "lease.json"
+    _save_handle(path, handle)
+    monkeypatch.setattr(publish_module, "Boto3R2Store", lambda **_: store)
 
-    exit_code = publish_module.main(["--sqlite", "market.sqlite", "--mirror", "stores"])
+    exit_code = publish_module.main(["--sqlite", "market.sqlite", "--mirror", "stores", "--lease-handle", str(path)])
 
     assert exit_code == 1
     printed = capsys.readouterr().err
@@ -146,6 +148,8 @@ def test_publisher_cli_has_no_sidecar_origin_arguments() -> None:
             "stores",
             "--bucket",
             "baibai-stores",
+            "--lease-handle",
+            "lease.json",
         ]
     )
 

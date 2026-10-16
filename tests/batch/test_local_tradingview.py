@@ -61,6 +61,8 @@ def runtime(tmp_path, monkeypatch):
             assert args[args.index("--asof") + 1] == "2026-09-28"
         else:
             name = args[-1]
+        if name == "publish-lake":
+            assert kwargs["env"]["PUBLICATION_LEASE_HANDLE"] == str(settings["handle"])
         calls.append(name)
         if name == settings["fail"]:
             raise runner.StageFailure("stage failed")

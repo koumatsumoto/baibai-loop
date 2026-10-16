@@ -199,7 +199,8 @@ publish_lake() {
       uv run python -m baibai_batch.storage.publish_market_lake \
         --sqlite "$(store_path market.sqlite)" \
         --mirror "${lake_mirror}" \
-        --bucket "${stores_bucket}"
+        --bucket "${stores_bucket}" \
+        --lease-handle "${PUBLICATION_LEASE_HANDLE:?publication lease handle is required}"
   )
 }
 

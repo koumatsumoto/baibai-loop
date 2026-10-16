@@ -79,10 +79,12 @@ def _stop_child(process: subprocess.Popen[str]) -> None:
         process.wait()
 
 
-def command(argv: list[str], *, timeout: float | None = None) -> str:
+def command(
+    argv: list[str], *, timeout: float | None = None, env: dict[str, str] | None = None
+) -> str:
     # fixed commands with parsed date/path arguments
     process = subprocess.Popen(  # nosec B603
-        argv, cwd=ROOT, stdout=subprocess.PIPE, text=True, start_new_session=True
+        argv, cwd=ROOT, stdout=subprocess.PIPE, text=True, start_new_session=True, env=env
     )
     try:
         output, _ = process.communicate(timeout=timeout)
@@ -209,7 +211,10 @@ def run_local(state_file: Path, *, interval: float = 15.0) -> int:
                 )
                 if result["status"] in {"saved", "partial"}:
                     print(
-                        command([str(ROOT / "batch/scripts/r2_transfer.sh"), "publish-lake"]),
+                        command(
+                            [str(ROOT / "batch/scripts/r2_transfer.sh"), "publish-lake"],
+                            env={**os.environ, "PUBLICATION_LEASE_HANDLE": str(handle)},
+                        ),
                         end="",
                     )
     except BaseException:

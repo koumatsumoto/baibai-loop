@@ -55,6 +55,7 @@ from .lake_publish import (
     publish_l1_release,
     read_pointer_snapshot,
 )
+from .publication_lease import LeaseError, _load_handle, verify_held
 
 
 @dataclass(frozen=True, slots=True)
@@ -289,22 +290,27 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mirror", type=Path, required=True)
     parser.add_argument("--bucket", default="baibai-stores")
     parser.add_argument("--release-id")
+    parser.add_argument("--lease-handle", type=Path, required=True)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        handle = _load_handle(args.lease_handle)
+        store = Boto3R2Store(bucket=args.bucket)
+        verify_held(store, handle)
         report = publish_market_lake(
             sqlite_path=args.sqlite,
             mirror_root=args.mirror,
-            store=Boto3R2Store(bucket=args.bucket),
+            store=store,
             release_id=args.release_id,
+            before_pointer_switch=lambda: verify_held(store, handle),
         )
     except LakeBuildError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
-    except LakePublishError as error:
+    except (LakePublishError, LeaseError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
     print(json.dumps(report.as_dict(), sort_keys=True))

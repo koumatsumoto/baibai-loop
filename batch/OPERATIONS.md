@@ -136,7 +136,7 @@ uv run baibai-engine screening ticker-profile --ticker TICKER
 
 EDINETの抽出意味revisionを更新する場合は、[再抽出・反映手順](#edinet-metrics-revision)に従う。それ以外は変更codeをmainへ反映し、対象storeと変更内容を確認する。marketはlake所有tableを編集する前に現行releaseへhydrateする。変更後の再hydrateはlocal変更を上書きするため行わない。
 
-GitHubの`cloud-publish` queueはGitHub内の順序だけを守る。GitHubとローカルの共通発行にはR2の`coordination/publication-lease.json`を使う。TTLは固定120分。`publish-lake` / `push-machine` / `push-market` / `push-indicators`をローカルから行う際は、長い取得・準備を済ませてから、production read / merge / publishを次の同一lease内で実行する。`r2_transfer.sh`の低レベルcommandはleaseを暗黙取得しない。`push-app`、`publish.sh`、初回`seed-all`は対象外。
+GitHubの`cloud-publish` queueはGitHub内の順序だけを守る。GitHubとローカルの共通発行にはR2の`coordination/publication-lease.json`を使う。TTLは固定120分。`publish-lake` / `push-machine` / `push-market` / `push-indicators`をローカルから行う際は、長い取得・準備を済ませてから、production read / merge / publishを次の同一lease内で実行する。`r2_transfer.sh`の低レベルcommandはleaseを暗黙取得しない。`publish-lake`は`PUBLICATION_LEASE_HANDLE`で既存handleを受け取り、export開始前とpointer切替直前に有効性を確認する。`push-app`、`publish.sh`、初回`seed-all`は対象外。
 
 `seed-all` は各 key の不存在を条件に新規作成し、既存 key を上書きしない。4 key は一括transactionではないため、途中失敗後は到達点を確認し、初回seedを既存データの復旧・置換に使わない。
 
@@ -145,7 +145,7 @@ with_publication_lease() (
   handle="$(mktemp "${TMPDIR:-/tmp}/baibai-publication-lease.XXXXXX.json")"
   rm -f "$handle"
   uv run python -m baibai_batch.storage.publication_lease acquire --purpose operator --handle "$handle" || return $?
-  if "$@"; then result=0; else result=$?; fi
+  if PUBLICATION_LEASE_HANDLE="$handle" "$@"; then result=0; else result=$?; fi
   uv run python -m baibai_batch.storage.publication_lease release --handle "$handle" || return $?
   return "$result"
 )

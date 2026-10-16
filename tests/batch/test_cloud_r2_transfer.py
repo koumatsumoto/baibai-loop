@@ -1656,6 +1656,7 @@ def test_first_publication_needs_no_sidecar_and_prints_its_result(
     root = _fake_repo(tmp_path)
     bin_dir, log = _fake_aws(tmp_path)
     environment = _environment(bin_dir, log)
+    environment["PUBLICATION_LEASE_HANDLE"] = str(tmp_path / "lease.json")
     record = Path(environment["R2_GENERATION_DIR"]) / "lake-release.json"
 
     completed = subprocess.run(
@@ -1670,6 +1671,8 @@ def test_first_publication_needs_no_sidecar_and_prints_its_result(
     assert completed.returncode == 0, completed.stderr
     published = [line for line in log.read_text(encoding="utf-8").splitlines() if "publish" in line]
     assert len(published) == 1
+    assert "--lease-handle" in published[0]
+    assert str(tmp_path / "lease.json") in published[0]
     assert "--full-rebuild" not in published[0]
     assert "--base-release" not in published[0]
     assert "--origin-release" not in published[0]
@@ -1685,6 +1688,7 @@ def test_a_failed_publish_does_not_touch_a_legacy_sidecar(
     root = _fake_repo(tmp_path)
     bin_dir, log = _fake_aws(tmp_path)
     environment = _environment(bin_dir, log)
+    environment["PUBLICATION_LEASE_HANDLE"] = str(tmp_path / "lease.json")
     environment["PUBLISH_FAKE_EXIT"] = "1"
     environment["PUBLISH_FAKE_PARTIAL"] = partial_stdout
     record = Path(environment["R2_GENERATION_DIR"]) / "lake-release.json"

@@ -15,6 +15,7 @@ from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_batch.storage import lake_publish as lake_publish_module
 from baibai_batch.storage import publish_market_lake as market_publish_module
+from baibai_batch.storage.publication_lease import acquire, release, _save_handle
 from baibai_batch.storage.lake_publish import (
     Boto3R2Store,
     LakeCASConflict,
@@ -716,6 +717,9 @@ def test_market_publish_logs_one_phase_line_without_polluting_stdout(
 ) -> None:
     mirror, _ = _release(tmp_path)
     store = MemoryR2Store()
+    handle, _ = acquire(store, "operator")
+    handle_path = tmp_path / "lease.json"
+    _save_handle(handle_path, handle)
     monkeypatch.setattr(market_publish_module, "Boto3R2Store", lambda **_: store)
     monkeypatch.setattr(market_publish_module, "lake_verified_git_commit", lambda: "a" * 40)
 
@@ -728,6 +732,8 @@ def test_market_publish_logs_one_phase_line_without_polluting_stdout(
                 str(mirror),
                 "--release-id",
                 "timed-release",
+                "--lease-handle",
+                str(handle_path),
             ]
         )
         == 0
@@ -1222,3 +1228,40 @@ def test_low_level_cli_reports_configuration_failure_without_traceback(monkeypat
     monkeypatch.delenv("R2_ACCOUNT_ID", raising=False)
     assert lake_publish_module.main(["--mirror", ".", "--release-manifest", "release.json"]) == 1
     assert "required environment variable is missing: R2_ACCOUNT_ID" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("lose_during_upload", [False, True])
+def test_market_cli_refuses_a_lost_lease_before_pointer_switch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    lose_during_upload: bool,
+) -> None:
+    mirror, _ = _release(tmp_path)
+    store = MemoryR2Store()
+    handle, _ = acquire(store, "operator")
+    path = tmp_path / "lease.json"
+    _save_handle(path, handle)
+    monkeypatch.setattr(market_publish_module, "Boto3R2Store", lambda **_: store)
+    monkeypatch.setattr(market_publish_module, "lake_verified_git_commit", lambda: "a" * 40)
+    released = False
+    if lose_during_upload:
+        ensure = lake_publish_module._ensure_immutable
+
+        def lose_lease(*args, **kwargs):
+            nonlocal released
+            result = ensure(*args, **kwargs)
+            if not released:
+                release(store, handle)
+                released = True
+            return result
+
+        monkeypatch.setattr(lake_publish_module, "_ensure_immutable", lose_lease)
+    else:
+        release(store, handle)
+    assert market_publish_module.main([
+        "--sqlite", str(tmp_path / "market.sqlite"), "--mirror", str(mirror),
+        "--lease-handle", str(path),
+    ]) == 1
+    assert "lake/pointers/l1/current.json" not in store.values
+    assert "publication lease" in capsys.readouterr().err
+    if lose_during_upload:
+        assert released
