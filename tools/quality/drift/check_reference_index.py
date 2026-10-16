@@ -1,13 +1,7 @@
-"""Fail CI when docs/reference/README.md stops listing every reference it indexes.
+"""Check that the reference index lists its sibling documents and no missing files.
 
-`AGENTS.md` sends every agent through the reference index before work starts, so a
-contract that is not in the table is a contract nobody reaches — the file is present,
-the index still reads complete, and nothing says otherwise.
-`margin-publication-transition.md` sat outside the table from the day it was written
-until a full architecture review read the directory instead of the index.
-
-Both directions fail. A reference the index omits is unreachable; an index row
-pointing at a file that no longer exists sends the reader to a dead link.
+This validates the index inventory, not whether a reader follows every link or
+whether the referenced contract is correct.
 """
 
 from __future__ import annotations
@@ -39,7 +33,7 @@ def check() -> tuple[str, ...]:
     if missing:
         failures.append(
             f"docs/reference/README.md does not index {missing}; "
-            "a reference outside the table is one no agent reaches"
+            "add the current document to the index or remove the obsolete file"
         )
     absent = sorted(indexed - present)
     if absent:

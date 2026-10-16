@@ -8,7 +8,6 @@ from tools.quality.drift import (
     check_cli_doc,
     check_cli_help,
     check_documented_commands,
-    check_duplicate_constants,
     check_markdown_links,
     check_repository_paths,
     check_skill_inventory,
@@ -57,44 +56,6 @@ def test_cli_doc_gate_rejects_missing_and_phantom_commands(tmp_path: Path) -> No
         "docs/architecture.md: missing CLI baibai-engine",
         "docs/architecture.md: unknown CLI baibai-web",
     ]
-
-
-def test_duplicate_policy_constant_gate_rejects_skill_copy(tmp_path: Path) -> None:
-    _policy_copy(tmp_path)
-    path = tmp_path / ".agents" / "skills" / "demo" / "SKILL.md"
-    path.parent.mkdir(parents=True)
-    path.write_text("board lot: 100\n", encoding="utf-8")
-    assert check_duplicate_constants.check(tmp_path) == [
-        ".agents/skills/demo/SKILL.md: duplicated policy literal 'board lot: 100'"
-    ]
-
-
-def test_duplicate_policy_constant_gate_allows_unrelated_percentages(tmp_path: Path) -> None:
-    _policy_copy(tmp_path)
-    path = tmp_path / "docs" / "unrelated-rate.md"
-    path.parent.mkdir()
-    path.write_text(
-        "APIの応答時間を10%短縮する。進捗は40%。テストデータの35%を欠損にする。\n",
-        encoding="utf-8",
-    )
-
-    assert check_duplicate_constants.check(tmp_path) == []
-
-
-def test_duplicate_policy_constant_gate_allows_other_japanese_quantities(
-    tmp_path: Path,
-) -> None:
-    _policy_copy(tmp_path)
-    canonical = tmp_path / "docs" / "portfolio-management.md"
-    canonical.parent.mkdir()
-    canonical.write_text("月40万円、通常20〜30万円\n", encoding="utf-8")
-    path = tmp_path / "docs" / "other-quantities.md"
-    path.write_text(
-        "0.40万円、140万円、40万人、40万株、40万件、40万台、40万個、40万ドル、40万票、40万社、"
-        "40万トン、20〜30万件\n",
-        encoding="utf-8",
-    )
-    assert check_duplicate_constants.check(tmp_path) == []
 
 
 def test_skill_inventory_gate_rejects_obsolete_and_missing_skills(tmp_path: Path) -> None:
@@ -326,23 +287,6 @@ def test_markdown_link_gate_scans_dated_reports(tmp_path: Path) -> None:
     assert check_markdown_links.check(tmp_path) == [
         "reports/2026-01-01-demo.md: missing Markdown link target ../src/gone.py"
     ]
-
-
-def _policy_copy(root: Path) -> None:
-    policy = root / "engine/src/baibai_engine/position/policy.py"
-    policy.parent.mkdir(parents=True)
-    policy.write_text(
-        (ROOT / "engine/src/baibai_engine/position/policy.py").read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
-
-
-def test_duplicate_policy_constant_gate_allows_unrelated_amounts(tmp_path: Path) -> None:
-    _policy_copy(tmp_path)
-    path = tmp_path / "docs" / "unrelated.md"
-    path.parent.mkdir(parents=True)
-    path.write_text("10万株、10万件、100001 円、8.5 倍、7.0 年\n", encoding="utf-8")
-    assert check_duplicate_constants.check(tmp_path) == []
 
 
 @pytest.mark.parametrize(

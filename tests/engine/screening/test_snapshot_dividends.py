@@ -261,7 +261,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
 
         result = build_shareholder_return_change_signals(summaries, bars, asof)
 
-        # 分割は FY2024 の accrual 期間 (2023-05-10〜2024-05-10) に入る。その年度の
+        # 分割は FY2024 の判定窓 (期末から1年前の2023-03-31〜開示日2024-05-10) に入る。その年度の
         # 44 円が分割前基準か後かは支払ごとの基準日を見ないと言えないので、増配とも
         # 減配とも判定しない。株数側の signal は配当と独立なので残る。
         self.assertIsNone(result.dps_streak_up)
@@ -349,6 +349,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 "130A",
                 asof - timedelta(days=1),
                 fiscal_period="1Q",
+                fiscal_year_end=date(2027, 3, 31),
                 period_start=date(2026, 4, 1),
                 period_end=date(2026, 6, 30),
                 dps_actual_annual=None,

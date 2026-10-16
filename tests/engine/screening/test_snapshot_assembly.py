@@ -70,6 +70,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             "130A",
             asof - timedelta(days=200),
             fiscal_period="FY",
+            fiscal_year_end=date(2025, 3, 31),
             period_start=date(2024, 4, 1),
             period_end=date(2025, 3, 31),
             # 自己資本は円で 4.8e10 (= bps 120 x 自己株控除後 400M) になる値を置く。
@@ -135,11 +136,17 @@ class ScreeningMetricsTests(SnapshotFixtures):
             shares_outstanding=100_000_000.0,
             treasury_shares=0.0,
             fiscal_period="FY",
-            fiscal_year_end=date(2026, 3, 31),
-            period_start=date(2025, 4, 1),
-            period_end=date(2026, 3, 31),
+            fiscal_year_end=date(2025, 12, 31),
+            period_start=date(2025, 1, 1),
+            period_end=date(2025, 12, 31),
         )
-        undisclosed = replace(disclosed, disclosed_at=asof + timedelta(days=10), eps_ttm=99.0)
+        undisclosed = replace(
+            disclosed,
+            disclosed_at=asof + timedelta(days=10),
+            eps_ttm=99.0,
+            profit=9_900_000_000.0,
+            forecast_eps=120.0,
+        )
 
         def snapshot(summaries: list[JQuantsFinancialSummary]) -> FinancialSnapshot:
             return build_metrics(
@@ -153,8 +160,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
         without = snapshot([disclosed])
         with_future = snapshot([disclosed, undisclosed])
         self.assertEqual(with_future.latest_financial_disclosure_date, date(2026, 3, 1))
-        self.assertEqual(with_future.eps, without.eps)
-        self.assertEqual(with_future.per_trailing, without.per_trailing)
+        self.assertEqual(with_future, without)
 
     def test_build_metrics_adds_short_dislocation_fields(self) -> None:
         asof = date(2026, 4, 24)
