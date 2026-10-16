@@ -178,6 +178,8 @@ def test_observation_vintage_without_timezone_is_not_guessed() -> None:
     definition = load_definitions().by_id()["us.10y"]
     with pytest.raises(ValueError, match="vintage_at must include a timezone"):
         observation(
-            definition, date(2026, 10, 15), 1.0,
+            definition,
+            date(2026, 10, 15),
+            1.0,
             datetime(2026, 10, 16, tzinfo=UTC).replace(tzinfo=None),
         )
