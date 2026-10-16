@@ -10,10 +10,9 @@ from types import SimpleNamespace
 import pytest
 from tests.helpers.r2_store import MemoryR2Store
 
-from baibai_batch.storage.publication_lease import acquire, _save_handle
-
 import baibai_batch.storage.publish_market_lake as publish_module
 from baibai_batch.storage.lake_publish import LakePublishError
+from baibai_batch.storage.publication_lease import _save_handle, acquire
 from baibai_engine.batch_api import (
     LakeBuildError,
 )
@@ -131,7 +130,9 @@ def test_a_build_error_is_reported_without_prescribing_an_operation(
     _save_handle(path, handle)
     monkeypatch.setattr(publish_module, "Boto3R2Store", lambda **_: store)
 
-    exit_code = publish_module.main(["--sqlite", "market.sqlite", "--mirror", "stores", "--lease-handle", str(path)])
+    exit_code = publish_module.main(
+        ["--sqlite", "market.sqlite", "--mirror", "stores", "--lease-handle", str(path)]
+    )
 
     assert exit_code == 1
     printed = capsys.readouterr().err

@@ -15,7 +15,6 @@ from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_batch.storage import lake_publish as lake_publish_module
 from baibai_batch.storage import publish_market_lake as market_publish_module
-from baibai_batch.storage.publication_lease import acquire, release, _save_handle
 from baibai_batch.storage.lake_publish import (
     Boto3R2Store,
     LakeCASConflict,
@@ -24,6 +23,7 @@ from baibai_batch.storage.lake_publish import (
     RemoteObject,
     publish_l1_release,
 )
+from baibai_batch.storage.publication_lease import _save_handle, acquire, release
 from baibai_engine.storage.lake import models as lake_models
 from baibai_engine.storage.lake import writer as lake_writer_module
 from baibai_engine.storage.lake.keys import dataset_manifest_key
@@ -1232,7 +1232,9 @@ def test_low_level_cli_reports_configuration_failure_without_traceback(monkeypat
 
 @pytest.mark.parametrize("lose_during_upload", [False, True])
 def test_market_cli_refuses_a_lost_lease_before_pointer_switch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
     lose_during_upload: bool,
 ) -> None:
     mirror, _ = _release(tmp_path)
@@ -1257,10 +1259,19 @@ def test_market_cli_refuses_a_lost_lease_before_pointer_switch(
         monkeypatch.setattr(lake_publish_module, "_ensure_immutable", lose_lease)
     else:
         release(store, handle)
-    assert market_publish_module.main([
-        "--sqlite", str(tmp_path / "market.sqlite"), "--mirror", str(mirror),
-        "--lease-handle", str(path),
-    ]) == 1
+    assert (
+        market_publish_module.main(
+            [
+                "--sqlite",
+                str(tmp_path / "market.sqlite"),
+                "--mirror",
+                str(mirror),
+                "--lease-handle",
+                str(path),
+            ]
+        )
+        == 1
+    )
     assert "lake/pointers/l1/current.json" not in store.values
     assert "publication lease" in capsys.readouterr().err
     if lose_during_upload:
