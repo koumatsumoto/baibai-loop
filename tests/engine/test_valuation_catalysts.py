@@ -347,7 +347,29 @@ class ControlFilingIndexTest(unittest.TestCase):
                 ],
             )
             with closing(open_connection(sqlite_path)) as connection:
-                self.assertEqual(edinet_code_to_ticker(connection), {"E1": "1301", "E4": "130A"})
+                self.assertEqual(edinet_code_to_ticker(connection, through=self.ASOF), {"E1": "1301", "E4": "130A"})
+
+    def test_future_identity_and_conflict_do_not_change_historical_filing_context(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "market.sqlite"
+            self._listed_window(
+                path,
+                rows=[
+                    ("2026-06-01", 1, "S0001", "13010", "120", "1", "0", "0", "E1", None, None),
+                    ("2026-08-03", 1, "S0002", None, "350", "1", "0", "0", "E9", "E1", None),
+                    ("2026-08-11", 1, "S0003", "13020", "120", "1", "0", "0", "E1", None, None),
+                    ("2026-08-11", 2, "S0004", "13030", "120", "1", "0", "0", "E3", None, None),
+                ],
+            )
+            with closing(open_connection(path)) as connection:
+                before = edinet_code_to_ticker(connection, through=self.ASOF)
+                after = edinet_code_to_ticker(connection, through=date(2026, 8, 11))
+                index = read_control_filing_index(connection, start=date(2026, 1, 1), end=self.ASOF)
+            self.assertEqual(before, {"E1": "1301"})
+            self.assertEqual(after, {"E3": "1303"})
+            assert index is not None
+            self.assertEqual(index.latest_by_target[("1301", "large_holding")], date(2026, 8, 3))
+            self.assertFalse(index.can_answer("1303", "large_holding"))
 
     def test_a_day_that_was_never_listed_makes_the_window_unobserved(self) -> None:
         with TemporaryDirectory() as tmp:

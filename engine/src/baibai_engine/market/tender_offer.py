@@ -230,7 +230,7 @@ def build_tender_offer_exit_values(
         raise TenderOfferError(f"market store is not readable: {sqlite_path}")
     try:
         connection.execute("BEGIN")
-        ticker_by_code = edinet_code_to_ticker(connection)
+        ticker_by_code = edinet_code_to_ticker(connection, through=asof)
         filings = read_tender_offer_filings(connection, through=asof)
     finally:
         connection.close()

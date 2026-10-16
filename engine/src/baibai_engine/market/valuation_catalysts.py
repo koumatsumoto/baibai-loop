@@ -312,7 +312,7 @@ def read_control_filing_index(
     """
     if not edinet_identity_covered(connection, start=start, end=end):
         return None
-    ticker_by_edinet_code = edinet_code_to_ticker(connection)
+    ticker_by_edinet_code = edinet_code_to_ticker(connection, through=end)
     index: dict[tuple[str, ControlFilingKind], date] = {}
     anonymous: set[ControlFilingKind] = set()
     for doc in read_current_filing_documents(connection, through=end):
@@ -388,15 +388,20 @@ def edinet_identity_covered(connection: sqlite3.Connection, *, start: date, end:
     return stale_rows == 0
 
 
-def edinet_code_to_ticker(connection: sqlite3.Connection) -> dict[str, str]:
+def edinet_code_to_ticker(
+    connection: sqlite3.Connection, *, through: date
+) -> dict[str, str]:
     """Resolve EDINET codes through the (edinetCode, secCode) pairs the list observed.
 
-    A code seen against more than one ticker is dropped rather than picked between.
+    Only filing dates through the caller's cutoff participate. Later discoveries
+    or conflicts must not change an earlier lookup. A code seen against more than
+    one ticker in that window is dropped rather than picked between.
     """
     observed: dict[str, set[str]] = {}
     for edinet_code, sec_code in connection.execute(
         "SELECT DISTINCT edinet_code, sec_code FROM edinet_documents "
-        "WHERE edinet_code IS NOT NULL AND sec_code IS NOT NULL"
+        "WHERE edinet_code IS NOT NULL AND sec_code IS NOT NULL AND doc_date <= ?",
+        (through.isoformat(),),
     ):
         try:
             ticker = parse_sec_code(sec_code)
