@@ -572,8 +572,21 @@ class CapitalBasisStateMachineTests(unittest.TestCase):
         self.assertIsNone(result.shares_ex_treasury)
         self.assertEqual(
             result.failure_reason,
-            "indeterminate_positive_treasury_after_later_issued_observation",
+            "indeterminate_treasury_after_later_issued_observation",
         )
+
+    def test_complete_zero_pair_carries_when_neither_share_count_is_observed(self) -> None:
+        current = _summary(
+            "1111", date(2026, 5, 14), shares_outstanding=1_000.0, treasury_shares=0.0
+        )
+        later = replace(
+            _summary("1111", date(2026, 6, 14)),
+            shares_outstanding=None,
+            treasury_shares=None,
+        )
+        result = _resolve_capital_basis([current, later])
+        self.assertEqual(result.shares_ex_treasury, 1_000.0)
+        self.assertIsNone(result.failure_reason)
 
     def test_future_summary_cannot_change_asof_share_index(self) -> None:
         asof = date(2026, 7, 1)

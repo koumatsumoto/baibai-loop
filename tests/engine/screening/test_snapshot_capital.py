@@ -325,12 +325,15 @@ class ScreeningMetricsTests(SnapshotFixtures):
         self.assertIsNone(_shares_excluding_treasury(1_000.0, 1_000.0))
         self.assertEqual(_shares_excluding_treasury(1_000.0, 100.0), 900.0)
 
-    def test_positive_treasury_is_not_reused_after_later_issued_observations(self) -> None:
+    def test_treasury_is_not_reused_after_later_issued_observations(self) -> None:
         """総株数の増減・不変・回復から、欠測した自己株の現在値を推測しない。"""
         asof = date(2026, 7, 1)
         bars = _daily_bars("130A", asof, 40)
         cases = (
             ("decrease", 300.0, (700.0,)),
+            ("zero_increase", 0.0, (1100.0,)),
+            ("zero_same_gross", 0.0, (1000.0,)),
+            ("zero_decrease_then_increase", 0.0, (900.0, 1100.0)),
             ("increase", 100.0, (1100.0,)),
             ("same_gross", 100.0, (1000.0,)),
             ("decrease_then_increase", 100.0, (900.0, 1100.0)),
@@ -370,7 +373,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 self.assertEqual(snapshot.shares_outstanding, later_issued[-1])
                 self.assertEqual(
                     snapshot.capital_basis_failure_reason,
-                    "indeterminate_positive_treasury_after_later_issued_observation",
+                    "indeterminate_treasury_after_later_issued_observation",
                 )
 
     def test_known_valid_old_treasury_still_fails_closed_without_current_provenance(self) -> None:
@@ -397,7 +400,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
         self.assertIsNone(result.shares_ex_treasury)
         self.assertEqual(
             result.failure_reason,
-            "indeterminate_positive_treasury_after_later_issued_observation",
+            "indeterminate_treasury_after_later_issued_observation",
         )
 
     def test_new_treasury_observation_resets_incompatible_prior_basis(self) -> None:
@@ -469,8 +472,8 @@ class ScreeningMetricsTests(SnapshotFixtures):
         self.assertEqual(result.shares_ex_treasury, 41_194_972.0)
         self.assertIsNone(result.failure_reason)
 
-    def test_zero_treasury_carry_continues_across_issued_shares_decrease(self) -> None:
-        """自己株0なら発行済が減っても二重控除は起きないので値を維持する。"""
+    def test_old_zero_treasury_does_not_fill_a_new_capital_observation(self) -> None:
+        """過去の自己株0は、新しい発行済の時点でも0である証拠にはならない。"""
         asof = date(2026, 7, 1)
         bars = _daily_bars("130A", asof, 40)
         summaries = [
@@ -498,12 +501,16 @@ class ScreeningMetricsTests(SnapshotFixtures):
             edinet_by_ticker={},
         ).financials["130A"]
 
-        self.assertEqual(index["130A"], 900.0)
-        self.assertEqual(snapshot.shares_ex_treasury, 900.0)
-        self.assertIsNone(snapshot.capital_basis_failure_reason)
+        self.assertIsNone(index["130A"])
+        self.assertIsNone(snapshot.shares_ex_treasury)
+        self.assertIsNone(snapshot.market_cap)
+        self.assertEqual(
+            snapshot.capital_basis_failure_reason,
+            "indeterminate_treasury_after_later_issued_observation",
+        )
 
-    def test_zero_treasury_carry_does_not_require_issued_source_basis(self) -> None:
-        """自己株0ならsource issuedが欠損しても差し引きは安全である。"""
+    def test_old_zero_treasury_without_issued_basis_is_not_a_complete_pair(self) -> None:
+        """自己株0だけの観測から、別時点の発行済との組を作らない。"""
         asof = date(2026, 7, 1)
         bars = _daily_bars("130A", asof, 40)
         treasury_only = replace(
@@ -531,8 +538,12 @@ class ScreeningMetricsTests(SnapshotFixtures):
             edinet_by_ticker={},
         ).financials["130A"]
 
-        self.assertEqual(snapshot.shares_ex_treasury, 900.0)
-        self.assertIsNone(snapshot.capital_basis_failure_reason)
+        self.assertIsNone(snapshot.shares_ex_treasury)
+        self.assertIsNone(snapshot.market_cap)
+        self.assertEqual(
+            snapshot.capital_basis_failure_reason,
+            "treasury_observation_without_issued_basis",
+        )
 
     def test_reported_issued_is_not_reclassified_from_numeric_coincidence(self) -> None:
         """期中平均との一致や過去grossへの和だけでは誤転記と断定しない。"""

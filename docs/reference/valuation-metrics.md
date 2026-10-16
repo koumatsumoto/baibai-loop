@@ -157,9 +157,9 @@ PBRの普通株自己資本と株式basisは[資本の分母](#51-資本の分�
 
 `TA × EqAR` で普通株自己資本の円経路を組むときは、両方を同時に観測した最新の開示行を使う。個々の最新値は staleness fact と表示には carry できるが、別開示日の `TA` と `EqAR` を掛けると、その間の資産変動を自己資本へ混入させる。両方を持つ行が無い場合、またはその同一行が最新`BPS`より古い場合は円経路を答えず、普通株基準の`BPS`経路を使う。同一状態へ揃えるために、より新しい資本状態を古い値へ巻き戻さない。
 
-発行済株式総数と自己株式数は状態量なので、開示のない行へcarryできる。ただし、正の`TrShFY`を観測した後に、より新しい`ShOutFY`を持つ行が`TrShFY`を欠く場合は組み合わせない。J-Quantsでは自己株式0株が空欄になる行があり、空欄だけでは自己株式の消却・処分、発行済不変の処分、新株発行と処分の同時実施を区別できないためである。gross issuedの増加・減少・不変を安全条件にせず、新しい`TrShFY`を観測するまで答えない。明示的な`TrShFY = 0`は二重控除を起こさないためcarryでき、0株のsource issuedは要求しない。正の`TrShFY`の観測行に同時点の`ShOutFY`が無い場合も答えない。
+発行済株式総数と自己株式数は状態量なので、どちらも観測しない行へ既知の組をcarryできる。ただし、より新しい`ShOutFY`を持つ行が`TrShFY`を欠く場合、過去の自己株式数を組み合わせない。過去の明示`TrShFY = 0`も、現在の0を証明しない。欠測だけでは取得・処分・消却などを区別できず、gross issuedの増加・減少・不変や`AvgSh`との一致を安全条件にしない。新しい同一状態の組（自己株式0を含む）があれば、そのstateから再開する。これは自己株式が実際に変化したという断定ではなく、欠測入力から現在値を捏造しないためのavailability policyである。
 
-`AvgSh` は EPS の期中平均株式数であり、gross issued の代替ではない。`ShOutFY == AvgSh`や`ShOutFY + TrShFY`と過去の発行済株式数の一致だけでは、誤転記や自己株式の二重控除を証明できない。この数値パターンによる除外は行わず、提供元が報告した各fieldを区別して計算する。負の自己株式数、非正の発行済、発行済以上の自己株式も有効な株式数へ変換しない。carry後の現在値だけでなく、正の`TrShFY`を観測したsource行の`ShOutFY > TrShFY`も必要である。正の`TrShFY`より後に`ShOutFY`だけを再観測した場合、欠損入力は自己株式0株と未報告を区別できず、旧値が現在も有効か判定できないためfail closedにする。これは自己株式が実際に変化したという断定ではなく、lossy inputに対するavailability policyである。新しい`TrShFY`の観測（0を含む）があれば、そのstateから再開する。これらの不整合は `capital_basis_failure_reason` に `indeterminate_positive_treasury_after_later_issued_observation`、`treasury_observation_without_issued_basis`、`invalid_treasury_source_capital_basis`、`indeterminate_share_basis`、または`invalid_issued_or_treasury_shares`を記録し、時価総額とその派生倍率・利回りを `null` にする。
+`AvgSh` は EPS の期中平均株式数であり、gross issued の代替ではない。`ShOutFY == AvgSh`や`ShOutFY + TrShFY`と過去の発行済株式数の一致だけでは、誤転記や自己株式の二重控除を証明できない。この数値パターンによる除外は行わず、提供元が報告した各fieldを区別して計算する。負の自己株式数、非正の発行済、発行済以上の自己株式も有効な株式数へ変換しない。異なる観測を組み合わせようとした場合、自己株式数の観測行にも有効な`ShOutFY > TrShFY`が必要であり、発行済だけを後から再観測しても旧自己株式数は復活しない。不整合は`capital_basis_failure_reason`に`indeterminate_treasury_after_later_issued_observation`、`treasury_observation_without_issued_basis`、`invalid_treasury_source_capital_basis`、`conflicting_capital_document_sources`、`indeterminate_share_basis`、または`invalid_issued_or_treasury_shares`を記録し、時価総額とその派生倍率・利回りを`null`にする。
 
 分割を跨ぐ行では自己株式数も発行済と同じ factor で換算する。片方だけ換算すると差である自己株控除後株式数が壊れる。
 

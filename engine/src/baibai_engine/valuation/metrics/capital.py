@@ -284,11 +284,10 @@ def _resolve_capital_basis(
 ) -> _CapitalBasisResolution:
     """発行済と自己株式を、両方が成立する資本状態でだけ組み合わせる。
 
-    自己株式0株がJ-Quantsで欠損値になる行があるため、正の自己株式を観測した後に発行済株式を
-    持つ新しい行が自己株式を欠く場合、旧自己株式が現在状態でも有効か判別できない。
-    自己株式の消却、処分、新株発行と処分の同時実施を区別できないので、新しい自己株式を
-    観測するまで旧正値をcarryせずfail closedにする。自己株式0株は二重控除を起こさない
-    ため、明示的な0観測は通常どおりcarryできる。
+    新しい発行済株式の観測が自己株式を欠く場合、過去の自己株式数を現在値と
+    組み合わせない。過去の明示0も現在の0を証明せず、取得・処分・消却などによる
+    変化を欠測から判別できない。両方を再観測するまで控除後株数を答えない。
+    株数をどちらも観測しない行では、既知の組をそのまま持ち越せる。
 
     `AvgSh` は EPS の期中平均株式数であり、発行済株式総数の代替には使わない。
     数値の一致や過去の株数との恒等式だけでは誤転記を証明できないため、報告された
@@ -359,7 +358,7 @@ def _resolve_capital_basis(
                 shares_ex_treasury=None,
                 failure_reason="conflicting_capital_document_sources",
             )
-        if issued_source_key != treasury_source_key and treasury > 0:
+        if issued_source_key != treasury_source_key:
             issued_at_treasury = treasury_row.shares_outstanding
             if issued_at_treasury is None:
                 return _CapitalBasisResolution(
@@ -381,7 +380,7 @@ def _resolve_capital_basis(
                     treasury=treasury,
                     shares_ex_treasury=None,
                     failure_reason=(
-                        "indeterminate_positive_treasury_after_later_issued_observation"
+                        "indeterminate_treasury_after_later_issued_observation"
                     ),
                 )
 
@@ -408,7 +407,7 @@ def build_shares_outstanding_index(
     universe の時価総額はこの index から作られ、時価総額 gate (100 億円) の判定値になる。
     `FinancialSnapshot.market_cap` と同じ株数で作らないと、同じ「時価総額」という語が
     2 つの値を指す。株数と自己株式数は BS 系 fact なので四半期開示に載らないことが多く、
-    直近の非 null 行から carry-forward する。ただし正の自己株式より後に発行済だけを
+    直近の非 null 行から carry-forward する。ただし自己株式の観測より後に発行済だけを
     再観測した状態では同じ資本状態と確認できないため、時価総額を答えない。
     """
     shares: dict[str, float | None] = {}
