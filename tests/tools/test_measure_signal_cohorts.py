@@ -371,8 +371,8 @@ def test_missing_upside_does_not_enter_below_cap_group() -> None:
     )
     row = measure_signal_cohorts._panel_row(stored, {(stored.asof, stored.ticker): {"1y": 0.1}})
     assert row is not None
-    groups = measure_signal_cohorts._anchor_comparison([row], "1y")["groups"]
-    below = next(group for group in groups if group["group"] == "equity_anchor_only_below_cap")
+    groups = measure_signal_cohorts._earnings_multiple_comparison([row], "1y")["groups"]
+    below = next(group for group in groups if group["group"] == "no_positive_per_below_cap")
     assert below["resolved_rows"] == 0
 
 
@@ -391,3 +391,21 @@ def test_missing_er_does_not_remove_known_share_change_from_its_comparison():
     assert high["groups"][1]["resolved_rows"] == 1
     shares = measure_signal_cohorts._share_count_comparison([row], "1y")
     assert shares["groups"][0]["resolved_rows"] == 1
+
+
+def test_positive_per_group_does_not_claim_an_observed_earnings_anchor() -> None:
+    stored = panel_row(
+        "2024-01-31",
+        "1111",
+        per_forward=10.0,
+        per_trailing=None,
+        smg_per_forward=None,
+        srp_per_forward=None,
+        er_upside_capped=0.5,
+    )
+    row = measure_signal_cohorts._panel_row(stored, {(stored.asof, stored.ticker): {"1y": 0.1}})
+    assert row is not None
+    groups = measure_signal_cohorts._earnings_multiple_comparison([row], "1y")["groups"]
+    observed = next(group for group in groups if group["group"] == "positive_per_at_cap")
+    assert observed["resolved_rows"] == 1
+    assert all("anchor" not in group["group"] for group in groups)
