@@ -19,7 +19,7 @@ SOURCE_URL = "https://example.com/data.csv"
 def series_definition(
     series_id: str = "test.series",
     *,
-    provider: str = "fred_csv",
+    provider: str = "mof_jgb",
     provider_series_id: str = "TEST",
     name: str = "Test Series",
     category: str = "rates",

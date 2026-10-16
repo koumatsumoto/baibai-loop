@@ -29,6 +29,7 @@ MULTPL_SPEC = ProviderSpec(name="multpl", all_history_start=date(1871, 1, 1))
 
 NATIVE_BULK_PROVIDERS = frozenset(
     {
+        "fred_csv",
         "cftc",
         "ecb_fx",
         "jquants_flows",
@@ -43,6 +44,8 @@ NATIVE_PROVIDERS = NATIVE_BULK_PROVIDERS | {"jquants_options"}
 
 
 def native_source_key(series: SeriesDefinition) -> str:
+    if series.provider == "fred_csv":
+        return f"fred_csv:{series.source_url}:{series.provider_series_id}"
     if series.provider == "frb_h15":
         return f"frb_h15:{series.source_url}:{FRB_H15_PACKAGE_SERIES}"
     if series.provider == "estat":

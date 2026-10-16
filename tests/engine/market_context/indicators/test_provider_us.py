@@ -39,7 +39,7 @@ class IndicatorsProviderParserTests(TestCase):
                 end=date(2026, 5, 1),
             )
 
-    def test_parse_fred_csv_filters_range_and_missing_values(self) -> None:
+    def test_parse_fred_csv_filters_range_without_discarding_missing_cells(self) -> None:
         series = _series("fred_csv", "DGS10")
         text = "observation_date,DGS10\n2026-05-01,4.39\n2026-05-02,.\n2026-05-04,4.45\n"
 
@@ -50,9 +50,13 @@ class IndicatorsProviderParserTests(TestCase):
             end=date(2026, 5, 5),
         )
 
-        self.assertEqual(len(observations), 1)
-        self.assertEqual(observations[0].observed_at, date(2026, 5, 4))
-        self.assertEqual(observations[0].value, 4.45)
+        self.assertEqual(
+            observations,
+            {
+                date(2026, 5, 2): [{"observation_date": "2026-05-02", "DGS10": "."}],
+                date(2026, 5, 4): [{"observation_date": "2026-05-04", "DGS10": "4.45"}],
+            },
+        )
 
     def test_parse_fred_csv_rejects_missing_date_header_instead_of_empty_history(self) -> None:
         series = _series("fred_csv", "DGS10")

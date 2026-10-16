@@ -20,11 +20,6 @@ class ProviderSpec:
     # from today instead (a licensed rolling window such as J-Quants' 10 years).
     all_history_start: date | None = None
     all_history_rolling_years: int | None = None
-    # Store-rewrite policy for an all-history refresh. ``trim_before_first`` drops
-    # observations older than the first the provider returns (FRED's licensed
-    # window defines its reproducible start). Native source snapshots and derived
-    # values do not use this scalar-store rewrite.
-    trim_before_first: bool = False
     # Reads clamp the provider's publication-date vintage to the read cutoff.
     # This is not proof of exact historical API availability: J-Quants flows
     # can serve corrections later, and older periods may retain only the latest revision.

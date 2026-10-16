@@ -22,12 +22,10 @@ from baibai_engine.market_context.indicator_service import (
     IndicatorsService,
     RefreshFailure,
     RefreshSuccess,
-    _fetch_observations_with_retry,
     _fetch_with_retry,
 )
 from baibai_engine.market_context.indicators import db
 from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.indicators.providers import registry
 from baibai_engine.market_context.indicators.providers.base import (
     FetchContext,
     ProviderFetchStoppedError,
@@ -100,23 +98,16 @@ def wire(monkeypatch):
 
         def fetch(self, series_id, *, context=None):
             selected_context = self.context if context is None else context
-            if series_id != "vix":
-                native = _fetch_with_retry(
-                    lambda: fetch_native_records(
-                        load_definitions().by_id()[series_id],
-                        start=START,
-                        end=END,
-                        context=selected_context,
-                    ),
+            native = _fetch_with_retry(
+                lambda: fetch_native_records(
+                    load_definitions().by_id()[series_id],
+                    start=START,
+                    end=END,
                     context=selected_context,
-                )
-                return [row for records in native.values() for row in records]
-            return _fetch_observations_with_retry(
-                load_definitions().by_id()[series_id],
-                start=START,
-                end=END,
-                context=self.context if context is None else context,
+                ),
+                context=selected_context,
             )
+            return [row for records in native.values() for row in records]
 
     wire = Wire()
     wire.context = FetchContext()
@@ -128,8 +119,6 @@ def wire(monkeypatch):
             f"baibai_engine.market_context.indicators.providers.{name}", fromlist=["*"]
         )
         monkeypatch.setattr(module, "_read_api_key", lambda: "synthetic-key")
-    for provider in ["fred_csv"]:
-        monkeypatch.setitem(registry._PROVIDERS, provider, type(registry._PROVIDERS[provider])())
     monkeypatch.setattr(
         HTTPConnectionPool,
         "_make_request",
@@ -164,9 +153,7 @@ def test_one_get_owns_the_initial_plus_five_attempts(wire, series_id, failures):
             assert records == data["data"]
         else:
             expected = parse_fred_csv(series, data.decode(), start=START, end=END)
-            assert [(r.observed_at, r.value, r.unit, r.period_end) for r in records] == [
-                (r.observed_at, r.value, r.unit, r.period_end) for r in expected
-            ]
+            assert records == [row for rows in expected.values() for row in rows]
     assert len(wire.calls) == min(failures + 1, 6)
     assert len(set(wire.calls)) == 1
     assert wire.waits == [30, 60, 120, 300, 600][: min(failures, 5)]
@@ -209,7 +196,7 @@ def test_a_later_fetch_pass_does_not_inherit_an_expired_deadline(wire, series_id
     with FetchContext() as next_pass:
         records = wire.fetch(series_id, context=next_pass)
     if series_id == "vix":
-        assert records[0].value == 25
+        assert records[0]["VIXCLS"] == "25"
     else:
         assert records[0]["C" if series_id == "jp.topix" else "FrgnBal"] == 3500
     assert len(wire.calls) == 2
@@ -366,7 +353,12 @@ def test_service_writes_and_reads_real_temporary_stores_without_losing_prior_row
 
     def full_response(sid, url):
         current = payload(sid)
-        if sid != "vix":
+        if sid == "vix":
+            current = (
+                f"observation_date,VIXCLS\n{(DAY - timedelta(days=7)).isoformat()},19\n"
+                f"{DAY.isoformat()},20\n"
+            ).encode()
+        else:
             previous = payload(
                 sid, day=DAY - timedelta(days=7), value=400 if sid == "jp.foreign_flows" else 2900
             )

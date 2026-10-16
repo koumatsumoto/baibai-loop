@@ -10,6 +10,7 @@ from .ecb_fx import EcbFxSource
 from .estat import EStatSource
 from .estat_dashboard import EStatDashboardSource
 from .frb_h15 import FrbH15Source
+from .fred import FredSource
 from .jquants_flows import JQuantsFlowsSource
 from .jquants_indices import JQuantsIndicesSource
 from .multpl import MultplSource
@@ -20,6 +21,7 @@ def fetch_native_records(
 ) -> NativeRecords:
     source: (
         CftcSource
+        | FredSource
         | EcbFxSource
         | JQuantsFlowsSource
         | JQuantsIndicesSource
@@ -28,7 +30,9 @@ def fetch_native_records(
         | FrbH15Source
         | MultplSource
     )
-    if series.provider == "multpl":
+    if series.provider == "fred_csv":
+        source = FredSource()
+    elif series.provider == "multpl":
         source = MultplSource()
     elif series.provider == "frb_h15":
         source = FrbH15Source()

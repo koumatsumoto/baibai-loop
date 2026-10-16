@@ -98,13 +98,13 @@ class IndicatorsServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
             requested = _series(
-                "fred_csv",
+                "mof_jgb",
                 "TEST",
                 plausible_min=-2.0,
                 plausible_max=20.0,
             )
             other = _series(
-                "fred_csv",
+                "mof_jgb",
                 "OTHER",
                 series_id="other.series",
                 plausible_min=-2.0,
@@ -144,7 +144,7 @@ class IndicatorsServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
             definition = _series(
-                "fred_csv",
+                "mof_jgb",
                 "TEST",
                 plausible_min=-2.0,
                 plausible_max=20.0,
@@ -191,7 +191,7 @@ class IndicatorsServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
             definition = _series(
-                "fred_csv",
+                "mof_jgb",
                 "TEST",
                 plausible_min=-2.0,
                 plausible_max=20.0,
@@ -240,7 +240,7 @@ class IndicatorsServiceTests(unittest.TestCase):
     def test_refresh_without_plausible_range_accepts_finite_values(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
-            definition = _series("fred_csv", "TEST")
+            definition = _series("mof_jgb", "TEST")
             definitions = IndicatorDefinitions(series=(definition,))
             initialize_database(database, definitions=definitions).close()
 
@@ -272,7 +272,7 @@ class IndicatorsServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
             definition = _series(
-                "fred_csv",
+                "mof_jgb",
                 "TEST",
                 plausible_min=-2.0,
                 plausible_max=20.0,

@@ -246,7 +246,7 @@ def test_indicator_partial_store_is_not_unpublished(
     # Break the storage boundary this series actually reads. CPI is native
     # e-Stat; an unrelated obsolete scalar table cannot invalidate its history.
     table = "observations" if storage == "scalar" else "indicator_source_snapshots"
-    series_id = "vix" if storage == "scalar" else "jp.cpi.headline"
+    series_id = "btc_usd" if storage == "scalar" else "jp.cpi.headline"
     readers = [
         lambda: read_api.reading_snapshot(path, asof=date(2026, 7, 29)),
         lambda: read_api.indicator_series(path, series_id=series_id),

@@ -25,7 +25,7 @@ from .boj_timeseries import BojTimeSeriesProvider
 from .estat import EStatSource
 from .estat_dashboard import EStatDashboardSource
 from .frb_h15 import FrbH15Source
-from .fred import FredProvider
+from .fred import FredSource
 from .mof_jgb import MofJgbProvider
 from .nikkei_indexes import NikkeiIndexesProvider
 from .spglobal_pmi import SpGlobalPmiProvider
@@ -38,7 +38,6 @@ from .yahoo import YahooChartProvider
 _PROVIDERS: dict[str, IndicatorDataProvider] = {
     provider.name: provider
     for provider in (
-        FredProvider(),
         BojProvider(),
         BojTimeSeriesProvider(),
         MofJgbProvider(),
@@ -82,6 +81,8 @@ def resolve_provider(name: str) -> IndicatorDataProvider:
 
 
 def provider_spec(name: str) -> ProviderSpec:
+    if name == "fred_csv":
+        return FredSource.spec
     if name == "frb_h15":
         return FrbH15Source.spec
     if name == "estat":
@@ -112,6 +113,7 @@ def registered_specs() -> tuple[ProviderSpec, ...]:
         EStatDashboardSource.spec,
         EStatSource.spec,
         FrbH15Source.spec,
+        FredSource.spec,
         JQUANTS_OPTIONS_SPEC,
         CFTC_SPEC,
         MULTPL_SPEC,

@@ -331,7 +331,6 @@ class IndicatorsService:
             start=start,
             end=end,
             context=context,
-            trim_before_first=spec.trim_before_first,
             remove_other_sources=True,
             require_observations=True,
         )
@@ -481,7 +480,6 @@ class IndicatorsService:
         start: date,
         end: date,
         context: FetchContext,
-        trim_before_first: bool = False,
         remove_other_sources: bool = False,
         require_observations: bool = False,
     ) -> None:
@@ -509,15 +507,6 @@ class IndicatorsService:
             # extra — its newest statement is now. A source that does re-deliver the
             # date buries the decision under a newer vintage, which is correct.
             kept_after = _newest_provider_statement(observations)
-            if trim_before_first and observations:
-                # FRED's current licensed delivery window defines reproducible
-                # all-history coverage for a series.
-                first_observed_at = min(item.observed_at for item in observations)
-                conn.execute(
-                    "DELETE FROM observations WHERE series_id = ? AND observed_at < ? "
-                    "AND (? IS NULL OR vintage_at <= ?)",
-                    (series.series_id, first_observed_at.isoformat(), kept_after, kept_after),
-                )
             if remove_other_sources and observations:
                 conn.execute(
                     "DELETE FROM observations WHERE series_id = ? AND source_url != ? "
