@@ -10,8 +10,9 @@ import csv
 import io
 import zipfile
 from collections.abc import Mapping, Sequence
-from datetime import date
+from datetime import date, timedelta
 
+from baibai_engine.foundation.date_utils import add_months_clamped
 from baibai_engine.market.edinet_decode import to_float
 from baibai_engine.market.edinet_models import EdinetMetricRecord, EDINETProviderError
 from baibai_engine.market.metric_quality import TTMQuality
@@ -39,7 +40,7 @@ def parse_csv_zip_metric_record(
             failure_reasons=("csv_parse_failed",),
         )
 
-    quality = TTMQuality.EXACT if doc_type_code in {"120", "130"} else TTMQuality.APPROXIMATED
+    quality = _flow_period_quality(doc_type_code, period_start, period_end)
     rows, basis = _select_statement_rows(rows, doc_type_code)
     failures: list[str] = []
     if basis == "non_consolidated":
@@ -52,8 +53,8 @@ def parse_csv_zip_metric_record(
     investment_securities = _single_metric(rows, _TAGS["investment_securities"])
     equity = _single_metric(rows, _TAGS["equity"])
     total_assets = _single_metric(rows, _TAGS["total_assets"])
-    debt = _debt_metric(rows)
-    depreciation = _sum_metric(rows, _TAGS["depreciation"])
+    debt = _sum_metric(rows, _TAGS["debt_components"])
+    depreciation = _depreciation_metric(rows)
     capex = _capex_metric(rows)
     capex_abs = abs(capex) if capex is not None else None
     details = _cash_flow_details(rows) if doc_type_code in {"120", "130"} else {}
@@ -105,7 +106,7 @@ def parse_csv_zip_metric_record(
         equity=equity,
         total_assets=total_assets,
         ttm_quality_fcf=quality if fcf is not None else TTMQuality.UNAVAILABLE,
-        ttm_quality_net_cash=quality if net_cash is not None else TTMQuality.UNAVAILABLE,
+        ttm_quality_net_cash=TTMQuality.EXACT if net_cash is not None else TTMQuality.UNAVAILABLE,
         source_doc_id=doc_id,
         document_type=doc_type_code,
         source_submit_datetime=submit_datetime,
@@ -117,50 +118,36 @@ def parse_csv_zip_metric_record(
 
 
 _TAGS: dict[str, tuple[str, ...]] = {
-    "sales": ("netsales", "revenuesfromexternalcustomers"),
-    "ocf": ("cashflowsfromoperatingactivities", "netcashprovidedbyusedinoperatingactivities"),
-    "operating_profit": ("operatingprofit", "operatingincome"),
-    "cash": ("cashanddeposits", "cashandcashequivalents"),
-    "investment_securities": ("investmentsecurities",),
-    "equity": ("equity", "totalequity", "netassets"),
-    "total_assets": ("totalassets", "assets"),
-    "debt_total": (
-        "interestbearingdebt",
-        "interestbearingliabilities",
+    "sales": (
+        "netsales",
+        "revenuesfromexternalcustomers",
     ),
+    "ocf": ("netcashprovidedbyusedinoperatingactivities",),
+    "operating_profit": ("operatingincome",),
+    "cash": (
+        "cashanddeposits",
+        "cashandcashequivalents",
+    ),
+    "investment_securities": ("investmentsecurities",),
+    "equity": ("netassets",),
+    "total_assets": ("assets",),
     "debt_components": (
-        "shorttermborrowings",
         "shorttermloanspayable",
-        "currentportionoflongtermborrowings",
         "currentportionoflongtermloanspayable",
         "currentportionofbonds",
-        "currentportionofbondspayable",
         "bondspayable",
         "convertiblebondtypebondswithsubscriptionrightstoshares",
-        "longtermborrowings",
         "longtermloanspayable",
-        "leaseobligations",
         "leaseobligationscl",
         "leaseobligationsncl",
     ),
     "depreciation": (
-        "depreciationandamortization",
         "depreciationandamortizationopecf",
-        "depreciation",
-        "amortizationofgoodwill",
         "amortizationofgoodwillopecf",
     ),
     "capex_total": ("purchaseofpropertyplantandequipmentandintangibleassetsinvcf",),
-    "capex_tangible": (
-        "purchaseofpropertyplantandequipment",
-        "purchaseofpropertyplantandequipmentinvcf",
-        "paymentsforpurchaseofpropertyplantandequipment",
-    ),
-    "capex_intangible": (
-        "purchaseofintangibleassets",
-        "purchaseofintangibleassetsinvcf",
-        "paymentsforpurchaseofintangibleassets",
-    ),
+    "capex_tangible": ("purchaseofpropertyplantandequipmentinvcf",),
+    "capex_intangible": ("purchaseofintangibleassetsinvcf",),
     "ocf_receivables_cash_effect": ("decreaseincreaseinnotesandaccountsreceivabletradeopecf",),
     "ocf_inventories_cash_effect": ("decreaseincreaseininventoriesopecf",),
     "ocf_payables_cash_effect": ("increasedecreaseinnotesandaccountspayabletradeopecf",),
@@ -198,6 +185,20 @@ def _decode_csv(content: bytes) -> str:
         return content.decode("utf-16-le").lstrip("\ufeff")
     except UnicodeDecodeError as exc:
         raise EDINETProviderError("csv_parse_failed") from exc
+
+
+def _flow_period_quality(
+    doc_type_code: str, period_start: date | None, period_end: date | None
+) -> TTMQuality:
+    # A short fiscal year is still an annual filing, not a twelve-month flow.
+    # Interim document metadata can describe the full fiscal year, so it never
+    # upgrades an InterimDuration fact to exact TTM.
+    if doc_type_code not in {"120", "130"} or period_start is None or period_end is None:
+        return TTMQuality.APPROXIMATED
+    if period_end <= period_start or period_end.year <= 1:
+        return TTMQuality.APPROXIMATED
+    annual_start = add_months_clamped(period_end, -12) + timedelta(days=1)
+    return TTMQuality.EXACT if period_start == annual_start else TTMQuality.APPROXIMATED
 
 
 def _select_statement_rows(
@@ -259,6 +260,15 @@ def _sum_metric(
     return sum(value for value in values.values() if value is not None)
 
 
+def _depreciation_metric(rows: Sequence[Mapping[str, str]]) -> float | None:
+    values = _metric_values(rows, _TAGS["depreciation"])
+    depreciation = values.get("depreciationandamortizationopecf")
+    goodwill = values.get("amortizationofgoodwillopecf", 0.0)
+    # Goodwill amortization alone cannot stand in for depreciation. Add it when
+    # reported; this does not establish completeness of all amortization charges.
+    return depreciation + goodwill if depreciation is not None and goodwill is not None else None
+
+
 def _capex_metric(rows: Sequence[Mapping[str, str]]) -> float | None:
     total = _single_metric(rows, _TAGS["capex_total"])
     if total is not None:
@@ -283,11 +293,6 @@ def _cash_flow_details(rows: Sequence[Mapping[str, str]]) -> dict[str, float | N
     details["capex_ppe_reported"] = abs(ppe) if ppe is not None else None
     details["capex_intangible_reported"] = abs(intangible) if intangible is not None else None
     return details
-
-
-def _debt_metric(rows: Sequence[Mapping[str, str]]) -> float | None:
-    total = _single_metric(rows, _TAGS["debt_total"])
-    return total if total is not None else _sum_metric(rows, _TAGS["debt_components"])
 
 
 def _row_element(row: Mapping[str, str]) -> str:

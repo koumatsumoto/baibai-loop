@@ -1078,24 +1078,24 @@ class ScreeningProviderTests(unittest.TestCase):
         rows = [
             ("jpcrp_cor:NetSales", "CurrentYearDuration", "1000"),
             (
-                "jpcrp_cor:CashFlowsFromOperatingActivities",
+                "jppfs_cor:NetCashProvidedByUsedInOperatingActivities",
                 "CurrentYearDuration",
                 "150",
             ),
-            ("jpcrp_cor:OperatingProfit", "CurrentYearDuration", "90"),
-            ("jpcrp_cor:DepreciationAndAmortization", "CurrentYearDuration", "30"),
+            ("jppfs_cor:OperatingIncome", "CurrentYearDuration", "90"),
+            ("jppfs_cor:DepreciationAndAmortizationOpeCF", "CurrentYearDuration", "30"),
             (
-                "jpcrp_cor:PurchaseOfPropertyPlantAndEquipment",
+                "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF",
                 "CurrentYearDuration",
                 "-40",
             ),
-            ("jpcrp_cor:PurchaseOfIntangibleAssets", "CurrentYearDuration", "0"),
+            ("jppfs_cor:PurchaseOfIntangibleAssetsInvCF", "CurrentYearDuration", "0"),
             ("jpcrp_cor:CashAndDeposits", "CurrentYearInstant", "300"),
             ("jppfs_cor:InvestmentSecurities", "CurrentYearInstant", "250"),
-            ("jpcrp_cor:ShortTermBorrowings", "CurrentYearInstant", "20"),
-            ("jpcrp_cor:LongTermBorrowings", "CurrentYearInstant", "50"),
-            ("jpcrp_cor:Equity", "CurrentYearInstant", "800"),
-            ("jpcrp_cor:TotalAssets", "CurrentYearInstant", "1400"),
+            ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant", "20"),
+            ("jppfs_cor:LongTermLoansPayable", "CurrentYearInstant", "50"),
+            ("jppfs_cor:NetAssets", "CurrentYearInstant", "800"),
+            ("jppfs_cor:Assets", "CurrentYearInstant", "1400"),
         ]
         record = parse_csv_zip_metric_record(
             ticker="7203",
@@ -2428,7 +2428,7 @@ def test_capex_original_edinet_rows():
     # S100YU8C InterimDurationは2026-01-01..06-30 (会社半期報告書id=500)。
     cases = [
         ("5946", "S100YU8C", "160", 4_857_000_000, 1_136_000_000, 3_721_000_000, "approximated"),
-        ("7122", "S100YI50", "120", 15_630_000_000, 1_831_000_000, 13_799_000_000, "exact"),
+        ("7122", "S100YI50", "120", 15_630_000_000, 1_831_000_000, 13_799_000_000, "approximated"),
         ("8127", "S100XXXU", "160", 871_844_000, 100_902_000, 770_942_000, "approximated"),
     ]
     for ticker, doc, kind, ocf, capex, fcf, quality in cases:

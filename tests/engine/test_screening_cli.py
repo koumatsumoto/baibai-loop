@@ -1902,23 +1902,23 @@ def _edinet_csv_zip(*, include_debt: bool = True) -> bytes:
             "CurrentYearDuration",
             "900",
         ),
-        ("jpcrp_cor:OperatingProfit", "CurrentYearDuration", "150"),
+        ("jppfs_cor:OperatingIncome", "CurrentYearDuration", "150"),
         ("jpcrp_cor:CashAndDeposits", "CurrentYearInstant", "1000"),
         (
-            "jpcrp_cor:PurchaseOfPropertyPlantAndEquipment",
+            "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF",
             "CurrentYearDuration",
             "-200",
         ),
-        ("jpcrp_cor:PurchaseOfIntangibleAssets", "CurrentYearDuration", "0"),
-        ("jpcrp_cor:Equity", "CurrentYearInstant", "1200"),
-        ("jpcrp_cor:TotalAssets", "CurrentYearInstant", "2000"),
-        ("jpcrp_cor:DepreciationAndAmortization", "CurrentYearDuration", "50"),
+        ("jppfs_cor:PurchaseOfIntangibleAssetsInvCF", "CurrentYearDuration", "0"),
+        ("jppfs_cor:NetAssets", "CurrentYearInstant", "1200"),
+        ("jppfs_cor:Assets", "CurrentYearInstant", "2000"),
+        ("jppfs_cor:DepreciationAndAmortizationOpeCF", "CurrentYearDuration", "50"),
     ]
     if include_debt:
         rows.extend(
             [
-                ("jpcrp_cor:ShortTermBorrowings", "CurrentYearInstant", "100"),
-                ("jpcrp_cor:LongTermBorrowings", "CurrentYearInstant", "300"),
+                ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant", "100"),
+                ("jppfs_cor:LongTermLoansPayable", "CurrentYearInstant", "300"),
             ]
         )
     text = "要素ID\tコンテキストID\tユニットID\t値\n" + "\n".join(

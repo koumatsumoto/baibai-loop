@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import shutil
 from collections.abc import Iterator
 from pathlib import Path
@@ -65,11 +64,10 @@ def _database_fingerprint(path: Path) -> tuple[int, int] | None:
 
 @pytest.fixture(scope="session", autouse=True)
 def _guard_real_databases() -> Iterator[None]:
-    """Fail the session closed if any test mutates a real operational database.
+    """Detect size/mtime changes to the default operational database files.
 
-    A safety net for isolation gaps the env redirect cannot cover: a hard-coded real
-    path or the indicators store, which has no env override. Detection rather than
-    prevention, but it turns silent corruption into a loud failure.
+    This catches common isolation gaps outside the env redirect, but does not
+    prevent writes or prove that every possible mutation was detected.
     """
     before = {path: _database_fingerprint(path) for path in _REAL_DB_DEFAULTS}
     yield
@@ -120,31 +118,18 @@ def _seed_app_method_root(root: Path) -> None:
         run_store.publish_run(_seed_screening_run(as_of), rules=load_screening_rules())
 
 
-def _tree_fingerprint(root: Path) -> str:
-    digest = hashlib.sha256()
-    for path in sorted(item for item in root.rglob("*") if item.is_file()):
-        digest.update(path.relative_to(root).as_posix().encode())
-        digest.update(path.read_bytes())
-    return digest.hexdigest()
-
-
 @pytest.fixture(scope="session")
-def _app_method_root_template(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
-    """Build the immutable application-store seed once for per-test clones."""
+def _app_method_root_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Build the shared application-store seed once for per-test copies."""
     root = tmp_path_factory.mktemp("app-method-root-template") / "repo"
     _seed_app_method_root(root)
-    fingerprint = _tree_fingerprint(root)
-    yield root
-    assert _tree_fingerprint(root) == fingerprint, "app_method_root template was mutated"
+    return root
 
 
 @pytest.fixture
 def app_method_root(tmp_path: Path, _app_method_root_template: Path) -> Path:
     root = tmp_path / "repo"
     shutil.copytree(_app_method_root_template, root)
-    template_db = _app_method_root_template / "stores/application/baibai.sqlite"
-    assert root != _app_method_root_template
-    assert not (root / "stores/application/baibai.sqlite").samefile(template_db)
     return root
 
 

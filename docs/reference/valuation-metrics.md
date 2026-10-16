@@ -182,9 +182,10 @@ EDINET `type=5` CSV-derived metrics から以下を抽出する。金額は nati
 財務本表の当期contextを先に一つの期間・連結範囲へ絞る。年次は `CurrentYearInstant/Duration`、半期は `InterimInstant/Duration`、旧四半期報告は `CurrentQuarterInstant` と累計の `CurrentYTDDuration` を使い、四半期単独期間を累計値へ混ぜない。個別は対応する `_NonConsolidatedMember` で区別する。セグメント等の追加次元・前期・翌期を当期全社値の穴埋めに使わず、辞書順によるcontext選択を行わない。CSVの「連結・個別」が「その他」でも財務本表のcontextで範囲を判断し、非財務の記述箇所へこの規則を一般化しない。根拠は[現行インスタンスガイド](https://disclosure2dl.edinet-fsa.go.jp/guide/static/disclosure/download/ESE140112.pdf#page=49)と[旧四半期のcontext定義](https://www.fsa.go.jp/search/20170228/2b.pdf#page=51)。
 
 - `cash`: 現金及び預金を優先し、該当科目がない場合に現金及び現金同等物を使う。両者をCSV行順で選ばない
-- `debt`: 短期借入金、1 年内返済予定長期借入金、社債、長期借入金、リース債務等の合算
+- `debt`: 短期借入金、1 年内返済予定長期借入金、社債、長期借入金、リース債務等の合算。意味を確認した標準科目の合算であり、名称だけが似た提出者独自の総額・別名を加えない。開示の全債務を網羅したことを保証する値ではない
 - `investment_securities`: BS の `InvestmentSecurities` exact local name だけを連結優先・単体 fallback で抽出する帳簿価額。関係会社株式、営業投資有価証券、包括的な `Securities`、売却損益・CF、text block は合算しない。CSV仕様で定義された ASCII `-` または数値ゼロだけを 0 とし、空欄や似た横棒を補完しない
 - `edinet_ocf_ttm`: EDINET CSV から抽出した営業活動によるキャッシュ・フロー
+- 減価償却加算は `DepreciationAndAmortizationOpeCF` と `AmortizationOfGoodwillOpeCF` の観測値を使う。両者は標準間接法CFの別の加算子であり、同義名として片方を落とさない。のれん償却だけで減価償却費を代用せず、減価償却費が不明ならEBITDAを算出しない。根拠のない短縮名・提出者独自名をさらに足さない。[標準タクソノミ](https://disclosure2.edinet-fsa.go.jp/weee0020.aspx) の2016・2026年版を照合した範囲の対応であり、IFRSの異なる要素名を自動的な別名としない。
 - `capex_ttm`: 有形固定資産・無形固定資産の取得支出。CFOと同じcontext・連結/単体の合算科目を優先し、合算がない場合は有形・無形の両科目が揃うときだけ足す。合算と内訳は二重計上せず、欠測をゼロにしない。符号は取得支出額の絶対値へ一度だけ正規化する
 - `net_cash = cash - debt`
 - `asset_backed_ratio = (net_cash + investment_securities) / market_cap`
@@ -320,7 +321,7 @@ J-Quantsの価格factorには分割・併合だけでなくライツイシュー
 
 - 2024 年以降、EDINET 単体では旧来の四半期報告書に依存した TTM 再構成ができない期間がある
 - TTM 品質を `exact` / `approximated` / `unavailable` で明示する
-- EDINET CSV抽出では年次報告（書類種別120/130）の取得値を`exact`、それ以外の取得値を`approximated`、算出不能を`unavailable`とする。半期のCFO・CapExを取得しても完全TTMへ合成・年率化しない。書類の`source_period_end`はフローのcontext終点とは限らない。
+- EDINET CSV抽出では年次報告（書類種別120/130）かつ書類metadataで12か月の期間を確認できるフローを`exact`、期間不明・短縮決算・それ以外の取得フローを`approximated`、算出不能を`unavailable`とする。時点残高のnet cashは12か月フローではなく、算出できる当期残高を`exact`、算出不能を`unavailable`とする。半期のCFO・CapExを取得しても完全TTMへ合成・年率化しない。書類の`source_period_end`はフローのcontext終点とは限らない。
 - 品質は供給元の計算・期間の区別であり、継続利益、資金の経済的持続性、株主回収可能性、倍率全体の正しさの認定ではない。`approximated`を一律に半期と解釈しない。
 - Webの同じStock Analysis rowにある`ttm_quality_ev_ebitda` / `ttm_quality_fcf`は、raw Stock Analysisの`ttm_quality.ev_ebitda` / `fcf_yield`をそのまま投影する。採用元の品質がなければ`null`で、別世代・別sourceから補わず、この注記だけで候補理由を変えない。
 - Web DTOでは2項目を必須nullable fieldとして明示する。Researchは選択したraw Stock Analysisのnull・field欠落を維持する。保存rawとWeb表示のshapeを区別し、旧canonicalとhashを変更しない。
