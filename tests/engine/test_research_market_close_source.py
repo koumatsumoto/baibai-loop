@@ -61,7 +61,9 @@ def test_market_close_source_never_uses_older_ticker_bar_when_market_wide_date_i
 
 
 @pytest.mark.parametrize("factor", [None, 0.0, 0.5, 1.0, 2.0])
-def test_raw_close_is_available_independently_of_adjustment_metadata(tmp_path: Path, factor) -> None:
+def test_raw_close_is_available_independently_of_adjustment_metadata(
+    tmp_path: Path, factor
+) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, factor)])
 
@@ -265,12 +267,12 @@ def test_market_read_failure_is_not_normal_missing_data(tmp_path, operation, sta
         if operation == "quantity":
             return market_basis_is_confirmed(
                 basis="shares",
-                sqlite_path=path, ticker="2331",
-                from_date=date(2026, 7, 9), through_date=date(2026, 7, 10),
+                sqlite_path=path,
+                ticker="2331",
+                from_date=date(2026, 7, 9),
+                through_date=date(2026, 7, 10),
             )
-        return next_order_session(
-            sqlite_path=path, now=datetime(2026, 7, 13, 9, tzinfo=JST)
-        )
+        return next_order_session(sqlite_path=path, now=datetime(2026, 7, 13, 9, tzinfo=JST))
 
     if state == "absent":
         assert read() is (False if operation == "quantity" else None)
@@ -298,20 +300,29 @@ def test_position_share_units_and_price_comparison_have_distinct_basis(
     tmp_path, kind, factor, shares_unchanged, price_unchanged
 ):
     path = tmp_path / "market.sqlite"
-    seed_daily_bars(path, [
-        ("2331", "2026-07-09", 1000.0, 1.0),
-        ("2331", "2026-07-10", 800.0, factor),
-    ])
+    seed_daily_bars(
+        path,
+        [
+            ("2331", "2026-07-09", 1000.0, 1.0),
+            ("2331", "2026-07-10", 800.0, factor),
+        ],
+    )
     with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute(
             "UPDATE jquants_daily_bars SET ex_right_type = ? WHERE traded_at = ?",
             (kind, "2026-07-10"),
         )
     for basis, expected in (("shares", shares_unchanged), ("price", price_unchanged)):
-        assert market_basis_is_confirmed(
-            sqlite_path=path, ticker="2331", basis=basis,
-            from_date=date(2026, 7, 9), through_date=date(2026, 7, 10),
-        ) is expected
+        assert (
+            market_basis_is_confirmed(
+                sqlite_path=path,
+                ticker="2331",
+                basis=basis,
+                from_date=date(2026, 7, 9),
+                through_date=date(2026, 7, 10),
+            )
+            is expected
+        )
 
 
 @pytest.mark.parametrize("basis", ["price", "shares"])
@@ -319,8 +330,9 @@ def test_position_share_units_and_price_comparison_have_distinct_basis(
 def test_comparison_excludes_the_starting_sessions_adjustment(tmp_path, basis, factor):
     path = tmp_path / "market.sqlite"
     start, end = date(2026, 7, 9), date(2026, 7, 10)
-    seed_daily_bars(path, [("2331", start.isoformat(), 1000.0, factor),
-                           ("2331", end.isoformat(), 1010.0, 1.0)])
+    seed_daily_bars(
+        path, [("2331", start.isoformat(), 1000.0, factor), ("2331", end.isoformat(), 1010.0, 1.0)]
+    )
     assert market_basis_is_confirmed(
         basis=basis, sqlite_path=path, ticker="2331", from_date=start, through_date=start
     )

@@ -342,6 +342,9 @@ ignore_imports = [
   "baibai_engine.research.selection_query -> baibai_engine.screening.discovery.projection",
   "baibai_engine.research.selection -> baibai_engine.market.ticker",
   "baibai_engine.research.assessment -> baibai_engine.market.ticker",
+  # Pure cash-equity cutoff only; research still cannot import market acquisition.
+  "baibai_engine.research.assessment -> baibai_engine.market.sessions",
+  "baibai_engine.research.proposal_service -> baibai_engine.market.sessions",
   "baibai_engine.research.proposal -> baibai_engine.market.ticker",
   "baibai_engine.research.proposal_conditions -> baibai_engine.market.universe",
 ]

@@ -400,14 +400,20 @@ def _build_period(
     staged.parent.mkdir(parents=True, exist_ok=True)
     provisional.replace(staged)
     lake_object = LakeObject(
-        key=object_key, sha256=content_sha256, bytes=staged.stat().st_size,
-        rows=count, min_key=min_key, max_key=max_key,
+        key=object_key,
+        sha256=content_sha256,
+        bytes=staged.stat().st_size,
+        rows=count,
+        min_key=min_key,
+        max_key=max_key,
     )
     return _BuiltPartition(
         period=period,
         staged_path=staged,
         manifest=PartitionManifest(
-            values=period_values(dataset, period), objects=(lake_object,), sources=sources,
+            values=period_values(dataset, period),
+            objects=(lake_object,),
+            sources=sources,
         ),
     )
 

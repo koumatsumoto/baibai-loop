@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import pytest
 from tests.helpers.screening_sqlite import insert_financial_record, make_master_records
 
 from baibai_engine.foundation.time import JST
@@ -148,9 +149,7 @@ class MasterSnapshotStoreTests(unittest.TestCase):
         asof = date(2026, 5, 29)
         records = make_master_records(asof, secondary_class_count=2)
         records[0].update(CoNameEn="Source name", S17="1", ScaleCat="TOPIX Small", Mrgn="2")
-        records.append(
-            dict(records[0], Code="90000", CoName="ETF native record", ProdCat="014")
-        )
+        records.append(dict(records[0], Code="90000", CoName="ETF native record", ProdCat="014"))
         validated = validate_master_snapshot(records, asof)
         self.assertEqual(validated.persisted_count, 2503)
         self.assertEqual(json.loads(validated.rows[0][2]), records[0])
@@ -164,14 +163,15 @@ class MasterSnapshotStoreTests(unittest.TestCase):
                     "SELECT security_code, record_json FROM jquants_master_snapshots "
                     "ORDER BY security_code"
                 ).fetchall()
-            self.assertEqual({code: json.loads(payload) for code, payload in persisted},
-                             {row["Code"]: row for row in records})
+            self.assertEqual(
+                {code: json.loads(payload) for code, payload in persisted},
+                {row["Code"]: row for row in records},
+            )
             projected = read_eq_master_exact(db, asof)
             assert projected is not None
             self.assertEqual(len(projected), 2501)
             self.assertEqual(sum(row.is_common_stock for row in projected), 2500)
             self.assertFalse(next(row for row in projected if row.ticker == "9000").is_common_stock)
-
 
     def test_two_dates_are_append_only_and_same_date_is_idempotent(self) -> None:
         first = date(2026, 5, 29)
@@ -621,10 +621,7 @@ def _snapshot_state(db: Path, asof: date) -> tuple[tuple[object, ...], tuple[obj
 def test_malformed_stored_master_is_a_source_error_not_an_empty_snapshot():
     from baibai_engine.external_assessment.tradingview.diagnostics import failure_category
 
-    try:
+    with pytest.raises(JQuantsProviderError) as caught:
         masters_from_payloads(["{broken"])
-    except JQuantsProviderError as exc:
-        assert failure_category(exc) == "storage"
-        assert isinstance(exc.__cause__, json.JSONDecodeError)
-    else:
-        raise AssertionError("Malformed stored master must not become an empty universe")
+    assert failure_category(caught.value) == "storage"
+    assert isinstance(caught.value.__cause__, json.JSONDecodeError)

@@ -213,9 +213,7 @@ def _preview_holding(
         position=position,
         as_of=now.astimezone(JST).date(),
         quote=quote,
-        price_basis_confirmed=assessment_quote_basis(
-            pair.document, quote, sqlite_path=sqlite_path
-        ),
+        price_basis_confirmed=assessment_quote_basis(pair.document, quote, sqlite_path=sqlite_path),
         remaining_reward=item.remaining_reward,
         case_reassessment_reason=item.case_reassessment_reason,
         primary_verified=pair.review.primary_source_check == "verified",
@@ -369,9 +367,8 @@ def preview_current_terms(
                             message="保存条件は未確定です。条件を確定した新しい提案とReviewが必要です。",
                         )
                     )
-                elif (
-                    item.terms.target_session
-                    != next_order_session(sqlite_path=sqlite_path, now=now)
+                elif item.terms.target_session != next_order_session(
+                    sqlite_path=sqlite_path, now=now
                 ):
                     blockers.append(
                         GateReason(

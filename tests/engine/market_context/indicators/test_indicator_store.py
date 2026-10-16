@@ -183,13 +183,15 @@ class IndicatorsDBTests(unittest.TestCase):
                         source_key="jquants_flows:TSEPrime",
                         observed_at=published,
                         fetched_at=datetime.combine(published, datetime.min.time(), UTC),
-                        records=[{
-                            "Section": "TSEPrime",
-                            "PubDate": published.isoformat(),
-                            "StDate": "2024-08-19",
-                            "EnDate": "2024-08-23",
-                            "FrgnBal": value,
-                        }],
+                        records=[
+                            {
+                                "Section": "TSEPrime",
+                                "PubDate": published.isoformat(),
+                                "StDate": "2024-08-19",
+                                "EnDate": "2024-08-23",
+                                "FrgnBal": value,
+                            }
+                        ],
                     )
                 conn.commit()
             finally:

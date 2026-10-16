@@ -24,9 +24,11 @@ def test_read_connections_cannot_write_and_missing_reads_create_nothing(tmp_path
     assert not root.exists()
     path = _snapshot(root)
     before = path.read_bytes()
-    with closing(store._connect(root)) as connection:
-        with pytest.raises(sqlite3.OperationalError, match="readonly"):
-            connection.execute("DELETE FROM cohort")
+    with (
+        closing(store._connect(root)) as connection,
+        pytest.raises(sqlite3.OperationalError, match="readonly"),
+    ):
+        connection.execute("DELETE FROM cohort")
     assert path.read_bytes() == before
 
 
@@ -60,7 +62,9 @@ def test_failed_schema_open_closes_the_connection(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("error", [OSError("disk full"), KeyboardInterrupt()])
-def test_failed_publication_removes_temporary_copy_without_replacing_current(tmp_path, monkeypatch, error):
+def test_failed_publication_removes_temporary_copy_without_replacing_current(
+    tmp_path, monkeypatch, error
+):
     root, built = tmp_path / "current", tmp_path / "built"
     current = _snapshot(root)
     _snapshot(built)

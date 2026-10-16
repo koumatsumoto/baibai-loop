@@ -192,20 +192,26 @@ class FinancialSummaryPeriodResolutionTests(unittest.TestCase):
         self.assertEqual(snapshot.latest_financial_disclosure_date, current.disclosed_at)
         self.assertEqual(snapshot.sales, current.sales)
 
-
     def test_future_reported_actual_period_is_not_an_exact_twelve_month_flow(self) -> None:
         current = _summary(
-            "130A", date(2026, 6, 1), fiscal_period="FY",
+            "130A",
+            date(2026, 6, 1),
+            fiscal_period="FY",
             fiscal_year_end=date(2026, 12, 31),
-            period_start=date(2026, 1, 1), period_end=date(2026, 12, 31),
-            sales=120.0, cfo=12.0, operating_profit=18.0, profit=10.0,
+            period_start=date(2026, 1, 1),
+            period_end=date(2026, 12, 31),
+            sales=120.0,
+            cfo=12.0,
+            operating_profit=18.0,
+            profit=10.0,
         )
         asof = date(2026, 6, 2)
         snapshot = build_metrics(
             asof_date=asof,
             securities_by_ticker={"130A": _security()},
             bars_by_ticker={"130A": _daily_bars("130A", asof, 40)},
-            summaries_by_ticker={"130A": [current]}, edinet_by_ticker={},
+            summaries_by_ticker={"130A": [current]},
+            edinet_by_ticker={},
         ).financials["130A"]
         # Keep the reported value, without certifying the future-labelled interval.
         self.assertEqual(snapshot.sales, 120.0)
@@ -218,16 +224,28 @@ class FinancialSummaryPeriodResolutionTests(unittest.TestCase):
 
     def test_short_year_does_not_reuse_full_prior_year_via_matching_fy_label(self) -> None:
         prior = _summary(
-            "130A", date(2026, 2, 1), fiscal_period="FY",
+            "130A",
+            date(2026, 2, 1),
+            fiscal_period="FY",
             fiscal_year_end=date(2025, 12, 31),
-            period_start=date(2025, 1, 1), period_end=date(2025, 12, 31),
-            eps_ttm=10.0, sales=100.0, cfo=10.0, operating_profit=20.0,
+            period_start=date(2025, 1, 1),
+            period_end=date(2025, 12, 31),
+            eps_ttm=10.0,
+            sales=100.0,
+            cfo=10.0,
+            operating_profit=20.0,
         )
         current = _summary(
-            "130A", date(2027, 2, 1), fiscal_period="FY",
+            "130A",
+            date(2027, 2, 1),
+            fiscal_period="FY",
             fiscal_year_end=date(2026, 12, 31),
-            period_start=date(2026, 4, 1), period_end=date(2026, 12, 31),
-            eps_ttm=11.0, sales=110.0, cfo=11.0, operating_profit=22.0,
+            period_start=date(2026, 4, 1),
+            period_end=date(2026, 12, 31),
+            eps_ttm=11.0,
+            sales=110.0,
+            cfo=11.0,
+            operating_profit=22.0,
         )
         asof = date(2027, 2, 2)
         for rows in ([prior, current], [current, prior]):
@@ -236,7 +254,8 @@ class FinancialSummaryPeriodResolutionTests(unittest.TestCase):
                     asof_date=asof,
                     securities_by_ticker={"130A": _security()},
                     bars_by_ticker={"130A": _daily_bars("130A", asof, 40)},
-                    summaries_by_ticker={"130A": rows}, edinet_by_ticker={},
+                    summaries_by_ticker={"130A": rows},
+                    edinet_by_ticker={},
                 ).financials["130A"]
                 self.assertEqual(snapshot.sales, 110.0)
                 self.assertIsNone(snapshot.sales_yoy)

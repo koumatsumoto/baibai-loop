@@ -88,8 +88,7 @@ def test_current_long_term_borrowing_label_keeps_the_one_year_principal():
     extracted = facts("S100YCUF")
     borrowings = [r for r in extracted.debt if r.debt_category != "bonds"]
     assert {
-        (r.debt_category, r.due_from_months, r.due_to_months): r.principal
-        for r in borrowings
+        (r.debt_category, r.due_from_months, r.due_to_months): r.principal for r in borrowings
     } == {
         ("short_term_borrowings", 0, 12): 15750000000,
         ("long_term_borrowings", 0, 12): 10533000000,
@@ -519,9 +518,9 @@ def test_metadata_edit_clears_optional_values_in_raw_and_stored_rows(tmp_path, t
                 path,
                 day,
                 [native],
-                response_json=json.dumps({
-                    "metadata": {"resultset": {"count": 1}}, "results": [native]
-                }),
+                response_json=json.dumps(
+                    {"metadata": {"resultset": {"count": 1}}, "results": [native]}
+                ),
             )
             stored = read_edinet_documents(path, day)
             assert stored is not None

@@ -68,7 +68,7 @@ if [[ "$(uv --version | cut -d ' ' -f 2)" != "$required_uv" ]]; then
 fi
 uv python install "$required_python"
 project_python=$(uv python find --managed-python --no-project "$required_python")
-uv sync --frozen --all-groups --python "$project_python"
+uv sync --locked --all-groups --python "$project_python"
 npm --prefix web/frontend ci --no-audit --no-fund
 npm --prefix web/edge ci --no-audit --no-fund
 npm --prefix web/frontend run build

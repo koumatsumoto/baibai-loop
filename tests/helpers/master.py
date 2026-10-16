@@ -16,8 +16,12 @@ def insert_master_rows(
     for day, ticker, name, market, sector, product_category in rows:
         code = f"{ticker}0"
         record = {
-            "Date": day, "Code": code, "CoName": name, "MktNm": market,
-            "S33Nm": sector, "ProdCat": product_category,
+            "Date": day,
+            "Code": code,
+            "CoName": name,
+            "MktNm": market,
+            "S33Nm": sector,
+            "ProdCat": product_category,
         }
         records.append((day, code, json.dumps(record, ensure_ascii=False)))
     connection.executemany(

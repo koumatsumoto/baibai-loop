@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from collections import defaultdict
 import csv
 import io
 import zipfile
+from collections import defaultdict
 from datetime import date
 
 from ..definitions import SeriesDefinition
@@ -75,9 +75,7 @@ class EcbFxSource:
         return parse_ecb_reference_csv(text, start=start, end=end)
 
 
-def parse_ecb_reference_csv(
-    text: str, *, start: date, end: date
-) -> NativeRecords:
+def parse_ecb_reference_csv(text: str, *, start: date, end: date) -> NativeRecords:
     reader = csv.DictReader(io.StringIO(text))
     if "Date" not in (reader.fieldnames or ()):
         raise IndicatorsProviderError("ECB FX CSV missing Date column")

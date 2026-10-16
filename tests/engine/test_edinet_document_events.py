@@ -69,10 +69,7 @@ def test_native_event_omission_and_null_have_the_same_meaning_after_storage(
     }
     if metadata:
         edit.update(
-            {
-                key: origin[key]
-                for key in ("docTypeCode", "submitDateTime", "csvFlag", "xbrlFlag")
-            }
+            {key: origin[key] for key in ("docTypeCode", "submitDateTime", "csvFlag", "xbrlFlag")}
         )
     if explicit_null:
         edit.update(parentDocID=None, periodEnd=None)
@@ -88,7 +85,8 @@ def test_native_event_omission_and_null_have_the_same_meaning_after_storage(
         if reader == "cached":
             originals = read_edinet_documents(path, ORIGIN_DAY)
             edits = read_edinet_documents(path, EDIT_DAY)
-            assert originals is not None and edits is not None
+            assert originals is not None
+            assert edits is not None
             documents = [*originals, *edits]
         else:
             documents = document_inventory(path, EDIT_DAY)
@@ -110,12 +108,14 @@ def test_normalized_only_nulls_do_not_claim_original_key_presence(tmp_path):
     store_edinet_documents(
         path,
         EDIT_DAY,
-        [{
-            "seqNumber": 2,
-            "docID": origin["docID"],
-            "docInfoEditStatus": "1",
-            "parentDocID": None,
-        }],
+        [
+            {
+                "seqNumber": 2,
+                "docID": origin["docID"],
+                "docInfoEditStatus": "1",
+                "parentDocID": None,
+            }
+        ],
     )
     # Without the native response, this NULL cannot establish an explicit clearing.
     documents = document_inventory(path, EDIT_DAY)
@@ -191,9 +191,7 @@ def test_native_record_must_match_the_stored_date_position_and_document(tmp_path
         path,
         ORIGIN_DAY,
         [origin],
-        response_json=json.dumps({
-            "metadata": {"resultset": {"count": 1}}, "results": [unrelated]
-        }),
+        response_json=json.dumps({"metadata": {"resultset": {"count": 1}}, "results": [unrelated]}),
     )
     with pytest.raises(EDINETProviderError, match="no matching native row"):
         read_edinet_documents(path, ORIGIN_DAY)

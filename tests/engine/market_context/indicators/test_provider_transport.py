@@ -273,10 +273,16 @@ class IndicatorsProviderParserTests(TestCase):
     def test_parse_ecb_reference_csv_preserves_all_native_currencies(self) -> None:
         text = "Date,USD,JPY,AUD,CHF\n2026-05-08,1.1761,184.37,1.6259,N/A\n"
         records = parse_ecb_reference_csv(text, start=date(2026, 5, 8), end=date(2026, 5, 8))
-        self.assertEqual(records[date(2026, 5, 8)][0], {
-            "Date": "2026-05-08", "USD": "1.1761", "JPY": "184.37",
-            "AUD": "1.6259", "CHF": "N/A",
-        })
+        self.assertEqual(
+            records[date(2026, 5, 8)][0],
+            {
+                "Date": "2026-05-08",
+                "USD": "1.1761",
+                "JPY": "184.37",
+                "AUD": "1.6259",
+                "CHF": "N/A",
+            },
+        )
 
     def test_parse_ecb_reference_csv_rejects_missing_date_column(self) -> None:
         with self.assertRaisesRegex(IndicatorsProviderError, "missing Date column"):

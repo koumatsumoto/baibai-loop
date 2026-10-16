@@ -25,10 +25,13 @@ def read_estat_series(
     )
     return tuple(
         reading_observation(
-            series, observed_at=snapshot.observed_at, value=values[snapshot.observed_at],
+            series,
+            observed_at=snapshot.observed_at,
+            value=values[snapshot.observed_at],
             vintage_at=snapshot.fetched_at,
         )
-        for snapshot in snapshots if snapshot.observed_at in values
+        for snapshot in snapshots
+        if snapshot.observed_at in values
     )
 
 
@@ -42,9 +45,7 @@ def estat_values(records: NativeRecords, *, final_only: bool = False) -> dict[da
     observations: dict[date, float] = {}
     units: set[str] = set()
     for observed_at, rows in sorted(records.items()):
-        selected_rows = [
-            row for row in rows if not final_only or row.get("@isProvisional") == "0"
-        ]
+        selected_rows = [row for row in rows if not final_only or row.get("@isProvisional") == "0"]
         units.update(str(row.get("@unit")) for row in selected_rows)
         values = {_value(row.get("$")) for row in selected_rows}
         if not values or None in values:

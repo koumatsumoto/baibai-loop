@@ -21,7 +21,7 @@ source_paths:
 
 ## 2. Dependency policy
 
-依存は`pyproject.toml`と`uv.lock`で管理する。開発環境は`uv sync --frozen --all-groups`で揃える。MCP SDKはTradingView collectorのruntime依存とする。
+依存は`pyproject.toml`と`uv.lock`で管理する。開発環境は`uv sync --locked --all-groups`で揃える。MCP SDKはTradingView collectorのruntime依存とする。
 
 <a id="cloud-development-boundary"></a>
 
@@ -166,14 +166,14 @@ CodeQLは現行構成では採用しない。scanner追加は既存検査との�
 
 ## 9. CI and local parity
 
-通常の整形・lint・型・契約・テスト・依存検査は、対象HEADのCI結果で確認する。完全local gateをpush前に重複実行することは必須としない。失敗時は原因を修正して新しいHEADのCIを再確認し、前のcommitの成功を流用しない。
+作業中はCI結果の確認・待機で作業を止めず、マージ前に最終HEADの整形・lint・型・契約・テスト・依存検査を確認する。完全local gateをpush前に重複実行することは必須としない。最終確認で失敗があれば原因を修正し、新しいHEADのCI成功を待つ。前のcommitの成功を流用しない。
 
 以下は原因調査や必要な事前確認で使うローカル相当commandである。各blockはrepository rootから独立して実行し、非zeroなら原因を直す。実際のtrigger/stepは`.github/workflows/`を参照する。
 
 ```bash
 (
   set -e
-  uv sync --frozen --all-groups
+  uv sync --locked --all-groups
   uv run ruff format --check .
   uv run ruff check .
   uv run mypy

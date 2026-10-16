@@ -745,7 +745,10 @@ def read_eq_master_exact(sqlite_path: Path, asof: date) -> list[SecurityMaster] 
     finally:
         conn.close()
     masters = master_contract.masters_from_payloads([row[0] for row in rows])
-    if sum(security.is_common_stock for security in masters) < master_contract.MIN_COMMON_STOCK_MASTER_ROWS:
+    if (
+        sum(security.is_common_stock for security in masters)
+        < master_contract.MIN_COMMON_STOCK_MASTER_ROWS
+    ):
         return None
     return masters
 

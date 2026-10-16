@@ -334,9 +334,7 @@ class ScreeningProviderTests(unittest.TestCase):
             cached = cache / "edinet/csv_zips/S100TEST.zip"
             cached.parent.mkdir(parents=True)
             cached.write_text('{"StatusCode":"429","message":"Too Many Requests"}')
-            expected = _edinet_csv_zip(
-                [("jpcrp_cor:NetSales", "CurrentYearDuration", "1000")]
-            )
+            expected = _edinet_csv_zip([("jpcrp_cor:NetSales", "CurrentYearDuration", "1000")])
             provider = EDINETProvider("key", cache, session=_SequenceBytesSession([expected]))
 
             content = provider.download_csv_zip("S100TEST")
@@ -347,9 +345,7 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_download_csv_zip_retries_json_rate_limit_without_caching_it(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp)
-            expected = _edinet_csv_zip(
-                [("jpcrp_cor:NetSales", "CurrentYearDuration", "1000")]
-            )
+            expected = _edinet_csv_zip([("jpcrp_cor:NetSales", "CurrentYearDuration", "1000")])
             provider = EDINETProvider(
                 "key",
                 cache,
@@ -370,9 +366,7 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_download_csv_zip_retries_transient_connection_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp)
-            expected = _edinet_csv_zip(
-                [("jpcrp_cor:NetSales", "CurrentYearDuration", "1000")]
-            )
+            expected = _edinet_csv_zip([("jpcrp_cor:NetSales", "CurrentYearDuration", "1000")])
             session = _TransientThenBytesSession(content=expected)
             provider = EDINETProvider("key", cache, session=session)
 

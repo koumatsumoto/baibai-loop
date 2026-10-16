@@ -27,7 +27,18 @@ FRB_H15_PACKAGE_SERIES = "bf17364827e38702b42a58cf8eaa3f78"
 
 MULTPL_SPEC = ProviderSpec(name="multpl", all_history_start=date(1871, 1, 1))
 
-NATIVE_BULK_PROVIDERS = frozenset({"cftc", "ecb_fx", "jquants_flows", "jquants_indices", "estat_dashboard", "estat", "frb_h15", "multpl"})
+NATIVE_BULK_PROVIDERS = frozenset(
+    {
+        "cftc",
+        "ecb_fx",
+        "jquants_flows",
+        "jquants_indices",
+        "estat_dashboard",
+        "estat",
+        "frb_h15",
+        "multpl",
+    }
+)
 NATIVE_PROVIDERS = NATIVE_BULK_PROVIDERS | {"jquants_options"}
 
 
@@ -79,14 +90,14 @@ def point_in_time_providers() -> frozenset[str]:
 
 __all__ = [
     "CFTC_SPEC",
+    "DERIVED_SPEC",
     "ECB_FX_SPEC",
+    "JQUANTS_FLOWS_SPEC",
+    "JQUANTS_INDICES_SPEC",
+    "JQUANTS_OPTIONS_SPEC",
     "MULTPL_SPEC",
     "NATIVE_BULK_PROVIDERS",
     "NATIVE_PROVIDERS",
     "native_source_key",
-    "DERIVED_SPEC",
-    "JQUANTS_FLOWS_SPEC",
-    "JQUANTS_INDICES_SPEC",
-    "JQUANTS_OPTIONS_SPEC",
     "point_in_time_providers",
 ]

@@ -287,7 +287,10 @@ def test_ledger_persists_capital_without_a_price_table(tmp_path):
     seed_ledger(path, source)
     assert LedgerStoreService(path).load() == source
     with closing(sqlite3.connect(path)) as connection:
-        assert connection.execute(
-            "SELECT name FROM sqlite_schema WHERE name='ledger_market_price'"
-        ).fetchone() is None
+        assert (
+            connection.execute(
+                "SELECT name FROM sqlite_schema WHERE name='ledger_market_price'"
+            ).fetchone()
+            is None
+        )
     assert "market_prices" not in source.model_dump()

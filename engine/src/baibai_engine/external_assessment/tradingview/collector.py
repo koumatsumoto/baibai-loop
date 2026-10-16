@@ -35,8 +35,8 @@ from baibai_engine.external_assessment.tradingview.observations import (
     ProviderPayloadError,
     normalize_batch,
 )
-from baibai_engine.market.universe import ELIGIBLE_MARKETS
 from baibai_engine.market.master_snapshot import masters_from_payloads
+from baibai_engine.market.universe import ELIGIBLE_MARKETS
 from baibai_engine.storage.observations.schema import (
     SQLiteSchemaError,
     open_connection,

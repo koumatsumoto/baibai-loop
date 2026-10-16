@@ -252,7 +252,10 @@ class EDINETProvider:
             cache.unlink()
         self._raise_if_cache_only(f"edinet_{source_name}_zip", safe_id)
         query = urlencode(
-            {"type": source_type, "Subscription-Key": self._require_api_key("download_document_zip")}
+            {
+                "type": source_type,
+                "Subscription-Key": self._require_api_key("download_document_zip"),
+            }
         )
         content = self._request_bytes(f"{EDINET_API_BASE}/documents/{safe_id}?{query}")
         if not _is_zip_bytes(content):
@@ -270,7 +273,10 @@ class EDINETProvider:
         from baibai_engine.market.edinet_sources import retain_source_archive
 
         return retain_source_archive(
-            self._sqlite_path, doc_id, source_type, content,
+            self._sqlite_path,
+            doc_id,
+            source_type,
+            content,
             stored_on=datetime.now(UTC).date(),
         )
 

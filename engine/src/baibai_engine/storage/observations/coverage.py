@@ -379,9 +379,7 @@ def _range_coverage_key(operation: str, start: date, end: date) -> str:
     return f"{operation}:{start.isoformat()}..{end.isoformat()}"
 
 
-_RANGE_SOURCES_REQUIRING_ROWS = frozenset(
-    {"jquants_daily_bars", "jquants_market_calendar"}
-)
+_RANGE_SOURCES_REQUIRING_ROWS = frozenset({"jquants_daily_bars", "jquants_market_calendar"})
 
 
 def merge_date_ranges(ranges: Iterable[tuple[date, date]]) -> tuple[tuple[date, date], ...]:

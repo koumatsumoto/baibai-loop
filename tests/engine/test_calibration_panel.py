@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from tests.helpers.master import insert_master_rows
-
-
 import contextlib
 import io
 import sqlite3
@@ -15,6 +12,8 @@ from datetime import date, timedelta
 from hashlib import sha256
 from pathlib import Path
 from unittest.mock import patch
+
+from tests.helpers.master import insert_master_rows
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -115,7 +114,9 @@ class CalibrationPanelTest(unittest.TestCase):
             build_calibration_fixture_sqlite(sqlite_path)
             conn = open_connection(sqlite_path)
             try:
-                insert_master_rows(conn, [('2026-06-01', '1306', '指数連動 ETF', 'その他', 'その他', '014')])
+                insert_master_rows(
+                    conn, [("2026-06-01", "1306", "指数連動 ETF", "その他", "その他", "014")]
+                )
                 conn.commit()
             finally:
                 conn.close()
@@ -517,7 +518,9 @@ class CalibrationPanelTest(unittest.TestCase):
             build_calibration_fixture_sqlite(sqlite_path)
             conn = open_connection(sqlite_path)
             try:
-                insert_master_rows(conn, [('2026-06-01', '9003', '併合銘柄', 'スタンダード', 'サービス業', '011')])
+                insert_master_rows(
+                    conn, [("2026-06-01", "9003", "併合銘柄", "スタンダード", "サービス業", "011")]
+                )
                 for record in [
                     {
                         "Code": "90030",
@@ -925,7 +928,9 @@ class CalibrationPanelTest(unittest.TestCase):
             build_calibration_fixture_sqlite(sqlite_path)
             conn = open_connection(sqlite_path)
             try:
-                insert_master_rows(conn, [('2026-06-01', '9003', '履歴不足', 'プライム', 'サービス業', '011')])
+                insert_master_rows(
+                    conn, [("2026-06-01", "9003", "履歴不足", "プライム", "サービス業", "011")]
+                )
                 conn.execute(
                     "UPDATE source_coverage SET record_count = 3 "
                     "WHERE source = 'jquants_master_snapshots'"

@@ -48,9 +48,7 @@ def load_ledger_document(connection: sqlite3.Connection) -> PortfolioLedgerDocum
         return None
     meta = connection.execute("SELECT payload FROM ledger_meta WHERE singleton = 1").fetchone()
     if meta is None:
-        orphaned = connection.execute(
-            "SELECT EXISTS(SELECT 1 FROM ledger_event)"
-        ).fetchone()[0]
+        orphaned = connection.execute("SELECT EXISTS(SELECT 1 FROM ledger_event)").fetchone()[0]
         if orphaned:
             raise LedgerConflictError("ledger rows exist without metadata")
         return None

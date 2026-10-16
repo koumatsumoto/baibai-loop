@@ -282,8 +282,7 @@ def test_readonly_market_readers_escape_uri_filename(tmp_path: Path, name: str) 
     assert quote is not None
     assert quote.close_yen == 1000.0
     assert market_basis_is_confirmed(
-        basis="shares",
-        sqlite_path=path, ticker="2331", from_date=day, through_date=day
+        basis="shares", sqlite_path=path, ticker="2331", from_date=day, through_date=day
     )
     assert next_order_session(sqlite_path=path, now=now) == date(2026, 10, 15)
     assert latest_market_data_date(path) == day

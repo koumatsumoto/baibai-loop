@@ -105,10 +105,10 @@ def test_exception_after_ledger_append_rolls_back_binding_and_events(
     service, path = _service(tmp_path)
     draft = _draft(service)
 
-    def fail_prices(*_args):
+    def fail_meta(*_args):
         raise RuntimeError("synthetic failure after append")
 
-    monkeypatch.setattr("baibai_engine.position.store._replace_prices", fail_prices)
+    monkeypatch.setattr("baibai_engine.position.store._replace_meta", fail_meta)
     with pytest.raises(RuntimeError, match="after append"):
         apply_draft(service, draft, human_confirmed=True)
     assert service.load() == draft.source

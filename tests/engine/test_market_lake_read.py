@@ -1309,15 +1309,21 @@ class TestHydrate:
         try:
             for name, rows in expected_rows.items():
                 dataset = LAKE_DATASETS[name]
-                assert filled.execute(
-                    f"SELECT * FROM {dataset.sqlite_table} "
-                    f"ORDER BY {', '.join(dataset.primary_key)}"
-                ).fetchall() == rows
+                assert (
+                    filled.execute(
+                        f"SELECT * FROM {dataset.sqlite_table} "
+                        f"ORDER BY {', '.join(dataset.primary_key)}"
+                    ).fetchall()
+                    == rows
+                )
             # The coverage ledger is what the lake does not own, and the fill has to be
             # the reason it survives rather than an accident of the copy.
-            assert filled.execute(
-                "SELECT * FROM source_coverage ORDER BY source, coverage_key"
-            ).fetchall() == expected_coverage
+            assert (
+                filled.execute(
+                    "SELECT * FROM source_coverage ORDER BY source, coverage_key"
+                ).fetchall()
+                == expected_coverage
+            )
             assert filled.execute("PRAGMA user_version").fetchone()[0] == expected_version
             for table, shape in expected_shape.items():
                 assert _table_shape(filled, table) == shape

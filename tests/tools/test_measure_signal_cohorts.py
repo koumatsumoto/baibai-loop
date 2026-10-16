@@ -378,7 +378,10 @@ def test_missing_upside_does_not_enter_below_cap_group() -> None:
 
 def test_missing_er_does_not_remove_known_share_change_from_its_comparison():
     stored = panel_row(
-        "2024-01-31", "1111", er_annual=None, net_share_change_yoy=-0.20,
+        "2024-01-31",
+        "1111",
+        er_annual=None,
+        net_share_change_yoy=-0.20,
         in_population=True,
     )
     row = measure_signal_cohorts._panel_row(stored, {(stored.asof, stored.ticker): {"1y": 0.1}})

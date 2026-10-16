@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from tests.helpers.master import insert_master_rows
-
-
 import argparse
 import io
 import tempfile
@@ -14,6 +11,7 @@ from pathlib import Path
 import pytest
 from tests.engine.test_screening_run_store import _run as _stock_run_payload
 from tests.helpers.db_seed import seed_ledger
+from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_run import stock_analysis as stock_analysis
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
@@ -37,8 +35,10 @@ def _insert_bars(sqlite_path: Path, ticker: str, closes: list[float], *, end: da
 def _insert_reference_rows(sqlite_path: Path) -> None:
     conn = open_connection(sqlite_path)
     try:
-        insert_master_rows(conn, [('2026-05-28', 'AAAA', 'テスト製作所', 'プライム', '機械', '011')])
-        insert_master_rows(conn, [('2026-05-28', 'BBBB', '同業ペア', 'プライム', '機械', '011')])
+        insert_master_rows(
+            conn, [("2026-05-28", "AAAA", "テスト製作所", "プライム", "機械", "011")]
+        )
+        insert_master_rows(conn, [("2026-05-28", "BBBB", "同業ペア", "プライム", "機械", "011")])
         conn.execute(
             "INSERT OR REPLACE INTO jpx_earnings_calendar"
             "(announcement_date, ticker) VALUES ('2026-06-10', 'AAAA')"
@@ -291,7 +291,13 @@ class BuildTickerProfileTests(unittest.TestCase):
             _insert_reference_rows(sqlite_path)
             conn = open_connection(sqlite_path)
             try:
-                insert_master_rows(conn, [('2026-05-29', 'AAAA', 'テスト製作所', 'プライム', '機械', '011'), ('2026-05-29', 'CCCC', '現構成ペア', 'プライム', '機械', '011')])
+                insert_master_rows(
+                    conn,
+                    [
+                        ("2026-05-29", "AAAA", "テスト製作所", "プライム", "機械", "011"),
+                        ("2026-05-29", "CCCC", "現構成ペア", "プライム", "機械", "011"),
+                    ],
+                )
                 conn.commit()
             finally:
                 conn.close()
@@ -532,7 +538,9 @@ def test_sector_uses_only_peers_with_exact_target_interval(tmp_path, target_coun
         _insert_dated_bars(sqlite_path, ticker, prices)
     conn = open_connection(sqlite_path)
     try:
-        insert_master_rows(conn, [('2026-05-28', ticker, 'peer', 'プライム', '機械', '011') for ticker in peers])
+        insert_master_rows(
+            conn, [("2026-05-28", ticker, "peer", "プライム", "機械", "011") for ticker in peers]
+        )
         conn.commit()
     finally:
         conn.close()

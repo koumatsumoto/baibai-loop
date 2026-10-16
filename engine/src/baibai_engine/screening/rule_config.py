@@ -79,7 +79,10 @@ class CommonEligibilityRules(BaseModel):
             return False
         if market_cap_oku is not None and market_cap_oku < self.min_market_cap_oku:
             return False
-        if price_history_span_days is not None and price_history_span_days < self.min_price_history_span_days:
+        if (
+            price_history_span_days is not None
+            and price_history_span_days < self.min_price_history_span_days
+        ):
             return False
         return not (
             self.exclude_jpx_flagged and jpx_flags and required_jpx_flags.intersection(jpx_flags)

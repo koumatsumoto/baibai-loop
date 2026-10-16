@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from tests.helpers.master import insert_master_rows
-
-
 import asyncio
 import copy
 import sqlite3
@@ -11,6 +8,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from tests.helpers.master import insert_master_rows
 
 from baibai_engine.external_assessment.tradingview.collector import (
     SourceDataError,
@@ -34,7 +32,13 @@ NOW = datetime(2026, 9, 18, 7, tzinfo=UTC)
 def store(path: Path, count: int = 51) -> Path:
     with closing(open_connection(path)) as conn, conn:
         conn.execute("INSERT INTO jquants_market_calendar VALUES (?,1)", (DAY.isoformat(),))
-        insert_master_rows(conn, [(DAY.isoformat(), str(1000 + i), 'IPO', 'プライム', '機械', '011') for i in range(count)])
+        insert_master_rows(
+            conn,
+            [
+                (DAY.isoformat(), str(1000 + i), "IPO", "プライム", "機械", "011")
+                for i in range(count)
+            ],
+        )
     return path
 
 
@@ -130,7 +134,10 @@ def test_preflight_is_read_only_and_resumes_partial_rows(tmp_path: Path) -> None
         )
     assert preflight_snapshot(path, DAY)["needs_master"] is True
     with closing(sqlite3.connect(path)) as conn, conn:
-        insert_master_rows(conn, [(DAY.isoformat(), str(1000 + i), 'IPO', 'プライム', '機械', '011') for i in range(2)])
+        insert_master_rows(
+            conn,
+            [(DAY.isoformat(), str(1000 + i), "IPO", "プライム", "機械", "011") for i in range(2)],
+        )
 
     async def healthy(symbols):
         return payload(symbols)
@@ -403,10 +410,19 @@ def test_universe_excludes_secondary_instruments_without_bar_history(tmp_path: P
     path = store(tmp_path / "market.sqlite", 1)
     conn = open_connection(path)
     with conn:
-        insert_master_rows(conn, [(DAY.isoformat(), '2000', 'fund', 'プライム', 'その他', '014'), (DAY.isoformat(), '2001', 'pro', 'TOKYO PRO MARKET', '機械', '011'), (DAY.isoformat(), '2002', 'Nagoya', '名証', '機械', '011')])
+        insert_master_rows(
+            conn,
+            [
+                (DAY.isoformat(), "2000", "fund", "プライム", "その他", "014"),
+                (DAY.isoformat(), "2001", "pro", "TOKYO PRO MARKET", "機械", "011"),
+                (DAY.isoformat(), "2002", "Nagoya", "名証", "機械", "011"),
+            ],
+        )
     assert universe(conn, DAY) == ["TSE:1000"]
     with conn:
-        conn.execute("UPDATE jquants_master_snapshots SET record_json=json_set(record_json,'$.ProdCat',NULL) WHERE security_code='10000'")
+        conn.execute(
+            "UPDATE jquants_master_snapshots SET record_json=json_set(record_json,'$.ProdCat',NULL) WHERE security_code='10000'"
+        )
     with pytest.raises(JQuantsProviderError, match="product category"):
         universe(conn, DAY)
     conn.close()
@@ -469,9 +485,7 @@ class Timer:
         return self.value
 
 
-@pytest.mark.parametrize(
-    "failure", [None, "429", "malformed", "store", "time_guard"]
-)
+@pytest.mark.parametrize("failure", [None, "429", "malformed", "store", "time_guard"])
 def test_progress_and_durations_with_batch_commits(tmp_path, failure):
     from dataclasses import asdict
 
@@ -648,7 +662,10 @@ def test_final_unavailable_symbol_is_recorded_without_false_forecast_coverage(tm
 
     result = asyncio.run(collect(path, DAY, fetch, clock=lambda: NOW, sleep=no_sleep))
     assert (result["status"], result["rows"], result["remaining"], result["unresolved"]) == (
-        "saved", 51, 0, 1
+        "saved",
+        51,
+        0,
+        1,
     )
     assert [len(call) for call in calls] == [50, 1]
     with closing(sqlite3.connect(path)) as connection:

@@ -15,6 +15,7 @@ from baibai_engine.market_context.indicators.source_snapshots import store_snaps
 
 SOURCE_URL = "https://example.com/data.csv"
 
+
 def series_definition(
     series_id: str = "test.series",
     *,
@@ -151,9 +152,7 @@ def store_h15_observations(
     test does not supply. It is not an original CSV response or a production adapter.
     """
     registry = load_definitions().by_id()
-    definitions = {
-        item.series_id: item for item in registry.values() if item.provider == "frb_h15"
-    }
+    definitions = {item.series_id: item for item in registry.values() if item.provider == "frb_h15"}
     grouped: dict[tuple[date, datetime], dict[str, str]] = {}
     for record in records:
         definition = definitions[record.series_id]
@@ -185,6 +184,6 @@ __all__ = [
     "observations",
     "seed_store",
     "series_definition",
-    "store_reader",
     "store_h15_observations",
+    "store_reader",
 ]

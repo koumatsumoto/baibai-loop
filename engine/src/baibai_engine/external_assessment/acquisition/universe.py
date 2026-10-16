@@ -12,10 +12,9 @@ from zoneinfo import ZoneInfo
 
 import duckdb
 
-from baibai_engine.market.master_snapshot import MIN_COMMON_STOCK_MASTER_ROWS
-from baibai_engine.market.universe import ELIGIBLE_MARKETS
+from baibai_engine.market.master_snapshot import MIN_COMMON_STOCK_MASTER_ROWS, masters_from_payloads
 from baibai_engine.market.models import SecurityMaster
-from baibai_engine.market.master_snapshot import masters_from_payloads
+from baibai_engine.market.universe import ELIGIBLE_MARKETS
 from baibai_engine.storage.lake.duck import LakeSession
 from baibai_engine.storage.lake.objects import LakeObjectCache
 from baibai_engine.storage.lake.reader import (
@@ -126,10 +125,13 @@ def _require_master_date(master_asof: date) -> None:
 
 
 def _common_stock_tickers(masters: Sequence[SecurityMaster]) -> tuple[str, ...]:
-    tickers = tuple(sorted(
-        security.ticker for security in masters
-        if security.is_common_stock and security.market_segment.upper() in ELIGIBLE_MARKETS
-    ))
+    tickers = tuple(
+        sorted(
+            security.ticker
+            for security in masters
+            if security.is_common_stock and security.market_segment.upper() in ELIGIBLE_MARKETS
+        )
+    )
     if any(re.fullmatch(r"[0-9][0-9A-Z]{3}", ticker) is None for ticker in tickers):
         raise ValueError("invalid TSE common-stock ticker")
     if len(tickers) < MIN_COMMON_STOCK_MASTER_ROWS or len(set(tickers)) != len(tickers):

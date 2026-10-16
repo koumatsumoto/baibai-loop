@@ -25,8 +25,12 @@ def _market_store(path: Path, *, calendar: bool = True, bars: bool = True) -> No
                 [(START.isoformat(),), (END.isoformat(),)],
             )
             add_source_coverage(
-                connection, source="jquants_market_calendar", coverage_key="fixture-calendar",
-                min_date=START.isoformat(), max_date=END.isoformat(), record_count=2,
+                connection,
+                source="jquants_market_calendar",
+                coverage_key="fixture-calendar",
+                min_date=START.isoformat(),
+                max_date=END.isoformat(),
+                record_count=2,
             )
         if bars:
             connection.executemany(
@@ -88,7 +92,9 @@ def test_portfolio_market_inputs_need_no_price_history_for_cash_only(tmp_path):
 
 
 @pytest.mark.parametrize("missing", ["store", "calendar", "bars", "ticker"])
-def test_portfolio_market_inputs_preserve_unavailable_and_missing_ticker_distinctions(tmp_path, missing):
+def test_portfolio_market_inputs_preserve_unavailable_and_missing_ticker_distinctions(
+    tmp_path, missing
+):
     database = tmp_path / "market.sqlite"
     if missing != "store":
         _market_store(database, calendar=missing != "calendar", bars=missing != "bars")

@@ -341,14 +341,25 @@ def test_jst_date_uses_same_instant_for_utc_and_jst_clocks():
     assert evaluation(document, review, now=jst) == evaluation(
         document, review, now=jst.astimezone(UTC)
     )
+    # This is 00:30 JST on Oct 14, before that day's close is available.
+    # Use the prior eligible close without changing the assessment's JST date.
+    document, review = pair_payload(quote_as_of="2026-10-13")
     document["conclusion"]["assessed_at"] = "2026-10-13T15:30:00Z"
     document["input_snapshot"]["sources"][0]["retrieved_at"] = "2026-10-13T15:20:00Z"
     document["input_snapshot"]["sources"][1]["retrieved_at"] = "2026-10-13T15:20:00Z"
-    document["input_snapshot"]["facts"][0]["observed_at"] = "2026-10-13T15:10:00Z"
+    document["input_snapshot"]["facts"][0]["observed_at"] = "2026-10-13T06:30:00Z"
     review["reviewed_at"] = "2026-10-13T15:40:00Z"
+    now = datetime.fromisoformat("2026-10-13T15:45:00Z")
+    result = evaluation(document, review, now=now)
+    assert result.errors == ()
+    assert result == evaluation(document, review, now=now.astimezone(jst.tzinfo))
+    # The original same-day close claim really was unavailable at this instant.
+    document["input_snapshot"]["sources"][1]["as_of"] = "2026-10-14"
+    document["input_snapshot"]["facts"][0]["as_of"] = "2026-10-14"
+    document["input_snapshot"]["facts"][0]["observed_at"] = "2026-10-13T15:10:00Z"
     assert (
-        evaluation(document, review, now=datetime.fromisoformat("2026-10-13T15:45:00Z")).errors
-        == ()
+        "market_price close date follows the available session"
+        in evaluation(document, review, now=now).errors
     )
 
 

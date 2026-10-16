@@ -32,12 +32,16 @@ def inputs(dates=("2020-01-31",), *, complete=True):
                 asof=asof,
                 ticker=row.ticker,
                 horizon=horizon,
-                target_date=require_horizon(horizon).target_date(date.fromisoformat(asof)).isoformat(),
+                target_date=require_horizon(horizon)
+                .target_date(date.fromisoformat(asof))
+                .isoformat(),
                 resolved=True,
                 price_return=index / 10 - 0.5,
                 stale_price=False,
                 entry_date=asof,
-                exit_date=require_horizon(horizon).target_date(date.fromisoformat(asof)).isoformat(),
+                exit_date=require_horizon(horizon)
+                .target_date(date.fromisoformat(asof))
+                .isoformat(),
                 adjustment_factor_coverage="complete",
                 realized_dividend_sum=3.0,
                 realized_dividend_fy_count=3,

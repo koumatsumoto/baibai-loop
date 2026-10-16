@@ -44,9 +44,7 @@ def success(kind):
 
 
 def request(kind, path, session):
-    provider = EDINETProvider(
-        "test-key", path, session=session
-    )
+    provider = EDINETProvider("test-key", path, session=session)
     if kind == "list":
         return provider.list_documents(date(2026, 10, 9))
     if kind == "xbrl":

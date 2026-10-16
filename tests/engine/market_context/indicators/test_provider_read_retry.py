@@ -102,8 +102,12 @@ def wire(monkeypatch):
             selected_context = self.context if context is None else context
             if series_id != "vix":
                 native = _fetch_with_retry(
-                    lambda: fetch_native_records(load_definitions().by_id()[series_id],
-                                                 start=START, end=END, context=selected_context),
+                    lambda: fetch_native_records(
+                        load_definitions().by_id()[series_id],
+                        start=START,
+                        end=END,
+                        context=selected_context,
+                    ),
                     context=selected_context,
                 )
                 return [row for records in native.values() for row in records]
@@ -359,26 +363,38 @@ def test_service_writes_and_reads_real_temporary_stores_without_losing_prior_row
     db.insert_observations(conn, [observation(by_id["vix"], DAY - timedelta(days=7), 19)])
     conn.commit()
     conn.close()
+
     def full_response(sid, url):
         current = payload(sid)
         if sid != "vix":
-            previous = payload(sid, day=DAY - timedelta(days=7), value=400 if sid == "jp.foreign_flows" else 2900)
+            previous = payload(
+                sid, day=DAY - timedelta(days=7), value=400 if sid == "jp.foreign_flows" else 2900
+            )
             current["data"] = previous["data"] + current["data"]
         return 200, {}, current
+
     wire.reply = full_response
     results = IndicatorsService(database).refresh_series(IDS, start=START, end=END)
     assert all(isinstance(r, RefreshSuccess) for r in results)
     conn = db.open_read_only_connection(database)
     try:
-        before = conn.execute("SELECT * FROM observations ORDER BY series_id,observed_at").fetchall()
-        native_before = conn.execute("SELECT * FROM indicator_source_snapshots ORDER BY source_key,observed_at,fetched_at").fetchall()
+        before = conn.execute(
+            "SELECT * FROM observations ORDER BY series_id,observed_at"
+        ).fetchall()
+        native_before = conn.execute(
+            "SELECT * FROM indicator_source_snapshots ORDER BY source_key,observed_at,fetched_at"
+        ).fetchall()
         reader = build_store_observation_reader(conn, series=definitions.series)
         for sid, value in zip(IDS, (500, 3000, 20), strict=True):
             rows = reader(sid, START, END)
             assert len(rows) == 2
             assert rows[-1].value == value
-        before_publication = build_store_observation_reader(conn, series=definitions.series, vintage_cutoff=DAY + timedelta(days=5))
-        after_publication = build_store_observation_reader(conn, series=definitions.series, vintage_cutoff=DAY + timedelta(days=6))
+        before_publication = build_store_observation_reader(
+            conn, series=definitions.series, vintage_cutoff=DAY + timedelta(days=5)
+        )
+        after_publication = build_store_observation_reader(
+            conn, series=definitions.series, vintage_cutoff=DAY + timedelta(days=6)
+        )
         assert before_publication(IDS[0], DAY, DAY) == ()
         assert len(after_publication(IDS[0], DAY, DAY)) == 1
     finally:
@@ -388,8 +404,16 @@ def test_service_writes_and_reads_real_temporary_stores_without_losing_prior_row
     assert all(isinstance(r, RefreshFailure) for r in failures)
     conn = db.open_read_only_connection(database)
     try:
-        assert conn.execute("SELECT * FROM observations ORDER BY series_id,observed_at").fetchall() == before
-        assert conn.execute("SELECT * FROM indicator_source_snapshots ORDER BY source_key,observed_at,fetched_at").fetchall() == native_before
+        assert (
+            conn.execute("SELECT * FROM observations ORDER BY series_id,observed_at").fetchall()
+            == before
+        )
+        assert (
+            conn.execute(
+                "SELECT * FROM indicator_source_snapshots ORDER BY source_key,observed_at,fetched_at"
+            ).fetchall()
+            == native_before
+        )
         assert conn.execute("SELECT COUNT(*) FROM provider_runs").fetchone()[0] == 6
         assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []

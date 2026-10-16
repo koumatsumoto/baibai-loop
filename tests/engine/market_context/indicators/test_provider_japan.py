@@ -254,9 +254,7 @@ class IndicatorsProviderParserTests(TestCase):
         series = _series("estat", "0003427113", unit="index")
         text = _estat_payload({"@time": "2026000505", "$": "102.0"})
 
-        observations = _read_estat(
-            series, text, start=date(2026, 1, 1), end=date(2026, 12, 31)
-        )
+        observations = _read_estat(series, text, start=date(2026, 1, 1), end=date(2026, 12, 31))
 
         self.assertEqual(len(observations), 1)
         self.assertEqual(observations[0].observed_at, date(2026, 5, 1))
@@ -431,9 +429,7 @@ class IndicatorsProviderParserTests(TestCase):
         series = _series("estat", "0003348423", unit="pt")
         text = _estat_payload({"@time": "2024000100", "$": "50.2"})
 
-        observations = _read_estat(
-            series, text, start=date(2024, 1, 1), end=date(2024, 12, 31)
-        )
+        observations = _read_estat(series, text, start=date(2024, 1, 1), end=date(2024, 12, 31))
 
         self.assertEqual(len(observations), 1)
         self.assertEqual(observations[0].observed_at, date(2024, 1, 1))
@@ -449,9 +445,7 @@ class IndicatorsProviderParserTests(TestCase):
             ]
         )
 
-        observations = _read_estat(
-            series, text, start=date(2025, 1, 1), end=date(2025, 12, 31)
-        )
+        observations = _read_estat(series, text, start=date(2025, 1, 1), end=date(2025, 12, 31))
 
         self.assertEqual(
             [(o.observed_at, o.value) for o in observations], [(date(2025, 1, 1), 110.0)]
@@ -460,13 +454,26 @@ class IndicatorsProviderParserTests(TestCase):
     def test_estat_native_cells_retain_null_markers_units_and_attributes(self) -> None:
         series = _series("estat", "0003427113?cdCat01=0001", unit="index")
         rows = [
-            {"@time": "2026000505", "@cat01": "0001", "@unit": "指数", "$": "100.8", "@note": "revised"},
+            {
+                "@time": "2026000505",
+                "@cat01": "0001",
+                "@unit": "指数",
+                "$": "100.8",
+                "@note": "revised",
+            },
             {"@time": "2026000606", "@cat01": "0001", "@unit": "指数", "$": "***"},
         ]
-        native = parse_estat_json(series, _estat_payload(rows), start=date(2026, 5, 1), end=date(2026, 6, 30))
+        native = parse_estat_json(
+            series, _estat_payload(rows), start=date(2026, 5, 1), end=date(2026, 6, 30)
+        )
         self.assertEqual(native, {date(2026, 5, 1): [rows[0]], date(2026, 6, 1): [rows[1]]})
         self.assertEqual(
-            [item.value for item in _read_estat(series, _estat_payload(rows), start=date(2026, 5, 1), end=date(2026, 6, 30))],
+            [
+                item.value
+                for item in _read_estat(
+                    series, _estat_payload(rows), start=date(2026, 5, 1), end=date(2026, 6, 30)
+                )
+            ],
             [100.8],
         )
 
@@ -546,7 +553,9 @@ class IndicatorsProviderParserTests(TestCase):
         )
         native = parse_dashboard_json(
             _dashboard_payload(rows),
-            start=date(2026, 1, 1), end=date(2026, 12, 31), selectors=_DASHBOARD_SELECTORS,
+            start=date(2026, 1, 1),
+            end=date(2026, 12, 31),
+            selectors=_DASHBOARD_SELECTORS,
         )
         self.assertEqual(native[date(2026, 6, 1)], [preliminary["VALUE"]])
 
@@ -615,7 +624,9 @@ class IndicatorsProviderParserTests(TestCase):
         row["VALUE"]["publisher_note"] = "unavailable"
         native = parse_dashboard_json(
             _dashboard_payload([row]),
-            start=date(2026, 5, 1), end=date(2026, 5, 31), selectors=_DASHBOARD_SELECTORS,
+            start=date(2026, 5, 1),
+            end=date(2026, 5, 31),
+            selectors=_DASHBOARD_SELECTORS,
         )
         self.assertEqual(native, {date(2026, 5, 1): [row["VALUE"]]})
         self.assertEqual(_parse_dashboard([row]), [])
@@ -629,10 +640,13 @@ class IndicatorsProviderParserTests(TestCase):
         self.assertEqual([item.value for item in observations], [2.4])
 
     def test_dashboard_reading_preserves_zero_and_does_not_hide_null_duplicates(self) -> None:
-        self.assertEqual([item.value for item in _parse_dashboard([_dashboard_row("20260500", "0")])], [0.0])
-        self.assertEqual(_parse_dashboard([
-            _dashboard_row("20260500", "2.4"), _dashboard_row("20260500", "-")
-        ]), [])
+        self.assertEqual(
+            [item.value for item in _parse_dashboard([_dashboard_row("20260500", "0")])], [0.0]
+        )
+        self.assertEqual(
+            _parse_dashboard([_dashboard_row("20260500", "2.4"), _dashboard_row("20260500", "-")]),
+            [],
+        )
 
     def test_estat_dashboard_requires_the_source_url_to_pin_one_series(self) -> None:
         """The source URL is the provenance stored on every observation.

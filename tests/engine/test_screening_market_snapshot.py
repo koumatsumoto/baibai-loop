@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from tests.helpers.master import insert_master_rows
-
-
 import io
 import json
 import tempfile
@@ -10,6 +7,7 @@ import unittest
 from datetime import date
 from pathlib import Path
 
+from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.foundation.yaml_io import safe_load
@@ -28,7 +26,9 @@ def _insert_bars(sqlite_path: Path, ticker: str, closes: list[float], *, end: da
 def _insert_sector(sqlite_path: Path, ticker: str, sector: str) -> None:
     conn = open_connection(sqlite_path)
     try:
-        insert_master_rows(conn, [('2026-05-28', ticker, f'name-{ticker}', 'プライム', sector, '011')])
+        insert_master_rows(
+            conn, [("2026-05-28", ticker, f"name-{ticker}", "プライム", sector, "011")]
+        )
         conn.commit()
     finally:
         conn.close()
@@ -126,7 +126,13 @@ class BuildMarketSnapshotTests(unittest.TestCase):
             _insert_bars(sqlite_path, "LIVE", [100 * 1.01**i for i in range(30)], end=_ASOF)
             conn = open_connection(sqlite_path)
             try:
-                insert_master_rows(conn, [('2026-05-28', 'OLD1', '旧構成銘柄', 'プライム', '旧構成セクター', '011'), ('2026-05-29', 'LIVE', '現構成銘柄', 'プライム', '機械', '011')])
+                insert_master_rows(
+                    conn,
+                    [
+                        ("2026-05-28", "OLD1", "旧構成銘柄", "プライム", "旧構成セクター", "011"),
+                        ("2026-05-29", "LIVE", "現構成銘柄", "プライム", "機械", "011"),
+                    ],
+                )
                 conn.commit()
             finally:
                 conn.close()
@@ -253,7 +259,15 @@ def test_breadth_uses_each_points_common_stock_membership(tmp_path):
         _insert_bars(path, ticker, prices, end=_ASOF)
     conn = open_connection(path)
     try:
-        insert_master_rows(conn, [('2026-05-15', 'OLD1', 'old member', 'PRIME', '機械', '011'), ('2026-05-15', 'FUND', 'fund', 'PRIME', 'その他', '014'), ('2026-05-29', 'LIVE', 'current member', 'PRIME', '小売業', '011'), ('2026-05-29', 'FUND', 'fund', 'PRIME', 'その他', '014')])
+        insert_master_rows(
+            conn,
+            [
+                ("2026-05-15", "OLD1", "old member", "PRIME", "機械", "011"),
+                ("2026-05-15", "FUND", "fund", "PRIME", "その他", "014"),
+                ("2026-05-29", "LIVE", "current member", "PRIME", "小売業", "011"),
+                ("2026-05-29", "FUND", "fund", "PRIME", "その他", "014"),
+            ],
+        )
         conn.commit()
     finally:
         conn.close()

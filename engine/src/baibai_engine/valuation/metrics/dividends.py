@@ -154,9 +154,7 @@ def _resolve_dividend_carry(
             ticker_bars, accrual_start=accrual_start, basis_date=asof_date
         )
         if requires_resolution:
-            basis_factor = cumulative_share_unit_factor_after(
-                ticker_bars, accrual_start, asof_date
-            )
+            basis_factor = cumulative_share_unit_factor_after(ticker_bars, accrual_start, asof_date)
             actual_annual = 0.0 if latest_actual.dps_actual_annual == 0 else None
         else:
             actual_annual = latest_actual.dps_actual_annual

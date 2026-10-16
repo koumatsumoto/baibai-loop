@@ -36,14 +36,11 @@ def read_native_pages(
             if key is None or key == "":
                 return rows
             if not isinstance(key, str) or key in seen:
-                raise ProviderFetchStoppedError(
-                    f"invalid or repeated {provider} pagination_key"
-                )
+                raise ProviderFetchStoppedError(f"invalid or repeated {provider} pagination_key")
             seen.add(key)
             params["pagination_key"] = key
     except Exception as exc:
         sanitized = str(exc).replace(api_key, "***") if api_key else str(exc)
         raise ProviderFetchStoppedError(
-            f"failed to fetch {provider}: "
-            f"{type(exc).__name__}: {sanitized}"
+            f"failed to fetch {provider}: {type(exc).__name__}: {sanitized}"
         ) from None

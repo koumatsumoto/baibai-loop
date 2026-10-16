@@ -596,9 +596,7 @@ def test_complementary_earnings_documents_keep_independent_fields_and_sources(
     assert result.earnings_forecast_source
     assert result.earnings_forecast_source["forecast_eps_source_records"] == "eps"
     assert result.earnings_forecast_source["forecast_profit_source_records"] == "profit"
-    assert (
-        result.earnings_forecast_source["forecast_ordinary_profit_source_records"] == "profit"
-    )
+    assert result.earnings_forecast_source["forecast_ordinary_profit_source_records"] == "profit"
 
 
 @pytest.mark.parametrize("reverse", [False, True])
@@ -874,18 +872,39 @@ def test_native_primary_financial_values_reach_l2_without_nc_substitution(tmp_pa
     record = documents()[0]
     record.update(
         DocType=f"FYFinancialStatements_Consolidated_{standard}",
-        Sales="1000", OP="100", CFO="120", TA="2000", Eq="800", CashEq="300",
-        NCSales="9999", NCOP="999", NCTA="9998", NCEq="9997",
+        Sales="1000",
+        OP="100",
+        CFO="120",
+        TA="2000",
+        Eq="800",
+        CashEq="300",
+        NCSales="9999",
+        NCOP="999",
+        NCTA="9998",
+        NCEq="9997",
     )
     path = tmp_path / "market.sqlite"
     start = date(2026, 8, 10)
     store_jquants_fin_summaries(path, [record], requested_start=start, requested_end=ASOF)
     rows = read_fin_summaries(path, start, ASOF)
-    assert rows is not None and len(rows) == 1
+    assert rows is not None
+    assert len(rows) == 1
     row = rows[0]
     assert row.document_type == record["DocType"]
-    assert (row.sales, row.operating_profit, row.cfo, row.total_assets, row.equity, row.cash_eq) == (
-        1000, 100, 120, 2000, 800, 300,
+    assert (
+        row.sales,
+        row.operating_profit,
+        row.cfo,
+        row.total_assets,
+        row.equity,
+        row.cash_eq,
+    ) == (
+        1000,
+        100,
+        120,
+        2000,
+        800,
+        300,
     )
     assert json.loads(row.document_payload) == record
     result = snapshot(rows)

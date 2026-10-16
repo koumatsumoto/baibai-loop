@@ -1,6 +1,7 @@
 """東証普通株の提案価格を公式「その他」呼値の保守的共通 grid へ揃える。
 
-TOPIX500 の最良呼値や注文受理を保証するものではない。master 原本の商品区分と銘柄コードで普通株を確認し、
+TOPIX500 の最良呼値や注文受理を保証するものではない。
+master 原本の商品区分と銘柄コードで普通株を確認し、
 市場と合わせて適用対象を限定する。2027 年制度変更以降の新条件には適用しない。
 """
 
@@ -61,7 +62,9 @@ def floor_common_stock_limit(
     if price <= 0:
         raise ValueError("price_yen must be positive")
     if not _available(
-        target_session=target_session, market_segment=market_segment, is_common_stock=is_common_stock
+        target_session=target_session,
+        market_segment=market_segment,
+        is_common_stock=is_common_stock,
     ):
         return None
     tick = _tick(price)
@@ -81,7 +84,10 @@ def common_stock_limit_is_valid(
     return (
         price > 0
         and floor_common_stock_limit(
-            price, target_session=target_session, market_segment=market_segment, is_common_stock=is_common_stock
+            price,
+            target_session=target_session,
+            market_segment=market_segment,
+            is_common_stock=is_common_stock,
         )
         == price
     )

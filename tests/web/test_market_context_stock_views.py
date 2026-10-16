@@ -1,7 +1,5 @@
 """既存routeとexportは同じdomain出力・日付・nullを渡す。"""
 
-from tests.helpers.master import insert_master_rows
-
 import hashlib
 import json
 from contextlib import closing
@@ -9,6 +7,7 @@ from datetime import date
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.read_api.market_context import (
@@ -29,7 +28,13 @@ def _seed_market(root: Path) -> Path:
             path, ticker, [100 + index for index in range(120)], end_date=date(2026, 7, 27)
         )
     with closing(open_connection(path)) as connection:
-        insert_master_rows(connection, [('2026-07-26', ticker, ticker, 'プライム', 'サービス業', '011') for ticker in ('2331', '2332')])
+        insert_master_rows(
+            connection,
+            [
+                ("2026-07-26", ticker, ticker, "プライム", "サービス業", "011")
+                for ticker in ("2331", "2332")
+            ],
+        )
         connection.commit()
     return path
 

@@ -28,8 +28,8 @@ from .indicators.providers.base import ProviderFetchStoppedError, StoreReader
 from .indicators.providers.native import fetch_native_records
 from .indicators.read_contracts import NATIVE_BULK_PROVIDERS, NATIVE_PROVIDERS, native_source_key
 from .indicators.source_snapshots import store_snapshot, stored_days
-from .reading.native import read_native_series
 from .option_acquisition import OptionAcquisition
+from .reading.native import read_native_series
 from .reading.options import OptionSeriesReader
 from .reading.reader import build_store_observation_reader
 from .reading.rules import load_reading_rules
@@ -172,7 +172,11 @@ class IndicatorsService:
                 closing(OptionAcquisition(conn, context)) as options,
             ):
                 return self._refresh_all_history(
-                    conn, series_id, end=end, context=context, options=options,
+                    conn,
+                    series_id,
+                    end=end,
+                    context=context,
+                    options=options,
                 )
         finally:
             conn.close()
@@ -261,7 +265,9 @@ class IndicatorsService:
         if series.provider == "derived":
             return _derived_range(conn, series, start=start, end=end)
         if series.provider in NATIVE_BULK_PROVIDERS:
-            return self._native_range(conn, series, start=start, end=end, refresh=refresh, context=context)
+            return self._native_range(
+                conn, series, start=start, end=end, refresh=refresh, context=context
+            )
         if series.provider == "jquants_options":
             observations, cache_hit = options.query(series, start=start, end=end, refresh=refresh)
             return QueryResult(series, observations, cache_hit=cache_hit)
@@ -306,7 +312,12 @@ class IndicatorsService:
             )
         if series.provider in NATIVE_BULK_PROVIDERS:
             return self._native_range(
-                conn, series, start=start, end=end, refresh=True, context=context,
+                conn,
+                series,
+                start=start,
+                end=end,
+                refresh=True,
+                context=context,
                 require_observations=True,
             )
         if series.provider == "jquants_options":
@@ -347,8 +358,12 @@ class IndicatorsService:
                 # must be able to replace it before attempting to read it again.
                 cached_latest = None
             elif series.provider in NATIVE_BULK_PROVIDERS:
-                lookback = LATEST_FETCH_LOOKBACK_DAYS.get(series.frequency, DEFAULT_LATEST_LOOKBACK_DAYS)
-                recent = read_native_series(conn, series, start=end - timedelta(days=lookback), end=end)
+                lookback = LATEST_FETCH_LOOKBACK_DAYS.get(
+                    series.frequency, DEFAULT_LATEST_LOOKBACK_DAYS
+                )
+                recent = read_native_series(
+                    conn, series, start=end - timedelta(days=lookback), end=end
+                )
                 cached_latest = recent[-1] if recent else None
             elif series.provider == "jquants_options":
                 recent = OptionSeriesReader(conn).read(
@@ -415,8 +430,11 @@ class IndicatorsService:
                     for offset in range((end - start).days + 1):
                         day = start + timedelta(days=offset)
                         store_snapshot(
-                            conn, source_key=source_key, observed_at=day,
-                            fetched_at=fetched_at, records=records.get(day, ()),
+                            conn,
+                            source_key=source_key,
+                            observed_at=day,
+                            fetched_at=fetched_at,
+                            records=records.get(day, ()),
                         )
             # Persist source records before calculation. An unusable L2 result does
             # not destroy the native fields needed to diagnose or recalculate it.
@@ -430,16 +448,27 @@ class IndicatorsService:
         except Exception as error:
             with conn:
                 db.record_provider_run(
-                    conn, provider=series.provider, series_id=series.series_id,
-                    start=start, end=end, started_at=started_at, status="failed",
-                    record_count=0, error_message=redact_credentials(str(error)),
+                    conn,
+                    provider=series.provider,
+                    series_id=series.series_id,
+                    start=start,
+                    end=end,
+                    started_at=started_at,
+                    status="failed",
+                    record_count=0,
+                    error_message=redact_credentials(str(error)),
                 )
             raise
         if not cache_hit:
             with conn:
                 db.record_provider_run(
-                    conn, provider=series.provider, series_id=series.series_id,
-                    start=start, end=end, started_at=started_at, status="ok",
+                    conn,
+                    provider=series.provider,
+                    series_id=series.series_id,
+                    start=start,
+                    end=end,
+                    started_at=started_at,
+                    status="ok",
                     record_count=len(observations),
                 )
         return QueryResult(series, observations, cache_hit=cache_hit)

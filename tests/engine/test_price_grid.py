@@ -14,8 +14,7 @@ SESSION = date(2026, 10, 15)
 def floor(price, **overrides):
     return floor_common_stock_limit(
         Decimal(price),
-        **dict(target_session=SESSION, market_segment="Prime", is_common_stock=True)
-        | overrides,
+        **dict(target_session=SESSION, market_segment="Prime", is_common_stock=True) | overrides,
     )
 
 

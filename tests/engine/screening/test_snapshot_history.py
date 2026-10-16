@@ -36,7 +36,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 "130A": [
                     _summary(
                         "130A",
-                        asof - timedelta(days=30),
+                        asof - timedelta(days=20),
                         fiscal_period="FY",
                         period_start=date(2025, 4, 1),
                         period_end=date(2026, 3, 31),

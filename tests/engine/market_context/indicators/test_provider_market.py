@@ -32,7 +32,9 @@ class IndicatorsProviderParserTests(TestCase):
             ]
         )
 
-        observations = parse_cftc_records(series, text, start=date(2026, 7, 1), end=date(2026, 7, 31))
+        observations = parse_cftc_records(
+            series, text, start=date(2026, 7, 1), end=date(2026, 7, 31)
+        )
 
         self.assertEqual(len(observations), 1)
         row = observations[date(2026, 7, 14)][0]
@@ -68,9 +70,12 @@ class IndicatorsProviderParserTests(TestCase):
             ]
         )
 
-        observations = parse_cftc_records(series, text, start=date(2026, 7, 1), end=date(2026, 7, 31))
-        self.assertEqual(observations[date(2026, 7, 14)][0]["noncomm_positions_long_all"], "9000000")
-
+        observations = parse_cftc_records(
+            series, text, start=date(2026, 7, 1), end=date(2026, 7, 31)
+        )
+        self.assertEqual(
+            observations[date(2026, 7, 14)][0]["noncomm_positions_long_all"], "9000000"
+        )
 
     def test_parse_nikkei_valuation_takes_weighted_average_and_filters_range(self) -> None:
         series = _series("nikkei_indexes", "per", unit="ratio")
@@ -184,13 +189,16 @@ class IndicatorsProviderParserTests(TestCase):
         rows = parse_multpl_table(series, html, start=date(2026, 9, 1), end=date(2026, 10, 15))
         self.assertEqual(list(rows), [date(2026, 10, 15), date(2026, 10, 1), date(2026, 9, 1)])
         self.assertEqual(rows[date(2026, 10, 1)][0]["value_text"], "† 40.81%")
-        self.assertEqual(rows[date(2026, 10, 1)][0]["value_annotations"],
-                         [{"text": "†", "title": "Estimate"}])
+        self.assertEqual(
+            rows[date(2026, 10, 1)][0]["value_annotations"], [{"text": "†", "title": "Estimate"}]
+        )
         self.assertEqual(rows[date(2026, 10, 1)][0]["caption_text"], "† Estimate")
         self.assertEqual(rows[date(2026, 9, 1)][0]["value_text"], "null")
         self.assertEqual(rows[date(2026, 10, 1)][0]["description_text"], "Data from Yale.")
-        self.assertEqual(rows[date(2026, 10, 1)][0]["description_links"],
-                         [{"text": "Yale", "href": "http://www.econ.yale.edu/~shiller/data.htm"}])
+        self.assertEqual(
+            rows[date(2026, 10, 1)][0]["description_links"],
+            [{"text": "Yale", "href": "http://www.econ.yale.edu/~shiller/data.htm"}],
+        )
 
     def test_multpl_does_not_invent_explanation(self) -> None:
         series = _series("multpl", "shiller-pe")
@@ -206,7 +214,10 @@ class IndicatorsProviderParserTests(TestCase):
         for html, reason in (
             ("<html>no table</html>", "table missing or empty"),
             ('<table id="datatable"><tr><td>Oct 15, 2026</td></tr></table>', "exactly two"),
-            ('<table id="datatable"><tr><td>bad date</td><td>41.01</td></tr></table>', "invalid table date"),
+            (
+                '<table id="datatable"><tr><td>bad date</td><td>41.01</td></tr></table>',
+                "invalid table date",
+            ),
         ):
             with self.subTest(html=html), self.assertRaisesRegex(IndicatorsProviderError, reason):
                 parse_multpl_table(series, html, start=date(2026, 10, 1), end=date(2026, 10, 15))
@@ -214,21 +225,25 @@ class IndicatorsProviderParserTests(TestCase):
     def test_multpl_completeness_checks_rows_not_values(self) -> None:
         series = _series("multpl", "shiller-pe")
         html = _multpl_monthly_table(floor=date(1871, 2, 1), latest=date(2026, 7, 1))
-        html = html.replace('<table id="datatable">',
-                            '<table id="datatable"><tr><td>Aug 3, 2026</td><td>null</td></tr>')
-        html = html.replace('<td>20.0</td>', '<td>null</td>', 1)
+        html = html.replace(
+            '<table id="datatable">',
+            '<table id="datatable"><tr><td>Aug 3, 2026</td><td>null</td></tr>',
+        )
+        html = html.replace("<td>20.0</td>", "<td>null</td>", 1)
         rows = parse_multpl_table(series, html, start=date(1871, 1, 1), end=date(2026, 8, 3))
         self.assertEqual(rows[date(2026, 8, 3)][0]["value_text"], "null")
         self.assertIn(date(1871, 2, 1), rows)
-        missing = html.replace('<tr><td>May 1, 2020</td><td>20.0</td></tr>', '')
+        missing = html.replace("<tr><td>May 1, 2020</td><td>20.0</td></tr>", "")
         with self.assertRaisesRegex(IndicatorsProviderError, "missing monthly row.*2020-05-01"):
             parse_multpl_table(series, missing, start=date(1871, 1, 1), end=date(2026, 8, 3))
 
     def test_multpl_retains_same_date_current_and_monthly_rows(self) -> None:
         series = _series("multpl", "shiller-pe")
-        html = ('<table id="datatable">'
-                '<tr><td>Oct 1, 2026</td><td>41.01</td></tr>'
-                '<tr><td>Oct 1, 2026</td><td>40.81</td></tr></table>')
+        html = (
+            '<table id="datatable">'
+            "<tr><td>Oct 1, 2026</td><td>41.01</td></tr>"
+            "<tr><td>Oct 1, 2026</td><td>40.81</td></tr></table>"
+        )
         rows = parse_multpl_table(series, html, start=date(2026, 10, 1), end=date(2026, 10, 1))
         self.assertEqual([row["value_text"] for row in rows[date(2026, 10, 1)]], ["41.01", "40.81"])
         self.assertEqual([row["table_row"] for row in rows[date(2026, 10, 1)]], [0, 1])

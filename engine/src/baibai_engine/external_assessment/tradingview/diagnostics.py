@@ -89,9 +89,7 @@ def failure_category(exc: BaseException) -> str:
         return "auth"
     if isinstance(exc, TimeGuardError):
         return "time_guard"
-    if isinstance(
-        exc, (SourceDataError, SQLiteSchemaError, JQuantsProviderError, sqlite3.Error)
-    ):
+    if isinstance(exc, (SourceDataError, SQLiteSchemaError, JQuantsProviderError, sqlite3.Error)):
         return "storage"
     if isinstance(exc, (httpx2.HTTPStatusError, ProviderHTTPError)):
         status = exc.status_code if isinstance(exc, ProviderHTTPError) else exc.response.status_code

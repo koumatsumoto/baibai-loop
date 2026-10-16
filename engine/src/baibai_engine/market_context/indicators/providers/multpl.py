@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from html.parser import HTMLParser
 
 from ..definitions import SeriesDefinition
@@ -64,15 +64,19 @@ def parse_multpl_table(
     parser.feed(text)
     parser.close()
     if not parser.found_table or not parser.rows:
-        raise IndicatorsProviderError(f"multpl: table missing or empty for {series.provider_series_id}")
+        raise IndicatorsProviderError(
+            f"multpl: table missing or empty for {series.provider_series_id}"
+        )
     floor = _HISTORY_FLOOR_BY_SLUG.get(series.provider_series_id)
     if floor is None:
-        raise IndicatorsProviderError(f"multpl: unknown history floor for {series.provider_series_id}")
+        raise IndicatorsProviderError(
+            f"multpl: unknown history floor for {series.provider_series_id}"
+        )
 
     dated_rows: list[tuple[date, dict[str, object]]] = []
-    for index, (raw_date, raw_value, annotations) in enumerate(parser.rows):
+    for index, (raw_date, raw_value, cell_annotations) in enumerate(parser.rows):
         try:
-            observed_at = datetime.strptime(raw_date.strip(), _HISTORY_DATE_FORMAT).date()
+            observed_at = date.strptime(raw_date.strip(), _HISTORY_DATE_FORMAT)
         except ValueError as exc:
             raise IndicatorsProviderError(
                 f"multpl: invalid table date for {series.provider_series_id}: {raw_date!r}"
@@ -82,8 +86,8 @@ def parse_multpl_table(
             "value_text": raw_value,
             "table_row": index,
         }
-        if annotations:
-            row["value_annotations"] = annotations
+        if cell_annotations:
+            row["value_annotations"] = cell_annotations
         if parser.caption_text is not None:
             row["caption_text"] = parser.caption_text
         if parser.description_text is not None:
@@ -201,12 +205,22 @@ class _MultplTableParser(HTMLParser):
             self._caption_parts = None
         elif self._table and tag == "table":
             self._table = False
-        if self._description_depth and tag not in {"area", "br", "hr", "img", "input", "meta", "link"}:
+        if self._description_depth and tag not in {
+            "area",
+            "br",
+            "hr",
+            "img",
+            "input",
+            "meta",
+            "link",
+        }:
             if tag == "a" and self._link_href is not None:
-                self.description_links.append({
-                    "text": "".join(self._link_parts),
-                    "href": self._link_href,
-                })
+                self.description_links.append(
+                    {
+                        "text": "".join(self._link_parts),
+                        "href": self._link_href,
+                    }
+                )
                 self._link_href = None
             self._description_depth -= 1
             if self._description_depth == 0:

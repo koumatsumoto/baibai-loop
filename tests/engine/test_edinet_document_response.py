@@ -24,13 +24,21 @@ def _saved_response(path):
 def test_listing_keeps_native_fields_without_invented_request_date(tmp_path):
     payload = {
         "metadata": {"resultset": {"count": 1}, "processDateTime": "2026-10-15 12:00"},
-        "results": [{"seqNumber": 1, "docID": "S100TEST", "filerName": "提出者",
-                     "futureField": {"zero": 0, "missing": None}}],
+        "results": [
+            {
+                "seqNumber": 1,
+                "docID": "S100TEST",
+                "filerName": "提出者",
+                "futureField": {"zero": 0, "missing": None},
+            }
+        ],
         "futureMetadata": [False, ""],
     }
     path = tmp_path / "market.sqlite"
     provider = EDINETProvider(
-        "test-key", tmp_path / "cache", session=FakeSession(json_response(payload)),
+        "test-key",
+        tmp_path / "cache",
+        session=FakeSession(json_response(payload)),
         sqlite_path=path,
     )
     documents = provider.list_documents(date(2026, 10, 15))
@@ -44,15 +52,21 @@ def test_listing_keeps_native_fields_without_invented_request_date(tmp_path):
 def test_refresh_keeps_new_nulls_and_empty_response_not_previous_raw_values(tmp_path):
     path = tmp_path / "market.sqlite"
     payloads = [
-        {"metadata": {"resultset": {"count": 1}},
-         "results": [{"seqNumber": 1, "docID": "S100TEST", "docDescription": "有価証券報告書"}]},
-        {"metadata": {"resultset": {"count": 1}},
-         "results": [{"seqNumber": 1, "docID": "S100TEST", "docDescription": None}]},
+        {
+            "metadata": {"resultset": {"count": 1}},
+            "results": [{"seqNumber": 1, "docID": "S100TEST", "docDescription": "有価証券報告書"}],
+        },
+        {
+            "metadata": {"resultset": {"count": 1}},
+            "results": [{"seqNumber": 1, "docID": "S100TEST", "docDescription": None}],
+        },
         {"metadata": {"resultset": {"count": 0}}, "results": []},
     ]
     provider = EDINETProvider(
-        "test-key", tmp_path / "cache",
-        session=FakeSession(*(json_response(value) for value in payloads)), sqlite_path=path,
+        "test-key",
+        tmp_path / "cache",
+        session=FakeSession(*(json_response(value) for value in payloads)),
+        sqlite_path=path,
     )
     for index, payload in enumerate(payloads):
         provider.list_documents(date(2026, 10, 15), force_refresh=True)
@@ -69,8 +83,10 @@ def test_invalid_refresh_does_not_replace_last_valid_response(tmp_path):
     valid = {"metadata": {"resultset": {"count": 0}}, "results": []}
     invalid = {"metadata": {"resultset": {"count": 1}}, "results": []}
     provider = EDINETProvider(
-        "test-key", tmp_path / "cache",
-        session=FakeSession(json_response(valid), json_response(invalid)), sqlite_path=path,
+        "test-key",
+        tmp_path / "cache",
+        session=FakeSession(json_response(valid), json_response(invalid)),
+        sqlite_path=path,
     )
     provider.list_documents(date(2026, 10, 15))
     with pytest.raises(EDINETProviderError, match="count mismatch"):

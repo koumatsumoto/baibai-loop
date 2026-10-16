@@ -26,6 +26,7 @@ from baibai_engine.storage.application.write import initialize_database
 from baibai_engine.storage.observations.schema import _SCHEMA_SQL as MARKET_SCHEMA_SQL
 from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION
 
+
 def _research_reads(path: Path):
     assessment_id = "stock-assessment-00000000-0000-4000-8000-000000000001"
     proposal_id = "investment-proposal-00000000-0000-4000-8000-000000000001"
@@ -36,9 +37,12 @@ def _research_reads(path: Path):
         (lambda: read_api.reviewed_assessment_projection(path, assessment_id=assessment_id), {}),
         (lambda: read_api.list_investment_proposal_payloads(path), []),
         (lambda: read_api.investment_proposal_payload(path, proposal_id=proposal_id), None),
-        (lambda: read_api.preview_current_proposal_terms(
-            path, proposal_id=proposal_id, sqlite_path=path, now=PUBLISHED
-        ), None),
+        (
+            lambda: read_api.preview_current_proposal_terms(
+                path, proposal_id=proposal_id, sqlite_path=path, now=PUBLISHED
+            ),
+            None,
+        ),
     )
 
 
@@ -227,8 +231,11 @@ def test_assessment_publications_never_degrade_a_corrupt_saved_pair(
     assert case.app.read_bytes() == original
 
 
+@pytest.mark.parametrize("storage", ["scalar", "native"])
 @pytest.mark.parametrize("mutation", ["missing-table", "missing-column"])
-def test_indicator_partial_store_is_not_unpublished(tmp_path: Path, mutation: str) -> None:
+def test_indicator_partial_store_is_not_unpublished(
+    tmp_path: Path, mutation: str, storage: str
+) -> None:
     from baibai_engine.market_context.indicators.db import seed_definitions
     from baibai_engine.market_context.indicators.definitions import load_definitions
 
@@ -236,24 +243,31 @@ def test_indicator_partial_store_is_not_unpublished(tmp_path: Path, mutation: st
     with closing(initialize_indicator_database(path)) as connection:
         seed_definitions(connection, load_definitions())
         connection.commit()
+    # Break the storage boundary this series actually reads. CPI is native
+    # e-Stat; an unrelated obsolete scalar table cannot invalidate its history.
+    table = "observations" if storage == "scalar" else "indicator_source_snapshots"
+    series_id = "vix" if storage == "scalar" else "jp.cpi.headline"
     readers = [
         lambda: read_api.reading_snapshot(path, asof=date(2026, 7, 29)),
-        lambda: read_api.indicator_series(path, series_id="jp.cpi.headline"),
+        lambda: read_api.indicator_series(path, series_id=series_id),
     ]
     assert all(isinstance(reader(), dict) for reader in readers)
     assert read_api.indicator_series(path, series_id="unknown") is None
     with closing(sqlite3.connect(path)) as connection, connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        connection.execute("DROP TABLE observations")
-        if mutation == "missing-column":
-            connection.execute("CREATE TABLE observations (series_id TEXT)")
+        if storage == "scalar":
+            connection.execute("DROP TABLE observations")
+            if mutation == "missing-column":
+                connection.execute("CREATE TABLE observations (series_id TEXT)")
+        else:
+            connection.execute("DROP TABLE indicator_source_snapshots")
+            if mutation == "missing-column":
+                connection.execute("CREATE TABLE indicator_source_snapshots (source_key TEXT)")
     original = path.read_bytes()
     for reader in readers:
         with pytest.raises(
             sqlite3.OperationalError,
-            match="no such table: observations"
-            if mutation == "missing-table"
-            else "no such column",
+            match=f"no such table: {table}" if mutation == "missing-table" else "no such column",
         ):
             reader()
     assert path.read_bytes() == original

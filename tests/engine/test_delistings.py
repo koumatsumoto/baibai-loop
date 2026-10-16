@@ -60,17 +60,18 @@ class JPXDelistingTest(unittest.TestCase):
                 store_jpx_delistings(sqlite_path, [])
 
     def test_a_header_row_is_not_read_as_a_delisting(self) -> None:
-        session = always(html_response(
-            "<table><tr><th>上場廃止日</th><th>銘柄名</th><th>コード</th>"
-            "<th>市場区分</th><th>上場廃止理由</th></tr>"
-            "<tr><td>2026/05/01</td><td>（株）テスト</td><td>2000</td>"
-            "<td>プライム</td><td>ＭＢＯ（公開買付け、株式併合）</td></tr></table>".encode()
-        ))
+        session = always(
+            html_response(
+                "<table><tr><th>上場廃止日</th><th>銘柄名</th><th>コード</th>"
+                "<th>市場区分</th><th>上場廃止理由</th></tr>"
+                "<tr><td>2026/05/01</td><td>（株）テスト</td><td>2000</td>"
+                "<td>プライム</td><td>ＭＢＯ（公開買付け、株式併合）</td></tr></table>".encode()
+            )
+        )
         records = download_jpx_delistings(session)  # type: ignore[arg-type]
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0].ticker, "2000")
         self.assertEqual(records[0].delisted_on, date(2026, 5, 1))
-
 
     def test_only_jpx_archive_links_are_followed(self) -> None:
         index_html = (

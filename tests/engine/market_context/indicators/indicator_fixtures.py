@@ -30,8 +30,8 @@ from baibai_engine.market_context.indicators.definitions import (
 )
 from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.market_context.indicators.providers import (
-    spglobal_pmi,
     parse_estat_json,
+    spglobal_pmi,
 )
 from baibai_engine.market_context.indicators.providers.base import (
     FetchContext,

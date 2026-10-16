@@ -7,9 +7,6 @@ in real test code.
 
 from __future__ import annotations
 
-from tests.helpers.master import insert_master_rows
-
-
 import hashlib
 import json
 import shutil
@@ -21,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from baibai_engine.storage.observations.schema import open_connection
+from tests.helpers.master import insert_master_rows
 
 
 def insert_financial_record(conn: sqlite3.Connection, record: dict[str, Any]) -> None:
@@ -155,7 +153,13 @@ def _write_calibration_fixture_sqlite(sqlite_path: Path) -> None:
 
     conn = open_connection(sqlite_path)
     try:
-        insert_master_rows(conn, [('2026-06-01', '9001', 'キャッシュリッチ', 'プライム', 'サービス業', '011'), ('2026-06-01', '9002', '割高', 'プライム', 'サービス業', '011')])
+        insert_master_rows(
+            conn,
+            [
+                ("2026-06-01", "9001", "キャッシュリッチ", "プライム", "サービス業", "011"),
+                ("2026-06-01", "9002", "割高", "プライム", "サービス業", "011"),
+            ],
+        )
         add_source_coverage(
             conn,
             source="jquants_master_snapshots",

@@ -12,7 +12,10 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from baibai_engine.market_context.indicators.definitions import load_definitions
-from baibai_engine.market_context.indicators.read_contracts import NATIVE_PROVIDERS, native_source_key
+from baibai_engine.market_context.indicators.read_contracts import (
+    NATIVE_PROVIDERS,
+    native_source_key,
+)
 from baibai_engine.market_context.indicators.source_snapshots import decode_records
 
 from .sqlite import read_application_rows, read_rows
@@ -39,7 +42,8 @@ def indicator_latest_observed_at(path: Path) -> date | None:
         return None
     definitions = load_definitions().series
     registered = {
-        series.series_id for series in definitions
+        series.series_id
+        for series in definitions
         if series.provider not in ({"derived"} | NATIVE_PROVIDERS)
     }
     rows = read_rows(

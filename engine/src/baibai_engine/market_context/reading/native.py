@@ -33,9 +33,7 @@ def read_native_series(
             connection, series, start=start, end=end, publication_cutoff=vintage_cutoff or end
         )
     observations = []
-    for snapshot in read_snapshots(
-        connection, start, end, source_key=native_source_key(series)
-    ):
+    for snapshot in read_snapshots(connection, start, end, source_key=native_source_key(series)):
         value = _one_value(series, snapshot.records)
         if value is not None:
             observations.append(
@@ -104,7 +102,9 @@ def _record_value(series: SeriesDefinition, row: Mapping[str, object]) -> float 
     if series.unit != unit:
         raise ValueError(f"ECB series {series.series_id} has inconsistent unit")
     numerator = _positive_number(row.get("JPY"))
-    denominator = 1.0 if denominator_column is None else _positive_number(row.get(denominator_column))
+    denominator = (
+        1.0 if denominator_column is None else _positive_number(row.get(denominator_column))
+    )
     return None if numerator is None or denominator is None else numerator / denominator
 
 

@@ -18,7 +18,16 @@ from .multpl import MultplSource
 def fetch_native_records(
     series: SeriesDefinition, *, start: date, end: date, context: FetchContext
 ) -> NativeRecords:
-    source: CftcSource | EcbFxSource | JQuantsFlowsSource | JQuantsIndicesSource | EStatDashboardSource | EStatSource | FrbH15Source | MultplSource
+    source: (
+        CftcSource
+        | EcbFxSource
+        | JQuantsFlowsSource
+        | JQuantsIndicesSource
+        | EStatDashboardSource
+        | EStatSource
+        | FrbH15Source
+        | MultplSource
+    )
     if series.provider == "multpl":
         source = MultplSource()
     elif series.provider == "frb_h15":

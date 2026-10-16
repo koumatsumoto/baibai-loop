@@ -22,21 +22,41 @@ def test_fetch_cache_latest_and_rebuild_share_publication_vintage_selection(
     observed_at = date(2024, 8, 23)
     asof = date(2024, 8, 31)
     publications = {
-        published: [{"Section": "TSEPrime", "PubDate": published.isoformat(),
-                     "StDate": "2024-08-19", "EnDate": observed_at.isoformat(), "FrgnBal": value}]
+        published: [
+            {
+                "Section": "TSEPrime",
+                "PubDate": published.isoformat(),
+                "StDate": "2024-08-19",
+                "EnDate": observed_at.isoformat(),
+                "FrgnBal": value,
+            }
+        ]
         for published, value in [(date(2024, 8, 29), 100), (date(2024, 8, 30), 200)]
     }
     future_date = date(2024, 9, 10)
     with closing(db.initialize_database(path)) as connection:
-        store_snapshot(connection, source_key="jquants_flows:TSEPrime", observed_at=future_date,
-                       fetched_at=datetime(2026, 10, 16, tzinfo=UTC),
-                       records=[{"Section": "TSEPrime", "PubDate": future_date.isoformat(),
-                                 "StDate": "2024-08-19", "EnDate": observed_at.isoformat(), "FrgnBal": 300}])
+        store_snapshot(
+            connection,
+            source_key="jquants_flows:TSEPrime",
+            observed_at=future_date,
+            fetched_at=datetime(2026, 10, 16, tzinfo=UTC),
+            records=[
+                {
+                    "Section": "TSEPrime",
+                    "PubDate": future_date.isoformat(),
+                    "StDate": "2024-08-19",
+                    "EnDate": observed_at.isoformat(),
+                    "FrgnBal": 300,
+                }
+            ],
+        )
         connection.commit()
     calls = []
+
     def fetch(*args, **kwargs):
         calls.append(kwargs)
         return publications
+
     monkeypatch.setattr(service, "fetch_native_records", fetch)
     monkeypatch.setattr(service, "_today_jst", lambda: asof)
     reader = service.IndicatorsService(path)
@@ -47,14 +67,31 @@ def test_fetch_cache_latest_and_rebuild_share_publication_vintage_selection(
     assert fresh.observations == cached.observations == latest.observations == rebuilt.observations
     assert [item.value for item in fresh.observations] == [200]
     assert fresh.observations[0].vintage_at == datetime(2024, 8, 30, tzinfo=UTC)
-    assert not fresh.cache_hit and cached.cache_hit
-    assert not latest.cache_hit and not rebuilt.cache_hit
+    assert not fresh.cache_hit
+    assert cached.cache_hit
+    assert not latest.cache_hit
+    assert not rebuilt.cache_hit
     assert len(calls) == 3
     with closing(db.open_read_only_connection(path)) as connection:
-        future = build_store_observation_reader(connection, series=[definition], vintage_cutoff=future_date)
-        assert [item.value for item in future(definition.series_id, observed_at, observed_at)] == [300]
-        assert list(read_snapshots(connection, future_date, future_date, source_key="jquants_flows:TSEPrime"))[0].records[0]["FrgnBal"] == 300
-        assert [row[0] for row in connection.execute("SELECT record_count FROM provider_runs")] == [1, 1, 1]
+        future = build_store_observation_reader(
+            connection, series=[definition], vintage_cutoff=future_date
+        )
+        assert [item.value for item in future(definition.series_id, observed_at, observed_at)] == [
+            300
+        ]
+        assert (
+            next(
+                read_snapshots(
+                    connection, future_date, future_date, source_key="jquants_flows:TSEPrime"
+                )
+            ).records[0]["FrgnBal"]
+            == 300
+        )
+        assert [row[0] for row in connection.execute("SELECT record_count FROM provider_runs")] == [
+            1,
+            1,
+            1,
+        ]
 
 
 def test_refresh_failure_after_inserting_values_rolls_back_the_whole_update(

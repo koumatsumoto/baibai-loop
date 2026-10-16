@@ -272,8 +272,10 @@ def _read_market_observations(
         conn.execute("BEGIN")
         validate_current_schema(conn)
         start = min(
-            (min(asof, _price_basis_date(publication.document) + timedelta(days=1))
-             for publication in assessments.values()),
+            (
+                min(asof, _price_basis_date(publication.document) + timedelta(days=1))
+                for publication in assessments.values()
+            ),
             default=asof,
         )
         if not range_covered(conn, "jquants_market_calendar", start, asof):

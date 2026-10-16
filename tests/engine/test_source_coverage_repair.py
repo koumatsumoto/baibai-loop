@@ -39,7 +39,10 @@ def test_clean_subrange_supersedes_only_that_part_of_a_quality_complaint(tmp_pat
             return result
 
         first, middle, latter, last = (
-            date(2026, 1, 1), date(2026, 1, 15), date(2026, 1, 16), date(2026, 1, 31)
+            date(2026, 1, 1),
+            date(2026, 1, 15),
+            date(2026, 1, 16),
+            date(2026, 1, 31),
         )
         record(first, last, "partial")
         record(first, middle, "ok")

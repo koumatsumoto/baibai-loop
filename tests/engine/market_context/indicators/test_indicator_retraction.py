@@ -185,7 +185,6 @@ class RetractionVintageTests(unittest.TestCase):
             self.assertEqual(observations, ())
             self.assertEqual(stored, 2)
 
-
     def test_retraction_falls_back_to_the_vintage_underneath_it(self) -> None:
         """A faulty writer stamping a wrong value over a good one must not cost the good one."""
 
@@ -323,9 +322,9 @@ class RetractionVintageTests(unittest.TestCase):
                         observation(get_series(conn, "jp.10y"), date(2026, 7, 20), 1.6, vintage),
                     ],
                 )
-                store_h15_observations(conn, [observation(
-                    get_series(conn, "us.10y"), date(2026, 7, 20), 4.5, vintage
-                )])
+                store_h15_observations(
+                    conn, [observation(get_series(conn, "us.10y"), date(2026, 7, 20), 4.5, vintage)]
+                )
                 conn.commit()
             finally:
                 conn.close()
@@ -350,7 +349,6 @@ class RetractionVintageTests(unittest.TestCase):
                 conn.close()
 
             self.assertEqual(kept, ())
-
 
     def test_retract_refuses_a_date_the_store_never_observed(self) -> None:
         """A retraction list that no longer matches the store is a stale list, not a no-op."""
@@ -429,4 +427,3 @@ class RetractionVintageTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             self.assertIn("us.fed_funds.upper\t2026-05-01\twithdrawn\t4.39\t-", stdout.getvalue())
             self.assertIn("0 fell back to an earlier vintage, 1 left the reads", stdout.getvalue())
-

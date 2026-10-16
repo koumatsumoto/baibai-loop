@@ -326,13 +326,18 @@ class ScreeningMetricsTests(SnapshotFixtures):
             with self.subTest(case=name):
                 summaries = [
                     _summary(
-                        "130A", asof - timedelta(days=300), fiscal_period="FY",
-                        shares_outstanding=1000.0, treasury_shares=old_treasury,
+                        "130A",
+                        asof - timedelta(days=300),
+                        fiscal_period="FY",
+                        shares_outstanding=1000.0,
+                        treasury_shares=old_treasury,
                     ),
                     *[
                         _summary(
-                            "130A", asof - timedelta(days=20 + 180 * (len(later_issued) - i - 1)),
-                            shares_outstanding=issued, treasury_shares=None,
+                            "130A",
+                            asof - timedelta(days=20 + 180 * (len(later_issued) - i - 1)),
+                            shares_outstanding=issued,
+                            treasury_shares=None,
                             average_shares=950.0 if name == "same_gross" else None,
                         )
                         for i, issued in enumerate(later_issued)
@@ -978,7 +983,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
         self.assertEqual(kept.debt, 300.0)
 
     def test_accruals_use_the_reported_profit_line_not_a_share_count_product(self) -> None:
-        """報告利益を EPS × 期末の総株数・自己株控除後株数のどちらにも置換しない。"""
+        """報告利益を EPS と期末総株数の積にも、EPS と自己株控除後株数の積にも置換しない。"""
         asof = date(2026, 7, 1)
         security = _security()
         bars = _daily_bars("130A", asof, 30)

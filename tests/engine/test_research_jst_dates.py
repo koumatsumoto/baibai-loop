@@ -191,6 +191,7 @@ def test_date_only_close_cannot_claim_the_unfinished_session():
     price = assessment["input_snapshot"]["facts"][0]
     price["price_basis"] = "last_close_unadjusted"
     price.pop("observed_at", None)
-    assert "market_price close date follows the available session" in _evaluate(
-        assessment, review
-    ).errors
+    assert (
+        "market_price close date follows the available session"
+        in _evaluate(assessment, review).errors
+    )

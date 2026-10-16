@@ -75,8 +75,7 @@ def read_unadjusted_close(
         # Require the selected ticker's row on the exact market-wide date. If
         # its raw close is missing, defer instead of silently using a stale bar.
         row = conn.execute(
-            "SELECT traded_at, close FROM jquants_daily_bars "
-            "WHERE ticker = ? AND traded_at = ?",
+            "SELECT traded_at, close FROM jquants_daily_bars WHERE ticker = ? AND traded_at = ?",
             (ticker, price_as_of_text),
         ).fetchone()
     finally:

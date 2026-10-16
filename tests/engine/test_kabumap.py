@@ -1,7 +1,5 @@
 """Small synthetic structural fixtures; no provider page is committed."""
 
-from tests.helpers.master import insert_master_rows
-
 import sqlite3
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
@@ -11,6 +9,7 @@ from tests.batch.test_external_assessment_daily import FakeObjectStore, plan, st
 from tests.batch.test_external_assessment_raw import Session
 from tests.batch.test_external_assessment_raw import connect as connect
 from tests.engine.test_external_assessment_daily_verification import ASOF, seed_database
+from tests.helpers.master import insert_master_rows
 
 from baibai_batch.jobs import external_assessment_daily as external_assessment_daily
 from baibai_batch.jobs.external_assessment_cohorts import make_plan
@@ -190,6 +189,8 @@ def test_bank_is_in_saved_ordinary_universe_without_financial_eligibility_filter
     path = tmp_path / "market.sqlite"
     seed_database(path)
     with closing(sqlite3.connect(path)) as connection, connection:
-        insert_master_rows(connection, [(ASOF.isoformat(), '8306', '合成銀行', 'PRIME', '銀行業', '011')])
+        insert_master_rows(
+            connection, [(ASOF.isoformat(), "8306", "合成銀行", "PRIME", "銀行業", "011")]
+        )
     tickers, _ = frozen_universe(path, ASOF)
     assert "8306" in tickers

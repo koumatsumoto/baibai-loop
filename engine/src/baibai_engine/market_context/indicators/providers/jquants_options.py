@@ -26,8 +26,11 @@ class OptionChainSource:
     def fetch(self, day: date) -> list[Mapping[str, object]]:
         self._deadline.check()
         records = read_native_pages(
-            self._client, "/derivatives/bars/daily/options/225",
-            {"date": day.strftime("%Y%m%d")}, provider="jquants_options", api_key=self._api_key,
+            self._client,
+            "/derivatives/bars/daily/options/225",
+            {"date": day.strftime("%Y%m%d")},
+            provider="jquants_options",
+            api_key=self._api_key,
         )
         _require_requested_day(records, day)
         return records

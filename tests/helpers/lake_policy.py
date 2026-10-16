@@ -25,7 +25,7 @@ def narrow_release_policy(
     *,
     datasets: Iterable[str] = FIXTURE_DATASETS,
     minimum_rows: int = 1,
-    minimum_population_count: int = 1,
+    minimum_population_count: int | None = 1,
     carries_history: bool = False,
     relax_floors: bool = True,
 ) -> None:

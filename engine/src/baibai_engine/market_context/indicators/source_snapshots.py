@@ -59,7 +59,8 @@ def store_snapshot(
     if latest is not None and latest[0] == payload:
         return False
     connection.execute(
-        "INSERT INTO indicator_source_snapshots(source_key, observed_at, fetched_at, record_count, payload) "
+        "INSERT INTO indicator_source_snapshots"
+        "(source_key, observed_at, fetched_at, record_count, payload) "
         "VALUES (?, ?, ?, ?, ?)",
         (
             source_key,

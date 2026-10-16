@@ -190,9 +190,7 @@ def snippet(text: str) -> str:
     return " ".join(text.split())[:160]
 
 
-def parse_h15_csv(
-    series: SeriesDefinition, text: str, *, start: date, end: date
-) -> NativeRecords:
+def parse_h15_csv(series: SeriesDefinition, text: str, *, start: date, end: date) -> NativeRecords:
     lines = text.splitlines(keepends=True)
     header_index = next(
         (index for index, line in enumerate(lines) if line.startswith(_HEADER_PREFIXES)),

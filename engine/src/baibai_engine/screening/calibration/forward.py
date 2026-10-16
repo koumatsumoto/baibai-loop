@@ -783,9 +783,7 @@ def _asof_basis_dividend(
     if reported is None or reported == 0:
         return reported
     window_start = observation.period_start or add_months_clamped(observation.fiscal_year_end, -12)
-    if _dividend_basis_requires_resolution(
-        bars, accrual_start=window_start, basis_date=basis_date
-    ):
+    if _dividend_basis_requires_resolution(bars, accrual_start=window_start, basis_date=basis_date):
         return None
     return reported
 

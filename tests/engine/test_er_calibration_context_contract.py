@@ -318,5 +318,3 @@ def test_retained_context_is_withheld_from_new_population_without_relabeling(tmp
     assert result.unavailable_reason == "rules_identity_mismatch"
     assert _load(path, payload).artifact is not None
     assert path.read_bytes() == original
-
-

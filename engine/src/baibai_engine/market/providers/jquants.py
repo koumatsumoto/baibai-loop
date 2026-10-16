@@ -197,7 +197,9 @@ class _JQuantsTransport:
         if self._sqlite_path is not None:
             stored = read_market_calendar(self._sqlite_path, start, end)
             if stored is None:
-                raise JQuantsProviderError("stored market calendar remains incomplete after fetching")
+                raise JQuantsProviderError(
+                    "stored market calendar remains incomplete after fetching"
+                )
             return stored
         return [normalize_market_calendar(record) for record in records]
 
@@ -984,10 +986,7 @@ def normalize_margin_alert(record: Mapping[str, Any]) -> JQuantsMarginAlert | No
         long_negotiable_change=to_float(record.get("LongNegOutChg")),
         long_standard_outstanding=to_float(record.get("LongStdOut")),
         long_standard_change=to_float(record.get("LongStdOutChg")),
-        tse_margin_regulation_classification=_optional_text(
-            record.get("TSEMrgnRegCls")
-        )
-        or None,
+        tse_margin_regulation_classification=_optional_text(record.get("TSEMrgnRegCls")) or None,
     )
 
 

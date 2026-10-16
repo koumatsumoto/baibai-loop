@@ -19,7 +19,7 @@ def test_source_identity_isolates_same_date_vintages_and_empty_responses(tmp_pat
         for source, rows in (("one", [{"long": "3", "short": "1"}]), ("two", [{"other": None}])):
             store_snapshot(conn, source_key=source, observed_at=day, fetched_at=first, records=rows)
         store_snapshot(conn, source_key="one", observed_at=day, fetched_at=corrected, records=[])
-        assert list(read_snapshots(conn, day, day, source_key="one"))[0].records == ()
-        assert list(read_snapshots(conn, day, day, source_key="two"))[0].records == ({"other": None},)
+        assert next(read_snapshots(conn, day, day, source_key="one")).records == ()
+        assert next(read_snapshots(conn, day, day, source_key="two")).records == ({"other": None},)
         assert stored_days(conn, day, day, source_key="one") == {day}
         assert stored_days(conn, day, day, source_key="absent") == set()

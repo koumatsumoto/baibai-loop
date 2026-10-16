@@ -302,7 +302,14 @@ class MarginPublicationSeamTest(unittest.TestCase):
         for week_end in sorted(last_of_week.values()):
             store_jquants_weekly_margin(
                 db,
-                [{"Date": week_end.isoformat(), "Code": "72030", "LongVol": 1000.0, "IssType": "2"}],
+                [
+                    {
+                        "Date": week_end.isoformat(),
+                        "Code": "72030",
+                        "LongVol": 1000.0,
+                        "IssType": "2",
+                    }
+                ],
                 week_end=week_end,
             )
         for day in trading:

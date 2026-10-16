@@ -477,7 +477,8 @@ class EvaluateCohortsTest(unittest.TestCase):
         rules = _RULES.candidate_discovery.model_copy(update={"nomination_depth": 25})
         panel = [
             _panel_row(
-                f"2{index:03d}", rank=index + 1,
+                f"2{index:03d}",
+                rank=index + 1,
                 valuation_approach_ranks=f"current-earnings-power:{index + 1}",
             )
             for index in range(25)
@@ -1069,7 +1070,12 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         assert isinstance(median_excess, float)
         self.assertLess(median_excess, 0.0)
         changed = evaluate_cohorts(
-            {_ASOF: [replace(row, in_nomination_union=index >= 100) for index, row in enumerate(panel)]},
+            {
+                _ASOF: [
+                    replace(row, in_nomination_union=index >= 100)
+                    for index, row in enumerate(panel)
+                ]
+            },
             {_ASOF: forwards},
             horizons=["6m"],
         )["6m"]
@@ -1649,24 +1655,49 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         outside = date(2025, 5, 30)
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            for day, master_status in ((date.fromisoformat(_ASOF), "exact_date"), (outside, "unavailable")):
+            for day, master_status in (
+                (date.fromisoformat(_ASOF), "exact_date"),
+                (outside, "unavailable"),
+            ):
                 target = require_horizon("3y").target_date(day).isoformat()
                 write_panel(
-                    root, day,
+                    root,
+                    day,
                     tuple(replace(row, asof=day.isoformat()) for row in panel),
-                    replace(_panel_diagnostics(master_snapshot_status=master_status), asof=day.isoformat()),
+                    replace(
+                        _panel_diagnostics(master_snapshot_status=master_status),
+                        asof=day.isoformat(),
+                    ),
                 )
                 write_forward(
-                    root, day,
-                    [replace(row, asof=day.isoformat(), entry_date=day.isoformat(), target_date=target, exit_date=target) for row in forwards],
+                    root,
+                    day,
+                    [
+                        replace(
+                            row,
+                            asof=day.isoformat(),
+                            entry_date=day.isoformat(),
+                            target_date=target,
+                            exit_date=target,
+                        )
+                        for row in forwards
+                    ],
                 )
             output = root / "evaluation.yaml"
-            self.assertEqual(calibration_evaluate_command(
-                calibration_dir=root, horizons=["3y"], required_asofs=[_ASOF],
-                output_path=output, stdout=StringIO(),
-            ), 0)
+            self.assertEqual(
+                calibration_evaluate_command(
+                    calibration_dir=root,
+                    horizons=["3y"],
+                    required_asofs=[_ASOF],
+                    output_path=output,
+                    stdout=StringIO(),
+                ),
+                0,
+            )
             payload = yaml.safe_load(output.read_text(encoding="utf-8"))
-        outside_result = next(item for item in payload["cohort_integrity"] if item["asof"] == outside.isoformat())
+        outside_result = next(
+            item for item in payload["cohort_integrity"] if item["asof"] == outside.isoformat()
+        )
         self.assertIn("master_snapshot", outside_result["blocking_reasons"])
         self.assertNotIn("master_snapshot", payload["evidence_coverage"]["reason_counts"])
 

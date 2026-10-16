@@ -28,8 +28,13 @@ def _read_api_key() -> str:
 
 class JQuantsIndicesSource:
     def fetch_records(
-        self, series: SeriesDefinition, *, start: date, end: date,
-        session: HttpSession, context: FetchContext | None = None,
+        self,
+        series: SeriesDefinition,
+        *,
+        start: date,
+        end: date,
+        session: HttpSession,
+        context: FetchContext | None = None,
     ) -> NativeRecords:
         if series.provider_series_id != "topix":
             raise ProviderFetchStoppedError(f"unsupported index {series.provider_series_id!r}")
@@ -37,9 +42,11 @@ class JQuantsIndicesSource:
         client = jquants_read_client(api_key, deadline=read_deadline("jquants_indices", context))
         try:
             rows = read_native_pages(
-                client, "/indices/bars/daily/topix",
+                client,
+                "/indices/bars/daily/topix",
                 {"from": start.strftime("%Y%m%d"), "to": end.strftime("%Y%m%d")},
-                provider="jquants_indices", api_key=api_key,
+                provider="jquants_indices",
+                api_key=api_key,
             )
             return group_index_records(rows, start=start, end=end)
         finally:
@@ -47,7 +54,10 @@ class JQuantsIndicesSource:
 
 
 def group_index_records(
-    rows: Sequence[Mapping[str, object]], *, start: date, end: date,
+    rows: Sequence[Mapping[str, object]],
+    *,
+    start: date,
+    end: date,
 ) -> NativeRecords:
     grouped: dict[date, list[Mapping[str, object]]] = {}
     for row in rows:

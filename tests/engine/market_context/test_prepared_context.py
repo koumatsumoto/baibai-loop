@@ -1,12 +1,11 @@
 """生成内共有でもsplit、exact端点、自己除外、欠測の意味を変えない。"""
 
-from tests.helpers.master import insert_master_rows
-
 from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
+from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.market_context.master import read_master_snapshot
@@ -35,9 +34,17 @@ def context_store(tmp_path: Path) -> Path:
             path, ticker, [100 + index for index in range(count)], end_date=end
         )
     with closing(open_connection(path)) as connection:
-        insert_master_rows(connection, [('2026-05-28', ticker, ticker, 'プライム', '機械', '011') for ticker in ('AAAA', 'BBBB', 'NEW1', 'OLD1', 'NONE')])
+        insert_master_rows(
+            connection,
+            [
+                ("2026-05-28", ticker, ticker, "プライム", "機械", "011")
+                for ticker in ("AAAA", "BBBB", "NEW1", "OLD1", "NONE")
+            ],
+        )
         # Non-common securities are not industry peers even when the sector label matches.
-        insert_master_rows(connection, [('2026-05-28', 'PREF', 'non-common security', 'プライム', '機械', '014')])
+        insert_master_rows(
+            connection, [("2026-05-28", "PREF", "non-common security", "プライム", "機械", "014")]
+        )
         # An observed split without a close must still normalize the previous price.
         connection.execute(
             "INSERT INTO jquants_daily_bars(ticker,traded_at,close,adjustment_factor) "

@@ -112,10 +112,13 @@ def _append_table_consistency_issues(
     require_rows: bool,
     enforce_record_count: bool,
 ) -> None:
-    imported_count = int(conn.execute(
-        "SELECT COALESCE(SUM(record_count), 0) FROM source_coverage "
-        "WHERE source = ? AND status = 'ok'", (source,),
-    ).fetchone()[0])
+    imported_count = int(
+        conn.execute(
+            "SELECT COALESCE(SUM(record_count), 0) FROM source_coverage "
+            "WHERE source = ? AND status = 'ok'",
+            (source,),
+        ).fetchone()[0]
+    )
     table_count = int(conn.execute(_TABLE_COUNT_SQL[table]).fetchone()[0])
     if require_rows and imported_count <= 0:
         issues.append(
@@ -171,21 +174,25 @@ def _append_window_consistency_issues(
         (source, start.isoformat(), end.isoformat()),
     ).fetchall()
     for coverage_key, coverage_start, coverage_end, record_count in rows:
-        window_count = int(conn.execute(
-            _REQUIRED_DATE_ROWS_SQL[(table, date_column)],
-            (str(coverage_start), str(coverage_end)),
-        ).fetchone()[0])
+        window_count = int(
+            conn.execute(
+                _REQUIRED_DATE_ROWS_SQL[(table, date_column)],
+                (str(coverage_start), str(coverage_end)),
+            ).fetchone()[0]
+        )
         expected_count = int(record_count or 0)
         if window_count != expected_count:
-            issues.append(CacheCoverageIssue(
-                source=source,
-                requirement=str(coverage_key),
-                reason=(
-                    f"{table} row count in source_coverage window ({window_count}) "
-                    f"does not match source_coverage record_count ({expected_count}); "
-                    "repair SQLite"
-                ),
-            ))
+            issues.append(
+                CacheCoverageIssue(
+                    source=source,
+                    requirement=str(coverage_key),
+                    reason=(
+                        f"{table} row count in source_coverage window ({window_count}) "
+                        f"does not match source_coverage record_count ({expected_count}); "
+                        "repair SQLite"
+                    ),
+                )
+            )
 
 
 def _source_coverage_covers_date(conn: sqlite3.Connection, source: str, on_date: date) -> bool:
@@ -196,4 +203,3 @@ def _source_coverage_covers_date(conn: sqlite3.Connection, source: str, on_date:
         (source, on_date.isoformat(), on_date.isoformat()),
     ).fetchone()
     return row is not None
-

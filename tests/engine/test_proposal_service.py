@@ -169,7 +169,11 @@ def test_same_instant_utc_and_decimal_equivalent_facts_publish(case):
     ("checked_at", "blocker_code", "message"),
     [
         ("2026-10-14T16:19:00+09:00", "proposal_inputs_after_review", "独立Review以前"),
-        ("2026-10-14T15:20:00+09:00", "quote_session_after_inputs", "入力収集時点で利用できる取引日以前"),
+        (
+            "2026-10-14T15:20:00+09:00",
+            "quote_session_after_inputs",
+            "入力収集時点で利用できる取引日以前",
+        ),
     ],
 )
 def test_saved_input_and_quote_times_must_precede_their_reviewed_cutoffs(
@@ -329,9 +333,7 @@ def test_late_outcome_does_not_rewrite_saved_scope_but_rejects_stale_new_publica
 def test_same_session_adjustment_does_not_change_native_quote_or_comparison(case):
     proposal = reviewed_proposal(case)
     with closing(sqlite3.connect(case.market)) as connection, connection:
-        connection.execute(
-            "UPDATE jquants_daily_bars SET adjustment_factor=0.5, ex_right_type='1'"
-        )
+        connection.execute("UPDATE jquants_daily_bars SET adjustment_factor=0.5, ex_right_type='1'")
     service = InvestmentProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     assert service.check(proposal).valid
     assert service.publish(proposal).proposal_id == proposal.proposal_id

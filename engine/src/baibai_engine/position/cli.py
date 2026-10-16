@@ -443,10 +443,15 @@ def _run_outcome(
     except (LedgerConflictError, PortfolioLedgerError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
-    tickers = tuple(sorted({
-        event.ticker for event in ledger.events
-        if isinstance(event, (ExecutionEvent, ReservationEvent))
-    }))
+    tickers = tuple(
+        sorted(
+            {
+                event.ticker
+                for event in ledger.events
+                if isinstance(event, (ExecutionEvent, ReservationEvent))
+            }
+        )
+    )
     calendar_days, bars = read_portfolio_market_inputs(
         sqlite_path, tickers, benchmark.period_start_date, benchmark.period_end_date
     )
@@ -456,7 +461,8 @@ def _run_outcome(
         payload = _outcome_unresolved_payload(benchmark, "missing_market_price")
     else:
         outcome = compute_portfolio_outcome(
-            ledger, benchmark,
+            ledger,
+            benchmark,
             business_days=tuple(day.day for day in calendar_days if day.is_business_day),
             bars=tuple(bars),
         )

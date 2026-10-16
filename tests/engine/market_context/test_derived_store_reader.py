@@ -59,8 +59,12 @@ def test_read_only_derived_values_follow_source_corrections_not_old_cache(tmp_pa
     with pytest.raises(ValueError, match="no stored observation to retract"):
         IndicatorsService(path).retract("rate_diff.us_jp_10y", [(day, vintage)])
 
-def test_option_reader_reuses_day_calculation_and_replaces_changed_native_vintage(tmp_path, monkeypatch):
+
+def test_option_reader_reuses_day_calculation_and_replaces_changed_native_vintage(
+    tmp_path, monkeypatch
+):
     from tests.engine.market_context.indicators.test_option_iv import ASOF, _chain_records
+
     from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
     from baibai_engine.market_context.reading import options
 
@@ -69,7 +73,13 @@ def test_option_reader_reuses_day_calculation_and_replaces_changed_native_vintag
     first = datetime(2026, 7, 30, tzinfo=UTC)
     corrected = datetime(2026, 7, 31, tzinfo=UTC)
     with closing(initialize_database(path)) as writer, writer:
-        store_snapshot(writer, source_key="jquants_options:n225", observed_at=ASOF, fetched_at=first, records=_chain_records())
+        store_snapshot(
+            writer,
+            source_key="jquants_options:n225",
+            observed_at=ASOF,
+            fetched_at=first,
+            records=_chain_records(),
+        )
         insert_observations(writer, [observation("jp.n225_iv_30d", date(2026, 8, 20), 25.0, first)])
     before = path.read_bytes()
     calculate = options.option_iv_readings
@@ -90,7 +100,13 @@ def test_option_reader_reuses_day_calculation_and_replaces_changed_native_vintag
         assert path.read_bytes() == before
         assert indicator_latest_observed_at(path) == ASOF  # not the old scalar's later date
         with closing(sqlite3.connect(path)) as writer, writer:
-            store_snapshot(writer, source_key="jquants_options:n225", observed_at=ASOF, fetched_at=corrected, records=[])
+            store_snapshot(
+                writer,
+                source_key="jquants_options:n225",
+                observed_at=ASOF,
+                fetched_at=corrected,
+                records=[],
+            )
         assert read("jp.n225_iv_30d", ASOF, ASOF) == ()
         assert calls == [ASOF, ASOF]
     assert indicator_latest_observed_at(path) is None

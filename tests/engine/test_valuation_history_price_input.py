@@ -10,14 +10,26 @@ from baibai_engine.valuation.metrics.models import FinancialSnapshot
 def _snapshot(price):
     return FinancialSnapshot(
         latest_financial_disclosure_date=None,
-        per_forward=10.0, per_trailing=None, pbr=2.0, ev_ebitda=None, p_s=None, pcfr=None,
-        eps=None, sales_ttm=None, ocf_ttm=None, market_price_yen=price,
+        per_forward=10.0,
+        per_trailing=None,
+        pbr=2.0,
+        ev_ebitda=None,
+        p_s=None,
+        pcfr=None,
+        eps=None,
+        sales_ttm=None,
+        ocf_ttm=None,
+        market_price_yen=price,
     )
 
 
 def test_history_uses_snapshot_price_and_does_not_reconstruct_a_missing_price():
     day = date(2026, 10, 15)
-    bars = [JQuantsDailyBar(ticker="7203", traded_at=day, close=1000.0, turnover_value=None, adjustment_factor=1.0)]
+    bars = [
+        JQuantsDailyBar(
+            ticker="7203", traded_at=day, close=1000.0, turnover_value=None, adjustment_factor=1.0
+        )
+    ]
     history = build_valuation_history(bars, _snapshot(1000.0), day, adjustment_events=bars)
     assert history["pbr"] == [2.0]
     assert history["per_forward"] == [10.0]

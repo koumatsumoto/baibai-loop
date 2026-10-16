@@ -8,13 +8,23 @@ from pathlib import Path
 from unittest import mock
 from zoneinfo import ZoneInfo
 
+from baibai_engine.market_context.indicator_service import IndicatorsService
+from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
+from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.market_context.indicators.providers import jquants_options
 from baibai_engine.market_context.indicators.providers.base import (
     FetchContext,
     IndicatorsProviderError,
     ProviderFetchStoppedError,
 )
+from baibai_engine.market_context.indicators.providers.jquants_options import OptionChainSource
+from baibai_engine.market_context.indicators.source_snapshots import (
+    read_snapshots,
+    store_snapshot,
+    stored_days,
+)
+from baibai_engine.market_context.option_acquisition import OptionAcquisition
 from baibai_engine.market_context.reading.option_iv import (
     CALL,
     PUT,
@@ -26,13 +36,6 @@ from baibai_engine.market_context.reading.option_iv import (
     quotes_from_records,
     usable_expiries,
 )
-
-from baibai_engine.market_context.indicator_service import IndicatorsService
-from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
-from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.source_snapshots import read_snapshots, store_snapshot, stored_days
-from baibai_engine.market_context.indicators.providers.jquants_options import OptionChainSource
-from baibai_engine.market_context.option_acquisition import OptionAcquisition
 from baibai_engine.market_context.reading.options import OptionSeriesReader
 
 ASOF = date(2026, 7, 29)
@@ -750,6 +753,7 @@ class OptionSourceContractTest(unittest.TestCase):
                         jquants_options._require_requested_day(candidate, ASOF)
         jquants_options._require_requested_day([], ASOF)
 
+
 class OptionAcquisitionTest(unittest.TestCase):
     """Native source retention and L2 readings through the application boundary."""
 
@@ -776,8 +780,9 @@ class OptionAcquisitionTest(unittest.TestCase):
             rows[0]["NativeIdentifier"] = "0000123"
             return rows
 
-        with mock.patch.object(OptionChainSource, "fetch", side_effect=source), mock.patch.object(
-            OptionChainSource, "__init__", return_value=None
+        with (
+            mock.patch.object(OptionChainSource, "fetch", side_effect=source),
+            mock.patch.object(OptionChainSource, "__init__", return_value=None),
         ):
             acquisition = OptionAcquisition(connection, self._context())
             for field in ("n225_iv_30d", "n225_iv_skew", "n225_iv_term"):
@@ -785,7 +790,9 @@ class OptionAcquisitionTest(unittest.TestCase):
                     _registered(f"jp.{field}"), start=date(2026, 7, 27), end=ASOF, refresh=True
                 )
         self.assertEqual(acquired, [date(2026, 7, 27), date(2026, 7, 28), ASOF])
-        chains = list(read_snapshots(connection, acquired[0], ASOF, source_key="jquants_options:n225"))
+        chains = list(
+            read_snapshots(connection, acquired[0], ASOF, source_key="jquants_options:n225")
+        )
         self.assertEqual(len(chains), 3)
         self.assertIsNone(chains[0].records[0]["UnselectedNativeField"])
         self.assertEqual(chains[0].records[0]["NativeIdentifier"], "0000123")
@@ -793,43 +800,66 @@ class OptionAcquisitionTest(unittest.TestCase):
 
     def test_weekends_are_skipped_and_range_end_is_included(self) -> None:
         connection = self._database()
-        with mock.patch.object(OptionChainSource, "__init__", return_value=None), mock.patch.object(
-            OptionChainSource, "fetch", side_effect=lambda day: _chain_records(day)
-        ) as fetch:
+        with (
+            mock.patch.object(OptionChainSource, "__init__", return_value=None),
+            mock.patch.object(
+                OptionChainSource, "fetch", side_effect=lambda day: _chain_records(day)
+            ) as fetch,
+        ):
             OptionAcquisition(connection, self._context()).query(
                 _registered("jp.n225_iv_term"),
-                start=date(2026, 7, 31), end=date(2026, 8, 3), refresh=True,
+                start=date(2026, 7, 31),
+                end=date(2026, 8, 3),
+                refresh=True,
             )
-        self.assertEqual(fetch.call_args_list, [mock.call(date(2026, 7, 31)), mock.call(date(2026, 8, 3))])
+        self.assertEqual(
+            fetch.call_args_list, [mock.call(date(2026, 7, 31)), mock.call(date(2026, 8, 3))]
+        )
 
     def test_completed_prefix_survives_failure_and_next_pass_resumes(self) -> None:
         connection = self._database()
         first, second = date(2026, 7, 27), date(2026, 7, 28)
-        with mock.patch.object(OptionChainSource, "__init__", return_value=None), mock.patch.object(
-            OptionChainSource, "fetch", side_effect=[_chain_records(first), ProviderFetchStoppedError("stopped")]
-        ) as fetch:
+        with (
+            mock.patch.object(OptionChainSource, "__init__", return_value=None),
+            mock.patch.object(
+                OptionChainSource,
+                "fetch",
+                side_effect=[_chain_records(first), ProviderFetchStoppedError("stopped")],
+            ) as fetch,
+        ):
             acquisition = OptionAcquisition(connection, self._context())
             for field in ("n225_iv_30d", "n225_iv_term"):
                 with self.assertRaisesRegex(ProviderFetchStoppedError, "stopped"):
-                    acquisition.query(_registered(f"jp.{field}"), start=first, end=second, refresh=True)
+                    acquisition.query(
+                        _registered(f"jp.{field}"), start=first, end=second, refresh=True
+                    )
             self.assertEqual(fetch.call_count, 2)
-        self.assertEqual(stored_days(connection, first, second, source_key="jquants_options:n225"), {first})
-        with mock.patch.object(OptionChainSource, "__init__", return_value=None), mock.patch.object(
-            OptionChainSource, "fetch", return_value=_chain_records(second)
-        ) as fetch:
+        self.assertEqual(
+            stored_days(connection, first, second, source_key="jquants_options:n225"), {first}
+        )
+        with (
+            mock.patch.object(OptionChainSource, "__init__", return_value=None),
+            mock.patch.object(
+                OptionChainSource, "fetch", return_value=_chain_records(second)
+            ) as fetch,
+        ):
             OptionAcquisition(connection, self._context("read")).query(
                 _registered("jp.n225_iv_30d"), start=first, end=second, refresh=False
             )
         fetch.assert_called_once_with(second)
-        self.assertEqual(stored_days(connection, first, second, source_key="jquants_options:n225"), {first, second})
+        self.assertEqual(
+            stored_days(connection, first, second, source_key="jquants_options:n225"),
+            {first, second},
+        )
 
     def test_calculation_failure_keeps_original_and_does_not_refetch_it(self) -> None:
         connection = self._database()
         rows = _chain_records()
         rows.append(dict(rows[0], Strike=str(rows[0]["Strike"])))
-        with mock.patch.object(OptionChainSource, "__init__", return_value=None), mock.patch.object(
-            OptionChainSource, "fetch", return_value=rows
-        ) as fetch:
+        with (
+            mock.patch.object(OptionChainSource, "__init__", return_value=None),
+            mock.patch.object(OptionChainSource, "fetch", return_value=rows) as fetch,
+        ):
             with self.assertRaisesRegex(ValueError, "duplicate settlement"):
                 OptionAcquisition(connection, self._context()).query(
                     _registered("jp.n225_iv_30d"), start=ASOF, end=ASOF, refresh=True
@@ -839,52 +869,138 @@ class OptionAcquisitionTest(unittest.TestCase):
                     _registered("jp.n225_iv_30d"), start=ASOF, end=ASOF, refresh=False
                 )
         fetch.assert_called_once_with(ASOF)
-        self.assertEqual(list(read_snapshots(connection, ASOF, ASOF, source_key="jquants_options:n225"))[0].records, tuple(rows))
+        self.assertEqual(
+            next(read_snapshots(connection, ASOF, ASOF, source_key="jquants_options:n225")).records,
+            tuple(rows),
+        )
 
     def test_empty_replacement_hides_previous_chain_and_old_scalar_values(self) -> None:
         connection = self._database()
         before = datetime(2026, 7, 30, tzinfo=UTC)
         with connection:
-            store_snapshot(connection, source_key="jquants_options:n225", observed_at=ASOF, fetched_at=before, records=_chain_records())
-            insert_observations(connection, [ObservationRecord(
-                series_id="jp.n225_iv_30d", observed_at=ASOF, value=25.0, unit="percent",
-                source_url=_registered("jp.n225_iv_30d").source_url, vintage_at=before,
-            )])
-        self.assertTrue(OptionSeriesReader(connection).read(_registered("jp.n225_iv_30d"), start=ASOF, end=ASOF))
+            store_snapshot(
+                connection,
+                source_key="jquants_options:n225",
+                observed_at=ASOF,
+                fetched_at=before,
+                records=_chain_records(),
+            )
+            insert_observations(
+                connection,
+                [
+                    ObservationRecord(
+                        series_id="jp.n225_iv_30d",
+                        observed_at=ASOF,
+                        value=25.0,
+                        unit="percent",
+                        source_url=_registered("jp.n225_iv_30d").source_url,
+                        vintage_at=before,
+                    )
+                ],
+            )
+        self.assertTrue(
+            OptionSeriesReader(connection).read(_registered("jp.n225_iv_30d"), start=ASOF, end=ASOF)
+        )
         with connection:
-            store_snapshot(connection, source_key="jquants_options:n225", observed_at=ASOF, fetched_at=before + timedelta(days=1), records=[])
-        self.assertEqual(OptionSeriesReader(connection).read(_registered("jp.n225_iv_30d"), start=ASOF, end=ASOF), ())
-        self.assertEqual(stored_days(connection, ASOF, ASOF, source_key="jquants_options:n225"), {ASOF})
+            store_snapshot(
+                connection,
+                source_key="jquants_options:n225",
+                observed_at=ASOF,
+                fetched_at=before + timedelta(days=1),
+                records=[],
+            )
+        self.assertEqual(
+            OptionSeriesReader(connection).read(
+                _registered("jp.n225_iv_30d"), start=ASOF, end=ASOF
+            ),
+            (),
+        )
+        self.assertEqual(
+            stored_days(connection, ASOF, ASOF, source_key="jquants_options:n225"), {ASOF}
+        )
         self.assertEqual(connection.execute("SELECT COUNT(*) FROM observations").fetchone()[0], 1)
-        self.assertEqual(connection.execute("SELECT COUNT(*) FROM indicator_source_snapshots").fetchone()[0], 2)
+        self.assertEqual(
+            connection.execute("SELECT COUNT(*) FROM indicator_source_snapshots").fetchone()[0], 2
+        )
 
     def test_identical_response_does_not_add_another_payload(self) -> None:
         connection = self._database()
         fetched_at = datetime(2026, 7, 30, tzinfo=UTC)
         with connection:
-            self.assertTrue(store_snapshot(connection, source_key="jquants_options:n225", observed_at=ASOF, fetched_at=fetched_at, records=_chain_records()))
-            self.assertFalse(store_snapshot(connection, source_key="jquants_options:n225", observed_at=ASOF, fetched_at=fetched_at + timedelta(days=1), records=_chain_records()))
-        self.assertEqual(connection.execute("SELECT COUNT(*) FROM indicator_source_snapshots").fetchone()[0], 1)
+            self.assertTrue(
+                store_snapshot(
+                    connection,
+                    source_key="jquants_options:n225",
+                    observed_at=ASOF,
+                    fetched_at=fetched_at,
+                    records=_chain_records(),
+                )
+            )
+            self.assertFalse(
+                store_snapshot(
+                    connection,
+                    source_key="jquants_options:n225",
+                    observed_at=ASOF,
+                    fetched_at=fetched_at + timedelta(days=1),
+                    records=_chain_records(),
+                )
+            )
+        self.assertEqual(
+            connection.execute("SELECT COUNT(*) FROM indicator_source_snapshots").fetchone()[0], 1
+        )
 
     def test_emergency_snapshot_is_retained_but_only_settlement_is_calculated(self) -> None:
         connection = self._database()
         settled = _chain_records()
-        intervention = _records([*_chain(NEAR, underlying=39_000.0), *_chain(FAR, underlying=39_000.0)], snapshot="001")
+        intervention = _records(
+            [*_chain(NEAR, underlying=39_000.0), *_chain(FAR, underlying=39_000.0)], snapshot="001"
+        )
         with connection:
-            store_snapshot(connection, source_key="jquants_options:n225", observed_at=ASOF, fetched_at=datetime.now(UTC), records=[*settled, *intervention])
-        result = OptionSeriesReader(connection).read(_registered("jp.n225_iv_30d"), start=ASOF, end=ASOF)
-        self.assertEqual(result[0].value, option_iv_readings(quotes_from_records(settled), ASOF).iv_30d)
-        self.assertEqual(len(list(read_snapshots(connection, ASOF, ASOF, source_key="jquants_options:n225"))[0].records), len(settled) + len(intervention))
+            store_snapshot(
+                connection,
+                source_key="jquants_options:n225",
+                observed_at=ASOF,
+                fetched_at=datetime.now(UTC),
+                records=[*settled, *intervention],
+            )
+        result = OptionSeriesReader(connection).read(
+            _registered("jp.n225_iv_30d"), start=ASOF, end=ASOF
+        )
+        self.assertEqual(
+            result[0].value, option_iv_readings(quotes_from_records(settled), ASOF).iv_30d
+        )
+        self.assertEqual(
+            len(
+                next(
+                    read_snapshots(connection, ASOF, ASOF, source_key="jquants_options:n225")
+                ).records
+            ),
+            len(settled) + len(intervention),
+        )
 
     def test_missing_maturity_bracket_is_not_an_empty_source_response(self) -> None:
         connection = self._database()
         day = ASOF - timedelta(days=1)
         rows = _records([*_chain(ON_TARGET), *_chain(WIDE, level=2.0)], day)
         with connection:
-            store_snapshot(connection, source_key="jquants_options:n225", observed_at=day, fetched_at=datetime.now(UTC), records=rows)
-        self.assertEqual(OptionSeriesReader(connection).read(_registered("jp.n225_iv_30d"), start=day, end=day), ())
-        self.assertTrue(OptionSeriesReader(connection).read(_registered("jp.n225_iv_term"), start=day, end=day))
-        self.assertEqual(list(read_snapshots(connection, day, day, source_key="jquants_options:n225"))[0].records, tuple(rows))
+            store_snapshot(
+                connection,
+                source_key="jquants_options:n225",
+                observed_at=day,
+                fetched_at=datetime.now(UTC),
+                records=rows,
+            )
+        self.assertEqual(
+            OptionSeriesReader(connection).read(_registered("jp.n225_iv_30d"), start=day, end=day),
+            (),
+        )
+        self.assertTrue(
+            OptionSeriesReader(connection).read(_registered("jp.n225_iv_term"), start=day, end=day)
+        )
+        self.assertEqual(
+            next(read_snapshots(connection, day, day, source_key="jquants_options:n225")).records,
+            tuple(rows),
+        )
 
     def test_latest_rechecks_an_empty_response_before_publication(self) -> None:
         temporary = tempfile.TemporaryDirectory()
@@ -893,14 +1009,27 @@ class OptionAcquisitionTest(unittest.TestCase):
         connection = initialize_database(database)
         try:
             with connection:
-                store_snapshot(connection, source_key="jquants_options:n225", observed_at=ASOF, fetched_at=datetime(2026, 7, 29, tzinfo=UTC), records=[])
+                store_snapshot(
+                    connection,
+                    source_key="jquants_options:n225",
+                    observed_at=ASOF,
+                    fetched_at=datetime(2026, 7, 29, tzinfo=UTC),
+                    records=[],
+                )
         finally:
             connection.close()
-        with mock.patch("baibai_engine.market_context.indicator_service._today_jst", return_value=ASOF), mock.patch.object(
-            OptionChainSource, "__init__", return_value=None
-        ), mock.patch.object(OptionChainSource, "close"), mock.patch.object(
-            OptionChainSource, "fetch", side_effect=lambda day: _chain_records(day) if day == ASOF else []
-        ) as fetch:
+        with (
+            mock.patch(
+                "baibai_engine.market_context.indicator_service._today_jst", return_value=ASOF
+            ),
+            mock.patch.object(OptionChainSource, "__init__", return_value=None),
+            mock.patch.object(OptionChainSource, "close"),
+            mock.patch.object(
+                OptionChainSource,
+                "fetch",
+                side_effect=lambda day: _chain_records(day) if day == ASOF else [],
+            ) as fetch,
+        ):
             result = IndicatorsService(database).get_latest("jp.n225_iv_30d")
         self.assertEqual([row.observed_at for row in result.observations], [ASOF])
         self.assertIn(mock.call(ASOF), fetch.call_args_list)
@@ -908,18 +1037,31 @@ class OptionAcquisitionTest(unittest.TestCase):
     def test_rebuild_reuses_old_complete_days_but_bounded_refresh_can_restate_them(self) -> None:
         connection = self._database()
         start = ASOF - timedelta(days=30)
-        days = [start + timedelta(days=i) for i in range(31)
-                if (start + timedelta(days=i)).weekday() < 5]
+        days = [
+            start + timedelta(days=i)
+            for i in range(31)
+            if (start + timedelta(days=i)).weekday() < 5
+        ]
         with connection:
             for day in days:
-                store_snapshot(connection, source_key="jquants_options:n225", observed_at=day, fetched_at=datetime(2026, 7, 30, tzinfo=UTC), records=[])
-        with mock.patch.object(OptionChainSource, "__init__", return_value=None), mock.patch.object(
-            OptionChainSource, "fetch", return_value=[]
-        ) as fetch:
+                store_snapshot(
+                    connection,
+                    source_key="jquants_options:n225",
+                    observed_at=day,
+                    fetched_at=datetime(2026, 7, 30, tzinfo=UTC),
+                    records=[],
+                )
+        with (
+            mock.patch.object(OptionChainSource, "__init__", return_value=None),
+            mock.patch.object(OptionChainSource, "fetch", return_value=[]) as fetch,
+        ):
             OptionAcquisition(connection, self._context("rebuild")).query(
                 _registered("jp.n225_iv_term"), start=start, end=ASOF, refresh=True
             )
-            self.assertEqual(fetch.call_args_list, [mock.call(day) for day in days if day >= ASOF - timedelta(days=14)])
+            self.assertEqual(
+                fetch.call_args_list,
+                [mock.call(day) for day in days if day >= ASOF - timedelta(days=14)],
+            )
             fetch.reset_mock()
             OptionAcquisition(connection, self._context("refresh")).query(
                 _registered("jp.n225_iv_term"), start=days[0], end=days[0], refresh=True

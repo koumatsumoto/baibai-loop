@@ -190,7 +190,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="assert the calendar-required saved master date; never bypass observation hours",
     )
     refresh.add_argument("--progress-output", type=Path)
-    refresh.add_argument("--interval", type=float, default=15.0, help="request interval, 15..3600 seconds")
+    refresh.add_argument(
+        "--interval", type=float, default=15.0, help="request interval, 15..3600 seconds"
+    )
     accepted = sub.add_parser(
         "accept-observations", help="accept hash-pinned saved responses without provider access"
     )

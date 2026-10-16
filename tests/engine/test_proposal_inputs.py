@@ -338,7 +338,7 @@ def test_holding_quantity_uses_share_units_not_the_price_adjustment(tmp_path, ki
     assert portfolio.holdings[0].market_value_yen == (100000 if unchanged else None)
 
 
-@pytest.mark.parametrize("product_category, expected_common", [("011", True), ("014", False)])
+@pytest.mark.parametrize(("product_category", "expected_common"), [("011", True), ("014", False)])
 def test_classification_uses_native_product_not_sector(tmp_path, product_category, expected_common):
     case = backend_case(tmp_path)
     with closing(sqlite3.connect(case.market)) as connection, connection:
@@ -348,7 +348,9 @@ def test_classification_uses_native_product_not_sector(tmp_path, product_categor
             "WHERE security_code = '12340'",
             (product_category,),
         )
-    classification = next(row for row in _collect(case).security_classification if row.ticker == "1234")
+    classification = next(
+        row for row in _collect(case).security_classification if row.ticker == "1234"
+    )
     assert classification.is_common_stock is expected_common
     context = build_proposal_context(
         operation_id=case.operation.operation_id,

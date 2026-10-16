@@ -34,36 +34,52 @@ def _zip(content: bytes) -> bytes:
     return target.getvalue()
 
 
-@pytest.mark.parametrize("source_type,method", [(1, "download_xbrl_zip"), (5, "download_csv_zip")])
+@pytest.mark.parametrize(
+    ("source_type", "method"), [(1, "download_xbrl_zip"), (5, "download_csv_zip")]
+)
 def test_downloaded_bytes_are_available_without_the_local_cache(tmp_path, source_type, method):
     content = _zip(b"original units, missing facts, and unselected fields")
     reply = response(content)
     provider = EDINETProvider(
-        "test-key", tmp_path / "first-cache", session=FakeSession(reply),
+        "test-key",
+        tmp_path / "first-cache",
+        session=FakeSession(reply),
         sqlite_path=tmp_path / "market.sqlite",
     )
     assert getattr(provider, method)("S100TEST") == content
     assert reply.close_count == 1
     assert read_source_archive(tmp_path / "market.sqlite", "S100TEST", source_type) == content
     offline = EDINETProvider(
-        None, tmp_path / "different-cache", session=ExplodingSession(),
-        sqlite_path=tmp_path / "market.sqlite", cache_only=True,
+        None,
+        tmp_path / "different-cache",
+        session=ExplodingSession(),
+        sqlite_path=tmp_path / "market.sqlite",
+        cache_only=True,
     )
     assert getattr(offline, method)("S100TEST") == content
     assert not (tmp_path / "different-cache").exists()
 
 
-@pytest.mark.parametrize("kind,source_type,method", [
-    ("csv", 5, "download_csv_zip"), ("xbrl", 1, "download_xbrl_zip"),
-])
-def test_existing_zip_is_retained_without_repeating_acquisition(tmp_path, kind, source_type, method):
+@pytest.mark.parametrize(
+    ("kind", "source_type", "method"),
+    [
+        ("csv", 5, "download_csv_zip"),
+        ("xbrl", 1, "download_xbrl_zip"),
+    ],
+)
+def test_existing_zip_is_retained_without_repeating_acquisition(
+    tmp_path, kind, source_type, method
+):
     content = _zip(b"already downloaded")
     cache = tmp_path / "cache" / "edinet" / f"{kind}_zips" / "S100TEST.zip"
     cache.parent.mkdir(parents=True)
     cache.write_bytes(content)
     provider = EDINETProvider(
-        None, tmp_path / "cache", session=ExplodingSession(),
-        sqlite_path=tmp_path / "market.sqlite", cache_only=True,
+        None,
+        tmp_path / "cache",
+        session=ExplodingSession(),
+        sqlite_path=tmp_path / "market.sqlite",
+        cache_only=True,
     )
     assert getattr(provider, method)("S100TEST") == content
     assert read_source_archive(tmp_path / "market.sqlite", "S100TEST", source_type) == content
@@ -97,10 +113,16 @@ def test_binary_source_archives_survive_lake_export_and_hydration(tmp_path, monk
         retain_source_archive(db, "S100TEST", source_type, content, stored_on=date(2026, 1, 1))
     mirror = tmp_path / "mirror"
     stamp = datetime(2026, 2, 1, tzinfo=UTC)
-    with sealed_sqlite_snapshot(sqlite_path=db, mirror_root=mirror, snapshot_id="sources") as snapshot:
+    with sealed_sqlite_snapshot(
+        sqlite_path=db, mirror_root=mirror, snapshot_id="sources"
+    ) as snapshot:
         built = export_dataset_snapshot(
-            dataset_name=name, mirror_root=mirror, source_snapshot=snapshot,
-            producer_git_commit="a" * 40, build_id="source-archives", created_at=stamp,
+            dataset_name=name,
+            mirror_root=mirror,
+            source_snapshot=snapshot,
+            producer_git_commit="a" * 40,
+            build_id="source-archives",
+            created_at=stamp,
         )
     manifest = built.manifest_path
     for partition in built.manifest.partitions:
@@ -109,26 +131,37 @@ def test_binary_source_archives_survive_lake_export_and_hydration(tmp_path, monk
                 assert parquet.metadata.num_row_groups == 2
                 assert parquet.metadata.row_group(0).column(3).statistics is None
     release_path, release = create_l1_release(
-        dataset_manifest_paths=[manifest], mirror_root=mirror,
-        release_id="source-archives", created_at=stamp,
+        dataset_manifest_paths=[manifest],
+        mirror_root=mirror,
+        release_id="source-archives",
+        created_at=stamp,
     )
     source = LocalMirrorSource(mirror)
     fixed = resolve_release(
-        source, release.release_id,
+        source,
+        release.release_id,
         manifest_sha256=hashlib.sha256(release_path.read_bytes()).hexdigest(),
     )
     with lake_session() as session:
-        batches = list(iter_partition_rows(
-            session, dataset=EDINET_SOURCE_ARCHIVES,
-            paths=tuple(mirror / obj.key for part in built.manifest.partitions for obj in part.objects),
-        ))
+        batches = list(
+            iter_partition_rows(
+                session,
+                dataset=EDINET_SOURCE_ARCHIVES,
+                paths=tuple(
+                    mirror / obj.key for part in built.manifest.partitions for obj in part.objects
+                ),
+            )
+        )
     assert [len(batch) for batch in batches] == [1, 1]
     target = tmp_path / "target.sqlite"
     open_connection(target).close()
     with lake_session() as session:
         report = hydrate_market_store(
-            session, release=fixed, cache=LakeObjectCache(root=mirror, source=source),
-            store=target, dataset_names=(name,),
+            session,
+            release=fixed,
+            cache=LakeObjectCache(root=mirror, source=source),
+            store=target,
+            dataset_names=(name,),
         )
     assert report.rows == {name: 2}
     for source_type, content in originals.items():
@@ -139,7 +172,10 @@ def test_existing_broken_store_is_not_treated_as_a_network_cache_miss(tmp_path):
     path = tmp_path / "market.sqlite"
     path.write_bytes(b"not a SQLite database")
     provider = EDINETProvider(
-        "test-key", tmp_path / "cache", session=ExplodingSession(), sqlite_path=path,
+        "test-key",
+        tmp_path / "cache",
+        session=ExplodingSession(),
+        sqlite_path=path,
     )
     with pytest.raises(sqlite3.DatabaseError):
         provider.download_csv_zip("S100TEST")
@@ -151,7 +187,9 @@ def test_non_zip_response_cannot_replace_retained_inputs(tmp_path):
     original = _zip(b"retained filing")
     retain_source_archive(path, "S100KEPT", 5, original, stored_on=date(2026, 1, 1))
     provider = EDINETProvider(
-        "test-key", tmp_path / "cache", session=FakeSession(response(b"not a ZIP")),
+        "test-key",
+        tmp_path / "cache",
+        session=FakeSession(response(b"not a ZIP")),
         sqlite_path=path,
     )
     with pytest.raises(EDINETProviderError, match="not a zip"):
@@ -162,38 +200,59 @@ def test_non_zip_response_cannot_replace_retained_inputs(tmp_path):
 
 def test_native_listing_response_survives_lake_roundtrip(tmp_path, monkeypatch):
     name = "edinet.document_lists"
-    narrow_release_policy(monkeypatch, datasets=(name,), relax_floors=False)
+    # This two-day synthetic fixture checks native JSON/NULL roundtrip, not production floors.
+    narrow_release_policy(
+        monkeypatch,
+        datasets=(name,),
+        minimum_rows=2,
+        minimum_population_count=None,
+        relax_floors=True,
+    )
     db = tmp_path / "source.sqlite"
-    original = json.dumps({
-        "metadata": {"resultset": {"count": 0}}, "results": [],
-        "unselected": {"zero": 0, "unknown": None, "text": "日本語"},
-    }, ensure_ascii=False)
+    original = json.dumps(
+        {
+            "metadata": {"resultset": {"count": 0}},
+            "results": [],
+            "unselected": {"zero": 0, "unknown": None, "text": "日本語"},
+        },
+        ensure_ascii=False,
+    )
     store_edinet_documents(db, date(2026, 1, 1), [], response_json=original)
     store_edinet_documents(db, date(2026, 1, 2), [])
     mirror = tmp_path / "mirror"
     stamp = datetime(2026, 2, 1, tzinfo=UTC)
     with sealed_sqlite_snapshot(
-        sqlite_path=db, mirror_root=mirror, snapshot_id="listings"
+        sqlite_path=db, mirror_root=mirror, snapshot_id="listings-source"
     ) as snapshot:
         built = export_dataset_snapshot(
-            dataset_name=name, mirror_root=mirror, source_snapshot=snapshot,
-            producer_git_commit="a" * 40, build_id="listings", created_at=stamp,
+            dataset_name=name,
+            mirror_root=mirror,
+            source_snapshot=snapshot,
+            producer_git_commit="a" * 40,
+            build_id="listings",
+            created_at=stamp,
         )
     release_path, release = create_l1_release(
-        dataset_manifest_paths=[built.manifest_path], mirror_root=mirror,
-        release_id="listings", created_at=stamp,
+        dataset_manifest_paths=[built.manifest_path],
+        mirror_root=mirror,
+        release_id="listings",
+        created_at=stamp,
     )
     source = LocalMirrorSource(mirror)
     fixed = resolve_release(
-        source, release.release_id,
+        source,
+        release.release_id,
         manifest_sha256=hashlib.sha256(release_path.read_bytes()).hexdigest(),
     )
     target = tmp_path / "target.sqlite"
     open_connection(target).close()
     with lake_session() as session:
         hydrate_market_store(
-            session, release=fixed, cache=LakeObjectCache(root=mirror, source=source),
-            store=target, dataset_names=(name,),
+            session,
+            release=fixed,
+            cache=LakeObjectCache(root=mirror, source=source),
+            store=target,
+            dataset_names=(name,),
         )
     with closing(sqlite3.connect(target)) as connection:
         assert connection.execute(

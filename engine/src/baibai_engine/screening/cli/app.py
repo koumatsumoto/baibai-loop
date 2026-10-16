@@ -586,7 +586,8 @@ def main(argv: list[str] | None = None) -> int:
             asof=_parse_iso_date(args.asof),
             sqlite_path=Path(args.sqlite_path) if args.sqlite_path else sqlite_path,
             provider=EDINETProvider(
-                config.edinet_api_key, config.cache_dir,
+                config.edinet_api_key,
+                config.cache_dir,
                 sqlite_path=Path(args.sqlite_path) if args.sqlite_path else sqlite_path,
                 cache_only=args.cache_only,
             ),

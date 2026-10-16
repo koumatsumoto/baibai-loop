@@ -164,8 +164,8 @@ def test_watch_does_not_require_unused_intermediate_close_values(case, old_close
     db, market = case
     with closing(sqlite3.connect(market)) as connection, connection:
         connection.execute(
-            "UPDATE jquants_daily_bars SET close=? "
-            "WHERE ticker='2331' AND traded_at='2026-09-07'", (old_close,),
+            "UPDATE jquants_daily_bars SET close=? WHERE ticker='2331' AND traded_at='2026-09-07'",
+            (old_close,),
         )
     row = build_watch(app_db_path=db, sqlite_path=market, asof=date(2026, 9, 8))["rows"][0]
     assert row["status"] == "resolved"
@@ -179,7 +179,8 @@ def test_quote_day_action_already_belongs_to_original_quote_basis(case, factor):
     with closing(sqlite3.connect(market)) as connection, connection:
         connection.execute(
             "UPDATE jquants_daily_bars SET adjustment_factor=? "
-            "WHERE ticker='2331' AND traded_at='2026-09-04'", (factor,),
+            "WHERE ticker='2331' AND traded_at='2026-09-04'",
+            (factor,),
         )
     row = build_watch(app_db_path=db, sqlite_path=market, asof=date(2026, 9, 8))["rows"][0]
     assert row["status"] == "resolved"
@@ -197,13 +198,15 @@ def test_original_quote_fact_does_not_require_an_unused_same_day_market_row(case
     assert row["pmax_gap_pct"] is not None
 
 
-@pytest.mark.parametrize("current_close, reason", [(None, "missing_raw_close"), (0, "invalid_raw_close")])
+@pytest.mark.parametrize(
+    ("current_close", "reason"), [(None, "missing_raw_close"), (0, "invalid_raw_close")]
+)
 def test_current_close_is_still_required_for_price_gap(case, current_close, reason):
     db, market = case
     with closing(sqlite3.connect(market)) as connection, connection:
         connection.execute(
-            "UPDATE jquants_daily_bars SET close=? "
-            "WHERE ticker='2331' AND traded_at='2026-09-08'", (current_close,),
+            "UPDATE jquants_daily_bars SET close=? WHERE ticker='2331' AND traded_at='2026-09-08'",
+            (current_close,),
         )
     row = build_watch(app_db_path=db, sqlite_path=market, asof=date(2026, 9, 8))["rows"][0]
     assert row["status"] == "unresolved"
@@ -213,6 +216,7 @@ def test_current_close_is_still_required_for_price_gap(case, current_close, reas
 
 def test_date_only_order_history_does_not_present_replay_time_as_reported_time():
     from zoneinfo import ZoneInfo
+
     from baibai_engine.position.ledger import ReservationEvent
     from baibai_engine.research_watch import _reservation_history
 
@@ -223,7 +227,9 @@ def test_date_only_order_history_does_not_present_replay_time_as_reported_time()
     row = _reservation_history((date_only,))[original.ticker][0]
     assert row["occurred_on"] == reported_day.isoformat()
     assert row["occurred_at"] is None
-    timestamped = _reservation_history((original.model_copy(update={"occurred_on": None}),))[original.ticker][0]
+    timestamped = _reservation_history((original.model_copy(update={"occurred_on": None}),))[
+        original.ticker
+    ][0]
     assert timestamped["occurred_on"] is None
     assert timestamped["occurred_at"] == original.occurred_at.isoformat()
 

@@ -31,20 +31,24 @@ def test_unit_id_not_display_label_selects_yen(reverse):
 
 @pytest.mark.parametrize("unit", ["USD", "JPYPerShares", "-", ""])
 def test_non_yen_current_fact_does_not_restore_prior_yen(unit):
-    record = _record([
-        ("Prior1YearInstant", "JPY", "900"),
-        ("CurrentYearInstant", unit, "100"),
-    ])
+    record = _record(
+        [
+            ("Prior1YearInstant", "JPY", "900"),
+            ("CurrentYearInstant", unit, "100"),
+        ]
+    )
     assert record.cash is None
     assert "metric_unavailable:cash" in record.failure_reasons
 
 
 @pytest.mark.parametrize("value", ["", "－", "―", "–"])
 def test_missing_or_lookalike_bars_are_not_zero_or_prior_value(value):
-    record = _record([
-        ("Prior1YearInstant", "JPY", "900"),
-        ("CurrentYearInstant", "JPY", value),
-    ])
+    record = _record(
+        [
+            ("Prior1YearInstant", "JPY", "900"),
+            ("CurrentYearInstant", "JPY", value),
+        ]
+    )
     assert record.cash is None
 
 
@@ -53,12 +57,15 @@ def test_explicit_csv_zero_remains_zero(value):
     assert _record([("CurrentYearInstant", "JPY", value)]).cash == 0
 
 
-@pytest.mark.parametrize("values,expected", [
-    (["100", "100"], 100),
-    (["100", "200"], None),
-    (["200", "100"], None),
-    (["100", ""], None),
-    (["", "100"], None),
-])
+@pytest.mark.parametrize(
+    ("values", "expected"),
+    [
+        (["100", "100"], 100),
+        (["100", "200"], None),
+        (["200", "100"], None),
+        (["100", ""], None),
+        (["", "100"], None),
+    ],
+)
 def test_conflicting_or_missing_duplicate_facts_are_not_first_row_wins(values, expected):
     assert _record([("CurrentYearInstant", "JPY", value) for value in values]).cash == expected

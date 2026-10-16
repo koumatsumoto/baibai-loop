@@ -32,7 +32,6 @@ from baibai_engine.screening.calibration.store import (
     read_panel,
     read_panel_meta,
 )
-
 from baibai_engine.valuation.estimates import SHARE_COUNT_CLIP, UPSIDE_CAP
 
 DEFAULT_CALIBRATION_DIR = Path("stores/screening/calibration")
@@ -249,9 +248,7 @@ def _high_estimate_comparison(
 
 def _share_count_comparison(rows: Sequence[PanelRow], horizon: str) -> Mapping[str, object]:
     known = [row for row in rows if row.share_count_yield is not None]
-    clipped = [
-        row for row in known if (row.share_count_yield or 0.0) >= SHARE_COUNT_CLIP - 1e-9
-    ]
+    clipped = [row for row in known if (row.share_count_yield or 0.0) >= SHARE_COUNT_CLIP - 1e-9]
     partial = [
         row for row in known if 0.0 < (row.share_count_yield or 0.0) < SHARE_COUNT_CLIP - 1e-9
     ]

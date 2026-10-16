@@ -28,20 +28,27 @@ def _read_api_key() -> str:
 
 class JQuantsFlowsSource:
     def fetch_records(
-        self, series: SeriesDefinition, *, start: date, end: date,
-        session: HttpSession, context: FetchContext | None = None,
+        self,
+        series: SeriesDefinition,
+        *,
+        start: date,
+        end: date,
+        session: HttpSession,
+        context: FetchContext | None = None,
     ) -> NativeRecords:
         api_key = _read_api_key()
         client = jquants_read_client(api_key, deadline=read_deadline("jquants_flows", context))
         try:
             rows = read_native_pages(
-                client, "/equities/investor-types",
+                client,
+                "/equities/investor-types",
                 {
                     "section": "TSEPrime",
                     "from": start.strftime("%Y%m%d"),
                     "to": end.strftime("%Y%m%d"),
                 },
-                provider="jquants_flows", api_key=api_key,
+                provider="jquants_flows",
+                api_key=api_key,
             )
             return group_publications(rows, start=start, end=end)
         finally:
@@ -49,7 +56,10 @@ class JQuantsFlowsSource:
 
 
 def group_publications(
-    rows: Sequence[Mapping[str, object]], *, start: date, end: date,
+    rows: Sequence[Mapping[str, object]],
+    *,
+    start: date,
+    end: date,
 ) -> NativeRecords:
     grouped: dict[date, list[Mapping[str, object]]] = {}
     for row in rows:

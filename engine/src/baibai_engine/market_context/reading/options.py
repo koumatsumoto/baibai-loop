@@ -41,7 +41,9 @@ class OptionSeriesReader:
             raise ValueError(f"option series {series.series_id} has inconsistent unit")
         field = _READING_FIELDS[series.provider_series_id]
         observations = []
-        for chain in read_snapshots(self._connection, start, end, source_key="jquants_options:n225"):
+        for chain in read_snapshots(
+            self._connection, start, end, source_key="jquants_options:n225"
+        ):
             cached = self._readings.get(chain.observed_at)
             if cached is None or cached[0] != chain.fetched_at:
                 readings = option_iv_readings(quotes_from_records(chain.records), chain.observed_at)

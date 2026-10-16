@@ -280,7 +280,14 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             disclosed = date(2024, 4, 18)
             store_jquants_fin_summaries(
                 sqlite_path,
-                [{"DiscNo": "synthetic-13010-" + str(disclosed.isoformat())[:10], "Code": "13010", "DiscDate": disclosed.isoformat(), "Sales": 100}],
+                [
+                    {
+                        "DiscNo": "synthetic-13010-" + str(disclosed.isoformat())[:10],
+                        "Code": "13010",
+                        "DiscDate": disclosed.isoformat(),
+                        "Sales": 100,
+                    }
+                ],
                 requested_start=disclosed,
                 requested_end=disclosed,
             )
@@ -891,7 +898,14 @@ class CachedRangeInspectionCostTests(unittest.TestCase):
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             store_jquants_fin_summaries(
                 sqlite_path,
-                [{"DiscNo": "synthetic-13010-2024-04-18", "Code": "13010", "DiscDate": "2024-04-18", "Sales": 100}],
+                [
+                    {
+                        "DiscNo": "synthetic-13010-2024-04-18",
+                        "Code": "13010",
+                        "DiscDate": "2024-04-18",
+                        "Sales": 100,
+                    }
+                ],
                 requested_start=date(2024, 4, 1),
                 requested_end=date(2024, 4, 30),
             )
@@ -935,7 +949,14 @@ def test_later_financial_http_failure_retains_validated_earlier_chunk(tmp_path: 
             self.calls.append(params)
             if len(self.calls) == 2:
                 raise ValueError("injected nonretryable HTTP failure")
-            return [{"DiscNo": "synthetic-23310-" + str(str(params['start_dt']))[:10], "Code": "23310", "DiscDate": str(params["start_dt"]), "FEPS": 10.0}]
+            return [
+                {
+                    "DiscNo": "synthetic-23310-" + str(str(params["start_dt"]))[:10],
+                    "Code": "23310",
+                    "DiscDate": str(params["start_dt"]),
+                    "FEPS": 10.0,
+                }
+            ]
 
     client = FailingSecondChunkClient()
     database = tmp_path / "market.sqlite"
@@ -999,8 +1020,10 @@ def test_rejected_empty_financial_range_does_not_claim_coverage(tmp_path: Path) 
     database = tmp_path / "market.sqlite"
     start, end = date(2026, 5, 2), date(2026, 5, 3)
     store_jquants_fin_summaries(
-        database, [{"Code": "", "DiscDate": start.isoformat()}],
-        requested_start=start, requested_end=end,
+        database,
+        [{"Code": "", "DiscDate": start.isoformat()}],
+        requested_start=start,
+        requested_end=end,
     )
     with closing(sqlite3.connect(database)) as connection:
         assert not range_covered(connection, "jquants_fin_summaries", start, end)
@@ -1015,8 +1038,10 @@ def test_partial_financial_refetch_preserves_empty_outer_windows(tmp_path: Path)
     store_jquants_fin_summaries(database, [], requested_start=start, requested_end=end)
     bad_day = date(2026, 5, 15)
     store_jquants_fin_summaries(
-        database, [{"Code": "", "DiscDate": bad_day.isoformat()}],
-        requested_start=bad_day, requested_end=bad_day,
+        database,
+        [{"Code": "", "DiscDate": bad_day.isoformat()}],
+        requested_start=bad_day,
+        requested_end=bad_day,
     )
     with closing(sqlite3.connect(database)) as connection:
         assert range_covered(connection, "jquants_fin_summaries", start, date(2026, 5, 14))

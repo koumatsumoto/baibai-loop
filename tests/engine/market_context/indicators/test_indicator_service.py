@@ -17,8 +17,8 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
     _write_retired_series,
 )
 from tests.helpers.indicator_store import (
-    store_h15_observations,
     observation,
+    store_h15_observations,
 )
 
 from baibai_engine.market_context.indicator_cli import (
@@ -42,14 +42,14 @@ from baibai_engine.market_context.indicators.definitions import (
     load_definitions,
 )
 from baibai_engine.market_context.indicators.observations import ObservationRecord
-from baibai_engine.market_context.indicators.read_contracts import native_source_key
-from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
 from baibai_engine.market_context.indicators.providers import (
     IndicatorsProviderError,
 )
 from baibai_engine.market_context.indicators.providers.base import (
     FetchContext,
 )
+from baibai_engine.market_context.indicators.read_contracts import native_source_key
+from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
 
 
 class IndicatorsServiceTests(unittest.TestCase):
@@ -65,13 +65,14 @@ class IndicatorsServiceTests(unittest.TestCase):
                         conn,
                         [
                             observation(input_id, date(2026, 7, 1), value)
-                            for input_id, value in inputs.items() if input_id not in {"us.10y", "us.sp500_earnings_yield"}
+                            for input_id, value in inputs.items()
+                            if input_id not in {"us.10y", "us.sp500_earnings_yield"}
                         ],
                     )
                     if "us.10y" in inputs:
-                        store_h15_observations(conn, [observation(
-                            "us.10y", date(2026, 7, 1), inputs["us.10y"]
-                        )])
+                        store_h15_observations(
+                            conn, [observation("us.10y", date(2026, 7, 1), inputs["us.10y"])]
+                        )
                     conn.commit()
 
                 if "us.sp500_earnings_yield" in inputs:
@@ -512,17 +513,35 @@ class IndicatorsServiceTests(unittest.TestCase):
     def test_refresh_all_history_uses_the_jquants_rolling_window(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
-            rows = {date(2026, 1, 1): [{
-                "Section": "TSEPrime", "PubDate": "2026-01-01",
-                "StDate": "2025-12-22", "EnDate": "2025-12-26", "FrgnBal": 1,
-            }]}
+            rows = {
+                date(2026, 1, 1): [
+                    {
+                        "Section": "TSEPrime",
+                        "PubDate": "2026-01-01",
+                        "StDate": "2025-12-22",
+                        "EnDate": "2025-12-26",
+                        "FrgnBal": 1,
+                    }
+                ]
+            }
             with (
-                patch("baibai_engine.market_context.indicator_service._today_jst", return_value=date(2026, 7, 20)),
-                patch("baibai_engine.market_context.indicator_service.fetch_native_records", return_value=rows) as fetch,
+                patch(
+                    "baibai_engine.market_context.indicator_service._today_jst",
+                    return_value=date(2026, 7, 20),
+                ),
+                patch(
+                    "baibai_engine.market_context.indicator_service.fetch_native_records",
+                    return_value=rows,
+                ) as fetch,
             ):
-                result = IndicatorsService(database).refresh_all_history("jp.foreign_flows", end=date(2026, 1, 1))
+                result = IndicatorsService(database).refresh_all_history(
+                    "jp.foreign_flows", end=date(2026, 1, 1)
+                )
             self.assertEqual(fetch.call_args.kwargs["start"], date(2016, 7, 20))
-            self.assertEqual([(item.observed_at, item.value) for item in result.observations], [(date(2025, 12, 26), 1)])
+            self.assertEqual(
+                [(item.observed_at, item.value) for item in result.observations],
+                [(date(2025, 12, 26), 1)],
+            )
 
     def test_refresh_all_history_uses_boj_timeseries_floor(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1284,13 +1303,19 @@ class IndicatorsServiceTests(unittest.TestCase):
             database = Path(tmp) / "indicators.sqlite"
             today = date(2026, 7, 27)
             stale_day = today - timedelta(days=8)
-            stale = {stale_day: [{"date_text": "Jul 19, 2026", "value_text": "39.0", "table_row": 0}]}
+            stale = {
+                stale_day: [{"date_text": "Jul 19, 2026", "value_text": "39.0", "table_row": 0}]
+            }
             fresh = {today: [{"date_text": "Jul 27, 2026", "value_text": "39.5", "table_row": 0}]}
             replies = [stale, fresh]
             with (
-                patch("baibai_engine.market_context.indicator_service._today_jst", return_value=today),
-                patch("baibai_engine.market_context.indicator_service.fetch_native_records",
-                      side_effect=lambda *a, **k: replies.pop(0)) as fetch,
+                patch(
+                    "baibai_engine.market_context.indicator_service._today_jst", return_value=today
+                ),
+                patch(
+                    "baibai_engine.market_context.indicator_service.fetch_native_records",
+                    side_effect=lambda *a, **k: replies.pop(0),
+                ) as fetch,
             ):
                 first = IndicatorsService(database).get_latest("us.sp500_cape")
                 second = IndicatorsService(database).get_latest("us.sp500_cape")
@@ -1298,25 +1323,33 @@ class IndicatorsServiceTests(unittest.TestCase):
             self.assertEqual(second.observations[0].observed_at, today)
             self.assertEqual(fetch.call_count, 2)
 
-
     def test_multpl_latest_uses_native_reading_not_old_scalar(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
             today = date(2026, 7, 27)
             _write_observation(database, "us.sp500_cape", observed_at=today, value=20.0)
             with (
-                patch("baibai_engine.market_context.indicator_service._today_jst", return_value=today),
-                patch("baibai_engine.market_context.indicator_service.fetch_native_records",
-                      return_value={today - timedelta(days=1): [{"date_text": "Jul 26, 2026",
-                        "value_text": "39.5", "table_row": 0}]}) as fetch,
+                patch(
+                    "baibai_engine.market_context.indicator_service._today_jst", return_value=today
+                ),
+                patch(
+                    "baibai_engine.market_context.indicator_service.fetch_native_records",
+                    return_value={
+                        today - timedelta(days=1): [
+                            {"date_text": "Jul 26, 2026", "value_text": "39.5", "table_row": 0}
+                        ]
+                    },
+                ) as fetch,
             ):
                 result = IndicatorsService(database).get_latest("us.sp500_cape")
             self.assertFalse(result.cache_hit)
             self.assertEqual(fetch.call_count, 1)
             self.assertEqual(result.observations[0].observed_at, today - timedelta(days=1))
             self.assertEqual(result.observations[0].value, 39.5)
-            self.assertEqual(result.observations[0].source_url,
-                             "https://www.multpl.com/shiller-pe/table/by-month")
+            self.assertEqual(
+                result.observations[0].source_url,
+                "https://www.multpl.com/shiller-pe/table/by-month",
+            )
 
     def test_cli_search_and_cached_get(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1362,9 +1395,10 @@ def test_derived_read_ignores_old_materialization_and_does_not_fetch(tmp_path):
     _write_observation(database, "us.erp", observed_at=date(2026, 1, 2), value=-0.5)
     _store_multpl_earnings_yield(database, date(2026, 1, 1), "5.0")
     with closing(open_connection(database)) as connection:
-        store_h15_observations(connection, [observation(
-            "us.10y", date(2026, 1, 30), 4.0, datetime(2026, 2, 1, tzinfo=UTC)
-        )])
+        store_h15_observations(
+            connection,
+            [observation("us.10y", date(2026, 1, 30), 4.0, datetime(2026, 2, 1, tzinfo=UTC))],
+        )
         connection.commit()
     with (
         patch(
@@ -1413,9 +1447,10 @@ def test_derived_cli_reports_computation_without_source_fetch(tmp_path, capsys):
     database = tmp_path / "indicators.sqlite"
     _store_multpl_earnings_yield(database, date(2026, 1, 1), "5.0")
     with closing(open_connection(database)) as connection:
-        store_h15_observations(connection, [observation(
-            "us.10y", date(2026, 1, 30), 4.0, datetime(2026, 2, 1, tzinfo=UTC)
-        )])
+        store_h15_observations(
+            connection,
+            [observation("us.10y", date(2026, 1, 30), 4.0, datetime(2026, 2, 1, tzinfo=UTC))],
+        )
         connection.commit()
     with (
         patch(
@@ -1452,11 +1487,12 @@ def _store_multpl_earnings_yield(database: Path, observed_at: date, value_text: 
             source_key=native_source_key(series),
             observed_at=observed_at,
             fetched_at=datetime(observed_at.year, observed_at.month, observed_at.day, tzinfo=UTC),
-            records=[{
-                "date_text": f"{observed_at:%b} {observed_at.day}, {observed_at.year}",
-                "value_text": value_text,
-                "table_row": 1,
-            }],
+            records=[
+                {
+                    "date_text": f"{observed_at:%b} {observed_at.day}, {observed_at.year}",
+                    "value_text": value_text,
+                    "table_row": 1,
+                }
+            ],
         )
         conn.commit()
-

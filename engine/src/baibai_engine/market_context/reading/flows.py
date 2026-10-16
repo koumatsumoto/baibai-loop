@@ -18,8 +18,12 @@ from .observations import reading_observation
 
 
 def read_flow_series(
-    connection: sqlite3.Connection, series: SeriesDefinition, *,
-    start: date, end: date, publication_cutoff: date,
+    connection: sqlite3.Connection,
+    series: SeriesDefinition,
+    *,
+    start: date,
+    end: date,
+    publication_cutoff: date,
 ) -> tuple[ObservationRecord, ...]:
     if series.provider_series_id != "foreigners_net_value" or series.unit != "jpy-thousand":
         raise ValueError(f"investor flow series {series.series_id} has inconsistent unit")
@@ -57,13 +61,17 @@ def read_flow_series(
         if len(values) != 1:
             raise ValueError(f"conflicting published balances for {series.series_id}")
         value = cast(float, values.pop())
-        observations.append(replace(
-            reading_observation(
-                series, observed_at=period_end, value=value,
-                vintage_at=datetime(published.year, published.month, published.day, tzinfo=UTC),
-            ),
-            period_start=period_start,
-        ))
+        observations.append(
+            replace(
+                reading_observation(
+                    series,
+                    observed_at=period_end,
+                    value=value,
+                    vintage_at=datetime(published.year, published.month, published.day, tzinfo=UTC),
+                ),
+                period_start=period_start,
+            )
+        )
     return tuple(observations)
 
 

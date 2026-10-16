@@ -12,10 +12,9 @@ from zoneinfo import ZoneInfo
 import pytest
 from fastapi.testclient import TestClient
 from tests.helpers.assessment_history import historical_context_payload, seed_history
+from tests.helpers.indicator_store import store_h15_observations
 from tests.helpers.screening_sqlite import market_store_with_fetch_claim
 from tests.web.test_research_assessment_views import seed_web_proposal
-
-from tests.helpers.indicator_store import store_h15_observations
 
 from baibai_engine.market_context.assessment.models import StoredAssessment
 from baibai_engine.market_context.indicators.db import insert_observations, open_connection
@@ -81,10 +80,18 @@ def _seed_indicator_observations(root: Path) -> None:
                 ),
             ],
         )
-        store_h15_observations(conn, [ObservationRecord(
-            series_id="us.10y", observed_at=date(2026, 7, 15), value=4.3,
-            unit="percent", source_url="https://example.com/us10y",
-        )])
+        store_h15_observations(
+            conn,
+            [
+                ObservationRecord(
+                    series_id="us.10y",
+                    observed_at=date(2026, 7, 15),
+                    value=4.3,
+                    unit="percent",
+                    source_url="https://example.com/us10y",
+                )
+            ],
+        )
         conn.commit()
     finally:
         conn.close()

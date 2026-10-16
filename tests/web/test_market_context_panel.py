@@ -8,7 +8,6 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
-
 from tests.helpers.indicator_store import store_h15_observations
 
 from baibai_engine.market_context.indicators.db import initialize_database

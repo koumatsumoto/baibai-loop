@@ -13,9 +13,9 @@ from unittest.mock import Mock
 import pandas as pd
 from tests.helpers.screening_sqlite import make_master_records
 
-from baibai_engine.market.providers.jquants import JQuantsProvider
 from baibai_engine.market.jpx_models import JPXEarningsCalendarEntry, JPXEarningsCalendarSnapshot
 from baibai_engine.market.jquants_decode import JQuantsProviderError, parse_jquants_code_parts
+from baibai_engine.market.providers.jquants import JQuantsProvider
 from baibai_engine.storage.observations.convert import code_quality, to_float, to_str_or_none
 from baibai_engine.storage.observations.coverage import (
     EmptyRangeReplacementError,
@@ -494,8 +494,18 @@ class SQLiteCacheTest(unittest.TestCase):
             store_jquants_fin_summaries(
                 db,
                 [
-                    {"DiscNo": "synthetic-72030-2026-05-13", "Code": "72030", "DiscDate": "2026-05-13", "Sales": 100},
-                    {"DiscNo": "synthetic-72040-2026-05-27", "Code": "72040", "DiscDate": "2026-05-27", "Sales": 200},
+                    {
+                        "DiscNo": "synthetic-72030-2026-05-13",
+                        "Code": "72030",
+                        "DiscDate": "2026-05-13",
+                        "Sales": 100,
+                    },
+                    {
+                        "DiscNo": "synthetic-72040-2026-05-27",
+                        "Code": "72040",
+                        "DiscDate": "2026-05-27",
+                        "Sales": 200,
+                    },
                 ],
                 requested_start=date(2026, 5, 12),
                 requested_end=date(2026, 5, 29),
@@ -503,8 +513,18 @@ class SQLiteCacheTest(unittest.TestCase):
             store_jquants_fin_summaries(
                 db,
                 [
-                    {"DiscNo": "synthetic-72040-2026-05-27", "Code": "72040", "DiscDate": "2026-05-27", "Sales": 200},
-                    {"DiscNo": "synthetic-72050-2026-06-02", "Code": "72050", "DiscDate": "2026-06-02", "Sales": 300},
+                    {
+                        "DiscNo": "synthetic-72040-2026-05-27",
+                        "Code": "72040",
+                        "DiscDate": "2026-05-27",
+                        "Sales": 200,
+                    },
+                    {
+                        "DiscNo": "synthetic-72050-2026-06-02",
+                        "Code": "72050",
+                        "DiscDate": "2026-06-02",
+                        "Sales": 300,
+                    },
                 ],
                 requested_start=date(2026, 5, 19),
                 requested_end=date(2026, 6, 5),
@@ -535,9 +555,24 @@ class SQLiteCacheTest(unittest.TestCase):
             store_jquants_fin_summaries(
                 db,
                 [
-                    {"DiscNo": "synthetic-72030-2021-08-02", "Code": "72030", "DiscDate": "2021-08-02", "Sales": 100},
-                    {"DiscNo": "synthetic-72040-2024-01-10", "Code": "72040", "DiscDate": "2024-01-10", "Sales": 200},
-                    {"DiscNo": "synthetic-72050-2026-07-16", "Code": "72050", "DiscDate": "2026-07-16", "Sales": 300},
+                    {
+                        "DiscNo": "synthetic-72030-2021-08-02",
+                        "Code": "72030",
+                        "DiscDate": "2021-08-02",
+                        "Sales": 100,
+                    },
+                    {
+                        "DiscNo": "synthetic-72040-2024-01-10",
+                        "Code": "72040",
+                        "DiscDate": "2024-01-10",
+                        "Sales": 200,
+                    },
+                    {
+                        "DiscNo": "synthetic-72050-2026-07-16",
+                        "Code": "72050",
+                        "DiscDate": "2026-07-16",
+                        "Sales": 300,
+                    },
                 ],
                 requested_start=date(2021, 8, 2),
                 requested_end=date(2026, 7, 16),
@@ -546,7 +581,12 @@ class SQLiteCacheTest(unittest.TestCase):
                 db,
                 [
                     {"Code": "", "DiscDate": "2025-03-05", "Sales": 400},
-                    {"DiscNo": "synthetic-72060-2025-03-06", "Code": "72060", "DiscDate": "2025-03-06", "Sales": 500},
+                    {
+                        "DiscNo": "synthetic-72060-2025-03-06",
+                        "Code": "72060",
+                        "DiscDate": "2025-03-06",
+                        "Sales": 500,
+                    },
                 ],
                 requested_start=date(2025, 3, 1),
                 requested_end=date(2025, 3, 31),
@@ -598,7 +638,14 @@ class SQLiteCacheTest(unittest.TestCase):
             )
             store_jquants_fin_summaries(
                 db,
-                [{"DiscNo": "synthetic-72060-2025-03-05", "Code": "72060", "DiscDate": "2025-03-05", "Sales": 500}],
+                [
+                    {
+                        "DiscNo": "synthetic-72060-2025-03-05",
+                        "Code": "72060",
+                        "DiscDate": "2025-03-05",
+                        "Sales": 500,
+                    }
+                ],
                 requested_start=date(2025, 2, 1),
                 requested_end=date(2025, 4, 30),
             )
@@ -902,7 +949,6 @@ class SQLiteCacheTest(unittest.TestCase):
                     )
 
 
-
 class DailyBarsCoverageTest(unittest.TestCase):
     def test_the_ten_day_imperial_transition_closure_is_not_a_missing_window(self) -> None:
         # The market was shut for the ten consecutive days of the 2019 imperial
@@ -1073,7 +1119,14 @@ class EmptyPayloadReplacementTest(unittest.TestCase):
             window = (date(2020, 12, 1), date(2020, 12, 31))
             store_jquants_fin_summaries(
                 db,
-                [{"DiscNo": "synthetic-72030-2020-12-15", "Code": "72030", "DiscDate": "2020-12-15", "EPS": "10"}],
+                [
+                    {
+                        "DiscNo": "synthetic-72030-2020-12-15",
+                        "Code": "72030",
+                        "DiscDate": "2020-12-15",
+                        "EPS": "10",
+                    }
+                ],
                 requested_start=window[0],
                 requested_end=window[1],
             )
@@ -1599,22 +1652,49 @@ class RepeatedObservationTest(unittest.TestCase):
             return store, record, "C", "jquants_daily_bars", "close", 1001
         if kind == "calendar":
             record = {"Date": day.isoformat(), "HolDiv": "1"}
-            store = partial(store_jquants_market_calendar, db, requested_start=day, requested_end=day)
+            store = partial(
+                store_jquants_market_calendar, db, requested_start=day, requested_end=day
+            )
             return store, record, "HolDiv", "jquants_market_calendar", "holiday_division", "0"
         if kind == "alerts":
             record = {
-                "PubDate": day.isoformat(), "Code": "72030", "AppDate": day.isoformat(),
-                "PubReason": "日々公表", "TSEMrgnRegCls": "0",
-                **{key: 0 for key in (
-                    "ShrtOut", "ShrtOutChg", "ShrtOutRatio", "LongOut", "LongOutChg",
-                    "LongOutRatio", "SLRatio", "ShrtNegOut", "ShrtNegOutChg", "ShrtStdOut",
-                    "ShrtStdOutChg", "LongNegOut", "LongNegOutChg", "LongStdOut", "LongStdOutChg",
-                )},
+                "PubDate": day.isoformat(),
+                "Code": "72030",
+                "AppDate": day.isoformat(),
+                "PubReason": "日々公表",
+                "TSEMrgnRegCls": "0",
+                **dict.fromkeys(
+                    (
+                        "ShrtOut",
+                        "ShrtOutChg",
+                        "ShrtOutRatio",
+                        "LongOut",
+                        "LongOutChg",
+                        "LongOutRatio",
+                        "SLRatio",
+                        "ShrtNegOut",
+                        "ShrtNegOutChg",
+                        "ShrtStdOut",
+                        "ShrtStdOutChg",
+                        "LongNegOut",
+                        "LongNegOutChg",
+                        "LongStdOut",
+                        "LongStdOutChg",
+                    ),
+                    0,
+                ),
             }
             store = partial(store_jquants_margin_alerts, db, requested_start=day, requested_end=day)
             return store, record, "LongOut", "jquants_margin_alerts", "long_outstanding", 10
-        record.update(LongVol=5000, ShrtVol=1000, LongStdVol=3000, LongNegVol=2000,
-                      ShrtStdVol=800, ShrtNegVol=200, IssType="2")
+        record.update(
+            LongVol=5000,
+            ShrtVol=1000,
+            LongStdVol=3000,
+            LongNegVol=2000,
+            ShrtStdVol=800,
+            ShrtNegVol=200,
+            IssType="2",
+        )
         if kind == "weekly":
             store = partial(store_jquants_weekly_margin, db, week_end=day)
             return store, record, "LongVol", "jquants_weekly_margin", "long_vol", 5100
@@ -1630,12 +1710,16 @@ class RepeatedObservationTest(unittest.TestCase):
                 {"Date": "2026-09-25", "HolDiv": "1"},
                 {"Date": "2026-09-26", "HolDiv": "0"},
             ]
-            provider = JQuantsProvider("token", client=client, sqlite_path=Path(tmp) / "market.sqlite")
+            provider = JQuantsProvider(
+                "token", client=client, sqlite_path=Path(tmp) / "market.sqlite"
+            )
             first = provider.get_mkt_calendar(date(2026, 9, 25), date(2026, 9, 27))
             second = provider.get_mkt_calendar(date(2026, 9, 25), date(2026, 9, 27))
             self.assertEqual(first, second)
-            self.assertEqual([(row.day.day, row.is_business_day) for row in first],
-                             [(25, True), (26, False), (27, True)])
+            self.assertEqual(
+                [(row.day.day, row.is_business_day) for row in first],
+                [(25, True), (26, False), (27, True)],
+            )
             self.assertEqual(client.get_mkt_calendar.call_count, 1)
 
     def test_identical_records_conflicts_and_later_corrections(self):
@@ -1647,22 +1731,30 @@ class RepeatedObservationTest(unittest.TestCase):
                 with closing(sqlite3.connect(db)) as connection:
                     before = connection.execute(f"SELECT * FROM {table}").fetchall()
                     coverage = connection.execute("SELECT * FROM source_coverage").fetchall()
-                    self.assertEqual(connection.execute(f"SELECT {column} FROM {table}").fetchone(),
-                                     (record[field],))
-                    self.assertEqual(connection.execute("SELECT status FROM source_coverage").fetchone(),
-                                     ("ok",))
+                    self.assertEqual(
+                        connection.execute(f"SELECT {column} FROM {table}").fetchone(),
+                        (record[field],),
+                    )
+                    self.assertEqual(
+                        connection.execute("SELECT status FROM source_coverage").fetchone(), ("ok",)
+                    )
                 changed = dict(record, **{field: correction})
                 for records in ([record, changed], [changed, record]):
                     with self.assertRaisesRegex(JQuantsProviderError, "conflicting"):
                         store(records)
                     with closing(sqlite3.connect(db)) as connection:
-                        self.assertEqual(connection.execute(f"SELECT * FROM {table}").fetchall(), before)
-                        self.assertEqual(connection.execute("SELECT * FROM source_coverage").fetchall(),
-                                         coverage)
+                        self.assertEqual(
+                            connection.execute(f"SELECT * FROM {table}").fetchall(), before
+                        )
+                        self.assertEqual(
+                            connection.execute("SELECT * FROM source_coverage").fetchall(), coverage
+                        )
                 self.assertEqual(store([changed]), 1)
                 with closing(sqlite3.connect(db)) as connection:
-                    self.assertEqual(connection.execute(f"SELECT {column} FROM {table}").fetchone(),
-                                     (correction,))
+                    self.assertEqual(
+                        connection.execute(f"SELECT {column} FROM {table}").fetchone(),
+                        (correction,),
+                    )
 
 
 if __name__ == "__main__":

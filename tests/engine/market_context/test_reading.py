@@ -270,8 +270,10 @@ def test_reading_rules_reject_a_series_overridden_twice(tmp_path: Path) -> None:
         (2, "    staleness_margin_days: 7\n", "", "publication_lag_days"),
         (
             2,
-            "    publication_lag_days: 45\n    staleness_margin_days: 7\n"
-            "    staleness_warn_days: 100\n",
+            (
+                "    publication_lag_days: 45\n    staleness_margin_days: 7\n"
+                "    staleness_warn_days: 100\n"
+            ),
             "",
             "staleness_warn_days",
         ),

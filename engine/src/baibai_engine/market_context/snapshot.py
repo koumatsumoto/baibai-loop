@@ -158,7 +158,9 @@ def build_market_snapshot(
         breadth_tickers = (
             set()
             if point_master is None
-            else {ticker for ticker, row in point_master.securities.items() if row["is_common_stock"]}
+            else {
+                ticker for ticker, row in point_master.securities.items() if row["is_common_stock"]
+            }
         )
         points.append(
             _point(

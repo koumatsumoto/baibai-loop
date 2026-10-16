@@ -53,7 +53,10 @@ def price_comparison_basis_is_confirmed(
         )
     ) and market_basis_is_confirmed(
         basis="price",
-        sqlite_path=path, ticker=ticker, from_date=from_date, through_date=through_date
+        sqlite_path=path,
+        ticker=ticker,
+        from_date=from_date,
+        through_date=through_date,
     )
 
 

@@ -95,8 +95,8 @@ def build_universe(
                 exclusion_counts[flag] = exclusion_counts.get(flag, 0) + 1
             continue
 
-        # Measure available price-history coverage, not listing age. A bounded or incomplete price history can shorten
-        # the measured span even for a long-listed security.
+        # Measure available price-history coverage, not listing age. A bounded or incomplete
+        # price history can shorten the measured span even for a long-listed security.
         price_history_span_days = (asof_date - history[0].traded_at).days
         latest = history[-1]
         trailing_20 = history[-AVG_TURNOVER_WINDOW_BARS:]

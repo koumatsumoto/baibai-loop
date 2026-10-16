@@ -30,7 +30,7 @@ def parse_csv_zip_metric_record(
     period_start: date | None = None,
     period_end: date | None = None,
 ) -> EdinetMetricRecord:
-    rows = _read_csv_zip_rows(content)
+    rows: Sequence[Mapping[str, str]] = _read_csv_zip_rows(content)
     if not rows:
         return EdinetMetricRecord(
             ticker=ticker,
@@ -190,7 +190,9 @@ def _decode_csv(content: bytes) -> str:
 
 
 def _flow_period_quality(
-    doc_type_code: str, period_start: date | None, period_end: date | None,
+    doc_type_code: str,
+    period_start: date | None,
+    period_end: date | None,
     submit_datetime: str | None,
 ) -> TTMQuality:
     # A short fiscal year is still an annual filing, not a twelve-month flow.
@@ -252,23 +254,18 @@ def _metric_values(
         if row.get("ユニットID") == "JPY":
             values.add(_csv_value(row.get("値")))
     return {
-        name: next(iter(values)) if len(values) == 1 else None
-        for name, values in grouped.items()
+        name: next(iter(values)) if len(values) == 1 else None for name, values in grouped.items()
     }
 
 
-def _single_metric(
-    rows: Sequence[Mapping[str, str]], tags: tuple[str, ...]
-) -> float | None:
+def _single_metric(rows: Sequence[Mapping[str, str]], tags: tuple[str, ...]) -> float | None:
     values = _metric_values(rows, tags)
     # Alias preference is explicit, not dependent on CSV row order. A present
     # but unusable preferred concept is not silently replaced with another one.
     return next((values[tag] for tag in tags if tag in values), None)
 
 
-def _sum_metric(
-    rows: Sequence[Mapping[str, str]], tags: tuple[str, ...]
-) -> float | None:
+def _sum_metric(rows: Sequence[Mapping[str, str]], tags: tuple[str, ...]) -> float | None:
     values = _metric_values(rows, tags)
     if not values or any(value is None for value in values.values()):
         return None

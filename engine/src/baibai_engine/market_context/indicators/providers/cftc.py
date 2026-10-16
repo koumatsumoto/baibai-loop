@@ -69,7 +69,9 @@ def parse_cftc_records(
     if not isinstance(payload, list):
         raise IndicatorsProviderError("CFTC response root is not a list")
     if len(payload) >= _MAX_ROWS:
-        raise IndicatorsProviderError("CFTC response reached its row limit; completeness is unknown")
+        raise IndicatorsProviderError(
+            "CFTC response reached its row limit; completeness is unknown"
+        )
     by_date: dict[date, list[dict[str, object]]] = defaultdict(list)
     for entry in payload:
         if not isinstance(entry, dict):
@@ -93,4 +95,3 @@ def _parse_date(raw: object) -> date:
         return date.fromisoformat(raw[:10])
     except ValueError as exc:
         raise IndicatorsProviderError(f"CFTC report date is invalid: {raw!r}") from exc
-

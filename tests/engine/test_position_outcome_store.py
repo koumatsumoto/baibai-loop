@@ -201,11 +201,13 @@ def test_outcome_list_does_not_repair_a_missing_table(tmp_path):
         store.list()
     assert path.read_bytes() == before
 
+
 def test_historical_schema_one_outcome_reads_without_rewrite_or_republication(tmp_path):
     database = tmp_path / "app.sqlite"
     current = _publication()
     legacy = {
-        **current.payload, "schema_version": 1,
+        **current.payload,
+        "schema_version": 1,
         "market_data_sha256": "a" * 64,
         "market_data_fingerprint": "historical-bars-v1",
     }
@@ -216,8 +218,14 @@ def test_historical_schema_one_outcome_reads_without_rewrite_or_republication(tm
             "INSERT INTO portfolio_outcome "
             "(outcome_id, horizon, period_start_date, period_end_date, status, payload) "
             "VALUES (?, ?, ?, ?, ?, ?)",
-            (current.outcome_id, current.horizon, current.period_start_date,
-             current.period_end_date, current.status, encoded),
+            (
+                current.outcome_id,
+                current.horizon,
+                current.period_start_date,
+                current.period_end_date,
+                current.status,
+                encoded,
+            ),
         )
     before = database.read_bytes()
     expected = {"outcome_id": current.outcome_id, **legacy}
@@ -230,7 +238,7 @@ def test_historical_schema_one_outcome_reads_without_rewrite_or_republication(tm
         PortfolioOutcomeStore(database).publish(current)
     with closing(sqlite3.connect(database)) as connection:
         assert connection.execute(
-            "SELECT payload FROM portfolio_outcome WHERE outcome_id = ?", (current.outcome_id,),
+            "SELECT payload FROM portfolio_outcome WHERE outcome_id = ?",
+            (current.outcome_id,),
         ).fetchone() == (encoded,)
     assert database.read_bytes() == before
-

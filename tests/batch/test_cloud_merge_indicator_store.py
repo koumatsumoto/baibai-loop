@@ -685,30 +685,55 @@ def test_retracted_rows_keep_the_storage_contract(tmp_path, side, value):
         ]
         assert _read_range(target) == ()
 
+
 def test_native_option_facts_merge_independently_of_registered_readings(tmp_path: Path) -> None:
     source, target = tmp_path / "source.sqlite", tmp_path / "target.sqlite"
     for path in (source, target):
         _build_store(path, series_ids=("us.10y",), observations=())
     with closing(sqlite3.connect(source)) as conn, conn:
-        store_snapshot(conn, source_key="jquants_options:n225", observed_at=date(2026, 7, 20), fetched_at=VINTAGE, records=[{"Date": "2026-07-20", "unused": None}])
+        store_snapshot(
+            conn,
+            source_key="jquants_options:n225",
+            observed_at=date(2026, 7, 20),
+            fetched_at=VINTAGE,
+            records=[{"Date": "2026-07-20", "unused": None}],
+        )
     with closing(sqlite3.connect(target)) as conn, conn:
-        store_snapshot(conn, source_key="jquants_options:n225", observed_at=date(2026, 7, 21), fetched_at=VINTAGE, records=[])
+        store_snapshot(
+            conn,
+            source_key="jquants_options:n225",
+            observed_at=date(2026, 7, 21),
+            fetched_at=VINTAGE,
+            records=[],
+        )
     report = merge_stores(source, target)
     raw = next(table for table in report.tables if table.table == "indicator_source_snapshots")
     assert raw.inserted == 1
     assert raw.skipped == 0
     assert raw.target_rows_after == 2
     assert merge_stores(source, target).inserted == 0
-    assert _rows(source, "SELECT * FROM indicator_source_snapshots") == _rows(target, "SELECT * FROM indicator_source_snapshots WHERE observed_at = '2026-07-20'")
+    assert _rows(source, "SELECT * FROM indicator_source_snapshots") == _rows(
+        target, "SELECT * FROM indicator_source_snapshots WHERE observed_at = '2026-07-20'"
+    )
 
 
 def test_raw_payload_conflict_rolls_back_scalar_rows_in_the_same_merge(tmp_path: Path) -> None:
     source, target = tmp_path / "source.sqlite", tmp_path / "target.sqlite"
-    _build_store(source, series_ids=("us.10y",), observations=(_observation("us.10y", date(2026, 7, 20), 4.0),))
+    _build_store(
+        source,
+        series_ids=("us.10y",),
+        observations=(_observation("us.10y", date(2026, 7, 20), 4.0),),
+    )
     _build_store(target, series_ids=("us.10y",), observations=())
     for path, rows in ((source, [{"Date": "2026-07-20", "IV": 20}]), (target, [])):
         with closing(sqlite3.connect(path)) as conn, conn:
-            store_snapshot(conn, source_key="jquants_options:n225", observed_at=date(2026, 7, 20), fetched_at=VINTAGE, records=rows)
+            store_snapshot(
+                conn,
+                source_key="jquants_options:n225",
+                observed_at=date(2026, 7, 20),
+                fetched_at=VINTAGE,
+                records=rows,
+            )
     before = _rows(target, "SELECT * FROM indicator_source_snapshots")
     with pytest.raises(MergeError, match="indicator_source_snapshots payload disagrees"):
         merge_stores(source, target)

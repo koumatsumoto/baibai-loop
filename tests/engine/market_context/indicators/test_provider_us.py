@@ -33,8 +33,10 @@ class IndicatorsProviderParserTests(TestCase):
         series = _series("frb_h15", "RIFLGFCY10_N.B")
         with self.assertRaisesRegex(IndicatorsProviderError, "no Time Period"):
             parse_h15_csv(
-                series, '"Time Period","RIFLGFCY10_N.B"\n,4.39\n',
-                start=date(2026, 5, 1), end=date(2026, 5, 1),
+                series,
+                '"Time Period","RIFLGFCY10_N.B"\n,4.39\n',
+                start=date(2026, 5, 1),
+                end=date(2026, 5, 1),
             )
 
     def test_parse_fred_csv_filters_range_and_missing_values(self) -> None:
@@ -439,8 +441,7 @@ class IndicatorsProviderParserTests(TestCase):
 
     def test_h15_plain_download_is_shared_for_all_registered_treasury_columns(self) -> None:
         body = (
-            b'"Time Period","RIFLGFCY10_N.B","RIFLGFCY02_N.B","RIFLGFCY30_N.B"\n'
-            b"2026-05-01,ND,.,\n"
+            b'"Time Period","RIFLGFCY10_N.B","RIFLGFCY02_N.B","RIFLGFCY30_N.B"\n2026-05-01,ND,.,\n'
         )
         requests: list[str] = []
 

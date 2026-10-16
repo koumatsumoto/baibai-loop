@@ -6,7 +6,6 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
-
 from tests.helpers.indicator_store import store_h15_observations
 
 from baibai_engine.market_context.indicators.db import (
@@ -128,11 +127,25 @@ def test_indicator_series_applies_jquants_publication_cutoff(tmp_path: Path) -> 
     database = tmp_path / "indicators.sqlite"
     connection = initialize_database(database)
     try:
-        for published, value in [(date(2024, 8, 29), -408854431.0), (date(2024, 9, 10), -400000000.0)]:
-            store_snapshot(connection, source_key="jquants_flows:TSEPrime", observed_at=published,
-                           fetched_at=datetime(2026, 10, 16, tzinfo=UTC),
-                           records=[{"Section": "TSEPrime", "PubDate": published.isoformat(),
-                                     "StDate": "2024-08-19", "EnDate": "2024-08-23", "FrgnBal": value}])
+        for published, value in [
+            (date(2024, 8, 29), -408854431.0),
+            (date(2024, 9, 10), -400000000.0),
+        ]:
+            store_snapshot(
+                connection,
+                source_key="jquants_flows:TSEPrime",
+                observed_at=published,
+                fetched_at=datetime(2026, 10, 16, tzinfo=UTC),
+                records=[
+                    {
+                        "Section": "TSEPrime",
+                        "PubDate": published.isoformat(),
+                        "StDate": "2024-08-19",
+                        "EnDate": "2024-08-23",
+                        "FrgnBal": value,
+                    }
+                ],
+            )
         connection.commit()
     finally:
         connection.close()
@@ -165,10 +178,21 @@ def test_reading_snapshot_clamps_only_provider_declared_point_in_time_vintages(
     connection = initialize_database(database)
     try:
         for published, value in [(date(2024, 8, 29), 100.0), (date(2024, 9, 10), 120.0)]:
-            store_snapshot(connection, source_key="jquants_flows:TSEPrime", observed_at=published,
-                           fetched_at=datetime(2026, 10, 16, tzinfo=UTC),
-                           records=[{"Section": "TSEPrime", "PubDate": published.isoformat(),
-                                     "StDate": "2024-08-19", "EnDate": "2024-08-23", "FrgnBal": value}])
+            store_snapshot(
+                connection,
+                source_key="jquants_flows:TSEPrime",
+                observed_at=published,
+                fetched_at=datetime(2026, 10, 16, tzinfo=UTC),
+                records=[
+                    {
+                        "Section": "TSEPrime",
+                        "PubDate": published.isoformat(),
+                        "StDate": "2024-08-19",
+                        "EnDate": "2024-08-23",
+                        "FrgnBal": value,
+                    }
+                ],
+            )
         insert_observations(
             connection,
             [

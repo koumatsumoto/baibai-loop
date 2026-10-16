@@ -575,14 +575,25 @@ def test_sell_reservations_are_not_counted_as_buy_limit_outcomes(tmp_path):
 def test_expired_window_uses_the_same_tokyo_date_for_any_offset(tmp_path, released_at):
     app, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
     reservation = _reservation(
-        reservation_id="expired-offset", occurred_at="2026-07-01T09:00:00+09:00",
-        limit_yen="1000", decision_reference=None,
+        reservation_id="expired-offset",
+        occurred_at="2026-07-01T09:00:00+09:00",
+        limit_yen="1000",
+        decision_reference=None,
     )
     reservation["expires_at"] = "2026-07-10T08:30:00+09:00"
-    _ledger(app, [reservation, {
-        "event_id": "release-offset", "type": "release", "occurred_at": released_at,
-        "reservation_id": "expired-offset", "reason": "expired",
-    }])
+    _ledger(
+        app,
+        [
+            reservation,
+            {
+                "event_id": "release-offset",
+                "type": "release",
+                "occurred_at": released_at,
+                "reservation_id": "expired-offset",
+                "reason": "expired",
+            },
+        ],
+    )
     _market(market, [("2026-07-09", 1100.0, 1110.0), ("2026-07-10", 1050.0, 1060.0)])
     order = build_limit_outcomes(app_db=app, market_db=market, asof=ASOF)["orders"][0]
     assert order["window_end"] == "2026-07-10"

@@ -238,7 +238,9 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="independent local OAuth file outside this dedicated runtime checkout",
     )
-    parser.add_argument("--interval", type=float, default=15.0, help="request interval, 15..3600 seconds")
+    parser.add_argument(
+        "--interval", type=float, default=15.0, help="request interval, 15..3600 seconds"
+    )
     return parser
 
 

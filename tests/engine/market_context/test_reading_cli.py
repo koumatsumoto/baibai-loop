@@ -7,11 +7,16 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
-from tests.helpers.indicator_store import observations, series_definition, store_reader, store_h15_observations
+from tests.helpers.indicator_store import (
+    observations,
+    series_definition,
+    store_h15_observations,
+    store_reader,
+)
 
 from baibai_engine.market_context.indicators import db
-from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.market_context.indicators.definitions import load_definitions
+from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.market_context.indicators.read_contracts import native_source_key
 from baibai_engine.market_context.indicators.source_snapshots import read_snapshots
 from baibai_engine.market_context.reading import cli
@@ -78,7 +83,10 @@ def test_cli_reads_one_snapshot_during_concurrent_refresh(
         with closing(db.open_connection(path)) as writer:
             store_h15_observations(writer, [_yield_observation(2.0, 2)])
             writer.commit()
-        assert connection.execute("SELECT COUNT(*) FROM indicator_source_snapshots").fetchone()[0] == before
+        assert (
+            connection.execute("SELECT COUNT(*) FROM indicator_source_snapshots").fetchone()[0]
+            == before
+        )
         return read_snapshot(connection, asof=asof, rules_path=rules_path)
 
     monkeypatch.setattr(cli, "read_store_snapshot", read_while_writer_commits)
@@ -88,10 +96,14 @@ def test_cli_reads_one_snapshot_during_concurrent_refresh(
     assert row["latest_value"] == 1.0
     with closing(db.open_read_only_connection(path)) as connection:
         definition = load_definitions().by_id()["us.10y"]
-        latest = next(read_snapshots(
-            connection, date(2026, 7, 15), date(2026, 7, 15),
-            source_key=native_source_key(definition),
-        ))
+        latest = next(
+            read_snapshots(
+                connection,
+                date(2026, 7, 15),
+                date(2026, 7, 15),
+                source_key=native_source_key(definition),
+            )
+        )
         assert latest.records[0]["row"]["RIFLGFCY10_N.B"] == "2.0"
 
 

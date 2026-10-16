@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import contextlib
 import io
-import json
 import os
 import sqlite3
 import tempfile
@@ -1663,16 +1662,10 @@ class ScreeningCliTests(unittest.TestCase):
                 sqlite_path=sqlite_path,
                 stdout=io.StringIO(),
             )
+            # A sparse native operation omits unchanged metadata. Explicit nulls
+            # would clear it and make the filing ineligible rather than reusable.
             edit_event = {
                 "docID": "S100SAME",
-                "secCode": None,
-                "docTypeCode": None,
-                "csvFlag": None,
-                "xbrlFlag": None,
-                "submitDateTime": None,
-                "docDescription": None,
-                "periodStart": None,
-                "periodEnd": None,
                 "docInfoEditStatus": "1",
                 "opeDateTime": "2026-04-25 09:00",
                 "seqNumber": 2,

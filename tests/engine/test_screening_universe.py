@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from tests.helpers.master import TSE_33_SECTORS
-
 import unittest
 from datetime import date, timedelta
+
+from tests.helpers.master import TSE_33_SECTORS
 
 from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
@@ -486,10 +486,15 @@ class NativeProductScopeTests(unittest.TestCase):
 
         for category in ("011", "012", "013", "014", "021", "022", "023", "024"):
             with self.subTest(category=category):
-                security = normalize_master_record({
-                    "Code": "130A0", "CoName": "Source security", "MktNm": "Prime",
-                    "S33Nm": "情報・通信業", "ProdCat": category,
-                })
+                security = normalize_master_record(
+                    {
+                        "Code": "130A0",
+                        "CoName": "Source security",
+                        "MktNm": "Prime",
+                        "S33Nm": "情報・通信業",
+                        "ProdCat": category,
+                    }
+                )
                 assert security is not None
                 result = build_universe(
                     date(2026, 4, 24), [security], {"130A": _bars("130A")}, {}, {}
@@ -510,7 +515,14 @@ class NativeProductScopeTests(unittest.TestCase):
     def test_preferred_issue_is_not_projected_as_the_same_common_ticker(self) -> None:
         from baibai_engine.market.master_snapshot import normalize_master_record
 
-        self.assertIsNone(normalize_master_record({
-            "Code": "130A1", "CoName": "Preferred", "MktNm": "Prime",
-            "S33Nm": "情報・通信業", "ProdCat": "011",
-        }))
+        self.assertIsNone(
+            normalize_master_record(
+                {
+                    "Code": "130A1",
+                    "CoName": "Preferred",
+                    "MktNm": "Prime",
+                    "S33Nm": "情報・通信業",
+                    "ProdCat": "011",
+                }
+            )
+        )
