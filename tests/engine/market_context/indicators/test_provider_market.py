@@ -95,7 +95,15 @@ class IndicatorsProviderParserTests(TestCase):
         # The weighted-average column (17.82), not the index-based one (25.11).
         self.assertEqual(
             observations,
-            {date(2026, 7, 24): [{"date_text": "2026.07.24", "weighted_text": "17.82", "index_based_text": "25.11"}]}
+            {
+                date(2026, 7, 24): [
+                    {
+                        "date_text": "2026.07.24",
+                        "weighted_text": "17.82",
+                        "index_based_text": "25.11",
+                    }
+                ]
+            },
         )
 
     def test_parse_nikkei_valuation_leaves_range_policy_to_storage(self) -> None:

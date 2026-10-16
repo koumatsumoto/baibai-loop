@@ -26,9 +26,15 @@ def table(weighted, index_based):
 
 
 @pytest.mark.parametrize("missing", ["-", "", "&mdash;"])
-def test_missing_revision_does_not_restore_scalar_or_prior_native_value(tmp_path, monkeypatch, missing):
+def test_missing_revision_does_not_restore_scalar_or_prior_native_value(
+    tmp_path, monkeypatch, missing
+):
     path = tmp_path / "indicators.sqlite"
-    series = next(item for item in load_definitions().series if item.provider == "nikkei_indexes" and item.provider_series_id == "per")
+    series = next(
+        item
+        for item in load_definitions().series
+        if item.provider == "nikkei_indexes" and item.provider_series_id == "per"
+    )
     replies = iter([table("17.82", "25.11"), table(missing, "25.12")])
     monkeypatch.setattr(nikkei_indexes, "fetch_text", lambda *args, **kwargs: next(replies))
     with closing(db.initialize_database(path)) as connection, connection:
@@ -39,31 +45,54 @@ def test_missing_revision_does_not_restore_scalar_or_prior_native_value(tmp_path
     corrected = service.get_range(series.series_id, start=DAY, end=DAY, refresh=True)
     assert corrected.observations == ()
     with closing(db.open_read_only_connection(path)) as connection:
-        row = next(read_snapshots(connection, DAY, DAY, source_key=native_source_key(series))).records[0]
+        row = next(
+            read_snapshots(connection, DAY, DAY, source_key=native_source_key(series))
+        ).records[0]
         assert row["weighted_text"] == ("—" if missing == "&mdash;" else missing)
         assert row["index_based_text"] == "25.12"
         assert connection.execute("SELECT value FROM observations").fetchone()[0] == 19.0
 
 
 def test_missing_unused_index_column_does_not_drop_valid_weighted_value(tmp_path, monkeypatch):
-    series = next(item for item in load_definitions().series if item.provider == "nikkei_indexes" and item.provider_series_id == "per")
+    series = next(
+        item
+        for item in load_definitions().series
+        if item.provider == "nikkei_indexes" and item.provider_series_id == "per"
+    )
     monkeypatch.setattr(nikkei_indexes, "fetch_text", lambda *args, **kwargs: table("17.82", "-"))
-    result = IndicatorsService(tmp_path / "indicators.sqlite").get_range(series.series_id, start=DAY, end=DAY, refresh=True)
+    result = IndicatorsService(tmp_path / "indicators.sqlite").get_range(
+        series.series_id, start=DAY, end=DAY, refresh=True
+    )
     assert [row.value for row in result.observations] == [17.82]
 
 
 def test_unreadable_numeric_text_is_retained_but_not_a_successful_reading(tmp_path, monkeypatch):
     path = tmp_path / "indicators.sqlite"
-    series = next(item for item in load_definitions().series if item.provider == "nikkei_indexes" and item.provider_series_id == "per")
-    monkeypatch.setattr(nikkei_indexes, "fetch_text", lambda *args, **kwargs: table("unreadable", "25"))
+    series = next(
+        item
+        for item in load_definitions().series
+        if item.provider == "nikkei_indexes" and item.provider_series_id == "per"
+    )
+    monkeypatch.setattr(
+        nikkei_indexes, "fetch_text", lambda *args, **kwargs: table("unreadable", "25")
+    )
     with pytest.raises(ValueError, match="could not convert"):
         IndicatorsService(path).get_range(series.series_id, start=DAY, end=DAY, refresh=True)
     with closing(db.open_read_only_connection(path)) as connection:
-        row = next(read_snapshots(connection, DAY, DAY, source_key=native_source_key(series))).records[0]
+        row = next(
+            read_snapshots(connection, DAY, DAY, source_key=native_source_key(series))
+        ).records[0]
         assert row["weighted_text"] == "unreadable"
 
 
-@pytest.mark.parametrize("html", ["<html>challenge</html>", "<table></table>", "<table><tr><td>Unexpected layout</td></tr></table>"])
+@pytest.mark.parametrize(
+    "html",
+    [
+        "<html>challenge</html>",
+        "<table></table>",
+        "<table><tr><td>Unexpected layout</td></tr></table>",
+    ],
+)
 def test_unrecognized_empty_html_does_not_claim_successful_empty_history(html):
     series = next(item for item in load_definitions().series if item.provider == "nikkei_indexes")
     with pytest.raises(nikkei_indexes.IndicatorsProviderError, match="data rows missing"):
