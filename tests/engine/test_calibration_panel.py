@@ -1139,9 +1139,8 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertEqual(result.diagnostics.master_snapshot_status, "unavailable")
 
     def test_build_refuses_a_store_behind_the_current_schema(self) -> None:
-        # Reading such a store degrades to "nothing here", which a build would write
-        # out as a grid of empty cohorts and count as built. The operator has to be
-        # told the store is stale instead of receiving panels holding nobody.
+        # Report the schema failure before starting a build, rather than writing
+        # empty cohorts or suggesting that the data was never acquired.
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             build_calibration_fixture_sqlite(sqlite_path)
@@ -1162,7 +1161,7 @@ class CalibrationPanelTest(unittest.TestCase):
                 )
 
             self.assertEqual(code, 1)
-            self.assertIn("user_version 1", errors.getvalue())
+            self.assertIn("user_version=1", errors.getvalue())
             self.assertFalse((Path(tmp) / "calibration").exists())
 
     def test_a_store_at_the_current_schema_is_not_refused(self) -> None:

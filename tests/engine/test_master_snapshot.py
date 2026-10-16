@@ -23,7 +23,7 @@ from baibai_engine.screening.cli.providers import ProviderBundle
 from baibai_engine.screening.sqlite_coverage.jquants import _append_master_snapshot_issues
 from baibai_engine.storage.observations.ingest.jquants import store_jquants_master
 from baibai_engine.storage.observations.reader import read_eq_master_asof, read_eq_master_exact
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
 
 
 class _MasterClient:
@@ -417,6 +417,17 @@ class MasterSnapshotCoverageTests(unittest.TestCase):
 
 
 class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
+    def test_provider_does_not_refetch_to_hide_an_incompatible_store(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            with closing(open_connection(db)) as conn, conn:
+                conn.execute("PRAGMA user_version = 1")
+            client = _MasterClient()
+            provider = JQuantsProvider("token", client=client, sqlite_path=db)
+            with self.assertRaises(SQLiteSchemaError):
+                provider.get_eq_master(date(2026, 5, 29))
+            self.assertEqual(client.calls, [])
+
     def test_exact_prior_and_future_snapshot_selection(self) -> None:
         first = date(2026, 5, 29)
         second = date(2026, 6, 30)

@@ -2,7 +2,8 @@
 
 The functions are deliberately permissive: a missing SQLite file or a source
 that has not been fetched yet returns `None` so bootstrap/fetch commands can
-populate the missing coverage. `screening run` performs a separate preflight
+populate the missing coverage. Store/schema/query failures propagate instead of
+triggering acquisition. `screening run` performs a separate preflight
 coverage check and must not fall back to provider APIs. Price/calendar reads
 live in `baibai_engine.market.store`; this module owns master / fin summaries /
 earnings calendar / JPX. EDINET reads belong to market.edinet_metrics.store.
@@ -835,7 +836,7 @@ def read_eq_master_exact(sqlite_path: Path, asof: date) -> list[SecurityMaster] 
             return None
         if any(not str(value or "").strip() for row in rows for value in row[:4]):
             return None
-    except (sqlite3.OperationalError, TypeError, ValueError):
+    except (TypeError, ValueError):
         return None
     finally:
         conn.close()

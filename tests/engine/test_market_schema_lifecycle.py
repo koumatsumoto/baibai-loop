@@ -63,7 +63,9 @@ def test_schema_validation_derives_tables_and_columns_from_ddl(
 
 
 @pytest.mark.parametrize("opener", [schema.open_connection, schema.connect_current])
-@pytest.mark.parametrize("failure", [RuntimeError, KeyboardInterrupt])
+@pytest.mark.parametrize(
+    "failure", [RuntimeError, KeyboardInterrupt, schema.SQLiteSchemaError, sqlite3.OperationalError]
+)
 def test_schema_validation_failure_closes_the_owned_connection(
     tmp_path, monkeypatch, opener, failure
 ):
@@ -125,3 +127,19 @@ def test_schema_reuses_static_expectation_but_checks_database_changes(tmp_path, 
         with pytest.raises(schema.SQLiteSchemaError, match="missing tables: jpx_earnings_calendar"):
             schema.validate_current_schema(connection)
         assert derivations == [":memory:"]
+
+
+@pytest.mark.parametrize("damage", ["version", "corrupt"])
+def test_existing_unreadable_store_is_not_an_absent_cache(tmp_path, damage):
+    path = tmp_path / "market.sqlite"
+    if damage == "corrupt":
+        path.write_bytes(b"not a SQLite database")
+        error = sqlite3.DatabaseError
+    else:
+        with closing(schema.open_connection(path)) as connection, connection:
+            connection.execute("PRAGMA user_version = 1")
+        error = schema.SQLiteSchemaError
+    before = path.read_bytes()
+    with pytest.raises(error):
+        schema.connect_current(path)
+    assert path.read_bytes() == before

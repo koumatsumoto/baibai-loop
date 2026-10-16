@@ -49,7 +49,7 @@ def test_readers_use_the_exact_filesystem_path(tmp_path: Path, filename: str) ->
         conn.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
     reason = unreadable_store_reason(path)
     assert reason is not None
-    assert f"user_version {SQLITE_SCHEMA_VERSION - 1}," in reason
+    assert f"user_version={SQLITE_SCHEMA_VERSION - 1}," in reason
 
 
 @pytest.mark.parametrize("scoped", [False, True])
@@ -119,3 +119,14 @@ def test_snapshot_query_failure_is_not_a_cache_miss(
     monkeypatch.setattr(module, "connect_current", lambda path: conn)
     with pytest.raises(sqlite3.OperationalError, match="no such table"):
         getattr(module, reader_name)(path, date(2026, 10, 15))
+
+
+def test_master_query_failure_propagates_and_closes_connection(tmp_path, monkeypatch):
+    path = tmp_path / "existing.sqlite"
+    path.touch()
+    conn = sqlite3.connect(":memory:")
+    monkeypatch.setattr(observation_reader, "connect_current", lambda path: conn)
+    with pytest.raises(sqlite3.OperationalError, match="no such table"):
+        observation_reader.read_eq_master_exact(path, date(2026, 10, 15))
+    with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+        conn.execute("SELECT 1")

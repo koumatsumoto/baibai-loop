@@ -26,7 +26,7 @@ from baibai_engine.storage.observations.reader import (
     read_fin_summaries,
     read_jpx_earnings_calendar_snapshot,
 )
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
 
 
 class ReadEqMasterAsOfTests(unittest.TestCase):
@@ -71,13 +71,14 @@ class ReadDailyBarsTests(unittest.TestCase):
                 read_daily_bars(Path(tmp) / "missing.sqlite", date(2024, 3, 19), date(2024, 4, 18))
             )
 
-    def test_returns_none_when_schema_column_missing(self) -> None:
+    def test_schema_column_failure_is_not_a_cache_miss(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             with closing(open_connection(db)) as conn, conn:
                 conn.execute("ALTER TABLE jquants_daily_bars DROP COLUMN upper_limit")
 
-            self.assertIsNone(read_daily_bars(db, date(2024, 3, 19), date(2024, 4, 18)))
+            with self.assertRaisesRegex(SQLiteSchemaError, "missing columns"):
+                read_daily_bars(db, date(2024, 3, 19), date(2024, 4, 18))
 
     def test_returns_none_when_range_not_covered(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
