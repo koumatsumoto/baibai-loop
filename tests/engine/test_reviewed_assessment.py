@@ -161,22 +161,49 @@ def test_invalid_pair_never_publishes(tmp_path, fault):
 
 
 @pytest.mark.parametrize(
-    ("terminal", "cash", "calculation", "wrong"),
+    ("terminal", "cash", "calculation", "wrong", "independent_terminal"),
     [
         (
             1204,
             30,
             "赤字回復: 売上30億×営業利益率6%、金利800万、税30%、100万株、PER10 = 1204円",
             1260,
+            (Decimal(3_000_000_000) * Decimal("0.06") - 8_000_000)
+            * Decimal("0.7")
+            / 1_000_000
+            * 10,
         ),
-        (1200, 0, "株主利益1.2億円×PER10÷100万株 = 1200円。負債は再控除しない", 900),
-        (800, 200, "資産価値1000円のうち200円分配、分配後terminal800円", 1000),
-        (1000, 0, "2分割後500円×起点1株の権利2株 = 1000円", 500),
-        (1000, 0, "利益9000万円×PER10÷自己株10万を除く90万株 = 1000円", 900),
-        (750, 0, "株主価値9億円÷希薄化後120万株 = 750円", 900),
+        (
+            1200,
+            0,
+            "株主利益1.2億円×PER10÷100万株 = 1200円。負債は再控除しない",
+            900,
+            Decimal(120_000_000) * 10 / 1_000_000,
+        ),
+        (
+            800,
+            200,
+            "資産価値1000円のうち200円分配、分配後terminal800円",
+            1000,
+            Decimal(1000) - 200,
+        ),
+        (1000, 0, "2分割後500円×起点1株の権利2株 = 1000円", 500, Decimal(500) * 2),
+        (
+            1000,
+            0,
+            "利益9000万円×PER10÷自己株10万を除く90万株 = 1000円",
+            900,
+            Decimal(90_000_000) * 10 / (1_000_000 - 100_000),
+        ),
+        (750, 0, "株主価値9億円÷希薄化後120万株 = 750円", 900, Decimal(900_000_000) / 1_200_000),
     ],
 )
-def test_independently_checked_financial_golden_cases(tmp_path, terminal, cash, calculation, wrong):
+def test_independently_checked_financial_golden_cases(
+    tmp_path, terminal, cash, calculation, wrong, independent_terminal
+):
+    # Recalculate each fixture independently; publication checks agreement with the
+    # reviewed number, not the arithmetic written in the calculation prose.
+    assert Decimal(terminal) == independent_terminal
     assessment, review = pair_payload()
     assessment["valuation"]["base"].update(
         terminal_value_per_share_yen=terminal,
@@ -196,7 +223,7 @@ def test_independently_checked_financial_golden_cases(tmp_path, terminal, cash, 
     review["reviewed_assessment_sha256"] = assessment_core_hash(
         StockAssessmentDocument.model_validate(assessment)
     )
-    # A hash match cannot replace independently checked financial arithmetic.
+    # A current hash does not hide disagreement with the reviewer's recorded result.
     with pytest.raises(ResearchValidationError, match="terminal"):
         service.publish_reviewed_assessment(
             assessment_id(3), assessment, review, supersedes_id=assessment_id()
