@@ -150,3 +150,31 @@ def test_retraction_failure_after_rewrite_does_not_commit_a_partial_result(
     with closing(db.open_read_only_connection(path)) as connection:
         assert db.observations_in_range(connection, definition.series_id, day, day) == (original,)
         assert connection.execute("SELECT COUNT(*) FROM observations").fetchone()[0] == 1
+
+
+def test_vintage_order_and_identity_use_instants_not_timezone_spelling(tmp_path: Path) -> None:
+    definition = load_definitions().by_id()["us.10y"]
+    day = date(2026, 10, 15)
+    old_jst = datetime.fromisoformat("2026-10-16T09:00:00+09:00")
+    new_utc = datetime.fromisoformat("2026-10-16T01:00:00+00:00")
+    with closing(db.initialize_database(tmp_path / "indicators.sqlite")) as connection:
+        db.insert_observations(connection, [observation(definition, day, 1.0, old_jst)])
+        db.insert_observations(connection, [observation(definition, day, 2.0, new_utc)])
+        selected = db.latest_observation(connection, definition.series_id)
+        assert selected is not None
+        assert selected.value == 2.0
+        assert selected.vintage_at == new_utc
+        assert db.observations_in_range(connection, definition.series_id, day, day) == (selected,)
+        db.insert_observations(
+            connection,
+            [observation(definition, day, 1.0, old_jst.astimezone(UTC))],
+            deduplicate_unchanged=False,
+        )
+        assert db.row_count(connection, "observations") == 2
+        assert db.latest_observation(connection, definition.series_id) == selected
+
+
+def test_observation_vintage_without_timezone_is_not_guessed() -> None:
+    definition = load_definitions().by_id()["us.10y"]
+    with pytest.raises(ValueError, match="vintage_at must include a timezone"):
+        observation(definition, date(2026, 10, 15), 1.0, datetime(2026, 10, 16))
