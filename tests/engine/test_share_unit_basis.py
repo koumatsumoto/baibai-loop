@@ -114,7 +114,9 @@ def test_rights_during_holding_need_proceeds_or_exercise_facts_for_total_return(
 def test_rights_after_exit_do_not_change_an_already_completed_total_return():
     exit_date = date(2025, 12, 31)
     event = JQuantsAdjustmentFactorEvent("1111", date(2026, 3, 1), 0.8, "3")
-    dividend = _FYDividendObservation(exit_date, date(2026, 2, 1), 8.0, period_start=date(2025, 1, 1))
+    dividend = _FYDividendObservation(
+        exit_date, date(2026, 2, 1), 8.0, period_start=date(2025, 1, 1)
+    )
     result = _resolve_total_return(
         [],
         [dividend],
