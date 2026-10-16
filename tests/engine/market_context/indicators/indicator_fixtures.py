@@ -31,6 +31,7 @@ from baibai_engine.market_context.indicators.definitions import (
 from baibai_engine.market_context.indicators.observations import ObservationRecord
 from baibai_engine.market_context.indicators.providers import (
     spglobal_pmi,
+    parse_estat_json,
 )
 from baibai_engine.market_context.indicators.providers.base import (
     FetchContext,
@@ -45,7 +46,7 @@ from baibai_engine.market_context.indicators.providers.spglobal_pmi import (
     SpGlobalPmiProvider,
     _parse_stream,
 )
-from baibai_engine.market_context.reading.dashboard import dashboard_values
+from baibai_engine.market_context.reading.estat import estat_values
 
 if TYPE_CHECKING:
     # Only the annotation is needed; importing it for real would pull Playwright
@@ -439,6 +440,16 @@ def _dashboard_payload(
     )
 
 
+def _read_estat(
+    series: SeriesDefinition, text: str, *, start: date, end: date
+) -> list[ObservationRecord]:
+    records = parse_estat_json(series, text, start=start, end=end)
+    return [
+        record_observation(series, observed_at=day, value=value)
+        for day, value in estat_values(records).items()
+    ]
+
+
 def _parse_dashboard(
     rows: Sequence[Mapping[str, Mapping[str, str]]],
     *,
@@ -453,7 +464,7 @@ def _parse_dashboard(
     )
     return [
         record_observation(_dashboard_series(), observed_at=day, value=value)
-        for day, value in dashboard_values(records).items()
+        for day, value in estat_values(records, final_only=True).items()
     ]
 
 

@@ -12,7 +12,7 @@ from baibai_engine.market_context.indicators.observations import ObservationReco
 from baibai_engine.market_context.indicators.read_contracts import native_source_key
 from baibai_engine.market_context.indicators.source_snapshots import read_snapshots
 
-from .dashboard import read_dashboard_series
+from .estat import read_estat_series
 from .flows import read_flow_series
 from .observations import reading_observation
 
@@ -25,8 +25,8 @@ def read_native_series(
     end: date,
     vintage_cutoff: date | None = None,
 ) -> tuple[ObservationRecord, ...]:
-    if series.provider == "estat_dashboard":
-        return read_dashboard_series(connection, series, start=start, end=end)
+    if series.provider in {"estat", "estat_dashboard"}:
+        return read_estat_series(connection, series, start=start, end=end)
     if series.provider == "jquants_flows":
         return read_flow_series(
             connection, series, start=start, end=end, publication_cutoff=vintage_cutoff or end

@@ -79,9 +79,11 @@ uv run baibai-engine market-context indicators get jp.policy_rate --latest
 
 月次整列は月内の各入力の最終観測を使い、出力日は数式ごとの期間代表日または採用入力の最終日とする。これを実公表時刻や歴史的なAPI利用可能性の保証とみなさない。計算値のvintageは全入力に時点がある場合の最も遅い入力vintageであり、読んだ時刻を新しい公表として作らない。L2の数式変更に派生履歴の退役・再取得・置換を要求しない。オプションの3系列も保存済み原本をL2で計算する。取得は固定SDKの認証・再試行付きGETを使い、各ページのnative JSON recordをDataFrame化せず読む。空のdata配列と、dataの欠落・不正形状・途中ページ失敗を区別する。日次chainの全項目・欠測・識別子をgzip JSONとして保持し、現在の3指標が使わない項目も残す。HTTPの元bytesを保存する契約ではない。
 
-`cftc`・`ecb_fx`・`jquants_flows`・`jquants_indices`・`estat_dashboard`もnative recordを`indicator_source_snapshots`へ保存し、L2が必要な値を選択・計算する。CFTCのlong/short、ECBの全通貨、投資部門別の全項目、TOPIXのO/H/L/Cと欠測を保持し、未使用の値も現在の計算結果へ潰さない。正常なbulk応答は要求範囲の空日も記録するが、失敗した応答を空日として保存しない。計算不能でも取得した原本は残し、旧scalar観測へfallbackしない。
+`cftc`・`ecb_fx`・`jquants_flows`・`jquants_indices`・`estat_dashboard`・`estat`もnative recordを`indicator_source_snapshots`へ保存し、L2が必要な値を選択・計算する。CFTCのlong/short、ECBの全通貨、投資部門別の全項目、TOPIXのO/H/L/Cと欠測を保持し、未使用の値も現在の計算結果へ潰さない。正常なbulk応答は要求範囲の空日も記録するが、失敗した応答を空日として保存しない。計算不能でも取得した原本は残し、旧scalar観測へfallbackしない。
 
 e-Stat dashboardのsource identityはIndicatorCodeだけではなく、頻度・季節調整・地域を固定するsource URLである。要求窓のVALUE行は速報・null記号・未使用属性もそのまま残し、L2が`@isProvisional=0`の確報だけを選ぶ。確報の欠測から旧値や速報へ戻らない。単位コードの混在は読み取りに使う期間の確報間で検証し、要求窓外の単位差だけで読み取りを止めない。取得時刻は公表時刻ではない。VALUEの単位コードだけで基準年を復元できるとは限らず、系列の意味はregistryと[公表元の系列メタデータ](https://dashboard.e-stat.go.jp/api/1.0/Json/getIndicatorInfo?Lang=JP&IndicatorCode=0302030202010090010)に従う。名目賃金の単位コード000は単位名が空欄であり、2020年平均=100という意味は系列注記から確認する。旧scalar値だけから失われた速報・属性は復元せず、マージ後に必要な原本を取得する。
+
+通常のe-Stat APIも、要求した表・分類条件に属する月次VALUEセルをnative保存する。年計など月次系列ではないセルを混ぜず、元の時点コードと単位・欠測・注記属性は保持する。source identityは公開endpointとstatsDataId・絞り込み条件で、認証appIdは保存しない。最新セルが欠測なら旧scalar値や同月の非欠測duplicateで補わない。異なる数値のduplicateやReading期間内の単位混在は計算できない入力として扱い、取得済みセル自体は残す。
 
 投資部門別の取得範囲とsnapshotの日付は`PubDate`である。`StDate/EnDate`は集計期間として原本に残し、L2が要求した公表日cutoff以下の最新版を先に選ぶ。読み値の観測日は`EnDate`、vintageは`PubDate`のUTC日付表現であり、実際の配信時刻ではない。公表日と観測期間の終端は別なので、後日訂正を過去の集計期間へ反映できる。最新の`FrgnBal`が欠測なら買い−売りや旧公表値で埋めず、同一公表日に矛盾する値があれば任意の行を採らない。通常の範囲取得は終了日までの公表を対象とし、保存済みread-only照会は必要に応じて別の公表日cutoffを使う。取消の意味が不明な項目から、他の公表日の削除を推測しない。
 
@@ -112,7 +114,7 @@ registryのband変更時は、Git管理外のstoreをread-only validatorで全�
 | `frb_h15` | 米国債金利・スプレッド | 遮断時だけbrowserで再取得する。サイズ上限・404・5xx・通信障害は別経路で迂回しない |
 | `ecb_fx` | JPYクロス | 全通貨のnative値を保持し、JPYと基軸通貨の比をL2で算出する |
 | `cftc` | 投機筋ポジション | 要求contractのAPI全項目を保持し、同じ原本行のlong−shortをL2で算出する |
-| `estat` | 日本の公式マクロ | API認証が必要。DB掲載が途中で止まる統計もあるため、新規採用時は更新日と公表元を照合する |
+| `estat` | 日本の公式マクロ | API認証が必要。登録系列の月次VALUEセルは単位・欠測記号・属性を保持し、L2で数値を選ぶ。DB掲載が途中で止まる統計もあるため、新規採用時は更新日と公表元を照合する |
 | `estat_dashboard` | 失業率・名目賃金等 | 頻度・季節調整・地域を固定し、VALUEの全属性（速報・欠測・単位コードを含む）を保存する。L2のReadingだけが確報の数値を選ぶ。基準改定時は全履歴refreshで揃える |
 | `jquants_flows` | 海外投資家フロー | screeningと同じcredential。公表日単位で全項目を保存し、集計期間と訂正の選択はL2で扱う。単位は千円 |
 | `jquants_indices` | TOPIX | native Date/O/H/L/Cを保存し、L2でCを読み値にする。Closeという旧項目で補わない |

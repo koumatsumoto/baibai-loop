@@ -217,3 +217,21 @@ def test_dashboard_live_response_shape_keeps_preliminary_wage_print(tmp_path, mo
         )}
         assert stored[july] == (final,)
         assert stored[august] == (provisional,)
+
+
+def test_estat_missing_cell_replaces_prior_numeric_reading_without_erasing_native_fields(tmp_path, monkeypatch):
+    database = tmp_path / "indicators.sqlite"
+    series = load_definitions().by_id()["jp.cpi.services"]
+    day = date(2026, 5, 1)
+    original = {"@time": "2026000505", "@unit": "指数", "$": "100.8", "@note": "published"}
+    missing = {**original, "$": "***", "@note": "withdrawn value"}
+    replies = [{day: [original]}, {day: [missing]}]
+    monkeypatch.setattr(indicator_service, "fetch_native_records", lambda *a, **k: replies.pop(0))
+    service = IndicatorsService(database)
+    assert service.get_range(series.series_id, start=day, end=day, refresh=True).observations[0].value == 100.8
+    assert service.get_range(series.series_id, start=day, end=day, refresh=True).observations == ()
+    with closing(sqlite3.connect(database)) as conn:
+        assert next(read_snapshots(conn, day, day, source_key=native_source_key(series))).records == (missing,)
+        assert conn.execute("SELECT count(*) FROM observations").fetchone()[0] == 0
+        read = build_store_observation_reader(conn, series=load_definitions().series)
+        assert read(series.series_id, day, day) == ()

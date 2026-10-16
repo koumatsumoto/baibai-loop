@@ -17,6 +17,7 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
     _dashboard_series,
     _estat_payload,
     _parse_dashboard,
+    _read_estat,
     _RecordingSession,
     _series,
 )
@@ -29,10 +30,10 @@ from baibai_engine.market_context.indicators.providers import (
     IndicatorsProviderError,
     parse_boj_timeseries_json,
     parse_boj_xlsx,
-    parse_estat_json,
     parse_mof_jgb_csv,
     parse_tsr_bankruptcies_json,
 )
+from baibai_engine.market_context.indicators.providers.estat import parse_estat_json
 from baibai_engine.market_context.indicators.providers.estat_dashboard import (
     EStatDashboardSource,
     parse_dashboard_json,
@@ -243,7 +244,7 @@ class IndicatorsProviderParserTests(TestCase):
             ]
         )
 
-        observations = parse_estat_json(series, text, start=date(2026, 2, 1), end=date(2026, 3, 31))
+        observations = _read_estat(series, text, start=date(2026, 2, 1), end=date(2026, 3, 31))
 
         self.assertEqual(len(observations), 1)
         self.assertEqual(observations[0].observed_at, date(2026, 2, 1))
@@ -253,7 +254,7 @@ class IndicatorsProviderParserTests(TestCase):
         series = _series("estat", "0003427113", unit="index")
         text = _estat_payload({"@time": "2026000505", "$": "102.0"})
 
-        observations = parse_estat_json(
+        observations = _read_estat(
             series, text, start=date(2026, 1, 1), end=date(2026, 12, 31)
         )
 
@@ -291,7 +292,7 @@ class IndicatorsProviderParserTests(TestCase):
                     }
                     for year, value in zip((2024, 2025, 2026), values, strict=True)
                 ]
-                observations = parse_estat_json(
+                observations = _read_estat(
                     series,
                     _estat_payload(cells),
                     start=date(2024, 1, 1),
@@ -313,7 +314,7 @@ class IndicatorsProviderParserTests(TestCase):
                             IndicatorsProviderError, "outside the requested narrowing"
                         ),
                     ):
-                        parse_estat_json(
+                        _read_estat(
                             series,
                             _estat_payload([*cells, {**cells[-1], attribute: wrong}]),
                             start=date(2024, 1, 1),
@@ -418,7 +419,7 @@ class IndicatorsProviderParserTests(TestCase):
                 self.subTest(case=name),
                 self.assertRaisesRegex(IndicatorsProviderError, reason),
             ):
-                parse_estat_json(series, text, start=start, end=end)
+                _read_estat(series, text, start=start, end=end)
 
     def test_parse_estat_json_reads_a_month_whose_closing_month_is_left_open(self) -> None:
         """e-Stat published 2024-01 of the watcher survey as "2024000100".
@@ -430,7 +431,7 @@ class IndicatorsProviderParserTests(TestCase):
         series = _series("estat", "0003348423", unit="pt")
         text = _estat_payload({"@time": "2024000100", "$": "50.2"})
 
-        observations = parse_estat_json(
+        observations = _read_estat(
             series, text, start=date(2024, 1, 1), end=date(2024, 12, 31)
         )
 
@@ -448,12 +449,25 @@ class IndicatorsProviderParserTests(TestCase):
             ]
         )
 
-        observations = parse_estat_json(
+        observations = _read_estat(
             series, text, start=date(2025, 1, 1), end=date(2025, 12, 31)
         )
 
         self.assertEqual(
             [(o.observed_at, o.value) for o in observations], [(date(2025, 1, 1), 110.0)]
+        )
+
+    def test_estat_native_cells_retain_null_markers_units_and_attributes(self) -> None:
+        series = _series("estat", "0003427113?cdCat01=0001", unit="index")
+        rows = [
+            {"@time": "2026000505", "@cat01": "0001", "@unit": "指数", "$": "100.8", "@note": "revised"},
+            {"@time": "2026000606", "@cat01": "0001", "@unit": "指数", "$": "***"},
+        ]
+        native = parse_estat_json(series, _estat_payload(rows), start=date(2026, 5, 1), end=date(2026, 6, 30))
+        self.assertEqual(native, {date(2026, 5, 1): [rows[0]], date(2026, 6, 1): [rows[1]]})
+        self.assertEqual(
+            [item.value for item in _read_estat(series, _estat_payload(rows), start=date(2026, 5, 1), end=date(2026, 6, 30))],
+            [100.8],
         )
 
     def test_estat_dashboard_fetch_always_opens_the_request_at_the_history_floor(self) -> None:

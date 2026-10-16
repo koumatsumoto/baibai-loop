@@ -21,7 +21,7 @@ from .base import (
 )
 from .boj import BojProvider
 from .boj_timeseries import BojTimeSeriesProvider
-from .estat import EStatProvider
+from .estat import EStatSource
 from .estat_dashboard import EStatDashboardSource
 from .frb_h15 import FrbH15Provider
 from .fred import FredProvider
@@ -42,7 +42,6 @@ _PROVIDERS: dict[str, IndicatorDataProvider] = {
         FrbH15Provider(),
         BojProvider(),
         BojTimeSeriesProvider(),
-        EStatProvider(),
         MofJgbProvider(),
         MultplProvider(),
         NikkeiIndexesProvider(),
@@ -85,6 +84,8 @@ def resolve_provider(name: str) -> IndicatorDataProvider:
 
 
 def provider_spec(name: str) -> ProviderSpec:
+    if name == "estat":
+        return EStatSource.spec
     if name == "estat_dashboard":
         return EStatDashboardSource.spec
     if name == "derived":
@@ -107,6 +108,7 @@ def registered_specs() -> tuple[ProviderSpec, ...]:
         *tuple(provider.spec for provider in _PROVIDERS.values()),
         DERIVED_SPEC,
         EStatDashboardSource.spec,
+        EStatSource.spec,
         JQUANTS_OPTIONS_SPEC,
         CFTC_SPEC,
         ECB_FX_SPEC,

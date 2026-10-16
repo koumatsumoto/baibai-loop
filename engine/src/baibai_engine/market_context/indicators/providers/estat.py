@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections import defaultdict
 from collections.abc import Mapping
 from datetime import date
 from typing import cast
@@ -10,7 +11,7 @@ from typing import cast
 from baibai_engine.foundation.env import load_project_env
 
 from ..definitions import SeriesDefinition
-from ..observations import ObservationRecord
+from ..observations import NativeRecords
 from .base import (
     MAX_CSV_RESPONSE_BYTES,
     FetchContext,
@@ -18,12 +19,7 @@ from .base import (
     IndicatorsProviderError,
     ProviderSpec,
     fetch_text,
-    parse_float,
-    record_observation,
 )
-
-# e-Stat marks cells with no usable number using these tokens; each is skipped.
-_ESTAT_NULL_MARKERS = frozenset({"", "-", "***", "X", "…", "..."})
 
 # Time codes are the year, the period kind, and the first and last month of the
 # period. "00" is the monthly kind; a year total is either the calendar-year kind
@@ -35,8 +31,8 @@ _ESTAT_NO_MONTH = "00"
 # Every returned cell echoes the dimension codes it belongs to, so the narrowing
 # a registry entry asks for can be checked against what came back. e-Stat answers
 # a narrowing code the table does not define by leaving that dimension open
-# rather than by failing, and the store's upsert would then let the last cell of
-# each period silently win. Only dimensions that echo a single code are mappable;
+# rather than by failing. Reject that answer before it mixes different series
+# into the native source records. Only dimensions that echo a single code are mappable;
 # an unmapped narrowing key is refused so that adding one is a deliberate act.
 _NARROWING_ROW_ATTRIBUTES = {
     "cdTab": "@tab",
@@ -45,7 +41,7 @@ _NARROWING_ROW_ATTRIBUTES = {
 } | {f"cdCat{index:02d}": f"@cat{index:02d}" for index in range(1, 16)}
 
 
-class EStatProvider:
+class EStatSource:
     """e-Stat getStatsData JSON (appId via ESTAT_APP_ID). Japan official statistics.
 
     The credential is read from the environment, not stored in the registry, so
@@ -60,7 +56,7 @@ class EStatProvider:
     )
     name = spec.name
 
-    def fetch(
+    def fetch_records(
         self,
         series: SeriesDefinition,
         *,
@@ -68,7 +64,7 @@ class EStatProvider:
         end: date,
         session: HttpSession,
         context: FetchContext | None = None,
-    ) -> list[ObservationRecord]:
+    ) -> NativeRecords:
         # Self-load .env so the provider works whether or not the caller already
         # did (the jquants providers follow the same pattern); CI passes the key
         # via the environment directly.
@@ -111,27 +107,24 @@ def _split_stats_data_id(provider_series_id: str) -> tuple[str, dict[str, str]]:
 
 def parse_estat_json(
     series: SeriesDefinition, text: str, *, start: date, end: date
-) -> list[ObservationRecord]:
+) -> NativeRecords:
     try:
         payload: object = json.loads(text)
     except json.JSONDecodeError as exc:
         raise IndicatorsProviderError(f"e-Stat response is not valid JSON: {exc}") from exc
     _, narrowing = _split_stats_data_id(series.provider_series_id)
     expectations = _narrowing_row_expectations(narrowing)
-    observations: list[ObservationRecord] = []
+    by_date: dict[date, list[dict[str, object]]] = defaultdict(list)
     for entry in _extract_value_entries(payload):
         if not isinstance(entry, dict):
-            continue
+            raise IndicatorsProviderError("e-Stat VALUE entry is not an object")
         row = cast(Mapping[str, object], entry)
         _require_narrowed_cell(row, expectations=expectations, series=series)
         observed_at = _parse_estat_month(row.get("@time"), series=series)
         if observed_at is None or not start <= observed_at <= end:
             continue
-        value = _parse_estat_value(row.get("$"))
-        if value is None:
-            continue
-        observations.append(record_observation(series, observed_at=observed_at, value=value))
-    return observations
+        by_date[observed_at].append(dict(row))
+    return dict(by_date)
 
 
 def _narrowing_row_expectations(narrowing: Mapping[str, str]) -> dict[str, str]:
@@ -232,12 +225,3 @@ def _parse_estat_month(raw: object, *, series: SeriesDefinition) -> date | None:
             f"one month (time={raw!r})"
         )
     return date(int(match["year"]), month, 1)
-
-
-def _parse_estat_value(raw: object) -> float | None:
-    if not isinstance(raw, str):
-        return None
-    text = raw.strip()
-    if text in _ESTAT_NULL_MARKERS:
-        return None
-    return parse_float(text)

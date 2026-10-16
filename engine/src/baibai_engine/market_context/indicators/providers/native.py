@@ -7,6 +7,7 @@ from ..observations import NativeRecords
 from .base import FetchContext, IndicatorsProviderError
 from .cftc import CftcSource
 from .ecb_fx import EcbFxSource
+from .estat import EStatSource
 from .estat_dashboard import EStatDashboardSource
 from .jquants_flows import JQuantsFlowsSource
 from .jquants_indices import JQuantsIndicesSource
@@ -15,8 +16,10 @@ from .jquants_indices import JQuantsIndicesSource
 def fetch_native_records(
     series: SeriesDefinition, *, start: date, end: date, context: FetchContext
 ) -> NativeRecords:
-    source: CftcSource | EcbFxSource | JQuantsFlowsSource | JQuantsIndicesSource | EStatDashboardSource
-    if series.provider == "estat_dashboard":
+    source: CftcSource | EcbFxSource | JQuantsFlowsSource | JQuantsIndicesSource | EStatDashboardSource | EStatSource
+    if series.provider == "estat":
+        source = EStatSource()
+    elif series.provider == "estat_dashboard":
         source = EStatDashboardSource()
     elif series.provider == "cftc":
         source = CftcSource()
