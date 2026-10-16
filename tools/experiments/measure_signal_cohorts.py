@@ -285,7 +285,9 @@ def _earnings_multiple_comparison(rows: Sequence[PanelRow], horizon: str) -> Map
         "horizon": horizon,
         "groups": [
             _group_summary(without_positive_per_capped, horizon, label="no_positive_per_at_cap"),
-            _group_summary(without_positive_per_uncapped, horizon, label="no_positive_per_below_cap"),
+            _group_summary(
+                without_positive_per_uncapped, horizon, label="no_positive_per_below_cap"
+            ),
             _group_summary(positive_per_capped, horizon, label="positive_per_at_cap"),
             _group_summary(rows, horizon, label="stored_comparison_population"),
         ],
