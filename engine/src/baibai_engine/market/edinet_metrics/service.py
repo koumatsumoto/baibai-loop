@@ -21,10 +21,10 @@ from baibai_engine.market.edinet_models import (
     EDINETProviderError,
     EDINETRateLimitError,
 )
+from baibai_engine.market.edinet_document_events import QuarantinedDocumentEvent
 from baibai_engine.market.providers.edinet import (
     TARGET_DOC_TYPE_CODES,
     EdinetDocumentCandidate,
-    QuarantinedDocumentEvent,
     select_document_candidates,
 )
 from baibai_engine.market.providers.edinet_csv import parse_csv_zip_metric_record

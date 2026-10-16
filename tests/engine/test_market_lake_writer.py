@@ -804,3 +804,19 @@ def test_sealed_snapshot_cleans_capture_failures_without_touching_source(
         pytest.fail("failed capture exposed a snapshot")
     assert not workspace.exists()
     assert source.read_bytes() == b"unchanged source"
+
+
+def test_gc_does_not_follow_staging_symlink_into_unowned_file(tmp_path: Path) -> None:
+    mirror = tmp_path / "mirror"
+    mirror.mkdir()
+    retained = mirror / "operator-data.bin"
+    retained.write_bytes(b"not a lake object")
+    alias = mirror / "lake" / "staging" / "old-run" / "alias.bin"
+    alias.parent.mkdir(parents=True)
+    alias.symlink_to(retained)
+
+    plan = plan_gc(mirror, now=datetime.now(UTC) + timedelta(days=40))
+    assert plan.candidates == ()
+    assert apply_gc(mirror, plan, plan_hash=plan.plan_hash) == ()
+    assert retained.read_bytes() == b"not a lake object"
+    assert alias.is_symlink()

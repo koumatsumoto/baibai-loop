@@ -54,12 +54,17 @@ def _dataset_payload(
     population_count: int = 100,
     rows: int = 456,
 ) -> dict[str, object]:
-    version = LAKE_DATASETS[dataset].contract_version
+    contract = LAKE_DATASETS[dataset]
+    version = contract.contract_version
+    partition_values = {"year": 2026}
+    if contract.partition_grain == "month":
+        partition_values["month"] = 8
     key = canonical_object_key(
         layer="l1_canonical",
         dataset=dataset,
         contract_version=version,
-        partition_values={"month": 8, "year": 2026},
+        partition_values=partition_values,
+        partition_by=contract.partition_by,
         content_sha256=digest,
     )
     return {
@@ -75,10 +80,10 @@ def _dataset_payload(
         "data_as_of": data_as_of,
         "population_count": population_count,
         "coverage_status": "complete",
-        "partition_by": ["year", "month"],
+        "partition_by": list(contract.partition_by),
         "partitions": [
             {
-                "values": {"year": 2026, "month": 8},
+                "values": partition_values,
                 "sources": [_snapshot_source_payload()],
                 "objects": [
                     {

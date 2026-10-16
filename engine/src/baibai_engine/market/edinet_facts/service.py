@@ -21,7 +21,8 @@ from baibai_engine.market.edinet_facts.store import (
     store_facts,
 )
 from baibai_engine.market.edinet_models import EDINETProviderError, EDINETRateLimitError
-from baibai_engine.market.providers.edinet import _canonicalize_document_events, _document_period
+from baibai_engine.market.edinet_document_events import _canonicalize_document_events
+from baibai_engine.market.providers.edinet import _document_period
 
 
 class XbrlSource(Protocol):
