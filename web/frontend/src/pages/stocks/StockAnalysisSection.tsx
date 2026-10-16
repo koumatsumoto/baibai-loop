@@ -20,7 +20,7 @@ export function CalibrationDistribution({ context }: { context: ErLevelCalibrati
       <p>E[r]較正の証拠充足：{context.evidence_complete ? '成立' : '未成立'}{context.evidence_blocking_reasons.length > 0 && `（${context.evidence_blocking_reasons.join('、')}）`}</p>
       <div className="overflow-x-auto"><table className="w-full text-left"><thead><tr><th>期間・帯</th><th>実現basis</th><th>観測 / 宣言</th><th>未評価・理由</th><th>年率中央値 / q10</th><th>下振れ率</th></tr></thead>
         <tbody>{context.horizons.flatMap(horizon => horizon.bands.flatMap(band => band.bases.map(basis => <tr key={`${horizon.horizon}-${band.band_id}-${basis.basis}`}>
-          <td>{horizon.horizon} {band.quintile == null ? 'E[r] ≥ 8.5%' : `Q${band.quintile}`}</td>
+          <td>{horizon.horizon} {band.quintile == null ? (band.lower_er_annual == null ? 'E[r]の閾値未記録' : `E[r] ≥ ${ratio(band.lower_er_annual)}`) : `Q${band.quintile}`}</td>
           <td>{basis.basis === 'price_return_only' ? '価格のみ' : 'FY配当込み'}</td>
           <td>{basis.coverage.observed_n} / {basis.coverage.declared_n}<br />観測{basis.observed_cohort_count} / 宣言{horizon.cohort_count}月</td>
           <td>{basis.coverage.missing_n}{Object.entries(basis.coverage.missing_reason_counts).map(([reason, n]) => <div key={reason}>{reason}: {n}</div>)}</td>
