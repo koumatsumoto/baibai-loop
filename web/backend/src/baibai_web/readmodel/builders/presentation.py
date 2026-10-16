@@ -67,7 +67,7 @@ def holding_view(
                 through_date=price_as_of,
             )
         ):
-            gap_unavailable_reason = "原評価から現在株価までの株式単位を確認できません。"
+            gap_unavailable_reason = "原評価と現在株価を同じ価格基準で比較できません。"
         else:
             fv_gap = round((fair_value - price_value) / price_value * 100, 1)
     return HoldingView(

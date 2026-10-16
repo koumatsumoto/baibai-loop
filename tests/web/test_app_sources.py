@@ -333,5 +333,5 @@ def test_holding_pmax_gap_checks_the_assessment_window_even_when_acquired_after_
         assert holding.pmax_gap_unavailable_reason is None
     else:
         assert holding.pmax_gap_pct is None
-        assert holding.pmax_gap_unavailable_reason
+        assert holding.pmax_gap_unavailable_reason == "原評価と現在株価を同じ価格基準で比較できません。"
     assert {path: path.read_bytes() for path in (db, market)} == before

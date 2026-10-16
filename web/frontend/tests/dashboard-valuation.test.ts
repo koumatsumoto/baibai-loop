@@ -169,16 +169,16 @@ describe('Dashboard valuation display', () => {
     expect(html).not.toContain('データ更新')
   })
 
-  it('keeps the original Pmax and explains why a share-unit comparison has no gap', () => {
+  it('keeps the original Pmax and explains why an unconfirmed price comparison has no gap', () => {
     const html = renderToStaticMarkup(createElement(TooltipProvider, null,
       createElement(MemoryRouter, null, createElement(HoldingsTable, {
         holdings: [{ ...holding('1234'), market_price_yen: '1000', pmax_raw_yen: 2000,
-          pmax_gap_pct: null, pmax_gap_unavailable_reason: '原評価から現在株価までの株式単位を確認できません。' }],
+          pmax_gap_pct: null, pmax_gap_unavailable_reason: '原評価と現在株価を同じ価格基準で比較できません。' }],
         warnings: [],
       })),
     ))
     expect(html).toContain('￥2,000')
-    expect(html).toContain('原評価から現在株価までの株式単位を確認できません。')
+    expect(html).toContain('原評価と現在株価を同じ価格基準で比較できません。')
     expect(html).not.toContain('+100.0%')
   })
 })
