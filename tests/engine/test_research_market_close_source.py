@@ -15,13 +15,18 @@ from tests.helpers.screening_sqlite import seed_daily_bars
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.position.market_source import (
+    next_order_session,
     quantity_basis_is_confirmed,
     read_unadjusted_close,
 )
-from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION
+from baibai_engine.storage.observations.schema import (
+    SQLITE_SCHEMA_VERSION,
+    SQLiteSchemaError,
+    open_connection,
+)
 
 
-def test_market_close_source_degrades_on_schema_version_mismatch(tmp_path: Path) -> None:
+def test_market_close_source_reports_schema_version_mismatch(tmp_path: Path) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     conn = sqlite3.connect(sqlite_path)
@@ -30,10 +35,10 @@ def test_market_close_source_degrades_on_schema_version_mismatch(tmp_path: Path)
         conn.commit()
     finally:
         conn.close()
-    resolved = read_unadjusted_close(
-        sqlite_path=sqlite_path, ticker="2331", at=datetime(2026, 7, 13, 9, tzinfo=JST)
-    )
-    assert resolved is None
+    with pytest.raises(SQLiteSchemaError):
+        read_unadjusted_close(
+            sqlite_path=sqlite_path, ticker="2331", at=datetime(2026, 7, 13, 9, tzinfo=JST)
+        )
 
 
 def test_market_close_source_never_uses_older_ticker_bar_when_market_wide_date_is_missing(
@@ -208,13 +213,10 @@ def test_quantity_basis_keeps_the_callers_connection(tmp_path, count):
     ],
 )
 def test_order_session_uses_calendar_and_unexpired_market_close(tmp_path, instant, session):
-    from baibai_engine.position.market_source import next_order_session
-
     path = tmp_path / "market.sqlite"
-    with closing(sqlite3.connect(path)) as connection, connection:
-        connection.execute("CREATE TABLE jquants_market_calendar(day TEXT,holiday_division TEXT)")
+    with closing(open_connection(path)) as connection, connection:
         connection.executemany(
-            "INSERT INTO jquants_market_calendar VALUES (?,?)",
+            "INSERT INTO jquants_market_calendar(day, holiday_division) VALUES (?,?)",
             [
                 ("2026-09-05", 0),
                 ("2026-09-06", 0),
@@ -234,3 +236,40 @@ def test_order_session_uses_calendar_and_unexpired_market_close(tmp_path, instan
         )
         is None
     )
+
+
+@pytest.mark.parametrize("operation", ["close", "quantity", "session"])
+@pytest.mark.parametrize("state", ["absent", "corrupt", "obsolete", "missing_table"])
+def test_market_read_failure_is_not_normal_missing_data(tmp_path, operation, state):
+    path = tmp_path / "market.sqlite"
+    if state == "corrupt":
+        path.write_bytes(b"not SQLite")
+    elif state != "absent":
+        with closing(open_connection(path)) as connection, connection:
+            if state == "obsolete":
+                connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
+            else:
+                connection.execute("DROP TABLE jquants_daily_bars")
+
+    def read():
+        if operation == "close":
+            return read_unadjusted_close(
+                sqlite_path=path, ticker="2331", at=datetime(2026, 7, 13, 9, tzinfo=JST)
+            )
+        if operation == "quantity":
+            return quantity_basis_is_confirmed(
+                sqlite_path=path, ticker="2331",
+                from_date=date(2026, 7, 9), through_date=date(2026, 7, 10),
+            )
+        return next_order_session(
+            sqlite_path=path, now=datetime(2026, 7, 13, 9, tzinfo=JST)
+        )
+
+    if state == "absent":
+        assert read() is (False if operation == "quantity" else None)
+        assert not path.exists()
+    else:
+        before = path.read_bytes()
+        with pytest.raises((sqlite3.DatabaseError, SQLiteSchemaError)):
+            read()
+        assert path.read_bytes() == before

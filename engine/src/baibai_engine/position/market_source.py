@@ -6,7 +6,8 @@ for a judgment instant and same-date holding-basis closes.
 Portfolio/Position owns this quote and share-basis reader; Research consumes it
 without making Portfolio/Position depend on Research. Storage observations owns
 the physical schema version; these read-only queries use that contract directly.
-Schema mismatches and SQL errors return no usable observation.
+An absent store or genuinely missing observation has no value. Schema mismatches
+and SQL errors propagate; they are not ordinary missing market data.
 
 For target-session planning, the resolved price is the raw/unadjusted ``close`` on the full-universe
 daily bars' latest observed market-wide date eligible at that instant (today after
@@ -27,7 +28,8 @@ from math import isfinite
 from pathlib import Path
 
 from baibai_engine.foundation.time import JST
-from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION
+from baibai_engine.storage.observations.read import connect_read_only
+from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, SQLiteSchemaError
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,14 +61,13 @@ def read_unadjusted_close(
     if conn is None:
         if not sqlite_path.exists():
             return None
-        try:
-            conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
-        except sqlite3.Error:
-            return None
+        conn = connect_read_only(sqlite_path)
     try:
+        if owns_connection:
+            conn.execute("BEGIN")
         version_row = conn.execute("PRAGMA user_version").fetchone()
         if version_row is None or int(version_row[0]) != SQLITE_SCHEMA_VERSION:
-            return None
+            raise SQLiteSchemaError("market quote requires the current market schema")
         market_session_row = conn.execute(
             "SELECT MAX(traded_at) FROM jquants_daily_bars WHERE traded_at < ?",
             (target_session.isoformat(),),
@@ -81,8 +82,6 @@ def read_unadjusted_close(
             "WHERE ticker = ? AND traded_at = ?",
             (ticker, price_as_of_text),
         ).fetchone()
-    except sqlite3.Error:
-        return None
     finally:
         if owns_connection:
             conn.close()
@@ -130,14 +129,13 @@ def quantity_basis_is_confirmed(
     if conn is None:
         if not sqlite_path.exists():
             return False
-        try:
-            conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
-        except sqlite3.Error:
-            return False
+        conn = connect_read_only(sqlite_path)
     try:
+        if owns_connection:
+            conn.execute("BEGIN")
         version_row = conn.execute("PRAGMA user_version").fetchone()
         if version_row is None or int(version_row[0]) != SQLITE_SCHEMA_VERSION:
-            return False
+            raise SQLiteSchemaError("market quote requires the current market schema")
         session_rows = conn.execute(
             "SELECT DISTINCT traded_at FROM jquants_daily_bars "
             "WHERE traded_at BETWEEN ? AND ? ORDER BY traded_at",
@@ -153,8 +151,6 @@ def quantity_basis_is_confirmed(
         ).fetchall()
         if tuple(str(row[0]) for row in bar_rows) != sessions:
             return False
-    except (sqlite3.Error, TypeError, ValueError):
-        return False
     finally:
         if owns_connection:
             conn.close()
@@ -174,17 +170,14 @@ def next_order_session(*, sqlite_path: Path, now: datetime) -> date | None:
         raise ValueError("order planning instant requires a timezone")
     local = now.astimezone(JST)
     start = local.date() + timedelta(days=local.time() >= time(15, 30))
-    try:
-        with closing(
-            sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
-        ) as connection:
-            rows = connection.execute(
-                "SELECT day,holiday_division IN ('1', '2') FROM jquants_market_calendar "
-                "WHERE day>=? ORDER BY day LIMIT 14",
-                (start.isoformat(),),
-            ).fetchall()
-    except sqlite3.Error:
+    if not sqlite_path.exists():
         return None
+    with closing(connect_read_only(sqlite_path)) as connection:
+        rows = connection.execute(
+            "SELECT day,holiday_division IN ('1', '2') FROM jquants_market_calendar "
+            "WHERE day>=? ORDER BY day LIMIT 14",
+            (start.isoformat(),),
+        ).fetchall()
     for i, (day, is_business_day) in enumerate(rows):
         expected = start + timedelta(days=i)
         if day != expected.isoformat():
