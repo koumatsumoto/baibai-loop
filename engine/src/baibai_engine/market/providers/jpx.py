@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 import logging
 import re
 from collections.abc import Mapping, Sequence
@@ -283,7 +282,7 @@ class JPXProvider:
         self._raise_if_cache_only("jpx_regulation_flags", asof_date.isoformat())
         if not self._regulation_urls:
             raise JPXProviderError(
-                "JPX regulation data is required but no public CSV/Excel/HTML URL is configured"
+                "JPX regulation data is required but no public HTML URL is configured"
             )
 
         flags: dict[str, set[str]] = {}
@@ -581,10 +580,6 @@ class JPXProvider:
         suffix = Path(urlparse(url).path).suffix.lower()
         content_type_header = response.headers.get("content-type", "")
         content_type = content_type_header.split(";", 1)[0].strip().lower()
-        if suffix == ".csv":
-            return self._parse_csv_rows(response.content, url)
-        if suffix in {".xls", ".xlsx"}:
-            return self._parse_excel_rows(response.content, url)
         if suffix == ".html" or content_type == "text/html":
             return self._parse_html_rows(source_name, response.content, url, content_type_header)
         raise JPXProviderError(f"unsupported JPX regulation source format: {url}")
@@ -593,38 +588,6 @@ class JPXProvider:
         parsed = urlparse(url)
         if parsed.scheme != _JPX_ALLOWED_SCHEME or parsed.netloc != _JPX_ALLOWED_HOST:
             raise JPXProviderError(f"JPX regulation source must use https://www.jpx.co.jp/: {url}")
-
-    def _parse_csv_rows(self, content: bytes, url: str) -> list[dict[str, str]]:
-        try:
-            text = content.decode("utf-8-sig")
-        except UnicodeDecodeError:
-            try:
-                text = content.decode("cp932")
-            except UnicodeDecodeError as exc:
-                raise JPXProviderError(f"failed to decode JPX regulation source: {url}") from exc
-        reader = csv.DictReader(text.splitlines())
-        return [dict(row) for row in reader]
-
-    def _parse_excel_rows(self, content: bytes, url: str) -> list[dict[str, str]]:
-        try:
-            import pandas as pd
-        except ModuleNotFoundError as exc:
-            raise JPXProviderError("pandas is required to read JPX Excel sources") from exc
-
-        try:
-            frame = pd.read_excel(BytesIO(content), dtype=str)
-        except ImportError as exc:
-            raise JPXProviderError(
-                f"missing Excel reader dependency for JPX source: {url}"
-            ) from exc
-        except Exception as exc:
-            raise JPXProviderError(f"failed to parse JPX Excel source: {url}") from exc
-
-        normalized = frame.fillna("")
-        return [
-            {str(column): str(value).strip() for column, value in row.items()}
-            for row in normalized.to_dict(orient="records")
-        ]
 
     def _parse_html_rows(
         self,

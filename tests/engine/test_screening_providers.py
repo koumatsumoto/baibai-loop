@@ -1743,13 +1743,6 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(first[0].short_ratio, 0.006)
         self.assertEqual(refreshed[0].short_ratio, 0.007)
 
-    def test_jpx_parse_csv_rows_supports_cp932(self) -> None:
-        provider = JPXProvider()
-        rows = provider._parse_csv_rows(
-            "コード,規制区分\n3856,整理銘柄\n".encode("cp932"), "https://example.com/sample.csv"
-        )
-        self.assertEqual(rows, [{"コード": "3856", "規制区分": "整理銘柄"}])
-
     def test_jpx_earnings_parser_detects_header_and_normalizes_rows(self) -> None:
         provider = JPXProvider()
         content = self._earnings_xlsx(
@@ -2305,12 +2298,12 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(snapshot.flags_by_ticker, {"4917": ("整理銘柄",)})
 
     def test_jpx_get_regulation_snapshot_records_fetched_at_utc_on_fetch(self) -> None:
-        url = "https://www.jpx.co.jp/listing/market-alerts/supervision/list.csv"
+        url = "https://www.jpx.co.jp/listing/market-alerts/supervision/"
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "data" / "screening" / "market.sqlite"
             provider = JPXProvider(
                 regulation_urls={"整理銘柄": url},
-                session=always(response(b"code\n49170\n", content_type="text/csv")),
+                session=always(html_response(self._read_jpx_fixture("reorganization.html"))),
                 sqlite_path=sqlite_path,
             )
             provider.get_regulation_snapshot(date(2026, 4, 24))
@@ -2322,17 +2315,6 @@ class ScreeningProviderTests(unittest.TestCase):
 
         self.assertEqual(len(rows), 1)
         self.assertIsNotNone(rows[0][0])
-
-    def test_jpx_get_regulation_snapshot_rejects_rows_without_code_column(self) -> None:
-        provider = JPXProvider(
-            regulation_urls={
-                "整理銘柄": "https://www.jpx.co.jp/listing/market-alerts/supervision/list.csv"
-            },
-            session=always(response(b"unexpected\n49170\n", content_type="text/csv")),
-        )
-
-        with self.assertRaisesRegex(JPXProviderError, "missing JPX code column"):
-            provider.get_regulation_snapshot(date(2026, 4, 24))
 
     def test_jpx_decode_html_text_prefers_content_type_charset(self) -> None:
         # JPX が cp932 ページを Content-Type で告知してきた場合、フォールバックの utf-8
