@@ -132,7 +132,7 @@ def test_insert_failure_rolls_back_entire_acceptance(tmp_path):
 
 @pytest.mark.parametrize(
     "mutation",
-    ["date", "columns", "source", "zone", "order", "overlap", "accounting", "no_timezone"],
+    ["date", "columns", "source", "order", "overlap", "accounting", "no_timezone"],
 )
 def test_invalid_receipts_are_rejected_before_store_open(tmp_path, mutation):
     value = document()
@@ -142,8 +142,6 @@ def test_invalid_receipts_are_rejected_before_store_open(tmp_path, mutation):
         value["columns"] = list(reversed(COLUMNS))
     if mutation == "source":
         value["source_ref"]["sha256"] = "private-header"
-    if mutation == "zone":
-        value["observations"][0]["timing"]["end"] = "2026-10-11T10:58:46.209+09:00"
     if mutation == "order":
         value["observations"][0]["timing"]["start"] = "2026-10-11T02:00:00Z"
     if mutation == "overlap":
@@ -245,3 +243,30 @@ def test_empty_document_is_not_replaced_with_valid_receipts(tmp_path):
     assert json.loads(source.read_text()) == {}
     with pytest.raises(FetchError):
         load_observations(source, sha256=digest)
+
+
+def test_equivalent_aware_receipt_offsets_keep_the_same_stored_instants(tmp_path):
+    original, digest = input_file(tmp_path)
+    utc = load_observations(original, sha256=digest)
+    value = document()
+    value["observations"][0]["timing"] = {
+        "start": "2026-10-11T10:58:14.800+09:00", "end": "2026-10-11T10:58:46.209+09:00",
+    }
+    shifted, digest = input_file(tmp_path, value)
+    actual = load_observations(shifted, sha256=digest)
+    assert actual.values == utc.values
+    assert actual.document.observation_date_jst == utc.document.observation_date_jst
+
+
+def test_more_than_two_received_batches_can_be_accepted_within_input_size_limit(tmp_path):
+    value = document()
+    third = copy.deepcopy(value["observations"][1])
+    third["trial"] = 23
+    third["result"] = payload(["TSE:1004"])
+    value["observations"].append(third)
+    source, digest = input_file(tmp_path, value)
+    accepted = load_observations(source, sha256=digest)
+    report = accept_observations(market(tmp_path), accepted)
+    assert report["rows_added"] == 4
+    assert [receipt["trial"] for receipt in report["receipts"]] == [21, 22, 23]
+    assert report["coverage_status"] == "partial"

@@ -7,7 +7,7 @@ import json
 import re
 import sqlite3
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from typing import Any, Literal
 
@@ -41,8 +41,6 @@ class ReceiptTiming(BaseModel):
 
     @model_validator(mode="after")
     def validate_times(self) -> ReceiptTiming:
-        if self.start.utcoffset() != timedelta(0) or self.end.utcoffset() != timedelta(0):
-            raise ValueError("receipt timestamps must be UTC")
         if self.end < self.start:
             raise ValueError("receipt end precedes start")
         return self
@@ -63,7 +61,7 @@ class ObservationInput(BaseModel):
     source_ref: SourceReference
     observation_date_jst: date
     columns: list[str]
-    observations: list[Receipt] = Field(min_length=1, max_length=2)
+    observations: list[Receipt] = Field(min_length=1)
 
 
 @dataclass(frozen=True)

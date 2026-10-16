@@ -884,7 +884,7 @@ gh workflow run cloud-tradingview-snapshot.yml --ref main \
 
 ### 保存済み実観測の明示的な受入
 
-providerから受領済みの応答を履歴へ残す場合は、通常collectorとは別に`accept-observations`を使う。新しいprovider接続は行わず、休場日でも実受領日のJST日付を`snapshot_date`、UTC受領完了時刻を`fetched_at_utc`にする。quote/provider更新時刻が不明ならNULLのままとし、過去の営業日へ付け替えない。1〜2応答・各最大50銘柄を既存`tradingview.forecast_snapshots`へ追加し、coverageは`partial`のままにする。同一PK・全列一致はno-op、異なる値なら受入全体をrollbackし、既存行を上書きしない。
+providerから受領済みの応答を履歴へ残す場合は、通常collectorとは別に`accept-observations`を使う。新しいprovider接続は行わず、休場日でも実受領日のJST日付を`snapshot_date`、UTC受領完了時刻を`fetched_at_utc`にする。quote/provider更新時刻が不明ならNULLのままとし、過去の営業日へ付け替えない。受領時刻はタイムゾーン付きなら受け付け、保存時に同じ瞬間のUTCへ正規化する。入力サイズ上限内の1件以上の応答・各最大50銘柄を既存`tradingview.forecast_snapshots`へ追加し、coverageは`partial`のままにする。同一PK・全列一致はno-op、異なる値なら受入全体をrollbackし、既存行を上書きしない。
 
 元応答はLibraryに保持し、versionとSHA256を確認してから対象応答だけを選ぶ。入力JSONは`schema_version: 1`、`source_ref`（`library_file_id`, `file_id`, `version`, 元ファイルの`sha256`）、`observation_date_jst`、取得時の順序の`columns`、`observations`を持つ。各observationは`trial`、UTCの`timing.start/end`、構造化された元の`result`を保持する。`json.dumps(..., ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False)`で改行なしに保存し、選択入力そのもののSHA256も求める。元ファイルのhashはprovenanceであり、選択入力のhashとは区別する。
 
