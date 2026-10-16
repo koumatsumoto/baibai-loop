@@ -356,7 +356,7 @@ ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。�
 
 vintage・retraction・generation・no-lossの意味は[Market Context reference](../docs/reference/market-context.md#①-データindicator-series-を引く)を参照する。
 
-**観測の撤回**: `market-context indicators retract <series_id> --observed-at <date> --expected-vintage <ts>`で確認した最新vintageを名指す。`derived`とnative原本から読む系列（options・CFTC・ECB FX・投資部門別・TOPIX）はscalar観測の撤回対象ではない。元の観測を訂正・撤回すると次回読取に反映する。CAS拒否なら現在vintageを読み直す。成功後は正しい下位観測、または当日の非表示を確認する。localの直接DELETEや同じCASの反復で復旧しない。
+**観測の撤回**: `market-context indicators retract <series_id> --observed-at <date> --expected-vintage <ts>`で確認した最新vintageを名指す。`derived`とnative原本から読む系列はscalar観測の撤回対象ではない。元の観測を訂正・撤回すると次回読取に反映する。CAS拒否なら現在vintageを読み直す。成功後は正しい下位観測、または当日の非表示を確認する。localの直接DELETEや同じCASの反復で復旧しない。
 
 **系列の追加・退役・改名**:
 
@@ -369,7 +369,7 @@ vintage・retraction・generation・no-lossの意味は[Market Context reference
 
 **schema7から9への一回切替**: 通常のopen・pull・mergeに旧schema互換を追加しない。マージ後の作業では、実行中writerがいない切替窓を確保し、最新cloud copyから別のcandidateを作る。既存のregistry・観測・取得履歴を保ったまま現行schemaのsource単位native snapshot表を追加し、取得済み原本の再利用と不足日だけの取得を行う。旧scalarからchainを復元できたとは扱わない。candidateと元copyの既存fact保持、raw日付・件数、Reading、公開結果を確認してからcodeとstoreの世代を合わせて切り替える。schema7のcloud copyをschema9の通常mergeへ渡しても切替にはならず、拒否される。切替時の最新cloud世代に対する条件付き書込みとbundle receiptの整合は通常公開と同様に守る。具体的な対象世代・原本不足範囲・candidate確認結果は切替実行時に確定し、PRのコード変更だけで本番切替済みとしない。
 
-**native原本の不足補完**: options・CFTC・ECB FX・投資部門別・TOPIXはschema9のsource snapshotへ保存する。従来のscalar観測は原本の代替にせず、PRマージ後に取得済み原本を再利用し、不足する期間だけ取得して再計算する。投資部門別の取得範囲は公表日であり、L2の集計期間と取り違えない。TOPIXの旧終値からO/H/Lを推定しない。必要な原本・Reading・公開読戻しを確認するまで、本番切替の受入完了としない。
+**native原本の不足補完**: native対応系列はschema9のsource snapshotへ保存する。対象sourceと系列は現行registry・読取実装で確認する。従来のscalar観測は原本の代替にせず、PRマージ後に取得済み原本を再利用し、不足する期間だけ取得して再計算する。投資部門別の取得範囲は公表日であり、L2の集計期間と取り違えない。TOPIXの旧終値からO/H/Lを推定しない。必要な原本・Reading・公開読戻しを確認するまで、本番切替の受入完了としない。
 
 **停止と復旧**: DB拒否・意図しない退役・provider取得失敗・merge/CAS失敗では後続公開へ進まない。provider失敗がcommit済みpruneを巻き戻すとは扱わない。誤った内容をcloudへ反映した場合は次のpushを止め、[R2 transferの安全境界](#r2-transferの安全境界)の前世代復元へ進む。部分pushによるreceipt不一致だけは[部分pushからの復旧](#部分-push-からの復旧)で扱う。
 
@@ -522,7 +522,7 @@ Workerの再deployは不要である。
 ## R2 transferの安全境界
 
 - upload前にPython `sqlite3.backup`でsnapshotを作り、WAL未checkpoint行を含めて`quick_check`する。
-- 複数storeのpushは全snapshotの作成・検査を終えてからuploadを始める。3 store一括の`push-machine`はGitHub Actionsと明示的なlocal dailyで使い、pull時の全ETag一致と各PUTの`If-Match`を必須にする。`indicators.sqlite` / `market.sqlite`を単独でローカルから進める場合は`push-indicators` / `push-market`でcloud copyをmergeし、cloud側の行の取り残しを検出したら停止する。
+- `push-machine`は各storeのsnapshotを作成・検査してから、そのstoreを順にuploadする。3 storeは原子的には反映されず、途中失敗は下記の部分push復旧で扱う。3 store一括の`push-machine`はGitHub Actionsと明示的なlocal dailyで使い、pull時の全ETag一致と各PUTの`If-Match`を必須にする。`indicators.sqlite` / `market.sqlite`を単独でローカルから進める場合は`push-indicators` / `push-market`でcloud copyをmergeし、cloud側の行の取り残しを検出したら停止する。
 - machine storeのpushは対象の前世代を`<key>.bak`に1世代保存する。復元時はwriterを停止し、対象bucketとexact `<key>.bak`・`<key>`を人間が確認したうえで、`aws s3api copy-object --cli-read-timeout 300`を使う。`aws s3 cp`へ置換しない。
 - machine store の`.bak`は1世代のみで次のpushで置き換わるため、24時間保持される保証ではない。`baibai.sqlite`だけは`baibai.sqlite.bak-YYYYMMDD`（JST）で日ごとに1世代を残し、直近14世代を超えた分をpush成功後に削除する。machine storeにも再取得できない観測があるため前世代を残し、判断と確認済み事実を持つapplication storeは日別世代を残す。prune は`baibai.sqlite.bak-`配下をlistし、`baibai.sqlite.bak-YYYYMMDD`に一致するkeyだけを完全一致で削除する（prefix削除はしない）。
 - 初回seedは既存のstore keyを1件でも検出したら停止し、再seedによるクラウド正本の上書きを許可しない。
@@ -849,8 +849,9 @@ summaryは営業日判定・master基準日・保存済み/追加/残件・unres
 mainへmanual dispatchし、`observation_master_asof`だけに保存済みmasterの日付を指定する。`observations_json` / `observations_sha256`は空にする。営業日は当日、休場日はcalendar上の直近営業日のmasterを指定し、上記の取得時間を守る。J-Quants masterの追加取得は行わず、指定日がcalendarの必須基準日と異なる場合やmasterがない場合はOAuth/provider接続前に停止する。50銘柄ずつ、応答完了後15秒以上の間隔を必須とし、通常collector・normalizer・publication lease・cooldown・25分soft budget・L1 publisherを使う。
 
 ```bash
+read -r -p '保存済みmasterの基準日 YYYY-MM-DD: ' master_asof &&
 gh workflow run cloud-tradingview-snapshot.yml --ref main \
-  -f observation_master_asof=2026-10-09 -f batch_size=50 -f interval=15
+  -f observation_master_asof="$master_asof" -f interval=15
 ```
 
 同じ観測日の再開は同じmaster基準日を指定し、fresh pull/hydrate後に同日の保存済み集合を除外する。正常null / unresolvedも保存済みとして上書き・再取得しない。provider失敗・Retry-After・日跨ぎ・soft budgetで止まった場合、新規確定rowがあればpartialを公開し、残件だけを同日中に再開する。summaryの`target_date` / `master_asof` / first・last fetched_at、件数、stop_reason、公開release、lease解放を確認する。partial公開は全Universe取得成功とは数えない。runner強制停止・timeoutやstorage/internal障害で正常な結果を出せなかった場合は公開完了とみなさず、[障害診断](#tradingview-expectationsの障害診断)に従う。
