@@ -20,10 +20,6 @@ _REQUIRED_DATE_ROWS_SQL = {
         "SELECT COUNT(*) FROM jquants_market_calendar WHERE day BETWEEN ? AND ?"
     ),
 }
-_TABLE_COUNT_SQL = {
-    "jquants_market_calendar": "SELECT COUNT(*) FROM jquants_market_calendar",
-    "jpx_regulation_flags": "SELECT COUNT(*) FROM jpx_regulation_flags",
-}
 _WINDOW_COUNT_SOURCES = {
     "jquants_daily_bars": ("jquants_daily_bars", "traded_at"),
     "jquants_fin_summaries": ("jquants_fin_summaries", "disclosed_at"),
@@ -102,54 +98,28 @@ def _append_source_coverage_quality_issues(
             )
 
 
-def _append_table_consistency_issues(
-    conn: sqlite3.Connection,
-    issues: list[CacheCoverageIssue],
-    *,
-    source: str,
-    table: str,
-    requirement: str,
-    require_rows: bool,
-    enforce_record_count: bool,
+def _append_jpx_regulation_count_issue(
+    conn: sqlite3.Connection, issues: list[CacheCoverageIssue], *, asof_date: date
 ) -> None:
+    """Compare the requested snapshot with its own receipt, not unrelated dates."""
+    iso = asof_date.isoformat()
     imported_count = int(
         conn.execute(
             "SELECT COALESCE(SUM(record_count), 0) FROM source_coverage "
-            "WHERE source = ? AND status = 'ok'",
-            (source,),
+            "WHERE source = 'jpx_regulation_flags' AND status = 'ok' "
+            "AND coverage_start <= ? AND coverage_end >= ?",
+            (iso, iso),
         ).fetchone()[0]
     )
-    table_count = int(conn.execute(_TABLE_COUNT_SQL[table]).fetchone()[0])
-    if require_rows and imported_count <= 0:
-        issues.append(
-            CacheCoverageIssue(
-                source=source,
-                requirement=requirement,
-                reason="source_coverage records zero imported rows for required source",
-            )
-        )
-        return
-    if enforce_record_count and table_count != imported_count:
-        issues.append(
-            CacheCoverageIssue(
-                source=source,
-                requirement=requirement,
-                reason=(
-                    f"{table} row count ({table_count}) does not match source_coverage "
-                    f"record_count ({imported_count}); repair SQLite"
-                ),
-            )
-        )
-        return
-    if require_rows and table_count <= 0:
-        issues.append(
-            CacheCoverageIssue(
-                source=source,
-                requirement=requirement,
-                reason=f"{table} has no usable rows for required source",
-            )
-        )
-        return
+    table_count = int(conn.execute(
+        "SELECT COUNT(*) FROM jpx_regulation_flags WHERE asof_date = ?", (iso,)
+    ).fetchone()[0])
+    if table_count != imported_count:
+        issues.append(CacheCoverageIssue(
+            source="jpx_regulation_flags", requirement=iso,
+            reason=(f"jpx_regulation_flags row count ({table_count}) does not match "
+                    f"source_coverage record_count ({imported_count}) for {iso}; repair SQLite"),
+        ))
 
 
 def _append_window_consistency_issues(

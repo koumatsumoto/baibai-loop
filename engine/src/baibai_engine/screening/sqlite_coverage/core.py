@@ -36,7 +36,7 @@ from .shared import CacheCoverageIssue
 from .sources import (
     _append_required_date_rows_issue,
     _append_source_coverage_quality_issues,
-    _append_table_consistency_issues,
+    _append_jpx_regulation_count_issue,
     _append_window_consistency_issues,
     _source_coverage_covers_date,
 )
@@ -246,15 +246,6 @@ def verify_screening_sqlite_coverage(
                     end=asof_date,
                     requirement=asof_date.isoformat(),
                 )
-                _append_table_consistency_issues(
-                    conn,
-                    issues,
-                    source="jquants_market_calendar",
-                    table="jquants_market_calendar",
-                    requirement=asof_date.isoformat(),
-                    require_rows=True,
-                    enforce_record_count=False,
-                )
             jpx_source_coverage_covers_asof = _source_coverage_covers_date(
                 conn, "jpx_regulation_flags", asof_date
             )
@@ -272,15 +263,7 @@ def verify_screening_sqlite_coverage(
                     asof_date=asof_date,
                     allow_stale_jpx=allow_stale_jpx,
                 )
-                _append_table_consistency_issues(
-                    conn,
-                    issues,
-                    source="jpx_regulation_flags",
-                    table="jpx_regulation_flags",
-                    requirement=asof_date.isoformat(),
-                    require_rows=False,
-                    enforce_record_count=True,
-                )
+                _append_jpx_regulation_count_issue(conn, issues, asof_date=asof_date)
                 jpx_source_names = _jpx_source_names(conn, asof_date)
             _append_source_coverage_quality_issues(
                 conn,
