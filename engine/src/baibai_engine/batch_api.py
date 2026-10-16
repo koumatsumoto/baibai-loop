@@ -145,7 +145,6 @@ from baibai_engine.market_context.indicators.source_snapshots import (
 from baibai_engine.screening.discovery.contracts import (
     validate_candidate_run as validate_candidate_run,
 )
-from baibai_engine.screening.earnings_lag import interpreted_next_earnings_status
 from baibai_engine.screening.run_store.schema import RUN_STORE_SCHEMA_VERSION
 from baibai_engine.storage.application.paths import database_path
 from baibai_engine.storage.application.read import connect_read_only
@@ -258,7 +257,6 @@ __all__ = [
     "external_assessment_verify_observations",
     "external_assessment_verify_release_history",
     "hydrate_market_store",
-    "interpreted_next_earnings_status",
     "lake_current_l1_pointer_key",
     "lake_dataset_manifest_key",
     "lake_mirror_path",
