@@ -314,10 +314,14 @@ def _read_daily_delta(path: Path, notice: _Notice) -> None:
     if payload.get("method_changed") is True:
         notice.delta_unmeasured_reason = "手法変更"
         return
+    entered_labels = _delta_ticker_labels(entered)
+    exited_labels = _delta_ticker_labels(exited)
+    if len(entered_labels) != len(entered) or len(exited_labels) != len(exited):
+        return  # Unidentifiable rows are not evidence of an empty or complete delta.
     notice.delta_measured = True
     notice.delta_unmeasured_reason = ""
-    notice.entered = _delta_ticker_labels(entered)
-    notice.exited = _delta_ticker_labels(exited)
+    notice.entered = entered_labels
+    notice.exited = exited_labels
 
 
 def _parse_edinet_quarantine_metrics(stdout: str) -> tuple[int, int, str]:

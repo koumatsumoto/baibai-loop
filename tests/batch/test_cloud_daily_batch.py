@@ -844,15 +844,12 @@ def test_daily_delta_reports_an_empty_list_when_nothing_entered(tmp_path: Path) 
     assert notice.entered == []
 
 
-def test_daily_delta_drops_unreadable_entered_rows_without_failing(
+def test_daily_delta_keeps_identified_rows_with_unusable_optional_fields(
     tmp_path: Path,
 ) -> None:
     view = _delta_view(
         tmp_path / "daily-delta.json",
         [
-            "not-a-row",
-            _entry(" ", "Blank", 40.0),
-            {"company_name": "No ticker", "er_annual_pct": 50.0},
             _entry("3001", "Broken", float("nan")),
             _entry("3002", "Boolish", True),
             _entry("3003", "Multi\nline {name}", 3.0),
@@ -866,8 +863,8 @@ def test_daily_delta_drops_unreadable_entered_rows_without_failing(
     labels = notice.entered
 
     assert isinstance(labels, list)
-    # A row that cannot be identified by ticker is dropped; a value the renderer
-    # cannot use (NaN, bool, overflow) costs only that field, not the row.
+    assert notice.delta_measured
+    # An unusable optional value costs only that field, not an identified row.
     assert labels[2:] == [
         "3003 Multi line name E[r]+3.0%",
         "3004 " + "x" * 24 + " E[r]+2.0%",
@@ -1304,3 +1301,20 @@ def test_unreadable_change_probe_does_not_stop_batch_or_claim_no_change(
     assert "market-context indicators refresh" in runner.call_keys()
     assert "export" in runner.call_keys()
     assert closed == ([] if failure == "connect" else [True])
+
+
+@pytest.mark.parametrize("section", ["entered", "exited"])
+@pytest.mark.parametrize("row", ["not-a-row", {"ticker": " "}, {"company_name": "No ticker"}])
+@pytest.mark.parametrize("mixed", [False, True])
+def test_unidentified_delta_row_is_not_reported_as_no_change_or_a_complete_list(
+    tmp_path, section, row, mixed
+):
+    path = _delta_view(tmp_path / "delta.json", [])
+    payload = json.loads(path.read_text())
+    payload[section] = [*([_entry("3001", "Known", 5.0)] if mixed else []), row]
+    path.write_text(json.dumps(payload))
+    notice = _Notice()
+    _read_daily_delta(path, notice)
+    assert not notice.delta_measured
+    assert notice.delta_unmeasured_reason == "view_unreadable"
+    assert notice.entered == notice.exited == []
