@@ -388,9 +388,7 @@ def edinet_identity_covered(connection: sqlite3.Connection, *, start: date, end:
     return stale_rows == 0
 
 
-def edinet_code_to_ticker(
-    connection: sqlite3.Connection, *, through: date
-) -> dict[str, str]:
+def edinet_code_to_ticker(connection: sqlite3.Connection, *, through: date) -> dict[str, str]:
     """Resolve EDINET codes through the (edinetCode, secCode) pairs the list observed.
 
     Only filing dates through the caller's cutoff participate. Later discoveries

@@ -682,9 +682,27 @@ class ControlEventExitBuildTest(unittest.TestCase):
             ("250", "SREG", {_FUNDING: "買付代金のみ。対価の種類不明"}),
             ("280", "SRES", {_OUTCOME: _SUCCESS + _FAILURE}),
             ("280", "SRES", {_OUTCOME: ""}),
-            ("250", "SREG", {_PRICE: "株券１株につき金1,000円", "other:PriceOfPurchaseEtcTextBlock": "株券１株につき金2,000円"}),
-            ("250", "SREG", {_FUNDING: _CASH_ONLY, "other:FundEtcForPurchaseEtcTextBlock": "金銭以外の対価の種類株式"}),
-            ("280", "SRES", {_OUTCOME: _SUCCESS, "other:SuccessOrFailureOfTenderOfferTextBlock": _FAILURE}),
+            (
+                "250",
+                "SREG",
+                {
+                    _PRICE: "株券１株につき金1,000円",
+                    "other:PriceOfPurchaseEtcTextBlock": "株券１株につき金2,000円",
+                },
+            ),
+            (
+                "250",
+                "SREG",
+                {
+                    _FUNDING: _CASH_ONLY,
+                    "other:FundEtcForPurchaseEtcTextBlock": "金銭以外の対価の種類株式",
+                },
+            ),
+            (
+                "280",
+                "SRES",
+                {_OUTCOME: _SUCCESS, "other:SuccessOrFailureOfTenderOfferTextBlock": _FAILURE},
+            ),
         )
         for doc_type, parent, blocks in cases:
             with self.subTest(blocks=blocks), TemporaryDirectory() as tmp:
@@ -916,7 +934,13 @@ class ControlEventExitBuildTest(unittest.TestCase):
 class DocumentBlocksTest(unittest.TestCase):
     def test_duplicate_blocks_do_not_select_a_value_by_archive_order(self) -> None:
         cases = (
-            (_PRICE, "株券１株につき金1,000円", "株券１株につき金2,000円", parse_ordinary_share_offer_price, 1000),
+            (
+                _PRICE,
+                "株券１株につき金1,000円",
+                "株券１株につき金2,000円",
+                parse_ordinary_share_offer_price,
+                1000,
+            ),
             (_OUTCOME, _SUCCESS, _FAILURE, read_tender_offer_outcome, True),
             (_FUNDING, _CASH_ONLY, "金銭以外の対価の種類株式", pays_in_cash_only, True),
         )
@@ -930,16 +954,23 @@ class DocumentBlocksTest(unittest.TestCase):
                             writer = csv.writer(text, delimiter="\t")
                             writer.writerow(("要素ID", "項目名", "値"))
                             writer.writerow((element, "項目", value))
-                            archive.writestr(f"member-{index}.csv", text.getvalue().encode("utf-16"))
+                            archive.writestr(
+                                f"member-{index}.csv", text.getvalue().encode("utf-16")
+                            )
                     blocks = read_document_blocks(buffer.getvalue())
                     self.assertIn(element, blocks)
                     self.assertEqual(parse(blocks), agreed if len(set(values)) == 1 else None)
 
     def test_matching_suffixes_must_agree_regardless_of_mapping_order(self) -> None:
-        first = {_PRICE: "株券１株につき金1,000円", "other:PriceOfPurchaseEtcTextBlock": "株券１株につき金2,000円"}
+        first = {
+            _PRICE: "株券１株につき金1,000円",
+            "other:PriceOfPurchaseEtcTextBlock": "株券１株につき金2,000円",
+        }
         self.assertIsNone(parse_ordinary_share_offer_price(first))
         self.assertIsNone(parse_ordinary_share_offer_price(dict(reversed(list(first.items())))))
-        self.assertEqual(parse_ordinary_share_offer_price({key: "株券１株につき金1,000円" for key in first}), 1000)
+        self.assertEqual(
+            parse_ordinary_share_offer_price(dict.fromkeys(first, "株券１株につき金1,000円")), 1000
+        )
 
     def test_every_element_of_every_csv_member_is_flattened(self) -> None:
         blocks = read_document_blocks(_archive({_PRICE: "価格", _OUTCOME: "成否"}))

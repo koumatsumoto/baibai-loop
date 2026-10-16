@@ -347,7 +347,10 @@ class ControlFilingIndexTest(unittest.TestCase):
                 ],
             )
             with closing(open_connection(sqlite_path)) as connection:
-                self.assertEqual(edinet_code_to_ticker(connection, through=self.ASOF), {"E1": "1301", "E4": "130A"})
+                self.assertEqual(
+                    edinet_code_to_ticker(connection, through=self.ASOF),
+                    {"E1": "1301", "E4": "130A"},
+                )
 
     def test_future_identity_and_conflict_do_not_change_historical_filing_context(self) -> None:
         with TemporaryDirectory() as tmp:
