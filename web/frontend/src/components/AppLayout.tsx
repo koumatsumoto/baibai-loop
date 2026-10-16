@@ -6,8 +6,8 @@ import { LoadingPage } from './LoadingIndicator'
 
 // The shell belongs to the route tree, not to each page. Mounting it once above the
 // outlet keeps it on screen through lazy-chunk loading, route changes and per-page
-// loading states — so its freshness fetch runs once per session instead of once per
-// state a page passes through, and a new page cannot be written without it.
+// loading states. Its freshness fetch belongs to the mounted layout rather than
+// each page state; authentication can still remount the layout.
 export function AppLayout() {
   return (
     <>
