@@ -28,12 +28,13 @@ export function PasswordForm({ value, notice, onValueChange, onSubmit }: Passwor
           <div className="grid gap-1.5">
             <div className="flex items-center gap-2 font-medium">
               <KeyRound className="size-4 text-primary" aria-hidden="true" />
-              <span>閲覧パスワード</span>
+              <label htmlFor="view-password">閲覧パスワード</label>
             </div>
             <p className="text-sm text-muted-foreground">閲覧を続けるにはパスワードを入力してください。</p>
           </div>
         </div>
         <Input
+          id="view-password"
           autoComplete="current-password"
           autoFocus
           onChange={(event) => onValueChange(event.target.value)}

@@ -2,7 +2,7 @@
 
 The data platform keeps facts for the whole market, so the screen evaluates
 all common stocks in the eligible market segments. Size and liquidity are not
-scope conditions: market cap, average turnover, listing span, and JPX
+scope conditions: market cap, average turnover, price-history span, and JPX
 regulation flags are recorded as facts on each snapshot and applied as
 analysis-layer context or parameters by Candidate Discovery. The only structural exclusions are
 instrument type, market segment, and a usable price observation. Each metric
@@ -132,8 +132,7 @@ def build_universe(
                 exclusion_counts[flag] = exclusion_counts.get(flag, 0) + 1
             continue
 
-        # The earliest available raw-price bar is a listing-span proxy, not a
-        # verified listing date. A bounded or incomplete price history can shorten
+        # Measure available price-history coverage, not listing age. A bounded or incomplete price history can shorten
         # the measured span even for a long-listed security.
         price_history_span_days = (asof_date - history[0].traded_at).days
         latest = history[-1]

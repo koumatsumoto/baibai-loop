@@ -216,16 +216,17 @@ class ScreeningUniverseTests(unittest.TestCase):
         self.assertEqual(result.snapshots["7203"].jpx_flags, ("整理銘柄",))
         self.assertEqual(result.exclusion_counts, {})
 
-    def test_build_universe_records_listing_span_as_fact(self) -> None:
+    def test_build_universe_records_price_history_span_as_fact(self) -> None:
         security = SecurityMaster(
             ticker="300A",
-            name="Newly Listed",
+            name="Limited Price History",
             market_segment="Growth",
             sector_33="情報・通信業",
             is_common_stock=True,
         )
         end = date(2026, 4, 24)
-        # 90 days of bars starting ~90 days before asof; listing_span < 182 threshold.
+        # Available observations start 90 calendar days before asof.
+        # This does not establish when the security was listed.
         bars = [
             JQuantsDailyBar(
                 ticker="300A",
