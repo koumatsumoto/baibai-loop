@@ -251,7 +251,8 @@ def _render_store_report(report: ValidationReport) -> int:
     if report.valid:
         print(
             f"ok: schema v{report.schema_version}; {report.registry_series} registry series; "
-            f"{report.observations} scalar observations; {report.source_snapshots} native snapshots",
+            f"{report.observations} scalar observations; "
+            f"{report.source_snapshots} native snapshots",
             flush=True,
         )
         return 0

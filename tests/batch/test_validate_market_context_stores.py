@@ -330,6 +330,7 @@ def test_retracted_values_still_follow_the_storage_and_merge_contract(tmp_path, 
 @pytest.mark.parametrize("damage", [None, "gzip", "shape", "count", "old_vintage"])
 def test_validation_checks_native_payloads_without_imposing_scalar_semantics(tmp_path, damage):
     import gzip
+
     from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
 
     database = tmp_path / "indicators.sqlite"
@@ -337,13 +338,18 @@ def test_validation_checks_native_payloads_without_imposing_scalar_semantics(tmp
     _build_store(database, definition)
     with closing(sqlite3.connect(database)) as connection, connection:
         store_snapshot(
-            connection, source_key="unregistered:raw-source", observed_at=date(2026, 7, 1),
+            connection,
+            source_key="unregistered:raw-source",
+            observed_at=date(2026, 7, 1),
             fetched_at=datetime(2026, 7, 2, tzinfo=UTC),
             records=[{"unused": None, "native": "--", "unbounded": 99999999}],
         )
         store_snapshot(
-            connection, source_key="unregistered:raw-source", observed_at=date(2026, 7, 1),
-            fetched_at=datetime(2026, 7, 3, tzinfo=UTC), records=[],
+            connection,
+            source_key="unregistered:raw-source",
+            observed_at=date(2026, 7, 1),
+            fetched_at=datetime(2026, 7, 3, tzinfo=UTC),
+            records=[],
         )
         if damage in {"gzip", "shape", "old_vintage"}:
             payload = gzip.compress(b"{}") if damage == "shape" else b"broken gzip"
