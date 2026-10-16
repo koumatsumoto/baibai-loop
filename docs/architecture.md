@@ -141,4 +141,4 @@ GitHub Actions ──定期処理・転送─────────┤
 <a id="four-roles"></a>
 <a id="naming-and-history"></a>
 
-変更では配置・保存・画面・CLI・docsを同じ責務へ揃え、無価値な互換層・重複・汎用化を削る。内部の旧名・aliasは原則残さず、caller・model・serializer・CLI・test・active docsを同じ変更で揃える。provider-native fieldと保存済み判断のidentity・引用・実取引事実は内部命名と区別し、命名整理で書き換えない。意味のあるデータと既存判断の履歴を保持し、意味不変を前後比較で検証する。規則や意味の変更による再生成と、単なる配置変更を区別する。成果を産む・誤りを止める・測る・見せる役割は識別するが、定型的な枠や新機構を増やす目的にしない。採否は[開発原則](./doctrine.md#development-investment-policy)、field/type/書込条件はmodel・DB constraint・domain service、完全gateは[Python foundation](./reference/python-foundation.md#9-ci-and-local-parity)に従う。
+変更では配置・保存・画面・CLI・docsを同じ責務へ揃え、無価値な互換層・重複・汎用化を削る。内部の旧名・aliasは原則残さず、caller・model・serializer・CLI・test・active docsを同じ変更で揃える。provider-native fieldと保存済み判断のidentity・引用・実取引事実は内部命名と区別し、命名整理で書き換えない。単なる配置変更では意味不変を確認する。一方、設計を改善するためのschema変更では過去の構造・履歴の維持を必須にせず、必要なデータ移行・再構築・リセットを選ぶ。保持対象と失われる範囲を区別し、過去の制約のためだけの互換層を追加しない。成果を産む・誤りを止める・測る・見せる役割は識別するが、定型的な枠や新機構を増やす目的にしない。採否は[開発原則](./doctrine.md#development-investment-policy)、field/type/書込条件はmodel・DB constraint・domain service、完全gateは[Python foundation](./reference/python-foundation.md#9-ci-and-local-parity)に従う。
