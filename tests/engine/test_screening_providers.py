@@ -2548,8 +2548,12 @@ def test_capex_total_components_and_period_are_not_mixed(subtests):
         ),
         (
             "conflicting-total-does-not-fall-back",
-            [(total, current, "-1136"), (total, current, "-2000"),
-             (tangible, current, "-1000"), (intangible, current, "-136")],
+            [
+                (total, current, "-1136"),
+                (total, current, "-2000"),
+                (tangible, current, "-1000"),
+                (intangible, current, "-136"),
+            ],
             None,
         ),
         (
