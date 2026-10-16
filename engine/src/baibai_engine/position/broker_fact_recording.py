@@ -77,6 +77,7 @@ def record_broker_fact(
         existing = find_reported_execution(
             document,
             execution_id=execution_id,
+            decision_reference=decision_reference,
             side=side,
             ticker=ticker,
             reservation_id=reservation_id,
@@ -152,6 +153,7 @@ def record_broker_fact(
                 or (
                     reservation_id is None
                     and order_id is None
+                    and event.decision_reference == decision_reference
                     and event.side == side
                     and event.ticker == ticker
                     and event.occurred_on == occurred_on
@@ -504,6 +506,7 @@ def find_reported_execution(
     document: PortfolioLedgerDocument,
     *,
     execution_id: str | None,
+    decision_reference: str | None,
     side: Literal["buy", "sell"],
     ticker: str,
     reservation_id: str | None,
@@ -513,7 +516,7 @@ def find_reported_execution(
     """Find a reported fill without treating a timezone spelling as its identity.
 
     An explicit execution ID distinguishes separate fills. Without one, a
-    matching order, ticker, side and reported occurrence must be unambiguous;
+    matching reference, order, ticker, side and occurrence must be unambiguous;
     callers then compare all supplied economic facts before accepting a retry.
     Generated event IDs remain opaque and existing records are never rewritten.
     """
@@ -525,7 +528,8 @@ def find_reported_execution(
             event.execution_id == execution_id
             if execution_id is not None
             else (
-                event.side == side
+                event.decision_reference == decision_reference
+                and event.side == side
                 and event.ticker == ticker
                 and (reservation_id is None or event.reservation_id == reservation_id)
                 and event.occurred_on == occurred_on

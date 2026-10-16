@@ -199,6 +199,7 @@ def build_broker_fact_draft(
         and find_reported_execution(
             source,
             execution_id=execution_id,
+            decision_reference=decision_reference,
             side=side,
             ticker=ticker,
             reservation_id=requested_ids[0] if requested_ids else None,
@@ -449,6 +450,7 @@ def build_sell_execution_draft(
     existing = find_reported_execution(
         source,
         execution_id=execution_id,
+        decision_reference=decision_reference,
         side="sell",
         ticker=ticker,
         reservation_id=reservation_id,
