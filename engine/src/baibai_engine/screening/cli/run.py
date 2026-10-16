@@ -49,6 +49,7 @@ from baibai_engine.screening.universe import (
     build_universe,
     candidate_comparison_population,
 )
+from baibai_engine.storage.observations.schema import SQLiteSchemaError
 from baibai_engine.valuation.estimates import EXPECTED_RETURN_MODEL_VERSION
 from baibai_engine.valuation.metrics.capital import build_shares_outstanding_index
 from baibai_engine.valuation.metrics.models import FinancialSnapshot
@@ -174,7 +175,7 @@ def run_command(
             file=out,
             flush=True,
         )
-    except (JQuantsProviderError, JPXProviderError, sqlite3.Error) as exc:
+    except (JQuantsProviderError, JPXProviderError, SQLiteSchemaError, sqlite3.Error) as exc:
         # 型情報を残して root cause を追いやすくする。secret を含みうる 3rd party
         # exception はラップ済みなので str(exc) 表示で安全。
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)

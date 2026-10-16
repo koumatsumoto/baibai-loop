@@ -15,6 +15,8 @@ from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.bars import JQuantsDailyBar, JQuantsMarketCalendarDay
@@ -55,7 +57,7 @@ from baibai_engine.screening.run_store import ScreeningRunReader
 from baibai_engine.storage.observations.ingest.edinet import store_edinet_metrics
 from baibai_engine.storage.observations.ingest.jquants import store_jquants_weekly_margin
 from baibai_engine.storage.observations.jquants import store_jquants_daily_bars
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
 
 
 @dataclass
@@ -2132,3 +2134,25 @@ def test_bootstrap_market_failure_does_not_prevent_financial_edinet_or_jpx(tmp_p
     assert names.count("refresh_fin_summary_range") == 1
     assert names.count("get_fy_summary_range") == 1
     assert len(edinet.bootstrap_calls) == len(jpx.bootstrap_calls) == 1
+
+
+@pytest.mark.parametrize("failure", [SQLiteSchemaError, sqlite3.DatabaseError])
+def test_run_reports_market_store_failure_without_publishing(tmp_path, capsys, failure):
+    class FailingMaster(FakeJQuantsProvider):
+        def get_eq_master(self, requested_asof):
+            raise failure("synthetic market read failure")
+
+    output = tmp_path / "run.yaml"
+    store = tmp_path / "application.sqlite"
+    result = run_command(
+        date(2026, 4, 24),
+        ScreeningConfig("synthetic-token"),
+        ProviderBundle(jquants=FailingMaster(), edinet=None, jpx=FakeJPXProvider()),
+        now=datetime(2026, 4, 24, 18, 0, tzinfo=JST),
+        output_path=output,
+        run_store_path=store,
+    )
+    assert result == 1
+    assert f"{failure.__name__}: synthetic market read failure" in capsys.readouterr().err
+    assert not output.exists()
+    assert not store.exists()
