@@ -45,14 +45,15 @@ def annual_documents(
             str(doc.get("submitDateTime") or "")[:10],
         )
     unresolved_roots: set[str] = set()
-    unresolved: dict[str, list[str]] = {}
+    unresolved: dict[str, list[tuple[str, date | None]]] = {}
     # A correction without its annual ancestry cannot silently leave an older
-    # filing usable. Its issuer and disclosure date bound the affected families.
+    # filing usable. A known earlier fiscal period cannot invalidate a newer one.
     for key in annual_ids - roots.keys():
         doc = by_id[key]
         if doc.get("secCode"):
             orphan_ticker = parse_sec_code(doc["secCode"])
-            unresolved.setdefault(orphan_ticker, []).append(event_days.get(key, ""))
+            _, orphan_end = document_period(doc)
+            unresolved.setdefault(orphan_ticker, []).append((event_days.get(key, ""), orphan_end))
     for event in quarantined:
         linked = [
             by_id[key]
@@ -72,7 +73,7 @@ def annual_documents(
         )
         if ticker is None:
             continue
-        unresolved.setdefault(ticker, []).append(event_days.get(event.doc_id, ""))
+        unresolved.setdefault(ticker, []).append((event_days.get(event.doc_id, ""), None))
     families: dict[str, list[dict[str, Any]]] = {}
     latest: dict[str, tuple[date, str, str]] = {}
     included: set[str] = set()
@@ -87,13 +88,14 @@ def annual_documents(
             continue
         ticker = parse_sec_code(root["secCode"])
         root_submitted = str(root.get("submitDateTime") or "")[:10]
+        _, end = document_period(root)
         if str(root["docID"]) in unresolved_roots or any(
-            not day or not root_submitted or day >= root_submitted
-            for day in unresolved.get(ticker, ())
+            (orphan_end is None or end is None or orphan_end >= end)
+            and (not day or not root_submitted or day >= root_submitted)
+            for day, orphan_end in unresolved.get(ticker, ())
         ):
             continue
         doc = {**doc, "secCode": root["secCode"]}
-        _, end = document_period(root)
         root_id = str(root["docID"])
         doc["_research_period_known"] = end is not None
         doc["_research_annual_period_end"] = end.isoformat() if end is not None else None

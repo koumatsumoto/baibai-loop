@@ -209,6 +209,7 @@ def insert_documents(path, documents):
         "submitDateTime": "submit_datetime",
         "parentDocID": "parent_doc_id",
         "periodEnd": "period_end",
+        "docDescription": "doc_description",
         "doc_date": "doc_date",
         "opeDateTime": "operation_datetime",
     }
@@ -608,3 +609,33 @@ def test_saved_selection_resolves_metadata_edit_without_permanent_rejection(tmp_
             "2026-04-30",
             "usable",
         )
+
+
+@pytest.mark.parametrize("description_period", [False, True])
+@pytest.mark.parametrize("orphan_end", ["2022-03-31", "2024-03-31", "2025-03-31", None])
+def test_orphan_correction_is_scoped_to_its_fiscal_period(tmp_path, description_period, orphan_end):
+    # Saved EDINET shape: a 2024 filing and correction coexist with a later
+    # correction of the 2022 report whose parent predates retained coverage.
+    original = document("S100TXF4", "2024-06-28 10:31")
+    original["periodEnd"] = "2024-03-31"
+    linked = document("S100UZ4I", "2024-12-20 11:36", parentDocID="S100TXF4")
+    linked.update(docTypeCode="130", periodEnd=None)
+    orphan = document("S100UZ44", "2024-12-20 11:11", parentDocID="S100OLL4")
+    orphan.update(docTypeCode="130", periodEnd=orphan_end)
+    if description_period:
+        orphan["periodEnd"] = None
+        if orphan_end is not None:
+            year = int(orphan_end[:4])
+            orphan["docDescription"] = (
+                f"訂正有価証券報告書－第44期({year - 1}/04/01－{year}/03/31)"
+            )
+    documents = [original, linked, orphan]
+    expected = ["S100TXF4", "S100UZ4I"] if orphan_end == "2022-03-31" else []
+    assert [row["docID"] for row in annual_documents(documents)] == expected
+    path = tmp_path / "market.sqlite"
+    insert_documents(path, documents)
+    selected = selected_filing(path, "2024-12-21")
+    if expected:
+        assert selected == ("S100UZ4I", "2024-12-20 11:36", "2024-03-31", "usable")
+    else:
+        assert selected is None
