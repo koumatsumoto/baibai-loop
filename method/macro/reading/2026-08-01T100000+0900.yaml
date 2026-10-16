@@ -281,8 +281,8 @@ overrides:
   # 求人・失業保険申請等の件数は、別の読取方針として水準を使う。
   jp.nominal_wage_index:
     statistic: yoy
-    # 読むのは毎月勤労統計の確報だけで、統計ダッシュボードが先に載せる速報は
-    # 書かない。確報は月 M を M+2 下旬に公表する（e-Stat 掲載日の実測は観測日 +
+    # L1は速報も属性付きで保持し、L2で読むのは毎月勤労統計の確報だけ。
+    # 確報は月 M を M+2 下旬に公表する（e-Stat 掲載日の実測は観測日 +
     # 82〜84 日）。
     publication_lag_days: 85
   jp.real_wage_index:
@@ -321,9 +321,9 @@ overrides:
     statistic: level
   us.tga:
     statistic: level
-    # WTREGEN は H.4.1 の水曜時点系列で、fed_assets と同じ翌日公表。
+    # WTREGEN は水曜を期末とする週平均で、fed_assets の水曜時点残高とは別の量。
     publication_lag_days: 1
-  # H.4.1 入力を exact 整列する local 派生値も翌日の base refresh で更新される。
+  # 保存した H.4.1 等の入力から読む都度計算する近似値。入力の基準時点は同一でない。
   us.net_liquidity:
     publication_lag_days: 1
   # 四半期初日へ正規化された観測は、次の四半期開始後およそ1か月で届く。
