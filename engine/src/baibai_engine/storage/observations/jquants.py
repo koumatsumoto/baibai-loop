@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -30,11 +30,11 @@ def store_jquants_daily_bars(
     requested_start: date,
     requested_end: date,
 ) -> int:
+    normalized = _bars_rows_with_quality(records)
+    rows = normalized.rows
+    _validate_request_dates(rows, date_index=1, start=requested_start, end=requested_end)
     conn = open_connection(db_path)
     try:
-        records_list = list(records)
-        normalized = _bars_rows_with_quality(records_list)
-        rows = normalized.rows
         replace_date_range(
             conn,
             "jquants_daily_bars",
@@ -78,11 +78,11 @@ def store_jquants_market_calendar(
     requested_start: date,
     requested_end: date,
 ) -> int:
+    normalized = _market_calendar_rows_with_quality(records)
+    rows = normalized.rows
+    _validate_request_dates(rows, date_index=0, start=requested_start, end=requested_end)
     conn = open_connection(db_path)
     try:
-        records_list = list(records)
-        normalized = _market_calendar_rows_with_quality(records_list)
-        rows = normalized.rows
         replace_date_range(
             conn,
             "jquants_market_calendar",
@@ -169,3 +169,15 @@ def _market_calendar_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> 
         rows=distinct_source_rows(rows, identity_columns=1, source="market calendar"),
         rejected_count=rejected_count,
     )
+
+
+def _validate_request_dates(
+    rows: Sequence[tuple[Any, ...]], *, date_index: int, start: date, end: date
+) -> None:
+    """A range replacement may not write observations outside its requested partition."""
+    if start > end:
+        raise ValueError("request start must not follow end")
+    for row in rows:
+        observed = date.fromisoformat(str(row[date_index]))
+        if not start <= observed <= end:
+            raise ValueError("observation date is outside the requested range")
