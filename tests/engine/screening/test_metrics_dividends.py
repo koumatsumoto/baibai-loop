@@ -35,7 +35,15 @@ class DividendCarryResolverTests(unittest.TestCase):
 
     def test_zero_forecast_outranks_positive_actual(self) -> None:
         summaries = [
-            _summary("130A", date(2025, 5, 10), fiscal_period="FY", fiscal_year_end=date(2025, 3, 31), period_start=date(2024, 4, 1), period_end=date(2025, 3, 31), dps_actual_annual=50.0),
+            _summary(
+                "130A",
+                date(2025, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 3, 31),
+                period_start=date(2024, 4, 1),
+                period_end=date(2025, 3, 31),
+                dps_actual_annual=50.0,
+            ),
             _summary("130A", date(2025, 8, 10), dps_forecast_annual=0.0),
         ]
         carry = _resolve_dividend_carry(summaries, [], 1000.0, date(2025, 9, 1))
@@ -85,7 +93,15 @@ class DividendCarryResolverTests(unittest.TestCase):
         """3659 型: 一回性の分配を 5 年反復する収益として順位へ入れない。"""
         summaries = [
             _summary("3659", date(2026, 8, 13), dps_forecast_annual=475.0),
-            _summary("3659", date(2026, 2, 12), fiscal_period="FY", fiscal_year_end=date(2025, 12, 31), period_start=date(2025, 1, 1), period_end=date(2025, 12, 31), dps_actual_annual=45.0),
+            _summary(
+                "3659",
+                date(2026, 2, 12),
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 12, 31),
+                period_start=date(2025, 1, 1),
+                period_end=date(2025, 12, 31),
+                dps_actual_annual=45.0,
+            ),
         ]
 
         carry = _resolve_dividend_carry(
@@ -101,7 +117,15 @@ class DividendCarryResolverTests(unittest.TestCase):
     def test_a_forecast_exactly_twice_actual_stays_forecast_carry(self) -> None:
         summaries = [
             _summary("1111", date(2026, 8, 13), dps_forecast_annual=90.0),
-            _summary("1111", date(2026, 2, 12), fiscal_period="FY", fiscal_year_end=date(2025, 12, 31), period_start=date(2025, 1, 1), period_end=date(2025, 12, 31), dps_actual_annual=45.0),
+            _summary(
+                "1111",
+                date(2026, 2, 12),
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 12, 31),
+                period_start=date(2025, 1, 1),
+                period_end=date(2025, 12, 31),
+                dps_actual_annual=45.0,
+            ),
         ]
 
         carry = _resolve_dividend_carry(
@@ -310,8 +334,26 @@ class DividendCarryResolverTests(unittest.TestCase):
 
     def test_uses_actual_reported_when_no_split_and_no_forecast(self) -> None:
         summaries = [
-            _summary("7203", date(2026, 5, 7), dps_actual_annual=50.0, dps_forecast_annual=None, fiscal_period="FY", fiscal_year_end=date(2026, 3, 31), period_start=date(2025, 4, 1), period_end=date(2026, 3, 31)),
-            _summary("7203", date(2025, 5, 7), dps_actual_annual=45.0, dps_forecast_annual=None, fiscal_period="FY", fiscal_year_end=date(2025, 3, 31), period_start=date(2024, 4, 1), period_end=date(2025, 3, 31)),
+            _summary(
+                "7203",
+                date(2026, 5, 7),
+                dps_actual_annual=50.0,
+                dps_forecast_annual=None,
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                period_start=date(2025, 4, 1),
+                period_end=date(2026, 3, 31),
+            ),
+            _summary(
+                "7203",
+                date(2025, 5, 7),
+                dps_actual_annual=45.0,
+                dps_forecast_annual=None,
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 3, 31),
+                period_start=date(2024, 4, 1),
+                period_end=date(2025, 3, 31),
+            ),
         ]
         carry = _resolve_dividend_carry(
             summaries, [], latest_price=1000.0, asof_date=date(2026, 7, 10)

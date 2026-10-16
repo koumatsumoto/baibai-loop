@@ -222,10 +222,20 @@ class ScreeningMetricsTests(SnapshotFixtures):
     def test_prior_year_actual_period_matches_february_month_end(self) -> None:
         rows = [
             _summary(
-                "130A", date(2024, 4, 1), fiscal_period="FY", fiscal_year_end=date(2024, 2, 29), period_start=date(2023, 3, 1), period_end=date(2024, 2, 29)
+                "130A",
+                date(2024, 4, 1),
+                fiscal_period="FY",
+                fiscal_year_end=date(2024, 2, 29),
+                period_start=date(2023, 3, 1),
+                period_end=date(2024, 2, 29),
             ),
             _summary(
-                "130A", date(2025, 4, 1), fiscal_period="FY", fiscal_year_end=date(2025, 2, 28), period_start=date(2024, 3, 1), period_end=date(2025, 2, 28)
+                "130A",
+                date(2025, 4, 1),
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 2, 28),
+                period_start=date(2024, 3, 1),
+                period_end=date(2025, 2, 28),
             ),
         ]
         self.assertIs(_prior_year_summary(rows, load_screening_rules().ttm), rows[0])

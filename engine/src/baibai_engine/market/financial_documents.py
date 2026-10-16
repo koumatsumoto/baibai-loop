@@ -161,8 +161,16 @@ def _annual_earnings_revision(record: Mapping[str, Any], keys: tuple[str, ...]) 
         return False
     annual_keys = (*keys, "FNCSales", "FNCOP") if keys[0] == "FNCEPS" else (*keys, "FSales", "FOP")
     half_year_keys = (
-        "FSales2Q", "FOP2Q", "FOdP2Q", "FNP2Q", "FEPS2Q",
-        "FNCSales2Q", "FNCOP2Q", "FNCOdP2Q", "FNCNP2Q", "FNCEPS2Q",
+        "FSales2Q",
+        "FOP2Q",
+        "FOdP2Q",
+        "FNP2Q",
+        "FEPS2Q",
+        "FNCSales2Q",
+        "FNCOP2Q",
+        "FNCOdP2Q",
+        "FNCNP2Q",
+        "FNCEPS2Q",
     )
     return any(has_period_slot(record, key) for key in annual_keys) or not any(
         has_period_slot(record, key) for key in half_year_keys
@@ -258,7 +266,9 @@ def project_financial_documents(
                         keys,
                         strict=True,
                     ):
-                        if (has_period_slot(record, key) or unresolved_revision) and row.disclosure_number:
+                        if (
+                            has_period_slot(record, key) or unresolved_revision
+                        ) and row.disclosure_number:
                             field_sources.append((field, (row.disclosure_number,)))
                 dps_key = f"{prefix}DivAnn"
                 dividend_status = "confirmed" if has_period_slot(record, dps_key) else "missing"
@@ -270,7 +280,9 @@ def project_financial_documents(
                 if unresolved_dividend_revision:
                     dividend_status = "unresolved"
                 dps = to_float(record.get(dps_key))
-                if (has_period_slot(record, dps_key) or unresolved_dividend_revision) and row.disclosure_number:
+                if (
+                    has_period_slot(record, dps_key) or unresolved_dividend_revision
+                ) and row.disclosure_number:
                     field_sources.append(("dps_forecast_annual", (row.disclosure_number,)))
             projected.append(
                 replace(

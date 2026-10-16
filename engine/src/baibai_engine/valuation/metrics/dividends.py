@@ -131,21 +131,15 @@ def _resolve_dividend_carry(
         actual_rows
         and (
             "dps_actual_annual" in actual_rows[0].unresolved_actual_fields
-            or (
-                actual_rows[0].dps_actual_annual != 0
-                and _period_days(actual_rows[0]) is None
-            )
+            or (actual_rows[0].dps_actual_annual != 0 and _period_days(actual_rows[0]) is None)
         )
     )
     if actual_rows and not actual_unresolved:
         latest_actual = actual_rows[0]
         assert latest_actual.dps_actual_annual is not None
         accrual_start = latest_actual.period_start
-        requires_resolution = (
-            accrual_start is not None
-            and _dividend_basis_requires_resolution(
-                ticker_bars, accrual_start=accrual_start, basis_date=asof_date
-            )
+        requires_resolution = accrual_start is not None and _dividend_basis_requires_resolution(
+            ticker_bars, accrual_start=accrual_start, basis_date=asof_date
         )
         if requires_resolution:
             assert accrual_start is not None
