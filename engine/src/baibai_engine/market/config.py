@@ -7,8 +7,7 @@ from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 # 再生成可能な一時 cache root。CSV ZIP や任意 disclosure title 入力など、
 # market storeから外れる補助ファイルだけを置く。
 DEFAULT_CACHE_DIR = Path(".cache/screening")
-# 取得・hydrateしたmarket作業コピー。provider fetch は raw JSON を経由せず
-# この SQLite に正規化済み rows と source_coverage を直接保存する。
+# 取得・hydrateしたmarket作業コピー。ソースごとに原本JSON・ZIPと読取用の行を保持する。
 DEFAULT_SQLITE_CACHE_DIR = MARKET_DB_PATH.parent
 JQUANTS_CLIENT_V2_METHODS = (
     "get_eq_master",
