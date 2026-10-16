@@ -7,6 +7,7 @@ import sqlite3
 from collections.abc import Mapping, Sequence
 from datetime import date
 from math import isfinite
+from urllib.parse import urljoin
 
 from baibai_engine.market_context.indicators.definitions import SeriesDefinition
 from baibai_engine.market_context.indicators.observations import ObservationRecord
@@ -50,6 +51,12 @@ def read_native_series(
 def _one_value(series: SeriesDefinition, records: Sequence[Mapping[str, object]]) -> float | None:
     if not records:
         return None
+    if series.provider == "mof_jgb":
+        # The current-month file supersedes overlapping history rows, including
+        # explicit missing cells. Both files remain available in the L1 snapshot.
+        current_url = urljoin(series.source_url, "../jgbcm.csv")
+        current = [row for row in records if row.get("source_url") == current_url]
+        records = current or records
     values = {_record_value(series, row) for row in records}
     # Do not use one valid duplicate to conceal a missing source component.
     if None in values:
@@ -60,6 +67,17 @@ def _one_value(series: SeriesDefinition, records: Sequence[Mapping[str, object]]
 
 
 def _record_value(series: SeriesDefinition, row: Mapping[str, object]) -> float | None:
+    if series.provider == "mof_jgb":
+        source_row = row["row"]
+        if not isinstance(source_row, Mapping) or series.provider_series_id not in source_row:
+            raise ValueError(f"MOF source missing column {series.provider_series_id}")
+        raw = source_row[series.provider_series_id]
+        if raw is None:
+            return None
+        if not isinstance(raw, str):
+            raise ValueError("MOF source cell must be text")
+        text = raw.strip()
+        return None if text in {"", "-", "ND", "."} else float(text.replace(",", ""))
     if series.provider == "boj_timeseries":
         metadata = row["series_metadata"]
         expected = series.provider_series_id.split(":", 1)[1]

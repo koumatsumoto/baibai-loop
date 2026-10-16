@@ -203,7 +203,7 @@ class IndicatorsProviderParserTests(TestCase):
                 series, buffer.getvalue(), start=date(2026, 1, 1), end=date(2026, 12, 31)
             )
 
-    def test_parse_mof_jgb_csv_extracts_10y_and_filters_range(self) -> None:
+    def test_parse_mof_jgb_csv_preserves_all_yields_and_missing_cells(self) -> None:
         series = _series("mof_jgb", "10年")
         text = "\n".join(
             [
@@ -222,9 +222,10 @@ class IndicatorsProviderParserTests(TestCase):
             end=date(2026, 7, 9),
         )
 
-        self.assertEqual(len(observations), 1)
-        self.assertEqual(observations[0].observed_at, date(2026, 7, 8))
-        self.assertEqual(observations[0].value, 2.856)
+        self.assertEqual(list(observations), [date(2026, 7, 8), date(2026, 7, 9)])
+        self.assertEqual(observations[date(2026, 7, 8)][0]["row"]["10年"], "2.856")
+        self.assertEqual(observations[date(2026, 7, 9)][0]["row"]["10年"], "-")
+        self.assertEqual(observations[date(2026, 7, 9)][0]["row"]["15年"], "3.445")
 
     def test_parse_mof_jgb_csv_rejects_missing_column(self) -> None:
         series = _series("mof_jgb", "10年")

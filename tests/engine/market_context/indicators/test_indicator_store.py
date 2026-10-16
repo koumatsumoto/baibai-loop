@@ -231,20 +231,16 @@ class IndicatorsDBTests(unittest.TestCase):
             database = Path(tmp) / "indicators.sqlite"
             _write_retired_series(database)
             definition = load_definitions().by_id()["jp.2y"]
-            refreshed = ObservationRecord(
-                series_id=definition.series_id,
-                observed_at=date(2026, 5, 1),
-                value=4.39,
-                unit=definition.unit,
-                source_url=definition.source_url,
-                vintage_at=datetime(2026, 5, 2, tzinfo=UTC),
-            )
+            refreshed = {date(2026, 5, 1): [{
+                "row": {"基準日": "R8.5.1", definition.provider_series_id: "4.39"},
+                "source_url": definition.source_url, "preamble": [],
+            }]}
             stdout = io.StringIO()
 
             with (
                 patch(
-                    "baibai_engine.market_context.indicator_service.fetch_observations",
-                    return_value=[refreshed],
+                    "baibai_engine.market_context.indicator_service.fetch_native_records",
+                    return_value=refreshed,
                 ),
                 redirect_stdout(stdout),
             ):

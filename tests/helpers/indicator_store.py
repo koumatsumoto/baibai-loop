@@ -178,6 +178,31 @@ def store_h15_observations(
         )
 
 
+def store_mof_observations(
+    connection: sqlite3.Connection, records: Sequence[ObservationRecord]
+) -> None:
+    """Seed synthetic MOF rows; not a conversion of historical production data."""
+    registry = load_definitions().by_id()
+    definitions = {key: value for key, value in registry.items() if value.provider == "mof_jgb"}
+    grouped: dict[tuple[date, datetime], dict[str, str]] = {}
+    for record in records:
+        definition = definitions[record.series_id]
+        if record.fetch_status != "ok":
+            raise ValueError("MOF fixture expects a successful source value")
+        fetched_at = record.vintage_at or datetime.combine(record.observed_at, datetime.min.time(), tzinfo=UTC)
+        row = grouped.setdefault((record.observed_at, fetched_at), {
+            "基準日": f"R{record.observed_at.year - 2018}.{record.observed_at.month}.{record.observed_at.day}",
+            **{item.provider_series_id: "" for item in definitions.values()},
+        })
+        row[definition.provider_series_id] = str(record.value)
+    for (observed_at, fetched_at), row in grouped.items():
+        definition = definitions[records[0].series_id]
+        store_snapshot(
+            connection, source_key=native_source_key(definition), observed_at=observed_at,
+            fetched_at=fetched_at, records=[{"row": row, "preamble": [], "source_url": definition.source_url}],
+        )
+
+
 __all__ = [
     "SOURCE_URL",
     "observation",
@@ -185,5 +210,6 @@ __all__ = [
     "seed_store",
     "series_definition",
     "store_h15_observations",
+    "store_mof_observations",
     "store_reader",
 ]

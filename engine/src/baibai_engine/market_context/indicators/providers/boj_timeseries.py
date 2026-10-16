@@ -112,13 +112,15 @@ def parse_boj_timeseries_json(
     for raw_date, raw_value in zip(survey_dates, raw_values, strict=True):
         observed_at = _parse_survey_date(raw_date, series.frequency)
         if start <= observed_at <= end:
-            records[observed_at].append({
-                "response_metadata": response_metadata,
-                "series_metadata": series_metadata,
-                "values_metadata": values_metadata,
-                "survey_date": raw_date,
-                "value": raw_value,
-            })
+            records[observed_at].append(
+                {
+                    "response_metadata": response_metadata,
+                    "series_metadata": series_metadata,
+                    "values_metadata": values_metadata,
+                    "survey_date": raw_date,
+                    "value": raw_value,
+                }
+            )
     return dict(records)
 
 
@@ -166,4 +168,3 @@ def _parse_survey_date(raw: object, frequency: str) -> date:
         raise IndicatorsProviderError(
             f"BOJ response has invalid survey date {raw!r} for frequency {frequency!r}: {exc}"
         ) from exc
-

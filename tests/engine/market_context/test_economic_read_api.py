@@ -340,12 +340,12 @@ def test_retracted_observations_leave_the_chart_and_the_freshness_date(tmp_path:
     database = tmp_path / "indicators.sqlite"
     connection = initialize_database(database)
     try:
-        series = get_series(connection, "jp.2y")
+        series = get_series(connection, "jp.bankruptcies")
         insert_observations(
             connection,
             [
                 ObservationRecord(
-                    series_id="jp.2y",
+                    series_id="jp.bankruptcies",
                     observed_at=observed_at,
                     value=value,
                     unit=series.unit,
@@ -353,18 +353,18 @@ def test_retracted_observations_leave_the_chart_and_the_freshness_date(tmp_path:
                     vintage_at=datetime.combine(observed_at, datetime.min.time(), tzinfo=UTC),
                 )
                 for observed_at, value in (
-                    (date(2026, 5, 1), 4.39),
-                    (date(2026, 5, 4), 4.41),
+                    (date(2026, 5, 1), 439.0),
+                    (date(2026, 6, 1), 441.0),
                 )
             ],
         )
         retract_observations(
             connection,
-            "jp.2y",
+            "jp.bankruptcies",
             [
                 (
-                    date(2026, 5, 4),
-                    datetime.combine(date(2026, 5, 4), datetime.min.time(), tzinfo=UTC),
+                    date(2026, 6, 1),
+                    datetime.combine(date(2026, 6, 1), datetime.min.time(), tzinfo=UTC),
                 )
             ],
             vintage_at=datetime(2026, 5, 10, tzinfo=UTC),
@@ -373,10 +373,10 @@ def test_retracted_observations_leave_the_chart_and_the_freshness_date(tmp_path:
     finally:
         connection.close()
 
-    chart = indicator_series(database, series_id="jp.2y", granularity="daily")
+    chart = indicator_series(database, series_id="jp.bankruptcies", granularity="daily")
 
     assert chart is not None
-    assert chart["points"] == [{"observed_at": "2026-05-01", "value": 4.39}]
+    assert chart["points"] == [{"observed_at": "2026-05-01", "value": 439.0}]
     assert indicator_latest_observed_at(database) == date(2026, 5, 1)
 
 

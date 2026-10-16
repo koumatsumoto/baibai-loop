@@ -5,7 +5,7 @@ from contextlib import closing
 from datetime import UTC, date, datetime
 
 import pytest
-from tests.helpers.indicator_store import observation, store_h15_observations
+from tests.helpers.indicator_store import observation, store_h15_observations, store_mof_observations
 
 from baibai_engine.market_context.indicator_service import IndicatorsService
 from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
@@ -24,7 +24,6 @@ def test_read_only_derived_values_follow_source_corrections_not_old_cache(tmp_pa
         insert_observations(
             writer,
             [
-                observation(registry["jp.10y"], day, 1.0, vintage),
                 observation(
                     registry["rate_diff.us_jp_10y"],
                     date(2026, 2, 15),
@@ -33,6 +32,7 @@ def test_read_only_derived_values_follow_source_corrections_not_old_cache(tmp_pa
                 ),
             ],
         )
+        store_mof_observations(writer, [observation(registry["jp.10y"], day, 1.0, vintage)])
         store_h15_observations(writer, [observation(registry["us.10y"], day, 4.0, vintage)])
         writer.commit()
     before = path.read_bytes()

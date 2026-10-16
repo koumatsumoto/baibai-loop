@@ -14,6 +14,7 @@ from .frb_h15 import FrbH15Source
 from .fred import FredSource
 from .jquants_flows import JQuantsFlowsSource
 from .jquants_indices import JQuantsIndicesSource
+from .mof_jgb import MofJgbSource
 from .multpl import MultplSource
 from .umich_sca import UmichScaSource
 
@@ -32,9 +33,12 @@ def fetch_native_records(
         | EStatSource
         | FrbH15Source
         | MultplSource
+        | MofJgbSource
         | UmichScaSource
     )
-    if series.provider == "boj_timeseries":
+    if series.provider == "mof_jgb":
+        source = MofJgbSource()
+    elif series.provider == "boj_timeseries":
         source = BojTimeSeriesSource()
     elif series.provider == "umich_sca":
         source = UmichScaSource()

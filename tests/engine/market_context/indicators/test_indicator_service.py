@@ -7,7 +7,8 @@ import unittest
 from contextlib import closing, redirect_stderr
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from tests.engine.market_context.indicators.indicator_fixtures import (
     _retired_counts,
@@ -19,6 +20,7 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
 from tests.helpers.indicator_store import (
     observation,
     store_h15_observations,
+    store_mof_observations,
 )
 
 from baibai_engine.market_context.indicator_cli import (
@@ -47,12 +49,39 @@ from baibai_engine.market_context.indicators.providers import (
 )
 from baibai_engine.market_context.indicators.providers.base import (
     FetchContext,
+    ProviderSpec,
 )
 from baibai_engine.market_context.indicators.read_contracts import native_source_key
 from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
 
 
 class IndicatorsServiceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # Exercise generic scalar cache/retry contracts with an explicitly fake
+        # source, not whichever production provider has not yet become native.
+        registry = load_definitions()
+        extra = tuple(
+            _series("test_scalar", name, series_id=f"test.scalar.{name}",
+                    plausible_min=-2.0, plausible_max=20.0)
+            for name in ("one", "two", "three")
+        )
+        definitions = IndicatorDefinitions(registry.series + extra, generation=registry.generation)
+        for target in (
+            f"{__name__}.load_definitions",
+            "baibai_engine.market_context.indicator_service.load_definitions",
+            "baibai_engine.market_context.indicators.db.load_definitions",
+            "tests.helpers.indicator_store.load_definitions",
+        ):
+            self.enterContext(patch(target, return_value=definitions))
+        provider = SimpleNamespace(
+            name="test_scalar", spec=ProviderSpec(name="test_scalar", all_history_start=date(1974, 1, 1)),
+            fetch=Mock(side_effect=AssertionError("test must stub scalar acquisition")),
+        )
+        self.enterContext(patch.dict(
+            "baibai_engine.market_context.indicators.providers.registry._PROVIDERS",
+            {"test_scalar": provider},
+        ))
+
     def test_derived_values_use_the_registry_bounds_at_the_calculation_boundary(self) -> None:
         for series_id, inputs in (
             ("jp.policy_path_gap", {"jp.2y": 12.0, "jp.policy_rate": 0.0}),
@@ -66,15 +95,25 @@ class IndicatorsServiceTests(unittest.TestCase):
                         [
                             observation(input_id, date(2026, 7, 1), value)
                             for input_id, value in inputs.items()
-                            if input_id not in {"us.10y", "us.sp500_earnings_yield", "jp.policy_rate"}
+                            if input_id
+                            not in {"us.10y", "us.sp500_earnings_yield", "jp.policy_rate", "jp.2y"}
                         ],
                     )
+                    if "jp.2y" in inputs:
+                        store_mof_observations(conn, [observation("jp.2y", date(2026, 7, 1), inputs["jp.2y"])])
                     if "jp.policy_rate" in inputs:
                         policy = load_definitions().by_id()["jp.policy_rate"]
                         store_snapshot(
-                            conn, source_key=native_source_key(policy),
-                            observed_at=date(2026, 7, 1), fetched_at=datetime.now(UTC),
-                            records=[{"series_metadata": {"SERIES_CODE": "STRDCLUCON"}, "value": inputs["jp.policy_rate"]}],
+                            conn,
+                            source_key=native_source_key(policy),
+                            observed_at=date(2026, 7, 1),
+                            fetched_at=datetime.now(UTC),
+                            records=[
+                                {
+                                    "series_metadata": {"SERIES_CODE": "STRDCLUCON"},
+                                    "value": inputs["jp.policy_rate"],
+                                }
+                            ],
                         )
                     if "us.10y" in inputs:
                         store_h15_observations(
@@ -105,13 +144,13 @@ class IndicatorsServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
             requested = _series(
-                "mof_jgb",
+                "test_scalar",
                 "TEST",
                 plausible_min=-2.0,
                 plausible_max=20.0,
             )
             other = _series(
-                "mof_jgb",
+                "test_scalar",
                 "OTHER",
                 series_id="other.series",
                 plausible_min=-2.0,
@@ -151,7 +190,7 @@ class IndicatorsServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
             definition = _series(
-                "mof_jgb",
+                "test_scalar",
                 "TEST",
                 plausible_min=-2.0,
                 plausible_max=20.0,
@@ -198,7 +237,7 @@ class IndicatorsServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
             definition = _series(
-                "mof_jgb",
+                "test_scalar",
                 "TEST",
                 plausible_min=-2.0,
                 plausible_max=20.0,
@@ -247,7 +286,7 @@ class IndicatorsServiceTests(unittest.TestCase):
     def test_refresh_without_plausible_range_accepts_finite_values(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
-            definition = _series("mof_jgb", "TEST")
+            definition = _series("test_scalar", "TEST")
             definitions = IndicatorDefinitions(series=(definition,))
             initialize_database(database, definitions=definitions).close()
 
@@ -279,7 +318,7 @@ class IndicatorsServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
             definition = _series(
-                "mof_jgb",
+                "test_scalar",
                 "TEST",
                 plausible_min=-2.0,
                 plausible_max=20.0,
@@ -321,12 +360,12 @@ class IndicatorsServiceTests(unittest.TestCase):
             database = Path(tmp) / "indicators.sqlite"
             _write_observation(
                 database,
-                "jp.2y",
+                "test.scalar.one",
                 observed_at=date(1970, 1, 1),
                 value=1.0,
             )
             observation = ObservationRecord(
-                series_id="jp.2y",
+                series_id="test.scalar.one",
                 observed_at=date(1980, 7, 1),
                 value=1.13,
                 unit="percent",
@@ -338,7 +377,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 return_value=[observation],
             ) as fetch:
                 result = IndicatorsService(database).refresh_all_history(
-                    "jp.2y",
+                    "test.scalar.one",
                     end=date(2026, 7, 20),
                 )
 
@@ -349,7 +388,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             try:
                 first = conn.execute(
                     "SELECT MIN(observed_at) FROM observations WHERE series_id = ?",
-                    ("jp.2y",),
+                    ("test.scalar.one",),
                 ).fetchone()[0]
             finally:
                 conn.close()
@@ -360,7 +399,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             database = Path(tmp) / "indicators.sqlite"
             _write_observation(
                 database,
-                "jp.2y",
+                "test.scalar.one",
                 observed_at=date(1950, 1, 1),
                 value=1.0,
             )
@@ -374,7 +413,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 self.assertRaisesRegex(IndicatorsProviderError, "unavailable"),
             ):
                 IndicatorsService(database).refresh_all_history(
-                    "jp.2y",
+                    "test.scalar.one",
                     end=date(2026, 7, 20),
                 )
 
@@ -382,7 +421,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             try:
                 first = conn.execute(
                     "SELECT MIN(observed_at) FROM observations WHERE series_id = ?",
-                    ("jp.2y",),
+                    ("test.scalar.one",),
                 ).fetchone()[0]
             finally:
                 conn.close()
@@ -391,7 +430,7 @@ class IndicatorsServiceTests(unittest.TestCase):
     def test_http_full_history_source_correction_still_removes_previous_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
-            definition = load_definitions().by_id()["jp.2y"]
+            definition = load_definitions().by_id()["test.scalar.one"]
             old = observation(
                 definition,
                 date(2026, 7, 20),
@@ -434,7 +473,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             def _refetch(*_args: object, **_kwargs: object) -> list[ObservationRecord]:
                 return [
                     ObservationRecord(
-                        series_id="jp.2y",
+                        series_id="test.scalar.one",
                         observed_at=date(2026, 5, day),
                         value=value,
                         unit="percent",
@@ -450,7 +489,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             ):
                 for _ in range(3):
                     service.get_range(
-                        "jp.2y",
+                        "test.scalar.one",
                         start=date(2026, 5, 1),
                         end=date(2026, 5, 2),
                         refresh=True,
@@ -461,7 +500,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 rows = conn.execute(
                     "SELECT observed_at, value FROM observations WHERE series_id = ? "
                     "ORDER BY observed_at, vintage_at",
-                    ("jp.2y",),
+                    ("test.scalar.one",),
                 ).fetchall()
             finally:
                 conn.close()
@@ -476,7 +515,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             database = Path(tmp) / "indicators.sqlite"
             service = IndicatorsService(database)
             common = {
-                "series_id": "jp.2y",
+                "series_id": "test.scalar.one",
                 "observed_at": date(2026, 5, 1),
                 "unit": "percent",
                 "source_url": "https://example.com/synthetic-jgb.csv",
@@ -492,10 +531,10 @@ class IndicatorsServiceTests(unittest.TestCase):
                 side_effect=[first, revised],
             ):
                 service.get_range(
-                    "jp.2y", start=date(2026, 5, 1), end=date(2026, 5, 1), refresh=True
+                    "test.scalar.one", start=date(2026, 5, 1), end=date(2026, 5, 1), refresh=True
                 )
                 result = service.get_range(
-                    "jp.2y", start=date(2026, 5, 1), end=date(2026, 5, 1), refresh=True
+                    "test.scalar.one", start=date(2026, 5, 1), end=date(2026, 5, 1), refresh=True
                 )
 
             conn = open_connection(database)
@@ -503,7 +542,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 rows = conn.execute(
                     "SELECT value, vintage_at FROM observations WHERE series_id = ? "
                     "AND observed_at = ? ORDER BY vintage_at",
-                    ("jp.2y", "2026-05-01"),
+                    ("test.scalar.one", "2026-05-01"),
                 ).fetchall()
             finally:
                 conn.close()
@@ -553,16 +592,22 @@ class IndicatorsServiceTests(unittest.TestCase):
     def test_refresh_all_history_uses_boj_timeseries_floor(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
-            records = {date(1998, 1, 5): [{
-                "series_metadata": {"SERIES_CODE": "STRDCLUCON"},
-                "survey_date": 19980105, "value": 0.49,
-            }]}
+            records = {
+                date(1998, 1, 5): [
+                    {
+                        "series_metadata": {"SERIES_CODE": "STRDCLUCON"},
+                        "survey_date": 19980105,
+                        "value": 0.49,
+                    }
+                ]
+            }
             with patch(
                 "baibai_engine.market_context.indicator_service.fetch_native_records",
                 return_value=records,
             ) as fetch:
                 result = IndicatorsService(database).refresh_all_history(
-                    "jp.policy_rate", end=date(2026, 7, 20),
+                    "jp.policy_rate",
+                    end=date(2026, 7, 20),
                 )
             self.assertEqual(fetch.call_args.kwargs["start"], date(1998, 1, 1))
             self.assertEqual(
@@ -597,7 +642,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             database = Path(tmp) / "indicators.sqlite"
             _write_observation(
                 database,
-                "jp.2y",
+                "test.scalar.one",
                 observed_at=date(1950, 1, 1),
                 value=1.0,
             )
@@ -610,7 +655,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 self.assertRaisesRegex(IndicatorsProviderError, "returned no observations"),
             ):
                 IndicatorsService(database).refresh_all_history(
-                    "jp.2y",
+                    "test.scalar.one",
                     end=date(2026, 7, 20),
                 )
 
@@ -618,12 +663,12 @@ class IndicatorsServiceTests(unittest.TestCase):
             try:
                 first = conn.execute(
                     "SELECT MIN(observed_at) FROM observations WHERE series_id = ?",
-                    ("jp.2y",),
+                    ("test.scalar.one",),
                 ).fetchone()[0]
                 latest_status = conn.execute(
                     "SELECT status FROM provider_runs WHERE series_id = ? "
                     "ORDER BY finished_at DESC LIMIT 1",
-                    ("jp.2y",),
+                    ("test.scalar.one",),
                 ).fetchone()[0]
             finally:
                 conn.close()
@@ -644,7 +689,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 end: date,
                 context: FetchContext | None,
             ) -> list[ObservationRecord]:
-                if series.series_id == "jp.5y":
+                if series.series_id == "test.scalar.two":
                     raise IndicatorsProviderError("source unavailable")
                 return [observation(series.series_id, date(2026, 7, 20), 4.2)]
 
@@ -656,16 +701,16 @@ class IndicatorsServiceTests(unittest.TestCase):
                 patch("baibai_engine.market_context.indicator_service.time.sleep"),
             ):
                 outcomes = IndicatorsService(database).refresh_series(
-                    ["jp.2y", "jp.5y", "jp.10y"],
+                    ["test.scalar.one", "test.scalar.two", "test.scalar.three"],
                     start=date(2026, 7, 1),
                     end=date(2026, 7, 20),
                 )
 
             failures = [outcome for outcome in outcomes if isinstance(outcome, RefreshFailure)]
             successes = [outcome for outcome in outcomes if isinstance(outcome, RefreshSuccess)]
-            self.assertEqual([failure.series_id for failure in failures], ["jp.5y"])
+            self.assertEqual([failure.series_id for failure in failures], ["test.scalar.two"])
             self.assertIn("source unavailable", failures[0].message)
-            self.assertEqual([success.series_id for success in successes], ["jp.2y", "jp.10y"])
+            self.assertEqual([success.series_id for success in successes], ["test.scalar.one", "test.scalar.three"])
             conn = open_connection(database)
             try:
                 stored = {
@@ -680,8 +725,8 @@ class IndicatorsServiceTests(unittest.TestCase):
                 }
             finally:
                 conn.close()
-            self.assertEqual(stored, {"jp.2y", "jp.10y"})
-            self.assertEqual(failed_runs, {"jp.5y"})
+            self.assertEqual(stored, {"test.scalar.one", "test.scalar.three"})
+            self.assertEqual(failed_runs, {"test.scalar.two"})
 
     def test_refresh_series_reports_an_unknown_series_without_stopping_the_pass(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -695,7 +740,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 ],
             ):
                 outcomes = IndicatorsService(database).refresh_series(
-                    ["jp.cpi.stale", "jp.2y"],
+                    ["jp.cpi.stale", "test.scalar.one"],
                     start=date(2026, 7, 1),
                     end=date(2026, 7, 20),
                 )
@@ -753,7 +798,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 side_effect=_fetch,
             ):
                 IndicatorsService(database).refresh_series(
-                    ["jp.2y", "jp.5y", "jp.10y"],
+                    ["test.scalar.one", "test.scalar.two", "test.scalar.three"],
                     start=date(2026, 7, 1),
                     end=date(2026, 7, 20),
                 )
@@ -774,7 +819,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 end: date,
                 context: FetchContext | None,
             ) -> list[ObservationRecord]:
-                if series.series_id == "jp.5y":
+                if series.series_id == "test.scalar.two":
                     raise RuntimeError("browser process died")
                 return [observation(series.series_id, date(2026, 7, 20), 4.2)]
 
@@ -783,14 +828,14 @@ class IndicatorsServiceTests(unittest.TestCase):
                 side_effect=_fetch,
             ):
                 outcomes = IndicatorsService(database).refresh_series(
-                    ["jp.2y", "jp.5y", "jp.10y"],
+                    ["test.scalar.one", "test.scalar.two", "test.scalar.three"],
                     start=date(2026, 7, 1),
                     end=date(2026, 7, 20),
                 )
 
             self.assertEqual(
                 [outcome.series_id for outcome in outcomes if isinstance(outcome, RefreshSuccess)],
-                ["jp.2y", "jp.10y"],
+                ["test.scalar.one", "test.scalar.three"],
             )
             failure = outcomes[1]
             assert isinstance(failure, RefreshFailure)
@@ -816,7 +861,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 assert context is not None
                 cache_sizes.append(len(context.bytes_cache))
                 context.bytes_cache[cache_key] = b"<html>blocked</html>"
-                if series.series_id == "jp.2y":
+                if series.series_id == "test.scalar.one":
                     raise IndicatorsProviderError("malformed cached response")
                 return [observation(series.series_id, date(2026, 7, 20), 4.2)]
 
@@ -828,7 +873,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 patch("baibai_engine.market_context.indicator_service.time.sleep"),
             ):
                 outcomes = IndicatorsService(database).refresh_series(
-                    ["jp.2y", "jp.5y"],
+                    ["test.scalar.one", "test.scalar.two"],
                     start=date(2026, 7, 1),
                     end=date(2026, 7, 20),
                 )
@@ -848,12 +893,12 @@ class IndicatorsServiceTests(unittest.TestCase):
                 with (
                     patch(
                         "baibai_engine.market_context.indicator_service.fetch_observations",
-                        return_value=[observation("jp.2y", date(2026, 7, 20), value)],
+                        return_value=[observation("test.scalar.one", date(2026, 7, 20), value)],
                     ),
                     self.assertRaisesRegex(IndicatorsProviderError, "non-finite value"),
                 ):
                     IndicatorsService(database).get_range(
-                        "jp.2y",
+                        "test.scalar.one",
                         start=date(2026, 7, 1),
                         end=date(2026, 7, 20),
                         refresh=True,
@@ -862,10 +907,10 @@ class IndicatorsServiceTests(unittest.TestCase):
                 conn = open_connection(database)
                 try:
                     stored = conn.execute(
-                        "SELECT COUNT(*) FROM observations WHERE series_id = 'jp.2y'"
+                        "SELECT COUNT(*) FROM observations WHERE series_id = 'test.scalar.one'"
                     ).fetchone()[0]
                     status = conn.execute(
-                        "SELECT status FROM provider_runs WHERE series_id = 'jp.2y' "
+                        "SELECT status FROM provider_runs WHERE series_id = 'test.scalar.one' "
                         "ORDER BY finished_at DESC LIMIT 1"
                     ).fetchone()[0]
                 finally:
@@ -886,7 +931,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 end: date,
                 context: FetchContext | None,
             ) -> list[ObservationRecord]:
-                if series.series_id in {"jp.5y", "jp.10y"}:
+                if series.series_id in {"test.scalar.two", "test.scalar.three"}:
                     raise IndicatorsProviderError(f"{series.series_id} source unavailable")
                 return [observation(series.series_id, date(2026, 7, 20), 4.2)]
 
@@ -901,9 +946,9 @@ class IndicatorsServiceTests(unittest.TestCase):
                 exit_code = main(
                     [
                         "refresh",
-                        "jp.2y",
-                        "jp.5y",
-                        "jp.10y",
+                        "test.scalar.one",
+                        "test.scalar.two",
+                        "test.scalar.three",
                         "--start",
                         "2026-07-01",
                         "--end",
@@ -916,12 +961,12 @@ class IndicatorsServiceTests(unittest.TestCase):
             self.assertEqual(exit_code, 1)
             reported = errors.getvalue()
             self.assertIn("2 of 3 series failed to refresh", reported)
-            self.assertIn("- jp.5y: jp.5y source unavailable", reported)
-            self.assertIn("- jp.10y: jp.10y source unavailable", reported)
+            self.assertIn("- test.scalar.two: test.scalar.two source unavailable", reported)
+            self.assertIn("- test.scalar.three: test.scalar.three source unavailable", reported)
             # A log reader that keeps only the tail must still get the failed IDs.
             self.assertEqual(
                 reported.strip().splitlines()[-1],
-                "error: refresh failed for 2 of 3 series: jp.5y, jp.10y",
+                "error: refresh failed for 2 of 3 series: test.scalar.two, test.scalar.three",
             )
             # A caller counting failures reads that same line, so the reader is
             # bound to what the CLI actually emits rather than to a copy of it.
@@ -934,13 +979,13 @@ class IndicatorsServiceTests(unittest.TestCase):
     def test_refresh_cli_requires_one_range_mode(self) -> None:
         parser = build_parser()
 
-        args = parser.parse_args(["refresh", "jp.2y", "--all-history", "--end", "2026-07-20"])
+        args = parser.parse_args(["refresh", "test.scalar.one", "--all-history", "--end", "2026-07-20"])
         self.assertTrue(args.all_history)
         with self.assertRaises(SystemExit):
             parser.parse_args(
                 [
                     "refresh",
-                    "jp.2y",
+                    "test.scalar.one",
                     "--start",
                     "2026-01-01",
                     "--all-history",
@@ -957,7 +1002,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             initialize_database(db).close()
             descending = [
                 ObservationRecord(
-                    series_id="jp.2y",
+                    series_id="test.scalar.one",
                     observed_at=date(2026, 5, day),
                     value=value,
                     unit="percent",
@@ -971,7 +1016,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 return_value=descending,
             ):
                 result = IndicatorsService(db).get_range(
-                    "jp.2y",
+                    "test.scalar.one",
                     start=date(2026, 5, 1),
                     end=date(2026, 5, 3),
                     refresh=True,
@@ -988,7 +1033,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             db = Path(tmp) / "indicators.sqlite"
             initialize_database(db).close()
             observation = ObservationRecord(
-                series_id="jp.2y",
+                series_id="test.scalar.one",
                 observed_at=date(2026, 5, 1),
                 value=4.39,
                 unit="percent",
@@ -1006,7 +1051,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 patch("baibai_engine.market_context.indicator_service.time.sleep") as sleep,
             ):
                 result = IndicatorsService(db).get_range(
-                    "jp.2y",
+                    "test.scalar.one",
                     start=date(2026, 5, 1),
                     end=date(2026, 5, 1),
                     refresh=True,
@@ -1020,7 +1065,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             try:
                 runs = conn.execute(
                     "SELECT status, record_count FROM provider_runs WHERE series_id = ?",
-                    ("jp.2y",),
+                    ("test.scalar.one",),
                 ).fetchall()
             finally:
                 conn.close()
@@ -1031,7 +1076,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             db = Path(tmp) / "indicators.sqlite"
             initialize_database(db).close()
             first_observation = ObservationRecord(
-                series_id="jp.10y",
+                series_id="test.scalar.three",
                 observed_at=date(2026, 7, 8),
                 value=2.856,
                 unit="percent",
@@ -1039,7 +1084,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 vintage_at=datetime.now(UTC),
             )
             second_observation = ObservationRecord(
-                series_id="jp.10y",
+                series_id="test.scalar.three",
                 observed_at=date(2026, 7, 9),
                 value=2.858,
                 unit="percent",
@@ -1051,13 +1096,13 @@ class IndicatorsServiceTests(unittest.TestCase):
                 side_effect=[[first_observation], [second_observation]],
             ) as fetch:
                 first = IndicatorsService(db).get_range(
-                    "jp.10y",
+                    "test.scalar.three",
                     start=date(2026, 7, 8),
                     end=date(2026, 7, 9),
                     refresh=True,
                 )
                 second = IndicatorsService(db).get_range(
-                    "jp.10y",
+                    "test.scalar.three",
                     start=date(2026, 7, 9),
                     end=date(2026, 7, 9),
                 )
@@ -1072,7 +1117,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 runs = conn.execute(
                     "SELECT range_start, range_end, record_count "
                     "FROM provider_runs WHERE series_id = ? ORDER BY range_start",
-                    ("jp.10y",),
+                    ("test.scalar.three",),
                 ).fetchall()
             finally:
                 conn.close()
@@ -1089,7 +1134,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             db = Path(tmp) / "indicators.sqlite"
             _write_observation_with_coverage(
                 db,
-                "jp.2y",
+                "test.scalar.one",
                 observed_at=date(2026, 5, 4),
                 value=4.45,
                 coverage_start=date(2026, 5, 1),
@@ -1097,7 +1142,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             )
 
             result = IndicatorsService(db).get_range(
-                "jp.2y",
+                "test.scalar.one",
                 start=date(2026, 5, 1),
                 end=date(2026, 5, 15),
             )
@@ -1113,7 +1158,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             observed_at = today
             _write_observation(
                 db,
-                "jp.2y",
+                "test.scalar.one",
                 observed_at=observed_at,
                 value=4.45,
             )
@@ -1128,7 +1173,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                     side_effect=AssertionError("provider should not be called"),
                 ),
             ):
-                result = IndicatorsService(db).get_latest("jp.2y")
+                result = IndicatorsService(db).get_latest("test.scalar.one")
 
             self.assertTrue(result.cache_hit)
             self.assertEqual(result.observations[0].observed_at, observed_at)
@@ -1139,7 +1184,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             initialize_database(db).close()
             today = date(2026, 7, 27)
             observation = ObservationRecord(
-                series_id="jp.10y",
+                series_id="test.scalar.three",
                 observed_at=today,
                 value=2.8,
                 unit="percent",
@@ -1160,7 +1205,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                     return_value=today,
                 ),
             ):
-                result = IndicatorsService(db).get_latest("jp.10y", refresh=True)
+                result = IndicatorsService(db).get_latest("test.scalar.three", refresh=True)
 
             self.assertFalse(result.cache_hit)
             self.assertEqual(fetch.call_args.kwargs["start"], today - timedelta(days=14))
@@ -1171,14 +1216,14 @@ class IndicatorsServiceTests(unittest.TestCase):
             today = date(2026, 7, 27)
             _write_observation_with_coverage(
                 db,
-                "jp.10y",
+                "test.scalar.three",
                 observed_at=today - timedelta(days=8),
                 value=2.7,
                 coverage_start=today - timedelta(days=14),
                 coverage_end=today,
             )
             observation = ObservationRecord(
-                series_id="jp.10y",
+                series_id="test.scalar.three",
                 observed_at=today - timedelta(days=1),
                 value=2.8,
                 unit="percent",
@@ -1195,7 +1240,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                     return_value=[observation],
                 ) as fetch,
             ):
-                result = IndicatorsService(db).get_latest("jp.10y")
+                result = IndicatorsService(db).get_latest("test.scalar.three")
 
             self.assertFalse(result.cache_hit)
             self.assertEqual(fetch.call_count, 1)
@@ -1212,7 +1257,9 @@ class IndicatorsServiceTests(unittest.TestCase):
                 {date(2026, 6, 1): [{"Month": "June", "YYYY": "2026", "ICS_ALL": "51"}]},
             ]
             with (
-                patch("baibai_engine.market_context.indicator_service._today_jst", return_value=today),
+                patch(
+                    "baibai_engine.market_context.indicator_service._today_jst", return_value=today
+                ),
                 patch(
                     "baibai_engine.market_context.indicator_service.fetch_native_records",
                     side_effect=lambda *a, **k: replies.pop(0),
@@ -1232,7 +1279,9 @@ class IndicatorsServiceTests(unittest.TestCase):
             today = date(2026, 7, 5)
             records = {date(2026, 5, 1): [{"Month": "May", "YYYY": "2026", "ICS_ALL": "50"}]}
             with (
-                patch("baibai_engine.market_context.indicator_service._today_jst", return_value=today),
+                patch(
+                    "baibai_engine.market_context.indicator_service._today_jst", return_value=today
+                ),
                 patch(
                     "baibai_engine.market_context.indicator_service.fetch_native_records",
                     return_value=records,
@@ -1302,7 +1351,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             db = Path(tmp) / "indicators.sqlite"
             _write_observation_with_coverage(
                 db,
-                "jp.2y",
+                "test.scalar.one",
                 observed_at=date(2026, 5, 4),
                 value=4.45,
                 coverage_start=date(2026, 5, 1),
@@ -1314,7 +1363,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 main(
                     [
                         "get",
-                        "jp.2y",
+                        "test.scalar.one",
                         "--start",
                         "2026-05-01",
                         "--end",
@@ -1327,7 +1376,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             )
 
     def test_cli_handles_bad_db_path_without_traceback(self) -> None:
-        self.assertEqual(main(["get", "jp.2y", "--latest", "--db", "/tmp"]), 1)
+        self.assertEqual(main(["get", "test.scalar.one", "--latest", "--db", "/tmp"]), 1)
 
     def test_cli_unknown_series_returns_controlled_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

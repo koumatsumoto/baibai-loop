@@ -8,7 +8,7 @@ from contextlib import redirect_stdout
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from tests.helpers.indicator_store import observation, store_h15_observations
+from tests.helpers.indicator_store import observation, store_h15_observations, store_mof_observations
 
 from baibai_engine.market_context.indicator_cli import (
     main,
@@ -26,6 +26,8 @@ from baibai_engine.market_context.indicators.db import (
     retract_observations,
     row_count,
 )
+from baibai_engine.market_context.indicators.read_contracts import native_source_key
+from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
 from baibai_engine.market_context.indicators.definitions import (
     IndicatorDefinitions,
     load_definitions,
@@ -301,7 +303,7 @@ class RetractionVintageTests(unittest.TestCase):
 
             self.assertEqual([item.value for item in observations], [4.39])
 
-    def test_retracting_an_input_also_removes_its_derived_reading(self) -> None:
+    def test_withdrawn_native_input_also_removes_its_derived_reading(self) -> None:
         """A derived reading exists only while its source inputs are available."""
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -316,7 +318,7 @@ class RetractionVintageTests(unittest.TestCase):
             conn = initialize_database(database, definitions=definitions)
             try:
                 vintage = datetime(2026, 7, 21, tzinfo=UTC)
-                insert_observations(
+                store_mof_observations(
                     conn,
                     [
                         observation(get_series(conn, "jp.10y"), date(2026, 7, 20), 1.6, vintage),
@@ -335,7 +337,15 @@ class RetractionVintageTests(unittest.TestCase):
             self.assertEqual(len(before.observations), 1)
             self.assertAlmostEqual(before.observations[0].value, 2.9)
 
-            service.retract("jp.10y", [(date(2026, 7, 20), vintage)])
+            conn = initialize_database(database, definitions=definitions)
+            try:
+                store_snapshot(
+                    conn, source_key=native_source_key(registry["jp.10y"]),
+                    observed_at=date(2026, 7, 20), fetched_at=datetime(2026, 7, 22, tzinfo=UTC), records=[],
+                )
+                conn.commit()
+            finally:
+                conn.close()
             result = service.get_range(
                 "rate_diff.us_jp_10y", start=date(2026, 7, 20), end=date(2026, 7, 20)
             )
@@ -344,7 +354,9 @@ class RetractionVintageTests(unittest.TestCase):
             conn = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
             conn.row_factory = sqlite3.Row
             try:
-                kept = observations_in_range(conn, "jp.10y", date(2026, 7, 20), date(2026, 7, 20))
+                from baibai_engine.market_context.reading.reader import build_store_observation_reader
+                reader = build_store_observation_reader(conn, series=definitions.series)
+                kept = reader("jp.10y", date(2026, 7, 20), date(2026, 7, 20))
             finally:
                 conn.close()
 
