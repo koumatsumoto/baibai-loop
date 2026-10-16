@@ -737,11 +737,7 @@ def _is_unusable_status(document: Mapping[str, Any]) -> bool:
     )
     # Only explicit published, non-withdrawn filings are usable. Missing flags
     # in an old normalized cache do not establish current document validity.
-    return (
-        legal_status not in ("1", "2")
-        or disclosure_status != "0"
-        or withdrawal_status != "0"
-    )
+    return legal_status not in ("1", "2") or disclosure_status != "0" or withdrawal_status != "0"
 
 
 def _document_sort_key(
