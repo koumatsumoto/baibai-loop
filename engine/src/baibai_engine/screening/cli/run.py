@@ -264,7 +264,9 @@ def run_command(
             normalized_fy_by_ticker.get(ticker, ()),
             normalized_split_bars_by_ticker.get(ticker, ()),
             asof_date,
-            close=financial.market_price_yen, ttm_rules=rules.ttm)
+            close=financial.market_price_yen,
+            ttm_rules=rules.ttm,
+        )
         stock_analyses.append(
             build_stock_analysis(
                 ticker=ticker,

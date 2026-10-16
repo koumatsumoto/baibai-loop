@@ -253,7 +253,9 @@ class ScreeningMetricsTests(SnapshotFixtures):
             )
             for year in range(2021, 2026)
         ]
-        result = build_normalized_profit_signals(summaries, (), date(2025, 5, 1), close=1200, ttm_rules=load_screening_rules().ttm)
+        result = build_normalized_profit_signals(
+            summaries, (), date(2025, 5, 1), close=1200, ttm_rules=load_screening_rules().ttm
+        )
         self.assertEqual(result.normalized_per_3fy, 30.0)
         self.assertEqual(result.normalized_per_5fy, 40.0)
 
@@ -279,7 +281,9 @@ class ScreeningMetricsTests(SnapshotFixtures):
             )
         )
 
-        result = build_normalized_profit_signals(summaries, (), asof, close=200.0, ttm_rules=load_screening_rules().ttm)
+        result = build_normalized_profit_signals(
+            summaries, (), asof, close=200.0, ttm_rules=load_screening_rules().ttm
+        )
 
         self.assertIsNone(result.normalized_per_3fy)
 

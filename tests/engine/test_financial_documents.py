@@ -268,7 +268,12 @@ def test_conflicting_actual_eps_is_unresolved_in_normalized_fy(reverse: bool) ->
     if reverse:
         rows.reverse()
     assert _latest_actual_row(rows, field_names=("eps_ttm",)) is None
-    assert build_normalized_profit_signals(rows, (), ASOF, close=1074, ttm_rules=load_screening_rules().ttm).normalized_per_3fy is None
+    assert (
+        build_normalized_profit_signals(
+            rows, (), ASOF, close=1074, ttm_rules=load_screening_rules().ttm
+        ).normalized_per_3fy
+        is None
+    )
 
 
 def test_same_time_different_docs_cannot_supply_capital_pair(tmp_path: Path) -> None:
@@ -1244,10 +1249,15 @@ def test_tied_fy_basis_conflict_preserves_independent_issuer_dividend():
 def test_normalized_earnings_requires_comparable_completed_years(problem, affected_index):
     records = [
         document(
-            f"year-{year}", day=f"{year}-05-15",
-            DocType="FYFinancialStatements_Consolidated_JP", CurPerType="FY",
-            CurFYSt=f"{year - 1}-04-01", CurFYEn=f"{year}-03-31",
-            CurPerSt=f"{year - 1}-04-01", CurPerEn=f"{year}-03-31", EPS="20",
+            f"year-{year}",
+            day=f"{year}-05-15",
+            DocType="FYFinancialStatements_Consolidated_JP",
+            CurPerType="FY",
+            CurFYSt=f"{year - 1}-04-01",
+            CurFYEn=f"{year}-03-31",
+            CurPerSt=f"{year - 1}-04-01",
+            CurPerEn=f"{year}-03-31",
+            EPS="20",
         )
         for year in range(2022, 2027)
     ]

@@ -398,7 +398,9 @@ def build_panel(
             history_summaries_by_ticker.get(ticker, ()),
             normalized_profit_split_bars_by_ticker.get(ticker, ()),
             asof_date,
-            close=metric_result.financials[ticker].market_price_yen, ttm_rules=rules.ttm)
+            close=metric_result.financials[ticker].market_price_yen,
+            ttm_rules=rules.ttm,
+        )
         for ticker in universe_result.snapshots
     }
     candidates: list[StockAnalysis] = []

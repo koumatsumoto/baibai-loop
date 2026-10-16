@@ -104,7 +104,9 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 eps_ttm=20.0,
             ),
         ]
-        split_safe = build_normalized_profit_signals(summaries, bars, asof, close=100.0, ttm_rules=load_screening_rules().ttm)
+        split_safe = build_normalized_profit_signals(
+            summaries, bars, asof, close=100.0, ttm_rules=load_screening_rules().ttm
+        )
         loss_mean = build_normalized_profit_signals(
             [
                 replace(summary, eps_ttm=value)
@@ -112,7 +114,9 @@ class ScreeningMetricsTests(SnapshotFixtures):
             ],
             (),
             asof,
-            close=100.0, ttm_rules=load_screening_rules().ttm)
+            close=100.0,
+            ttm_rules=load_screening_rules().ttm,
+        )
 
         self.assertAlmostEqual(split_safe.normalized_per_3fy or 0.0, 5.0)
         self.assertIsNone(loss_mean.normalized_per_3fy)

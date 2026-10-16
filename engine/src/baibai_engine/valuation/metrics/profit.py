@@ -18,7 +18,12 @@ from baibai_engine.valuation.metrics.dividends import (
     _latest_fy_revisions,
 )
 from baibai_engine.valuation.metrics.models import TTMRules
-from baibai_engine.valuation.metrics.periods import _carry_forward, _latest_summary, _period_days, _ttm_value
+from baibai_engine.valuation.metrics.periods import (
+    _carry_forward,
+    _latest_summary,
+    _period_days,
+    _ttm_value,
+)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

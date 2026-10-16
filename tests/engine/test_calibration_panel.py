@@ -668,6 +668,7 @@ class CalibrationPanelTest(unittest.TestCase):
                             "DiscDate": f"{year}-05-10",
                             "EPS": eps,
                             "CurPerType": "FY",
+                            "DocType": "FYFinancialStatements_Consolidated_JP",
                             "CurFYEn": f"{year}-03-31",
                             "CurPerSt": f"{year - 1}-04-01",
                             "CurPerEn": f"{year}-03-31",

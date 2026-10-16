@@ -211,6 +211,8 @@ class FakeJQuantsProvider:
                 eps_ttm=eps,
                 fiscal_period="FY",
                 fiscal_year_end=date(year, 3, 31),
+                period_start=date(year - 1, 4, 1),
+                period_end=date(year, 3, 31),
             )
             for year, eps in ((2023, 10.0), (2024, 20.0), (2025, 30.0))
         ]
