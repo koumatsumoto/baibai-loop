@@ -51,8 +51,8 @@ def annual_documents(
     for key in annual_ids - roots.keys():
         doc = by_id[key]
         if doc.get("secCode"):
-            ticker = parse_sec_code(doc["secCode"])
-            unresolved.setdefault(ticker, []).append(event_days.get(key, ""))
+            orphan_ticker = parse_sec_code(doc["secCode"])
+            unresolved.setdefault(orphan_ticker, []).append(event_days.get(key, ""))
     for event in quarantined:
         linked = [
             by_id[key]
