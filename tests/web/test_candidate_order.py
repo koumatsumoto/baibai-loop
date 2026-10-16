@@ -2,7 +2,7 @@ from pathlib import Path
 
 from tests.engine.test_candidate_discovery import _analysis
 from tests.engine.test_screening_run_store import _publish, _run
-from tests.web.test_screening_judgment_binding import _dependencies
+from tests.web.test_screening_saved_views import _dependencies
 
 from baibai_engine.read_api import candidate_rows
 from baibai_web.readmodel.stocks import build_screening, build_security_detail

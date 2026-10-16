@@ -1,9 +1,7 @@
 """Reject public subcommands that `--help` cannot describe.
 
-AGENTS.md makes public `--help` a stopping condition: an operation whose command the
-help text does not explain must halt and ask a human. A subcommand without a help line
-therefore does not merely read poorly — it stops the session that follows the rule, or
-pushes it into guessing.
+Public subcommands need a help description so their purpose is discoverable.
+This check does not validate the correctness of the description or the operation.
 
 argparse exposes no public API for walking a parser tree, so this gate reads the
 `_SubParsersAction` internals. The alternative — running `--help` once per command path

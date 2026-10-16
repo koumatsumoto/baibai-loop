@@ -105,7 +105,7 @@ def _frozen_entry() -> dict[str, object]:
 
 
 def _source(tmp_path, mocker) -> DbScreeningSource:
-    source = DbScreeningSource(tmp_path / "research.sqlite")
+    source = DbScreeningSource(tmp_path / "runs.sqlite")
     mocker.patch.object(source, "latest_run", return_value=_run())
     return source
 

@@ -15,17 +15,6 @@ EXPECTED = frozenset(
         "ops-maintenance",
     }
 )
-OLD = frozenset(
-    {
-        "ai-value-bargain-selection",
-        "ir-research",
-        "financial-pro-review",
-        "decision-cycle",
-        "macro-analysis",
-        "improvement-loop",
-        "macro-world-model",
-    }
-)
 
 
 def check(root: Path) -> list[str]:
@@ -87,9 +76,6 @@ def check(root: Path) -> list[str]:
                         f".agents/skills/{name}/agents/openai.yaml: "
                         f"default_prompt must mention ${name}"
                     )
-    for name in sorted(OLD):
-        if canonical_root.joinpath(name).exists():
-            errors.append(f"obsolete standalone skill remains: {name}")
     return errors
 
 

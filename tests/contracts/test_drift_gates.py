@@ -58,13 +58,13 @@ def test_cli_doc_gate_rejects_missing_and_phantom_commands(tmp_path: Path) -> No
     ]
 
 
-def test_skill_inventory_gate_rejects_obsolete_and_missing_skills(tmp_path: Path) -> None:
+def test_skill_inventory_gate_rejects_unexpected_and_missing_skills(tmp_path: Path) -> None:
     canonical = tmp_path / ".agents" / "skills"
     canonical.mkdir(parents=True)
     (canonical / "decision-cycle").mkdir()
     errors = check_skill_inventory.check(tmp_path)
     assert any("expected exact inventory" in error for error in errors)
-    assert "obsolete standalone skill remains: decision-cycle" in errors
+    assert any("decision-cycle" in error for error in errors)
 
 
 def test_skill_inventory_gate_rejects_canonical_symlink(tmp_path: Path) -> None:
