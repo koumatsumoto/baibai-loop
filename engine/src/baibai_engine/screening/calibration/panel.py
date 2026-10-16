@@ -38,7 +38,6 @@ from baibai_engine.storage.observations.reader import (
     read_eq_master_asof,
     read_fin_summaries,
     read_jpx_regulations,
-    read_reported_short_metrics,
 )
 from baibai_engine.valuation.estimates import estimate_expected_return
 from baibai_engine.valuation.metrics.capital import build_shares_outstanding_index
@@ -173,14 +172,6 @@ class PanelRow:
     er_reversion_annual: float | None
     er_carry_annual: float | None
     er_upside_capped: float | None
-    # Investor-level short positions reported at or above the statutory 0.5%
-    # threshold. Zero means the full source window is covered and no reporter is
-    # active; None means the window is not provably covered.
-    reported_short_ratio: float | None
-    reported_short_breadth: int | None
-    # Actual latest disclosure among active reporters. Coverage with no active
-    # report establishes zero ratio/breadth, not a disclosure on the cohort date.
-    reported_short_latest_disclosed_at: str | None
     # Supply/demand from the exchange's published all-issues margin balances, joined
     # at the publication lag of whichever series published the balance date (see
     # `storage.observations.reader.published_margin_balance_dates`). Axes that use the daily
@@ -388,7 +379,6 @@ def build_panel(
     }
     median_population = candidate_comparison_population(universe_result.snapshots, rules)
     margin_latest, margin_prior_26w = read_margin_supply_demand_inputs(sqlite_path, asof_date)
-    reported_short = read_reported_short_metrics(sqlite_path, asof_date)
     metric_result = build_metrics(
         asof_date=asof_date,
         securities_by_ticker=securities_by_ticker,
@@ -447,10 +437,6 @@ def build_panel(
         profitability = build_profitability_level_signals(
             summaries_by_ticker.get(ticker, ()), asof_date, rules.ttm
         )
-        short_metric = reported_short.get(ticker) if reported_short is not None else None
-        short_metric_ambiguous = (
-            reported_short is not None and ticker in reported_short and short_metric is None
-        )
         rows.append(
             PanelRow(
                 asof=asof_date.isoformat(),
@@ -503,25 +489,6 @@ def build_panel(
                 er_reversion_annual=estimate.reversion_annual if estimate else None,
                 er_carry_annual=estimate.carry_annual if estimate else None,
                 er_upside_capped=estimate.upside_capped if estimate else None,
-                reported_short_ratio=(
-                    short_metric.ratio
-                    if short_metric is not None
-                    else None
-                    if short_metric_ambiguous
-                    else (0.0 if reported_short is not None else None)
-                ),
-                reported_short_breadth=(
-                    short_metric.breadth
-                    if short_metric is not None
-                    else None
-                    if short_metric_ambiguous
-                    else (0 if reported_short is not None else None)
-                ),
-                reported_short_latest_disclosed_at=(
-                    short_metric.latest_disclosed_at.isoformat()
-                    if short_metric is not None
-                    else None
-                ),
                 margin_balance_date=(
                     derived.margin_balance_date.isoformat() if derived.margin_balance_date else None
                 ),
@@ -712,9 +679,6 @@ def _unresolved_master_member_row(
         er_reversion_annual=None,
         er_carry_annual=None,
         er_upside_capped=None,
-        reported_short_ratio=None,
-        reported_short_breadth=None,
-        reported_short_latest_disclosed_at=None,
         margin_balance_date=None,
         margin_long_to_adv=None,
         margin_short_to_adv=None,

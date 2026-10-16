@@ -58,7 +58,6 @@ from baibai_engine.screening.metrics.snapshot import BARS_INPUT_WINDOW_DAYS
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.screening.universe import UNIVERSE_SCOPE_REVISION
-from baibai_engine.storage.observations.reader import ReportedShortMetric
 from baibai_engine.storage.observations.readiness import unreadable_store_reason
 from baibai_engine.storage.observations.schema import open_connection
 from baibai_engine.valuation.metrics.financial_snapshot import VALUATION_CALCULATION_REVISION
@@ -161,42 +160,6 @@ class CalibrationPanelTest(unittest.TestCase):
                 without_edinet.diagnostics.population_size,
                 with_edinet.diagnostics.population_size,
             )
-
-    def test_panel_distinguishes_covered_no_report_from_source_gap(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            build_calibration_fixture_sqlite(sqlite_path)
-            with patch(
-                "baibai_engine.screening.calibration.panel.read_reported_short_metrics",
-                return_value={
-                    "9001": ReportedShortMetric(
-                        ratio=0.012,
-                        breadth=2,
-                        latest_disclosed_at=date(2026, 6, 25),
-                    )
-                },
-            ):
-                covered = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
-            covered_by_ticker = {row.ticker: row for row in covered.rows}
-            self.assertEqual(covered_by_ticker["9001"].reported_short_ratio, 0.012)
-            self.assertEqual(covered_by_ticker["9001"].reported_short_breadth, 2)
-            self.assertEqual(
-                covered_by_ticker["9001"].reported_short_latest_disclosed_at,
-                "2026-06-25",
-            )
-            self.assertEqual(covered_by_ticker["9002"].reported_short_ratio, 0.0)
-            self.assertEqual(covered_by_ticker["9002"].reported_short_breadth, 0)
-            self.assertIsNone(covered_by_ticker["9002"].reported_short_latest_disclosed_at)
-
-            with patch(
-                "baibai_engine.screening.calibration.panel.read_reported_short_metrics",
-                return_value=None,
-            ):
-                uncovered = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
-            for row in uncovered.rows:
-                self.assertIsNone(row.reported_short_ratio)
-                self.assertIsNone(row.reported_short_breadth)
-                self.assertIsNone(row.reported_short_latest_disclosed_at)
 
     def test_profitability_levels_use_pit_ttm_without_profit_fallback(self) -> None:
         summaries = (

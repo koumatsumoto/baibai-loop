@@ -57,16 +57,6 @@ from baibai_engine.storage.observations.jquants_contract import (
 from baibai_engine.storage.observations.schema import connect_current
 from baibai_engine.storage.observations.snapshot_coverage import date_covered
 
-SHORT_SALE_REPORT_DATASET_FLOOR = date(2013, 11, 7)
-SHORT_SALE_REPORTING_THRESHOLD = 0.005
-
-
-@dataclass(frozen=True, slots=True)
-class ReportedShortMetric:
-    ratio: float
-    breadth: int
-    latest_disclosed_at: date
-
 
 def read_short_sale_reports(
     sqlite_path: Path, start: date, end: date
@@ -115,78 +105,6 @@ def read_short_sale_reports(
         )
         for row in rows
     ]
-
-
-def read_reported_short_metrics(
-    sqlite_path: Path, asof: date
-) -> dict[str, ReportedShortMetric | None] | None:
-    """Aggregate each reporter's latest disclosed state at a cohort boundary.
-
-    ``None`` means the source cannot prove continuous coverage from the official
-    dataset floor. A mapping means coverage is complete; a ticker absent from it
-    is therefore an explicit below-threshold/no-report observation. A latest
-    missing/invalid ratio makes that ticker unresolved, even when Notes is present.
-    """
-    if not sqlite_path.exists() or asof < SHORT_SALE_REPORT_DATASET_FLOOR:
-        return None
-    conn = connect_current(sqlite_path)
-    if conn is None:
-        return None
-    try:
-        conn.execute("BEGIN")
-        if not range_covered(conn, SHORT_SALE_REPORT_SOURCE, SHORT_SALE_REPORT_DATASET_FLOOR, asof):
-            return None
-        rows = conn.execute(
-            """
-            WITH dated AS (
-              SELECT ticker, short_seller_name,
-                     discretionary_investment_contractor_name, investment_fund_name,
-                     short_ratio, disclosed_at,
-                     DENSE_RANK() OVER (
-                       PARTITION BY ticker, short_seller_name,
-                                    discretionary_investment_contractor_name,
-                                    investment_fund_name
-                       ORDER BY calculated_at DESC, disclosed_at DESC
-                     ) AS recency
-              FROM jquants_short_sale_reports
-              WHERE disclosed_at <= ? AND calculated_at <= ?
-            ), latest_reporters AS (
-              SELECT ticker, MAX(short_ratio) AS short_ratio,
-                     MAX(disclosed_at) AS disclosed_at,
-                     (COUNT(*) != 1 OR COUNT(short_ratio) != 1
-                      OR MIN(short_ratio) < 0) AS unresolved
-              FROM dated WHERE recency = 1
-              GROUP BY ticker, short_seller_name,
-                       discretionary_investment_contractor_name, investment_fund_name
-            )
-            SELECT ticker,
-                   SUM(CASE WHEN short_ratio >= ? THEN short_ratio END),
-                   SUM(CASE WHEN short_ratio >= ? THEN 1 ELSE 0 END),
-                   MAX(CASE WHEN short_ratio >= ? THEN disclosed_at END),
-                   MAX(unresolved)
-            FROM latest_reporters GROUP BY ticker ORDER BY ticker
-            """,
-            (
-                asof.isoformat(),
-                asof.isoformat(),
-                SHORT_SALE_REPORTING_THRESHOLD,
-                SHORT_SALE_REPORTING_THRESHOLD,
-                SHORT_SALE_REPORTING_THRESHOLD,
-            ),
-        ).fetchall()
-    finally:
-        conn.close()
-    metrics: dict[str, ReportedShortMetric | None] = {}
-    for ticker, ratio, breadth, disclosed_at, unresolved in rows:
-        if unresolved:
-            metrics[str(ticker)] = None
-        elif breadth:
-            metrics[str(ticker)] = ReportedShortMetric(
-                ratio=float(ratio),
-                breadth=int(breadth),
-                latest_disclosed_at=date.fromisoformat(str(disclosed_at)),
-            )
-    return metrics
 
 
 @dataclass(frozen=True, slots=True)
