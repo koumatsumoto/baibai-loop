@@ -123,8 +123,8 @@ class _DateJsonSession(FakeSession):
 
 
 def _edinet_csv_zip(rows: list[tuple[str, str, str]]) -> bytes:
-    csv_text = "要素ID\tコンテキストID\t値\n" + "\n".join(
-        f"{element}\t{context}\t{value}" for element, context, value in rows
+    csv_text = "要素ID\tコンテキストID\tユニットID\t値\n" + "\n".join(
+        f"{element}\t{context}\tJPY\t{value}" for element, context, value in rows
     )
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
@@ -1150,7 +1150,7 @@ class ScreeningProviderTests(unittest.TestCase):
         )
 
         self.assertEqual(record.investment_securities, 250.0)
-        self.assertNotIn("tag_not_found:investment_securities", record.failure_reasons)
+        self.assertNotIn("metric_unavailable:investment_securities", record.failure_reasons)
 
     def test_investment_securities_excludes_similar_tags_and_accepts_reported_zero(self) -> None:
         excluded = parse_csv_zip_metric_record(
@@ -1177,12 +1177,12 @@ class ScreeningProviderTests(unittest.TestCase):
             doc_id="S100ZERO",
             doc_type_code="120",
             content=_edinet_csv_zip(
-                [("jppfs_cor:InvestmentSecurities", "CurrentYearConsolidatedInstant", "－")]
+                [("jppfs_cor:InvestmentSecurities", "CurrentYearConsolidatedInstant", "-")]
             ),
         )
 
         self.assertIsNone(excluded.investment_securities)
-        self.assertIn("tag_not_found:investment_securities", excluded.failure_reasons)
+        self.assertIn("metric_unavailable:investment_securities", excluded.failure_reasons)
         self.assertEqual(zero.investment_securities, 0.0)
 
     def test_investment_securities_rejects_negative_value(self) -> None:
@@ -1220,9 +1220,9 @@ class ScreeningProviderTests(unittest.TestCase):
 
         self.assertEqual(record.debt, 150.0)
         self.assertEqual(record.net_cash, 850.0)
-        self.assertNotIn("debt_assumed_zero", record.failure_reasons)
+        self.assertNotIn("metric_unavailable:debt", record.failure_reasons)
 
-    def test_parse_csv_zip_metric_record_does_not_strict_quality_assumed_zero_debt(
+    def test_parse_csv_zip_metric_record_keeps_missing_debt_unavailable(
         self,
     ) -> None:
         rows = [
@@ -1238,13 +1238,13 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertIsNone(record.debt)
         self.assertIsNone(record.net_cash)
         self.assertEqual(record.ttm_quality_net_cash, TTMQuality.UNAVAILABLE)
-        self.assertIn("debt_assumed_zero", record.failure_reasons)
+        self.assertIn("metric_unavailable:debt", record.failure_reasons)
 
     def test_parse_csv_zip_metric_record_allows_reported_zero_debt(self) -> None:
         rows = [
             ("jppfs_cor:CashAndDeposits", "CurrentYearInstant_ConsolidatedMember", "1000"),
-            ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant_ConsolidatedMember", "－"),
-            ("jppfs_cor:LeaseObligationsCL", "CurrentYearInstant_ConsolidatedMember", "－"),
+            ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant_ConsolidatedMember", "-"),
+            ("jppfs_cor:LeaseObligationsCL", "CurrentYearInstant_ConsolidatedMember", "-"),
         ]
         record = parse_csv_zip_metric_record(
             ticker="7203",
@@ -1256,7 +1256,7 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(record.debt, 0.0)
         self.assertEqual(record.net_cash, 1000.0)
         self.assertEqual(record.ttm_quality_net_cash, TTMQuality.EXACT)
-        self.assertNotIn("debt_assumed_zero", record.failure_reasons)
+        self.assertNotIn("metric_unavailable:debt", record.failure_reasons)
 
     def test_edinet_provider_reads_cached_metrics_without_api_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2448,7 +2448,7 @@ def test_capex_original_edinet_rows():
         assert (record.ocf_ttm, record.capex_ttm, record.fcf_ttm) == (ocf, capex, fcf)
         assert record.ttm_quality_fcf == quality
         assert record.capex_source == "purchase_of_fixed_assets"
-        assert "tag_not_found:capex" not in record.failure_reasons
+        assert "metric_unavailable:capex" not in record.failure_reasons
 
 
 def test_annual_cash_flow_details_from_original_edinet_rows():
@@ -2596,8 +2596,8 @@ def test_capex_total_components_and_period_are_not_mixed(subtests):
             )
             assert record.capex_ttm == expected
             assert record.fcf_ttm == (None if expected is None else 4857 - expected)
-            assert ("tag_not_found:capex" in record.failure_reasons) == (expected is None)
-            assert "tag_not_found:cash" in record.failure_reasons
+            assert ("metric_unavailable:capex" in record.failure_reasons) == (expected is None)
+            assert "metric_unavailable:cash" in record.failure_reasons
 
 
 def test_missing_edinet_quality_is_unknown():

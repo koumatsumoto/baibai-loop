@@ -14,8 +14,8 @@ from baibai_engine.market.providers.edinet_csv import parse_csv_zip_metric_recor
 
 
 def _edinet_csv_zip(rows: list[tuple[str, str, str]]) -> bytes:
-    csv_text = "要素ID\tコンテキストID\t値\n" + "\n".join(
-        f"{element}\t{context}\t{value}" for element, context, value in rows
+    csv_text = "要素ID\tコンテキストID\tユニットID\t値\n" + "\n".join(
+        f"{element}\t{context}\tJPY\t{value}" for element, context, value in rows
     )
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:

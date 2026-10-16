@@ -177,7 +177,7 @@ EV がゼロ以下、または EBITDA がゼロ以下の場合、EV/EBITDA は `
 
 ## 7.1 Net cash ratio / Asset-backed ratio / FCF yield
 
-EDINET `type=5` CSV-derived metrics から以下を抽出する。
+EDINET `type=5` CSV-derived metrics から以下を抽出する。 金額は native の `ユニットID=JPY` を確認し、表示単位の「円」や数値だけから通貨を推測しない。[閲覧操作ガイド](https://disclosure2dl.edinet-fsa.go.jp/guide/static/disclosure/download/ESE140133.pdf) の CSV 仕様に従い、値の ASCII `-` は明示ゼロとする。空欄・見た目の似た横棒はゼロへ置換せず、同じ項目・context の JPY 値が競合する場合も算出不能とする。欠測や通貨不明の当期行を除いて前期の数値へ戻る補完は行わない。元 ZIP の値は変更しない。
 
 - `cash`: 現金及び現金同等物 / 現金及び預金
 - `debt`: 短期借入金、1 年内返済予定長期借入金、社債、長期借入金、リース債務等の合算

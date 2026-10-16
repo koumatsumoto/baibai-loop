@@ -63,7 +63,7 @@ def test_convertible_debt_preserves_total_priority_and_context_deduplication(tot
     assert record.consolidation_basis == "consolidated"
     assert record.ttm_quality_net_cash is TTMQuality.EXACT
     assert record.source_period_end == date(2026, 3, 31)
-    assert "debt_assumed_zero" not in record.failure_reasons
+    assert "metric_unavailable:debt" not in record.failure_reasons
 
 
 @pytest.mark.parametrize("cb", [None, "0"])

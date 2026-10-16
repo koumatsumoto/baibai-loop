@@ -1198,7 +1198,7 @@ class ScreeningCliTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             payload = read_edinet_metrics(sqlite_path, date(2026, 4, 24))
             assert payload is not None
-            self.assertIn("debt_assumed_zero", payload["9682"].failure_reasons)
+            self.assertIn("metric_unavailable:debt", payload["9682"].failure_reasons)
             self.assertIn("quality_issues=1", buffer.getvalue())
             reuse_provider = FakeEDINETProvider(documents=list(provider.documents or []))
             reuse_buffer = io.StringIO()
@@ -1699,7 +1699,7 @@ class ScreeningCliTests(unittest.TestCase):
             with zipfile.ZipFile(empty_buffer, "w") as archive:
                 archive.writestr(
                     "XBRL_TO_CSV/empty.csv",
-                    "要素ID\tコンテキストID\t値\n".encode("utf-16"),
+                    "要素ID\tコンテキストID\tユニットID\t値\n".encode("utf-16"),
                 )
             first = FakeEDINETProvider(
                 documents=[document],
@@ -1921,7 +1921,9 @@ def _edinet_csv_zip(*, include_debt: bool = True) -> bytes:
                 ("jpcrp_cor:LongTermBorrowings", "CurrentYearInstant_ConsolidatedMember", "300"),
             ]
         )
-    text = "要素ID\tコンテキストID\t値\n" + "\n".join("\t".join(row) for row in rows)
+    text = "要素ID\tコンテキストID\tユニットID\t値\n" + "\n".join(
+        f"{element}\t{context}\tJPY\t{value}" for element, context, value in rows
+    )
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
         archive.writestr("XBRL_TO_CSV/test.csv", text.encode("utf-16"))
