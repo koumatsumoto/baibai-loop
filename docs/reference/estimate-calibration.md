@@ -137,6 +137,8 @@ cohort比較は`--basis price|total`を取り、母集団は保存された`Pane
 
 `er_level_calibration` は E[r] 合計の絶対年率と、実績 FY 配当を加えた実現 total return の絶対年率を `er_annual` quintile ごとに比較する。実現配当は `entry_date < fiscal_year_end <= exit_date` の FY 行を対象に、同じ FY の最新 non-null `DivAnn` を forward の比較基準日（eval cap、未指定時は最終価格日）の株式単位へ正規化して合算する。同日開示は開示時刻まで比較し、時刻不明を新旧の根拠にしない。同じ最新revisionの配当・換算に使う株数等が矛盾する場合も未解決に残す。対象 FY 行なし、`DivAnn` 欠損、adjustment factor 不完全は 0 円とせず total-return 側を unresolved にする。明示された `DivAnn == 0` は観測済み無配である。端の FY は月割りしないため、この座標は実際の中間・期末配当の権利落ち日を再現する cash-flow ledger ではない。
 
+対象年度の原本行が丸ごと欠ける場合も、観測した期首が entry より後、または採用年度間の会計期間に空白があると判明したら、配当0として加算せず `unresolved_dividend_period_gap` とする。決算期変更の短期年度は実際の期首・期末の連続性で扱い、固定の12か月間隔を要求しない。この確認は判明した期間欠落を除くもので、末尾の未開示年度などを含む全配当の取得完了を証明しない。価格だけの成績は残す。
+
 保有期間中にライツイシュー（`ExRT = 3`）があれば、権利売却の受取額や権利行使の追加払込額を価格factorだけでは復元できないため、total return は `unresolved_rights_issue` とする。factor が1でもこの区別は変わらない。保有終了後のライツイシューで共通の比較価格基準が変わる場合は、配当成分にも同じ価格換算を掛け、終了済みのリターンを変えない。この比較基準上の配当合計は、そのまま口座の現金入金額を表すものではない。
 
 ## 判断面へ渡す較正文脈

@@ -42,7 +42,7 @@ __all__ = (
 )
 
 
-FORWARD_CALCULATION_REVISION = "reported-dividend-basis-v6"
+FORWARD_CALCULATION_REVISION = "reported-dividend-period-gaps-v7"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -80,6 +80,7 @@ TOTAL_RETURN_STATUSES = frozenset(
         "unresolved_rights_issue",
         "unresolved_no_fy_observation",
         "unresolved_missing_dividend",
+        "unresolved_dividend_period_gap",
         "unresolved_invalid_dividend",
         "unresolved_invalid_total_return",
         # 会計期間から開示までに分割・併合が入り、原本の株式基準を特定できない年度。
@@ -741,6 +742,19 @@ def _resolve_total_return(
         if not isfinite(latest.dps_actual_annual) or latest.dps_actual_annual < 0:
             return None, 0, None, "unresolved_invalid_dividend"
         selected.append(latest)
+
+    # Missing annual documents are not zero-dividend observations. A known
+    # period starting after entry, or a break between selected fiscal periods,
+    # proves that this sum cannot represent all selected FY dividends. Use actual
+    # period boundaries rather than assuming every issuer has twelve-month years.
+    previous_end = entry_date - timedelta(days=1)
+    for observation in selected:
+        if (
+            observation.period_start is not None
+            and observation.period_start > previous_end + timedelta(days=1)
+        ):
+            return None, 0, None, "unresolved_dividend_period_gap"
+        previous_end = observation.fiscal_year_end
 
     basis_date = price_basis_date or bars[-1].traded_at
     dividend_sum = 0.0
