@@ -177,11 +177,11 @@ EV がゼロ以下、または EBITDA がゼロ以下の場合、EV/EBITDA は `
 
 ## 7.1 Net cash ratio / Asset-backed ratio / FCF yield
 
-EDINET `type=5` CSV-derived metrics から以下を抽出する。 金額は native の `ユニットID=JPY` を確認し、表示単位の「円」や数値だけから通貨を推測しない。[閲覧操作ガイド](https://disclosure2dl.edinet-fsa.go.jp/guide/static/disclosure/download/ESE140133.pdf) の CSV 仕様に従い、値の ASCII `-` は明示ゼロとする。空欄・見た目の似た横棒はゼロへ置換せず、同じ項目・context の JPY 値が競合する場合も算出不能とする。欠測や通貨不明の当期行を除いて前期の数値へ戻る補完は行わない。元 ZIP の値は変更しない。
+EDINET `type=5` CSV-derived metrics から以下を抽出する。金額は native の `ユニットID=JPY` を確認し、表示単位の「円」や数値だけから通貨を推測しない。[閲覧操作ガイド](https://disclosure2dl.edinet-fsa.go.jp/guide/static/disclosure/download/ESE140133.pdf) の CSV 仕様に従い、値の ASCII `-` は明示ゼロとする。空欄・見た目の似た横棒はゼロへ置換せず、同じ項目・context の JPY 値が競合する場合も算出不能とする。欠測や通貨不明の当期行を除いて前期の数値へ戻る補完は行わない。元 ZIP の値は変更しない。
 
 - `cash`: 現金及び現金同等物 / 現金及び預金
 - `debt`: 短期借入金、1 年内返済予定長期借入金、社債、長期借入金、リース債務等の合算
-- `investment_securities`: BS の `InvestmentSecurities` exact local name だけを連結優先・単体 fallback で抽出する帳簿価額。関係会社株式、営業投資有価証券、包括的な `Securities`、売却損益・CF、text block は合算しない。表示値が `－` 等の明示的な zero-like の場合だけ 0 とする
+- `investment_securities`: BS の `InvestmentSecurities` exact local name だけを連結優先・単体 fallback で抽出する帳簿価額。関係会社株式、営業投資有価証券、包括的な `Securities`、売却損益・CF、text block は合算しない。CSV仕様で定義された ASCII `-` または数値ゼロだけを 0 とし、空欄や似た横棒を補完しない
 - `edinet_ocf_ttm`: EDINET CSV から抽出した営業活動によるキャッシュ・フロー
 - `capex_ttm`: 有形固定資産・無形固定資産の取得支出。CFOと同じcontext・連結/単体の合算科目を優先し、合算がない場合は有形・無形の両科目が揃うときだけ足す。合算と内訳は二重計上せず、欠測をゼロにしない。符号は取得支出額の絶対値へ一度だけ正規化する
 - `net_cash = cash - debt`
