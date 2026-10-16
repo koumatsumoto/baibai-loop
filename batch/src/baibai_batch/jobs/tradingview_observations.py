@@ -73,7 +73,12 @@ def _unchanged_objects(release: LakeFixedRelease, month: tuple[int, int]) -> dic
 
 
 def publish_and_verify(
-    directory: Path, *, sqlite_path: Path, mirror: Path, store: ObjectStore, handle: PublicationLeaseHandle
+    directory: Path,
+    *,
+    sqlite_path: Path,
+    mirror: Path,
+    store: ObjectStore,
+    handle: PublicationLeaseHandle,
 ) -> dict[str, object]:
     """Keep the existing publication lease through pointer switch and readback."""
     verify_held(store, handle)
@@ -95,7 +100,9 @@ def publish_and_verify(
     publication = None
     if acceptance["rows_added"]:
         publication = publish_market_lake(
-            sqlite_path=sqlite_path, mirror_root=mirror, store=store,
+            sqlite_path=sqlite_path,
+            mirror_root=mirror,
+            store=store,
             before_pointer_switch=lambda: verify_held(store, handle),
         )
         print(
@@ -132,9 +139,11 @@ def publish_and_verify(
             _fetch(store, readback_mirror, obj.key, expected_sha256=obj.sha256)
     with lake_session() as session:
         tradingview_verify_release_observations(
-            session, release=after,
+            session,
+            release=after,
             cache=LakeObjectCache(root=readback_mirror, source=LocalMirrorSource(readback_mirror)),
-            accepted=accepted, report=acceptance,
+            accepted=accepted,
+            report=acceptance,
         )
     verify_held(store, handle)
     report = {

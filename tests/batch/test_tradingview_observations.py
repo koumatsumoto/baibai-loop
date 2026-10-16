@@ -14,8 +14,8 @@ from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_batch.jobs.tradingview_observations import DATASET, main, publish_and_verify, stage
-from baibai_batch.storage import publish_market_lake as publisher
 from baibai_batch.storage import lake_publish
+from baibai_batch.storage import publish_market_lake as publisher
 from baibai_batch.storage.publication_lease import LeaseError, acquire, release
 from baibai_engine.external_assessment.tradingview.accepted import (
     accept_observations,
@@ -178,20 +178,26 @@ def test_fresh_hydrate_publish_and_remote_readback_preserve_history_and_other_da
         )
     handle, _ = acquire(remote, "tradingview")
     unrelated = {
-        obj.key for name, manifest in before.dataset_manifests.items() if name != DATASET
-        for part in manifest.partitions for obj in part.objects
+        obj.key
+        for name, manifest in before.dataset_manifests.items()
+        if name != DATASET
+        for part in manifest.partitions
+        for obj in part.objects
     }
     download = remote.download_file
+
     def download_without_unrelated_data(key, path, *, expect_bytes=None):
         if not lose_lease:
             assert key not in unrelated, "unchanged unrelated Parquet must not be downloaded"
         return download(key, path, expect_bytes=expect_bytes)
+
     monkeypatch.setattr(remote, "download_file", download_without_unrelated_data)
     directory = tmp_path / "accepted"
     stage(event_file(tmp_path), directory)
     if lose_lease:
         ensure = lake_publish._ensure_immutable
         released = False
+
         def release_during_upload(*args, **kwargs):
             nonlocal released
             result = ensure(*args, **kwargs)
@@ -199,14 +205,19 @@ def test_fresh_hydrate_publish_and_remote_readback_preserve_history_and_other_da
                 release(remote, handle)
                 released = True
             return result
+
         monkeypatch.setattr(lake_publish, "_ensure_immutable", release_during_upload)
         with pytest.raises(LeaseError):
-            publish_and_verify(directory, sqlite_path=working, mirror=mirror, store=remote, handle=handle)
+            publish_and_verify(
+                directory, sqlite_path=working, mirror=mirror, store=remote, handle=handle
+            )
         assert released
         assert publisher._serving_pointer(remote).pointer == pointer
         assert not (directory / "readback-report.json").exists()
         return
-    report = publish_and_verify(directory, sqlite_path=working, mirror=mirror, store=remote, handle=handle)
+    report = publish_and_verify(
+        directory, sqlite_path=working, mirror=mirror, store=remote, handle=handle
+    )
     assert report["rows_added"] == 3
     assert report["retained_rows"] == 1
     assert report["total_rows"] == 4
@@ -220,7 +231,9 @@ def test_fresh_hydrate_publish_and_remote_readback_preserve_history_and_other_da
     stage(event_file(tmp_path), retry)
     old_pointer = publisher._serving_pointer(remote).pointer
     old_put_count = len(remote.put_keys)
-    report2 = publish_and_verify(retry, sqlite_path=working, mirror=mirror, store=remote, handle=handle)
+    report2 = publish_and_verify(
+        retry, sqlite_path=working, mirror=mirror, store=remote, handle=handle
+    )
     assert report2["rows_added"] == 0
     assert report2["status"] == "already_recorded"
     assert publisher._serving_pointer(remote).pointer == old_pointer

@@ -12,10 +12,10 @@ from tests.helpers.master import insert_master_rows
 
 from baibai_engine.external_assessment.tradingview import cli
 from baibai_engine.external_assessment.tradingview.accepted import (
-    accept_observations,
-    load_observations,
     NAMES,
     _verify_history,
+    accept_observations,
+    load_observations,
 )
 from baibai_engine.external_assessment.tradingview.collector import preflight_snapshot
 from baibai_engine.external_assessment.tradingview.diagnostics import SourceDataError
@@ -201,7 +201,7 @@ def test_readback_checks_all_values_and_retained_history(tmp_path, change):
                 "UPDATE tradingview_forecast_snapshots SET quote_close=777 WHERE ticker=?",
                 ("1000" if change == "accepted_value" else "1003",),
             )
-    with pytest.raises(ValueError, match="differs|mismatch"):
+    with pytest.raises(ValueError, match=r"differs|mismatch"):
         verify_saved_rows(path, accepted, report)
 
 

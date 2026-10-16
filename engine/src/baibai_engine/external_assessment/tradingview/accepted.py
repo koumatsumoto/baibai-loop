@@ -19,11 +19,15 @@ from baibai_engine.external_assessment.tradingview.contract import COLUMNS, TABL
 from baibai_engine.external_assessment.tradingview.diagnostics import SourceDataError
 from baibai_engine.external_assessment.tradingview.observations import COLUMNS as REQUEST_COLUMNS
 from baibai_engine.external_assessment.tradingview.observations import normalize_batch
-from baibai_engine.storage.observations.schema import SQLiteSchemaError, validate_current_schema
 from baibai_engine.storage.lake.datasets import TRADINGVIEW_FORECAST_SNAPSHOTS
 from baibai_engine.storage.lake.duck import LakeSession
 from baibai_engine.storage.lake.objects import LakeObjectCache
-from baibai_engine.storage.lake.reader import FixedRelease, iter_partition_rows, materialize_partitions
+from baibai_engine.storage.lake.reader import (
+    FixedRelease,
+    iter_partition_rows,
+    materialize_partitions,
+)
+from baibai_engine.storage.observations.schema import SQLiteSchemaError, validate_current_schema
 
 NAMES = tuple(item[0] for item in COLUMNS)
 MAX_INPUT_BYTES = 65_535
@@ -219,7 +223,10 @@ def _verify_history(
     total, retained = hashlib.sha256(), hashlib.sha256()
     total_count = retained_count = 0
     for row in rows:
-        encoded = json.dumps(row, ensure_ascii=True, separators=(",", ":"), allow_nan=False).encode() + b"\n"
+        encoded = (
+            json.dumps(row, ensure_ascii=True, separators=(",", ":"), allow_nan=False).encode()
+            + b"\n"
+        )
         total.update(encoded)
         total_count += 1
         key = (row[0], row[1])
@@ -233,23 +240,32 @@ def _verify_history(
     if found != set(expected):
         raise ValueError("accepted observation missing")
     if (retained_count, retained.hexdigest()) != (
-        report.get("retained_rows"), report.get("retained_rows_sha256")
+        report.get("retained_rows"),
+        report.get("retained_rows_sha256"),
     ):
         raise ValueError("retained history differs")
-    if (total_count, total.hexdigest()) != (report.get("total_rows"), report.get("total_rows_sha256")):
+    if (total_count, total.hexdigest()) != (
+        report.get("total_rows"),
+        report.get("total_rows_sha256"),
+    ):
         raise ValueError("total observations differ")
 
 
 def verify_release_observations(
-    session: LakeSession, *, release: FixedRelease, cache: LakeObjectCache,
-    accepted: AcceptedObservations, report: dict[str, object],
+    session: LakeSession,
+    *,
+    release: FixedRelease,
+    cache: LakeObjectCache,
+    accepted: AcceptedObservations,
+    report: dict[str, object],
 ) -> None:
     """Verify the fixed TV dataset directly, without pretending to hydrate a full store."""
     dataset = TRADINGVIEW_FORECAST_SNAPSHOTS
     manifest = release.dataset_manifest(dataset.name)
     paths = materialize_partitions(cache, dataset=dataset, partitions=manifest.partitions)
     rows = (
-        row for batch in iter_partition_rows(session, dataset=dataset, paths=paths, columns=NAMES)
+        row
+        for batch in iter_partition_rows(session, dataset=dataset, paths=paths, columns=NAMES)
         for row in batch
     )
     try:
