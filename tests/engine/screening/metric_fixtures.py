@@ -1,16 +1,12 @@
 from __future__ import annotations
 
-import unittest
 from datetime import date, timedelta
-from pathlib import Path
 
 from baibai_engine.market.bars import JQuantsDailyBar
 from baibai_engine.market.edinet_models import EdinetMetricRecord
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.models import SecurityMaster
-
-ROOT = Path(__file__).resolve().parents[2]
 
 
 def _daily_bars(code: str, end: date, total_days: int) -> list[JQuantsDailyBar]:
@@ -157,7 +153,3 @@ def _split_bar(code: str, traded_at: date, factor: float) -> JQuantsDailyBar:
         adjustment_factor=factor,
         ex_right_type=(None if factor is None or factor == 1.0 else "2" if factor > 1 else "1"),
     )
-
-
-if __name__ == "__main__":
-    unittest.main()

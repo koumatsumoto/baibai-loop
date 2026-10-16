@@ -42,7 +42,7 @@ from baibai_engine.valuation.metrics.relative import (
     relative_valuation,
 )
 
-# metric 計算の入力窓 (暦日)。bars は 3 年自己レンジ percentile / sigma_gap に
+# metric 計算の入力窓 (暦日)。bars は 3 年自己レンジ位置 / sigma_gap に
 # 1200 日、fin summaries は TTM 合成と前年同期 YoY に 730 日を要する。本番 run と
 # 較正リプレイ (calibration/panel.py) が同じ値を import する。窓がずれると
 # リプレイは本番と別物の指標を測るため、ここ以外に窓を定義しない。
@@ -211,7 +211,7 @@ def build_metrics(
             (bar for bar in ticker_bars if bar.traded_at <= asof_date),
             key=lambda item: item.traded_at,
         )
-        listing_span_days = (asof_date - eligible_bars[0].traded_at).days if eligible_bars else 0
+        observed_span_days = (asof_date - eligible_bars[0].traded_at).days if eligible_bars else 0
         derived[ticker] = DerivedMetrics(
             sector_median_gap=relative.sector_median_gap,
             sector_median_value=relative.sector_median_value,
@@ -240,7 +240,7 @@ def build_metrics(
             sector_relative_strength_percentile=rs_percentiles.get(sector),
             ticker_return_4w=ticker_returns_4w.get(ticker),
             sector_return_4w=sector_context.mean_returns.get(sector),
-            short_history_flag=listing_span_days < PRICE_HISTORY_WINDOW_DAYS,
+            short_history_flag=observed_span_days < PRICE_HISTORY_WINDOW_DAYS,
             **asdict(
                 margin_supply_demand(
                     latest=(margin_latest or {}).get(ticker),

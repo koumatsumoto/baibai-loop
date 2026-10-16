@@ -29,10 +29,9 @@ class ScreeningMetricsTests(SnapshotFixtures):
             )
             for index in range(20)
         ]
-        result = build_metrics(
+        inputs = dict(
             asof_date=asof,
             securities_by_ticker={"130A": security},
-            bars_by_ticker={"130A": base_bars + future_bars},
             summaries_by_ticker={
                 "130A": [
                     _summary(
@@ -46,6 +45,10 @@ class ScreeningMetricsTests(SnapshotFixtures):
             },
             edinet_by_ticker={},
         )
+        baseline = build_metrics(**inputs, bars_by_ticker={"130A": base_bars})
+        result = build_metrics(**inputs, bars_by_ticker={"130A": base_bars + future_bars})
+        self.assertEqual(result.financials, baseline.financials)
+        self.assertEqual(result.derived, baseline.derived)
         self.assertIn("130A", result.financials)
         # latest close picked from bars <= asof, not from the polluted 99999.0 future bars.
         per_trailing = result.financials["130A"].per_trailing
@@ -102,8 +105,8 @@ class ScreeningMetricsTests(SnapshotFixtures):
         self.assertAlmostEqual(self_median["p_s"], financial.p_s, places=6)
         self.assertAlmostEqual(self_median["ev_ebitda"], financial.ev_ebitda, places=6)
 
-    def test_build_metrics_uses_bars_span_for_short_history_when_established(self) -> None:
-        """An established listing (800 days of bars) must not be flagged as short_history."""
+    def test_build_metrics_uses_observed_bars_span_for_short_history(self) -> None:
+        """An 800-day observed price span is not short; it does not establish listing age."""
         asof = date(2026, 4, 24)
         security = _security()
         bars = _daily_bars("130A", asof, 800)
@@ -117,10 +120,10 @@ class ScreeningMetricsTests(SnapshotFixtures):
         self.assertFalse(result.derived["130A"].short_history_flag)
 
     def test_build_metrics_records_price_history_coverage_for_gappy_ticker(self) -> None:
-        """An old listing whose recent bars resume after a long gap gets low coverage."""
+        """A long observed price span can still have low coverage relative to other tickers."""
         asof = date(2026, 4, 24)
         dense_bars = _daily_bars("1111", asof, 800)
-        # Old bars exist (listing span >= 750d) but only the last 200 days have bars.
+        # Old bars exist (observed span >= 750d) but only the last 200 days have bars.
         gappy_bars = [
             bar
             for bar in _daily_bars("130A", asof, 800)
