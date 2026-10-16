@@ -71,7 +71,7 @@ def test_rights_issue_inside_dividend_year_does_not_require_split_payment_detail
     event = JQuantsAdjustmentFactorEvent("1111", date(2026, 2, 1), 0.8, "3")
     normalized = _normalize_summaries_with_status([source], [event], disclosed)
     assert normalized.summaries == [source]
-    carry = _resolve_dividend_carry(normalized.summaries, [event], 80.0, disclosed)
+    carry = _resolve_dividend_carry(normalized.summaries, [event], 80.0)
     assert carry.dps_actual_annual == 8.0
     assert carry.dividend_yield == 0.1
     assert carry.basis == "actual_reported"

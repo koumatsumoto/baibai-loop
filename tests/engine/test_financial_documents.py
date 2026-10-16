@@ -440,7 +440,7 @@ def test_conflicting_actual_dps_does_not_hide_agreed_profit_and_sales(reverse: b
     rows = decode([actual_document("paid", DivAnn="7"), actual_document("zero", DivAnn="0")])
     if reverse:
         rows.reverse()
-    carry = _resolve_dividend_carry(rows, (), 100, ASOF)
+    carry = _resolve_dividend_carry(rows, (), 100)
     assert carry.dividend_yield is None
     assert carry.dps_actual_annual is None
     assert carry.basis == "unresolved_actual_dividend"
@@ -559,7 +559,7 @@ def test_later_partial_actual_does_not_revive_conflicting_old_dps() -> None:
     rows = decode([actual_document("paid", DivAnn="7"), actual_document("zero", DivAnn="0")])
     rows = [replace(row, disclosed_at=date(2026, 7, 10)) for row in rows]
     rows.extend(decode([actual_document("later-earnings-only")]))
-    assert _resolve_dividend_carry(rows, (), 100, ASOF).dps_actual_annual is None
+    assert _resolve_dividend_carry(rows, (), 100).dps_actual_annual is None
     assert snapshot(rows).sales_ttm == 1000
 
 
@@ -712,9 +712,9 @@ def test_conflicting_payment_allocations_cannot_select_split_adjustment_by_order
     fy_rows = _latest_fy_revisions(rows)
     assert fy_rows[0].eps_ttm == 20
     assert fy_rows[0].dps_actual_annual == 7
-    assert _asof_basis_fy_dps(fy_rows, events, asof_date=ASOF) == {}
-    assert _resolve_dividend_carry(rows, events, 100, ASOF).dividend_yield is None
-    assert _resolve_dividend_carry(rows, (), 100, ASOF).dividend_yield == 0.07
+    assert _asof_basis_fy_dps(fy_rows, events) == {}
+    assert _resolve_dividend_carry(rows, events, 100).dividend_yield is None
+    assert _resolve_dividend_carry(rows, (), 100).dividend_yield == 0.07
 
 
 @pytest.mark.parametrize("outside_day", ["2026-08-09", "2026-10-14"])

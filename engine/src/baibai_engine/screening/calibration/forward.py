@@ -16,7 +16,6 @@ from baibai_engine.market.bars import (
     asof_basis_closes,
     asof_basis_prices,
     cumulative_share_unit_factor_after,
-    share_unit_factor,
 )
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
@@ -24,10 +23,7 @@ from baibai_engine.storage.observations.reader import read_financial_documents
 
 # 配当・株数の基準はValuationのcarryと同じにする。較正と本番が異なる量を扱わないよう、
 # 規約の定数は計算を所有するValuationから読み、ここへ重複定義しない。
-from baibai_engine.valuation.metrics.capital import SHARE_COUNT_ANCHOR_TOLERANCE
 from baibai_engine.valuation.metrics.dividends import (
-    DIVIDEND_RECORD_DATE_GUARD_DAYS,
-    DIVIDEND_ROUTE_TOLERANCE,
     _dividend_basis_requires_resolution,
 )
 from baibai_engine.valuation.metrics.periods import _latest_consistent_actual
@@ -48,7 +44,7 @@ __all__ = (
 )
 
 
-FORWARD_CALCULATION_REVISION = "price-and-share-unit-bases-v3"
+FORWARD_CALCULATION_REVISION = "dividend-basis-ambiguity-v4"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -88,7 +84,7 @@ TOTAL_RETURN_STATUSES = frozenset(
         "unresolved_missing_dividend",
         "unresolved_invalid_dividend",
         "unresolved_invalid_total_return",
-        # 会計期間に分割・併合が入り、支払ごとの換算でも株式基準を確定できない年度。
+        # 会計期間から開示までに分割・併合が入り、原本の株式基準を特定できない年度。
         # 総リターンは配当を含む定義なので、基準の分からない配当を足した値を resolved と
         # 名乗らせない。この窓は総リターンを読む metric の標本から外れる。
         "unresolved_dividend_split_basis",
@@ -202,14 +198,7 @@ class _FYDividendObservation:
     fiscal_year_end: date
     disclosed_at: date
     dps_actual_annual: float | None
-    # 会計期間と支払ごとの内訳。期間内に分割・併合が入った年度は、報告された年間値では
-    # なくこちらを基準日ごとに換算する。総額と株数はその換算の独立した照合に使う。
     period_start: date | None = None
-    payments: tuple[float | None, ...] = (None, None, None, None)
-    dividend_total_annual: float | None = None
-    shares_outstanding: float | None = None
-    treasury_shares: float | None = None
-    average_shares: float | None = None
 
 
 FORWARD_FIELD_NAMES: tuple[str, ...] = tuple(field.name for field in fields(ForwardReturnRow))
@@ -690,20 +679,7 @@ def _load_fy_dividends(
         # A forecast-only revision does not cancel a recorded actual dividend.
         # Same-day revisions use the shared disclosure-time/conflict contract.
         candidates = [row for row in rows if row.dps_actual_annual is not None]
-        selected = _latest_consistent_actual(
-            candidates,
-            (
-                "dps_actual_annual",
-                "dividend_q1",
-                "dividend_interim",
-                "dividend_q3",
-                "dividend_year_end",
-                "dividend_total_annual",
-                "shares_outstanding",
-                "treasury_shares",
-                "average_shares",
-            ),
-        )
+        selected = _latest_consistent_actual(candidates, ("dps_actual_annual",))
         if selected is None:
             # Retain the fiscal year as unresolved, rather than dropping its dividend.
             observations.append(
@@ -716,16 +692,6 @@ def _load_fy_dividends(
                 disclosed_at=selected.disclosed_at,
                 dps_actual_annual=selected.dps_actual_annual,
                 period_start=selected.period_start,
-                payments=(
-                    selected.dividend_q1,
-                    selected.dividend_interim,
-                    selected.dividend_q3,
-                    selected.dividend_year_end,
-                ),
-                dividend_total_annual=selected.dividend_total_annual,
-                shares_outstanding=selected.shares_outstanding,
-                treasury_shares=selected.treasury_shares,
-                average_shares=selected.average_shares,
             )
         )
     return observations
@@ -808,103 +774,26 @@ def _asof_basis_dividend(
     *,
     basis_date: date,
 ) -> float | None:
-    """その年度の年間配当を basis_date の株式基準で答える。答えられなければ None。
+    """Normalize actual DPS under the documented post-disclosure convention.
 
-    報告される年間 DPS は中間・期末それぞれの基準日時点の株式基準なので、会計期間に
-    分割・併合が入ると開示日を基準にした単一の factor では換算できない。期間内に何も
-    起きていなければ開示日より後の調整だけで足り、起きていれば支払ごとにその基準日より
-    後の調整を掛ける。screening の carry と同じ規約で、較正した量とランキングへ入れる量
-    の定義を揃える。
+    fin-summary does not say whether payment fields were issuer-adjusted. A unit
+    change before disclosure therefore cannot be repaired from inferred quarter
+    ends, annual cash totals, or terminal shares. Later actions use the convention
+    that the issuer had not pre-adjusted actual DPS for an announced future action;
+    this is an analytical assumption, not a provider guarantee. Keep price-only outcomes separate.
     """
     reported = observation.dps_actual_annual
-    if reported is None:
-        return None
-    # 無配の年度に確定すべき株式基準は無い。0 円は何倍しても 0 円なので、期間内に調整が
-    # あっても答えは 0 で確定する。拒否に倒すと、分割を出す無配銘柄を含む保有窓が丸ごと
-    # 較正の標本から落ちる。
-    if reported == 0:
-        return 0.0
+    if reported is None or reported == 0:
+        return reported
     window_start = observation.period_start or add_months_clamped(observation.fiscal_year_end, -12)
-    disclosure_factor = cumulative_share_unit_factor_after(
-        bars, after=observation.disclosed_at, asof_date=basis_date
-    )
-    if disclosure_factor is None:
-        return None
-    if not _dividend_basis_requires_resolution(
+    if _dividend_basis_requires_resolution(
         bars, accrual_start=window_start, disclosed_at=observation.disclosed_at
     ):
-        return reported * disclosure_factor
-
-    payments = tuple(
-        zip(
-            observation.payments,
-            (
-                add_months_clamped(observation.fiscal_year_end, -9),
-                add_months_clamped(observation.fiscal_year_end, -6),
-                add_months_clamped(observation.fiscal_year_end, -3),
-                observation.fiscal_year_end,
-            ),
-            strict=True,
-        )
+        return None
+    factor = cumulative_share_unit_factor_after(
+        bars, after=observation.disclosed_at, asof_date=basis_date
     )
-    if all(value is None for value, _ in payments):
-        return None
-    # 明細が一部だけ来ている行は真値の一部しか持たない。調整前の合計が報告年間値と
-    # 合わなければ、換算しても真値の一部にしかならないので答えない。
-    if abs(sum(value or 0.0 for value, _ in payments) / reported - 1.0) > DIVIDEND_ROUTE_TOLERANCE:
-        return None
-    guard = timedelta(days=DIVIDEND_RECORD_DATE_GUARD_DAYS)
-    adjustments = [
-        bar.traded_at
-        for bar in bars
-        if window_start < bar.traded_at <= observation.disclosed_at
-        and share_unit_factor(bar) != 1.0
-    ]
-    for value, record_date in payments:
-        if value and any(abs(day - record_date) <= guard for day in adjustments):
-            return None
-    resolved = 0.0
-    for value, record_date in payments:
-        if not value:
-            continue
-        factor = cumulative_share_unit_factor_after(bars, after=record_date, asof_date=basis_date)
-        if factor is None:
-            return None
-        resolved += value * factor
-    if resolved <= 0:
-        return None
-    # 株数は開示日時点の値なので、basis_date 基準の `resolved` と比べる前に同じ基準へ
-    # 寄せる。寄せないと開示より後の調整のぶんだけ比がずれ、veto が誤発火する。
-    shares = _per_share_denominator(observation)
-    if shares is not None:
-        shares /= disclosure_factor
-    amount = observation.dividend_total_annual
-    if (
-        amount is not None
-        and amount > 0
-        and shares is not None
-        and abs((amount / shares) / resolved - 1.0) > DIVIDEND_ROUTE_TOLERANCE
-    ):
-        return None
-    return resolved
-
-
-def _per_share_denominator(observation: _FYDividendObservation) -> float | None:
-    """円の総額を 1 株当たりへ直せる株数。提出者自身の期中平均から外れる行は答えない。"""
-    shares = observation.shares_outstanding
-    treasury = observation.treasury_shares
-    if shares is None or treasury is None:
-        return None
-    remaining = shares - treasury
-    if remaining <= 0:
-        return None
-    anchor = observation.average_shares
-    if anchor is None or anchor <= 0:
-        return remaining
-    ratio = remaining / anchor
-    if not 1 / SHARE_COUNT_ANCHOR_TOLERANCE <= ratio <= SHARE_COUNT_ANCHOR_TOLERANCE:
-        return None
-    return remaining
+    return None if factor is None else reported * factor
 
 
 def latest_market_data_date(sqlite_path: Path) -> date | None:

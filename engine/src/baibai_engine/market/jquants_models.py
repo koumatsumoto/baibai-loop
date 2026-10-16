@@ -140,10 +140,9 @@ class JQuantsFinancialSummary:
     # 開示された自己資本比率。`equity` は非支配株主持分を含む純資産なので、`equity / total_assets`
     # は自己資本比率にならない。導出でなく開示値を持つのは、自己資本を別途持たずに済むため。
     equity_to_asset_ratio: float | None = None
-    # 支払ごとの 1 株当たり配当と、通期に支払った配当の総額 (円)。`dps_actual_annual` は
-    # 中間・期末それぞれの基準日時点の株式基準で記載されるため、分割・併合を跨いだ年度は
-    # 株価と基準が揃わない。支払ごとに持てば各支払の基準日より後の調整だけを掛けられ、
-    # 総額は株式基準を持たないのでその換算の独立した照合になる。
+    # 原本の配当明細と年間総額 (円)。会社側の分割調整の有無はこのfieldだけでは特定できず、
+    # 四半期末を基準日と仮定して換算しない。年間総額 / 期末株数も、期中の株数変化があれば
+    # 支払別DPSと一致しない。再分析用の原値として保持する。
     dividend_q1: float | None = None
     dividend_interim: float | None = None
     dividend_q3: float | None = None

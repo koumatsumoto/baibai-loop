@@ -25,9 +25,6 @@ from baibai_engine.valuation.metrics.capital import (
     _ShareBasis,
     build_shares_outstanding_index,
 )
-from baibai_engine.valuation.metrics.dividends import (
-    _shares_for_per_share,
-)
 from baibai_engine.valuation.metrics.periods import _actual_rows, _ttm_value
 
 
@@ -650,30 +647,6 @@ class MissingCloseAdjustmentEventTests(unittest.TestCase):
         self.assertIsNotNone(derived.gap_from_52w_low)
         self.assertAlmostEqual(derived.price_change_60d, 0.0, places=12)
         self.assertAlmostEqual(derived.gap_from_52w_low, 0.0, places=12)
-
-
-def test_the_share_count_anchor_admits_a_double_and_refuses_past_it() -> None:
-    """Pin the configured average/end-share plausibility band with literal boundaries.
-
-    Passing the band does not identify a buyback or issuance, nor prove matching bases.
-    """
-
-    def resolved(average_shares: float) -> float | None:
-        return _shares_for_per_share(
-            _summary(
-                "130A",
-                date(2026, 5, 10),
-                shares_outstanding=2_000_000.0,
-                treasury_shares=0.0,
-                average_shares=average_shares,
-            )
-        )
-
-    # 2.0x and its reciprocal are inside the band; a hair past either end is not.
-    assert resolved(1_000_000.0) == 2_000_000.0
-    assert resolved(4_000_000.0) == 2_000_000.0
-    assert resolved(999_999.0) is None
-    assert resolved(4_000_001.0) is None
 
 
 def test_the_edinet_balance_sheet_must_be_within_a_double_of_the_statement() -> None:

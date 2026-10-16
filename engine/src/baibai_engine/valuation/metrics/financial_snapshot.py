@@ -43,7 +43,7 @@ from .profit import (
 )
 from .ratios import _safe_positive_ratio, _safe_ratio, _yoy_ratio
 
-VALUATION_CALCULATION_REVISION = "reported-capital-fields-v32"
+VALUATION_CALCULATION_REVISION = "dividend-basis-ambiguity-v33"
 
 
 def build_financial_snapshot(
@@ -123,7 +123,7 @@ def build_financial_snapshot(
     # 調整した実績 DPS を使う。実績 DPS は
     # FY 開示にしか載らないため直近の非 null 行から取り、split-safe 化した値を
     # snapshot の実績 DPS として記録する (株価と同じ分割後基準で表示・比較できる)。
-    dividend = _resolve_dividend_carry(summaries, adjustment_events, latest_price, asof_date)
+    dividend = _resolve_dividend_carry(summaries, adjustment_events, latest_price)
     dps_actual_annual = dividend.dps_actual_annual
     dps_forecast_annual = dividend.dps_forecast_annual
     dividend_yield = dividend.dividend_yield

@@ -262,7 +262,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
         result = build_shareholder_return_change_signals(summaries, bars, asof)
 
         # 分割は FY2024 の判定窓 (期末から1年前の2023-03-31〜開示日2024-05-10) に入る。その年度の
-        # 44 円が分割前基準か後かは支払ごとの基準日を見ないと言えないので、増配とも
+        # 44 円が分割前基準か後かは原本fieldだけでは特定できないので、増配とも
         # 減配とも判定しない。株数側の signal は配当と独立なので残る。
         self.assertIsNone(result.dps_streak_up)
         self.assertIsNone(result.dps_yoy_latest)
@@ -270,7 +270,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
 
     def test_shareholder_return_change_normalizes_splits_after_the_last_disclosure(self) -> None:
         # 分割が最新の通期開示より後なら、どの年度の accrual 期間にも入らない。各行は
-        # 正規化で asof 基準へ揃うので、増配 streak と YoY はそのまま出る。
+        # 公表後の分割が実績に未反映という規約で asof 基準へ揃い、増配 streak と YoY を出す。
         asof = date(2026, 6, 30)
         bars = [
             JQuantsDailyBar(

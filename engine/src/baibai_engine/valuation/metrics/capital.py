@@ -436,10 +436,6 @@ def build_shares_outstanding_index(
     return shares
 
 
-# 期末発行済から自己株を引いた株数が、提出者自身が EPS を出すのに使った期中平均株数から
-# この倍率を超えて外れる行は、株数を per-share の分母に使わない。
-SHARE_COUNT_ANCHOR_TOLERANCE = 2.0
-
 # EDINETと短信の総資産比がこの倍率帯を外れる行は、規模差の検査で不採用にする。
 # 帯内という結果だけでは同じ時点・連結範囲であるとは確定しない。
 ENTITY_SCALE_TOLERANCE = 2.0

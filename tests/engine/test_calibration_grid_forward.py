@@ -81,7 +81,7 @@ class MonthEndDatesTest(unittest.TestCase):
 
 
 class ForwardReturnTest(unittest.TestCase):
-    def test_dividend_guard_keeps_price_return_resolved(self) -> None:
+    def test_unknown_dividend_basis_keeps_price_return_resolved(self) -> None:
         row = _ticker_forward_rows(
             "1000",
             [
@@ -95,7 +95,6 @@ class ForwardReturnTest(unittest.TestCase):
                     disclosed_at=date(2025, 5, 15),
                     dps_actual_annual=60.0,
                     period_start=date(2024, 4, 1),
-                    payments=(None, 20.0, None, 40.0),
                 )
             ],
             asofs=[date(2025, 1, 31)],
