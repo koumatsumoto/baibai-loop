@@ -34,7 +34,7 @@ from baibai_engine.market_context.indicators.providers import (
     parse_tsr_bankruptcies_json,
 )
 from baibai_engine.market_context.indicators.providers.estat_dashboard import (
-    EStatDashboardProvider,
+    EStatDashboardSource,
     parse_dashboard_json,
 )
 
@@ -474,7 +474,7 @@ class IndicatorsProviderParserTests(TestCase):
             )
         )
 
-        observations = EStatDashboardProvider().fetch(
+        observations = EStatDashboardSource().fetch_records(
             _dashboard_series(),
             start=date(2026, 5, 1),
             end=date(2026, 5, 31),
@@ -483,8 +483,8 @@ class IndicatorsProviderParserTests(TestCase):
 
         self.assertEqual(session.params, {"TimeFrom": "19480100", "TimeTo": "20260500"})
         self.assertEqual(
-            [(item.observed_at, item.value) for item in observations],
-            [(date(2026, 5, 1), 2.4)],
+            observations,
+            {date(2026, 5, 1): [_dashboard_row("20260500", "2.4")["VALUE"]]},
         )
 
     def test_parse_dashboard_json_skips_null_markers(self) -> None:
@@ -521,34 +521,24 @@ class IndicatorsProviderParserTests(TestCase):
                 with self.assertRaisesRegex(IndicatorsProviderError, attribute):
                     _parse_dashboard([row])
 
-    def test_parse_dashboard_json_leaves_a_preliminary_month_unwritten(self) -> None:
-        # Preliminary rows are excluded from this final-value series. Their presence
-        # alone does not establish whether the final release is already overdue.
+    def test_dashboard_reading_excludes_retained_preliminary_prints(self) -> None:
         preliminary = _dashboard_row("20260600", "2.9")
         preliminary["VALUE"]["@isProvisional"] = "1"
-
-        with self.assertLogs(
-            "baibai_engine.market_context.indicators.providers.estat_dashboard", level="WARNING"
-        ) as logs:
-            observations = _parse_dashboard(
-                [
-                    _dashboard_row("20260400", "2.6"),
-                    _dashboard_row("20260500", "2.4"),
-                    preliminary,
-                ]
-            )
-
+        rows = [_dashboard_row("20260400", "2.6"), _dashboard_row("20260500", "2.4"), preliminary]
+        observations = _parse_dashboard(rows)
         self.assertEqual(
             [(item.observed_at, item.value) for item in observations],
             [(date(2026, 4, 1), 2.6), (date(2026, 5, 1), 2.4)],
         )
-        message = "\n".join(logs.output)
-        self.assertIn("test.series", message)
-        self.assertIn("2026-06-01", message)
+        native = parse_dashboard_json(
+            _dashboard_payload(rows),
+            start=date(2026, 1, 1), end=date(2026, 12, 31), selectors=_DASHBOARD_SELECTORS,
+        )
+        self.assertEqual(native[date(2026, 6, 1)], [preliminary["VALUE"]])
 
     def test_parse_dashboard_json_keeps_a_preliminary_month_out_of_the_unit_check(self) -> None:
-        # A preliminary row is not part of the series being written, so its unit
-        # must not read as the publisher mixing two units into one series.
+        # A retained preliminary row is not part of the final-value Reading, so its
+        # unit does not contaminate the final values selected by L2.
         preliminary = _dashboard_row("20260600", "2.9")
         preliminary["VALUE"]["@isProvisional"] = "1"
         preliminary["VALUE"]["@unit"] = "指数"
@@ -562,7 +552,6 @@ class IndicatorsProviderParserTests(TestCase):
 
         with self.assertRaisesRegex(IndicatorsProviderError, "1 rows for a declared total of 2"):
             parse_dashboard_json(
-                _dashboard_series(),
                 text,
                 start=date(2026, 1, 1),
                 end=date(2026, 12, 31),
@@ -576,7 +565,6 @@ class IndicatorsProviderParserTests(TestCase):
 
         with self.assertRaisesRegex(IndicatorsProviderError, "returned status 1"):
             parse_dashboard_json(
-                _dashboard_series(),
                 text,
                 start=date(2026, 1, 1),
                 end=date(2026, 12, 31),
@@ -598,15 +586,39 @@ class IndicatorsProviderParserTests(TestCase):
         row = _dashboard_row("20260500", "2.4")
         row["VALUE"]["$"] = cast(str, 2.4)
 
-        with self.assertRaisesRegex(IndicatorsProviderError, "value is not a string"):
+        with self.assertRaisesRegex(ValueError, "value is not a string"):
             _parse_dashboard([row])
 
     def test_parse_dashboard_json_rejects_two_units_in_one_series(self) -> None:
         rows = [_dashboard_row("20260400", "2.5"), _dashboard_row("20260500", "2400")]
         rows[1]["VALUE"]["@unit"] = "120"
 
-        with self.assertRaisesRegex(IndicatorsProviderError, "mixed units"):
+        with self.assertRaisesRegex(ValueError, "mixed units"):
             _parse_dashboard(rows)
+
+    def test_dashboard_preserves_null_and_unknown_attributes_before_reading(self) -> None:
+        row = _dashboard_row("20260500", "-")
+        row["VALUE"]["publisher_note"] = "unavailable"
+        native = parse_dashboard_json(
+            _dashboard_payload([row]),
+            start=date(2026, 5, 1), end=date(2026, 5, 31), selectors=_DASHBOARD_SELECTORS,
+        )
+        self.assertEqual(native, {date(2026, 5, 1): [row["VALUE"]]})
+        self.assertEqual(_parse_dashboard([row]), [])
+
+    def test_dashboard_checks_units_for_the_reading_window_not_unused_history(self) -> None:
+        old = _dashboard_row("20260400", "2500")
+        old["VALUE"]["@unit"] = "120"
+        observations = _parse_dashboard(
+            [old, _dashboard_row("20260500", "2.4")], start=date(2026, 5, 1)
+        )
+        self.assertEqual([item.value for item in observations], [2.4])
+
+    def test_dashboard_reading_preserves_zero_and_does_not_hide_null_duplicates(self) -> None:
+        self.assertEqual([item.value for item in _parse_dashboard([_dashboard_row("20260500", "0")])], [0.0])
+        self.assertEqual(_parse_dashboard([
+            _dashboard_row("20260500", "2.4"), _dashboard_row("20260500", "-")
+        ]), [])
 
     def test_estat_dashboard_requires_the_source_url_to_pin_one_series(self) -> None:
         """The source URL is the provenance stored on every observation.
@@ -648,7 +660,7 @@ class IndicatorsProviderParserTests(TestCase):
                 self.subTest(source_url=source_url),
                 self.assertRaisesRegex(IndicatorsProviderError, message),
             ):
-                EStatDashboardProvider().fetch(
+                EStatDashboardSource().fetch_records(
                     _dashboard_series(source_url=source_url),
                     start=date(2026, 1, 1),
                     end=date(2026, 5, 31),
@@ -657,7 +669,7 @@ class IndicatorsProviderParserTests(TestCase):
 
     def test_estat_dashboard_refuses_a_series_that_is_not_monthly(self) -> None:
         with self.assertRaisesRegex(IndicatorsProviderError, "monthly series only"):
-            EStatDashboardProvider().fetch(
+            EStatDashboardSource().fetch_records(
                 _dashboard_series(frequency="quarterly"),
                 start=date(2026, 1, 1),
                 end=date(2026, 5, 31),

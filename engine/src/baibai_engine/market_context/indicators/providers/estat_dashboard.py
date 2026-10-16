@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import json
-import logging
+from collections import defaultdict
 from collections.abc import Mapping
 from datetime import date
 from typing import cast
 from urllib.parse import parse_qsl, urlsplit
 
 from ..definitions import SeriesDefinition
-from ..observations import ObservationRecord
+from ..observations import NativeRecords
 from .base import (
     MAX_CSV_RESPONSE_BYTES,
     FetchContext,
@@ -16,13 +16,7 @@ from .base import (
     IndicatorsProviderError,
     ProviderSpec,
     fetch_text,
-    parse_float,
-    record_observation,
 )
-
-# The dashboard marks a cell with no usable number using these tokens; each is skipped.
-# Anything else that is not one of these strings is a change in the response shape.
-_DASHBOARD_NULL_MARKERS = frozenset({"", "-", "***", "X", "…", "..."})
 
 # Selectors a registry entry must pin, because one IndicatorCode serves several
 # series at once: monthly / quarterly / annual cycles crossed with raw and
@@ -36,15 +30,6 @@ _SOURCE_URL_KEYS = frozenset({"Lang", "IndicatorCode", *_REQUIRED_SELECTORS})
 # parsing, so an unregistered cycle fails instead of being guessed at.
 _MONTHLY_CYCLE = "1"
 
-# The dashboard marks a preliminary print with "1". Registered series declare a
-# publication lag that belongs to the final print, so a preliminary row would make
-# an observation appear weeks early and keep the series looking fresh after the
-# final print stopped. A month that has only a preliminary print is therefore left
-# unwritten and picked up when the final print lands — the declared lag already
-# says the month is not due yet, so this is a publication state rather than a
-# failed fetch.
-_FINAL_PRINT = "0"
-
 # Every request opens at this floor even when a narrower window is asked for. The
 # API answers "no data" with the same status and message it uses for an unknown
 # IndicatorCode or an invalid selector, so a request that can legitimately come back
@@ -53,18 +38,16 @@ _FINAL_PRINT = "0"
 # real failure. The published history of one indicator is a few hundred KB.
 _HISTORY_FLOOR = date(1948, 1, 1)
 
-_LOGGER = logging.getLogger(__name__)
 
-
-class EStatDashboardProvider:
+class EStatDashboardSource:
     """統計ダッシュボード getData JSON (no credential). Japanese official monthly series.
 
     The dashboard is operated by 総務省統計局 and mirrors ministry statistics with a
     stable IndicatorCode, which makes it readable where the publishing ministry
     offers only per-release files. ``source_url`` carries the IndicatorCode plus the
     selectors that pin one series out of the code's cycle / seasonal-adjustment
-    family, so a stored observation names the upstream series it came from and a
-    corrected selector rewrites the series instead of layering onto it. Every
+    family, so each native snapshot names the upstream series it came from. A corrected
+    selector has a different source identity and cannot read the previous one. Every
     returned row is checked against those selectors, so a filter the API ignores
     fails the fetch instead of mixing two series into one.
 
@@ -77,7 +60,7 @@ class EStatDashboardProvider:
     spec = ProviderSpec(name="estat_dashboard", all_history_start=_HISTORY_FLOOR)
     name = spec.name
 
-    def fetch(
+    def fetch_records(
         self,
         series: SeriesDefinition,
         *,
@@ -85,7 +68,7 @@ class EStatDashboardProvider:
         end: date,
         session: HttpSession,
         context: FetchContext | None = None,
-    ) -> list[ObservationRecord]:
+    ) -> NativeRecords:
         selectors = source_url_selectors(series)
         text = fetch_text(
             session,
@@ -100,7 +83,6 @@ class EStatDashboardProvider:
             context=context,
         )
         return parse_dashboard_json(
-            series,
             text,
             start=start,
             end=end,
@@ -154,40 +136,21 @@ def source_url_selectors(series: SeriesDefinition) -> Mapping[str, str]:
 
 
 def parse_dashboard_json(
-    series: SeriesDefinition,
     text: str,
     *,
     start: date,
     end: date,
     selectors: Mapping[str, str],
-) -> list[ObservationRecord]:
-    entries = _extract_value_entries(text)
-    observations: list[ObservationRecord] = []
-    units: set[str] = set()
-    preliminary: list[date] = []
-    for entry in entries:
+) -> NativeRecords:
+    by_date: dict[date, list[dict[str, object]]] = defaultdict(list)
+    for entry in _extract_value_entries(text):
         _require_requested_series(entry, selectors=selectors)
         observed_at = _parse_dashboard_month(entry.get("@time"))
-        if entry.get("@isProvisional") != _FINAL_PRINT:
-            if start <= observed_at <= end:
-                preliminary.append(observed_at)
-            continue
-        units.add(str(entry.get("@unit")))
-        value = _parse_dashboard_value(entry.get("$"))
-        if value is None or not start <= observed_at <= end:
-            continue
-        observations.append(record_observation(series, observed_at=observed_at, value=value))
-    if preliminary:
-        _LOGGER.warning(
-            "e-Stat dashboard skipped preliminary rows for %s: %s; "
-            "final rows, when present, are processed separately",
-            series.series_id,
-            ", ".join(month.isoformat() for month in sorted(preliminary)),
-        )
-    if len(units) > 1:
-        listed = ", ".join(sorted(units))
-        raise IndicatorsProviderError(f"e-Stat dashboard mixed units in one series: {listed}")
-    return observations
+        if start <= observed_at <= end:
+            # Keep every returned native attribute, including preliminary prints,
+            # null markers and publisher units. L2 decides which values to use.
+            by_date[observed_at].append(dict(entry))
+    return dict(by_date)
 
 
 def _extract_value_entries(text: str) -> list[Mapping[str, object]]:
@@ -250,9 +213,8 @@ def _require_requested_series(
     The selectors carry the series identity, so a row that answers a different
     cycle, adjustment, indicator, or region means the filter did not apply. Mixing
     those into one series is worse than failing the refresh. ``@isProvisional`` is
-    not checked here: a preliminary row is the requested series, just an earlier
-    print of one month, so it is skipped by the caller rather than failing the
-    fetch that carries every final print alongside it.
+    not filtered here: preliminary and final rows both belong to the requested
+    series. Their publication states remain native inputs for the Reading policy.
     """
 
     expected = (
@@ -289,15 +251,3 @@ def _parse_dashboard_month(raw: object) -> date:
     if not 1 <= month <= 12 or raw[6:] != "00":
         raise IndicatorsProviderError(f"e-Stat dashboard monthly time code is unreadable: {raw!r}")
     return date(int(raw[:4]), month, 1)
-
-
-def _parse_dashboard_value(raw: object) -> float | None:
-    # Only the documented markers stand for "no number". A value that is not a
-    # string at all is a changed response shape, and skipping those rows would
-    # turn it into a short history instead of a failure.
-    if not isinstance(raw, str):
-        raise IndicatorsProviderError(f"e-Stat dashboard value is not a string: {raw!r}")
-    text = raw.strip()
-    if text in _DASHBOARD_NULL_MARKERS:
-        return None
-    return parse_float(text)

@@ -35,6 +35,7 @@ from baibai_engine.market_context.indicators.providers import (
 from baibai_engine.market_context.indicators.providers.base import (
     FetchContext,
     HttpSession,
+    record_observation,
 )
 from baibai_engine.market_context.indicators.providers.estat_dashboard import (
     parse_dashboard_json,
@@ -44,6 +45,7 @@ from baibai_engine.market_context.indicators.providers.spglobal_pmi import (
     SpGlobalPmiProvider,
     _parse_stream,
 )
+from baibai_engine.market_context.reading.dashboard import dashboard_values
 
 if TYPE_CHECKING:
     # Only the annotation is needed; importing it for real would pull Playwright
@@ -443,13 +445,16 @@ def _parse_dashboard(
     start: date = date(2026, 1, 1),
     end: date = date(2026, 12, 31),
 ) -> list[ObservationRecord]:
-    return parse_dashboard_json(
-        _dashboard_series(),
+    records = parse_dashboard_json(
         _dashboard_payload(rows),
         start=start,
         end=end,
         selectors=_DASHBOARD_SELECTORS,
     )
+    return [
+        record_observation(_dashboard_series(), observed_at=day, value=value)
+        for day, value in dashboard_values(records).items()
+    ]
 
 
 class _ForbiddenResponse:

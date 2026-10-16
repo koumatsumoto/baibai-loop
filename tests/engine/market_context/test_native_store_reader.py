@@ -17,6 +17,10 @@ from baibai_engine.market_context.indicators.observations import ObservationReco
 from baibai_engine.market_context.indicators.providers.base import FetchContext, IndicatorsProviderError
 from baibai_engine.market_context.indicators.providers.cftc import CftcSource
 from baibai_engine.market_context.indicators.providers.ecb_fx import EcbFxSource
+from baibai_engine.market_context.indicators.providers.estat_dashboard import (
+    EStatDashboardSource,
+)
+from baibai_engine.market_context.indicators.read_contracts import native_source_key
 from baibai_engine.market_context.indicators.source_snapshots import read_snapshots, store_snapshot
 from baibai_engine.market_context.reading.reader import build_store_observation_reader
 from baibai_engine.read_api.freshness import indicator_latest_observed_at
@@ -141,3 +145,75 @@ def test_conflicting_native_values_remain_stored_when_reading_refuses_them(tmp_p
         IndicatorsService(database).get_range("positioning.jpy_noncomm_net", start=DAY, end=DAY, refresh=True)
     with closing(sqlite3.connect(database)) as conn:
         assert list(read_snapshots(conn, DAY, DAY, source_key="cftc:097741"))[0].records == tuple(rows)
+
+
+def test_dashboard_retains_publication_states_and_null_correction_without_old_scalar(tmp_path, monkeypatch):
+    database = tmp_path / "indicators.sqlite"
+    series_id = "jp.unemployment"
+    series = load_definitions().by_id()[series_id]
+    may, june = date(2026, 5, 1), date(2026, 6, 1)
+    final = {"@time": "20260500", "@isProvisional": "0", "@unit": "001", "$": "2.4", "extra": None}
+    provisional = {"@time": "20260600", "@isProvisional": "1", "@unit": "001", "$": "2.9"}
+    correction = {**final, "$": "-"}
+    june_final = {**provisional, "@isProvisional": "0", "$": "2.6"}
+    replies = [{may: [final], june: [provisional]}, {may: [correction], june: [provisional, june_final]}]
+    monkeypatch.setattr(indicator_service, "fetch_native_records", lambda *a, **k: replies.pop(0))
+    service = IndicatorsService(database)
+    result = service.get_range(series_id, start=may, end=june, refresh=True)
+    assert [(item.observed_at, item.value) for item in result.observations] == [(may, 2.4)]
+    with closing(sqlite3.connect(database)) as conn:
+        snapshots = {item.observed_at: item.records for item in read_snapshots(
+            conn, may, june, source_key=native_source_key(series)
+        )}
+        assert snapshots[may] == (final,)
+        assert snapshots[june] == (provisional,)
+        assert conn.execute("SELECT count(*) FROM observations").fetchone()[0] == 0
+    assert service.get_range(series_id, start=may, end=june).cache_hit
+    assert len(replies) == 1
+    result = service.get_range(series_id, start=may, end=june, refresh=True)
+    assert [(item.observed_at, item.value) for item in result.observations] == [(june, 2.6)]
+    with closing(sqlite3.connect(database)) as conn:
+        read = build_store_observation_reader(conn, series=load_definitions().series)
+        assert [(item.observed_at, item.value) for item in read(series_id, may, june)] == [(june, 2.6)]
+        assert next(read_snapshots(conn, may, may, source_key=native_source_key(series))).records == (correction,)
+
+
+def test_dashboard_keeps_native_input_when_numeric_reading_fails(tmp_path, monkeypatch):
+    database = tmp_path / "indicators.sqlite"
+    series = load_definitions().by_id()["jp.unemployment"]
+    row = {"@isProvisional": "0", "@unit": "001", "$": 2.4}
+    monkeypatch.setattr(indicator_service, "fetch_native_records", lambda *a, **k: {DAY: [row]})
+    with pytest.raises(ValueError, match="value is not a string"):
+        IndicatorsService(database).get_range(series.series_id, start=DAY, end=DAY, refresh=True)
+    with closing(sqlite3.connect(database)) as conn:
+        assert next(read_snapshots(conn, DAY, DAY, source_key=native_source_key(series))).records == (row,)
+
+
+def test_dashboard_live_response_shape_keeps_preliminary_wage_print(tmp_path, monkeypatch):
+    # Public nominal-wage VALUE examples observed 2026-10-16 from the registered
+    # getData endpoint. Only the response envelope is a reduced test fixture.
+    series = load_definitions().by_id()["jp.nominal_wage_index"]
+    july, august = date(2026, 7, 1), date(2026, 8, 1)
+    final = {
+        "@indicator": "0302030202010090010", "@unit": "000", "@stat": "00450071",
+        "@regionCode": "00000", "@time": "20260700", "@cycle": "1", "@regionRank": "2",
+        "@isSeasonal": "2", "@isProvisional": "0", "$": "114.7",
+    }
+    provisional = {**final, "@time": "20260800", "@isProvisional": "1", "$": "112.4"}
+    payload = {"GET_STATS": {"RESULT": {"status": "0"}, "STATISTICAL_DATA": {
+        "RESULT_INF": {"TOTAL_NUMBER": "2"},
+        "DATA_INF": {"DATA_OBJ": [{"VALUE": final}, {"VALUE": provisional}]},
+    }}}
+    session = _StaticSession(_FakeResponse(json.dumps(payload).encode()))
+    native = EStatDashboardSource().fetch_records(series, start=july, end=august, session=session)
+    assert native == {july: [final], august: [provisional]}
+    monkeypatch.setattr(indicator_service, "fetch_native_records", lambda *a, **k: native)
+    database = tmp_path / "indicators.sqlite"
+    result = IndicatorsService(database).get_range(series.series_id, start=july, end=august, refresh=True)
+    assert [(item.observed_at, item.value, item.unit) for item in result.observations] == [(july, 114.7, "index")]
+    with closing(sqlite3.connect(database)) as conn:
+        stored = {item.observed_at: item.records for item in read_snapshots(
+            conn, july, august, source_key=native_source_key(series)
+        )}
+        assert stored[july] == (final,)
+        assert stored[august] == (provisional,)

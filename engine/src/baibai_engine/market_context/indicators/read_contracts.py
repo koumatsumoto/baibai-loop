@@ -23,11 +23,14 @@ JQUANTS_OPTIONS_SPEC = ProviderSpec(
 
 CFTC_SPEC = ProviderSpec(name="cftc", all_history_start=date(2000, 1, 1))
 ECB_FX_SPEC = ProviderSpec(name="ecb_fx", all_history_start=date(1999, 1, 1))
-NATIVE_BULK_PROVIDERS = frozenset({"cftc", "ecb_fx", "jquants_flows", "jquants_indices"})
+NATIVE_BULK_PROVIDERS = frozenset({"cftc", "ecb_fx", "jquants_flows", "jquants_indices", "estat_dashboard"})
 NATIVE_PROVIDERS = NATIVE_BULK_PROVIDERS | {"jquants_options"}
 
 
 def native_source_key(series: SeriesDefinition) -> str:
+    if series.provider == "estat_dashboard":
+        # The URL owns cycle, seasonal adjustment and region as well as indicator.
+        return f"estat_dashboard:{series.source_url}"
     if series.provider == "jquants_options":
         return "jquants_options:n225"
     if series.provider == "ecb_fx":
