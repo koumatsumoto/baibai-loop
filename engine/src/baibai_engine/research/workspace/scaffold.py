@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import date, datetime, time
+from datetime import date, datetime
 from math import isfinite
 from pathlib import Path
 from typing import get_args
@@ -115,9 +115,6 @@ def scaffold_assessment(
                     "unit": "JPY_per_share",
                     "as_of": quote.price_as_of.isoformat(),
                     "source_ids": ["market_close"],
-                    "observed_at": datetime.combine(
-                        quote.price_as_of, time(15, 30), tzinfo=JST
-                    ).isoformat(),
                     "price_basis": "last_close_unadjusted",
                 }
             )

@@ -12,7 +12,8 @@ from pathlib import Path
 
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 from baibai_engine.foundation.time import JST
-from baibai_engine.position.market_source import latest_eligible_close_date, next_order_session
+from baibai_engine.market.sessions import latest_eligible_close_date
+from baibai_engine.position.market_source import next_order_session
 from baibai_engine.position.policy import PORTFOLIO_POLICY
 from baibai_engine.research.assessment_store import (
     ReviewedAssessment,

@@ -26,6 +26,7 @@ def _assessment_pair():
     for source in assessment["input_snapshot"]["sources"]:
         source.update(as_of="2026-10-14", retrieved_at=JST_MORNING)
     assessment["input_snapshot"]["facts"][0]["observed_at"] = JST_MORNING
+    assessment["input_snapshot"]["facts"][0]["price_basis"] = "realtime"
     assessment["conclusion"]["assessed_at"] = "2026-10-14T09:00:00+09:00"
     review["reviewed_at"] = "2026-10-14T09:15:00+09:00"
     return assessment, review
@@ -164,3 +165,32 @@ def test_position_quote_age_uses_native_date_without_receipt_clock(
     assert (result.current_price_projection is not None) is (expected_action == "hold")
     if result.current_price_projection is not None:
         assert result.current_price_projection["price_as_of"] == "2026-10-14"
+
+
+def test_daily_close_needs_its_native_date_not_an_invented_clock():
+    assessment, review = pair_payload(as_of="2026-10-14", quote_as_of="2026-10-14")
+    price = assessment["input_snapshot"]["facts"][0]
+    price.pop("observed_at", None)
+    assert price["price_basis"] == "last_close_unadjusted"
+    assert _evaluate(assessment, review, now="2026-10-14T18:00:00+09:00").errors == ()
+
+
+def test_realtime_price_still_requires_a_source_observation_time():
+    from pydantic import ValidationError
+
+    assessment, _ = pair_payload()
+    price = assessment["input_snapshot"]["facts"][0]
+    price["price_basis"] = "realtime"
+    price.pop("observed_at", None)
+    with pytest.raises(ValidationError, match="requires observed_at"):
+        StockAssessmentDocument.model_validate(assessment)
+
+
+def test_date_only_close_cannot_claim_the_unfinished_session():
+    assessment, review = _assessment_pair()
+    price = assessment["input_snapshot"]["facts"][0]
+    price["price_basis"] = "last_close_unadjusted"
+    price.pop("observed_at", None)
+    assert "market_price close date follows the available session" in _evaluate(
+        assessment, review
+    ).errors

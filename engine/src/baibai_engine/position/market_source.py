@@ -23,13 +23,13 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, timedelta
 from math import isfinite
 from pathlib import Path
 from typing import Literal
 
-from baibai_engine.foundation.time import JST
 from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, share_unit_factor
+from baibai_engine.market.sessions import latest_eligible_close_date
 from baibai_engine.storage.observations.read import connect_read_only
 from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, SQLiteSchemaError
 
@@ -38,14 +38,6 @@ from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, SQL
 class UnadjustedCloseObservation:
     close_yen: float
     price_as_of: date
-
-
-def latest_eligible_close_date(at: datetime) -> date:
-    """Apply the JST session cutoff without inventing a source observation timestamp."""
-    if at.tzinfo is None or at.utcoffset() is None:
-        raise ValueError("market instant requires a timezone")
-    local = at.astimezone(JST)
-    return local.date() - timedelta(days=local.time() < time(15, 30))
 
 
 def read_unadjusted_close(
