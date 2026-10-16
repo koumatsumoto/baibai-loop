@@ -11,8 +11,8 @@ from unittest.mock import Mock
 import pytest
 from tests.helpers.http_doubles import FakeSession, response
 
-from baibai_engine.market.edinet_facts.models import ExtractedFacts, filing_identity
 from baibai_engine.market.edinet_facts.extract import extract_facts
+from baibai_engine.market.edinet_facts.models import ExtractedFacts, filing_identity
 from baibai_engine.market.edinet_facts.selection import (
     annual_documents,
     latest_annual_filing,
@@ -640,7 +640,9 @@ def test_orphan_correction_is_scoped_to_its_fiscal_period(tmp_path, description_
         assert selected is None
 
 
-@pytest.mark.parametrize("field,value", [("secCode", "99990"), ("submitDateTime", "2026-06-24 15:00")])
+@pytest.mark.parametrize(
+    ("field", "value"), [("secCode", "99990"), ("submitDateTime", "2026-06-24 15:00")]
+)
 def test_research_facts_reextract_when_document_identity_changes(tmp_path, field, value):
     path = tmp_path / "market.sqlite"
     original = document()
@@ -655,9 +657,9 @@ def test_research_facts_reextract_when_document_identity_changes(tmp_path, field
     expected = filing_identity(changed["secCode"][:4], changed["docID"], changed["submitDateTime"])
     with sqlite3.connect(path) as conn:
         for table in ("edinet_segment_facts", "edinet_debt_schedule"):
-            assert conn.execute(f"SELECT DISTINCT ticker, source_submit_datetime FROM {table}").fetchall() == [
-                (expected.ticker, expected.source_submit_datetime)
-            ]
+            assert conn.execute(
+                f"SELECT DISTINCT ticker, source_submit_datetime FROM {table}"
+            ).fetchall() == [(expected.ticker, expected.source_submit_datetime)]
     assert provider.download_xbrl_zip.call_count == 2
     assert extract_edinet_facts_command(**kwargs) == 0
     assert provider.download_xbrl_zip.call_count == 2
