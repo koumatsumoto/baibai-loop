@@ -10,6 +10,7 @@ from baibai_web.readmodel.builders.presentation import (
     holding_view,
     latest_research_by_ticker,
     percentage,
+    reservation_last_valid_day,
     security_names_for_run,
 )
 from baibai_web.readmodel.models import (
@@ -81,7 +82,13 @@ def build_dashboard(
             price_guard_yen=str(item.price_guard_yen),
             reserved_yen=item.reserved_yen,
             expires_at=item.expires_at,
-            expiry_label=item.expiry_label,
+            expiry_label=item.expiry_label
+            if item.expiry_label is not None
+            else (
+                reservation_last_valid_day(item.expires_at).isoformat()
+                if item.expires_at is not None
+                else None
+            ),
             route_label=item.route_label,
         )
         for item in snapshot.active_reservations

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
@@ -12,6 +12,11 @@ from baibai_web.sources.protocols import MarketPriceSource
 from baibai_web.sources.types import ResearchRevision, ScreeningRunRecord
 
 _JST = ZoneInfo("Asia/Tokyo")
+
+
+def reservation_last_valid_day(expires_at: datetime) -> date:
+    """Display an exclusive reservation deadline on its last valid JST day."""
+    return (expires_at.astimezone(_JST) - timedelta(microseconds=1)).date()
 
 
 def latest_research_by_ticker(

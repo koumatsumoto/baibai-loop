@@ -14,7 +14,6 @@ import type {
   ReservationView,
   WarningView,
 } from '../api/types'
-import { AsOfBadge } from '../components/AsOfBadge'
 import { InfoHint } from '../components/InfoHint'
 import { LoadingPage } from '../components/LoadingIndicator'
 import { PageShell } from '../components/PageShell'
@@ -334,7 +333,7 @@ function DeltaSecurity({ name, ticker }: { name: string | null; ticker: string }
 
 function DeltaDisclosedBadge({ disclosed }: { disclosed: boolean | null }) {
   if (disclosed === null) return <Badge variant="secondary">開示不明</Badge>
-  return disclosed ? <Badge variant="outline">決算開示後</Badge> : null
+  return disclosed ? <Badge variant="outline">期間内に決算開示</Badge> : null
 }
 
 function DeltaEntries({ children, count, label }: { children: ReactNode; count: number; label: string }) {
@@ -352,7 +351,7 @@ export function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null
   const description =
     delta !== null && delta.previous_as_of !== null && delta.as_of !== null
       ? `${formatJstDateShort(delta.previous_as_of)} → ${formatJstDateShort(delta.as_of)}`
-      : '前営業日との比較'
+      : '保存した実行どうしの比較'
   return (
     <SectionCard
       description={description}
@@ -511,7 +510,7 @@ export function PendingOrdersCard({ reservations }: { reservations: ReservationV
           <span className="ml-2 text-xs text-muted-foreground">× {formatYen(Number(reservation.price_guard_yen))}</span>
         </TableCell>
         <TableCell className="text-right">{reservation.side === 'sell' ? '—' : <YenAmount className="font-medium" value={reservation.reserved_yen} />}</TableCell>
-        <TableCell className="pr-5 text-right sm:pr-6">{reservation.expiry_label ?? (reservation.expires_at ? <AsOfBadge compact value={reservation.expires_at} /> : '未指定')}</TableCell>
+        <TableCell className="pr-5 text-right sm:pr-6">{reservation.expiry_label ?? '未指定'}</TableCell>
       </TableRow>)}</TableBody>
     </Table>
   </SectionCard>
@@ -520,6 +519,7 @@ export function PendingOrdersCard({ reservations }: { reservations: ReservationV
 export function DashboardPage() {
   const [data, setData] = useState<DashboardView | null>(null)
   const [operations, setOperations] = useState<OperationsView | null>(null)
+  const [operationsError, setOperationsError] = useState<string | null>(null)
   const [delta, setDelta] = useState<DailyDeltaView | null>(null)
   const [deltaFailed, setDeltaFailed] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -529,29 +529,27 @@ export function DashboardPage() {
       setError(reason instanceof Error ? reason.message : 'Dashboard を読み込めませんでした')
     })
     fetchJson<OperationsView>('/api/operations').then(setOperations).catch((reason: unknown) => {
-      setError(reason instanceof Error ? reason.message : '運用状態を読み込めませんでした')
+      setOperationsError(reason instanceof Error ? reason.message : '運用成績を読み込めませんでした')
     })
-    // An extra read, not a required one: a serving generation deployed before this
-    // view existed must still render the page, so its absence leaves the card empty
-    // instead of failing the dashboard.
+    // Independent evidence: an unavailable comparison does not erase the portfolio.
     fetchJson<DailyDeltaView>('/api/daily-delta')
       .then(setDelta)
       .catch(() => setDeltaFailed(true))
   }, [])
 
-  if (error) return <PageState message={error} title="Dashboard read error" />
+  if (error !== null) return <PageState message={error} title="Dashboard read error" />
   if (!data) return <LoadingPage label="資産状況を読み込んでいます" />
   return (
     <PageShell title="Dashboard">
-      {data.ledger_error && (
-        <Alert variant="destructive"><CircleAlert /><AlertTitle>Ledger error</AlertTitle><AlertDescription>{data.ledger_error}</AlertDescription></Alert>
+      {data.ledger_error !== null && (
+        <Alert variant="destructive"><CircleAlert /><AlertTitle>台帳を読み込めません。資産・保有・未約定注文を確認できません。</AlertTitle><AlertDescription>{data.ledger_error}</AlertDescription></Alert>
       )}
 
-      <PortfolioAllocationCard data={data} />
+      {data.ledger_error === null && <PortfolioAllocationCard data={data} />}
 
       <DailyDeltaCard delta={delta} failed={deltaFailed} />
 
-      {!data.ledger_exists && !data.ledger_error ? (
+      {data.ledger_error === null && (!data.ledger_exists ? (
         <Card className="border-dashed shadow-none"><CardContent className="py-8 text-center text-sm text-muted-foreground">portfolio ledger がありません。</CardContent></Card>
       ) : data.holdings.length > 0 ? (
         <HoldingsTable holdings={data.holdings} ledgerAsOf={data.ledger_as_of} warnings={data.warnings} />
@@ -560,12 +558,14 @@ export function DashboardPage() {
           <CardContent className="py-8 text-center text-sm text-muted-foreground">保有銘柄はありません。</CardContent>
           <PortfolioWarnings warnings={data.warnings} />
         </Card>
-      )}
+      ))}
 
-      {data.reservations.length > 0 && <PendingOrdersCard reservations={data.reservations} />}
+      {data.ledger_error === null && data.reservations.length > 0 && <PendingOrdersCard reservations={data.reservations} />}
 
       <Link className="text-sm font-medium underline underline-offset-4" to="/stocks">調査・提案を見る →</Link>
-      {operations && <OutcomeCard outcomes={operations.outcomes} />}
+      {operationsError !== null
+        ? <Alert variant="destructive"><CircleAlert /><AlertTitle>運用成績を読み込めません</AlertTitle><AlertDescription>{operationsError}</AlertDescription></Alert>
+        : operations && <OutcomeCard outcomes={operations.outcomes} />}
     </PageShell>
   )
 }

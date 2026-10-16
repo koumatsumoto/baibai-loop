@@ -9,6 +9,7 @@ from baibai_engine.read_api import PortfolioLedgerError
 from baibai_web.readmodel.builders.presentation import (
     _JST,
     latest_research_by_ticker,
+    reservation_last_valid_day,
     security_names_for_run,
 )
 from baibai_web.readmodel.models import (
@@ -142,7 +143,7 @@ def _upcoming_events(
                 )
             )
     expiry_days = {
-        (ticker, (expires_at.astimezone(_JST) - timedelta(microseconds=1)).date())
+        (ticker, reservation_last_valid_day(expires_at))
         for ticker, expires_at in expiries
         if expires_at is not None
     }
