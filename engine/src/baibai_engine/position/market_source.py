@@ -121,6 +121,9 @@ def market_basis_is_confirmed(
 ) -> bool:
     """Confirm unchanged price or share basis across the observed session range.
 
+    The event window is from_date < event date <= through_date: the starting
+    observation already uses its own session basis. See J-Quants daily-bar
+    adjustment rules: https://jpx-jquants.com/ja/spec/eq-bars-daily/adj
     Price comparisons reject every non-unit price adjustment. Share quantities use
     ExRT: rights-issue price adjustments do not rescale existing shares. Missing
     rows/factors and unknown non-unit action kinds remain unresolved. Historical
@@ -128,6 +131,8 @@ def market_basis_is_confirmed(
     """
     if from_date > through_date:
         return False
+    if from_date == through_date:
+        return True
     conn = connection
     owns_connection = conn is None
     if conn is None:
@@ -142,7 +147,7 @@ def market_basis_is_confirmed(
             raise SQLiteSchemaError("market quote requires the current market schema")
         session_rows = conn.execute(
             "SELECT DISTINCT traded_at FROM jquants_daily_bars "
-            "WHERE traded_at BETWEEN ? AND ? ORDER BY traded_at",
+            "WHERE traded_at > ? AND traded_at <= ? ORDER BY traded_at",
             (from_date.isoformat(), through_date.isoformat()),
         ).fetchall()
         sessions = tuple(str(row[0]) for row in session_rows)
@@ -150,7 +155,7 @@ def market_basis_is_confirmed(
             return False
         bar_rows = conn.execute(
             "SELECT traded_at, adjustment_factor, ex_right_type FROM jquants_daily_bars "
-            "WHERE ticker = ? AND traded_at BETWEEN ? AND ? ORDER BY traded_at",
+            "WHERE ticker = ? AND traded_at > ? AND traded_at <= ? ORDER BY traded_at",
             (ticker, from_date.isoformat(), through_date.isoformat()),
         ).fetchall()
         if tuple(str(row[0]) for row in bar_rows) != sessions:

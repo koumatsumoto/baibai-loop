@@ -171,7 +171,7 @@ def test_quantity_basis_depends_on_adjustment_factor_not_price(tmp_path, close, 
     with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute(
             "UPDATE jquants_daily_bars SET close = ?, adjustment_factor = ? WHERE traded_at = ?",
-            (close, factor, "2026-07-09"),
+            (close, factor, "2026-07-10"),
         )
     assert market_basis_is_confirmed(
         basis="shares",
@@ -312,3 +312,18 @@ def test_position_share_units_and_price_comparison_have_distinct_basis(
             sqlite_path=path, ticker="2331", basis=basis,
             from_date=date(2026, 7, 9), through_date=date(2026, 7, 10),
         ) is expected
+
+
+@pytest.mark.parametrize("basis", ["price", "shares"])
+@pytest.mark.parametrize("factor", [None, 0.5, 2.0])
+def test_comparison_excludes_the_starting_sessions_adjustment(tmp_path, basis, factor):
+    path = tmp_path / "market.sqlite"
+    start, end = date(2026, 7, 9), date(2026, 7, 10)
+    seed_daily_bars(path, [("2331", start.isoformat(), 1000.0, factor),
+                           ("2331", end.isoformat(), 1010.0, 1.0)])
+    assert market_basis_is_confirmed(
+        basis=basis, sqlite_path=path, ticker="2331", from_date=start, through_date=start
+    )
+    assert market_basis_is_confirmed(
+        basis=basis, sqlite_path=path, ticker="2331", from_date=start, through_date=end
+    )
