@@ -65,7 +65,11 @@ def normalize_adjustment_factor_event(
         return None
     factor = to_float(record.get("AdjFactor"))
     kind = normalize_ex_right_type(record.get("ExRT"))
-    if factor is None or (factor == 1.0 and kind is None):
+    if factor is None:
+        if kind is not None:
+            raise JQuantsProviderError("reported corporate action has no usable adjustment factor")
+        return None
+    if factor == 1.0 and kind is None:
         return None
     return JQuantsAdjustmentFactorEvent(
         ticker=ticker,
