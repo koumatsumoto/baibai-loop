@@ -379,9 +379,7 @@ def _resolve_capital_basis(
                     issued=issued,
                     treasury=treasury,
                     shares_ex_treasury=None,
-                    failure_reason=(
-                        "indeterminate_treasury_after_later_issued_observation"
-                    ),
+                    failure_reason=("indeterminate_treasury_after_later_issued_observation"),
                 )
 
     return _CapitalBasisResolution(
@@ -404,7 +402,7 @@ def build_shares_outstanding_index(
 ) -> dict[str, float | None]:
     """Shares the market can price: issued less treasury, on the as-of split basis.
 
-    universe の時価総額はこの index から作られ、時価総額 gate (100 億円) の判定値になる。
+    universe の時価総額はこの index から作られ、比較母集団の時価総額条件に使う。
     `FinancialSnapshot.market_cap` と同じ株数で作らないと、同じ「時価総額」という語が
     2 つの値を指す。株数と自己株式数は BS 系 fact なので四半期開示に載らないことが多く、
     直近の非 null 行から carry-forward する。ただし自己株式の観測より後に発行済だけを
