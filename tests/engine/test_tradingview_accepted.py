@@ -250,7 +250,8 @@ def test_equivalent_aware_receipt_offsets_keep_the_same_stored_instants(tmp_path
     utc = load_observations(original, sha256=digest)
     value = document()
     value["observations"][0]["timing"] = {
-        "start": "2026-10-11T10:58:14.800+09:00", "end": "2026-10-11T10:58:46.209+09:00",
+        "start": "2026-10-11T10:58:14.800+09:00",
+        "end": "2026-10-11T10:58:46.209+09:00",
     }
     shifted, digest = input_file(tmp_path, value)
     actual = load_observations(shifted, sha256=digest)

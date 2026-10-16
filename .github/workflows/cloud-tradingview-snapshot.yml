@@ -74,7 +74,7 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_batch.jobs.tradingview_observations publish --directory "$RUNNER_TEMP/accepted-observations"
+        run: uv run python -m baibai_batch.jobs.tradingview_observations publish --directory "$RUNNER_TEMP/accepted-observations" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
       - name: Release publication lease
         id: lease-release
         if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' }}

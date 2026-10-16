@@ -15,6 +15,8 @@ from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_batch.jobs.tradingview_observations import DATASET, main, publish_and_verify, stage
 from baibai_batch.storage import publish_market_lake as publisher
+from baibai_batch.storage import lake_publish
+from baibai_batch.storage.publication_lease import LeaseError, acquire, release
 from baibai_engine.external_assessment.tradingview.accepted import (
     accept_observations,
     load_observations,
@@ -128,6 +130,8 @@ def test_acceptance_workflow_is_main_manual_only_and_never_exposes_raw_or_oauth(
     assert "TRADINGVIEW_OAUTH_STATE" not in source
     assert "TRADINGVIEW_SECRET_WRITER_TOKEN" not in source
     assert "push-market" not in source
+    publish_step = next(step for step in steps if step.get("id") == "publish-lake")
+    assert '--lease-handle "$RUNNER_TEMP/publication-lease-handle.json"' in publish_step["run"]
     for step in steps:
         assert "inputs.observations" not in step.get("run", "")
         assert "inputs.observations" not in json.dumps(step.get("env", {}))
@@ -136,8 +140,9 @@ def test_acceptance_workflow_is_main_manual_only_and_never_exposes_raw_or_oauth(
     assert "acquired == 'true'" in release["if"]
 
 
+@pytest.mark.parametrize("lose_lease", [False, True])
 def test_fresh_hydrate_publish_and_remote_readback_preserve_history_and_other_datasets(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, lose_lease
 ):
     datasets = ("jquants.daily_bars", "jquants.short_sale_reports", DATASET)
     narrow_release_policy(monkeypatch, datasets=datasets)
@@ -171,9 +176,37 @@ def test_fresh_hydrate_publish_and_remote_readback_preserve_history_and_other_da
             store=working,
             dataset_names=datasets,
         )
+    handle, _ = acquire(remote, "tradingview")
+    unrelated = {
+        obj.key for name, manifest in before.dataset_manifests.items() if name != DATASET
+        for part in manifest.partitions for obj in part.objects
+    }
+    download = remote.download_file
+    def download_without_unrelated_data(key, path, *, expect_bytes=None):
+        if not lose_lease:
+            assert key not in unrelated, "unchanged unrelated Parquet must not be downloaded"
+        return download(key, path, expect_bytes=expect_bytes)
+    monkeypatch.setattr(remote, "download_file", download_without_unrelated_data)
     directory = tmp_path / "accepted"
     stage(event_file(tmp_path), directory)
-    report = publish_and_verify(directory, sqlite_path=working, mirror=mirror, store=remote)
+    if lose_lease:
+        ensure = lake_publish._ensure_immutable
+        released = False
+        def release_during_upload(*args, **kwargs):
+            nonlocal released
+            result = ensure(*args, **kwargs)
+            if not released:
+                release(remote, handle)
+                released = True
+            return result
+        monkeypatch.setattr(lake_publish, "_ensure_immutable", release_during_upload)
+        with pytest.raises(LeaseError):
+            publish_and_verify(directory, sqlite_path=working, mirror=mirror, store=remote, handle=handle)
+        assert released
+        assert publisher._serving_pointer(remote).pointer == pointer
+        assert not (directory / "readback-report.json").exists()
+        return
+    report = publish_and_verify(directory, sqlite_path=working, mirror=mirror, store=remote, handle=handle)
     assert report["rows_added"] == 3
     assert report["retained_rows"] == 1
     assert report["total_rows"] == 4
@@ -186,7 +219,7 @@ def test_fresh_hydrate_publish_and_remote_readback_preserve_history_and_other_da
     stage(event_file(tmp_path), retry)
     old_pointer = publisher._serving_pointer(remote).pointer
     old_put_count = len(remote.put_keys)
-    report2 = publish_and_verify(retry, sqlite_path=working, mirror=mirror, store=remote)
+    report2 = publish_and_verify(retry, sqlite_path=working, mirror=mirror, store=remote, handle=handle)
     assert report2["rows_added"] == 0
     assert report2["status"] == "already_recorded"
     assert publisher._serving_pointer(remote).pointer == old_pointer
