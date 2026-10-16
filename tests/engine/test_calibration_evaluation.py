@@ -1759,9 +1759,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
             status="unresolved_missing_entry",
         )
         panel, forwards = self._long_horizon_cohort([(missing, None)])
-        panel[-1] = replace(
-            panel[-1], population_coverage_status="priced_master_without_universe"
-        )
+        panel[-1] = replace(panel[-1], population_coverage_status="priced_master_without_universe")
         counts, coverage = self._reason_counts(
             panel, forwards, priced_master_without_universe_count=1
         )

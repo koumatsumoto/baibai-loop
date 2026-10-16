@@ -106,7 +106,8 @@ def _evaluate_cohort(
     # A missing forward entry for a price-backed panel member loses an observation
     # the analytical population otherwise includes.
     priced_at_asof = {
-        row.ticker for row in panel
+        row.ticker
+        for row in panel
         if row.close is not None
         or row.population_coverage_status == "priced_master_without_universe"
     }
