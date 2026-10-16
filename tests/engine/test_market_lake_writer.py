@@ -564,6 +564,7 @@ def test_l1_export_benchmark_records_full_export_and_correction_transfer(tmp_pat
     connection.commit()
     connection.close()
     report_path = tmp_path / "report.json"
+    source_before = sqlite_path.read_bytes()
 
     report = benchmark(
         sqlite_path=sqlite_path,
@@ -576,6 +577,8 @@ def test_l1_export_benchmark_records_full_export_and_correction_transfer(tmp_pat
     assert report["full"]["datasets"]["jquants.daily_bars"]["rows"] == 4  # type: ignore[index]
     assert report["correction"]["new_object_count"] == 1  # type: ignore[index]
     assert report_path.is_file()
+    assert report["producer_git_commit"] == _COMMIT
+    assert sqlite_path.read_bytes() == source_before
 
 
 def test_the_sealed_store_is_gone_when_the_export_operation_ends(tmp_path: Path) -> None:

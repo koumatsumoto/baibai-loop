@@ -8,10 +8,10 @@ correction; it does not replace export parity or production acceptance checks.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import resource
 import sqlite3
+import sys
 import tempfile
 import time
 from contextlib import closing
@@ -24,26 +24,6 @@ from baibai_engine.storage.lake.sources import sha256_file
 from baibai_engine.storage.lake.writer import LakeExportReport, export_market_store
 from baibai_engine.storage.observations.lake_origin import read_lake_store_origin
 from baibai_engine.storage.observations.snapshot import create_snapshot
-
-
-def _implementation_sha256() -> str:
-    root = Path(__file__).resolve().parents[2]
-    paths = (
-        Path(__file__).resolve(),
-        root / "engine/src/baibai_engine/storage/lake/writer.py",
-        root / "engine/src/baibai_engine/storage/lake/models.py",
-        root / "engine/src/baibai_engine/storage/lake/immutable.py",
-        root / "engine/src/baibai_engine/storage/observations/snapshot.py",
-    )
-    digest = hashlib.sha256()
-    for path in paths:
-        relative = path.relative_to(root).as_posix().encode()
-        digest.update(len(relative).to_bytes(4, "big"))
-        digest.update(relative)
-        payload = path.read_bytes()
-        digest.update(len(payload).to_bytes(8, "big"))
-        digest.update(payload)
-    return digest.hexdigest()
 
 
 def _report_build(build: LakeExportReport) -> dict[str, object]:
@@ -123,7 +103,6 @@ def benchmark(*, sqlite_path: Path, report_path: Path, producer_commit: str) -> 
             "status": "measured",
             "recorded_at": datetime.now(UTC).isoformat(),
             "producer_git_commit": producer_commit,
-            "implementation_sha256": _implementation_sha256(),
             "source": {
                 "sha256": source_sha256,
                 "bytes": source_bytes,
@@ -140,7 +119,8 @@ def benchmark(*, sqlite_path: Path, report_path: Path, producer_commit: str) -> 
                 "new_object_bytes": sum(corrected_objects[key] for key in new_keys),
                 "datasets": _report_build(corrected),
             },
-            "peak_rss_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024,
+            "peak_rss_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            * (1 if sys.platform == "darwin" else 1024),
         }
         write_bytes_atomic(
             report_path,
