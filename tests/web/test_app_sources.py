@@ -262,7 +262,7 @@ def test_holding_pmax_gap_checks_the_assessment_window_even_when_acquired_after_
     )
     ledger = PortfolioLedgerDocument.model_validate(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "portfolio_scope": "repository_only",
             "as_of": now.isoformat(),
             "events": [
@@ -297,7 +297,6 @@ def test_holding_pmax_gap_checks_the_assessment_window_even_when_acquired_after_
                     "price_yen": 1000,
                 },
             ],
-            "market_prices": [],
         }
     )
     seed_ledger(db, ledger)

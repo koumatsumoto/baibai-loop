@@ -14,7 +14,6 @@ EXPECTED_TABLES = (
     "market_context_assessment",
     "market_context_assessment_head",
     "ledger_event",
-    "ledger_market_price",
     "ledger_meta",
     "portfolio_outcome",
     "stock_assessment",
@@ -68,16 +67,16 @@ def proposal(connection):
     return identifier
 
 
-def test_schema24_has_only_current_research_and_fact_tables(tmp_path):
+def test_schema_has_only_current_research_and_fact_tables(tmp_path):
     path = tmp_path / "app.sqlite"
-    assert initialize_database(path) == APPLICATION_SCHEMA_VERSION == 24
+    assert initialize_database(path) == APPLICATION_SCHEMA_VERSION
     with closing(sqlite3.connect(path)) as connection:
         tables = {
             row[0]
             for row in connection.execute("SELECT name FROM sqlite_schema WHERE type='table'")
         }
         assert tables == set(EXPECTED_TABLES)
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 24
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == APPLICATION_SCHEMA_VERSION
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
 

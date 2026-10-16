@@ -103,11 +103,10 @@ def backend_case(
             )
     ledger = PortfolioLedgerDocument.model_validate(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "portfolio_scope": "repository_only",
             "as_of": "2026-10-14T15:00:00+09:00",
             "events": events,
-            "market_prices": [],
         }
     )
     seed_ledger(app, ledger)

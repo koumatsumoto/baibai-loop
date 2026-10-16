@@ -30,17 +30,7 @@ DECISION_REF = "position-review-20260711-2331-position-2331"
 
 def _seed(db: Path) -> LedgerStoreService:
     source = load_portfolio_ledger(LEDGER)
-    seed_ledger(
-        db,
-        source.model_copy(
-            update={
-                "market_prices": tuple(
-                    price.model_copy(update={"source_kind": "licensed_dataset"})
-                    for price in source.market_prices
-                )
-            }
-        ),
-    )
+    seed_ledger(db, source)
     return LedgerStoreService(db)
 
 

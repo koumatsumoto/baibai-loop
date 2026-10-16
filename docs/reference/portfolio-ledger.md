@@ -11,7 +11,9 @@ status: active
 
 ## 対象範囲と正本
 
-ledgerは`portfolio_scope: repository_only`だけを扱う。application DBの`ledger_event / ledger_meta`が確認済み資本・取引事実を持ち、保存済みの`ledger_market_price`は既存記録として保持する。`baibai-engine position ledger --db stores/application/baibai.sqlite`はeventをreplayし、market storeのquoteと権利単位を組み合わせてsnapshotを返す。broker残高を自動取得・推定・完全照合する契約ではない。
+ledgerは`portfolio_scope: repository_only`だけを扱う。application DBの`ledger_event / ledger_meta`が確認済み資本・取引事実を持ち、価格を台帳へ重複保存しない。市場価格はL1市場ストアから評価時に読み、取引事実と独立した入力として渡す。`baibai-engine position ledger --db stores/application/baibai.sqlite`はeventをreplayし、market storeのquoteと権利単位を組み合わせてsnapshotを返す。broker残高を自動取得・推定・完全照合する契約ではない。
+
+台帳文書はschema version 3。切替では旧価格行を新台帳へ移さず、必要な取引・設定を現行文書へ移すか、対象を確認して新規台帳から開始する。旧draftは再作成する。価格の再取得・評価は市場ストアの責務であり、旧台帳価格による代替は行わない。
 
 DB constraint、`baibai_engine.position`のmodel、application serviceのwrite-time validationが機械契約を担う。台帳の再構築と保存値の検査は`position/ledger_read.py`が所有し、read APIとwriterが同じ実装を使う。connectionとtransactionはcallerが所有する。未作成・未書込・初期化済み未importだけを未登録として読み、table/column欠損・metadataなし取引・不正payloadを空保有へ変換しない。円総額は整数、単価は許可精度内、数量との積は1円単位に一致しなければ拒否する。
 

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.ledger import (
+    MarketPrice,
     PortfolioLedgerDocument,
     PortfolioSnapshot,
     replay_events_through,
@@ -20,12 +21,15 @@ def load_portfolio_ledger(path: Path) -> PortfolioLedgerDocument:
 
 
 def portfolio_snapshot(
-    document: PortfolioLedgerDocument, *, policy: PolicyConfig = PORTFOLIO_POLICY
+    document: PortfolioLedgerDocument,
+    *,
+    prices: tuple[MarketPrice, ...] = (),
+    policy: PolicyConfig = PORTFOLIO_POLICY,
 ) -> PortfolioSnapshot:
-    """Compose the replay/summary owners with the fixture's explicit quote input."""
+    """Compose the replay/summary owners with explicit, separately supplied quote inputs."""
     return summarize_portfolio(
         document,
         replay_events_through(document.events, document.as_of, policy=policy),
-        {price.ticker: price for price in document.market_prices},
+        {price.ticker: price for price in prices},
         policy=policy,
     )

@@ -22,7 +22,6 @@ NOW = datetime.fromisoformat("2026-09-07T18:00:00+09:00")
 def holding_case(tmp_path):
     db, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
     ledger = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
-    ledger = ledger.model_copy(update={"market_prices": ()})
     seed_ledger(db, ledger)
     seed_daily_bars(
         market,
@@ -65,7 +64,7 @@ def test_human_event_draft_apply_needs_no_holding_price(holding_case, kind, deta
     )
     draft = build_event_draft(service, event)
     apply_draft(service, draft, human_confirmed=True)
-    assert service.load().market_prices == ()
+    assert "market_prices" not in service.load().model_dump()
     after = replay_events_through(service.load().events, NOW)
     assert after.available_cash_yen == before.available_cash_yen + delta
     if delta < 0:
@@ -137,10 +136,9 @@ def test_intraday_fill_must_bridge_quote_and_quantity_dates(tmp_path, factor):
     now = NOW.replace(hour=10)
     ledger = PortfolioLedgerDocument.model_validate(
         dict(
-            schema_version=2,
+            schema_version=3,
             portfolio_scope="repository_only",
             as_of=now.isoformat(),
-            market_prices=[],
             events=[
                 dict(
                     type="opening_balance",

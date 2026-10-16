@@ -298,7 +298,7 @@ def test_all_unfinished_requires_saved_defer_proposal_and_does_not_become_reject
 def test_holding_uses_common_assessment_reference_and_published_proposal_only(case, action):
     db, _ = case
     ledger = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
-    seed_ledger(db, ledger.model_copy(update={"market_prices": ()}))
+    seed_ledger(db, ledger)
     reference = seed_assessment(db, "2331")
     service, operation = start(case, ("2331",), scope="review_positions")
     operation = service.record_assessment(operation.operation_id, reference, now=NOW)

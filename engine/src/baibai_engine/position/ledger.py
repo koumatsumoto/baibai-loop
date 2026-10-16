@@ -275,7 +275,7 @@ class LedgerMetadata(BaseModel):
 
     model_config = _MODEL_CONFIG
 
-    schema_version: Literal[2]
+    schema_version: Literal[3]
     portfolio_scope: Literal["repository_only"]
     as_of: datetime
     estimated_exit_tax_rate_bps: Annotated[int, Field(ge=0, le=10_000)] | None = None
@@ -308,9 +308,8 @@ class PortfolioLedgerDocument(LedgerMetadata):
     """Versioned persistence contract for repository-only portfolio capital."""
 
     events: tuple[LedgerEvent, ...]
-    market_prices: tuple[MarketPrice, ...]
 
-    @field_validator("events", "market_prices", mode="before")
+    @field_validator("events", mode="before")
     @classmethod
     def _parse_rows(cls, value: object) -> object:
         return _tuple(value)
@@ -332,11 +331,6 @@ class PortfolioLedgerDocument(LedgerMetadata):
             raise ValueError("events must be ordered by occurred_at")
         if any(event.occurred_at > self.as_of for event in self.events):
             raise ValueError("events cannot occur after as_of")
-        price_tickers = [price.ticker for price in self.market_prices]
-        if len(set(price_tickers)) != len(price_tickers):
-            raise ValueError("market_prices ticker must be unique")
-        if any(price.observed_at > self.as_of for price in self.market_prices):
-            raise ValueError("market price cannot be observed after as_of")
         return self
 
 

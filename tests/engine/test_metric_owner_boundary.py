@@ -44,7 +44,6 @@ def test_financial_snapshot_json_preserves_values_and_missingness() -> None:
     assert restored == snapshot
 
 
-
 @pytest.mark.parametrize(
     "module",
     [

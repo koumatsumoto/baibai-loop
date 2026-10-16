@@ -34,17 +34,7 @@ OPERATION_NOW = datetime.fromisoformat("2026-07-19T12:00:00+09:00")
 def _ledger_db(tmp_path: Path) -> Path:
     db = tmp_path / "app.sqlite"
     source = load_portfolio_ledger(LEDGER)
-    seed_ledger(
-        db,
-        source.model_copy(
-            update={
-                "market_prices": tuple(
-                    price.model_copy(update={"source_kind": "licensed_dataset"})
-                    for price in source.market_prices
-                )
-            }
-        ),
-    )
+    seed_ledger(db, source)
     return db
 
 

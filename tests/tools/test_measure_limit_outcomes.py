@@ -23,7 +23,7 @@ ASOF = date(2026, 7, 31)
 def _ledger(path: Path, events: list[dict[str, object]]) -> None:
     document = PortfolioLedgerDocument.model_validate(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "portfolio_scope": "repository_only",
             "as_of": "2026-07-31T15:30:00+09:00",
             "estimated_exit_tax_rate_bps": None,
@@ -37,7 +37,6 @@ def _ledger(path: Path, events: list[dict[str, object]]) -> None:
                 },
                 *events,
             ],
-            "market_prices": [],
             "overrides": [],
         }
     )

@@ -405,7 +405,7 @@ def _write_portfolio_ledger(root: Path, *, ticker: str, sector: str, price_yen: 
         root / "app.sqlite",
         PortfolioLedgerDocument.model_validate(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "portfolio_scope": "repository_only",
                 "as_of": "2026-05-29T15:30:00+09:00",
                 "estimated_exit_tax_rate_bps": None,
@@ -442,44 +442,17 @@ def _write_portfolio_ledger(root: Path, *, ticker: str, sector: str, price_yen: 
                         "price_yen": price_yen,
                     },
                 ],
-                "market_prices": [
-                    {
-                        "ticker": ticker,
-                        "price_yen": price_yen,
-                        "observed_at": "2026-05-29T15:30:00+09:00",
-                        "source_kind": "licensed_dataset",
-                        "price_basis": "unadjusted_close",
-                        "source_ref": "test:ledger-price",
-                    }
-                ],
                 "overrides": [],
             }
         ),
     )
 
 
-@pytest.mark.parametrize("price_state", ["missing", "stale"])
-def test_portfolio_facts_survive_unavailable_ledger_valuation(tmp_path, price_state):
-    """Cost concentration uses confirmed trades, including after price transcription stops."""
-    from baibai_engine.position.store import LedgerStoreService
+def test_portfolio_facts_do_not_require_market_prices(tmp_path):
+    """Cost concentration uses confirmed trades without a market-price dependency."""
     from baibai_engine.read_api.ticker_profile import _portfolio_block
 
     _write_portfolio_ledger(tmp_path, ticker="BBBB", sector="機械", price_yen=500)
-    service = LedgerStoreService(tmp_path / "app.sqlite")
-    source, head = service.load_with_head()
-    prices = (
-        ()
-        if price_state == "missing"
-        else tuple(
-            price.model_copy(update={"observed_at": source.as_of - timedelta(days=30)})
-            for price in source.market_prices
-        )
-    )
-    service.apply_document(
-        expected_head=head,
-        expected_document=source,
-        replacement=source.model_copy(update={"market_prices": prices}),
-    )
     portfolio = _portfolio_block(app_db_path=tmp_path / "app.sqlite", ticker="BBBB", sector="機械")
     assert portfolio["holds_this_ticker"] is True
     assert portfolio["open_position_count"] == 1

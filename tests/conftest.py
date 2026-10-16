@@ -93,17 +93,7 @@ def _seed_app_method_root(root: Path) -> None:
     initialize_indicators_db(indicators_dir / "indicators.sqlite").close()
     db_path = root / "stores/application/baibai.sqlite"
     ledger = load_portfolio_ledger(FIXTURES / "portfolio-ledger/representative.yaml")
-    seed_ledger(
-        db_path,
-        ledger.model_copy(
-            update={
-                "market_prices": tuple(
-                    price.model_copy(update={"source_kind": "licensed_dataset"})
-                    for price in ledger.market_prices
-                )
-            }
-        ),
-    )
+    seed_ledger(db_path, ledger)
     from baibai_engine.research.assessment_store import AssessmentStoreService
     from tests.helpers.assessment_v1 import assessment_id, pair_payload
 

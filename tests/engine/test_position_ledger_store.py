@@ -157,35 +157,8 @@ def test_decision_reference_is_indexed_without_domain_specific_foreign_key(tmp_p
         )
 
 
-@pytest.mark.parametrize("fixture_side", ["source", "replacement"])
-def test_canonical_store_rejects_test_fixture_prices_without_write(
-    tmp_path: Path, fixture_side: str
-) -> None:
-    path = tmp_path / "app.sqlite"
-    source = _store_fixture()
-    seed_ledger(path, source)
-    service = LedgerStoreService(path)
-    head = service.append_head()
-    fixture = load_portfolio_ledger(FIXTURE)
-    with pytest.raises(LedgerConflictError, match="test_fixture"):
-        service.apply_document(
-            expected_head=head,
-            expected_document=fixture if fixture_side == "source" else source,
-            replacement=fixture if fixture_side == "replacement" else source,
-        )
-    assert service.load_with_head() == (source, head)
-
-
 def _store_fixture() -> PortfolioLedgerDocument:
-    source = load_portfolio_ledger(FIXTURE)
-    return source.model_copy(
-        update={
-            "market_prices": tuple(
-                price.model_copy(update={"source_kind": "licensed_dataset"})
-                for price in source.market_prices
-            )
-        }
-    )
+    return load_portfolio_ledger(FIXTURE)
 
 
 def test_ledger_queries_open_only_read_connections(tmp_path, monkeypatch):
@@ -237,25 +210,18 @@ def test_optional_reader_distinguishes_unimported_from_required_ledger(tmp_path,
     [
         ("DROP TABLE ledger_meta", RuntimeError),
         ("DROP TABLE ledger_event", RuntimeError),
-        ("DROP TABLE ledger_market_price", RuntimeError),
         ("ALTER TABLE ledger_meta RENAME COLUMN payload TO lost_payload", sqlite3.OperationalError),
         ("DELETE FROM ledger_meta", LedgerConflictError),
         ("UPDATE ledger_meta SET payload='[]'", ValueError),
         ("UPDATE ledger_event SET payload=json_set(payload,'$.type','invalid')", ValueError),
-        (
-            "UPDATE ledger_market_price SET payload=json_set(payload,'$.source_kind','test_fixture')",
-            LedgerConflictError,
-        ),
     ],
     ids=[
         "missing-meta-table",
         "missing-event-table",
-        "missing-price-table",
         "missing-column",
         "orphaned-rows",
         "invalid-meta",
         "invalid-event",
-        "fixture-price",
     ],
 )
 def test_shared_reader_rejects_damaged_canonical_state(tmp_path, damage, error):
@@ -313,3 +279,15 @@ def test_reader_preserves_callers_snapshot_while_another_connection_appends(tmp_
         assert reader.execute("PRAGMA query_only").fetchone()[0] == 1
     assert LedgerStoreService(path).load_with_head() == (replacement, head + 1)
     assert portfolio_ledger_document(path) == replacement
+
+
+def test_ledger_persists_capital_without_a_price_table(tmp_path):
+    path = tmp_path / "app.sqlite"
+    source = _store_fixture()
+    seed_ledger(path, source)
+    assert LedgerStoreService(path).load() == source
+    with closing(sqlite3.connect(path)) as connection:
+        assert connection.execute(
+            "SELECT name FROM sqlite_schema WHERE name='ledger_market_price'"
+        ).fetchone() is None
+    assert "market_prices" not in source.model_dump()

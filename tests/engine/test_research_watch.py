@@ -25,7 +25,7 @@ from baibai_engine.storage.observations.schema import open_connection
 def case(tmp_path):
     db, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
     ledger = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
-    seed_ledger(db, ledger.model_copy(update={"market_prices": ()}))
+    seed_ledger(db, ledger)
     document, review = pair_payload(ticker="2331", as_of="2026-09-07", quote_as_of="2026-09-04")
     document["valuation"]["required_annual_return_pct"] = "12"
     document["valuation"]["base"].update(

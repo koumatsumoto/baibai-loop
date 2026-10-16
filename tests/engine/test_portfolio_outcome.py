@@ -68,12 +68,11 @@ def _benchmark() -> BenchmarkObservation:
 def _ledger() -> PortfolioLedgerDocument:
     return PortfolioLedgerDocument.model_validate(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "portfolio_scope": "repository_only",
             "as_of": "2026-01-06T16:00:00+09:00",
             "estimated_exit_tax_rate_bps": 2000,
             "estimated_exit_tax_basis": "ledger_fifo_gross_unrealized_gain",
-            "market_prices": [],
             "events": [
                 {
                     "event_id": "opening",
@@ -254,10 +253,9 @@ def _lapsed_reservation_ledger() -> PortfolioLedgerDocument:
 
     return PortfolioLedgerDocument.model_validate(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "portfolio_scope": "repository_only",
             "as_of": "2026-01-06T16:00:00+09:00",
-            "market_prices": [],
             "events": [
                 {
                     "event_id": "opening",

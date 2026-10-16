@@ -56,10 +56,6 @@ def _services(
     source = original.model_copy(
         update={
             "as_of": ORDERED_AT,
-            "market_prices": tuple(
-                price.model_copy(update={"source_kind": "licensed_dataset"})
-                for price in original.market_prices
-            ),
         }
     )
     seed_ledger(db, source)

@@ -35,7 +35,7 @@ def _service(tmp_path: Path) -> tuple[LedgerStoreService, Path]:
         path,
         PortfolioLedgerDocument.model_validate(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "portfolio_scope": "repository_only",
                 "as_of": NOW.isoformat(),
                 "events": [
@@ -46,7 +46,6 @@ def _service(tmp_path: Path) -> tuple[LedgerStoreService, Path]:
                         "amount_yen": 300000,
                     }
                 ],
-                "market_prices": [],
             }
         ),
     )

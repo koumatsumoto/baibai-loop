@@ -31,7 +31,6 @@ def holding_case(tmp_path):
     """台帳/市場だけの合成保有fixture。旧評価publicationへ依存しない。"""
     db, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
     ledger = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
-    ledger = ledger.model_copy(update={"market_prices": ()})
     seed_ledger(db, ledger)
     seed_daily_bars(
         market,

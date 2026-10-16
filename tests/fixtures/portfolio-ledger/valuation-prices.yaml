@@ -1,0 +1,7 @@
+prices:
+  - ticker: "2331"
+    price_yen: 1100
+    observed_at: "2026-07-11T10:00:00+09:00"
+    source_kind: test_fixture
+    price_basis: close
+    source_ref: offline-fixture:2331

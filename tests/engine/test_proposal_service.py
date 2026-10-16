@@ -36,7 +36,7 @@ def _ledger_snapshot(path):
     with closing(sqlite3.connect(path)) as connection, connection:
         return {
             table: connection.execute(f"SELECT * FROM {table}").fetchall()
-            for table in ("ledger_event", "ledger_meta", "ledger_market_price")
+            for table in ("ledger_event", "ledger_meta")
         }
 
 

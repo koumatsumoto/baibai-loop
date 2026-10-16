@@ -370,7 +370,7 @@ def test_refresh_file_failure_retry_preserves_scaffolded_identity(case, monkeypa
 def test_published_holding_workspace_status_remains_readable_after_sale(tmp_path, completed):
     db = tmp_path / "app"
     ledger = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
-    seed_ledger(db, ledger.model_copy(update={"market_prices": ()}))
+    seed_ledger(db, ledger)
     value = selection(now=NOW, tickers=("2331",), scope="review_positions")
     prepared = prepare_selected_workspace(
         draft=draft_for(value),
@@ -395,7 +395,7 @@ def test_published_holding_workspace_status_remains_readable_after_sale(tmp_path
     )
     from baibai_engine.position.store import LedgerStoreService
 
-    assert LedgerStoreService(db).load().model_dump(mode="json") == {**before, "market_prices": []}
+    assert LedgerStoreService(db).load().model_dump(mode="json") == before
     if completed:
         from tests.engine.test_research_progression import (
             final_payload,
