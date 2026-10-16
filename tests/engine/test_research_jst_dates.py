@@ -120,69 +120,47 @@ def test_assessment_rejects_utc_date_that_is_next_day_in_tokyo():
 
 
 @pytest.mark.parametrize(
-    ("jst_stamp", "utc_stamp", "expected_action", "expected_reason"),
+    ("price_date", "expected_action", "expected_reason"),
     [
-        (JST_MORNING, UTC_MORNING, "hold", "sufficient_remaining_reward"),
-        (
-            "2026-10-14T21:00:00+09:00",
-            "2026-10-14T12:00:00Z",
-            "hold",
-            "sufficient_remaining_reward",
-        ),
-        (
-            "2026-10-13T08:30:00+09:00",
-            "2026-10-12T23:30:00Z",
-            "defer",
-            "quote_missing_or_stale",
-        ),
-        (
-            "2026-10-22T00:30:00+09:00",
-            "2026-10-21T15:30:00Z",
-            "defer",
-            "quote_missing_or_stale",
-        ),
+        ("2026-10-14", "hold", "sufficient_remaining_reward"),
+        ("2026-10-13", "defer", "quote_missing_or_stale"),
+        ("2026-10-22", "defer", "quote_missing_or_stale"),
     ],
 )
-def test_position_quote_age_uses_explicit_price_date_regardless_of_receipt_offset(
-    jst_stamp, utc_stamp, expected_action, expected_reason
+def test_position_quote_age_uses_native_date_without_receipt_clock(
+    price_date, expected_action, expected_reason
 ):
     assessment_payload, _ = pair_payload(as_of="2026-10-21", quote_as_of="2026-10-14")
     assessment = StockAssessmentDocument.model_validate(assessment_payload)
-    # The consumer uses the supplied price date, not the offset of receipt time.
-    for stamp in (jst_stamp, utc_stamp):
-        observed = datetime.fromisoformat(stamp)
-        from baibai_engine.foundation.time import JST
-
-        quote = QuoteInput(
+    quote = QuoteInput(
+        ticker="1234",
+        price_yen=1000,
+        price_as_of=price_date,
+        price_basis="last_close_unadjusted",
+        source_ref="fixture",
+        basis_confirmed=True,
+    )
+    result = evaluate_holding_proposal(
+        assessment,
+        position=PositionInput(
             ticker="1234",
-            price_yen=1000,
-            observed_at=observed,
-            price_as_of=observed.astimezone(JST).date(),
-            price_basis="realtime",
-            source_ref="fixture",
-            basis_confirmed=True,
-        )
-        result = evaluate_holding_proposal(
-            assessment,
-            position=PositionInput(
-                ticker="1234",
-                sector="情報・通信業",
-                common_factors=(),
-                quantity=100,
-                cost_yen=1000,
-                quantity_basis_confirmed=True,
-                original_investment_reason="合成の投資理由",
-            ),
-            as_of=datetime.fromisoformat("2026-10-21T17:00:00+09:00").date(),
-            quote=quote,
-            remaining_reward=RemainingReward(status="sufficient", reason="残存見返りを確認"),
-            case_reassessment_reason="現在の仮説維持を確認",
-            primary_verified=True,
-            reviewed=True,
-            latest=True,
-            max_quote_age_days=PORTFOLIO_POLICY["valuation"]["market_price_max_age_days"],
-        )
-        assert (result.action, result.reason_code) == (expected_action, expected_reason)
-        assert (result.current_price_projection is not None) is (expected_action == "hold")
-        if result.current_price_projection is not None:
-            assert result.current_price_projection["price_as_of"] == "2026-10-14"
+            sector="情報・通信業",
+            common_factors=(),
+            quantity=100,
+            cost_yen=1000,
+            quantity_basis_confirmed=True,
+            original_investment_reason="合成の投資理由",
+        ),
+        as_of=datetime.fromisoformat("2026-10-21T17:00:00+09:00").date(),
+        quote=quote,
+        remaining_reward=RemainingReward(status="sufficient", reason="残存見返りを確認"),
+        case_reassessment_reason="現在の仮説維持を確認",
+        primary_verified=True,
+        reviewed=True,
+        latest=True,
+        max_quote_age_days=PORTFOLIO_POLICY["valuation"]["market_price_max_age_days"],
+    )
+    assert (result.action, result.reason_code) == (expected_action, expected_reason)
+    assert (result.current_price_projection is not None) is (expected_action == "hold")
+    if result.current_price_projection is not None:
+        assert result.current_price_projection["price_as_of"] == "2026-10-14"
