@@ -63,6 +63,14 @@ def test_separate_mentions_on_one_page_are_both_reported() -> None:
     assert hits[1].context.endswith("自己株式の消却")
 
 
+@pytest.mark.parametrize("gap", [18, 22])
+def test_overlapping_context_keeps_a_mention_not_fully_shown_before(gap) -> None:
+    pages = ("営業利益" + "あ" * gap + "営業利益200",)
+    hits = find_keyword_contexts(pages, ["営業利益"], context_chars=20)
+    assert len(hits) == 2
+    assert hits[1].context.endswith("営業利益200")
+
+
 def test_a_keyword_absent_from_every_page_yields_no_hit() -> None:
     assert find_keyword_contexts(("売上高", "経常利益"), ["のれん"]) == ()
 

@@ -65,11 +65,10 @@ def find_keyword_contexts(
 ) -> tuple[KeywordHit, ...]:
     """Collect context windows for each keyword, keeping page order.
 
-    Occurrences whose window overlaps one already reported for the same keyword and page
-    are skipped: a 短信 repeats a term several times inside one paragraph, and printing
-    that paragraph once per occurrence buries the other pages. Separate mentions on the
-    same page still come through, because a figure quoted in the summary and in the
-    statements are two different readings and which one an assessment cites matters.
+    Occurrences already fully visible in a reported window for the same keyword
+    and page are skipped. A new mention outside that window is retained even when
+    its surrounding context overlaps: overlap alone does not mean the reader has
+    seen that occurrence. Separate figures on one page must remain discoverable.
     """
 
     if context_chars < 0:
@@ -89,7 +88,7 @@ def find_keyword_contexts(
                 start = position + len(keyword)
                 window_start = max(0, position - context_chars // 2)
                 window_end = min(len(text), position + len(keyword) + context_chars)
-                if window_start < reported_until:
+                if position + len(keyword) <= reported_until:
                     continue
                 reported_until = window_end
                 hits.append(
