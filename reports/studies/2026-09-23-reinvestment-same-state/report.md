@@ -1,5 +1,7 @@
 # Reinvestment自己資本basis修正の固定断面影響（#1344）
 
+この文書は当時の計画・検証記録です。記載の実装、保存形式、運用制約、検証結果を現在の仕様や最新変更の受入結果として扱いません。現行仕様は docs/reference と docs/architecture.md を参照してください。
+
 ## 比較条件
 
 - as-ofは2026-09-18。既存のlocal market store（SHA-256: `560d270241090af14a5e6bdb426efdee9c9ae73584090a62bedb9a272e825c1f`）を読み、現行mainを基点とする実装で一時run storeへScreening Run 3,703件を生成した。元のrun storeや判断artifactは更新していない。

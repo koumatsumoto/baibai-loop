@@ -1291,7 +1291,7 @@ class ScreeningProviderTests(unittest.TestCase):
         calendar_day = normalize_market_calendar({"Date": "2026-04-24", "HolDiv": "1"})
         self.assertTrue(calendar_day.is_business_day)
 
-    def test_normalize_market_calendar_supports_client_v2_short_key(self) -> None:
+    def test_normalize_market_calendar_reads_native_timestamp(self) -> None:
         calendar_day = normalize_market_calendar({"Date": "2026-04-24T00:00:00", "HolDiv": "1"})
         self.assertTrue(calendar_day.is_business_day)
 
@@ -1335,7 +1335,7 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(summary.sales, 0.0)
         self.assertEqual(summary.operating_profit, 0.0)
 
-    def test_normalize_daily_bar_supports_client_v2_short_keys(self) -> None:
+    def test_normalize_daily_bar_reads_native_fields(self) -> None:
         bar = normalize_daily_bar(
             {
                 "Code": "13010",
@@ -1405,7 +1405,7 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(event.ticker, "6731")
         self.assertEqual(event.adjustment_factor, 100.0)
 
-    def test_normalize_financial_summary_supports_client_v2_short_keys(self) -> None:
+    def test_normalize_financial_summary_preserves_native_fields(self) -> None:
         summary = normalize_financial_summary(
             {
                 "DiscNo": "synthetic-88910-2026-04-01",
@@ -1674,45 +1674,7 @@ class ScreeningProviderTests(unittest.TestCase):
         )
         self.assertIsNone(summary)
 
-    def test_get_eq_bars_daily_range_chunks_long_windows(self) -> None:
-        class FakeClient:
-            def __init__(self) -> None:
-                self.calls: list[tuple[str, str]] = []
-
-            def get_eq_bars_daily_range(
-                self, start_dt: str, end_dt: str
-            ) -> list[dict[str, object]]:
-                self.calls.append((start_dt, end_dt))
-                # Dense bars per day so a fetched chunk satisfies the
-                # data-derived coverage check on read-back.
-                current = date.fromisoformat(start_dt)
-                stop = date.fromisoformat(end_dt)
-                rows: list[dict[str, object]] = []
-                while current <= stop:
-                    rows.append(
-                        {
-                            "Code": "13010",
-                            "Date": f"{current.isoformat()}T00:00:00",
-                            "C": 100.0,
-                            "Va": 1000.0,
-                        }
-                    )
-                    current += timedelta(days=1)
-                return rows
-
-        client = FakeClient()
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "data" / "screening" / "market.sqlite"
-            provider = JQuantsProvider("token", client=client, sqlite_path=sqlite_path)
-            with patch("baibai_engine.market.providers.jquants.time.sleep", return_value=None):
-                bars = provider.get_eq_bars_daily_range(date(2026, 1, 1), date(2026, 2, 15))
-
-        self.assertEqual(len(client.calls), 2)
-        self.assertEqual(client.calls[0], ("2026-01-01", "2026-01-31"))
-        self.assertEqual(client.calls[1], ("2026-02-01", "2026-02-15"))
-        self.assertGreater(len(bars), 2)
-
-    def test_get_eq_bars_daily_range_skips_sleep_on_cache_hit(self) -> None:
+    def test_get_eq_bars_daily_range_chunks_and_reuses_cache(self) -> None:
         class FakeClient:
             def __init__(self) -> None:
                 self.calls: list[tuple[str, str]] = []
@@ -1744,14 +1706,17 @@ class ScreeningProviderTests(unittest.TestCase):
             provider = JQuantsProvider("token", client=client, sqlite_path=sqlite_path)
             with patch("baibai_engine.market.providers.jquants.time.sleep") as sleep_first:
                 first = provider.get_eq_bars_daily_range(date(2026, 1, 1), date(2026, 2, 15))
-            self.assertEqual(len(client.calls), 2)
+            self.assertEqual(
+                client.calls, [("2026-01-01", "2026-01-31"), ("2026-02-01", "2026-02-15")]
+            )
+            self.assertEqual(len(first), 46)
             self.assertEqual(sleep_first.call_count, 1)
 
             with patch("baibai_engine.market.providers.jquants.time.sleep") as sleep_second:
                 second = provider.get_eq_bars_daily_range(date(2026, 1, 1), date(2026, 2, 15))
             self.assertEqual(len(client.calls), 2)
             self.assertEqual(sleep_second.call_count, 0)
-            self.assertEqual(len(second), len(first))
+            self.assertEqual(second, first)
 
     def test_short_sale_refresh_rechecks_covered_disclosure_dates(self) -> None:
         class FakeClient:
