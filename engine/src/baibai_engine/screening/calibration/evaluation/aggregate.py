@@ -80,7 +80,8 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
         if not ics and not best_medians:
             continue
         axis_summary[spec.name] = {
-            "cohorts": len(ics),
+            "cohorts": len(best_medians),
+            "rank_ic_cohorts": len(ics),
             "total_n": total_n,
             "mean_rank_ic": round(fmean(ics), 4) if ics else None,
             "ic_positive_share": (

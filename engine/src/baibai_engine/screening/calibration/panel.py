@@ -577,7 +577,7 @@ def build_panel(
         security_analyses=len(candidates),
         nominated_candidates=discovery.candidate_count,
         bars_tickers_not_in_master=sum(
-            1 for ticker in bars_by_ticker if ticker not in securities_by_ticker
+            1 for ticker in bars_by_ticker if ticker not in master_tickers
         ),
         effective_bars_start=bars_start.isoformat(),
         effective_fin_start=fin_start.isoformat(),

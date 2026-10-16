@@ -130,6 +130,25 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertNotIn("insufficient_bar_history", counts)
             self.assertNotIn("1306", {row.ticker for row in built.rows})
 
+    def test_policy_excluded_master_member_is_not_a_missing_master(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            build_calibration_fixture_sqlite(sqlite_path)
+            conn = open_connection(sqlite_path)
+            try:
+                insert_master_rows(
+                    conn, [("2026-06-01", "1306", "指数連動 ETF", "その他", "その他", "014")]
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            insert_daily_bars_from_closes(
+                sqlite_path, "1306", [100.0] * 200, end_date=ASOF, turnover_value=2e8
+            )
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            self.assertEqual(result.diagnostics.bars_tickers_not_in_master, 0)
+            self.assertEqual(result.diagnostics.policy_excluded_priced_count, 1)
+
     def test_the_panel_counts_how_many_names_carry_an_edinet_axis(self) -> None:
         """A cohort with no EDINET source replays a screen production does not run.
 
