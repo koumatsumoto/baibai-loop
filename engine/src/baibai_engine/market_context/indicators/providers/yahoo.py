@@ -92,10 +92,17 @@ def parse_yahoo_chart(
         columns[name] = []
         for group in groups:
             row = _require_mapping(group, f"indicators.{name}")
-            if any(not isinstance(values, list) or len(values) != len(timestamps) for values in row.values()):
-                raise IndicatorsProviderError(f"Yahoo timestamp/indicator lengths differ for {series.provider_series_id}")
+            if any(
+                not isinstance(values, list) or len(values) != len(timestamps)
+                for values in row.values()
+            ):
+                raise IndicatorsProviderError(
+                    f"Yahoo timestamp/indicator lengths differ for {series.provider_series_id}"
+                )
             columns[name].append(row)
-    metadata = {key: value for key, value in result.items() if key not in {"timestamp", "indicators"}}
+    metadata = {
+        key: value for key, value in result.items() if key not in {"timestamp", "indicators"}
+    }
     records: dict[date, list[dict[str, object]]] = defaultdict(list)
     for index, raw_ts in enumerate(timestamps):
         if isinstance(raw_ts, bool) or not isinstance(raw_ts, (int, float)):
@@ -103,10 +110,15 @@ def parse_yahoo_chart(
         observed_at = datetime.fromtimestamp(raw_ts, UTC).date()
         if start <= observed_at <= end:
             point = {
-                name: [{key: cast(list[object], values)[index] for key, values in group.items()} for group in groups]
+                name: [
+                    {key: cast(list[object], values)[index] for key, values in group.items()}
+                    for group in groups
+                ]
                 for name, groups in columns.items()
             }
-            records[observed_at].append({"timestamp": raw_ts, "metadata": metadata, "indicators": point})
+            records[observed_at].append(
+                {"timestamp": raw_ts, "metadata": metadata, "indicators": point}
+            )
     return dict(records)
 
 

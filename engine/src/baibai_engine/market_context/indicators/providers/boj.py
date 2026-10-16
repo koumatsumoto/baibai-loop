@@ -76,9 +76,13 @@ def parse_boj_xlsx(
                     continue
                 saw_date_row = True
                 if start <= observed_at <= end:
-                    records[observed_at].append({
-                        "sheet": worksheet.title, "preamble": list(preamble), "row": native_cells,
-                    })
+                    records[observed_at].append(
+                        {
+                            "sheet": worksheet.title,
+                            "preamble": list(preamble),
+                            "row": native_cells,
+                        }
+                    )
         finally:
             workbook.close()
     except Exception as exc:

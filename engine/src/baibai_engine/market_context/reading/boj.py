@@ -6,16 +6,22 @@ from baibai_engine.market_context.indicators.definitions import SeriesDefinition
 
 
 def boj_value(series: SeriesDefinition, record: Mapping[str, object]) -> float | None:
-    value_col, expected_header, metadata_col, expected_metadata = _value_column_spec(series.provider_series_id)
+    value_col, expected_header, metadata_col, expected_metadata = _value_column_spec(
+        series.provider_series_id
+    )
     preamble = record["preamble"]
     cells = record["row"]
     if not isinstance(preamble, list) or not isinstance(cells, list):
         raise ValueError("BOJ native record must contain workbook rows")
     headers = _column_text(preamble, value_col)
     if _normalize_header(expected_header) not in headers:
-        raise ValueError(f"BOJ value column {value_col} header mismatch: expected {expected_header!r}")
+        raise ValueError(
+            f"BOJ value column {value_col} header mismatch: expected {expected_header!r}"
+        )
     if _normalize_header(expected_metadata) not in _column_text(preamble, metadata_col):
-        raise ValueError(f"BOJ metadata column {metadata_col} mismatch: expected {expected_metadata!r}")
+        raise ValueError(
+            f"BOJ metadata column {metadata_col} mismatch: expected {expected_metadata!r}"
+        )
     value = cells[value_col - 1] if value_col <= len(cells) else None
     if value is None:
         return None
@@ -51,9 +57,7 @@ def _value_column_spec(provider_series_id: str) -> tuple[int, str, int, str]:
             f"BOJ provider_series_id must start with a 1-based column index: {provider_series_id!r}"
         ) from None
     if index < 2:
-        raise ValueError(
-            f"BOJ value column index must be a 1-based value column (>= 2): {index}"
-        )
+        raise ValueError(f"BOJ value column index must be a 1-based value column (>= 2): {index}")
     try:
         metadata_index = int(raw_metadata_index)
     except ValueError:
@@ -62,9 +66,7 @@ def _value_column_spec(provider_series_id: str) -> tuple[int, str, int, str]:
             f"{provider_series_id!r}"
         ) from None
     if metadata_index < 1:
-        raise ValueError(
-            f"BOJ metadata column index must be 1-based (>= 1): {metadata_index}"
-        )
+        raise ValueError(f"BOJ metadata column index must be 1-based (>= 1): {metadata_index}")
     return (
         index,
         expected_header.strip(),
@@ -75,4 +77,3 @@ def _value_column_spec(provider_series_id: str) -> tuple[int, str, int, str]:
 
 def _normalize_header(value: str) -> str:
     return " ".join(value.split()).casefold()
-

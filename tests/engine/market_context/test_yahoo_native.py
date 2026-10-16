@@ -1,11 +1,10 @@
 """Yahoo null close revisions retain OHLCV and cannot revive scalar history."""
 
 import json
-
-import pytest
 from contextlib import closing
 from datetime import UTC, date, datetime
 
+import pytest
 from tests.helpers.indicator_store import observation
 
 from baibai_engine.market_context.indicator_service import IndicatorsService
@@ -21,40 +20,75 @@ def test_null_close_revision_preserves_source_fields_and_removes_prior_value(tmp
     path = tmp_path / "indicators.sqlite"
     series = load_definitions().by_id()["gold"]
     first, second = date(2026, 7, 24), date(2026, 7, 27)
-    stamps = [int(datetime.combine(day, datetime.min.time(), tzinfo=UTC).timestamp()) for day in (first, second)]
+    stamps = [
+        int(datetime.combine(day, datetime.min.time(), tzinfo=UTC).timestamp())
+        for day in (first, second)
+    ]
     metadata = {"symbol": "GC=F", "currency": "USD", "exchangeTimezoneName": "America/New_York"}
+
     def reply(closes):
-        return json.dumps({"chart": {"error": None, "result": [{
-            "meta": metadata, "timestamp": stamps,
-            "indicators": {
-                "quote": [{"open": [3990, 4040], "high": [4010, 4060], "low": [3980, 4030], "volume": [100, 200], "close": closes}],
-                "adjclose": [{"adjclose": [4000, 4050]}],
-            },
-        }]}})
+        return json.dumps(
+            {
+                "chart": {
+                    "error": None,
+                    "result": [
+                        {
+                            "meta": metadata,
+                            "timestamp": stamps,
+                            "indicators": {
+                                "quote": [
+                                    {
+                                        "open": [3990, 4040],
+                                        "high": [4010, 4060],
+                                        "low": [3980, 4030],
+                                        "volume": [100, 200],
+                                        "close": closes,
+                                    }
+                                ],
+                                "adjclose": [{"adjclose": [4000, 4050]}],
+                            },
+                        }
+                    ],
+                }
+            }
+        )
+
     replies = iter([reply([4000, 4050]), reply([None, 4050])])
     urls = []
+
     def fetch(session, url, **kwargs):
         urls.append(url)
         return next(replies)
+
     monkeypatch.setattr(yahoo, "fetch_text", fetch)
     with closing(db.initialize_database(path)) as connection, connection:
         db.insert_observations(connection, [observation(series, first, 9999.0)])
     service = IndicatorsService(path)
     original = service.get_range(series.series_id, start=first, end=second, refresh=True)
-    assert [(row.observed_at, row.value) for row in original.observations] == [(first, 4000.0), (second, 4050.0)]
+    assert [(row.observed_at, row.value) for row in original.observations] == [
+        (first, 4000.0),
+        (second, 4050.0),
+    ]
     corrected = service.get_range(series.series_id, start=first, end=second, refresh=True)
     assert [(row.observed_at, row.value) for row in corrected.observations] == [(second, 4050.0)]
     with closing(db.open_read_only_connection(path)) as connection:
         reader = build_store_observation_reader(connection, series=load_definitions().series)
         assert reader(series.series_id, first, first) == ()
-        snapshot = next(read_snapshots(connection, first, first, source_key=native_source_key(series)))
-        assert snapshot.records == ({
-            "timestamp": stamps[0], "metadata": {"meta": metadata},
-            "indicators": {
-                "quote": [{"open": 3990, "high": 4010, "low": 3980, "volume": 100, "close": None}],
-                "adjclose": [{"adjclose": 4000}],
+        snapshot = next(
+            read_snapshots(connection, first, first, source_key=native_source_key(series))
+        )
+        assert snapshot.records == (
+            {
+                "timestamp": stamps[0],
+                "metadata": {"meta": metadata},
+                "indicators": {
+                    "quote": [
+                        {"open": 3990, "high": 4010, "low": 3980, "volume": 100, "close": None}
+                    ],
+                    "adjclose": [{"adjclose": 4000}],
+                },
             },
-        },)
+        )
         assert connection.execute("SELECT value FROM observations").fetchone()[0] == 9999.0
     assert urls == [series.source_url, series.source_url]
 
@@ -63,11 +97,20 @@ def test_wrong_symbol_cannot_be_read_as_the_requested_series(tmp_path, monkeypat
     path = tmp_path / "indicators.sqlite"
     series = load_definitions().by_id()["gold"]
     day = date(2026, 7, 24)
-    payload = json.dumps({"chart": {"error": None, "result": [{
-        "meta": {"symbol": "OTHER", "currency": "USD"},
-        "timestamp": [int(datetime(2026, 7, 24, tzinfo=UTC).timestamp())],
-        "indicators": {"quote": [{"close": [4000]}]},
-    }]}})
+    payload = json.dumps(
+        {
+            "chart": {
+                "error": None,
+                "result": [
+                    {
+                        "meta": {"symbol": "OTHER", "currency": "USD"},
+                        "timestamp": [int(datetime(2026, 7, 24, tzinfo=UTC).timestamp())],
+                        "indicators": {"quote": [{"close": [4000]}]},
+                    }
+                ],
+            }
+        }
+    )
     monkeypatch.setattr(yahoo, "fetch_text", lambda *args, **kwargs: payload)
     with pytest.raises(ValueError, match="symbol does not match"):
         IndicatorsService(path).get_range(series.series_id, start=day, end=day, refresh=True)

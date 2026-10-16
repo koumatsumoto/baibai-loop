@@ -132,8 +132,12 @@ class IndicatorsProviderParserTests(TestCase):
         observations = parse_yahoo_chart(series, text, start=date(2026, 5, 4), end=date(2026, 5, 5))
 
         self.assertEqual(list(observations), [date(2026, 5, 4), date(2026, 5, 5)])
-        self.assertEqual(observations[date(2026, 5, 4)][0]["indicators"]["quote"], [{"close": None}])
-        self.assertEqual(observations[date(2026, 5, 5)][0]["indicators"]["quote"], [{"close": 4050.5}])
+        self.assertEqual(
+            observations[date(2026, 5, 4)][0]["indicators"]["quote"], [{"close": None}]
+        )
+        self.assertEqual(
+            observations[date(2026, 5, 5)][0]["indicators"]["quote"], [{"close": 4050.5}]
+        )
 
     def test_parse_yahoo_chart_rejects_unpaired_dates_or_values(self) -> None:
         series = _series("yahoo", "GC=F", unit="usd-per-oz")

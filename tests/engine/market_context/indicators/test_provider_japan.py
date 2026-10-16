@@ -33,13 +33,13 @@ from baibai_engine.market_context.indicators.providers import (
     parse_mof_jgb_csv,
     parse_tsr_bankruptcies_json,
 )
-from baibai_engine.market_context.indicators.providers.estat import parse_estat_json
 from baibai_engine.market_context.indicators.providers.base import record_observation
-from baibai_engine.market_context.reading.native import _one_value
+from baibai_engine.market_context.indicators.providers.estat import parse_estat_json
 from baibai_engine.market_context.indicators.providers.estat_dashboard import (
     EStatDashboardSource,
     parse_dashboard_json,
 )
+from baibai_engine.market_context.reading.native import _one_value
 
 
 def _read_boj(series, content, *, start, end):
@@ -129,9 +129,7 @@ class IndicatorsProviderParserTests(TestCase):
             unit="jpy-100m",
         )
 
-        observations = _read_boj(
-            series, content, start=date(2026, 2, 1), end=date(2026, 3, 31)
-        )
+        observations = _read_boj(series, content, start=date(2026, 2, 1), end=date(2026, 3, 31))
 
         self.assertEqual(
             [(obs.observed_at, obs.value) for obs in observations],
@@ -152,9 +150,7 @@ class IndicatorsProviderParserTests(TestCase):
             unit="jpy-100m",
         )
 
-        observations = _read_boj(
-            series, content, start=date(2026, 1, 1), end=date(2026, 12, 31)
-        )
+        observations = _read_boj(series, content, start=date(2026, 1, 1), end=date(2026, 12, 31))
 
         self.assertEqual(len(observations), 1)
         self.assertEqual(observations[0].value, 360000.0)
@@ -197,9 +193,7 @@ class IndicatorsProviderParserTests(TestCase):
         )
 
         with self.assertRaisesRegex(IndicatorsProviderError, "could not be read"):
-            _read_boj(
-                series, buffer.getvalue(), start=date(2026, 1, 1), end=date(2026, 12, 31)
-            )
+            _read_boj(series, buffer.getvalue(), start=date(2026, 1, 1), end=date(2026, 12, 31))
 
     def test_parse_mof_jgb_csv_preserves_all_yields_and_missing_cells(self) -> None:
         series = _series("mof_jgb", "10年")

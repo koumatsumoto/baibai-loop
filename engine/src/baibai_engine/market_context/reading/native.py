@@ -73,7 +73,9 @@ def _record_value(series: SeriesDefinition, row: Mapping[str, object]) -> float 
         if not isinstance(metadata, Mapping):
             raise ValueError("Yahoo source metadata must be a mapping")
         meta = metadata.get("meta", {})
-        if not isinstance(meta, Mapping) or ("symbol" in meta and meta["symbol"] != series.provider_series_id):
+        if not isinstance(meta, Mapping) or (
+            "symbol" in meta and meta["symbol"] != series.provider_series_id
+        ):
             raise ValueError(f"Yahoo source symbol does not match {series.series_id}")
         indicators = row["indicators"]
         if not isinstance(indicators, Mapping):

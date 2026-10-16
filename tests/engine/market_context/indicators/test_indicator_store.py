@@ -401,7 +401,9 @@ class IndicatorsDBTests(unittest.TestCase):
                     patch(
                         "baibai_engine.market_context.indicator_service.fetch_native_records",
                         return_value={
-                            date(2026, 5, 1): [{"observation_date": "2026-05-01", "DFEDTARU": "4.39"}]
+                            date(2026, 5, 1): [
+                                {"observation_date": "2026-05-01", "DFEDTARU": "4.39"}
+                            ]
                         },
                     ),
                 ):
@@ -443,8 +445,8 @@ class IndicatorsDBTests(unittest.TestCase):
                 patch(
                     "baibai_engine.market_context.indicator_service.fetch_native_records",
                     return_value={
-                            date(2026, 5, 1): [{"observation_date": "2026-05-01", "DFEDTARU": "4.39"}]
-                        },
+                        date(2026, 5, 1): [{"observation_date": "2026-05-01", "DFEDTARU": "4.39"}]
+                    },
                 ),
             ):
                 IndicatorsService(database).refresh_series(

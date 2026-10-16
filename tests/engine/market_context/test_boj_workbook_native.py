@@ -19,27 +19,43 @@ def test_null_revision_and_all_null_workbook_leave_no_stale_reading(tmp_path, mo
     path = tmp_path / "indicators.sqlite"
     series = load_definitions().by_id()["jp.monetary_base"]
     first, second = date(2026, 5, 1), date(2026, 6, 1)
-    replies = iter([
-        _boj_workbook_bytes([(None, date(2026, 5, 31), 350000, 17), (None, date(2026, 6, 30), 360000, 18)]),
-        _boj_workbook_bytes([(None, date(2026, 5, 31), None, 17), (None, date(2026, 6, 30), 360000, 18)]),
-        _boj_workbook_bytes([(None, date(2026, 5, 31), None, 17), (None, date(2026, 6, 30), None, 18)]),
-    ])
+    replies = iter(
+        [
+            _boj_workbook_bytes(
+                [(None, date(2026, 5, 31), 350000, 17), (None, date(2026, 6, 30), 360000, 18)]
+            ),
+            _boj_workbook_bytes(
+                [(None, date(2026, 5, 31), None, 17), (None, date(2026, 6, 30), 360000, 18)]
+            ),
+            _boj_workbook_bytes(
+                [(None, date(2026, 5, 31), None, 17), (None, date(2026, 6, 30), None, 18)]
+            ),
+        ]
+    )
     monkeypatch.setattr(boj, "fetch_bytes", lambda *args, **kwargs: next(replies))
     with closing(db.initialize_database(path)) as connection, connection:
         db.insert_observations(connection, [observation(series, first, 99999.0)])
     service = IndicatorsService(path)
     original = service.get_range(series.series_id, start=first, end=second, refresh=True)
-    assert [(row.observed_at, row.value) for row in original.observations] == [(first, 350000.0), (second, 360000.0)]
+    assert [(row.observed_at, row.value) for row in original.observations] == [
+        (first, 350000.0),
+        (second, 360000.0),
+    ]
     corrected = service.get_range(series.series_id, start=first, end=second, refresh=True)
     assert [(row.observed_at, row.value) for row in corrected.observations] == [(second, 360000.0)]
     with closing(db.open_read_only_connection(path)) as connection:
         reader = build_store_observation_reader(connection, series=load_definitions().series)
         assert reader(series.series_id, first, first) == ()
-        snapshot = next(read_snapshots(connection, first, first, source_key=native_source_key(series)))
+        snapshot = next(
+            read_snapshots(connection, first, first, source_key=native_source_key(series))
+        )
         row = snapshot.records[0]
         assert row["row"][:4] == [None, "2026-05-31T00:00:00", None, 17]
         assert row["preamble"][0][2] == "Monetary Base"
         assert row["preamble"][1][7] == "Unit: 100 million yen"
         assert row["sheet"] == "Sheet"
         assert connection.execute("SELECT value FROM observations").fetchone()[0] == 99999.0
-    assert service.get_range(series.series_id, start=first, end=second, refresh=True).observations == ()
+    assert (
+        service.get_range(series.series_id, start=first, end=second, refresh=True).observations
+        == ()
+    )
