@@ -20,6 +20,7 @@ from baibai_batch.storage.merge_market_store import (
     merge_stores,
 )
 from baibai_engine.storage.lake.datasets import LAKE_DATASETS
+from baibai_engine.storage.observations.coverage import record_range_source_coverage
 from baibai_engine.storage.observations.ingest.jquants import store_jquants_short_sale_reports
 from baibai_engine.storage.observations.lake_origin import (
     LakeStoreOrigin,
@@ -505,6 +506,34 @@ class TestFinancialSummaryCoverage:
 
 
 class TestRetractedCoverage:
+    @pytest.mark.parametrize("repaired_inputs", [("source",), ("target",), ("source", "target")])
+    def test_existing_partial_repair_is_preserved(self, tmp_path: Path, repaired_inputs) -> None:
+        stores = {name: _store(tmp_path / f"{name}.sqlite") for name in ("source", "target")}
+        for path in stores.values():
+            _add_fin_summary(path, disclosed_at="2026-01-05")
+            _add_fin_summary(path, disclosed_at="2026-01-15")
+        for name in repaired_inputs:
+            with closing(open_connection(stores[name])) as connection, connection:
+                for start, end, status, error in (
+                    (1, 31, "partial", "some records were rejected"),
+                    (10, 20, "ok", None),
+                ):
+                    record_range_source_coverage(
+                        connection,
+                        source="jquants_fin_summaries",
+                        operation="get_fin_summary_range",
+                        table="jquants_fin_summaries",
+                        date_column="disclosed_at",
+                        requested_start=date(2026, 1, start),
+                        requested_end=date(2026, 1, end),
+                        status=status,
+                        error=error,
+                    )
+        expected = _coverage(stores[repaired_inputs[0]], "jquants_fin_summaries")
+        merge_stores(stores["source"], stores["target"])
+        actual = _coverage(stores["target"], "jquants_fin_summaries")
+        assert [row[:3] for row in actual] == [row[:3] for row in expected]
+
     def test_a_window_a_failed_fetch_retracted_is_not_reinstated(self, tmp_path: Path) -> None:
         """The ledger is not append-only: a failed fetch cuts its range out of the ok windows.
 

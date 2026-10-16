@@ -3,7 +3,8 @@
 The source may be dehydrated; its lake-owned facts are not copied by this merge.
 General coverage rows are unioned with matching payloads except fetch timestamps.
 Financial-summary counts are validated against hydrated target rows and may only
-be raised. Overlapping clean and failed/partial ranges are rejected.
+be raised. New clean/failed overlaps introduced by the union are rejected; existing
+partial repairs retain the writer's coverage semantics.
 
 Short-sale coverage is selected by success status and then fetch time. Imported
 EDINET document claims require recheck; target document claims remain authoritative.
@@ -128,6 +129,9 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
                 # reconciliation rules. Count around all passes for the combined report.
                 source_rows = count(connection, "SELECT count(*) FROM source.source_coverage")
                 before = count(connection, "SELECT count(*) FROM main.source_coverage")
+                known_overlaps = _coverage_overlaps(connection, schema="main") | _coverage_overlaps(
+                    connection, schema="source"
+                )
                 _require_no_overclaimed_coverage(connection)
                 _merge_short_sale_coverage(connection)
                 _merge_edinet_fact_coverage(connection)
@@ -138,7 +142,7 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
                     uncompared=_MERGE_EXEMPTIONS,
                 )
                 _raise_fin_summary_coverage_counts(connection)
-                _require_no_reinstated_coverage(connection)
+                _require_no_reinstated_coverage(connection, known_overlaps=known_overlaps)
                 retained = _retain_target_tables(connection)
                 after = count(connection, "SELECT count(*) FROM main.source_coverage")
                 connection.commit()
@@ -222,29 +226,40 @@ def _require_matching_coverage_counts(connection: sqlite3.Connection) -> None:
         raise MergeError(f"source_coverage payload disagrees for shared key: {row!r}")
 
 
-def _require_no_reinstated_coverage(connection: sqlite3.Connection) -> None:
-    """Refuse a ledger where a clean window covers a range a fetch recorded as failed.
-
-    No fetcher writes that: `record_range_source_coverage` cuts the failed range out of
-    every overlapping `ok` window before it records the failure, so the gap shows. Only a
-    key-wise union can put the wide window back — the older copy still holds it — and the
-    result reads as covered exactly where the other writer proved it is not.
-    """
-
-    row = connection.execute(
+def _coverage_overlaps(
+    connection: sqlite3.Connection, *, schema: str
+) -> set[tuple[str, str, str, str]]:
+    attached = schema_name(schema)
+    rows = connection.execute(
         "SELECT ok.source, ok.coverage_key, bad.coverage_key, bad.status "
-        "FROM main.source_coverage ok "
-        "JOIN main.source_coverage bad ON bad.source = ok.source "
+        f"FROM {attached}.source_coverage ok "  # nosec B608
+        f"JOIN {attached}.source_coverage bad ON bad.source = ok.source "
         "WHERE ok.status = 'ok' AND bad.status IN ('failed', 'partial') "
         "AND ok.source <> 'edinet_research_facts' "
         "AND ok.coverage_start IS NOT NULL AND ok.coverage_end IS NOT NULL "
         "AND bad.coverage_start IS NOT NULL AND bad.coverage_end IS NOT NULL "
         "AND ok.coverage_start <= bad.coverage_end "
-        "AND ok.coverage_end >= bad.coverage_start "
-        "ORDER BY ok.source, ok.coverage_key LIMIT 1"
-    ).fetchone()
-    if row is not None:
-        source, clean_key, failed_key, status = row
+        "AND ok.coverage_end >= bad.coverage_start"
+    ).fetchall()
+    return {
+        (str(source), str(clean_key), str(failed_key), str(status))
+        for source, clean_key, failed_key, status in rows
+    }
+
+
+def _require_no_reinstated_coverage(
+    connection: sqlite3.Connection, *, known_overlaps: set[tuple[str, str, str, str]]
+) -> None:
+    """Refuse new overlap introduced by combining different acquisition histories.
+
+    A writer can retain a wide partial complaint after repairing only its interior.
+    Such an overlap already present in either input is not caused by this merge.
+    Shared-key payload checks keep its ranges and statuses unchanged. A new pairing
+    can instead revive a clean window that the other writer had retracted.
+    """
+    introduced = _coverage_overlaps(connection, schema="main") - known_overlaps
+    if introduced:
+        source, clean_key, failed_key, status = min(introduced)
         raise MergeError(
             f"{source} coverage {clean_key!r} would cover the range {failed_key!r} "
             f"recorded as {status}; the merge would reinstate a window a fetch retracted"
