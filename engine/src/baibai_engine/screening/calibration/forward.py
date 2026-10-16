@@ -9,7 +9,6 @@ from datetime import date, timedelta
 from math import isfinite
 from pathlib import Path
 
-from baibai_engine.foundation.date_utils import add_months_clamped
 from baibai_engine.market.bars import (
     JQuantsAdjustmentFactorEvent,
     JQuantsDailyBar,
@@ -25,7 +24,7 @@ from baibai_engine.storage.observations.reader import read_financial_documents
 from baibai_engine.valuation.metrics.dividends import (
     _dividend_basis_requires_resolution,
 )
-from baibai_engine.valuation.metrics.periods import _latest_consistent_actual
+from baibai_engine.valuation.metrics.periods import _latest_consistent_actual, _period_days
 
 from .horizons import HORIZONS, STALE_PRICE_MAX_LAG_DAYS, HorizonSpec, require_horizon
 
@@ -43,7 +42,7 @@ __all__ = (
 )
 
 
-FORWARD_CALCULATION_REVISION = "reported-dividend-basis-v5"
+FORWARD_CALCULATION_REVISION = "reported-dividend-basis-v6"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -285,9 +284,10 @@ def compute_forward_returns(
             # selected after entry can belong to a fiscal year that began almost a
             # year earlier, so its factor events need a separate, earlier boundary.
             dividend_period_starts = [
-                observation.period_start or add_months_clamped(observation.fiscal_year_end, -12)
+                observation.period_start
                 for observation in fy_dividends
                 if min_asof < observation.fiscal_year_end <= latest_target
+                and observation.period_start is not None
             ]
             event_start = min([min_asof, *dividend_period_starts])
             adjustment_events = _load_ticker_adjustment_events(conn, ticker, start=event_start)
@@ -689,7 +689,9 @@ def _load_fy_dividends(
             _FYDividendObservation(
                 fiscal_year_end=year,
                 disclosed_at=selected.disclosed_at,
-                dps_actual_annual=selected.dps_actual_annual,
+                dps_actual_annual=selected.dps_actual_annual
+                if selected.dps_actual_annual == 0 or _period_days(selected) is not None
+                else None,
                 period_start=selected.period_start,
             )
         )
@@ -782,7 +784,13 @@ def _asof_basis_dividend(
     reported = observation.dps_actual_annual
     if reported is None or reported == 0:
         return reported
-    window_start = observation.period_start or add_months_clamped(observation.fiscal_year_end, -12)
+    window_start = observation.period_start
+    if (
+        window_start is None
+        or window_start > observation.fiscal_year_end
+        or observation.fiscal_year_end > observation.disclosed_at
+    ):
+        return None
     if _dividend_basis_requires_resolution(bars, accrual_start=window_start, basis_date=basis_date):
         return None
     return reported

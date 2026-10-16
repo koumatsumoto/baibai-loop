@@ -1016,3 +1016,21 @@ def test_new_numeric_guidance_resolves_previous_unknown_revision():
         document("new", day="2026-10-01", FEPS="30"),
     ]
     assert snapshot(decode(records)).per_forward == 1074 / 30
+
+
+@pytest.mark.parametrize("field,value", [("CurPerSt", ""), ("CurPerEn", ""), ("CurPerSt", "2027-01-01")])
+@pytest.mark.parametrize("dps", [0, 7])
+def test_actual_dividend_period_validity_agrees_with_forward_measurement(tmp_path, field, value, dps):
+    from baibai_engine.screening.calibration.forward import _asof_basis_dividend, _load_fy_dividends
+    from baibai_engine.valuation.metrics.dividends import _resolve_dividend_carry
+
+    record = actual_document("invalid-period", DivAnn=str(dps))
+    record[field] = value
+    path = tmp_path / "market.sqlite"
+    store_jquants_fin_summaries(path, [record], requested_start=date(2026, 8, 10), requested_end=ASOF)
+    with closing(sqlite3.connect(path)) as connection:
+        observations = _load_fy_dividends(connection, "9999", cutoff=ASOF)
+    assert len(observations) == 1
+    expected = 0 if dps == 0 else None
+    assert _asof_basis_dividend(observations[0], (), basis_date=ASOF) == expected
+    assert _resolve_dividend_carry(decode([record]), (), 100, ASOF).dps_actual_annual == expected
