@@ -31,6 +31,15 @@ def test_twr_neutralizes_beginning_of_day_contribution() -> None:
     assert result.annualized_return_pct == pytest.approx(10.0)
 
 
+def test_twr_distinguishes_total_loss_from_an_unfunded_base() -> None:
+    result = compute_time_weighted_return(
+        (DailyNav(date(2026, 1, 2), 1_000), DailyNav(date(2026, 1, 5), 0)),
+        horizon_years=1,
+    )
+    assert result.cumulative_return_pct == -100.0
+    assert result.annualized_return_pct == -100.0
+
+
 def test_twr_rejects_zero_nav_after_withdrawal() -> None:
     with pytest.raises(PortfolioOutcomeError, match="zero_or_negative_nav"):
         compute_time_weighted_return(
@@ -137,6 +146,31 @@ def _ledger() -> PortfolioLedgerDocument:
             ],
         }
     )
+
+
+def test_confirmed_cost_consuming_all_capital_is_resolved_not_missing() -> None:
+    raw = _ledger().model_dump(mode="json")
+    raw["events"] = [
+        raw["events"][0],
+        {
+            "event_id": "confirmed-cost",
+            "type": "cost",
+            "occurred_at": "2026-01-06T09:00:00+09:00",
+            "cost_kind": "commission",
+            "amount_yen": 1_000,
+        },
+    ]
+    result = compute_portfolio_outcome(
+        PortfolioLedgerDocument.model_validate(raw),
+        _benchmark(),
+        business_days=(date(2025, 1, 6), date(2026, 1, 6)),
+        bars=(),
+    )
+    assert result.status == "resolved"
+    assert result.reason is None
+    assert result.portfolio_twr_pct == -100.0
+    assert result.ending_cash_yen == 0
+    assert result.confirmed_cost_yen == 1_000
 
 
 def test_portfolio_outcome_includes_idle_cash_and_confirmed_cashflows() -> None:

@@ -32,7 +32,7 @@ _JPX_CLOSE = time(15, 30)
 
 
 class PortfolioOutcomeError(ValueError):
-    """Raised when a period return cannot be computed without approximation."""
+    """Raised when the declared daily-return convention lacks valid inputs."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,7 +91,9 @@ def compute_time_weighted_return(
         if current.valuation_date <= previous.valuation_date:
             raise PortfolioOutcomeError("valuation dates must be strictly increasing")
         denominator = previous.nav_yen + current.external_flow_yen
-        if denominator <= 0 or current.nav_yen <= 0:
+        # A positive funded base falling to zero is an observed -100% return.
+        # A zero base (for example after a full withdrawal) is undefined instead.
+        if denominator <= 0 or current.nav_yen < 0:
             raise PortfolioOutcomeError("zero_or_negative_nav")
         returns.append(current.nav_yen / denominator - 1)
         previous = current
