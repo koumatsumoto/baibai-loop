@@ -236,9 +236,15 @@ def test_candidate_delta_retains_every_entry_in_ticker_order(count, er):
 
 @pytest.mark.parametrize(
     ("value", "valid"),
-    [(None, True), ({"name": "fixed"}, True), ({}, False),
-     ({"name": "fixed", "unexpected": 1}, False),
-     ({"name": None}, False), ([], False), ("not-an-object", False)],
+    [
+        (None, True),
+        ({"name": "fixed"}, True),
+        ({}, False),
+        ({"name": "fixed", "unexpected": 1}, False),
+        ({"name": None}, False),
+        ([], False),
+        ("not-an-object", False),
+    ],
 )
 def test_nullable_contract_check_does_not_accept_broken_objects_as_null(value, valid):
     schema = {
