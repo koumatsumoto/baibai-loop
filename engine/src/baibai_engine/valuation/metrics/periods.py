@@ -256,12 +256,22 @@ def _prior_year_summary(
     if latest is None:
         return None
     # Native accounting dates own comparability; FY/Q labels cannot replace them.
-    return _matched_prior_period_summary(
+    prior = _matched_prior_period_summary(
         summaries,
         latest,
         ttm_rules,
         field_name=field_name,
     )
+    # Issued shares describe the issuer, not its consolidated reporting scope.
+    # Financial YoY must not compare individual amounts with group amounts, and
+    # a mismatching latest revision must not revive an older convenient basis.
+    if (
+        prior is not None
+        and field_name != "shares_outstanding"
+        and statement_basis(prior) != statement_basis(latest)
+    ):
+        return None
+    return prior
 
 
 def _ttm_value(

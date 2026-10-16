@@ -1114,3 +1114,43 @@ def test_ttm_does_not_add_different_statement_bases(different_operand, current_b
             assert _ttm_value(decoded, field, load_screening_rules().ttm) == expected
         # Single-period reported facts remain usable; no raw value is rewritten.
         assert {row.sales for row in decoded} == {20, 100, 30}
+
+
+@pytest.mark.parametrize("new_basis", ["Consolidated", "NonConsolidated"])
+@pytest.mark.parametrize("late_correction", [False, True])
+def test_financial_yoy_does_not_compare_different_scopes_but_keeps_issuer_shares(
+    new_basis, late_correction
+):
+    old_basis = "NonConsolidated" if new_basis == "Consolidated" else "Consolidated"
+    old = document(
+        "prior-quarter", day="2025-08-10",
+        DocType=f"1QFinancialStatements_{old_basis}_JP", CurPerType="1Q",
+        CurFYSt="2025-04-01", CurFYEn="2026-03-31",
+        CurPerSt="2025-04-01", CurPerEn="2025-06-30",
+        EPS="10", Sales="100", CFO="20", OP="30", ShOutFY="1000", TrShFY="0",
+    )
+    current = document(
+        "current-quarter", day="2026-08-10",
+        DocType=f"1QFinancialStatements_{new_basis}_JP", CurPerType="1Q",
+        CurFYSt="2026-04-01", CurFYEn="2027-03-31",
+        CurPerSt="2026-04-01", CurPerEn="2026-06-30",
+        EPS="20", Sales="200", CFO="40", OP="60", ShOutFY="900", TrShFY="0",
+    )
+    records = [old, current]
+    if late_correction:
+        # Do not search backwards past a newer contrary basis for a comparable row.
+        earlier = {**old, "DocType": f"1QFinancialStatements_{new_basis}_JP"}
+        correction = {**old, "DiscNo": "prior-correction", "DiscDate": "2026-08-12"}
+        records = [earlier, current, correction]
+    for ordered in (records, list(reversed(records))):
+        result = build_financial_snapshot(
+            1000, decode(ordered), None, load_screening_rules().ttm,
+            adjustment_events=(), asof_date=date(2026, 8, 15),
+        )
+        assert result.eps_yoy is None
+        assert result.sales_yoy is None
+        assert result.cfo_yoy is None
+        assert result.operating_profit_yoy is None
+        assert result.operating_profit_loss_narrowing is None
+        assert result.net_share_change_yoy == pytest.approx(-0.1)
+        assert result.sales == 200
