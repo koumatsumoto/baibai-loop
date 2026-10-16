@@ -322,7 +322,7 @@ J-Quantsの価格factorには分割・併合だけでなくライツイシュー
 - 2024 年以降、EDINET 単体では旧来の四半期報告書に依存した TTM 再構成ができない期間がある
 - TTM 品質を `exact` / `approximated` / `unavailable` で明示する
 - J-Quantsの実績フローは開示日までに終了した正の期間だけをTTMへ合成する。原本に未来の終了日や逆転した期間があれば数値自体を保存しても、その期間を確定済み12か月として使わない。
-- EDINET CSV抽出では年次報告（書類種別120/130）かつ書類metadataで12か月の期間を確認できるフローを`exact`、期間不明・短縮決算・それ以外の取得フローを`approximated`、算出不能を`unavailable`とする。時点残高のnet cashは12か月フローではなく、算出できる当期残高を`exact`、算出不能を`unavailable`とする。半期のCFO・CapExを取得しても完全TTMへ合成・年率化しない。書類の`source_period_end`はフローのcontext終点とは限らない。
+- EDINET CSV抽出では年次報告（書類種別120/130）かつ書類metadataで12か月の期間を確認できるフローを`exact`、期間不明・短縮決算・それ以外の取得フローを`approximated`、算出不能を`unavailable`とする。時点残高のnet cashは12か月フローではなく、算出できる当期残高を`exact`、算出不能を`unavailable`とする。半期のCFO・CapExを取得しても完全TTMへ合成・年率化しない。既知の提出日より後に期間が終了する矛盾や解釈できない提出日時も`exact`へ昇格させない。書類の`source_period_end`はフローのcontext終点とは限らない。
 - 品質は供給元の計算・期間の区別であり、継続利益、資金の経済的持続性、株主回収可能性、倍率全体の正しさの認定ではない。`approximated`を一律に半期と解釈しない。
 - Webの同じStock Analysis rowにある`ttm_quality_ev_ebitda` / `ttm_quality_fcf`は、raw Stock Analysisの`ttm_quality.ev_ebitda` / `fcf_yield`をそのまま投影する。採用元の品質がなければ`null`で、別世代・別sourceから補わず、この注記だけで候補理由を変えない。
 - Web DTOでは2項目を必須nullable fieldとして明示する。Researchは選択したraw Stock Analysisのnull・field欠落を維持する。保存rawとWeb表示のshapeを区別し、旧canonicalとhashを変更しない。

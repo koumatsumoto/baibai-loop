@@ -1,7 +1,8 @@
 """EDINET CSV-ZIP financial statement parsing into metric records.
 
-Extracts TTM metrics from the CSV bundle attached to EDINET filings. Kept
-separate from the API provider: this is pure parsing over downloaded bytes.
+Extracts current statement balances and flows with their reported-period quality,
+without annualizing interim statements. This is pure parsing over downloaded bytes,
+separate from the API provider.
 """
 
 from __future__ import annotations
@@ -10,9 +11,10 @@ import csv
 import io
 import zipfile
 from collections.abc import Mapping, Sequence
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from baibai_engine.foundation.date_utils import add_months_clamped
+from baibai_engine.foundation.time import JST
 from baibai_engine.market.edinet_decode import to_float
 from baibai_engine.market.edinet_models import EdinetMetricRecord, EDINETProviderError
 from baibai_engine.market.metric_quality import TTMQuality
@@ -40,7 +42,7 @@ def parse_csv_zip_metric_record(
             failure_reasons=("csv_parse_failed",),
         )
 
-    quality = _flow_period_quality(doc_type_code, period_start, period_end)
+    quality = _flow_period_quality(doc_type_code, period_start, period_end, submit_datetime)
     rows, basis = _select_statement_rows(rows, doc_type_code)
     failures: list[str] = []
     if basis == "non_consolidated":
@@ -188,7 +190,8 @@ def _decode_csv(content: bytes) -> str:
 
 
 def _flow_period_quality(
-    doc_type_code: str, period_start: date | None, period_end: date | None
+    doc_type_code: str, period_start: date | None, period_end: date | None,
+    submit_datetime: str | None,
 ) -> TTMQuality:
     # A short fiscal year is still an annual filing, not a twelve-month flow.
     # Interim document metadata can describe the full fiscal year, so it never
@@ -197,6 +200,18 @@ def _flow_period_quality(
         return TTMQuality.APPROXIMATED
     if period_end <= period_start or period_end.year <= 1:
         return TTMQuality.APPROXIMATED
+    if submit_datetime is not None:
+        try:
+            submitted = datetime.fromisoformat(submit_datetime)
+        except ValueError:
+            return TTMQuality.APPROXIMATED
+        # EDINET's native timezone-free submission time is JST. Offset-bearing
+        # values are compared on that same calendar date, not their written date.
+        submitted_on = (
+            submitted.date() if submitted.tzinfo is None else submitted.astimezone(JST).date()
+        )
+        if period_end > submitted_on:
+            return TTMQuality.APPROXIMATED
     annual_start = add_months_clamped(period_end, -12) + timedelta(days=1)
     return TTMQuality.EXACT if period_start == annual_start else TTMQuality.APPROXIMATED
 

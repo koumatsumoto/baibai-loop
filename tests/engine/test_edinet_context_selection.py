@@ -9,7 +9,7 @@ import pytest
 from baibai_engine.market.providers.edinet_csv import parse_csv_zip_metric_record
 
 
-def _parse(kind, rows, *, start=None, end=None):
+def _parse(kind, rows, *, start=None, end=None, submitted=None):
     header = "要素ID\tコンテキストID\t連結・個別\tユニットID\t値\n"
     text = header + "\n".join(
         f"{element}\t{context}\t{basis}\tJPY\t{value}"
@@ -20,7 +20,7 @@ def _parse(kind, rows, *, start=None, end=None):
         archive.writestr("XBRL_TO_CSV/facts.csv", text.encode("utf-16-le"))
     return parse_csv_zip_metric_record(
         ticker="0000", doc_id="S100TEST", doc_type_code=kind, content=buffer.getvalue(),
-        period_start=start, period_end=end
+        period_start=start, period_end=end, submit_datetime=submitted,
     )
 
 
@@ -131,3 +131,18 @@ def test_flow_quality_requires_a_twelve_month_annual_period(kind, context, start
     assert record.ebitda_ttm == 130
     assert record.ttm_quality_p_s == quality
     assert record.ttm_quality_ev_ebitda == quality
+
+
+@pytest.mark.parametrize("submitted,quality", [
+    ("2026-03-30 15:00", "approximated"),
+    ("2026-03-31 15:00", "exact"),
+    ("2026-03-30T16:00:00Z", "exact"),
+    ("not-a-date", "approximated"),
+])
+def test_annual_metadata_cannot_end_after_known_submission(submitted, quality):
+    record = _parse("120", [
+        ("jppfs_cor:NetSales", "CurrentYearDuration", "連結", "200"),
+    ], start=date(2025, 4, 1), end=date(2026, 3, 31), submitted=submitted)
+    assert record.sales_ttm == 200
+    assert record.source_submit_datetime == submitted
+    assert record.ttm_quality_p_s == quality
