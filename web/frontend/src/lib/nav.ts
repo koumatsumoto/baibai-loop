@@ -1,5 +1,4 @@
-// Run history and step logs stay on GitHub: reading them needs a token the
-// serving Worker deliberately does not hold.
+// Run history and step logs stay on GitHub; the serving Worker does not fetch them.
 export const ACTIONS_URL =
   'https://github.com/koumatsumoto/baibai-loop/actions/workflows/cloud-daily-batch.yml'
 
