@@ -37,7 +37,7 @@ def _margin(**overrides: object) -> MarginBalance:
 def _axes(**overrides: object) -> MarginSupplyDemand:
     values: dict[str, object] = {
         "latest": _margin(),
-        "prior_26w": _margin(long_vol=1500.0),
+        "prior_26w": _margin(balance_date=WEEK - timedelta(weeks=26), long_vol=1500.0),
         "avg_daily_volume_shares": 500.0,
         "shares_outstanding": 100_000.0,
         "asof_date": WEEK,
@@ -50,7 +50,7 @@ class MarginSupplyDemandTest(unittest.TestCase):
     def test_axes_are_computed_from_the_published_balance(self) -> None:
         axes = _axes()
 
-        self.assertEqual(axes.margin_week_end, WEEK)
+        self.assertEqual(axes.margin_balance_date, WEEK)
         self.assertEqual(axes.margin_long_to_adv, 2.0)
         self.assertEqual(axes.margin_short_to_adv, 0.5)
         self.assertEqual(axes.margin_long_share, 0.8)
@@ -94,9 +94,8 @@ class MarginSupplyDemandTest(unittest.TestCase):
 
 class DerivedMetricsCarriesEveryAxisTest(unittest.TestCase):
     def test_every_supply_demand_field_reaches_derived_metrics(self) -> None:
-        # `DerivedMetrics` silently drops unknown keys, so a rename on one side
-        # would leave the axis permanently None with nothing failing. This pins
-        # the two field sets together.
+        # The domain output and screening snapshot share these facts. Keep their
+        # field sets aligned; the dataclass constructor rejects unknown keys.
         supply_demand = {field.name for field in fields(MarginSupplyDemand)}
         derived = {field.name for field in fields(DerivedMetrics)}
 
@@ -110,7 +109,7 @@ class DerivedMetricsCarriesEveryAxisTest(unittest.TestCase):
         self.assertEqual(derived.margin_long_share, 0.8)
         self.assertEqual(derived.margin_long_delta_26w, -0.005)
         self.assertEqual(derived.margin_std_long_share, 0.8)
-        self.assertEqual(derived.margin_week_end, WEEK)
+        self.assertEqual(derived.margin_balance_date, WEEK)
 
     def test_stock_analysis_output_carries_short_to_adv_and_observation_week(self) -> None:
         metrics = build_stock_analysis_metrics(
@@ -126,10 +125,10 @@ class DerivedMetricsCarriesEveryAxisTest(unittest.TestCase):
                 sales_ttm=None,
                 ocf_ttm=None,
             ),
-            derived=DerivedMetrics(margin_week_end=WEEK, margin_short_to_adv=0.5),
+            derived=DerivedMetrics(margin_balance_date=WEEK, margin_short_to_adv=0.5),
         )
 
-        self.assertEqual(metrics["margin_week_end"], WEEK.isoformat())
+        self.assertEqual(metrics["margin_balance_date"], WEEK.isoformat())
         self.assertEqual(metrics["margin_short_to_adv"], 0.5)
 
 

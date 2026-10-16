@@ -73,7 +73,7 @@ _PANEL_REQUIRED: Mapping[str, Any] = {
     "reported_short_ratio": None,
     "reported_short_breadth": None,
     "reported_short_latest_disclosed_at": None,
-    "margin_week_end": None,
+    "margin_balance_date": None,
     "margin_long_to_adv": None,
     "margin_long_share": None,
     "margin_long_delta_26w": None,

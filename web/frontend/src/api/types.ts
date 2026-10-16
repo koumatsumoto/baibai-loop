@@ -1049,7 +1049,7 @@ export interface StockAnalysisRowView {
   price_change_20d: number | null
   gap_from_52w_low: number | null
   next_earnings_date: string | null
-  margin_week_end: string | null
+  margin_balance_date: string | null
   margin_long_to_adv: number | null
   margin_short_to_adv: number | null
   margin_long_share: number | null

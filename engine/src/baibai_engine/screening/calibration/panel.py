@@ -191,7 +191,7 @@ class PanelRow:
     # old its positioning read is: the balance is published days later, and a store
     # with a gap would otherwise show plausible axes with no trace of which balance
     # date they came from.
-    margin_week_end: str | None
+    margin_balance_date: str | None
     margin_long_to_adv: float | None
     margin_long_share: float | None
     margin_long_delta_26w: float | None
@@ -522,8 +522,8 @@ def build_panel(
                     if short_metric is not None
                     else None
                 ),
-                margin_week_end=(
-                    derived.margin_week_end.isoformat() if derived.margin_week_end else None
+                margin_balance_date=(
+                    derived.margin_balance_date.isoformat() if derived.margin_balance_date else None
                 ),
                 margin_long_to_adv=derived.margin_long_to_adv,
                 margin_short_to_adv=derived.margin_short_to_adv,
@@ -715,7 +715,7 @@ def _unresolved_master_member_row(
         reported_short_ratio=None,
         reported_short_breadth=None,
         reported_short_latest_disclosed_at=None,
-        margin_week_end=None,
+        margin_balance_date=None,
         margin_long_to_adv=None,
         margin_short_to_adv=None,
         margin_long_share=None,

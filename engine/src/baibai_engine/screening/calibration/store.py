@@ -441,7 +441,7 @@ def _validate_margin_supply_demand(row: PanelRow) -> None:
     if row.margin_short_to_adv is not None and (
         not isfinite(row.margin_short_to_adv)
         or row.margin_short_to_adv < 0
-        or row.margin_week_end is None
+        or row.margin_balance_date is None
     ):
         raise ValueError("margin short to ADV requires a dated non-negative value")
     if row.realized_volatility_60d is not None and (

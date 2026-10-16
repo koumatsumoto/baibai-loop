@@ -109,6 +109,10 @@ read ownerの`analysis_run`はResearch日以下のanalysisと`known_at`以下の
 
 ## Market store inputs
 
+価格観測期間は`price_history_span_days`で表し、上場後の経過日数とは呼ばない。現行rulesも`min_price_history_span_days`を使う。閾値の値は変えず、旧field名への互換aliasは持たない。保存済みrun・cohort・公開viewは現行契約で再構築する。
+
+信用残高の観測日は `margin_balance_date` とする。週次・日次のいずれも原典の残高日を保持し、週末日や公表日へ置き換えない。
+
 価格、財務、銘柄master、calendar、信用・空売り、JPX規制、EDINET、上場廃止・現金公開買付けとcoverageを読む。現行table/columnはschema、lake datasetは`baibai-engine lake inventory`を参照する。
 
 値の意味は[valuation metrics](./valuation-metrics.md)、sourceの選択は[data sources](./data-sources.md)、PIT・coverage・hydrateは[market lake](./market-lake.md)に従う。
@@ -126,5 +130,3 @@ J-Quantsのread取得は[provider](../../engine/src/baibai_engine/market/provide
 候補集合・rank・母集団・丸め・method/rules/model identityと、同じ入力のPanelRow全値を旧commitの合成goldenへ照合する。保存では全行context、空分析/空候補、rollback、完全冪等、rules mismatch、日時の内容Conflictを確認する。readはexact revision・同日複数・Research cutoffと、破損をfilterで隠さない経路を検証する。
 
 最終consumer treeのCLI、Research、Web/batch、生成contracts、materialize、frontendは[対象HEADのCIと必要な実store検証](./python-foundation.md#9-ci-and-local-parity)で確認する。fixture成功を実store検証・provider読取・本番切替成功と読み替えない。
-
-価格観測期間は`price_history_span_days`で表し、上場後の経過日数とは呼ばない。現行rulesも`min_price_history_span_days`を使う。閾値の値は変えず、旧field名への互換aliasは持たない。保存済みrun・cohort・公開viewは現行契約で再構築する。

@@ -57,7 +57,7 @@ class MarginBalance:
 class MarginSupplyDemand:
     """One ticker's supply/demand facts as of the latest published balance date."""
 
-    margin_week_end: date | None = None
+    margin_balance_date: date | None = None
     margin_issue_type: str | None = None
     # Balance divided by mean observed daily volume on the same share basis.
     # This scale comparison is not a forecast of how long liquidation would take.
@@ -118,7 +118,7 @@ def margin_supply_demand(
         else None
     )
     return MarginSupplyDemand(
-        margin_week_end=latest.balance_date,
+        margin_balance_date=latest.balance_date,
         margin_issue_type=latest.issue_type,
         margin_long_to_adv=(
             asof_long / avg_daily_volume_shares

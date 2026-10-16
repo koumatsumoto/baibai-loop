@@ -86,7 +86,7 @@ class DerivedMetrics:
     # readable. The retained field name also holds daily balance dates after the
     # weekly-to-daily transition. Publication delays, holidays and missing releases
     # affect actual age; daily frequency does not guarantee one-day freshness.
-    margin_week_end: date | None = None
+    margin_balance_date: date | None = None
     margin_issue_type: str | None = None
     margin_long_to_adv: float | None = None
     margin_short_to_adv: float | None = None

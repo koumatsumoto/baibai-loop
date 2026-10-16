@@ -60,7 +60,7 @@ export function stockAnalysisRow(overrides: Partial<StockAnalysisRowView> = {}):
     price_change_20d: null,
     gap_from_52w_low: null,
     next_earnings_date: null,
-    margin_week_end: null,
+    margin_balance_date: null,
     margin_long_to_adv: null,
     margin_short_to_adv: null,
     margin_long_share: null,

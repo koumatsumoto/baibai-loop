@@ -138,7 +138,7 @@ def build_stock_analysis_metrics(
         "edinet_source_submit_datetime": financial.edinet_source_submit_datetime,
         "edinet_source_period_start": _date_iso(financial.edinet_source_period_start),
         "edinet_source_period_end": _date_iso(financial.edinet_source_period_end),
-        "margin_week_end": _date_iso(derived.margin_week_end),
+        "margin_balance_date": _date_iso(derived.margin_balance_date),
         "margin_issue_type": derived.margin_issue_type,
         "margin_long_to_adv": derived.margin_long_to_adv,
         "margin_short_to_adv": derived.margin_short_to_adv,

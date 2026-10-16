@@ -325,7 +325,7 @@ def _stock_analysis_row_view(
         name=text(row.get("name")),
         sector_33=text(row.get("sector_33")),
         next_earnings_date=text(row.get("next_earnings_date")),
-        margin_week_end=text(metrics.get("margin_week_end")),
+        margin_balance_date=text(metrics.get("margin_balance_date")),
         data_quality_flags=flags,
         portfolio_state=_portfolio_state(ticker, held=held, reserved=reserved),
         has_research=ticker in researched,

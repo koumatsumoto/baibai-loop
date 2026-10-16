@@ -291,7 +291,7 @@ class StockAnalysisRowView(BaseModel):
     gap_from_52w_low: float | None
     next_earnings_date: str | None
     # 需給は観測値として表示し、候補選定の順位や採否条件とは区別する。
-    margin_week_end: date | None = None
+    margin_balance_date: date | None = None
     margin_long_to_adv: float | None
     margin_short_to_adv: float | None = None
     margin_long_share: float | None
