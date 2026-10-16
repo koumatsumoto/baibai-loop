@@ -67,7 +67,7 @@ def render_message(args: argparse.Namespace) -> str:
         detail = (
             "以前の部分公開確認済み・今回の再取得/再公開なし"
             if args.terminal_status == "already_partially_published"
-            else "以前の完全公開確認済み・今回の再取得/再公開なし"
+            else "以前の公開確認済み・今回の再取得/再公開なし"
         )
     elif args.cancelled == "true" or "cancelled" in (
         args.plan_result,

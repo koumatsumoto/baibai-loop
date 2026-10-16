@@ -165,7 +165,7 @@ def test_real_cli_plan_publication_seal_and_resume_route_to_one_safe_notice(
     assert daily.main(["publish-confirmed-partial", "--run-id", p.run_id]) == 0
     previous_message = notify_from_outputs(monkeypatch, repeated, partial=partial, previous=True)
     assert previous_message.startswith("[SKIPPED]")
-    assert ("以前の部分公開確認済み" if partial else "以前の完全公開確認済み") in previous_message
+    assert ("以前の部分公開確認済み" if partial else "以前の公開確認済み") in previous_message
     assert store.values[staging.prefix(p.run_id) + "/published.json"].body == original_receipt
     assert store.put_keys == []
     allowed = {staging.prefix(p.run_id) + suffix for suffix in ("/plan.json", "/published.json")}
