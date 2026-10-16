@@ -1101,6 +1101,9 @@ class ScreeningCliTests(unittest.TestCase):
                         "docTypeCode": "120",
                         "csvFlag": "1",
                         "xbrlFlag": "1",
+                        "legalStatus": "1",
+                        "disclosureStatus": "0",
+                        "withdrawalStatus": "0",
                         "periodStart": "2025-04-01",
                         "periodEnd": "2026-03-31",
                         "submitDateTime": "2026-04-01 12:00",
@@ -1183,6 +1186,9 @@ class ScreeningCliTests(unittest.TestCase):
                         "docTypeCode": "120",
                         "csvFlag": "1",
                         "xbrlFlag": "1",
+                        "legalStatus": "1",
+                        "disclosureStatus": "0",
+                        "withdrawalStatus": "0",
                         "submitDateTime": "2026-04-01 12:00",
                     }
                 ],
@@ -1237,6 +1243,9 @@ class ScreeningCliTests(unittest.TestCase):
                         "docTypeCode": "120",
                         "csvFlag": "1",
                         "xbrlFlag": "1",
+                        "legalStatus": "1",
+                        "disclosureStatus": "0",
+                        "withdrawalStatus": "0",
                     },
                 ],
                 zip_by_doc_id={"S100HEALTHY": _edinet_csv_zip(include_debt=True)},
@@ -1302,6 +1311,9 @@ class ScreeningCliTests(unittest.TestCase):
                     "docTypeCode": "120",
                     "csvFlag": "1",
                     "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
                 },
             ]
             first_provider = FakeEDINETProvider(
@@ -1436,6 +1448,9 @@ class ScreeningCliTests(unittest.TestCase):
                         "docTypeCode": "120",
                         "csvFlag": "1",
                         "xbrlFlag": "1",
+                        "legalStatus": "1",
+                        "disclosureStatus": "0",
+                        "withdrawalStatus": "0",
                     }
                 ]
             )
@@ -1489,6 +1504,9 @@ class ScreeningCliTests(unittest.TestCase):
                         "docTypeCode": "120",
                         "csvFlag": "1",
                         "xbrlFlag": "1",
+                        "legalStatus": "1",
+                        "disclosureStatus": "0",
+                        "withdrawalStatus": "0",
                     }
                 ]
             )
@@ -1938,6 +1956,9 @@ def _edinet_document(
         "docTypeCode": doc_type,
         "csvFlag": "1",
         "xbrlFlag": "1",
+        "legalStatus": "1",
+        "disclosureStatus": "0",
+        "withdrawalStatus": "0",
         "periodStart": "2025-04-01",
         "periodEnd": "2026-03-31",
         "submitDateTime": "2026-04-01 12:00",

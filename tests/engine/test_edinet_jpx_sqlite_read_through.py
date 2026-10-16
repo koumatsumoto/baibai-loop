@@ -77,6 +77,9 @@ class EDINETSQLiteReaderTests(unittest.TestCase):
                         "docTypeCode": "120",
                         "csvFlag": "1",
                         "xbrlFlag": "1",
+                        "legalStatus": "1",
+                        "disclosureStatus": "0",
+                        "withdrawalStatus": "0",
                         "docDescription": "有価証券報告書 2025/04/01-2026/03/31",
                     }
                 ],
@@ -104,6 +107,9 @@ class EDINETSQLiteReaderTests(unittest.TestCase):
                         "docTypeCode": "120",
                         "csvFlag": "1",
                         "xbrlFlag": "1",
+                        "legalStatus": "1",
+                        "disclosureStatus": "0",
+                        "withdrawalStatus": "0",
                         "submitDateTime": "2026-04-24 09:00",
                     }
                 ],
