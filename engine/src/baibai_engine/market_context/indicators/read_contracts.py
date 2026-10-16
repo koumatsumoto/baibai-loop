@@ -35,6 +35,7 @@ NATIVE_BULK_PROVIDERS = frozenset(
         "mof_jgb",
         "boj",
         "yahoo",
+        "nikkei_indexes",
         "cftc",
         "ecb_fx",
         "jquants_flows",
@@ -49,6 +50,8 @@ NATIVE_PROVIDERS = NATIVE_BULK_PROVIDERS | {"jquants_options"}
 
 
 def native_source_key(series: SeriesDefinition) -> str:
+    if series.provider == "nikkei_indexes":
+        return f"nikkei_indexes:{series.source_url}:{series.provider_series_id}"
     if series.provider == "yahoo":
         return f"yahoo:{series.source_url}:{series.provider_series_id}"
     if series.provider == "boj":

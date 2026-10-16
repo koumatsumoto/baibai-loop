@@ -17,6 +17,7 @@ from .jquants_flows import JQuantsFlowsSource
 from .jquants_indices import JQuantsIndicesSource
 from .mof_jgb import MofJgbSource
 from .multpl import MultplSource
+from .nikkei_indexes import NikkeiIndexesSource
 from .umich_sca import UmichScaSource
 from .yahoo import YahooChartSource
 
@@ -39,8 +40,11 @@ def fetch_native_records(
         | MofJgbSource
         | YahooChartSource
         | UmichScaSource
+        | NikkeiIndexesSource
     )
-    if series.provider == "yahoo":
+    if series.provider == "nikkei_indexes":
+        source = NikkeiIndexesSource()
+    elif series.provider == "yahoo":
         source = YahooChartSource()
     elif series.provider == "boj":
         source = BojSource()

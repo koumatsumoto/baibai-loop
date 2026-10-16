@@ -68,6 +68,14 @@ def _one_value(series: SeriesDefinition, records: Sequence[Mapping[str, object]]
 
 
 def _record_value(series: SeriesDefinition, row: Mapping[str, object]) -> float | None:
+    if series.provider == "nikkei_indexes":
+        if series.provider_series_id not in {"per", "pbr"} or series.unit != "ratio":
+            raise ValueError(f"unsupported Nikkei valuation reading: {series.series_id}")
+        raw = row["weighted_text"]
+        if not isinstance(raw, str):
+            raise ValueError("Nikkei valuation cell must be text")
+        text = raw.strip()
+        return None if text in {"", "-", "—", "―", "－"} else float(text.replace(",", ""))
     if series.provider == "yahoo":
         metadata = row["metadata"]
         if not isinstance(metadata, Mapping):

@@ -27,7 +27,7 @@ from .estat_dashboard import EStatDashboardSource
 from .frb_h15 import FrbH15Source
 from .fred import FredSource
 from .mof_jgb import MofJgbSource
-from .nikkei_indexes import NikkeiIndexesProvider
+from .nikkei_indexes import NikkeiIndexesSource
 from .spglobal_pmi import SpGlobalPmiProvider
 from .tsr_bankruptcies import TsrBankruptciesProvider
 from .umich_sca import UmichScaSource
@@ -38,7 +38,6 @@ from .yahoo import YahooChartSource
 _PROVIDERS: dict[str, IndicatorDataProvider] = {
     provider.name: provider
     for provider in (
-        NikkeiIndexesProvider(),
         SpGlobalPmiProvider(),
         TsrBankruptciesProvider(),
     )
@@ -76,6 +75,8 @@ def resolve_provider(name: str) -> IndicatorDataProvider:
 
 
 def provider_spec(name: str) -> ProviderSpec:
+    if name == "nikkei_indexes":
+        return NikkeiIndexesSource.spec
     if name == "yahoo":
         return YahooChartSource.spec
     if name == "boj":
@@ -120,6 +121,7 @@ def registered_specs() -> tuple[ProviderSpec, ...]:
         FrbH15Source.spec,
         FredSource.spec,
         YahooChartSource.spec,
+        NikkeiIndexesSource.spec,
         BojSource.spec,
         MofJgbSource.spec,
         BojTimeSeriesSource.spec,

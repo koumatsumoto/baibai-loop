@@ -77,7 +77,7 @@ class IndicatorsProviderParserTests(TestCase):
             observations[date(2026, 7, 14)][0]["noncomm_positions_long_all"], "9000000"
         )
 
-    def test_parse_nikkei_valuation_takes_weighted_average_and_filters_range(self) -> None:
+    def test_parse_nikkei_valuation_retains_both_columns_and_filters_range(self) -> None:
         series = _series("nikkei_indexes", "per", unit="ratio")
         html = (
             "<table><tbody>"
@@ -94,7 +94,8 @@ class IndicatorsProviderParserTests(TestCase):
 
         # The weighted-average column (17.82), not the index-based one (25.11).
         self.assertEqual(
-            [(o.observed_at, o.value) for o in observations], [(date(2026, 7, 24), 17.82)]
+            observations,
+            {date(2026, 7, 24): [{"date_text": "2026.07.24", "weighted_text": "17.82", "index_based_text": "25.11"}]}
         )
 
     def test_parse_nikkei_valuation_leaves_range_policy_to_storage(self) -> None:
@@ -107,7 +108,7 @@ class IndicatorsProviderParserTests(TestCase):
         observations = parse_nikkei_valuation(
             series, html, start=date(2026, 7, 1), end=date(2026, 7, 31)
         )
-        self.assertEqual(observations[0].value, 99.9)
+        self.assertEqual(observations[date(2026, 7, 24)][0]["weighted_text"], "99.90")
 
     def test_parse_yahoo_chart_filters_range_without_discarding_null_close(self) -> None:
         series = _series("yahoo", "GC=F", unit="usd-per-oz")
