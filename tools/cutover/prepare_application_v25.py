@@ -49,11 +49,15 @@ def prepare(source: Path, output: Path) -> None:
         raise
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> None:
+    args = build_parser().parse_args()
     prepare(args.source, args.output)
     print("Prepared application schema 25 candidate; source unchanged; not published.")
 

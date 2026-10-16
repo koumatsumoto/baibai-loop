@@ -31,12 +31,7 @@ def prepare(source: Path, output: Path) -> None:
             expected.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
             if expected.execute("PRAGMA user_version").fetchone()[0] != 9:
                 raise RuntimeError("this one-shot tool only targets indicator schema 9")
-            query = (
-                "SELECT type, name, tbl_name, sql FROM sqlite_master "
-                "WHERE name NOT LIKE 'sqlite_%' AND name != 'indicator_source_snapshots' "
-                "ORDER BY type, name"
-            )
-            if candidate.execute(query).fetchall() != expected.execute(query).fetchall():
+            if _legacy_shapes(candidate) != _legacy_shapes(expected):
                 raise ValueError("source does not have the expected indicator 7 shape")
             native_sql = expected.execute(
                 "SELECT sql FROM sqlite_master WHERE name = 'indicator_source_snapshots'"
@@ -52,11 +47,42 @@ def prepare(source: Path, output: Path) -> None:
         raise
 
 
-def main() -> None:
+def _legacy_shapes(conn: sqlite3.Connection) -> dict[str, object]:
+    """Compare physical columns, keys and indexes, not historical SQL formatting."""
+    tables = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' "
+        "AND name NOT LIKE 'sqlite_%' AND name != 'indicator_source_snapshots'"
+    ).fetchall()
+    return {
+        table: (
+            conn.execute("SELECT * FROM pragma_table_info(?)", (table,)).fetchall(),
+            conn.execute("SELECT * FROM pragma_foreign_key_list(?)", (table,)).fetchall(),
+            sorted(
+                (
+                    name,
+                    unique,
+                    origin,
+                    partial,
+                    conn.execute("SELECT * FROM pragma_index_info(?)", (name,)).fetchall(),
+                )
+                for _, name, unique, origin, partial in conn.execute(
+                    "SELECT * FROM pragma_index_list(?)", (table,)
+                )
+            ),
+        )
+        for (table,) in tables
+    }
+
+
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> None:
+    args = build_parser().parse_args()
     prepare(args.source, args.output)
     print("Prepared indicator schema 9 candidate; native sources still require actual originals.")
 

@@ -738,7 +738,9 @@ def test_calendar_size_is_not_inferred_from_historical_disclosures() -> None:
     from baibai_engine.storage.lake.models import PRODUCTION_RELEASE_POLICY
 
     calendar = next(
-        item for item in PRODUCTION_RELEASE_POLICY.datasets if item.dataset == "jpx.earnings_calendar"
+        item
+        for item in PRODUCTION_RELEASE_POLICY.datasets
+        if item.dataset == "jpx.earnings_calendar"
     )
     assert calendar.minimum_rows == 1
     assert calendar.minimum_population_count == 1

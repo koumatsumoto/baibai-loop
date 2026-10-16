@@ -4,9 +4,9 @@ import sqlite3
 from contextlib import closing
 
 import pytest
+from tools.cutover.prepare_application_v25 import prepare
 
 from baibai_engine.storage.application.schema import SCHEMA_SQL
-from tools.cutover.prepare_application_v25 import prepare
 
 
 def source_store(path):
@@ -14,9 +14,7 @@ def source_store(path):
     connection.executescript(SCHEMA_SQL)
     connection.execute("CREATE TABLE ledger_market_price(ticker TEXT PRIMARY KEY, payload TEXT)")
     connection.execute("PRAGMA user_version = 24")
-    connection.execute(
-        "INSERT INTO ledger_market_price VALUES (?, ?)", ("2915", '{"price":2020}')
-    )
+    connection.execute("INSERT INTO ledger_market_price VALUES (?, ?)", ("2915", '{"price":2020}'))
     connection.commit()
     return connection
 
@@ -45,9 +43,10 @@ def test_keeps_wal_business_records_and_original_price_cache(tmp_path):
                 "AND name NOT LIKE 'sqlite_%' AND name != 'ledger_market_price'"
             ).fetchall()
             for (table,) in tables:
-                assert candidate.execute(f'SELECT * FROM "{table}"').fetchall() == original.execute(
-                    f'SELECT * FROM "{table}"'
-                ).fetchall()
+                assert (
+                    candidate.execute(f'SELECT * FROM "{table}"').fetchall()
+                    == original.execute(f'SELECT * FROM "{table}"').fetchall()
+                )
             assert not candidate.execute(
                 "SELECT 1 FROM sqlite_master WHERE name = 'ledger_market_price'"
             ).fetchall()
@@ -65,7 +64,7 @@ def test_refuses_wrong_or_broken_source_without_retaining_a_candidate(tmp_path, 
             original.execute("INSERT INTO market_context_assessment_head VALUES (1, 'missing')")
         original.commit()
     original_bytes = source.read_bytes()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="expected|shape|references"):
         prepare(source, output)
     assert not output.exists()
     assert source.read_bytes() == original_bytes

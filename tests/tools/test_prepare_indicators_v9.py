@@ -4,14 +4,20 @@ import sqlite3
 from contextlib import closing
 
 import pytest
+from tools.cutover.prepare_indicators_v9 import prepare
 
 from baibai_engine.market_context.indicators.db import SCHEMA_PATH
-from tools.cutover.prepare_indicators_v9 import prepare
 
 
 def source_store(path):
     conn = sqlite3.connect(path)
-    conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+    # The saved v7 store has quoted table names and different whitespace.
+    sql = (
+        SCHEMA_PATH.read_text(encoding="utf-8")
+        .replace("CREATE TABLE IF NOT EXISTS observations(", 'CREATE TABLE "observations"(')
+        .replace("notes TEXT,", "notes TEXT\n,")
+    )
+    conn.executescript(sql)
     conn.execute("DROP TABLE indicator_source_snapshots")
     conn.execute("PRAGMA user_version = 7")
     conn.execute("UPDATE registry_state SET generation = 42")
@@ -35,11 +41,14 @@ def test_preserves_scalar_history_and_registry_without_inventing_native_rows(tmp
         assert original.execute("PRAGMA user_version").fetchone() == (7,)
         with closing(sqlite3.connect(output)) as candidate:
             assert candidate.execute("PRAGMA user_version").fetchone() == (9,)
-            assert candidate.execute("SELECT COUNT(*) FROM indicator_source_snapshots").fetchone() == (0,)
+            assert candidate.execute(
+                "SELECT COUNT(*) FROM indicator_source_snapshots"
+            ).fetchone() == (0,)
             for (table,) in original.execute("SELECT name FROM sqlite_master WHERE type = 'table'"):
-                assert candidate.execute(f'SELECT * FROM "{table}"').fetchall() == original.execute(
-                    f'SELECT * FROM "{table}"'
-                ).fetchall()
+                assert (
+                    candidate.execute(f'SELECT * FROM "{table}"').fetchall()
+                    == original.execute(f'SELECT * FROM "{table}"').fetchall()
+                )
 
 
 @pytest.mark.parametrize("fault", ["wrong_version", "missing_table", "missing_registry"])
