@@ -465,7 +465,7 @@ class ControlEventExitBuildTest(unittest.TestCase):
     def test_an_unknown_or_different_offeror_parent_is_not_assigned_to_the_latest_offer(
         self,
     ) -> None:
-        for parent, offeror in (("SMISSING", "BIDDER"), ("SREG", "RIVAL")):
+        for parent, offeror in ((None, "BIDDER"), ("SMISSING", "BIDDER"), ("SREG", "RIVAL")):
             with self.subTest(parent=parent), TemporaryDirectory() as tmp:
                 sqlite_path = self._store(
                     tmp,
@@ -724,7 +724,10 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 tmp,
                 [
                     ("2026-02-01", 1, "SREG", None, "240", "2026-02-01T09:00", "BIDDER", "TARGET"),
-                    ("2026-02-20", 1, "SCOR", None, "250", "2026-02-20T09:00", "BIDDER", "TARGET"),
+                    (
+                        "2026-02-20", 1, "SCOR", None, "250", "2026-02-20T09:00",
+                        "BIDDER", "TARGET", "SREG",
+                    ),
                     ("2026-03-20", 1, "SRES", None, "270", "2026-03-20T09:00", "BIDDER", "TARGET"),
                 ],
                 reason="ＭＢＯ（公開買付け、株式併合）",
@@ -756,7 +759,10 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 tmp,
                 [
                     ("2026-02-01", 1, "SREG", None, "240", "2026-02-01T09:00", "BIDDER", "TARGET"),
-                    ("2026-02-20", 1, "SCOR", None, "250", "2026-02-20T09:00", "BIDDER", "TARGET"),
+                    (
+                        "2026-02-20", 1, "SCOR", None, "250", "2026-02-20T09:00",
+                        "BIDDER", "TARGET", "SREG",
+                    ),
                     ("2026-03-20", 1, "SRES", None, "270", "2026-03-20T09:00", "BIDDER", "TARGET"),
                 ],
                 reason="ＭＢＯ（公開買付け、株式併合）",

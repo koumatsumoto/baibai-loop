@@ -444,8 +444,13 @@ def _latest_offer_round(
             ):
                 return None
         else:
-            # Older index rows can lack parent IDs. Keep their existing chronological
-            # association, including every active tier for a result or withdrawal.
+            if filing.doc_type_code in {
+                TENDER_OFFER_REGISTRATION_CORRECTION_DOC_TYPE,
+                TENDER_OFFER_RESULT_CORRECTION_DOC_TYPE,
+            }:
+                return None  # A correction must identify the document it changes.
+            # A result or withdrawal without a parent applies to this offeror's
+            # active registrations, including every active tier.
             roots = {
                 root
                 for root in open_roots
@@ -541,8 +546,7 @@ def _registration_chains(
 ) -> tuple[tuple[TenderOfferFiling, ...], ...]:
     """Split one offeror's registration filings into one chain per offer.
 
-    Parent IDs own correction membership. Index rows without a parent retain the
-    chronological association used before identity backfill.
+    Parent IDs own correction membership; missing ancestry remains unresolved.
     """
     chains: list[list[TenderOfferFiling]] = []
     chain_by_doc: dict[str, list[TenderOfferFiling]] = {}
@@ -551,7 +555,7 @@ def _registration_chains(
             chains.append([filing])
             chain_by_doc[filing.doc_id] = chains[-1]
         elif filing.doc_type_code == TENDER_OFFER_REGISTRATION_CORRECTION_DOC_TYPE and chains:
-            chain = chain_by_doc.get(filing.parent_doc_id) if filing.parent_doc_id else chains[-1]
+            chain = chain_by_doc.get(filing.parent_doc_id) if filing.parent_doc_id else None
             if chain is None:
                 return ()
             chain.append(filing)
