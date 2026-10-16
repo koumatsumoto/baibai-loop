@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from math import isfinite
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -43,8 +42,8 @@ class BenchmarkObservation(BaseModel):
     period_end_date: date
     period_basis: Literal["official_explicit", "official_month_end_rule"]
     period_rule_source_url: Annotated[str, Field(pattern=r"^https://")] | None
-    cumulative_return_pct: float
-    annualized_return_pct: float | None
+    cumulative_return_pct: Annotated[float, Field(ge=-100, allow_inf_nan=False)]
+    annualized_return_pct: Annotated[float, Field(ge=-100, allow_inf_nan=False)] | None
     display_precision_bps: Annotated[int, Field(ge=0, le=100)]
     source_url: Annotated[str, Field(pattern=r"^https://")]
     source_as_of: date
@@ -82,11 +81,7 @@ class BenchmarkObservation(BaseModel):
             raise ValueError("official_explicit forbids period_rule_source_url")
         if (self.horizon == "1y") != (self.annualized_return_pct is None):
             raise ValueError("1y annualized_return_pct must be null; 3y/5y require a value")
-        if not isfinite(self.cumulative_return_pct):
-            raise ValueError("cumulative_return_pct must be finite")
         if self.annualized_return_pct is not None:
-            if not isfinite(self.annualized_return_pct):
-                raise ValueError("annualized_return_pct must be finite")
             derived = ((1 + self.cumulative_return_pct / 100) ** (1 / years) - 1) * 100
             tolerance_pct = self.display_precision_bps / 100 + 0.01
             if abs(derived - self.annualized_return_pct) > tolerance_pct:

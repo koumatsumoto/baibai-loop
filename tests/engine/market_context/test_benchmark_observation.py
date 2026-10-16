@@ -64,3 +64,31 @@ def test_publication_after_retrieval_jst_day_is_still_rejected():
     payload["retrieved_at"] = "2026-06-30T14:59:00Z"
     with pytest.raises(ValueError, match="published_at cannot be after retrieved_at"):
         BenchmarkObservation.model_validate(payload)
+
+
+@pytest.mark.parametrize("horizon", ["1y", "3y", "5y"])
+@pytest.mark.parametrize("invalid_return", [-100.01, float("nan"), float("inf")])
+def test_rejects_impossible_total_returns(horizon, invalid_return):
+    payload = load_benchmark_observation(FIXTURE).model_dump(mode="json")
+    years = int(horizon[:-1])
+    payload.update(
+        horizon=horizon,
+        period_start_date=f"{2026 - years}-06-30",
+        cumulative_return_pct=invalid_return,
+        annualized_return_pct=None if years == 1 else 0.0,
+    )
+    with pytest.raises(ValueError):
+        BenchmarkObservation.model_validate(payload)
+
+
+@pytest.mark.parametrize("horizon", ["1y", "3y", "5y"])
+def test_total_loss_is_a_valid_return_boundary(horizon):
+    payload = load_benchmark_observation(FIXTURE).model_dump(mode="json")
+    years = int(horizon[:-1])
+    payload.update(
+        horizon=horizon,
+        period_start_date=f"{2026 - years}-06-30",
+        cumulative_return_pct=-100.0,
+        annualized_return_pct=None if years == 1 else -100.0,
+    )
+    assert BenchmarkObservation.model_validate(payload).cumulative_return_pct == -100.0
