@@ -24,7 +24,7 @@ from baibai_engine.external_assessment.tradingview.observations import (
     ProviderHTTPError,
     ProviderPayloadError,
 )
-from baibai_engine.market.universe import UniverseSourceDriftError
+from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.storage.observations.schema import SQLiteSchemaError
 
 
@@ -92,7 +92,7 @@ def failure_category(exc: BaseException) -> str:
     if isinstance(exc, TimeGuardError):
         return "time_guard"
     if isinstance(
-        exc, (SourceDataError, SQLiteSchemaError, UniverseSourceDriftError, sqlite3.Error)
+        exc, (SourceDataError, SQLiteSchemaError, JQuantsProviderError, sqlite3.Error)
     ):
         return "storage"
     if isinstance(exc, AllMissingError):

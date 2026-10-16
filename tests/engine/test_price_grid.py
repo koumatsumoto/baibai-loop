@@ -14,7 +14,7 @@ SESSION = date(2026, 10, 15)
 def floor(price, **overrides):
     return floor_common_stock_limit(
         Decimal(price),
-        **dict(target_session=SESSION, market_segment="Prime", sector_33="情報・通信業")
+        **dict(target_session=SESSION, market_segment="Prime", is_common_stock=True)
         | overrides,
     )
 
@@ -60,7 +60,7 @@ def test_floor_rechecks_destination_band_and_never_exceeds_author_ceiling():
 def test_nonfinite_or_boolean_price_is_rejected(price):
     with pytest.raises(ValueError, match="finite decimal"):
         floor_common_stock_limit(
-            price, target_session=SESSION, market_segment="Prime", sector_33="情報・通信業"
+            price, target_session=SESSION, market_segment="Prime", is_common_stock=True
         )
 
 
@@ -69,7 +69,7 @@ def test_nonpositive_price_has_no_floor(price):
     with pytest.raises(ValueError, match="positive"):
         floor(price)
     assert not common_stock_limit_is_valid(
-        Decimal(price), target_session=SESSION, market_segment="Prime", sector_33="情報・通信業"
+        Decimal(price), target_session=SESSION, market_segment="Prime", is_common_stock=True
     )
 
 
@@ -77,8 +77,7 @@ def test_nonpositive_price_has_no_floor(price):
     "overrides",
     [
         {"market_segment": "TOKYO PRO MARKET"},
-        {"sector_33": "その他"},
-        {"sector_33": ""},
+        {"is_common_stock": False},
         {"target_session": date(2026, 10, 13)},
         {"target_session": date(2027, 3, 1)},
     ],
@@ -90,8 +89,8 @@ def test_unconfirmed_classification_or_rule_period_has_no_terms(overrides):
 def test_rule_until_last_session_and_validity_use_same_grid():
     assert floor("1000", target_session=date(2027, 2, 26)) == 1000
     assert common_stock_limit_is_valid(
-        Decimal("5000"), target_session=SESSION, market_segment="プライム", sector_33="銀行業"
+        Decimal("5000"), target_session=SESSION, market_segment="プライム", is_common_stock=True
     )
     assert not common_stock_limit_is_valid(
-        Decimal("5001"), target_session=SESSION, market_segment="Prime", sector_33="銀行業"
+        Decimal("5001"), target_session=SESSION, market_segment="Prime", is_common_stock=True
     )

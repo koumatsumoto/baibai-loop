@@ -8,10 +8,9 @@ analysis-layer context or parameters by Candidate Discovery. The only structural
 instrument type, market segment, and a usable price observation. Each metric
 handles its own history requirement.
 
-Instrument eligibility requires a true acquisition flag and an eligible
-market/sector classification. The acquisition flag alone is insufficient to
-distinguish ordinary stocks from other instruments; an unknown sector on an
-eligible market stops the build rather than silently excluding its securities.
+Instrument eligibility uses the native product category and issue suffix
+projected by the master reader, plus the eligible market segment. Sector names
+group analysis; they do not stand in for the product classification.
 """
 
 from __future__ import annotations
@@ -31,15 +30,6 @@ from baibai_engine.market.models import SecurityMaster
 from baibai_engine.market.universe import (
     ELIGIBLE_MARKETS as ELIGIBLE_MARKETS,
 )
-from baibai_engine.market.universe import (
-    NON_COMMON_STOCK_SECTORS as NON_COMMON_STOCK_SECTORS,
-)
-from baibai_engine.market.universe import (
-    TSE_33_SECTORS as TSE_33_SECTORS,
-)
-from baibai_engine.market.universe import (
-    UniverseSourceDriftError as UniverseSourceDriftError,
-)
 from baibai_engine.screening.schema import UniverseSnapshot
 
 from .rule_config import ScreeningRules
@@ -49,7 +39,7 @@ from .rule_config import ScreeningRules
 MIN_BAR_HISTORY = 1
 AVG_TURNOVER_WINDOW_BARS = 20
 # Scope changes must give saved runs, candidate contexts and calibration a new identity.
-UNIVERSE_SCOPE_REVISION = "valid-price-one-bar-v2"
+UNIVERSE_SCOPE_REVISION = "native-common-stock-one-bar-v3"
 
 
 @dataclass(frozen=True)
@@ -65,7 +55,6 @@ class UniverseBuildResult:
 # 「意図して除いた」と「評価できなかった」の境界はこの集合が定める。
 POLICY_EXCLUSION_REASONS: tuple[str, ...] = (
     "non_common_stock",
-    "sector_out_of_classification",
     "market_out_of_scope",
 )
 
@@ -81,30 +70,6 @@ def build_universe(
     ]
     | None = None,
 ) -> UniverseBuildResult:
-    # 母集団の定義を業種名の完全一致に預けているので、source の語彙が動いた日は
-    # 「その業種の全銘柄が普通株でない」と読める。件数は減るだけで例外は出ないため、
-    # 知らない語を見た時点で止める。個別の除外より先に、語彙そのものを検査する。
-    #
-    # 検査は適格市場区分の行だけに掛ける。区分で既に外れる行の語彙が変わっても母集団は
-    # 1 行も動かないので、そこで止めると守っていない対象のために可用性を失う。
-    unknown_sectors = sorted(
-        {
-            security.sector_33
-            for security in securities
-            if security.market_segment.upper() in ELIGIBLE_MARKETS
-            and security.sector_33 not in TSE_33_SECTORS
-            and security.sector_33 not in NON_COMMON_STOCK_SECTORS
-        }
-    )
-    if unknown_sectors:
-        raise UniverseSourceDriftError(
-            f"unknown sector classification on an eligible market: {unknown_sectors}; "
-            "the universe excludes on exact sector names, so an unrecognised label would "
-            "silently drop every stock carrying it. Add it to TSE_33_SECTORS when it names "
-            "a common-stock sector, or to NON_COMMON_STOCK_SECTORS when it names an "
-            "instrument type that is not common stock."
-        )
-
     snapshots: dict[str, UniverseSnapshot] = {}
     exclusion_counts: dict[str, int] = {}
     exclusion_flags: dict[str, tuple[str, ...]] = {}
@@ -114,8 +79,6 @@ def build_universe(
         market_name = security.market_segment.upper()
         if not security.is_common_stock:
             flags.append("non_common_stock")
-        if security.sector_33 not in TSE_33_SECTORS:
-            flags.append("sector_out_of_classification")
         if market_name not in ELIGIBLE_MARKETS:
             flags.append("market_out_of_scope")
 

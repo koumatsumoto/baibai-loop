@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from tests.helpers.master import insert_master_rows
+
+
 import hashlib
 import json
 import sqlite3
@@ -31,7 +34,8 @@ from baibai_engine.external_assessment.observations.models import (
 )
 from baibai_engine.external_assessment.reader import read_observations
 from baibai_engine.external_assessment.store import save_observations
-from baibai_engine.market.universe import TSE_33_SECTORS, UniverseSourceDriftError
+from tests.helpers.master import TSE_33_SECTORS
+from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.keys import current_l1_pointer_key
 from baibai_engine.storage.lake.models import canonical_lake_model_bytes
@@ -53,20 +57,7 @@ def seed_database(path, *, count=2500, snapshot=ASOF, origin=True):
     tickers = tuple(str(1000 + index) for index in range(count))
     connection = open_connection(path)
     try:
-        connection.executemany(
-            "INSERT INTO jquants_master_snapshots VALUES (?,?,?,?,?,?)",
-            [
-                (
-                    snapshot.isoformat(),
-                    ticker,
-                    f"合成会社{index}",
-                    markets[index % 4],
-                    sectors[index % 33],
-                    index % 2,
-                )
-                for index, ticker in enumerate(tickers)
-            ],
-        )
+        insert_master_rows(connection, [(snapshot.isoformat(), ticker, f'合成会社{index}', markets[index % 4], sectors[index % 33], '011') for index, ticker in enumerate(tickers)])
         if origin:
             write_lake_store_origin(connection, ORIGIN)
         connection.execute(
@@ -92,16 +83,7 @@ def build_master_lake(
     database = tmp_path / "market.sqlite"
     seed_database(database, snapshot=snapshot, count=count)
     with closing(sqlite3.connect(database)) as connection, connection:
-        connection.executemany(
-            "INSERT INTO jquants_master_snapshots VALUES (?,?,?,?,?,?)",
-            [
-                (snapshot.isoformat(), "130A", "合成英字会社", "PRIME", "電気機器", 0),
-                (snapshot.isoformat(), "9401", "合成ETF", "PRIME", "その他", 1),
-                (snapshot.isoformat(), "9402", "合成PRO", "TOKYO PRO MARKET", "電気機器", 1),
-                (snapshot.isoformat(), "9403", "合成市場外", "RESIDUAL", "電気機器", 1),
-                ("2025-12-31", "130A", "合成旧年会社", "PRIME", "電気機器", 1),
-            ],
-        )
+        insert_master_rows(connection, [(snapshot.isoformat(), '130A', '合成英字会社', 'PRIME', '電気機器', '011'), (snapshot.isoformat(), '9401', '合成ETF', 'PRIME', 'その他', '014'), (snapshot.isoformat(), '9402', '合成PRO', 'TOKYO PRO MARKET', '電気機器', '011'), (snapshot.isoformat(), '9403', '合成市場外', 'RESIDUAL', '電気機器', '011'), ('2025-12-31', '130A', '合成旧年会社', 'PRIME', '電気機器', '011')])
         connection.execute(
             "INSERT INTO jquants_daily_bars(ticker,traded_at,close,volume) VALUES (?,?,?,?)",
             ("130A", "2026-09-30", 1, 1),
@@ -235,14 +217,14 @@ def test_lake_future_master_rejected_before_any_parquet_get(tmp_path, monkeypatc
 @pytest.mark.parametrize(
     ("mutation", "error", "message"),
     [
-        ("UPDATE jquants_master_snapshots SET sector_33='その他'", ValueError, "common-stock"),
+        ("UPDATE jquants_master_snapshots SET record_json=json_set(record_json,'$.ProdCat','014')", ValueError, "common-stock"),
         (
-            "UPDATE jquants_master_snapshots SET sector_33='未知' WHERE ticker='1000'",
-            UniverseSourceDriftError,
-            "Unknown J-Quants sector",
+            "UPDATE jquants_master_snapshots SET record_json=json_set(record_json,'$.ProdCat',NULL) WHERE security_code='10000'",
+            JQuantsProviderError,
+            "product category",
         ),
         (
-            "UPDATE jquants_master_snapshots SET ticker='ABCD' WHERE ticker='1000'",
+            "UPDATE jquants_master_snapshots SET record_json=json_set(record_json,'$.Code','ABCD') WHERE security_code='10000'",
             ValueError,
             "ticker",
         ),
@@ -391,15 +373,7 @@ def test_exact_saved_universe_uses_market_and_all_33_sectors_keeps_alpha_and_fix
     database = tmp_path / "market.sqlite"
     base = seed_database(database)
     with closing(sqlite3.connect(database)) as connection, connection:
-        connection.executemany(
-            "INSERT INTO jquants_master_snapshots VALUES (?,?,?,?,?,?)",
-            [
-                (ASOF.isoformat(), "130A", "合成英字会社", "PRIME", "電気機器", 0),
-                (ASOF.isoformat(), "9401", "合成ETF", "PRIME", "その他", 1),
-                (ASOF.isoformat(), "9402", "合成PRO", "TOKYO PRO MARKET", "電気機器", 1),
-                (ASOF.isoformat(), "9403", "合成市場外", "RESIDUAL", "電気機器", 1),
-            ],
-        )
+        insert_master_rows(connection, [(ASOF.isoformat(), '130A', '合成英字会社', 'PRIME', '電気機器', '011'), (ASOF.isoformat(), '9401', '合成ETF', 'PRIME', 'その他', '014'), (ASOF.isoformat(), '9402', '合成PRO', 'TOKYO PRO MARKET', '電気機器', '011'), (ASOF.isoformat(), '9403', '合成市場外', 'RESIDUAL', '電気機器', '011')])
     before = hashlib.sha256(database.read_bytes()).hexdigest()
     tickers, binding = frozen_universe(database, ASOF)
     assert tickers == tuple(sorted((*base, "130A")))
@@ -459,24 +433,24 @@ def test_non_common_or_excluded_market_rows_cannot_fill_the_common_stock_floor(
     with closing(sqlite3.connect(database)) as connection, connection:
         if classification == "その他":
             connection.execute(
-                "UPDATE jquants_master_snapshots SET sector_33='その他' WHERE ticker <> '1000'"
+                "UPDATE jquants_master_snapshots SET record_json=json_set(record_json,'$.ProdCat','014') WHERE security_code <> '10000'"
             )
         else:
             connection.execute(
-                "UPDATE jquants_master_snapshots SET market='TOKYO PRO MARKET' WHERE ticker <> '1000'"
+                "UPDATE jquants_master_snapshots SET record_json=json_set(record_json,'$.MktNm','TOKYO PRO MARKET') WHERE security_code <> '10000'"
             )
     with pytest.raises(ValueError, match=r"common.stock|common stock|production floor"):
         frozen_universe(database, ASOF)
 
 
-def test_unknown_sector_cannot_be_silently_excluded(tmp_path):
+def test_missing_product_category_cannot_be_inferred_from_sector(tmp_path):
     database = tmp_path / "market.sqlite"
     seed_database(database)
     with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute(
-            "UPDATE jquants_master_snapshots SET sector_33='未知の新業種' WHERE ticker='1000'"
+            "UPDATE jquants_master_snapshots SET record_json=json_set(record_json,'$.ProdCat',NULL) WHERE security_code='10000'"
         )
-    with pytest.raises(UniverseSourceDriftError, match="Unknown J-Quants sector"):
+    with pytest.raises(JQuantsProviderError, match="product category"):
         frozen_universe(database, ASOF)
 
 
@@ -486,10 +460,10 @@ def test_invalid_saved_ticker_cannot_enter_frozen_universe(tmp_path, ticker):
     seed_database(database)
     with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute(
-            "UPDATE jquants_master_snapshots SET ticker=? WHERE ticker='1000'", (ticker,)
+            "UPDATE jquants_master_snapshots SET record_json=json_set(record_json,'$.Code',?) WHERE security_code='10000'", (ticker,)
         )
     with pytest.raises(
-        (ValueError, UniverseSourceDriftError), match=r"ticker|Ticker|security code"
+        (ValueError, JQuantsProviderError), match=r"ticker|Ticker|security code|J-Quants code"
     ):
         frozen_universe(database, ASOF)
 
@@ -499,7 +473,7 @@ def test_frozen_binding_changes_with_selected_membership_and_exact_lake_origin(t
     seed_database(database)
     initial_tickers, initial_binding = frozen_universe(database, ASOF)
     with closing(sqlite3.connect(database)) as connection, connection:
-        connection.execute("UPDATE jquants_master_snapshots SET ticker='130A' WHERE ticker='1000'")
+        connection.execute("UPDATE jquants_master_snapshots SET security_code='130A0', record_json=json_set(record_json,'$.Code','130A0') WHERE security_code='10000'")
     changed_tickers, changed_binding = frozen_universe(database, ASOF)
     assert changed_tickers != initial_tickers
     assert changed_binding != initial_binding

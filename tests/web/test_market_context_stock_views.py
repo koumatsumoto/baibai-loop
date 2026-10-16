@@ -1,5 +1,7 @@
 """既存routeとexportは同じdomain出力・日付・nullを渡す。"""
 
+from tests.helpers.master import insert_master_rows
+
 import hashlib
 import json
 from contextlib import closing
@@ -27,12 +29,7 @@ def _seed_market(root: Path) -> Path:
             path, ticker, [100 + index for index in range(120)], end_date=date(2026, 7, 27)
         )
     with closing(open_connection(path)) as connection:
-        connection.executemany(
-            "INSERT INTO jquants_master_snapshots "
-            "(snapshot_date,ticker,name,market,sector_33,is_common_stock) "
-            "VALUES ('2026-07-26',?,?,'プライム','サービス業',1)",
-            [(ticker, ticker) for ticker in ("2331", "2332")],
-        )
+        insert_master_rows(connection, [('2026-07-26', ticker, ticker, 'プライム', 'サービス業', '011') for ticker in ('2331', '2332')])
         connection.commit()
     return path
 

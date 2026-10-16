@@ -176,3 +176,15 @@ PITが保証するのは`fetched_at_utc`時点の取得値であり、provider�
 quoteの通貨は同じresponseの`currency`を保持する。estimateの通貨・unit、quote/provider更新時刻、絶対対象期は未確認のためnullとし、JPYや特定の決算期を推測して入れない。`*_estimate_fy`と`*_forecast_next_fy`の対象期が同じとは限らず、`recommendation_total`はEPS・売上・目標株価それぞれの寄与者数ではない。参考closeは市場期待の取得時点を読む補助で、株価の第二正本にはしない。
 
 取得・認証復旧は[batch運用](../../batch/OPERATIONS.md#tradingview-expectations)、固定releaseの照会は[market lake](./market-lake.md#tradingview-query)を参照する。Screeningの順位、FV、Research判断への自動混入は行わない。
+
+
+### 銘柄マスターの原本と普通株判定
+
+J-Quants `eq/master` は取得基準日・完全な5文字の銘柄コードと原本JSONを保存する。
+商品区分、英文名、17/33業種コード、規模区分、貸借区分などを取得時に削らず、
+副銘柄も原本に残す。L2で末尾0の主銘柄を4文字tickerへ投影し、
+[商品区分](https://jpx-jquants.com/ja/spec/eq-master/product-category) `ProdCat=011`
+と組み合わせて国内普通株を識別する。末尾0だけではETF・REIT等も含むため十分でなく、
+業種名から商品種類を推測しない。対象市場の選択はこの判定とは別に行う。
+旧派生列だけのマスターから原本項目を復元しない。切替時は取得済み原本があれば再利用し、
+原本のない基準日についてはマージ後に再取得する。

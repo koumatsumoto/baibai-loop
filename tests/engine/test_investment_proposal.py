@@ -481,3 +481,9 @@ def test_quote_uses_native_daily_date_without_an_observation_clock(payload):
     payload["inputs"]["quotes"][0]["observed_at"] = "2026-10-14T15:30:00+09:00"
     with pytest.raises(ValidationError, match="Extra inputs"):
         InvestmentProposal.model_validate(payload)
+
+
+def test_order_terms_require_saved_common_stock_classification(payload):
+    payload["inputs"]["security_classification"][0]["is_common_stock"] = False
+    with pytest.raises(ValidationError, match="common stock grid rule"):
+        InvestmentProposal.model_validate(payload)

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from tests.helpers.master import insert_master_rows
+
+
 import io
 import shutil
 import sqlite3
@@ -56,15 +59,7 @@ def _seed_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
     fin_start = asof - timedelta(days=2200)
     earnings_date = asof + timedelta(days=7)
     tickers = tuple(f"{1301 + index:04d}" for index in range(100))
-    conn.executemany(
-        "INSERT OR REPLACE INTO jquants_master_snapshots("
-        "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-        ") VALUES (?, ?, ?, ?, ?, ?)",
-        [
-            (asof.isoformat(), ticker, f"Name {ticker}", "Prime", "水産・農林業", 1)
-            for ticker in tickers
-        ],
-    )
+    insert_master_rows(conn, [(asof.isoformat(), ticker, f'Name {ticker}', 'Prime', '水産・農林業', '011') for ticker in tickers])
     _add_source_coverage(
         conn,
         source="jquants_master_snapshots",
@@ -377,8 +372,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
             with closing(open_connection(sqlite_path)) as conn, conn:
                 conn.execute(
-                    "DELETE FROM jquants_master_snapshots WHERE snapshot_date = ? AND ticker = ?",
-                    (first.isoformat(), "1301"),
+                    "DELETE FROM jquants_master_snapshots WHERE snapshot_date = ? AND security_code = ?",
+                    (first.isoformat(), "13010"),
                 )
                 conn.commit()
 
@@ -390,12 +385,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             self.assertEqual(second_issues, ())
 
             with closing(open_connection(sqlite_path)) as conn, conn:
-                conn.execute(
-                    "INSERT INTO jquants_master_snapshots("
-                    "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-                    ") VALUES (?, ?, ?, ?, ?, ?)",
-                    (first.isoformat(), "1301", "name-1301", "Prime", "水産・農林業", 1),
-                )
+                insert_master_rows(conn, [(first.isoformat(), '1301', 'name-1301', 'Prime', '水産・農林業', '011')])
                 conn.execute(
                     "DELETE FROM source_coverage WHERE source = ? AND coverage_key = ?",
                     (
@@ -1023,7 +1013,7 @@ class SQLiteCoverageTests(unittest.TestCase):
         with _complete_coverage_database() as sqlite_path:
             with closing(sqlite3.connect(sqlite_path)) as conn, conn:
                 conn.execute(
-                    "UPDATE jquants_master_snapshots SET sector_33 = 'その他' WHERE ticker != ?",
+                    "UPDATE jquants_master_snapshots SET record_json=json_set(record_json,'$.ProdCat','014') WHERE substr(security_code,1,4) != ?",
                     ("1301",),
                 )
                 conn.commit()
@@ -1038,42 +1028,25 @@ class SQLiteCoverageTests(unittest.TestCase):
                 )
             )
 
-    def test_unknown_sector_in_eligible_market_blocks_but_outside_does_not(self) -> None:
+    def test_missing_native_product_category_is_reported_without_sector_inference(self) -> None:
         asof = _COMMON_COVERAGE_ASOF
         with _complete_coverage_database() as sqlite_path:
             with closing(sqlite3.connect(sqlite_path)) as conn, conn:
                 conn.execute(
-                    "UPDATE jquants_master_snapshots SET sector_33 = '未知業種' WHERE ticker = '1301'"
+                    "UPDATE jquants_master_snapshots "
+                    "SET record_json=json_set(record_json,'$.ProdCat',NULL) "
+                    "WHERE security_code='13010'"
                 )
-                conn.execute(
-                    "UPDATE jquants_master_snapshots SET market = 'TOKYO PRO MARKET', "
-                    "sector_33 = '別の未知業種' WHERE ticker = '1302'"
-                )
-                conn.execute(
-                    "UPDATE source_coverage SET record_count = 100 "
-                    "WHERE source = 'jquants_master_snapshots'"
-                )
-                conn.commit()
                 issues: list[jquants_coverage.CacheCoverageIssue] = []
                 jquants_coverage._append_master_snapshot_issues(conn, issues, asof_date=asof)
+            self.assertTrue(any("1 row(s) with invalid required data" in issue.reason for issue in issues))
 
-            unknown = [issue for issue in issues if "unknown sector_33" in issue.reason]
-            self.assertEqual(len(unknown), 1)
-            self.assertIn("1 row(s)", unknown[0].reason)
 
     def test_non_common_bars_and_financials_cannot_mask_common_density(self) -> None:
         asof = _COMMON_COVERAGE_ASOF
         with _complete_coverage_database() as sqlite_path:
             with closing(sqlite3.connect(sqlite_path)) as conn, conn:
-                conn.executemany(
-                    "INSERT INTO jquants_master_snapshots("
-                    "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-                    ") VALUES (?, ?, ?, ?, ?, ?)",
-                    [
-                        (asof.isoformat(), f"9{index:03d}", "Fund", "Prime", "その他", 1)
-                        for index in range(60)
-                    ],
-                )
+                insert_master_rows(conn, [(asof.isoformat(), f'9{index:03d}', 'Fund', 'Prime', 'その他', '014') for index in range(60)])
                 conn.execute(
                     "DELETE FROM jquants_daily_bars WHERE traded_at = ? AND ticker >= '1341'",
                     (asof.isoformat(),),
@@ -1113,18 +1086,7 @@ class SQLiteCoverageTests(unittest.TestCase):
         start = asof - timedelta(days=19)
         with tempfile.TemporaryDirectory() as tmp:
             with closing(open_connection(Path(tmp) / "market.sqlite")) as conn, conn:
-                conn.executemany(
-                    "INSERT INTO jquants_master_snapshots("
-                    "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-                    ") VALUES (?, ?, ?, 'Prime', ?, 1)",
-                    [
-                        (asof.isoformat(), f"{1301 + index:04d}", "Stock", "機械")
-                        for index in range(100)
-                    ]
-                    + [
-                        (asof.isoformat(), f"9{index:03d}", "Fund", "その他") for index in range(60)
-                    ],
-                )
+                insert_master_rows(conn, [(asof.isoformat(), f'{1301 + index:04d}', 'Stock', 'Prime', '機械', '011') for index in range(100)] + [(asof.isoformat(), f'9{index:03d}', 'Fund', 'Prime', 'その他', '014') for index in range(60)])
                 tickers = [f"{1301 + index:04d}" for index in range(40)] + [
                     f"9{index:03d}" for index in range(60)
                 ]
@@ -1153,22 +1115,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             sqlite_path = Path(tmp) / "market.sqlite"
             with closing(open_connection(sqlite_path)) as conn, conn:
                 tickers = tuple(f"{1301 + index:04d}" for index in range(2499))
-                conn.executemany(
-                    "INSERT INTO jquants_master_snapshots("
-                    "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-                    ") VALUES (?, ?, ?, ?, ?, ?)",
-                    [
-                        (
-                            asof.isoformat(),
-                            ticker,
-                            f"Name {ticker}",
-                            "Prime",
-                            "水産・農林業",
-                            1,
-                        )
-                        for ticker in tickers
-                    ],
-                )
+                insert_master_rows(conn, [(asof.isoformat(), ticker, f'Name {ticker}', 'Prime', '水産・農林業', '011') for ticker in tickers])
                 _add_source_coverage(
                     conn,
                     source="jquants_master_snapshots",
@@ -1197,22 +1144,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             sqlite_path = Path(tmp) / "market.sqlite"
             with closing(open_connection(sqlite_path)) as conn, conn:
                 tickers = tuple(f"{1301 + index:04d}" for index in range(2500))
-                conn.executemany(
-                    "INSERT INTO jquants_master_snapshots("
-                    "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-                    ") VALUES (?, ?, ?, ?, ?, ?)",
-                    [
-                        (
-                            asof.isoformat(),
-                            ticker,
-                            f"Name {ticker}",
-                            "Prime",
-                            "水産・農林業",
-                            1,
-                        )
-                        for ticker in tickers
-                    ],
-                )
+                insert_master_rows(conn, [(asof.isoformat(), ticker, f'Name {ticker}', 'Prime', '水産・農林業', '011') for ticker in tickers])
                 _add_source_coverage(
                     conn,
                     source="jquants_master_snapshots",

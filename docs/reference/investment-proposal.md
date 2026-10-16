@@ -41,7 +41,7 @@ related_docs:
 
 ### 共通呼値と条件未確定
 
-[`position/price_grid.py`](../../engine/src/baibai_engine/position/price_grid.py)は[JPX公式「その他」表](https://www.jpx.co.jp/equities/trading/domestic/07.html)の保守的共通gridと、既存masterの市場・33業種分類を使う。TOPIX500の最良呼値とは称さない。根拠・確認日・期間は同moduleの定数が正本で、`tse-common-conservative-20261014`は2026-10-14以上2027-03-01未満のsessionにだけ使う。
+[`position/price_grid.py`](../../engine/src/baibai_engine/position/price_grid.py)は[JPX公式「その他」表](https://www.jpx.co.jp/equities/trading/domestic/07.html)の保守的共通gridと、master原本の商品区分・銘柄コードから得る普通株判定と市場分類を使う。TOPIX500の最良呼値とは称さない。根拠・確認日・期間は同moduleの定数が正本で、`tse-common-conservative-20261014`は2026-10-14以上2027-03-01未満のsessionにだけ使う。
 
 buyはpmax・作者希望上限・closeを超えない価格を下方丸め、丸め先の価格帯も検証する。sellは現在closeを上限とする範囲の案で、作者が指定した売却最低価格を勝手に下げる経路を持たない。分類不明・grid期間外等は評価や売買の経済判断を消さず、terms未確定として残す。termsなしのbuyは作者の希望価格をproposed_limit_yenに明示し、現在previewで同じ価格を再検証する。後日のquoteから希望価格を推測しない。
 

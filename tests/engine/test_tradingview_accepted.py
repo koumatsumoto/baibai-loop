@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from tests.helpers.master import insert_master_rows
+
+
 import copy
 import hashlib
 import json
@@ -61,9 +64,7 @@ def market(tmp_path):
     conn = open_connection(path)
     with conn:
         conn.execute("INSERT INTO jquants_market_calendar VALUES ('2026-10-11',0)")
-        conn.execute(
-            "INSERT INTO jquants_master_snapshots VALUES ('2026-10-09','1000','IPO','プライム','機械',1)"
-        )
+        insert_master_rows(conn, [('2026-10-09', '1000', 'IPO', 'プライム', '機械', '011')])
         conn.execute(
             "INSERT INTO jquants_daily_bars(ticker,traded_at,close) VALUES ('1000','2026-10-09',123)"
         )

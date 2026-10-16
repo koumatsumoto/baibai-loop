@@ -1,5 +1,7 @@
 """正式writerと現行schemaで作る投資提案の合成fixture。"""
 
+from tests.helpers.master import insert_master_rows
+
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timedelta
@@ -112,10 +114,7 @@ def backend_case(
     seed_ledger(app, ledger)
     seed_daily_bars(market, [(ticker, "2026-10-14", 1100.0, 1.0) for ticker in tickers])
     with closing(sqlite3.connect(market)) as connection, connection:
-        connection.executemany(
-            "INSERT INTO jquants_master_snapshots(snapshot_date,ticker,name,market,sector_33,is_common_stock) VALUES (?,?,?,?,?,?)",
-            [("2026-10-14", ticker, "合成企業", "Prime", "情報・通信業", 1) for ticker in tickers],
-        )
+        insert_master_rows(connection, [('2026-10-14', ticker, '合成企業', 'Prime', '情報・通信業', '011') for ticker in tickers])
         connection.executemany(
             "INSERT INTO jquants_market_calendar(day,holiday_division) VALUES (?,?)",
             [

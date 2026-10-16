@@ -6,6 +6,9 @@ and checked explicitly, including errors that the command might otherwise catch.
 
 from __future__ import annotations
 
+from tests.helpers.master import insert_master_rows
+
+
 import tempfile
 import unittest
 from contextlib import closing
@@ -67,12 +70,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
                 for index in range(2499)
             ],
         ]
-        conn.executemany(
-            "INSERT INTO jquants_master_snapshots("
-            "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-            ") VALUES (?, ?, ?, ?, ?, ?)",
-            master_rows,
-        )
+        insert_master_rows(conn, [(_master_row[0], _master_row[1], _master_row[2], _master_row[3], _master_row[4], '011') for _master_row in master_rows])
         add_source_coverage(
             conn,
             source="jquants_master_snapshots",

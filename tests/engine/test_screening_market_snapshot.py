@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from tests.helpers.master import insert_master_rows
+
+
 import io
 import json
 import tempfile
@@ -25,12 +28,7 @@ def _insert_bars(sqlite_path: Path, ticker: str, closes: list[float], *, end: da
 def _insert_sector(sqlite_path: Path, ticker: str, sector: str) -> None:
     conn = open_connection(sqlite_path)
     try:
-        conn.execute(
-            "INSERT OR REPLACE INTO jquants_master_snapshots"
-            "(snapshot_date, ticker, name, market, sector_33, is_common_stock)"
-            " VALUES ('2026-05-28', ?, ?, 'プライム', ?, 1)",
-            (ticker, f"name-{ticker}", sector),
-        )
+        insert_master_rows(conn, [('2026-05-28', ticker, f'name-{ticker}', 'プライム', sector, '011')])
         conn.commit()
     finally:
         conn.close()
@@ -128,15 +126,7 @@ class BuildMarketSnapshotTests(unittest.TestCase):
             _insert_bars(sqlite_path, "LIVE", [100 * 1.01**i for i in range(30)], end=_ASOF)
             conn = open_connection(sqlite_path)
             try:
-                conn.executemany(
-                    "INSERT INTO jquants_master_snapshots"
-                    "(snapshot_date, ticker, name, market, sector_33, is_common_stock)"
-                    " VALUES (?, ?, ?, 'プライム', ?, 1)",
-                    (
-                        ("2026-05-28", "OLD1", "旧構成銘柄", "旧構成セクター"),
-                        ("2026-05-29", "LIVE", "現構成銘柄", "機械"),
-                    ),
-                )
+                insert_master_rows(conn, [('2026-05-28', 'OLD1', '旧構成銘柄', 'プライム', '旧構成セクター', '011'), ('2026-05-29', 'LIVE', '現構成銘柄', 'プライム', '機械', '011')])
                 conn.commit()
             finally:
                 conn.close()
@@ -263,16 +253,7 @@ def test_breadth_uses_each_points_common_stock_membership(tmp_path):
         _insert_bars(path, ticker, prices, end=_ASOF)
     conn = open_connection(path)
     try:
-        conn.executemany(
-            "INSERT INTO jquants_master_snapshots "
-            "(snapshot_date,ticker,name,market,sector_33,is_common_stock) VALUES (?,?,?,?,?,?)",
-            [
-                ("2026-05-15", "OLD1", "old member", "PRIME", "機械", 1),
-                ("2026-05-15", "FUND", "fund", "PRIME", "その他", 0),
-                ("2026-05-29", "LIVE", "current member", "PRIME", "小売業", 1),
-                ("2026-05-29", "FUND", "fund", "PRIME", "その他", 0),
-            ],
-        )
+        insert_master_rows(conn, [('2026-05-15', 'OLD1', 'old member', 'PRIME', '機械', '011'), ('2026-05-15', 'FUND', 'fund', 'PRIME', 'その他', '014'), ('2026-05-29', 'LIVE', 'current member', 'PRIME', '小売業', '011'), ('2026-05-29', 'FUND', 'fund', 'PRIME', 'その他', '014')])
         conn.commit()
     finally:
         conn.close()

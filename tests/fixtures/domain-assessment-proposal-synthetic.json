@@ -284,8 +284,8 @@
         {
           "ticker": "1234",
           "market_segment": "Prime",
-          "sector_33": "情報・通信業",
-          "snapshot_date": "2026-10-14"
+          "snapshot_date": "2026-10-14",
+          "is_common_stock": true
         }
       ],
       "total_capital_yen": "300000"
@@ -345,7 +345,7 @@
       "reviewer_identity": "synthetic-independent-reviewer",
       "reviewed_at": "2026-10-14T16:15:00+09:00",
       "conclusion": "pass",
-      "draft_sha256": "77c287a8cbd18286ccf2c2f80fce44ed6b12e96dadf5d3fc4821e89deae4d100",
+      "draft_sha256": "9798193229bbf26118fbeb491ed2fcee189ffb005c65c7fb1b6cbadd010d490e",
       "open_findings": []
     },
     "warnings": [],

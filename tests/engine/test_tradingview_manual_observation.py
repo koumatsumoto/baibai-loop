@@ -26,7 +26,7 @@ NOW = datetime(2026, 10, 11, 1, tzinfo=UTC)
 def manual_store(tmp_path, count=153):
     path = store(tmp_path / "market.sqlite", count)
     with closing(sqlite3.connect(path)) as conn, conn:
-        conn.execute("UPDATE jquants_master_snapshots SET snapshot_date=?", (MASTER.isoformat(),))
+        conn.execute("UPDATE jquants_master_snapshots SET snapshot_date=?, record_json=json_set(record_json, '$.Date', ?)", (MASTER.isoformat(), MASTER.isoformat()))
         conn.execute("INSERT INTO jquants_market_calendar VALUES (?,0)", (DAY.isoformat(),))
         conn.execute("INSERT INTO jquants_market_calendar VALUES ('2026-10-10',0)")
         conn.execute("INSERT INTO jquants_market_calendar VALUES (?,1)", (MASTER.isoformat(),))
@@ -291,7 +291,7 @@ def test_rest_day_automatically_uses_calendar_business_day_and_observation_hours
 def test_calendar_required_master_missing_does_not_use_older_saved_master(tmp_path):
     path = manual_store(tmp_path, 101)
     with closing(sqlite3.connect(path)) as conn, conn:
-        conn.execute("UPDATE jquants_master_snapshots SET snapshot_date='2026-09-18'")
+        conn.execute("UPDATE jquants_master_snapshots SET snapshot_date='2026-09-18', record_json=json_set(record_json,'$.Date','2026-09-18')")
     before = path.read_bytes()
     with pytest.raises(SourceDataError, match="calendar-required exact-date master"):
         preflight_snapshot(path, DAY, now=NOW)
@@ -305,7 +305,7 @@ def test_calendar_gap_cannot_select_an_older_master_or_collect(tmp_path, missing
     path = manual_store(tmp_path, 101)
     with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute("INSERT INTO jquants_market_calendar VALUES ('2026-10-08',1)")
-        conn.execute("UPDATE jquants_master_snapshots SET snapshot_date='2026-10-08'")
+        conn.execute("UPDATE jquants_master_snapshots SET snapshot_date='2026-10-08', record_json=json_set(record_json,'$.Date','2026-10-08')")
         conn.execute("DELETE FROM jquants_market_calendar WHERE day=?", (missing_day,))
     before = path.read_bytes()
     with pytest.raises(SourceDataError, match="Continuous trading calendar coverage"):

@@ -17,7 +17,7 @@ from bisect import bisect_right
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from baibai_engine.foundation.date_utils import weekday_distance
 from baibai_engine.foundation.time import JST
@@ -214,6 +214,7 @@ def read_eq_master_asof(sqlite_path: Path, asof: date) -> MasterSnapshotRead:
     if conn is None:
         return MasterSnapshotRead((), None, "unavailable")
     try:
+        conn.execute("BEGIN")
         status = "prior_snapshot"
         snapshot = conn.execute(
             "SELECT MAX(snapshot_date) FROM jquants_master_snapshots WHERE snapshot_date <= ?",
@@ -227,24 +228,15 @@ def read_eq_master_asof(sqlite_path: Path, asof: date) -> MasterSnapshotRead:
         if snapshot is None:
             return MasterSnapshotRead((), None, "unavailable")
         rows = conn.execute(
-            "SELECT ticker, name, market, sector_33, is_common_stock "
-            "FROM jquants_master_snapshots WHERE snapshot_date = ? ORDER BY ticker",
+            "SELECT record_json "
+            "FROM jquants_master_snapshots WHERE snapshot_date = ? ORDER BY security_code",
             (str(snapshot),),
         ).fetchall()
     finally:
         conn.close()
     snapshot_date = date.fromisoformat(str(snapshot))
     return MasterSnapshotRead(
-        tuple(
-            SecurityMaster(
-                ticker=ticker,
-                name=str(name or ""),
-                market_segment=str(market or ""),
-                sector_33=str(sector_33 or ""),
-                is_common_stock=bool(is_common),
-            )
-            for ticker, name, market, sector_33, is_common in rows
-        ),
+        tuple(master_contract.masters_from_payloads([row[0] for row in rows])),
         snapshot_date,
         "exact_date" if snapshot_date == asof else status,
     )
@@ -811,6 +803,7 @@ def read_eq_master_exact(sqlite_path: Path, asof: date) -> list[SecurityMaster] 
         return None
     iso = asof.isoformat()
     try:
+        conn.execute("BEGIN")
         coverage_rows = conn.execute(
             "SELECT coverage_start, coverage_end, record_count, status, error "
             "FROM source_coverage WHERE source = ? AND coverage_key = ?",
@@ -825,38 +818,18 @@ def read_eq_master_exact(sqlite_path: Path, asof: date) -> list[SecurityMaster] 
         if expected_count is None:
             return None
         rows = conn.execute(
-            "SELECT ticker, name, market, sector_33, is_common_stock "
-            "FROM jquants_master_snapshots WHERE snapshot_date = ? ORDER BY ticker",
+            "SELECT record_json "
+            "FROM jquants_master_snapshots WHERE snapshot_date = ? ORDER BY security_code",
             (iso,),
         ).fetchall()
         if len(rows) != expected_count or expected_count <= 0:
             return None
-        common_count = sum(row[4] == 1 for row in rows)
-        if common_count < master_contract.MIN_COMMON_STOCK_MASTER_ROWS or common_count != len(rows):
-            return None
-        if any(not str(value or "").strip() for row in rows for value in row[:4]):
-            return None
-    except (TypeError, ValueError):
-        return None
     finally:
         conn.close()
-    try:
-        return _materialize_masters(rows)
-    except (TypeError, ValueError):
+    masters = master_contract.masters_from_payloads([row[0] for row in rows])
+    if sum(security.is_common_stock for security in masters) < master_contract.MIN_COMMON_STOCK_MASTER_ROWS:
         return None
-
-
-def _materialize_masters(rows: list[tuple[Any, ...]]) -> list[SecurityMaster]:
-    return [
-        SecurityMaster(
-            ticker=ticker,
-            name=str(name or ""),
-            market_segment=str(market or ""),
-            sector_33=str(sector_33 or ""),
-            is_common_stock=bool(is_common),
-        )
-        for ticker, name, market, sector_33, is_common in rows
-    ]
+    return masters
 
 
 def fin_summaries_covered(sqlite_path: Path, start: date, end: date) -> bool:

@@ -36,12 +36,8 @@ from baibai_engine.external_assessment.tradingview.observations import (
     ProviderPayloadError,
     normalize_batch,
 )
-from baibai_engine.market.universe import (
-    ELIGIBLE_MARKETS,
-    NON_COMMON_STOCK_SECTORS,
-    TSE_33_SECTORS,
-    UniverseSourceDriftError,
-)
+from baibai_engine.market.universe import ELIGIBLE_MARKETS
+from baibai_engine.market.master_snapshot import masters_from_payloads
 from baibai_engine.storage.observations.schema import (
     SQLiteSchemaError,
     open_connection,
@@ -58,23 +54,19 @@ ProgressHook = Callable[[CollectionProgress], None]
 
 def universe(conn: sqlite3.Connection, day: date) -> list[str]:
     rows = conn.execute(
-        "SELECT ticker,market,sector_33 FROM jquants_master_snapshots "
-        "WHERE snapshot_date=? ORDER BY ticker",
+        "SELECT record_json FROM jquants_master_snapshots "
+        "WHERE snapshot_date=? ORDER BY security_code",
         (day.isoformat(),),
     ).fetchall()
     if not rows:
         raise SourceDataError("Exact-date J-Quants master is unavailable")
     result = []
-    for ticker, market, sector in rows:
-        if str(market).upper() not in ELIGIBLE_MARKETS:
+    for security in masters_from_payloads([row[0] for row in rows]):
+        if not security.is_common_stock or security.market_segment.upper() not in ELIGIBLE_MARKETS:
             continue
-        if sector not in TSE_33_SECTORS | NON_COMMON_STOCK_SECTORS:
-            raise UniverseSourceDriftError("Unknown J-Quants sector classification")
-        if sector not in TSE_33_SECTORS:
-            continue
-        if not re.fullmatch(r"[0-9][0-9A-Z]{3}", ticker):
+        if not re.fullmatch(r"[0-9][0-9A-Z]{3}", security.ticker):
             raise SourceDataError("Invalid J-Quants ticker")
-        result.append("TSE:" + ticker)
+        result.append("TSE:" + security.ticker)
     if not result:
         raise SourceDataError("Empty TradingView universe")
     return result

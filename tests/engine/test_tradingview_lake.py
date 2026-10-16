@@ -228,7 +228,11 @@ def test_month_partition_fixed_query_and_hydrate_roundtrip(
     asyncio.run(collect(path, DAY, fetch, clock=lambda: NOW))
     next_day = date(2026, 10, 1)
     with closing(sqlite3.connect(path)) as conn, conn:
-        conn.execute("UPDATE jquants_master_snapshots SET snapshot_date=?", (next_day.isoformat(),))
+        conn.execute(
+            "UPDATE jquants_master_snapshots SET snapshot_date=?, "
+            "record_json=json_set(record_json, '$.Date', ?)",
+            (next_day.isoformat(), next_day.isoformat()),
+        )
         conn.execute("UPDATE jquants_market_calendar SET day=?", (next_day.isoformat(),))
     asyncio.run(collect(path, next_day, fetch, clock=lambda: datetime(2026, 10, 1, 7, tzinfo=UTC)))
     mirror = tmp_path / "mirror"

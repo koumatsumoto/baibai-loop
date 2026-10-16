@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from tests.helpers.master import insert_master_rows
+
+
 import sqlite3
 import tempfile
 import unittest
@@ -34,15 +37,7 @@ class ReadEqMasterAsOfTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             with closing(open_connection(db)) as conn, conn:
-                conn.executemany(
-                    "INSERT INTO jquants_master_snapshots("
-                    "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-                    ") VALUES (?, ?, ?, ?, ?, ?)",
-                    [
-                        ("2025-01-31", "1301", "Historical", "プライム", "水産", 1),
-                        ("2025-02-28", "1302", "Future", "プライム", "水産", 1),
-                    ],
-                )
+                insert_master_rows(conn, [('2025-01-31', '1301', 'Historical', 'プライム', '水産', '011'), ('2025-02-28', '1302', 'Future', 'プライム', '水産', '011')])
 
             prior = read_eq_master_asof(db, date(2025, 2, 15))
             self.assertEqual(prior.status, "prior_snapshot")

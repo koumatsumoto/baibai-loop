@@ -164,7 +164,7 @@ def _preview_buy(
                 quote.price_yen,
                 target_session=session,
                 market_segment=classification.market_segment,
-                sector_33=classification.sector_33,
+                is_common_stock=classification.is_common_stock,
             )
         )
         current = buy_evaluation(

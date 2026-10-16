@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from tests.helpers.master import insert_master_rows
+
+
 import contextlib
 import io
 import sqlite3
@@ -113,12 +116,7 @@ class CalibrationPanelTest(unittest.TestCase):
             build_calibration_fixture_sqlite(sqlite_path)
             conn = open_connection(sqlite_path)
             try:
-                conn.execute(
-                    "INSERT OR REPLACE INTO jquants_master_snapshots("
-                    "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-                    ") VALUES (?, ?, ?, ?, ?, ?)",
-                    ("2026-06-01", "1306", "指数連動 ETF", "その他", "その他", 1),
-                )
+                insert_master_rows(conn, [('2026-06-01', '1306', '指数連動 ETF', 'その他', 'その他', '014')])
                 conn.commit()
             finally:
                 conn.close()
@@ -126,7 +124,7 @@ class CalibrationPanelTest(unittest.TestCase):
             built = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
 
             counts = built.diagnostics.policy_exclusion_reason_counts or {}
-            self.assertEqual(counts.get("sector_out_of_classification"), 1)
+            self.assertEqual(counts.get("non_common_stock"), 1)
             self.assertEqual(counts.get("market_out_of_scope"), 1)
             # Data-shortage reasons stay on the other side of the pair.
             self.assertNotIn("insufficient_bar_history", counts)
@@ -556,12 +554,7 @@ class CalibrationPanelTest(unittest.TestCase):
             build_calibration_fixture_sqlite(sqlite_path)
             conn = open_connection(sqlite_path)
             try:
-                conn.execute(
-                    "INSERT OR REPLACE INTO jquants_master_snapshots("
-                    "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-                    ") VALUES (?, ?, ?, ?, ?, ?)",
-                    ("2026-06-01", "9003", "併合銘柄", "スタンダード", "サービス業", 1),
-                )
+                insert_master_rows(conn, [('2026-06-01', '9003', '併合銘柄', 'スタンダード', 'サービス業', '011')])
                 for record in [
                     {
                         "Code": "90030",
@@ -971,12 +964,7 @@ class CalibrationPanelTest(unittest.TestCase):
             build_calibration_fixture_sqlite(sqlite_path)
             conn = open_connection(sqlite_path)
             try:
-                conn.execute(
-                    "INSERT INTO jquants_master_snapshots("
-                    "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-                    ") VALUES (?, ?, ?, ?, ?, ?)",
-                    ("2026-06-01", "9003", "履歴不足", "プライム", "サービス業", 1),
-                )
+                insert_master_rows(conn, [('2026-06-01', '9003', '履歴不足', 'プライム', 'サービス業', '011')])
                 conn.execute(
                     "UPDATE source_coverage SET record_count = 3 "
                     "WHERE source = 'jquants_master_snapshots'"

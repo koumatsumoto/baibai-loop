@@ -9,7 +9,6 @@ from baibai_engine.market import master_snapshot as master_contract
 
 from .common_stock import (
     COMMON_STOCK_SNAPSHOT_SQL,
-    UNKNOWN_ELIGIBLE_SECTOR_SQL,
     scope_parameters,
 )
 from .shared import CacheCoverageIssue
@@ -26,19 +25,18 @@ def _append_master_snapshot_issues(
     iso = asof_date.isoformat()
     row = conn.execute(
         "SELECT COUNT(*), "
-        "SUM(CASE WHEN TRIM(ticker) = '' OR name IS NULL OR TRIM(name) = '' "
-        "OR market IS NULL OR TRIM(market) = '' "
-        "OR sector_33 IS NULL OR TRIM(sector_33) = '' "
-        "OR is_common_stock IS NULL OR is_common_stock != 1 THEN 1 ELSE 0 END) "
+        "SUM(CASE WHEN length(security_code) != 5 "
+        "OR COALESCE(json_extract(record_json, '$.CoName'), '') = '' "
+        "OR COALESCE(json_extract(record_json, '$.MktNm'), '') = '' "
+        "OR COALESCE(json_extract(record_json, '$.S33Nm'), '') = '' "
+        "OR COALESCE(json_extract(record_json, '$.ProdCat'), '') = '' "
+        "THEN 1 ELSE 0 END) "
         "FROM jquants_master_snapshots WHERE snapshot_date = ?",
         (iso,),
     ).fetchone()
     actual_count = int(row[0] or 0)
     invalid_count = int(row[1] or 0)
     common_count = _common_stock_count(conn, asof_date)
-    unknown_count = int(
-        conn.execute(UNKNOWN_ELIGIBLE_SECTOR_SQL, scope_parameters(asof_date)).fetchone()[0]
-    )
     coverage_rows = conn.execute(
         "SELECT coverage_start, coverage_end, record_count, status, error "
         "FROM source_coverage WHERE source = ? AND coverage_key = ?",
@@ -107,17 +105,6 @@ def _append_master_snapshot_issues(
                 requirement=iso,
                 reason=(
                     f"exact master snapshot has {invalid_count} row(s) with invalid required data"
-                ),
-            )
-        )
-    if unknown_count:
-        issues.append(
-            CacheCoverageIssue(
-                source=master_contract.MASTER_SOURCE,
-                requirement=iso,
-                reason=(
-                    f"exact master snapshot has {unknown_count} row(s) with unknown "
-                    "sector_33 in eligible markets; update common-stock classification"
                 ),
             )
         )

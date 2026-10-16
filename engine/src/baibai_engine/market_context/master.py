@@ -1,4 +1,4 @@
-"""共通L1 masterのcutoff以下の最新snapshotを、集合を変えずに読む。"""
+"""共通L1の最新master原本から、主銘柄lineと商品区分を投影する。"""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from datetime import date
 from pathlib import Path
 
 from baibai_engine.foundation.sqlite_read import read_rows
+from baibai_engine.market.master_snapshot import masters_from_payloads
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,10 +19,10 @@ class MasterSnapshot:
 def read_master_snapshot(path: Path, *, as_of: date) -> MasterSnapshot | None:
     rows = read_rows(
         path,
-        "SELECT snapshot_date, ticker, name, market, sector_33, is_common_stock "
+        "SELECT snapshot_date, record_json "
         "FROM jquants_master_snapshots WHERE snapshot_date = ("
         "SELECT MAX(snapshot_date) FROM jquants_master_snapshots "
-        "WHERE snapshot_date <= ?) ORDER BY ticker",
+        "WHERE snapshot_date <= ?) ORDER BY security_code",
         (as_of.isoformat(),),
     )
     if not rows:
@@ -29,13 +30,13 @@ def read_master_snapshot(path: Path, *, as_of: date) -> MasterSnapshot | None:
     return MasterSnapshot(
         date.fromisoformat(str(rows[0]["snapshot_date"])),
         {
-            str(row["ticker"]): {
-                "name": str(row["name"] or ""),
-                "market_segment": str(row["market"] or ""),
-                "sector_33": str(row["sector_33"] or ""),
-                "is_common_stock": bool(row["is_common_stock"]),
-                "snapshot_date": str(row["snapshot_date"]),
+            security.ticker: {
+                "name": security.name,
+                "market_segment": security.market_segment,
+                "sector_33": security.sector_33,
+                "is_common_stock": security.is_common_stock,
+                "snapshot_date": str(rows[0]["snapshot_date"]),
             }
-            for row in rows
+            for security in masters_from_payloads([row["record_json"] for row in rows])
         },
     )

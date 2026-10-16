@@ -1,5 +1,7 @@
 """保存済み外部値だけで候補外の銘柄detailとserving exportへ到達できる。"""
 
+from tests.helpers.master import insert_master_rows
+
 import json
 from contextlib import closing
 from datetime import UTC, datetime
@@ -232,17 +234,7 @@ def test_all_external_sources_are_searchable_without_machine_analysis(
     )
     tv_row(market, received, ticker="3333", status="unresolved")
     with closing(open_connection(market)) as conn, conn:
-        conn.executemany(
-            "INSERT INTO jquants_master_snapshots(snapshot_date,ticker,name,sector_33) "
-            "VALUES (?,?,?,?)",
-            [
-                ("2026-10-09", "9999", "合成検索企業", "サービス業"),
-                ("2026-10-09", "2222", "合成零点企業", "情報・通信業"),
-                ("2026-10-09", "1111", None, None),
-                ("2026-10-09", "3333", "", None),
-                ("2099-01-01", "9999", "未来の名称", "小売業"),
-            ],
-        )
+        insert_master_rows(conn, [('2026-10-09', '9999', '合成検索企業', 'Prime', 'サービス業', '011'), ('2026-10-09', '2222', '合成零点企業', 'Prime', '情報・通信業', '011'), ('2099-01-01', '9999', '未来の名称', 'Prime', '小売業', '011')])
         conn.commit()
     if without_run:
         (app_method_root / RUNS_DB_PATH).unlink()

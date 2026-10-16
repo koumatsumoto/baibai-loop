@@ -13,13 +13,9 @@ from zoneinfo import ZoneInfo
 import duckdb
 
 from baibai_engine.market.master_snapshot import MIN_COMMON_STOCK_MASTER_ROWS
-from baibai_engine.market.ticker import normalize_ticker
-from baibai_engine.market.universe import (
-    ELIGIBLE_MARKETS,
-    NON_COMMON_STOCK_SECTORS,
-    TSE_33_SECTORS,
-    UniverseSourceDriftError,
-)
+from baibai_engine.market.universe import ELIGIBLE_MARKETS
+from baibai_engine.market.models import SecurityMaster
+from baibai_engine.market.master_snapshot import masters_from_payloads
 from baibai_engine.storage.lake.duck import LakeSession
 from baibai_engine.storage.lake.objects import LakeObjectCache
 from baibai_engine.storage.lake.reader import (
@@ -46,12 +42,7 @@ def frozen_universe(database: Path, master_asof: date) -> tuple[tuple[str, ...],
         raise ValueError(
             "external assessment universe requires a complete exact saved master and L1 origin"
         )
-    tickers = _common_stock_tickers(
-        [
-            (security.ticker, security.market_segment, security.sector_33)
-            for security in snapshot.masters
-        ]
-    )
+    tickers = _common_stock_tickers(snapshot.masters)
     return tickers, _binding(
         tickers, master_asof, origin.release_id, origin.release_manifest_sha256
     )
@@ -76,8 +67,8 @@ def frozen_lake_universe(
         raise ValueError("external assessment universe requires a complete exact saved master")
     try:
         rows = session.connection.execute(
-            "SELECT ticker,market,sector_33 FROM read_parquet($files,union_by_name=false) "
-            "WHERE snapshot_date=$master_asof ORDER BY ticker",
+            "SELECT record_json FROM read_parquet($files,union_by_name=false) "
+            "WHERE snapshot_date=$master_asof ORDER BY security_code",
             {"files": [str(path) for path in paths], "master_asof": master_asof.isoformat()},
         ).fetchall()
     except duckdb.Error as error:
@@ -86,9 +77,7 @@ def frozen_lake_universe(
         ) from None
     if len(rows) < MIN_COMMON_STOCK_MASTER_ROWS:
         raise ValueError("external assessment universe requires a complete exact saved master")
-    tickers = _common_stock_tickers(
-        [(str(ticker), str(market or ""), str(sector or "")) for ticker, market, sector in rows]
-    )
+    tickers = _common_stock_tickers(masters_from_payloads([row[0] for row in rows]))
     return tickers, _binding(tickers, master_asof, release.release_id, release.manifest_sha256)
 
 
@@ -136,19 +125,13 @@ def _require_master_date(master_asof: date) -> None:
         raise ValueError("external assessment saved master cannot be in the future")
 
 
-def _common_stock_tickers(masters: Sequence[tuple[str, str, str]]) -> tuple[str, ...]:
-    selected = []
-    for security_code, market, sector in masters:
-        if market.upper() not in ELIGIBLE_MARKETS:
-            continue
-        if sector not in TSE_33_SECTORS | NON_COMMON_STOCK_SECTORS:
-            raise UniverseSourceDriftError("Unknown J-Quants sector classification")
-        if sector in TSE_33_SECTORS:
-            ticker = normalize_ticker(security_code)
-            if re.fullmatch(r"[0-9][0-9A-Z]{3}", ticker) is None:
-                raise ValueError("invalid TSE common-stock ticker")
-            selected.append(ticker)
-    tickers = tuple(sorted(selected))
+def _common_stock_tickers(masters: Sequence[SecurityMaster]) -> tuple[str, ...]:
+    tickers = tuple(sorted(
+        security.ticker for security in masters
+        if security.is_common_stock and security.market_segment.upper() in ELIGIBLE_MARKETS
+    ))
+    if any(re.fullmatch(r"[0-9][0-9A-Z]{3}", ticker) is None for ticker in tickers):
+        raise ValueError("invalid TSE common-stock ticker")
     if len(tickers) < MIN_COMMON_STOCK_MASTER_ROWS or len(set(tickers)) != len(tickers):
         raise ValueError(
             "external assessment universe requires a complete distinct common-stock population"

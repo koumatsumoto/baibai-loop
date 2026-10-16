@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from tests.helpers.master import insert_master_rows
+
+
 import argparse
 import io
 import tempfile
@@ -34,16 +37,8 @@ def _insert_bars(sqlite_path: Path, ticker: str, closes: list[float], *, end: da
 def _insert_reference_rows(sqlite_path: Path) -> None:
     conn = open_connection(sqlite_path)
     try:
-        conn.execute(
-            "INSERT OR REPLACE INTO jquants_master_snapshots"
-            "(snapshot_date, ticker, name, market, sector_33, is_common_stock)"
-            " VALUES ('2026-05-28', 'AAAA', 'テスト製作所', 'プライム', '機械', 1)"
-        )
-        conn.execute(
-            "INSERT OR REPLACE INTO jquants_master_snapshots"
-            "(snapshot_date, ticker, name, market, sector_33, is_common_stock)"
-            " VALUES ('2026-05-28', 'BBBB', '同業ペア', 'プライム', '機械', 1)"
-        )
+        insert_master_rows(conn, [('2026-05-28', 'AAAA', 'テスト製作所', 'プライム', '機械', '011')])
+        insert_master_rows(conn, [('2026-05-28', 'BBBB', '同業ペア', 'プライム', '機械', '011')])
         conn.execute(
             "INSERT OR REPLACE INTO jpx_earnings_calendar"
             "(announcement_date, ticker) VALUES ('2026-06-10', 'AAAA')"
@@ -296,15 +291,7 @@ class BuildTickerProfileTests(unittest.TestCase):
             _insert_reference_rows(sqlite_path)
             conn = open_connection(sqlite_path)
             try:
-                conn.executemany(
-                    "INSERT INTO jquants_master_snapshots"
-                    "(snapshot_date, ticker, name, market, sector_33, is_common_stock)"
-                    " VALUES ('2026-05-29', ?, ?, 'プライム', '機械', 1)",
-                    (
-                        ("AAAA", "テスト製作所"),
-                        ("CCCC", "現構成ペア"),
-                    ),
-                )
+                insert_master_rows(conn, [('2026-05-29', 'AAAA', 'テスト製作所', 'プライム', '機械', '011'), ('2026-05-29', 'CCCC', '現構成ペア', 'プライム', '機械', '011')])
                 conn.commit()
             finally:
                 conn.close()
@@ -545,12 +532,7 @@ def test_sector_uses_only_peers_with_exact_target_interval(tmp_path, target_coun
         _insert_dated_bars(sqlite_path, ticker, prices)
     conn = open_connection(sqlite_path)
     try:
-        conn.executemany(
-            "INSERT OR REPLACE INTO jquants_master_snapshots"
-            "(snapshot_date, ticker, name, market, sector_33, is_common_stock)"
-            " VALUES ('2026-05-28', ?, 'peer', 'プライム', '機械', 1)",
-            [(ticker,) for ticker in peers],
-        )
+        insert_master_rows(conn, [('2026-05-28', ticker, 'peer', 'プライム', '機械', '011') for ticker in peers])
         conn.commit()
     finally:
         conn.close()

@@ -239,14 +239,13 @@ JQUANTS_MASTER_SNAPSHOTS = LakeDataset(
     sqlite_table="jquants_master_snapshots",
     date_column="snapshot_date",
     partition_grain="year",
+    contract_version=2,
     coverage_authority="unproven",
+    population_column="security_code",
     columns=(
         LakeColumn("snapshot_date", "TEXT", _TEXT, False, 1),
-        LakeColumn("ticker", "TEXT", _TEXT, False, 2),
-        LakeColumn("name", "TEXT", _TEXT, True),
-        LakeColumn("market", "TEXT", _TEXT, True),
-        LakeColumn("sector_33", "TEXT", _TEXT, True),
-        LakeColumn("is_common_stock", "INTEGER", _INTEGER, True),
+        LakeColumn("security_code", "TEXT", _TEXT, False, 2),
+        LakeColumn("record_json", "TEXT", _TEXT, False),
     ),
 )
 

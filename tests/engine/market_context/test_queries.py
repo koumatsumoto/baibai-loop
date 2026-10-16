@@ -1,5 +1,7 @@
 """Market Contextの過去分類、統計量・端点、保存読取とimportの境界。"""
 
+from tests.helpers.master import insert_master_rows
+
 import hashlib
 import socket
 import sqlite3
@@ -31,11 +33,7 @@ ASOF = date(2026, 5, 29)
 def master(path, snapshot, memberships):
     connection = open_connection(path)
     try:
-        connection.executemany(
-            "INSERT INTO jquants_master_snapshots "
-            "(snapshot_date,ticker,name,market,sector_33,is_common_stock) VALUES (?,?,?,'プライム',?,1)",
-            [(snapshot, ticker, ticker, sector) for ticker, sector in memberships.items()],
-        )
+        insert_master_rows(connection, [(snapshot, ticker, ticker, 'プライム', sector, '014' if sector == 'その他' else '011') for ticker, sector in memberships.items()])
         connection.commit()
     finally:
         connection.close()

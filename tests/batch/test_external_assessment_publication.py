@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from tests.helpers.master import insert_master_rows
+
+
 import shlex
 import sqlite3
 import subprocess
@@ -83,10 +86,7 @@ def publication(tmp_path, monkeypatch):
     monkeypatch.setattr(publisher, "lake_verified_git_commit", lambda: "a" * 40)
     database = market_store(tmp_path / "market.sqlite")
     with closing(sqlite3.connect(database)) as connection, connection:
-        connection.execute(
-            "INSERT INTO jquants_master_snapshots VALUES (?,?,?,?,?,?)",
-            ("2026-09-30", "7203", "合成会社", "PRIME", "輸送用機器", 1),
-        )
+        insert_master_rows(connection, [('2026-09-30', '7203', '合成会社', 'PRIME', '輸送用機器', '011')])
     common = {
         "ticker": "7203",
         "fetched_at_utc": RECEIVED - timedelta(days=1),

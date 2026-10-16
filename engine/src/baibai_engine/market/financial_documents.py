@@ -7,7 +7,6 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import date, time
-from math import isfinite
 from typing import Any
 
 from baibai_engine.market.jquants_decode import (
@@ -15,6 +14,7 @@ from baibai_engine.market.jquants_decode import (
     parse_date,
     parse_jquants_code_parts,
     parse_optional_date,
+    provider_record_payload,
     to_float,
     to_period,
 )
@@ -57,7 +57,7 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
         disclosure_number=_text(record.get("DiscNo")),
         disclosed_time=_disclosed_time(record.get("DiscTime")),
         document_type=_text(record.get("DocType")),
-        document_payload=financial_document_payload(record),
+        document_payload=provider_record_payload(record),
     )
 
 
@@ -77,23 +77,11 @@ def _disclosed_time(value: Any) -> str | None:
     return parsed.isoformat() if parsed.tzinfo is None else None
 
 
-def financial_document_payload(record: Mapping[str, Any]) -> str:
-    """Retain every provider field, including empty slots and both bases.
-
-    Non-finite SDK values are explicit unknown strings, not JSON NaN or zero.
-    """
-    values = {
-        str(key): str(value) if isinstance(value, float) and not isfinite(value) else value
-        for key, value in record.items()
-    }
-    return json.dumps(values, ensure_ascii=False, sort_keys=True, allow_nan=False, default=str)
-
-
 def financial_document_key(record: Mapping[str, Any]) -> str:
     number = _text(record.get("DiscNo"))
     if number is not None:
         return f"doc:{number}"
-    return "payload:" + hashlib.sha256(financial_document_payload(record).encode()).hexdigest()
+    return "payload:" + hashlib.sha256(provider_record_payload(record).encode()).hexdigest()
 
 
 def disclosure_revision(row: JQuantsFinancialSummary) -> tuple[date, str]:

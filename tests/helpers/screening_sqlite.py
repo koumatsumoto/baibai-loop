@@ -7,6 +7,9 @@ in real test code.
 
 from __future__ import annotations
 
+from tests.helpers.master import insert_master_rows
+
+
 import hashlib
 import json
 import shutil
@@ -38,7 +41,7 @@ def make_master_records(
     asof: date,
     *,
     count: int = 2500,
-    excluded_count: int = 0,
+    secondary_class_count: int = 0,
 ) -> list[dict[str, str]]:
     """Return a complete official-key master response for offline tests."""
     records = [
@@ -48,6 +51,7 @@ def make_master_records(
             "CoName": f"Company {index}",
             "MktNm": "Prime",
             "S33Nm": "情報・通信業",
+            "ProdCat": "011",
         }
         for index in range(count)
     ]
@@ -55,11 +59,12 @@ def make_master_records(
         {
             "Date": asof.isoformat(),
             "Code": f"{9000 + index:04d}1",
-            "CoName": f"Excluded {index}",
+            "CoName": f"Secondary class {index}",
             "MktNm": "Prime",
             "S33Nm": "情報・通信業",
+            "ProdCat": "011",
         }
-        for index in range(excluded_count)
+        for index in range(secondary_class_count)
     )
     return records
 
@@ -150,15 +155,7 @@ def _write_calibration_fixture_sqlite(sqlite_path: Path) -> None:
 
     conn = open_connection(sqlite_path)
     try:
-        conn.executemany(
-            "INSERT OR REPLACE INTO jquants_master_snapshots("
-            "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-            ") VALUES (?, ?, ?, ?, ?, ?)",
-            [
-                ("2026-06-01", "9001", "キャッシュリッチ", "プライム", "サービス業", 1),
-                ("2026-06-01", "9002", "割高", "プライム", "サービス業", 1),
-            ],
-        )
+        insert_master_rows(conn, [('2026-06-01', '9001', 'キャッシュリッチ', 'プライム', 'サービス業', '011'), ('2026-06-01', '9002', '割高', 'プライム', 'サービス業', '011')])
         add_source_coverage(
             conn,
             source="jquants_master_snapshots",

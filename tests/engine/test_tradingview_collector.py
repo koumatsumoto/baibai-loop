@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from tests.helpers.master import insert_master_rows
+
+
 import asyncio
 import copy
 import sqlite3
@@ -20,7 +23,7 @@ from baibai_engine.external_assessment.tradingview.observations import (
     FetchError,
     normalize_batch,
 )
-from baibai_engine.market.universe import UniverseSourceDriftError
+from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.storage.observations.schema import open_connection
 
 DAY = date(2026, 9, 18)
@@ -30,10 +33,7 @@ NOW = datetime(2026, 9, 18, 7, tzinfo=UTC)
 def store(path: Path, count: int = 51) -> Path:
     with closing(open_connection(path)) as conn, conn:
         conn.execute("INSERT INTO jquants_market_calendar VALUES (?,1)", (DAY.isoformat(),))
-        conn.executemany(
-            "INSERT INTO jquants_master_snapshots VALUES (?,?,?,'プライム','機械',1)",
-            [(DAY.isoformat(), str(1000 + i), "IPO") for i in range(count)],
-        )
+        insert_master_rows(conn, [(DAY.isoformat(), str(1000 + i), 'IPO', 'プライム', '機械', '011') for i in range(count)])
     return path
 
 
@@ -129,10 +129,7 @@ def test_preflight_is_read_only_and_resumes_partial_rows(tmp_path: Path) -> None
         )
     assert preflight_snapshot(path, DAY)["needs_master"] is True
     with closing(sqlite3.connect(path)) as conn, conn:
-        conn.executemany(
-            "INSERT INTO jquants_master_snapshots VALUES (?,?,?,'プライム','機械',1)",
-            [(DAY.isoformat(), str(1000 + i), "IPO") for i in range(2)],
-        )
+        insert_master_rows(conn, [(DAY.isoformat(), str(1000 + i), 'IPO', 'プライム', '機械', '011') for i in range(2)])
 
     async def healthy(symbols):
         return payload(symbols)
@@ -408,18 +405,11 @@ def test_universe_excludes_secondary_instruments_without_bar_history(tmp_path: P
     path = store(tmp_path / "market.sqlite", 1)
     conn = open_connection(path)
     with conn:
-        conn.executemany(
-            "INSERT INTO jquants_master_snapshots VALUES (?,?,?, ?,?,1)",
-            [
-                (DAY.isoformat(), "2000", "fund", "プライム", "その他"),
-                (DAY.isoformat(), "2001", "pro", "TOKYO PRO MARKET", "機械"),
-                (DAY.isoformat(), "2002", "Nagoya", "名証", "機械"),
-            ],
-        )
+        insert_master_rows(conn, [(DAY.isoformat(), '2000', 'fund', 'プライム', 'その他', '014'), (DAY.isoformat(), '2001', 'pro', 'TOKYO PRO MARKET', '機械', '011'), (DAY.isoformat(), '2002', 'Nagoya', '名証', '機械', '011')])
     assert universe(conn, DAY) == ["TSE:1000"]
     with conn:
-        conn.execute("UPDATE jquants_master_snapshots SET sector_33='unknown' WHERE ticker='1000'")
-    with pytest.raises(UniverseSourceDriftError):
+        conn.execute("UPDATE jquants_master_snapshots SET record_json=json_set(record_json,'$.ProdCat',NULL) WHERE security_code='10000'")
+    with pytest.raises(JQuantsProviderError, match="product category"):
         universe(conn, DAY)
     conn.close()
 
@@ -464,14 +454,14 @@ def test_response_accounting_refuses_invalid_payload(case: str) -> None:
         normalize_batch(p, symbols, NOW)
 
 
-@pytest.mark.parametrize("common", [0, None])
-def test_universe_uses_canonical_sectors_without_common_stock_flag(tmp_path, common):
+def test_native_product_category_does_not_depend_on_sector_spelling(tmp_path):
     path = store(tmp_path / "market.sqlite", 1)
-    conn = open_connection(path)
-    with conn:
-        conn.execute("UPDATE jquants_master_snapshots SET is_common_stock=?", (common,))
-    assert universe(conn, DAY) == ["TSE:1000"]
-    conn.close()
+    with closing(open_connection(path)) as conn, conn:
+        conn.execute(
+            "UPDATE jquants_master_snapshots "
+            "SET record_json=json_set(record_json,'$.S33Nm','新業種')"
+        )
+        assert universe(conn, DAY) == ["TSE:1000"]
 
 
 class Timer:

@@ -134,7 +134,7 @@ class ReservationInput(_ProposalValue):
 class SecurityClassification(_ProposalValue):
     ticker: Ticker
     market_segment: NonEmptyStr
-    sector_33: NonEmptyStr
+    is_common_stock: bool
     snapshot_date: ISODate
 
 
@@ -525,7 +525,7 @@ class InvestmentProposal(_ProposalValue):
             terms.limit_price_yen,
             target_session=terms.target_session,
             market_segment=classification.market_segment,
-            sector_33=classification.sector_33,
+            is_common_stock=classification.is_common_stock,
         ):
             raise ValueError("limit price is outside the common stock grid rule")
         quote = next((row for row in self.inputs.quotes if row.ticker == item.ticker), None)
@@ -541,7 +541,7 @@ class InvestmentProposal(_ProposalValue):
                 quote.price_yen,
                 target_session=terms.target_session,
                 market_segment=classification.market_segment,
-                sector_33=classification.sector_33,
+                is_common_stock=classification.is_common_stock,
             )
             if terms.limit_price_yen != current_limit:
                 raise ValueError("current-limit terms must use the actual close upper bound grid")

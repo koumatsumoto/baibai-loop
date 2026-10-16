@@ -48,18 +48,6 @@ def normalize_ticker_or_none(value: Any) -> str | None:
     return code_quality(value)[0]
 
 
-def is_common_stock_flag(record: Mapping[str, Any]) -> bool:
-    if "is_common_stock" in record:
-        return bool(record["is_common_stock"])
-    code = str(first(record, "Code", "code") or "").strip()
-    if len(code) == 5 and not code.endswith("0"):
-        return False
-    raw_type = to_str_or_none(first(record, "TypeOfDocument", "SecurityType", "security_type"))
-    if raw_type is None:
-        return True
-    return raw_type.lower() in {"common", "common stock", "普通株"}
-
-
 def first(record: Mapping[str, Any], *keys: str) -> Any:
     for key in keys:
         if key not in record:

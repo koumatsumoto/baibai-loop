@@ -229,12 +229,12 @@ def collect_proposal_inputs(
     if master is not None:
         for ticker in sorted(set(tickers) | held_tickers):
             row = master.securities.get(ticker)
-            if row is not None and row["market_segment"] and row["sector_33"]:
+            if row is not None and row["market_segment"]:
                 classifications.append(
                     SecurityClassification(
                         ticker=ticker,
                         market_segment=str(row["market_segment"]),
-                        sector_33=str(row["sector_33"]),
+                        is_common_stock=bool(row["is_common_stock"]),
                         snapshot_date=master.as_of,
                     )
                 )
@@ -412,7 +412,7 @@ def _context_calculations(
                         maximum,
                         target_session=session,
                         market_segment=classification.market_segment,
-                        sector_33=classification.sector_33,
+                        is_common_stock=classification.is_common_stock,
                     )
                 )
                 row["maximum_common_grid_price_yen"] = None if grid is None else str(grid)

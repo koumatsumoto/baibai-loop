@@ -15,7 +15,7 @@ def normalize_ticker(value: str) -> str:
 
 
 def parse_security_code_parts(code: object) -> tuple[str, bool]:
-    """Return the ticker and whether a local issue code denotes common stock."""
+    """Return the ticker and whether the issue suffix is zero, not its product category."""
     raw = str(code or "").strip()
     if not raw.isascii():
         raise SecurityCodeError(f"invalid security code: {code!r}")

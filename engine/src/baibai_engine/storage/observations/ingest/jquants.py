@@ -8,11 +8,8 @@ from math import isfinite
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.market.financial_documents import (
-    financial_document_key,
-    financial_document_payload,
-)
-from baibai_engine.market.jquants_decode import JQuantsProviderError
+from baibai_engine.market.financial_documents import financial_document_key
+from baibai_engine.market.jquants_decode import provider_record_payload
 from baibai_engine.market.margin_publication import (
     require_all_issues_daily_balance_date,
     require_legacy_weekly_balance_date,
@@ -612,61 +609,23 @@ def store_jquants_master(
     *,
     requested_asof: date,
 ) -> int:
-    # Materialize and validate the complete response before opening SQLite. An
-    # invalid provider batch must not create a DB or begin a transaction that
-    # can disturb an already accepted snapshot.
-    records_list = list(records)
-    validated = validate_master_snapshot(records_list, requested_asof)
+    validated = validate_master_snapshot(list(records), requested_asof)
     conn = open_connection(db_path)
     try:
         iso = requested_asof.isoformat()
         conn.execute("BEGIN")
-        conn.execute(
-            "DELETE FROM jquants_master_snapshots WHERE snapshot_date = ?",
-            (iso,),
-        )
-        # Remove coverage only for this requested snapshot. This also cleans a
-        # same-date legacy key while retaining every other captured date.
+        conn.execute("DELETE FROM jquants_master_snapshots WHERE snapshot_date = ?", (iso,))
         conn.execute(
             "DELETE FROM source_coverage WHERE source = ? "
             "AND coverage_start = ? AND coverage_end = ?",
             (MASTER_SOURCE, iso, iso),
         )
         conn.executemany(
-            """
-            INSERT INTO jquants_master_snapshots(
-              snapshot_date, ticker, name, market, sector_33, is_common_stock
-            ) VALUES (?, ?, ?, ?, ?, ?)
-            """,
+            "INSERT INTO jquants_master_snapshots(snapshot_date, security_code, record_json) "
+            "VALUES (?, ?, ?)",
             validated.rows,
         )
-        count_row = conn.execute(
-            "SELECT COUNT(*) FROM jquants_master_snapshots WHERE snapshot_date = ?",
-            (iso,),
-        ).fetchone()
-        persisted_count = int(count_row[0] or 0)
-        if persisted_count != validated.persisted_count:
-            raise JQuantsProviderError(
-                "J-Quants master persisted count mismatch before coverage write: "
-                f"expected={validated.persisted_count} actual={persisted_count}"
-            )
-        if validated.raw_count != persisted_count + validated.excluded_count:
-            raise JQuantsProviderError(
-                "J-Quants master raw/persisted/excluded count mismatch after insert: "
-                f"raw={validated.raw_count} persisted={persisted_count} "
-                f"excluded={validated.excluded_count}"
-            )
-        common_row = conn.execute(
-            "SELECT COUNT(*) FROM jquants_master_snapshots "
-            "WHERE snapshot_date = ? AND is_common_stock = 1",
-            (iso,),
-        ).fetchone()
-        persisted_common_count = int(common_row[0] or 0)
-        if persisted_common_count != validated.common_stock_count:
-            raise JQuantsProviderError(
-                "J-Quants master common-stock count mismatch after insert: "
-                f"expected={validated.common_stock_count} actual={persisted_common_count}"
-            )
+        persisted_count = validated.persisted_count
         record_source_coverage(
             conn,
             source=MASTER_SOURCE,
@@ -677,16 +636,9 @@ def store_jquants_master(
             status="ok",
             error=None,
         )
-        coverage = conn.execute(
-            "SELECT coverage_start, coverage_end, record_count, status, error "
-            "FROM source_coverage WHERE source = ? AND coverage_key = ?",
-            (MASTER_SOURCE, master_coverage_key(requested_asof)),
-        ).fetchone()
-        if coverage != (iso, iso, persisted_count, "ok", None):
-            raise JQuantsProviderError("J-Quants master coverage write did not round-trip exactly")
         conn.commit()
         return persisted_count
-    except Exception:
+    except BaseException:
         conn.rollback()
         raise
     finally:
@@ -714,7 +666,7 @@ def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> Norm
         # Store provider fields, not selected forecasts or a second numeric truth.
         # Source record JSON is not the original HTTP response or Bulk CSV bytes.
         key = (ticker, disclosed_at, financial_document_key(record))
-        payload = financial_document_payload(record)
+        payload = provider_record_payload(record)
         if key in seen:
             if seen[key] != payload:
                 raise ValueError(f"conflicting financial document identity: {key}")

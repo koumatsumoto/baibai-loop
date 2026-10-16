@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import copy
 import io
+import json
 import sqlite3
 import tempfile
 import unittest
 from contextlib import closing
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -16,7 +16,7 @@ from tests.helpers.screening_sqlite import insert_financial_record, make_master_
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.market.jquants_decode import JQuantsProviderError
-from baibai_engine.market.master_snapshot import validate_master_snapshot
+from baibai_engine.market.master_snapshot import masters_from_payloads, validate_master_snapshot
 from baibai_engine.market.providers.jquants import JQuantsProvider
 from baibai_engine.screening.cli.cache import backfill_master_command, bootstrap_cache_command
 from baibai_engine.screening.cli.providers import ProviderBundle
@@ -72,8 +72,9 @@ class _BootstrapJQuants:
             tickers = [
                 str(row[0])
                 for row in conn.execute(
-                    "SELECT ticker FROM jquants_master_snapshots "
-                    "WHERE snapshot_date = ? AND is_common_stock = 1",
+                    "SELECT substr(security_code,1,4) FROM jquants_master_snapshots "
+                    "WHERE snapshot_date = ? AND substr(security_code,5,1)='0' "
+                    "AND json_extract(record_json, '$.ProdCat')='011'",
                     (end.isoformat(),),
                 )
             ]
@@ -126,8 +127,8 @@ def _db_fingerprint(db: Path) -> tuple[tuple[object, ...], tuple[object, ...]]:
     try:
         rows = tuple(
             conn.execute(
-                "SELECT snapshot_date, ticker, name, market, sector_33, is_common_stock "
-                "FROM jquants_master_snapshots ORDER BY snapshot_date, ticker"
+                "SELECT snapshot_date, security_code, record_json "
+                "FROM jquants_master_snapshots ORDER BY snapshot_date, security_code"
             ).fetchall()
         )
         coverage = tuple(
@@ -143,25 +144,44 @@ def _db_fingerprint(db: Path) -> tuple[tuple[object, ...], tuple[object, ...]]:
 
 
 class MasterSnapshotStoreTests(unittest.TestCase):
-    def test_validation_logs_raw_persisted_and_intentional_exclusion_counts(self) -> None:
+    def test_native_snapshot_preserves_secondary_classes_and_all_provider_fields(self) -> None:
         asof = date(2026, 5, 29)
-        with self.assertLogs("baibai_engine.market.master_snapshot", level="INFO") as captured:
-            validated = validate_master_snapshot(make_master_records(asof, excluded_count=2), asof)
+        records = make_master_records(asof, secondary_class_count=2)
+        records[0].update(CoNameEn="Source name", S17="1", ScaleCat="TOPIX Small", Mrgn="2")
+        records.append(
+            dict(records[0], Code="90000", CoName="ETF native record", ProdCat="014")
+        )
+        validated = validate_master_snapshot(records, asof)
+        self.assertEqual(validated.persisted_count, 2503)
+        self.assertEqual(json.loads(validated.rows[0][2]), records[0])
+        self.assertEqual(json.loads(validated.rows[-1][2]), records[-1])
+        self.assertTrue(validated.rows[-2][1].endswith("1"))
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            self.assertEqual(store_jquants_master(db, records, requested_asof=asof), 2503)
+            with closing(sqlite3.connect(db)) as conn:
+                persisted = conn.execute(
+                    "SELECT security_code, record_json FROM jquants_master_snapshots "
+                    "ORDER BY security_code"
+                ).fetchall()
+            self.assertEqual({code: json.loads(payload) for code, payload in persisted},
+                             {row["Code"]: row for row in records})
+            projected = read_eq_master_exact(db, asof)
+            assert projected is not None
+            self.assertEqual(len(projected), 2501)
+            self.assertEqual(sum(row.is_common_stock for row in projected), 2500)
+            self.assertFalse(next(row for row in projected if row.ticker == "9000").is_common_stock)
 
-        self.assertEqual(validated.raw_count, 2502)
-        self.assertEqual(validated.persisted_count, 2500)
-        self.assertEqual(validated.excluded_count, 2)
-        self.assertIn("raw=2502 persisted=2500 intentional_excluded=2", captured.output[0])
 
     def test_two_dates_are_append_only_and_same_date_is_idempotent(self) -> None:
         first = date(2026, 5, 29)
         second = date(2026, 6, 30)
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
-            first_records = make_master_records(first, excluded_count=2)
+            first_records = make_master_records(first, secondary_class_count=2)
             self.assertEqual(
                 store_jquants_master(db, first_records, requested_asof=first),
-                2500,
+                2502,
             )
             first_rows, first_coverage = _snapshot_state(db, first)
 
@@ -180,8 +200,8 @@ class MasterSnapshotStoreTests(unittest.TestCase):
                     (second.isoformat(),),
                 ).fetchone()[0]
                 replaced_name = conn.execute(
-                    "SELECT name FROM jquants_master_snapshots "
-                    "WHERE snapshot_date = ? AND ticker = '1000'",
+                    "SELECT json_extract(record_json, '$.CoName') FROM jquants_master_snapshots "
+                    "WHERE snapshot_date = ? AND security_code = '10000'",
                     (second.isoformat(),),
                 ).fetchone()[0]
             finally:
@@ -210,8 +230,8 @@ class MasterSnapshotStoreTests(unittest.TestCase):
         invalid_code[0]["Code"] = "bad-code"
         duplicate = copy.deepcopy(base)
         duplicate[1]["Code"] = duplicate[0]["Code"]
-        contradictory_type = copy.deepcopy(base)
-        contradictory_type[0]["SecurityType"] = "preferred"
+        missing_product = copy.deepcopy(base)
+        missing_product[0].pop("ProdCat")
 
         invalid_cases = {
             "empty": [],
@@ -224,7 +244,7 @@ class MasterSnapshotStoreTests(unittest.TestCase):
             "invalid_code": invalid_code,
             "duplicate_ticker": duplicate,
             "small_population": make_master_records(requested, count=2499),
-            "contradictory_security_type": contradictory_type,
+            "missing_product_category": missing_product,
         }
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -266,33 +286,6 @@ class MasterSnapshotStoreTests(unittest.TestCase):
 
             self.assertEqual(_db_fingerprint(db), before)
 
-    def test_post_insert_count_mismatch_rolls_back_same_date_replacement(self) -> None:
-        asof = date(2026, 5, 29)
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            records = make_master_records(asof)
-            store_jquants_master(db, records, requested_asof=asof)
-            before = _db_fingerprint(db)
-            validated = validate_master_snapshot(records, asof)
-            inconsistent = SimpleNamespace(
-                rows=validated.rows,
-                persisted_count=validated.persisted_count + 1,
-                raw_count=validated.raw_count,
-                excluded_count=validated.excluded_count,
-                common_stock_count=validated.common_stock_count,
-            )
-
-            with (
-                patch(
-                    "baibai_engine.storage.observations.ingest.jquants.validate_master_snapshot",
-                    return_value=inconsistent,
-                ),
-                self.assertRaisesRegex(JQuantsProviderError, "persisted count mismatch"),
-            ):
-                store_jquants_master(db, records, requested_asof=asof)
-
-            self.assertEqual(_db_fingerprint(db), before)
-
     def test_insert_failure_rolls_back_same_date_replacement(self) -> None:
         asof = date(2026, 5, 29)
         with tempfile.TemporaryDirectory() as tmp:
@@ -301,7 +294,7 @@ class MasterSnapshotStoreTests(unittest.TestCase):
             with closing(sqlite3.connect(db)) as conn, conn:
                 conn.execute(
                     "CREATE TRIGGER fail_master_insert BEFORE INSERT "
-                    "ON jquants_master_snapshots WHEN NEW.name = 'must rollback' "
+                    "ON jquants_master_snapshots WHEN json_extract(NEW.record_json, '$.CoName') = 'must rollback' "
                     "BEGIN SELECT RAISE(ABORT, 'injected insert failure'); END"
                 )
                 conn.commit()
@@ -314,19 +307,13 @@ class MasterSnapshotStoreTests(unittest.TestCase):
 
             self.assertEqual(_db_fingerprint(db), before)
 
-    def test_the_half_width_middle_dot_sector_is_stored_in_one_form(self) -> None:
-        """J-Quants emits U+FF65 ("情報･通信業") and U+30FB ("情報・通信業") for the same
-        TSE 33 sector. Two spellings of one sector split every sector-relative
-        comparison downstream, so validation folds them before the row is persisted.
-        """
-
+    def test_sector_spelling_is_normalized_only_in_the_reading_projection(self) -> None:
         asof = date(2026, 5, 7)
         records = make_master_records(asof)
         records[0]["S33Nm"] = "情報･通信業"
-
         validated = validate_master_snapshot(records, asof)
-
-        self.assertEqual(validated.rows[0][4], "情報・通信業")
+        self.assertEqual(json.loads(validated.rows[0][2])["S33Nm"], "情報･通信業")
+        self.assertEqual(masters_from_payloads([validated.rows[0][2]])[0].sector_33, "情報・通信業")
 
 
 class MasterSnapshotCoverageTests(unittest.TestCase):
@@ -355,7 +342,7 @@ class MasterSnapshotCoverageTests(unittest.TestCase):
         first = date(2026, 5, 29)
         second = date(2026, 6, 30)
         for damaged in (first, second):
-            for damage_kind in ("row", "coverage", "common_flag"):
+            for damage_kind in ("row", "coverage", "product_category"):
                 with (
                     self.subTest(damaged=damaged, damage_kind=damage_kind),
                     tempfile.TemporaryDirectory() as tmp,
@@ -367,7 +354,7 @@ class MasterSnapshotCoverageTests(unittest.TestCase):
                         if damage_kind == "row":
                             conn.execute(
                                 "DELETE FROM jquants_master_snapshots "
-                                "WHERE snapshot_date = ? AND ticker = '1000'",
+                                "WHERE snapshot_date = ? AND security_code = '10000'",
                                 (damaged.isoformat(),),
                             )
                         elif damage_kind == "coverage":
@@ -382,8 +369,8 @@ class MasterSnapshotCoverageTests(unittest.TestCase):
                             )
                         else:
                             conn.execute(
-                                "UPDATE jquants_master_snapshots SET is_common_stock = 0 "
-                                "WHERE snapshot_date = ? AND ticker = '1000'",
+                                "UPDATE jquants_master_snapshots SET record_json = json_set(record_json, '$.ProdCat', NULL) "
+                                "WHERE snapshot_date = ? AND security_code = '10000'",
                                 (damaged.isoformat(),),
                             )
                         conn.commit()
@@ -439,6 +426,7 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
                 "CoName": "Old only",
                 "MktNm": "Prime",
                 "S33Nm": "機械",
+                "ProdCat": "011",
             }
         )
         with tempfile.TemporaryDirectory() as tmp:
@@ -455,19 +443,20 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             self.assertEqual(fallback.status, "future_snapshot")
             self.assertEqual(fallback.snapshot_date, first)
 
-    def test_exact_reader_treats_corrupt_ticker_as_semantic_miss(self) -> None:
+    def test_exact_reader_rejects_corrupt_native_code(self) -> None:
         asof = date(2026, 5, 29)
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             store_jquants_master(db, make_master_records(asof), requested_asof=asof)
             with closing(sqlite3.connect(db)) as conn, conn:
                 conn.execute(
-                    "UPDATE jquants_master_snapshots SET ticker = '!' "
-                    "WHERE snapshot_date = ? AND ticker = '1000'",
+                    "UPDATE jquants_master_snapshots SET record_json = json_set(record_json, '$.Code', '!') "
+                    "WHERE snapshot_date = ? AND security_code = '10000'",
                     (asof.isoformat(),),
                 )
                 conn.commit()
-            self.assertIsNone(read_eq_master_exact(db, asof))
+            with self.assertRaises(JQuantsProviderError):
+                read_eq_master_exact(db, asof)
 
     def test_exact_reader_treats_non_integer_coverage_count_as_semantic_miss(self) -> None:
         asof = date(2026, 5, 29)
@@ -610,8 +599,8 @@ def _snapshot_state(db: Path, asof: date) -> tuple[tuple[object, ...], tuple[obj
     try:
         rows = tuple(
             conn.execute(
-                "SELECT ticker, name, market, sector_33, is_common_stock "
-                "FROM jquants_master_snapshots WHERE snapshot_date = ? ORDER BY ticker",
+                "SELECT security_code, record_json "
+                "FROM jquants_master_snapshots WHERE snapshot_date = ? ORDER BY security_code",
                 (asof.isoformat(),),
             ).fetchall()
         )
@@ -627,3 +616,15 @@ def _snapshot_state(db: Path, asof: date) -> tuple[tuple[object, ...], tuple[obj
     finally:
         conn.close()
     return rows, coverage
+
+
+def test_malformed_stored_master_is_a_source_error_not_an_empty_snapshot():
+    from baibai_engine.external_assessment.tradingview.diagnostics import failure_category
+
+    try:
+        masters_from_payloads(["{broken"])
+    except JQuantsProviderError as exc:
+        assert failure_category(exc) == "storage"
+        assert isinstance(exc.__cause__, json.JSONDecodeError)
+    else:
+        raise AssertionError("Malformed stored master must not become an empty universe")

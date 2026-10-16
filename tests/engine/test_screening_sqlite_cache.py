@@ -69,7 +69,7 @@ def _earnings_snapshot(on_date: date = date(2026, 5, 15)) -> JPXEarningsCalendar
 
 
 class SQLiteCacheTest(unittest.TestCase):
-    def test_source_code_classification_preserves_common_and_excluded_issues(self) -> None:
+    def test_source_code_parser_distinguishes_primary_and_secondary_issues(self) -> None:
         for raw, expected in [
             (" 7203 ", ("7203", "ok")),
             ("130A0", ("130A", "ok")),
@@ -890,76 +890,6 @@ class SQLiteCacheTest(unittest.TestCase):
                         ],
                     )
 
-    def test_direct_stores_do_not_persist_raw_json(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            store_jquants_fin_summaries(
-                db,
-                [{"Code": "72030", "DiscDate": "2026-05-08", "Sales": 100}],
-                requested_start=date(2026, 5, 8),
-                requested_end=date(2026, 5, 8),
-            )
-            store_jquants_master(
-                db,
-                make_master_records(date(2026, 5, 8)),
-                requested_asof=date(2026, 5, 8),
-            )
-            store_jpx_earnings_calendar_snapshot(db, _earnings_snapshot())
-            store_jquants_market_calendar(
-                db,
-                [{"Date": "2026-05-08", "HolDiv": "1"}],
-                requested_start=date(2026, 5, 8),
-                requested_end=date(2026, 5, 8),
-            )
-            store_edinet_documents(
-                db,
-                date(2026, 5, 8),
-                [
-                    {
-                        "seqNumber": 1,
-                        "docID": "S100TEST",
-                        "secCode": "72030",
-                        "docTypeCode": "120",
-                        "csvFlag": "1",
-                        "submitDateTime": "2026-05-08 15:00",
-                    }
-                ],
-            )
-            store_edinet_metrics(
-                db,
-                date(2026, 5, 8),
-                [
-                    {
-                        "ticker": "7203",
-                        "sales_ttm": 1,
-                        "failure_reasons": [],
-                        "extractor_revision": "a" * 64,
-                    }
-                ],
-            )
-            store_jpx_regulations(
-                db,
-                date(2026, 5, 8),
-                flags_by_ticker={"7203": ["特別注意銘柄"]},
-                source_names=["特別注意銘柄"],
-            )
-
-            conn = sqlite3.connect(db)
-            try:
-                for table in (
-                    "jquants_fin_summaries",
-                    "jquants_master_snapshots",
-                    "jpx_earnings_calendar",
-                    "jquants_market_calendar",
-                    "edinet_documents",
-                ):
-                    columns = [
-                        str(row[1])
-                        for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
-                    ]
-                    self.assertNotIn("raw_json", columns)
-            finally:
-                conn.close()
 
 
 class DailyBarsCoverageTest(unittest.TestCase):
@@ -1271,7 +1201,7 @@ class WeeklyMarginStoreTest(unittest.TestCase):
                 weekly_margin_empty_requires_refresh(db, week_end, asof=date(2026, 8, 5))
             )
 
-    def test_non_common_stock_lines_are_excluded_not_rejected(self) -> None:
+    def test_secondary_issue_lines_are_excluded_not_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             persisted = store_jquants_weekly_margin(

@@ -48,7 +48,7 @@ from baibai_engine.market.jquants_models import (
     JQuantsShortSaleReport,
     JQuantsWeeklyMargin,
 )
-from baibai_engine.market.master_snapshot import validate_master_snapshot
+from baibai_engine.market.master_snapshot import masters_from_payloads, validate_master_snapshot
 from baibai_engine.market.models import SecurityMaster
 from baibai_engine.market.store import (
     count_daily_bars,
@@ -413,16 +413,7 @@ class JQuantsProvider(_JQuantsTransport):
                 )
             return stored
         validated = validate_master_snapshot(records, requested_asof)
-        return [
-            SecurityMaster(
-                ticker=ticker,
-                name=name,
-                market_segment=market,
-                sector_33=sector,
-                is_common_stock=bool(is_common),
-            )
-            for _, ticker, name, market, sector, is_common in validated.rows
-        ]
+        return masters_from_payloads([payload for _, _, payload in validated.rows])
 
     def get_mkt_margin_interest_week(self, week_end: date) -> list[JQuantsWeeklyMargin]:
         """Fetch every ticker's margin balance for one weekly balance date.

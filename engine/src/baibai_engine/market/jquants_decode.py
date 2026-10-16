@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 from math import isfinite
@@ -25,6 +27,7 @@ def parse_jquants_code(code: Any) -> str:
 
 
 def parse_jquants_code_parts(code: Any) -> tuple[str, bool]:
+    """Decode the primary issue suffix; ETF/REIT classification requires master ProdCat."""
     try:
         return parse_security_code_parts(code)
     except SecurityCodeError as exc:
@@ -176,3 +179,12 @@ def has_period_slot(record: Mapping[str, Any], key: str) -> bool:
         return False
     value = record[key]
     return not (isinstance(value, str) and value.strip() in {"", "-", "null"})
+
+
+def provider_record_payload(record: Mapping[str, Any]) -> str:
+    """Retain every SDK field; non-finite missing markers are strings, not JSON NaN."""
+    values = {
+        str(key): str(value) if isinstance(value, float) and not isfinite(value) else value
+        for key, value in record.items()
+    }
+    return json.dumps(values, ensure_ascii=False, sort_keys=True, allow_nan=False, default=str)
