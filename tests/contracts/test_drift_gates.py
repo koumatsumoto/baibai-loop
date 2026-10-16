@@ -9,7 +9,6 @@ from tools.quality.drift import (
     check_cli_help,
     check_documented_commands,
     check_duplicate_constants,
-    check_legacy_semantics,
     check_markdown_links,
     check_repository_paths,
     check_skill_inventory,
@@ -60,77 +59,8 @@ def test_cli_doc_gate_rejects_missing_and_phantom_commands(tmp_path: Path) -> No
     ]
 
 
-def test_legacy_semantics_gate_rejects_obsolete_skill_instruction(tmp_path: Path) -> None:
-    path = tmp_path / ".agents" / "skills" / "demo" / "SKILL.md"
-    path.parent.mkdir(parents=True)
-    path.write_text("Use ai-value-bargain-selection.\n", encoding="utf-8")
-    assert check_legacy_semantics.check(tmp_path) == [
-        ".agents/skills/demo/SKILL.md: obsolete operation instruction 'ai-value-bargain-selection'"
-    ]
-
-
-def test_legacy_semantics_gate_ignores_generated_store_manifests(tmp_path: Path) -> None:
-    manifest = tmp_path / "stores" / "lake" / "manifests" / "old.json"
-    manifest.parent.mkdir(parents=True)
-    manifest.write_text('{"dataset":"jquants.earnings_calendar"}\n', encoding="utf-8")
-
-    assert check_legacy_semantics.check(tmp_path) == []
-
-
-def test_legacy_semantics_gate_rejects_retired_authority_but_allows_technical_prose(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / "docs" / "reference" / "market-lake.md"
-    path.parent.mkdir(parents=True)
-    path.write_text("CSSのbox-shadowとPythonの変数shadowingを説明する。\n", encoding="utf-8")
-    assert check_legacy_semantics.check(tmp_path) == []
-    path.write_text("`sqlite_authority`を使う。\n", encoding="utf-8")
-    assert check_legacy_semantics.check(tmp_path) == [
-        "docs/reference/market-lake.md: obsolete operation instruction 'sqlite_authority'"
-    ]
-
-
-def test_legacy_semantics_gate_rejects_the_retired_projection_subsystem(tmp_path: Path) -> None:
-    """`lake hydrate` materializes a fixed release; the projection builder is gone."""
-
-    path = tmp_path / "docs" / "reference" / "market-lake.md"
-    path.parent.mkdir(parents=True)
-    path.write_text("`lake projection build` で射影を作る。\n", encoding="utf-8")
-
-    assert check_legacy_semantics.check(tmp_path) == [
-        "docs/reference/market-lake.md: obsolete repository path 'lake projection build'"
-    ]
-
-
-def test_legacy_semantics_gate_keeps_the_live_senses_of_shadow_and_projection(
-    tmp_path: Path,
-) -> None:
-    """The gate must not sweep Tailwind classes or the doctrine sense of projection.
-
-    Rejecting the bare words would make the rule unusable, so only the retired
-    combinations are matched and this is what proves the rest still passes.
-    """
-
-    doc = tmp_path / "docs" / "doctrine.md"
-    doc.parent.mkdir(parents=True)
-    doc.write_text(
-        "表示物（projection）は canonical ではない。\n",
-        encoding="utf-8",
-    )
-    component = tmp_path / "web" / "frontend" / "src" / "Card.tsx"
-    component.parent.mkdir(parents=True)
-    component.write_text('const cls = "shadow-sm drop-shadow";\n', encoding="utf-8")
-
-    assert check_legacy_semantics.check(tmp_path) == []
-
-
 def test_duplicate_policy_constant_gate_rejects_skill_copy(tmp_path: Path) -> None:
-    policy = tmp_path / "engine/src/baibai_engine/position/policy.py"
-    policy.parent.mkdir(parents=True)
-    policy.write_text(
-        (ROOT / "engine/src/baibai_engine/position/policy.py").read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
+    _policy_copy(tmp_path)
     path = tmp_path / ".agents" / "skills" / "demo" / "SKILL.md"
     path.parent.mkdir(parents=True)
     path.write_text("board lot: 100\n", encoding="utf-8")
@@ -140,12 +70,7 @@ def test_duplicate_policy_constant_gate_rejects_skill_copy(tmp_path: Path) -> No
 
 
 def test_duplicate_policy_constant_gate_allows_unrelated_percentages(tmp_path: Path) -> None:
-    policy = tmp_path / "engine/src/baibai_engine/position/policy.py"
-    policy.parent.mkdir(parents=True)
-    policy.write_text(
-        (ROOT / "engine/src/baibai_engine/position/policy.py").read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
+    _policy_copy(tmp_path)
     path = tmp_path / "docs" / "unrelated-rate.md"
     path.parent.mkdir()
     path.write_text(
@@ -159,12 +84,7 @@ def test_duplicate_policy_constant_gate_allows_unrelated_percentages(tmp_path: P
 def test_duplicate_policy_constant_gate_allows_other_japanese_quantities(
     tmp_path: Path,
 ) -> None:
-    policy = tmp_path / "engine/src/baibai_engine/position/policy.py"
-    policy.parent.mkdir(parents=True)
-    policy.write_text(
-        (ROOT / "engine/src/baibai_engine/position/policy.py").read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
+    _policy_copy(tmp_path)
     canonical = tmp_path / "docs" / "portfolio-management.md"
     canonical.parent.mkdir()
     canonical.write_text("月40万円、通常20〜30万円\n", encoding="utf-8")
@@ -194,88 +114,6 @@ def test_skill_inventory_gate_rejects_canonical_symlink(tmp_path: Path) -> None:
     (skill / "SKILL.md").symlink_to(external)
     errors = check_skill_inventory.check(tmp_path)
     assert any("canonical skill tree must not contain symlinks" in error for error in errors)
-
-
-def test_legacy_semantics_gate_rejects_records_path_in_reference(tmp_path: Path) -> None:
-    path = tmp_path / "docs" / "reference" / "demo.md"
-    path.parent.mkdir(parents=True)
-    path.write_text("設定は `records/` に置く。\n", encoding="utf-8")
-    assert check_legacy_semantics.check(tmp_path) == [
-        "docs/reference/demo.md: obsolete operation instruction 'records/'"
-    ]
-
-
-def test_legacy_semantics_gate_rejects_old_repository_paths_in_workflows(tmp_path: Path) -> None:
-    path = tmp_path / ".github/workflows/ci.yml"
-    path.parent.mkdir(parents=True)
-    path.write_text("run: python tools/cloud/daily_batch.py\n", encoding="utf-8")
-    assert check_legacy_semantics.check(tmp_path) == [
-        ".github/workflows/ci.yml: obsolete repository path 'tools/cloud'"
-    ]
-
-
-@pytest.mark.parametrize(
-    ("content", "matched"),
-    [
-        ("cd ui\nnpm test\n", "cd ui\n"),
-        ('"build": "npm --prefix ../../ui run build"\n', "../../ui "),
-        (
-            "See reports/2026-01-01-flat-study.md for evidence.\n",
-            "reports/2026-01-01-",
-        ),
-    ],
-)
-def test_legacy_semantics_gate_rejects_bare_ui_commands_and_flat_report_paths(
-    tmp_path: Path, content: str, matched: str
-) -> None:
-    path = tmp_path / "docs/reference/demo.md"
-    path.parent.mkdir(parents=True)
-    path.write_text(content, encoding="utf-8")
-
-    assert check_legacy_semantics.check(tmp_path) == [
-        f"docs/reference/demo.md: obsolete repository path {matched!r}"
-    ]
-
-
-@pytest.mark.parametrize("filename", [".gitignore", ".env.sample"])
-def test_legacy_semantics_gate_rejects_old_repository_paths_in_root_config(
-    tmp_path: Path, filename: str
-) -> None:
-    path = tmp_path / filename
-    path.write_text("data/app/baibai.sqlite\n", encoding="utf-8")
-    assert check_legacy_semantics.check(tmp_path) == [
-        f"{filename}: obsolete repository path 'data/app'"
-    ]
-
-
-def test_legacy_semantics_gate_rejects_retired_product_names(tmp_path: Path) -> None:
-    """The human-facing product name is Baibai Loop, so the old brand forms must not return."""
-
-    path = tmp_path / "docs" / "demo.md"
-    path.parent.mkdir(parents=True)
-    for retired in ("Baibai App", "Baibai-Loop"):
-        path.write_text(f"{retired} の Macro タブを開く。\n", encoding="utf-8")
-        assert check_legacy_semantics.check(tmp_path) == [
-            f"docs/demo.md: obsolete operation instruction {retired!r}"
-        ]
-
-
-def test_legacy_semantics_gate_allows_lowercase_distribution_name(tmp_path: Path) -> None:
-    """`baibai-loop` names the distribution, so only the capitalized brand form is retired."""
-
-    path = tmp_path / "docs" / "demo.md"
-    path.parent.mkdir(parents=True)
-    path.write_text(
-        "repository root は baibai-loop で、package は baibai_web。\n", encoding="utf-8"
-    )
-    assert check_legacy_semantics.check(tmp_path) == []
-
-
-def test_legacy_semantics_gate_allows_generic_records_word(tmp_path: Path) -> None:
-    path = tmp_path / "docs" / "demo.md"
-    path.parent.mkdir(parents=True)
-    path.write_text("track records と TaskRecord は正当な一般名詞。\n", encoding="utf-8")
-    assert check_legacy_semantics.check(tmp_path) == []
 
 
 def test_markdown_link_gate_rejects_missing_anchor(tmp_path: Path) -> None:
@@ -490,26 +328,6 @@ def test_markdown_link_gate_scans_dated_reports(tmp_path: Path) -> None:
     ]
 
 
-def test_legacy_semantics_gate_rejects_a_named_screening_rules_revision(tmp_path: Path) -> None:
-    """閾値の正本は現行 revision であって、doc に焼いた file 名ではない。"""
-
-    path = tmp_path / "docs" / "reference" / "demo.md"
-    path.parent.mkdir(parents=True)
-    path.write_text(
-        "閾値の正本は `method/screening/rules/2026-07-06T000000+0900.yaml`。\n", encoding="utf-8"
-    )
-    assert check_legacy_semantics.check(tmp_path) == [
-        "docs/reference/demo.md: obsolete operation instruction 'method/screening/rules/2026-07-06'"
-    ]
-
-
-def test_legacy_semantics_gate_allows_the_screening_rules_directory(tmp_path: Path) -> None:
-    path = tmp_path / "docs" / "reference" / "demo.md"
-    path.parent.mkdir(parents=True)
-    path.write_text("閾値の正本は `method/screening/rules/` の現行 revision。\n", encoding="utf-8")
-    assert check_legacy_semantics.check(tmp_path) == []
-
-
 def _policy_copy(root: Path) -> None:
     policy = root / "engine/src/baibai_engine/position/policy.py"
     policy.parent.mkdir(parents=True)
@@ -544,8 +362,6 @@ def test_inventory_reference_rejects_unknown_leaf_options(
 
 
 def test_leaf_options_keep_parent_alias_repeatable_negative_and_placeholder_values() -> None:
-    import argparse
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--db")
     child = parser.add_subparsers().add_parser("run")

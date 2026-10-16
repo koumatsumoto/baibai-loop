@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 import pytest
 import yaml
@@ -152,8 +152,6 @@ def test_node_audit_is_triggered_by_the_lockfiles_it_reads() -> None:
     # Named exactly, not merely covered: `web/frontend/**` would also satisfy a containment
     # check while handing every UI change to a scanner that answers from outside.
     assert patterns == [*lockfiles, ".github/workflows/node-audit.yml"]
-    for lockfile in lockfiles:
-        assert any(PurePosixPath(lockfile).full_match(str(pattern)) for pattern in patterns)
     for ecosystem in ("UI dependency audit", "Worker dependency audit"):
         assert _by_name("node-audit.yml", "audit")[ecosystem]["if"] == "${{ !cancelled() }}"
 
