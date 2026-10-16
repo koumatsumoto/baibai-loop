@@ -8,8 +8,6 @@ dependencies.
 from __future__ import annotations
 
 import argparse
-import hashlib
-import json
 import sqlite3
 import sys
 from datetime import date, datetime
@@ -21,13 +19,12 @@ import yaml
 
 from baibai_engine.foundation.repository_layout import MARKET_DB_PATH
 from baibai_engine.foundation.time import JST
-from baibai_engine.market.bars import JQuantsDailyBar
 from baibai_engine.market.config import DEFAULT_SQLITE_CACHE_DIR
 from baibai_engine.market.jpx_total_return import (
     BenchmarkObservationError,
     load_benchmark_observation,
 )
-from baibai_engine.market.store import read_daily_bars_for_tickers, read_market_calendar
+from baibai_engine.market.store import read_portfolio_market_inputs
 from baibai_engine.market_context.observations.benchmark import BenchmarkObservation
 from baibai_engine.position.broker_fact_recording import BrokerFactRecordingError
 from baibai_engine.position.decision_references import resolve_buy_reference
@@ -428,7 +425,7 @@ def _run_outcome(
     *,
     db_path: Path | None = None,
 ) -> int:
-    """Emit a source-bound TWR result without fetching market data at runtime."""
+    """Emit TWR from one market snapshot without fetching data at runtime."""
 
     try:
         benchmark = load_benchmark_observation(benchmark_path)
@@ -446,44 +443,29 @@ def _run_outcome(
     except (LedgerConflictError, PortfolioLedgerError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
-    calendar_days = read_market_calendar(
-        sqlite_path, benchmark.period_start_date, benchmark.period_end_date
+    tickers = tuple(sorted({
+        event.ticker for event in ledger.events
+        if isinstance(event, (ExecutionEvent, ReservationEvent))
+    }))
+    calendar_days, bars = read_portfolio_market_inputs(
+        sqlite_path, tickers, benchmark.period_start_date, benchmark.period_end_date
     )
     if calendar_days is None:
         payload = _outcome_unresolved_payload(benchmark, "benchmark_unavailable")
-        market_fingerprint = None
+    elif bars is None:
+        payload = _outcome_unresolved_payload(benchmark, "missing_market_price")
     else:
-        tickers = tuple(
-            sorted(
-                {
-                    event.ticker
-                    for event in ledger.events
-                    if isinstance(event, (ExecutionEvent, ReservationEvent))
-                }
-            )
+        outcome = compute_portfolio_outcome(
+            ledger, benchmark,
+            business_days=tuple(day.day for day in calendar_days if day.is_business_day),
+            bars=tuple(bars),
         )
-        bars = read_daily_bars_for_tickers(
-            sqlite_path, tickers, benchmark.period_start_date, benchmark.period_end_date
-        )
-        if bars is None:
-            payload = _outcome_unresolved_payload(benchmark, "missing_market_price")
-            market_fingerprint = None
-        else:
-            outcome = compute_portfolio_outcome(
-                ledger,
-                benchmark,
-                business_days=tuple(day.day for day in calendar_days if day.is_business_day),
-                bars=tuple(bars),
-            )
-            payload = outcome_to_payload(outcome)
-            market_fingerprint = _market_data_fingerprint(bars)
+        payload = outcome_to_payload(outcome)
     payload.update(
         benchmark_id=benchmark.benchmark_id,
         market_data_ref=str(sqlite_path),
-        market_data_sha256=_sha256(sqlite_path) if sqlite_path.is_file() else None,
         market_data_coverage_start_date=benchmark.period_start_date.isoformat(),
         market_data_coverage_end_date=benchmark.period_end_date.isoformat(),
-        market_data_fingerprint=market_fingerprint,
     )
     payload["benchmark_observation"] = benchmark.model_dump(mode="json")
     outcome_id = f"outcome-{benchmark.horizon}-{benchmark.period_end_date.isoformat()}"
@@ -517,7 +499,7 @@ def _run_outcome(
 
 def _outcome_unresolved_payload(benchmark: BenchmarkObservation, reason: str) -> dict[str, object]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "portfolio_outcome",
         "status": "unresolved",
         "reason": reason,
@@ -525,24 +507,6 @@ def _outcome_unresolved_payload(benchmark: BenchmarkObservation, reason: str) ->
         "period_start_date": benchmark.period_start_date.isoformat(),
         "period_end_date": benchmark.period_end_date.isoformat(),
     }
-
-
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _market_data_fingerprint(bars: list[JQuantsDailyBar]) -> str:
-    rows = [
-        (
-            bar.ticker,
-            bar.traded_at.isoformat(),
-            bar.close,
-            bar.adjustment_factor,
-        )
-        for bar in bars
-    ]
-    encoded = json.dumps(rows, separators=(",", ":"), ensure_ascii=True)
-    return hashlib.sha256(encoded.encode()).hexdigest()
 
 
 def _run_record_broker_fact(args: argparse.Namespace, *, now: datetime | None) -> int:

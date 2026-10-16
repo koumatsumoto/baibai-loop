@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
@@ -151,20 +152,27 @@ def read_daily_bars_for_tickers(
     if conn is None:
         return None
     try:
-        if not daily_bars_covered_by_data(conn, start, end):
-            return None
-        placeholders = ", ".join("?" for _ in tickers)
-        rows = conn.execute(
-            "SELECT ticker, traded_at, close, turnover_value, volume, "
-            "adjustment_factor, ex_right_type "
-            "FROM jquants_daily_bars "
-            # Local placeholder count; ticker values remain bound.  # nosec B608
-            f"WHERE ticker IN ({placeholders}) AND traded_at BETWEEN ? AND ? "
-            "ORDER BY ticker, traded_at",
-            (*tickers, start.isoformat(), end.isoformat()),
-        ).fetchall()
+        return _read_ticker_bars(conn, tickers, start, end)
     finally:
         conn.close()
+
+
+def _read_ticker_bars(
+    conn: sqlite3.Connection, tickers: tuple[str, ...], start: date, end: date
+) -> list[JQuantsDailyBar] | None:
+    if not tickers:
+        return []
+    if not daily_bars_covered_by_data(conn, start, end):
+        return None
+    placeholders = ", ".join("?" for _ in tickers)
+    rows = conn.execute(
+        "SELECT ticker, traded_at, close, turnover_value, volume, "
+        "adjustment_factor, ex_right_type FROM jquants_daily_bars "
+        # Local placeholder count; ticker values remain bound.  # nosec B608
+        f"WHERE ticker IN ({placeholders}) AND traded_at BETWEEN ? AND ? "
+        "ORDER BY ticker, traded_at",
+        (*tickers, start.isoformat(), end.isoformat()),
+    ).fetchall()
     return _daily_bars_from_rows(rows)
 
 
@@ -230,19 +238,46 @@ def read_market_calendar(
     if conn is None:
         return None
     try:
-        if not range_covered(conn, "jquants_market_calendar", start, end):
-            return None
-        rows = conn.execute(
-            "SELECT day, holiday_division IN ('1', '2') FROM jquants_market_calendar "
-            "WHERE day BETWEEN ? AND ? ORDER BY day",
-            (start.isoformat(), end.isoformat()),
-        ).fetchall()
+        return _read_calendar(conn, start, end)
     finally:
         conn.close()
+
+
+def _read_calendar(
+    conn: sqlite3.Connection, start: date, end: date
+) -> list[JQuantsMarketCalendarDay] | None:
+    if not range_covered(conn, "jquants_market_calendar", start, end):
+        return None
+    rows = conn.execute(
+        "SELECT day, holiday_division IN ('1', '2') FROM jquants_market_calendar "
+        "WHERE day BETWEEN ? AND ? ORDER BY day",
+        (start.isoformat(), end.isoformat()),
+    ).fetchall()
     return [
         JQuantsMarketCalendarDay(day=date.fromisoformat(day), is_business_day=bool(flag))
         for day, flag in rows
     ]
+
+
+def read_portfolio_market_inputs(
+    sqlite_path: Path, tickers: tuple[str, ...], start: date, end: date
+) -> tuple[list[JQuantsMarketCalendarDay] | None, list[JQuantsDailyBar] | None]:
+    """Select calendar and scoped prices from one SQLite read snapshot.
+
+    Cash-only outcomes need a calendar, not artificial price coverage. A missing
+    input remains unavailable; this does not create an archive or replay proof.
+    """
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return None, None
+    try:
+        conn.execute("BEGIN")
+        calendar = _read_calendar(conn, start, end)
+        if calendar is None:
+            return None, None
+        return calendar, _read_ticker_bars(conn, tickers, start, end)
+    finally:
+        conn.close()
 
 
 def _daily_bars_from_rows(rows: Iterable[tuple[Any, ...]]) -> list[JQuantsDailyBar]:

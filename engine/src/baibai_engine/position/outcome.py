@@ -243,7 +243,7 @@ def compute_portfolio_outcome(
 
 def outcome_to_payload(outcome: PortfolioOutcome) -> dict[str, object]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "portfolio_outcome",
         "status": outcome.status,
         "reason": outcome.reason,

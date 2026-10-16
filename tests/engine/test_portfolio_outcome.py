@@ -222,10 +222,8 @@ def test_calculated_resolved_outcome_publishes_and_reads_without_inventing_exit_
         benchmark_id=benchmark.benchmark_id,
         benchmark_observation=benchmark.model_dump(mode="json"),
         market_data_ref="synthetic:two-business-day-bars",
-        market_data_sha256="a" * 64,
         market_data_coverage_start_date=result.period_start_date.isoformat(),
         market_data_coverage_end_date=result.period_end_date.isoformat(),
-        market_data_fingerprint="synthetic-bars-v1",
     )
     publication = PortfolioOutcomePublication(
         outcome_id="outcome-1y-2026-01-06",

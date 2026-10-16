@@ -340,7 +340,7 @@ def test_multpl_native_correction_hides_old_scalar(tmp_path, monkeypatch):
     assert service.get_range(series_id, start=day, end=day, refresh=True).observations[0].value == 41.01
     with closing(sqlite3.connect(database)) as conn, conn:
         insert_observations(conn, [ObservationRecord(
-            series_id=series_id, observed_at=day, value=999.0, unit=definition.unit,
+            series_id=series_id, observed_at=day, value=20.0, unit=definition.unit,
             source_url="https://www.multpl.com/shiller-pe", vintage_at=datetime.now(UTC),
         )])
     assert service.get_range(series_id, start=day, end=day, refresh=True).observations == ()

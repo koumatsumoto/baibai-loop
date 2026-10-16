@@ -1303,7 +1303,7 @@ class IndicatorsServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
             today = date(2026, 7, 27)
-            _write_observation(database, "us.sp500_cape", observed_at=today, value=999.0)
+            _write_observation(database, "us.sp500_cape", observed_at=today, value=20.0)
             with (
                 patch("baibai_engine.market_context.indicator_service._today_jst", return_value=today),
                 patch("baibai_engine.market_context.indicator_service.fetch_native_records",
