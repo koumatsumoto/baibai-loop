@@ -32,12 +32,12 @@ ROOT = Path(__file__).resolve().parents[2]
 from baibai_engine.market.edinet_decode import normalize_metric_record, parse_sec_code
 from baibai_engine.market.edinet_models import EDINETProviderError, EDINETRateLimitError
 from baibai_engine.market.financial_documents import project_financial_documents
-from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.jpx_models import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
     JPXProviderError,
 )
+from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.market.providers.edinet import (
     EDINETProvider,
@@ -1387,16 +1387,26 @@ class ScreeningProviderTests(unittest.TestCase):
 
     def test_reported_action_without_factor_is_not_silently_discarded(self) -> None:
         for kind in ("1", "2", "3", "unknown-future-kind"):
-            with self.subTest(kind=kind), self.assertRaisesRegex(
-                JQuantsProviderError, "corporate action has no usable adjustment factor"
+            with (
+                self.subTest(kind=kind),
+                self.assertRaisesRegex(
+                    JQuantsProviderError, "corporate action has no usable adjustment factor"
+                ),
             ):
                 normalize_adjustment_factor_event(
-                    {"Code": "13010", "Date": "2026-10-01", "C": None,
-                     "AdjFactor": None, "ExRT": kind}
+                    {
+                        "Code": "13010",
+                        "Date": "2026-10-01",
+                        "C": None,
+                        "AdjFactor": None,
+                        "ExRT": kind,
+                    }
                 )
-        self.assertIsNone(normalize_adjustment_factor_event(
-            {"Code": "13010", "Date": "2026-10-01", "C": None, "AdjFactor": None}
-        ))
+        self.assertIsNone(
+            normalize_adjustment_factor_event(
+                {"Code": "13010", "Date": "2026-10-01", "C": None, "AdjFactor": None}
+            )
+        )
 
     def test_normalize_adjustment_event_does_not_require_close(self) -> None:
         event = normalize_adjustment_factor_event(

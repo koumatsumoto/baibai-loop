@@ -7,8 +7,10 @@ from pathlib import Path
 import pytest
 
 from baibai_engine.market.store import (
-    latest_daily_bar_date, latest_stored_daily_bar_date,
-    read_adjustment_factor_bars, read_daily_bars,
+    latest_daily_bar_date,
+    latest_stored_daily_bar_date,
+    read_adjustment_factor_bars,
+    read_daily_bars,
 )
 from baibai_engine.storage.observations.schema import open_connection
 
@@ -120,7 +122,8 @@ def test_latest_bar_date_distinguishes_missing_from_invalid_storage(tmp_path, sc
     def read_latest():
         return (
             latest_daily_bar_date(path, date(2024, 1, 1), date(2024, 3, 31))
-            if scoped else latest_stored_daily_bar_date(path)
+            if scoped
+            else latest_stored_daily_bar_date(path)
         )
 
     assert read_latest() is None
@@ -136,6 +139,6 @@ def test_latest_bar_date_distinguishes_missing_from_invalid_storage(tmp_path, sc
     finally:
         connection.close()
     before = path.read_bytes()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Invalid isoformat string"):
         read_latest()
     assert path.read_bytes() == before
