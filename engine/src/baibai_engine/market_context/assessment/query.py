@@ -50,25 +50,7 @@ def assessment_history(path: Path | None) -> list[StoredAssessment]:
             if is_unwritten_store(error, resolved):
                 return []
             raise
-        records = []
-        for row in rows:
-            payload = json.loads(str(row["payload"]))
-            if not isinstance(payload, dict):
-                raise ValueError("assessment payload must be an object")
-            record = StoredAssessment.from_payload(payload)
-            if (
-                record.context_id,
-                record.schema_version,
-                record.as_of.isoformat(),
-                record.published_at.isoformat(),
-            ) != (
-                str(row["context_id"]),
-                int(row["schema_version"]),
-                str(row["as_of"]),
-                str(row["published_at"]),
-            ):
-                raise ValueError("assessment publication identity differs")
-            records.append(record)
+        records = [_stored_assessment(row) for row in rows]
         return sorted(
             records,
             key=lambda r: (r.published_at.astimezone(UTC), r.as_of, r.context_id),
@@ -82,28 +64,43 @@ def assessment_by_id(path: Path | None, *, context_id: str) -> StoredAssessment:
     """History access is independent of analytical date/cutoff eligibility."""
     resolved = database_path(path)
     if not resolved.is_file():
-        raise ValueError(f"application database not found: {resolved}")
+        raise FileNotFoundError(f"application database not found: {resolved}")
     connection = connect_read_only(resolved)
     try:
         try:
             row = connection.execute(
-                "SELECT payload FROM market_context_assessment WHERE context_id=?", (context_id,)
+                "SELECT context_id, schema_version, as_of, published_at, payload "
+                "FROM market_context_assessment WHERE context_id=?", (context_id,)
             ).fetchone()
         except sqlite3.OperationalError as error:
             if is_unwritten_store(error, resolved):
-                raise ValueError(f"unknown context_id: {context_id}") from error
+                raise FileNotFoundError(f"unknown context_id: {context_id}") from error
             raise
         if row is None:
-            raise ValueError(f"unknown context_id: {context_id}")
-        payload = json.loads(str(row[0]))
-        if not isinstance(payload, dict):
-            raise ValueError("assessment payload must be an object")
-        record = StoredAssessment.from_payload(payload)
-        if record.context_id != context_id:
-            raise ValueError("assessment publication identity differs")
-        return record
+            raise FileNotFoundError(f"unknown context_id: {context_id}")
+        return _stored_assessment(row)
     finally:
         connection.close()
+
+
+def _stored_assessment(row: sqlite3.Row) -> StoredAssessment:
+    payload = json.loads(str(row["payload"]))
+    if not isinstance(payload, dict):
+        raise ValueError("assessment payload must be an object")
+    record = StoredAssessment.from_payload(payload)
+    if (
+        record.context_id,
+        record.schema_version,
+        record.as_of.isoformat(),
+        record.published_at.isoformat(),
+    ) != (
+        str(row["context_id"]),
+        int(row["schema_version"]),
+        str(row["as_of"]),
+        str(row["published_at"]),
+    ):
+        raise ValueError("assessment publication identity differs")
+    return record
 
 
 def latest_assessment(

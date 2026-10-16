@@ -505,3 +505,21 @@ def test_market_context_rejects_a_cutoff_without_timezone(app_method_root: Path)
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         response = client.get("/api/market-context", params={"known_at": "2026-07-19T00:00:00"})
     assert response.status_code == 422
+
+
+@pytest.mark.parametrize("field,value", [("payload", "[]"), ("as_of", "2026-07-01")])
+def test_existing_context_corruption_is_not_reported_as_missing(
+    app_method_root: Path, field: str, value: str
+) -> None:
+    db_path = app_method_root / "stores/application/baibai.sqlite"
+    document = StoredAssessment.from_payload(historical_context_payload())
+    seed_history(db_path, document.document, supersedes=None)
+    with closing(sqlite3.connect(db_path)) as connection, connection:
+        connection.execute(
+            f"UPDATE market_context_assessment SET {field} = ? WHERE context_id = ?",
+            (value, document.context_id),
+        )
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
+        response = client.get(f"/api/market-context/assessments/{document.context_id}")
+    assert response.status_code == 500
+    assert response.json()["detail"]["code"] == "invalid_source"

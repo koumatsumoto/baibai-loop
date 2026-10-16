@@ -293,10 +293,10 @@ def create_app(
                 context_id=context_id,
                 as_of=as_of or datetime.now(_JST).date(),
             )
-        except ValueError as error:
-            # An arbitrary ID may have no readable history. The analytical as_of
-            # only supplies age metadata; it does not exclude a saved exact ID.
+        except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise _research_source_error(error) from error
 
     @app.get("/api/operations", response_model=OperationsView)
     def operations(sources: _SourceDependency) -> OperationsView:
