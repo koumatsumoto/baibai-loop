@@ -27,6 +27,8 @@ status: active
 
 Candidate Discoveryのevidence subjectは`candidate_discovery_approach`または`candidate_discovery_nomination_union`とする。approach subjectは対象approachの設定済みnomination_depth全件のoutcome（`approach_*_nominations`）、候補一覧 union全体、対象approach fidelity、union fidelityを必須にする。union subjectは候補一覧 union全体、union fidelity、全4 Approach fidelityを必須にする。固定top5/10/20のoutcomeは設定された全候補のoutcomeと区別する。pure E[r] top20はsecondary priorとの比較diagnosticであり、Candidate Discoveryの必須metricにしない。必須metricはsubjectから導出し、`--required-metric`は事前登録固有の追加guardrailだけに使う。既定の`estimator_policy`は`er_calibration`だけを必須にし、Candidate Discovery method fidelityを代替しない。
 
+月次asofグリッドは、後続の銘柄数条件を満たす観測月がある月について銘柄数条件を満たす最終観測日を選ぶ。指定endは採用日を制限し、暦月の終了を保証しない。後半のデータが欠ければ月中日が選ばれる場合があり、公式の月末営業日や全銘柄の取得完了とは区別する。月末が休日のときも採用するのは観測された取引日である。
+
 target は cohort の actual as-of date に calendar month を加算する。元の日が calendar month-end の場合は対象月末を保ち、非取引日は target 以下の最終取引日に解決する。
 
 <a id="data-integrity"></a>
@@ -334,3 +336,4 @@ JPX理由の「公開買付」「株式の併合 / 株式併合」「株式等�
 較正は3か月以上のhorizonを対象にし、3m/6mはregression alert、1yはleading evidence、3y/5yは実証的method変更のevidenceに使う。詳細な必須条件は本書「Horizonごとのevidence role」に従う。
 
 重複するcohortを独立標本とせず、有意性・統計的優位ではなく効果量とcohort勝率を読む。仮説と採否基準は前記の事前登録・design/confirmで扱い、grid searchをしない。coverage・survivorshipの欠けを開示し、較正結果を累積return・年率・シャープ等の運用実績として掲げない。
+

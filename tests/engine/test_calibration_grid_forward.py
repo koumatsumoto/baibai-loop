@@ -24,7 +24,7 @@ from baibai_engine.screening.calibration.forward import (
     read_control_event_exits,
     read_failure_exits,
 )
-from baibai_engine.screening.calibration.grid import complete_month_end_dates
+from baibai_engine.screening.calibration.grid import observed_month_end_dates
 from baibai_engine.storage.observations.schema import open_connection
 
 
@@ -42,24 +42,43 @@ def _bar(
 
 
 class MonthEndDatesTest(unittest.TestCase):
-    def test_complete_month_end_dates_picks_last_qualifying_day_per_month(self) -> None:
+    def test_sparse_dates_are_not_guaranteed_calendar_month_ends(self) -> None:
+        self.assertEqual(
+            observed_month_end_dates(
+                [(date(2025, 1, 31), 4100), (date(2025, 2, 13), 4000), (date(2025, 3, 3), 4100)],
+                end=date(2025, 2, 14),
+                min_tickers=2000,
+            ),
+            [date(2025, 1, 31), date(2025, 2, 13)],
+        )
+
+    def test_accepts_last_trading_date_before_weekend_month_end(self) -> None:
+        observed = [(date(2026, 1, 30), 4100), (date(2026, 2, 2), 4100)]
+        for cutoff in (date(2026, 1, 30), date(2026, 1, 31)):
+            with self.subTest(cutoff=cutoff):
+                self.assertEqual(
+                    observed_month_end_dates(observed, end=cutoff, min_tickers=2000),
+                    [date(2026, 1, 30)],
+                )
+
+    def test_observed_month_end_dates_picks_last_qualifying_day_per_month(self) -> None:
         day_counts = [
             (date(2025, 1, 30), 4000),
             (date(2025, 1, 31), 4100),
             (date(2025, 2, 27), 4000),
             # 部分データ日 (取込途中断面) は月末営業日として選ばない。
             (date(2025, 2, 28), 100),
-            # 翌月の営業日 = 1-2 月が完全月であることの証拠 (3 月自身は最終
-            # data 月なので cohort にならない)。
+            # 後続月の観測があるため1-2月を月次標本に選べる。
+            # 全営業日の取得完了を保証するものではなく、最終data月の3月は選ばない。
             (date(2025, 3, 3), 4100),
         ]
         self.assertEqual(
-            complete_month_end_dates(day_counts, end=date(2025, 3, 31), min_tickers=2000),
+            observed_month_end_dates(day_counts, end=date(2025, 3, 31), min_tickers=2000),
             [date(2025, 1, 31), date(2025, 2, 27)],
         )
 
-    def test_complete_month_end_dates_drops_month_truncated_by_end(self) -> None:
-        # end が 2 月の途中 → 2/13 を「月末」と誤認せず 2 月を cohort から落とす。
+    def test_observed_month_end_dates_excludes_a_known_later_date_after_cutoff(self) -> None:
+        # 同月の後続観測2/27が既知なので、end以前の2/13へ切り詰めて採用しない。
         day_counts = [
             (date(2025, 1, 31), 4100),
             (date(2025, 2, 13), 4000),
@@ -67,13 +86,13 @@ class MonthEndDatesTest(unittest.TestCase):
             (date(2025, 3, 3), 4100),
         ]
         self.assertEqual(
-            complete_month_end_dates(day_counts, end=date(2025, 2, 14), min_tickers=2000),
+            observed_month_end_dates(day_counts, end=date(2025, 2, 14), min_tickers=2000),
             [date(2025, 1, 31)],
         )
 
-    def test_complete_month_end_dates_empty_when_all_below_threshold(self) -> None:
+    def test_observed_month_end_dates_empty_when_all_below_threshold(self) -> None:
         self.assertEqual(
-            complete_month_end_dates(
+            observed_month_end_dates(
                 [(date(2025, 1, 31), 10)], end=date(2025, 1, 31), min_tickers=2000
             ),
             [],
@@ -241,7 +260,7 @@ class ForwardReturnTest(unittest.TestCase):
             self.assertEqual(mutation.price_return, 99.0)
 
     def test_forward_reader_loads_events_from_the_first_selected_fiscal_year(self) -> None:
-        """entry前でも対象FY内のfactorは支払別DPS換算に必要である。"""
+        """entry前でも対象FY内のfactorは配当基準の未解決判定に必要である。"""
 
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
@@ -311,9 +330,10 @@ class ForwardReturnTest(unittest.TestCase):
                 if row.ticker == "1000"
             )
 
-            self.assertEqual(fixed.total_return_status, "resolved")
-            self.assertEqual(fixed.realized_dividend_sum, 50.0)
-            self.assertEqual(fixed.total_return, 0.5)
+            self.assertEqual(fixed.total_return_status, "unresolved_dividend_split_basis")
+            self.assertIsNone(fixed.realized_dividend_sum)
+            self.assertIsNone(fixed.total_return)
+            self.assertEqual(fixed.price_return, 0.0)
             self.assertEqual(mutation.realized_dividend_sum, 75.0)
             self.assertEqual(mutation.total_return, 0.75)
 
@@ -457,7 +477,7 @@ class ForwardReturnTest(unittest.TestCase):
         self.assertIsNone(row.price_return)
 
     def test_forward_return_invalid_entry_when_no_recent_bar_at_asof(self) -> None:
-        # asof より 15 日超前の bar しか無い (上場前 / 廃止後) → 全 horizon 未解決。
+        # asofより15日超前のbarしかなく、近傍価格を観測できない。原因は推定しない。
         bars = [_bar(date(2024, 10, 31), 100.0)]
         rows = _ticker_forward_rows(
             "1000",
@@ -611,7 +631,7 @@ class ForwardUnresolvedReasonTest(unittest.TestCase):
     """未解決の理由が、後段の分類が依存する形で観測に残ることを反証する。"""
 
     def test_entry_before_first_bar_leaves_entry_date_empty(self) -> None:
-        # asof 時点で価格が 1 本も無い = 未上場。entry_date が空であることが根拠になる。
+        # asof時点の価格を観測できない。entry_dateの不在だけで未上場とは断定しない。
         rows = _ticker_forward_rows(
             "1000",
             [_bar(date(2025, 6, 30), 100.0)],
@@ -624,7 +644,7 @@ class ForwardUnresolvedReasonTest(unittest.TestCase):
         self.assertIsNone(row.entry_date)
 
     def test_entry_gap_after_earlier_pricing_keeps_the_earlier_entry_date(self) -> None:
-        # 以前は価格が付いていたのに asof 近傍に無い = 取引可能名の取りこぼし候補。
+        # 過去の価格はあるがasof近傍にはない。取引可能性や欠落原因は未確認。
         rows = _ticker_forward_rows(
             "1000",
             [_bar(date(2024, 10, 31), 100.0), _bar(date(2025, 6, 30), 120.0)],
@@ -993,7 +1013,7 @@ class FailureReasonClassificationTest(unittest.TestCase):
                 self.assertFalse(is_failure_delisting(reason))
 
     def test_a_reverse_split_that_wiped_the_equity_out_is_a_failure(self) -> None:
-        """`株式の併合` alone is a squeeze-out; next to an insolvency it is the wipeout."""
+        """The insolvency phrase selects the failure-exit convention, not a recovery value."""
 
         self.assertTrue(
             is_failure_delisting(

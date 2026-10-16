@@ -158,7 +158,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     backfill_master_parser.add_argument(
         "--month-end-from",
-        help="add every calendar month end from this date through --month-end-to (YYYY-MM-DD)",
+        help="add each month's last qualifying observed date through --month-end-to (YYYY-MM-DD)",
     )
     backfill_master_parser.add_argument(
         "--month-end-to",

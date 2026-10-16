@@ -1,8 +1,6 @@
-"""月次 asof グリッド: cache 内の bars から月末営業日を決定論的に導出する。
+"""月次asof標本を、各月の銘柄数条件を満たす最終観測日から選ぶ。
 
-market calendar cache は直近しか無いため、グリッドは bars の実在 (当日の
-cross-section 銘柄数) から導く。閾値未満の日 (休日・部分データ日) は営業日と
-みなさない。
+公式の月末営業日や全銘柄の取得完了を証明するカレンダーではない。
 """
 
 from __future__ import annotations
@@ -12,8 +10,7 @@ from collections.abc import Sequence
 from datetime import date, timedelta
 from pathlib import Path
 
-# 東証の全市場営業日は ~3,700-4,900 銘柄が取引される。部分データ日 (取込途中断面)
-# を月末営業日と誤認しないための下限。
+# 月次標本に採用する観測日の最低銘柄数。営業日や取得完了の公式判定ではない。
 DEFAULT_MIN_TICKERS = 2000
 
 
@@ -24,14 +21,13 @@ def month_end_asof_grid(
     end: date,
     min_tickers: int = DEFAULT_MIN_TICKERS,
 ) -> list[date]:
-    """Return each closed month's last observed day meeting the ticker-count floor.
+    """Select the last qualifying observed date of each nonfinal data month.
 
-    「後続月にも閾値以上の bars がある」月だけを採用する。これは cache からの推定であり、
-    全営業日・全銘柄の取得完了を証明しない。窓を end+40 日まで引き、
-    (a) end が月の途中で切れた月と (b) cache 最終月
-    (完全性を確認できない) を cohort から落とす。月中日を「月末営業日」と誤認した
-    panel が永続化されると、forward 窓が ~96% 重複する重複 cohort として集計を
-    二重計上するため。
+    Read through end+40 days to find later qualifying observations. A later date
+    in the same month prevents selecting an earlier one merely because end cuts
+    the month. If later days are missing or below the floor, the chosen date can
+    still be mid-month. end limits the selected date, not calendar-month closure.
+    The final observed data month is omitted; neither rule proves full ingestion.
     """
     # Read-only so that a mistyped cache path fails instead of creating an empty
     # store that the next writer would migrate into a schema-valid empty cache.
@@ -45,18 +41,16 @@ def month_end_asof_grid(
     finally:
         conn.close()
     day_counts = [(date.fromisoformat(str(day)), int(count)) for day, count in rows]
-    return complete_month_end_dates(day_counts, end=end, min_tickers=min_tickers)
+    return observed_month_end_dates(day_counts, end=end, min_tickers=min_tickers)
 
 
 def days_with_bars(
     sqlite_path: Path, days: Sequence[date], *, min_tickers: int = DEFAULT_MIN_TICKERS
 ) -> set[date]:
-    """Return the requested days the bar store shows as trading days.
+    """Return requested dates whose stored bar count meets the cohort floor.
 
-    The market calendar is fetched around recent as-of dates only, so it cannot
-    answer for historical dates. The bar store can: a day the whole market
-    priced carries thousands of rows, so the same ticker floor the cohort grid
-    uses rejects low-count days. Passing the floor is not proof of complete ingestion.
+    This path does not consult the trading calendar. Passing the count floor is
+    an observed-data selection rule, not proof of complete ingestion.
     """
     if not days or not sqlite_path.exists():
         return set()
@@ -77,14 +71,13 @@ def days_with_bars(
     }
 
 
-def complete_month_end_dates(
+def observed_month_end_dates(
     day_counts: Sequence[tuple[date, int]],
     *,
     end: date,
     min_tickers: int = DEFAULT_MIN_TICKERS,
 ) -> list[date]:
-    """Pure selection: 各 (year, month) の最終 qualifying 営業日のうち、
-    end 以前かつ「data 上の最終月でない」ものだけを返す。"""
+    """Return each nonfinal data month's last qualifying observed date <= end."""
     latest_by_month: dict[tuple[int, int], date] = {}
     for day, count in day_counts:
         if count < min_tickers:
