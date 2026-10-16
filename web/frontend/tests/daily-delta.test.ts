@@ -11,7 +11,7 @@ function delta(total: number): DailyDeltaView {
     generated_at: '2026-09-04T18:00:00+09:00',
     as_of: '2026-09-04', previous_as_of: '2026-09-03', method_changed: false,
     entered: [], exited: [], holdings: [], unavailable: [],
-    holdings_without_fair_value: 0, holdings_without_price: 0,
+    holdings_without_price: 0,
     er_moves_total: total,
     er_moves: Array.from({ length: Math.min(total, 5) }, (_, index) => ({
       ticker: `${1000 + index}`, company_name: null, er_annual_pct: 20,

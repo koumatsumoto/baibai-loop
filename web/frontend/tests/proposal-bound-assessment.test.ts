@@ -13,7 +13,9 @@ const document = {
   conclusion: { strongest_countercase: '需要縮小' },
   valuation: { status: 'resolved', horizon_months: 12, required_annual_return_pct: '10', base: { terminal_value_per_share_yen: '1100', cash_distribution_per_share_yen: '0', calculation: '保存したBase計算' }, downside: { terminal_value_per_share_yen: '700', cash_distribution_per_share_yen: '0', calculation: '保存したDownside計算' } },
 }
-const item = {
+const item: InvestmentProposalItemView = {
+  position: null, holding_basis: null, case_reassessment_reason: null,
+  return_calculation_unavailable_reason: null, reason_code: null,
   ticker: '1234', action: 'buy', rationale: '当時1100円、1000円の指値で待つ', timing: 'wait_limit',
   assessment_ref: { assessment_id: 'stock-assessment-original', core_sha256: 'a'.repeat(64), review_id: 'assessment-review-original' },
   proposed_limit_yen: null, review_conditions: ['仮説の反証時に再確認'], order_readiness: 'ready',
@@ -21,7 +23,7 @@ const item = {
   terms_unavailable_reasons: [], blockers: [], resume_conditions: [], remaining_reward: null,
   assessment_projection: { raw: document, original_price_yen: 1100, original_quote_at: '2026-10-14T15:30:00+09:00', original_price_basis: 'last_close_unadjusted', projections: { base: { total_return_pct: 0, annualized_return_pct: 0 }, downside: { total_return_pct: -36.3636, annualized_return_pct: -36.3636 } } },
   assessment_review: { review_id: 'assessment-review-original', reviewer_identity: '保存した独立reviewer', review_scope: '保存根拠と今回の値を確認' },
-} as InvestmentProposalItemView
+}
 
 function render(component: typeof ProposalItemContent | typeof ProposalAssessmentDetails, value = item) {
   return renderToStaticMarkup(createElement(MemoryRouter, null, createElement(component, { item: value })))

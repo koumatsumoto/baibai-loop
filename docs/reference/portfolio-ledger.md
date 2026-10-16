@@ -84,7 +84,7 @@ partial fill後は未約定残数だけをreservedに残す。hard errorはcash�
 uv run baibai-engine position apply-draft /tmp/ledger-draft.yaml --db stores/application/baibai.sqlite --confirmed
 ```
 
-applyは1 transactionでsource head、event replay / payload、price/meta expected row、reconciliationを再検証する。`--confirmed`なし、stale、矛盾payloadはno-writeである。
+applyは1 transactionでsource head、event replay / payload、meta expected row、reconciliationを再検証する。`--confirmed`なし、stale、矛盾payloadはno-writeである。
 
 すべての取引事実draftは価格不要のevent replayでcash・reservation・lotを検証する。別注文の期限未解決を理由に、確認済み取引の保存を止めない。実売却、入出金、income、cost、税の記録に市場価格の更新を要求しない。readerは未報告の予約を保持し、時刻だけからreleaseを推定しない。
 

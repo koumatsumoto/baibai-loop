@@ -59,7 +59,7 @@ describe('TradingView watchlist TXT', () => {
       ticker, company_name: null, sector: '', quantity: 100, deployed_cost_yen: 1000,
       market_price_yen: null, market_price_as_of: null, market_value_yen: null,
       unrealized_pnl_yen: null, unrealized_pnl_pct: null, pmax_raw_yen: null,
-      pmax_gap_pct: null, latest_assessment_id: null, stance: null, next_earnings_date: null,
+      pmax_gap_pct: null, pmax_gap_unavailable_reason: null, latest_assessment_id: null, stance: null, next_earnings_date: null,
     }) satisfies HoldingView)
     const html = renderToStaticMarkup(createElement(TooltipProvider, null,
       createElement(MemoryRouter, null, createElement(HoldingsTable, { holdings, warnings: [], ledgerAsOf: '2026-09-30' })),

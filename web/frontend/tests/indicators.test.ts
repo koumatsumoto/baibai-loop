@@ -27,6 +27,7 @@ describe('Market Context information architecture', () => {
 
 function readingSeries(overrides: Partial<ReadingSeriesView> = {}): ReadingSeriesView {
   return {
+    read_semantics: null,
     series_id: 'us.cpi_yoy',
     name: 'US CPI YoY',
     category: 'inflation',
@@ -80,6 +81,7 @@ function fetchRun(series_id: string, status: string): IndicatorFetchHealthView {
 
 function readingView(overrides: Partial<ReadingView> = {}): ReadingView {
   return {
+    read_semantics: null,
     as_of: '2026-07-27',
     rules_revision: 'v6',
     series: [],
