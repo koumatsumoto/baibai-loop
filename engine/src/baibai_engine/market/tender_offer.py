@@ -176,7 +176,12 @@ def read_document_blocks(content: bytes) -> dict[str, str]:
                 raise TenderOfferError(f"tender-offer filing CSV is unreadable: {error}") from error
             for row in csv.reader(io.StringIO(decoded), delimiter="\t"):
                 if len(row) >= 2:
-                    blocks[row[0]] = row[-1]
+                    element, value = row[0], row[-1]
+                    # Keep disagreement present-but-unreadable. A later duplicate
+                    # must not restore one candidate or make an older filing inherit.
+                    blocks[element] = (
+                        "" if element in blocks and blocks[element] != value else value
+                    )
     return blocks
 
 
@@ -569,10 +574,12 @@ def _filing_order(filing: TenderOfferFiling) -> tuple[str, str, int]:
 
 
 def _block(blocks: Mapping[str, str], suffix: str) -> str | None:
-    for element, value in blocks.items():
-        if element.endswith(suffix):
-            return value
-    return None
+    values = {value for element, value in blocks.items() if element.endswith(suffix)}
+    if not values:
+        return None
+    # Different element prefixes do not establish precedence for the same block.
+    # Empty means present but unreadable, distinct from an omitted correction.
+    return next(iter(values)) if len(values) == 1 else ""
 
 
 __all__ = (
