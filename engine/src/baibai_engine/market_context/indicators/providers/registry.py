@@ -31,7 +31,7 @@ from .nikkei_indexes import NikkeiIndexesProvider
 from .spglobal_pmi import SpGlobalPmiProvider
 from .tsr_bankruptcies import TsrBankruptciesProvider
 from .umich_sca import UmichScaSource
-from .yahoo import YahooChartProvider
+from .yahoo import YahooChartSource
 
 # Scalar external acquisitions. Native records have their own source boundary;
 # application orchestration persists them before L2 computes the registered readings.
@@ -41,7 +41,6 @@ _PROVIDERS: dict[str, IndicatorDataProvider] = {
         NikkeiIndexesProvider(),
         SpGlobalPmiProvider(),
         TsrBankruptciesProvider(),
-        YahooChartProvider(),
     )
 }
 
@@ -77,6 +76,8 @@ def resolve_provider(name: str) -> IndicatorDataProvider:
 
 
 def provider_spec(name: str) -> ProviderSpec:
+    if name == "yahoo":
+        return YahooChartSource.spec
     if name == "boj":
         return BojSource.spec
     if name == "mof_jgb":
@@ -118,6 +119,7 @@ def registered_specs() -> tuple[ProviderSpec, ...]:
         EStatSource.spec,
         FrbH15Source.spec,
         FredSource.spec,
+        YahooChartSource.spec,
         BojSource.spec,
         MofJgbSource.spec,
         BojTimeSeriesSource.spec,

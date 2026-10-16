@@ -18,6 +18,7 @@ from .jquants_indices import JQuantsIndicesSource
 from .mof_jgb import MofJgbSource
 from .multpl import MultplSource
 from .umich_sca import UmichScaSource
+from .yahoo import YahooChartSource
 
 
 def fetch_native_records(
@@ -36,9 +37,12 @@ def fetch_native_records(
         | FrbH15Source
         | MultplSource
         | MofJgbSource
+        | YahooChartSource
         | UmichScaSource
     )
-    if series.provider == "boj":
+    if series.provider == "yahoo":
+        source = YahooChartSource()
+    elif series.provider == "boj":
         source = BojSource()
     elif series.provider == "mof_jgb":
         source = MofJgbSource()

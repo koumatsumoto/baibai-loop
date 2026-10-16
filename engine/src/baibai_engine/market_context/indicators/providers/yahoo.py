@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections import defaultdict
+from collections.abc import Mapping
 from datetime import UTC, date, datetime, timedelta
 from typing import cast
-from urllib.parse import quote
 
 from ..definitions import SeriesDefinition
-from ..observations import ObservationRecord
+from ..observations import NativeRecords
 from .base import (
     MAX_CSV_RESPONSE_BYTES,
     FetchContext,
@@ -15,10 +15,8 @@ from .base import (
     IndicatorsProviderError,
     ProviderSpec,
     fetch_text,
-    record_observation,
 )
 
-_CHART_BASE_URL = "https://query1.finance.yahoo.com/v8/finance/chart"
 # Yahoo rate-limits the default requests User-Agent; a browser UA is required for 200s.
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -26,7 +24,7 @@ _USER_AGENT = (
 )
 
 
-class YahooChartProvider:
+class YahooChartSource:
     """Yahoo Finance chart JSON (no auth). Daily close keyed by the symbol in
     ``provider_series_id``.
 
@@ -38,7 +36,7 @@ class YahooChartProvider:
     spec = ProviderSpec(name="yahoo", all_history_start=date(1970, 1, 1))
     name = spec.name
 
-    def fetch(
+    def fetch_records(
         self,
         series: SeriesDefinition,
         *,
@@ -46,9 +44,7 @@ class YahooChartProvider:
         end: date,
         session: HttpSession,
         context: FetchContext | None = None,
-    ) -> list[ObservationRecord]:
-        symbol = quote(series.provider_series_id, safe="=")
-        url = f"{_CHART_BASE_URL}/{symbol}"
+    ) -> NativeRecords:
         params = {
             "period1": str(_to_unix(start)),
             "period2": str(_to_unix(end + timedelta(days=1))),
@@ -56,7 +52,7 @@ class YahooChartProvider:
         }
         text = fetch_text(
             session,
-            url,
+            series.source_url,
             params=params,
             max_bytes=MAX_CSV_RESPONSE_BYTES,
             headers={"User-Agent": _USER_AGENT},
@@ -71,47 +67,59 @@ def _to_unix(day: date) -> int:
 
 def parse_yahoo_chart(
     series: SeriesDefinition, text: str, *, start: date, end: date
-) -> list[ObservationRecord]:
+) -> NativeRecords:
     try:
         payload: object = json.loads(text)
     except json.JSONDecodeError as exc:
         raise IndicatorsProviderError(f"Yahoo response is not valid JSON: {exc}") from exc
-    timestamps, closes = _extract_series(payload, series.provider_series_id)
-    observations: list[ObservationRecord] = []
-    for raw_ts, raw_close in zip(timestamps, closes, strict=False):
-        if not isinstance(raw_ts, (int, float)) or not isinstance(raw_close, (int, float)):
-            continue
+    result = _extract_result(payload, series.provider_series_id)
+    timestamps = result.get("timestamp")
+    if not isinstance(timestamps, list):
+        raise IndicatorsProviderError("Yahoo chart missing timestamp list")
+    indicators = _require_mapping(result.get("indicators"), "indicators")
+    quote_node = indicators.get("quote")
+    if not isinstance(quote_node, list) or not quote_node:
+        raise IndicatorsProviderError(f"Yahoo chart missing quote for {series.provider_series_id}")
+    first_quote = _require_mapping(quote_node[0], "indicators.quote[0]")
+    if "close" not in first_quote:
+        raise IndicatorsProviderError("Yahoo chart missing close column")
+    # Transpose each source-provided quote/adjusted column, not only the close.
+    # Non-time-series result fields (including meta/events) remain unchanged.
+    columns: dict[str, list[Mapping[str, object]]] = {}
+    for name, groups in indicators.items():
+        if not isinstance(groups, list):
+            raise IndicatorsProviderError(f"Yahoo indicator group is not a list: {name}")
+        columns[name] = []
+        for group in groups:
+            row = _require_mapping(group, f"indicators.{name}")
+            if any(not isinstance(values, list) or len(values) != len(timestamps) for values in row.values()):
+                raise IndicatorsProviderError(f"Yahoo timestamp/indicator lengths differ for {series.provider_series_id}")
+            columns[name].append(row)
+    metadata = {key: value for key, value in result.items() if key not in {"timestamp", "indicators"}}
+    records: dict[date, list[dict[str, object]]] = defaultdict(list)
+    for index, raw_ts in enumerate(timestamps):
+        if isinstance(raw_ts, bool) or not isinstance(raw_ts, (int, float)):
+            raise IndicatorsProviderError(f"Yahoo invalid timestamp: {raw_ts!r}")
         observed_at = datetime.fromtimestamp(raw_ts, UTC).date()
         if start <= observed_at <= end:
-            observations.append(
-                record_observation(series, observed_at=observed_at, value=float(raw_close))
-            )
-    return observations
+            point = {
+                name: [{key: cast(list[object], values)[index] for key, values in group.items()} for group in groups]
+                for name, groups in columns.items()
+            }
+            records[observed_at].append({"timestamp": raw_ts, "metadata": metadata, "indicators": point})
+    return dict(records)
 
 
-def _extract_series(payload: object, symbol: str) -> tuple[Sequence[object], Sequence[object]]:
-    if not isinstance(payload, dict):
-        raise IndicatorsProviderError("Yahoo response is not a JSON object")
-    chart = _require_mapping(cast(Mapping[str, object], payload).get("chart"), "chart")
+def _extract_result(payload: object, symbol: str) -> Mapping[str, object]:
+    root = _require_mapping(payload, "root")
+    chart = _require_mapping(root.get("chart"), "chart")
     error = chart.get("error")
     if error is not None:
         raise IndicatorsProviderError(f"Yahoo chart error for {symbol}: {error}")
     result = chart.get("result")
-    if not isinstance(result, list) or not result:
-        raise IndicatorsProviderError(f"Yahoo chart has no result for {symbol}")
-    first = _require_mapping(result[0], "chart.result[0]")
-    indicators = _require_mapping(first.get("indicators"), "indicators")
-    quote_node = indicators.get("quote")
-    if not isinstance(quote_node, list) or not quote_node:
-        raise IndicatorsProviderError(f"Yahoo chart missing quote for {symbol}")
-    quote0 = _require_mapping(quote_node[0], "indicators.quote[0]")
-    timestamps = first.get("timestamp")
-    closes = quote0.get("close")
-    if not isinstance(timestamps, list) or not isinstance(closes, list):
-        raise IndicatorsProviderError(f"Yahoo chart missing timestamp/close for {symbol}")
-    if len(timestamps) != len(closes):
-        raise IndicatorsProviderError(f"Yahoo timestamp/close lengths differ for {symbol}")
-    return cast(Sequence[object], timestamps), cast(Sequence[object], closes)
+    if not isinstance(result, list) or len(result) != 1:
+        raise IndicatorsProviderError(f"Yahoo chart must contain one result for {symbol}")
+    return _require_mapping(result[0], "chart.result[0]")
 
 
 def _require_mapping(node: object, label: str) -> Mapping[str, object]:

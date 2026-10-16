@@ -68,6 +68,25 @@ def _one_value(series: SeriesDefinition, records: Sequence[Mapping[str, object]]
 
 
 def _record_value(series: SeriesDefinition, row: Mapping[str, object]) -> float | None:
+    if series.provider == "yahoo":
+        metadata = row["metadata"]
+        if not isinstance(metadata, Mapping):
+            raise ValueError("Yahoo source metadata must be a mapping")
+        meta = metadata.get("meta", {})
+        if not isinstance(meta, Mapping) or ("symbol" in meta and meta["symbol"] != series.provider_series_id):
+            raise ValueError(f"Yahoo source symbol does not match {series.series_id}")
+        indicators = row["indicators"]
+        if not isinstance(indicators, Mapping):
+            raise ValueError("Yahoo source indicators must be a mapping")
+        quotes = indicators.get("quote")
+        if not isinstance(quotes, list) or not quotes or not isinstance(quotes[0], Mapping):
+            raise ValueError("Yahoo source quote missing")
+        raw = quotes[0]["close"]
+        if raw is None:
+            return None
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            raise ValueError("Yahoo source close must be numeric or null")
+        return float(raw)
     if series.provider == "boj":
         return boj_value(series, row)
     if series.provider == "mof_jgb":
