@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import csv
+import io
 from datetime import date
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from ..definitions import SeriesDefinition
-from ..observations import ObservationRecord
+from ..observations import NativeRecords
+from ..read_contracts import FRB_H15_PACKAGE_SERIES
 from .base import (
     MAX_CSV_RESPONSE_BYTES,
     BrowserUnavailableError,
@@ -15,14 +17,12 @@ from .base import (
     ProviderSpec,
     SourceWithheldError,
     fetch_text,
-    parse_optional_float,
-    record_observation,
     store_fetched_bytes,
 )
 
 # Single H.15 package that carries every Treasury constant-maturity series; one
 # download via FetchContext.bytes_cache serves all frb_h15 series in a run.
-_H15_PACKAGE_SERIES = "bf17364827e38702b42a58cf8eaa3f78"
+_H15_PACKAGE_SERIES = FRB_H15_PACKAGE_SERIES
 # federalreserve.gov's edge bot-mitigation withholds the CSV from datacenter IPs
 # (a hosted batch run) whose requests do not look like a real browser navigation,
 # answering with an HTML block page, an empty body, or a 403 challenge. Sending
@@ -41,13 +41,13 @@ _BROWSER_HEADERS = {
 _HEADER_PREFIXES = ('"Time Period"', "Time Period,")
 
 
-class FrbH15Provider:
+class FrbH15Source:
     """Federal Reserve H.15 source yields, without local spread calculations."""
 
     spec = ProviderSpec(name="frb_h15", all_history_start=date(1962, 1, 1))
     name = spec.name
 
-    def fetch(
+    def fetch_records(
         self,
         series: SeriesDefinition,
         *,
@@ -55,7 +55,7 @@ class FrbH15Provider:
         end: date,
         session: HttpSession,
         context: FetchContext | None = None,
-    ) -> list[ObservationRecord]:
+    ) -> NativeRecords:
         params = {
             "rel": "H15",
             "series": _H15_PACKAGE_SERIES,
@@ -192,8 +192,8 @@ def snippet(text: str) -> str:
 
 def parse_h15_csv(
     series: SeriesDefinition, text: str, *, start: date, end: date
-) -> list[ObservationRecord]:
-    lines = text.splitlines()
+) -> NativeRecords:
+    lines = text.splitlines(keepends=True)
     header_index = next(
         (index for index, line in enumerate(lines) if line.startswith(_HEADER_PREFIXES)),
         None,
@@ -204,21 +204,21 @@ def parse_h15_csv(
         raise IndicatorsProviderError(
             f"FRB H.15 CSV missing Time Period header; response starts with: {snippet(text)!r}"
         )
-    reader = csv.DictReader(lines[header_index:])
-    fieldnames = set(reader.fieldnames or ())
-    observations: list[ObservationRecord] = []
-    column = series.provider_series_id
-    if column not in fieldnames:
-        raise IndicatorsProviderError(f"FRB H.15 CSV missing column {column}")
+    reader = csv.DictReader(io.StringIO("".join(lines[header_index:])))
+    columns = reader.fieldnames or []
+    if len(columns) != len(set(columns)):
+        raise IndicatorsProviderError("FRB H.15 CSV has duplicate columns")
+    # Preserve package columns before any individual yield is selected in L2.
+    # Preamble lines are literal source metadata, not an inferred schema/unit.
+    preamble = [line.rstrip("\r\n") for line in lines[:header_index]]
+    records: dict[date, list[dict[str, object]]] = {}
     for row in reader:
+        if None in row or any(value is None for value in row.values()):
+            raise IndicatorsProviderError("FRB H.15 CSV row does not match its columns")
         observed_at_raw = row.get("Time Period")
         if not observed_at_raw:
-            continue
+            raise IndicatorsProviderError("FRB H.15 CSV row has no Time Period")
         observed_at = date.fromisoformat(observed_at_raw)
-        if not start <= observed_at <= end:
-            continue
-        value = parse_optional_float(row.get(column))
-        if value is None:
-            continue
-        observations.append(record_observation(series, observed_at=observed_at, value=value))
-    return observations
+        if start <= observed_at <= end:
+            records.setdefault(observed_at, []).append({"row": row, "preamble": preamble})
+    return records

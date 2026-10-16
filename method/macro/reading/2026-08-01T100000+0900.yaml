@@ -98,7 +98,7 @@ overrides:
     statistic: level
     publication_lag_days: 28
     staleness_margin_days: 6
-  # multpl は長期の月次履歴表と日々変わる current page を組み合わせる。取得・鮮度は
+  # multpl は月次履歴表に含まれる日付付きの現在行と月次行を読む。取得・鮮度は
   # daily のまま、統計標本だけを月1点にそろえて直近月の過重を防ぐ。
   us.sp500_cape:
     sampling_cadence: monthly

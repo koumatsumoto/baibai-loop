@@ -9,15 +9,21 @@ from .cftc import CftcSource
 from .ecb_fx import EcbFxSource
 from .estat import EStatSource
 from .estat_dashboard import EStatDashboardSource
+from .frb_h15 import FrbH15Source
 from .jquants_flows import JQuantsFlowsSource
 from .jquants_indices import JQuantsIndicesSource
+from .multpl import MultplSource
 
 
 def fetch_native_records(
     series: SeriesDefinition, *, start: date, end: date, context: FetchContext
 ) -> NativeRecords:
-    source: CftcSource | EcbFxSource | JQuantsFlowsSource | JQuantsIndicesSource | EStatDashboardSource | EStatSource
-    if series.provider == "estat":
+    source: CftcSource | EcbFxSource | JQuantsFlowsSource | JQuantsIndicesSource | EStatDashboardSource | EStatSource | FrbH15Source | MultplSource
+    if series.provider == "multpl":
+        source = MultplSource()
+    elif series.provider == "frb_h15":
+        source = FrbH15Source()
+    elif series.provider == "estat":
         source = EStatSource()
     elif series.provider == "estat_dashboard":
         source = EStatDashboardSource()

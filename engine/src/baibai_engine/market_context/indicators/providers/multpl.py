@@ -1,20 +1,17 @@
 from __future__ import annotations
 
-import re
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from html.parser import HTMLParser
-from zoneinfo import ZoneInfo
 
 from ..definitions import SeriesDefinition
-from ..observations import ObservationRecord
+from ..observations import NativeRecords
+from ..read_contracts import MULTPL_SPEC
 from .base import (
     MAX_CSV_RESPONSE_BYTES,
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
-    ProviderSpec,
     fetch_text,
-    record_observation,
 )
 
 # multpl.com rate-limits the default requests User-Agent; a browser UA is required.
@@ -22,10 +19,7 @@ _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
-# Each current page exposes one sentence: "Current <name> is <value>[%], a change of ...".
-_CURRENT_RE = re.compile(r"Current\s+[^<>]*?\s+is\s+([\d,]+(?:\.\d+)?)")
 _HISTORY_DATE_FORMAT = "%b %d, %Y"
-_HISTORY_VALUE_RE = re.compile(r"(?:[†*]\s*)?(?P<value>[\d,]+(?:\.\d+)?)%?\Z")
 _HISTORY_FLOOR_BY_SLUG = {
     "shiller-pe": date(1871, 2, 1),
     "s-p-500-pe-ratio": date(1871, 1, 1),
@@ -33,20 +27,13 @@ _HISTORY_FLOOR_BY_SLUG = {
 }
 
 
-class MultplProvider:
-    """multpl.com valuation scrape (no auth), keyed by the page slug in
-    ``provider_series_id`` (e.g. ``shiller-pe``).
+class MultplSource:
+    """Retain dated table cells and the page's own source explanation for L2."""
 
-    Used for S&P 500 valuation (Shiller CAPE / GAAP PE / earnings yield) which has
-    no clean FRED/official feed but anchors the equity-risk-premium perspective. Short
-    latest-value requests use the current page. Longer requests use the public
-    monthly history table, which also carries the current observation.
-    """
-
-    spec = ProviderSpec(name="multpl", all_history_start=date(1871, 1, 1))
+    spec = MULTPL_SPEC
     name = spec.name
 
-    def fetch(
+    def fetch_records(
         self,
         series: SeriesDefinition,
         *,
@@ -54,19 +41,7 @@ class MultplProvider:
         end: date,
         session: HttpSession,
         context: FetchContext | None = None,
-    ) -> list[ObservationRecord]:
-        today = _today_jst()
-        if start < date(today.year, today.month, 1):
-            history_url = f"{series.source_url.rstrip('/')}/table/by-month"
-            text = fetch_text(
-                session,
-                history_url,
-                params=None,
-                max_bytes=MAX_CSV_RESPONSE_BYTES,
-                headers={"User-Agent": _USER_AGENT},
-                context=context,
-            )
-            return parse_multpl_history(series, text, start=start, end=end)
+    ) -> NativeRecords:
         text = fetch_text(
             session,
             series.source_url,
@@ -75,149 +50,168 @@ class MultplProvider:
             headers={"User-Agent": _USER_AGENT},
             context=context,
         )
-        value = parse_multpl_current(text, series.provider_series_id)
-        observed_at = today
-        if start <= observed_at <= end:
-            return [record_observation(series, observed_at=observed_at, value=value)]
-        return []
+        return parse_multpl_table(series, text, start=start, end=end)
 
 
-def parse_multpl_current(text: str, slug: str) -> float:
-    match = _CURRENT_RE.search(text)
-    if match is None:
-        raise IndicatorsProviderError(f"multpl: cannot parse current value for {slug}")
-    return float(match.group(1).replace(",", ""))
-
-
-def parse_multpl_history(
+def parse_multpl_table(
     series: SeriesDefinition,
     text: str,
     *,
     start: date,
     end: date,
-) -> list[ObservationRecord]:
-    parser = _MultplHistoryParser()
+) -> NativeRecords:
+    parser = _MultplTableParser()
     parser.feed(text)
     parser.close()
-    if not parser.found_table:
-        raise IndicatorsProviderError(
-            f"multpl: historical table missing for {series.provider_series_id}"
-        )
-    values: dict[date, float] = {}
-    ordered_dates: list[date] = []
-    for raw_date, raw_value in parser.rows:
-        try:
-            observed_at = (
-                datetime.strptime(raw_date, _HISTORY_DATE_FORMAT).replace(tzinfo=UTC).date()
-            )
-        except ValueError as exc:
-            raise IndicatorsProviderError(
-                f"multpl: invalid historical date for {series.provider_series_id}: {raw_date!r}"
-            ) from exc
-        value_match = _HISTORY_VALUE_RE.fullmatch(raw_value.strip())
-        if value_match is None:
-            raise IndicatorsProviderError(
-                f"multpl: invalid historical value for {series.provider_series_id}: {raw_value!r}"
-            )
-        value = float(value_match.group("value").replace(",", ""))
-        prior_value = values.get(observed_at)
-        if prior_value is not None and prior_value != value:
-            raise IndicatorsProviderError(
-                f"multpl: conflicting values for {series.provider_series_id} on {observed_at}"
-            )
-        if prior_value is None:
-            ordered_dates.append(observed_at)
-        values[observed_at] = value
-
+    if not parser.found_table or not parser.rows:
+        raise IndicatorsProviderError(f"multpl: table missing or empty for {series.provider_series_id}")
     floor = _HISTORY_FLOOR_BY_SLUG.get(series.provider_series_id)
     if floor is None:
-        raise IndicatorsProviderError(
-            f"multpl: unknown historical floor for {series.provider_series_id}"
-        )
+        raise IndicatorsProviderError(f"multpl: unknown history floor for {series.provider_series_id}")
+
+    dated_rows: list[tuple[date, dict[str, object]]] = []
+    for index, (raw_date, raw_value, annotations) in enumerate(parser.rows):
+        try:
+            observed_at = datetime.strptime(raw_date.strip(), _HISTORY_DATE_FORMAT).date()
+        except ValueError as exc:
+            raise IndicatorsProviderError(
+                f"multpl: invalid table date for {series.provider_series_id}: {raw_date!r}"
+            ) from exc
+        row: dict[str, object] = {
+            "date_text": raw_date,
+            "value_text": raw_value,
+            "table_row": index,
+        }
+        if annotations:
+            row["value_annotations"] = annotations
+        if parser.caption_text is not None:
+            row["caption_text"] = parser.caption_text
+        if parser.description_text is not None:
+            row["description_text"] = parser.description_text
+            row["description_links"] = parser.description_links
+        dated_rows.append((observed_at, row))
+
+    # The first row is the current level, possibly dated on a month start. It is
+    # not proof that a monthly-history row for that month has been published.
     if start <= floor:
-        if not values or min(values) != floor:
+        history_dates = {day for day, _ in dated_rows[1:] if day.day == 1}
+        if not history_dates or min(history_dates) != floor:
             raise IndicatorsProviderError(
                 f"multpl: history for {series.provider_series_id} must start at {floor}"
             )
-        required_latest = _latest_published_month(
-            end=end, today=_today_jst(), ordered_dates=ordered_dates, floor=floor
-        )
+        published = [day for day in history_dates if day <= end]
         expected = floor
-        while expected <= required_latest:
-            if expected not in values:
+        while expected <= max(published, default=floor):
+            if expected not in history_dates:
                 raise IndicatorsProviderError(
-                    f"multpl: missing monthly value for {series.provider_series_id}: {expected}"
+                    f"multpl: missing monthly row for {series.provider_series_id}: {expected}"
                 )
             expected = _next_month(expected)
 
-    return [
-        record_observation(series, observed_at=observed_at, value=values[observed_at])
-        for observed_at in ordered_dates
-        if start <= observed_at <= end
-    ]
+    records: dict[date, list[dict[str, object]]] = {}
+    for observed_at, row in dated_rows:
+        if start <= observed_at <= end:
+            records.setdefault(observed_at, []).append(row)
+    return records
 
 
-class _MultplHistoryParser(HTMLParser):
+class _MultplTableParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.found_table = False
-        self.rows: list[tuple[str, str]] = []
-        self._in_table = False
-        self._in_cell = False
-        self._cell_parts: list[str] = []
-        self._row_cells: list[str] | None = None
+        self.rows: list[tuple[str, str, list[dict[str, str]]]] = []
+        self.caption_text: str | None = None
+        self.description_text: str | None = None
+        self.description_links: list[dict[str, str]] = []
+        self._table = False
+        self._row: list[str] | None = None
+        self._cell: list[str] | None = None
+        self._row_annotations: list[dict[str, str]] = []
+        self._cell_annotations: list[dict[str, str]] | None = None
+        self._abbr_parts: list[str] | None = None
+        self._abbr_title: str | None = None
+        self._caption_parts: list[str] | None = None
+        self._description_depth = 0
+        self._description_parts: list[str] = []
+        self._link_href: str | None = None
+        self._link_parts: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attributes = dict(attrs)
+        if attributes.get("id") == "description" and self._description_depth == 0:
+            self._description_depth = 1
+            self._description_parts = []
+        elif self._description_depth:
+            if tag not in {"area", "br", "hr", "img", "input", "meta", "link"}:
+                self._description_depth += 1
+            if tag == "a" and attributes.get("href"):
+                self._link_href = attributes["href"]
+                self._link_parts = []
         if tag == "table" and attributes.get("id") == "datatable":
             self.found_table = True
-            self._in_table = True
-        elif self._in_table and tag == "tr":
-            self._row_cells = []
-        elif self._in_table and self._row_cells is not None and tag == "td":
-            self._in_cell = True
-            self._cell_parts = []
+            self._table = True
+        elif self._table and tag == "caption":
+            self._caption_parts = []
+        elif self._table and tag == "tr":
+            self._row = []
+            self._row_annotations = []
+        elif self._table and self._row is not None and tag == "td":
+            self._cell = []
+            self._cell_annotations = [] if len(self._row) == 1 else None
+        elif self._cell_annotations is not None and tag == "abbr":
+            self._abbr_parts = []
+            self._abbr_title = attributes.get("title")
 
     def handle_data(self, data: str) -> None:
-        if self._in_cell:
-            self._cell_parts.append(data)
+        if self._cell is not None:
+            self._cell.append(data)
+        if self._abbr_parts is not None:
+            self._abbr_parts.append(data)
+        if self._caption_parts is not None:
+            self._caption_parts.append(data)
+        if self._description_depth:
+            self._description_parts.append(data)
+            if self._link_href is not None:
+                self._link_parts.append(data)
 
     def handle_endtag(self, tag: str) -> None:
-        if self._in_table and tag == "td" and self._in_cell:
-            self._in_cell = False
-            if self._row_cells is not None:
-                self._row_cells.append(" ".join("".join(self._cell_parts).split()))
-        elif self._in_table and tag == "tr" and self._row_cells is not None:
-            if len(self._row_cells) >= 2:
-                self.rows.append((self._row_cells[0], self._row_cells[1]))
-            self._row_cells = None
-        elif self._in_table and tag == "table":
-            self._in_table = False
-
-
-def _latest_published_month(
-    *, end: date, today: date, ordered_dates: list[date], floor: date
-) -> date:
-    """Latest published monthly row the history table must carry continuously.
-
-    The first row is always the current level, even when its actual observation date
-    happens to be a month start. Later month-start rows are the published monthly
-    history. Validate continuity through the latest row that actually exists instead
-    of inferring a publication deadline from the current row. Freshness remains the
-    staleness rule's responsibility.
-    """
-    cutoff = min(end, today)
-    published = [
-        observed_at
-        for observed_at in ordered_dates[1:]
-        if observed_at.day == 1 and observed_at <= cutoff
-    ]
-    return max(published, default=floor)
+        if tag == "abbr" and self._abbr_parts is not None:
+            annotation = {"text": "".join(self._abbr_parts)}
+            if self._abbr_title is not None:
+                annotation["title"] = self._abbr_title
+            if self._cell_annotations is not None:
+                self._cell_annotations.append(annotation)
+            self._abbr_parts = None
+            self._abbr_title = None
+        elif self._table and tag == "td" and self._cell is not None:
+            if self._row is not None:
+                if len(self._row) == 1:
+                    self._row_annotations = self._cell_annotations or []
+                self._row.append("".join(self._cell))
+            self._cell = None
+            self._cell_annotations = None
+        elif self._table and tag == "tr" and self._row is not None:
+            if self._row:
+                if len(self._row) != 2:
+                    raise IndicatorsProviderError("multpl: table row must have exactly two cells")
+                self.rows.append((self._row[0], self._row[1], self._row_annotations))
+            self._row = None
+        elif self._table and tag == "caption" and self._caption_parts is not None:
+            self.caption_text = "".join(self._caption_parts)
+            self._caption_parts = None
+        elif self._table and tag == "table":
+            self._table = False
+        if self._description_depth and tag not in {"area", "br", "hr", "img", "input", "meta", "link"}:
+            if tag == "a" and self._link_href is not None:
+                self.description_links.append({
+                    "text": "".join(self._link_parts),
+                    "href": self._link_href,
+                })
+                self._link_href = None
+            self._description_depth -= 1
+            if self._description_depth == 0:
+                self.description_text = "".join(self._description_parts)
 
 
 def _next_month(value: date) -> date:
     return date(value.year + 1, 1, 1) if value.month == 12 else date(value.year, value.month + 1, 1)
-
-
-def _today_jst() -> date:
-    return datetime.now(ZoneInfo("Asia/Tokyo")).date()

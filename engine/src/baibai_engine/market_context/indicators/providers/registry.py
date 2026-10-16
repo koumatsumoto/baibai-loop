@@ -11,6 +11,7 @@ from ..read_contracts import (
     JQUANTS_FLOWS_SPEC,
     JQUANTS_INDICES_SPEC,
     JQUANTS_OPTIONS_SPEC,
+    MULTPL_SPEC,
 )
 from .base import (
     FetchContext,
@@ -23,10 +24,9 @@ from .boj import BojProvider
 from .boj_timeseries import BojTimeSeriesProvider
 from .estat import EStatSource
 from .estat_dashboard import EStatDashboardSource
-from .frb_h15 import FrbH15Provider
+from .frb_h15 import FrbH15Source
 from .fred import FredProvider
 from .mof_jgb import MofJgbProvider
-from .multpl import MultplProvider
 from .nikkei_indexes import NikkeiIndexesProvider
 from .spglobal_pmi import SpGlobalPmiProvider
 from .tsr_bankruptcies import TsrBankruptciesProvider
@@ -39,11 +39,9 @@ _PROVIDERS: dict[str, IndicatorDataProvider] = {
     provider.name: provider
     for provider in (
         FredProvider(),
-        FrbH15Provider(),
         BojProvider(),
         BojTimeSeriesProvider(),
         MofJgbProvider(),
-        MultplProvider(),
         NikkeiIndexesProvider(),
         SpGlobalPmiProvider(),
         TsrBankruptciesProvider(),
@@ -84,10 +82,14 @@ def resolve_provider(name: str) -> IndicatorDataProvider:
 
 
 def provider_spec(name: str) -> ProviderSpec:
+    if name == "frb_h15":
+        return FrbH15Source.spec
     if name == "estat":
         return EStatSource.spec
     if name == "estat_dashboard":
         return EStatDashboardSource.spec
+    if name == "multpl":
+        return MULTPL_SPEC
     if name == "derived":
         return DERIVED_SPEC
     if name == "jquants_options":
@@ -109,8 +111,10 @@ def registered_specs() -> tuple[ProviderSpec, ...]:
         DERIVED_SPEC,
         EStatDashboardSource.spec,
         EStatSource.spec,
+        FrbH15Source.spec,
         JQUANTS_OPTIONS_SPEC,
         CFTC_SPEC,
+        MULTPL_SPEC,
         ECB_FX_SPEC,
         JQUANTS_FLOWS_SPEC,
         JQUANTS_INDICES_SPEC,

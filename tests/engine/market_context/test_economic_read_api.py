@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.helpers.indicator_store import store_h15_observations
+
 from baibai_engine.market_context.indicators.db import (
     get_series,
     initialize_database,
@@ -46,7 +48,7 @@ def test_indicator_series_aggregates_each_period_to_its_last_observation(
         current += timedelta(days=1)
     connection = initialize_database(database)
     try:
-        insert_observations(connection, observations)
+        store_h15_observations(connection, observations)
         connection.commit()
     finally:
         connection.close()
@@ -89,7 +91,7 @@ def test_indicator_series_filters_range_before_aggregation_and_keeps_latest_vint
     database = tmp_path / "indicators.sqlite"
     connection = initialize_database(database)
     try:
-        insert_observations(
+        store_h15_observations(
             connection,
             [
                 ObservationRecord(
@@ -316,12 +318,12 @@ def test_retracted_observations_leave_the_chart_and_the_freshness_date(tmp_path:
     database = tmp_path / "indicators.sqlite"
     connection = initialize_database(database)
     try:
-        series = get_series(connection, "us.10y")
+        series = get_series(connection, "us.fed_funds.upper")
         insert_observations(
             connection,
             [
                 ObservationRecord(
-                    series_id="us.10y",
+                    series_id="us.fed_funds.upper",
                     observed_at=observed_at,
                     value=value,
                     unit=series.unit,
@@ -336,7 +338,7 @@ def test_retracted_observations_leave_the_chart_and_the_freshness_date(tmp_path:
         )
         retract_observations(
             connection,
-            "us.10y",
+            "us.fed_funds.upper",
             [
                 (
                     date(2026, 5, 4),
@@ -349,7 +351,7 @@ def test_retracted_observations_leave_the_chart_and_the_freshness_date(tmp_path:
     finally:
         connection.close()
 
-    chart = indicator_series(database, series_id="us.10y", granularity="daily")
+    chart = indicator_series(database, series_id="us.fed_funds.upper", granularity="daily")
 
     assert chart is not None
     assert chart["points"] == [{"observed_at": "2026-05-01", "value": 4.39}]

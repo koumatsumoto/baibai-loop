@@ -15,7 +15,7 @@ from .estat import parse_estat_json
 from .frb_h15 import parse_h15_csv
 from .fred import parse_fred_csv
 from .mof_jgb import parse_mof_jgb_csv
-from .multpl import parse_multpl_current, parse_multpl_history
+from .multpl import parse_multpl_table
 from .registry import (
     fetch_observations,
     provider_spec,
@@ -39,8 +39,7 @@ __all__ = [
     "parse_fred_csv",
     "parse_h15_csv",
     "parse_mof_jgb_csv",
-    "parse_multpl_current",
-    "parse_multpl_history",
+    "parse_multpl_table",
     "parse_tsr_bankruptcies_json",
     "parse_yahoo_chart",
     "point_in_time_providers",

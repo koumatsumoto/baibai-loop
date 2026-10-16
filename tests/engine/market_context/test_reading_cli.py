@@ -7,10 +7,13 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
-from tests.helpers.indicator_store import observations, series_definition, store_reader
+from tests.helpers.indicator_store import observations, series_definition, store_reader, store_h15_observations
 
 from baibai_engine.market_context.indicators import db
 from baibai_engine.market_context.indicators.observations import ObservationRecord
+from baibai_engine.market_context.indicators.definitions import load_definitions
+from baibai_engine.market_context.indicators.read_contracts import native_source_key
+from baibai_engine.market_context.indicators.source_snapshots import read_snapshots
 from baibai_engine.market_context.reading import cli
 from baibai_engine.market_context.reading.compute import compute_reading
 from baibai_engine.market_context.reading.models import ReadingSnapshot
@@ -61,7 +64,7 @@ def test_cli_reads_one_snapshot_during_concurrent_refresh(
     path = tmp_path / "indicators.sqlite"
     with closing(db.initialize_database(path)) as connection:
         connection.execute("PRAGMA journal_mode = WAL")
-        db.insert_observations(connection, [_yield_observation(1.0, 1)])
+        store_h15_observations(connection, [_yield_observation(1.0, 1)])
         connection.commit()
 
     read_snapshot = cli.read_store_snapshot
@@ -71,11 +74,11 @@ def test_cli_reads_one_snapshot_during_concurrent_refresh(
     ) -> ReadingSnapshot:
         # The first SELECT pins the reader's snapshot before a separate writer commits.
         assert connection.in_transaction
-        before = connection.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
+        before = connection.execute("SELECT COUNT(*) FROM indicator_source_snapshots").fetchone()[0]
         with closing(db.open_connection(path)) as writer:
-            db.insert_observations(writer, [_yield_observation(2.0, 2)])
+            store_h15_observations(writer, [_yield_observation(2.0, 2)])
             writer.commit()
-        assert connection.execute("SELECT COUNT(*) FROM observations").fetchone()[0] == before
+        assert connection.execute("SELECT COUNT(*) FROM indicator_source_snapshots").fetchone()[0] == before
         return read_snapshot(connection, asof=asof, rules_path=rules_path)
 
     monkeypatch.setattr(cli, "read_store_snapshot", read_while_writer_commits)
@@ -84,9 +87,12 @@ def test_cli_reads_one_snapshot_during_concurrent_refresh(
     row = next(item for item in payload["series"] if item["series_id"] == "us.10y")
     assert row["latest_value"] == 1.0
     with closing(db.open_read_only_connection(path)) as connection:
-        latest = db.latest_observation(connection, "us.10y")
-        assert latest is not None
-        assert latest.value == 2.0
+        definition = load_definitions().by_id()["us.10y"]
+        latest = next(read_snapshots(
+            connection, date(2026, 7, 15), date(2026, 7, 15),
+            source_key=native_source_key(definition),
+        ))
+        assert latest.records[0]["row"]["RIFLGFCY10_N.B"] == "2.0"
 
 
 def _yield_observation(value: float, second: int) -> ObservationRecord:

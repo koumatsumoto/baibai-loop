@@ -439,8 +439,8 @@ series:
     provider: multpl
     provider_series_id: shiller-pe
     source_id: multpl-shiller-pe
-    source_url: https://www.multpl.com/shiller-pe
-    notes: S&P500の10年実質EPS平均を用いたCAPE。multplの現在値と月次履歴を取得する。過去平均への回帰や将来returnを保証する指標ではない。
+    source_url: https://www.multpl.com/shiller-pe/table/by-month
+    notes: S&P500の10年実質EPS平均を用いたCAPE。multplの日付付き月次履歴表を取得し、表の現在行と月次行を読む。過去平均への回帰や将来returnを保証する指標ではない。
     aliases: [CAPE, シラーPER, Shiller PE, CAPE比率, 景気循環調整PER]
   - series_id: us.sp500_pe
     name: S&P500 PER(GAAP実績)
@@ -453,8 +453,8 @@ series:
     provider: multpl
     provider_series_id: s-p-500-pe-ratio
     source_id: multpl-sp500-pe
-    source_url: https://www.multpl.com/s-p-500-pe-ratio
-    notes: S&P500のGAAP実績PER。multplの現在値と月次履歴を取得する。益回りと国債利回りの単純差は、株式の期待超過returnであるERPそのものではない。
+    source_url: https://www.multpl.com/s-p-500-pe-ratio/table/by-month
+    notes: S&P500のGAAP報告利益を基礎とするPER。現在値には推定を含む。multplの日付付き月次履歴表を取得し、表の現在行と月次行を読む。益回りと国債利回りの単純差は、株式の期待超過returnであるERPそのものではない。
     aliases: [S&P500 PER, SP500 PE, 米国株PER, PER, price earnings ratio]
   - series_id: us.sp500_earnings_yield
     name: S&P500 益回り
@@ -467,8 +467,8 @@ series:
     provider: multpl
     provider_series_id: s-p-500-earnings-yield
     source_id: multpl-sp500-ey
-    source_url: https://www.multpl.com/s-p-500-earnings-yield
-    notes: S&P500のGAAP実績益回り(1/PER)。multplの現在値と月次履歴を取得する。名目国債利回りとの差は比較指標であり、将来の株式returnやERPを直接測らない。
+    source_url: https://www.multpl.com/s-p-500-earnings-yield/table/by-month
+    notes: S&P500のGAAP報告利益を基礎とする益回り(1/PER)。現在値には推定を含む。multplの日付付き月次履歴表を取得し、表の現在行と月次行を読む。名目国債利回りとの差は比較指標であり、将来の株式returnやERPを直接測らない。
     aliases: [益回り, earnings yield, S&P500益回り, アーニングスイールド]
   - series_id: us.average_hourly_earnings
     name: 米平均時給(民間全体)

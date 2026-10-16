@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from collections.abc import Mapping, Sequence
 from datetime import date
@@ -61,6 +62,28 @@ def _one_value(series: SeriesDefinition, records: Sequence[Mapping[str, object]]
 
 
 def _record_value(series: SeriesDefinition, row: Mapping[str, object]) -> float | None:
+    if series.provider == "frb_h15":
+        if series.unit != "percent":
+            raise ValueError(f"FRB H.15 series {series.series_id} has inconsistent unit")
+        source_row = row["row"]
+        if not isinstance(source_row, Mapping):
+            raise ValueError("FRB H.15 source row must be a mapping")
+        column = series.provider_series_id
+        if column not in source_row:
+            raise ValueError(f"FRB H.15 CSV missing column {column}")
+        raw = source_row[column]
+        if raw is None:
+            return None
+        if not isinstance(raw, str):
+            raise ValueError(f"FRB H.15 source cell must be text: {column}")
+        text = raw.strip()
+        if text in {"", "ND", "."}:
+            return None
+        return float(text.replace(",", ""))
+    if series.provider == "multpl":
+        if series.unit not in {"ratio", "percent"}:
+            raise ValueError(f"multpl series {series.series_id} has inconsistent unit")
+        return _multpl_cell_value(series, row.get("value_text"))
     if series.provider == "jquants_indices":
         if series.provider_series_id != "topix" or series.unit != "index":
             raise ValueError(f"unsupported native index reading: {series.series_id}")
@@ -83,6 +106,20 @@ def _record_value(series: SeriesDefinition, row: Mapping[str, object]) -> float 
     numerator = _positive_number(row.get("JPY"))
     denominator = 1.0 if denominator_column is None else _positive_number(row.get(denominator_column))
     return None if numerator is None or denominator is None else numerator / denominator
+
+
+_MULTPL_VALUE = re.compile(r"[†*]*\s*([+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)\s*(%)?\s*\Z")
+
+
+def _multpl_cell_value(series: SeriesDefinition, raw: object) -> float | None:
+    if isinstance(raw, str) and raw.strip().lower() in {"", "null", "n/a", "na", "nd", "-", "—"}:
+        return None
+    if not isinstance(raw, str):
+        raise ValueError(f"invalid multpl cell for {series.series_id}: {raw!r}")
+    match = _MULTPL_VALUE.fullmatch(raw.strip())
+    if match is None or (match.group(2) and series.unit != "percent"):
+        raise ValueError(f"invalid multpl cell for {series.series_id}: {raw!r}")
+    return float(match.group(1).replace(",", ""))
 
 
 def _count(value: object) -> int | None:

@@ -15,6 +15,8 @@ from tests.helpers.assessment_history import historical_context_payload, seed_hi
 from tests.helpers.screening_sqlite import market_store_with_fetch_claim
 from tests.web.test_research_assessment_views import seed_web_proposal
 
+from tests.helpers.indicator_store import store_h15_observations
+
 from baibai_engine.market_context.assessment.models import StoredAssessment
 from baibai_engine.market_context.indicators.db import insert_observations, open_connection
 from baibai_engine.market_context.indicators.definitions import load_definitions
@@ -63,13 +65,6 @@ def _seed_indicator_observations(root: Path) -> None:
             conn,
             [
                 ObservationRecord(
-                    series_id="us.10y",
-                    observed_at=date(2026, 7, 15),
-                    value=4.3,
-                    unit="percent",
-                    source_url="https://example.com/us10y",
-                ),
-                ObservationRecord(
                     series_id="jp.10y",
                     observed_at=date(2026, 7, 17),
                     value=1.1,
@@ -86,6 +81,10 @@ def _seed_indicator_observations(root: Path) -> None:
                 ),
             ],
         )
+        store_h15_observations(conn, [ObservationRecord(
+            series_id="us.10y", observed_at=date(2026, 7, 15), value=4.3,
+            unit="percent", source_url="https://example.com/us10y",
+        )])
         conn.commit()
     finally:
         conn.close()

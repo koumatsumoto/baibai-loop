@@ -23,11 +23,17 @@ JQUANTS_OPTIONS_SPEC = ProviderSpec(
 
 CFTC_SPEC = ProviderSpec(name="cftc", all_history_start=date(2000, 1, 1))
 ECB_FX_SPEC = ProviderSpec(name="ecb_fx", all_history_start=date(1999, 1, 1))
-NATIVE_BULK_PROVIDERS = frozenset({"cftc", "ecb_fx", "jquants_flows", "jquants_indices", "estat_dashboard", "estat"})
+FRB_H15_PACKAGE_SERIES = "bf17364827e38702b42a58cf8eaa3f78"
+
+MULTPL_SPEC = ProviderSpec(name="multpl", all_history_start=date(1871, 1, 1))
+
+NATIVE_BULK_PROVIDERS = frozenset({"cftc", "ecb_fx", "jquants_flows", "jquants_indices", "estat_dashboard", "estat", "frb_h15", "multpl"})
 NATIVE_PROVIDERS = NATIVE_BULK_PROVIDERS | {"jquants_options"}
 
 
 def native_source_key(series: SeriesDefinition) -> str:
+    if series.provider == "frb_h15":
+        return f"frb_h15:{series.source_url}:{FRB_H15_PACKAGE_SERIES}"
     if series.provider == "estat":
         # Configured public endpoint/table/narrowing; runtime appId is not included.
         return f"estat:{series.source_url}:{series.provider_series_id}"
@@ -44,6 +50,8 @@ def native_source_key(series: SeriesDefinition) -> str:
         return f"jquants_indices:{series.provider_series_id}"
     if series.provider == "cftc":
         return f"cftc:{series.provider_series_id}"
+    if series.provider == "multpl":
+        return f"multpl:{series.source_url}"
     raise ValueError(f"not a native-record provider: {series.provider}")
 
 
@@ -72,6 +80,7 @@ def point_in_time_providers() -> frozenset[str]:
 __all__ = [
     "CFTC_SPEC",
     "ECB_FX_SPEC",
+    "MULTPL_SPEC",
     "NATIVE_BULK_PROVIDERS",
     "NATIVE_PROVIDERS",
     "native_source_key",

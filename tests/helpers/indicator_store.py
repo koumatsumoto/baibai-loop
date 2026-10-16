@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Callable, Iterable, Sequence
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from baibai_engine.market_context.indicators.db import initialize_database, insert_observations
-from baibai_engine.market_context.indicators.definitions import SeriesDefinition
+from baibai_engine.market_context.indicators.definitions import SeriesDefinition, load_definitions
 from baibai_engine.market_context.indicators.observations import ObservationRecord
+from baibai_engine.market_context.indicators.read_contracts import native_source_key
+from baibai_engine.market_context.indicators.source_snapshots import store_snapshot
 
 SOURCE_URL = "https://example.com/data.csv"
 
@@ -139,6 +142,43 @@ def seed_store(path: Path, *records: ObservationRecord) -> None:
         connection.close()
 
 
+def store_h15_observations(
+    connection: sqlite3.Connection, records: Sequence[ObservationRecord]
+) -> None:
+    """Seed synthetic complete native H.15 rows from explicit yield fixture values.
+
+    The fixture includes every registered maturity, with empty cells for yields the
+    test does not supply. It is not an original CSV response or a production adapter.
+    """
+    registry = load_definitions().by_id()
+    definitions = {
+        item.series_id: item for item in registry.values() if item.provider == "frb_h15"
+    }
+    grouped: dict[tuple[date, datetime], dict[str, str]] = {}
+    for record in records:
+        definition = definitions[record.series_id]
+        if record.fetch_status != "ok":
+            raise ValueError("H.15 fixture expects a successful source value")
+        fetched_at = record.vintage_at or datetime.combine(
+            record.observed_at, datetime.min.time(), tzinfo=UTC
+        )
+        key = (record.observed_at, fetched_at)
+        row = grouped.setdefault(
+            key,
+            {"Time Period": record.observed_at.isoformat()}
+            | {item.provider_series_id: "" for item in definitions.values()},
+        )
+        row[definition.provider_series_id] = str(record.value)
+    for (observed_at, fetched_at), row in grouped.items():
+        store_snapshot(
+            connection,
+            source_key=native_source_key(definitions[records[0].series_id]),
+            observed_at=observed_at,
+            fetched_at=fetched_at,
+            records=[{"row": row, "preamble": []}],
+        )
+
+
 __all__ = [
     "SOURCE_URL",
     "observation",
@@ -146,4 +186,5 @@ __all__ = [
     "seed_store",
     "series_definition",
     "store_reader",
+    "store_h15_observations",
 ]

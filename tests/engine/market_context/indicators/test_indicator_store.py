@@ -228,7 +228,7 @@ class IndicatorsDBTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
             _write_retired_series(database)
-            definition = load_definitions().by_id()["us.10y"]
+            definition = load_definitions().by_id()["us.fed_funds.upper"]
             refreshed = ObservationRecord(
                 series_id=definition.series_id,
                 observed_at=date(2026, 5, 1),
@@ -249,7 +249,7 @@ class IndicatorsDBTests(unittest.TestCase):
                 exit_code = main(
                     [
                         "refresh",
-                        "us.10y",
+                        "us.fed_funds.upper",
                         "--start",
                         "2026-05-01",
                         "--end",
@@ -294,7 +294,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "does not name at the same generation"):
                 IndicatorsService(database).refresh_series(
-                    ["us.10y"],
+                    ["us.fed_funds.upper"],
                     start=date(2026, 5, 1),
                     end=date(2026, 5, 1),
                 )
@@ -327,7 +327,7 @@ class IndicatorsDBTests(unittest.TestCase):
                 self.assertRaisesRegex(sqlite3.IntegrityError, "blocked"),
             ):
                 IndicatorsService(database).refresh_series(
-                    ["us.10y"],
+                    ["us.fed_funds.upper"],
                     start=date(2026, 5, 1),
                     end=date(2026, 5, 1),
                 )
@@ -353,7 +353,7 @@ class IndicatorsDBTests(unittest.TestCase):
                 rf"store={newer}, client={definitions.generation}.*refusing refresh",
             ):
                 IndicatorsService(database).refresh_series(
-                    ["us.10y"],
+                    ["us.fed_funds.upper"],
                     start=date(2026, 5, 1),
                     end=date(2026, 5, 1),
                 )
@@ -397,11 +397,11 @@ class IndicatorsDBTests(unittest.TestCase):
                     ),
                     patch(
                         "baibai_engine.market_context.indicator_service.fetch_observations",
-                        return_value=[observation("us.10y", date(2026, 5, 1), 4.39)],
+                        return_value=[observation("us.fed_funds.upper", date(2026, 5, 1), 4.39)],
                     ),
                 ):
                     IndicatorsService(database).refresh_series(
-                        ["us.10y"], start=date(2026, 5, 1), end=date(2026, 5, 1)
+                        ["us.fed_funds.upper"], start=date(2026, 5, 1), end=date(2026, 5, 1)
                     )
                 self.assertEqual(committed, [True])
                 self.assertEqual(_retired_counts(database), (0, 0, 0))
@@ -437,11 +437,11 @@ class IndicatorsDBTests(unittest.TestCase):
                 ),
                 patch(
                     "baibai_engine.market_context.indicator_service.fetch_observations",
-                    return_value=[observation("us.10y", date(2026, 5, 1), 4.39)],
+                    return_value=[observation("us.fed_funds.upper", date(2026, 5, 1), 4.39)],
                 ),
             ):
                 IndicatorsService(database).refresh_series(
-                    ["us.10y"], start=date(2026, 5, 1), end=date(2026, 5, 1)
+                    ["us.fed_funds.upper"], start=date(2026, 5, 1), end=date(2026, 5, 1)
                 )
             self.assertEqual(blocked, [True, True])
             self.assertEqual(_retired_counts(database), (0, 0, 0))

@@ -3,20 +3,15 @@ from __future__ import annotations
 import json
 from datetime import UTC, date, datetime
 from unittest import TestCase
-from unittest.mock import patch
 
 from tests.engine.market_context.indicators.indicator_fixtures import (
-    _FakeResponse,
     _multpl_monthly_table,
     _series,
-    _StaticSession,
 )
 
 from baibai_engine.market_context.indicators.providers import (
     IndicatorsProviderError,
-    fetch_observations,
-    parse_multpl_current,
-    parse_multpl_history,
+    parse_multpl_table,
     parse_yahoo_chart,
 )
 from baibai_engine.market_context.indicators.providers.cftc import parse_cftc_records
@@ -176,292 +171,64 @@ class IndicatorsProviderParserTests(TestCase):
         with self.assertRaisesRegex(IndicatorsProviderError, "missing quote"):
             parse_yahoo_chart(series, text, start=date(2026, 5, 1), end=date(2026, 5, 2))
 
-    def test_parse_multpl_current_extracts_value(self) -> None:
-        html = (
-            '<meta name="description" content="Current Shiller PE Ratio is 40.70, '
-            'a change of -0.30 from previous market close." />'
-        )
-        self.assertEqual(parse_multpl_current(html, "shiller-pe"), 40.70)
-
-    def test_parse_multpl_current_reads_percent_value(self) -> None:
-        text = "Current S&P 500 Earnings Yield is 3.18%, a change of +2.36 bps."
-        self.assertEqual(parse_multpl_current(text, "s-p-500-earnings-yield"), 3.18)
-
-    def test_parse_multpl_current_rejects_unparseable(self) -> None:
-        with self.assertRaisesRegex(IndicatorsProviderError, "cannot parse current value"):
-            parse_multpl_current("<html>no current sentence here</html>", "shiller-pe")
-
-    def test_parse_multpl_history_extracts_monthly_rows_and_current_level(self) -> None:
-        series = _series("multpl", "s-p-500-earnings-yield", unit="percent")
-        html = """
-        <table id="datatable">
+    def test_multpl_retains_cells_and_source_explanation(self) -> None:
+        series = _series("multpl", "shiller-pe", unit="ratio")
+        html = """<table id="datatable">
+          <caption>† Estimate</caption>
           <tr><th>Date</th><th>Value</th></tr>
-          <tr><td>Jul 22, 2026</td><td>3.18%</td></tr>
-          <tr><td>Jul 1, 2026</td><td>† 3.20%</td></tr>
-          <tr><td>Jun 1, 2026</td><td>3.15%</td></tr>
+          <tr><td>Oct 15, 2026</td><td>41.01</td></tr>
+          <tr><td>Oct 1, 2026</td><td><abbr title="Estimate">†</abbr> 40.81%</td></tr>
+          <tr><td>Sep 1, 2026</td><td>null</td></tr>
         </table>
-        """
+        <div id="description">Data from <a href="http://www.econ.yale.edu/~shiller/data.htm">Yale</a>.</div>"""
+        rows = parse_multpl_table(series, html, start=date(2026, 9, 1), end=date(2026, 10, 15))
+        self.assertEqual(list(rows), [date(2026, 10, 15), date(2026, 10, 1), date(2026, 9, 1)])
+        self.assertEqual(rows[date(2026, 10, 1)][0]["value_text"], "† 40.81%")
+        self.assertEqual(rows[date(2026, 10, 1)][0]["value_annotations"],
+                         [{"text": "†", "title": "Estimate"}])
+        self.assertEqual(rows[date(2026, 10, 1)][0]["caption_text"], "† Estimate")
+        self.assertEqual(rows[date(2026, 9, 1)][0]["value_text"], "null")
+        self.assertEqual(rows[date(2026, 10, 1)][0]["description_text"], "Data from Yale.")
+        self.assertEqual(rows[date(2026, 10, 1)][0]["description_links"],
+                         [{"text": "Yale", "href": "http://www.econ.yale.edu/~shiller/data.htm"}])
 
-        observations = parse_multpl_history(
-            series,
-            html,
-            start=date(2026, 7, 1),
-            end=date(2026, 7, 22),
-        )
-
-        self.assertEqual(
-            [(item.observed_at, item.value) for item in observations],
-            [(date(2026, 7, 22), 3.18), (date(2026, 7, 1), 3.20)],
-        )
-
-    def test_parse_multpl_history_rejects_missing_table(self) -> None:
+    def test_multpl_does_not_invent_explanation(self) -> None:
         series = _series("multpl", "shiller-pe")
+        html = '<table id="datatable"><tr><td>Oct 15, 2026</td><td>41.01</td></tr></table>'
+        rows = parse_multpl_table(series, html, start=date(2026, 10, 15), end=date(2026, 10, 15))
+        self.assertNotIn("description_text", rows[date(2026, 10, 15)][0])
+        self.assertNotIn("description_links", rows[date(2026, 10, 15)][0])
+        self.assertNotIn("caption_text", rows[date(2026, 10, 15)][0])
+        self.assertNotIn("value_annotations", rows[date(2026, 10, 15)][0])
 
-        with self.assertRaisesRegex(IndicatorsProviderError, "historical table missing"):
-            parse_multpl_history(
-                series,
-                "<html><table></table></html>",
-                start=date(1871, 1, 1),
-                end=date(2026, 7, 22),
-            )
-
-    def test_multpl_long_range_uses_history_table(self) -> None:
+    def test_multpl_rejects_missing_or_malformed_table(self) -> None:
         series = _series("multpl", "shiller-pe")
-        response = _FakeResponse(
-            b'<table id="datatable"><tr><td>Jul 1, 2026</td><td>37.50</td></tr></table>'
-        )
-
-        with patch(
-            "baibai_engine.market_context.indicators.providers.multpl._today_jst",
-            return_value=date(2026, 7, 20),
+        for html, reason in (
+            ("<html>no table</html>", "table missing or empty"),
+            ('<table id="datatable"><tr><td>Oct 15, 2026</td></tr></table>', "exactly two"),
+            ('<table id="datatable"><tr><td>bad date</td><td>41.01</td></tr></table>', "invalid table date"),
         ):
-            observations = fetch_observations(
-                series,
-                start=date(2024, 1, 1),
-                end=date(2026, 7, 20),
-                session=_StaticSession(response),
-            )
+            with self.subTest(html=html), self.assertRaisesRegex(IndicatorsProviderError, reason):
+                parse_multpl_table(series, html, start=date(2026, 10, 1), end=date(2026, 10, 15))
 
-        self.assertEqual(
-            [(item.observed_at, item.value) for item in observations],
-            [(date(2026, 7, 1), 37.5)],
-        )
-
-    def test_multpl_all_history_rejects_missing_floor(self) -> None:
-        series = _series("multpl", "shiller-pe")
-        html = '<table id="datatable"><tr><td>Jul 1, 2026</td><td>40.0</td></tr></table>'
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "must start at 1871-02-01"):
-            parse_multpl_history(
-                series,
-                html,
-                start=date(1871, 1, 1),
-                end=date(2026, 7, 20),
-            )
-
-    def test_parse_multpl_history_accepts_month_start_without_current_month_row(self) -> None:
-        series = _series("multpl", "shiller-pe")
-        html = """
-        <table id="datatable">
-          <tr><th>Date</th><th>Value</th></tr>
-          <tr><td>Aug 3, 2026</td><td>37.80</td></tr>
-          <tr><td>Jul 1, 2026</td><td>37.50</td></tr>
-          <tr><td>Jun 1, 2026</td><td>37.00</td></tr>
-        </table>
-        """
-
-        with patch(
-            "baibai_engine.market_context.indicators.providers.multpl._today_jst",
-            return_value=date(2026, 8, 3),
-        ):
-            observations = parse_multpl_history(
-                series,
-                html,
-                start=date(2026, 7, 20),
-                end=date(2026, 8, 3),
-            )
-
-        self.assertEqual(
-            [(item.observed_at, item.value) for item in observations],
-            [(date(2026, 8, 3), 37.80)],
-        )
-
-    def test_parse_multpl_history_accepts_prior_month_current_row_after_rollover(self) -> None:
-        series = _series("multpl", "shiller-pe")
-        html = """
-        <table id="datatable">
-          <tr><th>Date</th><th>Value</th></tr>
-          <tr><td>Aug 31, 2026</td><td>42.04</td></tr>
-          <tr><td>Jul 1, 2026</td><td>40.73</td></tr>
-          <tr><td>Jun 1, 2026</td><td>40.50</td></tr>
-        </table>
-        """
-
-        with patch(
-            "baibai_engine.market_context.indicators.providers.multpl._today_jst",
-            return_value=date(2026, 9, 1),
-        ):
-            observations = parse_multpl_history(
-                series,
-                html,
-                start=date(2026, 8, 18),
-                end=date(2026, 9, 1),
-            )
-
-        self.assertEqual(
-            [(item.observed_at, item.value) for item in observations],
-            [(date(2026, 8, 31), 42.04)],
-        )
-
-    def test_parse_multpl_history_accepts_delayed_prior_month_asof(self) -> None:
-        series = _series("multpl", "shiller-pe")
-        html = """
-        <table id="datatable">
-          <tr><th>Date</th><th>Value</th></tr>
-          <tr><td>Aug 31, 2026</td><td>42.04</td></tr>
-          <tr><td>Jul 1, 2026</td><td>40.73</td></tr>
-          <tr><td>Jun 1, 2026</td><td>40.50</td></tr>
-        </table>
-        """
-
-        with patch(
-            "baibai_engine.market_context.indicators.providers.multpl._today_jst",
-            return_value=date(2026, 9, 1),
-        ):
-            observations = parse_multpl_history(
-                series,
-                html,
-                start=date(2026, 8, 17),
-                end=date(2026, 8, 31),
-            )
-
-        self.assertEqual(
-            [(item.observed_at, item.value) for item in observations],
-            [(date(2026, 8, 31), 42.04)],
-        )
-
-    def test_parse_multpl_history_accepts_unpublished_intervening_month(self) -> None:
-        series = _series("multpl", "shiller-pe")
-        html = """
-        <table id="datatable">
-          <tr><th>Date</th><th>Value</th></tr>
-          <tr><td>Sep 3, 2026</td><td>42.38</td></tr>
-          <tr><td>Jul 1, 2026</td><td>40.73</td></tr>
-          <tr><td>Jun 1, 2026</td><td>40.50</td></tr>
-        </table>
-        """
-
-        with patch(
-            "baibai_engine.market_context.indicators.providers.multpl._today_jst",
-            return_value=date(2026, 9, 4),
-        ):
-            observations = parse_multpl_history(
-                series,
-                html,
-                start=date(2026, 8, 21),
-                end=date(2026, 9, 4),
-            )
-
-        self.assertEqual(
-            [(item.observed_at, item.value) for item in observations],
-            [(date(2026, 9, 3), 42.38)],
-        )
-
-    def test_multpl_all_history_accepts_month_start_without_current_month_row(self) -> None:
+    def test_multpl_completeness_checks_rows_not_values(self) -> None:
         series = _series("multpl", "shiller-pe")
         html = _multpl_monthly_table(floor=date(1871, 2, 1), latest=date(2026, 7, 1))
+        html = html.replace('<table id="datatable">',
+                            '<table id="datatable"><tr><td>Aug 3, 2026</td><td>null</td></tr>')
+        html = html.replace('<td>20.0</td>', '<td>null</td>', 1)
+        rows = parse_multpl_table(series, html, start=date(1871, 1, 1), end=date(2026, 8, 3))
+        self.assertEqual(rows[date(2026, 8, 3)][0]["value_text"], "null")
+        self.assertIn(date(1871, 2, 1), rows)
+        missing = html.replace('<tr><td>May 1, 2020</td><td>20.0</td></tr>', '')
+        with self.assertRaisesRegex(IndicatorsProviderError, "missing monthly row.*2020-05-01"):
+            parse_multpl_table(series, missing, start=date(1871, 1, 1), end=date(2026, 8, 3))
 
-        with patch(
-            "baibai_engine.market_context.indicators.providers.multpl._today_jst",
-            return_value=date(2026, 8, 3),
-        ):
-            observations = parse_multpl_history(
-                series,
-                html,
-                start=date(1871, 1, 1),
-                end=date(2026, 8, 3),
-            )
-
-        self.assertEqual(observations[0].observed_at, date(2026, 7, 1))
-        self.assertEqual(observations[-1].observed_at, date(1871, 2, 1))
-
-    def test_multpl_all_history_accepts_unpublished_intervening_month(self) -> None:
+    def test_multpl_retains_same_date_current_and_monthly_rows(self) -> None:
         series = _series("multpl", "shiller-pe")
-        monthly = _multpl_monthly_table(floor=date(1871, 2, 1), latest=date(2026, 7, 1))
-        html = monthly.replace(
-            '<table id="datatable">',
-            '<table id="datatable"><tr><td>Sep 3, 2026</td><td>42.38</td></tr>',
-        )
-
-        with patch(
-            "baibai_engine.market_context.indicators.providers.multpl._today_jst",
-            return_value=date(2026, 9, 4),
-        ):
-            observations = parse_multpl_history(
-                series,
-                html,
-                start=date(1871, 1, 1),
-                end=date(2026, 9, 4),
-            )
-
-        self.assertEqual(observations[0].observed_at, date(2026, 9, 3))
-        self.assertEqual(observations[1].observed_at, date(2026, 7, 1))
-
-    def test_multpl_all_history_treats_first_month_start_as_current(self) -> None:
-        series = _series("multpl", "shiller-pe")
-        monthly = _multpl_monthly_table(floor=date(1871, 2, 1), latest=date(2026, 7, 1))
-        html = monthly.replace(
-            '<table id="datatable">',
-            '<table id="datatable"><tr><td>Sep 1, 2026</td><td>42.20</td></tr>',
-        )
-
-        with patch(
-            "baibai_engine.market_context.indicators.providers.multpl._today_jst",
-            return_value=date(2026, 9, 1),
-        ):
-            observations = parse_multpl_history(
-                series,
-                html,
-                start=date(1871, 1, 1),
-                end=date(2026, 9, 1),
-            )
-
-        self.assertEqual(observations[0].observed_at, date(2026, 9, 1))
-        self.assertEqual(observations[1].observed_at, date(2026, 7, 1))
-
-    def test_multpl_all_history_rejects_gap_before_current_month(self) -> None:
-        series = _series("multpl", "shiller-pe")
-        html = _multpl_monthly_table(
-            floor=date(1871, 2, 1), latest=date(2026, 7, 1), omit=date(2020, 5, 1)
-        )
-
-        with (
-            patch(
-                "baibai_engine.market_context.indicators.providers.multpl._today_jst",
-                return_value=date(2026, 8, 3),
-            ),
-            self.assertRaisesRegex(IndicatorsProviderError, "missing monthly value.*2020-05-01"),
-        ):
-            parse_multpl_history(
-                series,
-                html,
-                start=date(1871, 1, 1),
-                end=date(2026, 8, 3),
-            )
-
-    def test_multpl_uses_japan_operation_date(self) -> None:
-        series = _series("multpl", "shiller-pe")
-        response = _FakeResponse(b"Current Shiller PE Ratio is 40.70")
-
-        with patch(
-            "baibai_engine.market_context.indicators.providers.multpl._today_jst",
-            return_value=date(2026, 7, 20),
-        ):
-            observations = fetch_observations(
-                series,
-                start=date(2026, 7, 20),
-                end=date(2026, 7, 20),
-                session=_StaticSession(response),
-            )
-
-        self.assertEqual([item.observed_at for item in observations], [date(2026, 7, 20)])
+        html = ('<table id="datatable">'
+                '<tr><td>Oct 1, 2026</td><td>41.01</td></tr>'
+                '<tr><td>Oct 1, 2026</td><td>40.81</td></tr></table>')
+        rows = parse_multpl_table(series, html, start=date(2026, 10, 1), end=date(2026, 10, 1))
+        self.assertEqual([row["value_text"] for row in rows[date(2026, 10, 1)]], ["41.01", "40.81"])
+        self.assertEqual([row["table_row"] for row in rows[date(2026, 10, 1)]], [0, 1])

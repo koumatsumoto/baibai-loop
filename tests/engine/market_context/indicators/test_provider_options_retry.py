@@ -498,7 +498,7 @@ def test_normal_tls_proxy_pool_timeout_and_other_sdk_clients_are_unchanged(wire)
 def test_failed_options_keep_native_chain_readable_and_another_series_can_commit(
     wire, monkeypatch, tmp_path
 ):
-    provider_name = _registered("us.10y").provider
+    provider_name = _registered("us.fed_funds.upper").provider
 
     class OtherProvider:
         spec = registry._PROVIDERS[provider_name].spec
@@ -527,7 +527,7 @@ def test_failed_options_keep_native_chain_readable_and_another_series_can_commit
     conn.close()
     wire.reply = lambda url: (403, {}, {"message": "synthetic-key"})
     results = IndicatorsService(database).refresh_series(
-        [*READINGS, "us.10y"], start=ASOF, end=ASOF
+        [*READINGS, "us.fed_funds.upper"], start=ASOF, end=ASOF
     )
     assert all(isinstance(r, RefreshFailure) for r in results[:3])
     assert isinstance(results[3], RefreshSuccess)
@@ -541,9 +541,9 @@ def test_failed_options_keep_native_chain_readable_and_another_series_can_commit
             for series_id in READINGS
         } == before_values
         assert (
-            conn.execute("SELECT COUNT(*) FROM observations WHERE series_id = 'us.10y'").fetchone()[
-                0
-            ]
+            conn.execute(
+                "SELECT COUNT(*) FROM observations WHERE series_id = 'us.fed_funds.upper'"
+            ).fetchone()[0]
             == 1
         )
         assert conn.execute("SELECT COUNT(*) FROM provider_runs").fetchone()[0] == 4

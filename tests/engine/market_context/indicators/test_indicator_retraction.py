@@ -8,7 +8,7 @@ from contextlib import redirect_stdout
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from tests.helpers.indicator_store import observation
+from tests.helpers.indicator_store import observation, store_h15_observations
 
 from baibai_engine.market_context.indicator_cli import (
     main,
@@ -320,10 +320,12 @@ class RetractionVintageTests(unittest.TestCase):
                 insert_observations(
                     conn,
                     [
-                        observation(get_series(conn, "us.10y"), date(2026, 7, 20), 4.5, vintage),
                         observation(get_series(conn, "jp.10y"), date(2026, 7, 20), 1.6, vintage),
                     ],
                 )
+                store_h15_observations(conn, [observation(
+                    get_series(conn, "us.10y"), date(2026, 7, 20), 4.5, vintage
+                )])
                 conn.commit()
             finally:
                 conn.close()
@@ -334,7 +336,7 @@ class RetractionVintageTests(unittest.TestCase):
             self.assertEqual(len(before.observations), 1)
             self.assertAlmostEqual(before.observations[0].value, 2.9)
 
-            service.retract("us.10y", [(date(2026, 7, 20), vintage)])
+            service.retract("jp.10y", [(date(2026, 7, 20), vintage)])
             result = service.get_range(
                 "rate_diff.us_jp_10y", start=date(2026, 7, 20), end=date(2026, 7, 20)
             )
@@ -343,7 +345,7 @@ class RetractionVintageTests(unittest.TestCase):
             conn = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
             conn.row_factory = sqlite3.Row
             try:
-                kept = observations_in_range(conn, "us.10y", date(2026, 7, 20), date(2026, 7, 20))
+                kept = observations_in_range(conn, "jp.10y", date(2026, 7, 20), date(2026, 7, 20))
             finally:
                 conn.close()
 
@@ -400,7 +402,7 @@ class RetractionVintageTests(unittest.TestCase):
             database = Path(tmp) / "indicators.sqlite"
             conn = initialize_database(database)
             try:
-                series = get_series(conn, "us.10y")
+                series = get_series(conn, "us.fed_funds.upper")
                 insert_observations(
                     conn,
                     [observation(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC))],
@@ -414,7 +416,7 @@ class RetractionVintageTests(unittest.TestCase):
                 exit_code = main(
                     [
                         "retract",
-                        "us.10y",
+                        "us.fed_funds.upper",
                         "--observed-at",
                         "2026-05-01",
                         "--expected-vintage",
@@ -425,6 +427,6 @@ class RetractionVintageTests(unittest.TestCase):
                 )
 
             self.assertEqual(exit_code, 0)
-            self.assertIn("us.10y\t2026-05-01\twithdrawn\t4.39\t-", stdout.getvalue())
+            self.assertIn("us.fed_funds.upper\t2026-05-01\twithdrawn\t4.39\t-", stdout.getvalue())
             self.assertIn("0 fell back to an earlier vintage, 1 left the reads", stdout.getvalue())
 

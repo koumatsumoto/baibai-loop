@@ -236,6 +236,63 @@ def test_estat_missing_cell_replaces_prior_numeric_reading_without_erasing_nativ
         read = build_store_observation_reader(conn, series=load_definitions().series)
         assert read(series.series_id, day, day) == ()
 
+
+def test_h15_one_native_package_drives_all_maturities_and_spread_without_scalar_revival(tmp_path, monkeypatch):
+    database = tmp_path / "indicators.sqlite"
+    definitions = load_definitions().by_id()
+    maturities = ("us.10y", "us.2y", "us.30y")
+    assert len({native_source_key(definitions[item]) for item in maturities}) == 1
+    source_key = native_source_key(definitions["us.10y"])
+    raw = {
+        "Time Period": DAY.isoformat(),
+        "RIFLGFCY10_N.B": "4.39",
+        "RIFLGFCY02_N.B": "3.88",
+        "RIFLGFCY30_N.B": "4.80",
+        "UNUSED_NATIVE_COLUMN": "ND",
+    }
+    original = {"row": raw, "preamble": ["Synthetic H.15 package metadata"]}
+    correction = {"row": {**raw, "RIFLGFCY10_N.B": "ND"}, "preamble": original["preamble"]}
+    replies = [{DAY: [original]}, {DAY: [correction]}]
+    monkeypatch.setattr(indicator_service, "fetch_native_records", lambda *a, **k: replies.pop(0))
+    with closing(initialize_database(database)) as connection, connection:
+        insert_observations(connection, [ObservationRecord(
+            series_id="us.10y", observed_at=DAY, value=20.0, unit="percent",
+            source_url=definitions["us.10y"].source_url,
+            vintage_at=datetime(2026, 10, 14, tzinfo=UTC),
+        )])
+    service = IndicatorsService(database)
+    first = service.get_range("us.10y", start=DAY, end=DAY, refresh=True)
+    assert first.observations[0].value == 4.39
+    for series_id, expected in (("us.2y", 3.88), ("us.30y", 4.8)):
+        reading = service.get_range(series_id, start=DAY, end=DAY)
+        assert reading.cache_hit
+        assert reading.observations[0].value == expected
+    spread = service.get_range("us.10y_2y_spread", start=DAY, end=DAY)
+    assert spread.observations[0].value == pytest.approx(51.0)
+    assert len(replies) == 1
+    assert service.get_range("us.10y", start=DAY, end=DAY, refresh=True).observations == ()
+    assert service.get_range("us.2y", start=DAY, end=DAY).observations[0].value == 3.88
+    assert service.get_range("us.10y_2y_spread", start=DAY, end=DAY).observations == ()
+    with closing(sqlite3.connect(database)) as connection:
+        snapshot = next(read_snapshots(connection, DAY, DAY, source_key=source_key))
+        assert snapshot.records == (correction,)
+        read = build_store_observation_reader(connection, series=load_definitions().series)
+        assert read("us.10y", DAY, DAY) == ()
+        assert connection.execute("SELECT value FROM observations WHERE series_id = 'us.10y'").fetchone()[0] == 20.0
+
+
+def test_h15_missing_requested_column_fails_only_after_native_rows_are_saved(tmp_path, monkeypatch):
+    database = tmp_path / "indicators.sqlite"
+    series = load_definitions().by_id()["us.10y"]
+    envelope = {"row": {"Time Period": DAY.isoformat(), "OTHER": "4.39"}, "preamble": []}
+    monkeypatch.setattr(indicator_service, "fetch_native_records", lambda *a, **k: {DAY: [envelope]})
+    with pytest.raises(ValueError):
+        IndicatorsService(database).get_range("us.10y", start=DAY, end=DAY, refresh=True)
+    with closing(sqlite3.connect(database)) as connection:
+        assert next(read_snapshots(
+            connection, DAY, DAY, source_key=native_source_key(series)
+        )).records == (envelope,)
+
 def test_latest_forced_refresh_repairs_malformed_native_cache_without_hiding_read_errors(tmp_path, monkeypatch):
     monkeypatch.setattr(indicator_service, "_today_jst", lambda: DAY)
     database = tmp_path / "indicators.sqlite"
@@ -264,3 +321,121 @@ def test_latest_forced_refresh_repairs_malformed_native_cache_without_hiding_rea
             (native_source_key(series), month.isoformat()),
         ).fetchone()[0] == 2
 
+
+
+
+
+def test_multpl_native_correction_hides_old_scalar(tmp_path, monkeypatch):
+    database = tmp_path / "indicators.sqlite"
+    series_id = "us.sp500_cape"
+    definition = load_definitions().by_id()[series_id]
+    day = date(2026, 10, 15)
+    source_key = native_source_key(definition)
+    assert source_key == "multpl:https://www.multpl.com/shiller-pe/table/by-month"
+    first = {day: [{"date_text": "Oct 15, 2026", "value_text": "41.01", "table_row": 0}]}
+    corrected = {day: [{"date_text": "Oct 15, 2026", "value_text": "null", "table_row": 0}]}
+    replies = [first, corrected]
+    monkeypatch.setattr(indicator_service, "fetch_native_records", lambda *a, **k: replies.pop(0))
+    service = IndicatorsService(database)
+    assert service.get_range(series_id, start=day, end=day, refresh=True).observations[0].value == 41.01
+    with closing(sqlite3.connect(database)) as conn, conn:
+        insert_observations(conn, [ObservationRecord(
+            series_id=series_id, observed_at=day, value=999.0, unit=definition.unit,
+            source_url="https://www.multpl.com/shiller-pe", vintage_at=datetime.now(UTC),
+        )])
+    assert service.get_range(series_id, start=day, end=day, refresh=True).observations == ()
+    with closing(sqlite3.connect(database)) as conn:
+        assert list(read_snapshots(conn, day, day, source_key=source_key))[0].records == tuple(corrected[day])
+        reader = build_store_observation_reader(conn, series=load_definitions().series)
+        assert reader(series_id, day, day) == ()
+
+
+def test_multpl_same_date_conflict_retains_both_cells_and_fails_l2(tmp_path):
+    database = tmp_path / "indicators.sqlite"
+    series = load_definitions().by_id()["us.sp500_cape"]
+    day = date(2026, 10, 1)
+    records = [{"date_text": "Oct 1, 2026", "value_text": "41.01", "table_row": 0},
+               {"date_text": "Oct 1, 2026", "value_text": "40.81", "table_row": 1}]
+    with closing(initialize_database(database)) as conn, conn:
+        store_snapshot(conn, source_key=native_source_key(series), observed_at=day,
+                       fetched_at=datetime.now(UTC), records=records)
+    with closing(sqlite3.connect(database)) as conn:
+        assert list(read_snapshots(conn, day, day, source_key=native_source_key(series)))[0].records == tuple(records)
+        reader = build_store_observation_reader(conn, series=load_definitions().series)
+        with pytest.raises(ValueError, match="conflicting native inputs"):
+            reader(series.series_id, day, day)
+
+
+def test_multpl_missing_duplicate_does_not_hide_missingness(tmp_path):
+    database = tmp_path / "indicators.sqlite"
+    series = load_definitions().by_id()["us.sp500_cape"]
+    day = date(2026, 10, 1)
+    with closing(initialize_database(database)) as conn, conn:
+        store_snapshot(conn, source_key=native_source_key(series), observed_at=day,
+                       fetched_at=datetime.now(UTC), records=[
+                           {"date_text": "Oct 1, 2026", "value_text": "null", "table_row": 0},
+                           {"date_text": "Oct 1, 2026", "value_text": "40.81", "table_row": 1},
+                       ])
+    with closing(sqlite3.connect(database)) as conn:
+        reader = build_store_observation_reader(conn, series=load_definitions().series)
+        assert reader(series.series_id, day, day) == ()
+
+
+def test_multpl_ratio_rejects_percent_cell_after_persistence(tmp_path):
+    database = tmp_path / "indicators.sqlite"
+    series = load_definitions().by_id()["us.sp500_cape"]
+    day = date(2026, 10, 1)
+    with closing(initialize_database(database)) as conn, conn:
+        store_snapshot(conn, source_key=native_source_key(series), observed_at=day,
+                       fetched_at=datetime.now(UTC), records=[
+                           {"date_text": "Oct 1, 2026", "value_text": "40.81%", "table_row": 0},
+                       ])
+    with closing(sqlite3.connect(database)) as conn:
+        reader = build_store_observation_reader(conn, series=load_definitions().series)
+        with pytest.raises(ValueError, match="invalid multpl cell"):
+            reader(series.series_id, day, day)
+
+
+def test_multpl_percent_with_dagger_is_interpreted_only_in_l2(tmp_path):
+    database = tmp_path / "indicators.sqlite"
+    series = load_definitions().by_id()["us.sp500_earnings_yield"]
+    day = date(2026, 10, 1)
+    row = {"date_text": "Oct 1, 2026", "value_text": "† 3.18%", "table_row": 1}
+    with closing(initialize_database(database)) as conn, conn:
+        store_snapshot(conn, source_key=native_source_key(series), observed_at=day,
+                       fetched_at=datetime.now(UTC), records=[row])
+    with closing(sqlite3.connect(database)) as conn:
+        assert list(read_snapshots(conn, day, day, source_key=native_source_key(series)))[0].records == (row,)
+        reader = build_store_observation_reader(conn, series=load_definitions().series)
+        assert reader(series.series_id, day, day)[0].value == 3.18
+
+
+@pytest.mark.parametrize("cell", ["not-a-number", "1,,2"])
+def test_multpl_malformed_cell_fails_only_at_reading_boundary(tmp_path, cell):
+    database = tmp_path / "indicators.sqlite"
+    series = load_definitions().by_id()["us.sp500_cape"]
+    day = date(2026, 10, 1)
+    row = {"date_text": "Oct 1, 2026", "value_text": cell, "table_row": 1}
+    with closing(initialize_database(database)) as conn, conn:
+        store_snapshot(conn, source_key=native_source_key(series), observed_at=day,
+                       fetched_at=datetime.now(UTC), records=[row])
+    with closing(sqlite3.connect(database)) as conn:
+        assert list(read_snapshots(conn, day, day, source_key=native_source_key(series)))[0].records == (row,)
+        reader = build_store_observation_reader(conn, series=load_definitions().series)
+        with pytest.raises(ValueError, match="invalid multpl cell"):
+            reader(series.series_id, day, day)
+
+
+def test_multpl_range_check_remains_at_shared_reading_boundary(tmp_path):
+    database = tmp_path / "indicators.sqlite"
+    series = load_definitions().by_id()["us.sp500_cape"]
+    day = date(2026, 10, 1)
+    with closing(initialize_database(database)) as conn, conn:
+        store_snapshot(conn, source_key=native_source_key(series), observed_at=day,
+                       fetched_at=datetime.now(UTC), records=[
+                           {"date_text": "Oct 1, 2026", "value_text": "999", "table_row": 1},
+                       ])
+    with closing(sqlite3.connect(database)) as conn:
+        reader = build_store_observation_reader(conn, series=load_definitions().series)
+        with pytest.raises(ValueError, match="outside plausible range"):
+            reader(series.series_id, day, day)

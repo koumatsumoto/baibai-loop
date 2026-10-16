@@ -79,9 +79,13 @@ uv run baibai-engine market-context indicators get jp.policy_rate --latest
 
 月次整列は月内の各入力の最終観測を使い、出力日は数式ごとの期間代表日または採用入力の最終日とする。これを実公表時刻や歴史的なAPI利用可能性の保証とみなさない。計算値のvintageは全入力に時点がある場合の最も遅い入力vintageであり、読んだ時刻を新しい公表として作らない。L2の数式変更に派生履歴の退役・再取得・置換を要求しない。オプションの3系列も保存済み原本をL2で計算する。取得は固定SDKの認証・再試行付きGETを使い、各ページのnative JSON recordをDataFrame化せず読む。空のdata配列と、dataの欠落・不正形状・途中ページ失敗を区別する。日次chainの全項目・欠測・識別子をgzip JSONとして保持し、現在の3指標が使わない項目も残す。HTTPの元bytesを保存する契約ではない。
 
-`cftc`・`ecb_fx`・`jquants_flows`・`jquants_indices`・`estat_dashboard`・`estat`もnative recordを`indicator_source_snapshots`へ保存し、L2が必要な値を選択・計算する。CFTCのlong/short、ECBの全通貨、投資部門別の全項目、TOPIXのO/H/L/Cと欠測を保持し、未使用の値も現在の計算結果へ潰さない。正常なbulk応答は要求範囲の空日も記録するが、失敗した応答を空日として保存しない。計算不能でも取得した原本は残し、旧scalar観測へfallbackしない。
+`cftc`・`ecb_fx`・`jquants_flows`・`jquants_indices`・`estat_dashboard`・`estat`・`frb_h15`・`multpl`もnative recordを`indicator_source_snapshots`へ保存し、L2が必要な値を選択・計算する。CFTCのlong/short、ECBの全通貨、投資部門別の全項目、TOPIXのO/H/L/Cと欠測を保持し、未使用の値も現在の計算結果へ潰さない。正常なbulk応答は要求範囲の空日も記録するが、失敗した応答を空日として保存しない。計算不能でも取得した原本は残し、旧scalar観測へfallbackしない。
 
 e-Stat dashboardのsource identityはIndicatorCodeだけではなく、頻度・季節調整・地域を固定するsource URLである。要求窓のVALUE行は速報・null記号・未使用属性もそのまま残し、L2が`@isProvisional=0`の確報だけを選ぶ。確報の欠測から旧値や速報へ戻らない。単位コードの混在は読み取りに使う期間の確報間で検証し、要求窓外の単位差だけで読み取りを止めない。取得時刻は公表時刻ではない。VALUEの単位コードだけで基準年を復元できるとは限らず、系列の意味はregistryと[公表元の系列メタデータ](https://dashboard.e-stat.go.jp/api/1.0/Json/getIndicatorInfo?Lang=JP&IndicatorCode=0302030202010090010)に従う。名目賃金の単位コード000は単位名が空欄であり、2020年平均=100という意味は系列注記から確認する。旧scalar値だけから失われた速報・属性は復元せず、マージ後に必要な原本を取得する。
+
+multplは取得窓の長短でcurrent pageと履歴表を切り替えず、日付付き月次表を使う。最新行の日付は取得日ではなく公表元の表示日とし、日付・値のセル文字列、推定記号の注記、表のcaption、出典説明とリンクを保存する。L2は比率と百分率を区別し、同日で矛盾する値を行順だけで採用しない。現在の月次表から、過去に取得した日々のcurrent値までは再構成できない。PE・益回りの最新値には推定が含まれ、GAAP報告利益を基礎とすることは、その観測が確定値である保証ではない。
+
+H.15は利回りごとではなく、同じ公開endpointの共通packageをnative sourceとして保存する。日付別CSV行の全列・欠測記号・header前の説明行を保持し、L2が登録された年限の列をpercentとして読む。列の欠落や読めない値は保存後の読み取りで明示し、過去のscalar値へ戻らない。header前の説明は原形のまま残し、未確認の書式から単位や公表時刻を推定しない。
 
 通常のe-Stat APIも、要求した表・分類条件に属する月次VALUEセルをnative保存する。年計など月次系列ではないセルを混ぜず、元の時点コードと単位・欠測・注記属性は保持する。source identityは公開endpointとstatsDataId・絞り込み条件で、認証appIdは保存しない。最新セルが欠測なら旧scalar値や同月の非欠測duplicateで補わない。異なる数値のduplicateやReading期間内の単位混在は計算できない入力として扱い、取得済みセル自体は残す。
 
