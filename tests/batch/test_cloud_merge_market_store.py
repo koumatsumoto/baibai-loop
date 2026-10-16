@@ -462,7 +462,7 @@ class TestFinancialSummaryCoverage:
         Writing this store's smaller number in would ship a ledger that understates the
         release. The next fill restores the rows, the ledger keeps the smaller number,
         and `verify-cache-coverage` then refuses every screening run while no re-fetch is
-        ever planned — `covered_intervals` drops a window only when its count is zero.
+        ever planned: a clean financial range is considered fetched even when it has no filings.
         """
 
         source = _store(tmp_path / "source.sqlite")
@@ -625,7 +625,7 @@ class TestShortSaleCoverage:
             )
         ]
 
-    def test_a_complete_claim_beats_a_newer_partial_one(self, tmp_path: Path) -> None:
+    def test_a_newer_partial_claim_is_not_overridden_by_an_older_success(self, tmp_path: Path) -> None:
         source = _store(tmp_path / "source.sqlite")
         target = _store(tmp_path / "target.sqlite")
         _store_short_snapshot(
@@ -640,7 +640,7 @@ class TestShortSaleCoverage:
 
         merge_stores(source, target)
 
-        assert _coverage(target, "jquants_short_sale_reports")[0][2] == "ok"
+        assert _coverage(target, "jquants_short_sale_reports")[0][2] == "partial"
 
     def test_a_date_the_release_filled_before_its_claim_arrived_still_merges(
         self,
@@ -951,3 +951,32 @@ def test_shared_clean_financial_claim_is_checked_before_target_wins(tmp_path, so
     else:
         merge_stores(source, target)
         assert _coverage(target, "jquants_fin_summaries")[0][1] == 2
+
+
+@pytest.mark.parametrize("newer_side", ["source", "target"])
+def test_short_sale_partial_refetch_cannot_be_relabelled_complete_by_merge(tmp_path, newer_side):
+    from baibai_engine.storage.observations.reader import read_short_sale_reports
+
+    stores = {name: _store(tmp_path / f"{name}.sqlite") for name in ("source", "target")}
+    day = date(2026, 8, 1)
+    for path in stores.values():
+        _store_short_snapshot(
+            path, [_short_record("A", 0.5), _short_record("B", 0.6)],
+            fetched_at_utc="2026-08-02T00:00:00+00:00",
+        )
+    newer = stores[newer_side]
+    # Exercise the real writer: one invalid record makes a received replacement partial.
+    store_jquants_short_sale_reports(
+        newer, [_short_record("A", 0.7), {**_short_record("B", 0.6), "Code": "invalid"}],
+        requested_start=day, requested_end=day,
+    )
+    with closing(open_connection(newer)) as connection, connection:
+        connection.execute(
+            "UPDATE source_coverage SET fetched_at_utc='2026-08-03T00:00:00+00:00' "
+            "WHERE source='jquants_short_sale_reports'"
+        )
+    assert _coverage(newer, "jquants_short_sale_reports")[0][2] == "partial"
+    merge_stores(stores["source"], stores["target"])
+    claim = _coverage(stores["target"], "jquants_short_sale_reports")[0]
+    assert claim[1:] == (1, "partial", "2026-08-03T00:00:00+00:00")
+    assert read_short_sale_reports(stores["target"], day, day) is None

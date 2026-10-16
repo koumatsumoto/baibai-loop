@@ -6,7 +6,7 @@ Financial-summary counts are validated against hydrated target rows and may only
 be raised. New clean/failed overlaps introduced by the union are rejected; existing
 partial repairs retain the writer's coverage semantics.
 
-Short-sale coverage is selected by success status and then fetch time. Imported
+Short-sale coverage follows the latest fetch, including an incomplete correction. Imported
 EDINET document claims require recheck; target document claims remain authoritative.
 Target-derived capital-policy snapshots and the lake-origin marker are not merged.
 Both files must already satisfy the current schema; this is not a migration.
@@ -289,11 +289,11 @@ def _merge_edinet_fact_coverage(connection: sqlite3.Connection) -> None:
 
 
 def _merge_short_sale_coverage(connection: sqlite3.Connection) -> None:
-    """Select the better claim per disclosure date, and carry it whole.
+    """Select the latest claim per disclosure date, and carry it whole.
 
     Each disclosure date is a correction-prone complete snapshot, so its claim is chosen
-    rather than unioned: a successful fetch beats an incomplete one whatever their ages,
-    and between two of the same kind the newer one wins.
+    rather than unioned. A newer partial fetch can replace the stored rows; an older
+    success must not relabel that incomplete correction as complete.
 
     The count travels with the claim it belongs to rather than being recounted here. It
     records what that fetch returned, and the rows are the release's — a target filled
@@ -397,10 +397,6 @@ def _select_short_claim(
         return target
     if target is None:
         return source
-    if source.status == "ok" and target.status != "ok":
-        return source
-    if target.status == "ok" and source.status != "ok":
-        return target
     return source if source.fetched_at > target.fetched_at else target
 
 
