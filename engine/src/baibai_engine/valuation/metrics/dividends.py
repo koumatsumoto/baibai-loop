@@ -107,7 +107,7 @@ def _dividend_basis_requires_resolution(
     ticker_bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
     *,
     accrual_start: date,
-    disclosed_at: date,
+    basis_date: date,
 ) -> bool:
     """Whether annual DPS spans a unit change or an unclassified action.
 
@@ -115,7 +115,7 @@ def _dividend_basis_requires_resolution(
     is one. A rights issue alone does not change the unit of cash paid per share.
     """
     return any(
-        accrual_start < bar.traded_at <= disclosed_at and share_unit_factor(bar) != 1.0
+        accrual_start < bar.traded_at <= basis_date and share_unit_factor(bar) != 1.0
         for bar in ticker_bars
     )
 
@@ -124,11 +124,12 @@ def _resolve_dividend_carry(
     summaries: Sequence[JQuantsFinancialSummary],
     ticker_bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
     latest_price: float,
+    asof_date: date,
 ) -> _DividendCarry:
     """Resolve carry from applicable-period guidance and split-safe actual payouts.
 
     Issuers may report payment DPS on different share bases. When a unit change
-    falls inside the accrual-to-disclosure window, the source does not establish
+    falls inside the accrual-to-comparison-date window, the source does not establish
     a convertible basis, even when payment details add up or split factors cancel.
     An explicit zero is basis-independent; raw payment facts remain in L1.
 
@@ -150,11 +151,11 @@ def _resolve_dividend_carry(
         assert latest_actual.dps_actual_annual is not None
         accrual_start = _dividend_accrual_start(latest_actual)
         requires_resolution = _dividend_basis_requires_resolution(
-            ticker_bars, accrual_start=accrual_start, disclosed_at=latest_actual.disclosed_at
+            ticker_bars, accrual_start=accrual_start, basis_date=asof_date
         )
         if requires_resolution:
             basis_factor = cumulative_share_unit_factor_after(
-                ticker_bars, accrual_start, latest_actual.disclosed_at
+                ticker_bars, accrual_start, asof_date
             )
             actual_annual = 0.0 if latest_actual.dps_actual_annual == 0 else None
         else:
@@ -215,8 +216,8 @@ def build_shareholder_return_change_signals(
     """Build preregistered shareholder-return change facts for calibration.
 
     Revisions are resolved before field availability is inspected: a null in the
-    newest revision cannot silently fall back to an older value. DPS and gross
-    share counts are normalized to the cohort's stock basis, while the latter is
+    newest revision cannot silently fall back to an older value. DPS comparability
+    is resolved separately from normalized gross share counts. The latter is
     deliberately described as share-count reduction rather than proof of a
     buyback because the source includes treasury stock.
     """
@@ -224,7 +225,7 @@ def build_shareholder_return_change_signals(
     normalized = _normalize_summaries_to_asof_basis(available, ticker_bars, asof_date)
     fy_rows = _latest_fy_revisions(normalized)
 
-    dps_values = _asof_basis_fy_dps(fy_rows, ticker_bars)
+    dps_values = _asof_basis_fy_dps(fy_rows, ticker_bars, asof_date)
     latest_pair = _latest_consecutive_values(fy_rows, dps_values, count=2)
     latest_three = _latest_consecutive_values(fy_rows, dps_values, count=3)
 
@@ -358,11 +359,12 @@ def _latest_fy_revisions(
 def _asof_basis_fy_dps(
     fy_rows: Sequence[JQuantsFinancialSummary],
     ticker_bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
+    asof_date: date,
 ) -> dict[date, float]:
     """通期実績 DPS を fiscal year end で引けるようにする。
 
-    行は `_normalize_summaries_to_asof_basis` を通っているので asof 基準に揃っている。
-    会計期間から開示までに分割・併合が入った正の配当は原本の株式基準を特定できない。
+    実績 DPS は資本の正規化でも原本値のまま残す。
+    会計期間から比較日までに株数単位の変更・未分類 action があれば正の配当は未解決にする。
     その年度を未解決とし、未解決年度を含む YoY と streak は
     `_latest_consecutive_values` が None を返して増配と減配を取り違えない。
     """
@@ -375,7 +377,7 @@ def _asof_basis_fy_dps(
         requires_resolution = _dividend_basis_requires_resolution(
             ticker_bars,
             accrual_start=_dividend_accrual_start(row),
-            disclosed_at=row.disclosed_at,
+            basis_date=asof_date,
         )
         if not requires_resolution or value == 0:
             values[fiscal_year_end] = value

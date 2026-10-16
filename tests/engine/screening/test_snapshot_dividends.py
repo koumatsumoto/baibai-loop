@@ -261,16 +261,15 @@ class ScreeningMetricsTests(SnapshotFixtures):
 
         result = build_shareholder_return_change_signals(summaries, bars, asof)
 
-        # 分割は FY2024 の判定窓 (期末から1年前の2023-03-31〜開示日2024-05-10) に入る。その年度の
+        # 分割は FY2024 の判定窓 (期末から1年前の2023-03-31〜比較日) に入る。その年度の
         # 44 円が分割前基準か後かは原本fieldだけでは特定できないので、増配とも
         # 減配とも判定しない。株数側の signal は配当と独立なので残る。
         self.assertIsNone(result.dps_streak_up)
         self.assertIsNone(result.dps_yoy_latest)
         self.assertEqual(result.share_count_reduction_streak, 1)
 
-    def test_shareholder_return_change_normalizes_splits_after_the_last_disclosure(self) -> None:
-        # 分割が最新の通期開示より後なら、どの年度の accrual 期間にも入らない。各行は
-        # 公表後の分割が実績に未反映という規約で asof 基準へ揃い、増配 streak と YoY を出す。
+    def test_shareholder_return_change_rejects_ambiguous_post_disclosure_dps(self) -> None:
+        # 開示後の分割でも原本 DPS の換算済み・未換算を区別できない。
         asof = date(2026, 6, 30)
         bars = [
             JQuantsDailyBar(
@@ -311,13 +310,11 @@ class ScreeningMetricsTests(SnapshotFixtures):
 
         result = build_shareholder_return_change_signals(summaries, bars, asof)
 
-        self.assertTrue(result.dps_streak_up)
-        self.assertAlmostEqual(result.dps_yoy_latest or 0.0, (24.0 / 22.0) - 1.0)
+        self.assertIsNone(result.dps_streak_up)
+        self.assertIsNone(result.dps_yoy_latest)
 
-    def test_dividend_fields_split_normalization_and_carry_forward(self) -> None:
-        """実績 DPS は分割跨ぎ行で x factor 換算、予想 DPS は None 化。
-        実績年間 DPS は FY 行にしか載らないため、直近が四半期行でも
-        直近の非 null 行 (FY) から carry-forward して dividend_yield を出す。"""
+    def test_independent_forecast_survives_unresolved_actual_dividend_basis(self) -> None:
+        """実績の株式基準が未解決でも、独立した現行予想を使う。"""
         asof = date(2026, 7, 1)
         security = _security()
         bars = []
@@ -334,7 +331,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 )
             )
         summaries = [
-            # FY 行 (分割前開示): DivAnn=40 円 → asof-basis で 20 円。
+            # FY 行の原本 DivAnn=40 円は換算せず、比較基準を未解決とする。
             _summary(
                 "130A",
                 asof - timedelta(days=20),
@@ -364,10 +361,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
             edinet_by_ticker={},
         )
         financial = result.financials["130A"]
-        # FY 行の実績 40 円は分割 (factor 0.5) を跨ぐため 20 円へ換算され、
-        # 直近 1Q 行に実績が無くても carry-forward される。
-        assert financial.dps_actual_annual is not None
-        self.assertAlmostEqual(financial.dps_actual_annual, 20.0, places=6)
+        self.assertIsNone(financial.dps_actual_annual)
         # carry 用配当利回りは跳ねではない予想 DPS を優先する。FY 行 (分割跨ぎ) の予想は
         # None 化されるが、分割後 1Q 行の 22 円が最新の予想として使われる。
         assert financial.dividend_yield is not None

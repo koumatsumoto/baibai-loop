@@ -178,7 +178,7 @@ def _without_share_basis(summary: JQuantsFinancialSummary) -> JQuantsFinancialSu
 
     円の総額 (総資産・売上・利益) は基準に依存しないので残す。株数と per-share は
     どちらの基準か分からないまま価格と組むと時価総額が分割比だけずれるので答えない。
-    時価総額が出ない銘柄は母集団に入らない。
+    時価総額が出ない銘柄は母集団に入らない。実績 DPS は配当側が独立に判断するため残す。
     """
 
     return replace(
@@ -186,7 +186,6 @@ def _without_share_basis(summary: JQuantsFinancialSummary) -> JQuantsFinancialSu
         eps_ttm=None,
         forecast_eps=None,
         bps=None,
-        dps_actual_annual=(0.0 if summary.dps_actual_annual == 0 else None),
         dps_forecast_annual=(0.0 if summary.dps_forecast_annual == 0 else None),
         shares_outstanding=None,
         average_shares=None,
@@ -205,7 +204,8 @@ def _normalize_summaries_to_asof_basis(
     subsequent factors to per-share values and their inverses to share counts.
     Indeterminate bases lose dependent values; forecasts across a split are not
     relabelled as split-safe. Callers needing the capital carry barrier use the
-    result-returning variant directly.
+    result-returning variant directly. Actual DPS is deliberately preserved raw;
+    only the dividend resolver decides whether it is comparable at the as-of date.
     """
     return _normalize_summaries_with_status(summaries, ticker_bars, asof_date).summaries
 
@@ -249,13 +249,7 @@ def _normalize_summaries_with_status(
                 summary,
                 eps_ttm=summary.eps_ttm * factor if summary.eps_ttm is not None else None,
                 forecast_eps=None,
-                # 実績 DPS は per-share 実績と同じ換算。予想 DPS は基準不明の
-                # 正値だけ落とし、どの株式基準でも同じ明示 0 は残す。
-                dps_actual_annual=(
-                    summary.dps_actual_annual * factor
-                    if summary.dps_actual_annual is not None
-                    else None
-                ),
+                # 実績 DPS は原本のまま配当 resolver へ渡す。予想の明示 0 は残す。
                 dps_forecast_annual=(0.0 if summary.dps_forecast_annual == 0 else None),
                 bps=summary.bps * factor if summary.bps is not None else None,
                 shares_outstanding=(
@@ -263,9 +257,7 @@ def _normalize_summaries_with_status(
                     if summary.shares_outstanding is not None
                     else None
                 ),
-                # 期中平均株式数も株数なので同じ換算を掛ける。掛けないと、開示より後に
-                # 分割のある行で「発行済 - 自己株」との比が factor 倍ずれ、健全性 gate が
-                # 本来効かせたい (分割が複数ある) 行でだけ静かに無効になる。
+                # 期中平均株式数も同じ株数単位へ換算する。
                 average_shares=(
                     summary.average_shares / factor if summary.average_shares is not None else None
                 ),

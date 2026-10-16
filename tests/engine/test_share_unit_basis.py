@@ -44,16 +44,18 @@ def test_price_adjustment_and_financial_share_units_are_separate(kind, price_fac
     row = result.summaries[0]
     assert row.sales == source.sales
     assert row.profit == source.profit
+    carry = _resolve_dividend_carry([row], [event], 100.0, action_day)
+    assert carry.dps_actual_annual == (8.0 if unit_factor == 1.0 else None)
     if unit_factor is None:
         assert row.shares_outstanding is None
-        assert row.dps_actual_annual is None
+        assert row.dps_actual_annual == 8.0
         assert result.capital_basis_barrier is not None
     else:
         assert row.shares_outstanding == 100.0 / unit_factor
         assert row.treasury_shares == 10.0 / unit_factor
         assert row.average_shares == 90.0 / unit_factor
         assert row.eps_ttm == 20.0 * unit_factor
-        assert row.dps_actual_annual == 8.0 * unit_factor
+        assert row.dps_actual_annual == 8.0
         assert result.capital_basis_barrier is None
 
 
@@ -71,7 +73,7 @@ def test_rights_issue_inside_dividend_year_does_not_require_split_payment_detail
     event = JQuantsAdjustmentFactorEvent("1111", date(2026, 2, 1), 0.8, "3")
     normalized = _normalize_summaries_with_status([source], [event], disclosed)
     assert normalized.summaries == [source]
-    carry = _resolve_dividend_carry(normalized.summaries, [event], 80.0)
+    carry = _resolve_dividend_carry(normalized.summaries, [event], 80.0, disclosed)
     assert carry.dps_actual_annual == 8.0
     assert carry.dividend_yield == 0.1
     assert carry.basis == "actual_reported"

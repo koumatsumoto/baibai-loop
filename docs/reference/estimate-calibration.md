@@ -78,7 +78,7 @@ EDINET の取込は最近の as-of 分しか無いので、それ以前の cohor
 
 `entry_not_listed` が非 block なのは「市場に無かった」に限らないので、panel が price を持ちながら universe へ入れられなかった銘柄は row の `population_coverage_status` と `priced_master_without_universe_count` で別に同定する。universe の除外条件が増えても、その分が非 block の側へ黙って流れ込まない。
 
-entry は as-of の 15 日前までの close で解決するので、保有期間は名目 horizon より最大でその分長い。価格 bar と `adjustment_factor_coverage` はこの窓から読む。一方、配当実績の株式基準が未解決となる単位変更を確認する corporate-action event は、最初に対象になる FY の `period_start` まで別に遡って読む。会計期間から開示までの単位変更を含む正の実績は、推定した配当基準日で換算せず未解決とする。開示後の変更は実績に未反映と仮定して換算する規約であり、原本の基準の保証ではない。価格入力窓と配当の会計期間窓は同一ではない。
+entry は as-of の 15 日前までの close で解決するので、保有期間は名目 horizon より最大でその分長い。価格 bar と `adjustment_factor_coverage` はこの窓から読む。一方、配当実績の株式基準が未解決となる単位変更を確認する corporate-action event は、最初に対象になる FY の `period_start` まで別に遡って読む。会計期間から価格の比較基準日までの単位変更・未分類 action を含む正の実績は、推定換算せず未解決とする。exit後の分割でも配当込み成績が未解決になる一方、価格だけの成績は残す。価格入力窓と配当の会計期間窓は同一ではない。
 
 ### universe 未評価銘柄（`priced_master_without_universe`）
 

@@ -15,7 +15,6 @@ from baibai_engine.market.bars import (
     JQuantsDailyBar,
     asof_basis_closes,
     asof_basis_prices,
-    cumulative_share_unit_factor_after,
 )
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
@@ -44,7 +43,7 @@ __all__ = (
 )
 
 
-FORWARD_CALCULATION_REVISION = "dividend-basis-ambiguity-v4"
+FORWARD_CALCULATION_REVISION = "reported-dividend-basis-v5"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -774,26 +773,21 @@ def _asof_basis_dividend(
     *,
     basis_date: date,
 ) -> float | None:
-    """Normalize actual DPS under the documented post-disclosure convention.
+    """Use reported DPS only when observed actions do not make its basis ambiguous.
 
-    fin-summary does not say whether payment fields were issuer-adjusted. A unit
-    change before disclosure therefore cannot be repaired from inferred quarter
-    ends, annual cash totals, or terminal shares. Later actions use the convention
-    that the issuer had not pre-adjusted actual DPS for an announced future action;
-    this is an analytical assumption, not a provider guarantee. Keep price-only outcomes separate.
+    No split factor reconstructs issuer payment basis, including actions after
+    disclosure. Absence of an observed action is not a guarantee that an issuer
+    did not pre-adjust for a future announced action. Keep price-only outcomes.
     """
     reported = observation.dps_actual_annual
     if reported is None or reported == 0:
         return reported
     window_start = observation.period_start or add_months_clamped(observation.fiscal_year_end, -12)
     if _dividend_basis_requires_resolution(
-        bars, accrual_start=window_start, disclosed_at=observation.disclosed_at
+        bars, accrual_start=window_start, basis_date=basis_date
     ):
         return None
-    factor = cumulative_share_unit_factor_after(
-        bars, after=observation.disclosed_at, asof_date=basis_date
-    )
-    return None if factor is None else reported * factor
+    return reported
 
 
 def latest_market_data_date(sqlite_path: Path) -> date | None:

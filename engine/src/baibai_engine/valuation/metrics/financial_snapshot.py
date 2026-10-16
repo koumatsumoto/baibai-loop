@@ -43,7 +43,7 @@ from .profit import (
 )
 from .ratios import _safe_positive_ratio, _safe_ratio, _yoy_ratio
 
-VALUATION_CALCULATION_REVISION = "dividend-basis-ambiguity-v33"
+VALUATION_CALCULATION_REVISION = "reported-dividend-basis-v34"
 
 
 def build_financial_snapshot(
@@ -118,12 +118,9 @@ def build_financial_snapshot(
     bs_carry_forward_lag_days = max(
         (lag for lag in carried_lags.values() if lag is not None), default=None
     )
-    # carry 用の配当利回りは予想 DPS を優先する。ただし正の実績 DPS の 2 倍を超える
-    # 跳ねは 5 年反復させず、実績へ倒す。予想を使えなければ accrual 期間の分割 factor で
-    # 調整した実績 DPS を使う。実績 DPS は
-    # FY 開示にしか載らないため直近の非 null 行から取り、split-safe 化した値を
-    # snapshot の実績 DPS として記録する (株価と同じ分割後基準で表示・比較できる)。
-    dividend = _resolve_dividend_carry(summaries, adjustment_events, latest_price)
+    # 配当側で原本実績の比較可能性を判断する。資本の換算値を DPS へ流用しない。
+    # 独立して使える現行予想を優先し、受理した実績または未解決を snapshot へ渡す。
+    dividend = _resolve_dividend_carry(summaries, adjustment_events, latest_price, asof_date)
     dps_actual_annual = dividend.dps_actual_annual
     dps_forecast_annual = dividend.dps_forecast_annual
     dividend_yield = dividend.dividend_yield

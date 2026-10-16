@@ -519,11 +519,11 @@ class ForwardReturnTest(unittest.TestCase):
         self.assertAlmostEqual(row.price_return or 0.0, 3000.0 / 2500.0 - 1)
         self.assertAlmostEqual(row.total_return or 0.0, 3000.0 / 2500.0 - 1 + 180 / 2500)
 
-    def test_total_return_normalizes_dps_to_adjusted_entry_basis(self) -> None:
+    def test_post_exit_split_keeps_price_return_but_not_ambiguous_dividends(self) -> None:
         bars = [
             _bar(date(2021, 1, 31), 100.0, 1.0, ticker="7203"),
             _bar(date(2022, 1, 31), 120.0, 1.0, ticker="7203"),
-            # exit 後の 1:2 split も store の最終 bar basis へ entry/exit/DPS を揃える。
+            # exit 後の分割でも価格は比較できるが、実績 DPS の換算基準は確定しない。
             _bar(date(2022, 3, 1), 60.0, 0.5, ticker="7203"),
         ]
         row = _ticker_forward_rows(
@@ -535,10 +535,10 @@ class ForwardReturnTest(unittest.TestCase):
             eval_cap=date(2022, 3, 1),
         )[0]
 
-        self.assertEqual(row.total_return_status, "resolved")
-        self.assertEqual(row.realized_dividend_sum, 20.0)
+        self.assertEqual(row.total_return_status, "unresolved_dividend_split_basis")
+        self.assertIsNone(row.realized_dividend_sum)
         self.assertAlmostEqual(row.price_return or 0.0, 60.0 / 50.0 - 1)
-        self.assertAlmostEqual(row.total_return or 0.0, 60.0 / 50.0 - 1 + 20.0 / 50.0)
+        self.assertIsNone(row.total_return)
 
     def test_total_return_uses_close_null_event_for_price_and_dps_basis(self) -> None:
         bars = [
@@ -557,10 +557,10 @@ class ForwardReturnTest(unittest.TestCase):
             eval_cap=date(2022, 3, 1),
         )[0]
 
-        self.assertEqual(row.total_return_status, "resolved")
-        self.assertEqual(row.realized_dividend_sum, 20.0)
+        self.assertEqual(row.total_return_status, "unresolved_dividend_split_basis")
+        self.assertIsNone(row.realized_dividend_sum)
         self.assertAlmostEqual(row.price_return or 0.0, 60.0 / 50.0 - 1)
-        self.assertAlmostEqual(row.total_return or 0.0, 60.0 / 50.0 - 1 + 20.0 / 50.0)
+        self.assertIsNone(row.total_return)
 
     def test_total_return_keeps_absent_null_zero_and_negative_dividends_distinct(self) -> None:
         bars = [
