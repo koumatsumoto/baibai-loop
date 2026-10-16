@@ -297,4 +297,6 @@ def test_override_report_roundtrips_and_advances_only_its_metadata_cutoff(
     assert saved.events == ledger.events
     assert service.append_head() == before_head
     assert saved.overrides == (override,)
-    assert active_human_overrides(saved.overrides, as_of=saved.as_of)[("ticker", "2331")] == override
+    assert (
+        active_human_overrides(saved.overrides, as_of=saved.as_of)[("ticker", "2331")] == override
+    )
