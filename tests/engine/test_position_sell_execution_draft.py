@@ -259,13 +259,16 @@ def test_identical_sell_parameters_after_apply_are_no_change(
         price_yen=Decimal("1100"),
     )
     apply_draft(service, first, human_confirmed=True)
-    assert build_sell_execution_draft(
-        service,
-        occurred_at=retry_at,
-        ticker="2331",
-        quantity=100,
-        price_yen=Decimal("1100"),
-    ) is None
+    assert (
+        build_sell_execution_draft(
+            service,
+            occurred_at=retry_at,
+            ticker="2331",
+            quantity=100,
+            price_yen=Decimal("1100"),
+        )
+        is None
+    )
     assert _holding(service, "2331").quantity == 100
     with pytest.raises(ValueError, match="conflicting human report"):
         build_sell_execution_draft(

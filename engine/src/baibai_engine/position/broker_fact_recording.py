@@ -150,8 +150,10 @@ def record_broker_fact(
                 (reservation_id is not None and event.reservation_id == reservation_id)
                 or (order_id is not None and event.order_id == order_id)
                 or (
-                    reservation_id is None and order_id is None
-                    and event.side == side and event.ticker == ticker
+                    reservation_id is None
+                    and order_id is None
+                    and event.side == side
+                    and event.ticker == ticker
                     and event.occurred_on == occurred_on
                     and (occurred_on is not None or event.occurred_at == occurred_at)
                 )
@@ -173,12 +175,10 @@ def record_broker_fact(
                 "type": "reservation",
                 "side": side,
                 "occurred_at": occurred_at.isoformat(),
-                "reservation_id": reservation_id or (
-                    saved_order.reservation_id if saved_order else f"reservation-{suffix}"
-                ),
-                "order_id": order_id or (
-                    saved_order.order_id if saved_order else f"repository-order-{suffix}"
-                ),
+                "reservation_id": reservation_id
+                or (saved_order.reservation_id if saved_order else f"reservation-{suffix}"),
+                "order_id": order_id
+                or (saved_order.order_id if saved_order else f"repository-order-{suffix}"),
                 "ticker": ticker,
                 "sector": resolved_sector,
                 "common_factors": sorted(resolved_common_factors),

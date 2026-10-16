@@ -475,28 +475,49 @@ def test_equivalent_timezone_fill_retry_preserves_existing_event(reserved: bool)
     reservation_id = None
     if reserved:
         opened = record_broker_fact(
-            original, decision_reference=PROPOSAL, status="open", occurred_at=_at(9),
-            ticker="2331", quantity=100, price_guard_yen=Decimal("1100"), now=_at(12),
+            original,
+            decision_reference=PROPOSAL,
+            status="open",
+            occurred_at=_at(9),
+            ticker="2331",
+            quantity=100,
+            price_guard_yen=Decimal("1100"),
+            now=_at(12),
         )
         original = opened.document
         reservation_id = next(
-            item.reservation_id for item in portfolio_snapshot(original).active_reservations
+            item.reservation_id
+            for item in portfolio_snapshot(original).active_reservations
             if item.ticker == "2331"
         )
     first = record_broker_fact(
-        original, decision_reference=PROPOSAL, status="filled", occurred_at=_at(10),
-        ticker="2331", quantity=100, price_yen=Decimal("1090"),
-        reservation_id=reservation_id, now=_at(12),
+        original,
+        decision_reference=PROPOSAL,
+        status="filled",
+        occurred_at=_at(10),
+        ticker="2331",
+        quantity=100,
+        price_yen=Decimal("1090"),
+        reservation_id=reservation_id,
+        now=_at(12),
     )
     retry = record_broker_fact(
-        first.document, decision_reference=PROPOSAL, status="filled",
-        occurred_at=_at(10).astimezone(UTC), ticker="2331", quantity=100,
-        price_yen=Decimal("1090"), reservation_id=reservation_id, now=_at(12),
+        first.document,
+        decision_reference=PROPOSAL,
+        status="filled",
+        occurred_at=_at(10).astimezone(UTC),
+        ticker="2331",
+        quantity=100,
+        price_yen=Decimal("1090"),
+        reservation_id=reservation_id,
+        now=_at(12),
     )
     assert not retry.changed
     assert retry.document == first.document
-    assert next(h.quantity for h in portfolio_snapshot(retry.document).holdings
-                if h.ticker == "2331") == 300
+    assert (
+        next(h.quantity for h in portfolio_snapshot(retry.document).holdings if h.ticker == "2331")
+        == 300
+    )
 
 
 @pytest.mark.parametrize("explicit_ids", [False, True])
@@ -505,15 +526,28 @@ def test_equivalent_timezone_order_retry_keeps_one_reservation(explicit_ids: boo
     reservation_id = "reported-reservation" if explicit_ids else None
     order_id = "reported-order" if explicit_ids else None
     first = record_broker_fact(
-        original, decision_reference=PROPOSAL, status="open", occurred_at=_at(9),
-        ticker="2331", quantity=100, price_guard_yen=Decimal("1100"),
-        reservation_id=reservation_id, order_id=order_id, now=_at(12),
+        original,
+        decision_reference=PROPOSAL,
+        status="open",
+        occurred_at=_at(9),
+        ticker="2331",
+        quantity=100,
+        price_guard_yen=Decimal("1100"),
+        reservation_id=reservation_id,
+        order_id=order_id,
+        now=_at(12),
     )
     retry = record_broker_fact(
-        first.document, decision_reference=PROPOSAL, status="open",
-        occurred_at=_at(9).astimezone(UTC), ticker="2331", quantity=100,
-        price_guard_yen=Decimal("1100"), reservation_id=reservation_id,
-        order_id=order_id, now=_at(12),
+        first.document,
+        decision_reference=PROPOSAL,
+        status="open",
+        occurred_at=_at(9).astimezone(UTC),
+        ticker="2331",
+        quantity=100,
+        price_guard_yen=Decimal("1100"),
+        reservation_id=reservation_id,
+        order_id=order_id,
+        now=_at(12),
     )
     assert not retry.changed
     assert retry.document == first.document

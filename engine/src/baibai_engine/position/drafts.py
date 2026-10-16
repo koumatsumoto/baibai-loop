@@ -204,7 +204,8 @@ def build_broker_fact_draft(
             reservation_id=requested_ids[0] if requested_ids else None,
             occurred_at=occurred_at,
             occurred_on=occurred_on,
-        ) is not None
+        )
+        is not None
     ):
         result = record_single_fact()
         assert not result.changed
