@@ -33,11 +33,11 @@ from baibai_engine.screening.calibration.store import (
     read_panel_meta,
 )
 
+from baibai_engine.valuation.estimates import SHARE_COUNT_CLIP, UPSIDE_CAP
+
 DEFAULT_CALIBRATION_DIR = Path("stores/screening/calibration")
 DEFAULT_HORIZONS = ("1y", "3y", "5y")
 HORIZON_YEARS: Mapping[str, int] = {"1y": 1, "3y": 3, "5y": 5}
-SHARE_COUNT_YIELD_CLIP = 0.05
-UPSIDE_CAP = 0.50
 DEFAULT_ER_THRESHOLD = 0.085
 # `price` は終値だけ、`total` は窓内に実現した配当を足したもの。
 # 株数変化の寄与は自己株買いの実行額や配当収入そのものではない。
@@ -59,7 +59,7 @@ class SignalCohortMeasurementError(ValueError):
 class PanelRow:
     asof: str
     ticker: str
-    er_annual: float
+    er_annual: float | None
     share_count_yield: float | None
     upside_capped: float | None
     earnings_anchor_available: bool
@@ -151,8 +151,6 @@ def _panel_row(
 ) -> PanelRow | None:
     if not stored.in_population:
         return None
-    if stored.er_annual is None:
-        return None
     share_change = stored.net_share_change_yoy
     # 欠測を 0 と読むと「株数が動かなかった」と「株数変化が分からない」が control 群へ
     # 一緒に入る。株数変化の比較では欠測を None のまま持ち、どちらの群にも入れない。
@@ -160,8 +158,8 @@ def _panel_row(
         None
         if share_change is None
         else max(
-            -SHARE_COUNT_YIELD_CLIP,
-            min(SHARE_COUNT_YIELD_CLIP, -share_change),
+            -SHARE_COUNT_CLIP,
+            min(SHARE_COUNT_CLIP, -share_change),
         )
     )
     return PanelRow(
@@ -235,13 +233,13 @@ def _group_summary(rows: Sequence[PanelRow], horizon: str, *, label: str) -> Map
 def _high_estimate_comparison(
     rows: Sequence[PanelRow], horizon: str, *, er_threshold: float
 ) -> Mapping[str, object]:
-    treatment = [row for row in rows if row.er_annual >= er_threshold]
+    treatment = [row for row in rows if row.er_annual is not None and row.er_annual >= er_threshold]
     return {
         "horizon": horizon,
         "er_threshold": er_threshold,
         "groups": [
             _group_summary(treatment, horizon, label=f"er_annual>={er_threshold}"),
-            _group_summary(rows, horizon, label="liquidity_passing_population"),
+            _group_summary(rows, horizon, label="stored_comparison_population"),
         ],
         "cohort_agreement": _cohort_win_rate(
             treatment, rows, horizon, min_control_rows=MIN_POPULATION_ROWS
@@ -252,10 +250,10 @@ def _high_estimate_comparison(
 def _share_count_comparison(rows: Sequence[PanelRow], horizon: str) -> Mapping[str, object]:
     known = [row for row in rows if row.share_count_yield is not None]
     clipped = [
-        row for row in known if (row.share_count_yield or 0.0) >= SHARE_COUNT_YIELD_CLIP - 1e-9
+        row for row in known if (row.share_count_yield or 0.0) >= SHARE_COUNT_CLIP - 1e-9
     ]
     partial = [
-        row for row in known if 0.0 < (row.share_count_yield or 0.0) < SHARE_COUNT_YIELD_CLIP - 1e-9
+        row for row in known if 0.0 < (row.share_count_yield or 0.0) < SHARE_COUNT_CLIP - 1e-9
     ]
     non_positive = [row for row in known if (row.share_count_yield or 0.0) <= 0.0]
     unknown = [row for row in rows if row.share_count_yield is None]
@@ -290,7 +288,7 @@ def _anchor_comparison(rows: Sequence[PanelRow], horizon: str) -> Mapping[str, o
             _group_summary(equity_only_capped, horizon, label="equity_anchor_only_at_cap"),
             _group_summary(equity_only_uncapped, horizon, label="equity_anchor_only_below_cap"),
             _group_summary(earnings_capped, horizon, label="earnings_anchor_at_cap"),
-            _group_summary(rows, horizon, label="liquidity_passing_population"),
+            _group_summary(rows, horizon, label="stored_comparison_population"),
         ],
         "cohort_agreement": _cohort_win_rate(
             equity_only_capped, rows, horizon, min_control_rows=MIN_POPULATION_ROWS
@@ -317,7 +315,7 @@ def _share_count_continuity_comparison(
             _group_summary(single, horizon, label="reduction_streak_single_year"),
             _group_summary(repeated, horizon, label="reduction_streak_repeated"),
             _group_summary(unknown, horizon, label="reduction_streak_unknown"),
-            _group_summary(rows, horizon, label="liquidity_passing_population"),
+            _group_summary(rows, horizon, label="stored_comparison_population"),
         ],
         "cohort_agreement": _cohort_win_rate(
             repeated, single, horizon, min_control_rows=MIN_GROUP_ROWS

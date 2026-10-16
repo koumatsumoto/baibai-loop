@@ -51,8 +51,10 @@ def test_stored_population_flag_is_the_only_population_authority(tmp_path: Path)
 
     payload = build_measurement(calibration_dir=directory, horizons=("1y",), er_threshold=0.085)
 
-    assert payload["panel_rows"] == 1
-    assert payload["basis_coverage"]["1y"]["price_resolved_rows"] == 1
+    assert payload["panel_rows"] == 2
+    assert payload["basis_coverage"]["1y"]["price_resolved_rows"] == 2
+    groups = payload["comparisons"]["high_estimate"][0]["groups"]
+    assert groups[1]["resolved_rows"] == 2
 
 
 def test_unresolved_forward_rows_do_not_enter_the_median(tmp_path: Path) -> None:
@@ -219,7 +221,7 @@ def _both_basescalibration_root(tmp_path: Path) -> Path:
 def _population_group(payload: Mapping[str, Any]) -> Mapping[str, Any]:
     comparison = payload["comparisons"]["high_estimate"][0]
     return next(
-        group for group in comparison["groups"] if group["group"] == "liquidity_passing_population"
+        group for group in comparison["groups"] if group["group"] == "stored_comparison_population"
     )
 
 
@@ -372,3 +374,17 @@ def test_missing_upside_does_not_enter_below_cap_group() -> None:
     groups = measure_signal_cohorts._anchor_comparison([row], "1y")["groups"]
     below = next(group for group in groups if group["group"] == "equity_anchor_only_below_cap")
     assert below["resolved_rows"] == 0
+
+
+def test_missing_er_does_not_remove_known_share_change_from_its_comparison():
+    stored = panel_row(
+        "2024-01-31", "1111", er_annual=None, net_share_change_yoy=-0.20,
+        in_population=True,
+    )
+    row = measure_signal_cohorts._panel_row(stored, {(stored.asof, stored.ticker): {"1y": 0.1}})
+    assert row is not None
+    high = measure_signal_cohorts._high_estimate_comparison([row], "1y", er_threshold=0.085)
+    assert high["groups"][0]["resolved_rows"] == 0
+    assert high["groups"][1]["resolved_rows"] == 1
+    shares = measure_signal_cohorts._share_count_comparison([row], "1y")
+    assert shares["groups"][0]["resolved_rows"] == 1
