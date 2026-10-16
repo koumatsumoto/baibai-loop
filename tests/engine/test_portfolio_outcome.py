@@ -483,7 +483,8 @@ def test_period_cashflows_exclude_events_already_in_the_opening_close() -> None:
 
 def test_position_closed_before_opening_close_is_not_a_period_exit() -> None:
     raw = _ledger().model_dump(mode="json")
-    raw["events"] = raw["events"][:3] + [
+    raw["events"] = [
+        *raw["events"][:3],
         {
             "event_id": "start-sell",
             "type": "execution",
