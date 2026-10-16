@@ -335,7 +335,7 @@ class ScreeningProviderTests(unittest.TestCase):
             cached.parent.mkdir(parents=True)
             cached.write_text('{"StatusCode":"429","message":"Too Many Requests"}')
             expected = _edinet_csv_zip(
-                [("jpcrp_cor:NetSales", "CurrentYearDuration_ConsolidatedMember", "1000")]
+                [("jpcrp_cor:NetSales", "CurrentYearDuration", "1000")]
             )
             provider = EDINETProvider("key", cache, session=_SequenceBytesSession([expected]))
 
@@ -348,7 +348,7 @@ class ScreeningProviderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp)
             expected = _edinet_csv_zip(
-                [("jpcrp_cor:NetSales", "CurrentYearDuration_ConsolidatedMember", "1000")]
+                [("jpcrp_cor:NetSales", "CurrentYearDuration", "1000")]
             )
             provider = EDINETProvider(
                 "key",
@@ -371,7 +371,7 @@ class ScreeningProviderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp)
             expected = _edinet_csv_zip(
-                [("jpcrp_cor:NetSales", "CurrentYearDuration_ConsolidatedMember", "1000")]
+                [("jpcrp_cor:NetSales", "CurrentYearDuration", "1000")]
             )
             session = _TransientThenBytesSession(content=expected)
             provider = EDINETProvider("key", cache, session=session)
@@ -1076,26 +1076,26 @@ class ScreeningProviderTests(unittest.TestCase):
 
     def test_parse_csv_zip_metric_record_extracts_net_cash_and_fcf(self) -> None:
         rows = [
-            ("jpcrp_cor:NetSales", "CurrentYearConsolidatedDuration", "1000"),
+            ("jpcrp_cor:NetSales", "CurrentYearDuration", "1000"),
             (
                 "jpcrp_cor:CashFlowsFromOperatingActivities",
-                "CurrentYearConsolidatedDuration",
+                "CurrentYearDuration",
                 "150",
             ),
-            ("jpcrp_cor:OperatingProfit", "CurrentYearConsolidatedDuration", "90"),
-            ("jpcrp_cor:DepreciationAndAmortization", "CurrentYearConsolidatedDuration", "30"),
+            ("jpcrp_cor:OperatingProfit", "CurrentYearDuration", "90"),
+            ("jpcrp_cor:DepreciationAndAmortization", "CurrentYearDuration", "30"),
             (
                 "jpcrp_cor:PurchaseOfPropertyPlantAndEquipment",
-                "CurrentYearConsolidatedDuration",
+                "CurrentYearDuration",
                 "-40",
             ),
-            ("jpcrp_cor:PurchaseOfIntangibleAssets", "CurrentYearConsolidatedDuration", "0"),
-            ("jpcrp_cor:CashAndDeposits", "CurrentYearConsolidatedInstant", "300"),
-            ("jppfs_cor:InvestmentSecurities", "CurrentYearConsolidatedInstant", "250"),
-            ("jpcrp_cor:ShortTermBorrowings", "CurrentYearConsolidatedInstant", "20"),
-            ("jpcrp_cor:LongTermBorrowings", "CurrentYearConsolidatedInstant", "50"),
-            ("jpcrp_cor:Equity", "CurrentYearConsolidatedInstant", "800"),
-            ("jpcrp_cor:TotalAssets", "CurrentYearConsolidatedInstant", "1400"),
+            ("jpcrp_cor:PurchaseOfIntangibleAssets", "CurrentYearDuration", "0"),
+            ("jpcrp_cor:CashAndDeposits", "CurrentYearInstant", "300"),
+            ("jppfs_cor:InvestmentSecurities", "CurrentYearInstant", "250"),
+            ("jpcrp_cor:ShortTermBorrowings", "CurrentYearInstant", "20"),
+            ("jpcrp_cor:LongTermBorrowings", "CurrentYearInstant", "50"),
+            ("jpcrp_cor:Equity", "CurrentYearInstant", "800"),
+            ("jpcrp_cor:TotalAssets", "CurrentYearInstant", "1400"),
         ]
         record = parse_csv_zip_metric_record(
             ticker="7203",
@@ -1123,21 +1123,21 @@ class ScreeningProviderTests(unittest.TestCase):
 
     def test_investment_securities_uses_exact_tag_and_consolidated_basis(self) -> None:
         rows = [
-            ("jppfs_cor:InvestmentSecurities", "CurrentYearConsolidatedInstant", "250"),
-            ("jppfs_cor:InvestmentSecurities", "CurrentYearNonConsolidatedInstant", "900"),
+            ("jppfs_cor:InvestmentSecurities", "CurrentYearInstant", "250"),
+            ("jppfs_cor:InvestmentSecurities", "CurrentYearInstant_NonConsolidatedMember", "900"),
             (
                 "jppfs_cor:SharesOfSubsidiariesAndAssociates",
-                "CurrentYearConsolidatedInstant",
+                "CurrentYearInstant",
                 "700",
             ),
             (
                 "jpcrp_cor:OperationalInvestmentSecurities",
-                "CurrentYearConsolidatedInstant",
+                "CurrentYearInstant",
                 "800",
             ),
             (
                 "jppfs_cor:GainOnSaleOfInvestmentSecurities",
-                "CurrentYearConsolidatedDuration",
+                "CurrentYearDuration",
                 "1000",
             ),
         ]
@@ -1161,12 +1161,12 @@ class ScreeningProviderTests(unittest.TestCase):
                 [
                     (
                         "jpcrp_cor:OperationalInvestmentSecurities",
-                        "CurrentYearConsolidatedInstant",
+                        "CurrentYearInstant",
                         "800",
                     ),
                     (
                         "jppfs_cor:ProceedsFromSaleOfInvestmentSecurities",
-                        "CurrentYearConsolidatedDuration",
+                        "CurrentYearDuration",
                         "900",
                     ),
                 ]
@@ -1177,7 +1177,7 @@ class ScreeningProviderTests(unittest.TestCase):
             doc_id="S100ZERO",
             doc_type_code="120",
             content=_edinet_csv_zip(
-                [("jppfs_cor:InvestmentSecurities", "CurrentYearConsolidatedInstant", "-")]
+                [("jppfs_cor:InvestmentSecurities", "CurrentYearInstant", "-")]
             ),
         )
 
@@ -1196,7 +1196,7 @@ class ScreeningProviderTests(unittest.TestCase):
                         [
                             (
                                 "jppfs_cor:InvestmentSecurities",
-                                "CurrentYearConsolidatedInstant",
+                                "CurrentYearInstant",
                                 value,
                             )
                         ]
@@ -1205,11 +1205,11 @@ class ScreeningProviderTests(unittest.TestCase):
 
     def test_parse_csv_zip_metric_record_extracts_loan_payable_and_lease_debt(self) -> None:
         rows = [
-            ("jppfs_cor:CashAndDeposits", "CurrentYearInstant_ConsolidatedMember", "1000"),
-            ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant_ConsolidatedMember", "120"),
-            ("jppfs_cor:LeaseObligationsCL", "CurrentYearInstant_ConsolidatedMember", "30"),
-            ("jppfs_cor:LeaseAssetsPPE", "CurrentYearInstant_ConsolidatedMember", "999"),
-            ("jppfs_cor:LongTermLoansReceivable", "CurrentYearInstant_ConsolidatedMember", "888"),
+            ("jppfs_cor:CashAndDeposits", "CurrentYearInstant", "1000"),
+            ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant", "120"),
+            ("jppfs_cor:LeaseObligationsCL", "CurrentYearInstant", "30"),
+            ("jppfs_cor:LeaseAssetsPPE", "CurrentYearInstant", "999"),
+            ("jppfs_cor:LongTermLoansReceivable", "CurrentYearInstant", "888"),
         ]
         record = parse_csv_zip_metric_record(
             ticker="7203",
@@ -1226,7 +1226,7 @@ class ScreeningProviderTests(unittest.TestCase):
         self,
     ) -> None:
         rows = [
-            ("jppfs_cor:CashAndDeposits", "CurrentYearInstant_ConsolidatedMember", "1000"),
+            ("jppfs_cor:CashAndDeposits", "CurrentYearInstant", "1000"),
         ]
         record = parse_csv_zip_metric_record(
             ticker="7203",
@@ -1242,9 +1242,9 @@ class ScreeningProviderTests(unittest.TestCase):
 
     def test_parse_csv_zip_metric_record_allows_reported_zero_debt(self) -> None:
         rows = [
-            ("jppfs_cor:CashAndDeposits", "CurrentYearInstant_ConsolidatedMember", "1000"),
-            ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant_ConsolidatedMember", "-"),
-            ("jppfs_cor:LeaseObligationsCL", "CurrentYearInstant_ConsolidatedMember", "-"),
+            ("jppfs_cor:CashAndDeposits", "CurrentYearInstant", "1000"),
+            ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant", "-"),
+            ("jppfs_cor:LeaseObligationsCL", "CurrentYearInstant", "-"),
         ]
         record = parse_csv_zip_metric_record(
             ticker="7203",
@@ -2555,8 +2555,8 @@ def test_capex_total_components_and_period_are_not_mixed(subtests):
     total = "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentAndIntangibleAssetsInvCF"
     tangible = "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF"
     intangible = "jppfs_cor:PurchaseOfIntangibleAssetsInvCF"
-    current = "CurrentYearConsolidatedDuration"
-    prior = "Prior1YearConsolidatedDuration"
+    current = "InterimDuration"
+    prior = "Prior1InterimDuration"
     rows = [("jppfs_cor:NetCashProvidedByUsedInOperatingActivities", current, "4857")]
     cases = [
         ("total", [(total, current, "-1136")], 1136),
@@ -2578,7 +2578,7 @@ def test_capex_total_components_and_period_are_not_mixed(subtests):
             [(total, prior, "-769"), (tangible, current, "-1000"), (intangible, current, "-136")],
             1136,
         ),
-        ("nonconsolidated-total", [(total, "CurrentYearNonConsolidatedDuration", "-999")], None),
+        ("nonconsolidated-total", [(total, "InterimDuration_NonConsolidatedMember", "-999")], None),
         ("missing", [], None),
         ("explicit-zero", [(total, current, "0")], 0),
     ]

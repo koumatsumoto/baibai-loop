@@ -82,13 +82,12 @@ def test_missing_convertible_debt_is_not_reported_zero(cb):
     )
 
 
-@pytest.mark.parametrize("basis", ["個別", "非連結", "non_consolidated"])
-def test_non_consolidated_basis_is_not_matched_as_consolidated(basis):
+def test_non_consolidated_context_is_not_matched_as_consolidated():
     rows = [
         ("jppfs_cor:CashAndDeposits", "CurrentYearInstant", "連結", "1000"),
         (_CB, "CurrentYearInstant", "連結", "100"),
-        ("jppfs_cor:CashAndDeposits", "CurrentYearInstant", basis, "9999"),
-        (_CB, "CurrentYearInstant", basis, "900"),
+        ("jppfs_cor:CashAndDeposits", "CurrentYearInstant_NonConsolidatedMember", "個別", "9999"),
+        (_CB, "CurrentYearInstant_NonConsolidatedMember", "個別", "900"),
     ]
     record = parse_csv_zip_metric_record(
         ticker="0000", doc_id="S100TEST", doc_type_code="120", content=_csv_zip(rows)
@@ -98,11 +97,10 @@ def test_non_consolidated_basis_is_not_matched_as_consolidated(basis):
     assert record.debt == 100.0
 
 
-@pytest.mark.parametrize("basis", ["個別", "非連結", "non_consolidated"])
-def test_only_non_consolidated_rows_keep_fallback_identity(basis):
+def test_only_non_consolidated_rows_keep_fallback_identity():
     rows = [
-        ("jppfs_cor:CashAndDeposits", "CurrentYearInstant", basis, "1000"),
-        (_CB, "CurrentYearInstant", basis, "100"),
+        ("jppfs_cor:CashAndDeposits", "CurrentYearInstant_NonConsolidatedMember", "個別", "1000"),
+        (_CB, "CurrentYearInstant_NonConsolidatedMember", "個別", "100"),
     ]
     record = parse_csv_zip_metric_record(
         ticker="0000", doc_id="S100TEST", doc_type_code="120", content=_csv_zip(rows)

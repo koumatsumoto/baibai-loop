@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 
 # 意味変更時だけ明示更新する。配置・import・transport retryは対象外。
-# native CSVのJPY単位・明示ゼロ・欠測を区別し、通貨不明で旧期へ戻さない。
+# native CSVの当期・連結範囲・JPY単位・欠測を区別し、旧期へ戻さない。
 EDINET_METRIC_REVISION = "edinet-metrics-v3-native-monetary-values"
 
 

@@ -179,7 +179,9 @@ EV がゼロ以下、または EBITDA がゼロ以下の場合、EV/EBITDA は `
 
 EDINET `type=5` CSV-derived metrics から以下を抽出する。金額は native の `ユニットID=JPY` を確認し、表示単位の「円」や数値だけから通貨を推測しない。[閲覧操作ガイド](https://disclosure2dl.edinet-fsa.go.jp/guide/static/disclosure/download/ESE140133.pdf) の CSV 仕様に従い、値の ASCII `-` は明示ゼロとする。空欄・見た目の似た横棒はゼロへ置換せず、同じ項目・context の JPY 値が競合する場合も算出不能とする。欠測や通貨不明の当期行を除いて前期の数値へ戻る補完は行わない。元 ZIP の値は変更しない。
 
-- `cash`: 現金及び現金同等物 / 現金及び預金
+財務本表の当期contextを先に一つの期間・連結範囲へ絞る。年次は `CurrentYearInstant/Duration`、半期は `InterimInstant/Duration`、旧四半期報告は `CurrentQuarterInstant` と累計の `CurrentYTDDuration` を使い、四半期単独期間を累計値へ混ぜない。個別は対応する `_NonConsolidatedMember` で区別する。セグメント等の追加次元・前期・翌期を当期全社値の穴埋めに使わず、辞書順によるcontext選択を行わない。CSVの「連結・個別」が「その他」でも財務本表のcontextで範囲を判断し、非財務の記述箇所へこの規則を一般化しない。根拠は[現行インスタンスガイド](https://disclosure2dl.edinet-fsa.go.jp/guide/static/disclosure/download/ESE140112.pdf#page=49)と[旧四半期のcontext定義](https://www.fsa.go.jp/search/20170228/2b.pdf#page=51)。
+
+- `cash`: 現金及び預金を優先し、該当科目がない場合に現金及び現金同等物を使う。両者をCSV行順で選ばない
 - `debt`: 短期借入金、1 年内返済予定長期借入金、社債、長期借入金、リース債務等の合算
 - `investment_securities`: BS の `InvestmentSecurities` exact local name だけを連結優先・単体 fallback で抽出する帳簿価額。関係会社株式、営業投資有価証券、包括的な `Securities`、売却損益・CF、text block は合算しない。CSV仕様で定義された ASCII `-` または数値ゼロだけを 0 とし、空欄や似た横棒を補完しない
 - `edinet_ocf_ttm`: EDINET CSV から抽出した営業活動によるキャッシュ・フロー

@@ -1896,29 +1896,29 @@ class IndexNextEarningsTests(unittest.TestCase):
 
 def _edinet_csv_zip(*, include_debt: bool = True) -> bytes:
     rows = [
-        ("jpcrp_cor:NetSales", "CurrentYearDuration_ConsolidatedMember", "1000"),
+        ("jpcrp_cor:NetSales", "CurrentYearDuration", "1000"),
         (
             "jpcrp_cor:NetCashProvidedByUsedInOperatingActivities",
-            "CurrentYearDuration_ConsolidatedMember",
+            "CurrentYearDuration",
             "900",
         ),
-        ("jpcrp_cor:OperatingProfit", "CurrentYearDuration_ConsolidatedMember", "150"),
-        ("jpcrp_cor:CashAndDeposits", "CurrentYearInstant_ConsolidatedMember", "1000"),
+        ("jpcrp_cor:OperatingProfit", "CurrentYearDuration", "150"),
+        ("jpcrp_cor:CashAndDeposits", "CurrentYearInstant", "1000"),
         (
             "jpcrp_cor:PurchaseOfPropertyPlantAndEquipment",
-            "CurrentYearDuration_ConsolidatedMember",
+            "CurrentYearDuration",
             "-200",
         ),
-        ("jpcrp_cor:PurchaseOfIntangibleAssets", "CurrentYearDuration_ConsolidatedMember", "0"),
-        ("jpcrp_cor:Equity", "CurrentYearInstant_ConsolidatedMember", "1200"),
-        ("jpcrp_cor:TotalAssets", "CurrentYearInstant_ConsolidatedMember", "2000"),
-        ("jpcrp_cor:DepreciationAndAmortization", "CurrentYearDuration_ConsolidatedMember", "50"),
+        ("jpcrp_cor:PurchaseOfIntangibleAssets", "CurrentYearDuration", "0"),
+        ("jpcrp_cor:Equity", "CurrentYearInstant", "1200"),
+        ("jpcrp_cor:TotalAssets", "CurrentYearInstant", "2000"),
+        ("jpcrp_cor:DepreciationAndAmortization", "CurrentYearDuration", "50"),
     ]
     if include_debt:
         rows.extend(
             [
-                ("jpcrp_cor:ShortTermBorrowings", "CurrentYearInstant_ConsolidatedMember", "100"),
-                ("jpcrp_cor:LongTermBorrowings", "CurrentYearInstant_ConsolidatedMember", "300"),
+                ("jpcrp_cor:ShortTermBorrowings", "CurrentYearInstant", "100"),
+                ("jpcrp_cor:LongTermBorrowings", "CurrentYearInstant", "300"),
             ]
         )
     text = "要素ID\tコンテキストID\tユニットID\t値\n" + "\n".join(

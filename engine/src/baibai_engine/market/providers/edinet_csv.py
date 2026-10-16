@@ -40,23 +40,23 @@ def parse_csv_zip_metric_record(
         )
 
     quality = TTMQuality.EXACT if doc_type_code in {"120", "130"} else TTMQuality.APPROXIMATED
-    basis = _detect_consolidation_basis(rows)
+    rows, basis = _select_statement_rows(rows, doc_type_code)
     failures: list[str] = []
     if basis == "non_consolidated":
         failures.append("non_consolidated_fallback")
 
-    sales = _single_metric(rows, _TAGS["sales"], basis=basis)
-    ocf = _single_metric(rows, _TAGS["ocf"], basis=basis)
-    operating_profit = _single_metric(rows, _TAGS["operating_profit"], basis=basis)
-    cash = _single_metric(rows, _TAGS["cash"], basis=basis)
-    investment_securities = _single_metric(rows, _TAGS["investment_securities"], basis=basis)
-    equity = _single_metric(rows, _TAGS["equity"], basis=basis)
-    total_assets = _single_metric(rows, _TAGS["total_assets"], basis=basis)
-    debt = _debt_metric(rows, basis=basis)
-    depreciation = _sum_metric(rows, _TAGS["depreciation"], basis=basis)
-    capex = _capex_metric(rows, basis=basis)
+    sales = _single_metric(rows, _TAGS["sales"])
+    ocf = _single_metric(rows, _TAGS["ocf"])
+    operating_profit = _single_metric(rows, _TAGS["operating_profit"])
+    cash = _single_metric(rows, _TAGS["cash"])
+    investment_securities = _single_metric(rows, _TAGS["investment_securities"])
+    equity = _single_metric(rows, _TAGS["equity"])
+    total_assets = _single_metric(rows, _TAGS["total_assets"])
+    debt = _debt_metric(rows)
+    depreciation = _sum_metric(rows, _TAGS["depreciation"])
+    capex = _capex_metric(rows)
     capex_abs = abs(capex) if capex is not None else None
-    details = _cash_flow_details(rows, basis=basis) if doc_type_code in {"120", "130"} else {}
+    details = _cash_flow_details(rows) if doc_type_code in {"120", "130"} else {}
     ebitda = (
         operating_profit + depreciation
         if operating_profit is not None and depreciation is not None
@@ -200,61 +200,75 @@ def _decode_csv(content: bytes) -> str:
         raise EDINETProviderError("csv_parse_failed") from exc
 
 
-def _detect_consolidation_basis(rows: Sequence[Mapping[str, str]]) -> str:
-    if any(_is_consolidated_row(row) for row in rows):
-        return "consolidated"
-    return "non_consolidated"
+def _select_statement_rows(
+    rows: Sequence[Mapping[str, str]], doc_type_code: str
+) -> tuple[list[Mapping[str, str]], str | None]:
+    # Financial-statement contexts, not arbitrary current-looking IDs. Quarterly
+    # flow values use YTD, not the standalone quarter. Extra dimensions are not
+    # company totals; prior periods never fill missing current facts.
+    if doc_type_code in {"120", "130"}:
+        contexts = {"CurrentYearInstant", "CurrentYearDuration"}
+    elif doc_type_code in {"160", "170"}:
+        contexts = {"InterimInstant", "InterimDuration"}
+    elif doc_type_code in {"140", "150"}:
+        contexts = {"CurrentQuarterInstant", "CurrentYTDDuration"}
+    else:
+        raise EDINETProviderError(f"unsupported financial statement type: {doc_type_code}")
+    tags = tuple(tag for group in _TAGS.values() for tag in group)
+    financial = [row for row in rows if _element_matches(_row_element(row), tags)]
+    consolidated = [row for row in financial if _row_context(row) in contexts]
+    if consolidated:
+        return consolidated, "consolidated"
+    individual_contexts = {f"{context}_NonConsolidatedMember" for context in contexts}
+    individual = [row for row in financial if _row_context(row) in individual_contexts]
+    return individual, "non_consolidated" if individual else None
+
+
+def _metric_values(
+    rows: Sequence[Mapping[str, str]], tags: tuple[str, ...]
+) -> dict[str, float | None]:
+    grouped: dict[str, set[float | None]] = {}
+    for row in rows:
+        name = _local_element(_row_element(row))
+        if name not in tags:
+            continue
+        values = grouped.setdefault(name, set())
+        if row.get("ユニットID") == "JPY":
+            values.add(_csv_value(row.get("値")))
+    return {
+        name: next(iter(values)) if len(values) == 1 else None
+        for name, values in grouped.items()
+    }
 
 
 def _single_metric(
-    rows: Sequence[Mapping[str, str]],
-    tags: tuple[str, ...],
-    *,
-    basis: str,
+    rows: Sequence[Mapping[str, str]], tags: tuple[str, ...]
 ) -> float | None:
-    values = _ranked_metric_values(rows, tags, basis=basis)
-    return max(values, key=lambda item: item[0])[1] if values else None
+    values = _metric_values(rows, tags)
+    # Alias preference is explicit, not dependent on CSV row order. A present
+    # but unusable preferred concept is not silently replaced with another one.
+    return next((values[tag] for tag in tags if tag in values), None)
 
 
 def _sum_metric(
-    rows: Sequence[Mapping[str, str]],
-    tags: tuple[str, ...],
-    *,
-    basis: str,
+    rows: Sequence[Mapping[str, str]], tags: tuple[str, ...]
 ) -> float | None:
-    values = _best_metric_values_by_element(rows, tags, basis=basis)
-    if not values or any(value is None for value in values):
+    values = _metric_values(rows, tags)
+    if not values or any(value is None for value in values.values()):
         return None
-    return sum(value for value in values if value is not None)
+    return sum(value for value in values.values() if value is not None)
 
 
-def _capex_metric(rows: Sequence[Mapping[str, str]], *, basis: str) -> float | None:
-    # CFOと同じ期間・範囲を使う。合算の欠如を前期の合算で補わず、
-    # 個別内訳も同じcontextの有形・無形が揃う場合だけ足す。
-    periods = _ranked_metric_values(rows, _TAGS["ocf"], basis=basis)
-    if not periods:
-        periods = _ranked_metric_values(
-            rows,
-            (*_TAGS["capex_total"], *_TAGS["capex_tangible"], *_TAGS["capex_intangible"]),
-            basis=basis,
-        )
-    if not periods:
-        return None
-    context = max(periods, key=lambda item: item[0])[0][2]
-    current = [row for row in rows if _row_context(row) == context]
-    total = _single_metric(current, _TAGS["capex_total"], basis=basis)
+def _capex_metric(rows: Sequence[Mapping[str, str]]) -> float | None:
+    total = _single_metric(rows, _TAGS["capex_total"])
     if total is not None:
         return total
-    tangible = _single_metric(current, _TAGS["capex_tangible"], basis=basis)
-    intangible = _single_metric(current, _TAGS["capex_intangible"], basis=basis)
+    tangible = _single_metric(rows, _TAGS["capex_tangible"])
+    intangible = _single_metric(rows, _TAGS["capex_intangible"])
     return tangible + intangible if tangible is not None and intangible is not None else None
 
 
-def _cash_flow_details(rows: Sequence[Mapping[str, str]], *, basis: str) -> dict[str, float | None]:
-    periods = _ranked_metric_values(rows, _TAGS["ocf"], basis=basis)
-    if not periods:
-        return {}
-    context = max(periods, key=lambda item: item[0])[0][2]
+def _cash_flow_details(rows: Sequence[Mapping[str, str]]) -> dict[str, float | None]:
     fields = (
         "ocf_receivables_cash_effect",
         "ocf_inventories_cash_effect",
@@ -263,85 +277,17 @@ def _cash_flow_details(rows: Sequence[Mapping[str, str]], *, basis: str) -> dict
         "ocf_advances_received_cash_effect",
         "ocf_other_payables_cash_effect",
     )
-    details = {
-        field: _unique_jpy_metric(rows, _TAGS[field], basis=basis, context=context)
-        for field in fields
-    }
-    ppe = _unique_jpy_metric(rows, _TAGS["capex_tangible"], basis=basis, context=context)
-    intangible = _unique_jpy_metric(rows, _TAGS["capex_intangible"], basis=basis, context=context)
+    details = {field: _single_metric(rows, _TAGS[field]) for field in fields}
+    ppe = _single_metric(rows, _TAGS["capex_tangible"])
+    intangible = _single_metric(rows, _TAGS["capex_intangible"])
     details["capex_ppe_reported"] = abs(ppe) if ppe is not None else None
     details["capex_intangible_reported"] = abs(intangible) if intangible is not None else None
     return details
 
 
-def _unique_jpy_metric(
-    rows: Sequence[Mapping[str, str]],
-    tags: tuple[str, ...],
-    *,
-    basis: str,
-    context: str,
-) -> float | None:
-    values: set[float] = set()
-    for row in rows:
-        if _row_context(row) != context or not _element_matches(_row_element(row), tags):
-            continue
-        if basis == "consolidated" and not _is_consolidated_row(row):
-            continue
-        if basis == "non_consolidated" and _is_consolidated_row(row):
-            continue
-        if _row_unit(row) != "JPY":
-            continue
-        value = _csv_value(_row_value(row))
-        if value is None:
-            return None
-        values.add(value)
-    return next(iter(values)) if len(values) == 1 else None
-
-
-def _debt_metric(rows: Sequence[Mapping[str, str]], *, basis: str) -> float | None:
-    total = _single_metric(rows, _TAGS["debt_total"], basis=basis)
-    return total if total is not None else _sum_metric(rows, _TAGS["debt_components"], basis=basis)
-
-
-def _best_metric_values_by_element(
-    rows: Sequence[Mapping[str, str]],
-    tags: tuple[str, ...],
-    *,
-    basis: str,
-) -> list[float | None]:
-    best_by_element: dict[str, tuple[tuple[int, int, str], float | None]] = {}
-    for rank, value, element in _ranked_metric_values(rows, tags, basis=basis):
-        current = best_by_element.get(element)
-        if current is None or rank > current[0]:
-            best_by_element[element] = (rank, value)
-    return [value for _, value in best_by_element.values()]
-
-
-def _ranked_metric_values(
-    rows: Sequence[Mapping[str, str]],
-    tags: tuple[str, ...],
-    *,
-    basis: str,
-) -> list[tuple[tuple[int, int, str], float | None, str]]:
-    grouped: dict[tuple[str, str, str], set[float | None]] = {}
-    for row in rows:
-        raw_element = _row_element(row)
-        if not _element_matches(raw_element, tags):
-            continue
-        if basis == "consolidated" and not _is_consolidated_row(row):
-            continue
-        if basis == "non_consolidated" and _is_consolidated_row(row):
-            continue
-        key = (_normalize_element(raw_element), _row_context(row), _row_basis(row))
-        values = grouped.setdefault(key, set())
-        if _row_unit(row) == "JPY":
-            values.add(_csv_value(_row_value(row)))
-    # Keep an unusable current fact in the ranking: currency/missingness must not
-    # make an older period win. Conflicting duplicate JPY facts have no chosen value.
-    return [
-        (_context_rank(context), next(iter(values)) if len(values) == 1 else None, element)
-        for (element, context, _), values in grouped.items()
-    ]
+def _debt_metric(rows: Sequence[Mapping[str, str]]) -> float | None:
+    total = _single_metric(rows, _TAGS["debt_total"])
+    return total if total is not None else _sum_metric(rows, _TAGS["debt_components"])
 
 
 def _row_element(row: Mapping[str, str]) -> str:
@@ -352,44 +298,12 @@ def _row_context(row: Mapping[str, str]) -> str:
     return row.get("コンテキストID", "")
 
 
-def _is_consolidated_row(row: Mapping[str, str]) -> bool:
-    basis = _row_basis(row).strip()
-    if basis in {"個別", "非連結", "non_consolidated"}:
-        return False
-    return basis in {"連結", "consolidated"} or _is_consolidated_context(_row_context(row))
-
-
-def _is_consolidated_context(context: str) -> bool:
-    lowered = context.lower()
-    return "consolidated" in lowered and "nonconsolidated" not in lowered
-
-
-def _row_basis(row: Mapping[str, str]) -> str:
-    return row.get("連結・個別", "")
-
-
-def _row_value(row: Mapping[str, str]) -> str | None:
-    return row.get("値")
-
-
-def _row_unit(row: Mapping[str, str]) -> str:
-    return row.get("ユニットID", "")
-
-
-def _normalize_element(value: str) -> str:
-    return "".join(char for char in value.lower() if char.isalnum())
+def _local_element(value: str) -> str:
+    return "".join(char for char in value.rsplit(":", 1)[-1].lower() if char.isalnum())
 
 
 def _element_matches(element: str, tags: tuple[str, ...]) -> bool:
-    local_name = _normalize_element(element.rsplit(":", 1)[-1])
-    return local_name in tags
-
-
-def _context_rank(context: str) -> tuple[int, int, str]:
-    lowered = context.lower()
-    current = 0 if "prior" in lowered else 1
-    primary = 0 if "_" in context or "member" in lowered else 1
-    return (current, primary, context)
+    return _local_element(element) in tags
 
 
 def _csv_value(raw: str | None) -> float | None:
