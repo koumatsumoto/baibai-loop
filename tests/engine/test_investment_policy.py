@@ -46,7 +46,6 @@ def buy(document, *, limit=Decimal(1000), minimum_rate=Decimal(6)):
             price_as_of=AS_OF,
             price_basis="last_close_unadjusted",
             source_ref="fixture:daily_bars",
-            basis_confirmed=True,
         ),
         proposed_limit_yen=limit,
         basis_confirmed=True,
@@ -128,7 +127,6 @@ def test_sufficient_reward_claim_requires_available_current_inputs(change, reaso
             price_as_of=quoted_date,
             price_basis="last_close_unadjusted",
             source_ref="fixture:daily_bars",
-            basis_confirmed=change != "quote_basis",
         )
     )
     result = evaluate_holding_proposal(
@@ -144,6 +142,7 @@ def test_sufficient_reward_claim_requires_available_current_inputs(change, reaso
         ),
         as_of=date(2026, 10, 15) if change == "next_day" else AS_OF,
         quote=quoted,
+        price_basis_confirmed=change != "quote_basis",
         remaining_reward=RemainingReward(status="sufficient", reason="将来分配と残存価値を確認"),
         case_reassessment_reason="本日の仮説と反証を再確認",
         reviewed=True,

@@ -114,7 +114,6 @@ class QuoteInput(_ProposalValue):
     price_as_of: ISODate
     price_basis: Literal["last_close_unadjusted"]
     source_ref: NonEmptyStr
-    basis_confirmed: bool
 
 
 class ReservationInput(_ProposalValue):

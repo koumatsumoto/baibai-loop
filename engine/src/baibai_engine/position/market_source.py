@@ -13,9 +13,9 @@ For target-session planning, the resolved price is the raw/unadjusted ``close`` 
 daily bars' latest observed market-wide date eligible at that instant (today after
 15:30 JST, otherwise prior). This reader does not certify full-market coverage. A
 missing ticker row or NULL ``close`` on that exact date returns no price; an older
-ticker row is never used as a substitute. An absent ``adjustment_factor`` or a
-value other than 1 marks an unresolved corporate action so the caller defers
-rather than quoting an unreconciled price.
+ticker row is never used as a substitute. A raw quote is an observation, not a
+claim that its price/share basis matches another date. Consumers check that
+relationship over the required period, separately from reading the price.
 """
 
 from __future__ import annotations
@@ -38,8 +38,6 @@ from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, SQL
 class UnadjustedCloseObservation:
     close_yen: float
     price_as_of: date
-    adjustment_factor: float | None
-    corporate_action_unresolved: bool
 
 
 def latest_eligible_close_date(at: datetime) -> date:
@@ -85,7 +83,7 @@ def read_unadjusted_close(
         # Require the selected ticker's row on the exact market-wide date. If
         # its raw close is missing, defer instead of silently using a stale bar.
         row = conn.execute(
-            "SELECT traded_at, close, adjustment_factor FROM jquants_daily_bars "
+            "SELECT traded_at, close FROM jquants_daily_bars "
             "WHERE ticker = ? AND traded_at = ?",
             (ticker, price_as_of_text),
         ).fetchone()
@@ -94,25 +92,21 @@ def read_unadjusted_close(
             conn.close()
     if row is None:
         return None
-    traded_at, close, adjustment_factor = row
+    traded_at, close = row
     if close is None:
         return None
     try:
         price_as_of = date.fromisoformat(str(traded_at))
         close_yen = float(close)
-        factor = float(adjustment_factor) if adjustment_factor is not None else None
     except (TypeError, ValueError):
         return None
     if not isfinite(close_yen) or close_yen <= 0:
         # A non-positive close is corrupt; defer rather than sizing on it (a zero
         # close would otherwise divide by zero in lot sizing).
         return None
-    corporate_action_unresolved = factor is None or not isfinite(factor) or abs(factor - 1.0) > 1e-9
     return UnadjustedCloseObservation(
         close_yen=close_yen,
         price_as_of=price_as_of,
-        adjustment_factor=factor,
-        corporate_action_unresolved=corporate_action_unresolved,
     )
 
 

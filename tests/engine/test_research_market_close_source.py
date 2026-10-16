@@ -60,16 +60,18 @@ def test_market_close_source_never_uses_older_ticker_bar_when_market_wide_date_i
     assert resolved is None
 
 
-def test_market_close_source_treats_missing_adjustment_factor_as_unresolved(tmp_path: Path) -> None:
+@pytest.mark.parametrize("factor", [None, 0.0, 0.5, 1.0, 2.0])
+def test_raw_close_is_available_independently_of_adjustment_metadata(tmp_path: Path, factor) -> None:
     sqlite_path = tmp_path / "market.sqlite"
-    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, None)])
+    seed_daily_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, factor)])
 
     resolved = read_unadjusted_close(
         sqlite_path=sqlite_path, ticker="2331", at=datetime(2026, 7, 13, 9, tzinfo=JST)
     )
 
     assert resolved is not None
-    assert resolved.corporate_action_unresolved is True
+    assert resolved.close_yen == 1000.0
+    assert resolved.price_as_of == date(2026, 7, 10)
 
 
 def test_market_close_source_reuses_one_stable_market_snapshot(tmp_path: Path) -> None:

@@ -138,7 +138,6 @@ def test_position_quote_age_uses_native_date_without_receipt_clock(
         price_as_of=price_date,
         price_basis="last_close_unadjusted",
         source_ref="fixture",
-        basis_confirmed=True,
     )
     result = evaluate_holding_proposal(
         assessment,
@@ -153,6 +152,7 @@ def test_position_quote_age_uses_native_date_without_receipt_clock(
         ),
         as_of=datetime.fromisoformat("2026-10-21T17:00:00+09:00").date(),
         quote=quote,
+        price_basis_confirmed=True,
         remaining_reward=RemainingReward(status="sufficient", reason="残存見返りを確認"),
         case_reassessment_reason="現在の仮説維持を確認",
         primary_verified=True,

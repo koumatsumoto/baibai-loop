@@ -273,8 +273,7 @@
           "price_yen": "1100",
           "price_as_of": "2026-10-14",
           "price_basis": "last_close_unadjusted",
-          "source_ref": "fixture:daily_bars",
-          "basis_confirmed": true
+          "source_ref": "fixture:daily_bars"
         }
       ],
       "policy_id": "synthetic-existing-policy",

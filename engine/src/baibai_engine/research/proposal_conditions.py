@@ -43,7 +43,6 @@ def assessment_quote_basis(
     )
     return (
         quote is not None
-        and quote.basis_confirmed
         and price_fact is not None
         and market_basis_is_confirmed(
             basis="price",

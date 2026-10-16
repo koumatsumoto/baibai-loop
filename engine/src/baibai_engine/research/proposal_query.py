@@ -208,22 +208,14 @@ def _preview_holding(
             GateReason(code="holding_absent", message="保存した保有銘柄の現在保有がありません。")
         ]
     quote = next((quote for quote in inputs.quotes if quote.ticker == item.ticker), None)
-    quoted = (
-        None
-        if quote is None
-        else quote.model_copy(
-            update={
-                "basis_confirmed": assessment_quote_basis(
-                    pair.document, quote, sqlite_path=sqlite_path
-                )
-            }
-        )
-    )
     result = evaluate_holding_proposal(
         pair.document,
         position=position,
         as_of=now.astimezone(JST).date(),
-        quote=quoted,
+        quote=quote,
+        price_basis_confirmed=assessment_quote_basis(
+            pair.document, quote, sqlite_path=sqlite_path
+        ),
         remaining_reward=item.remaining_reward,
         case_reassessment_reason=item.case_reassessment_reason,
         primary_verified=pair.review.primary_source_check == "verified",

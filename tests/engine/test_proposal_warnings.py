@@ -81,7 +81,6 @@ def quote(ticker="5678", *, price=1000, **overrides):
             price_as_of=date(2026, 10, 14),
             price_basis="last_close_unadjusted",
             source_ref="fixture:daily_bars",
-            basis_confirmed=True,
         )
         | overrides,
     )
@@ -193,13 +192,12 @@ def test_wait_limit_notional_and_active_reservations_drive_all_concentrations(ca
     )
 
 
-@pytest.mark.parametrize("unknown", ["missing", "stale", "quote_basis", "quantity_basis"])
+@pytest.mark.parametrize("unknown", ["missing", "stale", "quantity_basis"])
 def test_one_unvalued_holding_leaves_nav_unknown_instead_of_zero(case, unknown):
     _, proposal = case
     held = position(quantity_basis_confirmed=unknown != "quantity_basis")
     held_quote = quote(
         price_as_of=date(2026, 10, 1) if unknown == "stale" else date(2026, 10, 14),
-        basis_confirmed=unknown != "quote_basis",
     )
     inputs = proposal.inputs.model_copy(
         update={

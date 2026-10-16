@@ -115,7 +115,6 @@ def test_array_order_and_common_factor_order_are_stable(facts):
         (("quotes", 0, "price_yen"), "1101"),
         (("quotes", 0, "price_as_of"), "2026-10-13"),
         (("quotes", 0, "source_ref"), "fixture:other-received-version"),
-        (("quotes", 0, "basis_confirmed"), False),
         (("security_classification", 0, "market_segment"), "Standard"),
         (("security_classification", 0, "sector_33"), "サービス業"),
         (("security_classification", 0, "snapshot_date"), "2026-10-13"),

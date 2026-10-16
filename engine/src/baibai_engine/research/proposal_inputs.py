@@ -164,7 +164,6 @@ def collect_proposal_inputs(
             price_as_of=observed.price_as_of,
             price_basis="last_close_unadjusted",
             source_ref="jquants_daily_bars",
-            basis_confirmed=not observed.corporate_action_unresolved,
         )
         quotes.append(quote)
         if ticker in held_tickers:

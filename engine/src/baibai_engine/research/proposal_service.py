@@ -94,22 +94,14 @@ def _validate_action(
             )
     else:
         quote = proposal_quote(inputs, item.ticker)
-        quote = (
-            None
-            if quote is None
-            else quote.model_copy(
-                update={
-                    "basis_confirmed": assessment_quote_basis(
-                        pair.document, quote, sqlite_path=sqlite_path
-                    )
-                }
-            )
-        )
         result_holding = evaluate_holding_proposal(
             pair.document,
             position=item.position,
             as_of=now.astimezone(JST).date(),
             quote=quote,
+            price_basis_confirmed=assessment_quote_basis(
+                pair.document, quote, sqlite_path=sqlite_path
+            ),
             remaining_reward=item.remaining_reward,
             case_reassessment_reason=item.case_reassessment_reason,
             primary_verified=pair.review.primary_source_check == "verified",

@@ -11,7 +11,7 @@ status: active
 
 ## 対象範囲と正本
 
-ledgerは`portfolio_scope: repository_only`だけを扱う。application DBの`ledger_event / ledger_meta`が確認済み資本・取引事実を持ち、価格を台帳へ重複保存しない。市場価格はL1市場ストアから評価時に読み、取引事実と独立した入力として渡す。日次終値の時点は原典の取引日`price_as_of`で表し、15:30などの観測時刻を捏造しない。取引日の利用可否はJSTの立会終了境界で判定し、価格の時点とは分ける。`baibai-engine position ledger --db stores/application/baibai.sqlite`はeventをreplayし、market storeのquoteと権利単位を組み合わせてsnapshotを返す。broker残高を自動取得・推定・完全照合する契約ではない。
+ledgerは`portfolio_scope: repository_only`だけを扱う。application DBの`ledger_event / ledger_meta`が確認済み資本・取引事実を持ち、価格を台帳へ重複保存しない。市場価格はL1市場ストアから評価時に読み、取引事実と独立した入力として渡す。日次終値の時点は原典の取引日`price_as_of`で表し、15:30などの観測時刻を捏造しない。取引日の利用可否はJSTの立会終了境界で判定し、価格の時点とは分ける。価格観測自体に「比較可能」フラグを持たせず、保有数量との単位確認と、評価元価格との比較基準はそれぞれの期間で判定する。`baibai-engine position ledger --db stores/application/baibai.sqlite`はeventをreplayし、market storeのquoteと権利単位を組み合わせてsnapshotを返す。broker残高を自動取得・推定・完全照合する契約ではない。
 
 台帳文書はschema version 3。切替では旧価格行を新台帳へ移さず、必要な取引・設定を現行文書へ移すか、対象を確認して新規台帳から開始する。旧draftは再作成する。価格の再取得・評価は市場ストアの責務であり、旧台帳価格による代替は行わない。
 

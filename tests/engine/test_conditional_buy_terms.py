@@ -24,7 +24,6 @@ def quote(price="1100", **overrides):
             price_as_of=AS_OF,
             price_basis="last_close_unadjusted",
             source_ref="fixture:daily_bars",
-            basis_confirmed=True,
         )
         | overrides
     )
@@ -120,13 +119,6 @@ def test_stale_and_future_real_quotes_cannot_be_replaced_with_a_limit(price_day)
     result = evaluate(quote=quote(price_as_of=price_day), proposed_limit_yen=Decimal(900))
     assert "quote_missing_or_stale" in codes(result)
     assert result.current_price_projection is None
-    assert result.limit_price_projection is None
-
-
-def test_quote_basis_is_checked_even_when_caller_basis_is_confirmed():
-    result = evaluate(quote=quote(basis_confirmed=False))
-    assert "corporate_action_unresolved" in codes(result)
-    assert result.quantity == 0
     assert result.limit_price_projection is None
 
 

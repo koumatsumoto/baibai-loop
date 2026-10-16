@@ -49,7 +49,6 @@ def build_proposal_warnings(
         quote = quotes.get(position.ticker)
         if (
             quote is None
-            or not quote.basis_confirmed
             or not position.quantity_basis_confirmed
             or not 0
             <= (checked_date - quote.price_as_of).days

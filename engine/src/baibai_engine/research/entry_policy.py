@@ -94,7 +94,7 @@ def evaluate_buy_terms(
         block("active_reservation_exists", "既存の active 予約を確認してください。")
     if proposal_executed:
         block("proposal_already_executed", "この提案に対する買付は既に記録されています。")
-    confirmed_basis = basis_confirmed and quote is not None and quote.basis_confirmed
+    confirmed_basis = basis_confirmed and quote is not None
     if not confirmed_basis:
         block("corporate_action_unresolved", "株式単位と価格の basis を確認してください。")
     price = None if quote is None else finite_decimal(quote.price_yen)
