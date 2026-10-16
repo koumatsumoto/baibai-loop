@@ -428,3 +428,79 @@ def test_date_only_release_uses_reported_day_even_with_evening_replay_key() -> N
     assert result.portfolio_twr_pct == pytest.approx(0)
     assert result.ending_cash_yen == 1_000_000
     assert result.ending_reserved_cash_yen == 0
+
+
+def test_period_cashflows_exclude_events_already_in_the_opening_close() -> None:
+    raw = _ledger().model_dump(mode="json")
+    opening = raw["events"][0]
+    raw["events"] = [
+        opening,
+        {
+            "event_id": "start-income",
+            "type": "income",
+            "occurred_on": "2025-01-06",
+            "occurred_at": "2025-01-06T09:01:00+09:00",
+            "income_kind": "dividend",
+            "amount_yen": 10,
+        },
+        {
+            "event_id": "start-cost",
+            "type": "cost",
+            "occurred_on": "2025-01-06",
+            "occurred_at": "2025-01-06T09:02:00+09:00",
+            "cost_kind": "commission",
+            "amount_yen": 3,
+        },
+        {
+            "event_id": "start-tax",
+            "type": "tax_confirmed",
+            "occurred_on": "2025-01-06",
+            "occurred_at": "2025-01-06T09:03:00+09:00",
+            "tax_kind": "dividend",
+            "amount_yen": 2,
+        },
+        {
+            "event_id": "end-cost",
+            "type": "cost",
+            "occurred_on": "2026-01-06",
+            "occurred_at": "2026-01-06T09:00:00+09:00",
+            "cost_kind": "commission",
+            "amount_yen": 5,
+        },
+    ]
+    result = compute_portfolio_outcome(
+        PortfolioLedgerDocument.model_validate(raw),
+        _benchmark(),
+        business_days=(date(2025, 1, 6), date(2026, 1, 6)),
+        bars=(),
+    )
+    assert result.status == "resolved"
+    assert result.portfolio_twr_pct == pytest.approx((1_000 / 1_005 - 1) * 100)
+    assert result.confirmed_income_yen == 0
+    assert result.confirmed_cost_yen == 5
+    assert result.confirmed_tax_yen == 0
+
+
+def test_position_closed_before_opening_close_is_not_a_period_exit() -> None:
+    raw = _ledger().model_dump(mode="json")
+    raw["events"] = raw["events"][:3] + [
+        {
+            "event_id": "start-sell",
+            "type": "execution",
+            "execution_id": "start-sell",
+            "occurred_at": "2025-01-06T09:03:00+09:00",
+            "ticker": "1234",
+            "side": "sell",
+            "quantity": 100,
+            "price_yen": 5,
+        },
+    ]
+    result = compute_portfolio_outcome(
+        PortfolioLedgerDocument.model_validate(raw),
+        _benchmark(),
+        business_days=(date(2025, 1, 6), date(2026, 1, 6)),
+        bars=(),
+    )
+    assert result.status == "resolved"
+    assert result.portfolio_twr_pct == 0.0
+    assert result.closed_tickers == ()

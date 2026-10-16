@@ -214,7 +214,7 @@ def compute_portfolio_outcome(
                 if isinstance(event, ExecutionEvent)
                 and event.side == "sell"
                 and effective_day is not None
-                and start <= effective_day <= end
+                and start < effective_day <= end
                 and event.ticker not in open_tickers
             }
         )
@@ -348,7 +348,7 @@ def _period_confirmed_cashflows(
 ) -> tuple[int, int, int]:
     income = cost = tax = 0
     for event, effective_day in zip(events, effective_dates, strict=True):
-        if effective_day is None or not start <= effective_day <= end:
+        if effective_day is None or not start < effective_day <= end:
             continue
         if isinstance(event, IncomeEvent):
             income += event.amount_yen
