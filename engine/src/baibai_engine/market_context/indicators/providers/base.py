@@ -46,14 +46,12 @@ class ProviderFetchStoppedError(IndicatorsProviderError):
 
 
 class SourceWithheldError(IndicatorsProviderError):
-    """A source declined to serve this client rather than failing to serve at all.
+    """An empty successful response or HTTP 403, kept distinct from other failures.
 
-    An edge bot-mitigation withholds data it holds in two shapes: a success
-    status carrying no body, and a 403. Both say the resource exists and that
-    another route may still reach it, which is what separates them from a size
-    cap, a 404, a 5xx or a network fault — none of those give a fallback anything
-    to work with, so they stay plain :class:`IndicatorsProviderError` and no
-    provider reads them as an invitation to fetch the same thing a costlier way.
+    This existing response category covers an empty successful response and HTTP
+    403. It does not establish that a resource exists, why access was refused, or
+    whether another route is permitted or will succeed. Size caps, 404, 429, 5xx
+    and network failures remain ordinary provider errors, not fallback signals.
     """
 
 

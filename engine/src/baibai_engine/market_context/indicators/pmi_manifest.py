@@ -30,6 +30,7 @@ import yaml
 from baibai_engine.market_context.indicators.providers.base import (
     FetchContext,
     IndicatorsProviderError,
+    SourceWithheldError,
     fetch_text,
 )
 from baibai_engine.market_context.indicators.providers.pmi_extraction import (
@@ -127,10 +128,10 @@ class StreamOutcome:
 def release_index_entries(context: FetchContext) -> tuple[IndexEntry, ...]:
     """The releases the index lists, over plain HTTP or through a real browser.
 
-    The publisher's edge WAF answers a plain HTTP client with a challenge page
-    carrying a 200, exactly as it does for the release PDFs. A page that names no
-    release is therefore treated as a page that was not served, and the same
-    headless browser the PDF path falls back to is asked for the rendered HTML.
+    An empty/withheld response or successfully decoded page with no recognized
+    releases may require rendered HTML. Neither proves the cause of the response.
+    HTTP errors such as 429/404/5xx, network failures, size limits and decode errors
+    retain their original failure rather than launching another request route.
     """
 
     try:
@@ -142,7 +143,7 @@ def release_index_entries(context: FetchContext) -> tuple[IndexEntry, ...]:
             headers=_INDEX_HEADERS,
             context=context,
         )
-    except (IndicatorsProviderError, UnicodeDecodeError):
+    except SourceWithheldError:
         html = ""
     entries = parse_release_index(html)
     if entries:
