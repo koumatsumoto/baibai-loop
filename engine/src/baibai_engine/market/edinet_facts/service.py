@@ -11,6 +11,7 @@ from typing import Any, Protocol, TextIO
 from zipfile import BadZipFile
 
 from baibai_engine.market.edinet_decode import is_usable_filing_status, parse_sec_code
+from baibai_engine.market.edinet_document_events import _canonicalize_document_events
 from baibai_engine.market.edinet_facts.extract import EXTRACTOR_REVISION, extract_facts
 from baibai_engine.market.edinet_facts.models import filing_identity
 from baibai_engine.market.edinet_facts.store import (
@@ -21,7 +22,6 @@ from baibai_engine.market.edinet_facts.store import (
     store_facts,
 )
 from baibai_engine.market.edinet_models import EDINETProviderError, EDINETRateLimitError
-from baibai_engine.market.edinet_document_events import _canonicalize_document_events
 from baibai_engine.market.providers.edinet import _document_period
 
 
