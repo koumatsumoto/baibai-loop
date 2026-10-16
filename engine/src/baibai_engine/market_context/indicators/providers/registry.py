@@ -20,7 +20,7 @@ from .base import (
     IndicatorsProviderError,
     ProviderSpec,
 )
-from .boj import BojProvider
+from .boj import BojSource
 from .boj_timeseries import BojTimeSeriesSource
 from .estat import EStatSource
 from .estat_dashboard import EStatDashboardSource
@@ -38,7 +38,6 @@ from .yahoo import YahooChartProvider
 _PROVIDERS: dict[str, IndicatorDataProvider] = {
     provider.name: provider
     for provider in (
-        BojProvider(),
         NikkeiIndexesProvider(),
         SpGlobalPmiProvider(),
         TsrBankruptciesProvider(),
@@ -78,6 +77,8 @@ def resolve_provider(name: str) -> IndicatorDataProvider:
 
 
 def provider_spec(name: str) -> ProviderSpec:
+    if name == "boj":
+        return BojSource.spec
     if name == "mof_jgb":
         return MofJgbSource.spec
     if name == "boj_timeseries":
@@ -117,6 +118,7 @@ def registered_specs() -> tuple[ProviderSpec, ...]:
         EStatSource.spec,
         FrbH15Source.spec,
         FredSource.spec,
+        BojSource.spec,
         MofJgbSource.spec,
         BojTimeSeriesSource.spec,
         UmichScaSource.spec,

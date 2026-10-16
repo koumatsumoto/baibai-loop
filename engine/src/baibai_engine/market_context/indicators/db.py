@@ -756,7 +756,7 @@ def retract_observations(
             )
         if withdrawn.fetch_status == RETRACTED_STATUS:
             continue
-        if withdrawn.vintage_at is not None and vintage_at <= withdrawn.vintage_at:
+        if vintage_at <= withdrawn.vintage_at:
             raise ValueError("retraction vintage must be later than the withdrawn observation")
         underneath = _observation_from_row(rows[1]) if len(rows) > 1 else None
         if underneath is not None and underneath.fetch_status == RETRACTED_STATUS:

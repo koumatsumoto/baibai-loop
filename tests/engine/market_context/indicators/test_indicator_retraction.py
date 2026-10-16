@@ -426,7 +426,11 @@ class RetractionVintageTests(unittest.TestCase):
                 series = get_series(conn, "jp.bankruptcies")
                 insert_observations(
                     conn,
-                    [observation(series, date(2026, 5, 1), 439.0, datetime(2026, 5, 2, tzinfo=UTC))],
+                    [
+                        observation(
+                            series, date(2026, 5, 1), 439.0, datetime(2026, 5, 2, tzinfo=UTC)
+                        )
+                    ],
                 )
                 conn.commit()
             finally:
@@ -448,7 +452,7 @@ class RetractionVintageTests(unittest.TestCase):
                 )
 
             self.assertEqual(exit_code, 0)
-            self.assertIn("jp.bankruptcies\t2026-05-01\twithdrawn\t439.0\t-", stdout.getvalue())
+            self.assertIn("jp.bankruptcies\t2026-05-01\twithdrawn\t439\t-", stdout.getvalue())
             self.assertIn("0 fell back to an earlier vintage, 1 left the reads", stdout.getvalue())
 
 

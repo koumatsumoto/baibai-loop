@@ -14,6 +14,7 @@ from baibai_engine.market_context.indicators.observations import ObservationReco
 from baibai_engine.market_context.indicators.read_contracts import native_source_key
 from baibai_engine.market_context.indicators.source_snapshots import read_snapshots
 
+from .boj import boj_value
 from .estat import read_estat_series
 from .flows import read_flow_series
 from .observations import reading_observation
@@ -67,6 +68,8 @@ def _one_value(series: SeriesDefinition, records: Sequence[Mapping[str, object]]
 
 
 def _record_value(series: SeriesDefinition, row: Mapping[str, object]) -> float | None:
+    if series.provider == "boj":
+        return boj_value(series, row)
     if series.provider == "mof_jgb":
         source_row = row["row"]
         if not isinstance(source_row, Mapping) or series.provider_series_id not in source_row:

@@ -33,6 +33,7 @@ NATIVE_BULK_PROVIDERS = frozenset(
         "umich_sca",
         "boj_timeseries",
         "mof_jgb",
+        "boj",
         "cftc",
         "ecb_fx",
         "jquants_flows",
@@ -47,6 +48,8 @@ NATIVE_PROVIDERS = NATIVE_BULK_PROVIDERS | {"jquants_options"}
 
 
 def native_source_key(series: SeriesDefinition) -> str:
+    if series.provider == "boj":
+        return f"boj:{series.source_url}"
     if series.provider == "mof_jgb":
         return f"mof_jgb:{series.source_url}"
     if series.provider == "boj_timeseries":

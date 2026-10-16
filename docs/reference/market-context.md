@@ -125,7 +125,7 @@ registryのband変更時は、Git管理外のstoreのscalar観測をread-only va
 | `jquants_flows` | 海外投資家フロー | screeningと同じcredential。公表日単位で全項目を保存し、集計期間と訂正の選択はL2で扱う。単位は千円 |
 | `jquants_indices` | TOPIX | native Date/O/H/L/Cを保存し、L2でCを読み値にする。Closeという旧項目で補わない |
 | `jquants_options` | 日経225のIV・スキュー・期間構造 | rate limit、式変更、購読窓、緊急取引証拠金日は[専用手順](#jquants-options-provider)を参照する |
-| `boj` | マネタリーベース・実質輸出・消費活動 | xlsxの値列とheader・基準年・単位を照合する。隣列のmetadataで代用しない |
+| `boj` | 日本銀行の月次系列 | workbookの全列・元の日付・先頭metadata・欠測を保存し、L2で値列とheader・単位を照合して読む |
 | `boj_timeseries` | 日銀の時系列統計 | `SURVEY_DATES`は対象期間。月次は月初、四半期は最終月の月初を内部の代表日とするが、実際の観測日や公表日時とは扱わない（[公式API仕様](https://www.stat-search.boj.or.jp/info/api_manual_en.pdf)） |
 | `mof_jgb` | 日本国債金利 | 公表CSVの全列・和暦・欠測を保存する。L2が当月ファイルを履歴より優先し、欠測訂正も反映する |
 | `tsr_bankruptcies` | 日本の企業倒産 | 公表ページが参照する月次履歴の既知値を取得する。欠月を補間せず、履歴の短さや古さはReadingで表示する。未解釈・矛盾する月次値は取得失敗とする |

@@ -5,6 +5,7 @@ from datetime import date
 from ..definitions import SeriesDefinition
 from ..observations import NativeRecords
 from .base import FetchContext, IndicatorsProviderError
+from .boj import BojSource
 from .boj_timeseries import BojTimeSeriesSource
 from .cftc import CftcSource
 from .ecb_fx import EcbFxSource
@@ -24,6 +25,7 @@ def fetch_native_records(
 ) -> NativeRecords:
     source: (
         CftcSource
+        | BojSource
         | BojTimeSeriesSource
         | FredSource
         | EcbFxSource
@@ -36,7 +38,9 @@ def fetch_native_records(
         | MofJgbSource
         | UmichScaSource
     )
-    if series.provider == "mof_jgb":
+    if series.provider == "boj":
+        source = BojSource()
+    elif series.provider == "mof_jgb":
         source = MofJgbSource()
     elif series.provider == "boj_timeseries":
         source = BojTimeSeriesSource()

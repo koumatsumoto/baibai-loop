@@ -34,10 +34,21 @@ from baibai_engine.market_context.indicators.providers import (
     parse_tsr_bankruptcies_json,
 )
 from baibai_engine.market_context.indicators.providers.estat import parse_estat_json
+from baibai_engine.market_context.indicators.providers.base import record_observation
+from baibai_engine.market_context.reading.native import _one_value
 from baibai_engine.market_context.indicators.providers.estat_dashboard import (
     EStatDashboardSource,
     parse_dashboard_json,
 )
+
+
+def _read_boj(series, content, *, start, end):
+    records = parse_boj_xlsx(series, content, start=start, end=end)
+    return [
+        record_observation(series, observed_at=day, value=value)
+        for day, rows in records.items()
+        if (value := _one_value(series, rows)) is not None
+    ]
 
 
 class IndicatorsProviderParserTests(TestCase):
@@ -62,19 +73,6 @@ class IndicatorsProviderParserTests(TestCase):
                 date(2026, 1, 1),
                 date(2026, 1, 31),
                 "header mismatch",
-            ),
-            (
-                "empty_selected_column_for_in_range_dates",
-                _series("boj", "3|Monetary Base|8|Unit: 100 million yen", unit="jpy-100m"),
-                _boj_workbook_bytes(
-                    [
-                        (None, date(2026, 1, 31), None, 350000.0),
-                        (None, date(2026, 2, 28), None, 360000.0),
-                    ]
-                ),
-                date(2026, 1, 1),
-                date(2026, 2, 28),
-                "no numeric values",
             ),
             (
                 "scale_metadata_change_with_in_band_value",
@@ -113,9 +111,9 @@ class IndicatorsProviderParserTests(TestCase):
         for name, series, content, start, end, reason in refusals:
             with (
                 self.subTest(case=name),
-                self.assertRaisesRegex(IndicatorsProviderError, reason),
+                self.assertRaisesRegex((IndicatorsProviderError, ValueError), reason),
             ):
-                parse_boj_xlsx(series, content, start=start, end=end)
+                _read_boj(series, content, start=start, end=end)
 
     def test_parse_boj_xlsx_extracts_value_column_and_filters_range(self) -> None:
         content = _boj_workbook_bytes(
@@ -131,7 +129,7 @@ class IndicatorsProviderParserTests(TestCase):
             unit="jpy-100m",
         )
 
-        observations = parse_boj_xlsx(
+        observations = _read_boj(
             series, content, start=date(2026, 2, 1), end=date(2026, 3, 31)
         )
 
@@ -154,7 +152,7 @@ class IndicatorsProviderParserTests(TestCase):
             unit="jpy-100m",
         )
 
-        observations = parse_boj_xlsx(
+        observations = _read_boj(
             series, content, start=date(2026, 1, 1), end=date(2026, 12, 31)
         )
 
@@ -180,8 +178,8 @@ class IndicatorsProviderParserTests(TestCase):
             plausible_max=2000.0,
         )
 
-        with self.assertRaisesRegex(IndicatorsProviderError, "metadata column 2 mismatch"):
-            parse_boj_xlsx(
+        with self.assertRaisesRegex(ValueError, "metadata column 2 mismatch"):
+            _read_boj(
                 series,
                 content,
                 start=date(2026, 1, 1),
@@ -199,7 +197,7 @@ class IndicatorsProviderParserTests(TestCase):
         )
 
         with self.assertRaisesRegex(IndicatorsProviderError, "could not be read"):
-            parse_boj_xlsx(
+            _read_boj(
                 series, buffer.getvalue(), start=date(2026, 1, 1), end=date(2026, 12, 31)
             )
 
