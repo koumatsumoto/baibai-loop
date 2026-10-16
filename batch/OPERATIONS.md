@@ -384,6 +384,17 @@ vintage・retraction・generation・no-lossの意味は[Market Context reference
 
 **schema7から9への一回切替**: 通常のopen・pull・mergeに旧schema互換を追加しない。マージ後の作業では、実行中writerがいない切替窓を確保し、最新cloud copyから別のcandidateを作る。既存のregistry・観測・取得履歴を保ったまま現行schemaのsource単位native snapshot表を追加し、取得済み原本の再利用と不足日だけの取得を行う。旧scalarからchainを復元できたとは扱わない。candidateと元copyの既存fact保持、raw日付・件数、Reading、公開結果を確認してからcodeとstoreの世代を合わせて切り替える。schema7のcloud copyをschema9の通常mergeへ渡しても切替にはならず、拒否される。切替時の最新cloud世代に対する条件付き書込みとbundle receiptの整合は通常公開と同様に守る。具体的な対象世代・原本不足範囲・candidate確認結果は切替実行時に確定し、PRのコード変更だけで本番切替済みとしない。
 
+schema7の取得済みcopyから、sourceを変更しない別candidateを作る入口は次のとおり。既存outputは拒否する。
+
+```bash
+uv run python -m tools.cutover.prepare_indicators_v9 \
+  --source /tmp/private-cutover/indicators-v7.sqlite \
+  --output /tmp/private-cutover/indicators-v9.sqlite
+```
+
+これは既存scalar履歴とregistryを保持して空のnative表を追加するだけであり、原本の取得・推定・公開はしない。
+原本が不足する系列は不足のままで、schema整合だけをReadingの受入完了としない。#1543 後の全L1再取得とは別の、一時的な切替準備である。
+
 **native原本の不足補完**: native対応系列はschema9のsource snapshotへ保存する。対象sourceと系列は現行registry・読取実装で確認する。従来のscalar観測は原本の代替にせず、PRマージ後に取得済み原本を再利用し、不足する期間だけ取得して再計算する。投資部門別の取得範囲は公表日であり、L2の集計期間と取り違えない。TOPIXの旧終値からO/H/Lを推定しない。必要な原本・Reading・公開読戻しを確認するまで、本番切替の受入完了としない。
 
 **停止と復旧**: DB拒否・意図しない退役・provider取得失敗・merge/CAS失敗では後続公開へ進まない。provider失敗がcommit済みpruneを巻き戻すとは扱わない。誤った内容をcloudへ反映した場合は次のpushを止め、[R2 transferの安全境界](#r2-transferの安全境界)の前世代復元へ進む。部分pushによるreceipt不一致だけは[部分pushからの復旧](#部分-push-からの復旧)で扱う。
