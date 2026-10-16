@@ -1,5 +1,8 @@
 # 信用残高日次化のClientV2契約確認（2026-09-28）
 
+この文書は確認当時の保存仕様・実測・進行状況を残す履歴である。現行の仕様と運用境界は
+[信用残高の公表移行](../../../docs/reference/margin-publication-transition.md)を参照する。
+
 ## 判定と根拠
 
 #973のactivation条件を確認した。基点mainは`be9a48ae`、利用SDKは`jquants-api-client 2.7.0`。
@@ -18,7 +21,7 @@
 [機械検証結果](./report.md)は最終週次2026-09-18との母集団・単位・残高内訳の連続性を記録している。
 契約確認のため同じ日付のClientV2応答を別途照合し、保存行との差異がないことを確認した。
 
-## 反映の境界
+## 確認当時の反映の境界
 
-この変更はruntime activationとその証拠を含む。merge、本番L1公開とruntime storeのreadbackは別の未完了工程であり、#973はcloseしない。
-#1010の実screeningにおける指標充足率検証も未完了である。scaffolding撤去taskはactivationとday-one本番検証の完了後に登録する。
+この記録時点ではruntime activationとその証拠までを確認した。merge、本番L1公開とruntime storeのreadbackは未完了で、#973をcloseする段階ではなかった。
+#1010の実screeningにおける指標充足率検証も未完了だった。scaffolding撤去はactivationとday-one本番検証の完了後に行う予定だった。現在の作業指示や未完了項目を表すものではない。

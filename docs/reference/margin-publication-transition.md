@@ -44,7 +44,7 @@ JPX の集計システムは 2026-09-27 に移行した。変更後データの�
 全銘柄日次系列の `LongVol` / `ShrtVol` / standard / negotiable 内訳 / `IssType` は、同名の
 週次 payload field と同じ物理量でも cadence が異なる。したがって別 table に保存し、週次 row と
 union しない。6 残高 field は有限・非負、`IssType` は non-null を clean snapshot の必須条件とし、
-一つでも欠けた response は partial coverage として再取得対象に残す。
+一つでも欠けた response は partial coverage として再取得対象に残す。同じ取得内の同一観測の反復は一つにまとめ、値が食い違う同一identityは保存済みsnapshotの置換前に拒否する。別の取得で届いた訂正は通常どおり置換する。
 
 全銘柄日次系列では `PubDate` と六つの金額 field（`LongVal` / `ShrtVal`、standard / negotiable 内訳）も保存・lake 公開する。現在の L2 が株数だけを使うことを理由に、同じ応答で得られる金額を捨てない。値は提供元の単位のまま保持し、株数×市場価格で補完しない。欠測は null とし、金額欠測を理由に正常な株数まで再取得しない。`PubDate` は公表日であり、正確な API 利用可能時刻ではない。現行 serving の公表可否は§6の暦規約を使う。
 
@@ -71,8 +71,9 @@ union しない。6 残高 field は有限・非負、`IssType` は non-null を
   servingでは公表日がas-ofより前の残高だけを利用し、公表日当日のas-ofには使用しない。
 - 全銘柄日次の empty response は coverage 完了とみなさず、non-empty な clean snapshot を
   保存するまで次の batch で再取得する。
-- J-Quants client/API が field、endpoint、日付 identity、母集団を変更した場合は取込を停止し、
-  本表と fixture を更新してから再開する。既存 table への推測 mapping は行わない。
+- J-Quants client/API の変更で必須field・日付identity・母集団の意味を確認できなくなった場合は、
+  推測mappingで取込を継続しない。本表とfixtureを更新してから再開する。任意fieldの追加だけを
+  必須入力の不備とは扱わない。
 
 ## 6. `margin_*` の固定語義
 
