@@ -1395,22 +1395,40 @@ class TestHydrate:
         with pytest.raises(LakeHydrateError, match="no longer current"):
             _hydrate(session, lake, store, still_current=lambda: moved)
 
-    def test_a_case_insensitive_filesystem_is_rejected_before_the_store_changes(
-        self,
-        session: LakeSession,
-        lake: Lake,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
+    def test_failed_publication_link_preserves_the_previous_store(
+        self, session: LakeSession, lake: Lake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         store = _dehydrated(lake, tmp_path / "arrived.sqlite")
         before = store.read_bytes()
-        monkeypatch.setattr(Path, "samefile", lambda _self, _other: True)
+        real_link = Path.hardlink_to
 
-        with pytest.raises(LakeHydrateError, match="case-sensitive"):
+        def fail_link(path: Path, target: Path) -> None:
+            if path.name.endswith(".rollback"):
+                raise OSError("publication link unavailable")
+            real_link(path, target)
+
+        monkeypatch.setattr(Path, "hardlink_to", fail_link)
+        with pytest.raises(OSError, match="publication link unavailable"):
             _hydrate(session, lake, store)
-
         assert store.read_bytes() == before
-        assert not [path for path in tmp_path.iterdir() if path.name.endswith(".probe")]
+        assert not list(tmp_path.glob("*.hydrating"))
+
+    def test_capacity_failure_during_load_preserves_the_previous_store(
+        self, session: LakeSession, lake: Lake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from baibai_engine.storage.lake import hydrate as hydrate_module
+
+        store = _dehydrated(lake, tmp_path / "arrived.sqlite")
+        before = store.read_bytes()
+
+        def fail_load(*_args, **_kwargs):
+            raise sqlite3.OperationalError("database or disk is full")
+
+        monkeypatch.setattr(hydrate_module, "load_dataset_rows", fail_load)
+        with pytest.raises(sqlite3.OperationalError, match="disk is full"):
+            _hydrate(session, lake, store)
+        assert store.read_bytes() == before
+        assert not list(tmp_path.glob("*.hydrating"))
 
     def test_insufficient_capacity_fails_before_the_store_changes(
         self,

@@ -56,11 +56,6 @@ from baibai_engine.storage.observations.lake_origin import (
 from baibai_engine.storage.observations.snapshot import create_snapshot, validate_snapshot
 
 _MIN_FREE_BYTES = 64 * 1024 * 1024
-# SQLite holds the same rows in b-trees with the store's own indexes, so a store is a
-# multiple of the compressed Parquet the release publishes. The production release is
-# 300,587,037 bytes of Parquet against a 1,812,189,184-byte store — 6.03 — and the
-# factor is set above that so the check refuses before the load rather than after it.
-_STORE_EXPANSION_FACTOR = 8
 
 
 class LakeHydrateError(RuntimeError):
@@ -197,8 +192,7 @@ def hydrate_market_store(
         schema_version = validate_snapshot(store)
         require_row_counts_within_release(store, plan)
         require_safe_hydrate_transition(store, release=release, plan=plan)
-        require_durable_filesystem(store.parent)
-        require_free_capacity(store.parent, store=store, plan=plan)
+        require_free_capacity(store.parent, store=store)
         before = cache.transfers.as_dict()
         temporary = store.with_name(f".{store.name}.{os.getpid()}.{uuid.uuid4().hex}.hydrating")
         rows: dict[str, int] = {}
@@ -454,59 +448,15 @@ def require_still_current(
         )
 
 
-def require_free_capacity(parent: Path, *, store: Path, plan: ReleaseLoadPlan) -> None:
-    """Refuse before the load unless the filled copy can fit beside the current store.
+def require_free_capacity(parent: Path, *, store: Path) -> None:
+    """Check space for the initial copy, not a guessed Parquet expansion factor.
 
-    The fill writes one temporary copy: it starts as a byte copy of the store and ends
-    holding every published row, so the peak it needs is the larger of the two rather
-    than their sum.
+    Source archives and scalar rows have different compression ratios. Growth while
+    loading can still fail; the temporary-copy path must preserve the current store.
     """
-
-    published_bytes = sum(item.bytes for item in plan.objects)
-    required = max(
-        _MIN_FREE_BYTES,
-        store.stat().st_size,
-        published_bytes * _STORE_EXPANSION_FACTOR,
-    )
+    required = max(_MIN_FREE_BYTES, store.stat().st_size)
     if shutil.disk_usage(parent).free < required:
         raise LakeHydrateError(f"hydration requires at least {required} free bytes in {parent}")
-
-
-def require_durable_filesystem(parent: Path) -> None:
-    """Fail before the expensive load unless publication primitives are supported."""
-    token = uuid.uuid4().hex
-    upper = parent / f".hydrate-{token}-Case.probe"
-    lower = parent / f".hydrate-{token}-case.probe"
-    linked = parent / f".hydrate-{token}-linked.probe"
-    renamed = parent / f".hydrate-{token}-renamed.probe"
-    directory = -1
-    try:
-        for path in (upper, lower):
-            with path.open("xb") as probe:
-                probe.write(b"market-store-filesystem-probe")
-                probe.flush()
-                os.fsync(probe.fileno())
-        if upper.samefile(lower):
-            raise LakeHydrateError("the market store requires a case-sensitive filesystem")
-        linked.hardlink_to(lower)
-        if not linked.samefile(lower):
-            raise LakeHydrateError("market store filesystem does not preserve hard-link identity")
-        directory = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
-        os.fsync(directory)
-        upper.replace(renamed)
-        os.fsync(directory)
-    except LakeHydrateError:
-        raise
-    except OSError as exc:
-        raise LakeHydrateError(
-            "market store filesystem does not support durable same-directory publication"
-        ) from exc
-    finally:
-        if directory >= 0:
-            os.close(directory)
-        for path in (upper, lower, linked, renamed):
-            with suppress(OSError):
-                path.unlink(missing_ok=True)
 
 
 def durable_replace(temporary: Path, destination: Path) -> None:
