@@ -113,7 +113,7 @@ EDINET metricのrevisionは抽出意味の変更時だけ明示更新し、配�
 
 現行配置は[所有表](#repository-map)に集約する。Market ContextのCLIは`market-context indicators / reading / assessment`で各ownerへ直接渡し、Webも同じ読取ownerを使う。新規writerと保存済み判断の読取は区別し、旧payloadを新規判断として再発行しない。schema・参照field・履歴読取の詳細は[Market Context reference](./reference/market-context.md#現行配置と保全するidentity)、外部評価の永続名は[保存済み照会](./reference/market-lake.md#external-assessment-query)が所有する。
 
-Readingの現行選択先は`READING_RULES_PATH`が指す`method/macro/reading/2026-08-01T100000+0900.yaml`である。保存判断が引用する元bytes/pathを保持し、名前切替のための移設・複製・revision変更を行わない。
+Readingの現行選択先は`READING_RULES_PATH`が指す`method/macro/reading/2026-08-01T100000+0900.yaml`である。保存判断が引用する数値・fieldの意味・dated pathを保持し、名前切替のための移設・複製・revision変更を行わない。計算を変えない説明訂正は可能とし、変更前のbytesはgit履歴で確認する。
 
 実装・移行と通常運用の受入は区別する。進捗・未完了の受入・確認証拠は[Issue #1414](https://github.com/koumatsumoto/baibai-loop/issues/1414)へ集約し、現行仕様は本書とreferenceで管理する。
 

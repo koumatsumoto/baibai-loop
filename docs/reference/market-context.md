@@ -19,7 +19,7 @@ Market Contextの`indicators`はL1のregistry・取得・DB adapter、`reading`�
 
 runtimeの指標DBは`stores/market_context/indicators.sqlite`/R2 `indicators.sqlite`（schema9）、判断はapplication schema24の`market_context_assessment / market_context_assessment_head`に保存する。新規判断はschema6・`market-context-assessment-*` identityを使う。旧`macro-context-*` ID・JSON・引用・hashは変更せず、新しい`/api/market-context/assessments/{context_id}`から直接読む。schema5/6は同じコンパクト意味、旧3/4は保存された章立て履歴であり、新writerの構造とは分ける。Researchは保存された市場判断を固定入力へ取り込み、Investment Proposalがmarket_context_assessment_idへ束縛する。旧ResearchのTriage/CAAは通常runtimeで利用・再開せず、一回切替で必要な執筆材料と判断参照を退避する。保存名の切替は完了しており、通常の取得・反映・復旧は[運用手順](../../batch/OPERATIONS.md#store-identity-recovery)に従う。
 
-Readingは`READING_RULES_PATH`が選ぶ一つのdated fileを使う。保存判断が引用する`method/macro/reading/2026-08-01T100000+0900.yaml`は元bytes/pathのまま保全し、別のcurrent copyを作らない。規則のidentityはdated stemであり、単なる配置整理で値・revision・schemaを変えない。
+Readingは`READING_RULES_PATH`が選ぶ一つのdated fileを使う。保存判断が引用する`method/macro/reading/2026-08-01T100000+0900.yaml`は数値・fieldの意味・dated pathを保全し、別のcurrent copyを作らない。計算を変えない説明訂正は可能とし、旧bytesはgit履歴で確認する。規則のidentityはdated stemであり、単なる配置整理で値・revision・schemaを変えない。
 
 <a id="market-context-reads"></a>
 
@@ -220,7 +220,7 @@ uv run baibai-engine market-context reading --asof 2026-07-24 --format json   # 
 - flagsと極端なz-scoreは確認の入口であり、売買signalや誤値判定ではない。
 - 異なる実効窓とsampling cadenceを同じ物差しとして比較しない。`window_years`、`window_observations`と規則revisionを確認する。
 
-規則は`method/macro/reading/`のdated revisionに置き、出力の`rules_revision`で識別する。frequencyの既定と系列固有のoverrideを使い、既定がsourceの性質に合わない箇所だけを上書きする。実行対象はschema 2の規則に絞り、鮮度は公表周期・lag・marginから導く。旧schema 1の固定日数方式を再実行する互換分岐は持たない。旧dated fileと保存済み判断のrevision参照は当時の方針を示す履歴として残し、数値や意味を現在の規則へ書き換えない。`--rules`は現行schemaの別方針を試すために使える。厳密なfield・閾値はrule modelとloaderを参照する。引用済みの現行dated fileはbytesを保持するため、コメント中の旧CLI名・当時の契約期間・公表上限の説明を現在の操作や保証として使わない。操作と解釈は本書へ集約する。水準が下がらないという前提や、過去最大ラグが将来も超えないという保証は置かない。
+規則は`method/macro/reading/`のdated revisionに置き、出力の`rules_revision`で識別する。frequencyの既定と系列固有のoverrideを使い、既定がsourceの性質に合わない箇所だけを上書きする。実行対象はschema 2の規則に絞り、鮮度は公表周期・lag・marginから導く。旧schema 1の固定日数方式を再実行する互換分岐は持たない。旧dated fileと保存済み判断のrevision参照は当時の方針を示す履歴として残し、数値や意味を現在の規則へ書き換えない。`--rules`は現行schemaの別方針を試すために使える。厳密なfield・閾値はrule modelとloaderを参照する。現行dated fileの説明は実装と整合させる。当時の契約期間・公表遅延の測定を現在の操作や保証として使わない。操作と解釈は本書へ集約する。水準が下がらないという前提や、過去最大ラグが将来も超えないという保証は置かない。
 
 reading は L1 store を読むだけの純関数で、provider を呼ばず DB へ書かない。したがって過去日の asof でも同じ入力から同じ snapshot を再計算できる。CLI・read API・indicator chart は共通の store reader を使い、`ProviderSpec.point_in_time_vintage` を宣言する source だけを `vintage_at <= asof` へ clamp する。宣言のない bulk history の `vintage_at` は取得日時であって当時の公表日時ではないため、一律 clamp して取得前の過去 snapshot から既知だった履歴を消さない。専用 store は持たず、日次バッチが `baibai-web` 向けの現在読み値（`/api/market-context`・`views/market-context.json`）へ投影し、L3判断は引用したsnapshotとmethod revisionを入力出典に記録する。Web projectionは指定asofのreadingを1回組み立て、canonical snapshotを増やさない。
 

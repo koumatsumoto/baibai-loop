@@ -4,50 +4,17 @@
 # 要求しない。したがって frequency 別の defaults を正とし、override は「default が
 # 事実に反する系列」だけに書く。網羅性は tests/engine/market_context/test_reading.py が保証する。
 #
-# 用語:
-#   percentile_window_years  percentile / z-score の統計窓（年）。provider の提供
-#                            履歴が構造的にこの長さに届かない系列だけ override する。
-#   statistic                percentile / z-score が位置を測る対象。既定は水準
-#                            （level）で、水準の尺度が自らの履歴でしか決まらない系列
-#                            だけ前年比（yoy・%）へ切り替える。指数・累積・名目集計の
-#                            水準 percentile は「増え続けている」以上の意味を持たず、
-#                            時間の経過を percentile として表示してしまう。金利・
-#                            スプレッド・比率・DI・ボラティリティ・為替・商品価格は
-#                            水準自体に解釈があるので level を保つ。
-#                            registry の category / unit が yoy 候補を決め、test が
-#                            本ファイルとの drift を拒否する。新しい候補系列は
-#                            `statistic: yoy`、水準を読む例外は `statistic: level` を
-#                            明示する。
-#   sampling_cadence         percentile / z-score の標本間隔。既定は registry の
-#                            frequency に従う。取得・鮮度の cadence と統計標本の
-#                            cadence が異なる source だけ override する。
-#   trend_months             latest と比較する基準時点（asof からの月数）。yoy へ
-#                            切り替えた系列でも trend は系列自身の単位の絶対変化で、
-#                            percentile が測る %変化と単位が違う。
-#   publication_cadence     次の観測基準日を進める間隔。daily は既定で
-#                            business_daily。土日も点を持つ系列は calendar_daily、
-#                            日次観測を週次batchで公表する系列は weekly とする。
-#                            統計上は月次でも当月値が日次更新される派生系列など、
-#                            frequency が実際の更新間隔と異なる場合も override する。
-#   publication_lag_days    1 観測の基準日から公表までの暦日数。reading は
-#                            `latest observed_at + 1 公表間隔 + lag` を次回公表目安
-#                            とする。business / weekly / monthly / quarterly の推定日が
-#                            土日なら翌平日へ送る。手維持の event calendar ではなく、
-#                            系列の公表 cadence から機械導出する。
-#                            公表日の実測がある系列は、その**上端**（いちばん遅い月）を
-#                            置く。next_print_estimate は「最も早い公表日」ではなく
-#                            「これ以降なら公表済みのはず」の線であり、上端を置くことで
-#                            平常の公表待ちに print_due の負値と stale が出ない。実測が
-#                            まだ無い系列は公表暦の中央推定のままにし、実測した時点で
-#                            上端へ寄せる（この違いは override のコメントに書く）。
-#   staleness_margin_days   次回公表目安を過ぎてから stale とするまでの猶予。
-#                            staleness_warn_days は観測日から
-#                            `next_print_estimate + margin` までの日数として導出する。
-#                            観測の齢であり cache の齢ではない。
-#                            `macro get --latest` もJST運用日から同じ閾値を計算し、
-#                            cache 再取得判定に使う。
-#   flags                    閾値フラグ。signal ではなく注記であり、初期値は教科書値。
-#                            水準に対する比較なので statistic の切り替えに影響されない。
+# 用語と限界:
+# - percentile_window_years は統計窓。statistic は percentile / z-score の比較対象を
+#   level（水準）または yoy（前年比%）から選ぶ。latest_value・trend・flags は元系列の
+#   単位を使い、trend は元系列の差である。yoy 指定でも trend を前年比差へ変えない。
+# - sampling_cadence は統計標本間隔、publication_cadence は次の観測日の推定間隔。
+# - publication_lag_days は観測日から公表までの暦日近似、staleness_margin_days は猶予。
+#   次回目安は最終観測日＋推定間隔＋lagで、該当周期の土日は翌平日へ送る。
+#   stale はその目安＋marginを越えた状態であり、print_due の負値だけでは決まらない。
+# - 下記の公表周期・履歴窓・測定値は設定時の運用上の根拠。公式公表日、将来の最大ラグ、
+#   公表済みであること、現契約の取得可能範囲を保証しない。祝日別の公式暦は再現しない。
+# - flags は元系列の水準に対する注記で、売買signalや L3 判断の代替ではない。
 schema_version: 2
 
 defaults:
@@ -56,7 +23,7 @@ defaults:
     short_trend_months: 3
     long_trend_months: 12
     publication_lag_days: 0
-    # 国内最長の連休（GW・年末年始は最終営業日から 6 日空く）を吸収する。
+    # 日次系列の通常の非更新日を考慮した運用上の猶予。最長連休の保証ではない。
     staleness_margin_days: 6
   weekly:
     percentile_window_years: 10
@@ -68,16 +35,14 @@ defaults:
     percentile_window_years: 10
     short_trend_months: 3
     long_trend_months: 12
-    # 観測は月初日付で、月 M の値は M+1 の中旬〜下旬に公表される。次の公表を待つ
-    # 平常時の齢は約 76 日。公表日の振れを吸収し、1 回の公表落ちで stale とする。
+    # 月初を観測日とする系列の公表遅延を近似する。系列固有の差は override で表す。
     publication_lag_days: 45
     staleness_margin_days: 7
   quarterly:
     percentile_window_years: 10
     short_trend_months: 6
     long_trend_months: 12
-    # 四半期 Q の値は Q+1 の下旬に公表されるため、平常時の最大齢は約 210 日
-    # （Q1 の値が 7 月下旬まで最新）。四半期系列は構造的に検知が遅い。
+    # 四半期初日を観測日とする系列の公表遅延の近似。欠測検知には長い待ちが生じる。
     publication_lag_days: 118
     staleness_margin_days: 7
 
@@ -119,24 +84,16 @@ overrides:
     publication_cadence: weekly
     publication_lag_days: 3
     staleness_margin_days: 2
-  # 日経225オプションの 30 日読みは、手前 2 限月が 30 日を挟む日にしか出ない。SQ 直後は
-  # 手前限月が 30 日超になるので構造的に数日まとめて空き、その空きは実取引日 2093 日と
-  # 実 SQ 暦 105 限月の照合で最大 19 暦日（2019-05、GW と重なった回）。default の
-  # 7 日では毎月 stale が立ち、provider の無音の停止と区別できなくなる。margin 23 は
-  # warn 24 日（lag 0 + 間隔 1 + 23）で、実測の 19 日に 5 日の余裕がある。
-  # iv_term は限月が 2 つあれば出る（実測 99%）ので default のまま——同じ 1 回の取得から
-  # 出るので、取得そのものが止まれば iv_term が 7 日で鳴る。この 2 系列の 24 日窓が
-  # 無音にならないのは iv_term が既定を保っているからで、こちらを緩めると穴が開く。
-  # 19 日は 30 日を挟む条件だけの実測で、iv_skew はそれに加えて基準検査でも空く。その
-  # 上乗せ分に margin は張っていない——基準検査は iv_term も同時に空けるので、続けば
-  # iv_term が先に鳴る。margin が守っているのは iv_term が鳴らない側の欠測だけである。
+  # 30日を挟む限月がない期間は30日IVとskewが構造的に欠測する。
+  # 30日を挟む条件による空きは、当初の2093取引日・105限月の照合で最大19暦日。
+  # skewは基準検査でも欠測し得る。この観測を踏まえてmargin23を選んだ。
+  # 日付・週末により実際の閾値は変わる。別系列iv_termの鮮度と取得状態も確認するが、
+  # いずれかの系列が必ず全ての取得障害を検知する保証はない。
   jp.n225_iv_30d:
     staleness_margin_days: 23
   jp.n225_iv_skew:
     staleness_margin_days: 23
-  # University of Michigan は当月の確報を月末に出し、store はその確報を取る（ラグ約
-  # 28 日）ので、平常時の齢は 58 日を超えない。default 100 日では 2 公表分の欠落を
-  # 注記なしで通してしまう。
+  # 当月確報を月末に取得する当初の観測に合わせたlag28・margin6。
   us.consumer_sentiment:
     statistic: level
     publication_lag_days: 28
@@ -157,11 +114,11 @@ overrides:
   # 統計ダッシュボードの転載差を margin ではなく lag 側に含める。
   jp.unemployment:
     publication_lag_days: 63
-  # J-Quants Light の配信契約が運用日から 5 年 rolling。
+  # 設定時に利用できた履歴を踏まえた5年統計窓。現契約の提供期間とは別。
   jp.topix:
     percentile_window_years: 5
     statistic: yoy
-  # 同じ契約窓だが、実配信は 2022-04 起点で 5 年に届かない。
+  # 設定時の実配信起点が2022-04だったことを踏まえた3年窓。
   jp.foreign_flows:
     percentile_window_years: 3
   # yahoo が配信する東証グロース 250 の履歴が 2018-01 起点。
@@ -256,17 +213,11 @@ overrides:
       - id: negative
         comparison: below
         value: 0.0
-  # 物価指数。基準年が任意で、物価が上がる限り水準は最高値を更新し続ける。位置を
-  # 持つのは前年比（＝インフレ率）であり、水準の percentile は物価の存在を測る。
+  # 物価指数は基準年の水準でなく前年比の分布を比較する。水準が常に上がる前提ではない。
   jp.cgpi:
     statistic: yoy
-  # 全国 CPI の e-Stat 掲載は観測月 + 53〜61 日（2025-01〜2026-07 の掲載日実測。
-  # 測定表は issue #594）。この系列は press release ではなく e-Stat DB 掲載を読むので、
-  # 上端は掲載日で測る。月次 default（45）のままだと、次の公表を待つ平常時に stale が
-  # 立ち、公表前に print_due が負になり、期限が公表日と重なる scorecard 条件が採点
-  # 不能になる。lag は staleness だけでなく scorecard の settlement 待ち
-  # （deadline + 1 公表間隔 + lag + margin）も同じだけ後ろへ動かすので、短くすると
-  # 採点不能が戻り、長くすると採点が遅れる。
+  # 設定時のe-Stat掲載日測定（2025-01〜2026-07、issue #594）は観測月＋53〜61日。
+  # press releaseでなく転載経路の掲載遅延を考慮した値で、将来の上限ではない。
   jp.cpi.core:
     statistic: yoy
     publication_lag_days: 61
@@ -292,8 +243,7 @@ overrides:
     publication_lag_days: 57
   us.ppi:
     statistic: yoy
-  # 数量指数と名目の集計値。景気の強弱は水準ではなく伸び率で読む系列であり、名目の
-  # 売上・受注は物価上昇の分だけ水準が上がり続ける。
+  # 数量指数と名目集計は、水準ではなく伸び率を比較する方針。
   # 景気動向指数「個別系列の数値」表から読む 3 系列。e-Stat 掲載は月 M の速報が
   # M+2 上旬（2025-12〜2026-07 の掲載日実測で観測月 + 65〜73 日）。統計そのものの
   # 公表元（METI・厚労省・内閣府 消費動向調査）より 1 か月遅い経路であることを
@@ -327,9 +277,8 @@ overrides:
     statistic: yoy
   us.retail_sales:
     statistic: yoy
-  # 雇用者数は累積の残高、賃金は水準が下がらない系列。雇用の強弱は増加ペース、賃金は
-  # 上昇率が位置を持つ。件数の増減（求人・失業保険申請・倒産）は水準が景気で往復する
-  # ので level のまま。
+  # 雇用者数・賃金は前年比を比較する。減少しない前提ではない。
+  # 求人・失業保険申請等の件数は、別の読取方針として水準を使う。
   jp.nominal_wage_index:
     statistic: yoy
     # 読むのは毎月勤労統計の確報だけで、統計ダッシュボードが先に載せる速報は
@@ -392,10 +341,8 @@ overrides:
     publication_lag_days: 17
   us.philly_fed_manufacturing:
     publication_lag_days: 22
-  # 株価指数。利益の内部留保と物価の分だけ水準が構造的に切り上がるので、水準の
-  # percentile は強気相場である限り 100% 近傍に張り付く。1 年騰落率なら「この上げ方が
-  # 過去と比べて速いか」を測れる。バリュエーション（PER・PBR・CAPE・ERP）は比率で
-  # 水準に解釈があるため level のまま。
+  # 株価指数は1年騰落率の分布を比較する方針。上昇継続や投資価値を保証しない。
+  # PER・PBR・CAPE・ERPの比率系列とは比較対象を分ける。
   em.equity:
     statistic: yoy
   europe.stoxx:
