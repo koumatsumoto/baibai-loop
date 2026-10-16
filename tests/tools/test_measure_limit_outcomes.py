@@ -492,7 +492,7 @@ def _expired_case(tmp_path):
 
 
 @pytest.mark.parametrize("factor", [0.5, None])
-def test_changed_or_unknown_share_basis_keeps_order_facts_without_price_comparison(
+def test_changed_or_unknown_price_basis_keeps_order_facts_without_price_comparison(
     tmp_path, factor
 ):
     app, market = _expired_case(tmp_path)
@@ -505,7 +505,7 @@ def test_changed_or_unknown_share_basis_keeps_order_facts_without_price_comparis
     order = payload["orders"][0]
     assert order["outcome"] == "expired"
     assert order["post_expiry_sessions_observed"] == POST_EXPIRY_SESSIONS
-    assert order["price_comparison_unavailable_reason"] == "share_basis_unconfirmed"
+    assert order["price_comparison_unavailable_reason"] == "price_basis_unconfirmed"
     assert order["distance_to_limit_pct"] is None
     assert order["forgone_pct"] is None
     assert payload["summary"]["all_ledger_orders"]["price_incomparable_orders"] == 1
@@ -569,3 +569,22 @@ def test_sell_reservations_are_not_counted_as_buy_limit_outcomes(tmp_path):
     payload = build_limit_outcomes(app_db=app, market_db=market, asof=ASOF)
     assert payload["scope"] == "buy_reservations"
     assert [item["reservation_id"] for item in payload["orders"]] == ["buy"]
+
+
+@pytest.mark.parametrize("released_at", ["2026-07-10T08:30:00+09:00", "2026-07-09T23:30:00Z"])
+def test_expired_window_uses_the_same_tokyo_date_for_any_offset(tmp_path, released_at):
+    app, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
+    reservation = _reservation(
+        reservation_id="expired-offset", occurred_at="2026-07-01T09:00:00+09:00",
+        limit_yen="1000", decision_reference=None,
+    )
+    reservation["expires_at"] = "2026-07-10T08:30:00+09:00"
+    _ledger(app, [reservation, {
+        "event_id": "release-offset", "type": "release", "occurred_at": released_at,
+        "reservation_id": "expired-offset", "reason": "expired",
+    }])
+    _market(market, [("2026-07-09", 1100.0, 1110.0), ("2026-07-10", 1050.0, 1060.0)])
+    order = build_limit_outcomes(app_db=app, market_db=market, asof=ASOF)["orders"][0]
+    assert order["window_end"] == "2026-07-10"
+    assert order["window_low_yen"] == 1050.0
+    assert order["post_expiry_sessions_observed"] == 0
