@@ -122,7 +122,8 @@ def test_caller_keeps_the_same_snapshot_for_unit_checks_after_prices(tmp_path):
         calendar, bars = market_store.read_portfolio_market_inputs(
             database, ("1301",), START, END, connection=reader
         )
-        assert calendar is not None and bars is not None
+        assert calendar is not None
+        assert bars is not None
         with closing(sqlite3.connect(database)) as writer, writer:
             writer.execute(
                 "UPDATE jquants_daily_bars SET adjustment_factor = 0.5 WHERE traded_at = ?",
