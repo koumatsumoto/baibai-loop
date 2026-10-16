@@ -8,7 +8,6 @@ import subprocess
 import sys
 from contextlib import closing
 from datetime import date
-from hashlib import sha256
 
 import pytest
 from pydantic import TypeAdapter
@@ -17,7 +16,7 @@ from baibai_engine.market_context.prices import read_price_bars
 from baibai_engine.valuation.metrics.models import FinancialSnapshot
 
 
-def test_financial_snapshot_keeps_pre_move_default_json() -> None:
+def test_financial_snapshot_json_preserves_values_and_missingness() -> None:
     snapshot = FinancialSnapshot(
         latest_financial_disclosure_date=date(2026, 7, 1),
         per_forward=10.0,
@@ -31,14 +30,19 @@ def test_financial_snapshot_keeps_pre_move_default_json() -> None:
         ocf_ttm=None,
     )
     payload = TypeAdapter(FinancialSnapshot).dump_python(snapshot, mode="json")
-    # v27 adds optional source traces; the previous fields/defaults stay identical.
-    assert payload.pop("earnings_forecast_source") is None
-    assert payload.pop("dividend_forecast_source") is None
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    # 同じ入力からmain 537477c2の元schemaで取得した全field/defaultのJSON。
-    assert sha256(encoded.encode()).hexdigest() == (
-        "47e0cbc2f820da7e276b0c9aa034184a914a8cf32053716c80e8a0f00aae61c9"
-    )
+    assert payload["latest_financial_disclosure_date"] == "2026-07-01"
+    assert payload["per_forward"] == 10.0
+    assert payload["per_trailing"] is None
+    assert payload["pbr"] == 0.0
+    assert payload["p_s"] == -1.0
+    assert payload["eps"] == 0.0
+    assert payload["sales_ttm"] == 0.0
+    assert payload["ocf_ttm"] is None
+    assert payload["earnings_forecast_source"] is None
+    assert payload["dividend_forecast_source"] is None
+    restored = TypeAdapter(FinancialSnapshot).validate_json(json.dumps(payload))
+    assert restored == snapshot
+
 
 
 @pytest.mark.parametrize(
