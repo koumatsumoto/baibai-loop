@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from datetime import date
 from html.parser import HTMLParser
 
@@ -36,6 +36,7 @@ _DATALOAD_HEADERS = {
 
 _METRICS = frozenset({"per", "pbr"})
 
+
 class NikkeiIndexesSource:
     """Retain both published PER/PBR columns; L2 selects the weighted average."""
 
@@ -57,7 +58,7 @@ class NikkeiIndexesSource:
             raise IndicatorsProviderError(
                 f"unsupported nikkei_indexes metric {metric!r}; supported: {supported}"
             )
-        by_date: dict[date, list[dict[str, object]]] = defaultdict(list)
+        by_date: dict[date, list[Mapping[str, object]]] = defaultdict(list)
         for year, month in _months(start, end):
             text = fetch_text(
                 session,
@@ -82,8 +83,8 @@ def parse_nikkei_valuation(
     parser = _ValuationRows()
     parser.feed(text)
     parser.close()
-    if not parser.found_table and not parser.rows:
-        raise IndicatorsProviderError("Nikkei valuation table missing")
+    if not parser.rows:
+        raise IndicatorsProviderError("Nikkei valuation data rows missing")
     records: dict[date, list[dict[str, object]]] = defaultdict(list)
     for cells in parser.rows:
         if not cells or not re.fullmatch(r"\d{4}\.\d{2}\.\d{2}", cells[0].strip()):
@@ -103,16 +104,13 @@ class _ValuationRows(HTMLParser):
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
-        self.found_table = False
         self.rows: list[list[str]] = []
         self.cells: list[str] = []
         self.data_row = False
         self.cell: list[str] | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag == "table":
-            self.found_table = True
-        elif tag == "tr":
+        if tag == "tr":
             self.cells = []
             self.data_row = False
         elif tag == "td":

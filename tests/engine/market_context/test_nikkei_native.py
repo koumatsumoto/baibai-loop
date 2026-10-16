@@ -32,7 +32,7 @@ def test_missing_revision_does_not_restore_scalar_or_prior_native_value(tmp_path
     replies = iter([table("17.82", "25.11"), table(missing, "25.12")])
     monkeypatch.setattr(nikkei_indexes, "fetch_text", lambda *args, **kwargs: next(replies))
     with closing(db.initialize_database(path)) as connection, connection:
-        db.insert_observations(connection, [observation(series, DAY, 99.0)])
+        db.insert_observations(connection, [observation(series, DAY, 19.0)])
     service = IndicatorsService(path)
     first = service.get_range(series.series_id, start=DAY, end=DAY, refresh=True)
     assert first.observations[0].value == 17.82
@@ -42,7 +42,7 @@ def test_missing_revision_does_not_restore_scalar_or_prior_native_value(tmp_path
         row = next(read_snapshots(connection, DAY, DAY, source_key=native_source_key(series))).records[0]
         assert row["weighted_text"] == ("—" if missing == "&mdash;" else missing)
         assert row["index_based_text"] == "25.12"
-        assert connection.execute("SELECT value FROM observations").fetchone()[0] == 99.0
+        assert connection.execute("SELECT value FROM observations").fetchone()[0] == 19.0
 
 
 def test_missing_unused_index_column_does_not_drop_valid_weighted_value(tmp_path, monkeypatch):
@@ -61,3 +61,10 @@ def test_unreadable_numeric_text_is_retained_but_not_a_successful_reading(tmp_pa
     with closing(db.open_read_only_connection(path)) as connection:
         row = next(read_snapshots(connection, DAY, DAY, source_key=native_source_key(series))).records[0]
         assert row["weighted_text"] == "unreadable"
+
+
+@pytest.mark.parametrize("html", ["<html>challenge</html>", "<table></table>", "<table><tr><td>Unexpected layout</td></tr></table>"])
+def test_unrecognized_empty_html_does_not_claim_successful_empty_history(html):
+    series = next(item for item in load_definitions().series if item.provider == "nikkei_indexes")
+    with pytest.raises(nikkei_indexes.IndicatorsProviderError, match="data rows missing"):
+        nikkei_indexes.parse_nikkei_valuation(series, html, start=DAY, end=DAY)
