@@ -295,31 +295,12 @@ def _prior_year_summary(
     )
     if latest is None:
         return None
-    if latest.period_start is not None and latest.period_end is not None:
-        # Explicit dates own comparability. A failed period match must not be
-        # rescued by an FY/Q label that ignores a short year or invalid dates.
-        return _matched_prior_period_summary(
-            summaries,
-            latest,
-            ttm_rules,
-            field_name=field_name,
-        )
-    if latest.fiscal_period is None or latest.fiscal_year_end is None:
-        return None
-    target_fiscal_year_end = add_months_clamped(latest.fiscal_year_end, -12)
-    candidates = [
-        summary
-        for summary in _actual_rows(summaries)
-        if (
-            field_name is None
-            or getattr(summary, field_name) is not None
-            or field_name in summary.unresolved_actual_fields
-        )
-        if summary.fiscal_period == latest.fiscal_period
-        and summary.fiscal_year_end == target_fiscal_year_end
-    ]
-    return _latest_consistent_actual(
-        candidates, (field_name,) if field_name else _ACTUAL_ANCHOR_FIELDS
+    # Native accounting dates own comparability; FY/Q labels cannot replace them.
+    return _matched_prior_period_summary(
+        summaries,
+        latest,
+        ttm_rules,
+        field_name=field_name,
     )
 
 

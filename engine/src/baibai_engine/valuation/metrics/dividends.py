@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import date, timedelta
+from datetime import date
 from itertools import pairwise
 
 from baibai_engine.foundation.date_utils import add_months_clamped
@@ -31,12 +31,9 @@ from baibai_engine.valuation.metrics.models import (
 from baibai_engine.valuation.metrics.periods import (
     _accounting_observation_key,
     _accounting_period_identity,
+    _period_days,
     resolve_actual_conflicts,
 )
-
-# 会計期間の開始日・期末日が両方とも不明な場合の、開示日から遡る暦日窓。
-# 実際の会計期間や配当基準日を復元するものではない。
-DIVIDEND_ACCRUAL_LOOKBACK_DAYS = 400
 
 # 5 年 carry へ反復させる会社予想の上限。直近実績の 2 倍を超える進行期予想は、
 # 特別配当か未実現の還元転換かを機械入力から区別できない。実績が正なら既存の実績経路へ
@@ -90,19 +87,6 @@ def _actual_dps_rows(
     )
 
 
-def _dividend_accrual_start(row: JQuantsFinancialSummary) -> date:
-    """その年度の配当が積み上がり始めた日。
-
-    当期会計期間の開始日を使う。前期の通期実績開示日を起点にすると、同一年度の訂正開示が
-    直前に来た行で窓が数日へ縮み、窓内の corporate action が消える。
-    """
-    if row.period_start is not None:
-        return row.period_start
-    if row.fiscal_year_end is not None:
-        return add_months_clamped(row.fiscal_year_end, -12)
-    return row.disclosed_at - timedelta(days=DIVIDEND_ACCRUAL_LOOKBACK_DAYS)
-
-
 def _dividend_basis_requires_resolution(
     ticker_bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
     *,
@@ -144,16 +128,27 @@ def _resolve_dividend_carry(
     requires_resolution = False
     actual_annual: float | None = None
     actual_unresolved = bool(
-        actual_rows and "dps_actual_annual" in actual_rows[0].unresolved_actual_fields
+        actual_rows
+        and (
+            "dps_actual_annual" in actual_rows[0].unresolved_actual_fields
+            or (
+                actual_rows[0].dps_actual_annual != 0
+                and _period_days(actual_rows[0]) is None
+            )
+        )
     )
     if actual_rows and not actual_unresolved:
         latest_actual = actual_rows[0]
         assert latest_actual.dps_actual_annual is not None
-        accrual_start = _dividend_accrual_start(latest_actual)
-        requires_resolution = _dividend_basis_requires_resolution(
-            ticker_bars, accrual_start=accrual_start, basis_date=asof_date
+        accrual_start = latest_actual.period_start
+        requires_resolution = (
+            accrual_start is not None
+            and _dividend_basis_requires_resolution(
+                ticker_bars, accrual_start=accrual_start, basis_date=asof_date
+            )
         )
         if requires_resolution:
+            assert accrual_start is not None
             basis_factor = cumulative_share_unit_factor_after(ticker_bars, accrual_start, asof_date)
             actual_annual = 0.0 if latest_actual.dps_actual_annual == 0 else None
         else:
@@ -372,12 +367,15 @@ def _asof_basis_fy_dps(
         value = row.dps_actual_annual
         if fiscal_year_end is None or value is None or value < 0:
             continue
-        requires_resolution = _dividend_basis_requires_resolution(
-            ticker_bars,
-            accrual_start=_dividend_accrual_start(row),
-            basis_date=asof_date,
-        )
-        if not requires_resolution or value == 0:
+        if value == 0:
+            values[fiscal_year_end] = value
+            continue
+        if _period_days(row) is None:
+            continue
+        assert row.period_start is not None
+        if not _dividend_basis_requires_resolution(
+            ticker_bars, accrual_start=row.period_start, basis_date=asof_date
+        ):
             values[fiscal_year_end] = value
     return values
 

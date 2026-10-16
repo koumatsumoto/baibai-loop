@@ -939,3 +939,34 @@ def test_native_identity_is_required_before_replacing_history(tmp_path, number):
             db, [record], requested_start=date(2026, 8, 10), requested_end=ASOF
         )
     assert db.read_bytes() == before
+
+
+@pytest.mark.parametrize("missing_field", ["CurPerSt", "CurPerEn"])
+def test_prior_year_comparison_requires_actual_period_dates(missing_field):
+    from baibai_engine.valuation.metrics.periods import _prior_year_summary
+
+    old = actual_document("prior")
+    old.update(
+        DiscDate="2025-08-10",
+        CurFYSt="2024-07-01",
+        CurFYEn="2025-06-30",
+        CurPerSt="2024-07-01",
+        CurPerEn="2025-06-30",
+    )
+    current = actual_document("current")
+    rules = load_screening_rules().ttm
+    assert _prior_year_summary(decode([old, current]), rules, field_name="eps_ttm") is not None
+    current[missing_field] = ""
+    assert _prior_year_summary(decode([old, current]), rules, field_name="eps_ttm") is None
+
+
+@pytest.mark.parametrize("dps", [0, 7])
+def test_actual_dividend_does_not_invent_missing_accrual_period(dps):
+    from baibai_engine.valuation.metrics.dividends import _resolve_dividend_carry
+
+    record = actual_document("missing-period", DivAnn=str(dps))
+    record["CurPerSt"] = ""
+    result = _resolve_dividend_carry(decode([record]), (), 100, ASOF)
+    assert result.dps_actual_annual == (0 if dps == 0 else None)
+    assert result.dividend_yield == (0 if dps == 0 else None)
+    assert result.basis == ("actual_reported" if dps == 0 else "unresolved_actual_dividend")
