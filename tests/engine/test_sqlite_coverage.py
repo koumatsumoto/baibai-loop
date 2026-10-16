@@ -26,6 +26,8 @@ from baibai_engine.screening.sqlite_coverage import jquants as jquants_coverage
 from baibai_engine.screening.sqlite_coverage import (
     verify_screening_sqlite_coverage,
 )
+from baibai_engine.storage.observations.ingest.jquants import store_jquants_fin_summaries
+from baibai_engine.storage.observations.jquants import store_jquants_daily_bars
 from baibai_engine.storage.observations.schema import open_connection
 
 
@@ -84,11 +86,7 @@ def _seed_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
     _add_source_coverage(
         conn,
         source="jquants_daily_bars",
-        coverage_key=(
-            "jquants:"
-            f"get_eq_bars_daily_range-end_dt-{asof.isoformat()}-"
-            f"start_dt-{bars_start.isoformat()}.json"
-        ),
+        coverage_key=f"get_eq_bars_daily_range:{bars_start.isoformat()}..{asof.isoformat()}",
         record_count=len(bar_rows),
         min_date=bars_start.isoformat(),
         max_date=asof.isoformat(),
@@ -109,11 +107,7 @@ def _seed_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
     _add_source_coverage(
         conn,
         source="jquants_fin_summaries",
-        coverage_key=(
-            "jquants:"
-            f"get_fin_summary_range-end_dt-{asof.isoformat()}-"
-            f"start_dt-{fin_start.isoformat()}.json"
-        ),
+        coverage_key=f"get_fin_summary_range:{fin_start.isoformat()}..{asof.isoformat()}",
         record_count=len(tickers),
         min_date=fin_start.isoformat(),
         max_date=asof.isoformat(),
@@ -145,7 +139,7 @@ def _seed_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
         conn,
         source="jquants_market_calendar",
         coverage_key=(
-            f"jquants:get_mkt_calendar-from_yyyymmdd-{asof:%Y%m%d}-to_yyyymmdd-{asof:%Y%m%d}.json"
+            f"get_mkt_calendar:{asof.isoformat()}..{asof.isoformat()}"
         ),
         record_count=1,
         min_date=asof.isoformat(),
@@ -954,8 +948,8 @@ class SQLiteCoverageTests(unittest.TestCase):
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
             with closing(sqlite3.connect(sqlite_path)) as conn, conn:
-                old_start = asof - timedelta(days=1300)
-                old_end = asof - timedelta(days=1270)
+                old_start = asof - timedelta(days=2300)
+                old_end = asof - timedelta(days=2270)
                 conn.execute(
                     "INSERT INTO source_coverage("
                     "source, coverage_key, coverage_start, coverage_end, "
@@ -982,6 +976,36 @@ class SQLiteCoverageTests(unittest.TestCase):
                 ),
                 issues,
             )
+
+    def test_unrepaired_quality_failure_in_normalization_history_remains_in_scope(self) -> None:
+        asof = _COMMON_COVERAGE_ASOF
+        older_input = asof - timedelta(days=1400)
+        for source, store, date_field, value_field in (
+            ("jquants_daily_bars", store_jquants_daily_bars, "Date", "C"),
+            ("jquants_fin_summaries", store_jquants_fin_summaries, "DiscDate", "Sales"),
+        ):
+            with self.subTest(source=source), _complete_coverage_database() as sqlite_path:
+                clean = [
+                    {"Code": f"{1301 + index}0", date_field: older_input.isoformat(), value_field: 1000}
+                    for index in range(100)
+                ]
+                store(
+                    sqlite_path,
+                    [*clean, {"Code": "invalid", date_field: older_input.isoformat()}],
+                    requested_start=older_input,
+                    requested_end=older_input,
+                )
+                issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
+                self.assertTrue(any(
+                    issue.source == source and "status is not ok: partial" in issue.reason
+                    for issue in issues
+                ), issues)
+                store(sqlite_path, clean, requested_start=older_input, requested_end=older_input)
+                repaired = _verify_screening_sqlite_coverage(sqlite_path, asof)
+                self.assertFalse(any(
+                    issue.source == source and "status is not ok" in issue.reason
+                    for issue in repaired
+                ), repaired)
 
     def test_zero_row_master_import_reports_incomplete_cache(self) -> None:
         asof = date(2026, 5, 8)
@@ -1161,11 +1185,7 @@ class SQLiteCoverageTests(unittest.TestCase):
                 _add_source_coverage(
                     conn,
                     source="jquants_daily_bars",
-                    coverage_key=(
-                        "jquants:"
-                        f"get_eq_bars_daily_range-end_dt-{asof.isoformat()}-"
-                        f"start_dt-{bars_start.isoformat()}.json"
-                    ),
+                    coverage_key=f"get_eq_bars_daily_range:{bars_start.isoformat()}..{asof.isoformat()}",
                     record_count=100,
                     min_date=bars_start.isoformat(),
                     max_date=asof.isoformat(),
@@ -1280,11 +1300,7 @@ class SQLiteCoverageTests(unittest.TestCase):
                 _add_source_coverage(
                     conn,
                     source="jquants_daily_bars",
-                    coverage_key=(
-                        "jquants:"
-                        f"get_eq_bars_daily_range-end_dt-{asof.isoformat()}-"
-                        f"start_dt-{(asof - timedelta(days=1)).isoformat()}.json"
-                    ),
+                    coverage_key="overlapping-receipt",
                     record_count=1,
                     min_date=asof.isoformat(),
                     max_date=asof.isoformat(),

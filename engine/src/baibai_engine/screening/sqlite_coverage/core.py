@@ -107,7 +107,7 @@ def verify_screening_sqlite_coverage(
                 conn,
                 issues,
                 source="jquants_daily_bars",
-                start=bars_start,
+                start=normalized_start,
                 end=asof_date,
             )
             if not bars_window_covered:
@@ -150,7 +150,7 @@ def verify_screening_sqlite_coverage(
                 conn,
                 issues,
                 source="jquants_fin_summaries",
-                start=fin_start,
+                start=normalized_start,
                 end=asof_date,
             )
             if not range_covered(conn, "jquants_fin_summaries", fin_start, asof_date):
