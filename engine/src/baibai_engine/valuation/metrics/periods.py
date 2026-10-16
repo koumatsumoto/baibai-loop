@@ -9,8 +9,8 @@ from typing import Any
 
 from baibai_engine.foundation.date_utils import add_months_clamped
 from baibai_engine.market.financial_documents import (
-    AccountingPeriodKey as _AccountingPeriodKey,
-    accounting_period_identity as _accounting_period_identity,
+    AccountingPeriodKey,
+    accounting_period_identity,
     disclosure_revision,
     latest_disclosure_candidates,
     statement_basis,
@@ -19,10 +19,10 @@ from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.metric_quality import TTMQuality
 from baibai_engine.valuation.metrics.models import TTMRules
 
-_AccountingObservationKey = tuple[_AccountingPeriodKey, tuple[date, str]]
+_AccountingObservationKey = tuple[AccountingPeriodKey, tuple[date, str]]
 
 def _accounting_observation_key(summary: JQuantsFinancialSummary) -> _AccountingObservationKey:
-    return _accounting_period_identity(summary), disclosure_revision(summary)
+    return accounting_period_identity(summary), disclosure_revision(summary)
 
 
 def _latest_consistent_actual(
@@ -30,9 +30,9 @@ def _latest_consistent_actual(
 ) -> JQuantsFinancialSummary | None:
     if not candidates:
         return None
-    period = max(map(_accounting_period_identity, candidates))
+    period = max(map(accounting_period_identity, candidates))
     latest = latest_disclosure_candidates(
-        [row for row in candidates if _accounting_period_identity(row) == period]
+        [row for row in candidates if accounting_period_identity(row) == period]
     )
     for field in fields:
         if any(field in row.unresolved_actual_fields for row in latest):
@@ -73,9 +73,9 @@ def resolve_actual_conflicts(
     summaries: Sequence[JQuantsFinancialSummary],
 ) -> list[JQuantsFinancialSummary]:
     """Mask only contradictory fields in a period/revision cohort; keep source rows."""
-    groups: dict[_AccountingPeriodKey, list[JQuantsFinancialSummary]] = {}
+    groups: dict[AccountingPeriodKey, list[JQuantsFinancialSummary]] = {}
     for row in summaries:
-        groups.setdefault(_accounting_period_identity(row), []).append(row)
+        groups.setdefault(accounting_period_identity(row), []).append(row)
     changes: dict[int, JQuantsFinancialSummary] = {}
     for group in groups.values():
         for field in _ACTUAL_ANCHOR_FIELDS:
@@ -164,12 +164,12 @@ def _latest_actual_row_by_field_priority(
     latest = _latest_actual_row_with_any(summaries, field_names)
     if latest is None:
         return None
-    period_key = _accounting_period_identity(latest)
+    period_key = accounting_period_identity(latest)
     for field_name in field_names:
         candidates = [
             summary
             for summary in summaries
-            if _accounting_period_identity(summary) == period_key
+            if accounting_period_identity(summary) == period_key
             and (
                 getattr(summary, field_name) is not None
                 or field_name in summary.unresolved_actual_fields
@@ -295,7 +295,7 @@ def _ttm_value(
             [
                 row
                 for row in actuals
-                if _accounting_period_identity(row) == _accounting_period_identity(anchor)
+                if accounting_period_identity(row) == accounting_period_identity(anchor)
             ]
         )
         if anchor is not None

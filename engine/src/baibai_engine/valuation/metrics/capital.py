@@ -15,10 +15,10 @@ from baibai_engine.market.bars import (
     share_unit_factor,
 )
 from baibai_engine.market.edinet_models import EdinetMetricRecord
+from baibai_engine.market.financial_documents import accounting_period_identity
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.valuation.metrics.periods import (
     _accounting_observation_key,
-    _accounting_period_identity,
     _AccountingObservationKey,
     _actual_rows,
     _latest_non_null_row,
@@ -324,7 +324,7 @@ def _resolve_capital_basis(
 
     if issued_row is not None and treasury_row is not None:
         same_period_day = (
-            _accounting_period_identity(issued_row) == _accounting_period_identity(treasury_row)
+            accounting_period_identity(issued_row) == accounting_period_identity(treasury_row)
             and issued_row.disclosed_at == treasury_row.disclosed_at
         )
         incomparable_time = same_period_day and (
@@ -338,7 +338,7 @@ def _resolve_capital_basis(
             complete = [
                 row
                 for row in capital_rows
-                if _accounting_period_identity(row) == _accounting_period_identity(issued_row)
+                if accounting_period_identity(row) == accounting_period_identity(issued_row)
                 and row.disclosed_at == issued_row.disclosed_at
                 and row.shares_outstanding == issued
                 and row.treasury_shares == treasury

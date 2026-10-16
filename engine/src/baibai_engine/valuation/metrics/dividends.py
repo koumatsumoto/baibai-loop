@@ -15,6 +15,7 @@ from baibai_engine.market.bars import (
     share_unit_factor,
 )
 from baibai_engine.market.financial_documents import (
+    accounting_period_identity,
     latest_disclosure_candidates,
     latest_forecast_source,
     project_financial_documents,
@@ -30,7 +31,6 @@ from baibai_engine.valuation.metrics.models import (
 )
 from baibai_engine.valuation.metrics.periods import (
     _accounting_observation_key,
-    _accounting_period_identity,
     _period_days,
     resolve_actual_conflicts,
 )
@@ -314,7 +314,7 @@ def _latest_fy_revisions(
         if (
             len(tied) == 1
             or len({statement_basis(row) for row in tied}) != 1
-            or len({_accounting_period_identity(row) for row in tied}) != 1
+            or len({accounting_period_identity(row) for row in tied}) != 1
         ):
             result.append(representative)
             continue
