@@ -134,3 +134,14 @@ def test_info_reads_an_old_store_without_writer_access(tmp_path, monkeypatch, ca
     assert connections == [1]
     assert "historical_value: 1" in capsys.readouterr().out
     assert db.read_bytes() == before
+
+
+def test_prune_backups_leaves_failed_restore_copy_outside_generation_set(tmp_path: Path) -> None:
+    earlier = tmp_path / "baibai-20260829T090000000000+0900.sqlite"
+    later = tmp_path / "baibai-20260830T090000000000+0900.sqlite"
+    failed_restore = tmp_path / "failed-restore-20260830T090000.sqlite"
+    for path in (earlier, later, failed_restore):
+        path.touch()
+    assert prune_backups(tmp_path, keep=1) == [earlier]
+    assert later.exists()
+    assert failed_restore.exists()

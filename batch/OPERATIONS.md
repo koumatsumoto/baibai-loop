@@ -322,7 +322,7 @@ ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。�
   test -n "$restore_backup" && test -f "$restore_backup"
   restore_stage="$(mktemp stores/application/baibai-rollback.XXXXXX.sqlite)"
   cp "$restore_backup" "$restore_stage"
-  failed_restore="stores/application/backups/baibai-failed-restore-$(date +%Y%m%dT%H%M%S).sqlite"
+  failed_restore="stores/application/backups/failed-restore-$(date +%Y%m%dT%H%M%S).sqlite"
   test ! -e "$failed_restore"
   mv stores/application/baibai.sqlite "$failed_restore"
   rm -f stores/application/baibai.sqlite-wal stores/application/baibai.sqlite-shm

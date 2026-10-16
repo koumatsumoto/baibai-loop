@@ -1,16 +1,7 @@
-"""YAML I/O helpers backed by the C-accelerated loader.
+"""Shared safe YAML readers, using libyaml when available.
 
-PyYAML's pure-Python ``SafeLoader`` dominates replay wall time (cProfile shows
-~93% in scanner/parser for a 6-week sweep). ``CSafeLoader`` is a drop-in
-replacement that produces identical output but parses in libyaml. ``yaml.CSafeLoader``
-is always present on the build we ship; the fallback is kept only so a future
-slim build does not silently break.
-
-All ``src/`` and ``tests/`` readers must import ``safe_load`` from this module
-rather than calling ``yaml.safe_load`` directly. Bypassing the helper silently
-falls back to the pure-Python loader and regresses replay wall time ~5x.
-Callers that need path-aware caching must compose it around this helper rather
-than creating a separate YAML loader, so parsing behavior stays identical.
+The strict reader additionally rejects duplicate mapping keys. Callers own any
+path-aware caching and domain validation.
 """
 
 from __future__ import annotations
