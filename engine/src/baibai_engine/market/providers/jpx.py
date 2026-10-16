@@ -406,13 +406,6 @@ class JPXProvider:
             store_jpx_earnings_calendar_snapshot(self._sqlite_path, snapshot)
         return snapshot
 
-    def has_regulation_cache(self, asof_date: date) -> bool:
-        if self._sqlite_path is not None:
-            from baibai_engine.storage.observations.reader import has_jpx_regulation_data
-
-            if has_jpx_regulation_data(self._sqlite_path, asof_date):
-                return True
-        return False
 
     def _raise_if_cache_only(self, source: str, requirement: str) -> None:
         if not self._cache_only:

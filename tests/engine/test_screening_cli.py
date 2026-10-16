@@ -295,8 +295,6 @@ class _CorruptSQLiteJQuantsProvider(FakeJQuantsProvider):
 @dataclass
 class FakeJPXProvider:
     fail_bootstrap: bool = False
-    cache_exists: bool = True
-    snapshots_requested: int = 0
     source_names: tuple[str, ...] = (
         "上場廃止警告",
         "取引停止",
@@ -322,12 +320,8 @@ class FakeJPXProvider:
 
     def get_regulation_snapshot(self, asof_date: date) -> JPXRegulationSnapshot:
         del asof_date
-        self.snapshots_requested += 1
         return JPXRegulationSnapshot(flags_by_ticker={}, source_names=self.source_names)
 
-    def has_regulation_cache(self, asof_date: date) -> bool:
-        del asof_date
-        return self.cache_exists
 
     def bootstrap_cache(self, asof_date: date) -> dict[str, int]:
         self.bootstrap_calls.append(asof_date)
@@ -631,106 +625,9 @@ class ScreeningCliTests(unittest.TestCase):
             finally:
                 os.chdir(cwd)
 
-    def test_run_command_fails_stale_jpx_backfill_without_cache(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cwd = Path.cwd()
-            try:
-                os.chdir(tmpdir)
-                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
-                jpx = FakeJPXProvider(cache_exists=False)
-                providers = ProviderBundle(
-                    jquants=FakeJQuantsProvider(),
-                    edinet=FakeEDINETProvider(),
-                    jpx=jpx,
-                )
-                stderr = io.StringIO()
-                with contextlib.redirect_stderr(stderr):
-                    exit_code = run_command(
-                        date(2026, 1, 15),
-                        config,
-                        providers,
-                        now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
-                    )
-                self.assertEqual(exit_code, 1)
-                self.assertEqual(jpx.snapshots_requested, 0)
-                self.assertIn("--allow-stale-jpx", stderr.getvalue())
-            finally:
-                os.chdir(cwd)
 
-    def test_run_command_fails_jpx_backfill_just_over_stale_boundary(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cwd = Path.cwd()
-            try:
-                os.chdir(tmpdir)
-                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
-                jpx = FakeJPXProvider(cache_exists=False)
-                providers = ProviderBundle(
-                    jquants=FakeJQuantsProvider(),
-                    edinet=FakeEDINETProvider(),
-                    jpx=jpx,
-                )
-                stderr = io.StringIO()
-                with contextlib.redirect_stderr(stderr):
-                    exit_code = run_command(
-                        date(2026, 4, 14),
-                        config,
-                        providers,
-                        now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
-                    )
-                self.assertEqual(exit_code, 1)
-                self.assertEqual(jpx.snapshots_requested, 0)
-                self.assertIn("--allow-stale-jpx", stderr.getvalue())
-            finally:
-                os.chdir(cwd)
 
-    def test_run_command_allows_stale_jpx_backfill_when_flag_is_set(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cwd = Path.cwd()
-            try:
-                os.chdir(tmpdir)
-                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
-                jpx = FakeJPXProvider(cache_exists=False)
-                providers = ProviderBundle(
-                    jquants=FakeJQuantsProvider(),
-                    edinet=FakeEDINETProvider(),
-                    jpx=jpx,
-                )
-                exit_code = run_command(
-                    date(2026, 1, 15),
-                    config,
-                    providers,
-                    now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
-                    allow_stale_jpx=True,
-                )
-                # The fixture intentionally lacks enough YoY inputs, so the
-                # command succeeds with the existing partial-warning exit code.
-                self.assertEqual(exit_code, 2)
-                self.assertEqual(jpx.snapshots_requested, 1)
-            finally:
-                os.chdir(cwd)
 
-    def test_run_command_allows_jpx_backfill_at_stale_boundary_without_flag(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cwd = Path.cwd()
-            try:
-                os.chdir(tmpdir)
-                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
-                jpx = FakeJPXProvider(cache_exists=False)
-                providers = ProviderBundle(
-                    jquants=FakeJQuantsProvider(),
-                    edinet=FakeEDINETProvider(),
-                    jpx=jpx,
-                )
-                exit_code = run_command(
-                    date(2026, 4, 15),
-                    config,
-                    providers,
-                    now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
-                )
-                self.assertEqual(exit_code, 2)
-                self.assertEqual(jpx.snapshots_requested, 1)
-            finally:
-                os.chdir(cwd)
 
     def test_run_command_fails_when_required_jpx_source_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

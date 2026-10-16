@@ -645,7 +645,6 @@ def main(argv: list[str] | None = None) -> int:
             providers,
             rules=run_rules,
             now=args.run_at,
-            allow_stale_jpx=args.allow_stale_jpx,
             output_path=Path(args.output_path) if args.output_path else None,
             force=args.force,
             run_store_path=Path(args.runs_db) if args.runs_db else None,

@@ -9,7 +9,6 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import TextIO
 
-from baibai_engine.foundation.date_utils import weekday_distance
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
 from baibai_engine.market.edinet_models import EdinetMetricRecord, EDINETProviderError
@@ -65,7 +64,6 @@ def run_command(
     *,
     rules: ScreeningRules | None = None,
     now: datetime | None = None,
-    allow_stale_jpx: bool = False,
     output_path: Path | None = None,
     force: bool = False,
     run_store_path: Path | None = None,
@@ -83,19 +81,7 @@ def run_command(
         print("--run-at must include a UTC offset", file=sys.stderr)
         return 1
     run_id = f"screening-{asof_date:%Y%m%d}"
-    today = run_now.astimezone(JST).date()
-    if (
-        not allow_stale_jpx
-        and asof_date < today
-        and weekday_distance(asof_date, today) > 7
-        and not providers.jpx.has_regulation_cache(asof_date)
-    ):
-        print(
-            "JPX regulation cache is missing for a stale backfill; "
-            "populate the cache first; --allow-stale-jpx only relaxes freshness checks",
-            file=sys.stderr,
-        )
-        return 1
+    # CLI preflight owns source freshness; injected providers here supply the inputs.
 
     # 窓の正本は metrics/snapshot.py の BARS_INPUT_WINDOW_DAYS / FIN_INPUT_WINDOW_DAYS
     # (較正リプレイと共有)。fin を bars と同じ 1200 日にしないのは、J-Quants Light

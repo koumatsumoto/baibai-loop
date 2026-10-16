@@ -14,7 +14,6 @@ from baibai_engine.market.jpx_models import JPXProviderError
 from baibai_engine.market.providers.edinet import EDINETProvider, select_document_candidates
 from baibai_engine.market.providers.jpx import JPXProvider
 from baibai_engine.storage.observations.ingest.edinet import store_edinet_documents
-from baibai_engine.storage.observations.ingest.jpx import store_jpx_regulations
 from baibai_engine.storage.observations.reader import has_jpx_regulation_data, read_jpx_regulations
 from baibai_engine.storage.observations.schema import open_connection
 
@@ -360,19 +359,6 @@ class JPXProviderReadThroughTests(unittest.TestCase):
 
             self.assertEqual(snapshot.flags_by_ticker["1302"], ("取引停止",))
 
-    def test_has_regulation_cache_true_when_sqlite_has_rows(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "cache" / "market.sqlite"
-            store_jpx_regulations(
-                sqlite_path,
-                date(2026, 4, 24),
-                flags_by_ticker={"1302": ["取引停止"]},
-                source_names=["取引停止"],
-            )
-
-            provider = JPXProvider(sqlite_path=sqlite_path)
-
-            self.assertTrue(provider.has_regulation_cache(date(2026, 4, 24)))
 
     def test_get_regulation_snapshot_requires_source_when_sqlite_empty(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -394,7 +380,6 @@ class JPXProviderReadThroughTests(unittest.TestCase):
             conn.close()
             provider = JPXProvider(sqlite_path=sqlite_path, cache_only=True)
 
-            self.assertFalse(provider.has_regulation_cache(date(2026, 4, 24)))
             with self.assertRaisesRegex(JPXProviderError, "SQLite cache incomplete"):
                 provider.get_regulation_snapshot(date(2026, 4, 24))
 
