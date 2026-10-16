@@ -22,7 +22,6 @@ from baibai_engine.screening.calibration.evaluation.policy import (
     RETURN_CHANGE_CONTROL_FIELDS,
     REVERSION_AXES,
     SECTOR_MEDIAN_AXES,
-    TRAP_EXCESS_THRESHOLD,
     AxisSpec,
 )
 from baibai_engine.screening.calibration.evaluation.statistics import (
@@ -81,14 +80,7 @@ def _evaluate_axis(
         "rank_ic": round(ic, 4) if ic is not None else None,
         "best_decile_median_excess": round(best_median, 6) if best_median is not None else None,
         "best_decile_mean_excess": round(fmean(best_values), 6) if best_values else None,
-        "best_decile_trap_rate": (
-            round(
-                sum(1 for value in best_values if value < TRAP_EXCESS_THRESHOLD) / len(best_values),
-                4,
-            )
-            if best_values
-            else None
-        ),
+        "best_decile_trap_rate": deciles[-1]["trap_rate"],
         "decile_spread_median": (
             round(best_median - worst_median, 6)
             if best_median is not None and worst_median is not None

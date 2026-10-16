@@ -110,7 +110,7 @@ def _group_stats(values: Sequence[float]) -> dict[str, object]:
         "median_excess": round(median(values), 6),
         "mean_excess": round(fmean(values), 6),
         "trap_rate": round(
-            sum(1 for value in values if value < TRAP_EXCESS_THRESHOLD) / len(values), 4
+            sum(1 for value in values if value <= TRAP_EXCESS_THRESHOLD) / len(values), 4
         ),
     }
 
