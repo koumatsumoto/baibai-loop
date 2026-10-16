@@ -167,6 +167,9 @@ class EDINETProvider:
                 process_datetime=process_datetime,
                 result_count=result_count,
                 is_final=is_final,
+                response_json=json.dumps(
+                    data, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+                ),
             )
         return documents
 

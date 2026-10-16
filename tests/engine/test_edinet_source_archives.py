@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import sqlite3
 import zipfile
 from contextlib import closing
@@ -22,6 +23,7 @@ from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSourc
 from baibai_engine.storage.lake.reader import iter_partition_rows, resolve_release
 from baibai_engine.storage.lake.release import create_l1_release
 from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.observations.ingest.edinet import store_edinet_documents
 from baibai_engine.storage.observations.schema import open_connection
 
 
@@ -156,3 +158,44 @@ def test_non_zip_response_cannot_replace_retained_inputs(tmp_path):
         provider.download_csv_zip("S100BAD")
     assert read_source_archive(path, "S100KEPT", 5) == original
     assert read_source_archive(path, "S100BAD", 5) is None
+
+
+def test_native_listing_response_survives_lake_roundtrip(tmp_path, monkeypatch):
+    name = "edinet.document_lists"
+    narrow_release_policy(monkeypatch, datasets=(name,), relax_floors=False)
+    db = tmp_path / "source.sqlite"
+    original = json.dumps({
+        "metadata": {"resultset": {"count": 0}}, "results": [],
+        "unselected": {"zero": 0, "unknown": None, "text": "日本語"},
+    }, ensure_ascii=False)
+    store_edinet_documents(db, date(2026, 1, 1), [], response_json=original)
+    store_edinet_documents(db, date(2026, 1, 2), [])
+    mirror = tmp_path / "mirror"
+    stamp = datetime(2026, 2, 1, tzinfo=UTC)
+    with sealed_sqlite_snapshot(
+        sqlite_path=db, mirror_root=mirror, snapshot_id="listings"
+    ) as snapshot:
+        built = export_dataset_snapshot(
+            dataset_name=name, mirror_root=mirror, source_snapshot=snapshot,
+            producer_git_commit="a" * 40, build_id="listings", created_at=stamp,
+        )
+    release_path, release = create_l1_release(
+        dataset_manifest_paths=[built.manifest_path], mirror_root=mirror,
+        release_id="listings", created_at=stamp,
+    )
+    source = LocalMirrorSource(mirror)
+    fixed = resolve_release(
+        source, release.release_id,
+        manifest_sha256=hashlib.sha256(release_path.read_bytes()).hexdigest(),
+    )
+    target = tmp_path / "target.sqlite"
+    open_connection(target).close()
+    with lake_session() as session:
+        hydrate_market_store(
+            session, release=fixed, cache=LakeObjectCache(root=mirror, source=source),
+            store=target, dataset_names=(name,),
+        )
+    with closing(sqlite3.connect(target)) as connection:
+        assert connection.execute(
+            "SELECT doc_date, response_json FROM edinet_document_lists ORDER BY doc_date"
+        ).fetchall() == [("2026-01-01", original), ("2026-01-02", None)]

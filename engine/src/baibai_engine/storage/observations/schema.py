@@ -262,7 +262,8 @@ CREATE TABLE IF NOT EXISTS edinet_document_lists(
   process_datetime TEXT,
   result_count INTEGER NOT NULL,
   fetched_at_utc TEXT NOT NULL,
-  is_final INTEGER NOT NULL
+  is_final INTEGER NOT NULL,
+  response_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS edinet_segment_facts(

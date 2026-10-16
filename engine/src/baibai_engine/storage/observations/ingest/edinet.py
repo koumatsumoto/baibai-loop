@@ -36,6 +36,7 @@ def store_edinet_documents(
     process_datetime: str | None = None,
     result_count: int | None = None,
     is_final: bool = False,
+    response_json: str | None = None,
 ) -> int:
     conn = open_connection(db_path)
     try:
@@ -79,14 +80,15 @@ def store_edinet_documents(
         )
         conn.execute(
             "INSERT OR REPLACE INTO edinet_document_lists("
-            "doc_date, process_datetime, result_count, fetched_at_utc, is_final"
-            ") VALUES (?, ?, ?, ?, ?)",
+            "doc_date, process_datetime, result_count, fetched_at_utc, is_final, response_json"
+            ") VALUES (?, ?, ?, ?, ?, ?)",
             (
                 on_date.isoformat(),
                 process_datetime,
                 expected_count,
                 datetime.now(UTC).isoformat(),
                 int(is_final),
+                response_json,
             ),
         )
         conn.commit()
