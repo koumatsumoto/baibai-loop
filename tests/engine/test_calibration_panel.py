@@ -14,7 +14,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import yaml
-
 from tests.helpers.master import insert_master_rows
 
 ROOT = Path(__file__).resolve().parents[2]
