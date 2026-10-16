@@ -422,6 +422,8 @@ def calibration_evaluate_command(
                 policy_reason_counts = {}
             mismatch = _optional_count(meta.get("asof_population_mismatch_count"))
             unevaluated = _optional_count(meta.get("priced_master_without_universe_count"))
+            master_count = _optional_count(meta.get("master_population_count"))
+            candidate_count = _optional_count(meta.get("candidate_population_count"))
             coverage.update(
                 {
                     "master_snapshot_date": meta.get("master_snapshot_date"),
@@ -429,10 +431,12 @@ def calibration_evaluate_command(
                     "master_population_count": meta.get("master_population_count", 0),
                     "candidate_population_count": meta.get("candidate_population_count", 0),
                     "policy_exclusion_reason_counts": policy_reason_counts,
-                    "policy_excluded_count": sum(
-                        int(value)
-                        for value in policy_reason_counts.values()
-                        if isinstance(value, int)
+                    # One security can have several policy reasons. Count members,
+                    # not reason occurrences; unmeasured populations remain unknown.
+                    "policy_excluded_count": (
+                        master_count - candidate_count
+                        if master_count is not None and candidate_count is not None
+                        else None
                     ),
                     "input_range_clamped": bool(
                         meta.get("bars_window_clamped") or meta.get("fin_window_clamped")

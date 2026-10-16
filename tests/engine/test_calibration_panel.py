@@ -13,6 +13,8 @@ from hashlib import sha256
 from pathlib import Path
 from unittest.mock import patch
 
+import yaml
+
 from tests.helpers.master import insert_master_rows
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -148,6 +150,24 @@ class CalibrationPanelTest(unittest.TestCase):
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             self.assertEqual(result.diagnostics.bars_tickers_not_in_master, 0)
             self.assertEqual(result.diagnostics.policy_excluded_priced_count, 1)
+            store_dir = Path(tmp) / "calibration"
+            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            write_forward(store_dir, ASOF, [])
+            output = io.StringIO()
+            self.assertEqual(
+                calibration_evaluate_command(
+                    calibration_dir=store_dir,
+                    rules=load_screening_rules(),
+                    horizons=["6m"],
+                    stdout=output,
+                ),
+                0,
+            )
+            evaluation = yaml.safe_load(output.getvalue())
+            coverage = evaluation["results"]["6m"]["cohorts"][0]["coverage"]
+            self.assertEqual(coverage["policy_excluded_count"], 1)
+            self.assertEqual(coverage["policy_exclusion_reason_counts"]["non_common_stock"], 1)
+            self.assertEqual(coverage["policy_exclusion_reason_counts"]["market_out_of_scope"], 1)
 
     def test_the_panel_counts_how_many_names_carry_an_edinet_axis(self) -> None:
         """A cohort with no EDINET source replays a screen production does not run.
