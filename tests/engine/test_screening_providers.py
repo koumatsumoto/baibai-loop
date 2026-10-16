@@ -2541,6 +2541,22 @@ def test_capex_total_components_and_period_are_not_mixed(subtests):
             ],
             1136,
         ),
+        (
+            "blank-total-does-not-fall-back",
+            [(total, current, ""), (tangible, current, "-1000"), (intangible, current, "-136")],
+            None,
+        ),
+        (
+            "conflicting-total-does-not-fall-back",
+            [(total, current, "-1136"), (total, current, "-2000"),
+             (tangible, current, "-1000"), (intangible, current, "-136")],
+            None,
+        ),
+        (
+            "explicit-zero-total-precedes-components",
+            [(total, current, "-"), (tangible, current, "-1000"), (intangible, current, "-136")],
+            0,
+        ),
         ("missing-intangible", [(tangible, current, "-1000")], None),
         ("missing-tangible", [(intangible, current, "-136")], None),
         ("prior-component", [(tangible, current, "-1000"), (intangible, prior, "-136")], None),

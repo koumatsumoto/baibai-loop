@@ -282,9 +282,11 @@ def _depreciation_metric(rows: Sequence[Mapping[str, str]]) -> float | None:
 
 
 def _capex_metric(rows: Sequence[Mapping[str, str]]) -> float | None:
-    total = _single_metric(rows, _TAGS["capex_total"])
-    if total is not None:
-        return total
+    totals = _metric_values(rows, _TAGS["capex_total"])
+    if totals:
+        # A reported but unresolved total is not an absent total. Do not hide
+        # conflicting, missing or non-JPY source values behind component sums.
+        return next(iter(totals.values()))
     tangible = _single_metric(rows, _TAGS["capex_tangible"])
     intangible = _single_metric(rows, _TAGS["capex_intangible"])
     return tangible + intangible if tangible is not None and intangible is not None else None

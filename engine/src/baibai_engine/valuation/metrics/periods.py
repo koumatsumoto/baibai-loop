@@ -21,6 +21,7 @@ from baibai_engine.valuation.metrics.models import TTMRules
 
 _AccountingObservationKey = tuple[AccountingPeriodKey, tuple[date, str]]
 
+
 def _accounting_observation_key(summary: JQuantsFinancialSummary) -> _AccountingObservationKey:
     return accounting_period_identity(summary), disclosure_revision(summary)
 

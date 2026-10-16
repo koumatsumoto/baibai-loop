@@ -1046,32 +1046,45 @@ def test_actual_dividend_period_validity_agrees_with_forward_measurement(
 @pytest.mark.parametrize("new_basis", ["Consolidated", "NonConsolidated"])
 @pytest.mark.parametrize("late_old_correction", [False, True])
 @pytest.mark.parametrize("revision", [False, True])
-def test_short_fiscal_year_uses_current_statement_basis(
-    new_basis, late_old_correction, revision
-):
+def test_short_fiscal_year_uses_current_statement_basis(new_basis, late_old_correction, revision):
     old_basis = "NonConsolidated" if new_basis == "Consolidated" else "Consolidated"
     old = document(
-        "old-quarter", day="2026-08-10",
-        DocType=f"1QFinancialStatements_{old_basis}_JP", CurPerType="1Q",
-        CurFYSt="2026-04-01", CurFYEn="2027-03-31",
-        CurPerSt="2026-04-01", CurPerEn="2026-06-30",
+        "old-quarter",
+        day="2026-08-10",
+        DocType=f"1QFinancialStatements_{old_basis}_JP",
+        CurPerType="1Q",
+        CurFYSt="2026-04-01",
+        CurFYEn="2027-03-31",
+        CurPerSt="2026-04-01",
+        CurPerEn="2026-06-30",
     )
     current = document(
-        "short-year", day="2027-02-10",
+        "short-year",
+        day="2027-02-10",
         DocType=f"FYFinancialStatements_{new_basis}_JP",
-        CurFYSt="2026-04-01", CurFYEn="2026-12-31",
-        CurPerSt="2026-04-01", CurPerEn="2026-12-31",
-        NxtFYSt="2027-01-01", NxtFYEn="2027-12-31", NxFEPS="20",
+        CurFYSt="2026-04-01",
+        CurFYEn="2026-12-31",
+        CurPerSt="2026-04-01",
+        CurPerEn="2026-12-31",
+        NxtFYSt="2027-01-01",
+        NxtFYEn="2027-12-31",
+        NxFEPS="20",
     )
     records = [old, current]
     if late_old_correction:
         records.append({**old, "DiscNo": "old-correction", "DiscDate": "2027-02-12"})
     if revision:
-        records.append(document(
-            "new-revision", day="2027-02-13",
-            CurFYSt="2027-01-01", CurFYEn="2027-12-31",
-            CurPerSt="2027-01-01", CurPerEn="2027-12-31", FEPS="25",
-        ))
+        records.append(
+            document(
+                "new-revision",
+                day="2027-02-13",
+                CurFYSt="2027-01-01",
+                CurFYEn="2027-12-31",
+                CurPerSt="2027-01-01",
+                CurPerEn="2027-12-31",
+                FEPS="25",
+            )
+        )
     for ordered in (records, list(reversed(records))):
         projected = project_financial_documents(decode(ordered), date(2027, 2, 15))
         source = latest_forecast_source(projected)
@@ -1080,8 +1093,12 @@ def test_short_fiscal_year_uses_current_statement_basis(
         assert source.forecast_target_basis == new_basis.lower()
         assert source.disclosure_number == ("new-revision" if revision else "short-year")
         result = build_financial_snapshot(
-            1000, decode(ordered), None, load_screening_rules().ttm,
-            adjustment_events=(), asof_date=date(2027, 2, 15),
+            1000,
+            decode(ordered),
+            None,
+            load_screening_rules().ttm,
+            adjustment_events=(),
+            asof_date=date(2027, 2, 15),
         )
         assert result.per_forward == 1000 / (25 if revision else 20)
 
@@ -1102,12 +1119,25 @@ def test_ttm_does_not_add_different_statement_bases(different_operand, current_b
         basis = current_basis
         if index == different_operand:
             basis = "NonConsolidated" if current_basis == "Consolidated" else "Consolidated"
-        records.append(document(
-            number, day=day, DocType=f"{period}FinancialStatements_{basis}_JP",
-            CurFYSt=start, CurFYEn=fy_end, CurPerSt=start, CurPerEn=end, CurPerType=period,
-            Sales=value, OP=value, NP=value, CFO=value,
-        ))
-    expected = (110.0, TTMQuality.EXACT) if different_operand is None else (None, TTMQuality.UNAVAILABLE)
+        records.append(
+            document(
+                number,
+                day=day,
+                DocType=f"{period}FinancialStatements_{basis}_JP",
+                CurFYSt=start,
+                CurFYEn=fy_end,
+                CurPerSt=start,
+                CurPerEn=end,
+                CurPerType=period,
+                Sales=value,
+                OP=value,
+                NP=value,
+                CFO=value,
+            )
+        )
+    expected = (
+        (110.0, TTMQuality.EXACT) if different_operand is None else (None, TTMQuality.UNAVAILABLE)
+    )
     for rows in (records, list(reversed(records))):
         decoded = decode(rows)
         for field in ("sales", "operating_profit", "profit", "cfo"):
@@ -1123,18 +1153,36 @@ def test_financial_yoy_does_not_compare_different_scopes_but_keeps_issuer_shares
 ):
     old_basis = "NonConsolidated" if new_basis == "Consolidated" else "Consolidated"
     old = document(
-        "prior-quarter", day="2025-08-10",
-        DocType=f"1QFinancialStatements_{old_basis}_JP", CurPerType="1Q",
-        CurFYSt="2025-04-01", CurFYEn="2026-03-31",
-        CurPerSt="2025-04-01", CurPerEn="2025-06-30",
-        EPS="10", Sales="100", CFO="20", OP="30", ShOutFY="1000", TrShFY="0",
+        "prior-quarter",
+        day="2025-08-10",
+        DocType=f"1QFinancialStatements_{old_basis}_JP",
+        CurPerType="1Q",
+        CurFYSt="2025-04-01",
+        CurFYEn="2026-03-31",
+        CurPerSt="2025-04-01",
+        CurPerEn="2025-06-30",
+        EPS="10",
+        Sales="100",
+        CFO="20",
+        OP="30",
+        ShOutFY="1000",
+        TrShFY="0",
     )
     current = document(
-        "current-quarter", day="2026-08-10",
-        DocType=f"1QFinancialStatements_{new_basis}_JP", CurPerType="1Q",
-        CurFYSt="2026-04-01", CurFYEn="2027-03-31",
-        CurPerSt="2026-04-01", CurPerEn="2026-06-30",
-        EPS="20", Sales="200", CFO="40", OP="60", ShOutFY="900", TrShFY="0",
+        "current-quarter",
+        day="2026-08-10",
+        DocType=f"1QFinancialStatements_{new_basis}_JP",
+        CurPerType="1Q",
+        CurFYSt="2026-04-01",
+        CurFYEn="2027-03-31",
+        CurPerSt="2026-04-01",
+        CurPerEn="2026-06-30",
+        EPS="20",
+        Sales="200",
+        CFO="40",
+        OP="60",
+        ShOutFY="900",
+        TrShFY="0",
     )
     records = [old, current]
     if late_correction:
@@ -1144,8 +1192,12 @@ def test_financial_yoy_does_not_compare_different_scopes_but_keeps_issuer_shares
         records = [earlier, current, correction]
     for ordered in (records, list(reversed(records))):
         result = build_financial_snapshot(
-            1000, decode(ordered), None, load_screening_rules().ttm,
-            adjustment_events=(), asof_date=date(2026, 8, 15),
+            1000,
+            decode(ordered),
+            None,
+            load_screening_rules().ttm,
+            adjustment_events=(),
+            asof_date=date(2026, 8, 15),
         )
         assert result.eps_yoy is None
         assert result.sales_yoy is None

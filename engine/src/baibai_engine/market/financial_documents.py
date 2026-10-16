@@ -20,7 +20,6 @@ from baibai_engine.market.jquants_decode import (
 )
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 
-
 AccountingPeriodKey = tuple[date, int, date, date, int]
 
 _FISCAL_PERIOD_ORDER = {"1Q": 1, "2Q": 2, "3Q": 3, "FY": 4}
