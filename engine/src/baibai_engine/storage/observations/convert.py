@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date
 from math import isfinite
 from typing import Any
 
+from baibai_engine.market.jquants_decode import JQuantsProviderError
 from baibai_engine.market.ticker import SecurityCodeError, parse_security_code_parts
 
 
@@ -115,3 +116,15 @@ def _is_missing_scalar(value: Any) -> bool:
         return bool(value != value)
     except (TypeError, ValueError):
         return False
+
+
+def distinct_source_rows(
+    rows: Iterable[tuple[Any, ...]], *, identity_columns: int, source: str
+) -> list[tuple[Any, ...]]:
+    """Collapse repeated observations, but never choose a conflicting value by row order."""
+    by_identity: dict[tuple[Any, ...], tuple[Any, ...]] = {}
+    for row in rows:
+        identity = row[:identity_columns]
+        if by_identity.setdefault(identity, row) != row:
+            raise JQuantsProviderError(f"conflicting {source} observation: {identity}")
+    return list(by_identity.values())

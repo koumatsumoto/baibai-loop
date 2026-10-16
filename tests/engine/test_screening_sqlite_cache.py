@@ -6,11 +6,14 @@ import tempfile
 import unittest
 from contextlib import closing
 from datetime import date, timedelta
+from functools import partial
 from pathlib import Path
+from unittest.mock import Mock
 
 import pandas as pd
 from tests.helpers.screening_sqlite import make_master_records
 
+from baibai_engine.market.providers.jquants import JQuantsProvider
 from baibai_engine.market.jpx_models import JPXEarningsCalendarEntry, JPXEarningsCalendarSnapshot
 from baibai_engine.market.jquants_decode import JQuantsProviderError, parse_jquants_code_parts
 from baibai_engine.storage.observations.convert import code_quality, to_float, to_str_or_none
@@ -179,8 +182,8 @@ class SQLiteCacheTest(unittest.TestCase):
                     {
                         "Code": "72030",
                         "Date": "2026-05-08",
-                        "C": 1001,
-                        "AdjC": 1001,
+                        "C": 1000,
+                        "AdjC": 1000,
                     },
                 ],
                 requested_start=date(2026, 5, 8),
@@ -693,7 +696,7 @@ class SQLiteCacheTest(unittest.TestCase):
                     db,
                     [
                         {"Date": "2026-05-08", "HolDiv": "1"},
-                        {"Date": "2026-05-08", "HolDiv": "0"},
+                        {"Date": "2026-05-08", "HolDiv": "1"},
                     ],
                     requested_start=date(2026, 5, 8),
                     requested_end=date(2026, 5, 8),
@@ -1303,7 +1306,7 @@ class MarginPublicationTransitionStoreTest(unittest.TestCase):
             "IssType": "2",
         }
 
-    def test_daily_all_issues_rejects_legacy_dates_and_duplicate_identities(self) -> None:
+    def test_daily_all_issues_rejects_legacy_dates_but_accepts_identical_repetitions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             with self.assertRaisesRegex(ValueError, "daily all-issues series"):
@@ -1331,8 +1334,8 @@ class MarginPublicationTransitionStoreTest(unittest.TestCase):
                 conn.close()
             self.assertEqual(persisted, 1)
             self.assertEqual(row_count, 1)
-            self.assertEqual(status, "partial")
-            self.assertIsNone(read_all_issues_daily_margin(db, balance_date))
+            self.assertEqual(status, "ok")
+            self.assertEqual(len(read_all_issues_daily_margin(db, balance_date) or []), 1)
 
     def test_candidate_dates_have_no_transition_gap_and_skip_covered_days(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1573,6 +1576,85 @@ class CoverageReadErrorsTest(unittest.TestCase):
             connection.execute("CREATE TABLE jquants_daily_bars (ticker TEXT)")
             with self.assertRaisesRegex(sqlite3.OperationalError, "no such column"):
                 daily_bars_covered_by_data(connection, date(2026, 5, 1), date(2026, 5, 31))
+
+
+class RepeatedObservationTest(unittest.TestCase):
+    """Repetition is harmless; conflicting values need a new authoritative fetch."""
+
+    @staticmethod
+    def _case(kind, db):
+        day = date(2026, 7, 24) if kind == "weekly" else date(2026, 9, 25)
+        record = {"Code": "72030", "Date": day.isoformat()}
+        if kind == "bars":
+            record["C"] = 1000
+            store = partial(store_jquants_daily_bars, db, requested_start=day, requested_end=day)
+            return store, record, "C", "jquants_daily_bars", "close", 1001
+        if kind == "calendar":
+            record = {"Date": day.isoformat(), "HolDiv": "1"}
+            store = partial(store_jquants_market_calendar, db, requested_start=day, requested_end=day)
+            return store, record, "HolDiv", "jquants_market_calendar", "holiday_division", "0"
+        if kind == "alerts":
+            record = {
+                "PubDate": day.isoformat(), "Code": "72030", "AppDate": day.isoformat(),
+                "PubReason": "日々公表", "TSEMrgnRegCls": "0",
+                **{key: 0 for key in (
+                    "ShrtOut", "ShrtOutChg", "ShrtOutRatio", "LongOut", "LongOutChg",
+                    "LongOutRatio", "SLRatio", "ShrtNegOut", "ShrtNegOutChg", "ShrtStdOut",
+                    "ShrtStdOutChg", "LongNegOut", "LongNegOutChg", "LongStdOut", "LongStdOutChg",
+                )},
+            }
+            store = partial(store_jquants_margin_alerts, db, requested_start=day, requested_end=day)
+            return store, record, "LongOut", "jquants_margin_alerts", "long_outstanding", 10
+        record.update(LongVol=5000, ShrtVol=1000, LongStdVol=3000, LongNegVol=2000,
+                      ShrtStdVol=800, ShrtNegVol=200, IssType="2")
+        if kind == "weekly":
+            store = partial(store_jquants_weekly_margin, db, week_end=day)
+            return store, record, "LongVol", "jquants_weekly_margin", "long_vol", 5100
+        store = partial(store_jquants_all_issues_daily_margin, db, balance_date=day)
+        return store, record, "LongVol", "jquants_all_issues_daily_margin", "long_vol", 5100
+
+    def test_calendar_fetch_and_cached_projection_agree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            client = Mock()
+            client.get_mkt_calendar.return_value = [
+                {"Date": "2026-09-27", "HolDiv": "2"},
+                {"Date": "2026-09-25", "HolDiv": "1"},
+                {"Date": "2026-09-25", "HolDiv": "1"},
+                {"Date": "2026-09-26", "HolDiv": "0"},
+            ]
+            provider = JQuantsProvider("token", client=client, sqlite_path=Path(tmp) / "market.sqlite")
+            first = provider.get_mkt_calendar(date(2026, 9, 25), date(2026, 9, 27))
+            second = provider.get_mkt_calendar(date(2026, 9, 25), date(2026, 9, 27))
+            self.assertEqual(first, second)
+            self.assertEqual([(row.day.day, row.is_business_day) for row in first],
+                             [(25, True), (26, False), (27, True)])
+            self.assertEqual(client.get_mkt_calendar.call_count, 1)
+
+    def test_identical_records_conflicts_and_later_corrections(self):
+        for kind in ("bars", "calendar", "weekly", "daily", "alerts"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
+                db = Path(tmp) / "market.sqlite"
+                store, record, field, table, column, correction = self._case(kind, db)
+                self.assertEqual(store([record, record]), 1)
+                with closing(sqlite3.connect(db)) as connection:
+                    before = connection.execute(f"SELECT * FROM {table}").fetchall()
+                    coverage = connection.execute("SELECT * FROM source_coverage").fetchall()
+                    self.assertEqual(connection.execute(f"SELECT {column} FROM {table}").fetchone(),
+                                     (record[field],))
+                    self.assertEqual(connection.execute("SELECT status FROM source_coverage").fetchone(),
+                                     ("ok",))
+                changed = dict(record, **{field: correction})
+                for records in ([record, changed], [changed, record]):
+                    with self.assertRaisesRegex(JQuantsProviderError, "conflicting"):
+                        store(records)
+                    with closing(sqlite3.connect(db)) as connection:
+                        self.assertEqual(connection.execute(f"SELECT * FROM {table}").fetchall(), before)
+                        self.assertEqual(connection.execute("SELECT * FROM source_coverage").fetchall(),
+                                         coverage)
+                self.assertEqual(store([changed]), 1)
+                with closing(sqlite3.connect(db)) as connection:
+                    self.assertEqual(connection.execute(f"SELECT {column} FROM {table}").fetchone(),
+                                     (correction,))
 
 
 if __name__ == "__main__":

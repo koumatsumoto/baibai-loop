@@ -12,6 +12,7 @@ from baibai_engine.storage.observations.convert import (
     NormalizedRows,
     code_quality,
     date_iso,
+    distinct_source_rows,
     to_float,
     to_str_or_none,
 )
@@ -146,7 +147,11 @@ def _bars_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> NormalizedR
                 to_float(record.get("MktCap")),
             )
         )
-    return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
+    return NormalizedRows(
+        rows=distinct_source_rows(rows, identity_columns=2, source="daily bars"),
+        rejected_count=rejected_count,
+        excluded_count=excluded_count,
+    )
 
 
 def _market_calendar_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> NormalizedRows:
@@ -160,4 +165,7 @@ def _market_calendar_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> 
             continue
         # Retain the source category; cash-equity session selection belongs to readers.
         rows.append((day, division))
-    return NormalizedRows(rows=rows, rejected_count=rejected_count)
+    return NormalizedRows(
+        rows=distinct_source_rows(rows, identity_columns=1, source="market calendar"),
+        rejected_count=rejected_count,
+    )

@@ -194,6 +194,11 @@ class _JQuantsTransport:
             from_yyyymmdd=start.strftime("%Y%m%d"),
             to_yyyymmdd=end.strftime("%Y%m%d"),
         )
+        if self._sqlite_path is not None:
+            stored = read_market_calendar(self._sqlite_path, start, end)
+            if stored is None:
+                raise JQuantsProviderError("stored market calendar remains incomplete after fetching")
+            return stored
         return [normalize_market_calendar(record) for record in records]
 
     def _load_or_fetch_range(self, method: str, start: date, end: date) -> list[dict[str, Any]]:

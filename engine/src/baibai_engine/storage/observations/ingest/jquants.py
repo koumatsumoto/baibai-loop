@@ -23,6 +23,7 @@ from baibai_engine.storage.observations.convert import (
     NormalizedRows,
     code_quality,
     date_iso,
+    distinct_source_rows,
     to_float,
     to_str_or_none,
 )
@@ -425,7 +426,6 @@ def _weekly_margin_rows_with_quality(
     rows: list[tuple[Any, ...]] = []
     rejected_count = 0
     excluded_count = 0
-    seen: set[str] = set()
     for record in records:
         ticker, quality = code_quality(record.get("Code"))
         if quality == "rejected":
@@ -434,10 +434,9 @@ def _weekly_margin_rows_with_quality(
         if quality == "excluded" or ticker is None:
             excluded_count += 1
             continue
-        if date_iso(record.get("Date")) != week_end.isoformat() or ticker in seen:
+        if date_iso(record.get("Date")) != week_end.isoformat():
             rejected_count += 1
             continue
-        seen.add(ticker)
         rows.append(
             (
                 week_end.isoformat(),
@@ -451,7 +450,11 @@ def _weekly_margin_rows_with_quality(
                 to_str_or_none(record.get("IssType")),
             )
         )
-    return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
+    return NormalizedRows(
+        rows=distinct_source_rows(rows, identity_columns=2, source="weekly margin"),
+        rejected_count=rejected_count,
+        excluded_count=excluded_count,
+    )
 
 
 def _margin_alert_rows_with_quality(
@@ -460,7 +463,6 @@ def _margin_alert_rows_with_quality(
     rows: list[tuple[Any, ...]] = []
     rejected_count = 0
     excluded_count = 0
-    seen: set[tuple[str, str]] = set()
     required_payload_fields = (
         "AppDate",
         "PubReason",
@@ -501,7 +503,6 @@ def _margin_alert_rows_with_quality(
         except ValueError:
             rejected_count += 1
             continue
-        identity = (publication_date, ticker)
         applied_date = date_iso(record.get("AppDate"))
         publication_reason = to_str_or_none(record.get("PubReason"))
         core_balances = (
@@ -514,14 +515,12 @@ def _margin_alert_rows_with_quality(
         )
         if (
             not requested_start <= publication_day <= requested_end
-            or identity in seen
             or applied_date is None
             or publication_reason is None
             or any(value is None or not isfinite(value) or value < 0.0 for value in core_balances)
         ):
             rejected_count += 1
             continue
-        seen.add(identity)
         rows.append(
             (
                 publication_date,
@@ -546,7 +545,11 @@ def _margin_alert_rows_with_quality(
                 to_str_or_none(record.get("TSEMrgnRegCls")),
             )
         )
-    return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
+    return NormalizedRows(
+        rows=distinct_source_rows(rows, identity_columns=2, source="margin alerts"),
+        rejected_count=rejected_count,
+        excluded_count=excluded_count,
+    )
 
 
 def _all_issues_daily_margin_rows_with_quality(
@@ -555,7 +558,6 @@ def _all_issues_daily_margin_rows_with_quality(
     rows: list[tuple[Any, ...]] = []
     rejected_count = 0
     excluded_count = 0
-    seen: set[str] = set()
     for record in records:
         ticker, quality = code_quality(record.get("Code"))
         if quality == "rejected":
@@ -565,7 +567,7 @@ def _all_issues_daily_margin_rows_with_quality(
             excluded_count += 1
             continue
         payload_date = date_iso(record.get("Date"))
-        if payload_date != balance_date.isoformat() or ticker in seen:
+        if payload_date != balance_date.isoformat():
             rejected_count += 1
             continue
         balances = (
@@ -582,7 +584,6 @@ def _all_issues_daily_margin_rows_with_quality(
         ):
             rejected_count += 1
             continue
-        seen.add(ticker)
         rows.append(
             (
                 balance_date.isoformat(),
@@ -600,7 +601,11 @@ def _all_issues_daily_margin_rows_with_quality(
                 to_float(record.get("ShrtNegVal")),
             )
         )
-    return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
+    return NormalizedRows(
+        rows=distinct_source_rows(rows, identity_columns=2, source="daily all-issues margin"),
+        rejected_count=rejected_count,
+        excluded_count=excluded_count,
+    )
 
 
 def store_jquants_master(
