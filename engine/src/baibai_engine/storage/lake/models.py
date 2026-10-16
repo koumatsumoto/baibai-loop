@@ -618,14 +618,16 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ),
         ReleaseDatasetPolicy(
             dataset="edinet.tender_offer_exit_values",
-            required=True,
+            required=False,
             # Replaced wholesale by each derivation, so a reclassified offer moves the
             # earliest row. Pinning a start date would refuse exactly the correction the
             # derivation exists to make.
             carries_history=False,
-            # Half the 152 rows held on 2026-08-19.
-            minimum_rows=76,
-            minimum_population_count=76,
+            # Recomputed exit proxies can legitimately disappear when evidence is
+            # withdrawn. No historical count is a minimum economic truth. An empty
+            # result is omitted by the exporter; a nonempty result has at least one row.
+            minimum_rows=1,
+            minimum_population_count=1,
             require_complete_coverage=False,
         ),
         ReleaseDatasetPolicy(
