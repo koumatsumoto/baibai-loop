@@ -326,11 +326,12 @@ overrides:
   # 保存した H.4.1 等の入力から読む都度計算する近似値。入力の基準時点は同一でない。
   us.net_liquidity:
     publication_lag_days: 1
-  # 四半期初日へ正規化された観測は、次の四半期開始後およそ1か月で届く。
+  # 日銀短観の四半期コードは期末月の1日を観測日とする。次期観測日＋30日で公表を近似。
   jp.tankan_large_mfg_di:
     publication_lag_days: 30
   jp.tankan_large_nonmfg_di:
     publication_lag_days: 30
+  # SLOOSは四半期初日が観測日。次四半期初日＋35日を次回公表の目安にする。
   us.sloos_ci_tightening:
     publication_lag_days: 35
   # 日銀 貸出・預金動向は月 M を M+1 の第 7 営業日前後に公表する。

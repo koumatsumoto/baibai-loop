@@ -309,12 +309,11 @@ def test_reading_rules_reject_mixed_or_incomplete_publication_contracts(
         load_reading_rules(path)
 
 
-# Days since the latest observation, for a series that is waiting for its next release
-# and for one whose source has published since without the store catching up. The pairs
-# come from each source's publication calendar: the normal age is the source's lag plus
-# one publication interval, and the stopped age adds one more interval.
+# Synthetic ages on opposite sides of the configured publication estimate.
+# These check the lag/interval/margin policy, not whether a source actually published
+# on a particular date or whether a fresh value is available upstream.
 _STALENESS_CASES: tuple[tuple[str, int, int], ...] = (
-    # The dashboard carries only the final wage print, which lands late in M+2.
+    # L2 selects final wage prints from the retained dashboard rows.
     ("jp.nominal_wage_index", 116, 147),
     # The BOJ consumption index for month M lands in the middle of M+2.
     ("jp.real_consumption", 106, 137),
@@ -322,7 +321,7 @@ _STALENESS_CASES: tuple[tuple[str, int, int], ...] = (
     ("us.jolts_openings", 97, 128),
     # The Japanese labour force survey publishes month M at the end of M+1.
     ("jp.unemployment", 94, 125),
-    # Michigan publishes the preliminary reading mid-month, so waiting is short.
+    # The configured Michigan lag approximates a final monthly print, not the flash.
     ("us.consumer_sentiment", 56, 87),
     # FRED serves the EIA daily prices in weekly batches.
     ("wti", 10, 17),
@@ -356,15 +355,14 @@ def test_staleness_warns_after_the_estimated_publication_window(
         )
         return snapshot.series[0].stale
 
-    assert not reading_at(waiting_days), "normal publication waiting must not warn"
-    assert reading_at(stopped_days), "a missed publication must warn"
+    assert not reading_at(waiting_days), "age inside configured publication margin must not warn"
+    assert reading_at(stopped_days), "age beyond configured publication margin must warn"
 
 
-def test_japanese_cpi_stays_fresh_through_the_day_its_next_print_lands() -> None:
-    """Reading freshness permits the source's normal publication wait.
+def test_japanese_cpi_margin_includes_the_illustrated_late_april_date() -> None:
+    """The approximation leaves this February observation inside its margin.
 
-    e-Stat posts the March CPI late in April, so February remains the newest
-    observation before that release. The scheduled wait must not imply a stalled source.
+    This fixture does not establish the actual April 2027 publication calendar.
     """
 
     rule = load_reading_rules(DEFAULT_RULES_PATH).resolve(
