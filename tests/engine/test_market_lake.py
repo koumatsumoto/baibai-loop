@@ -436,9 +436,7 @@ def test_release_policy_rejects_incomplete_or_missing_inventory(
         )
 
 
-@pytest.mark.parametrize(
-    ("rows", "population", "accepted"), [(1, 1, True), (0, None, False)]
-)
+@pytest.mark.parametrize(("rows", "population", "accepted"), [(1, 1, True), (0, None, False)])
 def test_new_generation_uses_declared_observations_not_historical_size(
     monkeypatch: pytest.MonkeyPatch,
     rows: int,
