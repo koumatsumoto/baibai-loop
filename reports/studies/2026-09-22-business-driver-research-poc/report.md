@@ -34,7 +34,7 @@ exact IDで`triage_resolve`し、返された同じ`triage_ref`で`triage_get_in
 
 初回`l1_resolve_current`は`UPSTREAM_UNAVAILABLE`となったが、Issueで指定済みの固定refによる`l1_describe_dataset`と後続queryは成功した。currentへの乗換え、別世代の補完はない。`edinet.documents`のcoverageはcomplete、metrics / segment / debtはpartialだった。
 
-書類選択は[canonical SQL](../../../docs/reference/queries/edinet-research-filing.sql)を変更せず使用した。source `docs`を保有全期間2024-07-31〜2026-09-18・全列とし、`ticker=1814 / 1873`、`cutoff=2026-09-18`で各1回実行した。訂正・取下げ・未知validityの判定を迂回していない。
+書類選択は[当時のSQL](https://github.com/koumatsumoto/baibai-loop/blob/b97407236c419641cf158ff8e3f53684e97635e0/docs/reference/queries/edinet-research-filing.sql)を変更せず使用した。source `docs`を保有全期間2024-07-31〜2026-09-18・全列とし、`ticker=1814 / 1873`、`cutoff=2026-09-18`で各1回実行した。訂正・取下げ・未知validityの判定を迂回していない。
 
 | ticker | 採用doc | 提出日時（JST） | 年次期間 | validity |
 | --- | --- | --- | --- | --- |

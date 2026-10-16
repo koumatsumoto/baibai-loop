@@ -7,13 +7,13 @@ import sys
 from collections import Counter
 from datetime import date
 from pathlib import Path
-from typing import Any, Protocol, TextIO
+from typing import Protocol, TextIO
 from zipfile import BadZipFile
 
-from baibai_engine.market.edinet_decode import is_usable_filing_status, parse_sec_code
-from baibai_engine.market.edinet_document_events import _canonicalize_document_events
+from baibai_engine.market.edinet_decode import parse_sec_code
 from baibai_engine.market.edinet_facts.extract import EXTRACTOR_REVISION, extract_facts
 from baibai_engine.market.edinet_facts.models import filing_identity
+from baibai_engine.market.edinet_facts.selection import annual_documents, usable_document
 from baibai_engine.market.edinet_facts.store import (
     document_inventory,
     extraction_status,
@@ -22,126 +22,10 @@ from baibai_engine.market.edinet_facts.store import (
     store_facts,
 )
 from baibai_engine.market.edinet_models import EDINETProviderError, EDINETRateLimitError
-from baibai_engine.market.providers.edinet import _document_period
 
 
 class XbrlSource(Protocol):
     def download_xbrl_zip(self, doc_id: str) -> bytes: ...
-
-
-def annual_documents(
-    documents: list[dict[str, Any]], *, retained: set[str] | None = None, since: str | None = None
-) -> list[dict[str, Any]]:
-    """Latest annual family per issuer, including every linked correction.
-
-    Select the family before checking validity or XBRL availability. An invalid or
-    unsupported latest filing must not make an older annual report look current.
-    """
-    origins, quarantined = _canonicalize_document_events(documents, origin_start=None)
-    by_id = {str(doc["docID"]): doc for doc in origins}
-    annual_ids = {
-        key for key, doc in by_id.items() if str(doc.get("docTypeCode")) in {"120", "130"}
-    }
-    roots: dict[str, dict[str, Any]] = {}
-    for key in annual_ids:
-        ancestor = by_id[key]
-        while str(ancestor.get("docTypeCode")) == "130" and ancestor.get("parentDocID") in by_id:
-            ancestor = by_id[ancestor["parentDocID"]]
-        if str(ancestor.get("docTypeCode")) == "120":
-            roots[key] = ancestor
-    event_days: dict[str, str] = {}
-    event_parents: dict[str, str] = {}
-    for doc in documents:
-        key = str(doc.get("docID") or "")
-        if doc.get("parentDocID"):
-            event_parents[key] = str(doc["parentDocID"])
-        event_days[key] = max(
-            event_days.get(key, ""),
-            str(doc.get("doc_date") or ""),
-            str(doc.get("submitDateTime") or "")[:10],
-        )
-    unresolved_roots: set[str] = set()
-    unresolved: dict[str, list[str]] = {}
-    # A correction without its annual ancestry cannot silently leave an older
-    # filing usable. Its issuer and disclosure date bound the affected families.
-    for key in annual_ids - roots.keys():
-        doc = by_id[key]
-        if doc.get("secCode"):
-            ticker = parse_sec_code(doc["secCode"])
-            unresolved.setdefault(ticker, []).append(event_days.get(key, ""))
-    for event in quarantined:
-        linked = [
-            by_id[key]
-            for key in (event.doc_id, event.target_doc_id, event_parents.get(event.doc_id))
-            if key in annual_ids
-        ]
-        linked_roots = {
-            str(roots[str(doc["docID"])]["docID"]) for doc in linked if str(doc["docID"]) in roots
-        }
-        if linked_roots:
-            unresolved_roots.update(linked_roots)
-            continue
-        if event.document_type not in {"120", "130"}:
-            continue
-        ticker = event.ticker or next(
-            (parse_sec_code(doc["secCode"]) for doc in linked if doc.get("secCode")), None
-        )
-        if ticker is None:
-            continue
-        unresolved.setdefault(ticker, []).append(event_days.get(event.doc_id, ""))
-    families: dict[str, list[dict[str, Any]]] = {}
-    latest: dict[str, tuple[date, str, str]] = {}
-    included: set[str] = set()
-    unknown: dict[str, tuple[str, str]] = {}
-    for doc in origins:
-        if str(doc.get("docTypeCode")) not in {"120", "130"}:
-            continue
-        root = roots.get(str(doc["docID"]))
-        if root is None:
-            continue  # Missing ancestry is unknown, not a free-standing annual report.
-        if not root.get("secCode"):
-            continue
-        ticker = parse_sec_code(root["secCode"])
-        root_submitted = str(root.get("submitDateTime") or "")[:10]
-        if str(root["docID"]) in unresolved_roots or any(
-            not day or not root_submitted or day >= root_submitted
-            for day in unresolved.get(ticker, ())
-        ):
-            continue
-        doc = {**doc, "secCode": root["secCode"]}
-        _, end = _document_period(root)
-        root_id = str(root["docID"])
-        doc["_research_period_known"] = end is not None
-        if end is None:
-            stamp = str(root.get("submitDateTime") or "")
-            unknown[ticker] = max(unknown.get(ticker, ("", "")), (stamp, root_id))
-        families.setdefault(root_id, []).append(doc)
-        if str(doc["docID"]) in (retained or set()) or (
-            since is not None and str(doc.get("submitDateTime") or "")[:10] > since
-        ):
-            included.add(root_id)
-        rank = (end or date.min, str(root.get("submitDateTime") or ""), root_id)
-        if ticker not in latest or rank > latest[ticker]:
-            latest[ticker] = rank
-    for ticker, (submitted, root_id) in unknown.items():
-        if submitted >= latest[ticker][1]:
-            latest[ticker] = (date.min, submitted, root_id)
-    included.update(root_id for _, _, root_id in latest.values())
-    return sorted(
-        [doc for root_id in included for doc in families[root_id]],
-        key=lambda doc: (str(doc.get("submitDateTime") or ""), str(doc["docID"])),
-    )
-
-
-def usable_document(doc: dict[str, Any]) -> bool:
-    return (
-        doc.get("_research_period_known", True)
-        and is_usable_filing_status(
-            doc.get("legalStatus"), doc.get("disclosureStatus"), doc.get("withdrawalStatus")
-        )
-        and str(doc.get("docInfoEditStatus")) in {"0", "2"}
-        and str(doc.get("xbrlFlag")) == "1"
-    )
 
 
 def extract_edinet_facts_command(

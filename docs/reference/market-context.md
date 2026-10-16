@@ -17,7 +17,7 @@ Market Contextの`indicators`はL1のregistry・取得・DB adapter、`reading`�
 
 `indicators`はL1の取得/registry/観測DB、`reading/query.py`は保存観測からのL2読取、`assessment`は明示判断と保存履歴を所有する。Web/batchの公開読取は`read_api/market_context.py`へ統合し、旧moduleを転送する入口は置かない。Webの現在の内容は`AssessmentContent`、過去の章・確率・主張・引用は歴史的本文の表示であり、新writerの必須構造ではない。
 
-runtimeの指標DBは`stores/market_context/indicators.sqlite`/R2 `indicators.sqlite`（schema9）、判断はapplication schema24の`market_context_assessment / market_context_assessment_head`に保存する。新規判断はschema6・`market-context-assessment-*` identityを使う。旧`macro-context-*` ID・JSON・引用・hashは変更せず、新しい`/api/market-context/assessments/{context_id}`から直接読む。schema5/6は同じコンパクト意味、旧3/4は保存された章立て履歴であり、新writerの構造とは分ける。Researchは保存された市場判断を固定入力へ取り込み、Investment Proposalがmarket_context_assessment_idへ束縛する。旧ResearchのTriage/CAAは通常runtimeで利用・再開せず、一回切替で必要な執筆材料と判断参照を退避する。保存名の切替は完了しており、通常の取得・反映・復旧は[運用手順](../../batch/OPERATIONS.md#store-identity-recovery)に従う。
+runtimeの指標DBは`stores/market_context/indicators.sqlite`/R2 `indicators.sqlite`（schema9）、判断はapplication DBの`market_context_assessment / market_context_assessment_head`に保存する。新規判断はschema6・`market-context-assessment-*` identityを使う。旧`macro-context-*` ID・JSON・引用・hashは変更せず、新しい`/api/market-context/assessments/{context_id}`から直接読む。schema5/6は同じコンパクト意味、旧3/4は保存された章立て履歴であり、新writerの構造とは分ける。Researchは保存された市場判断を固定入力へ取り込み、Investment Proposalがmarket_context_assessment_idへ束縛する。旧ResearchのTriage/CAAは通常runtimeで利用・再開せず、一回切替で必要な執筆材料と判断参照を退避する。保存名の切替は完了しており、通常の取得・反映・復旧は[運用手順](../../batch/OPERATIONS.md#store-identity-recovery)に従う。
 
 Readingは`READING_RULES_PATH`が選ぶ一つのdated fileを使う。保存判断が引用する`method/macro/reading/2026-08-01T100000+0900.yaml`は数値・fieldの意味・dated pathを保全し、別のcurrent copyを作らない。計算を変えない説明訂正は可能とし、旧bytesはgit履歴で確認する。規則のidentityはdated stemであり、単なる配置整理で値・revision・schemaを変えない。
 
@@ -104,7 +104,7 @@ registryは系列定義の正本である。通常のopenでは登録外のfacts
 
 scalarとして保存する観測は系列identity・単位・有限値・系列固有のbandを満たす必要がある。native原本の数値はここで削らず、L2の読み値へ同じ単位・有限値・bandの条件を適用する。bandは明白な列・桁・単位ずれを検出するもので、景気急変を前回値との差だけで拒否する条件ではない。band内に収まるscale変更はprovider固有のheader・metadata照合で守る。例えば`jp.foreign_flows`のL2読み値は原典の千円単位を保持する。scalar観測の検証違反は取得失敗とし、部分取り込みしない。native原本は計算失敗でも保持する。scalarのDB境界でも同じ制約を守り、schemaやtriggerの不整合を拒否する。厳密な条件は[service](../../engine/src/baibai_engine/market_context/indicator_service.py)・[DB](../../engine/src/baibai_engine/market_context/indicators/db.py)・[schema](../../engine/src/baibai_engine/market_context/indicators/schema.sql)が所有する。storeは空または現行schemaだけを受け付ける。schema変更は明示的な一回切替で行い、通常のopenやtransferに旧schemaの移行処理を残さない。
 
-registryのband変更時は、Git管理外のstoreをread-only validatorで全履歴・全vintage検査する。CIのfixtureだけでは既存観測との整合を証明できない。検査はstoreを書き換えず、観測とcanonical trigger契約の違反を報告する。
+registryのband変更時は、Git管理外のstoreのscalar観測をread-only validatorで全履歴・全vintage検査する。CIのfixtureだけでは既存観測との整合を証明できない。検査はstoreを書き換えず、scalar観測とcanonical trigger契約の違反を報告する。native原本からのL2計算はこの検査の対象外であり、変更したproviderの保存済み読取とReadingを別途確認する。
 
 同じvalidatorはapplication storeの判断履歴のmetadataと現在の作成型を検証する。旧schemaの本文はstored_onlyとして保持し、旧writerの構造条件で拒否しない。退役系列の引用はwarningとして記録する。候補一覧発行はContextを読まないため、この検査失敗を候補一覧停止と読み替えない。判断を使うResearchと履歴閲覧への影響を確認する。検証の実行条件とapplication store不在時の扱いは[CIと必要な実store検証](./python-foundation.md#9-ci-and-local-parity)、系列退役の順序は[運用手順](../../batch/OPERATIONS.md#指標観測とregistryの修正)に従う。
 
@@ -234,7 +234,7 @@ reading は L1 store を読むだけの純関数で、provider を呼ばず DB �
 
 過去as-ofの再計算は、全sourceの改定前情報を当時のまま再現する保証ではない。取得時刻と公表vintageを区別する。投資部門別の`PubDate`は公表日であり、APIでその改定を取得できた正確な時刻ではない。訂正の配信には時間差があり、古い期間は最新改定だけの場合もあるため、公表日cutoffだけで当時の利用可能情報を完全再現したとは扱わない（[提供元仕様](https://jpx-jquants.com/en/spec/eq-investor-types)）。
 
-Baibai Loop の Market Context タブは、上から **現在の市場環境判断 → 経済指標のReading → 保存された判断履歴**の順に表示する。現在読み値は `web/config/market-context-panel.yaml` の 7 group 順に `series_id` で join し、最新値・観測日・短期/長期トレンド・`statistic`・percentile・`z_score`・実効窓・注記を並べる。行を開いた後だけ拡大チャートを取得する。**チャートの期間・粒度と percentile の実効窓は別物**なので、列見出しの ⓘ で明示する。
+Baibai Loop の Market Context タブは、上から **市場・業種の価格状態 → 市場環境判断 → 経済指標のReading → 保存された判断履歴**の順に表示する。現在読み値は `web/config/market-context-panel.yaml` の 7 group 順に `series_id` で join し、最新値・観測日・短期/長期トレンド・`statistic`・percentile・`z_score`・実効窓・注記を並べる。行を開いた後だけ拡大チャートを取得する。**チャートの期間・粒度と percentile の実効窓は別物**なので、列見出しの ⓘ で明示する。
 
 取得失敗、stale、insufficient_history、分布の端は別の状態である。系列の開始時点や配信範囲による履歴不足は、再取得すれば必ず解消する障害ではない。現在読み値ではこれらを件数と絞り込みに使い、indicator storeがない場合は読み値をunavailableとして、保存済みContextとreport indexを表示する。
 

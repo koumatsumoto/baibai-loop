@@ -123,10 +123,7 @@ paths = materialize_partitions(
 )
 with lake_session() as session:
     session.connection.read_parquet([str(path) for path in paths]).create_view(alias)
-    sql = Path("docs/reference/queries/edinet-research-filing.sql").read_text()
-    rows = session.connection.execute(
-        sql, {"ticker": "<TICKER>", "cutoff": "<YYYY-MM-DD>"}
-    ).fetchall()
+    rows = session.connection.execute("SELECT * FROM docs").fetchall()
 ```
 
 同じsessionへ必要なviewを追加し、以下のSQL例もparameterをbindして実行する。optional datasetが一覧にない場合や
@@ -223,13 +220,30 @@ unit testとlocal fakeで行い、専用acceptance workflowやexact workflow aud
 
 最初に[解決と読み取り](#fixed-release-read)の`lake resolve`でrelease IDとmanifest SHA-256を固定する。2 datasetはoptionalであり、同じreleaseのdataset一覧で存在を確かめる。導入前のreleaseも他datasetを読み続けられるが、存在しないdatasetへのqueryは行わず原典へ戻る。両datasetのpartitionは提出月、日付filterは`disclosed_on`である。企業別・期間別の行の存在は、questionの解決や全債務のcoverageを意味しない。
 
-1. 固定releaseの`edinet.documents`からDuckDB view `docs`を作り、[書類選択SQL](./queries/edinet-research-filing.sql)へ`ticker`と`cutoff`（JST日付、当日末まで）を渡す。viewには保持したdocumentの全範囲を含める。狭い範囲にすると訂正のparentや取下げイベントを落とす。最新年次family内の提出版を先に選び、抽出済みかどうかで古い版へ戻らない。
-2. `validity=usable`の書類だけについて、同じreleaseで下記のfact queryを行う。選択0件・`validity_unknown`・抽出行なしは原典確認へ戻り、訂正前の値で補わない。現行inventoryが履歴を確定できない情報修正・不開示・取下げも、選択familyに紐づく場合、またはfamily不明の年次イベントがそれ以降の年次に影響し得る場合はunknownに倒す。既知の別familyだけに紐づくイベントでは選択familyを止めない。年次familyに関連しない非年次イベントだけでは止めない。日中時点のPIT再現にはこの日次例を使わない。
-3. 年次表の期末と現在日を併記する。`edinet.metrics`と合わせる際はtickerだけでJOINせず、metricsのasof・原典期間・連結basis・通貨を揃える。新しいBSとの時点差、事業再編、直近の借入れ・返済は別途確認する。
+書類選択は抽出工程と同じ純粋な `edinet_facts.selection` を使う。独立したSQL版の訂正・取下げ判定は持たない。固定releaseを[Storeの復元](#store-hydration)で明示的な作業コピーへhydrateし、次のように全保持範囲から選ぶ。hydrateにも同じrelease ID・manifest SHA-256を指定し、currentへ乗り換えない。
+
+```python
+from datetime import date
+from pathlib import Path
+from baibai_engine.market.edinet_facts.selection import latest_annual_filing, usable_document
+from baibai_engine.market.edinet_facts.store import document_inventory
+
+cutoff = date.fromisoformat("<YYYY-MM-DD>")
+doc = latest_annual_filing(
+    document_inventory(Path("/tmp/research-fixed.sqlite"), cutoff), "<TICKER>"
+)
+if doc is None or not usable_document(doc):
+    raise ValueError("年次書類を確定できません。原典を確認してください。")
+doc_id = doc["docID"]
+```
+
+cutoffはJST日付で当日末までを含む。保存済み原本のkey存在・明示nullを保持して操作イベントを畳み、最新年次familyとその訂正を選んでから利用可否を確認する。解決できた情報修正を永久に拒否せず、親不明の訂正を落として古い年次へ戻らない。選択なしは書類の不存在を意味しない。未確認・未抽出なら原典へ戻り、同じrelease内でも古い版へfallbackしない。日中時点のPIT再現にはこの日次例を使わない。
+
+年次表の期末と現在日を併記する。`edinet.metrics`と合わせる際はtickerだけでJOINせず、metricsのasof・原典期間・連結basis・通貨を揃える。新しいBSとの時点差、事業再編、直近の借入れ・返済は別途確認する。
 
 `edinet.metrics`の年次書類120/130には、売上債権・棚卸資産・仕入債務・契約負債・前受金・未払金のOCF寄与と、報告された有形・無形CapEx内訳をnullableで持つ。OCF内訳は報告符号、CapEx内訳はpositive expenditure magnitudeである。内訳を0と仮定した値は原因分解の感応度に過ぎず、「正常FCF」や維持投資の機械判定として扱わない。nullはゼロではなく、対象標準conceptの不存在、context・unitの不一致や曖昧さ、またはv1対象外conceptを含み得る。必要な場合は原典を確認する。
 
-同じreleaseの`edinet.segment_facts`をview `segments`として、選ばれた`doc`をparameterに渡す。partitionを絞る場合は選択書類の提出月を含め、`disclosed_on`のcutoffも照合する。
+同じreleaseの`edinet.segment_facts`をview `segments`として、選ばれた`doc_id`をSQLの`doc` parameterに渡す。partitionを絞る場合は選択書類の提出月を含め、`disclosed_on`のcutoffも照合する。
 
 ```sql
 SELECT period_start, period_end, consolidation_basis, segment_key, segment_name,

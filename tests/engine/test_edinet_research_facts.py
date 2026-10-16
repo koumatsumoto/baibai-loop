@@ -8,20 +8,19 @@ from datetime import date
 from pathlib import Path
 from unittest.mock import Mock
 
-import duckdb
 import pytest
 from tests.helpers.http_doubles import FakeSession, response
 
 from baibai_engine.market.edinet_facts.extract import extract_facts
-from baibai_engine.market.edinet_facts.service import annual_documents, extract_edinet_facts_command
-from baibai_engine.market.edinet_facts.store import extraction_status, store_facts
+from baibai_engine.market.edinet_facts.service import extract_edinet_facts_command
+from baibai_engine.market.edinet_facts.selection import annual_documents, latest_annual_filing, usable_document
+from baibai_engine.market.edinet_facts.store import document_inventory, extraction_status, store_facts
 from baibai_engine.market.edinet_facts.xbrl import SourceFormatError, xml_root
 from baibai_engine.market.edinet_models import EDINETProviderError
 from baibai_engine.market.providers.edinet import EDINETProvider
 from baibai_engine.storage.observations.schema import open_connection
 
 FIXTURES = Path(__file__).parents[1] / "fixtures/edinet/research"
-ROOT = Path(__file__).parents[2]
 
 
 def source_zip(doc_id="S100YR5P", replace=None):
@@ -262,19 +261,13 @@ def test_new_correction_failure_preserves_original_and_does_not_reuse_it(tmp_pat
 
 
 def selected_filing(path, cutoff):
-    sql = (ROOT / "docs/reference/queries/edinet-research-filing.sql").read_text()
-    source = sqlite3.connect(path)
-    source.row_factory = sqlite3.Row
-    docs = [dict(row) for row in source.execute("select * from edinet_documents")]
-    source.close()
-    import pyarrow as pa
-
-    conn = duckdb.connect()
-    conn.register("docs", pa.Table.from_pylist(docs))
-    try:
-        return conn.execute(sql, {"cutoff": cutoff, "ticker": "1873"}).fetchone()
-    finally:
-        conn.close()
+    doc = latest_annual_filing(document_inventory(path, date.fromisoformat(cutoff)), "1873")
+    if doc is None:
+        return None
+    return (
+        doc["docID"], doc.get("submitDateTime"), doc["_research_annual_period_end"],
+        "usable" if usable_document(doc) else "validity_unknown",
+    )
 
 
 def test_query_selects_latest_before_validity_and_handles_events(tmp_path):
@@ -293,12 +286,12 @@ def test_query_selects_latest_before_validity_and_handles_events(tmp_path):
     )
     correction.update(xbrlFlag="1", parentDocID="S100LOST")
     insert_documents(path, [original, correction])
-    assert selected_filing(path, "2026-08-01")[-1] == "validity_unknown"
+    assert selected_filing(path, "2026-08-01") is None
     assert annual_documents([original, correction]) == []
     event = document("S100EDIT", "2026-08-02 10:00", parentDocID="S100TEST")
     event.update(withdrawalStatus="1")
     insert_documents(path, [original, event])
-    assert selected_filing(path, "2026-08-02")[-1] == "validity_unknown"
+    assert selected_filing(path, "2026-08-02") is None
 
 
 def test_query_and_runtime_order_duplicate_origins_by_operation_time(tmp_path):
@@ -406,7 +399,11 @@ def test_unresolved_event_only_blocks_a_relevant_newer_annual(
     event = document("S100NEXT", event_date + " 10:00")
     event.update(docTypeCode=doc_type, docInfoEditStatus="1", periodEnd=None, parentDocID=parent)
     insert_documents(path, [old, event])
-    assert selected_filing(path, "2027-06-26")[-1] == ("validity_unknown" if blocked else "usable")
+    selected = selected_filing(path, "2027-06-26")
+    if blocked:
+        assert selected is None
+    else:
+        assert selected[-1] == "usable"
     assert [d["docID"] for d in annual_documents([old, event])] == ([] if blocked else ["S100TEST"])
 
 
@@ -423,7 +420,7 @@ def test_event_linked_to_old_family_keeps_new_annual_usable(tmp_path):
         periodEnd=None,
     )
     insert_documents(path, [old, event])
-    assert selected_filing(path, "2027-07-02")[-1] == "validity_unknown"
+    assert selected_filing(path, "2027-07-02") is None
     assert annual_documents([old, event], retained={"S100TEST"}) == []
     insert_documents(path, [new])
     selected = selected_filing(path, "2027-07-02")
@@ -538,7 +535,6 @@ def test_metadata_edit_clears_optional_values_in_raw_and_stored_rows(tmp_path, t
 
 @pytest.mark.parametrize("edited", ["0", "2"])
 def test_metadata_edit_status_is_not_document_unavailability(tmp_path, edited):
-    from baibai_engine.market.edinet_facts.service import usable_document
     from baibai_engine.market.providers.edinet import select_document_candidates
 
     # EDINET API v2 section 3-1-6: 2 identifies the edited filing, not a withdrawal.
@@ -554,7 +550,6 @@ def test_metadata_edit_status_is_not_document_unavailability(tmp_path, edited):
 @pytest.mark.parametrize("field", ["legalStatus", "disclosureStatus", "withdrawalStatus"])
 @pytest.mark.parametrize("missing", [None, "", "omitted"])
 def test_missing_document_validity_is_not_treated_as_legacy_usable(field, missing):
-    from baibai_engine.market.edinet_facts.service import usable_document
     from baibai_engine.market.providers.edinet import select_document_candidates
 
     original = document()
@@ -573,3 +568,22 @@ def test_orphan_correction_does_not_block_a_later_annual_family():
     newer = document("S100NEXT", "2027-06-24 10:00")
     newer["periodEnd"] = "2027-03-31"
     assert [row["docID"] for row in annual_documents([old, orphan, newer])] == ["S100NEXT"]
+
+
+@pytest.mark.parametrize("refreshed", [False, True])
+def test_saved_selection_resolves_metadata_edit_without_permanent_rejection(tmp_path, refreshed):
+    path = tmp_path / "market.sqlite"
+    original = document()
+    edit = {**original, "doc_date": "2026-07-01", "docInfoEditStatus": "1",
+            "opeDateTime": "2026-07-01 10:00", "periodEnd": "2026-04-30"}
+    documents = [original, edit]
+    if refreshed:
+        documents.append({**edit, "doc_date": "2026-07-02", "docInfoEditStatus": "2"})
+    insert_documents(path, documents)
+    assert selected_filing(path, "2026-06-30") == (
+        "S100TEST", "2026-06-24 14:00", "2026-03-31", "usable",
+    )
+    for cutoff in ["2026-07-01", "2026-07-02"]:
+        assert selected_filing(path, cutoff) == (
+            "S100TEST", "2026-06-24 14:00", "2026-04-30", "usable",
+        )
