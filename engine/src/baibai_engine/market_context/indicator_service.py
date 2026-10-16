@@ -342,7 +342,11 @@ class IndicatorsService:
                 result = _derived_range(conn, series, start=date(1970, 1, 1), end=end)
                 return QueryResult(series, result.observations[-1:], cache_hit=True)
             spec = provider_spec(series.provider)
-            if series.provider in NATIVE_BULK_PROVIDERS:
+            if refresh:
+                # A retained native input may fail L2 projection. Forced acquisition
+                # must be able to replace it before attempting to read it again.
+                cached_latest = None
+            elif series.provider in NATIVE_BULK_PROVIDERS:
                 lookback = LATEST_FETCH_LOOKBACK_DAYS.get(series.frequency, DEFAULT_LATEST_LOOKBACK_DAYS)
                 recent = read_native_series(conn, series, start=end - timedelta(days=lookback), end=end)
                 cached_latest = recent[-1] if recent else None

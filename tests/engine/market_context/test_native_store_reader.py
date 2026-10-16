@@ -235,3 +235,32 @@ def test_estat_missing_cell_replaces_prior_numeric_reading_without_erasing_nativ
         assert conn.execute("SELECT count(*) FROM observations").fetchone()[0] == 0
         read = build_store_observation_reader(conn, series=load_definitions().series)
         assert read(series.series_id, day, day) == ()
+
+def test_latest_forced_refresh_repairs_malformed_native_cache_without_hiding_read_errors(tmp_path, monkeypatch):
+    monkeypatch.setattr(indicator_service, "_today_jst", lambda: DAY)
+    database = tmp_path / "indicators.sqlite"
+    series = load_definitions().by_id()["jp.unemployment"]
+    month = DAY.replace(day=1)
+    malformed = {"@time": "20261000", "@isProvisional": "0", "@unit": "001", "$": 2.4}
+    corrected = {**malformed, "$": "2.4"}
+    replies = [{month: [malformed]}, {month: [corrected]}]
+    monkeypatch.setattr(indicator_service, "fetch_native_records", lambda *a, **k: replies.pop(0))
+    service = IndicatorsService(database)
+
+    with pytest.raises(ValueError, match="value is not a string"):
+        service.get_range(series.series_id, start=month, end=month, refresh=True)
+    with pytest.raises(ValueError, match="value is not a string"):
+        service.get_latest(series.series_id)
+    assert len(replies) == 1
+
+    result = service.get_latest(series.series_id, refresh=True)
+    assert [(item.observed_at, item.value) for item in result.observations] == [(month, 2.4)]
+    assert not result.cache_hit
+    assert replies == []
+    with closing(sqlite3.connect(database)) as conn:
+        assert next(read_snapshots(conn, month, month, source_key=native_source_key(series))).records == (corrected,)
+        assert conn.execute(
+            "SELECT count(*) FROM indicator_source_snapshots WHERE source_key = ? AND observed_at = ?",
+            (native_source_key(series), month.isoformat()),
+        ).fetchone()[0] == 2
+
