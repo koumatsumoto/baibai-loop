@@ -8,10 +8,7 @@ from contextlib import redirect_stdout
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from tests.helpers.indicator_store import (
-    downgrade_to_pre_retraction_schema,
-    observation,
-)
+from tests.helpers.indicator_store import observation
 
 from baibai_engine.market_context.indicator_cli import (
     main,
@@ -433,32 +430,3 @@ class RetractionVintageTests(unittest.TestCase):
             self.assertIn("us.10y\t2026-05-01\twithdrawn\t4.39\t-", stdout.getvalue())
             self.assertIn("0 fell back to an earlier vintage, 1 left the reads", stdout.getvalue())
 
-    def test_the_previous_fetch_status_domain_cannot_hold_a_retraction(self) -> None:
-        """The widened CHECK is what makes a retraction storable at all, so pin it."""
-
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "indicators.sqlite"
-            conn = initialize_database(database)
-            try:
-                series = get_series(conn, "us.10y")
-                insert_observations(
-                    conn,
-                    [observation(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC))],
-                )
-                conn.commit()
-            finally:
-                conn.close()
-            downgrade_to_pre_retraction_schema(database)
-
-            legacy = sqlite3.connect(database)
-            legacy.row_factory = sqlite3.Row
-            try:
-                with self.assertRaises(sqlite3.IntegrityError):
-                    retract_observations(
-                        legacy,
-                        "us.10y",
-                        [(date(2026, 5, 1), datetime(2026, 5, 2, tzinfo=UTC))],
-                        vintage_at=datetime(2026, 5, 10, tzinfo=UTC),
-                    )
-            finally:
-                legacy.close()

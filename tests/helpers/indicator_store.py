@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import Callable, Iterable, Sequence
-from contextlib import closing
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -13,60 +11,6 @@ from baibai_engine.market_context.indicators.definitions import SeriesDefinition
 from baibai_engine.market_context.indicators.observations import ObservationRecord
 
 SOURCE_URL = "https://example.com/data.csv"
-
-_CONTRACT_TRIGGERS = (
-    "validate_observation_plausibility_before_insert",
-    "validate_observation_plausibility_before_update",
-    "validate_series_contract_before_update",
-)
-
-
-def downgrade_to_pre_retraction_schema(database: Path) -> None:
-    """Rebuild `observations` under the fetch_status domain that preceded 'retracted'.
-
-    This models schema 5 specifically, not the immediate predecessor of the current
-    schema. Merge rejection and retraction tests share this historical fixture.
-    """
-
-    with closing(sqlite3.connect(database)) as connection, connection:
-        trigger_sql = tuple(
-            str(row[0])
-            for row in connection.execute(
-                "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name IN "
-                f"({', '.join('?' for _ in _CONTRACT_TRIGGERS)}) ORDER BY name",
-                _CONTRACT_TRIGGERS,
-            )
-        )
-        connection.executescript(
-            """
-            DROP TRIGGER validate_observation_plausibility_before_insert;
-            DROP TRIGGER validate_observation_plausibility_before_update;
-            DROP TRIGGER validate_series_contract_before_update;
-            CREATE TABLE observations_previous(
-              series_id TEXT NOT NULL REFERENCES series(series_id),
-              observed_at TEXT NOT NULL,
-              period_start TEXT,
-              period_end TEXT,
-              value REAL NOT NULL,
-              unit TEXT NOT NULL,
-              vintage_at TEXT NOT NULL,
-              fetch_status TEXT NOT NULL,
-              source_url TEXT NOT NULL,
-              PRIMARY KEY(series_id, observed_at, vintage_at),
-              CHECK(fetch_status IN ('ok', 'failed', 'unreleased'))
-            );
-            INSERT INTO observations_previous SELECT * FROM observations;
-            DROP TABLE observations;
-            ALTER TABLE observations_previous RENAME TO observations;
-            CREATE INDEX idx_observations_series_date ON observations(series_id, observed_at);
-            CREATE INDEX idx_observations_series_status_date_vintage
-              ON observations(series_id, fetch_status, observed_at, vintage_at);
-            """
-        )
-        for statement in trigger_sql:
-            connection.execute(statement)
-        connection.execute("PRAGMA user_version = 5")
-
 
 def series_definition(
     series_id: str = "test.series",
@@ -197,7 +141,6 @@ def seed_store(path: Path, *records: ObservationRecord) -> None:
 
 __all__ = [
     "SOURCE_URL",
-    "downgrade_to_pre_retraction_schema",
     "observation",
     "observations",
     "seed_store",

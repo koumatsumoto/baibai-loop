@@ -9,7 +9,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
-from tests.helpers.indicator_store import downgrade_to_pre_retraction_schema, observation
+from tests.helpers.indicator_store import observation
 
 from baibai_batch.storage.merge_indicator_store import (
     MergeError,
@@ -20,6 +20,7 @@ from baibai_batch.storage.merge_indicator_store import (
 )
 from baibai_engine.market_context.indicators.db import (
     SCHEMA_PATH,
+    SQLITE_SCHEMA_VERSION,
     initialize_database,
     insert_observations,
     observations_in_range,
@@ -221,16 +222,16 @@ def _read_range(path: Path) -> tuple[object, ...]:
 def test_merge_refuses_a_source_behind_the_target(tmp_path: Path) -> None:
     """Both stores must be on the schema this code writes, whatever the gap.
 
-    The source is the copy R2 holds, and the transfer script moves it forward before the
-    merge sees it. Accepting a behind source here instead would mean merging under two
-    different shapes and deciding which one the payload comparison speaks about.
+    Transfer does not silently migrate the source. A schema cutover is separate
+    operator work; ordinary merge accepts only the current contract on both sides.
     """
     source = tmp_path / "source.sqlite"
     target = tmp_path / "target.sqlite"
     observation = _observation("jp.10y", date(2026, 7, 23), 1.62)
     _build_store(source, series_ids=("jp.10y",), observations=(observation,))
     _build_store(target, series_ids=("jp.10y",), observations=())
-    downgrade_to_pre_retraction_schema(source)
+    with closing(sqlite3.connect(source)) as connection, connection:
+        connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
 
     with pytest.raises(MergeError, match=r"schema is \d+ but this code expects"):
         merge_stores(source, target)
