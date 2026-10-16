@@ -9,7 +9,7 @@ from datetime import date
 from typing import Any
 
 from baibai_engine.market.edinet_models import EDINETProviderError
-from baibai_engine.market.providers.edinet import _canonicalize_document_events
+from baibai_engine.market.edinet_document_events import _canonicalize_document_events
 
 
 def read_current_filing_documents(
