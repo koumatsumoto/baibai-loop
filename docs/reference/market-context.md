@@ -71,7 +71,7 @@ uv run baibai-engine market-context indicators get jp.policy_rate --latest
 
 `get`は取得済み範囲を確認し、不足があればproviderを呼ぶ。同じ引数でもstore状態・source改定・実行日によって結果は変わる。計算の決定性は保存入力・採用vintage・規則・as-ofが固定された場合の性質である。`get --latest`はJSTの運用日を基準に、[reading rules](../../engine/src/baibai_engine/market_context/reading/rules.py)の公表ラグと猶予でcacheの鮮度を判定する。再取得の窓幅は鮮度閾値とは別で、[indicator service](../../engine/src/baibai_engine/market_context/indicator_service.py)が日次batchと共有する。
 
-`refresh --all-history` は外部providerごとの取得可能な先頭日から強制再取得する。FREDは現在の `fredgraph.csv` の応答行と欠測セルをnative保存し、正常に調べた要求窓の空日は空原本として保持する。取得可能な履歴の外側を旧scalar値で補わない。外部source訂正では再取得期間・vintageの条件に該当する旧sourceの観測をcacheから除く。契約期間や公表archiveが履歴を制限する場合は、実際の取得範囲を運用記録へ残す。
+`refresh --all-history` は外部providerごとの取得可能な先頭日から履歴を取得する。通常のscalar/native providerは強制再取得するが、オプションは保存済みの古い日を再利用するため、[専用手順](#jquants-options-provider)に従う。全L1の新規取得と同じ意味ではない。FREDは現在の `fredgraph.csv` の応答行と欠測セルをnative保存し、正常に調べた要求窓の空日は空原本として保持する。取得可能な履歴の外側を旧scalar値で補わない。外部source訂正では再取得期間・vintageの条件に該当する旧sourceの観測をcacheから除く。契約期間や公表archiveが履歴を制限する場合は、実際の取得範囲を運用記録へ残す。
 
 `derived`系列は[Readingの純粋な数式](../../engine/src/baibai_engine/market_context/reading/formulas.py)で保存済み入力から読む都度計算する。米10Y−2YスプレッドもH.15で取得した2つの利回りからL2で計算し、取得処理では差分を保存しない。独立した観測・取得履歴として書き込まず、日次取得の対象にも含めない。これらの`get`・`refresh`は入力を再取得せず、base系列の同期後に現在の値を読む。欠測や未定義の計算を古い派生値で補完せず、以前保存した派生cacheは読みや鮮度表示に使わない。保存済みの判断本文は変更しない。
 
@@ -180,7 +180,7 @@ PMI は data API が無いため、月次 release URL の manifest（`engine/src
 
 抽出は対象月のheadline値だけを読み、sub-index・composite・閾値比較・flash見積り・複数月平均を混入させない。未対応の表現や矛盾する候補は取得失敗とし、値を推測しない。具体的な英文の認識規則と数値検証は[PMI extractor](../../engine/src/baibai_engine/market_context/indicators/providers/pmi_extraction.py)が所有する。
 
-1 月 = 1 PDF なので、通常の refresh は store に無い月と、manifest の release URL が store の値の出所と一致しない月だけを取得する。final headline は公表後に改定されないため、同じ URL から取り直した月は同じ値になる。URL を訂正すればその月は自動で取り直される。抽出規則の変更後など stream 全体を source から作り直すときは `refresh --all-history` を使う（全月を再取得する）。
+1 月 = 1 PDF なので、通常の refresh は store に無い月と、manifest の release URL が store の値の出所と一致しない月だけを取得する。これは同一URLの内容が将来も不変である保証ではない。訂正・差替えや抽出規則の変更を確認する場合は、同じURLでも再取得して照合する。URL を訂正すればその月は自動で取り直される。抽出規則の変更後など stream 全体を source から作り直すときは `refresh --all-history` を使う（全月を再取得する）。
 
 **新しい月の追記は `baibai_engine.market_context.indicators.pmi_manifest` で行う**: S&P Global の公式 press release ページ（`/Public/Release/PressReleases`）が列挙する最新 release を stream ごとに拾い、release title の完全一致で系列を同定し、**release PDF が自分をその PMI と名乗り・自分の embargo 日が index の公表日と同じ月であり・headline をその月に結び付けていること**を 3 つとも確かめてから追記する。抽出には「その release 自身の月」として渡さず後の月を渡すので、月を明示しない reading（`posted 54.8`）は採られず、月を名指した reading（`posted 54.8 in June`）だけが通る。title を別の PMI に取り違えても月の証明だけは通ってしまうので（services も manufacturing と同じ形で headline を述べる）、系列は PDF 自身の名乗りで、公表月は PDF 自身の embargo 日で確かめる。**月が飛ぶ追記は拒否する**: provider の追いつき guard は manifest の最新月しか見ないため、穴を越えた entry を書くと飛ばした月が二度と報告されない。edge WAF が plain HTTP を challenge page（200）で返すときは、PDF 経路と同じ headless browser で index を読み直す。書き込みは copy を text 編集して provider の loader で読めることを確かめ、通ったものだけを正本へ move する（正本への書き込みは検証後の move 1 回だけ）。追記後は `market-context indicators refresh` で該当月を取得して公表値と照合してから commit する。
 
