@@ -68,9 +68,7 @@ def _publish(path: Path, mirror: Path, datasets: tuple[str, ...], release_id: st
 def test_optional_release_roundtrip_preserves_received_history_and_other_dataset(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    narrow_release_policy(
-        monkeypatch, datasets=DATASETS, carries_history=True, minimum_population_count=None
-    )
+    narrow_release_policy(monkeypatch, datasets=DATASETS, carries_history=True)
     path = tmp_path / "market.sqlite"
     open_connection(path).close()
     store_jquants_market_calendar(

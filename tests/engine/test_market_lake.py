@@ -51,7 +51,7 @@ def _dataset_payload(
     data_as_of: str = "2026-08-12",
     digest: str = "a" * 64,
     coverage_start: str = "2026-08-01",
-    population_count: int = 100,
+    population_count: int | None = 100,
     rows: int = 456,
 ) -> dict[str, object]:
     contract = LAKE_DATASETS[dataset]
@@ -437,21 +437,26 @@ def test_release_policy_rejects_incomplete_or_missing_inventory(
         )
 
 
-def test_pilot_policy_rejects_a_fresh_one_day_population(monkeypatch: pytest.MonkeyPatch) -> None:
-    narrow_release_policy(monkeypatch, relax_floors=False)
+@pytest.mark.parametrize(
+    ("rows", "population", "accepted"), [(1, 1, True), (0, None, False)]
+)
+def test_new_generation_uses_declared_observations_not_historical_size(
+    monkeypatch: pytest.MonkeyPatch, rows: int, population: int | None, accepted: bool
+) -> None:
+    narrow_release_policy(monkeypatch, carries_history=None)
     daily = _load_dataset(
         _dataset_payload(
             coverage_start="2026-08-12",
-            population_count=1,
-            rows=1,
+            population_count=population,
+            rows=rows,
         )
     )
     short_sale = _load_dataset(
         _dataset_payload(
             dataset="jquants.short_sale_reports",
             coverage_start="2026-08-12",
-            population_count=1,
-            rows=1,
+            population_count=population,
+            rows=rows,
             digest="e" * 64,
         )
     )
@@ -477,14 +482,13 @@ def test_pilot_policy_rejects_a_fresh_one_day_population(monkeypatch: pytest.Mon
         }
     )
 
-    # A store holding one day is refused on the size of what it holds. The history
-    # question needs something already published to compare against, so it is asked
-    # separately below rather than inferred from a date written into the policy.
-    with pytest.raises(ValueError, match="below the profile floor"):
-        validate_release_policy(
-            release,
-            manifests,
-        )
+    # A new generation declares its actual scope. Old accumulated counts do not
+    # prove a source promise, but empty or contradictory observations are invalid.
+    if not accepted:
+        with pytest.raises(ValueError, match="contain observations"):
+            validate_release_policy(release, manifests)
+        return
+    validate_release_policy(release, manifests)
 
     with pytest.raises(ValueError, match="the serving release already covers"):
         validate_release_policy(
@@ -701,7 +705,7 @@ def test_only_a_replaced_table_is_exempt_from_the_history_floor() -> None:
 
     範囲指定なしの `DELETE FROM <table>` はその table を snapshot にする — 行は蓄積せず、
     最古の行も件数も source が今公表している範囲そのものになる。日付で絞った delete は
-    冪等な upsert で、行は蓄積するので 観測の 0.95 倍という床は時間とともに余裕が広がる。
+    冪等な upsert で、通常公開では保存済みの履歴開始日と比較する。
 
     将来 snapshot 型の dataset が増えたときも、過去 snapshot の履歴開始日を要求しない。
     この検査は現在の SQL リテラル表記を対象とし、動的 SQL の全経路を解析するものではない。
@@ -734,19 +738,6 @@ def test_only_a_replaced_table_is_exempt_from_the_history_floor() -> None:
     assert exempt == snapshot_datasets
 
 
-def test_calendar_size_is_not_inferred_from_historical_disclosures() -> None:
-    from baibai_engine.storage.lake.models import PRODUCTION_RELEASE_POLICY
-
-    calendar = next(
-        item
-        for item in PRODUCTION_RELEASE_POLICY.datasets
-        if item.dataset == "jpx.earnings_calendar"
-    )
-    assert calendar.minimum_rows == 1
-    assert calendar.minimum_population_count == 1
-    assert calendar.require_complete_coverage is True
-
-
 @pytest.mark.parametrize("rows", [1_100, 400, 1])
 def test_a_forward_only_calendar_accepts_small_complete_schedules_not_a_history_floor(
     monkeypatch: pytest.MonkeyPatch, rows: int
@@ -764,8 +755,8 @@ def test_a_forward_only_calendar_accepts_small_complete_schedules_not_a_history_
         for item in lake_models.PRODUCTION_RELEASE_POLICY.datasets
         if item.dataset == "jpx.earnings_calendar"
     )
-    # The floors are what this test asserts against, so they are not relaxed.
-    narrow_release_policy(monkeypatch, datasets=("jpx.earnings_calendar",), relax_floors=False)
+    # Keep the production history behavior while narrowing only the fixture's datasets.
+    narrow_release_policy(monkeypatch, datasets=("jpx.earnings_calendar",), carries_history=None)
     payload = _dataset_payload(
         dataset="jpx.earnings_calendar",
         coverage_start="2026-07-03",
@@ -899,5 +890,3 @@ def test_recomputed_exit_proxies_do_not_require_historical_conclusions() -> None
     )
     assert not policy.required
     assert not policy.carries_history
-    assert policy.minimum_rows == 1
-    assert policy.minimum_population_count == 1

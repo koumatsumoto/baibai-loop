@@ -87,9 +87,7 @@ def build_master_lake(
     datasets = ("jquants.master_snapshots", "jquants.daily_bars")
     if calendar is not None:
         datasets += ("jquants.market_calendar",)
-    narrow_release_policy(
-        monkeypatch, datasets=datasets, minimum_population_count=None if calendar is not None else 1
-    )
+    narrow_release_policy(monkeypatch, datasets=datasets)
     database = tmp_path / "market.sqlite"
     seed_database(database, snapshot=snapshot, count=count)
     with closing(sqlite3.connect(database)) as connection, connection:

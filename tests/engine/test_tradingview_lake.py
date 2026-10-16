@@ -48,7 +48,7 @@ def test_l1_only_publish_restores_snapshot_without_market_push(
         "jquants.master_snapshots",
         NAME,
     )
-    narrow_release_policy(monkeypatch, datasets=datasets, minimum_population_count=None)
+    narrow_release_policy(monkeypatch, datasets=datasets)
     today = date(2026, 9, 20) if manual_observation else date(2026, 9, 21)
     observed = datetime(
         today.year, today.month, today.day, 1 if manual_observation else 7, tzinfo=UTC

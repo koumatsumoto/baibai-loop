@@ -211,7 +211,6 @@ def lake(tmp_path, monkeypatch):
                 "datasets": tuple(
                     item.model_copy(
                         update={
-                            "minimum_population_count": None,
                             "require_complete_coverage": False,
                         }
                     )

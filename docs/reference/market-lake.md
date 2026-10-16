@@ -20,8 +20,8 @@ row数・schema・digestを列挙し、L1 release manifestは同時に使うdata
 
 - partition grainはdataset契約が宣言し、row数から動的に変えない
 - object key、SHA-256、byte数、row数、Arrow schemaを読取時に照合する
-- releaseは`production` profileだけを持ち、required dataset・coverage・row/population floorを満たす
-- coverageはdatasetごとの運用判定である。日次株価は保存日の端点・間隔による再取得判定を使い、全営業日・全銘柄の網羅を証明しない。row/population floorも別の下限検査であり、完全性の証明とはしない
+- releaseは`production` profileだけを持ち、required dataset・coverage・非空の観測と世代整合を満たす
+- coverageはdatasetごとの運用判定である。日次株価は保存日の端点・間隔による再取得判定を使い、全営業日・全銘柄の網羅を証明しない。過去に保存した件数や銘柄数を新しい取得範囲の最低値にしない。件数は実際に保持する量であり、完全性の証明ではない
 - prefix listing、glob、`union_by_name`、provider fallbackで欠損を補わない
 - 一つのdatasetへ同時に二つのcanonical writerを持たない
 - readerは開始時にcurrentを一度だけ解決し、以後は固定releaseだけを読む
@@ -46,7 +46,7 @@ dataset追加時は次を同じ変更で揃える。
 
 1. `storage/lake/datasets.py`のtyped契約
 2. SQLite schemaとingest
-3. release profileのrequired/optional、coverage、floor
+3. release profileのrequired/optional、coverage、非空の観測
 4. export・resolve・hydrateのpositive/negative test
 5. `data-sources.md`のsource意味
 
@@ -93,7 +93,7 @@ named releaseはIDだけでは受理せずmanifest SHA-256を必須とする。�
 - pointerとrelease manifestのidentity
 - release entryとdataset manifestのidentity・contract
 - objectのSHA-256、byte数、row数、Arrow schema
-- required dataset、coverage、row/population floor
+- required dataset、coverage、非空の観測と世代整合
 
 `lake resolve`はmanifestを解決してidentityとdataset一覧を表示する。任意SQLの実行やdata objectの検証は行わない。
 Pythonで同じreleaseを固定し、必要なdatasetのmanifestに列挙されたobjectを検証してDuckDBへ渡す。

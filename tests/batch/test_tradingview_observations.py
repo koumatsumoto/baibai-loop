@@ -140,7 +140,7 @@ def test_fresh_hydrate_publish_and_remote_readback_preserve_history_and_other_da
     tmp_path, monkeypatch
 ):
     datasets = ("jquants.daily_bars", "jquants.short_sale_reports", DATASET)
-    narrow_release_policy(monkeypatch, datasets=datasets, minimum_population_count=None)
+    narrow_release_policy(monkeypatch, datasets=datasets)
     monkeypatch.setattr(publisher, "lake_verified_git_commit", lambda: "a" * 40)
     source_path = market_store(tmp_path / "initial.sqlite")
     older = document()

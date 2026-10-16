@@ -106,7 +106,7 @@ def test_absent_source_read_does_not_create_a_store(tmp_path):
 
 def test_binary_source_archives_survive_lake_export_and_hydration(tmp_path, monkeypatch):
     name = "edinet.source_archives"
-    narrow_release_policy(monkeypatch, datasets=(name,), relax_floors=False)
+    narrow_release_policy(monkeypatch, datasets=(name,), carries_history=None)
     db = tmp_path / "source.sqlite"
     originals = {1: _zip(b"<xbrl>\x00\xff</xbrl>"), 5: _zip("円\t－\t".encode("utf-16-le"))}
     for source_type, content in originals.items():
@@ -200,14 +200,8 @@ def test_non_zip_response_cannot_replace_retained_inputs(tmp_path):
 
 def test_native_listing_response_survives_lake_roundtrip(tmp_path, monkeypatch):
     name = "edinet.document_lists"
-    # This two-day synthetic fixture checks native JSON/NULL roundtrip, not production floors.
-    narrow_release_policy(
-        monkeypatch,
-        datasets=(name,),
-        minimum_rows=2,
-        minimum_population_count=None,
-        relax_floors=True,
-    )
+    # This two-day synthetic fixture checks native JSON/NULL roundtrip.
+    narrow_release_policy(monkeypatch, datasets=(name,))
     db = tmp_path / "source.sqlite"
     original = json.dumps(
         {

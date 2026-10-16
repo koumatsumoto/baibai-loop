@@ -80,7 +80,7 @@ def publication(tmp_path, monkeypatch):
         external_assessment.RATING_DATASET,
         external_assessment.QUANTS_DATASET,
     )
-    narrow_release_policy(monkeypatch, datasets=datasets, minimum_population_count=None)
+    narrow_release_policy(monkeypatch, datasets=datasets)
     monkeypatch.setattr(publisher, "lake_verified_git_commit", lambda: "a" * 40)
     database = market_store(tmp_path / "market.sqlite")
     with closing(sqlite3.connect(database)) as connection, connection:

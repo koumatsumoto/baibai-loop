@@ -44,7 +44,7 @@ For most sources, an absent observation cannot distinguish "not published" from
 "not fetched", so range coverage comes from fetch records. Daily bars instead use
 the stored-date fetch-reuse heuristic: endpoint proximity and bounded internal gaps.
 That heuristic does not prove every trading date or the full market's rows are present.
-Release row/population floors are separate checks, not a completeness proof.
+Reported row/population counts describe retained data, not a completeness proof.
 
 `source_coverage` holds two shapes of record and only one of them can answer the
 question. A range claim says a window was fetched, so a span is checkable. A
