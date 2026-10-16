@@ -13,7 +13,8 @@ describe('市場根拠の表示', () => {
       relative: { benchmark_ticker: '1321', relative_1d: null, relative_5d: null, relative_20d: 0.001, relative_60d: null, sector: { sector_33: '合成業種', peer_count: 3, peer_median_return_20d: 0.01, relative_return_20d: 0.01, comparison_start_date: '2026-09-11', comparison_end_date: '2026-10-09', master_snapshot_date: '2026-10-08' } },
     }
     const html = render(createElement(SecurityMarketContextSection, { context }))
-    for (const text of ['要求日 2026-10-13', '観測日 2026-10-09', '2.0%', '+0.1pt', '2026-09-11 → 2026-10-09', '対象銘柄を除いた 3銘柄', '配当を含みません', 'Pmax・注文の未調整価格とは基準が異なります', '未算出']) expect(html).toContain(text)
+    for (const text of ['価格調整係数', '過去100本内の価格順位', '要求日 2026-10-13', '観測日 2026-10-09', '2.0%', '+0.1pt', '2026-09-11 → 2026-10-09', '対象銘柄を除いた 3銘柄', '配当を含みません', 'Pmax・注文の未調整価格とは基準が異なります', '未算出']) expect(html).toContain(text)
+    expect(html).not.toContain('分割調整済み')
   })
   it('指数の欠測を0の線にせず、観測されたゼロと業種探索を残す', () => {
     const snapshot: MarketSnapshotView = { as_of: '2026-10-13', benchmark_ticker: '1321', history_weeks: 1, master_snapshot_date: null, return_basis: 'price_return_excluding_cash_dividends',

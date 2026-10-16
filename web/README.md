@@ -58,7 +58,7 @@ Investment Proposalの評価リンクは、その提案が固定参照したStoc
 `market_context`は個別価格とbenchmark/自己除外peer比較を既存domain読取から渡す。
 `as_of`（要求日）、価格の`resolved_date`、benchmarkの`observation_date`、masterの日付、peerの
 比較端点を区別する。`return_basis=price_return_excluding_cash_dividends`は配当を含まない
-未調整終値に独立した分割係数を適用した価格騰落で、Stock Assessment・提案/注文の未調整価格と混同しない。市場業種中央値と個別peer中央値は
+未調整終値に独立した価格調整係数を適用した価格騰落で、Stock Assessment・提案/注文の未調整価格と混同しない。市場業種中央値と個別peer中央値は
 別母集団で、欠測はnullのまま返す。bulk exportだけが単一生成内でmaster・市場短期系列・benchmarkを
 共有し、計算はdomainに保つ。永続cacheや別の分析正本は作らない。
 
