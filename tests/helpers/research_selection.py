@@ -3,6 +3,7 @@
 from datetime import datetime
 from pathlib import Path
 
+from baibai_engine.foundation.time import JST
 from baibai_engine.research.selection import (
     AnalysisInputSnapshot,
     InputGap,
@@ -31,6 +32,7 @@ def selected_target(ticker="1234", purpose="new"):
 def selection(
     *, now: datetime, tickers=(), scope="discover_new", runs: Path | None = None, rows=None
 ):
+    as_of = now.astimezone(JST).date()
     targets = tuple(
         selected_target(t, "holding" if scope == "review_positions" else "new") for t in tickers
     )
@@ -45,7 +47,7 @@ def selection(
     if runs:
         rows = rows if rows is not None else [stock_analysis(t, name="合成会社") for t in tickers]
         payload = screening_run_payload(
-            as_of=now.date().isoformat(), run_at=now.isoformat(), stock_analyses=rows
+            as_of=as_of.isoformat(), run_at=now.isoformat(), stock_analyses=rows
         )
         ScreeningRunStore(runs).publish_run(
             payload, run_revision_id="run-synthetic", rules=load_screening_rules()
@@ -54,7 +56,7 @@ def selection(
         assert saved is not None
         snapshot = AnalysisInputSnapshot(
             run_revision_id="run-synthetic",
-            analysis_as_of=now.date(),
+            analysis_as_of=as_of,
             run_at=now,
             screening_rules_hash=payload["screening_rules_hash"],
             er_model_version=payload["er_model_version"],
@@ -76,7 +78,7 @@ def selection(
             scope=scope,
             requested_tickers=tickers if scope == "specified_stocks" else (),
         ),
-        research_as_of=now.date(),
+        research_as_of=as_of,
         input_known_at=now,
         selection_summary="合成例：今回の対象と未調査範囲を示す",
         targets=targets,

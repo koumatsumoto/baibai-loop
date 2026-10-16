@@ -33,10 +33,10 @@ def test_read_daily_bars_returns_rows_when_window_is_dense(tmp_path: Path) -> No
     sqlite_path = _seed(tmp_path, [(date(2024, 1, 1), date(2024, 3, 31))])
     bars = read_daily_bars(sqlite_path, date(2024, 1, 1), date(2024, 3, 31))
     assert bars is not None
-    assert len(bars) > 80
+    assert len(bars) == 91  # Synthetic calendar-day observations, including leap day.
 
 
-def test_read_adjustment_factor_bars_returns_only_split_events(tmp_path: Path) -> None:
+def test_read_adjustment_factor_bars_returns_nonunit_price_events(tmp_path: Path) -> None:
     sqlite_path = _seed(tmp_path, [(date(2024, 1, 1), date(2024, 3, 31))])
     conn = open_connection(sqlite_path)
     conn.execute(
