@@ -20,7 +20,7 @@ from baibai_engine.position.ledger import (
     summarize_portfolio,
 )
 from baibai_engine.position.ledger_read import load_ledger_in_transaction
-from baibai_engine.position.market_source import quantity_basis_is_confirmed, read_unadjusted_close
+from baibai_engine.position.market_source import market_basis_is_confirmed, read_unadjusted_close
 from baibai_engine.position.policy import PORTFOLIO_POLICY
 from baibai_engine.research.assessment import AssessmentRef
 from baibai_engine.research.assessment_store import (
@@ -173,7 +173,8 @@ def collect_proposal_inputs(
             confirmed = (
                 first_buy is not None
                 and last_trade is not None
-                and quantity_basis_is_confirmed(
+                and market_basis_is_confirmed(
+                    basis="shares",
                     sqlite_path=sqlite_path,
                     ticker=ticker,
                     from_date=min(first_buy.astimezone(JST).date(), quote.price_as_of),

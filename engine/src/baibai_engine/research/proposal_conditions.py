@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.market.universe import ELIGIBLE_MARKETS, TSE_33_SECTORS
-from baibai_engine.position.market_source import next_order_session, quantity_basis_is_confirmed
+from baibai_engine.position.market_source import market_basis_is_confirmed, next_order_session
 from baibai_engine.position.policy import PORTFOLIO_POLICY
 from baibai_engine.position.price_grid import PRICE_GRID_CONFIRMED_AT, PRICE_GRID_VALID_UNTIL
 from baibai_engine.research.assessment import StockAssessmentDocument
@@ -45,7 +45,8 @@ def assessment_quote_basis(
         quote is not None
         and quote.basis_confirmed
         and price_fact is not None
-        and quantity_basis_is_confirmed(
+        and market_basis_is_confirmed(
+            basis="price",
             sqlite_path=sqlite_path,
             ticker=quote.ticker,
             from_date=price_fact.as_of,

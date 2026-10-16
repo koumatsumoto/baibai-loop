@@ -29,7 +29,7 @@ from baibai_engine.position.ledger import (
     ReleaseEvent,
     ReservationEvent,
 )
-from baibai_engine.position.market_source import quantity_basis_is_confirmed
+from baibai_engine.position.market_source import market_basis_is_confirmed
 from baibai_engine.position.store import LedgerStoreService
 
 DEFAULT_APP_DB = Path("stores/application/baibai.sqlite")
@@ -252,7 +252,8 @@ def _order_outcome(
         connection, reservation.ticker, window_end, asof, POST_EXPIRY_SESSIONS
     )
     through_date = forward[-1][0] if forward else bars[-1][0] if bars else None
-    comparable = through_date is not None and quantity_basis_is_confirmed(
+    comparable = through_date is not None and market_basis_is_confirmed(
+        basis="price",
         sqlite_path=market_db,
         ticker=reservation.ticker,
         from_date=placed_on,

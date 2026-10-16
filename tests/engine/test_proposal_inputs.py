@@ -312,3 +312,28 @@ def test_original_reason_requires_both_pair_and_proposal_before_first_buy(
     )
     assert context.inputs.prior_buy_execution_references == (execution.execution_id,)
     assert context.inputs.positions[0].quantity == 100
+
+
+@pytest.mark.parametrize(("kind", "unchanged"), [("3", True), ("1", False)])
+def test_holding_quantity_uses_share_units_not_the_price_adjustment(tmp_path, kind, unchanged):
+    from baibai_engine.position.valuation import current_portfolio
+
+    case = backend_case(tmp_path, holding=True)
+    with closing(sqlite3.connect(case.market)) as connection, connection:
+        connection.executemany(
+            "INSERT INTO jquants_daily_bars "
+            "(ticker, traded_at, close, adjustment_factor, ex_right_type) VALUES (?, ?, ?, ?, ?)",
+            [
+                ("1234", "2026-10-15", 1000.0, 0.8, kind),
+                ("1234", "2026-10-16", 1000.0, 1.0, None),
+            ],
+        )
+    now = PUBLISHED + timedelta(days=2)
+    inputs = _collect(case, now=now)
+    assert inputs.positions[0].quantity == 100
+    assert inputs.positions[0].cost_yen == Decimal(90000)
+    assert inputs.positions[0].quantity_basis_confirmed is unchanged
+    assert inputs.total_capital_yen == (Decimal(310000) if unchanged else None)
+    portfolio = current_portfolio(case.ledger, sqlite_path=case.market, now=now)
+    assert portfolio.holdings[0].quantity == 100
+    assert portfolio.holdings[0].market_value_yen == (100000 if unchanged else None)

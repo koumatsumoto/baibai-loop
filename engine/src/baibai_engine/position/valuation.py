@@ -17,7 +17,7 @@ from baibai_engine.position.ledger import (
 )
 from baibai_engine.position.market_source import (
     UnadjustedCloseObservation,
-    quantity_basis_is_confirmed,
+    market_basis_is_confirmed,
     read_unadjusted_close,
 )
 from baibai_engine.position.policy import PORTFOLIO_POLICY
@@ -51,7 +51,8 @@ def holding_quote(
     confirmed = (
         balance > 0
         and quote is not None
-        and quantity_basis_is_confirmed(
+        and market_basis_is_confirmed(
+            basis="shares",
             sqlite_path=sqlite_path,
             ticker=ticker,
             from_date=min(acquired_on, quote.price_as_of),

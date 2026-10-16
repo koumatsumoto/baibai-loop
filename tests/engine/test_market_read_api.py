@@ -10,8 +10,8 @@ from tests.helpers.screening_sqlite import insert_financial_record
 
 from baibai_engine.market import store as market_store
 from baibai_engine.position.market_source import (
+    market_basis_is_confirmed,
     next_order_session,
-    quantity_basis_is_confirmed,
     read_unadjusted_close,
 )
 from baibai_engine.read_api.market import (
@@ -281,7 +281,8 @@ def test_readonly_market_readers_escape_uri_filename(tmp_path: Path, name: str) 
     quote = read_unadjusted_close(sqlite_path=path, ticker="2331", at=now)
     assert quote is not None
     assert quote.close_yen == 1000.0
-    assert quantity_basis_is_confirmed(
+    assert market_basis_is_confirmed(
+        basis="shares",
         sqlite_path=path, ticker="2331", from_date=day, through_date=day
     )
     assert next_order_session(sqlite_path=path, now=now) == date(2026, 10, 15)

@@ -15,8 +15,8 @@ from tests.helpers.screening_sqlite import seed_daily_bars
 
 from baibai_engine.foundation.time import JST
 from baibai_engine.position.market_source import (
+    market_basis_is_confirmed,
     next_order_session,
-    quantity_basis_is_confirmed,
     read_unadjusted_close,
 )
 from baibai_engine.storage.observations.schema import (
@@ -129,7 +129,8 @@ def test_quantity_basis_rejects_an_incomplete_adjustment_chain(
         rows.append(("2331", "2026-07-09", intermediate_close, intermediate_factor))
     seed_daily_bars(sqlite_path, rows)
 
-    resolved = quantity_basis_is_confirmed(
+    resolved = market_basis_is_confirmed(
+        basis="shares",
         sqlite_path=sqlite_path,
         ticker="2331",
         from_date=date(2026, 7, 8),
@@ -149,7 +150,8 @@ def test_holding_close_uses_exact_basis_after_complete_raw_chain(tmp_path: Path)
         ],
     )
 
-    resolved = quantity_basis_is_confirmed(
+    resolved = market_basis_is_confirmed(
+        basis="shares",
         sqlite_path=sqlite_path,
         ticker="2331",
         from_date=date(2026, 7, 9),
@@ -169,7 +171,8 @@ def test_quantity_basis_depends_on_adjustment_factor_not_price(tmp_path, close, 
             "UPDATE jquants_daily_bars SET close = ?, adjustment_factor = ? WHERE traded_at = ?",
             (close, factor, "2026-07-09"),
         )
-    assert quantity_basis_is_confirmed(
+    assert market_basis_is_confirmed(
+        basis="shares",
         sqlite_path=path,
         ticker="2331",
         from_date=date(2026, 7, 9),
@@ -189,7 +192,8 @@ def test_quantity_basis_keeps_the_callers_connection(tmp_path, count):
         [("2331", (start + timedelta(days=i)).isoformat(), 1000.0 + i, 1.0) for i in range(count)],
     )
     with closing(sqlite3.connect(path)) as conn, conn:
-        result = quantity_basis_is_confirmed(
+        result = market_basis_is_confirmed(
+            basis="shares",
             sqlite_path=path,
             ticker="2331",
             from_date=start,
@@ -257,7 +261,8 @@ def test_market_read_failure_is_not_normal_missing_data(tmp_path, operation, sta
                 sqlite_path=path, ticker="2331", at=datetime(2026, 7, 13, 9, tzinfo=JST)
             )
         if operation == "quantity":
-            return quantity_basis_is_confirmed(
+            return market_basis_is_confirmed(
+                basis="shares",
                 sqlite_path=path, ticker="2331",
                 from_date=date(2026, 7, 9), through_date=date(2026, 7, 10),
             )
@@ -273,3 +278,35 @@ def test_market_read_failure_is_not_normal_missing_data(tmp_path, operation, sta
         with pytest.raises((sqlite3.DatabaseError, SQLiteSchemaError)):
             read()
         assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("kind", "factor", "shares_unchanged", "price_unchanged"),
+    [
+        (None, 1.0, True, True),
+        ("3", 0.8, True, False),
+        ("1", 0.5, False, False),
+        ("2", 2.0, False, False),
+        (None, 0.8, False, False),
+        ("unknown", 0.8, False, False),
+        ("3", None, False, False),
+    ],
+)
+def test_position_share_units_and_price_comparison_have_distinct_basis(
+    tmp_path, kind, factor, shares_unchanged, price_unchanged
+):
+    path = tmp_path / "market.sqlite"
+    seed_daily_bars(path, [
+        ("2331", "2026-07-09", 1000.0, 1.0),
+        ("2331", "2026-07-10", 800.0, factor),
+    ])
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            "UPDATE jquants_daily_bars SET ex_right_type = ? WHERE traded_at = ?",
+            (kind, "2026-07-10"),
+        )
+    for basis, expected in (("shares", shares_unchanged), ("price", price_unchanged)):
+        assert market_basis_is_confirmed(
+            sqlite_path=path, ticker="2331", basis=basis,
+            from_date=date(2026, 7, 9), through_date=date(2026, 7, 10),
+        ) is expected

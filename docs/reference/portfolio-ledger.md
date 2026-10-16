@@ -68,7 +68,7 @@ partial fill後は未約定残数だけをreservedに残す。hard errorはcash�
 
 ## Market priceと税
 
-現在の時価は`position/valuation.py`がJ-Quants raw/unadjusted closeと現在の保有episodeの権利basisを読み、台帳への価格転記なしで評価する。quoteの欠損・古さや権利basis不明は対象holdingの時価を未評価にし、cash・予約・数量・原価を保持する。全保有を評価できなければNAVと集中比率も未評価とする。adjusted closeや保存済みの台帳価格で補完しない。
+現在の時価は`position/valuation.py`がJ-Quants raw/unadjusted closeと現在の保有episodeの権利basisを読み、台帳への価格転記なしで評価する。quoteの欠損・古さや権利basis不明は対象holdingの時価を未評価にし、cash・予約・数量・原価を保持する。全保有を評価できなければNAVと集中比率も未評価とする。adjusted closeや保存済みの台帳価格で補完しない。株数の基準と価格比較の基準は分ける。ExRTがライツイシューを示す価格調整は既存株の数量を倍率換算しないが、調整前後の価格を無調整のまま比較してよいことにはならない。権利の売却・行使・追加取得は実際の取引記録から扱い、この数量判定から推測しない。
 
 `income`とsell proceedsはgross、feeは`cost`、確認済み税は`tax_confirmed`に分離する。手数料0円の明示報告はamount 0のcost eventとして保存できる。費用・税のeventがないことは実費・実税がゼロと確定した意味ではない。estimated exit taxは`ledger_meta`のrateと`ledger_fifo_gross_unrealized_gain` basisから表示だけを計算し、cashやconfirmed taxに混ぜない。
 

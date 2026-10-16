@@ -26,8 +26,10 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from math import isfinite
 from pathlib import Path
+from typing import Literal
 
 from baibai_engine.foundation.time import JST
+from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, share_unit_factor
 from baibai_engine.storage.observations.read import connect_read_only
 from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, SQLiteSchemaError
 
@@ -109,18 +111,21 @@ def read_unadjusted_close(
     )
 
 
-def quantity_basis_is_confirmed(
+def market_basis_is_confirmed(
     *,
+    basis: Literal["price", "shares"],
     sqlite_path: Path,
     ticker: str,
     from_date: date,
     through_date: date,
     connection: sqlite3.Connection | None = None,
 ) -> bool:
-    """Confirm unchanged share units across observed market sessions, independent of closes.
+    """Confirm unchanged price or share basis across the observed session range.
 
-    Missing ticker rows/factors or any rights change remain unresolved. A historical
-    NULL close is irrelevant to quantity identity; current quote is checked separately.
+    Price comparisons reject every non-unit price adjustment. Share quantities use
+    ExRT: rights-issue price adjustments do not rescale existing shares. Missing
+    rows/factors and unknown non-unit action kinds remain unresolved. Historical
+    closes are irrelevant to this check; the current quote is checked separately.
     """
     if from_date > through_date:
         return False
@@ -145,7 +150,7 @@ def quantity_basis_is_confirmed(
         if not sessions or sessions[-1] != through_date.isoformat():
             return False
         bar_rows = conn.execute(
-            "SELECT traded_at, adjustment_factor FROM jquants_daily_bars "
+            "SELECT traded_at, adjustment_factor, ex_right_type FROM jquants_daily_bars "
             "WHERE ticker = ? AND traded_at BETWEEN ? AND ? ORDER BY traded_at",
             (ticker, from_date.isoformat(), through_date.isoformat()),
         ).fetchall()
@@ -154,12 +159,23 @@ def quantity_basis_is_confirmed(
     finally:
         if owns_connection:
             conn.close()
-    for _, adjustment_factor in bar_rows:
+    for traded_at, adjustment_factor, ex_right_type in bar_rows:
         try:
             factor = float(adjustment_factor)
         except (TypeError, ValueError):
             return False
-        if not isfinite(factor) or abs(factor - 1.0) > 1e-9:
+        if not isfinite(factor) or factor <= 0:
+            return False
+        if basis == "shares":
+            event = JQuantsAdjustmentFactorEvent(
+                ticker=ticker,
+                traded_at=date.fromisoformat(str(traded_at)),
+                adjustment_factor=factor,
+                ex_right_type=ex_right_type,
+            )
+            if share_unit_factor(event) != 1.0:
+                return False
+        elif abs(factor - 1.0) > 1e-9:
             return False
     return True
 
