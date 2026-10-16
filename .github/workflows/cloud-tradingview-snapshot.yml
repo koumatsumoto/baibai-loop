@@ -305,7 +305,7 @@ jobs:
                               or (value == "saved") != (report["remaining"] == 0)):
                           raise ValueError("inconsistent TradingView counts")
                       reason = report.get("stop_reason")
-                      if reason not in {None, "provider_all_missing", "provider_rate_limit",
+                      if reason not in {None, "provider_rate_limit",
                                         "provider_response", "provider_transport", "auth",
                                         "secret_persistence", "time_guard", "soft_budget"}:
                           raise ValueError("invalid TradingView stop_reason")
@@ -321,7 +321,7 @@ jobs:
                   safe_stderr = ""
               match = re.search(r"TradingView acquisition failed; category=([a-z_]+)", safe_stderr)
               categories = {
-                  "secret_persistence", "auth", "time_guard", "storage", "provider_all_missing",
+                  "secret_persistence", "auth", "time_guard", "storage",
                   "provider_rate_limit", "provider_response", "provider_transport", "internal", "timeout",
               }
               category = (

@@ -31,7 +31,6 @@ from baibai_engine.external_assessment.tradingview.diagnostics import (
 from baibai_engine.external_assessment.tradingview.diagnostics import failure_category, failure_line
 from baibai_engine.external_assessment.tradingview.observations import (
     FIELDS,
-    AllMissingError,
     FetchError,
     ProviderPayloadError,
     normalize_batch,
@@ -319,7 +318,7 @@ async def collect(
                 if category in {"internal", "storage"}:
                     raise
                 last_error = exc
-                if isinstance(exc, (AllMissingError, ProviderPayloadError)):
+                if isinstance(exc, ProviderPayloadError):
                     consecutive_bad += 1
                     stop_reason = category
                     if consecutive_bad >= 3:
@@ -348,7 +347,7 @@ async def collect(
                 break
             try:
                 rows = normalize_batch(payload, chunk, fetched)
-            except (AllMissingError, ProviderPayloadError) as exc:
+            except ProviderPayloadError as exc:
                 consecutive_bad += 1
                 last_error = exc
                 stop_reason = failure_category(exc)

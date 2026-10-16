@@ -941,6 +941,8 @@ engineの`refresh --state-file`は取得だけの低レベル入口であり、p
 
 当日の各銘柄で最初に保存した正常応答を維持する。正常batchは各transactionで保存し、取得不良batchは保存せず次の未保存batchを試す。応答不良が3 batch連続した場合と明示的429では新規requestを止める。同一batchの即時retryは行わず、skip後も通常intervalを置く。新規rowが0件なら失敗とし、過去に公開した部分snapshotだけで今回を成功にしない。次slotは公開済みの未保存銘柄から再開する。過去日の穴を現在値で埋めない。
 
+正常応答が要求銘柄を明示的に`missing`と返した場合は、batch内の全件か一部かによらず`unresolved`として保存する。`saved`は全銘柄の応答を記録した意味であり、予測値の充足やproviderの健全性を保証しない。全件`unresolved`でも同日の自動再取得・障害通知は行わない。明示的なHTTP・認証・通信エラーと不正応答は、引き続き未保存として失敗・再開を扱う。
+
 ### TradingView Expectationsの障害診断
 
 run summaryの`requests_attempted` / `symbols_requested`は`fetch(chunk)`に渡した論理的なbatch試行数・銘柄数（実HTTP送信数とは限らない）、`rows_added`は検証後に保存した行数であり、HTTP成功数とは区別する。`preflight_saved_rows`と`rows_added` / `remaining`で再開を確認し、`normal_nulls`と`unresolved`を分ける。progressがない取得失敗は件数不明として扱う。MCP transportの`mcp_http_status`とtool応答に明示された`provider_http_status`を混同せず、未観測statusを200と推定しない。
@@ -954,7 +956,6 @@ TradingView stepのsafe failure line、`TradingView progress:` summaryの順に�
 - `provider_rate_limit`（429）: `is_error=false`でも、`success=false`のerrorが明確なHTTP 429を示す場合はこの分類になる。同runで新規requestを止め、manual scanner callを重ねない。既に正常batchがあれば部分公開を確認し、明示待機期限があればそれを守ったうえで次のscheduled slotまたはprovider quota確認へ進む。
 - `auth`: [対話認証](#初期設定と認証の復旧)をやり直す。
 - `secret_persistence`: `tradingview-runtime`のEnvironment secretとwriter tokenの権限・期限を確認する。
-- `provider_all_missing`: coverage不存在と断定せず、provider全体のdegradationの可能性を確認する。
 - `provider_response`: 固定validation reasonを起点に応答契約を調べる。Secret・raw body・symbol一覧をIssueやlogへ転載しない。
 - `provider_transport`: 接続・通信の失敗を確認し、provider側の状態と次slotを見て再取得を判断する。
 - `time_guard`: target日がJST当日で、JPX calendar上の営業日なら15:30以降、休場日なら09:00以降か確認する。条件を満たさなければ取得せず、過去日を現在値で補完しない。

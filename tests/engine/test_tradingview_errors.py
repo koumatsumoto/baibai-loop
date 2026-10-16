@@ -12,7 +12,7 @@ from baibai_engine.external_assessment.tradingview.auth import (
     SecretPersistenceError,
 )
 from baibai_engine.external_assessment.tradingview.collector import SourceDataError, TimeGuardError
-from baibai_engine.external_assessment.tradingview.observations import AllMissingError, FetchError
+from baibai_engine.external_assessment.tradingview.observations import FetchError
 
 
 @pytest.mark.parametrize(
@@ -24,7 +24,6 @@ from baibai_engine.external_assessment.tradingview.observations import AllMissin
         (TimeGuardError("private"), "time_guard"),
         (SourceDataError("private"), "storage"),
         (sqlite3.OperationalError("private"), "storage"),
-        (AllMissingError("private"), "provider_all_missing"),
         (FetchError("private"), "provider_response"),
         (httpx2.ReadTimeout("private"), "provider_transport"),
         (RuntimeError("private"), "internal"),

@@ -20,6 +20,7 @@ from baibai_engine.external_assessment.tradingview.collector import (
 )
 from baibai_engine.external_assessment.tradingview.observations import (
     COLUMNS,
+    FIELDS,
     FetchError,
     normalize_batch,
 )
@@ -149,7 +150,7 @@ def test_preflight_is_read_only_and_resumes_partial_rows(tmp_path: Path) -> None
     assert calls == [["TSE:1001"]]
 
 
-@pytest.mark.parametrize("failure", ["429", "all_missing", "malformed", "crash"])
+@pytest.mark.parametrize("failure", ["429", "malformed", "crash"])
 def test_later_failure_preserves_committed_batch(tmp_path: Path, failure: str) -> None:
     path = store(tmp_path / "market.sqlite")
     calls = 0
@@ -159,8 +160,6 @@ def test_later_failure_preserves_committed_batch(tmp_path: Path, failure: str) -
         calls += 1
         if calls == 1:
             return payload(symbols)
-        if failure == "all_missing":
-            return payload(symbols, missing=symbols)
         if failure == "malformed":
             return {"success": True}
         if failure == "429":
@@ -181,7 +180,6 @@ def test_later_failure_preserves_committed_batch(tmp_path: Path, failure: str) -
             result["stop_reason"]
             == {
                 "429": "provider_rate_limit",
-                "all_missing": "provider_all_missing",
                 "malformed": "provider_response",
             }[failure]
         )
@@ -205,7 +203,7 @@ def test_bad_middle_batch_skips_then_same_day_resumes_only_gap(tmp_path: Path) -
 
     async def fetch(symbols):
         calls.append(symbols)
-        return payload(symbols, missing=symbols if symbols == ["TSE:1001"] else [])
+        return {"success": True} if symbols == ["TSE:1001"] else payload(symbols)
 
     async def sleep(seconds):
         pauses.append(seconds)
@@ -239,7 +237,7 @@ def test_three_bad_batches_stop_and_zero_new_rows_fail(tmp_path: Path) -> None:
 
     async def bad(symbols):
         calls.append(symbols)
-        return payload(symbols, missing=symbols)
+        return {"success": True}
 
     with pytest.raises(CollectionFailure):
         asyncio.run(collect(path, DAY, bad, batch_size=1, interval=0, clock=lambda: NOW))
@@ -366,7 +364,7 @@ def test_good_batch_resets_consecutive_bad_limit(tmp_path: Path) -> None:
     async def fetch(symbols):
         calls.append(symbols)
         if symbols[0] in {"TSE:1000", "TSE:1001", "TSE:1003", "TSE:1004"}:
-            return payload(symbols, missing=symbols)
+            return {"success": True}
         return payload(symbols)
 
     result = asyncio.run(collect(path, DAY, fetch, batch_size=1, interval=0, clock=lambda: NOW))
@@ -472,7 +470,7 @@ class Timer:
 
 
 @pytest.mark.parametrize(
-    "failure", [None, "429", "all_missing", "malformed", "store", "time_guard"]
+    "failure", [None, "429", "malformed", "store", "time_guard"]
 )
 def test_progress_and_durations_with_batch_commits(tmp_path, failure):
     from dataclasses import asdict
@@ -500,8 +498,6 @@ def test_progress_and_durations_with_batch_commits(tmp_path, failure):
         if calls == 2:
             if failure == "429":
                 raise ProviderHTTPError(429)
-            if failure == "all_missing":
-                return payload(symbols, missing=symbols)
             if failure == "malformed":
                 return {"success": True}
         return payload(symbols)
@@ -624,3 +620,55 @@ def test_partial_http_failure_keeps_status_and_wait_instruction(tmp_path):
     assert "mcp_http_status=429" in result["last_failure"]
     assert "retry_not_before_utc=2026-10-11T18:00:00+00:00" in result["last_failure"]
     assert "private" not in str(result)
+
+
+@pytest.mark.parametrize("batch_size", [1, 2])
+def test_explicit_missing_receipt_does_not_depend_on_batch_composition(batch_size):
+    symbols = ["TSE:1000", "TSE:1001"]
+    rows = []
+    for offset in range(0, len(symbols), batch_size):
+        chunk = symbols[offset : offset + batch_size]
+        response = payload(chunk, missing=[s for s in chunk if s == symbols[1]])
+        rows.extend(normalize_batch(response, chunk, NOW))
+    assert rows == normalize_batch(payload(symbols, missing=[symbols[1]]), symbols, NOW)
+    assert rows[1]["fetch_status"] == "unresolved"
+    assert all(rows[1][field] is None for field in FIELDS)
+
+
+def test_final_unavailable_symbol_is_recorded_without_false_forecast_coverage(tmp_path):
+    path = store(tmp_path / "market.sqlite", 51)
+    calls = []
+
+    async def fetch(symbols):
+        calls.append(symbols)
+        return payload(symbols, missing=[s for s in symbols if s == "TSE:1050"])
+
+    async def no_sleep(_seconds):
+        pass
+
+    result = asyncio.run(collect(path, DAY, fetch, clock=lambda: NOW, sleep=no_sleep))
+    assert (result["status"], result["rows"], result["remaining"], result["unresolved"]) == (
+        "saved", 51, 0, 1
+    )
+    assert [len(call) for call in calls] == [50, 1]
+    with closing(sqlite3.connect(path)) as connection:
+        assert connection.execute(
+            "SELECT fetch_status, quote_close, recommendation_total "
+            "FROM tradingview_forecast_snapshots WHERE ticker='1050'"
+        ).fetchone() == ("unresolved", None, None)
+    again = asyncio.run(collect(path, DAY, fetch, clock=lambda: NOW))
+    assert again["status"] == "already_saved"
+    assert len(calls) == 2
+
+
+def test_successful_all_missing_day_is_accounted_but_not_normal_null_data(tmp_path):
+    path = store(tmp_path / "market.sqlite", 2)
+
+    async def fetch(symbols):
+        return payload(symbols, missing=symbols)
+
+    result = asyncio.run(collect(path, DAY, fetch, clock=lambda: NOW))
+    assert (result["status"], result["rows"], result["unresolved"]) == ("saved", 2, 2)
+    assert all(count == 0 for count in result["normal_nulls"].values())
+    state = preflight_snapshot(path, DAY)
+    assert (state["status"], state["unresolved"]) == ("already_saved", 2)
