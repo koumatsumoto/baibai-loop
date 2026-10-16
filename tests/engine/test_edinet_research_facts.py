@@ -84,6 +84,25 @@ def test_source_exact_segments_periods_labels_and_principal_buckets():
     assert all(r.currency == "JPY" and "/table[" in r.source_locator for r in extracted.debt)
 
 
+def test_current_long_term_borrowing_label_keeps_the_one_year_principal():
+    extracted = facts("S100YCUF")
+    borrowings = [r for r in extracted.debt if r.debt_category != "bonds"]
+    assert {
+        (r.debt_category, r.due_from_months, r.due_to_months): r.principal
+        for r in borrowings
+    } == {
+        ("short_term_borrowings", 0, 12): 15750000000,
+        ("long_term_borrowings", 0, 12): 10533000000,
+        ("long_term_borrowings", 12, 24): 7578000000,
+        ("long_term_borrowings", 24, 36): 2715000000,
+        ("long_term_borrowings", 36, 48): 2815000000,
+        ("long_term_borrowings", 48, 60): 112000000,
+    }
+    assert {r.balance_sheet_date for r in borrowings} == {"2026-03-31"}
+    assert {r.source_context for r in borrowings} == {"CurrentYearDuration"}
+    assert {r.currency for r in borrowings} == {"JPY"}
+
+
 def test_leases_are_excluded_and_no_bonds_does_not_become_zero():
     extracted = facts("S100YJ24")
     assert [(r.debt_category, r.principal) for r in extracted.debt] == [
