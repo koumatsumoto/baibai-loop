@@ -14,9 +14,7 @@ from baibai_engine.screening.calibration.forward import (
 @pytest.mark.parametrize("dps", [0.0, 50.0])
 def test_missing_annual_document_does_not_become_zero_dividend(missing, dps):
     observations = [
-        _FYDividendObservation(
-            date(year, 3, 31), date(year, 5, 15), dps, date(year - 1, 4, 1)
-        )
+        _FYDividendObservation(date(year, 3, 31), date(year, 5, 15), dps, date(year - 1, 4, 1))
         for year in (2020, 2021, 2022)
         if year != missing
     ]
@@ -32,12 +30,14 @@ def test_missing_annual_document_does_not_become_zero_dividend(missing, dps):
 
 
 def test_short_fiscal_year_with_contiguous_periods_is_not_a_gap():
-    row = _row([
-        _FYDividendObservation(date(2020, 3, 31), date(2020, 5, 15), 10.0, date(2019, 4, 1)),
-        _FYDividendObservation(date(2020, 12, 31), date(2021, 2, 15), 20.0, date(2020, 4, 1)),
-        _FYDividendObservation(date(2021, 12, 31), date(2022, 2, 15), 30.0, date(2021, 1, 1)),
-        _FYDividendObservation(date(2022, 12, 31), date(2023, 2, 15), 40.0, date(2022, 1, 1)),
-    ])
+    row = _row(
+        [
+            _FYDividendObservation(date(2020, 3, 31), date(2020, 5, 15), 10.0, date(2019, 4, 1)),
+            _FYDividendObservation(date(2020, 12, 31), date(2021, 2, 15), 20.0, date(2020, 4, 1)),
+            _FYDividendObservation(date(2021, 12, 31), date(2022, 2, 15), 30.0, date(2021, 1, 1)),
+            _FYDividendObservation(date(2022, 12, 31), date(2023, 2, 15), 40.0, date(2022, 1, 1)),
+        ]
+    )
     assert row.total_return_status == "resolved"
     assert row.realized_dividend_sum == 100.0
 

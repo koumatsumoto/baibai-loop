@@ -9,20 +9,23 @@ from baibai_engine.screening.rule_config import load_screening_rules
 def test_pure_er_top_five_is_selected_before_future_outcome_availability(missing_top):
     asof = "2020-01-31"
     panel = [
-        panel_row(asof, f"{1000 + index}", er_annual=1.0 - index / 200)
-        for index in range(120)
+        panel_row(asof, f"{1000 + index}", er_annual=1.0 - index / 200) for index in range(120)
     ]
     # The sixth-ranked security's large return must not replace the missing first.
     forwards = [
         forward_row(
-            asof, row.ticker, "3y",
+            asof,
+            row.ticker,
+            "3y",
             price_return=None if index == 0 and missing_top else 10.0 if index == 5 else 0.0,
             status="unresolved_missing_exit" if index == 0 and missing_top else "resolved",
         )
         for index, row in enumerate(panel)
     ]
     results = evaluate_cohorts(
-        {asof: panel}, {asof: forwards}, horizons=["3y"],
+        {asof: panel},
+        {asof: forwards},
+        horizons=["3y"],
         candidate_discovery_rules=load_screening_rules().candidate_discovery,
     )
     group = results["3y"]["cohorts"][0]["candidate_discovery"]["pure_er_top5"]
