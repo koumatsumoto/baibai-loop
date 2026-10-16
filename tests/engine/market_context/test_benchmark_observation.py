@@ -67,8 +67,15 @@ def test_publication_after_retrieval_jst_day_is_still_rejected():
 
 
 @pytest.mark.parametrize("horizon", ["1y", "3y", "5y"])
-@pytest.mark.parametrize("invalid_return", [-100.01, float("nan"), float("inf")])
-def test_rejects_impossible_total_returns(horizon, invalid_return):
+@pytest.mark.parametrize(
+    ("invalid_return", "reason"),
+    [
+        (-100.01, "greater than or equal to -100"),
+        (float("nan"), "finite number"),
+        (float("inf"), "finite number"),
+    ],
+)
+def test_rejects_impossible_total_returns(horizon, invalid_return, reason):
     payload = load_benchmark_observation(FIXTURE).model_dump(mode="json")
     years = int(horizon[:-1])
     payload.update(
@@ -77,7 +84,7 @@ def test_rejects_impossible_total_returns(horizon, invalid_return):
         cumulative_return_pct=invalid_return,
         annualized_return_pct=None if years == 1 else 0.0,
     )
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=reason):
         BenchmarkObservation.model_validate(payload)
 
 
