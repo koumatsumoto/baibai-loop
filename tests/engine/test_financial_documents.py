@@ -1084,3 +1084,33 @@ def test_short_fiscal_year_uses_current_statement_basis(
             adjustment_events=(), asof_date=date(2027, 2, 15),
         )
         assert result.per_forward == 1000 / (25 if revision else 20)
+
+
+@pytest.mark.parametrize("different_operand", [None, 0, 1])
+@pytest.mark.parametrize("current_basis", ["Consolidated", "NonConsolidated"])
+def test_ttm_does_not_add_different_statement_bases(different_operand, current_basis):
+    from baibai_engine.market.metric_quality import TTMQuality
+    from baibai_engine.valuation.metrics.periods import _ttm_value
+
+    periods = [
+        ("prior-quarter", "2025-08-10", "2025-04-01", "2025-06-30", "2026-03-31", "1Q", "20"),
+        ("prior-year", "2026-05-10", "2025-04-01", "2026-03-31", "2026-03-31", "FY", "100"),
+        ("current-quarter", "2026-08-10", "2026-04-01", "2026-06-30", "2027-03-31", "1Q", "30"),
+    ]
+    records = []
+    for index, (number, day, start, end, fy_end, period, value) in enumerate(periods):
+        basis = current_basis
+        if index == different_operand:
+            basis = "NonConsolidated" if current_basis == "Consolidated" else "Consolidated"
+        records.append(document(
+            number, day=day, DocType=f"{period}FinancialStatements_{basis}_JP",
+            CurFYSt=start, CurFYEn=fy_end, CurPerSt=start, CurPerEn=end, CurPerType=period,
+            Sales=value, OP=value, NP=value, CFO=value,
+        ))
+    expected = (110.0, TTMQuality.EXACT) if different_operand is None else (None, TTMQuality.UNAVAILABLE)
+    for rows in (records, list(reversed(records))):
+        decoded = decode(rows)
+        for field in ("sales", "operating_profit", "profit", "cfo"):
+            assert _ttm_value(decoded, field, load_screening_rules().ttm) == expected
+        # Single-period reported facts remain usable; no raw value is rewritten.
+        assert {row.sales for row in decoded} == {20, 100, 30}

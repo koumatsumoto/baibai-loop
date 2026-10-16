@@ -13,6 +13,7 @@ from baibai_engine.market.financial_documents import (
     accounting_period_identity as _accounting_period_identity,
     disclosure_revision,
     latest_disclosure_candidates,
+    statement_basis,
 )
 from baibai_engine.market.jquants_models import JQuantsFinancialSummary
 from baibai_engine.market.metric_quality import TTMQuality
@@ -312,6 +313,11 @@ def _ttm_value(
         value_field=field,
     )
     if prior_fy is None or prior_same is None:
+        return None, TTMQuality.UNAVAILABLE
+    # A fiscal-date match cannot make individual and consolidated amounts additive.
+    # Keep each reported operand intact rather than searching older revisions for
+    # a convenient basis. Matching labels alone do not prove unchanged group scope.
+    if len({statement_basis(row) for row in (latest, prior_fy, prior_same)}) != 1:
         return None, TTMQuality.UNAVAILABLE
     prior_fy_value = getattr(prior_fy, field)
     prior_same_value = getattr(prior_same, field)
