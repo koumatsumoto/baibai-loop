@@ -5,6 +5,7 @@ from datetime import date
 from ..definitions import SeriesDefinition
 from ..observations import NativeRecords
 from .base import FetchContext, IndicatorsProviderError
+from .boj_timeseries import BojTimeSeriesSource
 from .cftc import CftcSource
 from .ecb_fx import EcbFxSource
 from .estat import EStatSource
@@ -22,6 +23,7 @@ def fetch_native_records(
 ) -> NativeRecords:
     source: (
         CftcSource
+        | BojTimeSeriesSource
         | FredSource
         | EcbFxSource
         | JQuantsFlowsSource
@@ -32,7 +34,9 @@ def fetch_native_records(
         | MultplSource
         | UmichScaSource
     )
-    if series.provider == "umich_sca":
+    if series.provider == "boj_timeseries":
+        source = BojTimeSeriesSource()
+    elif series.provider == "umich_sca":
         source = UmichScaSource()
     elif series.provider == "fred_csv":
         source = FredSource()

@@ -66,9 +66,16 @@ class IndicatorsServiceTests(unittest.TestCase):
                         [
                             observation(input_id, date(2026, 7, 1), value)
                             for input_id, value in inputs.items()
-                            if input_id not in {"us.10y", "us.sp500_earnings_yield"}
+                            if input_id not in {"us.10y", "us.sp500_earnings_yield", "jp.policy_rate"}
                         ],
                     )
+                    if "jp.policy_rate" in inputs:
+                        policy = load_definitions().by_id()["jp.policy_rate"]
+                        store_snapshot(
+                            conn, source_key=native_source_key(policy),
+                            observed_at=date(2026, 7, 1), fetched_at=datetime.now(UTC),
+                            records=[{"series_metadata": {"SERIES_CODE": "STRDCLUCON"}, "value": inputs["jp.policy_rate"]}],
+                        )
                     if "us.10y" in inputs:
                         store_h15_observations(
                             conn, [observation("us.10y", date(2026, 7, 1), inputs["us.10y"])]
@@ -546,56 +553,22 @@ class IndicatorsServiceTests(unittest.TestCase):
     def test_refresh_all_history_uses_boj_timeseries_floor(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "indicators.sqlite"
-            conn = initialize_database(database)
-            try:
-                insert_observations(
-                    conn,
-                    [
-                        ObservationRecord(
-                            series_id="jp.policy_rate",
-                            observed_at=observed_at,
-                            value=0.978,
-                            unit="percent",
-                            source_url="https://example.com/another-provider",
-                            vintage_at=datetime(2026, 7, 10, tzinfo=UTC),
-                        )
-                        for observed_at in (date(2026, 7, 9), date(2027, 1, 5))
-                    ],
-                )
-                conn.commit()
-            finally:
-                conn.close()
-            observation = ObservationRecord(
-                series_id="jp.policy_rate",
-                observed_at=date(1998, 1, 5),
-                value=0.49,
-                unit="percent",
-                source_url="https://www.stat-search.boj.or.jp/api/v1/getDataCode",
-                vintage_at=datetime.now(UTC),
-            )
+            records = {date(1998, 1, 5): [{
+                "series_metadata": {"SERIES_CODE": "STRDCLUCON"},
+                "survey_date": 19980105, "value": 0.49,
+            }]}
             with patch(
-                "baibai_engine.market_context.indicator_service.fetch_observations",
-                return_value=[observation],
+                "baibai_engine.market_context.indicator_service.fetch_native_records",
+                return_value=records,
             ) as fetch:
-                IndicatorsService(database).refresh_all_history(
-                    "jp.policy_rate",
-                    end=date(2026, 7, 20),
+                result = IndicatorsService(database).refresh_all_history(
+                    "jp.policy_rate", end=date(2026, 7, 20),
                 )
-
             self.assertEqual(fetch.call_args.kwargs["start"], date(1998, 1, 1))
-            conn = open_connection(database)
-            try:
-                stale_source_dates = [
-                    row[0]
-                    for row in conn.execute(
-                        "SELECT observed_at FROM observations WHERE series_id = ? "
-                        "AND source_url != ? ORDER BY observed_at",
-                        ("jp.policy_rate", observation.source_url),
-                    )
-                ]
-            finally:
-                conn.close()
-            self.assertEqual(stale_source_dates, ["2027-01-05"])
+            self.assertEqual(
+                [(row.observed_at, row.value) for row in result.observations],
+                [(date(1998, 1, 5), 0.49)],
+            )
 
     def test_refresh_all_history_uses_tsr_bankruptcies_floor(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

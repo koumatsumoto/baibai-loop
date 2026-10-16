@@ -803,7 +803,7 @@ class IndicatorsProviderParserTests(TestCase):
         self.assertIsNone(reading.percentile)
         self.assertIsNone(reading.z_score)
 
-    def test_parse_boj_timeseries_json_filters_range_and_nulls(self) -> None:
+    def test_parse_boj_timeseries_json_filters_range_without_changing_cells(self) -> None:
         series = _series("boj_timeseries", "FM01:STRDCLUCON", unit="percent")
         text = json.dumps(
             {
@@ -828,8 +828,8 @@ class IndicatorsProviderParserTests(TestCase):
         )
 
         self.assertEqual(len(observations), 1)
-        self.assertEqual(observations[0].observed_at, date(1998, 1, 5))
-        self.assertEqual(observations[0].value, 0.49)
+        self.assertEqual(list(observations), [date(1998, 1, 5)])
+        self.assertEqual(observations[date(1998, 1, 5)][0]["value"], 0.49)
 
     def test_parse_boj_timeseries_json_reads_monthly_yyyymm_survey_dates(self) -> None:
         series = _series(
@@ -855,8 +855,8 @@ class IndicatorsProviderParserTests(TestCase):
         )
 
         self.assertEqual(
-            [(o.observed_at, o.value) for o in observations],
-            [(date(2026, 5, 1), 134.9), (date(2026, 6, 1), 135.4)],
+            [(day, rows[0]["value"]) for day, rows in observations.items()],
+            [(date(2026, 5, 1), 134.9), (date(2026, 6, 1), 135.4), (date(2026, 7, 1), None)],
         )
 
     def test_parse_boj_timeseries_json_reads_quarterly_yyyy0q_survey_dates(self) -> None:
@@ -884,8 +884,8 @@ class IndicatorsProviderParserTests(TestCase):
 
         # YYYY0Q maps Q1..Q4 to the last month of the quarter (Mar/Jun/Sep/Dec).
         self.assertEqual(
-            [(o.observed_at, o.value) for o in observations],
-            [(date(2025, 12, 1), 15.0), (date(2026, 3, 1), 17.0), (date(2026, 6, 1), 22.0)],
+            [(day, rows[0]["value"]) for day, rows in observations.items()],
+            [(date(2025, 12, 1), 15), (date(2026, 3, 1), 17), (date(2026, 6, 1), 22)],
         )
 
     def test_parse_boj_timeseries_json_rejects_wrong_length_for_frequency(self) -> None:

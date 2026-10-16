@@ -60,6 +60,17 @@ def _one_value(series: SeriesDefinition, records: Sequence[Mapping[str, object]]
 
 
 def _record_value(series: SeriesDefinition, row: Mapping[str, object]) -> float | None:
+    if series.provider == "boj_timeseries":
+        metadata = row["series_metadata"]
+        expected = series.provider_series_id.split(":", 1)[1]
+        if not isinstance(metadata, Mapping) or metadata.get("SERIES_CODE") != expected:
+            raise ValueError(f"BOJ source series does not match {series.series_id}")
+        raw = row["value"]
+        if raw is None:
+            return None
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            raise ValueError(f"BOJ source value must be numeric: {raw!r}")
+        return float(raw)
     if series.provider == "umich_sca":
         if series.provider_series_id not in row:
             raise ValueError(f"UMich table missing column {series.provider_series_id}")

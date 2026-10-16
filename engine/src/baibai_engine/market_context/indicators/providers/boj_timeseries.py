@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import json
-import math
+from collections import defaultdict
 from collections.abc import Mapping
 from datetime import date
 from typing import cast
 
 from ..definitions import SeriesDefinition
-from ..observations import ObservationRecord
+from ..observations import NativeRecords
 from .base import (
     MAX_CSV_RESPONSE_BYTES,
     FetchContext,
@@ -15,17 +15,16 @@ from .base import (
     IndicatorsProviderError,
     ProviderSpec,
     fetch_text,
-    record_observation,
 )
 
 
-class BojTimeSeriesProvider:
+class BojTimeSeriesSource:
     """Bank of Japan Time-Series Data Search API (no authentication)."""
 
     spec = ProviderSpec(name="boj_timeseries", all_history_start=date(1998, 1, 1))
     name = spec.name
 
-    def fetch(
+    def fetch_records(
         self,
         series: SeriesDefinition,
         *,
@@ -33,7 +32,7 @@ class BojTimeSeriesProvider:
         end: date,
         session: HttpSession,
         context: FetchContext | None = None,
-    ) -> list[ObservationRecord]:
+    ) -> NativeRecords:
         database, series_code = _split_provider_series_id(series.provider_series_id)
         params = {
             "format": "json",
@@ -70,7 +69,7 @@ def parse_boj_timeseries_json(
     start: date,
     end: date,
     expected_series_code: str | None = None,
-) -> list[ObservationRecord]:
+) -> NativeRecords:
     try:
         payload: object = json.loads(text)
     except json.JSONDecodeError as exc:
@@ -102,15 +101,25 @@ def parse_boj_timeseries_json(
     if len(survey_dates) != len(raw_values):
         raise IndicatorsProviderError("BOJ response date and value lengths differ")
 
-    observations: list[ObservationRecord] = []
+    records: dict[date, list[dict[str, object]]] = defaultdict(list)
+    # Keep the original period labels, numeric/null cells and response metadata.
+    # The date key is a lookup coordinate, not a claimed publication timestamp.
+    response_metadata = {key: value for key, value in root.items() if key != "RESULTSET"}
+    series_metadata = {key: value for key, value in result.items() if key != "VALUES"}
+    values_metadata = {
+        key: value for key, value in values.items() if key not in {"SURVEY_DATES", "VALUES"}
+    }
     for raw_date, raw_value in zip(survey_dates, raw_values, strict=True):
-        if raw_value is None:
-            continue
         observed_at = _parse_survey_date(raw_date, series.frequency)
-        value = _parse_value(raw_value)
         if start <= observed_at <= end:
-            observations.append(record_observation(series, observed_at=observed_at, value=value))
-    return observations
+            records[observed_at].append({
+                "response_metadata": response_metadata,
+                "series_metadata": series_metadata,
+                "values_metadata": values_metadata,
+                "survey_date": raw_date,
+                "value": raw_value,
+            })
+    return dict(records)
 
 
 def _split_provider_series_id(provider_series_id: str) -> tuple[str, str]:
@@ -158,11 +167,3 @@ def _parse_survey_date(raw: object, frequency: str) -> date:
             f"BOJ response has invalid survey date {raw!r} for frequency {frequency!r}: {exc}"
         ) from exc
 
-
-def _parse_value(raw: object) -> float:
-    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
-        raise IndicatorsProviderError(f"BOJ response has invalid value: {raw!r}")
-    value = float(raw)
-    if not math.isfinite(value):
-        raise IndicatorsProviderError(f"BOJ response has invalid value: {raw!r}")
-    return value
