@@ -43,8 +43,7 @@ def add_ledger(connection):
         "amount_yen": 100000,
     }
     connection.execute(
-        "INSERT INTO ledger_event VALUES (1, 'opening', ?, 0, "
-        "'opening_balance', NULL, NULL, ?)",
+        "INSERT INTO ledger_event VALUES (1, 'opening', ?, 0, 'opening_balance', NULL, NULL, ?)",
         (event["occurred_at"], json.dumps(event)),
     )
     return header
@@ -152,7 +151,7 @@ def test_refuses_unexpected_ledger_without_modifying_source(tmp_path, fault):
             original.execute("UPDATE ledger_event SET payload = '{}'")
         original.commit()
     before = source.read_bytes()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"expected a ledger|without metadata|validation error"):
         prepare(source, output)
     assert not output.exists()
     assert source.read_bytes() == before
