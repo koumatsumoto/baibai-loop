@@ -13,7 +13,7 @@ from baibai_batch.storage import external_assessment_raw as external_assessment_
 from baibai_batch.storage.lake_publish import Boto3R2Store, LakePublishError
 from baibai_engine.batch_api import ExternalAssessmentReceivedHTML
 from baibai_engine.external_assessment.acquisition import collection
-from baibai_engine.external_assessment.acquisition.sources import monex, rakuten
+from baibai_engine.external_assessment.normalization import monex, rakuten
 from baibai_engine.external_assessment.store import save_observations
 
 

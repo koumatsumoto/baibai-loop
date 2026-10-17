@@ -14,7 +14,7 @@ from tests.engine.test_external_assessment_sources import (
 
 from baibai_engine import batch_api
 from baibai_engine.external_assessment.acquisition import collection
-from baibai_engine.external_assessment.acquisition.sources import monex, rakuten
+from baibai_engine.external_assessment.normalization import monex, rakuten
 
 
 class Clock:

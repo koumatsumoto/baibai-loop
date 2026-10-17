@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from baibai_engine.collection.identifiers import normalize_ticker
-from baibai_engine.external_assessment.acquisition.sources import (
+from baibai_engine.external_assessment.normalization import (
     ParseError,
     compact,
     document,

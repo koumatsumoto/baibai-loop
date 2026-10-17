@@ -7,7 +7,7 @@ from datetime import datetime
 from urllib.parse import parse_qs, urlsplit
 
 from baibai_engine.collection.identifiers import normalize_ticker
-from baibai_engine.external_assessment.acquisition.sources import (
+from baibai_engine.external_assessment.normalization import (
     Element,
     ParseError,
     compact,

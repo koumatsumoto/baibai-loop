@@ -474,7 +474,7 @@ name = "external assessment read facade cannot acquire or write"
 type = "forbidden"
 source_modules = ["baibai_engine.read_api.external_assessment"]
 forbidden_modules = [
-  "baibai_engine.external_assessment.acquisition.sources",
+  "baibai_engine.external_assessment.normalization",
   "baibai_engine.external_assessment.acquisition.collection",
   "baibai_engine.external_assessment.store",
   "baibai_engine.external_assessment.acquisition.cli",
@@ -485,7 +485,7 @@ name = "external acquisition does not enter investment decisions"
 type = "forbidden"
 source_modules = ["baibai_engine.screening", "baibai_engine.position", "baibai_engine.research"]
 forbidden_modules = [
-  "baibai_engine.external_assessment.acquisition.sources",
+  "baibai_engine.external_assessment.normalization",
   "baibai_engine.external_assessment.acquisition.collection",
   "baibai_engine.external_assessment.store",
   "baibai_engine.external_assessment.acquisition.cli",
@@ -544,7 +544,7 @@ forbidden_modules = [
   "baibai_engine.research", "baibai_engine.screening", "baibai_engine.position",
   "baibai_engine.valuation", "baibai_engine.market_context", "baibai_engine.read_api",
   "baibai_engine.external_assessment.acquisition.collection", "baibai_engine.external_assessment.store",
-  "baibai_engine.external_assessment.acquisition.sources", "baibai_engine.external_assessment.acquisition.cli",
+  "baibai_engine.external_assessment.normalization", "baibai_engine.external_assessment.acquisition.cli",
   "baibai_engine.external_assessment.tradingview.collector", "baibai_engine.external_assessment.tradingview.accepted",
 ]
 

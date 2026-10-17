@@ -16,9 +16,9 @@ from baibai_batch.jobs.external_assessment_cohorts import make_plan
 from baibai_batch.storage.external_assessment_raw import RAW_PREFIX, read_raw_bundle
 from baibai_batch.storage.external_assessment_staging import read_stages
 from baibai_engine.external_assessment.acquisition import collection
-from baibai_engine.external_assessment.acquisition.sources import ParseError, kabumap
 from baibai_engine.external_assessment.acquisition.universe import frozen_universe
 from baibai_engine.external_assessment.acquisition.verification import verify_observations
+from baibai_engine.external_assessment.normalization import ParseError, kabumap
 from baibai_engine.external_assessment.observations.models import QuantsScoreObservation
 from baibai_engine.external_assessment.reader import read_observations
 from baibai_engine.external_assessment.store import ObservationConflictError, save_observations

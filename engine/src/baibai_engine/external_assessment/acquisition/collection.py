@@ -24,7 +24,7 @@ import requests
 from pydantic import ValidationError
 
 from baibai_engine.collection.identifiers import normalize_ticker
-from baibai_engine.external_assessment.acquisition.sources import (
+from baibai_engine.external_assessment.normalization import (
     ParseError,
     kabumap,
     monex,

@@ -27,7 +27,7 @@ from baibai_engine.external_assessment.acquisition.collection import (
     load_staging,
     save_staging,
 )
-from baibai_engine.external_assessment.acquisition.sources import ParseError, rakuten
+from baibai_engine.external_assessment.normalization import ParseError, rakuten
 from baibai_engine.external_assessment.query import external_assessment
 from baibai_engine.external_assessment.store import save_observations
 from baibai_engine.read_api import (

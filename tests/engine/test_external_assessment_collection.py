@@ -14,7 +14,7 @@ from tests.engine.test_external_assessment_sources import monex_html, official_h
 
 from baibai_engine.external_assessment import store as observation_store
 from baibai_engine.external_assessment.acquisition import cli, collection
-from baibai_engine.external_assessment.acquisition.sources import ParseError, monex
+from baibai_engine.external_assessment.normalization import ParseError, monex
 from baibai_engine.storage.observations.schema import open_connection
 
 
