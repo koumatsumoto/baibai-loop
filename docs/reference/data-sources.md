@@ -114,6 +114,8 @@ portfolioの年次・3年・5年outcomeのprimary benchmarkはJPXのTOPIX gross 
 
 JPXの規制情報と決算発表予定は、明示した1件の完了済みsource bundleから`baibai-engine screening rebuild-jpx-snapshot --bundle-id ID --sqlite-path PATH`で再構築する。取得は行わず、不完全なbundleや原本の解析失敗ではL2を更新しない。bundleの完了は宣言した取得対象がすべて届いたことだけを示し、JPX側で同時に公表されたsnapshotである保証ではない。
 
+TSE資本政策も同じcommandで、選択した完了済み`capital_policy` bundleのworkbook全体をL2へ再構築する。旧L2の月は持ち越さず、選択workbookに含まれる月だけを観測として保持する。旧月が消えても、その月に開示がなかったことや全履歴の取得完了は意味しない。bundleの`asof_date`は取得の文脈であり、公表日ではない。
+
 EDINET archiveの再利用・取得後の保存は、明示したSQLite source storeだけを対象にする。以前の端末に残るローカルZIPは暗黙に取り込まない。
 
 <a id="edinet-metric-revision"></a>

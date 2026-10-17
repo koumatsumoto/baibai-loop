@@ -12,7 +12,6 @@ from tests.helpers.screening_sqlite import add_source_coverage, insert_financial
 
 from baibai_batch.storage.merge_market_store import (
     ALL_TABLES,
-    DERIVED_KEYS,
     FACT_KEYS,
     UNCOMPARED,
     MergeError,
@@ -780,13 +779,8 @@ class TestShortSaleCoverage:
 
 
 class TestDerivedTables:
-    def test_every_derived_table_is_reported_as_kept_whole(self, tmp_path: Path) -> None:
-        """The target keeps its own derivation, and the report says so per table.
-
-        Only `tse_capital_policy_snapshots` reaches here now: the other two derived
-        tables became lake datasets, where the release generation carries the same
-        answer and `hydrate` empties before it fills.
-        """
+    def test_capital_policy_is_lake_owned_and_not_merged(self, tmp_path: Path) -> None:
+        """A source-only policy row is not copied outside the fixed lake release."""
 
         source = _store(tmp_path / "source.sqlite")
         target = _store(tmp_path / "target.sqlite")
@@ -794,10 +788,11 @@ class TestDerivedTables:
 
         report = merge_stores(source, target)
 
-        derived = {item.table: item for item in report.tables if item.table in DERIVED_KEYS}
-        assert set(derived) == set(DERIVED_KEYS)
-        assert all(item.inserted == 0 for item in derived.values())
-        assert derived["tse_capital_policy_snapshots"].skipped == 1
+        assert "tse_capital_policy_snapshots" not in {item.table for item in report.tables}
+        with closing(sqlite3.connect(target)) as conn:
+            assert conn.execute("SELECT COUNT(*) FROM tse_capital_policy_snapshots").fetchone() == (
+                0,
+            )
 
 
 class TestStoreContract:

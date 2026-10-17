@@ -21,13 +21,18 @@ from baibai_engine.market.jpx_models import (
     JPXRegulationSnapshot,
 )
 from baibai_engine.market.jpx_sources import JPX_REGULATION_URLS
+from baibai_engine.market.valuation_catalysts import (
+    TSECapitalPolicyRefreshSummary,
+    parse_tse_capital_policy_workbook,
+    store_tse_capital_policy_rows,
+)
 from baibai_engine.storage.observations.ingest.jpx import (
     store_jpx_earnings_calendar_snapshot,
     store_jpx_regulations,
 )
 from baibai_engine.storage.observations.schema import connect_current
 
-JPXSnapshot = JPXRegulationSnapshot | JPXEarningsCalendarSnapshot
+JPXSnapshot = JPXRegulationSnapshot | JPXEarningsCalendarSnapshot | TSECapitalPolicyRefreshSummary
 
 
 def rebuild_jpx_snapshot(sqlite_path: Path, bundle_id: str) -> JPXSnapshot:
@@ -59,6 +64,8 @@ def rebuild_jpx_snapshot(sqlite_path: Path, bundle_id: str) -> JPXSnapshot:
             fetched_at_utc=bundle.completed_at.isoformat(timespec="microseconds"),
         )
         return earnings_snapshot
+    if bundle.collection_name == "capital_policy":
+        return _capital_policy(bundle, sqlite_path)
     raise JPXProviderError(f"JPX bundle collection is not rebuildable: {bundle.collection_name}")
 
 
@@ -103,3 +110,21 @@ def _earnings_calendar(bundle: JPXSourceBundle) -> JPXEarningsCalendarSnapshot:
     return build_earnings_calendar_snapshot(
         files, asof_date=bundle.asof_date, source_urls=source_urls
     )
+
+
+def _capital_policy(bundle: JPXSourceBundle, sqlite_path: Path) -> TSECapitalPolicyRefreshSummary:
+    if len(bundle.responses) != 1 or bundle.responses[0].resource_name != "workbook":
+        raise JPXProviderError("JPX capital-policy bundle requires one workbook")
+    receipt = bundle.responses[0].response
+    if bundle.expected_resources != (("workbook", receipt.requested_url),):
+        raise JPXProviderError("JPX capital-policy manifest must declare one workbook")
+    validate_allowed_url(receipt.requested_url)
+    rows = parse_tse_capital_policy_workbook(receipt.body)
+    summary = TSECapitalPolicyRefreshSummary(
+        sheet_count=len({row.snapshot_month_end for row in rows}),
+        row_count=len(rows),
+        disclosed_count=sum(row.status == "disclosed" for row in rows),
+        considering_count=sum(row.status == "considering" for row in rows),
+    )
+    store_tse_capital_policy_rows(sqlite_path, rows)
+    return summary

@@ -4,16 +4,18 @@ from __future__ import annotations
 
 import sqlite3
 import sys
-from datetime import date
+from contextlib import closing
+from datetime import date, datetime
 from pathlib import Path
 from typing import TextIO
 
 from baibai_engine.collection.edinet.models import EdinetAcquisitionError
+from baibai_engine.foundation.time import JST
 from baibai_engine.market.edinet_models import EDINETProviderError
-from baibai_engine.market.valuation_catalysts import (
-    ValuationCatalystError,
-    refresh_tse_capital_policy,
-)
+from baibai_engine.market.jpx_models import JPXProviderError
+from baibai_engine.market.jpx_refresh import JPXRefresh
+from baibai_engine.market.valuation_catalysts import ValuationCatalystError
+from baibai_engine.storage.observations.schema import SQLiteSchemaError
 
 from .providers import ProviderBundle
 
@@ -26,8 +28,15 @@ def refresh_tse_capital_policy_command(
     """Re-read the TSE capital-policy disclosure workbook."""
     out = stdout if stdout is not None else sys.stdout
     try:
-        summary = refresh_tse_capital_policy(sqlite_path)
-    except (ValuationCatalystError, OSError, sqlite3.Error) as exc:
+        with closing(JPXRefresh(sqlite_path=sqlite_path)) as refresh:
+            summary = refresh.refresh_capital_policy_snapshot(datetime.now(JST).date())
+    except (
+        JPXProviderError,
+        ValuationCatalystError,
+        SQLiteSchemaError,
+        OSError,
+        sqlite3.Error,
+    ) as exc:
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
     print(

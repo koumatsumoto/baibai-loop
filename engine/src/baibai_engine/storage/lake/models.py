@@ -617,6 +617,12 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             carries_history=True,
             require_complete_coverage=False,
         ),
+        ReleaseDatasetPolicy(
+            dataset="tse.capital_policy_snapshots",
+            required=False,
+            carries_history=False,
+            require_complete_coverage=False,
+        ),
     ),
     max_manifest_bytes=16 * 1024 * 1024,
     max_objects=10_000,

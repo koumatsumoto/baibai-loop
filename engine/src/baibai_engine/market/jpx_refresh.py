@@ -28,6 +28,10 @@ from baibai_engine.market.jpx_sources import (
     JPX_EARNINGS_CALENDAR_INDEX_URL,
     JPX_REGULATION_URLS,
 )
+from baibai_engine.market.valuation_catalysts import (
+    TSE_CAPITAL_POLICY_URL,
+    TSECapitalPolicyRefreshSummary,
+)
 from baibai_engine.storage.observations.schema import open_connection
 
 
@@ -83,6 +87,27 @@ class JPXRefresh:
             snapshot = rebuild_jpx_snapshot(self._sqlite_path, bundle_id)
             assert isinstance(snapshot, JPXEarningsCalendarSnapshot)
             return snapshot
+        except (JPXAcquisitionError, JPXBundleError) as exc:
+            raise JPXProviderError(str(exc)) from exc
+
+    def refresh_capital_policy_snapshot(self, asof_date: date) -> TSECapitalPolicyRefreshSummary:
+        """Capture the workbook first, then rebuild from that completed bundle."""
+        try:
+            with closing(open_connection(self._sqlite_path)) as conn:
+                bundle_id = create_bundle(
+                    conn,
+                    "capital_policy",
+                    asof_date,
+                    datetime.now(UTC),
+                    (("workbook", TSE_CAPITAL_POLICY_URL),),
+                )
+                retain_bundle_response(
+                    conn, bundle_id, "workbook", self._http.fetch(TSE_CAPITAL_POLICY_URL)
+                )
+                complete_bundle(conn, bundle_id)
+            summary = rebuild_jpx_snapshot(self._sqlite_path, bundle_id)
+            assert isinstance(summary, TSECapitalPolicyRefreshSummary)
+            return summary
         except (JPXAcquisitionError, JPXBundleError) as exc:
             raise JPXProviderError(str(exc)) from exc
 

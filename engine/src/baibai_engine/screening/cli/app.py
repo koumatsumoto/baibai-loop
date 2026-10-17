@@ -29,6 +29,10 @@ from baibai_engine.market.jpx_rebuild import rebuild_jpx_snapshot
 from baibai_engine.market.jpx_refresh import JPXRefresh
 from baibai_engine.market.jquants_reader import JQuantsReader
 from baibai_engine.market.jquants_refresh import JQuantsRefresh
+from baibai_engine.market.valuation_catalysts import (
+    TSECapitalPolicyRefreshSummary,
+    ValuationCatalystError,
+)
 from baibai_engine.read_api.market import market_calendar_business_day
 from baibai_engine.screening.calibration.cli import (
     calibration_build_command,
@@ -522,12 +526,21 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "rebuild-jpx-snapshot":
         try:
             snapshot = rebuild_jpx_snapshot(Path(args.sqlite_path), args.bundle_id)
-        except (JPXProviderError, SQLiteSchemaError, sqlite3.Error, ValueError) as exc:
+        except (
+            JPXProviderError,
+            ValuationCatalystError,
+            SQLiteSchemaError,
+            sqlite3.Error,
+            ValueError,
+        ) as exc:
             print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
             return 1
         if isinstance(snapshot, JPXRegulationSnapshot):
             collection = "regulations"
             rows = len(snapshot.flags_by_ticker)
+        elif isinstance(snapshot, TSECapitalPolicyRefreshSummary):
+            collection = "capital_policy"
+            rows = snapshot.row_count
         else:
             assert isinstance(snapshot, JPXEarningsCalendarSnapshot)
             collection = "earnings_calendar"

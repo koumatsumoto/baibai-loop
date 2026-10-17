@@ -561,6 +561,25 @@ JPX_DELISTINGS = LakeDataset(
     ),
 )
 
+TSE_CAPITAL_POLICY_SNAPSHOTS = LakeDataset(
+    name="tse.capital_policy_snapshots",
+    layer="l2_processed",
+    sqlite_table="tse_capital_policy_snapshots",
+    date_column="snapshot_month_end",
+    partition_grain="year",
+    coverage_authority="unproven",
+    columns=(
+        LakeColumn("snapshot_month_end", "TEXT", _TEXT, False, 1),
+        LakeColumn("ticker", "TEXT", _TEXT, False, 2),
+        LakeColumn("status", "TEXT", _TEXT, False),
+        LakeColumn("status_change", "TEXT", _TEXT, True),
+        LakeColumn("updated_on", "TEXT", _TEXT, True),
+        LakeColumn("contact_requested", "INTEGER", _INTEGER, False),
+        LakeColumn("first_disclosed_month_end", "TEXT", _TEXT, True),
+        LakeColumn("first_disclosure_left_censored", "INTEGER", _INTEGER, False),
+    ),
+)
+
 TENDER_OFFER_EXIT_VALUES = LakeDataset(
     name="edinet.tender_offer_exit_values",
     layer="l2_processed",
@@ -721,6 +740,7 @@ LAKE_DATASETS = {
     JPX_REGULATION_FLAGS.name: JPX_REGULATION_FLAGS,
     JPX_REGULATION_SOURCES.name: JPX_REGULATION_SOURCES,
     JPX_DELISTINGS.name: JPX_DELISTINGS,
+    TSE_CAPITAL_POLICY_SNAPSHOTS.name: TSE_CAPITAL_POLICY_SNAPSHOTS,
     TENDER_OFFER_EXIT_VALUES.name: TENDER_OFFER_EXIT_VALUES,
 }
 

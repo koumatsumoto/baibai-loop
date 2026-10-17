@@ -800,6 +800,8 @@ def test_a_replaced_snapshot_carries_no_history_floor() -> None:
     policy = {item.dataset: item for item in PRODUCTION_RELEASE_POLICY.datasets}
 
     assert policy["jpx.earnings_calendar"].carries_history is False
+    assert not policy["tse.capital_policy_snapshots"].required
+    assert policy["tse.capital_policy_snapshots"].carries_history is False
     # 蓄積する dataset は床を持ち続ける。免除は snapshot に限る。
     assert policy["jquants.daily_bars"].carries_history is True
     assert policy["jquants.short_sale_reports"].carries_history is True
@@ -839,6 +841,7 @@ def test_only_a_replaced_table_is_exempt_from_the_history_floor() -> None:
     assert snapshot_datasets == {
         "edinet.tender_offer_exit_values",
         "jpx.earnings_calendar",
+        "tse.capital_policy_snapshots",
     }
     assert exempt == snapshot_datasets
 
